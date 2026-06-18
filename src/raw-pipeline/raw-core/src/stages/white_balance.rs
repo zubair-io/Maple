@@ -238,97 +238,123 @@ pub fn estimate_cct_from_neutral(as_shot_neutral: [f32; 3]) -> f32 {
 /// assert!(tint.abs() < 10.0);
 /// ```
 pub fn neutral_to_temp_tint(neutral: [f32; 3]) -> (f32, f32) {
-    // The neutral is a G-normalised measured scene average: [r, 1, b].
-    //
-    // Interpretation: `neutral` here is the AsShotNeutral convention —
-    // it describes the camera's RESPONSE to the scene illuminant.
-    //   neutral[0] > neutral[2] (R > B) → the illuminant was WARM (low CCT).
-    //   neutral[0] < neutral[2] (R < B) → the illuminant was COOL (high CCT).
-    //
-    // `wb_gains(CCT)` returns the CORRECTION gain (D65/source): at low CCT
-    // (warm source) the correction cuts R and boosts B → gains.R/B < 1.
-    // At high CCT (cool source) the correction boosts R and cuts B →
-    // gains.R/B > 1.
-    //
-    // The correct bisection condition is: find CCT where the WB correction
-    // gain is the RECIPROCAL of the neutral's channel ratio — i.e., we
-    // want `gains.R * neutral.R ≈ gains.B * neutral.B ≈ gains.G * neutral.G`
-    // (the gain neutralises the cast). Dividing: we want
-    // `gains.R / gains.B ≈ neutral.B / neutral.R` (the inverse ratio).
+    // Find the (cct, tint) whose correction gain `wb_gains` neutralises the
+    // measured G-normalised scene neutral [r, 1, b]:
+    //   - CCT sets the gain's R/B ratio — match `gain.R / gain.B = b/r`.
+    //     `wb_gains` R/B is monotone increasing in CCT, so this is a clean
+    //     1-D bisection that is ALWAYS feasible (it ignores tint).
+    //   - tint sets the common green/magenta level — once R/B is matched, the
+    //     residual `gain.R * r` (== `gain.B * b`) is the cast: > 1 ⇒ corrected
+    //     neutral `[m, 1, m]` is magenta ⇒ a green push (tint > 0) fixes it.
+    // We solve CCT first (always sane), then refine (cct, tint) jointly. The
+    // refinement is GUARDED: a neutral lying off the achievable (CCT, tint)
+    // surface (e.g. a strongly green-lit scene) would otherwise drive tint to a
+    // rail where `wb_gains` stops being physical and CCT collapses — so any
+    // step that would rail CCT is rejected and the decoupled estimate stands.
+    // Reuses `wb_gains` only — no new color math (#1371).
     let target_r = neutral[0].max(1e-4);
     let target_b = neutral[2].max(1e-4);
-    // The target for `wb_gains.R/B` is the INVERSE of the neutral's R/B.
-    // R>B neutral (warm source) → target gains.R/B < 1 → low CCT. ✓
-    // B>R neutral (cool source) → target gains.R/B > 1 → high CCT. ✓
-    let target_gain_rb = target_b / target_r; // = neutral.B / neutral.R
+    let target_gain_rb = target_b / target_r; // desired wb_gains.R / wb_gains.B
 
-    // Seed from the simple log-ratio estimate.
-    let _cct_seed = estimate_cct_from_neutral(neutral);
+    let mut cct = bisect_cct_for_rb(target_gain_rb, 0.0);
+    let mut tint = 0.0_f32;
+    for _ in 0..3 {
+        let t = solve_tint_for_level(cct, target_r);
+        let c = bisect_cct_for_rb(target_gain_rb, t);
+        if c <= 2001.0 || c >= 24_999.0 {
+            break; // off-surface neutral — keep the sane decoupled estimate
+        }
+        cct = c;
+        tint = t;
+    }
 
-    // Bisection over [2000, 25000] K. The R/B ratio of wb_gains is monotone
-    // in CCT: higher CCT → higher R/B in the correction gain (cool-source
-    // correction warms the image, so R gain rises).
+    (cct.clamp(2000.0, 25000.0), tint.clamp(-100.0, 100.0))
+}
+
+/// Bisect CCT in `[2000, 25000]` K so that `wb_gains(cct, tint).R / .B`
+/// equals `target_rb`. `wb_gains` R/B is monotone increasing in CCT; targets
+/// outside the boundary range clamp to the nearer rail.
+fn bisect_cct_for_rb(target_rb: f32, tint: f32) -> f32 {
+    let rb = |t: f32| {
+        let g = wb_gains(t, tint);
+        g[0] / g[2].max(1e-6)
+    };
     let mut lo = 2000.0_f32;
     let mut hi = 25000.0_f32;
-
-    // Measure gain R/B at boundaries to orient the bisection.
-    let gains_lo = wb_gains(lo, 0.0);
-    let rb_lo = gains_lo[0] / gains_lo[2].max(1e-6);
-    let gains_hi = wb_gains(hi, 0.0);
-    let rb_hi = gains_hi[0] / gains_hi[2].max(1e-6);
-
-    // If target is outside the gain-R/B range, clamp and skip bisection.
-    // Otherwise bisect: ≤ 8 steps (converges to ~180 K, within the slider
-    // quantization; more iterations are noise given the gray-world accuracy).
-    let cct = if target_gain_rb <= rb_lo {
-        lo
-    } else if target_gain_rb >= rb_hi {
-        hi
-    } else {
-        for _ in 0..8 {
-            let mid = (lo + hi) * 0.5;
-            let gains_mid = wb_gains(mid, 0.0);
-            let rb_mid = gains_mid[0] / gains_mid[2].max(1e-6);
-            if rb_mid < target_gain_rb {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
+    if target_rb <= rb(lo) {
+        return lo;
+    }
+    if target_rb >= rb(hi) {
+        return hi;
+    }
+    for _ in 0..16 {
+        let mid = (lo + hi) * 0.5;
+        if rb(mid) < target_rb {
+            lo = mid;
+        } else {
+            hi = mid;
         }
-        (lo + hi) * 0.5
+    }
+    (lo + hi) * 0.5
+}
+
+/// Solve tint in `[-100, 100]` so the corrected R level
+/// `wb_gains(cct, tint).R * target_r` equals 1 (no residual green/magenta
+/// cast). `wb_gains` can become unphysical (non-positive R gain) at extreme
+/// tint for low CCTs, so the search bounds are first shrunk inward to the
+/// range where it stays valid; a root outside that range clamps to the nearer
+/// rail. Orientation is read from the (valid) boundary values.
+fn solve_tint_for_level(cct: f32, target_r: f32) -> f32 {
+    let resid = |t: f32| -> Option<f32> {
+        let g = wb_gains(cct, t);
+        if g[0].is_finite() && g[0] > 0.0 {
+            Some(g[0] * target_r - 1.0)
+        } else {
+            None
+        }
     };
-
-    // Tint: measure the residual green deviation at the converged CCT.
-    // At the converged CCT, wb_gains(cct, 0).G = 1.0 by construction.
-    // The scene's measured green neutral[1] should also be 1.0 (G-normalized).
-    // Any deviation from target neutral[1] = 1.0 means the source is
-    // slightly off the Planckian locus → capture as tint.
-    //
-    // However, since our neutral is G-normalized (neutral[1] = 1.0), the
-    // tint is derived from the gain mismatch in the R channel after CCT is
-    // fixed. The reference renderer's tint sign convention:
-    //   tint > 0 = magenta image = source greener = source y UP (CAT16).
-    //   In DiagonalRec2020: tint > 0 = source lower y → image greener.
-    //
-    // For practical purposes, we estimate tint from the gain residual:
-    // tint proportional to log(target_r / target_b adjusted for CCT).
-    //
-    // Since the scene has G=1 (by normalization), and our wb_gains uses
-    // G-normalized output, the green channel discrepancy vanishes. The tint
-    // is then the residual between the actual R-channel brightness and what
-    // the temperature alone would predict — but on a neutral scene this is
-    // near zero. We approximate it as 0 here because recovering tint from
-    // a probe buffer requires a full chromatic adaptation solve that exceeds
-    // the precision of the gray-world estimate (the per-pixel chroma is noise
-    // at this analysis resolution). Return 0 as a safe default; the user can
-    // fine-tune if needed.
-    //
-    // This matches the existing `as_shot_tint = 0.0` convention in
-    // `raw-wasm/src/lib.rs` (fresh-open tint is always 0; only temperature
-    // is estimated).
-    let tint = 0.0_f32;
-
-    (cct, tint)
+    // Shrink the [-100, 100] window to the sub-range where `wb_gains` is valid.
+    let mut lo = -100.0_f32;
+    while lo < 100.0 && resid(lo).is_none() {
+        lo += 2.0;
+    }
+    let mut hi = 100.0_f32;
+    while hi > lo && resid(hi).is_none() {
+        hi -= 2.0;
+    }
+    let f_lo = match resid(lo) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let f_hi = match resid(hi) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    if f_lo == 0.0 {
+        return lo;
+    }
+    if f_hi == 0.0 {
+        return hi;
+    }
+    // No sign change → green cast exceeds the slider; clamp to nearer rail.
+    if f_lo.signum() == f_hi.signum() {
+        return if f_lo.abs() < f_hi.abs() { lo } else { hi };
+    }
+    let increasing = f_hi > f_lo;
+    for _ in 0..20 {
+        let mid = (lo + hi) * 0.5;
+        let f = match resid(mid) {
+            Some(v) => v,
+            None => break,
+        };
+        let lower_half = if increasing { f < 0.0 } else { f > 0.0 };
+        if lower_half {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) * 0.5
 }
 
 /// DNG-spec WB pre-gain in camera-native linear RGB space (DNG 1.4 § 1.4.4.5
@@ -739,7 +765,8 @@ mod tests {
         let (t, tint) = neutral_to_temp_tint([1.0, 1.0, 1.0]);
         assert!((t - 6500.0).abs() < 1000.0,
             "neutral [1,1,1] should give near-D65 (~6500K), got {} K", t);
-        assert_eq!(tint, 0.0, "tint should be 0 (returned as zero by convention)");
+        assert!(tint.abs() < 1.0,
+            "perfectly neutral [1,1,1] should solve to ~0 tint, got {}", tint);
     }
 
     #[test]
@@ -784,18 +811,27 @@ mod tests {
     }
 
     #[test]
-    fn neutral_to_temp_tint_consistent_with_wb_gains_rb_ratio() {
-        // The converged CCT's wb_gains R/B should match the INVERSE of the
-        // neutral's R/B (because the gain neutralises the cast).
-        let neutral = [0.6_f32, 1.0, 0.8];
-        let target_gain_rb = neutral[2] / neutral[0]; // inverse: B/R
-        let (cct, _tint) = neutral_to_temp_tint(neutral);
-        let gains = wb_gains(cct, 0.0);
-        let result_rb = gains[0] / gains[2].max(1e-6);
-        let rel_err = (result_rb - target_gain_rb).abs() / target_gain_rb.max(1e-6);
-        assert!(rel_err < 0.10,
-            "gain R/B mismatch: target={:.4}, got={:.4}, rel_err={:.4}",
-            target_gain_rb, result_rb, rel_err);
+    fn neutral_to_temp_tint_round_trips_cct_and_tint() {
+        // Inverse round-trip: a source at a known (cct, tint) produces the
+        // neutral [1/g.R, 1, 1/g.B]; recovering it must return ≈ the original
+        // pair. Validates BOTH the CCT and the new tint solve objectively.
+        for &(cct, tint) in &[
+            (6500.0_f32, 0.0_f32),
+            (4000.0, 0.0),
+            (8500.0, 0.0),
+            (5200.0, 18.0),
+            (5200.0, -18.0),
+            (3600.0, 10.0),
+            (9000.0, -12.0),
+        ] {
+            let g = wb_gains(cct, tint);
+            let neutral = [1.0 / g[0], 1.0, 1.0 / g[2]];
+            let (rc, rt) = neutral_to_temp_tint(neutral);
+            assert!((rc - cct).abs() < 500.0,
+                "cct {} tint {} → recovered cct {}", cct, tint, rc);
+            assert!((rt - tint).abs() < 6.0,
+                "cct {} tint {} → recovered tint {}", cct, tint, rt);
+        }
     }
 
     #[test]
