@@ -4,7 +4,7 @@
 // MapleAddress. No Angular router required (pure function test).
 
 import { describe, it, expect } from 'vitest';
-import { routeSegmentsToAddress, addressToRouteSegments } from './route-address';
+import { routeSegmentsToAddress, addressToRouteSegments, editRouteCommands } from './route-address';
 
 describe('routeSegmentsToAddress', () => {
   it('converts slug + relPath segments to MapleAddress', () => {
@@ -58,5 +58,39 @@ describe('addressToRouteSegments', () => {
       relPath: '2026/My Photo #1.JPG',
     });
     expect(segs).toEqual(['/browse', 'library', '2026', 'My Photo #1.JPG']);
+  });
+});
+
+describe('editRouteCommands', () => {
+  it('splits a slug:relPath id into /edit/:slug/** segments (the click-to-open bug)', () => {
+    // Passing ['/edit', 'library:test-sync.jpg'] put the WHOLE id into :slug, so
+    // the editor resolved a bogus address and bounced back to Browse.
+    expect(editRouteCommands('library:test-sync.jpg')).toEqual([
+      '/edit',
+      'library',
+      'test-sync.jpg',
+    ]);
+  });
+
+  it('splits a nested relPath into separate segments', () => {
+    expect(editRouteCommands('library:2026/jan/img.jpg')).toEqual([
+      '/edit',
+      'library',
+      '2026',
+      'jan',
+      'img.jpg',
+    ]);
+  });
+
+  it('handles an address with an empty relPath', () => {
+    expect(editRouteCommands('library:')).toEqual(['/edit', 'library']);
+  });
+
+  it('passes a legacy fs: id through unchanged', () => {
+    expect(editRouteCommands('fs:/srv/photos/x.jpg')).toEqual(['/edit', 'fs:/srv/photos/x.jpg']);
+  });
+
+  it('passes a non-address id through unchanged', () => {
+    expect(editRouteCommands('f-imported-123')).toEqual(['/edit', 'f-imported-123']);
   });
 });
