@@ -105,4 +105,15 @@ describe('EditorShellComponent.applyRouteAddress', () => {
     });
     expect(selectAsset).toHaveBeenCalledWith('fs:/srv/x.jpg');
   });
+
+  it('opens the FS root as the parent for an asset stored at the root', () => {
+    // absPath '/photo.jpg' → lastSlash === 0; a `> 0` guard would skip opening
+    // the parent entirely, leaving the filmstrip empty.
+    const { openSelfHostedSubfolder } = setup({
+      slug: 'fs:/photo.jpg',
+      segments: [],
+      hydrate: () => ({ id: 'fs:/photo.jpg', absPath: '/photo.jpg', folderId: 'f3' }),
+    });
+    expect(openSelfHostedSubfolder).toHaveBeenCalledWith('/', 'f3', 'fs:/photo.jpg');
+  });
 });
