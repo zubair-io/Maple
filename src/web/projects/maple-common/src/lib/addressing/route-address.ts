@@ -46,19 +46,24 @@ export function addressToRouteSegments(
  * Router.navigate() commands to open an asset id in the editor.
  *
  * The `/edit/:slug/**` route expects the slug and the relPath as SEPARATE
- * segments. An asset id is a single `slug:relPath` string, so passing
+ * segments. A MapleAddress id is a single `slug:relPath` string, so passing
  * `['/edit', id]` puts the WHOLE id into `:slug` (relPath empty) — the editor
  * then resolves a bogus address, finds no asset, and bounces back to Browse.
- * Split the address into its segments instead. Non-address ids (legacy `fs:` /
- * imported) are passed through unchanged.
+ * Split the address into its segments instead.
+ *
+ * Legacy `fs:<absPath>` ids (Self-Hosted search results, cold-load) and any id
+ * without a colon are NOT MapleAddresses — pass them through as a single segment.
+ * `EditorShellComponent` detects an `fs:` `:slug` and hydrates it via the
+ * FS-walk cold-load path.
  */
 export function editRouteCommands(id: string): string[] {
-  if (id.includes(':') && !id.startsWith('fs:')) {
-    try {
-      return addressToRouteSegments(parseAddress(id), 'edit');
-    } catch {
-      // Not a parseable address — fall through to the passthrough form.
-    }
+  // `fs:` ids contain ':' but aren't addresses; ids without ':' aren't either.
+  if (id.startsWith('fs:') || !id.includes(':')) {
+    return ['/edit', id];
   }
-  return ['/edit', id];
+  const addr = parseAddress(id);
+  // A malformed id like ':foo' parses to an empty slug — pass it through rather
+  // than emit an empty `/edit//foo` route segment. (parseAddress never throws.)
+  if (!addr.slug) return ['/edit', id];
+  return addressToRouteSegments(addr, 'edit');
 }

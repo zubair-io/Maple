@@ -86,6 +86,22 @@ export class EditorShellComponent implements OnInit {
     // the wildcard segments (no leading slug segment).
     const slug = this.route.snapshot.paramMap.get('slug');
     if (slug) {
+      // Legacy fs:<absPath> id routed as a single :slug segment — Self-Hosted
+      // search results are still emitted as fs: ids by the search API, so they
+      // arrive here (not split into slug+relPath). Hydrate via the FS-walk
+      // cold-load path, same as the legacy /library/editor/:id route below.
+      if (this.state.backend === 'self-hosted' && slug.startsWith('fs:')) {
+        const synth = this.state.hydrateSelfHostedFsAsset(slug as AssetId);
+        if (synth?.absPath) {
+          this.state.selectAsset(synth.id);
+          const lastSlash = synth.absPath.lastIndexOf('/');
+          if (lastSlash > 0) {
+            const parentDir = synth.absPath.slice(0, lastSlash);
+            this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
+          }
+          return;
+        }
+      }
       const segments = this.route.snapshot.url.map((s) => s.path);
       const addr = routeSegmentsToAddress(slug, segments);
       const addrStr = formatAddress(addr);

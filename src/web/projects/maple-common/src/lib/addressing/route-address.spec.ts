@@ -93,4 +93,10 @@ describe('editRouteCommands', () => {
   it('passes a non-address id through unchanged', () => {
     expect(editRouteCommands('f-imported-123')).toEqual(['/edit', 'f-imported-123']);
   });
+
+  it('passes a malformed id with an empty slug through (no empty route segment)', () => {
+    // parseAddress(':foo') → { slug: '', relPath: 'foo' }; splitting that would
+    // emit ['/edit', '', 'foo']. Guard it to a single-segment passthrough.
+    expect(editRouteCommands(':foo')).toEqual(['/edit', ':foo']);
+  });
 });

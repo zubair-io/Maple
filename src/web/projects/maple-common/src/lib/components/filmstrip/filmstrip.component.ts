@@ -16,6 +16,7 @@ import {
 import { Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { Asset } from '../../models/asset';
+import { editRouteCommands } from '../../addressing/route-address';
 import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
 
 @Component({
@@ -24,8 +25,7 @@ import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
   imports: [AssetThumbComponent],
   styleUrl: './filmstrip.component.scss',
   host: {
-    class:
-      'flex flex-col w-[110px] min-w-[110px] h-full bg-sidebar overflow-hidden',
+    class: 'flex flex-col w-[110px] min-w-[110px] h-full bg-sidebar overflow-hidden',
   },
   templateUrl: './filmstrip.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,6 +66,6 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   select(asset: Asset): void {
     this.state.selectAsset(asset.id);
-    void this.router.navigate(['/edit', asset.id]);
+    void this.router.navigate(editRouteCommands(asset.id));
   }
 }
