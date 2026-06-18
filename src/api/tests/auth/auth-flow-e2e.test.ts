@@ -122,11 +122,13 @@ async function claim(email: string, ip: string, deviceLabel = 'device') {
 }
 
 /** Sign in an already-registered credential (a second device / family). */
-async function loginExisting(email: string, authenticator: SoftAuthenticator, ip: string) {
-  const optsRes = await post('/api/auth/login/options', { email }, { ip });
+async function loginExisting(authenticator: SoftAuthenticator, ip: string) {
+  // Pure passkey (#1377): login sends no email — the discoverable assertion
+  // identifies the account by its credential id.
+  const optsRes = await post('/api/auth/login/options', {}, { ip });
   const { challenge } = (await optsRes.json()) as { challenge: string };
   const assertion = await authenticator.buildAssertion({ challenge, rpId: RP_ID, origin: ORIGIN });
-  const verifyRes = await post('/api/auth/login/verify', { email, credential: assertion }, { ip });
+  const verifyRes = await post('/api/auth/login/verify', { credential: assertion }, { ip });
   return { res: verifyRes, cookie: setCookie(verifyRes) };
 }
 
@@ -176,7 +178,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
     const email = 'multi@maple.test';
 
     const { authenticator, cookie: a0 } = await claim(email, ipA, 'deviceA'); // family A
-    const { cookie: b0 } = await loginExisting(email, authenticator, ipB); // family B
+    const { cookie: b0 } = await loginExisting(authenticator, ipB); // family B
     expect(b0.length).toBeGreaterThan(20);
     expect(b0).not.toBe(a0);
 
