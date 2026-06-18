@@ -20,7 +20,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
+import { SearchComponent, SearchResult, SearchScope, editRouteCommands } from '@maple-common';
 
 @Component({
   selector: 'maple-search-page',
@@ -59,10 +59,9 @@ export class SearchPageComponent implements AfterViewInit {
   }
 
   protected onPhotoTap(r: SearchResult): void {
-    // TODO(S5): when the responsive Editor shell lands, route here.
-    // Today the Self-Hosted `/edit/:id` route serves the existing editor
-    // and accepts the `fs:` id the search service emits — same contract.
-    void this.router.navigate(['/edit', r.id]);
+    // Split the slug:relPath id into /edit/:slug/** segments (see
+    // editRouteCommands); the combined form bounces back to Browse.
+    void this.router.navigate(editRouteCommands(r.id));
   }
 
   protected onSeeAll(payload: { query: string; scope: SearchScope }): void {
