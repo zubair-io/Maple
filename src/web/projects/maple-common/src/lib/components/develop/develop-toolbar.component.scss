@@ -1,0 +1,28 @@
+.develop-toolbar {
+  display: flex;
+  gap: 3px;
+  padding: 6px 14px;
+  background: var(--color-surface);
+}
+
+.toolbar-button {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 3px;
+  background: var(--color-surface-alt);
+  border: 0.5px solid var(--color-border);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--color-text-main);
+  cursor: pointer;
+  transition: background 100ms;
+
+  &:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
