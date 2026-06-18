@@ -19,6 +19,7 @@
 
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
+import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { AssetId } from '../models/asset';
 import { type AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
 import { buildApplyPatch, type Preset } from './presets/preset-model';
@@ -63,6 +64,7 @@ const HAPTIC_DURATION_MS: Record<HapticEvent, number> = {
 @Injectable({ providedIn: 'root' })
 export class EditorStateService {
   private library = inject(LibraryStateService);
+  private pipeline = inject(RawPipelineService);
 
   // ── Identity / arming ────────────────────────────────────────────────────
   readonly imageId = signal<AssetId | null>(null);
@@ -276,10 +278,7 @@ export class EditorStateService {
 
   /**
    * Apply a preset: sparse merge of its known fields into the current
-   * model as ONE undo-ring entry. Persistence rides the existing
-   * debounced sidecar save inside `LibraryStateService.updateAdjustment`
-   * — presets never touch original files. Returns false when nothing
-   * could be applied (no bound image, or no applicable fields).
+   * model as ONE undo-ring entry.
    */
   applyPreset(preset: Preset): boolean {
     const id = this.imageId();
@@ -300,18 +299,11 @@ export class EditorStateService {
    * when no As-Shot value was captured), and restore the Auto render
    * profile. Crop / rotation is deliberately preserved — RESET only clears
    * develop adjustments, never the user's framing.
-   *
-   * Applied as ONE undo-ring entry (mirror of `applyPreset`): a single undo
-   * restores the full pre-reset model, and the write rides the existing
-   * debounced sidecar save in `LibraryStateService.updateAdjustment`.
-   * Returns false when no image is bound.
    */
   resetAll(): boolean {
     const id = this.imageId();
     if (id == null || this.currentAdjustment() == null) return false;
 
-    // Full factory model minus `crop` (omitted from the patch so the
-    // existing crop/rotation survives the merge in `updateAdjustment`).
     const patch: Partial<AdjustmentModel> = { ...defaultAdjustmentModel() };
     delete patch.crop;
 
@@ -327,6 +319,45 @@ export class EditorStateService {
     return true;
   }
 
+  // ── AUTO (#1379) ─────────────────────────────────────────────────────────────
+
+  /** True while an AUTO analysis is in flight (disables the AUTO button). */
+  readonly autoInFlight = signal<boolean>(false);
+
+  /**
+   * Analyse the RAW for `id` and apply auto-adjustment sliders as ONE undo entry.
+   */
+  async applyAuto(id: AssetId): Promise<boolean> {
+    if (this.autoInFlight()) return false;
+    if (this.imageId() !== id || this.currentAdjustment() == null) return false;
+    this.autoInFlight.set(true);
+    try {
+      const startId = id;
+      let bytes = this.library.bytesFor(id);
+      if (!bytes) {
+        bytes = await this.library.bytesForAsset(id);
+      }
+      const asset = this.library.assets().find((a) => a.id === id);
+      const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
+      const patch = await this.pipeline.computeAutoAdjustments(bytes, ext);
+      if (this.imageId() !== startId) return false;
+      this.commit();
+      this.library.updateAdjustment(id, {
+        exposure: patch.exposure,
+        temperature: patch.temperature,
+        tint: patch.tint,
+        autoExposure: 'Off',
+        whiteBalancePreset: 'Custom',
+      });
+      return true;
+    } catch (err) {
+      console.error('[EditorStateService] applyAuto failed:', err);
+      return false;
+    } finally {
+      this.autoInFlight.set(false);
+    }
+  }
+
   // ── Haptics (web — Vibration API w/ feature detection) ───────────────────
 
   haptic(event: HapticEvent): void {
@@ -340,8 +371,5 @@ export class EditorStateService {
 function readToolInternal(adj: AdjustmentModel, tool: ToolId): number {
   const field = fieldFor(tool);
   if (!field) return 0;
-  // Inverse of displayValueFromInternal. tool-model already sits upstream of
-  // this service (no import cycle), so we reuse its single mapping rather
-  // than re-deriving it here.
   return internalValueFromDisplay(tool, adj[field] as number);
 }

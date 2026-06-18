@@ -16,6 +16,10 @@
   color: var(--color-text-main);
   cursor: pointer;
   transition: background 100ms;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 
   &:hover:not(:disabled) {
     background: var(--color-surface-hover);
@@ -24,5 +28,27 @@
   &:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  &.in-flight {
+    color: var(--mpl-primary, #ea580c);
+    border-color: color-mix(in srgb, var(--mpl-primary, #ea580c) 40%, transparent);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 600ms linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }

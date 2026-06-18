@@ -6,15 +6,18 @@
 
 import { TestBed } from '@angular/core/testing';
 import { signal, type Signal } from '@angular/core';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { EditorStateService, UNDO_STACK_CAP } from './editor-state.service';
 import { LibraryStateService } from '../state/library-state.service';
+import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { ALL_TOOLS, TOOLS_IN_GROUP, defaultDisplayValue, groupOf, isWired } from './tool-model';
 import {
   defaultAdjustmentModel,
   defaultGeneratedAdjustmentModel,
   type AdjustmentModel,
 } from '../models/adjustment-model';
+import type { AutoAdjustPatch } from '../raw-pipeline/raw-pipeline.types';
 
 // Minimal LibraryStateService stand-in: holds the AdjustmentModel
 // signal, exposes `adjustmentFor`, and applies `updateAdjustment` patches
@@ -23,6 +26,28 @@ import {
 class LibraryStub {
   private models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
   private asShot = new Map<string, { temperature: number; tint: number }>();
+
+  // Minimal asset list — used by applyAuto to resolve the file extension.
+  assets = signal([{ id: 'asset-1', filename: 'test.dng' }] as Array<{
+    id: string;
+    filename: string;
+  }>);
+
+  // Synchronous bytes cache (populated per-test for applyAuto).
+  private bytesCache = new Map<string, Uint8Array>();
+
+  primeBytes(id: string, bytes: Uint8Array): void {
+    this.bytesCache.set(id, bytes);
+  }
+
+  bytesFor(id: string): Uint8Array | undefined {
+    return this.bytesCache.get(id);
+  }
+
+  bytesForAsset(id: string): Promise<Uint8Array> {
+    const b = this.bytesCache.get(id);
+    return b ? Promise.resolve(b) : Promise.reject(new Error(`no bytes for ${id}`));
+  }
 
   ensure(id: string): void {
     if (!this.models.has(id)) {
@@ -50,16 +75,40 @@ class LibraryStub {
   }
 }
 
+// Fake RawPipelineService — returns a configurable auto-adjust patch.
+class PipelineStub {
+  patch: AutoAdjustPatch = {
+    exposure: 0.5,
+    temperature: 5800,
+    tint: 5,
+    contrast: 0,
+    highlights: 0,
+    shadows: 0,
+    whites: 0,
+    blacks: 0,
+  };
+
+  computeAutoAdjustments = vi.fn(
+    (_bytes: Uint8Array, _ext: string, _xmp?: string): Promise<AutoAdjustPatch> =>
+      Promise.resolve(this.patch),
+  );
+}
+
 describe('EditorStateService', () => {
   let svc: EditorStateService;
   let lib: LibraryStub;
+  let pipeline: PipelineStub;
 
   const ID = 'asset-1';
 
   beforeEach(() => {
     lib = new LibraryStub();
+    pipeline = new PipelineStub();
     TestBed.configureTestingModule({
-      providers: [{ provide: LibraryStateService, useValue: lib }],
+      providers: [
+        { provide: LibraryStateService, useValue: lib },
+        { provide: RawPipelineService, useValue: pipeline },
+      ],
     });
     svc = TestBed.inject(EditorStateService);
     svc.bind(ID);
@@ -108,8 +157,6 @@ describe('EditorStateService', () => {
     });
 
     it('rejects writes to stub tools', () => {
-      // The stub tools are HSL / Crop (pending their own specs). The S5
-      // effects all left the #952 stub list (#1109 / #1110 / #1111).
       const before = { ...lib.adjustmentFor(ID)() };
       svc.armTool('crop');
       svc.setArmedDisplayValue(50);
@@ -123,7 +170,6 @@ describe('EditorStateService', () => {
       svc.resetArmedTool();
       expect(lib.adjustmentFor(ID)()).toEqual(before);
       expect(svc.armedDisplayValue()).toBe(0);
-      // A field-less reset must not push junk undo entries either.
       expect(svc.canUndo()).toBe(false);
     });
 
@@ -163,7 +209,6 @@ describe('EditorStateService', () => {
       svc.armTool('vignette');
       svc.setArmedDisplayValue(-50);
       expect(lib.adjustmentFor(ID)().vignetteAmount).toBe(-50);
-      // The feather sub-param routes through the same value pipe.
       svc.armSubParam('feather');
       svc.setArmedDisplayValue(80);
       expect(lib.adjustmentFor(ID)().vignetteFeather).toBe(80);
@@ -194,7 +239,6 @@ describe('EditorStateService', () => {
       svc.setArmedDisplayValue(60);
       const adj = lib.adjustmentFor(ID)();
       expect(adj.nrColor).toBe(60);
-      // The sibling sub-param is untouched.
       expect(adj.nrLuminance).toBe(0);
       expect(svc.armedDisplayValue()).toBe(60);
     });
@@ -213,13 +257,13 @@ describe('EditorStateService', () => {
 
     it('reset acts on the ARMED sub-param only, restoring its canonical default', () => {
       svc.armTool('noise');
-      svc.setArmedDisplayValue(80); // luminance = 80
+      svc.setArmedDisplayValue(80);
       svc.armSubParam('color');
-      svc.setArmedDisplayValue(90); // color = 90
+      svc.setArmedDisplayValue(90);
       svc.resetArmedTool();
       const adj = lib.adjustmentFor(ID)();
-      expect(adj.nrColor).toBe(25); // canonical nrColor default
-      expect(adj.nrLuminance).toBe(80); // sibling untouched
+      expect(adj.nrColor).toBe(25);
+      expect(adj.nrLuminance).toBe(80);
     });
 
     it('remembers the armed sub-param per tool for the session (across tool switches and binds)', () => {
@@ -229,7 +273,6 @@ describe('EditorStateService', () => {
       svc.armTool('noise');
       expect(svc.armedSubParamId()).toBe('color');
 
-      // bind() (image switch) keeps the session selection too.
       svc.bind('asset-2');
       expect(svc.armedSubParamId()).toBe('color');
     });
@@ -250,13 +293,13 @@ describe('EditorStateService', () => {
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
       svc.armTool('exposure');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
-      svc.armTool('vignette'); // wired at #1109
+      svc.armTool('vignette');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
-      svc.armTool('grain'); // wired at #1110
+      svc.armTool('grain');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
-      svc.armTool('splitTone'); // wired at #1111
+      svc.armTool('splitTone');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
-      svc.armTool('hsl'); // wired at #1112 — multi-param, sub-param chip routes edits
+      svc.armTool('hsl');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
       for (const tool of ['presets', 'crop'] as const) {
         svc.armTool(tool);
@@ -300,11 +343,9 @@ describe('EditorStateService', () => {
       }
       expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(0.4, 9);
       for (let i = 0; i < UNDO_STACK_CAP; i++) svc.undo();
-      // After 32 undos the oldest snapshot remaining is the commit just
-      // before #9's setValue ran → exposure 0.08.
       expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(0.08, 9);
       expect(svc.canUndo()).toBe(false);
-      svc.undo(); // no-op past cap
+      svc.undo();
       expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(0.08, 9);
     });
 
@@ -317,12 +358,10 @@ describe('EditorStateService', () => {
       expect(lib.adjustmentFor(ID)().temperature).toBe(7500);
     });
 
-    it('resetArmedTool returns Color NR to its canonical 25 default', () => {
+    it('resetArmedTool returns Color NR to its default', () => {
       svc.armTool('colorNR');
       svc.setArmedDisplayValue(80);
       svc.resetArmedTool();
-      // Default is 25, NOT 0. Routing reset through `defaultDisplayValue`
-      // keeps a fresh asset reading as "unmodified" after reset.
       expect(lib.adjustmentFor(ID)().nrColor).toBe(25);
     });
   });
@@ -347,17 +386,14 @@ describe('EditorStateService', () => {
       const after = lib.adjustmentFor(ID)();
       expect(after.contrast).toBe(-50);
       expect(after.saturation).toBe(-100);
-      // Sparse merge: untouched fields keep their current values.
       expect(after.exposure).toBeCloseTo(1.5, 9);
 
-      // ONE undo entry: a single undo restores the full pre-apply state.
       svc.undo();
       const undone = lib.adjustmentFor(ID)();
       expect(undone.contrast).toBe(0);
       expect(undone.saturation).toBe(0);
       expect(undone.exposure).toBeCloseTo(1.5, 9);
 
-      // Redo replays the whole preset in one step.
       svc.redo();
       expect(lib.adjustmentFor(ID)().contrast).toBe(-50);
       expect(lib.adjustmentFor(ID)().saturation).toBe(-100);
@@ -381,15 +417,13 @@ describe('EditorStateService', () => {
       );
       const after = lib.adjustmentFor(ID)();
       expect(after.profile).toBe('Neutral');
-      expect(after.toneCurveMode).toBe('PerChannel'); // unchanged default
+      expect(after.toneCurveMode).toBe('PerChannel');
     });
 
     it('returns false and pushes no undo entry when nothing applies', () => {
-      // Unknown-only preset → empty patch.
       expect(svc.applyPreset(preset({ future_only: 1 }))).toBe(false);
       expect(svc.canUndo()).toBe(false);
 
-      // No bound image.
       svc.imageId.set(null);
       expect(svc.applyPreset(preset({ contrast: 10 }))).toBe(false);
     });
@@ -418,8 +452,6 @@ describe('EditorStateService', () => {
 
       const after = lib.adjustmentFor(ID)();
       const gd = defaultGeneratedAdjustmentModel();
-      // Every generated (raw-core) field is back to default, EXCEPT the WB
-      // pair (→ As-Shot) and profile (→ Auto, which is already the default).
       for (const k of Object.keys(gd) as Array<keyof typeof gd>) {
         if (k === 'temperature' || k === 'tint') continue;
         expect(after[k as keyof AdjustmentModel]).toEqual(gd[k]);
@@ -428,7 +460,6 @@ describe('EditorStateService', () => {
       expect(after.saturation).toBe(0);
       expect(after.sharpenAmount).toBe(40);
 
-      // ONE undo entry restores the full pre-reset state.
       expect(svc.canUndo()).toBe(true);
       svc.undo();
       expect(lib.adjustmentFor(ID)()).toEqual(before);
@@ -469,6 +500,102 @@ describe('EditorStateService', () => {
     });
   });
 
+  describe('applyAuto (#1379)', () => {
+    const BYTES = new Uint8Array([1, 2, 3]);
+
+    beforeEach(() => {
+      lib.primeBytes(ID, BYTES);
+    });
+
+    it('writes exposure, temperature, tint + autoExposure=Off + whiteBalancePreset=Custom', async () => {
+      const ok = await svc.applyAuto(ID);
+      expect(ok).toBe(true);
+      const adj = lib.adjustmentFor(ID)();
+      expect(adj.exposure).toBeCloseTo(pipeline.patch.exposure, 9);
+      expect(adj.temperature).toBeCloseTo(pipeline.patch.temperature, 9);
+      expect(adj.tint).toBeCloseTo(pipeline.patch.tint, 9);
+      expect(adj.autoExposure).toBe('Off');
+      expect(adj.whiteBalancePreset).toBe('Custom');
+    });
+
+    it('leaves tone sliders untouched (contrast/highlights/shadows/whites/blacks)', async () => {
+      lib.updateAdjustment(ID, {
+        contrast: 20,
+        highlights: -30,
+        shadows: 40,
+        whites: -10,
+        blacks: -5,
+      });
+      const before = lib.adjustmentFor(ID)();
+      await svc.applyAuto(ID);
+      const after = lib.adjustmentFor(ID)();
+      expect(after.contrast).toBe(before.contrast);
+      expect(after.highlights).toBe(before.highlights);
+      expect(after.shadows).toBe(before.shadows);
+      expect(after.whites).toBe(before.whites);
+      expect(after.blacks).toBe(before.blacks);
+    });
+
+    it('creates exactly ONE undo entry — a single undo restores pre-AUTO state', async () => {
+      lib.updateAdjustment(ID, { exposure: 1.5 });
+      await svc.applyAuto(ID);
+      expect(svc.canUndo()).toBe(true);
+      svc.undo();
+      expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(1.5, 9);
+      expect(svc.canUndo()).toBe(false);
+    });
+
+    it('in-flight guard prevents a concurrent second call from proceeding', async () => {
+      const p1 = svc.applyAuto(ID);
+      expect(svc.autoInFlight()).toBe(true);
+      const p2 = svc.applyAuto(ID);
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect(r1).toBe(true);
+      expect(r2).toBe(false);
+      expect(pipeline.computeAutoAdjustments).toHaveBeenCalledTimes(1);
+      expect(svc.autoInFlight()).toBe(false);
+    });
+
+    it('stale guard drops a patch after bind(OTHER)', async () => {
+      const OTHER = 'asset-other';
+      lib.assets.set([
+        { id: ID, filename: 'test.dng' },
+        { id: OTHER, filename: 'other.dng' },
+      ]);
+      lib.primeBytes(OTHER, BYTES);
+
+      let resolvePatch!: (p: AutoAdjustPatch) => void;
+      pipeline.computeAutoAdjustments.mockImplementation(
+         () =>
+           new Promise<AutoAdjustPatch>((r) => {
+             resolvePatch = r;
+           }),
+      );
+
+      const p = svc.applyAuto(ID);
+      svc.bind(OTHER);
+      resolvePatch(pipeline.patch);
+      const result = await p;
+      expect(result).toBe(false);
+      expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(0, 9);
+    });
+
+    it('returns false and clears the flag when the pipeline rejects', async () => {
+      pipeline.computeAutoAdjustments.mockRejectedValue(new Error('decode failed'));
+      const ok = await svc.applyAuto(ID);
+      expect(ok).toBe(false);
+      expect(svc.autoInFlight()).toBe(false);
+      expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(0, 9);
+    });
+
+    it('returns false when no image is bound', async () => {
+      svc.imageId.set(null);
+      const ok = await svc.applyAuto(ID);
+      expect(ok).toBe(false);
+      expect(pipeline.computeAutoAdjustments).not.toHaveBeenCalled();
+    });
+  });
+
   describe('tool catalog', () => {
     it('has 23 tools across 4 groups (Light gained Brightness, #1108)', () => {
       expect(ALL_TOOLS.length).toBe(23);
@@ -484,10 +611,8 @@ describe('EditorStateService', () => {
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
       expect(isWired('splitTone')).toBe(true);
-      // HSL left the stub list at #1112 — wired with 24 sub-params (no primary drag-bar field).
       expect(isWired('hsl')).toBe(true);
       expect(isWired('crop')).toBe(false);
-      // presets left STUB_TOOLS at #1115 — wired, but value-less.
       expect(isWired('presets')).toBe(true);
     });
 
@@ -502,7 +627,6 @@ describe('EditorStateService', () => {
       expect(defaultDisplayValue('exposure')).toBe(0);
       expect(defaultDisplayValue('temp')).toBe(6500);
       expect(defaultDisplayValue('sharpen')).toBe(40);
-      // Color NR defaults to 25 per the generated AdjustmentModel.
       expect(defaultDisplayValue('colorNR')).toBe(25);
     });
   });

@@ -2,6 +2,21 @@
   <button
     type="button"
     class="toolbar-button"
+    [class.in-flight]="editor.autoInFlight()"
+    [disabled]="autoDisabled()"
+    [attr.aria-busy]="editor.autoInFlight() ? 'true' : null"
+    aria-label="Auto adjust"
+    (click)="onAuto()"
+  >
+    @if (editor.autoInFlight()) {
+      <span class="spinner" aria-hidden="true"></span>
+    }
+    Auto
+  </button>
+
+  <button
+    type="button"
+    class="toolbar-button"
     aria-label="Reset all adjustments"
     [disabled]="!hasImage()"
     (click)="onReset()"
