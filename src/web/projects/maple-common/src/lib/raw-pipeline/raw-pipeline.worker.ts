@@ -5,6 +5,7 @@ import {
   render_bytes_scene_linear,
   render_bytes_scene_linear_sized,
   render_bytes_sized,
+  compute_auto_adjustments_from_bytes,
 } from './pkg/raw_wasm';
 // Namespace import so the gpu-gated `render_bytes_gpu` + `WebLiveSession` (epic
 // #925, P4b-web / #1029, #1038) can be accessed DYNAMICALLY: they exist only in
@@ -14,6 +15,7 @@ import {
 import * as wasm from './pkg/raw_wasm';
 import { initRawWasm, type RawWasmInitResult } from './raw-wasm-init';
 import type {
+  AutoAdjustRequest,
   DecodeRequest,
   DecodeSceneLinearRequest,
   OpenSessionRequest,
@@ -91,6 +93,9 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       return;
     case 'close-session':
       handleCloseSession();
+      return;
+    case 'auto-adjust':
+      await handleAutoAdjust(req);
       return;
     default:
       // Unknown request type — silently ignore (matches the prior early-return).
@@ -574,6 +579,56 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
       postSessionError(req.id, err?.message ?? String(e));
     }
   });
+}
+
+// ── Auto-adjust one-shot (#1379) ─────────────────────────────────────────────
+// Calls the WASM `compute_auto_adjustments_from_bytes` standalone entry —
+// independent of any resident GPU live session, so it works on every browser
+// including those without WebGPU. The WASM function decodes the RAW internally
+// and runs a single AE-Off/D65 probe to derive the 8 slider recommendations.
+//
+// AE-Off contract: the returned `exposure` was measured against an AE-Off base.
+// The Angular caller MUST set `autoExposure: 'Off'` alongside `exposure` (do NOT
+// write the returned tone fields in M0 — they are 0 and deferred to #1376).
+
+async function handleAutoAdjust(req: AutoAdjustRequest): Promise<void> {
+  try {
+    await ensureReady();
+    const bytes = new Uint8Array(req.bytes);
+    performance.mark(`maple:auto-adjust:${req.id}:start`);
+    const result = compute_auto_adjustments_from_bytes(bytes, req.ext, req.xmp ?? undefined);
+    performance.mark(`maple:auto-adjust:${req.id}:end`);
+    performance.measure(
+      'maple:auto-adjust',
+      `maple:auto-adjust:${req.id}:start`,
+      `maple:auto-adjust:${req.id}:end`,
+    );
+    // Read all 8 fields before freeing so the struct isn't accessed after drop.
+    const patch = {
+      exposure: result.exposure,
+      temperature: result.temperature,
+      tint: result.tint,
+      contrast: result.contrast,
+      highlights: result.highlights,
+      shadows: result.shadows,
+      whites: result.whites,
+      blacks: result.blacks,
+    };
+    result.free();
+    const response: WorkerResponse = { id: req.id, type: 'auto-adjust-success', patch };
+    (self as unknown as Worker).postMessage(response);
+  } catch (e) {
+    const err = e instanceof Error ? e : null;
+    if (err?.stack) {
+      console.error('[raw-pipeline.worker] auto-adjust threw:', err.message, err.stack);
+    }
+    const response: WorkerResponse = {
+      id: req.id,
+      type: 'auto-adjust-error',
+      message: err?.message ?? String(e),
+    };
+    (self as unknown as Worker).postMessage(response);
+  }
 }
 
 function handleCloseSession(): void {
