@@ -10,6 +10,8 @@
 import { Injectable, OnDestroy, inject } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import type {
+  AutoAdjustPatch,
+  AutoAdjustRequest,
   DecodedImage,
   DecodedSceneLinearImage,
   DecodeRequest,
@@ -20,6 +22,8 @@ import type {
   ScopeSnapshot,
   WorkerResponse,
 } from './raw-pipeline.types';
+
+export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
 import { isNonRawExtension } from '../state/raw-extensions';
 import { decodeNonRawToRgb, decodeNonRawToSceneLinear } from './image-utils';
@@ -95,6 +99,11 @@ export class RawPipelineService implements OnDestroy {
     | {
         kind: 'render-session';
         resolve: (result: RenderedLiveSession) => void;
+        reject: (err: Error) => void;
+      }
+    | {
+        kind: 'auto-adjust';
+        resolve: (patch: AutoAdjustPatch) => void;
         reject: (err: Error) => void;
       }
   >();
@@ -189,6 +198,10 @@ export class RawPipelineService implements OnDestroy {
           msg.type === 'session-error' &&
           (handler.kind === 'open-session' || handler.kind === 'render-session')
         ) {
+          handler.reject(new Error(msg.message));
+        } else if (msg.type === 'auto-adjust-success' && handler.kind === 'auto-adjust') {
+          handler.resolve(msg.patch);
+        } else if (msg.type === 'auto-adjust-error' && handler.kind === 'auto-adjust') {
           handler.reject(new Error(msg.message));
         } else {
           // Mismatched response type and handler kind — should never happen
@@ -518,6 +531,70 @@ export class RawPipelineService implements OnDestroy {
     const id = this.nextId++;
     const request: CloseSessionRequest = { id, type: 'close-session' };
     this.worker.postMessage(request);
+  }
+
+  // ── Auto-adjust (#1379) ─────────────────────────────────────────────────────
+  // One-shot: decode the RAW via the WASM standalone entry and return the 8-field
+  // recommendation. Independent of any GPU session — runs on every browser.
+  // The worker serialises this behind the same `decodeChain` gate as `decode()` so
+  // a concurrent cold-open decode and an AUTO press don't both sit in the WASM heap.
+
+  /**
+   * Analyse `bytes` (a RAW file) and return auto-adjustment recommendations.
+   *
+   * IMPORTANT: the returned `exposure` was measured against an AE-Off probe.
+   * The caller MUST set `autoExposure: 'Off'` alongside `exposure` — never
+   * apply the result on top of an `auto_exposure: On` model. See the WASM
+   * module doc in `raw-wasm/src/auto_adjustments.rs` for the full contract.
+   *
+   * @param bytes RAW file bytes (copied; the caller's view is not consumed).
+   * @param ext   Lowercase file extension, e.g. `"dng"`.
+   * @param xmp   Optional current XMP sidecar text. Pass `undefined` for a
+   *              fresh-open recommendation (most useful default).
+   */
+  computeAutoAdjustments(bytes: Uint8Array, ext: string, xmp?: string): Promise<AutoAdjustPatch> {
+    const run = () => this.computeAutoAdjustmentsOnce(bytes, ext, xmp);
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private computeAutoAdjustmentsOnce(
+    bytes: Uint8Array,
+    ext: string,
+    xmp: string | undefined,
+  ): Promise<AutoAdjustPatch> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const id = this.nextId++;
+    // Copy the bytes off the caller's view before transferring (the view stays
+    // usable for a later decode / re-open), mirroring `decodeOnce`.
+    const buffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+    const request: AutoAdjustRequest = { id, type: 'auto-adjust', bytes: buffer, ext, xmp };
+    performance.mark(`maple:auto-adjust:${id}:start`);
+    return new Promise<AutoAdjustPatch>((resolve, reject) => {
+      this.pending.set(id, {
+        kind: 'auto-adjust',
+        resolve: (patch) => {
+          performance.mark(`maple:auto-adjust:${id}:end`);
+          performance.measure(
+            'maple:auto-adjust',
+            `maple:auto-adjust:${id}:start`,
+            `maple:auto-adjust:${id}:end`,
+          );
+          resolve(patch);
+        },
+        reject,
+      });
+      worker.postMessage(request, [buffer]);
+    });
   }
 
   ngOnDestroy(): void {
