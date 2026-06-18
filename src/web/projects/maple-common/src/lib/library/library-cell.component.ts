@@ -21,6 +21,7 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import { Asset } from '../models/asset';
 import { LibraryStateService } from '../state/library-state.service';
@@ -43,7 +44,9 @@ export class LibraryCellComponent {
 
   private state = inject(LibraryStateService);
 
-  readonly thumbUrl = computed(() => this.state.thumbnailUrlFor(this.asset().id));
+  // Component-owned signal — created/destroyed with the cell, so its lifecycle
+  // bounds the live count (no central signal map to leak; #1363/#1359).
+  readonly thumbUrl = signal<string | undefined>(undefined);
   readonly stars = computed(() => Math.min(5, Math.max(0, this.asset().rating)));
   readonly isPick = computed(() => this.asset().flag === 'pick');
   readonly showStars = computed(() => this.stars() >= 4);
@@ -52,11 +55,14 @@ export class LibraryCellComponent {
   readonly starIndices = computed(() => Array.from({ length: this.stars() }, (_, i) => i));
 
   constructor() {
-    // Kick off thumbnail load whenever the bound asset changes. Loader
-    // dedupe lives in the state service.
-    effect(() => {
+    // Load + subscribe to this asset's thumbnail URL. effect onCleanup unsubs on
+    // asset-input change and on destroy, so the subscription dies with the cell.
+    effect((onCleanup) => {
       const a = this.asset();
-      if (a) this.state.ensureThumbnailUrl(a);
+      if (!a) return;
+      this.state.ensureThumbnailUrl(a);
+      const unsubscribe = this.state.subscribeThumbUrl(a.id, (url) => this.thumbUrl.set(url));
+      onCleanup(unsubscribe);
     });
   }
 
