@@ -43,6 +43,7 @@ import {
   SearchSceneType,
   SearchService,
   SearchSort,
+  editRouteCommands,
   errorMessage,
 } from '@maple-common';
 import {
@@ -463,7 +464,7 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   // ── Result clicks → editor ───────────────────────────────────────────────
   openResult(r: ResultViewModel): void {
-    void this.router.navigate(['/edit', r.id]);
+    void this.router.navigate(editRouteCommands(r.id));
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────

@@ -10,6 +10,7 @@
 // Angular's router passes the ** wildcard as remaining url.segments[N].path
 // values, ALREADY percent-decoded. We join them as-is into relPath.
 
+import { parseAddress } from './maple-address';
 import type { MapleAddress } from './maple-address';
 
 /**
@@ -39,4 +40,25 @@ export function addressToRouteSegments(
   const base = `/${mode}`;
   const relParts = a.relPath ? a.relPath.split('/') : [];
   return [base, a.slug, ...relParts];
+}
+
+/**
+ * Router.navigate() commands to open an asset id in the editor.
+ *
+ * The `/edit/:slug/**` route expects the slug and the relPath as SEPARATE
+ * segments. An asset id is a single `slug:relPath` string, so passing
+ * `['/edit', id]` puts the WHOLE id into `:slug` (relPath empty) — the editor
+ * then resolves a bogus address, finds no asset, and bounces back to Browse.
+ * Split the address into its segments instead. Non-address ids (legacy `fs:` /
+ * imported) are passed through unchanged.
+ */
+export function editRouteCommands(id: string): string[] {
+  if (id.includes(':') && !id.startsWith('fs:')) {
+    try {
+      return addressToRouteSegments(parseAddress(id), 'edit');
+    } catch {
+      // Not a parseable address — fall through to the passthrough form.
+    }
+  }
+  return ['/edit', id];
 }
