@@ -81,16 +81,16 @@ enum FullImageViewVM {
     /// `InputShape::LinearRec2020Fp16` too — JPEG / HEIF / pano PNG. Keeping
     /// `isRaw` here mounted the CPU canvas for non-RAW assets so
     /// `driver.register(layer:)` never fired, every tick rejected `no-layer`,
-    /// and the chain stayed on CPU. The `isRaw` parameter is preserved on the
-    /// signature for callers that pass it, but unused — the runtime gate is
-    /// just flag + showingOriginal now.)
+    /// and the chain stayed on CPU. The `isRaw` external label is preserved on
+    /// the signature for callers that pass it, but the parameter is bound to
+    /// `_` because the runtime gate is now `flagEnabled && !showingOriginal` —
+    /// the asset type is irrelevant.)
     static func shouldPresentViaGpuCanvas(
         flagEnabled: Bool,
-        isRaw: Bool,
+        isRaw _: Bool,
         showingOriginal: Bool
     ) -> Bool {
-        _ = isRaw
-        return flagEnabled && !showingOriginal
+        flagEnabled && !showingOriginal
     }
 
     // MARK: - Zoom math

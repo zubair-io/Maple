@@ -9,14 +9,13 @@
 // is "Maple Exposure", so its Swift module name is `Maple_Exposure` (spaces
 // become underscores).
 //
-// Focus: the GPU-live canvas branch must gate on `asset.isRaw`. Before the fix,
-// `canvasContent` showed the opaque `GpuLiveCanvasView` whenever the flag was on
-// and we weren't showing the original — with NO `isRaw` check — while
-// `EditSession.presentViaGpuLive` bailed at its own `guard asset.isRaw` and
-// never presented into the layer. The result for a non-RAW asset (JPEG / HEIC /
-// PNG) was a permanently blank `CAMetalLayer`: the CPU `renderedPreview` was
-// published but never displayed. These cases lock the corrected truth table so
-// that regression can't silently return.
+// Focus: the GPU-live canvas branch gates on `flagEnabled && !showingOriginal`
+// only. Both RAW and non-RAW assets take the GPU branch — #1331 extended the
+// wgpu chain to handle non-RAW `InputShape::LinearRec2020Fp16` (JPEG / HEIF /
+// pano PNG) AND #1362 dropped the `isRaw` term from the canvas-mount predicate.
+// Previously a non-RAW asset would mount the CPU canvas, so `driver.register`
+// never fired and every `presentViaGpuLive` tick rejected `no-layer` — caught
+// on iPad with a pano export. The cases below lock the corrected truth table.
 
 import XCTest
 
@@ -33,13 +32,14 @@ final class FullImageViewVMTests: XCTestCase {
         flagEnabled: true, isRaw: true, showingOriginal: false))
   }
 
-  func testNonRawAssetFallsToCpuCanvasEvenWhenFlagOn() {
-    // The regression under test (the blank-canvas bug): a non-RAW asset must
-    // NOT take the GPU branch. `presentViaGpuLive` returns false for non-RAW
-    // and never presents, so the opaque layer would stay blank forever. It
-    // must fall through to the CPU `CIImageView` path that rasters
-    // `renderedPreview`.
-    XCTAssertFalse(
+  func testNonRawAssetUsesGpuCanvasWhenFlagOn() {
+    // #1331/#1362: the wgpu live chain handles non-RAW input shapes too, and
+    // the canvas-mount predicate no longer gates on `isRaw`. A non-RAW asset
+    // with the flag on (and not showing the original) must take the GPU
+    // branch — otherwise `driver.register(layer:)` never fires, every
+    // `presentViaGpuLive` tick rejects `no-layer`, and the chain falls back
+    // to CPU. (Caught on iPad with a pano PNG export.)
+    XCTAssertTrue(
       FullImageViewVM.shouldPresentViaGpuCanvas(
         flagEnabled: true, isRaw: false, showingOriginal: false))
   }
