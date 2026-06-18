@@ -180,6 +180,16 @@ export class LibraryStore {
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = signal<Map<AssetId, AdjustmentModel>>(new Map());
 
+  /**
+   * Per-asset camera As-Shot white balance (Kelvin + tint), captured from
+   * the RAW's AsShot metadata on first decode via `seedAsShotWhiteBalance`.
+   * Held durably and independently of the live `temperature`/`tint` slider
+   * values so the editor's RESET can restore WB → As-Shot at any time, even
+   * after the user has edited the WB sliders. Session-scoped — not persisted
+   * to XMP (the camera reading is re-derived from the RAW on every decode).
+   */
+  private readonly asShotWb = new Map<AssetId, { temperature: number; tint: number }>();
+
   /** The in-memory .maple/index.json mirror for the current folder. */
   folderIndex: MapleIndex | null = null;
 
@@ -197,18 +207,34 @@ export class LibraryStore {
    * No-op if the user has already edited those fields.
    */
   seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number): void {
+    // Snap to the Temperature slider's 50 K step so the numeric field
+    // doesn't render a 12-digit float in the UI.
+    const snapped = Math.round(temperature / 50) * 50;
+    const roundedTint = Math.round(tint);
+
+    // Record the camera reading durably, independent of the "still default"
+    // guard below, so the editor's RESET can restore WB → As-Shot at any
+    // time — even after the user has already moved the WB sliders.
+    this.asShotWb.set(id, { temperature: snapped, tint: roundedTint });
+
     this.adjustmentModels.update((map) => {
       const current = map.get(id) ?? defaultAdjustmentModel();
       const isStillDefault =
         Math.abs(current.temperature - 6500) < 0.5 && Math.abs(current.tint) < 0.5;
       if (!isStillDefault) return map;
-      // Snap to the Temperature slider's 50 K step so the numeric field
-      // doesn't render a 12-digit float in the UI.
-      const snapped = Math.round(temperature / 50) * 50;
       const next = new Map(map);
-      next.set(id, { ...current, temperature: snapped, tint: Math.round(tint) });
+      next.set(id, { ...current, temperature: snapped, tint: roundedTint });
       return next;
     });
+  }
+
+  /**
+   * Camera As-Shot white balance (Kelvin + tint) for `id`, or `undefined`
+   * if the asset hasn't been decoded yet (no AsShot reading captured). Used
+   * by the editor's RESET to point WB at the camera reading.
+   */
+  asShotWbFor(id: AssetId): { temperature: number; tint: number } | undefined {
+    return this.asShotWb.get(id);
   }
 
   // ── Adjustment models ──────────────────────────────────────────────────────

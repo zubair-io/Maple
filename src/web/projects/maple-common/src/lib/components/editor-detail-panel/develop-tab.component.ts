@@ -2,6 +2,7 @@
 
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { ScopesContainerComponent } from '../scopes/scopes-container.component';
+import { DevelopToolbarComponent } from '../develop/develop-toolbar.component';
 import { ProfileSectionComponent } from '../develop/profile-section.component';
 import { ToneSectionComponent } from '../develop/tone-section.component';
 import { WhiteBalanceSectionComponent } from '../develop/white-balance-section.component';
@@ -14,6 +15,7 @@ import { NoiseSectionComponent } from '../develop/noise-section.component';
   selector: 'editor-develop-tab',
   standalone: true,
   imports: [
+    DevelopToolbarComponent,
     ScopesContainerComponent,
     ProfileSectionComponent,
     ToneSectionComponent,
