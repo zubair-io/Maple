@@ -285,8 +285,12 @@ export class LibraryCache {
     // need a full wipe.
     this.thumbLru.clearAll();
     this.thumbnailUrls.set(new Map());
-    // Push `undefined` to every subscriber so any still-mounted tile clears its
-    // view, then drop the registry. Still-mounted tiles re-subscribe lazily.
+    // Hard-reset path (sign-out / forced wipe): push `undefined` to every
+    // subscriber so any still-mounted tile blanks its view, then drop the
+    // registry. A tile re-subscribes only when its asset input next changes
+    // (e.g. the grid re-renders for a new folder) — the sign-out case tears the
+    // tiles down anyway, so nothing is left stranded. Normal folder switches
+    // don't call this; the LRU evicts stale entries on its own.
     for (const subs of this.thumbSubscribers.values()) for (const cb of subs) cb(undefined);
     this.thumbSubscribers.clear();
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
