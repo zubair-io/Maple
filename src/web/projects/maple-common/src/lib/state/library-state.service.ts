@@ -202,6 +202,11 @@ export class LibraryStateService {
     return this.cache_.thumbnailUrlFor(id);
   }
 
+  /** Subscribe a tile to thumbnail-URL changes for `id`; see LibraryCache. */
+  subscribeThumbUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
+    return this.cache_.subscribeThumbUrl(id, cb);
+  }
+
   ensureThumbnailUrl(asset: Asset): void {
     this.cache_.ensureThumbnailUrl(asset, (id, sha) => this.fetch_.updateIndexThumb(id, sha));
   }
