@@ -131,8 +131,8 @@ describe('WebAuthn end-to-end', () => {
     });
     expect(persisted).not.toBeNull();
 
-    // 3a. Login options for the same email.
-    const loginOptsRes = await postJson('/api/auth/login/options', { email });
+    // 3a. Login options (pure passkey — no email; #1377).
+    const loginOptsRes = await postJson('/api/auth/login/options', {});
     expect(loginOptsRes.status).toBe(200);
     const loginOpts = (await loginOptsRes.json()) as { challenge: string };
     expect(loginOpts.challenge).toBeDefined();
@@ -144,9 +144,8 @@ describe('WebAuthn end-to-end', () => {
       origin: ORIGIN,
     });
 
-    // 3c. Verify login.
+    // 3c. Verify login (identified by the asserted credential id, not email).
     const loginVerifyRes = await postJson('/api/auth/login/verify', {
-      email,
       credential: assertion,
     });
     expect(loginVerifyRes.status).toBe(200);

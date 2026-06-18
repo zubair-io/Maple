@@ -16,7 +16,7 @@ public routes (the authoritative allowlist is enforced by
 - `GET /api/health`
 - `GET /api/auth/bootstrap` — claim-state probe
 - `POST /api/auth/register/options`, `POST /api/auth/register/verify` — passkey registration
-- `POST /api/auth/login/options`, `POST /api/auth/login/verify` — passkey login
+- `POST /api/auth/login/options`, `POST /api/auth/login/verify` — passkey login (pure passkey, no email; discoverable credential)
 - `POST /api/auth/refresh` — rotate the session (httpOnly cookie)
 - `POST /api/auth/logout`
 - `POST /api/auth/native-code/redeem` — native PKCE first-token grab (#856)

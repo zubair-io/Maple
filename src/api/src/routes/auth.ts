@@ -13,7 +13,6 @@ import {
   buildRegistrationOptions,
   verifyRegistration,
   consumeChallenge,
-  buildAuthenticationOptions,
   buildDiscoverableAuthenticationOptions,
   verifyAuthentication,
 } from '../auth/webauthn.ts';
@@ -250,26 +249,21 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   // ----- login/options -----
   .post(
     '/login/options',
-    async ({ body, set, request }) => {
+    async ({ set, request }) => {
       const ip = clientIp(request);
       if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
         set.status = 429;
         return { error: 'rate limited' };
       }
-      // Usernameless (#1304): no email → discoverable-credential options. The
-      // authenticator offers the user's resident passkey and login/verify
-      // identifies the account from the asserted credential id. Passing an email
-      // still works (scopes allowCredentials to that user) as a fallback.
-      const email = body.email?.toLowerCase();
-      if (!email) return buildDiscoverableAuthenticationOptions();
-      const u = await (await usersCollection()).findOne({ email });
-      if (!u) {
-        set.status = 404;
-        return { error: 'no such user' };
-      }
-      return buildAuthenticationOptions(u._id, email);
+      // Pure passkey (#1377): login takes no email. Always issue discoverable
+      // options (empty allowCredentials) — the authenticator offers the user's
+      // resident passkey and login/verify identifies the account from the
+      // asserted credential id. No user lookup, so no account-existence oracle.
+      return buildDiscoverableAuthenticationOptions();
     },
-    { body: t.Object({ email: t.Optional(t.String({ format: 'email' })) }) },
+    // No input — login is pure passkey. Elysia strips any stray keys (e.g. a
+    // stale client still sending `email`), so this stays back-compatible.
+    { body: t.Object({}) },
   )
 
   // ----- login/verify -----
@@ -377,9 +371,8 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
     },
     {
       body: t.Object({
-        // Optional (#1304): usernameless sign-in sends only the credential; the
-        // account is identified by the asserted credential id.
-        email: t.Optional(t.String({ format: 'email' })),
+        // Pure passkey (#1377): no email — the account is identified by the
+        // asserted credential id.
         credential: t.Any(),
       }),
     },

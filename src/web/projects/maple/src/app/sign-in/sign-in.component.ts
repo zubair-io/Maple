@@ -36,15 +36,14 @@ export class SignInComponent implements OnInit {
     }
   }
 
+  // Claims this server (creates the owner + first passkey). Only the claim
+  // form submits; passkey sign-in goes through signInPasskey() (#1377).
   async submit(): Promise<void> {
+    if (this.claimed() !== false) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      if (this.claimed() === false) {
-        await this.auth.claim(this.email, 'Web');
-      } else {
-        await this.auth.signIn(this.email);
-      }
+      await this.auth.claim(this.email, 'Web');
       // In the Apple shell's WKWebView the native host has already
       // received the tokens via the `maple` message handler and is
       // about to dismiss the sheet. Skip the SPA navigation so we

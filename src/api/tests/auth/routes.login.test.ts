@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach } from "bun:test";
-import { Elysia } from "elysia";
-import { authRoutes } from "../../src/routes/auth.ts";
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { Elysia } from 'elysia';
+import { authRoutes } from '../../src/routes/auth.ts';
 import {
   usersCollection,
   refreshTokensCollection,
   challengesCollection,
-} from "../../src/db/client.ts";
+} from '../../src/db/client.ts';
 
-process.env.MAPLE_JWT_SECRET = "x".repeat(32);
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const app = new Elysia().use(authRoutes);
 
 beforeEach(async () => {
@@ -16,38 +16,41 @@ beforeEach(async () => {
   }
 });
 
-describe("login flow", () => {
-  it("404 on login/options for unknown email", async () => {
+describe('login flow', () => {
+  it('login/options returns discoverable options for any caller (no email 404)', async () => {
     const r = await app.handle(
-      new Request("http://localhost/api/auth/login/options", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: "ghost@nope.io" }),
-      })
+      new Request('http://localhost/api/auth/login/options', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'ghost@nope.io' }),
+      }),
     );
-    expect(r.status).toBe(404);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { challenge?: string; allowCredentials?: unknown[] };
+    expect(body.challenge).toBeDefined();
+    expect(body.allowCredentials ?? []).toHaveLength(0);
   });
 });
 
-describe("refresh", () => {
-  it("401 without token", async () => {
+describe('refresh', () => {
+  it('401 without token', async () => {
     const r = await app.handle(
-      new Request("http://localhost/api/auth/refresh", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+      new Request('http://localhost/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
-      })
+      }),
     );
     expect(r.status).toBe(401);
   });
 
-  it("401 on unknown token", async () => {
+  it('401 on unknown token', async () => {
     const r = await app.handle(
-      new Request("http://localhost/api/auth/refresh", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ refresh_token: "garbage" }),
-      })
+      new Request('http://localhost/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ refresh_token: 'garbage' }),
+      }),
     );
     expect(r.status).toBe(401);
   });
