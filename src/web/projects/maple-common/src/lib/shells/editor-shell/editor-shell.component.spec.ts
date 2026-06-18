@@ -79,41 +79,42 @@ describe('EditorShellComponent.applyRouteAddress', () => {
     expect(selectAsset).toHaveBeenCalledWith('library:2026/a.jpg');
   });
 
-  it('hydrates a legacy fs: id routed as a single :slug segment (search results)', () => {
+  it('hydrates an fs: id as a single-asset open — no slug-addressed folder fetch', () => {
     const { selectAsset, openSelfHostedSubfolder, hydrateSelfHostedFsAsset } = setup({
       slug: 'fs:/srv/photos/x.jpg',
       segments: [],
       backend: 'self-hosted',
-      hydrate: () => ({ id: 'fs:/srv/photos/x.jpg', absPath: '/srv/photos/x.jpg', folderId: 'f1' }),
+      // An fs: synth has no slug-addressable parent; its folderId resolves to
+      // unknown:<path>, so listing it would 404.
+      hydrate: () => ({
+        id: 'fs:/srv/photos/x.jpg',
+        absPath: '/srv/photos/x.jpg',
+        folderId: 'unknown:/srv/photos',
+      }),
     });
     expect(hydrateSelfHostedFsAsset).toHaveBeenCalledWith('fs:/srv/photos/x.jpg');
     expect(selectAsset).toHaveBeenCalledWith('fs:/srv/photos/x.jpg');
+    // Must NOT open a folder listing for fs: — that hits /api/folder/unknown → 404.
+    expect(openSelfHostedSubfolder).not.toHaveBeenCalled();
+  });
+
+  it('opens the parent folder for a slug:relPath deep-link not yet in memory', () => {
+    const { selectAsset, openSelfHostedSubfolder } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [], // not loaded → falls through to the deep-link hydrate branch
+      hydrate: () => ({
+        id: 'library:2026/a.jpg',
+        absPath: '/srv/lib/2026/a.jpg',
+        folderId: 'library:2026',
+      }),
+    });
+    expect(selectAsset).toHaveBeenCalledWith('library:2026/a.jpg');
+    // slug:relPath HAS a real, addressable parent — open it so the filmstrip fills.
     expect(openSelfHostedSubfolder).toHaveBeenCalledWith(
-      '/srv/photos',
-      'f1',
-      'fs:/srv/photos/x.jpg',
+      '/srv/lib/2026',
+      'library:2026',
+      'library:2026/a.jpg',
     );
-  });
-
-  it('does not treat fs: as an address — never builds a slug:relPath from it', () => {
-    // If the fs: branch were missing, applyRouteAddress would fall through to
-    // routeSegmentsToAddress('fs:/srv/x.jpg', []) and find no asset.
-    const { selectAsset } = setup({
-      slug: 'fs:/srv/x.jpg',
-      segments: [],
-      hydrate: () => ({ id: 'fs:/srv/x.jpg', absPath: '/srv/x.jpg', folderId: 'f2' }),
-    });
-    expect(selectAsset).toHaveBeenCalledWith('fs:/srv/x.jpg');
-  });
-
-  it('opens the FS root as the parent for an asset stored at the root', () => {
-    // absPath '/photo.jpg' → lastSlash === 0; a `> 0` guard would skip opening
-    // the parent entirely, leaving the filmstrip empty.
-    const { openSelfHostedSubfolder } = setup({
-      slug: 'fs:/photo.jpg',
-      segments: [],
-      hydrate: () => ({ id: 'fs:/photo.jpg', absPath: '/photo.jpg', folderId: 'f3' }),
-    });
-    expect(openSelfHostedSubfolder).toHaveBeenCalledWith('/', 'f3', 'fs:/photo.jpg');
   });
 });
