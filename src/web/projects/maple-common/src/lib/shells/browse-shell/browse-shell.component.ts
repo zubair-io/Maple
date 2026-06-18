@@ -18,7 +18,11 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
 import { TypedStorage } from '../../util/typed-storage';
 import { parseAddress, formatAddress } from '../../addressing/maple-address';
-import { routeSegmentsToAddress, addressToRouteSegments } from '../../addressing/route-address';
+import {
+  routeSegmentsToAddress,
+  addressToRouteSegments,
+  editRouteCommands,
+} from '../../addressing/route-address';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
@@ -235,7 +239,7 @@ export class BrowseShellComponent implements OnInit {
 
     // Enter on focused asset — navigate to editor
     if (e.key === 'Enter' && fid) {
-      void this.router.navigate(['/edit', fid]);
+      void this.router.navigate(editRouteCommands(fid));
       e.preventDefault();
       return;
     }
