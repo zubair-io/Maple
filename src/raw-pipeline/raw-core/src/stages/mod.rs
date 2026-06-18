@@ -1,4 +1,5 @@
 pub mod auto_exposure;
+pub mod auto_adjustments;
 pub mod auto_tone;
 pub mod white_balance;
 pub mod scene_tone_controls;
