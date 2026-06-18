@@ -10,7 +10,11 @@ import { signal, type Signal } from '@angular/core';
 import { EditorStateService, UNDO_STACK_CAP } from './editor-state.service';
 import { LibraryStateService } from '../state/library-state.service';
 import { ALL_TOOLS, TOOLS_IN_GROUP, defaultDisplayValue, groupOf, isWired } from './tool-model';
-import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
+import {
+  defaultAdjustmentModel,
+  defaultGeneratedAdjustmentModel,
+  type AdjustmentModel,
+} from '../models/adjustment-model';
 
 // Minimal LibraryStateService stand-in: holds the AdjustmentModel
 // signal, exposes `adjustmentFor`, and applies `updateAdjustment` patches
@@ -18,6 +22,7 @@ import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustme
 // API + sidecar machinery).
 class LibraryStub {
   private models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
+  private asShot = new Map<string, { temperature: number; tint: number }>();
 
   ensure(id: string): void {
     if (!this.models.has(id)) {
@@ -33,6 +38,15 @@ class LibraryStub {
   updateAdjustment(id: string, patch: Partial<AdjustmentModel>): void {
     this.ensure(id);
     this.models.get(id)!.update((m) => ({ ...m, ...patch }));
+  }
+
+  /** Test seam: stage a camera As-Shot reading for `id`. */
+  setAsShot(id: string, wb: { temperature: number; tint: number }): void {
+    this.asShot.set(id, wb);
+  }
+
+  asShotWbFor(id: string): { temperature: number; tint: number } | undefined {
+    return this.asShot.get(id);
   }
 }
 
@@ -378,6 +392,80 @@ describe('EditorStateService', () => {
       // No bound image.
       svc.imageId.set(null);
       expect(svc.applyPreset(preset({ contrast: 10 }))).toBe(false);
+    });
+  });
+
+  describe('resetAll (M1 — reset-all button)', () => {
+    const dirtyCrop = { top: 0.1, left: 0.1, bottom: 0.9, right: 0.9, angle: 5 };
+
+    const dirty = () =>
+      lib.updateAdjustment(ID, {
+        exposure: 2,
+        contrast: 40,
+        saturation: -30,
+        sharpenAmount: 120,
+        profile: 'Neutral',
+        whiteBalancePreset: 'Custom',
+        crop: dirtyCrop,
+      });
+
+    it('restores every develop slider to its factory default in ONE undo step', () => {
+      dirty();
+      lib.setAsShot(ID, { temperature: 5200, tint: 7 });
+      const before = structuredClone(lib.adjustmentFor(ID)());
+
+      expect(svc.resetAll()).toBe(true);
+
+      const after = lib.adjustmentFor(ID)();
+      const gd = defaultGeneratedAdjustmentModel();
+      // Every generated (raw-core) field is back to default, EXCEPT the WB
+      // pair (→ As-Shot) and profile (→ Auto, which is already the default).
+      for (const k of Object.keys(gd) as Array<keyof typeof gd>) {
+        if (k === 'temperature' || k === 'tint') continue;
+        expect(after[k as keyof AdjustmentModel]).toEqual(gd[k]);
+      }
+      expect(after.contrast).toBe(0);
+      expect(after.saturation).toBe(0);
+      expect(after.sharpenAmount).toBe(40);
+
+      // ONE undo entry restores the full pre-reset state.
+      expect(svc.canUndo()).toBe(true);
+      svc.undo();
+      expect(lib.adjustmentFor(ID)()).toEqual(before);
+    });
+
+    it('points white balance at the camera As-Shot reading and profile at Auto', () => {
+      dirty();
+      lib.setAsShot(ID, { temperature: 5200, tint: 7 });
+
+      svc.resetAll();
+
+      const after = lib.adjustmentFor(ID)();
+      expect(after.temperature).toBe(5200);
+      expect(after.tint).toBe(7);
+      expect(after.whiteBalancePreset).toBe('As Shot');
+      expect(after.profile).toBe('Auto');
+    });
+
+    it('preserves crop / rotation (RESET leaves geometry untouched)', () => {
+      dirty();
+      svc.resetAll();
+      expect(lib.adjustmentFor(ID)().crop).toEqual(dirtyCrop);
+    });
+
+    it('falls back to the 6500 K / 0 default when no As-Shot value was captured', () => {
+      dirty();
+      svc.resetAll();
+      const after = lib.adjustmentFor(ID)();
+      expect(after.temperature).toBe(6500);
+      expect(after.tint).toBe(0);
+      expect(after.profile).toBe('Auto');
+    });
+
+    it('returns false and pushes no undo entry when no image is bound', () => {
+      svc.imageId.set(null);
+      expect(svc.resetAll()).toBe(false);
+      expect(svc.canUndo()).toBe(false);
     });
   });
 

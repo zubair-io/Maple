@@ -20,7 +20,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
-import type { AdjustmentModel } from '../models/adjustment-model';
+import { type AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
 import { buildApplyPatch, type Preset } from './presets/preset-model';
 import {
   type ToolGroup,
@@ -289,6 +289,41 @@ export class EditorStateService {
     this.commit();
     this.library.updateAdjustment(id, patch);
     this.haptic('switch');
+    return true;
+  }
+
+  // ── Reset all (#1372, M1) ─────────────────────────────────────────────────
+
+  /**
+   * Reset every develop slider to its factory default, point white balance
+   * at the camera's As-Shot reading (falling back to the 6500 K / 0 default
+   * when no As-Shot value was captured), and restore the Auto render
+   * profile. Crop / rotation is deliberately preserved — RESET only clears
+   * develop adjustments, never the user's framing.
+   *
+   * Applied as ONE undo-ring entry (mirror of `applyPreset`): a single undo
+   * restores the full pre-reset model, and the write rides the existing
+   * debounced sidecar save in `LibraryStateService.updateAdjustment`.
+   * Returns false when no image is bound.
+   */
+  resetAll(): boolean {
+    const id = this.imageId();
+    if (id == null || this.currentAdjustment() == null) return false;
+
+    // Full factory model minus `crop` (omitted from the patch so the
+    // existing crop/rotation survives the merge in `updateAdjustment`).
+    const patch: Partial<AdjustmentModel> = { ...defaultAdjustmentModel() };
+    delete patch.crop;
+
+    const asShot = this.library.asShotWbFor(id);
+    patch.temperature = asShot?.temperature ?? patch.temperature;
+    patch.tint = asShot?.tint ?? patch.tint;
+    patch.whiteBalancePreset = 'As Shot';
+    patch.profile = 'Auto';
+
+    this.commit();
+    this.library.updateAdjustment(id, patch);
+    this.haptic('reset');
     return true;
   }
 
