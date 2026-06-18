@@ -29,6 +29,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+mod auto_adjustments;
 mod auto_profile;
 mod auto_tone;
 mod buffers;
@@ -70,6 +71,7 @@ mod pano;
 // `#[no_mangle] extern "C"` functions are exported regardless of `pub use`,
 // but cbindgen also needs visibility on the `#[repr(C)]` structs to emit
 // their typedefs.
+pub use auto_adjustments::MapleAutoAdjustments;
 pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleByteBuffer, MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;

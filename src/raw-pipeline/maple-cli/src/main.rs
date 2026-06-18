@@ -143,6 +143,20 @@ enum Cmd {
         /// Path to the RAW file (DNG, CR2, CR3, NEF, ARW, RAF, etc.).
         raw: PathBuf,
     },
+    /// Compute all eight Auto slider values for a RAW file and print as JSON.
+    ///
+    /// Develops ONE AE-Off/D65 probe buffer (Preview quality for speed)
+    /// and derives exposure, temperature, tint, contrast, highlights,
+    /// shadows, whites, and blacks from it. See the design contract in
+    /// `docs/superpowers/specs/2026-06-18-auto-adjustments-m0-spec.md`.
+    ///
+    /// NOTE: the returned `exposure` is relative to the AE-Off base. Any
+    /// consumer writing the result back to XMP MUST also set
+    /// `papp:AutoExposure="Off"` to avoid stacking the scene anchor.
+    AutoAdjustments {
+        /// Path to the RAW file (DNG, CR2, CR3, NEF, ARW, RAF, etc.).
+        raw: PathBuf,
+    },
     /// Generate a synthetic scene-linear input and run it through the
     /// view transform (or the slider chain, when `--params` is given).
     /// Used by the diagnostic harnesses (`test_banding.sh`,
@@ -253,6 +267,9 @@ fn main() -> ExitCode {
         )),
         Cmd::ExtractPreview { raw, out } => run_or_exit(commands::extract_preview::run(&raw, &out)),
         Cmd::AutoTone { raw } => run_or_exit(commands::auto_tone::run(&raw)),
+        Cmd::AutoAdjustments { raw } => {
+            run_or_exit(commands::auto_adjustments::run(&raw))
+        }
         Cmd::Synthetic {
             kind,
             primary,

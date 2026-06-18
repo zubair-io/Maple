@@ -7,6 +7,7 @@
 //! [`types`]. Same hygiene refactor pattern as #472 applied to
 //! `auto_exposure.rs`.
 
+pub mod auto_adjustments;
 pub mod auto_tone;
 pub mod batch;
 pub mod diff;
