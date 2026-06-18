@@ -40,12 +40,13 @@ struct FullImageView: View {
 
     // MARK: - Canvas content (CPU CIImage vs wgpu live present)
 
-    /// True when the canvas should present via the wgpu live path. The
-    /// `asset.isRaw` gate mirrors `EditSession.presentViaGpuLive`'s own
-    /// `guard asset.isRaw`: the GPU live chain only handles RAW, so a
-    /// non-RAW asset must fall through to the CPU leaf. Without it the
-    /// view would show the opaque (and never-presented) `CAMetalLayer`
-    /// for a JPEG / HEIC / PNG — a permanently blank canvas.
+    /// True when the canvas should present via the wgpu live path. Gates on
+    /// the flag + `!showingOriginal` only — #1331 extended the chain to
+    /// non-RAW input shapes (JPEG / HEIF / pano PNG via
+    /// `InputShape::LinearRec2020Fp16`), so the canvas must mount for both
+    /// RAW and non-RAW assets so `driver.register(layer:)` fires and the
+    /// `no-layer` reject path never engages. The `isRaw` parameter on the
+    /// VM predicate is preserved for ABI but ignored. See #1362.
     private var useGpuCanvas: Bool {
         FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,

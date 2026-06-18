@@ -300,7 +300,10 @@ struct EditorView: View {
     /// is running, instead of the opaque-black Metal layer. Once the first
     /// GPU frame presents, the CPU overlay drops and the GPU layer takes
     /// over for the slider drag. The CPU `CanvasImageView`-only branch
-    /// (non-RAW / showingOriginal / flag off) is unchanged.
+    /// (showingOriginal / flag off) is unchanged. Non-RAW assets ALSO take
+    /// the GPU branch — #1331 extended the chain to handle
+    /// `InputShape::LinearRec2020Fp16` (JPEG / HEIF / pano PNG); #1362
+    /// dropped the `isRaw` gate from the canvas-mount predicate.
     /// When the CPU `renderedPreview` overlay should sit on top of the GPU
     /// `CAMetalLayer`. Held while the cold-open Rust decode is in flight
     /// (`isFullQualityDecoding`) OR no GPU frame has landed yet
