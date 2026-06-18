@@ -225,6 +225,16 @@ extension EditSession {
             self._scheduleRender(phase: .fast)
         }
 
+        // .maple/previews baked preview (#1365) — instant cold-open for assets
+        // with no embedded JPEG (panos). Tried after the rendered-preview cache
+        // (the best, last-develop result) and before the embedded path.
+        let sidecarHit = await mapleStageAsync("maple sidecar preview seed") {
+            await self.seedFromMapleSidecarPreview(for: openedAsset)
+        }
+        if sidecarHit {
+            self._scheduleRender(phase: .fast)
+        }
+
         // Embedded JPEG — camera-baked preview, ~50 ms via ImageIO. Seeds
         // `decodedImage` so sliders have something to filter against
         // even if there was no cache hit. Won't overwrite a preceding
@@ -407,11 +417,51 @@ extension EditSession {
         )
         return true
     }
+
+    /// Returns true if the `.maple/previews` baked preview was loaded and
+    /// seeded into the actor's decoded-image cache. Same atomicity contract as
+    /// `seedFromEmbeddedPreview`. Primary instant cold-open path for a pano,
+    /// whose 16-bit PNG has no embedded JPEG and whose full develop is slow. (#1365.)
+    func seedFromMapleSidecarPreview(for asset: AssetRef) async -> Bool {
+        guard let url = asset.primaryURL else { return false }
+        let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+        let ci: CIImage? = await Task.detached(priority: .userInitiated) { () -> CIImage? in
+            let accessing = scope.startAccessingSecurityScopedResource()
+            defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+            return EditSession.readMapleSidecarPreview(from: url)
+        }.value
+        guard let ci else { return false }
+        guard self.asset.id == asset.id else { return false }
+        let normalized = decodedForNativeCanvas(ci, asset: asset)
+        let accepted = await renderActor.seedIfUnpopulated(
+            asset: asset,
+            decoded: normalized,
+            rawResolution: ci.extent.size
+        )
+        guard accepted else { return false }
+        renderedPreview = ci
+        editSessionSignposter.emitEvent("maple sidecar preview paint")
+        editSessionLogger.debug(
+            "maple sidecar preview seeded decode extent=\(ci.extent.width)x\(ci.extent.height)"
+        )
+        return true
+    }
 }
 
 // MARK: - Embedded preview reader (nonisolated)
 
 extension EditSession {
+    /// Read the render-time `.maple/previews/<key>_1600.jpg` baked preview for
+    /// an asset and decode it to a `CIImage`. Asset-relative (resolves next to
+    /// the asset, e.g. a pano in `Panoramas/`). Returns nil when absent. (#1365.)
+    nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
+        let preview = MapleSidecarPaths.previewURL(for: url)
+        guard FileManager.default.fileExists(atPath: preview.path),
+            let data = try? Data(contentsOf: preview)
+        else { return nil }
+        return CIImage(data: data)
+    }
+
     /// Extract the camera's embedded JPEG preview via ImageIO. Returns a
     /// CIImage at up to 2048 px long edge — enough to look sharp in the
     /// editor's viewport without paying full-resolution decode cost.
