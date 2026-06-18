@@ -22,7 +22,7 @@ import { ImageCanvasService } from '../../components/image-canvas/image-canvas.s
 import { EditorDetailPanelComponent } from '../../components/editor-detail-panel/editor-detail-panel.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress } from '../../addressing/maple-address';
-import { routeSegmentsToAddress } from '../../addressing/route-address';
+import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
 
 @Component({
   selector: 'editor-shell',
@@ -203,7 +203,7 @@ export class EditorShellComponent implements OnInit {
         const prev = this.state.peekPrev(fid);
         if (prev) {
           this.state.selectAsset(prev);
-          void this.router.navigate(['/edit', prev]);
+          void this.router.navigate(editRouteCommands(prev));
         }
       }
       e.preventDefault();
@@ -214,7 +214,7 @@ export class EditorShellComponent implements OnInit {
         const next = this.state.peekNext(fid);
         if (next) {
           this.state.selectAsset(next);
-          void this.router.navigate(['/edit', next]);
+          void this.router.navigate(editRouteCommands(next));
         }
       }
       e.preventDefault();
