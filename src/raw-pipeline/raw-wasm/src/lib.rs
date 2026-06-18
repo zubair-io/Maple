@@ -18,6 +18,7 @@
 use raw_core::xmp as xmp_mod;
 use wasm_bindgen::prelude::*;
 
+pub mod auto_adjustments;
 pub mod auto_tone;
 
 #[cfg(feature = "gpu")]
@@ -144,14 +145,12 @@ impl MapleRender {
 }
 
 /// Rough CCT estimator from a green-normalised AsShotNeutral (R, 1, B).
-/// Anchors: log2(B/R) = 0 → 5500K, ±1 → ±2500K. Good to within ~500K for
-/// the common daylight/tungsten/cloudy range — better than the 6500K
-/// fallback that otherwise shows up when rawler can't surface CCT itself.
+///
+/// Delegates to `raw_core::stages::white_balance::estimate_cct_from_neutral`
+/// — single-sourced there so WASM, FFI, and tests all use the same math.
+/// The behaviour is unchanged: anchors log2(B/R) = 0 → 5500K, ±1 → ±2500K.
 fn estimate_cct_from_neutral(as_shot_neutral: [f32; 3]) -> f32 {
-    let r = as_shot_neutral[0].max(0.01);
-    let b = as_shot_neutral[2].max(0.01);
-    let log2_ratio = (b / r).ln() / core::f32::consts::LN_2;
-    (5500.0 + log2_ratio * 2500.0).clamp(2000.0, 12000.0)
+    raw_core::stages::white_balance::estimate_cct_from_neutral(as_shot_neutral)
 }
 
 /// Render a RAW from bytes (WASM-friendly — no filesystem path needed).
