@@ -198,8 +198,17 @@ mod tests {
         );
         let display = develop_for_display(&pano);
 
-        let dir =
-            std::env::temp_dir().join(format!("maple_pano_sidecar_test_{}", std::process::id()));
+        // PID + per-process atomic counter so concurrent / repeated test runs
+        // can't collide on the temp dir (matches render.rs::unique_tmp_png).
+        let dir = {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            std::env::temp_dir().join(format!(
+                "maple_pano_sidecar_test_{pid}_{n}",
+                pid = std::process::id()
+            ))
+        };
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let png_path = dir.join("panorama-test.png");

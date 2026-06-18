@@ -12,14 +12,20 @@ public enum MapleSidecarPaths {
     /// `<assetDir>/.maple/thumbs/<sha256prefix16(basename)>.jpg`
     public static func thumbURL(for assetURL: URL) -> URL {
         let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
+        // Append each component separately (matches ThumbnailDiskCache.configure
+        // / RenderedPreviewCache.configure) — avoids slash-in-component edge cases.
         return assetURL.deletingLastPathComponent()
-            .appendingPathComponent(".maple/thumbs/\(key).jpg")
+            .appendingPathComponent(".maple")
+            .appendingPathComponent("thumbs")
+            .appendingPathComponent("\(key).jpg")
     }
 
     /// `<assetDir>/.maple/previews/<sha256prefix16(basename)>_1600.jpg`
     public static func previewURL(for assetURL: URL) -> URL {
         let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
         return assetURL.deletingLastPathComponent()
-            .appendingPathComponent(".maple/previews/\(key)_1600.jpg")
+            .appendingPathComponent(".maple")
+            .appendingPathComponent("previews")
+            .appendingPathComponent("\(key)_1600.jpg")
     }
 }
