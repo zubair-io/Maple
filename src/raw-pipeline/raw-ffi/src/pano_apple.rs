@@ -41,7 +41,9 @@ use maple_pano::ba::RetentionPolicy;
 use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::{write_frame_png, PngMetadata};
-use maple_pano::stitch::{develop_for_display, stitch, StitchError, StitchOptions, StitchSuccess};
+use maple_pano::stitch::{
+    develop_for_display, stitch, write_display_sidecars, StitchError, StitchOptions, StitchSuccess,
+};
 use maple_pano::strategy::StrategyRequest;
 use raw_core::read_exif;
 
@@ -151,6 +153,12 @@ pub(super) fn run_stitch_apple(
         if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data, &display_meta) {
             set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
             return -7;
+        }
+        // Render-time derivatives (#1365): 256px thumb + 1600px preview into
+        // <dir>/.maple/{thumbs,previews}/ so the grid tile isn't a blank ghost
+        // and cold-open is instant. Non-fatal — the pano itself already wrote.
+        if let Err(e) = write_display_sidecars(data, img.width(), img.height(), out_path) {
+            eprintln!("maple_pano_stitch: derivative generation failed (non-fatal): {e}");
         }
         0
     };
