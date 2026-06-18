@@ -14,7 +14,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
-import type { AssetId } from '../../models/asset';
+import type { Asset, AssetId } from '../../models/asset';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas.component';
@@ -94,11 +94,7 @@ export class EditorShellComponent implements OnInit {
         const synth = this.state.hydrateSelfHostedFsAsset(slug as AssetId);
         if (synth?.absPath) {
           this.state.selectAsset(synth.id);
-          const lastSlash = synth.absPath.lastIndexOf('/');
-          if (lastSlash > 0) {
-            const parentDir = synth.absPath.slice(0, lastSlash);
-            this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
-          }
+          this.openHydratedFsParent(synth);
           return;
         }
       }
@@ -117,11 +113,7 @@ export class EditorShellComponent implements OnInit {
         const synth = this.state.hydrateSelfHostedFsAsset(addrStr as AssetId);
         if (synth?.absPath) {
           this.state.selectAsset(synth.id);
-          const lastSlash = synth.absPath.lastIndexOf('/');
-          if (lastSlash > 0) {
-            const parentDir = synth.absPath.slice(0, lastSlash);
-            this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
-          }
+          this.openHydratedFsParent(synth);
           return;
         }
       }
@@ -149,11 +141,7 @@ export class EditorShellComponent implements OnInit {
       const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
       if (synth?.absPath) {
         this.state.selectAsset(synth.id);
-        const lastSlash = synth.absPath.lastIndexOf('/');
-        if (lastSlash > 0) {
-          const parentDir = synth.absPath.slice(0, lastSlash);
-          this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
-        }
+        this.openHydratedFsParent(synth);
         return;
       }
     }
@@ -166,6 +154,20 @@ export class EditorShellComponent implements OnInit {
     // Cold load — nothing in memory, but the URL carries an asset id that
     // may have been persisted on a previous session. Try the file cache.
     void this.hydrateFromCache(id);
+  }
+
+  /**
+   * After FS-walk-hydrating an asset (fs: cold-load), open its parent folder so
+   * the filmstrip + detail panel populate. The asset is already selected by the
+   * caller. Handles an asset at the FS root (absPath like '/photo.jpg' → parent
+   * '/') — a `lastSlash > 0` guard would silently skip those.
+   */
+  private openHydratedFsParent(synth: Asset): void {
+    if (!synth.absPath) return;
+    const lastSlash = synth.absPath.lastIndexOf('/');
+    if (lastSlash < 0) return;
+    const parentDir = lastSlash === 0 ? '/' : synth.absPath.slice(0, lastSlash);
+    this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
   }
 
   private async hydrateFromCache(id: string): Promise<void> {
