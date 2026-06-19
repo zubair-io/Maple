@@ -51,7 +51,9 @@ beforeAll(async () => {
       uri = mongod.getUri();
       mongo = await tryConnect(uri);
     } catch (err) {
-      console.log('[clustering-job.test] skipping: MongoDB unreachable (both local and memory server)');
+      console.log(
+        '[clustering-job.test] skipping: MongoDB unreachable (both local and memory server)',
+      );
       return;
     }
   }
