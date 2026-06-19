@@ -8,7 +8,7 @@
 //! pre-corrects. The same convention is what Lightroom uses internally; UI
 //! layers stretch/transform on top.
 
-use crate::types::Mask;
+use crate::types::{Mask, Point2};
 
 /// Smoothstep S(t) = 3t² − 2t³, clamped to [0, 1].
 #[inline]
@@ -19,12 +19,13 @@ fn smoothstep(t: f32) -> f32 {
 
 /// Compute the mask weight at normalized point (`x`, `y`).
 pub fn evaluate(mask: &Mask, x: f32, y: f32) -> f32 {
+    let p = Point2::new(x, y);
     match *mask {
         Mask::Linear {
             start,
             end,
             feather,
-        } => linear_weight(start.x, start.y, end.x, end.y, feather, x, y),
+        } => linear_weight(start, end, feather, p),
         Mask::Radial {
             center,
             radii,
@@ -32,9 +33,7 @@ pub fn evaluate(mask: &Mask, x: f32, y: f32) -> f32 {
             feather,
             invert,
         } => {
-            let w = radial_weight(
-                center.x, center.y, radii.x, radii.y, angle, feather, x, y,
-            );
+            let w = radial_weight(center, radii, angle, feather, p);
             if invert {
                 1.0 - w
             } else {
@@ -44,7 +43,7 @@ pub fn evaluate(mask: &Mask, x: f32, y: f32) -> f32 {
     }
 }
 
-/// Linear gradient weight along the line from (sx, sy) to (ex, ey).
+/// Linear gradient weight along the line from `start` to `end`.
 ///
 /// Projects (px, py) onto the gradient line, computes the parametric
 /// position `t = (P · D) / |D|²` where `D = end − start`. Below `t == feather/2`
@@ -56,16 +55,16 @@ pub fn evaluate(mask: &Mask, x: f32, y: f32) -> f32 {
 /// `feather == 1` gives a smooth ramp from t=0 to t=1; values in between
 /// scale the transition band. The Lightroom default of 50% maps to
 /// `feather == 0.5`.
-fn linear_weight(sx: f32, sy: f32, ex: f32, ey: f32, feather: f32, px: f32, py: f32) -> f32 {
-    let dx = ex - sx;
-    let dy = ey - sy;
+fn linear_weight(start: Point2, end: Point2, feather: f32, p: Point2) -> f32 {
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
     let len_sq = dx * dx + dy * dy;
     if len_sq <= f32::EPSILON {
         // Degenerate: start == end. Treat as no gradient (w=0 everywhere)
         // rather than divide by zero. UI must prevent this in normal use.
         return 0.0;
     }
-    let t = ((px - sx) * dx + (py - sy) * dy) / len_sq;
+    let t = ((p.x - start.x) * dx + (p.y - start.y) * dy) / len_sq;
     let feather = feather.clamp(0.0, 1.0);
     if feather <= f32::EPSILON {
         // Hard step at t=0.5.
@@ -82,33 +81,29 @@ fn linear_weight(sx: f32, sy: f32, ex: f32, ey: f32, feather: f32, px: f32, py: 
 }
 
 /// Radial weight against an axis-aligned ellipse rotated by `angle` radians
-/// about (`cx`, `cy`). Returns 1 inside the inner radius, 0 outside the
+/// about `center`. Returns 1 inside the inner radius, 0 outside the
 /// outer radius (where the outer radius is the geometric ellipse and the
 /// inner radius is `1 - feather` of that — i.e. `feather` is the fractional
 /// width of the falloff band measured radially).
-#[allow(clippy::too_many_arguments)]
 fn radial_weight(
-    cx: f32,
-    cy: f32,
-    rx: f32,
-    ry: f32,
+    center: Point2,
+    radii: Point2,
     angle: f32,
     feather: f32,
-    px: f32,
-    py: f32,
+    p: Point2,
 ) -> f32 {
-    if rx.abs() <= f32::EPSILON || ry.abs() <= f32::EPSILON {
+    if radii.x.abs() <= f32::EPSILON || radii.y.abs() <= f32::EPSILON {
         return 0.0;
     }
     // Inverse-rotate the sample point into the ellipse's local frame.
     let cos_a = angle.cos();
     let sin_a = angle.sin();
-    let dx = px - cx;
-    let dy = py - cy;
+    let dx = p.x - center.x;
+    let dy = p.y - center.y;
     let lx = cos_a * dx + sin_a * dy;
     let ly = -sin_a * dx + cos_a * dy;
     // Normalized radial distance in ellipse-space: d == 1 on the boundary.
-    let d_sq = (lx / rx).powi(2) + (ly / ry).powi(2);
+    let d_sq = (lx / radii.x).powi(2) + (ly / radii.y).powi(2);
     let d = d_sq.sqrt();
     let feather = feather.clamp(0.0, 1.0);
     if feather <= f32::EPSILON {
