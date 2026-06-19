@@ -1,6 +1,6 @@
 /**
- * Shared crash-safe per-asset move for the backup folder-layout migrations
- * (`restructure-backup-folders` #744 and `restructure-backup-geo`).
+ * Shared crash-safe per-asset move for the `refile-backups` backup folder-layout
+ * cleanup (and the `restructure-backup-*` migrations it replaced).
  *
  * Given a target directory the asset's canonical file should live in, this:
  *   1. copies the file + companions into the new dir and VERIFIES each
