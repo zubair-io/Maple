@@ -101,29 +101,33 @@ fn grain_params(amount: f32, size: f32, roughness: f32, long_edge: u32) -> (f32,
     (k, 1.0 / pitch, rho)
 }
 
+/// Window parameters for the grain stage.
+#[derive(Clone, Copy)]
+pub struct GrainWindow {
+    pub origin: (u32, u32),
+    pub full: (u32, u32),
+}
+
 /// Window-aware grain on an interleaved RGBA f32 buffer (alpha untouched).
 /// This is the CPU oracle — a line-for-line port of
 /// `raw_core::stages::grain::apply_windowed`. The whole-image
 /// `|amount| < 1e-3` short-circuit is the caller's (the chain doesn't
 /// enqueue the pass).
-#[allow(clippy::too_many_arguments)]
 pub fn apply_grain(
     buf: &mut [f32],
     width: usize,
     height: usize,
-    origin: (u32, u32),
-    full: (u32, u32),
-    amount: f32,
-    size: f32,
-    roughness: f32,
+    window: GrainWindow,
+    pass: &GrainPass,
 ) {
     debug_assert_eq!(buf.len(), width * height * 4);
-    let long_edge = full.0.max(full.1);
-    let (k, inv_pitch, rho) = grain_params(amount, size, roughness, long_edge);
+    let long_edge = window.full.0.max(window.full.1);
+    let (k, inv_pitch, rho) =
+        grain_params(pass.amount, pass.size, pass.roughness, long_edge);
     for (row_idx, row) in buf.chunks_exact_mut(width * 4).enumerate() {
-        let py = origin.1 + row_idx as u32;
+        let py = window.origin.1 + row_idx as u32;
         for (col_idx, px_chunk) in row.chunks_exact_mut(4).enumerate() {
-            let px = origin.0 + col_idx as u32;
+            let px = window.origin.0 + col_idx as u32;
             let u = px as f32 * inv_pitch;
             let v = py as f32 * inv_pitch;
             let n1 = value_noise(u, v, GRAIN_SEED);

@@ -32,13 +32,13 @@ fn display_buffer_16x12() -> (Vec<f32>, u32, u32) {
 
 /// Run `raw_core::stages::grain::apply` on a flat interleaved RGBA f32
 /// buffer (the ticket's actual reference — the Rust stage itself).
-fn raw_core_grain(buf: &[f32], w: u32, h: u32, amount: f32, size: f32, roughness: f32) -> Vec<f32> {
+fn raw_core_grain(buf: &[f32], w: u32, h: u32, pass: &GrainPass) -> Vec<f32> {
     use raw_core::image::{ColorSpace, Image};
     let mut img = Image::new(w, h, ColorSpace::DisplayLinearRec2020);
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-    raw_core::stages::grain::apply(&mut img, amount, size, roughness);
+    raw_core::stages::grain::apply(&mut img, pass.amount, pass.size, pass.roughness);
     let mut out = Vec::with_capacity(buf.len());
     for (i, p) in img.pixels.iter().enumerate() {
         out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
@@ -55,21 +55,33 @@ fn wgsl_grain_matches_raw_core_stage_within_1e_4() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (input, w, h) = display_buffer_16x12();
 
-    for &(amount, size, roughness) in &[
-        (30.0_f32, 0.0_f32, 0.0_f32),
-        (70.0, 25.0, 50.0),
-        (100.0, 100.0, 100.0),
-        (50.0, 60.0, 0.0),
+    for pass in &[
+        GrainPass {
+            amount: 30.0,
+            size: 0.0,
+            roughness: 0.0,
+        },
+        GrainPass {
+            amount: 70.0,
+            size: 25.0,
+            roughness: 50.0,
+        },
+        GrainPass {
+            amount: 100.0,
+            size: 100.0,
+            roughness: 100.0,
+        },
+        GrainPass {
+            amount: 50.0,
+            size: 60.0,
+            roughness: 0.0,
+        },
     ] {
-        let reference = raw_core_grain(&input, w, h, amount, size, roughness);
+        let reference = raw_core_grain(&input, w, h, pass);
 
         let img = GpuImage::upload(&ctx, &input, w, h);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&GrainPass {
-            amount,
-            size,
-            roughness,
-        }]);
+        let gpu = runner.run_blocking(&[pass]);
 
         let max_diff = reference
             .iter()
@@ -77,13 +89,17 @@ fn wgsl_grain_matches_raw_core_stage_within_1e_4() {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0_f32, f32::max);
         eprintln!(
-            "PARITY vs raw-core grain amount={amount} size={size} rough={roughness}: \
-             max abs diff = {max_diff:e}"
+            "PARITY vs raw-core grain amount={} size={} rough={}: \
+             max abs diff = {max_diff:e}",
+            pass.amount, pass.size, pass.roughness
         );
         assert!(
             max_diff < 1e-4,
-            "grain({amount}, {size}, {roughness}): GPU vs raw-core stage max abs diff \
-             {max_diff} exceeds 1e-4"
+            "grain({}, {}, {}): GPU vs raw-core stage max abs diff \
+             {max_diff} exceeds 1e-4",
+            pass.amount,
+            pass.size,
+            pass.roughness
         );
     }
 }
@@ -93,18 +109,29 @@ fn wgsl_grain_matches_raw_core_stage_within_1e_4() {
 #[test]
 fn local_oracle_matches_raw_core_stage_exactly() {
     let (input, w, h) = display_buffer_16x12();
-    for &(amount, size, roughness) in &[(70.0_f32, 25.0_f32, 50.0_f32), (100.0, 0.0, 100.0)] {
-        let reference = raw_core_grain(&input, w, h, amount, size, roughness);
+    for pass in &[
+        GrainPass {
+            amount: 70.0,
+            size: 25.0,
+            roughness: 50.0,
+        },
+        GrainPass {
+            amount: 100.0,
+            size: 0.0,
+            roughness: 100.0,
+        },
+    ] {
+        let reference = raw_core_grain(&input, w, h, pass);
         let mut local = input.clone();
         apply_grain(
             &mut local,
             w as usize,
             h as usize,
-            (0, 0),
-            (w, h),
-            amount,
-            size,
-            roughness,
+            GrainWindow {
+                origin: (0, 0),
+                full: (w, h),
+            },
+            pass,
         );
         let max_diff = reference
             .iter()
@@ -113,8 +140,11 @@ fn local_oracle_matches_raw_core_stage_exactly() {
             .fold(0.0_f32, f32::max);
         assert!(
             max_diff == 0.0,
-            "grain({amount}, {size}, {roughness}): local oracle vs raw-core diff \
-             {max_diff} != 0"
+            "grain({}, {}, {}): local oracle vs raw-core diff \
+             {max_diff} != 0",
+            pass.amount,
+            pass.size,
+            pass.roughness
         );
     }
 }
