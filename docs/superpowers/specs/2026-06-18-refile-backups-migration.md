@@ -19,7 +19,7 @@ in the **wrong folder**, and the existing migrations never pick them up.
 processed an asset (its `candidateFilter` plus the `extraSet` stamp it passed to
 `moveBackupAsset` — both removed by this PR). The stamp is written even on a
 **no-op** move: when `computeGeoDir` finds no usable location segments (an
-unresolved-geocode stub `place`), it returns the asset's *current* directory, the
+unresolved-geocode stub `place`), it returns the asset's _current_ directory, the
 move collapses to a stamp-only update, and the asset is marked "done" (the
 `noop` branch in [move-backup-asset.ts:133-151](../../src/api/src/workers/migration/move-backup-asset.ts)).
 
@@ -32,8 +32,8 @@ the `!= 2` filter permanently excludes it. This is a class bug, not a one-off.
 A Hasselblad backup, `IMG_0333.JPG`, captured in Paris:
 
 - Stored at `fileinfo[0].path = "2026/24 rue Vignon"` — a POI-named, **pre-geo**
-  path. The current segment logic can't even *produce* this: a POI only ever
-  appears as the *second* segment, after a country/state
+  path. The current segment logic can't even _produce_ this: a POI only ever
+  appears as the _second_ segment, after a country/state
   ([location-segments.ts:59-64](../../src/api/src/backup/location-segments.ts)).
 - Its `place` now fully resolves: `address.country = "France"`,
   `rollups.locality = "Paris"`. The canonical dir today is therefore
@@ -46,7 +46,7 @@ A Hasselblad backup, `IMG_0333.JPG`, captured in Paris:
 A **single one-time cleanup migration**, `refile-backups`, that:
 
 1. Sweeps every already-processed mobile-backup asset once.
-2. Computes the canonical folder from the asset's *current* data.
+2. Computes the canonical folder from the asset's _current_ data.
 3. Moves the asset (crash-safe) when, and only when, its folder is wrong.
 
 …and deletes the three broken/now-redundant migrations it replaces.
@@ -59,15 +59,15 @@ A **single one-time cleanup migration**, `refile-backups`, that:
   describe-stage real-time relocate — see "Preserving the describe hook".)
 - **No data deletion.** No asset file is deleted except as the trailing step of a
   verified copy inside the existing crash-safe mover. The `backup_layout_version`
-  field is *re-used*, not dropped.
+  field is _re-used_, not dropped.
 - **No new file I/O.** All moves go through the existing `moveBackupAsset`.
 
 ## Design
 
 ### 1. One canonical-path function
 
-The three migrations are three branches of one question: *what folder would a
-fresh ingest put this asset in?* That is already defined by the ingest formatter
+The three migrations are three branches of one question: _what folder would a
+fresh ingest put this asset in?_ That is already defined by the ingest formatter
 `formatBackupPath` ([path-formatter.ts:77-98](../../src/api/src/backup/path-formatter.ts)).
 The cleanup computes that canonical directory and compares it to where the asset
 actually sits.
@@ -84,14 +84,14 @@ export function computeCanonicalDir(doc): string | null {
   if (!year) return null; // pathological — every backup path starts with <year>/
 
   // Screenshot wins over location (a UI capture isn't a "place" photo).
-  if (doc.is_screenshot) return `${year}/${SCREENSHOT_DIR_SEGMENT}`;     // subsumes restructure-backup-screenshots
+  if (doc.is_screenshot) return `${year}/${SCREENSHOT_DIR_SEGMENT}`; // subsumes restructure-backup-screenshots
 
   const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
-  if (segs.length > 0) return `${year}/${segs.join('/')}`;               // subsumes restructure-backup-geo
+  if (segs.length > 0) return `${year}/${segs.join('/')}`; // subsumes restructure-backup-geo
 
   // No location, not a screenshot: flatten a recognised old day-folder
   // (<year>/<loc>/<MM-DD> or <year>/<MM>/<DD>), otherwise leave in place.
-  return restructureDir(oldDir) ?? oldDir;                              // subsumes restructure-backup-folders
+  return restructureDir(oldDir) ?? oldDir; // subsumes restructure-backup-folders
 }
 ```
 
@@ -114,8 +114,8 @@ export const BACKUP_LAYOUT_VERSION = 3;
 
 function candidateFilter() {
   return {
-    'phasset_links.0': { $exists: true },     // mobile-backup origin (all of them, per "all mobile backups w/ geo")
-    'fileinfo.0.deleted_at': null,            // canonical entry is live
+    'phasset_links.0': { $exists: true }, // mobile-backup origin (all of them, per "all mobile backups w/ geo")
+    'fileinfo.0.deleted_at': null, // canonical entry is live
     backup_layout_version: { $ne: BACKUP_LAYOUT_VERSION },
   };
 }
@@ -147,8 +147,7 @@ persisted marker is therefore mandatory.
 We re-use `backup_layout_version` and **bump it to 3**. The `{ $ne: 3 }` selector
 matches every existing asset (v2, v1, or absent), so the cleanup re-sweeps the
 entire backup population exactly once, recomputing each asset against its current
-data and moving only the mis-filed ones — then stamps v3 and the count falls to
-0. This is the same one-time full-population sweep that shipping v2 already
+data and moving only the mis-filed ones — then stamps v3 and the count falls to 0. This is the same one-time full-population sweep that shipping v2 already
 performed; it is precedented and bounded.
 
 The original freeze bug does **not** recur here, because this is a one-time
@@ -213,8 +212,10 @@ We add a **partial index** in `ensureIndexes`:
 ```ts
 await db.collection('assets').createIndex(
   { backup_layout_version: 1 },
-  { name: 'backup_layout_version_partial',
-    partialFilterExpression: { 'phasset_links.0': { $exists: true } } },
+  {
+    name: 'backup_layout_version_partial',
+    partialFilterExpression: { 'phasset_links.0': { $exists: true } },
+  },
 );
 ```
 
@@ -228,12 +229,14 @@ future `backup_layout_version` re-sweep).
 ## Files
 
 ### Add
+
 - `src/api/src/workers/migration/refile-backups.ts` — `refileBackups: Migration`,
   `computeCanonicalDir`, `BACKUP_LAYOUT_VERSION = 3`, the moved
   `relocateBackupScreenshot`, and a local `yearFor`.
 - `src/api/src/workers/migration/refile-backups.test.ts` — unit + e2e (below).
 
 ### Change
+
 - `src/api/src/workers/migration/index.ts` — registry: drop the three entries,
   add `refileBackups`.
 - `src/api/src/workers/stages/describe.ts` — repoint the
@@ -254,12 +257,14 @@ future `backup_layout_version` re-sweep).
   it superseded by this spec.
 
 ### Delete
+
 - `src/api/src/workers/migration/restructure-backup-geo.ts` (+ `.test.ts`)
 - `src/api/src/workers/migration/restructure-backup-folders.ts`
 - `src/api/src/workers/migration/restructure-backup-screenshots.ts` (+ `.test.ts`)
 - `src/api/src/workers/migration/restructure-screenshot-path.ts` (+ `.test.ts`)
 
 ### Keep (reused)
+
 - `restructure-path.ts` (+ `.test.ts`) — `restructureDir` / `OLD_LAYOUT_DIR_RE`.
 - `move-backup-asset.ts`, `restructure-fs.ts`, `scrub-mirror-orphans`,
   `backfill-live-location-count`.
