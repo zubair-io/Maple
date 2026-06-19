@@ -6,12 +6,14 @@
     role="dialog"
     aria-modal="true"
     tabindex="-1"
+    data-testid="bottom-sheet"
     [class.dragging]="isDragging()"
     [style.transform]="'translateY(' + dragOffsetPx() + 'px)'"
   >
     <div
       class="drag-area"
       aria-hidden="true"
+      data-testid="bottom-sheet-drag-area"
       (pointerdown)="onPointerDown($event)"
       (pointermove)="onPointerMove($event)"
       (pointerup)="onPointerUp($event)"
