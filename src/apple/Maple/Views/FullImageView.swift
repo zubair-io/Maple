@@ -167,9 +167,9 @@ struct FullImageView: View {
                 }
             }
 
-            // Render error banner
-            if let err = session.renderError {
-                VStack {
+            // Error banners
+            VStack {
+                if let err = session.renderError ?? session.sidecarError {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                         Text(err.localizedDescription)
@@ -180,8 +180,8 @@ struct FullImageView: View {
                     .padding(8)
                     .background(Color.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
                     .padding(.top, 12)
-                    Spacer()
                 }
+                Spacer()
             }
 
             // Loading indicator. Shown while the cold-open is still resolving
