@@ -1,6 +1,6 @@
 use crate::{
     image::{ColorSpace, Image},
-    stages::blur::guided_filter,
+    stages::blur::{guided_filter, GuidedOptions},
 };
 
 /// Guided-filter window radius for the fine-detail base/detail
@@ -63,7 +63,16 @@ pub fn apply(img: &mut Image, texture: f32) {
               + LUMA_REC2020[1] * p[1]
               + LUMA_REC2020[2] * p[2])
         .collect();
-    let base = guided_filter(&luma_plane, &luma_plane, w, h, TEXTURE_GUIDED_RADIUS, TEXTURE_EPS);
+    let base = guided_filter(
+        &luma_plane,
+        &luma_plane,
+        w,
+        h,
+        GuidedOptions {
+            r: TEXTURE_GUIDED_RADIUS,
+            eps: TEXTURE_EPS,
+        },
+    );
 
     for (i, p) in img.pixels.iter_mut().enumerate() {
         let luma = luma_plane[i];

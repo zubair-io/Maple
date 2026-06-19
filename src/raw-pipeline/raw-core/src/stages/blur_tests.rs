@@ -91,7 +91,7 @@ fn guided_filter_of_constants_is_constant() {
     // input — no halo, no drift.
     let guide = vec![0.5f32; 40 * 40];
     let p = vec![0.7f32; 40 * 40];
-    let out = guided_filter(&guide, &p, 40, 40, 5, 1e-3);
+    let out = guided_filter(&guide, &p, 40, 40, GuidedOptions { r: 5, eps: 1e-3 });
     assert!(out.iter().all(|v| (*v - 0.7).abs() < 1e-4));
 }
 
@@ -109,7 +109,7 @@ fn self_guided_preserves_sharp_edge() {
             p[y * w + x] = if x < w / 2 { 0.2 } else { 0.8 };
         }
     }
-    let out = guided_filter(&p, &p, w, h, 4, 1e-4);
+    let out = guided_filter(&p, &p, w, h, GuidedOptions { r: 4, eps: 1e-4 });
     // Far from the edge, output equals input.
     for y in 0..h {
         assert!((out[y * w + 1] - 0.2).abs() < 1e-3,
@@ -141,7 +141,7 @@ fn self_guided_flat_bright_plane_stays_flat_and_finite() {
     // Non-round value so the box-blur accumulators actually round.
     let level = 3000.7f32;
     let p = vec![level; w * h];
-    let out = guided_filter(&p, &p, w, h, 5, 1e-3);
+    let out = guided_filter(&p, &p, w, h, GuidedOptions { r: 5, eps: 1e-3 });
     for (i, &v) in out.iter().enumerate() {
         assert!(v.is_finite(), "index {} non-finite: {}", i, v);
         assert!(
@@ -171,7 +171,7 @@ fn self_guided_local_mean_does_not_overshoot() {
             p[y * w + x] = 0.2;
         }
     }
-    let out = guided_filter(&p, &p, w, h, 3, 1e-3);
+    let out = guided_filter(&p, &p, w, h, GuidedOptions { r: 3, eps: 1e-3 });
     for &v in &out {
         assert!(v >= 0.2 - 1e-3 && v <= 0.8 + 1e-3,
             "guided output out of input range: {}", v);
@@ -268,7 +268,7 @@ fn guided_filter_arena_matches_owning_box_blur_clarity_radius() {
     for &(w, h) in &[(64usize, 48usize), (100, 70), (45, 64)] {
         let guide = structured_plane(w, h, 1.0, 0.0);
         // Self-guided, like clarity/texture: guide == p.
-        let arena = guided_filter(&guide, &guide, w, h, 20, 1e-3);
+        let arena = guided_filter(&guide, &guide, w, h, GuidedOptions { r: 20, eps: 1e-3 });
         let reference = guided_filter_reference(&guide, &guide, w, h, 20, 1e-3);
         assert_eq!(arena.len(), reference.len());
         for i in 0..arena.len() {
@@ -286,7 +286,7 @@ fn guided_filter_arena_matches_owning_box_blur_clarity_radius() {
 fn guided_filter_arena_matches_owning_box_blur_texture_radius() {
     for &(w, h) in &[(64usize, 48usize), (100, 70), (45, 64)] {
         let guide = structured_plane(w, h, 1.0, 0.0);
-        let arena = guided_filter(&guide, &guide, w, h, 2, 1e-3);
+        let arena = guided_filter(&guide, &guide, w, h, GuidedOptions { r: 2, eps: 1e-3 });
         let reference = guided_filter_reference(&guide, &guide, w, h, 2, 1e-3);
         for i in 0..arena.len() {
             assert_eq!(
@@ -308,7 +308,7 @@ fn guided_filter_arena_matches_owning_box_blur_cross_guided_bright() {
     let (w, h) = (80usize, 56usize);
     let guide = structured_plane(w, h, 3000.0, 50.0); // bright, cross-guided
     let p = structured_plane(w, h, 1.0, 0.1);
-    let arena = guided_filter(&guide, &p, w, h, 20, 1e-3);
+    let arena = guided_filter(&guide, &p, w, h, GuidedOptions { r: 20, eps: 1e-3 });
     let reference = guided_filter_reference(&guide, &p, w, h, 20, 1e-3);
     for i in 0..arena.len() {
         assert_eq!(

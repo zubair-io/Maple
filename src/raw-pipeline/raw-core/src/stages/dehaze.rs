@@ -104,32 +104,38 @@ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     out
 }
 
+#[derive(Copy, Clone, Debug)]
+struct GuidedOptions {
+    r: usize,
+    eps: f32,
+}
+
 /// Guided filter (He, Sun, Tang 2010). Refines `p` using `guide` as an edge
 /// reference. Spec § 3.9 step 4.
-fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
+fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, opts: GuidedOptions) -> Vec<f32> {
     assert_eq!(guide.len(), p.len());
     let n = guide.len();
 
-    let mean_i = box_blur(guide, w, h, r);
-    let mean_p = box_blur(p, w, h, r);
+    let mean_i = box_blur(guide, w, h, opts.r);
+    let mean_p = box_blur(p, w, h, opts.r);
 
     let ip: Vec<f32> = guide.iter().zip(p.iter()).map(|(&a, &b)| a * b).collect();
-    let mean_ip = box_blur(&ip, w, h, r);
+    let mean_ip = box_blur(&ip, w, h, opts.r);
 
     let cov_ip: Vec<f32> = mean_ip.iter().zip(mean_i.iter().zip(mean_p.iter()))
         .map(|(&mip, (&mi, &mp))| mip - mi * mp).collect();
 
     let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
-    let mean_ii = box_blur(&ii, w, h, r);
+    let mean_ii = box_blur(&ii, w, h, opts.r);
     let var_i: Vec<f32> = mean_ii.iter().zip(mean_i.iter())
         .map(|(&mii, &mi)| mii - mi * mi).collect();
 
     let a: Vec<f32> = cov_ip.iter().zip(var_i.iter())
-        .map(|(&cip, &vi)| cip / (vi + eps)).collect();
+        .map(|(&cip, &vi)| cip / (vi + opts.eps)).collect();
     let b: Vec<f32> = (0..n).map(|i| mean_p[i] - a[i] * mean_i[i]).collect();
 
-    let mean_a = box_blur(&a, w, h, r);
-    let mean_b = box_blur(&b, w, h, r);
+    let mean_a = box_blur(&a, w, h, opts.r);
+    let mean_b = box_blur(&b, w, h, opts.r);
 
     (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
 }
@@ -207,7 +213,7 @@ pub fn apply(img: &mut Image, dehaze: f32) {
     let guide: Vec<f32> = img.pixels.iter().map(|p| {
         0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
     }).collect();
-    let t_refined = guided_filter(&guide, &t_raw, w, h, 60, 1e-3);
+    let t_refined = guided_filter(&guide, &t_raw, w, h, GuidedOptions { r: 60, eps: 1e-3 });
 
     // Sky / no-dark-pixel mask: keep DCP where it works, suppress where it
     // doesn't. Cheap — one smoothstep per pixel + one box-blur pass.
@@ -269,7 +275,7 @@ fn apply_with_mask_override(img: &mut Image, dehaze: f32, mask_override: &[f32])
     let guide: Vec<f32> = img.pixels.iter().map(|p| {
         0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
     }).collect();
-    let t_refined = guided_filter(&guide, &t_raw, w, h, 60, 1e-3);
+    let t_refined = guided_filter(&guide, &t_raw, w, h, GuidedOptions { r: 60, eps: 1e-3 });
     assert_eq!(mask_override.len(), (w * h));
     recover_with_mask(img, dehaze, &t_refined, a, mask_override);
 }
@@ -334,7 +340,7 @@ mod tests {
     fn guided_filter_of_constants_is_constant() {
         let guide = vec![0.5f32; 40 * 40];
         let p = vec![0.7f32; 40 * 40];
-        let out = guided_filter(&guide, &p, 40, 40, 5, 1e-3);
+        let out = guided_filter(&guide, &p, 40, 40, GuidedOptions { r: 5, eps: 1e-3 });
         assert!(out.iter().all(|v| (*v - 0.7).abs() < 1e-4));
     }
 
@@ -346,7 +352,7 @@ mod tests {
             p[y * w + x] = 0.3 + 0.4 * (x as f32) / (w as f32);
         }}
         let guide = p.clone();
-        let out = guided_filter(&guide, &p, w, h, 8, 1e-3);
+        let out = guided_filter(&guide, &p, w, h, GuidedOptions { r: 8, eps: 1e-3 });
         for y in 10..20 { for x in 10..20 {
             let diff = (out[y * w + x] - p[y * w + x]).abs();
             assert!(diff < 0.05, "diff {} at ({},{})", diff, x, y);
