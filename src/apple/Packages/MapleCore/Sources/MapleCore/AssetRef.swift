@@ -174,7 +174,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         self.displayNameOverride = nil
         self.hintExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
         self.bytesProvider = nil
-        self.stableID = nil
+        self.stableID = url.path
         self.scopeParentURL = scopeParentURL
         self.explicitIsRaw = nil
     }

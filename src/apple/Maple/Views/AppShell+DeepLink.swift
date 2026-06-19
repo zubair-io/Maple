@@ -56,10 +56,16 @@ extension AppShell {
     ///      pane (tablet/desktop).
     @MainActor
     private func navigateToImage(id: String) {
-        deepLinkLog.info("deep-link image id=\(id, privacy: .public) — S5 EditorView pending, routing to Library")
         dismissAnyActiveSheet()
         switchToLibraryTab()
-        // TODO(#577 S5): resolve id → AssetRef and call openEditor(for:).
+
+        // Resolve id → AssetRef via the active source's index.
+        if let asset = browseVM.assets.first(where: { $0.stableID == id }) {
+            deepLinkLog.info("deep-link image id=\(id, privacy: .public) — resolved, opening editor")
+            openEditor(for: asset)
+        } else {
+            deepLinkLog.info("deep-link image id=\(id, privacy: .public) — not found in current assets, routing to Library")
+        }
     }
 
     /// `maple://source/{id}` handler.
