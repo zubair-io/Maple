@@ -15,19 +15,86 @@
 // route. Suggested host: a Loupe route phone-mode opening Info from the
 // toolbar.
 
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 test.describe('Bottom-sheet — drag-to-dismiss', () => {
-  test.skip(true, 'Deferred to S4/S5/S6 — no consumer page mounts <app-bottom-sheet> yet.');
+  test.beforeEach(async ({ page }) => {
+    // Phone viewport (iPhone X/11/12/13/14)
+    await page.setViewportSize({ width: 375, height: 812 });
 
-  test('dismisses on pan-down ≥ 25% sheet height', async () => {
-    // TODO(S4/S5): navigate to a route that opens the Info bottom sheet,
-    // grab the `.sheet` bounding box, drive a long pan-down via
-    // `page.mouse.down/move/up`, assert the sheet is gone.
+    // Bypass auth using the dev login route.
+    await page.goto('/sign-in');
+    const devBtn = page.getByRole('button', { name: /dev login/i });
+    if (await devBtn.isVisible()) {
+      await devBtn.click();
+      await page.waitForURL('/browse');
+    }
+
+    // Navigate to the editor page for a mock image.
+    await page.goto('/library/editor/test-image-123');
+
+    // Switch to the 'detail' group where 'presets' tool lives.
+    const detailTab = page.getByTestId('editor-group-detail');
+    await detailTab.waitFor({ state: 'attached' });
+    await detailTab.click();
+
+    // Open the Presets bottom sheet.
+    // Wait for the pill to be attached to the DOM.
+    const presetsPill = page.getByTestId('editor-tool-presets');
+    await presetsPill.waitFor({ state: 'attached' });
+    await presetsPill.click();
+
+    // Verify the bottom sheet is open.
+    const sheet = page.getByTestId('bottom-sheet');
+    await expect(sheet).toBeVisible();
   });
 
-  test('dismisses on flick (velocity ≥ 1000 px/s)', async () => {
-    // TODO(S4/S5): same setup, drive a short fast pan-down (few samples,
-    // short duration), assert dismissal.
+  test('dismisses on pan-down ≥ 25% sheet height', async ({ page }) => {
+    const sheet = page.getByTestId('bottom-sheet');
+    const dragArea = page.getByTestId('bottom-sheet-drag-area');
+
+    const box = await sheet.boundingBox();
+    if (!box) throw new Error('sheet has no bounding box');
+
+    const dragAreaBox = await dragArea.boundingBox();
+    if (!dragAreaBox) throw new Error('drag-area has no bounding box');
+
+    const startX = dragAreaBox.x + dragAreaBox.width / 2;
+    const startY = dragAreaBox.y + dragAreaBox.height / 2;
+
+    // Pan-down 30% of the sheet height (past the 25% threshold).
+    const dragDistance = box.height * 0.3;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX, startY + dragDistance, { steps: 10 });
+    await page.mouse.up();
+
+    await expect(sheet).not.toBeVisible();
+  });
+
+  test('dismisses on flick (velocity ≥ 1000 px/s)', async ({ page }) => {
+    const sheet = page.getByTestId('bottom-sheet');
+    const dragArea = page.getByTestId('bottom-sheet-drag-area');
+
+    const dragAreaBox = await dragArea.boundingBox();
+    if (!dragAreaBox) throw new Error('drag-area has no bounding box');
+
+    const startX = dragAreaBox.x + dragAreaBox.width / 2;
+    const startY = dragAreaBox.y + dragAreaBox.height / 2;
+
+    // Fast flick: short distance, but very fast.
+    // DISMISS_VELOCITY = 1000 px/s.
+    // If we move 50px in 10ms, velocity = 50 / 0.01 = 5000 px/s.
+    // page.mouse.move with steps: 1 doesn't guarantee timing, but a single
+    // large move followed by up is usually interpreted as a flick in Playwright.
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    // Move 50px down in one step to simulate high velocity.
+    await page.mouse.move(startX, startY + 50);
+    await page.mouse.up();
+
+    await expect(sheet).not.toBeVisible();
   });
 });
