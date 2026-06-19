@@ -541,6 +541,108 @@ describe('refile-backups end-to-end', () => {
       setLibraryRootsForTests(null);
     }
   });
+
+  it('auto-disables its own toggle when the sweep completes', async () => {
+    const db = await connectOrSkip('auto-disable e2e');
+    if (!db) return;
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const { resetMigrationState, loadMigrationState } = await import('../migration-config.repo.ts');
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-autodisable-'));
+    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
+
+    const oldRel = '2024/Tokyo';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_AD.HEIC'), 'pixels');
+
+    const _id = new ObjectId();
+    await assets.insertOne({
+      _id,
+      maple_id: 'refile-ad-id',
+      fileinfo: [{ path: oldRel, filename: 'IMG_AD.HEIC', library_id: libId, deleted_at: null }],
+      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
+      place: place({
+        address: { country: 'Japan', country_code: 'jp' },
+        rollups: { locality: 'Kyoto', country_code: 'jp' },
+      }),
+      exif: { captured_year: 2024 },
+      size: 6,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: new Date().toISOString(),
+      stages: { thumb: { version: 1 }, preview: { version: 1 } },
+    } as never);
+
+    try {
+      await runTick();
+      // One tick clears the only candidate, so the worker marks it done AND flips
+      // the operator toggle off — no "remember to disable it" caveat.
+      const state = await loadMigrationState(MIGRATION_ID);
+      expect(state.status).toBe('done');
+      expect(state.enabled).toBe(false);
+    } finally {
+      await assets.deleteOne({ _id });
+      await resetMigrationState(MIGRATION_ID);
+      setLibraryRootsForTests(null);
+    }
+  });
+
+  it('stamps an asset whose source file is missing (no head-of-line stall)', async () => {
+    const db = await connectOrSkip('source-missing e2e');
+    if (!db) return;
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const { resetMigrationState } = await import('../migration-config.repo.ts');
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-missing-'));
+    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
+
+    // Deliberately do NOT create the file on disk → moveBackupAsset throws
+    // SourceMissingError. The asset must still be stamped so it drops out of the
+    // candidate set, or a whole batch of missing sources would head-of-line-block
+    // the rest of the library every tick.
+    const oldRel = '2024/Tokyo';
+    const _id = new ObjectId();
+    await assets.insertOne({
+      _id,
+      maple_id: 'refile-missing-id',
+      fileinfo: [{ path: oldRel, filename: 'GHOST.HEIC', library_id: libId, deleted_at: null }],
+      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
+      place: place({
+        address: { country: 'Japan', country_code: 'jp' },
+        rollups: { locality: 'Kyoto', country_code: 'jp' },
+      }),
+      exif: { captured_year: 2024 },
+      size: 6,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: new Date().toISOString(),
+    } as never);
+
+    try {
+      await runTick();
+      const doc = (await assets.findOne({ _id })) as {
+        backup_layout_version?: number;
+        fileinfo?: { path: string }[];
+      } | null;
+      expect(doc?.backup_layout_version).toBe(BACKUP_LAYOUT_VERSION); // stamped → drops out
+      expect(doc?.fileinfo?.[0].path).toBe(oldRel); // file untouched (still missing)
+      expect(
+        await assets.countDocuments({ _id, backup_layout_version: { $ne: BACKUP_LAYOUT_VERSION } }),
+      ).toBe(0);
+    } finally {
+      await assets.deleteOne({ _id });
+      await resetMigrationState(MIGRATION_ID);
+      setLibraryRootsForTests(null);
+    }
+  });
 });
 
 describe('relocateBackupScreenshot (describe-stage hook)', () => {
