@@ -80,25 +80,37 @@ struct MixParams {
     _pad2: u32,
 }
 
+#[derive(Clone, Copy)]
+pub struct SharpenSettings {
+    pub width: u32,
+    pub height: u32,
+    pub amount: f32,
+    pub radius: f32,
+    pub detail: f32,
+    pub masking: f32,
+}
+
 /// Encode the full sharpen pipeline, reading `src` (RGBA) and writing `dst`
 /// (RGBA). Mirrors `raw_core::stages::sharpen::apply` exactly. The caller handles
 /// the `amount.abs() < 1e-3` identity short-circuit; this always runs the chain.
 ///
 /// `sigma` follows raw-core: `radius.clamp(0.5, 3.0)`, kept FLOAT — the taps
 /// come from the same `gaussian_kernel_1d` raw-core convolves with (#1083).
-#[allow(clippy::too_many_arguments)] // GPU encode plumbing: ctx/encoder/src/dst/dims/sliders.
 fn encode_sharpen(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
     src: &wgpu::Buffer,
     dst: &wgpu::Buffer,
-    width: u32,
-    height: u32,
-    amount: f32,
-    radius: f32,
-    detail: f32,
-    masking: f32,
+    settings: SharpenSettings,
 ) {
+    let SharpenSettings {
+        width,
+        height,
+        amount,
+        radius,
+        detail,
+        masking,
+    } = settings;
     let count = width * height;
 
     // radius (PSF sigma) → the true-Gaussian taps, mirroring raw-core's clamp.
@@ -245,12 +257,14 @@ impl Pass for SharpenPass {
             encoder,
             src,
             dst,
-            width,
-            height,
-            self.amount,
-            self.radius,
-            self.detail,
-            self.masking,
+            SharpenSettings {
+                width,
+                height,
+                amount: self.amount,
+                radius: self.radius,
+                detail: self.detail,
+                masking: self.masking,
+            },
         );
     }
 }

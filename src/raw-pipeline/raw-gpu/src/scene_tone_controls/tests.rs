@@ -70,18 +70,20 @@ fn tone_image_2d() -> (Vec<f32>, u32, u32) {
 /// Run `raw_core::stages::scene_tone_controls::apply` on a flat interleaved
 /// RGBA f32 buffer with the given slider values, returning a new buffer
 /// (alpha carried through). The ticket's actual reference — the Rust stage.
-#[allow(clippy::too_many_arguments)]
 fn raw_core_tone(
     buf: &[f32],
     width: u32,
     height: u32,
-    exposure: f32,
-    brightness: f32,
-    highlights: f32,
-    shadows: f32,
-    whites: f32,
-    blacks: f32,
+    options: SceneToneOptions,
 ) -> Vec<f32> {
+    let SceneToneOptions {
+        exposure,
+        brightness,
+        highlights,
+        shadows,
+        whites,
+        blacks,
+    } = options;
     use raw_core::image::{ColorSpace, Image};
     let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
@@ -127,7 +129,15 @@ const CASES: &[(f32, f32, f32, f32, f32, f32)] = &[
 
 fn assert_parity(input: &[f32], width: u32, height: u32, ctx: &GpuContext) {
     for &(e, br, h, s, w, b) in CASES {
-        let reference = raw_core_tone(input, width, height, e, br, h, s, w, b);
+        let options = SceneToneOptions {
+            exposure: e,
+            brightness: br,
+            highlights: h,
+            shadows: s,
+            whites: w,
+            blacks: b,
+        };
+        let reference = raw_core_tone(input, width, height, options);
 
         let img = GpuImage::upload(ctx, input, width, height);
         let runner = ChainRunner::new(ctx, &img);
@@ -192,9 +202,29 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
         tone_image_2d(),
     ] {
         for &(e, br, hl, s, wh, b) in CASES {
-            let reference = raw_core_tone(&input, w, h, e, br, hl, s, wh, b);
+            let options = SceneToneOptions {
+                exposure: e,
+                brightness: br,
+                highlights: hl,
+                shadows: s,
+                whites: wh,
+                blacks: b,
+            };
+            let reference = raw_core_tone(&input, w, h, options);
             let mut local = input.clone();
-            apply_scene_tone_controls(&mut local, w as usize, h as usize, e, br, hl, s, wh, b);
+            apply_scene_tone_controls(
+                &mut local,
+                w as usize,
+                h as usize,
+                SceneToneOptions {
+                    exposure: e,
+                    brightness: br,
+                    highlights: hl,
+                    shadows: s,
+                    whites: wh,
+                    blacks: b,
+                },
+            );
             let max_diff = reference
                 .iter()
                 .zip(&local)
@@ -245,7 +275,19 @@ fn subthreshold_sliders_are_passthrough_on_gpu() {
 #[test]
 fn oracle_shadows_lift_deep_not_bright() {
     let mut buf = vec![0.02_f32, 0.02, 0.02, 1.0, 0.9, 0.9, 0.9, 1.0];
-    apply_scene_tone_controls(&mut buf, 2, 1, 0.0, 0.0, 0.0, 80.0, 0.0, 0.0);
+    apply_scene_tone_controls(
+        &mut buf,
+        2,
+        1,
+        SceneToneOptions {
+            exposure: 0.0,
+            brightness: 0.0,
+            highlights: 0.0,
+            shadows: 80.0,
+            whites: 0.0,
+            blacks: 0.0,
+        },
+    );
     assert!(buf[0] > 0.02, "deep shadow should lift, got {}", buf[0]);
     assert!(
         (buf[4] - 0.9).abs() < 1e-3,
@@ -265,7 +307,19 @@ fn oracle_brightness_lifts_midtone_pins_ends() {
         0.18, 0.18, 0.18, 1.0, // midtone — lifted
         5.0, 5.0, 5.0, 1.0, // scene-ref-max — pinned
     ];
-    apply_scene_tone_controls(&mut buf, 3, 1, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0);
+    apply_scene_tone_controls(
+        &mut buf,
+        3,
+        1,
+        SceneToneOptions {
+            exposure: 0.0,
+            brightness: 100.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+        },
+    );
     assert_eq!(buf[0], 0.03, "deep shadow must be bit-exact, got {}", buf[0]);
     assert!(buf[4] > 0.18, "midtone should lift, got {}", buf[4]);
     assert_eq!(buf[8], 5.0, "scene-ref-max must be bit-exact, got {}", buf[8]);
