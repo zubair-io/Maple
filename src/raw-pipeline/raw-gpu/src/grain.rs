@@ -101,22 +101,28 @@ fn grain_params(amount: f32, size: f32, roughness: f32, long_edge: u32) -> (f32,
     (k, 1.0 / pitch, rho)
 }
 
+#[derive(Clone, Copy)]
+pub struct GrainOptions {
+    pub origin: (u32, u32),
+    pub full: (u32, u32),
+    pub amount: f32,
+    pub size: f32,
+    pub roughness: f32,
+}
+
 /// Window-aware grain on an interleaved RGBA f32 buffer (alpha untouched).
 /// This is the CPU oracle — a line-for-line port of
 /// `raw_core::stages::grain::apply_windowed`. The whole-image
 /// `|amount| < 1e-3` short-circuit is the caller's (the chain doesn't
 /// enqueue the pass).
-#[allow(clippy::too_many_arguments)]
-pub fn apply_grain(
-    buf: &mut [f32],
-    width: usize,
-    height: usize,
-    origin: (u32, u32),
-    full: (u32, u32),
-    amount: f32,
-    size: f32,
-    roughness: f32,
-) {
+pub fn apply_grain(buf: &mut [f32], width: usize, height: usize, options: GrainOptions) {
+    let GrainOptions {
+        origin,
+        full,
+        amount,
+        size,
+        roughness,
+    } = options;
     debug_assert_eq!(buf.len(), width * height * 4);
     let long_edge = full.0.max(full.1);
     let (k, inv_pitch, rho) = grain_params(amount, size, roughness, long_edge);

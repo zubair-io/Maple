@@ -101,10 +101,12 @@ fn local_oracle_matches_raw_core_stage_exactly() {
             &mut local,
             w as usize,
             h as usize,
-            (0, 0),
-            (w, h),
-            amount,
-            feather,
+            VignetteOptions {
+                origin: (0, 0),
+                full: (w, h),
+                amount,
+                feather,
+            },
         );
         let max_diff = reference
             .iter()
@@ -130,10 +132,12 @@ fn oracle_window_matches_full_render() {
         &mut full,
         w as usize,
         h as usize,
-        (0, 0),
-        (w, h),
-        -80.0,
-        40.0,
+        VignetteOptions {
+            origin: (0, 0),
+            full: (w, h),
+            amount: -80.0,
+            feather: 40.0,
+        },
     );
 
     // An 8×6 tile at (8, 6) — the bottom-right quadrant.
@@ -149,10 +153,12 @@ fn oracle_window_matches_full_render() {
         &mut tile,
         tw as usize,
         th as usize,
-        (tx, ty),
-        (w, h),
-        -80.0,
-        40.0,
+        VignetteOptions {
+            origin: (tx, ty),
+            full: (w, h),
+            amount: -80.0,
+            feather: 40.0,
+        },
     );
     for y in 0..th {
         for x in 0..tw {

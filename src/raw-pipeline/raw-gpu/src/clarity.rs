@@ -112,10 +112,19 @@ fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     out
 }
 
+#[derive(Clone, Copy)]
+struct GuidedFilterConfig {
+    w: usize,
+    h: usize,
+    r: usize,
+    eps: f32,
+}
+
 /// Self-guided guided filter. Faithful port of
 /// `raw_core::stages::blur::guided_filter` for the `guide == p` case (the only
 /// case clarity / texture use). Operation order matches raw-core.
-fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
+fn guided_filter(guide: &[f32], p: &[f32], config: GuidedFilterConfig) -> Vec<f32> {
+    let GuidedFilterConfig { w, h, r, eps } = config;
     let n = guide.len();
     if r == 0 {
         return p.to_vec();
@@ -176,7 +185,16 @@ pub(crate) fn apply_guided_clarity(
                 + LUMA_REC2020[2] * buf[i * 4 + 2]
         })
         .collect();
-    let base = guided_filter(&luma_plane, &luma_plane, width, height, radius, CLARITY_EPS);
+    let base = guided_filter(
+        &luma_plane,
+        &luma_plane,
+        GuidedFilterConfig {
+            w: width,
+            h: height,
+            r: radius,
+            eps: CLARITY_EPS,
+        },
+    );
 
     for i in 0..n {
         let luma = luma_plane[i];
@@ -227,10 +245,12 @@ impl Pass for ClarityPass {
             encoder,
             src,
             dst,
-            width,
-            height,
-            CLARITY_GUIDED_RADIUS,
-            self.clarity / 100.0,
+            spatial::ClarityTextureArgs {
+                width,
+                height,
+                r: CLARITY_GUIDED_RADIUS,
+                amount: self.clarity / 100.0,
+            },
         );
     }
 }

@@ -32,7 +32,13 @@ fn display_buffer_16x12() -> (Vec<f32>, u32, u32) {
 
 /// Run `raw_core::stages::grain::apply` on a flat interleaved RGBA f32
 /// buffer (the ticket's actual reference — the Rust stage itself).
-fn raw_core_grain(buf: &[f32], w: u32, h: u32, amount: f32, size: f32, roughness: f32) -> Vec<f32> {
+fn raw_core_grain(buf: &[f32], w: u32, h: u32, options: GrainOptions) -> Vec<f32> {
+    let GrainOptions {
+        amount,
+        size,
+        roughness,
+        ..
+    } = options;
     use raw_core::image::{ColorSpace, Image};
     let mut img = Image::new(w, h, ColorSpace::DisplayLinearRec2020);
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
@@ -61,7 +67,14 @@ fn wgsl_grain_matches_raw_core_stage_within_1e_4() {
         (100.0, 100.0, 100.0),
         (50.0, 60.0, 0.0),
     ] {
-        let reference = raw_core_grain(&input, w, h, amount, size, roughness);
+        let options = GrainOptions {
+            origin: (0, 0),
+            full: (w, h),
+            amount,
+            size,
+            roughness,
+        };
+        let reference = raw_core_grain(&input, w, h, options);
 
         let img = GpuImage::upload(&ctx, &input, w, h);
         let runner = ChainRunner::new(&ctx, &img);
@@ -94,17 +107,26 @@ fn wgsl_grain_matches_raw_core_stage_within_1e_4() {
 fn local_oracle_matches_raw_core_stage_exactly() {
     let (input, w, h) = display_buffer_16x12();
     for &(amount, size, roughness) in &[(70.0_f32, 25.0_f32, 50.0_f32), (100.0, 0.0, 100.0)] {
-        let reference = raw_core_grain(&input, w, h, amount, size, roughness);
+        let options = GrainOptions {
+            origin: (0, 0),
+            full: (w, h),
+            amount,
+            size,
+            roughness,
+        };
+        let reference = raw_core_grain(&input, w, h, options);
         let mut local = input.clone();
         apply_grain(
             &mut local,
             w as usize,
             h as usize,
-            (0, 0),
-            (w, h),
-            amount,
-            size,
-            roughness,
+            GrainOptions {
+                origin: (0, 0),
+                full: (w, h),
+                amount,
+                size,
+                roughness,
+            },
         );
         let max_diff = reference
             .iter()

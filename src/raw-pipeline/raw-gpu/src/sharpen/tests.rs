@@ -74,11 +74,15 @@ fn raw_core_sharpen(
     buf: &[f32],
     w: u32,
     h: u32,
-    amount: f32,
-    radius: f32,
-    detail: f32,
-    masking: f32,
+    settings: SharpenSettings,
 ) -> Vec<f32> {
+    let SharpenSettings {
+        amount,
+        radius,
+        detail,
+        masking,
+        ..
+    } = settings;
     use raw_core::image::{ColorSpace, Image};
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
@@ -93,17 +97,20 @@ fn raw_core_sharpen(
 }
 
 /// Run `SharpenPass` on the GPU over `input`, read back the flat RGBA result.
-#[allow(clippy::too_many_arguments)] // test plumbing: ctx/input/dims/the four sliders.
 fn sharpen_gpu(
     ctx: &GpuContext,
     input: &[f32],
     w: u32,
     h: u32,
-    amount: f32,
-    radius: f32,
-    detail: f32,
-    masking: f32,
+    settings: SharpenSettings,
 ) -> Vec<f32> {
+    let SharpenSettings {
+        amount,
+        radius,
+        detail,
+        masking,
+        ..
+    } = settings;
     let img = GpuImage::upload(ctx, input, w, h);
     let runner = ChainRunner::new(ctx, &img);
     runner.run_blocking(&[&SharpenPass {
@@ -140,9 +147,17 @@ fn sharpen_pass_matches_raw_core_masking_off() {
     let (w, h) = (48usize, 32usize);
     let input = stepped_image(w, h);
     for &amount in &[50.0_f32, 100.0, 140.0] {
-        let reference = raw_core_sharpen(&input, w as u32, h as u32, amount, 1.0, 25.0, 0.0);
+        let settings = SharpenSettings {
+            width: w as u32,
+            height: h as u32,
+            amount,
+            radius: 1.0,
+            detail: 25.0,
+            masking: 0.0,
+        };
+        let reference = raw_core_sharpen(&input, w as u32, h as u32, settings);
         let (moved, _) = max_diff_at(&input, &reference);
-        let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, amount, 1.0, 25.0, 0.0);
+        let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, settings);
         let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
         let px = worst_i / 4;
         eprintln!(
@@ -173,9 +188,17 @@ fn sharpen_pass_matches_raw_core_masking_on() {
     let (w, h) = (48usize, 32usize);
     let input = stepped_image(w, h);
     for &masking in &[20.0_f32, 70.0] {
-        let reference = raw_core_sharpen(&input, w as u32, h as u32, 100.0, 2.0, 40.0, masking);
+        let settings = SharpenSettings {
+            width: w as u32,
+            height: h as u32,
+            amount: 100.0,
+            radius: 2.0,
+            detail: 40.0,
+            masking,
+        };
+        let reference = raw_core_sharpen(&input, w as u32, h as u32, settings);
         let (moved, _) = max_diff_at(&input, &reference);
-        let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 100.0, 2.0, 40.0, masking);
+        let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, settings);
         let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
         let px = worst_i / 4;
         eprintln!(
@@ -205,8 +228,16 @@ fn sharpen_border_and_interior_coverage_non_vacuous() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 32usize);
     let input = stepped_image(w, h);
-    let reference = raw_core_sharpen(&input, w as u32, h as u32, 100.0, 2.0, 30.0, 50.0);
-    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 100.0, 2.0, 30.0, 50.0);
+    let settings = SharpenSettings {
+        width: w as u32,
+        height: h as u32,
+        amount: 100.0,
+        radius: 2.0,
+        detail: 30.0,
+        masking: 50.0,
+    };
+    let reference = raw_core_sharpen(&input, w as u32, h as u32, settings);
+    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, settings);
 
     let mut border_worst = 0.0f32;
     let mut border_counted = 0usize;
@@ -270,9 +301,17 @@ fn sharpen_pass_matches_raw_core_across_radius_sweep() {
     let radii = [0.5f32, 1.0, 2.0, 3.0];
     let mut gpu_outputs: Vec<Vec<f32>> = Vec::with_capacity(radii.len());
     for &radius in &radii {
-        let reference = raw_core_sharpen(&input, w as u32, h as u32, 100.0, radius, 25.0, 0.0);
+        let settings = SharpenSettings {
+            width: w as u32,
+            height: h as u32,
+            amount: 100.0,
+            radius,
+            detail: 25.0,
+            masking: 0.0,
+        };
+        let reference = raw_core_sharpen(&input, w as u32, h as u32, settings);
         let (moved, _) = max_diff_at(&input, &reference);
-        let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 100.0, radius, 25.0, 0.0);
+        let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, settings);
         let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
         let px = worst_i / 4;
         eprintln!(
@@ -318,7 +357,15 @@ fn sharpen_amount_zero_is_identity() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = stepped_image(w, h);
-    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 0.0, 1.0, 25.0, 0.0);
+    let settings = SharpenSettings {
+        width: w as u32,
+        height: h as u32,
+        amount: 0.0,
+        radius: 1.0,
+        detail: 25.0,
+        masking: 0.0,
+    };
+    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, settings);
     assert_eq!(gpu, input, "amount=0 must pass the image through unchanged");
 }
 
@@ -344,7 +391,15 @@ fn sharpen_preserves_chroma_ratio_on_saturated_edge() {
             input[i + 3] = 1.0;
         }
     }
-    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 100.0, 1.0, 25.0, 0.0);
+    let settings = SharpenSettings {
+        width: w as u32,
+        height: h as u32,
+        amount: 100.0,
+        radius: 1.0,
+        detail: 25.0,
+        masking: 0.0,
+    };
+    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, settings);
     let mut moved = 0.0f32;
     for i in 0..w * h {
         let a = [input[i * 4], input[i * 4 + 1], input[i * 4 + 2]];
@@ -382,7 +437,15 @@ fn sharpen_preserves_scene_headroom() {
             input[i + 3] = 1.0;
         }
     }
-    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 100.0, 1.0, 25.0, 0.0);
+    let settings = SharpenSettings {
+        width: w as u32,
+        height: h as u32,
+        amount: 100.0,
+        radius: 1.0,
+        detail: 25.0,
+        masking: 0.0,
+    };
+    let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, settings);
     assert!(
         gpu.iter().all(|v| v.is_finite()),
         "sharpen produced non-finite output"
