@@ -212,6 +212,21 @@ extension EditSession {
             "loading indicator SHOWN — cold-open decode+render in flight for \(self.asset.id, privacy: .public)"
         )
 
+        // FileProvider materialization tracking — drives the download overlay
+        // for assets that iOS/macOS lazy-materialize (Files-app sidebar / iCloud
+        // Drive). No-op for local files (observer returns immediately) and
+        // skipped entirely for cloud-search assets, which have no primaryURL
+        // and drive progress via CloudByteDownloadBox.
+        if let url = asset.primaryURL,
+           let downloadProgress,
+           fileProviderObserver == nil {
+            let observer = FileProviderDownloadObserver()
+            fileProviderObserver = observer
+            Task { @MainActor in
+                await observer.start(url: url, progress: downloadProgress)
+            }
+        }
+
         let openedAsset = self.asset
 
         // Kick the background Rust decode early — it's the slowest,
