@@ -50,10 +50,8 @@ private struct MapleBottomSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     @ViewBuilder var sheetContent: () -> SheetContent
 
-    // TODO(S0a): swap to MapleTokens.Motion.sheetPresent / sheetDismiss
-    // once #586 lands. Spec §4.1 timing.
-    private let presentAnimation: Animation = .snappy(duration: 0.32)
-    private let dismissAnimation: Animation = .snappy(duration: 0.28)
+    private let presentAnimation: Animation = MapleTokens.Motion.sheetPresent
+    private let dismissAnimation: Animation = MapleTokens.Motion.sheetDismiss
 
     func body(content: Content) -> some View {
         content.overlay {
@@ -149,8 +147,7 @@ private struct MapleBottomSheetContainer<SheetContent: View>: View {
     /// Sheet occupies 74% of viewport height per spec §4.1.
     private let heightFraction: CGFloat = 0.74
 
-    // TODO(S0a): swap to MapleTokens.borderHi once #586 lands.
-    private let handleColor = Color(hex: "#5a5552")
+    private let handleColor = MapleTokens.borderHi
 
     var body: some View {
         GeometryReader { proxy in

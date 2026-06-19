@@ -13,8 +13,7 @@
 //   • Pan-left dismiss threshold ≥ 30% of drawer width (was 33% / velocity).
 //   • Trailing edge rounded (top-right + bottom-right 18pt) + 12pt offset /
 //     40pt blur drop shadow.
-//   • Open transition uses an explicit 240ms cubic-bezier(0.22, 1, 0.36, 1).
-//     Once S0a (PR #586) lands, swap to `MapleTokens.Motion.drawer`.
+//   • Open transition uses `MapleTokens.Motion.drawer`.
 //   • Scrim still 45% black; tap-anywhere dismisses (unchanged).
 //   • No chrome header — the drawer is just the supplied sidebar content
 //     (the source tree). The LIBRARY eyebrow + identity row + close X were
@@ -171,16 +170,13 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
         runAnimated { dragOffset = 0 }
     }
 
-    /// Runs the closure inside the S1b open-transition curve, OR instantly
-    /// if the user has reduce-motion enabled. The curve is `cubic-bezier
-    /// (0.22, 1, 0.36, 1)` at 240ms — the spec's `MapleTokens.Motion
-    /// .drawer` token (S0a PR #586). Once that PR merges, swap the literal
-    /// for `MapleTokens.Motion.drawer.animation`.
+    /// Runs the closure inside the `MapleTokens.Motion.drawer` curve,
+    /// OR instantly if the user has reduce-motion enabled.
     private func runAnimated(_ work: () -> Void) {
         if reduceMotion {
             work()
         } else {
-            withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), work)
+            withAnimation(MapleTokens.Motion.drawer, work)
         }
     }
 }
