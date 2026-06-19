@@ -2,8 +2,8 @@
 // S7 (#622) search experience in the Self-Hosted (maple) app.
 //
 // Wraps `<app-search>` from maple-common and wires it into the app
-// router: photo taps push to `/edit/<id>` (the Editor shell), and the
-// "See all" button leaves the user on the same page (no filtered grid
+// router: photo taps push to `/library/editor/<id>` (the Editor shell),
+// and the "See all" button leaves the user on the same page (no filtered grid
 // view yet — that lands as part of S7 follow-up or as a redirect into
 // the existing rich filter page at `/search/advanced`).
 //
@@ -20,7 +20,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult, SearchScope, editRouteCommands } from '@maple-common';
+import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
 
 @Component({
   selector: 'maple-search-page',
@@ -59,9 +59,10 @@ export class SearchPageComponent implements AfterViewInit {
   }
 
   protected onPhotoTap(r: SearchResult): void {
-    // Split the slug:relPath id into /edit/:slug/** segments (see
-    // editRouteCommands); the combined form bounces back to Browse.
-    void this.router.navigate(editRouteCommands(r.id));
+    // S5 (#625): route results to the responsive Editor shell at
+    // /library/editor/:id. The Editor shell handles both plain asset ids
+    // and fs: abs-path deep links.
+    void this.router.navigate(['/library/editor', r.id]);
   }
 
   protected onSeeAll(payload: { query: string; scope: SearchScope }): void {

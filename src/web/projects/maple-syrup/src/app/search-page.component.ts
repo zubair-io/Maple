@@ -15,7 +15,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult, SearchScope, editRouteCommands } from '@maple-common';
+import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
 
 @Component({
   selector: 'maple-syrup-search-page',
@@ -51,9 +51,10 @@ export class SearchPageComponent implements AfterViewInit {
   }
 
   protected onPhotoTap(r: SearchResult): void {
-    // Split a slug:relPath id into /edit/:slug/** segments (see editRouteCommands);
-    // the combined form bounces back to Browse. fs: ids pass through.
-    void this.router.navigate(editRouteCommands(r.id));
+    // S5 (#625): route results to the responsive Editor shell at
+    // /library/editor/:id. The Editor shell handles both plain asset ids
+    // and fs: abs-path deep links.
+    void this.router.navigate(['/library/editor', r.id]);
   }
 
   protected onSeeAll(_payload: { query: string; scope: SearchScope }): void {
