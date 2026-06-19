@@ -112,7 +112,7 @@ for raw in "${FIXTURES[@]}"; do
   #    geometry noise, not pipeline noise. We skip these rather than
   #    invent an orientation-undo step that would mask real pipeline drift
   #    on landscape fixtures. See ticket #07 follow-up.
-  orientation="$(exiftool -s -s -s -Orientation "$raw" 2>/dev/null || true)"
+  orientation="$(exiftool -s -s -s -Orientation -- "$raw" 2>/dev/null || true)"
   if [[ -n "$orientation" && "$orientation" != "Horizontal (normal)" ]]; then
     printf "SKIP %-45s orientation=%s (sensor-vs-display mismatch)\n" "$stem" "$orientation"
     SKIP_COUNT=$((SKIP_COUNT + 1))
@@ -120,7 +120,7 @@ for raw in "${FIXTURES[@]}"; do
   fi
 
   # 1. Read embedded preview offset/length.
-  preview_meta="$(exiftool -PreviewImageStart -PreviewImageLength -s -s -s -n "$raw" 2>/dev/null || true)"
+  preview_meta="$(exiftool -PreviewImageStart -PreviewImageLength -s -s -s -n -- "$raw" 2>/dev/null || true)"
   preview_start="$(printf "%s\n" "$preview_meta" | sed -n '1p')"
   preview_len="$(printf "%s\n" "$preview_meta" | sed -n '2p')"
   if [[ -z "${preview_start:-}" || -z "${preview_len:-}" || "$preview_start" == "0" || "$preview_len" == "0" ]]; then

@@ -42,7 +42,7 @@ fi
 #   Rotate 270 CW        -> sips -r 270
 sips_rotation_for() {
     local raw=$1
-    local ori=$(exiftool -Orientation -s -s -s "$raw" 2>/dev/null)
+    local ori=$(exiftool -Orientation -s -s -s -- "$raw" 2>/dev/null)
     case "$ori" in
         ""|"Horizontal (normal)") echo 0 ;;
         "Rotate 90 CW") echo 90 ;;
@@ -58,7 +58,7 @@ sips_rotation_for() {
 # "sRGB" or "AdobeRGB". Default sRGB.
 detect_cs() {
     local raw=$1
-    local out=$(exiftool -s3 -Canon:ColorSpace -ColorSpace -InteropIndex "$raw" 2>/dev/null \
+    local out=$(exiftool -s3 -Canon:ColorSpace -ColorSpace -InteropIndex -- "$raw" 2>/dev/null \
         | tr '[:upper:]' '[:lower:]')
     if echo "$out" | grep -qE "adobe|r03"; then
         echo "AdobeRGB"
@@ -176,7 +176,7 @@ for raw in "$RAWS"/test_*.{DNG,dng,RAW,CR2,RAF,raf,ARW,NEF,fff,X3F}; do
     # in order, take the first non-empty one; never concatenate.
     rm -f "$fdir/embedded.jpg"
     for tag in -PreviewImage -JpgFromRaw; do
-        exiftool -b "$tag" "$raw" 2>/dev/null > "$fdir/embedded.jpg" || true
+        exiftool -b "$tag" -- "$raw" 2>/dev/null > "$fdir/embedded.jpg" || true
         [ -s "$fdir/embedded.jpg" ] && break
     done
     [ -s "$fdir/embedded.jpg" ] || { echo "skip $stem: no JPEG"; continue; }
