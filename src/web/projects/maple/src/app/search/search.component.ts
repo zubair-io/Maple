@@ -7,7 +7,7 @@
 //
 // Result thumbnails come from `FilesystemBrowseService.getThumbBlobUrl`
 // (same blob-URL cache the browse grid uses), and clicking a result
-// navigates to `/edit/<fs:abs_path>` — that id matches the editor's
+// navigates to `/library/editor/<id>` — that id matches the editor's
 // cold-load contract from filesystem-browse.
 //
 // Pure derivation (param coercion, CSV-set plumbing, active-filter
@@ -43,7 +43,6 @@ import {
   SearchSceneType,
   SearchService,
   SearchSort,
-  editRouteCommands,
   errorMessage,
 } from '@maple-common';
 import {
@@ -464,7 +463,7 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   // ── Result clicks → editor ───────────────────────────────────────────────
   openResult(r: ResultViewModel): void {
-    void this.router.navigate(editRouteCommands(r.id));
+    void this.router.navigate(['/library/editor', r.id]);
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────
