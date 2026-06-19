@@ -79,13 +79,18 @@ pub fn apply_f32_rgba(rgba: &[f32], w: u32, h: u32, crop: &Crop) -> (u32, u32, V
 
     let snapped = snap_orthogonal(crop.angle);
     let (rect_x, rect_y, rect_w, rect_h) = rect_in_pixels(crop, w, h);
+    let rect = axis_aligned::SliceRect {
+        x: rect_x,
+        y: rect_y,
+        w: rect_w,
+        h: rect_h,
+    };
 
     if snapped == OrthogonalSnap::Zero {
-        return axis_aligned::slice_f32_rgba(rgba, w, rect_x, rect_y, rect_w, rect_h);
+        return axis_aligned::slice_f32_rgba(rgba, w, rect);
     }
     if snapped != OrthogonalSnap::Off {
-        let (sw, sh, sliced) =
-            axis_aligned::slice_f32_rgba(rgba, w, rect_x, rect_y, rect_w, rect_h);
+        let (sw, sh, sliced) = axis_aligned::slice_f32_rgba(rgba, w, rect);
         return rotate::orthogonal_f32_rgba(&sliced, sw, sh, snapped);
     }
     bilinear::rotate_and_slice_f32_rgba(rgba, w, h, crop)
@@ -115,12 +120,18 @@ pub fn apply_u8_rgb(rgb: &[u8], w: u32, h: u32, crop: &Crop) -> (u32, u32, Vec<u
 
     let snapped = snap_orthogonal(crop.angle);
     let (rect_x, rect_y, rect_w, rect_h) = rect_in_pixels(crop, w, h);
+    let rect = axis_aligned::SliceRect {
+        x: rect_x,
+        y: rect_y,
+        w: rect_w,
+        h: rect_h,
+    };
 
     if snapped == OrthogonalSnap::Zero {
-        return axis_aligned::slice_u8_rgb(rgb, w, rect_x, rect_y, rect_w, rect_h);
+        return axis_aligned::slice_u8_rgb(rgb, w, rect);
     }
     if snapped != OrthogonalSnap::Off {
-        let (sw, sh, sliced) = axis_aligned::slice_u8_rgb(rgb, w, rect_x, rect_y, rect_w, rect_h);
+        let (sw, sh, sliced) = axis_aligned::slice_u8_rgb(rgb, w, rect);
         return rotate::orthogonal_u8_rgb(&sliced, sw, sh, snapped);
     }
     bilinear::rotate_and_slice_u8_rgb(rgb, w, h, crop)
