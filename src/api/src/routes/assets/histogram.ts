@@ -37,6 +37,7 @@
 
 import { Elysia } from 'elysia';
 import { stat, readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import { findCoreInfoById, parseAssetId } from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
@@ -107,7 +108,7 @@ async function writeCached(jsonPath: string, payload: CachedHistogram): Promise<
       return;
     }
     await mkdir(path.dirname(jsonPath), { recursive: true });
-    const tmp = `${jsonPath}.${process.pid}.tmp`;
+    const tmp = `${jsonPath}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
     await writeFile(tmp, JSON.stringify(payload), 'utf-8');
     await rename(tmp, jsonPath);
   } catch (err) {

@@ -13,9 +13,8 @@
 // Mirror-aware drop-in: imported originals replicate to the library's backup root(s).
 import fs from '../fs/mirrored.ts';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
-
-let _tmpCounter = 0;
 
 /**
  * Copy `src` to `destAbs` without ever clobbering an existing file. Creates
@@ -30,7 +29,7 @@ let _tmpCounter = 0;
  */
 export async function copyFileAtomic(src: string, destAbs: string): Promise<boolean> {
   await fs.mkdir(path.dirname(destAbs), { recursive: true });
-  const tmp = `${destAbs}.import.tmp.${process.pid}.${_tmpCounter++}`;
+  const tmp = `${destAbs}.import.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
   await fs.copyFile(src, tmp);
   // Durably flush the copied bytes before the publish so a power loss can't
   // surface a zero-length file.
