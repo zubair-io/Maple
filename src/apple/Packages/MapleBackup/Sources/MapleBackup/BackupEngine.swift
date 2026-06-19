@@ -47,8 +47,7 @@ public struct AssetReadResult: Sendable {
     public let renderedBytes: Data?
     /// Bytes of the Live Photo .mov twin, if the asset is a Live Photo.
     /// Uploaded separately via the rendered endpoint with ext "mov".
-    /// TODO: once the server endpoint accepts X-Maple-Suffix-Override, rename
-    /// the server-side file from `<base>.rendered.mov` to `<base>.mov`.
+    /// Lands as `<base>.mov` via suffix-override.
     public let liveVideoBytes: Data?
     /// Filename for the Live Photo .mov twin (e.g. "IMG_1234.mov").
     public let liveVideoFilename: String?
@@ -398,8 +397,8 @@ public actor BackupEngine {
             }
         }
 
-        // Live Photo .mov twin, when present. Uses suffix-override so it lands
-        // as `<base>.mov` instead of `<base>.rendered.mov`. Re-derivable → light retry.
+        // Live Photo .mov twin, when present. Lands as `<base>.mov` (no
+        // .rendered. infix) via suffix-override. Re-derivable → light retry.
         if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
             await runCompanion(taskId: task.id, label: "live-mov",
                                maxAttempts: Self.derivedCompanionRetries) { [self] in

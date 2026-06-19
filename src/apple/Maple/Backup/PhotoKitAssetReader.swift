@@ -90,8 +90,7 @@ actor PhotoKitAssetReader: AssetReader {
         // strip the extension of the original filename and append ".mov".
         // The companion is referenced in the sidecar so the server can
         // link them. Actual twin bytes are uploaded via uploadRendered.
-        // TODO: once the server rendered endpoint supports X-Maple-Suffix-Override,
-        // update to write `<base>.mov` instead of `<base>.rendered.mov`.
+        // The server names the file `<base>.mov` via suffix-override.
         let liveVideoFilename: String? = liveVideoResource.map { _ in
             let base = (filename as NSString).deletingPathExtension
             return "\(base).mov"

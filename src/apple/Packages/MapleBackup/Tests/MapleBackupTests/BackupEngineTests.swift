@@ -30,6 +30,27 @@ private actor FailingAssetReader: AssetReader {
     }
 }
 
+private actor LivePhotoAssetReader: AssetReader {
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        return AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: nil,
+            liveVideoBytes: Data(count: 128),
+            liveVideoFilename: "IMG.mov",
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: "IMG.mov", burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)")
+    }
+}
+
 
 final class BackupEngineTests: XCTestCase {
 
@@ -587,6 +608,51 @@ final class BackupEngineTests: XCTestCase {
                        "pending fires once on the inline failure")
         XCTAssertEqual(sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false }, 1,
                        "resolved must fire when the derived companion exhausts its budget, not leak")
+    }
+
+    /// Live Photo .mov twins must be uploaded with X-Maple-Suffix-Override: mov
+    /// so the server names them <base>.mov instead of <base>.rendered.mov.
+    func testLivePhotoTwinUsesSuffixOverride() async throws {
+        // ingest 200 → sidecar 200 → rendered (live-mov) 200
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(200),
+            .status(200),
+        ])
+
+        let tmpRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+
+        let queue = InProcessBackupQueue()
+        let state = try BackupStateStore(databaseURL: stateURL)
+        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+        let reader = LivePhotoAssetReader()
+        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                                  libraryId: "lib", deviceId: "d",
+                                  transport: stubTransport())
+        let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                                  sidecars: sidecars, reader: reader)
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        let requests = StubURLProtocol.recordedRequests
+        let renderedReq = requests.first { $0.url?.path.contains("backup/rendered") == true }
+        XCTAssertNotNil(renderedReq, "expected a rendered-companion upload for the .mov twin")
+        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Suffix-Override"), "mov",
+                       "Live Photo .mov twin must use suffix-override 'mov'")
+        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Rendered-Ext"), "mov",
+                       "Live Photo .mov twin must declare 'mov' extension")
     }
 
 }

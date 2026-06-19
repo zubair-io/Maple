@@ -243,6 +243,21 @@ final class UploadClientTests: XCTestCase {
                        "expected exactly one chunk before short-circuit, got \(StubURLProtocol.recordedRequests.count)")
     }
 
+    /// When `suffixOverride` is passed, the `X-Maple-Suffix-Override` header
+    /// must be sent.
+    func testUploadRenderedSendsSuffixOverrideHeader() async throws {
+        StubURLProtocol.stub = .ok(json: #"{"target_rel_path":"x"}"#)
+        let client = await makeClient()
+        try await client.uploadRendered(
+            phassetLocalId: "P1",
+            targetRelPath: "2024/Tokyo/IMG.heic",
+            filenameExt: "mov",
+            bytes: Data(count: 100),
+            suffixOverride: "mov")
+        let req = StubURLProtocol.recordedRequests.first
+        XCTAssertEqual(req?.value(forHTTPHeaderField: "X-Maple-Suffix-Override"), "mov")
+    }
+
     /// Same short-circuit semantics for `uploadRendered`: a 200 on any chunk
     /// means the rendered companion is already complete server-side.
     func testUploadRenderedAccepts200OnNonFinalChunkAsAlreadyComplete() async throws {
