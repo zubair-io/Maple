@@ -214,6 +214,16 @@ fn masked_pass(buf: &mut [f32], width: usize, height: usize, mult_of_y: impl Fn(
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SceneToneOptions {
+    pub exposure: f32,
+    pub brightness: f32,
+    pub highlights: f32,
+    pub shadows: f32,
+    pub whites: f32,
+    pub blacks: f32,
+}
+
 /// Scene-referred tone controls on an interleaved RGBA f32 buffer (alpha
 /// untouched). This is the CPU oracle — a faithful port of
 /// `raw_core::stages::scene_tone_controls::apply` (spec § 3.6 + § 4.1–4.2),
@@ -224,18 +234,20 @@ fn masked_pass(buf: &mut [f32], width: usize, height: usize, mult_of_y: impl Fn(
 /// raw-core's `apply`; on the GPU the chain simply doesn't enqueue the pass,
 /// mirroring vibrance. This function applies the per-field flags directly, so
 /// it is a faithful oracle even when called with a partially-neutral model.
-#[allow(clippy::too_many_arguments)]
 pub fn apply_scene_tone_controls(
     buf: &mut [f32],
     width: usize,
     height: usize,
-    exposure: f32,
-    brightness: f32,
-    highlights: f32,
-    shadows: f32,
-    whites: f32,
-    blacks: f32,
+    options: SceneToneOptions,
 ) {
+    let SceneToneOptions {
+        exposure,
+        brightness,
+        highlights,
+        shadows,
+        whites,
+        blacks,
+    } = options;
     debug_assert_eq!(buf.len(), width * height * 4);
     let apply_exposure = exposure.abs() >= 1e-6;
     let apply_brightness = brightness.abs() >= 1e-3;
