@@ -4,9 +4,9 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+pub(crate) const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+pub(crate) fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
@@ -34,7 +34,7 @@ const B_STRENGTH: f32 = 0.7;
 /// Shadows engagement ceiling: the weight is `(1 − smoothstep(0, S_T1, Y))²`,
 /// exactly 0 at `Y ≥ S_T1`. Was 0.1 pre-#1103 — widened so the slider reaches
 /// real shadow tones instead of only near-black.
-const S_T1: f32 = 0.25;
+pub(crate) const S_T1: f32 = 0.25;
 /// Shadows gain cap in EV at slider ±100: `exp2(±S_GAIN_EV)` → 2.83× lift /
 /// 0.35× crush at the deepest tones, fading to exactly 1 at `Y ≥ S_T1`.
 ///
@@ -48,7 +48,7 @@ const S_T1: f32 = 0.25;
 /// a solarization band on smooth shadow gradients that survives AgX
 /// (monotone view transform). 1.5 EV (2.83×) keeps a ~6 % margin. Constants
 /// are spec-"calibrated" values; the mix formula itself is unchanged.
-const S_GAIN_EV: f32 = 1.5;
+pub(crate) const S_GAIN_EV: f32 = 1.5;
 
 /// Highlights engagement band: `w_h(Y) = smoothstep(H_W0, H_W1, Y)` — the
 /// slider acts on bright-but-unclipped tones (below the Y=1 knee), strongest
@@ -63,8 +63,8 @@ const S_GAIN_EV: f32 = 1.5;
 /// ≈ ±20/255). 0.25 starts the band just above mid-grey (w_h ≡ 0 exactly at
 /// Y ≤ 0.25 ⊇ the 0.18 anchor — midtones stay brightness's domain) and
 /// engages over the tones the histogram actually contains.
-const H_W0: f32 = 0.25;
-const H_W1: f32 = 1.0;
+pub(crate) const H_W0: f32 = 0.25;
+pub(crate) const H_W1: f32 = 1.0;
 /// Weighted-gain strength in EV at slider ±100 (`exp2(∓H_GAIN_EV · w_h)`).
 /// MONOTONICITY BOUND: the below-knee output `Y · exp2(−a·w_h(Y))` (a =
 /// H_GAIN_EV · h/100) is strictly increasing in Y only while
@@ -72,7 +72,7 @@ const H_W1: f32 = 1.0;
 /// `w_h'(Y)·Y` is ≈ 1.345, so `a` must stay < 1.07. Keep H_GAIN_EV well
 /// under it — a tone curve that reverses direction mid-gradient posterizes
 /// skies.
-const H_GAIN_EV: f32 = 0.7;
+pub(crate) const H_GAIN_EV: f32 = 0.7;
 
 /// Detail-mask blur scale: σ = SH_MASK_SIGMA_REF_PX · longEdge /
 /// SH_MASK_REF_LONG_EDGE — the same long-edge convention the spec assigns to
@@ -116,7 +116,7 @@ pub fn sh_mask_reach_px(long_edge: usize) -> usize {
 /// at `Y ≥ S_T1` (w_s = 0 ⇒ the mix term vanishes bit-exactly). Monotone in
 /// Y by the S_GAIN_EV bound documented at the constant.
 #[inline]
-fn shadows_mult(y: f32, s_amount: f32) -> f32 {
+pub(crate) fn shadows_mult(y: f32, s_amount: f32) -> f32 {
     let t = 1.0 - smoothstep(0.0, S_T1, y);
     let w = t * t;
     1.0 + ((S_GAIN_EV * s_amount).exp2() - 1.0) * w
@@ -148,7 +148,7 @@ fn shadows_mult(y: f32, s_amount: f32) -> f32 {
 /// knee `w_h ≡ 1` so `g` is constant and the shape term is increasing), and
 /// continuous through the knee (shape → 1 as Y → 1⁺).
 #[inline]
-fn highlights_mult(y: f32, h_amount: f32, h_denom: f32, h_expand: f32) -> f32 {
+pub(crate) fn highlights_mult(y: f32, h_amount: f32, h_denom: f32, h_expand: f32) -> f32 {
     let w = smoothstep(H_W0, H_W1, y);
     let g = (-H_GAIN_EV * h_amount * w).exp2();
     let shape = if y > 1.0 {
