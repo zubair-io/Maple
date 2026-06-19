@@ -104,7 +104,7 @@ VERSION = 1
 def srational_to_floats(values: tuple) -> list[float]:
     """SRATIONAL tiff tag stores pairs of (num, den). Return a flat float list."""
     out: list[float] = []
-    for i in range(0, len(values), 2):
+    for i in range(0, len(values) // 2 * 2, 2):
         num = values[i]
         den = values[i + 1]
         if den == 0:
