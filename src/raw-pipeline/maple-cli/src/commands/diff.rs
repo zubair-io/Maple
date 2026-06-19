@@ -11,6 +11,13 @@ pub fn run(
     reference: &Path,
     budget: Option<f32>,
 ) -> Result<i32, Box<dyn std::error::Error>> {
+    if !candidate.is_file() {
+        return Err(format!("diff: candidate path is not a file: {}", candidate.display()).into());
+    }
+    if !reference.is_file() {
+        return Err(format!("diff: reference path is not a file: {}", reference.display()).into());
+    }
+
     // Locate compare_images.py by walking ancestors of the current working
     // directory, then falling back to the binary's own location ancestors.
     let script = std::env::current_dir()?
@@ -26,6 +33,7 @@ pub fn run(
         .ok_or("src/scripts/compare_images.py not found in any parent directory")?;
 
     let output = Command::new("python3")
+        .arg("--")
         .arg(&script)
         .arg("--")
         .arg(candidate)

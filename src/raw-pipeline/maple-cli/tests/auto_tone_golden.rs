@@ -71,7 +71,8 @@ fn auto_tone_against_test_0017_is_stable() {
     );
 
     let out = Command::new(env!("CARGO_BIN_EXE_maple-cli"))
-        .args(["auto-tone"])
+        .arg("auto-tone")
+        .arg("--")
         .arg(&fixture)
         .output()
         .expect("ran maple-cli auto-tone");
