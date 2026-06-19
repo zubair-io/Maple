@@ -244,6 +244,12 @@ future `backup_layout_version` re-sweep).
   (lines ~85-142) is rewritten against `refile-backups`.
 - `src/api/src/db/client.ts` — add the `backup_layout_version_partial` index to
   `ensureIndexes` (see §6).
+- `src/api/src/workers/migration.ts` — auto-disable a one-shot migration when
+  `countRemaining` hits 0 (see Risks); call `pruneUnknownMigrationStates` once at
+  worker startup.
+- `src/api/src/workers/migration-config.repo.ts` — add `pruneUnknownMigrationStates`
+  (drops `app_settings.migrations` entries for ids no longer in the registry, so
+  removing the three old migrations doesn't leave dangling state).
 - `docs/superpowers/specs/2026-06-05-backup-geo-layout.md` — header note marking
   it superseded by this spec.
 

@@ -155,3 +155,35 @@ export async function resetMigrationState(id: string): Promise<MigrationState> {
   await patchMigrationState(id, fresh);
   return fresh;
 }
+
+/**
+ * Drop persisted state for migration ids no longer in the registry (a migration
+ * removed in code). Keeps `app_settings.migrations` from accumulating dead entries:
+ * harmless to the worker/routes — which only ever act on known ids — but stale
+ * config otherwise. Idempotent, best-effort; returns the pruned ids. Run once at
+ * worker startup with the live registry, so any future removal self-cleans too.
+ */
+export async function pruneUnknownMigrationStates(knownIds: readonly string[]): Promise<string[]> {
+  try {
+    const db = await getDb();
+    const coll = db.collection<MigrationDoc>(COLL);
+    const doc = await coll.findOne({ _id: DOC_ID }, { projection: { migrations: 1 } });
+    const known = new Set(knownIds);
+    const dead = Object.keys(doc?.migrations ?? {}).filter((id) => !known.has(id));
+    if (dead.length === 0) return [];
+    const unset: Record<string, ''> = {};
+    for (const id of dead) unset[`migrations.${id}`] = '';
+    await coll.updateOne({ _id: DOC_ID }, { $unset: unset });
+    log.info(
+      { pruned: dead },
+      'pruned persisted state for migrations no longer in the registry',
+    );
+    return dead;
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      'could not prune unknown migration states',
+    );
+    return [];
+  }
+}

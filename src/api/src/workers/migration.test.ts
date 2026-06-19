@@ -219,3 +219,65 @@ describe('migration end-to-end (restructure)', () => {
     }
   });
 });
+
+describe('pruneUnknownMigrationStates', () => {
+  it('drops persisted state for ids no longer in the registry, keeps the rest', async () => {
+    let getDb: typeof import('../db/client.ts').getDb;
+    try {
+      ({ getDb } = await import('../db/client.ts'));
+      await getDb();
+    } catch {
+      console.log('MongoDB unreachable — skipping prune e2e');
+      return;
+    }
+    const { pruneUnknownMigrationStates, loadAllMigrationStates } = await import(
+      './migration-config.repo.ts'
+    );
+    const { MIGRATIONS } = await import('./migration/index.ts');
+    const db = await getDb();
+    const settings = db.collection<{ _id: string; migrations?: Record<string, unknown> }>(
+      'app_settings',
+    );
+    const DEAD_A = 'zz-test-dead-a';
+    const DEAD_B = 'zz-test-dead-b';
+    const KEEP = 'zz-test-keep';
+
+    // Seed one sentinel that survives + two orphans that should be pruned.
+    await settings.updateOne(
+      { _id: 'migration' },
+      {
+        $set: {
+          [`migrations.${KEEP}`]: { enabled: true, status: 'running' },
+          [`migrations.${DEAD_A}`]: { enabled: true, status: 'running' },
+          [`migrations.${DEAD_B}`]: { enabled: false, status: 'done' },
+        },
+      },
+      { upsert: true },
+    );
+
+    try {
+      // Known set = the live registry PLUS our sentinel, so real migration state
+      // is never touched even if this runs against a populated DB.
+      const known = [...MIGRATIONS.map((m) => m.id), KEEP];
+      const pruned = await pruneUnknownMigrationStates(known);
+      expect(pruned).toContain(DEAD_A);
+      expect(pruned).toContain(DEAD_B);
+
+      const all = await loadAllMigrationStates();
+      expect(all[DEAD_A]).toBeUndefined();
+      expect(all[DEAD_B]).toBeUndefined();
+      expect(all[KEEP]).toBeDefined();
+    } finally {
+      await settings.updateOne(
+        { _id: 'migration' },
+        {
+          $unset: {
+            [`migrations.${KEEP}`]: '',
+            [`migrations.${DEAD_A}`]: '',
+            [`migrations.${DEAD_B}`]: '',
+          },
+        },
+      );
+    }
+  });
+});
