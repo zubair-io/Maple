@@ -230,9 +230,8 @@ describe('pruneUnknownMigrationStates', () => {
       console.log('MongoDB unreachable — skipping prune e2e');
       return;
     }
-    const { pruneUnknownMigrationStates, loadAllMigrationStates } = await import(
-      './migration-config.repo.ts'
-    );
+    const { pruneUnknownMigrationStates, loadAllMigrationStates } =
+      await import('./migration-config.repo.ts');
     const { MIGRATIONS } = await import('./migration/index.ts');
     const db = await getDb();
     const settings = db.collection<{ _id: string; migrations?: Record<string, unknown> }>(

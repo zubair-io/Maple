@@ -479,9 +479,7 @@ describe('migration routes', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.migrations)).toBe(true);
-    const restructure = body.migrations.find(
-      (m: { id: string }) => m.id === 'refile-backups',
-    );
+    const restructure = body.migrations.find((m: { id: string }) => m.id === 'refile-backups');
     expect(restructure).toBeDefined();
     expect(restructure).toMatchObject({
       title: expect.any(String),
