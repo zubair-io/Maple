@@ -162,6 +162,9 @@ export async function runOnlineClustering(
   // create the row once (and the first face seeds the cover bbox).
   const newPersonIds = new Map<number, ObjectId>();
 
+  const newPeopleDocs: Array<PersonDoc & { _id: ObjectId }> = [];
+  const now = new Date().toISOString();
+
   for (let i = 0; i < faces.length; i += 1) {
     const face = faces[i];
     const clusterIdx = pass.assignments[i];
@@ -171,20 +174,29 @@ export async function runOnlineClustering(
       personId = centroids[clusterIdx].person_id;
     } else {
       // Brand-new cluster. Materialise a `PersonDoc` on first contact;
-      // subsequent faces in the same new cluster reuse that ObjectId. The
-      // seed centroid is the cluster's centroid from the pass (it equals
-      // the seeding face for a 1-member cluster, the streaming mean for a
-      // multi-member one) — `persistCentroids` rewrites it with the same
-      // value below, so the final stored centroid is unchanged.
+      // subsequent faces in the same new cluster reuse that ObjectId.
       const cached = newPersonIds.get(clusterIdx);
       if (cached) {
         personId = cached;
       } else {
+        personId = new ObjectId();
+        newPersonIds.set(clusterIdx, personId);
+
         nextAutoIndex += 1;
         const name = `Person ${nextAutoIndex}`;
         const seedCentroid = Float32Array.from(pass.clusters[clusterIdx].centroid);
-        personId = await createAutoPerson(name, seedCentroid, face.asset_id, face.bbox);
-        newPersonIds.set(clusterIdx, personId);
+
+        newPeopleDocs.push({
+          _id: personId,
+          name,
+          created_at: now,
+          updated_at: now,
+          merged_into: null,
+          centroid: Array.from(seedCentroid),
+          centroid_face_count: pass.clusters[clusterIdx].face_count,
+          cover_asset_id: face.asset_id.toHexString(),
+          cover_bbox: face.bbox,
+        });
         newPeople += 1;
       }
     }
@@ -192,33 +204,48 @@ export async function runOnlineClustering(
     assigned += 1;
   }
 
-  // Apply buffered assignments per asset doc. One updateOne per asset is
-  // simpler than bulkWrite + arrayFilters on the rare hot-spot asset; the
-  // total face count is small.
+  // Batch insert new people.
+  if (newPeopleDocs.length > 0) {
+    const peopleC = await peopleCollection();
+    await peopleC.insertMany(newPeopleDocs as any);
+  }
+
+  // Apply buffered assignments per asset doc via bulkWrite.
   const assets = await assetsCollection();
+  const assetOps = [];
   for (const entry of perAsset.values()) {
     const set: Record<string, string> = {};
     for (const u of entry.updates) {
       set[`faces.${u.index}.person_id`] = u.personId;
     }
-    await assets.updateOne({ _id: entry.assetId }, { $set: set });
+    assetOps.push({
+      updateOne: {
+        filter: { _id: entry.assetId },
+        update: { $set: set },
+      },
+    });
+  }
+  if (assetOps.length > 0) {
+    await assets.bulkWrite(assetOps);
   }
 
-  // Persist refreshed centroids so subsequent runs converge. The pass
-  // returned updated seeds (positions 0..seedCount-1) followed by any
-  // newly-created clusters — fold those back into the live entries before
-  // writing. The seed entries already hold `pass.clusters[k]` (set during
-  // reconstruction above), so only the new clusters need appending.
-  for (let k = seedCount; k < pass.clusters.length; k += 1) {
-    const personId = newPersonIds.get(k);
-    if (!personId) continue;
-    centroids.push({
+  // Persist refreshed centroids so subsequent runs converge. Only update
+  // clusters that actually received new faces during this pass.
+  const changedClusterIndices = new Set<number>(pass.assignments);
+  const centroidsToPersist: CentroidEntry[] = [];
+  for (const k of changedClusterIndices) {
+    // New clusters (k >= seedCount) were already written with their final
+    // centroid/count in newPeopleDocs above, so they skip a second write.
+    if (k >= seedCount) continue;
+
+    const personId = centroids[k].person_id;
+    centroidsToPersist.push({
       person_id: personId,
       centroid: Float32Array.from(pass.clusters[k].centroid),
       face_count: pass.clusters[k].face_count,
     });
   }
-  await persistCentroids(centroids);
+  await persistCentroids(centroidsToPersist);
 
   // Backfill cover thumbs for any live person without one. Covers may be
   // missing on rows created before cover-seeding landed, or on people
@@ -247,31 +274,6 @@ export async function runOnlineClustering(
 // `./cluster-load.ts` so it can run on the cluster Worker off the main
 // thread — see #710. This file keeps only the cheap, write-side Mongo
 // concerns below.
-
-async function createAutoPerson(
-  name: string,
-  /** The new cluster's centroid from the clustering pass — already
-   * L2-normalised by `clusterEmbeddings` (it equals `l2Normalise(face)` for
-   * a 1-member cluster). Written as-is; `persistCentroids` rewrites it with
-   * the same value later in this run, so re-normalising would be a no-op. */
-  seedCentroid: Float32Array,
-  coverAssetId: ObjectId,
-  coverBbox: Bbox,
-): Promise<ObjectId> {
-  const peopleC = await peopleCollection();
-  const doc: PersonDoc = {
-    name,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    merged_into: null,
-    centroid: Array.from(seedCentroid),
-    centroid_face_count: 1,
-    cover_asset_id: coverAssetId.toHexString(),
-    cover_bbox: coverBbox,
-  };
-  const result = await peopleC.insertOne(doc as PersonDoc);
-  return result.insertedId;
-}
 
 /**
  * Set `cover_asset_id` on every live person that is missing one (no field,
@@ -403,18 +405,20 @@ async function doBackfillCoverAssets(): Promise<void> {
 }
 
 async function persistCentroids(centroids: CentroidEntry[]): Promise<void> {
+  if (centroids.length === 0) return;
   const peopleC = await peopleCollection();
-  for (const c of centroids) {
-    await peopleC.updateOne(
-      { _id: c.person_id },
-      {
+  const ops = centroids.map((c) => ({
+    updateOne: {
+      filter: { _id: c.person_id },
+      update: {
         $set: {
           centroid: Array.from(c.centroid),
           centroid_face_count: c.face_count,
         },
       },
-    );
-  }
+    },
+  }));
+  await peopleC.bulkWrite(ops);
 }
 
 function bufferAssignment(

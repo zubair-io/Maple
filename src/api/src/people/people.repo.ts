@@ -466,10 +466,28 @@ export async function assignFaceToPerson(
     { _id: assetId },
     { $set: { [`faces.${faceIndex}.person_id`]: personHex } },
   );
-  // Only this asset's people set changed — re-index exactly it. Re-queuing
-  // the prior/new person's whole corpus would be wasteful (and could flood
-  // the worker for a heavily-photographed person).
+
+  // Mark affected people as "dirty" so their centroids are recomputed on
+  // the next clustering pass.
   if (priorPersonId !== null || personHex !== null) {
+    const peopleC = await peopleCollection();
+    const dirtyIds: ObjectId[] = [];
+    if (priorPersonId) {
+      const oid = safeObjectId(priorPersonId);
+      if (oid) dirtyIds.push(oid);
+    }
+    if (personId) dirtyIds.push(personId);
+
+    if (dirtyIds.length > 0) {
+      await peopleC.updateMany(
+        { _id: { $in: dirtyIds } },
+        { $set: { centroid_face_count: -1, updated_at: nowIso() } },
+      );
+    }
+
+    // Only this asset's people set changed — re-index exactly it. Re-queuing
+    // the prior/new person's whole corpus would be wasteful (and could flood
+    // the worker for a heavily-photographed person).
     markAssetIdsForMeiliReindexBestEffort([assetId]);
   }
 }
@@ -505,9 +523,20 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
       },
     },
   );
-  // Hiding drops the face's person — only this asset's blob loses the name
-  // token, so re-index just it rather than the whole person's corpus.
-  if (priorPersonId) markAssetIdsForMeiliReindexBestEffort([assetId]);
+
+  // Hiding drops the face's person — mark them as "dirty" for recompute and
+  // re-index only this asset.
+  if (priorPersonId) {
+    const oid = safeObjectId(priorPersonId);
+    if (oid) {
+      const peopleC = await peopleCollection();
+      await peopleC.updateOne(
+        { _id: oid },
+        { $set: { centroid_face_count: -1, updated_at: nowIso() } },
+      );
+    }
+    markAssetIdsForMeiliReindexBestEffort([assetId]);
+  }
 }
 
 /**
