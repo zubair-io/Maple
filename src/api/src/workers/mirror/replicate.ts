@@ -11,8 +11,7 @@
 import { mkdir, copyFile, stat, utimes, open, rename, unlink } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import * as path from 'node:path';
-
-let _tmpCounter = 0;
+import { randomBytes } from 'node:crypto';
 
 /**
  * Decide whether the mirror needs (re)replicating from the primary. True when
@@ -46,7 +45,7 @@ export async function statOrNull(p: string): Promise<Stats | null> {
  */
 export async function copyFileToMirror(src: string, dst: string): Promise<void> {
   await mkdir(path.dirname(dst), { recursive: true });
-  const tmp = `${dst}.mirror.tmp.${process.pid}.${_tmpCounter++}`;
+  const tmp = `${dst}.mirror.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
   try {
     await copyFile(src, tmp);
     try {
