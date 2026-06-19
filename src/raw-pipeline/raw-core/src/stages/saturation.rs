@@ -48,7 +48,7 @@ const GAMUT_EPS: f32 = 1e-5;
 /// Pulled out of `apply` so the unit tests can exercise the per-pixel
 /// behaviour without building an `Image`.
 #[inline]
-fn apply_pixel(rgb: [f32; 3], scale: f32) -> [f32; 3] {
+pub(crate) fn apply_pixel(rgb: [f32; 3], scale: f32) -> [f32; 3] {
     let lab = rec2020_to_oklab(rgb);
     let (l, a, b) = (lab[0], lab[1], lab[2]);
 

@@ -16,25 +16,31 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// are locked by the pre-ship calibration pass.
 pub fn apply(img: &mut Image, vibrance: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if vibrance.abs() < 1e-3 { return; }
+    if vibrance.abs() < 1e-3 {
+        return;
+    }
     let amount = vibrance / 100.0;
 
     for p in &mut img.pixels {
-        let lab = rec2020_to_oklab(*p);
-        let (l, a, b) = (lab[0], lab[1], lab[2]);
-        let chroma = (a * a + b * b).sqrt();
-        if chroma < 1e-6 {
-            // Near-neutral pixel — nothing meaningful to scale.
-            continue;
-        }
-        let hue_deg = b.atan2(a) * 180.0 / std::f32::consts::PI; // [-180, 180]
-        let skin_mask = smoothstep(15.0, 22.0, hue_deg) * (1.0 - smoothstep(35.0, 42.0, hue_deg));
-        let low_chroma_factor = 1.0 - (chroma / 0.3).min(1.0);
-        let chroma_boost = low_chroma_factor * amount * (1.0 - skin_mask * 0.6);
-        let scale = 1.0 + chroma_boost;
-        let new_lab = [l, a * scale, b * scale];
-        *p = oklab_to_rec2020(new_lab);
+        *p = apply_pixel(*p, amount);
     }
+}
+
+pub(crate) fn apply_pixel(rgb: [f32; 3], amount: f32) -> [f32; 3] {
+    let lab = rec2020_to_oklab(rgb);
+    let (l, a, b) = (lab[0], lab[1], lab[2]);
+    let chroma = (a * a + b * b).sqrt();
+    if chroma < 1e-6 {
+        // Near-neutral pixel — nothing meaningful to scale.
+        return rgb;
+    }
+    let hue_deg = b.atan2(a) * 180.0 / std::f32::consts::PI; // [-180, 180]
+    let skin_mask = smoothstep(15.0, 22.0, hue_deg) * (1.0 - smoothstep(35.0, 42.0, hue_deg));
+    let low_chroma_factor = 1.0 - (chroma / 0.3).min(1.0);
+    let chroma_boost = low_chroma_factor * amount * (1.0 - skin_mask * 0.6);
+    let scale = 1.0 + chroma_boost;
+    let new_lab = [l, a * scale, b * scale];
+    oklab_to_rec2020(new_lab)
 }
 
 #[cfg(test)]
