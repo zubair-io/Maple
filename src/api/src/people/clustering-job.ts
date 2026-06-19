@@ -192,16 +192,23 @@ export async function runOnlineClustering(
     assigned += 1;
   }
 
-  // Apply buffered assignments per asset doc. One updateOne per asset is
-  // simpler than bulkWrite + arrayFilters on the rare hot-spot asset; the
-  // total face count is small.
+  // Apply buffered assignments per asset doc via bulk write.
   const assets = await assetsCollection();
+  const assetUpdates = [];
   for (const entry of perAsset.values()) {
     const set: Record<string, string> = {};
     for (const u of entry.updates) {
       set[`faces.${u.index}.person_id`] = u.personId;
     }
-    await assets.updateOne({ _id: entry.assetId }, { $set: set });
+    assetUpdates.push({
+      updateOne: {
+        filter: { _id: entry.assetId },
+        update: { $set: set },
+      },
+    });
+  }
+  if (assetUpdates.length > 0) {
+    await assets.bulkWrite(assetUpdates);
   }
 
   // Persist refreshed centroids so subsequent runs converge. The pass
@@ -404,16 +411,20 @@ async function doBackfillCoverAssets(): Promise<void> {
 
 async function persistCentroids(centroids: CentroidEntry[]): Promise<void> {
   const peopleC = await peopleCollection();
-  for (const c of centroids) {
-    await peopleC.updateOne(
-      { _id: c.person_id },
-      {
+  const updates = centroids.map((c) => ({
+    updateOne: {
+      filter: { _id: c.person_id },
+      update: {
         $set: {
           centroid: Array.from(c.centroid),
           centroid_face_count: c.face_count,
         },
       },
-    );
+    },
+  }));
+
+  if (updates.length > 0) {
+    await peopleC.bulkWrite(updates);
   }
 }
 
