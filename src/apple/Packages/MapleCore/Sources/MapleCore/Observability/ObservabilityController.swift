@@ -370,7 +370,7 @@ public final class ObservabilityController {
                 domain: "ObservabilityConfigClient",
                 code: 401,
                 userInfo: [NSLocalizedDescriptionKey:
-                    "Not signed in to \(server.host ?? server.absoluteString). Sign in via the Self Hosted tab."])
+                    "Not signed in to \(server.host ?? server.absoluteString). Sign in via the Cloud tab."])
         }
         let httpClient = AuthenticatedHTTPClient(
             server: server,

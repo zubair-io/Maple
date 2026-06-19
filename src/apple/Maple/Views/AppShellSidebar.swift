@@ -33,6 +33,8 @@ struct AppShellSidebar: View {
     let onPickCloudLibrary: (URL, String, String) -> Void
     let onListCloudDir: (URL, String) async -> FsDirListing?
     let onSignOutCloudServer: (URL) -> Void
+    let onSignInCloudServer: (URL) -> Void
+    let sessionFor: @MainActor (URL) -> AuthSession
     let onRemoveCloudServer: (URL) -> Void
     let onLoadCloudFolders: (URL) async -> [CloudFolder]
 
@@ -52,6 +54,8 @@ struct AppShellSidebar: View {
             onListCloudDir: onListCloudDir,
             cloudCurrentPath: cloudCurrentPath,
             onSignOutCloudServer: onSignOutCloudServer,
+            onSignInCloudServer: onSignInCloudServer,
+            sessionFor: sessionFor,
             onRemoveCloudServer: onRemoveCloudServer,
             onLoadCloudFolders: onLoadCloudFolders
         )

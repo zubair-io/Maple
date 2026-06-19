@@ -12,7 +12,7 @@ struct FileProviderSettingsViewIOS: View {
             Form {
                 Section {
                     if registry.servers.isEmpty {
-                        Text("No Maple servers paired. Add one from the Self Hosted tab.")
+                        Text("No Maple servers paired. Add one from the Cloud tab.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("file-provider-no-servers")

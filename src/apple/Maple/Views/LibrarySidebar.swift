@@ -56,6 +56,12 @@ struct LibrarySidebar: View {
     let cloudCurrentPath: String?
     /// Right-click → Sign out on a cloud server header.
     let onSignOutCloudServer: (URL) -> Void
+    /// Present sign-in for a cloud server — the sidebar "Sign in" affordance /
+    /// signed-out state (#1381). Prefilled re-auth.
+    let onSignInCloudServer: (URL) -> Void
+    /// Resolve the AuthSession for a server URL so each CloudServerSection can
+    /// observe its signed-in state and surface "Sign in" when de-authed (#1381).
+    let sessionFor: @MainActor (URL) -> AuthSession
     /// Right-click → Remove server on a cloud server header.
     let onRemoveCloudServer: (URL) -> Void
     /// Lazily load the folders for a server (called from CloudServerSection's
@@ -314,7 +320,9 @@ struct LibrarySidebar: View {
                     onRemoveServer: { onRemoveCloudServer(url) },
                     onRename: { newName in
                         registry.setDisplayName(newName, for: url)
-                    }
+                    },
+                    session: sessionFor(url),
+                    onSignIn: { onSignInCloudServer(url) }
                 )
                 .task {
                     if cloudFoldersByServer[url] == nil {
@@ -832,6 +840,8 @@ private struct _LibrarySidebarPreviewWrapper: View {
       onListCloudDir: { _, _ in nil },
       cloudCurrentPath: nil,
       onSignOutCloudServer: { _ in },
+      onSignInCloudServer: { _ in },
+      sessionFor: { AuthSession.preview(server: $0) },
       onRemoveCloudServer: { _ in },
       onLoadCloudFolders: { _ in [] }
     )

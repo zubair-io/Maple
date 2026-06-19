@@ -42,6 +42,12 @@ struct CloudServerSection: View {
   /// Persist a new display name (nil clears the override). Wired to a
   /// "Rename…" context menu action that prompts for a string.
   let onRename: (String?) -> Void
+  /// The server's auth session. Observed — reading `isSignedIn` here makes the
+  /// "Sign in" affordance appear the instant a mid-session 401 de-auths the
+  /// server (#1381).
+  let session: AuthSession
+  /// Present sign-in for this server (prefilled re-auth).
+  let onSignIn: () -> Void
 
   /// Per-server tree state — kept here (not on individual rows) so the
   /// disclosure state and fetched listings survive sibling re-renders.
@@ -56,6 +62,23 @@ struct CloudServerSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       header
+      // Signed out (token cleared by a failed refresh, or an explicit sign
+      // out) — a visible way back in, not just a context-menu item (#1381).
+      if !session.isSignedIn {
+        Button(action: onSignIn) {
+          HStack(spacing: 6) {
+            Image(systemName: "person.crop.circle.badge.exclamationmark")
+            Text("Sign in")
+          }
+          .font(.callout.weight(.semibold))
+          .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+          .padding(.vertical, 4)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+        .accessibilityIdentifier("cloud.signIn.\(serverURL.host ?? serverURL.absoluteString)")
+      }
       if isExpanded {
         // Reversed to match the grid's first-level folder order (#782).
         ForEach(Array(folders.reversed())) { folder in
@@ -119,7 +142,11 @@ struct CloudServerSection: View {
         Label("Rename…", systemImage: "pencil")
       }
       Divider()
-      Button("Sign out", action: onSignOut)
+      if session.isSignedIn {
+        Button("Sign out", action: onSignOut)
+      } else {
+        Button("Sign in", action: onSignIn)
+      }
       Button("Remove server", role: .destructive, action: onRemoveServer)
     }
   }
@@ -155,7 +182,9 @@ private struct _CloudServerSectionPreviewWrapper: View {
       cloudCurrentPath: nil,
       onSignOut: {},
       onRemoveServer: {},
-      onRename: { _ in }
+      onRename: { _ in },
+      session: AuthSession.preview(),
+      onSignIn: {}
     )
     .padding()
     .background(MapleTokens.sidebar)

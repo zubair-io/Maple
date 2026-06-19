@@ -257,7 +257,7 @@ struct SettingsView: View {
                 .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
                 .tag(SettingsTab.backup)
             SelfHostedSettingsTab()
-                .tabItem { Label("Self Hosted", systemImage: "cloud") }
+                .tabItem { Label("Cloud", systemImage: "cloud") }
                 .tag(SettingsTab.selfHosted)
             PanoSettingsView()
                 .tabItem { Label("Pano", systemImage: "photo.stack") }
@@ -304,7 +304,15 @@ private struct GeneralSettingsTab: View {
 /// ones.
 private struct SelfHostedSettingsTab: View {
     @State private var registry = CloudServerRegistry.shared
-    @State private var showAddSheet = false
+    /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(host)`
+    /// for a per-server "Sign In" (#1381).
+    @State private var sheetTarget: AddCloudSheetTarget?
+    /// Per-server signed-in state, derived from Keychain token presence. This
+    /// is a separate macOS Settings scene, so it can't observe the app's
+    /// AuthSession cache — but a failed refresh clears the tokens, so token
+    /// presence is an accurate "signed in?" signal. Refreshed on appear, on
+    /// registry changes, and after the sign-in sheet closes.
+    @State private var signedIn: [URL: Bool] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -334,6 +342,15 @@ private struct SelfHostedSettingsTab: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
+                            // Signed out (token cleared by a failed refresh, or
+                            // a server signed out) — offer a way back in (#1381).
+                            if signedIn[url] == false {
+                                Button("Sign In") {
+                                    sheetTarget = .prefilled(url.host ?? url.absoluteString)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                            }
                             Button(role: .destructive) {
                                 registry.remove(url)
                             } label: {
@@ -353,14 +370,17 @@ private struct SelfHostedSettingsTab: View {
 
             HStack {
                 Spacer()
-                Button("Add Server…") { showAddSheet = true }
+                Button("Add Server…") { sheetTarget = .fresh }
                     .keyboardShortcut("n", modifiers: .command)
             }
         }
         .padding(24)
-        .sheet(isPresented: $showAddSheet) {
+        .task { refreshSignedIn() }
+        .onChange(of: registry.servers) { _, _ in refreshSignedIn() }
+        .sheet(item: $sheetTarget) { target in
             AddMapleCloudSheet(
-                onDismiss: { showAddSheet = false },
+                prefilledDomain: target.prefill,
+                onDismiss: { sheetTarget = nil },
                 onSignedIn: { url, tokens, _ in
                     Task { @MainActor in
                         // Don't swallow a save failure: if the token can't be
@@ -374,10 +394,29 @@ private struct SelfHostedSettingsTab: View {
                             signInLog.error("failed to persist tokens for \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
                         }
                         registry.register(url)
-                        showAddSheet = false
+                        sheetTarget = nil
+                        refreshSignedIn()
                     }
                 }
             )
         }
+    }
+
+    /// Re-read Keychain token presence for every registered server.
+    private func refreshSignedIn() {
+        var map: [URL: Bool] = [:]
+        for url in registry.servers {
+            // Distinguish "no entry" (definitively signed out → offer Sign In)
+            // from a transient Keychain read failure (locked Keychain /
+            // errSecInteractionNotAllowed). On a read failure, assume signed in
+            // so we don't flash a spurious Sign In button — mirrors the
+            // transient-vs-definitive handling in AuthSession.bootstrapAndRestore.
+            do {
+                map[url] = try TokenStore.load(server: url) != nil
+            } catch {
+                map[url] = true
+            }
+        }
+        signedIn = map
     }
 }

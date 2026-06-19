@@ -117,7 +117,7 @@ struct FileProviderSettingsView: View {
         Form {
             Section {
                 if registry.servers.isEmpty {
-                    Text("No Maple servers paired. Switch to the Self Hosted tab to add one.")
+                    Text("No Maple servers paired. Switch to the Cloud tab to add one.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("file-provider-no-servers")
