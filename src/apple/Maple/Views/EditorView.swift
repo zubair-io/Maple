@@ -509,6 +509,29 @@ struct EditorView: View {
             .accessibilityIdentifier("editor-canvas-placeholder")
     }
 
+    /// "4.2 MB / 12 MB" or "4.2 MB" when the total is unknown. Adaptive units
+    /// via `ByteCountFormatStyle`, monospaced digits at the call-site keep the
+    /// number stable as bytes tick up. Local helper rather than two inline
+    /// `.formatted(...)` calls per render — the placeholder re-evaluates on
+    /// every `receivedBytes` Observable write, and a one-call hoisted helper
+    /// keeps the body terse.
+    private func downloadByteCountText(for progress: DownloadProgress) -> String {
+        let style = ByteCountFormatStyle(style: .file)
+        let received = progress.receivedBytes.formatted(style)
+        if let total = progress.expectedBytes, total > 0 {
+            return "\(received) / \(total.formatted(style))"
+        }
+        return received
+    }
+
+    /// Speed rendered as "320 KB" / "1.2 MB" — the calling site adds the "/ s"
+    /// suffix so a future change to a different cadence label (e.g. "/ min")
+    /// only touches that one line. `Int64` cast is safe here because
+    /// `DownloadProgress.bytesPerSecond` is a non-negative running average and
+    /// real network rates fit Int64.max by orders of magnitude.
+    private func downloadSpeedText(_ bytesPerSecond: Double) -> String {
+        Int64(bytesPerSecond).formatted(ByteCountFormatStyle(style: .file))
+    }
     @ViewBuilder
     private var downloadOverlay: some View {
         if let progress = state.session.downloadProgress, progress.isDownloading {
@@ -528,6 +551,18 @@ struct EditorView: View {
                 Text("Downloading\u{2026}")
                     .font(.caption)
                     .foregroundStyle(MapleTokens.textMuted)
+                // Bytes received / total + running-average speed. Both lines
+                // are derived from `DownloadProgress`'s Observable state so
+                // they tick alongside the progress bar without a timer.
+                Text(downloadByteCountText(for: progress))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(MapleTokens.textMuted)
+                if let speed = progress.bytesPerSecond {
+                    Text("\(downloadSpeedText(speed)) / s")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(MapleTokens.textMuted)
+                        .accessibilityIdentifier("editor-download-speed")
+                }
             }
             .padding(24)
         }
