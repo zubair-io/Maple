@@ -20,12 +20,14 @@ pub(super) fn rotate_and_slice_f32_rgba(
     let (rect_x, rect_y, rect_w, rect_h) = rect_in_pixels(crop, w, h);
     let sw = w as f32;
     let sh = h as f32;
-    let cx = sw / 2.0;
-    let cy = sh / 2.0;
     // Inverse rotation: source = R(-θ) · (dest - centre) + centre.
     let theta = crop.angle.to_radians();
-    let cos_t = (-theta).cos();
-    let sin_t = (-theta).sin();
+    let params = RotationParams {
+        cx: sw / 2.0,
+        cy: sh / 2.0,
+        cos_t: (-theta).cos(),
+        sin_t: (-theta).sin(),
+    };
     let dw = rect_w as usize;
     let dh = rect_h as usize;
     let mut out = vec![0.0f32; dw * dh * 4];
@@ -35,7 +37,7 @@ pub(super) fn rotate_and_slice_f32_rgba(
             // origin + offset, sample at pixel centre (`+ 0.5`).
             let dx = (rect_x as f32) + (xp as f32) + 0.5;
             let dy = (rect_y as f32) + (yp as f32) + 0.5;
-            let (sx, sy) = inverse_rotate(dx, dy, cx, cy, cos_t, sin_t);
+            let (sx, sy) = inverse_rotate(dx, dy, &params);
             // Subtract the half-pixel offset before sampling — the bilinear
             // sampler indexes into the centre of pixels.
             let sample = sample_rgba(rgba, w, h, sx - 0.5, sy - 0.5);
@@ -58,11 +60,13 @@ pub(super) fn rotate_and_slice_u8_rgb(
     let (rect_x, rect_y, rect_w, rect_h) = rect_in_pixels(crop, w, h);
     let sw = w as f32;
     let sh = h as f32;
-    let cx = sw / 2.0;
-    let cy = sh / 2.0;
     let theta = crop.angle.to_radians();
-    let cos_t = (-theta).cos();
-    let sin_t = (-theta).sin();
+    let params = RotationParams {
+        cx: sw / 2.0,
+        cy: sh / 2.0,
+        cos_t: (-theta).cos(),
+        sin_t: (-theta).sin(),
+    };
     let dw = rect_w as usize;
     let dh = rect_h as usize;
     let mut out = vec![0u8; dw * dh * 3];
@@ -70,7 +74,7 @@ pub(super) fn rotate_and_slice_u8_rgb(
         for xp in 0..dw {
             let dx = (rect_x as f32) + (xp as f32) + 0.5;
             let dy = (rect_y as f32) + (yp as f32) + 0.5;
-            let (sx, sy) = inverse_rotate(dx, dy, cx, cy, cos_t, sin_t);
+            let (sx, sy) = inverse_rotate(dx, dy, &params);
             let sample = sample_rgb_u8(rgb, w, h, sx - 0.5, sy - 0.5);
             let di = (yp * dw + xp) * 3;
             out[di] = sample[0];
@@ -81,12 +85,19 @@ pub(super) fn rotate_and_slice_u8_rgb(
     (rect_w, rect_h, out)
 }
 
+struct RotationParams {
+    cx: f32,
+    cy: f32,
+    cos_t: f32,
+    sin_t: f32,
+}
+
 #[inline]
-fn inverse_rotate(dx: f32, dy: f32, cx: f32, cy: f32, cos_t: f32, sin_t: f32) -> (f32, f32) {
-    let rx = dx - cx;
-    let ry = dy - cy;
-    let sx = rx * cos_t - ry * sin_t + cx;
-    let sy = rx * sin_t + ry * cos_t + cy;
+fn inverse_rotate(dx: f32, dy: f32, p: &RotationParams) -> (f32, f32) {
+    let rx = dx - p.cx;
+    let ry = dy - p.cy;
+    let sx = rx * p.cos_t - ry * p.sin_t + p.cx;
+    let sy = rx * p.sin_t + ry * p.cos_t + p.cy;
     (sx, sy)
 }
 
