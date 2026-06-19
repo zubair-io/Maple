@@ -37,6 +37,12 @@ use rayon::prelude::*;
 /// (the `guided_filter` base/detail decomposition) call `box_blur_into`
 /// directly with a reused scratch arena so they don't re-allocate per pass
 /// — see #1089 item 7.
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct GuidedOptions {
+    pub r: usize,
+    pub eps: f32,
+}
+
 pub(crate) fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     if r == 0 { return buf.to_vec(); }
     let mut out = vec![0.0f32; buf.len()];
@@ -266,12 +272,11 @@ pub(crate) fn guided_filter(
     p: &[f32],
     w: usize,
     h: usize,
-    r: usize,
-    eps: f32,
+    opts: GuidedOptions,
 ) -> Vec<f32> {
     assert_eq!(guide.len(), p.len());
     let n = guide.len();
-    if r == 0 {
+    if opts.r == 0 {
         return p.to_vec();
     }
     // Hard assert (not debug-only): `guided_filter` is a coarse-grained entry
@@ -358,14 +363,14 @@ pub(crate) fn guided_filter(
         rayon::join(
             || {
                 rayon::join(
-                    || box_blur_into(guide, mi, s0r, s0c, w, h, r),
-                    || box_blur_into(p, mp, s1r, s1c, w, h, r),
+                    || box_blur_into(guide, mi, s0r, s0c, w, h, opts.r),
+                    || box_blur_into(p, mp, s1r, s1c, w, h, opts.r),
                 )
             },
             || {
                 rayon::join(
-                    || box_blur_into(&ip, mip, s2r, s2c, w, h, r),
-                    || box_blur_into(&ii, mii, s3r, s3c, w, h, r),
+                    || box_blur_into(&ip, mip, s2r, s2c, w, h, opts.r),
+                    || box_blur_into(&ii, mii, s3r, s3c, w, h, opts.r),
                 )
             },
         );
@@ -384,11 +389,11 @@ pub(crate) fn guided_filter(
             // box-mean roundoff at zero (#1088), mirroring the sibling
             // at `stages::guided`. Without the clamp, scene-linear luma
             // ≫ 1 makes the `mean_ii - mean_i²` cancellation error
-            // comparable to `eps`, which can flip the `var_i + eps`
+            // comparable to `opts.eps`, which can flip the `var_i + opts.eps`
             // denominator sign and blow `a_i` up unboundedly in flat
             // bright regions.
             let var_i = (mean_ii[i] - mean_i[i] * mean_i[i]).max(0.0);
-            let a_i = cov_ip / (var_i + eps);
+            let a_i = cov_ip / (var_i + opts.eps);
             let b_i = mean_p[i] - a_i * mean_i[i];
             *a_slot = a_i;
             *b_slot = b_i;
@@ -408,8 +413,8 @@ pub(crate) fn guided_filter(
         let (s0r, s0c) = (&mut s0_row, &mut s0_col);
         let (s1r, s1c) = (&mut s1_row, &mut s1_col);
         rayon::join(
-            || box_blur_into(&a, ma, s0r, s0c, w, h, r),
-            || box_blur_into(&b, mb, s1r, s1c, w, h, r),
+            || box_blur_into(&a, ma, s0r, s0c, w, h, opts.r),
+            || box_blur_into(&b, mb, s1r, s1c, w, h, opts.r),
         );
     }
 

@@ -1,6 +1,6 @@
 use crate::{
     image::{ColorSpace, Image},
-    stages::blur::guided_filter,
+    stages::blur::{guided_filter, GuidedOptions},
 };
 
 /// Guided-filter window radius for the structure-scale base/detail
@@ -103,7 +103,16 @@ pub fn apply(img: &mut Image, clarity: f32) {
               + LUMA_REC2020[2] * p[2])
         .collect();
     // Edge-preserving base (low-frequency, no cross-edge bleed).
-    let base = guided_filter(&luma_plane, &luma_plane, w, h, CLARITY_GUIDED_RADIUS, CLARITY_EPS);
+    let base = guided_filter(
+        &luma_plane,
+        &luma_plane,
+        w,
+        h,
+        GuidedOptions {
+            r: CLARITY_GUIDED_RADIUS,
+            eps: CLARITY_EPS,
+        },
+    );
 
     for (i, p) in img.pixels.iter_mut().enumerate() {
         let luma = luma_plane[i];
