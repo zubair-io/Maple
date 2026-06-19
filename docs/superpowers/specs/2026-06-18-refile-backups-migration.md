@@ -16,13 +16,12 @@ in the **wrong folder**, and the existing migrations never pick them up.
 
 `restructure-backup-geo` gates its candidate query on
 `backup_layout_version != 2` and stamps `backup_layout_version: 2` once it has
-processed an asset ([restructure-backup-geo.ts:58,161](../../src/api/src/workers/migration/restructure-backup-geo.ts)).
-The stamp is written even on a **no-op** move: when `computeGeoDir` finds no
-usable location segments (an unresolved-geocode stub `place`), it returns the
-asset's *current* directory, the move collapses to a stamp-only update, and the
-asset is marked "done"
-([restructure-backup-geo.ts:90-93](../../src/api/src/workers/migration/restructure-backup-geo.ts) +
-the `noop` branch in [move-backup-asset.ts:133-151](../../src/api/src/workers/migration/move-backup-asset.ts)).
+processed an asset (its `candidateFilter` plus the `extraSet` stamp it passed to
+`moveBackupAsset` — both removed by this PR). The stamp is written even on a
+**no-op** move: when `computeGeoDir` finds no usable location segments (an
+unresolved-geocode stub `place`), it returns the asset's *current* directory, the
+move collapses to a stamp-only update, and the asset is marked "done" (the
+`noop` branch in [move-backup-asset.ts:133-151](../../src/api/src/workers/migration/move-backup-asset.ts)).
 
 Nothing ever clears that stamp. So any backup the geo migration touched **before
 its geocode resolved** is frozen in place: when geocoding later fills in `place`,
@@ -276,6 +275,8 @@ TDD on `computeCanonicalDir` first. Port every case from the deleted path-tests
 - **e2e through `moveBackupAsset`** against real temp dirs (no fs mocks), asserting
   the file lands at the new path, the source is gone, `fileinfo[0]` is repointed,
   and the `thumb`/`preview` cache stages are reset.
+- **No stall / auto-finish:** a missing-source asset is stamped (drops out, never
+  re-fetched), and a completed sweep auto-disables its own toggle.
 
 Run: `cd src/api && bun test` (the CI gate). No new tsc errors vs. main.
 
@@ -285,8 +286,9 @@ Operator enables **Refile backups** on `/settings/workers`; it runs batch-by-bat
 to completion, then idles. Each move is logged. Progress (processed / errors) and
 the pending count surface in the workers UI, and the worker-level pause/resume
 applies. Cancellable at any time via the per-migration toggle; re-enabling resumes
-(already-stamped assets are skipped). **Disable the toggle once it reports done**
-so its `countRemaining` scan stops contributing to the status pill (see Risks).
+(already-stamped assets are skipped). On completion the worker **auto-disables the
+toggle**, so a finished sweep stops contributing a `countRemaining` scan to the
+status pill — no manual disable needed.
 
 ## Risks
 
@@ -300,7 +302,11 @@ so its `countRemaining` scan stops contributing to the status pill (see Risks).
   mover. No-op moves for already-correct assets are gated and cheap.
 - **Candidate-query scan cost** is bounded by the partial index (§6), which
   confines it to the backup subset. It still scans that subset each tick while the
-  migration runs, so — as an operational practice — **disable the toggle once it
-  reports done**: an enabled-but-finished migration keeps contributing a
-  `countRemaining` scan to the status pill, which (unlike the tick loop) does not
-  skip `done` migrations ([migration.ts:54-56](../../src/api/src/workers/migration.ts)).
+  migration runs; on completion the worker **auto-disables the migration**
+  (`runMigrationTickOnce` sets `enabled: false` when `countRemaining` hits 0), so a
+  finished sweep no longer contributes a `countRemaining` scan to the status pill
+  (`migrationPendingCount` skips disabled migrations).
+- **Persistent move failures don't stall the sweep.** A missing source original
+  (`SourceMissingError`) is stamped `v3` and left to the missing-reaper, so it
+  drops out of the candidate set instead of head-of-line-blocking the unsorted
+  `find()` batch every tick. Genuinely transient errors stay unstamped for retry.

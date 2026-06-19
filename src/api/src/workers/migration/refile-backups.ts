@@ -186,7 +186,20 @@ export const refileBackups: Migration = {
         if (result === 'moved' || result === 'noop') processed++;
       } catch (err) {
         if (err instanceof SourceMissingError) {
-          log.warn({ _id: String(doc._id), err: err.message }, 'refile: source missing — skipped');
+          // The source original is gone from disk — nothing to move. Stamp it so
+          // the asset drops out of the candidate set instead of being re-fetched
+          // every tick; an entire batch of missing sources would otherwise
+          // head-of-line-block the rest of the library. The missing-reaper owns
+          // the row's eventual cleanup.
+          await coll.updateOne(
+            { _id: doc._id },
+            { $set: { backup_layout_version: BACKUP_LAYOUT_VERSION } },
+          );
+          log.warn(
+            { _id: String(doc._id), err: err.message },
+            'refile: source missing — stamped, left for the reaper',
+          );
+          processed++;
           continue;
         }
         errors++;
