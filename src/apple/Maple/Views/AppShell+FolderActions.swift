@@ -64,7 +64,11 @@ extension AppShell {
         mode = .browse
 
         for asset in browseVM.assets where sessions[asset.id] == nil {
-            let session = EditSession(asset: asset)
+            // FileProvider observer (see EditSession+Hydration) drives this
+            // when the URL is a Files-app / iCloud sidebar asset; local files
+            // never call begin() so the overlay stays hidden.
+            let session = EditSession(asset: asset,
+                                      downloadProgress: DownloadProgress())
             sessions[asset.id] = session
             Task { await session.loadSidecar() }
         }
@@ -135,7 +139,10 @@ extension AppShell {
     func openEditor(for asset: AssetRef) {
         // Make sure the session exists (usually pre-created by primeSessions…).
         if sessions[asset.id] == nil {
-            let session = EditSession(asset: asset)
+            // FileProvider observer drives this on Files-app picks; local
+            // files never call begin() and stay overlay-free.
+            let session = EditSession(asset: asset,
+                                      downloadProgress: DownloadProgress())
             sessions[asset.id] = session
             Task { await session.loadSidecar() }
         }
@@ -373,7 +380,12 @@ extension AppShell {
                 assetID: assetID,
                 httpClient: makeAuthenticatedHTTPClient(server: serverID))
         }()
-        let session = EditSession(asset: asset, remoteSidecarStore: remoteStore)
+        // FileProvider observer is no-op for cloud-library assets (sourceless
+        // — no primaryURL), so passing DownloadProgress here is safe; the
+        // overlay only fires when the observer's begin() runs.
+        let session = EditSession(asset: asset,
+                                  remoteSidecarStore: remoteStore,
+                                  downloadProgress: DownloadProgress())
         sessions[asset.id] = session
         Task { await session.loadSidecar() }
     }

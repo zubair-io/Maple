@@ -113,6 +113,15 @@ final class GpuLiveCanvasController {
             // render — subsequent frames ride the scheduler on edits.
             session.previewSize = size
             session.ensureRenderStarted()
+            // Cloud / sourceless cold-open follow-up (#1362): when the canvas
+            // doesn't have `nativeImageSize` until the decode publishes, the
+            // first render happens BEFORE this controller mounts, so it lands
+            // on CPU. `ensureRenderStarted` then short-circuits subsequent
+            // renders (its `renderedPreview == nil` guard) and the chip stays
+            // on CPU until the user drags a slider. This kicks one explicit
+            // render against the now-registered layer so the GPU path engages
+            // and the chip flips immediately.
+            session.kickRenderAfterGpuCanvasMount()
         } else if size != session.previewSize {
             // A resize re-targets the decode (and re-opens the upload-once
             // session at the new dims) via the scheduler's refine path.

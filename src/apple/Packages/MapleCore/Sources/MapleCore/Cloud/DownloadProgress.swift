@@ -36,6 +36,11 @@ public final class DownloadProgress {
     /// failure). The editor shows the bar only while this is `true`.
     public private(set) var isDownloading: Bool = false
 
+    /// When `begin(...)` was called — anchor for the running-average speed
+    /// computation. `nil` before the first `begin` so a freshly constructed
+    /// progress object reports no speed.
+    private var startedAt: Date?
+
     public init(expectedBytes: Int64? = nil) {
         self.expectedBytes = expectedBytes
     }
@@ -50,6 +55,20 @@ public final class DownloadProgress {
         return min(max(f, 0), 1)
     }
 
+    /// Running-average download speed in bytes per second, computed against
+    /// the wall-clock anchor stamped at `begin`. Returns `nil` before the
+    /// first reported chunk lands and during the very first 100 ms (the
+    /// rate isn't meaningful inside that window — a single chunk skews
+    /// arbitrarily). Recomputed on every Observable read (the body re-fires
+    /// whenever `receivedBytes` updates, so it ticks smoothly as the
+    /// download progresses without needing a timer).
+    public var bytesPerSecond: Double? {
+        guard let startedAt, receivedBytes > 0 else { return nil }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        guard elapsed >= 0.1 else { return nil }
+        return Double(receivedBytes) / elapsed
+    }
+
     /// Mark the fetch as started. Resets the byte counter and adopts the
     /// best-known total. Pass the catalog size up front so the bar is
     /// determinate from the first frame even before the HTTP response
@@ -61,6 +80,7 @@ public final class DownloadProgress {
             self.expectedBytes = expectedBytes
         }
         self.isDownloading = true
+        self.startedAt = Date()
     }
 
     /// Update the received-byte count (and, when newly known, the total).

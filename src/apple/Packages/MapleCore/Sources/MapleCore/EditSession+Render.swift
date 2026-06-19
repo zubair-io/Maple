@@ -48,6 +48,26 @@ extension EditSession {
         await decodeAndRender(targetSize: nil, phase: .refine, gen: gen)
     }
 
+    /// Schedule a fast-phase render WITHOUT going through `openAssetPipelineAsync`.
+    /// Reuses the decoded buffer cache; just kicks `decodeAndRender(.fast)` so
+    /// the next `presentViaGpuLive` runs against the current model.
+    ///
+    /// Surfaced for `GpuLiveCanvasController.layoutAndPresent` to call after
+    /// `driver.register(layer:)` fires: in a cold-open with no `nativeImageSize`
+    /// seed (cloud-loaded asset, sourceless PhotoKit, etc.), the canvas can't
+    /// mount until the decode publishes a buffer extent. The cold-open's first
+    /// render then publishes via the CPU path (because `hasLayer` was false at
+    /// that moment) — `ensureRenderStarted`'s `renderedPreview == nil` guard
+    /// then short-circuits any follow-up render, so the chip stays on CPU until
+    /// the user drags a slider. This method is the canvas controller's "I just
+    /// registered, please re-render" hook: cheap (no decode), bypasses the
+    /// preview-set guard. (#1362 follow-up — caught on iPad with self-hosted
+    /// cloud assets where the bytes download adds seconds to canvas-mount.)
+    public func kickRenderAfterGpuCanvasMount() {
+        guard gpuLiveDriver?.hasLayer == true, !gpuFramePresented else { return }
+        _scheduleRender(phase: .fast)
+    }
+
     /// Bake the current model against a fresh full-quality decode for export.
     public func renderForExport() async throws -> CIImage {
         let asShot: ImageEditPipeline.AsShotWB? = {

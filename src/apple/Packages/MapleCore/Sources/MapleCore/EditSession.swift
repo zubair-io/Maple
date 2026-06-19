@@ -323,6 +323,13 @@ public final class EditSession {
     /// when the asset switches or the session deinits.
     @ObservationIgnored var tileEventsTask: Task<Void, Never>?
 
+    /// Observer that drives `downloadProgress` while iOS/macOS materializes
+    /// a FileProvider-backed asset (Files-app sidebar / iCloud Drive).
+    /// Created lazily by `openAssetPipelineAsync` for URL-backed assets;
+    /// stays nil for cloud-search opens (those drive progress via
+    /// `CloudByteDownloadBox`) and for sourceless assets without a URL.
+    @ObservationIgnored var fileProviderObserver: FileProviderDownloadObserver?
+
     /// Visible region in oriented full-image source-pixel coords. Set
     /// by `FullImageView` via `updateTileVisibleRegion(viewport:zoom:)`.
     /// `_scheduleRefine`'s deep-zoom branch reads this when targeting
