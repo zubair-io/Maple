@@ -31,7 +31,7 @@ enum CloudFoldersListing {
                 domain: "CloudFoldersListing",
                 code: 401,
                 userInfo: [NSLocalizedDescriptionKey:
-                    "Not signed in to \(server.host ?? server.absoluteString). Sign in via the Self Hosted tab."]
+                    "Not signed in to \(server.host ?? server.absoluteString). Sign in via the Cloud tab."]
             )
         }
         let httpClient = makeHTTPClient(server: server)

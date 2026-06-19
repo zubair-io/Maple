@@ -155,7 +155,7 @@ struct BackupSettingsView: View {
   @ViewBuilder
   private var serverPicker: some View {
     if registry.servers.isEmpty {
-      Text("No servers paired. Switch to the Self Hosted tab to add one.")
+      Text("No servers paired. Switch to the Cloud tab to add one.")
         .font(.callout)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("backup.noServers")
