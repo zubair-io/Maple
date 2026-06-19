@@ -192,108 +192,97 @@ async function resolveAssetPaths(
 
   const coll = await assetsCollection();
 
-  for (const rawPath of paths) {
-    // ── Normalize input path (collapse `..` and resolve symlinks) ─────────
-    // This is the primary security fix: `fs.realpath` collapses traversal
-    // sequences like `/lib/../../etc/hosts` to `/etc/hosts` so that
-    // `isUnderRoot` cannot be fooled by a path that lexically starts with
-    // the library root prefix but physically escapes it. This mirrors the
-    // `real = await realpath(reqPath)` step in browse.ts's `listDir` and
-    // `listDirContents`.
-    //
-    // If realpath fails the file does not exist on disk — we cannot stitch
-    // a non-existent file, so we reject immediately (400) without touching
-    // the jail check or the indexer.
-    let absPath: string;
-    try {
-      absPath = await fs.realpath(rawPath);
-    } catch {
-      throw Object.assign(new Error(`Path does not exist or cannot be accessed: ${rawPath}`), {
-        status: 400,
-        code: 'path_not_found',
-      });
-    }
-
-    // ── Security boundary ──────────────────────────────────────────────────
-    // Check against the realpath-canonicalized roots so a symlinked root
-    // (e.g. /Volumes/Photos → /private/mnt/…) still matches.
-    const owningRoot = canonRoots.find((root) => isUnderRoot(absPath, root));
-    if (!owningRoot) {
-      throw Object.assign(
-        new Error(
-          `Path is outside every registered library root and cannot be stitched: ${absPath}`,
-        ),
-        { status: 400, code: 'path_outside_library' },
-      );
-    }
-    const owningFolderId = canonRootToFolderId.get(owningRoot)!;
-
-    // ── Resolve by filename (same approach as browse.ts) ──────────────────
-    // We check ALL fileinfo entries on each matching doc (not just the
-    // primary) so that a deduplicated asset — where two paths with identical
-    // content share one Mongo document — resolves correctly for both paths.
-    const filename = path.basename(absPath);
-
-    const findDocByPath = async (): Promise<string | null> => {
-      const cur = coll.find(
-        { 'fileinfo.filename': filename },
-        { projection: { _id: 1, fileinfo: 1 } },
-      );
-      for await (const doc of cur) {
-        const entries = (doc.fileinfo ?? []) as Array<{
-          path: string;
-          filename: string;
-          library_id: { toHexString(): string };
-          deleted_at?: string | null;
-          missing_since?: string | null;
-        }>;
-        for (const entry of entries) {
-          if (entry.deleted_at || entry.missing_since) continue;
-          const libId = entry.library_id.toHexString();
-          // Use the canonicalized root (realpath'd) so the path comparison
-          // matches the normalized absPath on systems where the stored
-          // folder.path differs from its realpath (e.g. macOS /var vs
-          // /private/var). Fall back to the raw stored root if not found.
-          const libRoot = libIdToCanonRoot.get(libId) ?? libs.get(libId);
-          if (!libRoot) continue;
-          const segments = entry.path === '' ? [] : entry.path.split('/');
-          const resolved = path.join(libRoot, ...segments, entry.filename);
-          if (resolved === absPath) return doc._id.toHexString();
-        }
+  // ── 1. Normalize all paths ─────────────────────────────────────────────
+  const normalized = await Promise.all(
+    paths.map(async (rawPath) => {
+      let absPath: string;
+      try {
+        absPath = await fs.realpath(rawPath);
+      } catch {
+        throw Object.assign(new Error(`Path does not exist or cannot be accessed: ${rawPath}`), {
+          status: 400,
+          code: 'path_not_found',
+        });
       }
-      return null;
-    };
 
-    const found = await findDocByPath();
+      const owningRoot = canonRoots.find((root) => isUnderRoot(absPath, root));
+      if (!owningRoot) {
+        throw Object.assign(
+          new Error(
+            `Path is outside every registered library root and cannot be stitched: ${absPath}`,
+          ),
+          { status: 400, code: 'path_outside_library' },
+        );
+      }
+      const owningFolderId = canonRootToFolderId.get(owningRoot)!;
+      const filename = path.basename(absPath);
+      return { rawPath, absPath, owningRoot, owningFolderId, filename };
+    }),
+  );
+
+  // ── 2. Bulk-fetch candidate docs by filename ───────────────────────────
+  const allFilenames = [...new Set(normalized.map((p) => p.filename))];
+  const candidateDocs = await coll
+    .find({ 'fileinfo.filename': { $in: allFilenames } }, { projection: { _id: 1, fileinfo: 1 } })
+    .toArray();
+
+  // Helper to match a normalized path against either the bulk-fetched docs
+  // or a fresh search (used after on-demand indexing).
+  const findInDocs = (
+    absPath: string,
+    filename: string,
+    docs: Array<{ _id: ObjectId; fileinfo: any }>,
+  ): string | null => {
+    for (const doc of docs) {
+      const entries = (doc.fileinfo ?? []) as Array<{
+        path: string;
+        filename: string;
+        library_id: { toHexString(): string };
+        deleted_at?: string | null;
+        missing_since?: string | null;
+      }>;
+      for (const entry of entries) {
+        if (entry.filename !== filename) continue;
+        if (entry.deleted_at || entry.missing_since) continue;
+        const libId = entry.library_id.toHexString();
+        const libRoot = libIdToCanonRoot.get(libId) ?? libs.get(libId);
+        if (!libRoot) continue;
+        const segments = entry.path === '' ? [] : entry.path.split('/');
+        const resolved = path.join(libRoot, ...segments, entry.filename);
+        if (resolved === absPath) return doc._id.toHexString();
+      }
+    }
+    return null;
+  };
+
+  // ── 3. Resolve each path ───────────────────────────────────────────────
+  for (const p of normalized) {
+    const found = findInDocs(p.absPath, p.filename, candidateDocs);
 
     if (found) {
       resolvedIds.push(found);
       continue;
     }
 
-    // ── Index on-demand ────────────────────────────────────────────────────
+    // ── Index on-demand ──────────────────────────────────────────────────
     // The file is not yet in the assets collection. Run `handleEvent` —
     // the same per-file code path the discover producer uses — to create
     // the skeleton asset doc. This is lightweight: it hashes the file head
     // and upserts a fileinfo entry; heavy enrichment (thumb, exif, etc.)
     // runs asynchronously on the normal worker schedule.
-    //
-    // NOTE: absPath here is the realpath-normalized value — not the raw
-    // client-supplied string. The indexer receives the canonical path so
-    // the stored fileinfo entry is consistent with what a filesystem walk
-    // would produce.
-    log.info({ absPath }, 'pano/stitch: indexing file on-demand');
+    log.info({ absPath: p.absPath }, 'pano/stitch: indexing file on-demand');
     const { handleEvent } = await import('../workers/discover/index.ts');
-    await handleEvent({ kind: 'created', absPath }, owningFolderId, owningRoot);
+    await handleEvent({ kind: 'created', absPath: p.absPath }, p.owningFolderId, p.owningRoot);
     indexedCount++;
 
-    // Re-query after index to get the newly created _id. Use the same
-    // all-entries scan so a deduped doc (two files with identical content
-    // sharing one row) resolves correctly for the newly appended location.
-    const afterId = await findDocByPath();
+    // Re-query after index to get the newly created _id.
+    const freshDocs = await coll
+      .find({ 'fileinfo.filename': p.filename }, { projection: { _id: 1, fileinfo: 1 } })
+      .toArray();
+    const afterId = findInDocs(p.absPath, p.filename, freshDocs);
 
     if (!afterId) {
-      throw Object.assign(new Error(`Failed to index file on-demand: ${absPath}`), {
+      throw Object.assign(new Error(`Failed to index file on-demand: ${p.absPath}`), {
         status: 500,
         code: 'index_on_demand_failed',
       });

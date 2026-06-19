@@ -93,6 +93,16 @@ export const batchJpegExportHandler: JobHandler = {
     const pool = ffiPool();
     const libs = await loadLibraryRoots();
 
+    // Bulk-resolve assets to avoid N+1 queries.
+    const objectIds: ObjectId[] = [];
+    for (const id of assetIds) {
+      if (ObjectId.isValid(id)) {
+        objectIds.push(new ObjectId(id));
+      }
+    }
+    const docs = await coll.find({ _id: { $in: objectIds } }).toArray();
+    const docsById = new Map(docs.map((d) => [d._id.toHexString(), d]));
+
     for (let i = 0; i < assetIds.length; i++) {
       // Cancellation gate — runs before each asset so a request mid-batch
       // takes effect without abandoning a render mid-flight.
@@ -105,7 +115,7 @@ export const batchJpegExportHandler: JobHandler = {
         if (!ObjectId.isValid(idHex)) {
           throw new Error(`invalid ObjectId: ${idHex}`);
         }
-        const doc = await coll.findOne({ _id: new ObjectId(idHex) });
+        const doc = docsById.get(idHex);
         if (!doc) throw new Error(`asset not found: ${idHex}`);
         const srcPath = assetAbsPath(doc, libs);
         if (!srcPath) {

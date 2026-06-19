@@ -141,7 +141,7 @@ export const panoStitchHandler: JobHandler = {
       const docsById = new Map(docs.map((d) => [d._id.toHexString(), d]));
 
       for (const idHex of payload.assetIds) {
-        const doc = docsById.get(new ObjectId(idHex).toHexString());
+        const doc = docsById.get(idHex);
         if (!doc) throw new Error(`pano_stitch: asset not found: ${idHex}`);
         const p = assetAbsPath(doc, libs);
         if (!p) throw new Error(`pano_stitch: asset has no resolvable path: ${idHex}`);
