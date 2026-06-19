@@ -413,6 +413,79 @@ public final class EditorState {
         session.resetToOriginal()
     }
 
+    /// Reset every develop slider to its FACTORY default, point white balance
+    /// at the camera's As-Shot reading (falling back to the 6500 K / 0 default
+    /// when no As-Shot value was captured), and restore the Auto profile.
+    /// Crop / rotation is deliberately preserved — RESET clears develop
+    /// adjustments, never the user's framing. Applied as ONE undo entry
+    /// (`commit()` then a single `session.model` write, mirroring
+    /// `applyPreset`). (#1372)
+    public func resetToFactoryDefaults() {
+        commit()
+        var m = AdjustmentModel.default
+        m.crop = session.model.crop // preserve crop / rotation
+        if let cct = session.asShotCCT, let tint = session.asShotTint {
+            m.temperature = cct
+            m.tint = tint
+        }
+        m.profile = .auto
+        session.model = m
+    }
+
+    // MARK: AUTO (#1379)
+
+    /// True while an AUTO analysis is running — drives the AUTO button's
+    /// disabled + progress state. Observed (`@Observable`).
+    public private(set) var autoInProgress = false
+
+    /// Monotonic guard so a slow AUTO result can't clobber a newer edit or a
+    /// filmstrip image switch.
+    @ObservationIgnored private var autoGeneration: UInt64 = 0
+
+    /// Test seam: the analyzer `applyAuto` calls. Defaults to the real FFI;
+    /// tests inject a deterministic result so they need no RAW fixture.
+    @ObservationIgnored
+    var autoProvider: @Sendable (URL) async throws -> AutoAdjustmentsResult = { url in
+        try await AutoAdjustments.compute(forRawAt: url)
+    }
+
+    /// Analyse the scene and apply AUTO's exposure + white balance as ONE undo
+    /// entry (`commit()` then a single `session.model` write). Async — the
+    /// analysis decodes + develops a probe buffer. Generation-guarded so a
+    /// stale result can't overwrite a newer edit / image switch. The five tone
+    /// sliders are intentionally NOT written (auto-tone deferred to #1376).
+    ///
+    /// AE contract: AUTO's exposure is measured against an AE-Off probe. On the
+    /// default `Profile.auto` the Apple decode already forces auto-exposure off,
+    /// so the recommendation lands correctly; the explicit `autoExposure = Off`
+    /// pairing for `Profile.neutral` is tracked as a follow-up (M3).
+    public func applyAuto() async {
+        guard let url = session.asset.primaryURL else { return } // RAW path only
+        autoGeneration &+= 1
+        let gen = autoGeneration
+        autoInProgress = true
+        defer { if gen == autoGeneration { autoInProgress = false } }
+
+        let result: AutoAdjustmentsResult
+        do {
+            result = try await autoProvider(url)
+        } catch {
+            return // leave the model untouched; the button re-enables
+        }
+        // Drop a stale result: a newer AUTO ran, or the user switched images.
+        guard gen == autoGeneration, session.asset.primaryURL == url else { return }
+
+        func clamp(_ v: Double, _ r: ClosedRange<Double>) -> Double {
+            min(max(v, r.lowerBound), r.upperBound)
+        }
+        commit()
+        var m = session.model
+        m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
+        m.temperature = clamp(result.temperature, AdjustmentModel.temperatureRange)
+        m.tint = clamp(result.tint, AdjustmentModel.tintRange)
+        session.model = m
+    }
+
     // MARK: Presets (#1115, spec §10.7)
 
     /// Apply a preset: sparse merge of its recognized fields into the
