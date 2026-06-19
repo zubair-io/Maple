@@ -29,16 +29,22 @@ import FileProvider
 #endif
 
 /// Drives `DownloadProgress` while iOS/macOS materializes a FileProvider-
-/// backed file. No-op for local files. Cancels the underlying download on
-/// `stop()` so an in-flight materialization doesn't outlive the editor's
-/// interest in the asset.
+/// backed file. No-op for local files.
+///
+/// `stop()` cancels the local poll loop and flips the bound `DownloadProgress`
+/// to `finish()`, so the editor's overlay dismisses immediately. It does NOT
+/// abort the underlying `NSFileProviderManager.requestDownloadForItem` — the
+/// Swift refined API returns void, so there's no `Progress` handle to cancel.
+/// The system download continues in the background until the FileProvider
+/// extension completes it.
 @MainActor
 public final class FileProviderDownloadObserver {
-    /// Cancellation flag for the polling task. Re-checked after every sleep
-    /// so `stop()` ends the loop within one poll interval (~200 ms).
-    private var isCancelled: Bool = false
-    /// Background poll loop. Kept around so `stop()` can cancel it.
+    /// Background poll loop. Kept around so `stop()` can cancel it via
+    /// `Task.cancel()` — that propagates into the loop as `Task.isCancelled`.
     private var pollTask: Task<Void, Never>?
+    /// Weak reference to the sink so `stop()` can call `finish()` without
+    /// keeping the progress alive past the editor session.
+    private weak var progressSink: DownloadProgress?
 
     public init() {}
 
@@ -66,6 +72,7 @@ public final class FileProviderDownloadObserver {
         // renders the bar indeterminate until the poll loop learns more.
         let initialExpected = Self.fileSize(of: url)
         progress.begin(expectedBytes: initialExpected)
+        self.progressSink = progress
 
         // (3) Resolve the domain so we can build a per-domain manager. A nil
         // domainID corresponds to the system's default domain — we leave the
@@ -91,12 +98,11 @@ public final class FileProviderDownloadObserver {
             }
         }
 
-        // (5) Poll the URL's file-size resource keys every ~200 ms,
-        // forwarding the partial size into `DownloadProgress.report`.
-        // Bails when the URL reports `.current` ubiquity status (download
-        // complete) or when `stop()` flips `isCancelled`.
-        pollTask = Task { [weak self, weak progress] in
-            await self?.pollLoop(url: url, expected: initialExpected, progress: progress)
+        // (5) Detached so the URL-resource read (which can hit disk) doesn't
+        // block MainActor. The loop hops back to MainActor only for the brief
+        // `progress.report` / `progress.finish` writes.
+        pollTask = Task.detached { [weak progress] in
+            await Self.runPollLoop(url: url, initialExpected: initialExpected, progress: progress)
         }
         #else
         _ = url
@@ -104,12 +110,14 @@ public final class FileProviderDownloadObserver {
         #endif
     }
 
-    /// Cancel the poll loop and finish the progress observation. Safe to
-    /// call multiple times.
+    /// Cancel the poll loop and finish the bound progress so the editor's
+    /// overlay dismisses. Does NOT cancel the underlying FileProvider
+    /// download — see the class header. Safe to call multiple times.
     public func stop() {
-        isCancelled = true
         pollTask?.cancel()
         pollTask = nil
+        progressSink?.finish()
+        progressSink = nil
     }
 
     deinit {
@@ -120,27 +128,31 @@ public final class FileProviderDownloadObserver {
     // MARK: - Internals
 
     #if canImport(FileProvider)
+    /// Off-MainActor loop. URL resource resolution runs on a cooperative
+    /// thread; only the `DownloadProgress` writes hop to MainActor. Cancels
+    /// via `Task.isCancelled` (propagated from `pollTask?.cancel()`).
     @available(macOS 13.0, iOS 16.0, *)
-    private func pollLoop(url: URL, expected initialExpected: Int64?, progress: DownloadProgress?) async {
+    nonisolated private static func runPollLoop(
+        url: URL,
+        initialExpected: Int64?,
+        progress: DownloadProgress?
+    ) async {
         var lastExpected: Int64? = initialExpected
-        // `pollLoop` inherits MainActor isolation from the @MainActor class, so
-        // `isCancelled` and `progress.report(...)` are reachable without an
-        // actor hop. `Task.sleep` yields the actor, which is the only reason
-        // this loop doesn't peg the main thread between polls.
-        while !Task.isCancelled, !isCancelled {
+        while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 200_000_000)
-            guard !Task.isCancelled, !isCancelled else { break }
+            guard !Task.isCancelled else { break }
             guard let progress else { break }
 
-            let (received, total, isDone) = Self.snapshot(url: url)
-            if let total, total > 0 {
+            let snap = Self.snapshot(url: url)
+            if let total = snap.total, total > 0 {
                 lastExpected = total
             }
-            progress.report(received: received, total: lastExpected)
-            if isDone {
-                progress.finish()
-                break
+            let expected = lastExpected
+            await MainActor.run {
+                progress.report(received: snap.received, total: expected)
+                if snap.isDone { progress.finish() }
             }
+            if snap.isDone { break }
         }
     }
 
@@ -174,8 +186,10 @@ public final class FileProviderDownloadObserver {
     /// is `totalFileAllocatedSizeKey` (bytes on disk so far for a
     /// materializing FileProvider item) falling back to `fileSizeKey`;
     /// `total` is `fileSizeKey`; `isDone` is true when the URL reports
-    /// ubiquity status `.current` or when received >= total.
-    private static func snapshot(url: URL) -> (received: Int64, total: Int64?, isDone: Bool) {
+    /// ubiquity status `.current` or when received >= total. Nonisolated so
+    /// the off-MainActor poll loop can read URL resource values without an
+    /// actor hop per tick.
+    nonisolated private static func snapshot(url: URL) -> (received: Int64, total: Int64?, isDone: Bool) {
         let keys: Set<URLResourceKey> = [
             .fileSizeKey,
             .totalFileAllocatedSizeKey,
