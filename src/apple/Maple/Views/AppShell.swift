@@ -108,6 +108,10 @@ struct AppShell: View {
     /// presentation + payload as one optional eliminates the "what
     /// was the prefill last time?" hazard from a separate `@State`.
     @State var addCloudSheetTarget: AddCloudSheetTarget?
+    /// #1381 — the cloud folder to reopen after a re-sign-in triggered by an
+    /// auth error. Set alongside `addCloudSheetTarget = .prefilled(...)`;
+    /// replayed (then cleared) by the sheet's `onSignedIn`.
+    @State var pendingCloudReopen: PendingCloudOpen?
 
     // Dynamic toolbar title — reflects the last-loaded source/filter.
     @State var libraryTitle: String = "All"
@@ -313,7 +317,12 @@ struct AppShell: View {
         .sheet(item: $addCloudSheetTarget) { target in
             AddMapleCloudSheet(
                 prefilledDomain: target.prefill,
-                onDismiss: { addCloudSheetTarget = nil },
+                onDismiss: {
+                    addCloudSheetTarget = nil
+                    // The user backed out of re-signing-in — drop any pending
+                    // folder reopen so it can't replay on a later sign-in.
+                    pendingCloudReopen = nil
+                },
                 onSignedIn: { url, tokens, _ in
                     Task { @MainActor in
                         try? TokenStore.save(tokens, server: url)
@@ -323,6 +332,15 @@ struct AppShell: View {
                         let session = sessionFor(url)
                         await session.bootstrapAndRestore()
                         addCloudSheetTarget = nil
+                        // #1381: if this sign-in was triggered by a folder open
+                        // that hit an auth error, replay that load now so the
+                        // user lands on their photos, not the error screen.
+                        if let pending = pendingCloudReopen, pending.serverID == url {
+                            pendingCloudReopen = nil
+                            loadCloudLibrary(serverID: pending.serverID,
+                                             folderID: pending.folderID,
+                                             libraryPath: pending.libraryPath)
+                        }
                     }
                 }
             )
@@ -527,6 +545,12 @@ struct AppShell: View {
                     await session.signOut()
                 }
             },
+            onSignInCloudServer: { url in
+                // Sidebar "Sign in" — present prefilled re-auth for this
+                // server. A pending folder reopen (if any) replays on success.
+                addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
+            },
+            sessionFor: sessionFor,
             onRemoveCloudServer: { url in
                 Task { @MainActor in
                     // Remove drops tokens, the registry entry, AND the File

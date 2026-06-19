@@ -138,6 +138,11 @@ extension AppShell {
                 await session.bootstrapAndRestore()
             }
             guard session.isSignedIn else {
+                // #1381 — stash the target so the sign-in sheet replays this
+                // folder once the user re-authenticates.
+                pendingCloudReopen = PendingCloudOpen(serverID: serverID,
+                                                      folderID: folderID,
+                                                      libraryPath: libraryPath)
                 addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
                 return
             }
@@ -175,6 +180,21 @@ extension AppShell {
                                                                 libraryPath: registered.path))
                         await browseVM.loadCloudDir(source, absPath: registered.path)
                     }
+                }
+
+                // #1381 — a token revoked mid-session 401s the load above; the
+                // refresh fails and credentials get cleared. Re-present sign-in
+                // (replaying this folder afterward) instead of stranding the
+                // user on an error banner with no way back in.
+                if ReauthDecision.needsSignIn(isSignedIn: session.isSignedIn,
+                                              loadError: browseVM.loadError) {
+                    pendingCloudReopen = PendingCloudOpen(serverID: serverID,
+                                                          folderID: folderID,
+                                                          libraryPath: libraryPath)
+                    if addCloudSheetTarget == nil {
+                        addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
+                    }
+                    return
                 }
 
                 libraryTitle = cloudLibraryTitle(serverID: serverID,

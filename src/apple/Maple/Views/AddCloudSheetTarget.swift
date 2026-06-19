@@ -27,3 +27,14 @@ enum AddCloudSheetTarget: Identifiable, Equatable {
         }
     }
 }
+
+// MARK: - Pending cloud reopen (#1381)
+
+/// A cloud folder the user was trying to open when an auth error forced a
+/// re-sign-in. Stashed so the sign-in sheet's success handler can replay the
+/// load and land the user on their photos instead of the error screen.
+struct PendingCloudOpen: Equatable {
+    let serverID: URL
+    let folderID: String
+    let libraryPath: String
+}
