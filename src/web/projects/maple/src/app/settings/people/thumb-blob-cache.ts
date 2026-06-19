@@ -16,12 +16,6 @@
 //     owned by that singleton — we deliberately do NOT revoke them.
 //   * URLs we minted via `URL.createObjectURL` (the orphan-cover fallback)
 //     are tracked in `ownedBlobUrls` and revoked by {@link destroy}.
-//
-// Usage:
-//   const cache = new ThumbBlobCache(api, fsBrowse);
-//   cache.ensure(absPath, absPath, apiAssetId);
-//   const url = cache.url(absPath);
-//   ngOnDestroy() { cache.destroy(); }
 
 import { Signal, signal, untracked } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
