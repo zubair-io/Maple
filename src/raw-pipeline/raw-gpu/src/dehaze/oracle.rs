@@ -141,9 +141,18 @@ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     out
 }
 
+#[derive(Clone, Copy)]
+struct GuidedFilterConfig {
+    w: usize,
+    h: usize,
+    r: usize,
+    eps: f32,
+}
+
 /// GENERAL guided filter (guide != p) — faithful to
 /// `raw_core::stages::dehaze::guided_filter`. Six box blurs over the cross terms.
-fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
+fn guided_filter(guide: &[f32], p: &[f32], config: GuidedFilterConfig) -> Vec<f32> {
+    let GuidedFilterConfig { w, h, r, eps } = config;
     let n = guide.len();
     let mean_i = box_blur(guide, w, h, r);
     let mean_p = box_blur(p, w, h, r);
@@ -246,7 +255,16 @@ pub fn apply_dehaze(buf: &mut [f32], width: usize, height: usize, dehaze: f32) {
         .iter()
         .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
-    let t_refined = guided_filter(&guide, &t_raw, width, height, GUIDED_RADIUS as usize, GUIDED_EPS);
+    let t_refined = guided_filter(
+        &guide,
+        &t_raw,
+        GuidedFilterConfig {
+            w: width,
+            h: height,
+            r: GUIDED_RADIUS as usize,
+            eps: GUIDED_EPS,
+        },
+    );
 
     let sky = sky_mask(&dc, width, height);
     recover_with_mask(&mut pixels, dehaze, &t_refined, a, &sky);

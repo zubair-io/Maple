@@ -67,6 +67,13 @@ fn mask_params(amount: f32, feather: f32) -> (f32, f32, f32) {
     (e0, e1, ev)
 }
 
+pub struct VignetteOptions {
+    pub origin: (u32, u32),
+    pub full: (u32, u32),
+    pub amount: f32,
+    pub feather: f32,
+}
+
 /// Window-aware vignette on an interleaved RGBA f32 buffer (alpha
 /// untouched). This is the CPU oracle — a line-for-line port of
 /// `raw_core::stages::vignette::apply_windowed`. `origin` is the buffer's
@@ -75,15 +82,13 @@ fn mask_params(amount: f32, feather: f32) -> (f32, f32, f32) {
 /// doesn't enqueue the pass), mirroring raw-core's `apply` early-return;
 /// this oracle applies unconditionally so partial-engagement tests stay
 /// honest.
-pub fn apply_vignette(
-    buf: &mut [f32],
-    width: usize,
-    height: usize,
-    origin: (u32, u32),
-    full: (u32, u32),
-    amount: f32,
-    feather: f32,
-) {
+pub fn apply_vignette(buf: &mut [f32], width: usize, height: usize, options: VignetteOptions) {
+    let VignetteOptions {
+        origin,
+        full,
+        amount,
+        feather,
+    } = options;
     debug_assert_eq!(buf.len(), width * height * 4);
     let (e0, e1, ev) = mask_params(amount, feather);
     let inv_half_w = 2.0 / full.0 as f32;

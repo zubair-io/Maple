@@ -150,18 +150,29 @@ struct ApplyParams {
     _pad0: u32,
 }
 
+pub struct DispatchArgs<'a> {
+    pub ctx: &'a GpuContext,
+    pub encoder: &'a mut wgpu::CommandEncoder,
+    pub pipeline: &'a wgpu::ComputePipeline,
+    pub params_bytes: &'a [u8],
+    pub buffers: &'a [&'a wgpu::Buffer],
+    pub count: u32,
+    pub label: &'a str,
+}
+
 /// One compute dispatch over `[params, buffers...]` (params at binding 0). A local
 /// copy of the spatial substrate's `encode_simple` shape; capture-sharpening keeps
 /// its own so the kernel labels read in-stage.
-fn dispatch(
-    ctx: &GpuContext,
-    encoder: &mut wgpu::CommandEncoder,
-    pipeline: &wgpu::ComputePipeline,
-    params_bytes: &[u8],
-    buffers: &[&wgpu::Buffer],
-    count: u32,
-    label: &str,
-) {
+fn dispatch(args: DispatchArgs) {
+    let DispatchArgs {
+        ctx,
+        encoder,
+        pipeline,
+        params_bytes,
+        buffers,
+        count,
+        label,
+    } = args;
     let params_buf = ctx
         .device
         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -194,22 +205,34 @@ fn dispatch(
     pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
 }
 
+pub struct GaussArgs<'a> {
+    pub ctx: &'a GpuContext,
+    pub encoder: &'a mut wgpu::CommandEncoder,
+    pub kernel: &'a wgpu::Buffer,
+    pub klen: u32,
+    pub input: &'a wgpu::Buffer,
+    pub output: &'a wgpu::Buffer,
+    pub scratch: &'a wgpu::Buffer,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Encode a separable true-Gaussian blur of a scalar plane: H sweep
 /// (`input` → scratch) then V sweep (scratch → `output`), reading the uploaded
 /// `kernel` both times. Clamp-to-edge borders (the kernel selects this via the
 /// shader). Each sweep is its own dispatch so the V sweep sees the H output.
-#[allow(clippy::too_many_arguments)] // GPU encode plumbing: ctx/encoder/kernel/buffers/dims.
-fn cs_gaussian_encode(
-    ctx: &GpuContext,
-    encoder: &mut wgpu::CommandEncoder,
-    kernel: &wgpu::Buffer,
-    klen: u32,
-    input: &wgpu::Buffer,
-    output: &wgpu::Buffer,
-    scratch: &wgpu::Buffer,
-    width: u32,
-    height: u32,
-) {
+fn cs_gaussian_encode(args: GaussArgs) {
+    let GaussArgs {
+        ctx,
+        encoder,
+        kernel,
+        klen,
+        input,
+        output,
+        scratch,
+        width,
+        height,
+    } = args;
     let count = width * height;
     let pipeline = ctx.cs_gaussian_pipeline();
 
@@ -219,15 +242,15 @@ fn cs_gaussian_encode(
         klen,
         axis: 0,
     };
-    dispatch(
+    dispatch(DispatchArgs {
         ctx,
         encoder,
         pipeline,
-        bytemuck::bytes_of(&h_params),
-        &[kernel, input, scratch],
+        params_bytes: bytemuck::bytes_of(&h_params),
+        buffers: &[kernel, input, scratch],
         count,
-        "cs-gaussian-h",
-    );
+        label: "cs-gaussian-h",
+    });
 
     let v_params = GaussParams {
         width,
@@ -235,15 +258,15 @@ fn cs_gaussian_encode(
         klen,
         axis: 1,
     };
-    dispatch(
+    dispatch(DispatchArgs {
         ctx,
         encoder,
         pipeline,
-        bytemuck::bytes_of(&v_params),
-        &[kernel, scratch, output],
+        params_bytes: bytemuck::bytes_of(&v_params),
+        buffers: &[kernel, scratch, output],
         count,
-        "cs-gaussian-v",
-    );
+        label: "cs-gaussian-v",
+    });
 }
 
 /// Whether `params` is a no-op under raw-core's guard set — if so the stage copies
@@ -303,15 +326,15 @@ impl Pass for CaptureSharpeningPass {
             _pad1: 0,
             _pad2: 0,
         };
-        dispatch(
+        dispatch(DispatchArgs {
             ctx,
             encoder,
-            ctx.cs_extract_pipeline(),
-            bytemuck::bytes_of(&cnt),
-            &[src, &original],
+            pipeline: ctx.cs_extract_pipeline(),
+            params_bytes: bytemuck::bytes_of(&cnt),
+            buffers: &[src, &original],
             count,
-            "cs-extract",
-        );
+            label: "cs-extract",
+        });
 
         // 2. estimate = original.clone().
         let estimate = alloc_plane(ctx, width, height, "cs-estimate");
@@ -326,49 +349,49 @@ impl Pass for CaptureSharpeningPass {
         // 3. N Richardson–Lucy iterations.
         for _ in 0..self.params.iterations {
             // a. blur_est = blur(estimate).
-            cs_gaussian_encode(
+            cs_gaussian_encode(GaussArgs {
                 ctx,
                 encoder,
-                &kernel_buf,
+                kernel: &kernel_buf,
                 klen,
-                &estimate,
-                &blur_est,
-                &gauss_scratch,
+                input: &estimate,
+                output: &blur_est,
+                scratch: &gauss_scratch,
                 width,
                 height,
-            );
+            });
             // b. ratio = clamp(original / max(blur_est, 1e-6), 0, 100).
-            dispatch(
+            dispatch(DispatchArgs {
                 ctx,
                 encoder,
-                ctx.cs_ratio_pipeline(),
-                bytemuck::bytes_of(&cnt),
-                &[&original, &blur_est, &ratio],
+                pipeline: ctx.cs_ratio_pipeline(),
+                params_bytes: bytemuck::bytes_of(&cnt),
+                buffers: &[&original, &blur_est, &ratio],
                 count,
-                "cs-ratio",
-            );
+                label: "cs-ratio",
+            });
             // c. blur_ratio = blur(ratio).
-            cs_gaussian_encode(
+            cs_gaussian_encode(GaussArgs {
                 ctx,
                 encoder,
-                &kernel_buf,
+                kernel: &kernel_buf,
                 klen,
-                &ratio,
-                &blur_ratio,
-                &gauss_scratch,
+                input: &ratio,
+                output: &blur_ratio,
+                scratch: &gauss_scratch,
                 width,
                 height,
-            );
+            });
             // d. estimate *= blur_ratio (in place).
-            dispatch(
+            dispatch(DispatchArgs {
                 ctx,
                 encoder,
-                ctx.cs_multiply_pipeline(),
-                bytemuck::bytes_of(&cnt),
-                &[&estimate, &blur_ratio],
+                pipeline: ctx.cs_multiply_pipeline(),
+                params_bytes: bytemuck::bytes_of(&cnt),
+                buffers: &[&estimate, &blur_ratio],
                 count,
-                "cs-multiply",
-            );
+                label: "cs-multiply",
+            });
         }
 
         // 4. apply: highlight-faded per-channel scale → dst. hi_thresh clamped
@@ -379,15 +402,15 @@ impl Pass for CaptureSharpeningPass {
             hi_thresh: self.params.highlight_threshold.min(0.999),
             _pad0: 0,
         };
-        dispatch(
+        dispatch(DispatchArgs {
             ctx,
             encoder,
-            ctx.cs_apply_pipeline(),
-            bytemuck::bytes_of(&apply_params),
-            &[&original, &estimate, src, dst],
+            pipeline: ctx.cs_apply_pipeline(),
+            params_bytes: bytemuck::bytes_of(&apply_params),
+            buffers: &[&original, &estimate, src, dst],
             count,
-            "cs-apply",
-        );
+            label: "cs-apply",
+        });
     }
 }
 
