@@ -100,12 +100,12 @@ fn value_noise(u: f32, v: f32, seed: u32) -> f32 {
 
 /// Hoist the per-render params exactly as `raw_core::stages::grain::
 /// grain_params` does (same float sequence).
-fn grain_params(amount: f32, size: f32, roughness: f32, long_edge: u32) -> (f32, f32, f32) {
-    let pitch = (GRAIN_PITCH_MIN + (size / 100.0) * (GRAIN_PITCH_MAX - GRAIN_PITCH_MIN))
+fn grain_params(params: &GrainParams, long_edge: u32) -> (f32, f32, f32) {
+    let pitch = (GRAIN_PITCH_MIN + (params.size / 100.0) * (GRAIN_PITCH_MAX - GRAIN_PITCH_MIN))
         * (long_edge as f32)
         / 2000.0;
-    let k = GRAIN_K * amount / 100.0;
-    let rho = roughness / 100.0;
+    let k = GRAIN_K * params.amount / 100.0;
+    let rho = params.roughness / 100.0;
     (k, 1.0 / pitch, rho)
 }
 
@@ -124,8 +124,7 @@ pub fn apply_grain(
     let (width, height) = dims;
     debug_assert_eq!(buf.len(), width * height * 4);
     let long_edge = full.0.max(full.1);
-    let (k, inv_pitch, rho) =
-        grain_params(params.amount, params.size, params.roughness, long_edge);
+    let (k, inv_pitch, rho) = grain_params(params, long_edge);
     for (row_idx, row) in buf.chunks_exact_mut(width * 4).enumerate() {
         let py = origin.1 + row_idx as u32;
         for (col_idx, px_chunk) in row.chunks_exact_mut(4).enumerate() {
@@ -166,12 +165,7 @@ impl Pass for GrainPass {
     ) {
         let (width, height) = dims;
         let pixel_count = width * height;
-        let (k, inv_pitch, rho) = grain_params(
-            self.params.amount,
-            self.params.size,
-            self.params.roughness,
-            width.max(height),
-        );
+        let (k, inv_pitch, rho) = grain_params(&self.params, width.max(height));
 
         let params = Params {
             k,
