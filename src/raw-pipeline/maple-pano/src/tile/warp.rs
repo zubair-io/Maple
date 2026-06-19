@@ -171,10 +171,6 @@ fn inverse_similarity(sim: &Similarity2d, offset_x: f64, offset_y: f64) -> Simil
     let inv_ty = inv_s * (sin * (-sim.tx) + cos * (-sim.ty));
 
     // Compose with the pre-shift by −offset:
-    // p' = inv_sim(p − offset) = inv_sim.apply(p) − inv_sim.apply(offset)
-    // ... actually simpler: pre-shift before the inverse:
-    // let q = p − offset; result = inv_sim.apply(q)
-    // = inv_sim.apply(p) − inv_sim.apply(offset) + inv_sim.t
     // Pre-compute inv_sim.apply(offset) and fold into the translation.
     let (ox_mapped, oy_mapped) = {
         let rx = cos * offset_x - sin * offset_y;
