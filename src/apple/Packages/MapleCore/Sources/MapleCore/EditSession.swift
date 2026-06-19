@@ -110,6 +110,8 @@ public final class EditSession {
     public var isRendering: Bool = false
     /// Last render error, if any. Views can surface a banner when non-nil.
     public var renderError: Error?
+    /// Last sidecar write error, if any. Views can surface a banner when non-nil.
+    public var sidecarError: Error?
 
     /// True once the wgpu live path has PRESENTED at least one frame into the
     /// canvas `CAMetalLayer` for this session. The GPU path presents directly
@@ -216,6 +218,8 @@ public final class EditSession {
     /// hosted API) where sidecar persistence goes through the source's
     /// `writeXMP` API instead.
     @ObservationIgnored let sidecarStore: (any SidecarStoreProtocol)?
+
+    @ObservationIgnored private var sidecarErrorTask: Task<Void, Never>?
 
     /// The wgpu live-render driver (epic #925, P4b-apple / #1028). Created
     /// lazily ONLY when the runtime flag is on (`GpuLiveFlag.isEnabled` —
@@ -344,6 +348,21 @@ public final class EditSession {
             // Sourceless and no remote store wired — edits are session-local.
             self.sidecarStore = nil
         }
+
+        if let store = self.sidecarStore {
+            sidecarErrorTask = Task { [weak self, store] in
+                for await error in await store.errors() {
+                    guard let self else { return }
+                    await MainActor.run {
+                        self.sidecarError = error
+                    }
+                }
+            }
+        }
+    }
+
+    deinit {
+        sidecarErrorTask?.cancel()
     }
 
     // MARK: - Public lifecycle

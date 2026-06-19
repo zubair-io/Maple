@@ -20,6 +20,9 @@ public protocol SidecarStoreProtocol: Actor {
 
   func update(model: AdjustmentModel, culling: CullingState)
   func flush() async
+
+  /// Returns an async stream of errors encountered during background writes.
+  func errors() -> AsyncStream<Error>
 }
 
 extension XMPSidecarStore: SidecarStoreProtocol {}

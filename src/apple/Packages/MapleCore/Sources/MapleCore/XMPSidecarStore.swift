@@ -32,6 +32,9 @@ public actor XMPSidecarStore {
     private var pendingModel: AdjustmentModel?
     private var pendingCulling: CullingState?
 
+    private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
+    private var nextSubscriberID: UInt64 = 0
+
     static let debounceInterval: Duration = .milliseconds(750)
 
     public init(rawURL: URL) {
@@ -87,6 +90,24 @@ public actor XMPSidecarStore {
         await writePending()
     }
 
+    /// Returns an async stream of errors encountered during background writes.
+    public func errors() -> AsyncStream<Error> {
+        let id = nextSubscriberID
+        nextSubscriberID += 1
+        return AsyncStream { continuation in
+            subscribers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { [weak self] in
+                    await self?.removeSubscriber(id)
+                }
+            }
+        }
+    }
+
+    private func removeSubscriber(_ id: UInt64) {
+        subscribers.removeValue(forKey: id)
+    }
+
     /// Returns the sidecar URL regardless of whether it exists.
     public var url: URL { sidecarURL }
 
@@ -107,8 +128,9 @@ public actor XMPSidecarStore {
         do {
             try writeAtomically(model: model, culling: culling)
         } catch {
-            // TODO: surface write errors to the UI via a publisher
-            _ = error
+            for subscriber in subscribers.values {
+                subscriber.yield(error)
+            }
         }
     }
 

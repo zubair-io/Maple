@@ -16,6 +16,9 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
 
+  private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
+  private var nextSubscriberID: UInt64 = 0
+
   static let debounceInterval: Duration = .milliseconds(750)
 
   public init(server: URL, assetID: String, httpClient: AuthenticatedHTTPClient) {
@@ -60,6 +63,24 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
     await writePending()
   }
 
+  /// Returns an async stream of errors encountered during background writes.
+  public func errors() -> AsyncStream<Error> {
+    let id = nextSubscriberID
+    nextSubscriberID += 1
+    return AsyncStream { continuation in
+      subscribers[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { [weak self] in
+          await self?.removeSubscriber(id)
+        }
+      }
+    }
+  }
+
+  private func removeSubscriber(_ id: UInt64) {
+    subscribers.removeValue(forKey: id)
+  }
+
   // MARK: - Private
 
   private func writePending() async {
@@ -75,8 +96,9 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
       let (data, resp) = try await httpClient.data(for: req)
       try Self.checkOK(resp, data: data)
     } catch {
-      // Best-effort retry; surface to UI in a future iteration.
-      _ = error
+      for subscriber in subscribers.values {
+        subscriber.yield(error)
+      }
     }
   }
 
