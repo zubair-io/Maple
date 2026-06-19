@@ -64,4 +64,36 @@ final class DownloadProgressTests: XCTestCase {
     p.begin(expectedBytes: nil)
     XCTAssertEqual(p.expectedBytes, 500)
   }
+
+  func test_bytesPerSecond_runningAverageSinceBegin() {
+    let start = Date(timeIntervalSince1970: 1_000_000)
+    let p = DownloadProgress()
+    // No report yet → nil regardless of elapsed time.
+    p.begin(expectedBytes: 10_000, at: start)
+    XCTAssertNil(p.bytesPerSecond(asOf: start.addingTimeInterval(5)),
+                 "no bytes received yet → no rate")
+
+    // 500 bytes in, 5 seconds elapsed → 100 B/s exactly.
+    p.report(received: 500, total: nil)
+    XCTAssertEqual(p.bytesPerSecond(asOf: start.addingTimeInterval(5)) ?? -1,
+                   100.0, accuracy: 0.001)
+
+    // 2500 bytes in, 10 seconds elapsed → 250 B/s.
+    p.report(received: 2_500, total: nil)
+    XCTAssertEqual(p.bytesPerSecond(asOf: start.addingTimeInterval(10)) ?? -1,
+                   250.0, accuracy: 0.001)
+  }
+
+  func test_bytesPerSecond_nilInsideFirstHundredMs() {
+    let start = Date(timeIntervalSince1970: 1_000_000)
+    let p = DownloadProgress()
+    p.begin(expectedBytes: 10_000, at: start)
+    p.report(received: 50, total: nil)
+    // Inside the 100ms suppression window — single-chunk samples skew wildly.
+    XCTAssertNil(p.bytesPerSecond(asOf: start.addingTimeInterval(0.05)))
+    XCTAssertNil(p.bytesPerSecond(asOf: start.addingTimeInterval(0.0999)))
+    // At exactly 100ms the rate becomes meaningful.
+    XCTAssertEqual(p.bytesPerSecond(asOf: start.addingTimeInterval(0.1)) ?? -1,
+                   500.0, accuracy: 0.001)
+  }
 }
