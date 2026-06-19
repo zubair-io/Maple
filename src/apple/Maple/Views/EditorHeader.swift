@@ -40,6 +40,39 @@ struct EditorHeader: View {
 
             Spacer(minLength: 0)
 
+            // AUTO — analyse the scene and set exposure + white balance, as
+            // one undo entry (#1379). Disabled when there's no RAW file or an
+            // analysis is already in flight; shows a spinner while running.
+            Button(action: { Task { await state.applyAuto() } }) {
+                if state.autoInProgress {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("Auto")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(
+                            state.session.asset.primaryURL != nil
+                                ? MapleTokens.textMain : MapleTokens.textMuted
+                        )
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(state.session.asset.primaryURL == nil || state.autoInProgress)
+            .accessibilityLabel("Auto adjust")
+            .accessibilityIdentifier("editor-auto")
+
+            // RESET — factory defaults + As-Shot WB + Auto profile, crop
+            // preserved, applied as one undo entry (#1372). Disabled on a
+            // pristine image so it can't push a no-op undo snapshot.
+            Button(action: { state.resetToFactoryDefaults() }) {
+                Text("Reset")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(state.isDirty ? MapleTokens.textMain : MapleTokens.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.isDirty)
+            .accessibilityLabel("Reset all adjustments")
+            .accessibilityIdentifier("editor-reset")
+
             // Tap = undo, long-press = redo. Keep the button enabled
             // whenever either action is reachable so the long-press redo
             // path is still usable after the user undoes their only edit
