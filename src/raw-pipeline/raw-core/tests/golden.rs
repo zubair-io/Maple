@@ -124,20 +124,25 @@ fn run_case(stem: &str, case: &str, class: &str) {
     let resized = out_dir.join(format!("{}_{}_resized.png", stem, case));
     let resize_status = Command::new("python3")
         .arg("-c")
-        .arg(format!(
-            "from PIL import Image; \
-             cand = Image.open(r'{}'); \
-             ref = Image.open(r'{}'); \
-             cand.resize(ref.size, Image.LANCZOS).save(r'{}')",
-            out_png.display(), ref_path.display(), resized.display()
-        ))
+        .arg(
+            "import sys; from PIL import Image; \
+             cand = Image.open(sys.argv[2]); \
+             ref = Image.open(sys.argv[3]); \
+             cand.resize(ref.size, Image.LANCZOS).save(sys.argv[4])",
+        )
+        .arg("--")
+        .arg(&out_png)
+        .arg(&ref_path)
+        .arg(&resized)
         .status()
         .expect("python resize");
     assert!(resize_status.success(), "resize failed");
 
     let script = root.join("src/scripts/compare_images.py");
     let out = Command::new("python3")
+        .arg("--")
         .arg(&script)
+        .arg("--")
         .arg(&resized)
         .arg(&ref_path)
         .output()
