@@ -25,6 +25,7 @@ import {
   loadAllMigrationStates,
   loadMigrationState,
   patchMigrationState,
+  pruneUnknownMigrationStates,
   defaultMigrationState,
   type MigrationState,
 } from './migration-config.repo.ts';
@@ -202,6 +203,12 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
   });
 
   const ready = loadPaused();
+
+  // One-time hygiene: drop persisted state for any migration no longer in the
+  // registry (e.g. the restructure-backup-* migrations this worker replaced) so
+  // `app_settings.migrations` doesn't accumulate dead entries. Best-effort; safe
+  // when Mongo is unreachable (the call swallows the error and returns []).
+  void pruneUnknownMigrationStates(MIGRATIONS.map((m) => m.id));
 
   // Throttled cross-process pause poller: re-reads worker_config.paused from
   // Mongo at most once per 2s so a pause written by the API process takes
