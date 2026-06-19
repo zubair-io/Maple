@@ -328,27 +328,40 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       // contributed to fields we didn't change), then apply live.
       const dbConfig = await loadEnrichmentConfig();
       const resolved = resolveEnrichmentConfig(dbConfig);
-      try {
-        await applyEnrichmentConfig(resolved);
-      } catch (err) {
-        // We already health-checked above, so this shouldn't fire — but if
-        // applyEnrichmentConfig fails (e.g. transient network blip between
-        // the test call and the apply), surface it. The DB row is already
-        // saved; the worker will retry the apply on next boot.
-        const msg = err instanceof Error ? err.message : String(err);
-        log.error({ err: msg }, 'applyEnrichmentConfig failed after save');
+      // Re-apply configurations live. Concurrency avoids head-of-line blocking
+      // when multiple subsystems need to be re-notified after a save.
+      let configApplyErr: string | null = null;
+      await Promise.all([
+        (async () => {
+          try {
+            await applyEnrichmentConfig(resolved);
+          } catch (err) {
+            // We already health-checked above, so this shouldn't fire — but if
+            // applyEnrichmentConfig fails (e.g. transient network blip between
+            // the test call and the apply), surface it. The DB row is already
+            // saved; the worker will retry the apply on next boot.
+            const msg = err instanceof Error ? err.message : String(err);
+            log.error({ err: msg }, 'applyEnrichmentConfig failed after save');
+            configApplyErr = msg;
+          }
+        })(),
+        (async () => {
+          try {
+            await applyDescribeConfig(resolved);
+          } catch (err) {
+            // Like the geocode-side reapply, this shouldn't fail in the
+            // normal path — describe-bootstrap log-and-skips on health-check
+            // failure. We still surface unexpected exceptions so the
+            // operator sees them.
+            const msg = err instanceof Error ? err.message : String(err);
+            log.error({ err: msg }, 'applyDescribeConfig failed after save');
+          }
+        })(),
+      ]);
+
+      if (configApplyErr) {
         set.status = 502;
-        return { error: `Saved, but worker reconfigure failed: ${msg}` };
-      }
-      try {
-        await applyDescribeConfig(resolved);
-      } catch (err) {
-        // Like the geocode-side reapply, this shouldn't fail in the
-        // normal path — describe-bootstrap log-and-skips on health-check
-        // failure. We still surface unexpected exceptions so the
-        // operator sees them.
-        const msg = err instanceof Error ? err.message : String(err);
-        log.error({ err: msg }, 'applyDescribeConfig failed after save');
+        return { error: `Saved, but worker reconfigure failed: ${configApplyErr}` };
       }
 
       // Rebuild the Meilisearch client against the resolved URL so the
