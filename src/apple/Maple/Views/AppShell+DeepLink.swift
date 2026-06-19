@@ -64,20 +64,70 @@ extension AppShell {
 
     /// `maple://source/{id}` handler.
     ///
-    /// Switches to the Library tab and asks the source layer to select
-    /// `id`. The actual source-id → `LibrarySelection` mapping lives in
-    /// the source registries (CloudServerRegistry, SavedFolderStore,
-    /// SMBCredentialStore). Until S1b ships the unified source-picker
-    /// resolver, we log + fall back so the link doesn't crash.
+    /// Switches to the Library tab and resolves the `id` string to a
+    /// `LibrarySelection`. Resolution order:
+    ///   1. PhotoKit Filters (all, favorites, picks, rejects)
+    ///   2. PhotoKit Albums (by localIdentifier)
+    ///   3. Local folders (by absolute path)
+    ///   4. Maple Cloud libraries (by folder ObjectId)
+    ///   5. SMB shares (by user@host/share or host/share)
     ///
     /// Per spec §6 Q1: explicit-link semantics — show the source's
     /// grid, do NOT auto-restore the last-viewed image inside it.
     @MainActor
     private func navigateToSource(id: String) {
-        deepLinkLog.info("deep-link source id=\(id, privacy: .public) — S1b source resolver pending, routing to Library")
+        deepLinkLog.info("deep-link source id=\(id, privacy: .public)")
         dismissAnyActiveSheet()
         switchToLibraryTab()
-        // TODO(#577 S1b): resolve id → LibrarySelection and apply.
+
+        // 1. PhotoKit Filters
+        if let filter = resolvePhotoKitFilter(id: id) {
+            loadPhotos(filter: filter)
+            return
+        }
+
+        // 2. PhotoKit Albums
+        if let album = PhotoKitLibrary.userAlbums().first(where: { $0.id == id }) {
+            loadPhotos(filter: .album(id: album.id, title: album.title))
+            return
+        }
+
+        // 3. Local folders
+        if let folder = SavedFolderStore.load().first(where: { $0.path == id }) {
+            openSavedFolder(folder)
+            return
+        }
+
+        // 4. Maple Cloud libraries (cached lookup)
+        for serverURL in CloudServerRegistry.shared.servers {
+            if let folders = CloudFoldersCache.load(server: serverURL),
+               let folder = folders.first(where: { $0.id == id }) {
+                loadCloudLibrary(serverID: serverURL, folderID: folder.id, libraryPath: folder.path)
+                return
+            }
+        }
+
+        // 5. SMB shares (async lookup)
+        Task { @MainActor in
+            let shares = await SMBCredentialStore.shared.savedShares()
+            if let share = shares.first(where: {
+                "\($0.username)@\($0.host)/\($0.share)" == id || "\($0.host)/\($0.share)" == id
+            }) {
+                connectSavedSMB(share)
+                return
+            }
+            deepLinkLog.error("deep-link source id=\(id, privacy: .public) not found")
+        }
+    }
+
+    private func resolvePhotoKitFilter(id: String) -> PhotoKitFilter? {
+        switch id.lowercased() {
+        case "all", "all-photos": return .all
+        case "favorites":         return .favorites
+        case "picks":             return .picks
+        case "rejects":           return .rejects
+        default:                  return nil
+        }
     }
 
     /// Dismiss any open drawer/sheet so the deep-link destination
