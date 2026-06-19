@@ -24,9 +24,10 @@ fn missing_raw_exits_nonzero_and_not_the_no_preview_sentinel() {
 
     let status = Command::new(env!("CARGO_BIN_EXE_maple-cli"))
         .arg("extract-preview")
-        .arg(&missing)
         .arg("--out")
         .arg(&out)
+        .arg("--")
+        .arg(&missing)
         .output()
         .expect("ran maple-cli extract-preview");
 
@@ -84,9 +85,10 @@ fn embedded_preview_fixture_exits_zero() {
 
     let status = Command::new(env!("CARGO_BIN_EXE_maple-cli"))
         .arg("extract-preview")
-        .arg(&fixture)
         .arg("--out")
         .arg(&out)
+        .arg("--")
+        .arg(&fixture)
         .output()
         .expect("ran maple-cli extract-preview");
 
