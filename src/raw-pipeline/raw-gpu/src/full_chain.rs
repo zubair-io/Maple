@@ -69,7 +69,7 @@ use crate::chain::Pass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
-use crate::grain::GrainPass;
+use crate::grain::{GrainParams, GrainPass};
 use crate::hsl::HslPass;
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
@@ -323,9 +323,11 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     // Film grain (#1110) — display-linear, post-AgX, before the target
     // gamut (the render tail's 16b position).
     suffix.push(Box::new(GrainPass {
-        amount: inputs.grain_amount,
-        size: inputs.grain_size,
-        roughness: inputs.grain_roughness,
+        params: GrainParams {
+            amount: inputs.grain_amount,
+            size: inputs.grain_size,
+            roughness: inputs.grain_roughness,
+        },
     }));
     // target_primaries from FullChainInputs (#1337). The full-chain headless
     // path defaults to 0 (sRGB) via FullChainInputs::default; the live path

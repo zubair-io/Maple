@@ -57,7 +57,7 @@ use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
-use crate::grain::GrainPass;
+use crate::grain::{GrainParams, GrainPass};
 use crate::hsl::HslPass;
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
@@ -337,9 +337,11 @@ pub fn build_live_split(
     // roughness alone never engage the stage.
     if inputs.grain_amount.abs() >= SLIDER_EPS {
         suffix.push(Box::new(GrainPass {
-            amount: inputs.grain_amount,
-            size: inputs.grain_size,
-            roughness: inputs.grain_roughness,
+            params: GrainParams {
+                amount: inputs.grain_amount,
+                size: inputs.grain_size,
+                roughness: inputs.grain_roughness,
+            },
         }));
     }
     // target_primaries from FullChainInputs (#1337): 0 = sRGB (default/legacy),

@@ -28,6 +28,14 @@ use crate::chain::Pass;
 use crate::context::GpuContext;
 use crate::spatial::encode_simple;
 
+/// Slider inputs for the film grain stage.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GrainParams {
+    pub amount: f32,
+    pub size: f32,
+    pub roughness: f32,
+}
+
 /// `repr(C)` params uniform shared by the WGSL kernel (`grain.wgsl`).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -106,20 +114,18 @@ fn grain_params(amount: f32, size: f32, roughness: f32, long_edge: u32) -> (f32,
 /// `raw_core::stages::grain::apply_windowed`. The whole-image
 /// `|amount| < 1e-3` short-circuit is the caller's (the chain doesn't
 /// enqueue the pass).
-#[allow(clippy::too_many_arguments)]
 pub fn apply_grain(
     buf: &mut [f32],
-    width: usize,
-    height: usize,
+    dims: (usize, usize),
     origin: (u32, u32),
     full: (u32, u32),
-    amount: f32,
-    size: f32,
-    roughness: f32,
+    params: &GrainParams,
 ) {
+    let (width, height) = dims;
     debug_assert_eq!(buf.len(), width * height * 4);
     let long_edge = full.0.max(full.1);
-    let (k, inv_pitch, rho) = grain_params(amount, size, roughness, long_edge);
+    let (k, inv_pitch, rho) =
+        grain_params(params.amount, params.size, params.roughness, long_edge);
     for (row_idx, row) in buf.chunks_exact_mut(width * 4).enumerate() {
         let py = origin.1 + row_idx as u32;
         for (col_idx, px_chunk) in row.chunks_exact_mut(4).enumerate() {
@@ -142,13 +148,11 @@ pub fn apply_grain(
     }
 }
 
-/// A GPU-resident film-grain stage. Carries the three slider values; the
+/// A GPU-resident film-grain stage. Carries the slider values; the
 /// window is fixed at origin (0, 0) / full = dims by `encode` (the live
 /// chain renders whole frames — the kernel is window-aware for tiles).
 pub struct GrainPass {
-    pub amount: f32,
-    pub size: f32,
-    pub roughness: f32,
+    pub params: GrainParams,
 }
 
 impl Pass for GrainPass {
@@ -162,7 +166,12 @@ impl Pass for GrainPass {
     ) {
         let (width, height) = dims;
         let pixel_count = width * height;
-        let (k, inv_pitch, rho) = grain_params(self.amount, self.size, self.roughness, width.max(height));
+        let (k, inv_pitch, rho) = grain_params(
+            self.params.amount,
+            self.params.size,
+            self.params.roughness,
+            width.max(height),
+        );
 
         let params = Params {
             k,

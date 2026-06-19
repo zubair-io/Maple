@@ -66,9 +66,11 @@ fn wgsl_grain_matches_raw_core_stage_within_1e_4() {
         let img = GpuImage::upload(&ctx, &input, w, h);
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&GrainPass {
-            amount,
-            size,
-            roughness,
+            params: GrainParams {
+                amount,
+                size,
+                roughness,
+            },
         }]);
 
         let max_diff = reference
@@ -98,13 +100,14 @@ fn local_oracle_matches_raw_core_stage_exactly() {
         let mut local = input.clone();
         apply_grain(
             &mut local,
-            w as usize,
-            h as usize,
+            (w as usize, h as usize),
             (0, 0),
             (w, h),
-            amount,
-            size,
-            roughness,
+            &GrainParams {
+                amount,
+                size,
+                roughness,
+            },
         );
         let max_diff = reference
             .iter()
@@ -132,9 +135,11 @@ fn gpu_grain_is_monochromatic_on_neutral() {
     let img = GpuImage::upload(&ctx, &input, w, h);
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&GrainPass {
-        amount: 100.0,
-        size: 30.0,
-        roughness: 50.0,
+        params: GrainParams {
+            amount: 100.0,
+            size: 30.0,
+            roughness: 50.0,
+        },
     }]);
     let mut moved = 0;
     for px in gpu.chunks_exact(4) {
@@ -157,9 +162,11 @@ fn gpu_grain_is_deterministic_across_runs() {
         let img = GpuImage::upload(&ctx, &input, w, h);
         let runner = ChainRunner::new(&ctx, &img);
         runner.run_blocking(&[&GrainPass {
-            amount: 70.0,
-            size: 25.0,
-            roughness: 50.0,
+            params: GrainParams {
+                amount: 70.0,
+                size: 25.0,
+                roughness: 50.0,
+            },
         }])
     };
     let a = render();
