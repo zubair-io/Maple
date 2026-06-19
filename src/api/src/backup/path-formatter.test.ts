@@ -129,7 +129,10 @@ describe('formatBackupPath', () => {
 });
 
 describe('sanitizeLocationSegments', () => {
-  test('null → []', () => expect(sanitizeLocationSegments(null)).toEqual([]));
+  test('null/undefined → []', () => {
+    expect(sanitizeLocationSegments(null)).toEqual([]);
+    expect(sanitizeLocationSegments(undefined)).toEqual([]);
+  });
   test('trims and drops empties', () =>
     expect(sanitizeLocationSegments([' A ', '', '  ', 'B'])).toEqual(['A', 'B']));
   test('trims newlines/CR/tabs (JS trim() semantics — Swift parity)', () =>
@@ -141,7 +144,22 @@ describe('sanitizeLocationSegments', () => {
   test('replaces both slash kinds with underscore', () =>
     expect(sanitizeLocationSegments(['a/b', 'c\\d'])).toEqual(['a_b', 'c_d']));
   test('drops path-traversal tokens (., .., leading dot) per segment', () =>
-    expect(sanitizeLocationSegments(['.', '..', '.hidden', 'Keep'])).toEqual(['Keep']));
+    expect(sanitizeLocationSegments(['.', '..', '.hidden', '...dotty', 'Keep'])).toEqual(['Keep']));
+  test('drops null/undefined elements in the array', () =>
+    // @ts-expect-error testing invalid input types
+    expect(sanitizeLocationSegments(['A', null, 'B', undefined, 'C'])).toEqual(['A', 'B', 'C']));
+  test('mixed valid and invalid segments', () =>
+    expect(
+      sanitizeLocationSegments([
+        '  California  ',
+        '.',
+        'San Francisco',
+        '..',
+        'Hidden/Folder',
+        '.hidden',
+        '',
+      ]),
+    ).toEqual(['California', 'San Francisco', 'Hidden_Folder']));
 });
 
 describe('isSafeFilename', () => {
