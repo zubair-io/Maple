@@ -174,10 +174,7 @@ export async function pruneUnknownMigrationStates(knownIds: readonly string[]): 
     const unset: Record<string, ''> = {};
     for (const id of dead) unset[`migrations.${id}`] = '';
     await coll.updateOne({ _id: DOC_ID }, { $unset: unset });
-    log.info(
-      { pruned: dead },
-      'pruned persisted state for migrations no longer in the registry',
-    );
+    log.info({ pruned: dead }, 'pruned persisted state for migrations no longer in the registry');
     return dead;
   } catch (err) {
     log.warn(
