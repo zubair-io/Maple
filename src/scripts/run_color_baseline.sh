@@ -65,7 +65,7 @@ if command -v exiftool >/dev/null 2>&1; then
     for raw in "$RAWS"/test_*.{DNG,dng,RAW,CR2,RAF,raf,ARW,NEF,fff}; do
         [ -f "$raw" ] || continue
         stem=$(basename "$raw" | sed -E 's/\..*$//')
-        exiftool -b -JpgFromRaw -PreviewImage "$raw" 2>/dev/null > "$OUT/embedded_jpeg/${stem}.jpg" || true
+        exiftool -b -JpgFromRaw -PreviewImage -- "$raw" 2>/dev/null > "$OUT/embedded_jpeg/${stem}.jpg" || true
         # Drop zero-byte outputs (fixtures with no embedded JPEG)
         [ -s "$OUT/embedded_jpeg/${stem}.jpg" ] || rm -f "$OUT/embedded_jpeg/${stem}.jpg"
     done
