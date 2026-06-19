@@ -165,84 +165,107 @@ interface LoadedFace extends FaceEnvelope {
 export async function recomputeCentroids(): Promise<number> {
   const peopleC = await peopleCollection();
   const assets = await assetsCollection();
-  // Seed query is intentionally NOT filtered on `hidden`: a hidden (soft-
-  // deleted) person must remain a clustering seed so its newly-detected
-  // matching faces keep flowing into it and it STAYS hidden, rather than
-  // reforming as a fresh visible "Person N". Do not add a `hidden` filter
-  // here — see `hidePerson` in people.repo.ts.
-  const livePeople = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
-  let updated = 0;
-  const bulkOps: AnyBulkWriteOperation<PersonDoc>[] = [];
 
-  for (const person of livePeople) {
-    const personHex = person._id.toHexString();
-    // Pull the embedding off every face assigned to this person. Two
-    // $match stages around $unwind narrow each side: the first lets the
-    // planner skip docs that don't have any matching face, and the
-    // second drops the unwound rows whose `person_id` is for someone
-    // else.
-    const cursor = assets.aggregate<{ embedding: number[] }>([
-      { $match: { 'faces.person_id': personHex } },
-      { $unwind: '$faces' },
-      { $match: { 'faces.person_id': personHex } },
-      // Hidden faces are out of clustering — they should not contribute
-      // to the centroid even if they somehow still carry a `person_id`.
-      { $match: { 'faces.hidden': { $ne: true } } },
-      { $match: { 'faces.embedding': { $exists: true, $ne: [] } } },
-      { $project: { embedding: '$faces.embedding' } },
-    ]);
-    let count = 0;
-    let mean: Float32Array | null = null;
-    for await (const row of cursor) {
-      if (!Array.isArray(row.embedding) || row.embedding.length !== EMBEDDING_DIM) continue;
-      const e = Float32Array.from(row.embedding);
-      if (mean === null) {
-        mean = new Float32Array(EMBEDDING_DIM);
-        for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] = e[i];
-      } else {
-        for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] += e[i];
-      }
-      count += 1;
+  // 1. Identify "dirty" people who need a recompute:
+  //    - centroid_face_count is -1 (force-recompute tag from manual moves)
+  //    - missing centroid_face_count
+  //    - missing/empty centroid
+  // Seed query is intentionally NOT filtered on `hidden` — see module header.
+  const allLive = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
+  const dirty = allLive.filter((p) => {
+    return (
+      (p.centroid_face_count ?? -1) === -1 ||
+      !p.centroid ||
+      p.centroid.length !== EMBEDDING_DIM ||
+      p.centroid.every((v) => v === 0)
+    );
+  });
+  if (dirty.length === 0) return 0;
+
+  const dirtyIds = dirty.map((p) => p._id.toHexString());
+
+  // 2. Single aggregation to fetch ALL embeddings for the dirty people.
+  const cursor = assets.aggregate<{ person_id: string; embedding: number[] }>([
+    { $match: { 'faces.person_id': { $in: dirtyIds } } },
+    { $unwind: '$faces' },
+    { $match: { 'faces.person_id': { $in: dirtyIds } } },
+    { $match: { 'faces.hidden': { $ne: true } } },
+    { $match: { 'faces.embedding': { $exists: true, $ne: [] } } },
+    { $project: { person_id: '$faces.person_id', embedding: '$faces.embedding' } },
+  ]);
+
+  const accumulators = new Map<string, { count: number; mean: Float32Array }>();
+  for await (const row of cursor) {
+    if (!Array.isArray(row.embedding) || row.embedding.length !== EMBEDDING_DIM) continue;
+    let acc = accumulators.get(row.person_id);
+    if (!acc) {
+      acc = { count: 0, mean: new Float32Array(EMBEDDING_DIM) };
+      accumulators.set(row.person_id, acc);
     }
-    if (count === 0 || mean === null) {
-      // Nobody assigned — clear the centroid so it doesn't bias future runs.
+    const e = Float32Array.from(row.embedding);
+    for (let i = 0; i < EMBEDDING_DIM; i += 1) acc.mean[i] += e[i];
+    acc.count += 1;
+  }
+
+  // 3. Compute new centroids and prepare bulk updates.
+  let updatedCount = 0;
+  const bulkOps: AnyBulkWriteOperation<PersonDoc>[] = [];
+  for (const person of dirty) {
+    const idHex = person._id.toHexString();
+    const acc = accumulators.get(idHex);
+
+    if (!acc || acc.count === 0) {
+      // Nobody assigned (or only hidden faces) — clear the centroid.
+      // Skip if already clear.
+      if ((person.centroid_face_count ?? 0) === 0 && (person.centroid?.length ?? 0) === 0) {
+        continue;
+      }
       bulkOps.push({
         updateOne: {
           filter: { _id: person._id },
           update: { $set: { centroid: [], centroid_face_count: 0 } },
         },
       });
+      updatedCount += 1;
       continue;
     }
-    for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] /= count;
-    const normalised = l2Normalise(mean);
-    if (
-      (person.centroid_face_count ?? -1) === count &&
-      person.centroid &&
-      person.centroid.length === EMBEDDING_DIM
-    ) {
-      // Centroid unchanged — skip the write.
-      continue;
+
+    // Average + L2-normalise.
+    for (let i = 0; i < EMBEDDING_DIM; i += 1) acc.mean[i] /= acc.count;
+    const normalised = l2Normalise(acc.mean);
+
+    // Skip if unchanged (edge case: recompute triggered but result is same).
+    if (person.centroid_face_count === acc.count && person.centroid) {
+      const existing = Float32Array.from(person.centroid);
+      let changed = false;
+      for (let i = 0; i < EMBEDDING_DIM; i += 1) {
+        if (Math.abs(existing[i]! - normalised[i]!) > 1e-7) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) continue;
     }
+
     bulkOps.push({
       updateOne: {
         filter: { _id: person._id },
         update: {
           $set: {
             centroid: Array.from(normalised),
-            centroid_face_count: count,
+            centroid_face_count: acc.count,
           },
         },
       },
     });
-    updated += 1;
+    updatedCount += 1;
   }
 
   if (bulkOps.length > 0) {
     await peopleC.bulkWrite(bulkOps);
   }
 
-  return updated;
+  return updatedCount;
 }
 
 export async function loadCentroids(): Promise<LoadedCentroid[]> {
