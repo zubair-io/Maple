@@ -141,24 +141,32 @@ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     out
 }
 
+/// Parameters for the [`guided_filter`] oracle.
+struct GuidedOptions {
+    w: usize,
+    h: usize,
+    r: usize,
+    eps: f32,
+}
+
 /// GENERAL guided filter (guide != p) — faithful to
 /// `raw_core::stages::dehaze::guided_filter`. Six box blurs over the cross terms.
-fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
+fn guided_filter(guide: &[f32], p: &[f32], options: GuidedOptions) -> Vec<f32> {
     let n = guide.len();
-    let mean_i = box_blur(guide, w, h, r);
-    let mean_p = box_blur(p, w, h, r);
+    let mean_i = box_blur(guide, options.w, options.h, options.r);
+    let mean_p = box_blur(p, options.w, options.h, options.r);
     let ip: Vec<f32> = guide.iter().zip(p.iter()).map(|(&a, &b)| a * b).collect();
-    let mean_ip = box_blur(&ip, w, h, r);
+    let mean_ip = box_blur(&ip, options.w, options.h, options.r);
     let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
-    let mean_ii = box_blur(&ii, w, h, r);
+    let mean_ii = box_blur(&ii, options.w, options.h, options.r);
 
     let cov_ip: Vec<f32> = (0..n).map(|i| mean_ip[i] - mean_i[i] * mean_p[i]).collect();
     let var_i: Vec<f32> = (0..n).map(|i| mean_ii[i] - mean_i[i] * mean_i[i]).collect();
-    let a: Vec<f32> = (0..n).map(|i| cov_ip[i] / (var_i[i] + eps)).collect();
+    let a: Vec<f32> = (0..n).map(|i| cov_ip[i] / (var_i[i] + options.eps)).collect();
     let b: Vec<f32> = (0..n).map(|i| mean_p[i] - a[i] * mean_i[i]).collect();
 
-    let mean_a = box_blur(&a, w, h, r);
-    let mean_b = box_blur(&b, w, h, r);
+    let mean_a = box_blur(&a, options.w, options.h, options.r);
+    let mean_b = box_blur(&b, options.w, options.h, options.r);
     (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
 }
 
@@ -246,7 +254,13 @@ pub fn apply_dehaze(buf: &mut [f32], width: usize, height: usize, dehaze: f32) {
         .iter()
         .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
-    let t_refined = guided_filter(&guide, &t_raw, width, height, GUIDED_RADIUS as usize, GUIDED_EPS);
+    let options = GuidedOptions {
+        w: width,
+        h: height,
+        r: GUIDED_RADIUS as usize,
+        eps: GUIDED_EPS,
+    };
+    let t_refined = guided_filter(&guide, &t_raw, options);
 
     let sky = sky_mask(&dc, width, height);
     recover_with_mask(&mut pixels, dehaze, &t_refined, a, &sky);

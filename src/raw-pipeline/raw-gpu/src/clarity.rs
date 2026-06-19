@@ -112,20 +112,28 @@ fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     out
 }
 
+/// Parameters for the [`guided_filter`] oracle.
+struct GuidedOptions {
+    w: usize,
+    h: usize,
+    r: usize,
+    eps: f32,
+}
+
 /// Self-guided guided filter. Faithful port of
 /// `raw_core::stages::blur::guided_filter` for the `guide == p` case (the only
 /// case clarity / texture use). Operation order matches raw-core.
-fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
+fn guided_filter(guide: &[f32], p: &[f32], options: GuidedOptions) -> Vec<f32> {
     let n = guide.len();
-    if r == 0 {
+    if options.r == 0 {
         return p.to_vec();
     }
     let ip: Vec<f32> = guide.iter().zip(p.iter()).map(|(&a, &b)| a * b).collect();
     let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
-    let mean_i = box_blur_channel(guide, w, h, r);
-    let mean_p = box_blur_channel(p, w, h, r);
-    let mean_ip = box_blur_channel(&ip, w, h, r);
-    let mean_ii = box_blur_channel(&ii, w, h, r);
+    let mean_i = box_blur_channel(guide, options.w, options.h, options.r);
+    let mean_p = box_blur_channel(p, options.w, options.h, options.r);
+    let mean_ip = box_blur_channel(&ip, options.w, options.h, options.r);
+    let mean_ii = box_blur_channel(&ii, options.w, options.h, options.r);
     let mut a = vec![0.0f32; n];
     let mut b = vec![0.0f32; n];
     for i in 0..n {
@@ -135,12 +143,12 @@ fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f3
         // physically negative; the clamp keeps the `var_i + eps`
         // denominator positive when box-mean roundoff goes negative).
         let var_i = (mean_ii[i] - mean_i[i] * mean_i[i]).max(0.0);
-        let a_i = cov_ip / (var_i + eps);
+        let a_i = cov_ip / (var_i + options.eps);
         a[i] = a_i;
         b[i] = mean_p[i] - a_i * mean_i[i];
     }
-    let mean_a = box_blur_channel(&a, w, h, r);
-    let mean_b = box_blur_channel(&b, w, h, r);
+    let mean_a = box_blur_channel(&a, options.w, options.h, options.r);
+    let mean_b = box_blur_channel(&b, options.w, options.h, options.r);
     (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
 }
 
@@ -176,7 +184,13 @@ pub(crate) fn apply_guided_clarity(
                 + LUMA_REC2020[2] * buf[i * 4 + 2]
         })
         .collect();
-    let base = guided_filter(&luma_plane, &luma_plane, width, height, radius, CLARITY_EPS);
+    let options = GuidedOptions {
+        w: width,
+        h: height,
+        r: radius,
+        eps: CLARITY_EPS,
+    };
+    let base = guided_filter(&luma_plane, &luma_plane, options);
 
     for i in 0..n {
         let luma = luma_plane[i];
@@ -227,10 +241,12 @@ impl Pass for ClarityPass {
             encoder,
             src,
             dst,
-            width,
-            height,
-            CLARITY_GUIDED_RADIUS,
-            self.clarity / 100.0,
+            spatial::ClarityTextureParams {
+                width,
+                height,
+                r: CLARITY_GUIDED_RADIUS,
+                amount: self.clarity / 100.0,
+            },
         );
     }
 }

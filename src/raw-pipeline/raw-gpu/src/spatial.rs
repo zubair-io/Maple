@@ -408,34 +408,57 @@ struct CombineParams {
 /// blurs). `r` is the guided-filter radius (20 = clarity structure scale, 2 =
 /// texture fine-detail scale); `eps` the regularisation (1e-3 for both).
 ///
-/// Scratch planes (`luma2`, `mean_i`, `mean_ii`, `a`, `b`) are allocated here.
-#[allow(clippy::too_many_arguments)]
+/// Buffers for [`guided_filter_self_encode`].
+pub struct SelfGuidedBuffers<'a> {
+    pub luma: &'a wgpu::Buffer,
+    pub luma2: &'a wgpu::Buffer,
+    pub mean_a: &'a wgpu::Buffer,
+    pub mean_b: &'a wgpu::Buffer,
+}
+
+/// Parameters for [`guided_filter_self_encode`].
+pub struct SelfGuidedParams {
+    pub width: u32,
+    pub height: u32,
+    pub r: u32,
+    pub eps: f32,
+}
+
+/// Self-guided (`guide == p == luma`) guided filter (epic #925 P2 wave 3b / #990).
+///
+/// Given a `luma` plane already on the GPU, encodes the four-box-blur self-guided
+/// guided filter and writes the reconstruction coefficients into `mean_a` /
+/// `mean_b` (caller-provided plane buffers). The combine that turns these into a
+/// base/detail boost is the stage's own kernel (`guided_combine.wgsl`), since
+/// `base = mean_a * luma + mean_b`.
+///
+/// Mirrors `raw_core::stages::blur::guided_filter`'s self-guided path: because
+/// `guide` and `p` are the same buffer, `mean_i == mean_p` and `mean_ip == mean_ii`
+/// bit-identically, so only `blur(luma)` and `blur(luma²)` are needed (not six
+/// blurs). `r` is the guided-filter radius (20 = clarity structure scale, 2 =
+/// texture fine-detail scale); `eps` the regularisation (1e-3 for both).
+///
+/// Scratch planes (`mean_i`, `mean_ii`, `a`, `b`) are allocated here.
 pub fn guided_filter_self_encode(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
-    luma: &wgpu::Buffer,
-    luma2: &wgpu::Buffer,
-    mean_a: &wgpu::Buffer,
-    mean_b: &wgpu::Buffer,
-    width: u32,
-    height: u32,
-    r: u32,
-    eps: f32,
+    buffers: SelfGuidedBuffers,
+    params: SelfGuidedParams,
 ) {
-    let count = width * height;
+    let count = params.width * params.height;
 
     // blur(luma) and blur(luma²) — the only two means the self-guided case needs.
-    let mean_i = alloc_plane(ctx, width, height, "guided-mean-i");
-    let mean_ii = alloc_plane(ctx, width, height, "guided-mean-ii");
-    box_blur_encode(ctx, encoder, luma, &mean_i, width, height, r);
-    box_blur_encode(ctx, encoder, luma2, &mean_ii, width, height, r);
+    let mean_i = alloc_plane(ctx, params.width, params.height, "guided-mean-i");
+    let mean_ii = alloc_plane(ctx, params.width, params.height, "guided-mean-ii");
+    box_blur_encode(ctx, encoder, buffers.luma, &mean_i, params.width, params.height, params.r);
+    box_blur_encode(ctx, encoder, buffers.luma2, &mean_ii, params.width, params.height, params.r);
 
     // a, b from the means (self-guided: cov_ip == var_i == mean_ii - mean_i²).
-    let a = alloc_plane(ctx, width, height, "guided-a");
-    let b = alloc_plane(ctx, width, height, "guided-b");
+    let a = alloc_plane(ctx, params.width, params.height, "guided-a");
+    let b = alloc_plane(ctx, params.width, params.height, "guided-b");
     let ab_params = AbParams {
         count,
-        eps,
+        eps: params.eps,
         _pad0: 0,
         _pad1: 0,
     };
@@ -450,8 +473,8 @@ pub fn guided_filter_self_encode(
     );
 
     // mean_a = blur(a), mean_b = blur(b) — the reconstruction coefficients.
-    box_blur_encode(ctx, encoder, &a, mean_a, width, height, r);
-    box_blur_encode(ctx, encoder, &b, mean_b, width, height, r);
+    box_blur_encode(ctx, encoder, &a, buffers.mean_a, params.width, params.height, params.r);
+    box_blur_encode(ctx, encoder, &b, buffers.mean_b, params.width, params.height, params.r);
 }
 
 /// Encode the guided-filter luma-extract sub-pass: RGBA `src` → (`luma`, `luma2`)
@@ -482,6 +505,14 @@ pub fn luma_extract_encode(
     );
 }
 
+/// Parameters for [`clarity_texture_encode`].
+pub struct ClarityTextureParams {
+    pub width: u32,
+    pub height: u32,
+    pub r: u32,
+    pub amount: f32,
+}
+
 /// The full clarity / texture spatial pipeline, shared by both stages (epic #925
 /// P2 wave 3b / #990). The ONLY difference between clarity and texture is the
 /// guided-filter `r` (20 vs 2); everything else — luma extract, self-guided
@@ -495,17 +526,15 @@ pub fn luma_extract_encode(
 /// Mirrors `raw_core::stages::{clarity,texture}::apply` exactly. `amount` is the
 /// slider / 100. The caller is responsible for the `|slider| < 1e-3` early-return
 /// (a straight src→dst copy) — this function always runs the full pipeline.
-#[allow(clippy::too_many_arguments)] // GPU encode plumbing: ctx/encoder/src/dst/dims/r/amount.
 pub fn clarity_texture_encode(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
     src: &wgpu::Buffer,
     dst: &wgpu::Buffer,
-    width: u32,
-    height: u32,
-    r: u32,
-    amount: f32,
+    params: ClarityTextureParams,
 ) {
+    let width = params.width;
+    let height = params.height;
     let count = width * height;
     const EPS: f32 = 1e-3; // CLARITY_EPS == TEXTURE_EPS in raw-core.
 
@@ -516,12 +545,25 @@ pub fn clarity_texture_encode(
     let mean_a = alloc_plane(ctx, width, height, "clarity-mean-a");
     let mean_b = alloc_plane(ctx, width, height, "clarity-mean-b");
     guided_filter_self_encode(
-        ctx, encoder, &luma, &luma2, &mean_a, &mean_b, width, height, r, EPS,
+        ctx,
+        encoder,
+        SelfGuidedBuffers {
+            luma: &luma,
+            luma2: &luma2,
+            mean_a: &mean_a,
+            mean_b: &mean_b,
+        },
+        SelfGuidedParams {
+            width,
+            height,
+            r: params.r,
+            eps: EPS,
+        },
     );
 
-    let params = CombineParams {
+    let combine_params = CombineParams {
         count,
-        amount,
+        amount: params.amount,
         _pad0: 0,
         _pad1: 0,
     };
@@ -533,7 +575,7 @@ pub fn clarity_texture_encode(
         ctx,
         encoder,
         ctx.guided_combine_pipeline(),
-        bytemuck::bytes_of(&params),
+        bytemuck::bytes_of(&combine_params),
         &[src, &mean_a, &mean_b, dst],
         count,
         "guided-combine",
