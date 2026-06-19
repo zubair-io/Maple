@@ -10,6 +10,10 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { AssetDoc, AssetFaceDoc } from '../db/schema.ts';
 
+const TEST_DB = `maple_test_clustering_${process.pid}`;
+const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
+const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
+
 let mongod: MongoMemoryServer | null = null;
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -17,26 +21,56 @@ let db: Db | null = null;
 
 const DIM = 512;
 
-beforeAll(async () => {
+async function tryConnect(uri: string): Promise<MongoClient | null> {
+  const c = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 1500,
+    connectTimeoutMS: 1500,
+  });
   try {
-    mongod = await MongoMemoryServer.create();
-    const uri = mongod.getUri();
-    process.env.MAPLE_MONGO_URI = uri;
-    process.env.MAPLE_MONGO_DB = 'maple_test';
+    await c.connect();
+    await c.db('admin').command({ ping: 1 });
+    return c;
+  } catch {
+    try {
+      await c.close();
+    } catch {}
+    return null;
+  }
+}
 
-    mongo = new MongoClient(uri);
-    await mongo.connect();
+beforeAll(async () => {
+  let uri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+
+  // Attempt to connect to the provided or default MongoDB
+  mongo = await tryConnect(uri);
+
+  if (!mongo) {
+    // If not reachable, fallback to MongoMemoryServer
+    try {
+      mongod = await MongoMemoryServer.create();
+      uri = mongod.getUri();
+      mongo = await tryConnect(uri);
+    } catch (err) {
+      console.log('[clustering-job.test] skipping: MongoDB unreachable (both local and memory server)');
+      return;
+    }
+  }
+
+  if (mongo) {
     mongoReachable = true;
-    db = mongo.db('maple_test');
+    // Set env vars so the lazy-loaded db client uses the same instance
+    process.env.MAPLE_MONGO_URI = uri;
+    process.env.MAPLE_MONGO_DB = TEST_DB;
 
+    db = mongo.db(TEST_DB);
+    await db.dropDatabase();
     for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
       await db.createCollection(name).catch(() => undefined);
     }
+
     const { closeDb, ensureIndexes } = await import('../db/client.ts');
     await closeDb();
     await ensureIndexes();
-  } catch (err) {
-    console.error('[clustering-job.test] failed to start MongoDB Memory Server:', err);
   }
 });
 
@@ -48,11 +82,20 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (mongo) {
+    await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
   if (mongod) {
     await mongod.stop();
   }
+
+  // Restore environment variables
+  if (ORIGINAL_MONGO_URI) process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
+  else delete process.env.MAPLE_MONGO_URI;
+
+  if (ORIGINAL_MONGO_DB) process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
+  else delete process.env.MAPLE_MONGO_DB;
+
   const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
