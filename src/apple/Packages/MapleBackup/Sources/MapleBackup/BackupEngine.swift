@@ -47,8 +47,6 @@ public struct AssetReadResult: Sendable {
     public let renderedBytes: Data?
     /// Bytes of the Live Photo .mov twin, if the asset is a Live Photo.
     /// Uploaded separately via the rendered endpoint with ext "mov".
-    /// TODO: once the server endpoint accepts X-Maple-Suffix-Override, rename
-    /// the server-side file from `<base>.rendered.mov` to `<base>.mov`.
     public let liveVideoBytes: Data?
     /// Filename for the Live Photo .mov twin (e.g. "IMG_1234.mov").
     public let liveVideoFilename: String?
