@@ -243,40 +243,42 @@ export async function ensureStageIndexes(db: Db): Promise<void> {
   const existingIndexes = await db.collection('assets').indexes();
   const indexByName = new Map(existingIndexes.map((i) => [i.name as string, i]));
 
-  for (const name of WORKER_STAGE_NAMES) {
-    const versionIndexName = `stage_${name}_version`;
-    const existing = indexByName.get(versionIndexName);
+  await Promise.all(
+    WORKER_STAGE_NAMES.map(async (name) => {
+      const versionIndexName = `stage_${name}_version`;
+      const existing = indexByName.get(versionIndexName);
 
-    if (existing?.partialFilterExpression) {
-      // Old spec with { dead: false } partial filter — drop it so MongoDB
-      // won't reject the createIndex below as a spec conflict. The old filter
-      // excluded docs where `dead` is missing, which caused collection scans
-      // for freshly-indexed assets. The unconstrained index fixes that.
-      try {
-        await db.collection('assets').dropIndex(versionIndexName);
-      } catch {
-        // IndexNotFound is fine — another process may have already dropped it.
+      if (existing?.partialFilterExpression) {
+        // Old spec with { dead: false } partial filter — drop it so MongoDB
+        // won't reject the createIndex below as a spec conflict. The old filter
+        // excluded docs where `dead` is missing, which caused collection scans
+        // for freshly-indexed assets. The unconstrained index fixes that.
+        try {
+          await db.collection('assets').dropIndex(versionIndexName);
+        } catch {
+          // IndexNotFound is fine — another process may have already dropped it.
+        }
       }
-    }
-    // createIndex is a fast no-op when the index already exists with identical
-    // options, so we always call it regardless of whether we just dropped.
-    await db
-      .collection('assets')
-      .createIndex({ [`stages.${name}.version`]: 1 }, { name: versionIndexName });
+      // createIndex is a fast no-op when the index already exists with identical
+      // options, so we always call it regardless of whether we just dropped.
+      await db
+        .collection('assets')
+        .createIndex({ [`stages.${name}.version`]: 1 }, { name: versionIndexName });
 
-    // Tiny partial index on dead-lettered docs. Powers the dead-count branch
-    // of GET /api/workers/status — countDocuments({ stages.<name>.dead: true })
-    // becomes a count of index entries instead of a full collection scan.
-    // The partial filter keeps the index size proportional to the (small)
-    // set of dead docs, not the whole collection.
-    await db.collection('assets').createIndex(
-      { [`stages.${name}.dead`]: 1 },
-      {
-        name: `stage_${name}_dead`,
-        partialFilterExpression: { [`stages.${name}.dead`]: true },
-      },
-    );
-  }
+      // Tiny partial index on dead-lettered docs. Powers the dead-count branch
+      // of GET /api/workers/status — countDocuments({ stages.<name>.dead: true })
+      // becomes a count of index entries instead of a full collection scan.
+      // The partial filter keeps the index size proportional to the (small)
+      // set of dead docs, not the whole collection.
+      await db.collection('assets').createIndex(
+        { [`stages.${name}.dead`]: 1 },
+        {
+          name: `stage_${name}_dead`,
+          partialFilterExpression: { [`stages.${name}.dead`]: true },
+        },
+      );
+    }),
+  );
 }
 
 /** `$set` payload used by every "reset describe stage dead-letters" migration.
