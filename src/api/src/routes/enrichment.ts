@@ -33,6 +33,7 @@ import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
 import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
 import { getFaceModelsStatus, probeFaceModelFiles } from '../enrichment/face-models.ts';
 import { readWorkerStatus } from '../workers/worker-status.repo.ts';
+import { validateHttpUrl } from '../observability/observability-config.repo.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
 import {
   createMeilisearchClient,
@@ -117,28 +118,6 @@ const TestDescribeBody = t.Object({
   model: t.Optional(t.Union([t.String(), t.Null()])),
   api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
-
-/** Best-effort URL validator. We accept http(s) only — Nominatim and
- * Meilisearch don't speak anything else and it'd be a footgun to allow
- * `file://` etc. Returns the trimmed, trailing-slash-stripped URL, `null`
- * for empty input, or `{ error }` for an invalid value. */
-function validateHttpUrl(raw: string | null): string | null | { error: string } {
-  if (raw === null) return null;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return { error: 'Not a valid URL' };
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return { error: `Unsupported protocol: ${parsed.protocol}` };
-  }
-  // Strip trailing slashes so the saved value matches what NominatimClient
-  // produces internally.
-  return trimmed.replace(/\/+$/, '');
-}
 
 export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
   .get('/config', async () => {
