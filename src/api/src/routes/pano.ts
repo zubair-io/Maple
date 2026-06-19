@@ -51,6 +51,11 @@ async function probeStrategySupported(cliPath: string): Promise<boolean> {
   if (_strategyProbedPath === cliPath && _strategyProbeResult !== null) {
     return _strategyProbeResult;
   }
+  // Security: only allow absolute paths that don't look like flags.
+  if (cliPath.startsWith('-') || !path.isAbsolute(cliPath)) {
+    log.warn({ cliPath }, 'pano: refusing to probe non-absolute or hyphen-prefixed cliPath');
+    return false;
+  }
   try {
     const proc = Bun.spawn([cliPath, 'pano', 'stitch', '--help'], {
       stdout: 'pipe',

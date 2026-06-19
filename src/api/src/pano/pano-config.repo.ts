@@ -12,6 +12,7 @@
  * returns 409 { error: 'pano_not_provisioned', ... }.
  */
 
+import path from 'node:path';
 import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -80,7 +81,14 @@ function resolveStr(dbVal: string | null | undefined): {
   source: 'db' | 'unset';
 } {
   if (typeof dbVal === 'string' && dbVal.trim().length > 0) {
-    return { value: dbVal.trim(), source: 'db' };
+    const trimmed = dbVal.trim();
+    // Security hardening: reject paths that start with a hyphen (flag injection)
+    // or are not absolute (ambiguity).
+    if (trimmed.startsWith('-') || !path.isAbsolute(trimmed)) {
+      log.warn({ path: trimmed }, 'pano config: ignoring non-absolute or hyphen-prefixed path');
+      return { value: null, source: 'unset' };
+    }
+    return { value: trimmed, source: 'db' };
   }
   return { value: null, source: 'unset' };
 }
