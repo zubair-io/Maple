@@ -103,24 +103,31 @@ export async function startWorkers(): Promise<void> {
 
   // Slow-tier enrichment workers run in-process. Each one's failure is
   // isolated — the operator recovers via /settings/enrichment without a
-  // restart.
-  try {
-    await startGeocodeWorker();
-  } catch (err) {
-    log.error({ err }, 'geocode worker failed to start; fix via /settings/enrichment');
-  }
-
-  try {
-    await startFaceWorker();
-  } catch (err) {
-    log.error({ err }, 'face worker failed to start; fix via /settings/enrichment');
-  }
-
-  try {
-    await startDescribeWorker();
-  } catch (err) {
-    log.error({ err }, 'describe worker failed to start; fix via /settings/enrichment');
-  }
+  // restart. Concurrent boot avoids head-of-line blocking (e.g. a slow
+  // Nominatim health check delaying the face model preload).
+  await Promise.all([
+    (async () => {
+      try {
+        await startGeocodeWorker();
+      } catch (err) {
+        log.error({ err }, 'geocode worker failed to start; fix via /settings/enrichment');
+      }
+    })(),
+    (async () => {
+      try {
+        await startFaceWorker();
+      } catch (err) {
+        log.error({ err }, 'face worker failed to start; fix via /settings/enrichment');
+      }
+    })(),
+    (async () => {
+      try {
+        await startDescribeWorker();
+      } catch (err) {
+        log.error({ err }, 'describe worker failed to start; fix via /settings/enrichment');
+      }
+    })(),
+  ]);
 
   try {
     // Meilisearch sidecar — stage side. Resolve the URL from the DB-backed
@@ -242,35 +249,43 @@ export async function stopWorkers(): Promise<void> {
     log.warn({ err: e }, 'error shutting down imgdecode pool');
   }
 
-  try {
-    await stopGeocodeWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping geocode worker');
-  }
-
-  try {
-    await stopFaceWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping face worker');
-  }
-
-  try {
-    await stopDescribeWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping describe worker');
-  }
-
-  try {
-    await stopJobRunner();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping job runner');
-  }
-
-  try {
-    await stopImportRunner();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping import runner');
-  }
+  await Promise.all([
+    (async () => {
+      try {
+        await stopGeocodeWorker();
+      } catch (e) {
+        log.warn({ err: e }, 'error stopping geocode worker');
+      }
+    })(),
+    (async () => {
+      try {
+        await stopFaceWorker();
+      } catch (e) {
+        log.warn({ err: e }, 'error stopping face worker');
+      }
+    })(),
+    (async () => {
+      try {
+        await stopDescribeWorker();
+      } catch (e) {
+        log.warn({ err: e }, 'error stopping describe worker');
+      }
+    })(),
+    (async () => {
+      try {
+        await stopJobRunner();
+      } catch (e) {
+        log.warn({ err: e }, 'error stopping job runner');
+      }
+    })(),
+    (async () => {
+      try {
+        await stopImportRunner();
+      } catch (e) {
+        log.warn({ err: e }, 'error stopping import runner');
+      }
+    })(),
+  ]);
 
   // Every mirrored writer in this tier (migration relocations, import copies,
   // trash deletes) is stopped now — flush their scheduled-but-not-yet-run mirror
