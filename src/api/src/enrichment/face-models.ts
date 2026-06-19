@@ -329,18 +329,20 @@ export async function loadFaceModels(config: FaceModelsConfig = {}): Promise<Fac
       await downloadAntelopeV2Default(dir, DETECTOR_BASENAME, RECOGNIZER_BASENAME);
     }
 
-    const detectorPath = await ensureModelFile({
-      dir,
-      basename: DETECTOR_BASENAME,
-      url: detectorUrl,
-      sha256: detectorSha,
-    });
-    const recognizerPath = await ensureModelFile({
-      dir,
-      basename: RECOGNIZER_BASENAME,
-      url: recognizerUrl,
-      sha256: recognizerSha,
-    });
+    const [detectorPath, recognizerPath] = await Promise.all([
+      ensureModelFile({
+        dir,
+        basename: DETECTOR_BASENAME,
+        url: detectorUrl,
+        sha256: detectorSha,
+      }),
+      ensureModelFile({
+        dir,
+        basename: RECOGNIZER_BASENAME,
+        url: recognizerUrl,
+        sha256: recognizerSha,
+      }),
+    ]);
     const ort = await loadOnnxRuntime();
     // Constrain ORT thread pools. Without explicit thread counts, the native
     // binding sizes its intra-op pool to the host's logical CPU count and
