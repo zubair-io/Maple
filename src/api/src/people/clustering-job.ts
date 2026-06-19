@@ -403,18 +403,20 @@ async function doBackfillCoverAssets(): Promise<void> {
 }
 
 async function persistCentroids(centroids: CentroidEntry[]): Promise<void> {
+  if (centroids.length === 0) return;
   const peopleC = await peopleCollection();
-  for (const c of centroids) {
-    await peopleC.updateOne(
-      { _id: c.person_id },
-      {
+  const updates = centroids.map((c) => ({
+    updateOne: {
+      filter: { _id: c.person_id },
+      update: {
         $set: {
           centroid: Array.from(c.centroid),
           centroid_face_count: c.face_count,
         },
       },
-    );
-  }
+    },
+  }));
+  await peopleC.bulkWrite(updates);
 }
 
 function bufferAssignment(

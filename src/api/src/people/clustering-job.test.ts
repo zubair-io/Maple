@@ -7,50 +7,37 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { AssetDoc, AssetFaceDoc } from '../db/schema.ts';
 
-const TEST_DB = `maple_test_clustering_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
+let mongod: MongoMemoryServer | null = null;
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
 
 const DIM = 512;
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
 beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[clustering-job.test] skipping: MongoDB unreachable');
-    return;
+  try {
+    mongod = await MongoMemoryServer.create();
+    const uri = mongod.getUri();
+    process.env.MAPLE_MONGO_URI = uri;
+    process.env.MAPLE_MONGO_DB = 'maple_test';
+
+    mongo = new MongoClient(uri);
+    await mongo.connect();
+    mongoReachable = true;
+    db = mongo.db('maple_test');
+
+    for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
+      await db.createCollection(name).catch(() => undefined);
+    }
+    const { closeDb, ensureIndexes } = await import('../db/client.ts');
+    await closeDb();
+    await ensureIndexes();
+  } catch (err) {
+    console.error('[clustering-job.test] failed to start MongoDB Memory Server:', err);
   }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  const { closeDb, ensureIndexes } = await import('../db/client.ts');
-  await closeDb();
-  await ensureIndexes();
 });
 
 beforeEach(async () => {
@@ -61,8 +48,10 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
+  }
+  if (mongod) {
+    await mongod.stop();
   }
   const { closeDb } = await import('../db/client.ts');
   await closeDb();
