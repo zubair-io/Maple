@@ -62,9 +62,15 @@ public final class DownloadProgress {
     /// arbitrarily). Recomputed on every Observable read (the body re-fires
     /// whenever `receivedBytes` updates, so it ticks smoothly as the
     /// download progresses without needing a timer).
-    public var bytesPerSecond: Double? {
+    public var bytesPerSecond: Double? { bytesPerSecond(asOf: Date()) }
+
+    /// Deterministic core of `bytesPerSecond` — accepts the "now" instant so
+    /// unit tests can pin the elapsed window without sleeping. Production
+    /// callers should read the computed property; this is intentionally
+    /// non-private only because the test target needs it.
+    public func bytesPerSecond(asOf now: Date) -> Double? {
         guard let startedAt, receivedBytes > 0 else { return nil }
-        let elapsed = Date().timeIntervalSince(startedAt)
+        let elapsed = now.timeIntervalSince(startedAt)
         guard elapsed >= 0.1 else { return nil }
         return Double(receivedBytes) / elapsed
     }
@@ -73,14 +79,16 @@ public final class DownloadProgress {
     /// best-known total. Pass the catalog size up front so the bar is
     /// determinate from the first frame even before the HTTP response
     /// headers land; `report(received:total:)` refines `expectedBytes`
-    /// to the server's `Content-Length` once it's known.
-    public func begin(expectedBytes: Int64?) {
+    /// to the server's `Content-Length` once it's known. The optional `at`
+    /// parameter is for tests that need a stable speed anchor; production
+    /// callers omit it and the wall clock is stamped.
+    public func begin(expectedBytes: Int64?, at startedAt: Date = Date()) {
         self.receivedBytes = 0
         if let expectedBytes, expectedBytes > 0 {
             self.expectedBytes = expectedBytes
         }
         self.isDownloading = true
-        self.startedAt = Date()
+        self.startedAt = startedAt
     }
 
     /// Update the received-byte count (and, when newly known, the total).
