@@ -372,13 +372,16 @@ export interface AssetDoc {
    * when Apple Photos held edits at backup time. `null` for fresh originals. */
   apple_rendered_path?: string | null;
   /**
-   * Backup folder-layout generation this asset has been placed into, stamped
-   * by the geo-layout migration (`workers/migration/restructure-backup-geo.ts`).
-   * Absent on legacy rows; `2` once the migration has filed the asset under the
-   * `<year>/<State|Country>/<Town/City||Place>` (or date-only fallback) layout
-   * given its current `place`. Generation 1 is the implicit pre-geo flat layout
-   * (`<year>/<loc>` / `<year>/<MM>`) from #744 and was never stamped, so the
-   * migration selects on `{ $ne: 2 }`. Only backup-origin assets carry it.
+   * Backup folder-layout generation this asset has been placed into, stamped by
+   * the refile-backups cleanup (`workers/migration/refile-backups.ts`) as its
+   * done-marker — NOT a correctness oracle. `3` once that migration has filed the
+   * asset into the canonical layout (`<year>/Screenshot`, or
+   * `<year>/<State|Country>/<Town/City||Place>`, or the `<year>/<MM>` fallback)
+   * computed from its current data. Generations 1 (pre-geo flat, #744, never
+   * stamped) and 2 (the old geo migration, which could freeze an asset stamped on
+   * a no-op before its geocode resolved) are superseded; the cleanup selects on
+   * `{ $ne: 3 }` so the whole backlog re-sweeps exactly once. Only backup-origin
+   * assets carry it.
    */
   backup_layout_version?: number;
   /**

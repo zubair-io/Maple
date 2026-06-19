@@ -18,7 +18,7 @@
  *   - `[top, sub]` in the common case.
  *
  * Shared by the backup-ingest hot path (`resolveBackupLocation`) and the
- * geo-layout migration (`restructure-backup-geo`) so a migrated file lands
+ * `refile-backups` cleanup migration so a migrated file lands
  * exactly where a fresh ingest of the same place would write it. The result is
  * pre-sanitised downstream by `sanitizeLocationSegments` in `path-formatter.ts`.
  *

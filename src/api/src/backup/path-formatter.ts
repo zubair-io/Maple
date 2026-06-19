@@ -43,7 +43,7 @@ export function isSafeFilename(name: string): boolean {
 
 /**
  * Sanitise an ordered list of location segments into safe, single-level
- * directory names. Shared with the geo-layout migration (`restructure-backup-geo`)
+ * directory names. Shared with the `refile-backups` cleanup migration
  * so a migrated file lands byte-for-byte where a fresh ingest of the same place
  * would write it.
  *

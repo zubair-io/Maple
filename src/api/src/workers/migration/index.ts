@@ -4,16 +4,12 @@
  * worker, routes, status surface, and settings UI pick it up generically.
  */
 import type { Migration } from './types.ts';
-import { restructureBackupFolders } from './restructure-backup-folders.ts';
-import { restructureBackupGeo } from './restructure-backup-geo.ts';
-import { restructureBackupScreenshots } from './restructure-backup-screenshots.ts';
+import { refileBackups } from './refile-backups.ts';
 import { scrubMirrorOrphans } from './scrub-mirror-orphans.ts';
 import { backfillLiveLocationCount } from './backfill-live-location-count.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
-  restructureBackupFolders,
-  restructureBackupGeo,
-  restructureBackupScreenshots,
+  refileBackups,
   scrubMirrorOrphans,
   backfillLiveLocationCount,
 ];

@@ -9,7 +9,7 @@
  *   {
  *     _id: "migration",
  *     migrations: {
- *       "restructure-backup-folders": {
+ *       "refile-backups": {
  *         enabled, status, processed, errors, last_error,
  *         started_at, finished_at
  *       }

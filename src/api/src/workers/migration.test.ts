@@ -124,8 +124,8 @@ describe('migration end-to-end (restructure)', () => {
     } as never);
 
     try {
-      await resetMigrationState('restructure-backup-folders');
-      await setMigrationEnabled('restructure-backup-folders', true, new Date().toISOString());
+      await resetMigrationState('refile-backups');
+      await setMigrationEnabled('refile-backups', true, new Date().toISOString());
       await runMigrationTickOnce(50, new Date().toISOString());
 
       const doc = (await assets.findOne({ _id })) as {
@@ -144,7 +144,7 @@ describe('migration end-to-end (restructure)', () => {
       await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
     } finally {
       await assets.deleteOne({ _id });
-      await resetMigrationState('restructure-backup-folders');
+      await resetMigrationState('refile-backups');
       setLibraryRootsForTests(null);
     }
   });
@@ -194,8 +194,8 @@ describe('migration end-to-end (restructure)', () => {
     await assets.insertOne(mk(idB, '2024/Tokyo/03-16') as never);
 
     try {
-      await resetMigrationState('restructure-backup-folders');
-      await setMigrationEnabled('restructure-backup-folders', true, new Date().toISOString());
+      await resetMigrationState('refile-backups');
+      await setMigrationEnabled('refile-backups', true, new Date().toISOString());
       await runMigrationTickOnce(50, new Date().toISOString());
 
       const docs = (await assets.find({ _id: { $in: [idA, idB] } }).toArray()) as {
@@ -214,7 +214,7 @@ describe('migration end-to-end (restructure)', () => {
       // No overwrite: distinct bytes preserved at distinct names.
     } finally {
       await assets.deleteMany({ _id: { $in: [idA, idB] } });
-      await resetMigrationState('restructure-backup-folders');
+      await resetMigrationState('refile-backups');
       setLibraryRootsForTests(null);
     }
   });

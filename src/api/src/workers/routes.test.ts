@@ -480,7 +480,7 @@ describe('migration routes', () => {
     const body = await res.json();
     expect(Array.isArray(body.migrations)).toBe(true);
     const restructure = body.migrations.find(
-      (m: { id: string }) => m.id === 'restructure-backup-folders',
+      (m: { id: string }) => m.id === 'refile-backups',
     );
     expect(restructure).toBeDefined();
     expect(restructure).toMatchObject({
@@ -504,7 +504,7 @@ describe('migration routes', () => {
 
   it('PATCH /migration/migrations/:id → 400 when neither enabled nor reset given', async () => {
     const res = await app.handle(
-      new Request('http://localhost/api/workers/migration/migrations/restructure-backup-folders', {
+      new Request('http://localhost/api/workers/migration/migrations/refile-backups', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),

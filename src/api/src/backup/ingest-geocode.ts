@@ -8,8 +8,8 @@
  * cold cache (a fresh bulk import) every path falls back to the date-only
  * layout, and a late geocode never relocates files already written. This
  * resolves the location LIVE on a cache miss so the geo segments land at write
- * time. (The geo-layout migration `restructure-backup-geo` later relocates any
- * file that was written before its place was known.)
+ * time. (The `refile-backups` cleanup later relocates any file that was written
+ * before its place was known.)
  *
  * Invariants:
  *   - Soft failure only. Nominatim not configured / disabled / unreachable /

@@ -1,7 +1,7 @@
 /**
- * Filesystem half of the "restructure backup folders" migration (#744).
+ * Filesystem half of the backup folder-layout move (originally #744).
  *
- * Pure FS — no Mongo. Split from the orchestration (`restructure-backup-folders.ts`)
+ * Pure FS — no Mongo. Split from the orchestration (the `refile-backups` migration)
  * so the crash-safe ordering and collision branches are unit-testable against a
  * temp dir, and so the DB write can sit BETWEEN the two halves:
  *

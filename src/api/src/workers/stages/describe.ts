@@ -36,7 +36,7 @@ import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
-import { relocateBackupScreenshot } from '../migration/restructure-backup-screenshots.ts';
+import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import {
   type DescribeProvider,
   getDescribeProvider,

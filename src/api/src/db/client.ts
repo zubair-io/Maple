@@ -918,6 +918,21 @@ export async function ensureIndexes(): Promise<void> {
     .collection('assets')
     .createIndex({ sha1_head: 1 }, { name: 'sha1_head_1', sparse: true });
 
+  // Partial index for the one-time `refile-backups` cleanup migration: every tick
+  // it counts and scans backup-origin assets not yet refiled
+  // (`backup_layout_version != 3`). Scoping the index to `phasset_links.0`-exists
+  // (verified to be honoured by the planner — the candidate query IXSCANs this)
+  // confines that scan to the mobile-backup subset instead of the whole
+  // collection, so the sweep can't stall the shared event loop on a large library.
+  // Droppable once the cleanup has completed library-wide.
+  await db.collection('assets').createIndex(
+    { backup_layout_version: 1 },
+    {
+      name: 'backup_layout_version_partial',
+      partialFilterExpression: { 'phasset_links.0': { $exists: true } },
+    },
+  );
+
   // The former standalone `filename_1` index was retired by the
   // drop-abs-path-2026-05-21 migration at the end of this function;
   // filename queries now run against `fileinfo.filename`.
