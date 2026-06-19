@@ -4,10 +4,11 @@
 > `docs/superpowers/specs/2026-06-18-refile-backups-migration.md`. The
 > `restructure-backup-geo` migration described here gated re-work on a one-way
 > `backup_layout_version` stamp that could freeze an asset stamped on a no-op
-> before its geocode resolved. It (and `restructure-backup-folders` /
-> `restructure-backup-screenshots`) was replaced by the single self-checking
-> `refile-backups` cleanup. The geo path-derivation logic below
-> (`backupLocationSegments`) is unchanged and still in use.
+> before its geocode resolved. That migration — together with
+> `restructure-backup-folders` and `restructure-backup-screenshots` — was
+> replaced by the single self-checking `refile-backups` cleanup. The geo
+> path-derivation logic below (`backupLocationSegments`) is unchanged and still
+> in use.
 
 Brainstormed 2026-06-05. Follows the #744 work in
 `docs/superpowers/specs/2026-05-31-backup-layout-and-migration-worker.md`

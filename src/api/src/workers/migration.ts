@@ -84,8 +84,17 @@ export async function runMigrationTickOnce(batchSize: number, nowIso: string): P
 
     const remainingBefore = await migration.countRemaining();
     if (remainingBefore === 0) {
-      await patchMigrationState(migration.id, { status: 'done', finished_at: nowIso });
-      log.info({ migration: migration.id }, 'migration complete — nothing remaining');
+      // Done → also flip the operator toggle off, so a finished one-shot stops
+      // contributing a countRemaining scan to the status pill (migrationPendingCount).
+      await patchMigrationState(migration.id, {
+        status: 'done',
+        enabled: false,
+        finished_at: nowIso,
+      });
+      log.info(
+        { migration: migration.id },
+        'migration complete — nothing remaining, auto-disabled',
+      );
       continue;
     }
 
@@ -111,7 +120,12 @@ export async function runMigrationTickOnce(batchSize: number, nowIso: string): P
       // doesn't keep showing an old error after the migration has recovered.
       last_error: null,
     };
-    if (remainingAfter === 0) next.finished_at = nowIso;
+    if (remainingAfter === 0) {
+      next.finished_at = nowIso;
+      // Auto-disable a completed one-shot: stops its countRemaining scan from
+      // riding the status pill, and a re-run is then an explicit operator re-enable.
+      next.enabled = false;
+    }
     await patchMigrationState(migration.id, next);
     log.info(
       { migration: migration.id, ...batch, remaining: remainingAfter },
