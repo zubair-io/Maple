@@ -25,6 +25,7 @@
 import { Elysia, t } from 'elysia';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { child as childLogger } from '../log.ts';
@@ -425,7 +426,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
 
       // 5. Build temp output dir for this job (will be cleaned up by the handler
       //    after importing the result).
-      const outputDir = path.join(os.tmpdir(), `maple-pano-${Date.now()}`);
+      const outputDir = path.join(os.tmpdir(), `maple-pano-${randomBytes(8).toString('hex')}`);
 
       // 6. Create the job.
       const doc = await createJob({
