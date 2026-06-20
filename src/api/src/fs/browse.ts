@@ -17,6 +17,29 @@ import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/browse');
 
+/**
+ * Bounded-concurrency map: processes `items` in parallel but caps the number
+ * of concurrent in-flight tasks at `concurrency`. Preserves input order in
+ * the result array, matching the semantics of `Promise.all(items.map(fn))`.
+ */
+async function mapBounded<T, U>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<U>,
+): Promise<U[]> {
+  const results: U[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 export interface DirEntry {
   name: string;
   path: string; // absolute, symlink-resolved
@@ -127,51 +150,53 @@ export async function listDir(reqPath: string, showAll: boolean): Promise<OpResu
     .filter((e) => showAll || !atRoot || !SYSTEM_DIRS.has(e.name))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const results = await Promise.all(
-    candidates.map(async (e) => {
-      const childCandidate = real === '/' ? '/' + e.name : `${real}/${e.name}`;
+  // Cap concurrency: listDir has no paging (it returns all subdirs), so a
+  // large directory would otherwise fan out thousands of fs ops at once.
+  // 32 concurrent tasks saturates typical local-disk throughput without
+  // creating unbounded memory pressure or fd exhaustion.
+  const results = await mapBounded(candidates, 32, async (e) => {
+    const childCandidate = real === '/' ? '/' + e.name : `${real}/${e.name}`;
 
-      // Issue 1 fix: re-resolve the child's realpath and re-check the jail to
-      // prevent symlink-swap attacks between parent readdir and child access.
-      let childReal: string;
-      try {
-        childReal = await realpath(childCandidate);
-      } catch {
-        // Broken symlink or permission denied — drop entry entirely.
-        return null;
-      }
-      if (!roots.some((r) => isUnderRoot(childReal, r))) {
-        // Child escaped the jail (e.g. symlink pointing outside MAPLE_ROOTS).
-        // Drop the entry — including its path would leak information.
-        return null;
-      }
+    // Issue 1 fix: re-resolve the child's realpath and re-check the jail to
+    // prevent symlink-swap attacks between parent readdir and child access.
+    let childReal: string;
+    try {
+      childReal = await realpath(childCandidate);
+    } catch {
+      // Broken symlink or permission denied — drop entry entirely.
+      return null;
+    }
+    if (!roots.some((r) => isUnderRoot(childReal, r))) {
+      // Child escaped the jail (e.g. symlink pointing outside MAPLE_ROOTS).
+      // Drop the entry — including its path would leak information.
+      return null;
+    }
 
-      // Issue 2 fix: use stat() (follows symlinks) to confirm the target is
-      // actually a directory. Symlinks to files are silently dropped.
-      let st: Awaited<ReturnType<typeof stat>>;
-      try {
-        st = await stat(childReal);
-      } catch {
-        // Permission denied or race — drop entry.
-        return null;
-      }
-      if (!st.isDirectory()) return null;
+    // Issue 2 fix: use stat() (follows symlinks) to confirm the target is
+    // actually a directory. Symlinks to files are silently dropped.
+    let st: Awaited<ReturnType<typeof stat>>;
+    try {
+      st = await stat(childReal);
+    } catch {
+      // Permission denied or race — drop entry.
+      return null;
+    }
+    if (!st.isDirectory()) return null;
 
-      // Compute hasChildren using the jail-verified, realpath-resolved path.
-      let hasChildren = false;
-      try {
-        const sub = await readdir(childReal, { withFileTypes: true });
-        hasChildren = sub.some(
-          (s) => !s.name.startsWith('.') && (s.isDirectory() || s.isSymbolicLink()),
-        );
-      } catch {
-        // Permission denied / unreadable — show but mark childless.
-        hasChildren = false;
-      }
+    // Compute hasChildren using the jail-verified, realpath-resolved path.
+    let hasChildren = false;
+    try {
+      const sub = await readdir(childReal, { withFileTypes: true });
+      hasChildren = sub.some(
+        (s) => !s.name.startsWith('.') && (s.isDirectory() || s.isSymbolicLink()),
+      );
+    } catch {
+      // Permission denied / unreadable — show but mark childless.
+      hasChildren = false;
+    }
 
-      return { name: e.name, path: childReal, hasChildren };
-    }),
-  );
+    return { name: e.name, path: childReal, hasChildren };
+  });
 
   const out = results.filter((r): r is DirEntry => r !== null);
 
