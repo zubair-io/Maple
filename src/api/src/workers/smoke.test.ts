@@ -32,10 +32,9 @@ describe('workers smoke test', () => {
     'exif + thumb both reach their target version after a file is dropped',
     async () => {
       // Connect to Mongo — skip if unavailable.
-      let _db: import('mongodb').Db;
       try {
         const { getDb } = await import('../db/client.ts');
-        _db = await getDb();
+        await getDb();
       } catch {
         console.log('MongoDB unreachable — skipping smoke test');
         return;

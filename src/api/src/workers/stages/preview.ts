@@ -8,9 +8,9 @@
  *   - if the image doc has both `maple_id` and `fileinfo[0]`, write to the
  *     content-addressed location: `<lib>/<fileinfo[0].path>/.maple/previews/
  *     <maple_id>_1280.jpg`;
- *   - otherwise fall back to the legacy basename-keyed location via
- *     `resolvePreviewPath(absPath)`. The cache-gc sweep retires legacy
- *     orphans on the next boot once the row is backfilled.
+ *   - otherwise the previewer falls back to a legacy basename-keyed location;
+ *     the cache-gc sweep retires those orphans on the next boot once the row is
+ *     backfilled.
  *
  * dependsOn: ["thumb"]
  *   — chained on thumb so the FFI worker pool is already warm when this
