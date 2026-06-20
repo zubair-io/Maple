@@ -50,10 +50,16 @@ const AGX_LUT_BYTES: &[u8] = include_bytes!("agx_lut.bin");
 
 /// Normalized log-domain position of scene-linear mid-gray. Contrast
 /// modulation pivots around this point so the mid-gray anchor is stable.
-const MID_NORM: f32 = -AGX_MIN_EV / (AGX_MAX_EV - AGX_MIN_EV);
+///
+/// `pub(crate)` so `view::agx_inverse` can undo the contrast-slope
+/// modulation with the exact same pivot.
+pub(crate) const MID_NORM: f32 = -AGX_MIN_EV / (AGX_MAX_EV - AGX_MIN_EV);
 
 /// Parse `AGX_LUT_BYTES` into a `[f32; AGX_LUT_SIZE]` on first access.
-fn lut() -> &'static [f32; AGX_LUT_SIZE] {
+///
+/// `pub(crate)` so `view::agx_inverse` reverses the exact same monotone
+/// sigmoid LUT (single source of truth — no duplicate parse).
+pub(crate) fn lut() -> &'static [f32; AGX_LUT_SIZE] {
     static CELL: std::sync::OnceLock<[f32; AGX_LUT_SIZE]> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
         assert_eq!(
