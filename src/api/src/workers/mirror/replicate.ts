@@ -45,7 +45,7 @@ export async function statOrNull(p: string): Promise<Stats | null> {
  */
 export async function copyFileToMirror(src: string, dst: string): Promise<void> {
   await mkdir(path.dirname(dst), { recursive: true });
-  const tmp = `${dst}.mirror.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+  const tmp = `${dst}.mirror.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
   try {
     await copyFile(src, tmp);
     try {

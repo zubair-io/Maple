@@ -108,7 +108,7 @@ async function writeCached(jsonPath: string, payload: CachedHistogram): Promise<
       return;
     }
     await mkdir(path.dirname(jsonPath), { recursive: true });
-    const tmp = `${jsonPath}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+    const tmp = `${jsonPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
     await writeFile(tmp, JSON.stringify(payload), 'utf-8');
     await rename(tmp, jsonPath);
   } catch (err) {

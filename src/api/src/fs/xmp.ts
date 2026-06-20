@@ -55,7 +55,7 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
  */
 export async function writeXmpAtomic(rawAbsPath: string, xmlContent: string): Promise<OpResult> {
   const sidecar = xmpSidecarPath(rawAbsPath);
-  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
 
   const allowed = await safeWriteAllowed(sidecar);
   if (!allowed.ok) return { ok: false, error: allowed.error };
@@ -227,7 +227,7 @@ export async function writeThumb(
 
   try {
     await fs.mkdir(thumbDir, { recursive: true });
-    const tmp = `${thumbPath}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+    const tmp = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
     const fh = await fs.open(tmp, 'w');
     try {
       await fh.writeFile(jpegBytes);
@@ -335,7 +335,7 @@ export async function writeXmpWithPrecondition(
       const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
       const allowed = await safeWriteAllowed(conflictPath);
       if (!allowed.ok) return { kind: 'error', error: allowed.error ?? 'Path not allowed' };
-      const tmp = `${conflictPath}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+      const tmp = `${conflictPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
       try {
         await fs.mkdir(path.dirname(conflictPath), { recursive: true });
         const fh = await fs.open(tmp, 'w');
@@ -474,7 +474,7 @@ export async function writeConflictSidecarAtomic(
   const allowed = await safeWriteAllowed(sidecar);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
-  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
   try {
     await fs.mkdir(path.dirname(sidecar), { recursive: true });
     const fh = await fs.open(tmp, 'w');

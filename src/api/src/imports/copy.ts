@@ -29,7 +29,7 @@ import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/f
  */
 export async function copyFileAtomic(src: string, destAbs: string): Promise<boolean> {
   await fs.mkdir(path.dirname(destAbs), { recursive: true });
-  const tmp = `${destAbs}.import.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+  const tmp = `${destAbs}.import.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
   await fs.copyFile(src, tmp);
   // Durably flush the copied bytes before the publish so a power loss can't
   // surface a zero-length file.
