@@ -264,4 +264,60 @@ final class EditSessionTests: XCTestCase {
         session.setKeywords(["a", "b"])
         XCTAssertEqual(session.culling, before)
     }
+
+    // MARK: - Sidecar error propagation (#1412)
+
+    /// Injecting a failing `SidecarStoreProtocol` via `remoteSidecarStore`
+    /// triggers `sidecarError` on the session. Verifies the Task-based
+    /// subscription wiring added in PR #1434.
+    func testSidecarWriteErrorPropagatesFromStoreThroughSession() async throws {
+        // A sourceless AssetRef (no primary URL) so EditSession doesn't
+        // create an XMPSidecarStore of its own — it will use the injected one.
+        let asset = AssetRef.preview()
+        let store = FailingSidecarStore()
+        let session = EditSession(asset: asset, remoteSidecarStore: store)
+
+        // Ask the store to emit a write error. The session's Task subscribes
+        // to `store.errors()` and should publish it to `session.sidecarError`.
+        let sentinel = NSError(domain: "test.sidecar", code: 42,
+                               userInfo: [NSLocalizedDescriptionKey: "disk full"])
+        await store.emitError(sentinel)
+
+        // Yield control so the async subscription Task can receive the
+        // streamed error and hop onto MainActor.
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline {
+            if session.sidecarError != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let received = try XCTUnwrap(session.sidecarError as NSError?)
+        XCTAssertEqual(received.code, 42)
+        XCTAssertEqual(received.domain, "test.sidecar")
+    }
+}
+
+// MARK: - FailingSidecarStore (test double for #1412)
+
+/// Minimal `SidecarStoreProtocol` conformer that lets the test imperatively
+/// emit errors into the async stream returned by `errors()`.
+private actor FailingSidecarStore: SidecarStoreProtocol {
+    private var continuations: [AsyncStream<Error>.Continuation] = []
+    private var nextID: UInt64 = 0
+
+    func load() async throws -> (AdjustmentModel, CullingState) { (.default, CullingState()) }
+    func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? { nil }
+    func update(model: AdjustmentModel, culling: CullingState) {}
+    func flush() async {}
+
+    func errors() -> AsyncStream<Error> {
+        AsyncStream { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    /// Emit an error into every currently open subscriber stream.
+    func emitError(_ error: Error) {
+        for c in continuations { c.yield(error) }
+    }
 }
