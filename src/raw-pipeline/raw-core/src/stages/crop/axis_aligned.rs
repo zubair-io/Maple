@@ -12,11 +12,7 @@ pub(super) struct SliceRect {
     pub h: u32,
 }
 
-pub(super) fn slice_f32_rgba(
-    rgba: &[f32],
-    src_w: u32,
-    rect: SliceRect,
-) -> (u32, u32, Vec<f32>) {
+pub(super) fn slice_f32_rgba(rgba: &[f32], src_w: u32, rect: SliceRect) -> (u32, u32, Vec<f32>) {
     let sw = src_w as usize;
     let rw = rect.w as usize;
     let rh = rect.h as usize;
@@ -33,11 +29,7 @@ pub(super) fn slice_f32_rgba(
     (rect.w, rect.h, out)
 }
 
-pub(super) fn slice_u8_rgb(
-    rgb: &[u8],
-    src_w: u32,
-    rect: SliceRect,
-) -> (u32, u32, Vec<u8>) {
+pub(super) fn slice_u8_rgb(rgb: &[u8], src_w: u32, rect: SliceRect) -> (u32, u32, Vec<u8>) {
     let sw = src_w as usize;
     let rw = rect.w as usize;
     let rh = rect.h as usize;
