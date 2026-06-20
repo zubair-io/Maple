@@ -4,7 +4,10 @@
 //
 // Composes the search bar, scope chips, and three result sections (top
 // hits, photos preview, recents). Owns:
-//   - the query / scope signals (URL-synced via the host page).
+//   - the query / scope signals. The host seeds the *initial* query via the
+//     `initialQuery` input (e.g. the `/search?q=…` deep link the toolbar and
+//     drawer search pill push to); from there this component owns the value.
+//     Live keystroke → URL round-trip is not implemented and not needed.
 //   - the 250ms debounce on query keystrokes → `SearchService.search()`.
 //   - the in-flight `Subscription` so scope changes / new queries
 //     cancel the previous fetch (no client-side filter — scope changes
@@ -27,6 +30,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  OnInit,
   ViewChild,
   computed,
   effect,
@@ -84,11 +88,17 @@ export function scopeToParams(scope: SearchScope): Partial<SearchParams> {
   styleUrl: './search.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SearchComponent implements AfterViewInit {
+export class SearchComponent implements OnInit, AfterViewInit {
   /** When true, focus the search bar on init. Hosts set this when the
    * route lands via the drawer's `searchPillTap` pill (`autoFocus=1`)
    * or when the phone Search tab becomes active. */
   readonly autoFocus = input<boolean>(false);
+
+  /** Initial query the host seeds from the route (`/search?q=…`). Read once
+   * in `ngOnInit` — after that this component owns the query. Empty/whitespace
+   * leaves the bar blank (the effect trims before fetching, so no request
+   * fires for a whitespace-only seed). */
+  readonly initialQuery = input<string>('');
 
   /** Emitted when the user taps a photo result. Hosts route to the
    * Editor (S5) — kept as an output so this component stays router-free
@@ -155,7 +165,13 @@ export class SearchComponent implements AfterViewInit {
       this.debounceTimer = setTimeout(() => {
         this.debounceTimer = null;
         const params: SearchParams = {
-          q: trimmed,
+          // The responsive box is the *content* search: route the term to
+          // `placeQuery` (unified search_blob — place + caption + OCR + people,
+          // plus NL-date parsing and semantic ranking when Meilisearch is
+          // configured), matching the advanced search box. Sending `q`
+          // (filename/path substring) here meant a search for a place, person,
+          // or caption returned nothing — only literal filename hits.
+          placeQuery: trimmed,
           page: 0,
           limit: 30,
           ...scopeToParams(sc),
@@ -180,6 +196,14 @@ export class SearchComponent implements AfterViewInit {
       if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
       this.inFlight?.unsubscribe();
     });
+  }
+
+  ngOnInit(): void {
+    // Seed the query from the host (`/search?q=…`) before first render so the
+    // bar shows the deep-linked term and the constructor's search effect fires
+    // the initial fetch. Runs once — keystrokes own the value afterwards.
+    const seed = this.initialQuery();
+    if (seed) this.query.set(seed);
   }
 
   ngAfterViewInit(): void {
