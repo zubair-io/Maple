@@ -168,7 +168,8 @@ impl Pass for GrainPass {
     ) {
         let (width, height) = dims;
         let pixel_count = width * height;
-        let (k, inv_pitch, rho) = grain_params(self.amount, self.size, self.roughness, width.max(height));
+        let (k, inv_pitch, rho) =
+            grain_params(self.amount, self.size, self.roughness, width.max(height));
 
         let params = Params {
             k,

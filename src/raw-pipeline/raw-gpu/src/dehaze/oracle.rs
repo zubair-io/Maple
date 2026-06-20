@@ -55,7 +55,11 @@ fn atmospheric_light(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
     let n = dc.len();
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_unstable_by(|&a, &b| dc[b].partial_cmp(&dc[a]).unwrap_or(std::cmp::Ordering::Equal));
+    idx.sort_unstable_by(|&a, &b| {
+        dc[b]
+            .partial_cmp(&dc[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut sum = [0.0f32; 3];
     for &i in &idx[..top_n] {
         let p = pixels[i];
@@ -241,7 +245,11 @@ fn to_rgb(buf: &[f32]) -> Vec<[f32; 3]> {
 /// [-100, +100]; the `|dehaze| < 1e-3` no-op short-circuit is handled here as in
 /// raw-core. `width × height` must equal `buf.len() / 4`.
 pub fn apply_dehaze(buf: &mut [f32], width: usize, height: usize, dehaze: f32) {
-    assert_eq!(buf.len(), width * height * 4, "dehaze oracle: buffer/dims mismatch");
+    assert_eq!(
+        buf.len(),
+        width * height * 4,
+        "dehaze oracle: buffer/dims mismatch"
+    );
     if dehaze.abs() < 1e-3 {
         return;
     }
