@@ -7,20 +7,24 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { AssetDoc, AssetFaceDoc } from '../db/schema.ts';
 
 const TEST_DB = `maple_test_clustering_${process.pid}`;
-process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+// Save originals so afterAll can restore them; mutating process.env here
+// would leak into other test files in the same Bun process.
+const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
+const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
 
+let mongod: MongoMemoryServer | null = null;
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
 
 const DIM = 512;
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
+async function tryConnect(uri: string): Promise<MongoClient | null> {
+  const c = new MongoClient(uri, {
     serverSelectionTimeoutMS: 1500,
     connectTimeoutMS: 1500,
   });
@@ -37,13 +41,36 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
+  let uri = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+
+  // Try the provided/default URI first; fall back to an in-process memory
+  // server so the suite passes in environments without a local MongoDB.
+  mongo = await tryConnect(uri);
+  if (!mongo) {
+    try {
+      mongod = await MongoMemoryServer.create();
+      uri = mongod.getUri();
+      mongo = await tryConnect(uri);
+    } catch {
+      console.log(
+        '[clustering-job.test] skipping: MongoDB unreachable (both local and memory server)',
+      );
+      return;
+    }
+  }
+
+  if (!mongo) {
     console.log('[clustering-job.test] skipping: MongoDB unreachable');
     return;
   }
-  db = mongo!.db(TEST_DB);
+
+  mongoReachable = true;
+  // Point the lazy-loaded db client at the same instance for the duration of
+  // this test file — restored in afterAll.
+  process.env.MAPLE_MONGO_URI = uri;
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+
+  db = mongo.db(TEST_DB);
   await db.dropDatabase();
   for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
     await db.createCollection(name).catch(() => undefined);
@@ -64,6 +91,23 @@ afterAll(async () => {
     await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
+  if (mongod) {
+    await mongod.stop();
+  }
+
+  // Restore env vars so subsequent test files in the same process see the
+  // original configuration.
+  if (ORIGINAL_MONGO_URI !== undefined) {
+    process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
+  } else {
+    delete process.env.MAPLE_MONGO_URI;
+  }
+  if (ORIGINAL_MONGO_DB !== undefined) {
+    process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
+  } else {
+    delete process.env.MAPLE_MONGO_DB;
+  }
+
   const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
