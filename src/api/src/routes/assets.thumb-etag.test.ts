@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { closeDb } from '../db/client.ts';
 import { assetsRoutes } from './assets.ts';
-import { resolveThumbPath } from '../fs/xmp.ts';
 
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 // Shared DB name across all etag tests in this process so the

@@ -48,11 +48,9 @@ import sharp from 'sharp';
 import { child as childLogger } from '../log.ts';
 import {
   ARCFACE_DST,
-  applySimilarity,
   invertSimilarity,
   sampleBilinear,
   umeyamaSimilarity,
-  type Similarity2D,
 } from './face-similarity.ts';
 import {
   loadFaceModels,
