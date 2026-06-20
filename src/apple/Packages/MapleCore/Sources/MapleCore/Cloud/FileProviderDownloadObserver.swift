@@ -100,9 +100,32 @@ public final class FileProviderDownloadObserver {
 
         // (5) Detached so the URL-resource read (which can hit disk) doesn't
         // block MainActor. The loop hops back to MainActor only for the brief
-        // `progress.report` / `progress.finish` writes.
+        // `progress.report` / `progress.finish` writes. The loop body is
+        // inlined here (instead of passed to a `runPollLoop(progress:)`
+        // helper) so the `[weak progress]` capture is re-evaluated on every
+        // iteration — a function parameter would hold a strong reference for
+        // the entire loop and defeat the weak capture (#1384 review).
         pollTask = Task.detached { [weak progress] in
-            await Self.runPollLoop(url: url, initialExpected: initialExpected, progress: progress)
+            var lastExpected: Int64? = initialExpected
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled else { break }
+                // Re-read the weak capture each iteration so we exit as soon
+                // as the editor releases the progress sink (typically when
+                // the EditSession deallocates).
+                guard let progress else { break }
+
+                let snap = Self.snapshot(url: url)
+                if let total = snap.total, total > 0 {
+                    lastExpected = total
+                }
+                let expected = lastExpected
+                await MainActor.run {
+                    progress.report(received: snap.received, total: expected)
+                    if snap.isDone { progress.finish() }
+                }
+                if snap.isDone { break }
+            }
         }
         #else
         _ = url
@@ -128,34 +151,6 @@ public final class FileProviderDownloadObserver {
     // MARK: - Internals
 
     #if canImport(FileProvider)
-    /// Off-MainActor loop. URL resource resolution runs on a cooperative
-    /// thread; only the `DownloadProgress` writes hop to MainActor. Cancels
-    /// via `Task.isCancelled` (propagated from `pollTask?.cancel()`).
-    @available(macOS 13.0, iOS 16.0, *)
-    nonisolated private static func runPollLoop(
-        url: URL,
-        initialExpected: Int64?,
-        progress: DownloadProgress?
-    ) async {
-        var lastExpected: Int64? = initialExpected
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            guard !Task.isCancelled else { break }
-            guard let progress else { break }
-
-            let snap = Self.snapshot(url: url)
-            if let total = snap.total, total > 0 {
-                lastExpected = total
-            }
-            let expected = lastExpected
-            await MainActor.run {
-                progress.report(received: snap.received, total: expected)
-                if snap.isDone { progress.finish() }
-            }
-            if snap.isDone { break }
-        }
-    }
-
     @available(macOS 13.0, iOS 16.0, *)
     private static func identifierForUserVisibleFile(
         at url: URL
