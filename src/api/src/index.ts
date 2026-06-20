@@ -465,8 +465,8 @@ async function start(): Promise<void> {
   // `runtime/diag-eventloop.ts`.
   startEventLoopLagMonitor();
 
-  const app = buildApp();
-  app.listen(PORT);
+  const server = buildApp();
+  server.listen(PORT);
 }
 
 // Graceful shutdown.

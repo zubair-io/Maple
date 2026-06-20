@@ -169,7 +169,7 @@ describe('walk() skips hidden/temp files (#793)', () => {
 describe('buildImportFiles skips files with an unsafe destination (#795)', () => {
   let mixedRoot: string;
 
-  async function put(rel: string, mtimeUtc: string): Promise<void> {
+  async function putFile(rel: string, mtimeUtc: string): Promise<void> {
     const abs = path.join(mixedRoot, rel);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, `content-of-${rel}`);
@@ -180,10 +180,10 @@ describe('buildImportFiles skips files with an unsafe destination (#795)', () =>
   beforeAll(async () => {
     mixedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-unsafe-'));
     // March 2024 image + sidecar — we'll give 2024/03 an unsafe label.
-    await put('BAD_0001.dng', '2024-03-09T12:00:00Z');
-    await put('BAD_0001.xmp', '2024-03-09T12:05:00Z');
+    await putFile('BAD_0001.dng', '2024-03-09T12:00:00Z');
+    await putFile('BAD_0001.xmp', '2024-03-09T12:05:00Z');
     // November 2007 image — its 2007/11 bucket gets a safe default label.
-    await put('GOOD_0002.nef', '2007-11-25T08:00:00Z');
+    await putFile('GOOD_0002.nef', '2007-11-25T08:00:00Z');
   });
 
   afterAll(async () => {

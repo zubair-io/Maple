@@ -14,8 +14,8 @@
  * with an `auth_header` field and forward it in `init.headers` below.
  */
 
-import type { AiHandlerInput, AiHandlerOutput } from "./contract.ts";
-import { parseAiOutput } from "./contract.ts";
+import type { AiHandlerInput, AiHandlerOutput } from './contract.ts';
+import { parseAiOutput } from './contract.ts';
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 const RETRY_DELAY_MS = 200;
@@ -27,7 +27,7 @@ const RETRY_DELAY_MS = 200;
  */
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }
+  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
 ) => Promise<Response>;
 
 export interface HttpTransportOptions {
@@ -43,7 +43,7 @@ export interface HttpTransportOptions {
  */
 export async function dispatchAi(
   input: AiHandlerInput,
-  opts: HttpTransportOptions
+  opts: HttpTransportOptions,
 ): Promise<AiHandlerOutput> {
   const f: FetchLike = opts.fetchImpl ?? ((url, init) => fetch(url, init));
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -53,8 +53,8 @@ export async function dispatchAi(
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       return await f(opts.url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(input),
         signal: ctrl.signal,
       });
@@ -70,7 +70,8 @@ export async function dispatchAi(
     // Transport error (timeout, DNS, ECONNREFUSED). Surface to caller; the
     // pipeline's withRetry will retry per its policy.
     throw new Error(
-      `[handler-registry:http] transport error: ${e instanceof Error ? e.message : String(e)}`
+      `[handler-registry:http] transport error: ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e },
     );
   }
 
@@ -83,14 +84,15 @@ export async function dispatchAi(
       res = await attempt();
     } catch (e) {
       throw new Error(
-        `[handler-registry:http] retry transport error: ${e instanceof Error ? e.message : String(e)}`
+        `[handler-registry:http] retry transport error: ${e instanceof Error ? e.message : String(e)}`,
+        { cause: e },
       );
     }
   }
 
   if (!res.ok) {
     throw new Error(
-      `[handler-registry:http] handler returned HTTP ${res.status} ${res.statusText}`
+      `[handler-registry:http] handler returned HTTP ${res.status} ${res.statusText}`,
     );
   }
 
@@ -99,7 +101,8 @@ export async function dispatchAi(
     body = await res.json();
   } catch (e) {
     throw new Error(
-      `[handler-registry:http] response is not valid JSON: ${e instanceof Error ? e.message : String(e)}`
+      `[handler-registry:http] response is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e },
     );
   }
   return parseAiOutput(body);

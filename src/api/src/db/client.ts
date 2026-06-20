@@ -92,6 +92,7 @@ export async function getDb(): Promise<Db> {
       throw new Error(
         `[db] Cannot connect to MongoDB (${uri}): ${msg}\n` +
           `Tip: run "docker compose up -d mongo" from src/api/`,
+        { cause: err },
       );
     }
   })();
