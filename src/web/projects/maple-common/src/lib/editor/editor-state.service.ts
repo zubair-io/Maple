@@ -319,9 +319,6 @@ export class EditorStateService {
     return true;
   }
 
-  // ── AUTO (#1379) ─────────────────────────────────────────────────────────────
-<<<<<<< HEAD
-=======
   // Snapshot the current adjustment, fetch auto recommendations from the WASM
   // pipeline (via the worker), and apply { exposure, autoExposure: 'Off' } as
   // ONE undo entry. Per live review, AUTO applies EXPOSURE ONLY — the WB
@@ -329,7 +326,6 @@ export class EditorStateService {
   // temperature/tint stay at As-Shot. Tone (contrast/highlights/shadows/
   // whites/blacks) is deferred to #1376. The WASM still returns WB + tone; the
   // apply path intentionally ignores them.
->>>>>>> 35fc459c4 (fix(web): AUTO applies exposure only — leave white balance at As-Shot)
 
   /** True while an AUTO analysis is in flight (disables the AUTO button). */
   readonly autoInFlight = signal<boolean>(false);
