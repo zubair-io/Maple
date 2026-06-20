@@ -125,6 +125,7 @@ class ImgDecodePool {
       this.spawnFailed = true;
       throw new Error(
         'imgdecode-pool: failed to spawn worker — ' + (e instanceof Error ? e.message : String(e)),
+        { cause: e },
       );
     }
 

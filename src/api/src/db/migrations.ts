@@ -454,7 +454,7 @@ export interface BackfillFolderSlugsResult {
 }
 
 export async function backfillFolderSlugs(db: Db): Promise<BackfillFolderSlugsResult> {
-  const log = childLogger('db:migrations:folder-slugs');
+  const slugsLog = childLogger('db:migrations:folder-slugs');
 
   // Seed the taken set with slugs already assigned so dedup is collision-safe
   // even in partial-run scenarios.
@@ -493,7 +493,7 @@ export async function backfillFolderSlugs(db: Db): Promise<BackfillFolderSlugsRe
     }
   }
 
-  log.info({ updated, skipped }, 'backfilled folder slugs');
+  slugsLog.info({ updated, skipped }, 'backfilled folder slugs');
   return { updated, skipped };
 }
 
@@ -513,7 +513,7 @@ export interface FileinfoUniquenessResult {
 }
 
 export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniquenessResult> {
-  const log = childLogger('db:migrations:fileinfo-unique');
+  const uniqueLog = childLogger('db:migrations:fileinfo-unique');
 
   // Count groups with size > 1 — each such group is a duplicate tuple.
   const pipeline = [
@@ -554,7 +554,7 @@ export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniqu
       { $limit: 10 },
     ];
     const dups = await db.collection('assets').aggregate(dupPipeline).toArray();
-    log.warn(
+    uniqueLog.warn(
       { violations, sample: dups },
       '[STOP] fileinfo compound uniqueness violations detected — unique index NOT created; operator must resolve duplicates before re-running',
     );
@@ -586,6 +586,8 @@ export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniqu
       if (err.codeName !== 'IndexNotFound') throw err;
     });
 
-  log.info('promoted fileinfo compound index to unique; dropped redundant non-unique base index');
+  uniqueLog.info(
+    'promoted fileinfo compound index to unique; dropped redundant non-unique base index',
+  );
   return { violations: 0, promoted: true };
 }
