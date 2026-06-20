@@ -60,8 +60,9 @@ export class SearchPageComponent implements AfterViewInit {
 
   protected onPhotoTap(r: SearchResult): void {
     // S5 (#625): route results to the responsive Editor shell at
-    // /library/editor/:id. The Editor shell handles both plain asset ids
-    // and fs: abs-path deep links.
+    // /library/editor/:id. Note: Self-Hosted search returns `fs:<absPath>`
+    // ids; fs: cold-load/hydration in the responsive editor is a follow-up
+    // (#625) and not yet implemented.
     void this.router.navigate(['/library/editor', r.id]);
   }
 
