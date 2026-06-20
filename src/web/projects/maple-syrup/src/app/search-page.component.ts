@@ -23,6 +23,7 @@ import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
   imports: [SearchComponent],
   template: `
     <app-search
+      [initialQuery]="initialQuery"
       [autoFocus]="autoFocus"
       (photoTap)="onPhotoTap($event)"
       (seeAll)="onSeeAll($event)"
@@ -45,6 +46,10 @@ export class SearchPageComponent implements AfterViewInit {
   @ViewChild(SearchComponent) private searchEl?: SearchComponent;
 
   protected readonly autoFocus = this.route.snapshot.queryParamMap.get('autoFocus') === '1';
+
+  // Seed `<app-search>` from `/search?q=<query>` so the bar reflects the
+  // deep-linked term — mirrors the Self-Hosted page.
+  protected readonly initialQuery = this.route.snapshot.queryParamMap.get('q') ?? '';
 
   ngAfterViewInit(): void {
     if (this.autoFocus) this.searchEl?.focusSearchBar();

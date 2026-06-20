@@ -7,10 +7,13 @@
 // view yet — that lands as part of S7 follow-up or as a redirect into
 // the existing rich filter page at `/search/advanced`).
 //
-// On mount the component checks `?autoFocus=1` — set by S1b drawer's
-// search pill tap — and focuses the search bar. The S1b
-// `mapleFocusSearch` notification (Apple side) maps to this query param
-// on web.
+// On mount the component reads two query params off the route:
+//   - `?q=<query>` — the search term the browse-shell toolbar and the S1b
+//     drawer search pill deep-link with. It seeds `<app-search>` so the bar
+//     shows the term and the (content) search fires on landing.
+//   - `?autoFocus=1` — set by the S1b drawer's search pill tap — focuses the
+//     search bar. The S1b `mapleFocusSearch` notification (Apple side) maps to
+//     this query param on web.
 
 import {
   AfterViewInit,
@@ -28,6 +31,7 @@ import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
   imports: [SearchComponent],
   template: `
     <app-search
+      [initialQuery]="initialQuery"
       [autoFocus]="autoFocus"
       (photoTap)="onPhotoTap($event)"
       (seeAll)="onSeeAll($event)"
@@ -50,6 +54,11 @@ export class SearchPageComponent implements AfterViewInit {
   @ViewChild(SearchComponent) private searchEl?: SearchComponent;
 
   protected readonly autoFocus = this.route.snapshot.queryParamMap.get('autoFocus') === '1';
+
+  // The toolbar search + drawer search pill deep-link to `/search?q=<query>`.
+  // Seed `<app-search>` with it so the bar shows the term and the search fires
+  // on landing; without this the query is dropped at the route boundary.
+  protected readonly initialQuery = this.route.snapshot.queryParamMap.get('q') ?? '';
 
   ngAfterViewInit(): void {
     // Belt-and-suspenders: `autoFocus` input drives a queueMicrotask focus,
