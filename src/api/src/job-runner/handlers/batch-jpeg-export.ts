@@ -115,7 +115,7 @@ export const batchJpegExportHandler: JobHandler = {
         if (!ObjectId.isValid(idHex)) {
           throw new Error(`invalid ObjectId: ${idHex}`);
         }
-        const doc = docsById.get(idHex);
+        const doc = docsById.get(new ObjectId(idHex).toHexString());
         if (!doc) throw new Error(`asset not found: ${idHex}`);
         const srcPath = assetAbsPath(doc, libs);
         if (!srcPath) {
