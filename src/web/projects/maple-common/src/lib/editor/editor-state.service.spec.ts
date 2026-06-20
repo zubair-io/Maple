@@ -507,15 +507,21 @@ describe('EditorStateService', () => {
       lib.primeBytes(ID, BYTES);
     });
 
-    it('writes exposure, temperature, tint + autoExposure=Off + whiteBalancePreset=Custom', async () => {
+    it('writes exposure + autoExposure=Off ONLY — leaves white balance at As-Shot', async () => {
+      const before = lib.adjustmentFor(ID)();
       const ok = await svc.applyAuto(ID);
       expect(ok).toBe(true);
       const adj = lib.adjustmentFor(ID)();
+      // Exposure and the AE-Off mode are applied.
       expect(adj.exposure).toBeCloseTo(pipeline.patch.exposure, 9);
-      expect(adj.temperature).toBeCloseTo(pipeline.patch.temperature, 9);
-      expect(adj.tint).toBeCloseTo(pipeline.patch.tint, 9);
       expect(adj.autoExposure).toBe('Off');
-      expect(adj.whiteBalancePreset).toBe('Custom');
+      // White balance is intentionally NOT touched (WB is hard to guess and the
+      // estimate produced bad casts). temperature/tint stay at their pre-AUTO
+      // As-Shot values, and the patch's WB recommendation (5800/5) is ignored.
+      expect(adj.temperature).toBe(before.temperature);
+      expect(adj.tint).toBe(before.tint);
+      expect(adj.temperature).not.toBeCloseTo(pipeline.patch.temperature, 9);
+      expect(adj.whiteBalancePreset).toBe(before.whiteBalancePreset);
     });
 
     it('leaves tone sliders untouched (contrast/highlights/shadows/whites/blacks)', async () => {

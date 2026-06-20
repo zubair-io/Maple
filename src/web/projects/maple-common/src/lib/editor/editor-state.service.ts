@@ -320,6 +320,16 @@ export class EditorStateService {
   }
 
   // ── AUTO (#1379) ─────────────────────────────────────────────────────────────
+<<<<<<< HEAD
+=======
+  // Snapshot the current adjustment, fetch auto recommendations from the WASM
+  // pipeline (via the worker), and apply { exposure, autoExposure: 'Off' } as
+  // ONE undo entry. Per live review, AUTO applies EXPOSURE ONLY — the WB
+  // estimate produced bad casts and is genuinely hard to guess, so
+  // temperature/tint stay at As-Shot. Tone (contrast/highlights/shadows/
+  // whites/blacks) is deferred to #1376. The WASM still returns WB + tone; the
+  // apply path intentionally ignores them.
+>>>>>>> 35fc459c4 (fix(web): AUTO applies exposure only — leave white balance at As-Shot)
 
   /** True while an AUTO analysis is in flight (disables the AUTO button). */
   readonly autoInFlight = signal<boolean>(false);
@@ -342,12 +352,11 @@ export class EditorStateService {
       const patch = await this.pipeline.computeAutoAdjustments(bytes, ext);
       if (this.imageId() !== startId) return false;
       this.commit();
+      // Apply EXPOSURE ONLY (+ the AE-Off mode). White balance and tone are
+      // intentionally NOT written — WB stays at As-Shot, tone deferred to #1376.
       this.library.updateAdjustment(id, {
         exposure: patch.exposure,
-        temperature: patch.temperature,
-        tint: patch.tint,
         autoExposure: 'Off',
-        whiteBalancePreset: 'Custom',
       });
       return true;
     } catch (err) {
