@@ -54,6 +54,10 @@ async function probeStrategySupported(cliPath: string): Promise<boolean> {
   // Security: only allow absolute paths that don't look like flags.
   if (cliPath.startsWith('-') || !path.isAbsolute(cliPath)) {
     log.warn({ cliPath }, 'pano: refusing to probe non-absolute or hyphen-prefixed cliPath');
+    // Cache the rejection so repeated calls with the same invalid path skip
+    // the check rather than re-running (and re-emitting) the warning.
+    _strategyProbeResult = false;
+    _strategyProbedPath = cliPath;
     return false;
   }
   try {
