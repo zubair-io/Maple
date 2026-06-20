@@ -90,6 +90,7 @@ class ClusterWorkerPool {
       this.workerLoadFailed = true;
       throw new Error(
         'cluster-pool: failed to spawn worker — ' + (e instanceof Error ? e.message : String(e)),
+        { cause: e },
       );
     }
 

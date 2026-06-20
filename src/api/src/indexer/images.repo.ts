@@ -255,10 +255,10 @@ interface CollectionWithUpdateOne {
 }
 
 export async function updateLiveLocationCount(
-  coll: CollectionWithUpdateOne,
+  collection: CollectionWithUpdateOne,
   id: ObjectId,
 ): Promise<void> {
-  await coll.updateOne({ _id: id as unknown }, [
+  await collection.updateOne({ _id: id as unknown }, [
     { $set: { live_location_count: liveLocationCountExpression() } },
   ]);
 }

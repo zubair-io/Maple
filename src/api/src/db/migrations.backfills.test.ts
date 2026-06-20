@@ -242,7 +242,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     it('populates fileinfo[0] from abs_path/folder_id/filename for legacy rows', async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       const folderId = new ObjectId();
@@ -282,7 +281,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     it('skips rows that already have fileinfo populated', async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       const folderId = new ObjectId();
@@ -319,7 +317,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     it("handles files at the library root (path='')", async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       const folderId = new ObjectId();
@@ -356,7 +353,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
       const { migrationApplied } = await import('./migrations.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       await ensureIndexes();
@@ -398,7 +394,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     it('$unsets the retired location + cache fields on a fileinfo-bearing row', async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       const folderId = new ObjectId();
@@ -440,7 +435,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     it('leaves a row that has no fileinfo untouched (location still rebuildable)', async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       // folder_id points at an UNREGISTERED folder, so the fileinfo backfill
@@ -476,7 +470,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     it('leaves a row with a degenerate empty fileinfo[] untouched', async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       // An empty `fileinfo: []` has no primary entry to resolve a location
@@ -510,7 +503,6 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');
       const { migrationApplied } = await import('./migrations.ts');
-      const { ObjectId } = await import('mongodb');
       await closeDb();
 
       await ensureIndexes();

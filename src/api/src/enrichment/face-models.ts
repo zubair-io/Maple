@@ -501,6 +501,7 @@ async function loadOnnxRuntime(): Promise<OnnxRuntimeModule> {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(
       `onnxruntime-node not installed (${msg}). Run \`bun add onnxruntime-node\` in src/api.`,
+      { cause: err },
     );
   }
 }

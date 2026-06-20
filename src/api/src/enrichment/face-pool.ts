@@ -128,6 +128,7 @@ class FaceWorkerPool {
       throw new Error(
         'face-pool: failed to spawn child process — ' +
           (e instanceof Error ? e.message : String(e)),
+        { cause: e },
       );
     }
 

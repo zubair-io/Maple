@@ -30,7 +30,14 @@
     ],
     "unicorn/no-new-array": "off",
     "unicorn/no-useless-fallback-in-spread": "off",
-    "unicorn/no-useless-spread": "off"
+    "unicorn/no-useless-spread": "off",
+    "eslint/no-shadow": "error",
+    "eslint/preserve-caught-error": "error",
+    "eslint/no-throw-literal": "error",
+    "oxc/no-accumulating-spread": "error",
+    "typescript/ban-ts-comment": "error",
+    "promise/no-multiple-resolved": "error",
+    "promise/catch-or-return": "error"
   },
   "overrides": [
     {
@@ -147,5 +154,6 @@
         "eslint/no-restricted-imports": "off"
       }
     }
-  ]
+  ],
+  "plugins": ["eslint", "unicorn", "typescript", "oxc", "promise"]
 }
