@@ -13,6 +13,7 @@
 //! where `sigmoid_curve(x) = sample_lut(MID_NORM + (log_encode(x) - MID_NORM)·slope)`
 //! and `OUTSET = inv(INSET)`.
 
+use crate::color::matrices::M_REC2020_TO_SRGB;
 use crate::view::agx::{
     self, lut, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY, AGX_MIN_EV,
     AGX_OUTSET_MATRIX, MID_NORM,
@@ -80,6 +81,33 @@ pub fn inverse_agx_pixel(display: [f32; 3], slope: f32) -> [f32; 3] {
     matrix_mul(&AGX_OUTSET_MATRIX, inset)
 }
 
+/// Inverse of the IEC 61966-2-1 sRGB OETF (`view::encode::srgb_gamma`).
+pub fn srgb_gamma_inv(y: f32) -> f32 {
+    let y = y.clamp(0.0, 1.0);
+    if y <= 0.040_449_936 {
+        y / 12.92
+    } else {
+        ((y + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// 8-bit sRGB-encoded RGB → scene-linear Rec.2020, reversing the full view tail
+/// (`AgX → rec2020_to_srgb → srgb_gamma → quantize`). In-gamut assumption: the
+/// forward Oklab gamut-compress in `rec2020_to_srgb` is treated as identity (it
+/// is for in-gamut pixels). Dither is zero-mean sub-LSB and is not modelled.
+pub fn display_u8_to_scene_linear(rgb: [u8; 3], slope: f32) -> [f32; 3] {
+    let srgb_lin = [
+        srgb_gamma_inv(rgb[0] as f32 / 255.0),
+        srgb_gamma_inv(rgb[1] as f32 / 255.0),
+        srgb_gamma_inv(rgb[2] as f32 / 255.0),
+    ];
+    let m_inv = M_REC2020_TO_SRGB
+        .inverse()
+        .expect("M_REC2020_TO_SRGB is invertible");
+    let display_rec2020 = m_inv.mul_vec(srgb_lin);
+    inverse_agx_pixel(display_rec2020, slope)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +162,35 @@ mod tests {
                 let rel = (back[c] - scene[c]).abs() / scene[c];
                 assert!(rel < 0.05, "contrast {} ch{} rel err {}", contrast, c, rel);
             }
+        }
+    }
+
+    #[test]
+    fn srgb_gamma_inverse_roundtrips() {
+        use crate::view::encode::srgb_gamma;
+        for i in 0..=255u32 {
+            let lin = (i as f32) / 255.0;
+            let enc = srgb_gamma(lin);
+            let back = super::srgb_gamma_inv(enc);
+            assert!((back - lin).abs() < 1e-3, "x={} back={}", lin, back);
+        }
+    }
+
+    #[test]
+    fn full_view_tail_roundtrips_midtone() {
+        // scene -> AgX -> rec2020->srgb -> gamma -> u8 -> (inverse) -> scene.
+        use crate::view::encode::{dither_and_quantize, rec2020_to_srgb, srgb_gamma_encode};
+        let scene = [0.18f32, 0.13, 0.20];
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = scene;
+        agx::apply(&mut img, 0.0);
+        rec2020_to_srgb(&mut img);
+        srgb_gamma_encode(&mut img);
+        let u8s = dither_and_quantize(&mut img); // [r, g, b]
+        let back = super::display_u8_to_scene_linear([u8s[0], u8s[1], u8s[2]], 1.0);
+        for c in 0..3 {
+            let rel = (back[c] - scene[c]).abs() / scene[c];
+            assert!(rel < 0.06, "ch{} rel {} back={:?}", c, rel, back);
         }
     }
 }
