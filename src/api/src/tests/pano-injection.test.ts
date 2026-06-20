@@ -37,12 +37,11 @@ exit 0
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('demonstrates flag injection via modelsDir', async () => {
+  it('Bun.spawn passes flag-like modelsDir as a literal argument (no shell injection)', async () => {
     const outputPng = path.join(tmpDir, 'normal.png');
-    const injectedPng = path.join(tmpDir, 'injected.png');
-
-    // Malicious modelsDir that starts with a hyphen
-    const maliciousModelsDir = `--version`;
+    // Malicious modelsDir that starts with a hyphen — would be misinterpreted
+    // by a shell, but Bun.spawn passes it verbatim as a single argv element.
+    const maliciousModelsDir = '--version';
 
     const args = [
       'pano',
@@ -57,66 +56,65 @@ exit 0
     ];
 
     const proc = Bun.spawn([fakeCli, ...args]);
-    await proc.exited;
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
 
     const argsWritten = await fs.readFile(path.join(tmpDir, 'args.txt'), 'utf8');
-    console.log('Spawned with args:\n' + argsWritten);
-
-    expect(argsWritten).toContain(`Arg: [--models-dir]`);
+    // The fake CLI must receive --models-dir and its value as separate,
+    // unchanged argv tokens — confirming no shell word-splitting occurred.
+    expect(argsWritten).toContain('Arg: [--models-dir]');
     expect(argsWritten).toContain(`Arg: [${maliciousModelsDir}]`);
-
-    // If maple-cli (the real one) uses clap, and we pass --models-dir --version,
-    // clap will see --version as the value for --models-dir.
-    // BUT if we pass something like:
-    const maliciousModelsDir2 = `-V`;
-    const args2 = [
-      'pano',
-      'stitch',
-      '--models-dir', // this expects a value
-      maliciousModelsDir2, // clap might take this as the value
-      '--out',
-      outputPng,
-      '--',
-      'input1.dng',
-      'input2.dng',
-    ];
-    // This is generally safe because Bun.spawn doesn't use a shell.
-
-    // The REAL risk is when we don't use -- before positional arguments,
-    // but we ARE using -- in pano-stitch.ts.
-
-    // What if the operator sets mapleCli to a path that contains spaces and flags?
-    // In routes/pano.ts:
-    // const proc = Bun.spawn([cliPath, 'pano', 'stitch', '--help']
-    // If cliPath is "maple-cli --some-dangerous-flag", Bun.spawn will fail
-    // unless it's a single file.
-
-    try {
-      await Bun.spawn(['ls -la', '.']).exited;
-    } catch (e) {
-      console.log('Bun.spawn(["ls -la", "."]) failed as expected');
-    }
   });
 
-  it('rejects relative paths in configuration', async () => {
+  it('Bun.spawn rejects a binary name with embedded spaces (no shell fallback)', () => {
+    // A path like "ls -la" cannot be a valid binary: Bun.spawn must throw
+    // synchronously when the executable is not found — confirming no shell
+    // fallback occurs that would split on the embedded space.
+    expect(() => Bun.spawn(['ls -la', '.'])).toThrow();
+  });
+
+  // ── Config-layer rejection (resolveStr validation) ──────────────────────
+
+  it('rejects relative maple_cli_path in configuration', async () => {
     const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
-    const dbVal = {
-      maple_cli_path: './maple-cli',
-      enabled: true,
-    };
-    const resolved = resolvePanoConfig(dbVal as any);
+    const resolved = resolvePanoConfig({ maple_cli_path: './maple-cli', enabled: true } as any);
     expect(resolved.maple_cli_path).toBeNull();
   });
 
-  it('rejects hyphen-prefixed paths in configuration', async () => {
+  it('rejects hyphen-prefixed maple_cli_path in configuration', async () => {
     const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
-    const dbVal = {
+    const resolved = resolvePanoConfig({
       maple_cli_path: '--dangerous-flag',
       enabled: true,
-    };
-    const resolved = resolvePanoConfig(dbVal as any);
+    } as any);
     expect(resolved.maple_cli_path).toBeNull();
   });
+
+  it('rejects relative models_dir in configuration', async () => {
+    const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
+    const resolved = resolvePanoConfig({ models_dir: '../models', enabled: true } as any);
+    expect(resolved.models_dir).toBeNull();
+  });
+
+  it('rejects hyphen-prefixed models_dir in configuration', async () => {
+    const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
+    const resolved = resolvePanoConfig({ models_dir: '--exploit', enabled: true } as any);
+    expect(resolved.models_dir).toBeNull();
+  });
+
+  it('rejects relative ort_dylib_path in configuration', async () => {
+    const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
+    const resolved = resolvePanoConfig({ ort_dylib_path: './libonnxruntime.dylib' } as any);
+    expect(resolved.ort_dylib_path).toBeNull();
+  });
+
+  it('rejects hyphen-prefixed ort_dylib_path in configuration', async () => {
+    const { resolvePanoConfig } = await import('../pano/pano-config.repo.ts');
+    const resolved = resolvePanoConfig({ ort_dylib_path: '--inject' } as any);
+    expect(resolved.ort_dylib_path).toBeNull();
+  });
+
+  // ── Handler-layer rejection (parsePayload validation) ───────────────────
 
   it('panoStitchHandler rejects hyphen-prefixed mapleCli', async () => {
     const { panoStitchHandler } = await import('../job-runner/handlers/pano-stitch.ts');
@@ -129,24 +127,37 @@ exit 0
       localAlign: 'mesh',
       strategySupported: false,
     };
-
-    // We expect parsePayload to throw. parsePayload is internal but called by run().
-    // We can't easily call parsePayload directly, so we call run().
-    // We need a mock context.
     const ctx: any = {
       reportProgress: async () => {},
       shouldCancel: async () => false,
       jobId: { toHexString: () => '123' },
     };
 
-    try {
-      await panoStitchHandler.run(payload, ctx);
-      expect(true).toBe(false); // should not reach here
-    } catch (e: any) {
-      expect(e.message).toContain(
-        'payload.mapleCli must be an absolute path and not start with "-"',
-      );
-    }
+    await expect(panoStitchHandler.run(payload, ctx)).rejects.toThrow(
+      'payload.mapleCli must be an absolute path and not start with "-"',
+    );
+  });
+
+  it('panoStitchHandler rejects relative mapleCli', async () => {
+    const { panoStitchHandler } = await import('../job-runner/handlers/pano-stitch.ts');
+    const payload = {
+      assetIds: ['60d5ecb8b3928400158c5941', '60d5ecb8b3928400158c5942'],
+      libraryId: '60d5ecb8b3928400158c5940',
+      outputDir: '/tmp/out',
+      mapleCli: './maple-cli',
+      retention: 'keep',
+      localAlign: 'mesh',
+      strategySupported: false,
+    };
+    const ctx: any = {
+      reportProgress: async () => {},
+      shouldCancel: async () => false,
+      jobId: { toHexString: () => '123' },
+    };
+
+    await expect(panoStitchHandler.run(payload, ctx)).rejects.toThrow(
+      'payload.mapleCli must be an absolute path and not start with "-"',
+    );
   });
 
   it('panoStitchHandler rejects relative modelsDir', async () => {
@@ -161,20 +172,83 @@ exit 0
       localAlign: 'mesh',
       strategySupported: false,
     };
-
     const ctx: any = {
       reportProgress: async () => {},
       shouldCancel: async () => false,
       jobId: { toHexString: () => '123' },
     };
 
-    try {
-      await panoStitchHandler.run(payload, ctx);
-      expect(true).toBe(false); // should not reach here
-    } catch (e: any) {
-      expect(e.message).toContain(
-        'payload.modelsDir must be an absolute path and not start with "-"',
-      );
-    }
+    await expect(panoStitchHandler.run(payload, ctx)).rejects.toThrow(
+      'payload.modelsDir must be an absolute path and not start with "-"',
+    );
+  });
+
+  it('panoStitchHandler rejects hyphen-prefixed modelsDir', async () => {
+    const { panoStitchHandler } = await import('../job-runner/handlers/pano-stitch.ts');
+    const payload = {
+      assetIds: ['60d5ecb8b3928400158c5941', '60d5ecb8b3928400158c5942'],
+      libraryId: '60d5ecb8b3928400158c5940',
+      outputDir: '/tmp/out',
+      mapleCli: '/usr/bin/maple-cli',
+      modelsDir: '--evil',
+      retention: 'keep',
+      localAlign: 'mesh',
+      strategySupported: false,
+    };
+    const ctx: any = {
+      reportProgress: async () => {},
+      shouldCancel: async () => false,
+      jobId: { toHexString: () => '123' },
+    };
+
+    await expect(panoStitchHandler.run(payload, ctx)).rejects.toThrow(
+      'payload.modelsDir must be an absolute path and not start with "-"',
+    );
+  });
+
+  it('panoStitchHandler rejects relative ortDylibPath', async () => {
+    const { panoStitchHandler } = await import('../job-runner/handlers/pano-stitch.ts');
+    const payload = {
+      assetIds: ['60d5ecb8b3928400158c5941', '60d5ecb8b3928400158c5942'],
+      libraryId: '60d5ecb8b3928400158c5940',
+      outputDir: '/tmp/out',
+      mapleCli: '/usr/bin/maple-cli',
+      ortDylibPath: '../libonnxruntime.dylib',
+      retention: 'keep',
+      localAlign: 'mesh',
+      strategySupported: false,
+    };
+    const ctx: any = {
+      reportProgress: async () => {},
+      shouldCancel: async () => false,
+      jobId: { toHexString: () => '123' },
+    };
+
+    await expect(panoStitchHandler.run(payload, ctx)).rejects.toThrow(
+      'payload.ortDylibPath must be an absolute path and not start with "-"',
+    );
+  });
+
+  it('panoStitchHandler rejects hyphen-prefixed ortDylibPath', async () => {
+    const { panoStitchHandler } = await import('../job-runner/handlers/pano-stitch.ts');
+    const payload = {
+      assetIds: ['60d5ecb8b3928400158c5941', '60d5ecb8b3928400158c5942'],
+      libraryId: '60d5ecb8b3928400158c5940',
+      outputDir: '/tmp/out',
+      mapleCli: '/usr/bin/maple-cli',
+      ortDylibPath: '--inject-flag',
+      retention: 'keep',
+      localAlign: 'mesh',
+      strategySupported: false,
+    };
+    const ctx: any = {
+      reportProgress: async () => {},
+      shouldCancel: async () => false,
+      jobId: { toHexString: () => '123' },
+    };
+
+    await expect(panoStitchHandler.run(payload, ctx)).rejects.toThrow(
+      'payload.ortDylibPath must be an absolute path and not start with "-"',
+    );
   });
 });
