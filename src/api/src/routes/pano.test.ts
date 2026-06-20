@@ -30,24 +30,17 @@
  * imports are hoisted (getDb() is lazy; it reads env at connect-time).
  */
 
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from "bun:test";
-import { Elysia } from "elysia";
-import { MongoClient, ObjectId, type Db } from "mongodb";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
-import { panoRoutes } from "./pano.ts";
+import { panoRoutes } from './pano.ts';
 
 // Standalone test DB — never touches the dev DB on :27017.
-const MONGO_URL = "mongodb://localhost:27077";
+const MONGO_URL = 'mongodb://localhost:27077';
 const TEST_DB = `maple_pano_test_${process.pid}`;
 
 // Set before any getDb() call. getDb() is lazy (reads env at connect-time), so
@@ -69,25 +62,25 @@ let db: Db | null = null;
 let mongoReachable = false;
 
 /** Absolute path of the fake maple-cli shell script. */
-let fakeCli = "";
-let tmpDir = "";
+let fakeCli = '';
+let tmpDir = '';
 let folderId: ObjectId;
 
 // 1×1 white PNG (PNG spec: 8-byte signature + IHDR + IDAT + IEND).
 // Generated once and embedded as base64 to avoid any runtime dependency.
 const TINY_PNG_B64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 beforeAll(async () => {
   // Reset the getDb() singleton so this file's env vars take effect. In the
   // full test suite a prior file may have connected to :27017; closeDb() sets
   // _db back to null so the next getDb() call reconnects to :27077.
-  const { closeDb } = await import("../db/client.ts");
+  const { closeDb } = await import('../db/client.ts');
   await closeDb();
 
   // Create fake maple-cli.
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "maple-pano-test-"));
-  fakeCli = path.join(tmpDir, "fake-maple-cli");
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-test-'));
+  fakeCli = path.join(tmpDir, 'fake-maple-cli');
   await fs.writeFile(
     fakeCli,
     `#!/bin/sh
@@ -135,25 +128,25 @@ afterAll(async () => {
   else process.env.MAPLE_MONGO_URI = PRIOR_MONGO_URI;
   if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
   else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
-  const { closeDb } = await import("../db/client.ts");
+  const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
 
 beforeEach(async () => {
   if (!mongoReachable || !db) return;
   // Reset relevant collections between tests.
-  await db.collection("jobs").deleteMany({});
-  await db.collection("app_settings").deleteMany({});
-  await db.collection("assets").deleteMany({});
-  await db.collection("folders").deleteMany({});
+  await db.collection('jobs').deleteMany({});
+  await db.collection('app_settings').deleteMany({});
+  await db.collection('assets').deleteMany({});
+  await db.collection('folders').deleteMany({});
 
   folderId = new ObjectId();
-  const libPath = path.join(tmpDir, "lib");
+  const libPath = path.join(tmpDir, 'lib');
   await fs.mkdir(libPath, { recursive: true });
-  await db.collection("folders").insertOne({
+  await db.collection('folders').insertOne({
     _id: folderId,
     path: libPath,
-    label: "Test lib",
+    label: 'Test lib',
     last_scan: null,
     file_count: 0,
     created_at: new Date().toISOString(),
@@ -165,8 +158,8 @@ beforeEach(async () => {
 async function postJson(url: string, body: unknown): Promise<Response> {
   return app.handle(
     new Request(`http://localhost${url}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
   );
@@ -179,41 +172,39 @@ async function getReq(url: string): Promise<Response> {
 async function putJson(url: string, body: unknown): Promise<Response> {
   return app.handle(
     new Request(`http://localhost${url}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
   );
 }
 
 async function deleteReq(url: string): Promise<Response> {
-  return app.handle(
-    new Request(`http://localhost${url}`, { method: "DELETE" }),
-  );
+  return app.handle(new Request(`http://localhost${url}`, { method: 'DELETE' }));
 }
 
 const STITCH_BODY = () => ({
   assetIds: [new ObjectId().toHexString(), new ObjectId().toHexString()],
   libraryId: folderId?.toHexString() ?? new ObjectId().toHexString(),
-  options: { retention: "keep", localAlign: "mesh" },
+  options: { retention: 'keep', localAlign: 'mesh' },
 });
 
 // ── probeStrategySupported (comment #4) ───────────────────────────────────────
 // These are unit tests against the private probe logic exercised via
 // PUT /api/pano/config, which invalidates the cache and re-probes.
 
-describe("probeStrategySupported via PUT /api/pano/config", () => {
-  it("returns strategy_supported:true when help output contains --strategy flag", async () => {
+describe('probeStrategySupported via PUT /api/pano/config', () => {
+  it('returns strategy_supported:true when help output contains --strategy flag', async () => {
     if (!mongoReachable) return;
     // Write a fake CLI that prints --strategy in its help output (to stdout).
-    const strategyFakeCli = path.join(tmpDir, "fake-cli-with-strategy");
+    const strategyFakeCli = path.join(tmpDir, 'fake-cli-with-strategy');
     await fs.writeFile(
       strategyFakeCli,
       `#!/bin/sh\necho "Usage: maple-cli pano stitch [OPTIONS] [FILES]"\necho "    --strategy <STRATEGY>  Projection strategy [auto|rotation|tile]"\nexit 0\n`,
     );
     await fs.chmod(strategyFakeCli, 0o755);
 
-    const res = await putJson("/api/pano/config", {
+    const res = await putJson('/api/pano/config', {
       maple_cli_path: strategyFakeCli,
       enabled: true,
     });
@@ -225,14 +216,14 @@ describe("probeStrategySupported via PUT /api/pano/config", () => {
     if (!mongoReachable) return;
     // A help text that mentions "strategy" as a noun but NOT "--strategy".
     // The old code matched `.includes('strategy')` which would be a false positive.
-    const noFlagFakeCli = path.join(tmpDir, "fake-cli-no-strategy-flag");
+    const noFlagFakeCli = path.join(tmpDir, 'fake-cli-no-strategy-flag');
     await fs.writeFile(
       noFlagFakeCli,
       `#!/bin/sh\necho "Uses a rotation strategy for panoramas."\nexit 0\n`,
     );
     await fs.chmod(noFlagFakeCli, 0o755);
 
-    const res = await putJson("/api/pano/config", {
+    const res = await putJson('/api/pano/config', {
       maple_cli_path: noFlagFakeCli,
       enabled: true,
     });
@@ -240,17 +231,17 @@ describe("probeStrategySupported via PUT /api/pano/config", () => {
     expect(body.strategy_supported).toBe(false);
   });
 
-  it("returns strategy_supported:true when --strategy flag appears on stderr (some clap versions)", async () => {
+  it('returns strategy_supported:true when --strategy flag appears on stderr (some clap versions)', async () => {
     if (!mongoReachable) return;
     // Some clap versions print help to stderr; the probe must capture both.
-    const stderrFakeCli = path.join(tmpDir, "fake-cli-strategy-stderr");
+    const stderrFakeCli = path.join(tmpDir, 'fake-cli-strategy-stderr');
     await fs.writeFile(
       stderrFakeCli,
       `#!/bin/sh\necho "    --strategy <STRATEGY>  Projection strategy" >&2\nexit 0\n`,
     );
     await fs.chmod(stderrFakeCli, 0o755);
 
-    const res = await putJson("/api/pano/config", {
+    const res = await putJson('/api/pano/config', {
       maple_cli_path: stderrFakeCli,
       enabled: true,
     });
@@ -261,10 +252,10 @@ describe("probeStrategySupported via PUT /api/pano/config", () => {
 
 // ── config round-trip ─────────────────────────────────────────────────────────
 
-describe("GET /api/pano/config", () => {
-  it("returns defaults when no config saved", async () => {
+describe('GET /api/pano/config', () => {
+  it('returns defaults when no config saved', async () => {
     if (!mongoReachable) return;
-    const res = await getReq("/api/pano/config");
+    const res = await getReq('/api/pano/config');
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       enabled: boolean;
@@ -275,10 +266,10 @@ describe("GET /api/pano/config", () => {
   });
 });
 
-describe("PUT /api/pano/config", () => {
-  it("persists config and returns updated values", async () => {
+describe('PUT /api/pano/config', () => {
+  it('persists config and returns updated values', async () => {
     if (!mongoReachable) return;
-    const res = await putJson("/api/pano/config", {
+    const res = await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: true,
     });
@@ -293,10 +284,10 @@ describe("PUT /api/pano/config", () => {
     expect(body.enabled).toBe(true);
   });
 
-  it("rejects relative paths for maple_cli_path", async () => {
+  it('rejects relative paths for maple_cli_path', async () => {
     if (!mongoReachable) return;
-    const res = await putJson("/api/pano/config", {
-      maple_cli_path: "relative/path/to/maple-cli",
+    const res = await putJson('/api/pano/config', {
+      maple_cli_path: 'relative/path/to/maple-cli',
       enabled: true,
     });
     expect(res.status).toBe(200);
@@ -309,10 +300,10 @@ describe("PUT /api/pano/config", () => {
     expect(body.maple_cli_path).toBeNull();
   });
 
-  it("rejects hyphen-prefixed paths for maple_cli_path", async () => {
+  it('rejects hyphen-prefixed paths for maple_cli_path', async () => {
     if (!mongoReachable) return;
-    const res = await putJson("/api/pano/config", {
-      maple_cli_path: "-/usr/bin/maple-cli",
+    const res = await putJson('/api/pano/config', {
+      maple_cli_path: '-/usr/bin/maple-cli',
       enabled: true,
     });
     expect(res.status).toBe(200);
@@ -328,90 +319,90 @@ describe("PUT /api/pano/config", () => {
 
 // ── provisioning gate ─────────────────────────────────────────────────────────
 
-describe("POST /api/pano/stitch (provisioning)", () => {
-  it("returns 409 pano_not_provisioned when config absent", async () => {
+describe('POST /api/pano/stitch (provisioning)', () => {
+  it('returns 409 pano_not_provisioned when config absent', async () => {
     if (!mongoReachable) return;
-    const res = await postJson("/api/pano/stitch", STITCH_BODY());
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("pano_not_provisioned");
+    expect(body.error).toBe('pano_not_provisioned');
   });
 
-  it("returns 409 pano_not_provisioned when enabled=false", async () => {
+  it('returns 409 pano_not_provisioned when enabled=false', async () => {
     if (!mongoReachable) return;
-    await putJson("/api/pano/config", {
+    await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: false,
     });
-    const res = await postJson("/api/pano/stitch", STITCH_BODY());
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("pano_not_provisioned");
+    expect(body.error).toBe('pano_not_provisioned');
   });
 });
 
 // ── job creation ──────────────────────────────────────────────────────────────
 
-describe("POST /api/pano/stitch (provisioned)", () => {
+describe('POST /api/pano/stitch (provisioned)', () => {
   beforeEach(async () => {
     if (!mongoReachable) return;
-    await putJson("/api/pano/config", {
+    await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: true,
     });
   });
 
-  it("creates a queued job and returns 201 + id", async () => {
+  it('creates a queued job and returns 201 + id', async () => {
     if (!mongoReachable) return;
-    const res = await postJson("/api/pano/stitch", STITCH_BODY());
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(201);
     const body = (await res.json()) as { id: string };
-    expect(typeof body.id).toBe("string");
+    expect(typeof body.id).toBe('string');
     expect(ObjectId.isValid(body.id)).toBe(true);
   });
 
-  it("returns 409 pano_job_running when a job is already running", async () => {
+  it('returns 409 pano_job_running when a job is already running', async () => {
     if (!mongoReachable) return;
     // Manually insert a running job to simulate the concurrent-job guard.
-    await db!.collection("jobs").insertOne({
-      kind: "pano_stitch",
-      status: "running",
+    await db!.collection('jobs').insertOne({
+      kind: 'pano_stitch',
+      status: 'running',
       payload: {},
       progress: { current: 0, total: 0 },
       result: null,
       error: null,
-      locked_by: "worker-1",
+      locked_by: 'worker-1',
       lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
       cancel_requested: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     } as never);
 
-    const res = await postJson("/api/pano/stitch", STITCH_BODY());
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("pano_job_running");
+    expect(body.error).toBe('pano_job_running');
   });
 
-  it("returns 409 pano_job_running when a queued job already exists (back-to-back requests)", async () => {
+  it('returns 409 pano_job_running when a queued job already exists (back-to-back requests)', async () => {
     // Two close-together stitch POSTs must not enqueue multiple concurrent jobs.
     // The first creates a queued job; the second must see the queued job and
     // return 409 — not enqueue a second job that a worker would later execute
     // concurrently (pano is ~tens of GB RSS, concurrent runs OOM the box).
     if (!mongoReachable) return;
     // First request — should succeed.
-    const first = await postJson("/api/pano/stitch", STITCH_BODY());
+    const first = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(first.status).toBe(201);
     // Second request — the queued job from the first is already in DB.
-    const second = await postJson("/api/pano/stitch", STITCH_BODY());
+    const second = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(second.status).toBe(409);
     const body = (await second.json()) as { error: string };
-    expect(body.error).toBe("pano_job_running");
+    expect(body.error).toBe('pano_job_running');
   });
 
-  it("rejects when assetIds has fewer than 2 items", async () => {
+  it('rejects when assetIds has fewer than 2 items', async () => {
     if (!mongoReachable) return;
-    const res = await postJson("/api/pano/stitch", {
+    const res = await postJson('/api/pano/stitch', {
       ...STITCH_BODY(),
       assetIds: [new ObjectId().toHexString()],
     });
@@ -421,25 +412,25 @@ describe("POST /api/pano/stitch (provisioned)", () => {
 
 // ── GET /api/pano/jobs/:id ────────────────────────────────────────────────────
 
-describe("GET /api/pano/jobs/:id", () => {
-  it("returns 400 on invalid ObjectId", async () => {
-    const res = await getReq("/api/pano/jobs/not-an-id");
+describe('GET /api/pano/jobs/:id', () => {
+  it('returns 400 on invalid ObjectId', async () => {
+    const res = await getReq('/api/pano/jobs/not-an-id');
     expect(res.status).toBe(400);
   });
 
-  it("returns 404 when job does not exist", async () => {
+  it('returns 404 when job does not exist', async () => {
     if (!mongoReachable) return;
     const res = await getReq(`/api/pano/jobs/${new ObjectId().toHexString()}`);
     expect(res.status).toBe(404);
   });
 
-  it("returns the job when it exists", async () => {
+  it('returns the job when it exists', async () => {
     if (!mongoReachable) return;
-    await putJson("/api/pano/config", {
+    await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: true,
     });
-    const createRes = await postJson("/api/pano/stitch", STITCH_BODY());
+    const createRes = await postJson('/api/pano/stitch', STITCH_BODY());
     const { id } = (await createRes.json()) as { id: string };
 
     const res = await getReq(`/api/pano/jobs/${id}`);
@@ -450,28 +441,26 @@ describe("GET /api/pano/jobs/:id", () => {
       status: string;
     };
     expect(body.id).toBe(id);
-    expect(body.kind).toBe("pano_stitch");
-    expect(body.status).toBe("queued");
+    expect(body.kind).toBe('pano_stitch');
+    expect(body.status).toBe('queued');
   });
 });
 
 // ── DELETE /api/pano/jobs/:id ─────────────────────────────────────────────────
 
-describe("DELETE /api/pano/jobs/:id", () => {
-  it("returns 400 on invalid ObjectId", async () => {
-    const res = await deleteReq("/api/pano/jobs/bad");
+describe('DELETE /api/pano/jobs/:id', () => {
+  it('returns 400 on invalid ObjectId', async () => {
+    const res = await deleteReq('/api/pano/jobs/bad');
     expect(res.status).toBe(400);
   });
 
-  it("sets cancel_requested on a queued job", async () => {
+  it('sets cancel_requested on a queued job', async () => {
     if (!mongoReachable) return;
-    await putJson("/api/pano/config", {
+    await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: true,
     });
-    const { id } = (await (
-      await postJson("/api/pano/stitch", STITCH_BODY())
-    ).json()) as {
+    const { id } = (await (await postJson('/api/pano/stitch', STITCH_BODY())).json()) as {
       id: string;
     };
 
@@ -481,7 +470,7 @@ describe("DELETE /api/pano/jobs/:id", () => {
     expect(body.ok).toBe(true);
 
     // Verify the flag was set.
-    const doc = await db!.collection("jobs").findOne({ _id: new ObjectId(id) });
+    const doc = await db!.collection('jobs').findOne({ _id: new ObjectId(id) });
     expect(doc?.cancel_requested).toBe(true);
   });
 });
