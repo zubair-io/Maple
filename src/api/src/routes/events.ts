@@ -79,12 +79,9 @@ async function fetchStatus(): Promise<ChildStatus | null> {
       { inFlight: number; errors: number; deadLetter: number }
     >;
 
-    let _anyRunning = false;
-
     for (const name of LEGACY_STAGES) {
       const s = state[name];
       if (s) {
-        if (s.status === 'running') _anyRunning = true;
         pools[name] = s.inFlight > 0 ? s.inFlight : 1;
         channels[name] = { depth: 0, capacity: 0 };
         stagesOut[name] = { inFlight: s.inFlight, errors: 0, deadLetter: 0 };
