@@ -232,11 +232,34 @@ fn compute_exposure(hist: &[u32; HIST_BINS]) -> f32 {
         None => return 0.0,
     };
     const P50_FLOOR: f32 = 1e-6;
-    let p50_safe = p50.max(P50_FLOOR);
-    let gain = TARGET_MIDGRAY / p50_safe;
-    let stops = gain.log2();
-    if stops.is_finite() {
-        stops.clamp(-EXPOSURE_CLAMP_EV, EXPOSURE_CLAMP_EV)
+    // Median → mid-gray (0.18) is the raw signal.
+    let median_ev = (TARGET_MIDGRAY / p50.max(P50_FLOOR)).log2();
+
+    // Deadband — a near-correct exposure is left ALONE. AUTO must not fidget
+    // with a frame the photographer already exposed well.
+    const DEADBAND_EV: f32 = 0.4;
+    if median_ev.abs() < DEADBAND_EV {
+        return 0.0;
+    }
+
+    // Damp — AUTO is a conservative NUDGE toward correct, not a slam. The median
+    // is easily dragged by a dark subject (black clothing, deep shadow), which
+    // makes the naive rule over-brighten a well-exposed frame; applying half the
+    // indicated correction keeps it gentle and leaves the photographer the final
+    // call. (Empirically, full-strength median metering blew the highlights on
+    // dark-subject portraits — review feedback.)
+    let damped = median_ev * 0.5;
+
+    // Highlight backstop — never brighten so far that the near-brightest pixels
+    // (p99, ignoring the top 1% specular) clip past ~0.92. Only ever constrains
+    // BRIGHTENING; loose on dark scenes (low p99).
+    const HIGHLIGHT_TARGET: f32 = 0.92;
+    let p99 = percentile(hist, 0.99).unwrap_or(1.0).max(P50_FLOOR);
+    let highlight_ev = (HIGHLIGHT_TARGET / p99).log2();
+
+    let exposure = damped.min(highlight_ev);
+    if exposure.is_finite() {
+        exposure.clamp(-EXPOSURE_CLAMP_EV, EXPOSURE_CLAMP_EV)
     } else {
         0.0
     }
@@ -414,11 +437,21 @@ mod tests {
     }
 
     #[test]
-    fn dark_scene_recommends_positive_exposure() {
-        // 0.045 = 0.18 / 4 → 2 stops under midgray.
+    fn near_correct_exposure_is_left_alone_by_deadband() {
+        // A frame already close to mid-gray (median 0.15 → +0.26 EV raw) falls
+        // inside the deadband and AUTO leaves it untouched.
+        let h = flat_histogram(0.15);
+        let ev = compute_exposure(&h);
+        assert_eq!(ev, 0.0, "deadband should leave a near-correct frame alone");
+    }
+
+    #[test]
+    fn dark_scene_recommends_damped_positive_exposure() {
+        // 0.045 = 0.18 / 4 → +2.0 EV raw. AUTO applies HALF (a conservative
+        // nudge), so ≈ +1.0 EV rather than the full correction.
         let h = flat_histogram(0.045);
         let ev = compute_exposure(&h);
-        assert!((ev - 2.0).abs() < 0.15, "got {}", ev);
+        assert!((ev - 1.0).abs() < 0.15, "expected ~+1.0 (damped), got {}", ev);
     }
 
     #[test]
@@ -434,6 +467,29 @@ mod tests {
         let h = flat_histogram(0.0);
         let ev = compute_exposure(&h);
         assert!(ev.is_finite(), "got {}", ev);
+    }
+
+    #[test]
+    fn exposure_protects_highlights_against_median_overdrive() {
+        // A dark subject (drags the median down) in front of a bright
+        // background near clipping. The median rule alone would brighten
+        // ~+1.85 EV and blow the highlights; highlight protection must cap it
+        // to a gentle nudge.
+        let mut img = Image::new(128, 128, ColorSpace::SceneLinearRec2020);
+        let n = img.pixels.len();
+        let split = (n * 6) / 10; // 60% dark subject, 40% bright background
+        for px in img.pixels[..split].iter_mut() {
+            *px = [0.05, 0.05, 0.05];
+        }
+        for px in img.pixels[split..].iter_mut() {
+            *px = [0.82, 0.82, 0.82];
+        }
+        let h = build_luma_histogram(&img);
+        let ev = compute_exposure(&h);
+        // Median ≈ 0.05 → naive rule = log2(0.18/0.05) ≈ +1.85 EV. With
+        // p99 ≈ 0.82, highlight protection caps at log2(0.92/0.82) ≈ +0.17 EV.
+        assert!(ev > 0.0, "should still brighten a little, got {}", ev);
+        assert!(ev < 0.5, "highlight protection must cap the brightening, got {}", ev);
     }
 
     // ---- AWB tests ----
