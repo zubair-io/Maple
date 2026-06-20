@@ -166,7 +166,10 @@ fn gpu_grain_is_monochromatic_on_neutral() {
             moved += 1;
         }
     }
-    assert!(moved > 32, "grain at amount 100 must perturb most pixels ({moved}/64)");
+    assert!(
+        moved > 32,
+        "grain at amount 100 must perturb most pixels ({moved}/64)"
+    );
 }
 
 /// Determinism on the GPU: two renders of the same input are bit-identical

@@ -171,7 +171,11 @@ pub(crate) fn apply_guided_clarity(
     amount_slider: f32,
     radius: usize,
 ) {
-    assert_eq!(buf.len(), width * height * 4, "clarity oracle: buffer/dims mismatch");
+    assert_eq!(
+        buf.len(),
+        width * height * 4,
+        "clarity oracle: buffer/dims mismatch"
+    );
     if amount_slider.abs() < 1e-3 {
         return;
     }
