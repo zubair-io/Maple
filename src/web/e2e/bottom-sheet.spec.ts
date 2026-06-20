@@ -1,52 +1,33 @@
-// Bottom-sheet drag-to-dismiss e2e — deferred (#599 / S1c follow-up).
+// Bottom-sheet drag-to-dismiss e2e (#599 / S1c follow-up).
 //
-// This file is the parked Playwright contract for the pan-down dismiss
-// behaviour spec'd in responsive-program-s1-phone-shell.md §4.2:
+// Playwright contract for the pan-down dismiss behaviour spec'd in
+// docs/design/responsive-program/s1-phone-shell.md §4.2:
 //   - drag distance ≥ 25% of sheet height → dismiss
 //   - pointer velocity ≥ 1000 px/s at release → dismiss
 //
-// It's skipped today because S1c ships only the primitive — no consumer
-// page mounts `<app-bottom-sheet>` until S4 Loupe / S5 Editor / S6 phone
-// Detail land. The unit spec (bottom-sheet.component.spec.ts) covers DOM
-// contract; drag logic is jsdom-hostile (no real PointerEvents) so it
-// needs a real browser.
-//
-// When S4 or S5 mounts the primitive on a route, unskip and target that
-// route. Suggested host: a Loupe route phone-mode opening Info from the
-// toolbar.
+// The unit spec (bottom-sheet.component.spec.ts) covers the DOM contract;
+// drag logic is jsdom-hostile (no real PointerEvents) so it needs a real
+// browser. Consumer page: the Editor's Presets sheet (#1115).
 
 import { expect, test } from '@playwright/test';
 
 test.describe('Bottom-sheet — drag-to-dismiss', () => {
   test.beforeEach(async ({ page }) => {
-    // Phone viewport (iPhone X/11/12/13/14)
+    // Force phone layout per LayoutService thresholds (< 768px).
     await page.setViewportSize({ width: 375, height: 812 });
 
-    // Bypass auth using the dev login route.
-    await page.goto('/sign-in');
-    const devBtn = page.getByRole('button', { name: /dev login/i });
-    if (await devBtn.isVisible()) {
-      await devBtn.click();
-      await page.waitForURL('/browse');
-    }
+    // Navigate directly to the editor route. Playwright runs the Hosted
+    // (maple-syrup) app which has no auth gate, so no sign-in step needed.
+    await page.goto('/library/editor/e2e-test-asset');
 
-    // Navigate to the editor page for a mock image.
-    await page.goto('/library/editor/test-image-123');
-
-    // Switch to the 'detail' group where 'presets' tool lives.
-    const detailTab = page.getByTestId('editor-group-detail');
-    await detailTab.waitFor({ state: 'attached' });
-    await detailTab.click();
+    // Switch to the 'Detail' group where the Presets pill lives.
+    await page.getByTestId('editor-group-detail').click();
 
     // Open the Presets bottom sheet.
-    // Wait for the pill to be attached to the DOM.
-    const presetsPill = page.getByTestId('editor-tool-presets');
-    await presetsPill.waitFor({ state: 'attached' });
-    await presetsPill.click();
+    await page.getByTestId('editor-tool-presets').click();
 
-    // Verify the bottom sheet is open.
-    const sheet = page.getByTestId('bottom-sheet');
-    await expect(sheet).toBeVisible();
+    // Verify the bottom sheet is visible before each test.
+    await expect(page.getByTestId('bottom-sheet')).toBeVisible();
   });
 
   test('dismisses on pan-down ≥ 25% sheet height', async ({ page }) => {
@@ -63,11 +44,19 @@ test.describe('Bottom-sheet — drag-to-dismiss', () => {
     const startY = dragAreaBox.y + dragAreaBox.height / 2;
 
     // Pan-down 30% of the sheet height (past the 25% threshold).
+    // Use many small steps spread across 500ms so the computed velocity
+    // stays well below DISMISS_VELOCITY (1000 px/s), ensuring dismissal
+    // is driven by distance — not velocity.
     const dragDistance = box.height * 0.3;
+    const steps = 30;
 
     await page.mouse.move(startX, startY);
     await page.mouse.down();
-    await page.mouse.move(startX, startY + dragDistance, { steps: 10 });
+    for (let i = 1; i <= steps; i++) {
+      await page.mouse.move(startX, startY + (dragDistance * i) / steps);
+      // ~17ms per step → total ~500ms for the full drag (360 px/s peak ≪ 1000 px/s)
+      await page.waitForTimeout(17);
+    }
     await page.mouse.up();
 
     await expect(sheet).not.toBeVisible();
@@ -83,16 +72,13 @@ test.describe('Bottom-sheet — drag-to-dismiss', () => {
     const startX = dragAreaBox.x + dragAreaBox.width / 2;
     const startY = dragAreaBox.y + dragAreaBox.height / 2;
 
-    // Fast flick: short distance, but very fast.
-    // DISMISS_VELOCITY = 1000 px/s.
-    // If we move 50px in 10ms, velocity = 50 / 0.01 = 5000 px/s.
-    // page.mouse.move with steps: 1 doesn't guarantee timing, but a single
-    // large move followed by up is usually interpreted as a flick in Playwright.
-
+    // Fast flick: 150px in a single step with no delay → gesture completes
+    // in a few ms, giving a velocity well above DISMISS_VELOCITY (1000 px/s).
+    // Using 150px (vs the original 50px) gives headroom: even at 100ms the
+    // implied velocity is 1500 px/s, safely above the threshold.
     await page.mouse.move(startX, startY);
     await page.mouse.down();
-    // Move 50px down in one step to simulate high velocity.
-    await page.mouse.move(startX, startY + 50);
+    await page.mouse.move(startX, startY + 150, { steps: 1 });
     await page.mouse.up();
 
     await expect(sheet).not.toBeVisible();
