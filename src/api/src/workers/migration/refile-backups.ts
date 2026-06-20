@@ -169,7 +169,7 @@ export const refileBackups: Migration = {
           { $set: { backup_layout_version: BACKUP_LAYOUT_VERSION } },
         );
         log.warn(
-          { _id: String(doc._id), path: primary?.path },
+          { _id: String(doc._id), maple_id: doc.maple_id, path: primary?.path },
           'refile: could not determine year — stamped, left in place',
         );
         processed++;
@@ -183,6 +183,12 @@ export const refileBackups: Migration = {
         // 'moved' (relocated + stamped) and 'noop' (already in place, stamped) both
         // reduce the remaining count. 'skipped' is a concurrent-change revert —
         // left UNstamped for a later tick to re-attempt.
+        if (result === 'moved') {
+          log.info(
+            { _id: String(doc._id), maple_id: doc.maple_id, from: primary?.path, to: newDir },
+            'refile: moved',
+          );
+        }
         if (result === 'moved' || result === 'noop') processed++;
       } catch (err) {
         if (err instanceof SourceMissingError) {
@@ -196,7 +202,7 @@ export const refileBackups: Migration = {
             { $set: { backup_layout_version: BACKUP_LAYOUT_VERSION } },
           );
           log.warn(
-            { _id: String(doc._id), err: err.message },
+            { _id: String(doc._id), maple_id: doc.maple_id, from: primary?.path, err: err.message },
             'refile: source missing — stamped, left for the reaper',
           );
           processed++;
@@ -204,7 +210,13 @@ export const refileBackups: Migration = {
         }
         errors++;
         log.error(
-          { _id: String(doc._id), err: err instanceof Error ? err.message : err },
+          {
+            _id: String(doc._id),
+            maple_id: doc.maple_id,
+            from: primary?.path,
+            to: newDir,
+            err: err instanceof Error ? err.message : err,
+          },
           'refile: asset move failed — left in place for retry',
         );
       }
