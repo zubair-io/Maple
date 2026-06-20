@@ -150,7 +150,7 @@ describe('people.repo — listPeople', () => {
     // all. The first should resolve, the other two stay null.
     const live = await createPerson('Live');
     const orphan = await createPerson('Orphan');
-    const noCover = await createPerson('NoCover');
+    const _noCover = await createPerson('NoCover');
     const liveAsset = await h.insertAssetWithFaces([
       {
         bbox: { x: 0, y: 0, w: 10, h: 10 },

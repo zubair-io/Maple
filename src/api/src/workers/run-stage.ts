@@ -17,7 +17,7 @@
  * (see `./registry.ts`) so `routes.ts` and `events.ts` can read live state.
  */
 
-import type { Collection, Filter, ObjectId, WithId } from 'mongodb';
+import type { Collection, Filter, ObjectId } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import {
   assetAbsPath,
