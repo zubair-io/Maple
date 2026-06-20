@@ -191,7 +191,11 @@ fn center_pixel_is_bit_exact_identity_on_gpu() {
         feather: 100.0,
     }]);
     let c = (((h / 2) * w + (w / 2)) * 4) as usize;
-    assert_eq!(&gpu[c..c + 4], &[0.42, 0.18, 0.07, 1.0], "centre must be untouched");
+    assert_eq!(
+        &gpu[c..c + 4],
+        &[0.42, 0.18, 0.07, 1.0],
+        "centre must be untouched"
+    );
     // ... while the corner IS attenuated (the pass did run).
     assert!(gpu[0] < 0.42, "corner must darken at amount −100");
 }
