@@ -201,8 +201,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
   ngOnInit(): void {
     // Seed the query from the host (`/search?q=…`) before first render so the
     // bar shows the deep-linked term and the constructor's search effect fires
-    // the initial fetch. Runs once — keystrokes own the value afterwards.
-    const seed = this.initialQuery();
+    // the initial fetch. Runs once — keystrokes own the value afterwards. Trim
+    // first so a whitespace-only seed leaves the bar blank (matches the
+    // `initialQuery` docstring) rather than rendering stray spaces.
+    const seed = this.initialQuery().trim();
     if (seed) this.query.set(seed);
   }
 
