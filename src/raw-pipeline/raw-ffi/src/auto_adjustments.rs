@@ -229,9 +229,14 @@ mod tests {
     fn nonexistent_raw_returns_error() {
         let raw_path = CString::new("/nonexistent_auto_adj_test.dng").unwrap();
         let mut out = MapleAutoAdjustments {
-            exposure: 0.0, temperature: 6500.0, tint: 0.0,
-            contrast: 0.0, highlights: 0.0, shadows: 0.0,
-            whites: 0.0, blacks: 0.0,
+            exposure: 0.0,
+            temperature: 6500.0,
+            tint: 0.0,
+            contrast: 0.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
         };
         let rc = unsafe {
             maple_compute_auto_adjustments(
