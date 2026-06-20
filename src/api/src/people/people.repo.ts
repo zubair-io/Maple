@@ -468,8 +468,10 @@ export async function assignFaceToPerson(
   );
 
   // Mark affected people as "dirty" so their centroids are recomputed on
-  // the next clustering pass.
-  if (priorPersonId !== null || personHex !== null) {
+  // the next clustering pass. Only run when the person_id actually changed —
+  // an idempotent reassign to the same person should not trigger unnecessary
+  // centroid recomputes or Meili reindexing.
+  if (priorPersonId !== personHex) {
     const peopleC = await peopleCollection();
     const dirtyIds: ObjectId[] = [];
     if (priorPersonId) {
