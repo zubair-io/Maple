@@ -41,30 +41,49 @@ extension AppShell {
 
     /// `maple://image/{id}` handler.
     ///
-    /// S5 EditorView is not merged at the time this lands, so we can't
-    /// push `EditorView(asset:)` onto the active tab's NavigationStack
-    /// per the spec. Stub behavior: log the request + dismiss any
-    /// active iPhone drawer + flip the phone shell to the Library tab
-    /// (where the asset will eventually surface). The spec's silent-
-    /// fallback contract is satisfied: no crash, no error UI.
+    /// Dismisses any active sheet, switches to the Library tab, then
+    /// resolves `id` → `AssetRef` via `browseVM.assets`. If a source
+    /// is mid-load (cold start, cloud restore) the resolution defers
+    /// until loading completes, then retries once — so the deep link
+    /// isn't silently dropped if the asset list isn't ready yet. Falls
+    /// back to the Library tab if the id is still unresolvable.
     ///
-    /// When S5 lands the implementation here becomes:
-    ///   1. Resolve `id` → `AssetRef` via the active source's index
-    ///      (or fall back to Library root + toast if unknown).
-    ///   2. `openEditor(for: ref)` to push the editor onto the active
-    ///      tab's NavigationStack (phone) or open Editor in the main
-    ///      pane (tablet/desktop).
+    /// Per spec §2 silent-fallback: no crash, no error UI on miss.
     @MainActor
     private func navigateToImage(id: String) {
         dismissAnyActiveSheet()
         switchToLibraryTab()
 
-        // Resolve id → AssetRef via the active source's index.
+        Task { @MainActor in
+            await resolveAndOpenImage(id: id)
+        }
+    }
+
+    /// Resolution kernel. Awaits a mid-load source if necessary (bounded to
+    /// 5 s), then opens the editor or falls back silently. Extracted so the
+    /// body of `navigateToImage` stays readable and the defer logic is
+    /// testable in isolation.
+    ///
+    /// `id` is typically a filesystem path — logged at `.private` to avoid
+    /// exposing home-directory names in device log streams.
+    @MainActor
+    private func resolveAndOpenImage(id: String) async {
+        // If the source is still loading (cloud restore on cold start),
+        // wait up to 5 s for it to settle before attempting resolution.
+        // Polling interval: 100 ms — negligible UX cost, avoids the race
+        // where browseVM.assets is empty when the deep link fires.
+        let deadline = Date().addingTimeInterval(5)
+        while browseVM.isLoading && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms
+        }
+
+        // id is often a filesystem path (may contain username / home dir)
+        // so log it as .private to avoid leaking PII into device logs.
         if let asset = browseVM.assets.first(where: { $0.stableID == id }) {
-            deepLinkLog.info("deep-link image id=\(id, privacy: .public) — resolved, opening editor")
+            deepLinkLog.info("deep-link image id=\(id, privacy: .private) — resolved, opening editor")
             openEditor(for: asset)
         } else {
-            deepLinkLog.info("deep-link image id=\(id, privacy: .public) — not found in current assets, routing to Library")
+            deepLinkLog.info("deep-link image id=\(id, privacy: .private) — not found in current assets, routing to Library")
         }
     }
 
