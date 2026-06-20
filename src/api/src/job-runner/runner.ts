@@ -72,7 +72,7 @@ export class JobRunner {
 
   constructor(config: JobRunnerConfig = {}) {
     this.workerId =
-      config.workerId ?? `job-runner-${process.pid}-${randomBytes(4).toString('hex')}`;
+      config.workerId ?? `job-runner-${process.pid}-${randomBytes(8).toString('hex')}`;
     this.pollMs = config.pollMs ?? POLL_MS_DEFAULT;
     this.leaseMs = config.leaseMs ?? LEASE_MS_DEFAULT;
     this.handlers = config.handlers ?? HANDLERS;
