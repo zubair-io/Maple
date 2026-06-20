@@ -45,7 +45,7 @@ pub fn evaluate(mask: &Mask, x: f32, y: f32) -> f32 {
 
 /// Linear gradient weight along the line from `start` to `end`.
 ///
-/// Projects (px, py) onto the gradient line, computes the parametric
+/// Projects `p` onto the gradient line, computes the parametric
 /// position `t = (P · D) / |D|²` where `D = end − start`. Below `t == feather/2`
 /// the weight is 0; above `t == 1 − feather/2` the weight is 1; in between
 /// a smoothstep ramps the weight up.
@@ -85,13 +85,7 @@ fn linear_weight(start: Point2, end: Point2, feather: f32, p: Point2) -> f32 {
 /// outer radius (where the outer radius is the geometric ellipse and the
 /// inner radius is `1 - feather` of that — i.e. `feather` is the fractional
 /// width of the falloff band measured radially).
-fn radial_weight(
-    center: Point2,
-    radii: Point2,
-    angle: f32,
-    feather: f32,
-    p: Point2,
-) -> f32 {
+fn radial_weight(center: Point2, radii: Point2, angle: f32, feather: f32, p: Point2) -> f32 {
     if radii.x.abs() <= f32::EPSILON || radii.y.abs() <= f32::EPSILON {
         return 0.0;
     }
@@ -124,7 +118,6 @@ fn radial_weight(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Point2;
 
     fn linear_mask() -> Mask {
         Mask::Linear {
