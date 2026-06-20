@@ -394,6 +394,7 @@ struct CombineParams {
     _pad1: u32,
 }
 
+#[derive(Clone, Copy)]
 pub struct GuidedFilterArgs {
     pub width: u32,
     pub height: u32,
@@ -491,6 +492,7 @@ pub fn luma_extract_encode(
     );
 }
 
+#[derive(Clone, Copy)]
 pub struct ClarityTextureArgs {
     pub width: u32,
     pub height: u32,
