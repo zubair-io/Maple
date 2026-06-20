@@ -226,13 +226,23 @@ async function resolveAssetPaths(
     .find({ 'fileinfo.filename': { $in: allFilenames } }, { projection: { _id: 1, fileinfo: 1 } })
     .toArray();
 
-  // Helper to match a normalized path against either the bulk-fetched docs
-  // or a fresh search (used after on-demand indexing).
-  const findInDocs = (
-    absPath: string,
-    filename: string,
-    docs: Array<{ _id: ObjectId; fileinfo: any }>,
-  ): string | null => {
+  // Index candidateDocs by filename so findInDocs only iterates the
+  // subset matching the requested filename — O(1) lookup instead of
+  // O(paths × candidateDocs) when many unique filenames are present.
+  type CollDoc = (typeof candidateDocs)[number];
+  const candidatesByFilename = new Map<string, CollDoc[]>();
+  for (const doc of candidateDocs) {
+    const entries = (doc.fileinfo ?? []) as Array<{ filename: string }>;
+    for (const entry of entries) {
+      const fn = entry.filename;
+      if (!candidatesByFilename.has(fn)) candidatesByFilename.set(fn, []);
+      candidatesByFilename.get(fn)!.push(doc);
+    }
+  }
+
+  // Helper to match a normalized path against a pre-filtered subset of docs
+  // (keyed by filename) or a fresh flat list (used after on-demand indexing).
+  const findInDocs = (absPath: string, filename: string, docs: CollDoc[]): string | null => {
     for (const doc of docs) {
       const entries = (doc.fileinfo ?? []) as Array<{
         path: string;
@@ -257,7 +267,7 @@ async function resolveAssetPaths(
 
   // ── 3. Resolve each path ───────────────────────────────────────────────
   for (const p of normalized) {
-    const found = findInDocs(p.absPath, p.filename, candidateDocs);
+    const found = findInDocs(p.absPath, p.filename, candidatesByFilename.get(p.filename) ?? []);
 
     if (found) {
       resolvedIds.push(found);
