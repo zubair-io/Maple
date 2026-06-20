@@ -25,47 +25,27 @@ public enum DeepLinkParser {
     /// Parse a `maple://image/{id}` or `maple://source/{id}` URL.
     /// Returns `nil` for any URL that doesn't match — bad input is a
     /// silent no-op upstream, never a thrown error.
-    ///
-    /// `.image` ids are single path components (UUIDs / opaque hex) so
-    /// only the first component after the host is read; extra components
-    /// are ignored (future subpath extensions, spec §1).
-    ///
-    /// `.source` ids may contain `/` — a local folder path
-    /// (`/Users/alice/Photos`), an SMB share (`alice@nas/Photos` or
-    /// `nas/Photos`), or a PhotoKit localIdentifier. All trailing
-    /// path components after the host are joined back with `/` to
-    /// reconstruct the original id.
     public static func parse(_ url: URL) -> DeepLinkDestination? {
         guard url.scheme == "maple" else { return nil }
         // SwiftUI delivers `maple://host/path` with `host` carrying
-        // the destination kind and path components carrying the id.
-        // `pathComponents` includes a leading "/" — `dropFirst()` removes
-        // it before reading the id components.
-        let components = url.pathComponents.dropFirst()
-        guard let firstComponent = components.first, !firstComponent.isEmpty else {
-            return nil
-        }
+        // the destination kind and the path carrying the id.
+        // `url.path` always starts with a leading "/", which we drop.
+        let path = url.path
+        guard path.count > 1 else { return nil }
+        let fullID = String(path.dropFirst())
+
         switch url.host {
         case "image":
-            // Single-component id — extra sub-path ignored per spec §1.
-            return .image(id: firstComponent)
+            // For images, we only want the first path component (the id),
+            // ignoring any sub-paths like "/edit".
+            guard let first = url.pathComponents.dropFirst().first, !first.isEmpty else {
+                return nil
+            }
+            return .image(id: first)
         case "source":
-            // Rejoin all path components so slash-bearing ids (folder paths,
-            // SMB `host/share`, `user@host/share`) survive the URL round-trip.
-            // Callers must percent-encode `/` inside the id so Foundation's
-            // URL parser doesn't split on them; `pathComponents` then
-            // percent-decodes each component, restoring the original characters.
-            // Example: "source/%2FUsers%2Falice%2FPhotos" →
-            //   pathComponents = ["/", "/Users/alice/Photos"]
-            //   dropFirst()    = ["/Users/alice/Photos"]
-            //   joined         = "/Users/alice/Photos" ✓
-            // Example: "source/nas/Photos" →
-            //   pathComponents = ["/", "nas", "Photos"]
-            //   dropFirst()    = ["nas", "Photos"]
-            //   joined         = "nas/Photos" ✓
-            let id = url.pathComponents.dropFirst().joined(separator: "/")
-            if id.isEmpty { return nil }
-            return .source(id: id)
+            // For sources, the ID may contain slashes (absolute paths,
+            // SMB shares). We preserve the full path.
+            return .source(id: fullID)
         default:
             return nil
         }
