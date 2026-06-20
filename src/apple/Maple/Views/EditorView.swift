@@ -526,11 +526,21 @@ struct EditorView: View {
 
     /// Speed rendered as "320 KB" / "1.2 MB" — the calling site adds the "/ s"
     /// suffix so a future change to a different cadence label (e.g. "/ min")
-    /// only touches that one line. `Int64` cast is safe here because
-    /// `DownloadProgress.bytesPerSecond` is a non-negative running average and
-    /// real network rates fit Int64.max by orders of magnitude.
+    /// only touches that one line. The `Int64` cast clamps NaN / ±∞ /
+    /// out-of-range values to 0…Int64.max so a corrupted
+    /// `URLResourceValues` read (rare but theoretically possible from a
+    /// misbehaving FileProvider extension) can't crash the editor. Real
+    /// network rates fit Int64.max by orders of magnitude.
     private func downloadSpeedText(_ bytesPerSecond: Double) -> String {
-        Int64(bytesPerSecond).formatted(ByteCountFormatStyle(style: .file))
+        let clamped: Int64
+        if bytesPerSecond.isNaN || bytesPerSecond <= 0 {
+            clamped = 0
+        } else if bytesPerSecond >= Double(Int64.max) {
+            clamped = .max
+        } else {
+            clamped = Int64(bytesPerSecond)
+        }
+        return clamped.formatted(ByteCountFormatStyle(style: .file))
     }
     @ViewBuilder
     private var downloadOverlay: some View {
