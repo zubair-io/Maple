@@ -449,11 +449,16 @@ public final class EditorState {
         try await AutoAdjustments.compute(forRawAt: url)
     }
 
-    /// Analyse the scene and apply AUTO's exposure + white balance as ONE undo
-    /// entry (`commit()` then a single `session.model` write). Async — the
-    /// analysis decodes + develops a probe buffer. Generation-guarded so a
-    /// stale result can't overwrite a newer edit / image switch. The five tone
-    /// sliders are intentionally NOT written (auto-tone deferred to #1376).
+    /// Analyse the scene and apply AUTO's **exposure** as ONE undo entry
+    /// (`commit()` then a single `session.model` write). Async — the analysis
+    /// decodes + develops a probe buffer. Generation-guarded so a stale result
+    /// can't overwrite a newer edit / image switch.
+    ///
+    /// AUTO is exposure-only: white balance is intentionally NOT written
+    /// (single-image gray-world WB is unreliable on colour-dominant scenes — it
+    /// skews green on foliage, warm on skin — so As-Shot stays the default), and
+    /// the tone sliders are deferred to #1376. The exposure uses highlight-
+    /// protected metering so a bright sky / background can't be blown out.
     ///
     /// AE contract: AUTO's exposure is measured against an AE-Off probe. On the
     /// default `Profile.auto` the Apple decode already forces auto-exposure off,
@@ -480,9 +485,11 @@ public final class EditorState {
         }
         commit()
         var m = session.model
+        // AUTO applies EXPOSURE only. White balance is intentionally NOT touched:
+        // single-image gray-world WB is unreliable on colour-dominant scenes
+        // (it skews green on foliage, warm on skin), so As-Shot stays the
+        // trustworthy default. Tone is deferred to #1376.
         m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
-        m.temperature = clamp(result.temperature, AdjustmentModel.temperatureRange)
-        m.tint = clamp(result.tint, AdjustmentModel.tintRange)
         session.model = m
     }
 

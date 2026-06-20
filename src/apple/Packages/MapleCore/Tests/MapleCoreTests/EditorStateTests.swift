@@ -646,35 +646,39 @@ final class EditorStateTests: XCTestCase {
         )
     }
 
-    func testApplyAutoAppliesExposureAndWBAsOneUndoStepLeavingToneUntouched() async {
+    func testApplyAutoAppliesExposureOnlyLeavingWBAndToneUntouched() async {
         let session = makeFileBackedSession()
         let state = EditorState(session: session)
-        // Inject a deterministic result so the test needs no RAW / FFI.
+        // The injected result includes WB + tone, but AUTO applies EXPOSURE only.
         state.autoProvider = { _ in
             AutoAdjustmentsResult(
                 exposure: 1.2, temperature: 5200, tint: 8,
                 contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0
             )
         }
-        // Pre-set a tone slider to prove AUTO leaves tone untouched (#1376).
+        // Pre-set WB + a tone slider to prove AUTO leaves them untouched.
         var dirty = session.model
         dirty.contrast = 40
+        dirty.temperature = 7000
+        dirty.tint = 12
         session.model = dirty
 
         await state.applyAuto()
 
         let after = state.session.model
         XCTAssertEqual(after.exposure, 1.2, accuracy: 1e-9)
-        XCTAssertEqual(after.temperature, 5200, accuracy: 1e-9)
-        XCTAssertEqual(after.tint, 8, accuracy: 1e-9)
-        XCTAssertEqual(after.contrast, 40, accuracy: 1e-9) // tone untouched
+        // White balance is NOT touched by AUTO (gray-world unreliable); tone is
+        // deferred to #1376 — both keep the pre-AUTO values.
+        XCTAssertEqual(after.temperature, 7000, accuracy: 1e-9)
+        XCTAssertEqual(after.tint, 12, accuracy: 1e-9)
+        XCTAssertEqual(after.contrast, 40, accuracy: 1e-9)
         // One undo entry restores the pre-AUTO model.
         XCTAssertTrue(state.canUndo)
         state.undo()
         XCTAssertEqual(state.session.model.exposure, AdjustmentModel.default.exposure, accuracy: 1e-9)
     }
 
-    func testApplyAutoClampsToSliderRanges() async {
+    func testApplyAutoClampsExposureAndIgnoresWB() async {
         let session = makeFileBackedSession()
         let state = EditorState(session: session)
         state.autoProvider = { _ in
@@ -686,8 +690,10 @@ final class EditorStateTests: XCTestCase {
         await state.applyAuto()
         let m = state.session.model
         XCTAssertEqual(m.exposure, AdjustmentModel.exposureRange.upperBound, accuracy: 1e-9)
-        XCTAssertEqual(m.temperature, AdjustmentModel.temperatureRange.upperBound, accuracy: 1e-9)
-        XCTAssertEqual(m.tint, AdjustmentModel.tintRange.upperBound, accuracy: 1e-9)
+        // WB is not applied — stays at the model default despite the huge
+        // injected temperature/tint.
+        XCTAssertEqual(m.temperature, AdjustmentModel.default.temperature, accuracy: 1e-9)
+        XCTAssertEqual(m.tint, AdjustmentModel.default.tint, accuracy: 1e-9)
     }
 
     func testApplyAutoNoOpWhenAssetHasNoFileURL() async {
