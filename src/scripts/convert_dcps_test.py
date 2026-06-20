@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 import sys
 
-# Add the directory containing convert_dcps.py to sys.path
-sys.path.append(str(Path(__file__).resolve().parent))
+# Insert at position 0 so the local script wins over any installed package with the same name.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import struct
 from convert_dcps import srational_to_floats, read_matrix, dcp_preference, write_matrix, write_hsm_data
