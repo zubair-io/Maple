@@ -86,8 +86,12 @@ extension AppShell {
             return
         }
 
-        // 2. PhotoKit Albums
-        if let album = PhotoKitLibrary.userAlbums().first(where: { $0.id == id }) {
+        // 2. PhotoKit Albums — only enumerate when the app already has
+        // authorisation; calling userAlbums() without it triggers a
+        // PhotoKit enumeration that may prompt for permission unexpectedly.
+        let photoStatus = PhotoKitLibrary.authorizationStatus()
+        if photoStatus == .authorized || photoStatus == .limited,
+           let album = PhotoKitLibrary.userAlbums().first(where: { $0.id == id }) {
             loadPhotos(filter: .album(id: album.id, title: album.title))
             return
         }
