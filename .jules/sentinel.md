@@ -1,4 +1,5 @@
 ## 2025-02-19 - Command/Flag Injection in Configuration Handlers
+
 **Vulnerability:** A configuration string (`maple_cli_path`) used as an executable path in `Bun.spawn` was only trimmed, allowing relative paths (e.g., executing an arbitrary `maple-cli` script from the working directory) or flags (paths starting with `-`) to be provided, potentially causing arbitrary command execution or flag injection vulnerabilities when spawned.
 **Learning:** `Bun.spawn` safely wraps arrays to avoid shell expansion, but if the executable path itself is user-controlled, or if arguments are user-controlled, it's vulnerable. Adding `.isAbsolute()` and `.startsWith('-')` filters on user-provided path values ensures only expected executable and path inputs are provided to `spawn`. Creating a specific `resolvePath` function for this isolates it from normal string resolution logic.
 **Prevention:** Always validate that paths intended for execution or configuration are absolute and do not contain leading hyphens if they could be interpreted as command line flags, and keep path validation separate from general string parsing to avoid breaking other functionality.
