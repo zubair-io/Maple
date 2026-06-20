@@ -54,22 +54,24 @@ export async function resolveAddress(slug: string, relPath: string): Promise<Res
   // 1. Slug lookup.
   const lib = await getLibraryBySlug(slug);
   if (!lib) {
-    throw { status: 404, message: `Unknown library slug: ${slug}` };
+    throw Object.assign(new Error(`Unknown library slug: ${slug}`), { status: 404 });
   }
   const { libraryId, root } = lib;
 
   // 2. Validate relPath.
   if (relPath !== '') {
     if (path.isAbsolute(relPath)) {
-      throw { status: 400, message: 'relPath must not be absolute' };
+      throw Object.assign(new Error('relPath must not be absolute'), { status: 400 });
     }
     if (relPath.includes('\\')) {
-      throw { status: 400, message: 'relPath must not contain backslashes' };
+      throw Object.assign(new Error('relPath must not contain backslashes'), { status: 400 });
     }
     const segments = relPath.split('/');
     for (const seg of segments) {
       if (seg === '..' || seg === '.') {
-        throw { status: 400, message: `relPath must not contain '.' or '..' segments` };
+        throw Object.assign(new Error(`relPath must not contain '.' or '..' segments`), {
+          status: 400,
+        });
       }
     }
   }
@@ -110,7 +112,7 @@ export async function resolveAddress(slug: string, relPath: string): Promise<Res
 
   const realRoot = await realpath(root);
   if (!isUnderRoot(realAbs, realRoot)) {
-    throw { status: 400, message: 'Path escapes library jail' };
+    throw Object.assign(new Error('Path escapes library jail'), { status: 400 });
   }
 
   return { libraryId, libraryRoot: root, absPath };
