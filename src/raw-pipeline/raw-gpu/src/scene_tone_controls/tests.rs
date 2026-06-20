@@ -52,7 +52,7 @@ fn tone_image_2d() -> (Vec<f32>, u32, u32) {
                         0.09
                     }
                 } // shadow texture patch
-                _ => 0.18 + 0.04 * ((x + y) % 3) as f32, // midtone wobble
+                _ => 0.18 + 0.04 * ((x + y) % 3) as f32,  // midtone wobble
             };
             // A couple of colored pixels so hue handling rides along.
             if y == 6 && x == 3 {
@@ -70,12 +70,7 @@ fn tone_image_2d() -> (Vec<f32>, u32, u32) {
 /// Run `raw_core::stages::scene_tone_controls::apply` on a flat interleaved
 /// RGBA f32 buffer with the given slider values, returning a new buffer
 /// (alpha carried through). The ticket's actual reference — the Rust stage.
-fn raw_core_tone(
-    buf: &[f32],
-    width: u32,
-    height: u32,
-    options: SceneToneOptions,
-) -> Vec<f32> {
+fn raw_core_tone(buf: &[f32], width: u32, height: u32, options: SceneToneOptions) -> Vec<f32> {
     let SceneToneOptions {
         exposure,
         brightness,
@@ -112,18 +107,18 @@ fn raw_core_tone(
 /// whole-image short-circuit).
 /// `(exposure, brightness, highlights, shadows, whites, blacks)`.
 const CASES: &[(f32, f32, f32, f32, f32, f32)] = &[
-    (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),       // exposure only
-    (0.0, 70.0, 0.0, 0.0, 0.0, 0.0),      // brightness lift only (#1102)
-    (0.0, -85.0, 0.0, 0.0, 0.0, 0.0),     // brightness darken only (#1102)
-    (0.0, 0.0, 60.0, 0.0, 0.0, 0.0),      // highlights recovery only (#1103 mask)
-    (0.0, 0.0, -50.0, 0.0, 0.0, 0.0),     // highlights gain at the old #1081 pole
-    (0.0, 0.0, -100.0, 0.0, 0.0, 0.0),    // highlights gain at full negative
-    (0.0, 0.0, 0.0, 80.0, 0.0, 0.0),      // shadows lift only (#1103 mask)
-    (0.0, 0.0, 0.0, -60.0, 0.0, 0.0),     // shadows crush only (#1103 mask)
-    (0.0, 0.0, 0.0, 0.0, 75.0, 0.0),      // whites gain only
-    (0.0, 0.0, 0.0, 0.0, 0.0, 50.0),      // blacks lift (positive → additive)
-    (0.0, 0.0, 0.0, 0.0, 0.0, -70.0),     // blacks crush (negative → multiplicative)
-    (0.5, 35.0, 40.0, 30.0, 20.0, -25.0), // everything together
+    (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),           // exposure only
+    (0.0, 70.0, 0.0, 0.0, 0.0, 0.0),          // brightness lift only (#1102)
+    (0.0, -85.0, 0.0, 0.0, 0.0, 0.0),         // brightness darken only (#1102)
+    (0.0, 0.0, 60.0, 0.0, 0.0, 0.0),          // highlights recovery only (#1103 mask)
+    (0.0, 0.0, -50.0, 0.0, 0.0, 0.0),         // highlights gain at the old #1081 pole
+    (0.0, 0.0, -100.0, 0.0, 0.0, 0.0),        // highlights gain at full negative
+    (0.0, 0.0, 0.0, 80.0, 0.0, 0.0),          // shadows lift only (#1103 mask)
+    (0.0, 0.0, 0.0, -60.0, 0.0, 0.0),         // shadows crush only (#1103 mask)
+    (0.0, 0.0, 0.0, 0.0, 75.0, 0.0),          // whites gain only
+    (0.0, 0.0, 0.0, 0.0, 0.0, 50.0),          // blacks lift (positive → additive)
+    (0.0, 0.0, 0.0, 0.0, 0.0, -70.0),         // blacks crush (negative → multiplicative)
+    (0.5, 35.0, 40.0, 30.0, 20.0, -25.0),     // everything together
     (-1.0, -45.0, -50.0, -40.0, -60.0, 90.0), // negative exposure + mixed signs
 ];
 
@@ -320,7 +315,15 @@ fn oracle_brightness_lifts_midtone_pins_ends() {
             blacks: 0.0,
         },
     );
-    assert_eq!(buf[0], 0.03, "deep shadow must be bit-exact, got {}", buf[0]);
+    assert_eq!(
+        buf[0], 0.03,
+        "deep shadow must be bit-exact, got {}",
+        buf[0]
+    );
     assert!(buf[4] > 0.18, "midtone should lift, got {}", buf[4]);
-    assert_eq!(buf[8], 5.0, "scene-ref-max must be bit-exact, got {}", buf[8]);
+    assert_eq!(
+        buf[8], 5.0,
+        "scene-ref-max must be bit-exact, got {}",
+        buf[8]
+    );
 }

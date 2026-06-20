@@ -70,12 +70,7 @@ fn stepped_image(w: usize, h: usize) -> Vec<f32> {
 
 /// `raw_core::stages::sharpen::apply` on a flat RGBA buffer — the stage-level
 /// reference (alpha carried through untouched, like the NLM gate).
-fn raw_core_sharpen(
-    buf: &[f32],
-    w: u32,
-    h: u32,
-    settings: SharpenSettings,
-) -> Vec<f32> {
+fn raw_core_sharpen(buf: &[f32], w: u32, h: u32, settings: SharpenSettings) -> Vec<f32> {
     let SharpenSettings {
         amount,
         radius,

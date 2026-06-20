@@ -67,6 +67,7 @@ fn mask_params(amount: f32, feather: f32) -> (f32, f32, f32) {
     (e0, e1, ev)
 }
 
+#[derive(Clone, Copy)]
 pub struct VignetteOptions {
     pub origin: (u32, u32),
     pub full: (u32, u32),
