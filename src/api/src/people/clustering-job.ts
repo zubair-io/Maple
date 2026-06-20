@@ -17,7 +17,7 @@
  * a dot product.
  */
 
-import { type Filter, ObjectId } from 'mongodb';
+import { type Filter, ObjectId, type AnyBulkWriteOperation } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc } from '../db/schema.ts';
 import { markAssetIdsForMeiliReindexBestEffort } from './people-search-reindex.ts';
@@ -207,12 +207,15 @@ export async function runOnlineClustering(
   // Batch insert new people.
   if (newPeopleDocs.length > 0) {
     const peopleC = await peopleCollection();
-    await peopleC.insertMany(newPeopleDocs as any);
+    // `WithId<PersonDoc>` allows a caller-supplied `_id`; cast via `unknown`
+    // because the Mongo driver's `insertMany` signature expects `OptionalUnlessRequiredId<PersonDoc>`,
+    // which is the same shape but not directly assignable from our intersection type.
+    await peopleC.insertMany(newPeopleDocs as unknown as PersonDoc[]);
   }
 
   // Apply buffered assignments per asset doc via bulkWrite.
   const assets = await assetsCollection();
-  const assetOps = [];
+  const assetOps: AnyBulkWriteOperation<AssetDoc>[] = [];
   for (const entry of perAsset.values()) {
     const set: Record<string, string> = {};
     for (const u of entry.updates) {
@@ -407,7 +410,7 @@ async function doBackfillCoverAssets(): Promise<void> {
 async function persistCentroids(centroids: CentroidEntry[]): Promise<void> {
   if (centroids.length === 0) return;
   const peopleC = await peopleCollection();
-  const ops = centroids.map((c) => ({
+  const ops: AnyBulkWriteOperation<PersonDoc>[] = centroids.map((c) => ({
     updateOne: {
       filter: { _id: c.person_id },
       update: {

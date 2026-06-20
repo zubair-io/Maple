@@ -168,17 +168,16 @@ export async function recomputeCentroids(): Promise<number> {
 
   // 1. Identify "dirty" people who need a recompute:
   //    - centroid_face_count is -1 (force-recompute tag from manual moves)
-  //    - missing centroid_face_count
-  //    - missing/empty centroid
+  //    - centroid_face_count is missing entirely (new rows that haven't been
+  //      through a recompute yet)
+  // Deliberately NOT filtering on centroid shape alone: `centroid: []` with
+  // `centroid_face_count: 0` is the valid "no faces assigned" cleared state —
+  // including it would keep unassigned manually-created people perpetually dirty.
   // Seed query is intentionally NOT filtered on `hidden` — see module header.
   const allLive = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
   const dirty = allLive.filter((p) => {
-    return (
-      (p.centroid_face_count ?? -1) === -1 ||
-      !p.centroid ||
-      p.centroid.length !== EMBEDDING_DIM ||
-      p.centroid.every((v) => v === 0)
-    );
+    const fc = p.centroid_face_count;
+    return fc === undefined || fc === null || fc === -1;
   });
   if (dirty.length === 0) return 0;
 
@@ -216,8 +215,14 @@ export async function recomputeCentroids(): Promise<number> {
 
     if (!acc || acc.count === 0) {
       // Nobody assigned (or only hidden faces) — clear the centroid.
-      // Skip if already clear.
-      if ((person.centroid_face_count ?? 0) === 0 && (person.centroid?.length ?? 0) === 0) {
+      // Skip ONLY when both fields are already explicitly in the cleared
+      // state; nullish-coalescing would skip people with missing fields,
+      // leaving them dirty forever.
+      if (
+        person.centroid_face_count === 0 &&
+        Array.isArray(person.centroid) &&
+        person.centroid.length === 0
+      ) {
         continue;
       }
       bulkOps.push({
@@ -235,7 +240,13 @@ export async function recomputeCentroids(): Promise<number> {
     const normalised = l2Normalise(acc.mean);
 
     // Skip if unchanged (edge case: recompute triggered but result is same).
-    if (person.centroid_face_count === acc.count && person.centroid) {
+    // Guard on centroid.length — dirty people may have a missing or truncated
+    // centroid, in which case we must always write the repaired value.
+    if (
+      person.centroid_face_count === acc.count &&
+      Array.isArray(person.centroid) &&
+      person.centroid.length === EMBEDDING_DIM
+    ) {
       const existing = Float32Array.from(person.centroid);
       let changed = false;
       for (let i = 0; i < EMBEDDING_DIM; i += 1) {
