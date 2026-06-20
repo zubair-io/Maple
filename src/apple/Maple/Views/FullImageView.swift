@@ -167,9 +167,10 @@ struct FullImageView: View {
                 }
             }
 
-            // Error banners
-            VStack {
-                if let err = session.renderError ?? session.sidecarError {
+            // Error banners — only mounted when an error is present so
+            // the overlay never intercepts gestures while the canvas is clean.
+            if let err = session.renderError ?? session.sidecarError {
+                VStack {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                         Text(err.localizedDescription)
@@ -180,8 +181,9 @@ struct FullImageView: View {
                     .padding(8)
                     .background(Color.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
                     .padding(.top, 12)
+                    Spacer()
                 }
-                Spacer()
+                .allowsHitTesting(false)
             }
 
             // Loading indicator. Shown while the cold-open is still resolving

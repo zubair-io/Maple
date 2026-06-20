@@ -66,7 +66,7 @@ public actor CloudSidecarStore: SidecarStoreProtocol {
   /// Returns an async stream of errors encountered during background writes.
   public func errors() -> AsyncStream<Error> {
     let id = nextSubscriberID
-    nextSubscriberID += 1
+    nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
     return AsyncStream { continuation in
       subscribers[id] = continuation
       continuation.onTermination = { [weak self] _ in

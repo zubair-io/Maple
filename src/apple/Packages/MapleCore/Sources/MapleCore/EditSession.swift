@@ -351,8 +351,13 @@ public final class EditSession {
 
         if let store = self.sidecarStore {
             sidecarErrorTask = Task { [weak self, store] in
-                for await error in await store.errors() {
+                // Mirror the tileEventsTask pattern: check cancellation before
+                // touching UI state so teardown doesn't publish a stale error
+                // after the session is gone.
+                let stream = await store.errors()
+                for await error in stream {
                     guard let self else { return }
+                    if Task.isCancelled { return }
                     await MainActor.run {
                         self.sidecarError = error
                     }
