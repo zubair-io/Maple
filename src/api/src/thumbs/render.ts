@@ -73,7 +73,7 @@ export async function renderHeicThumbToFile(
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality, mozjpeg: true })
     .toBuffer();
-  const tmp = `${thumbPath}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   await writeFile(tmp, buf);
   await rename(tmp, thumbPath);
 }
@@ -107,7 +107,7 @@ export async function renderImageThumbToFile(
     return true;
   }
 
-  const tmp = `${thumbPath}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   const buf = await sharp(srcPath, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
