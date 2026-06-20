@@ -4,12 +4,12 @@
  * Handles caching, DB state fetching, and status assembly for the /status endpoint.
  */
 
-import { type Collection, type Document, type Filter } from 'mongodb';
+import { type Collection, type Filter } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
-import type { WorkerConfig, ImageDoc } from './run-stage.ts';
+import type { WorkerConfig } from './run-stage.ts';
 import { buildClaimQuery } from './run-stage.ts';
-import { liveFileInfoElemMatch, liveAwareDuplicatePredicate } from '../indexer/images.repo.ts';
+import { liveFileInfoElemMatch } from '../indexer/images.repo.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';

@@ -29,7 +29,7 @@ import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
 import { assetAbsPath, updateLiveLocationCount } from '../indexer/images.repo.ts';
-import type { AssetDoc, AssetWithId } from '../db/schema.ts';
+import type { AssetWithId } from '../db/schema.ts';
 import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
