@@ -16,7 +16,13 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { Observable, Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { API_BASE_URL, SearchParams, SearchResponse, SearchService } from '@maple-common';
+import {
+  API_BASE_URL,
+  RECENT_QUERIES_KEY,
+  SearchParams,
+  SearchResponse,
+  SearchService,
+} from '@maple-common';
 import { SearchPageComponent } from './search-page.component';
 
 class StubSearchService {
@@ -55,11 +61,13 @@ function setup(q?: string): {
 describe('SearchPageComponent (Self-Hosted) ?q wiring', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    localStorage.clear();
+    // Scope to the recents key — `<app-search>` persists there. A blanket
+    // localStorage.clear() would wipe unrelated keys in the shared jsdom.
+    localStorage.removeItem(RECENT_QUERIES_KEY);
   });
   afterEach(() => {
     vi.useRealTimers();
-    localStorage.clear();
+    localStorage.removeItem(RECENT_QUERIES_KEY);
   });
 
   it('seeds the search bar and fires a search from ?q', () => {
