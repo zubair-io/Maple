@@ -126,9 +126,9 @@ fn run_case(stem: &str, case: &str, class: &str) {
         .arg("-c")
         .arg(
             "import sys; from PIL import Image; \
-             cand = Image.open(sys.argv[2]); \
-             ref = Image.open(sys.argv[3]); \
-             cand.resize(ref.size, Image.LANCZOS).save(sys.argv[4])",
+             cand = Image.open(sys.argv[-3]); \
+             ref = Image.open(sys.argv[-2]); \
+             cand.resize(ref.size, Image.LANCZOS).save(sys.argv[-1])",
         )
         .arg("--")
         .arg(&out_png)
