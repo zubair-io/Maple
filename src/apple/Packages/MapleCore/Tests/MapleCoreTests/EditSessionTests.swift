@@ -277,14 +277,19 @@ final class EditSessionTests: XCTestCase {
         let store = FailingSidecarStore()
         let session = EditSession(asset: asset, remoteSidecarStore: store)
 
+        // Yield enough times for EditSession's sidecarErrorTask to start
+        // executing and call store.errors(), registering its continuation.
+        // Without this yield, emitError fires before any subscriber is
+        // registered and the error is lost.
+        for _ in 0..<10 { await Task.yield() }
+
         // Ask the store to emit a write error. The session's Task subscribes
         // to `store.errors()` and should publish it to `session.sidecarError`.
         let sentinel = NSError(domain: "test.sidecar", code: 42,
                                userInfo: [NSLocalizedDescriptionKey: "disk full"])
         await store.emitError(sentinel)
 
-        // Yield control so the async subscription Task can receive the
-        // streamed error and hop onto MainActor.
+        // Poll for the error to hop from the actor onto MainActor.
         let deadline = Date().addingTimeInterval(1.0)
         while Date() < deadline {
             if session.sidecarError != nil { break }
