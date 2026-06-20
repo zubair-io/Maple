@@ -23,6 +23,22 @@ final class DeepLinkParserTests: XCTestCase {
         XCTAssertEqual(DeepLinkParser.parse(url), .source(id: "cloud-server-1"))
     }
 
+    func test_parse_sourceURL_withAbsolutePath_preservesSlashes() throws {
+        let url = try XCTUnwrap(URL(string: "maple://source//Users/jules/Photos"))
+        XCTAssertEqual(DeepLinkParser.parse(url), .source(id: "/Users/jules/Photos"))
+    }
+
+    func test_parse_sourceURL_withEncodedPath_preservesSlashes() throws {
+        // maple://source/%2fUsers%2fjules%2fPhotos -> path is "/Users/jules/Photos"
+        let url = try XCTUnwrap(URL(string: "maple://source/%2fUsers%2fjules%2fPhotos"))
+        XCTAssertEqual(DeepLinkParser.parse(url), .source(id: "/Users/jules/Photos"))
+    }
+
+    func test_parse_sourceURL_withSMBShare_preservesSlashes() throws {
+        let url = try XCTUnwrap(URL(string: "maple://source/jules@nas.local/photos"))
+        XCTAssertEqual(DeepLinkParser.parse(url), .source(id: "jules@nas.local/photos"))
+    }
+
     func test_parse_imageURL_withTrailingSlash_returnsImage() throws {
         // Foundation's `pathComponents` produces ["/", "foo"] for the
         // input — the first non-root component is still "foo". Guard
@@ -37,30 +53,6 @@ final class DeepLinkParserTests: XCTestCase {
         // ignore extra components rather than fail.
         let url = try XCTUnwrap(URL(string: "maple://image/abc/edit"))
         XCTAssertEqual(DeepLinkParser.parse(url), .image(id: "abc"))
-    }
-
-    func test_parse_sourceURL_withAbsoluteFolderPath_rejoinsComponents() throws {
-        // `maple://source/%2FUsers%2Falice%2FPhotos` — local folder paths
-        // contain `/` so callers must percent-encode the slashes in the id.
-        // `.urlPathAllowed` does NOT encode `/`, so we use a custom set.
-        var allowed = CharacterSet.urlPathAllowed
-        allowed.remove("/")
-        let encoded = "/Users/alice/Photos".addingPercentEncoding(withAllowedCharacters: allowed)!
-        let url = try XCTUnwrap(URL(string: "maple://source/\(encoded)"))
-        XCTAssertEqual(DeepLinkParser.parse(url), .source(id: "/Users/alice/Photos"))
-    }
-
-    func test_parse_sourceURL_smbHostShare_rejoinsComponents() throws {
-        // `maple://source/nas/Photos` — SMB `host/share` format uses a
-        // slash that would be truncated by a first-component-only parser.
-        let url = try XCTUnwrap(URL(string: "maple://source/nas/Photos"))
-        XCTAssertEqual(DeepLinkParser.parse(url), .source(id: "nas/Photos"))
-    }
-
-    func test_parse_sourceURL_smbUserAtHostShare_rejoinsComponents() throws {
-        // `maple://source/alice@nas/Photos` — `user@host/share` format.
-        let url = try XCTUnwrap(URL(string: "maple://source/alice@nas/Photos"))
-        XCTAssertEqual(DeepLinkParser.parse(url), .source(id: "alice@nas/Photos"))
     }
 
     // MARK: - Invalid URLs (return nil)
