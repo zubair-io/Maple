@@ -150,7 +150,7 @@ struct ApplyParams {
     _pad0: u32,
 }
 
-pub struct DispatchArgs<'a> {
+pub(crate) struct DispatchArgs<'a> {
     pub ctx: &'a GpuContext,
     pub encoder: &'a mut wgpu::CommandEncoder,
     pub pipeline: &'a wgpu::ComputePipeline,
@@ -205,7 +205,7 @@ fn dispatch(args: DispatchArgs) {
     pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
 }
 
-pub struct GaussArgs<'a> {
+pub(crate) struct GaussArgs<'a> {
     pub ctx: &'a GpuContext,
     pub encoder: &'a mut wgpu::CommandEncoder,
     pub kernel: &'a wgpu::Buffer,

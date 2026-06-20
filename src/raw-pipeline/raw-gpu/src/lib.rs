@@ -195,8 +195,8 @@ mod clarity;
 mod context;
 mod context_pipelines;
 mod dehaze;
-mod dither;
 mod display_encode;
+mod dither;
 mod exposure;
 mod frame_pool;
 mod full_chain;
@@ -233,6 +233,8 @@ mod present_web;
 // a WebGPU `OffscreenCanvas` surface, zero readback. wasm-only — `SurfaceTarget::
 // OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
+mod grain;
+mod hsl;
 #[cfg(target_arch = "wasm32")]
 mod present_chain_web;
 #[cfg(target_arch = "wasm32")]
@@ -242,31 +244,31 @@ mod saturation;
 mod scene_tone_controls;
 mod sharpen;
 mod spatial;
+mod split_tone;
 mod srgb_gamma;
 mod texture;
-mod grain;
-mod hsl;
-mod split_tone;
 mod tone_curves;
 mod vibrance;
 mod vignette;
 mod white_balance;
 
 pub use agx::{apply_agx, AgxPass};
+pub use airlight::{encode_airlight, AIRLIGHT_BINS};
 pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
 pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
-pub use airlight::{encode_airlight, AIRLIGHT_BINS};
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use context::GpuContext;
 pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
-pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rgb_u8};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
+pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rgb_u8};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
-pub use full_chain::{build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape};
-pub use grain::{apply_grain, GrainPass};
+pub use full_chain::{
+    build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape,
+};
+pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;
 pub use live_chain::{
@@ -276,19 +278,20 @@ pub use live_session::LiveSession;
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
-pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
+pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass, SceneToneOptions};
 pub use sharpen::SharpenPass;
-pub use split_tone::{apply_split_tone, SplitTonePass};
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,
     clarity_texture_encode, encode_simple, guided_filter_self_encode, luma_extract_encode,
-    plane_byte_len, plane_vec2_byte_len, pool_data_storage, Plane,
+    plane_byte_len, plane_vec2_byte_len, pool_data_storage, ClarityTextureArgs, GuidedFilterArgs,
+    Plane,
 };
+pub use split_tone::{apply_split_tone, SplitTonePass};
 pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
-pub use vignette::{apply_vignette, VignettePass};
+pub use vignette::{apply_vignette, VignetteOptions, VignettePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};
 
 #[cfg(not(target_arch = "wasm32"))]
