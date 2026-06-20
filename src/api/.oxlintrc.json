@@ -35,6 +35,7 @@
   "overrides": [
     {
       "files": [
+        "src/tests/pano-injection.test.ts",
         "src/enrichment/place-parser.test.ts",
         "src/fs/mirrored.ts",
         "src/fs/root.ts",
