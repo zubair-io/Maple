@@ -60,9 +60,10 @@ export async function verifyAccessToken(jwt: string, secret: string): Promise<Ac
     const { payload } = await jwtVerify(jwt, secretKey(secret), { algorithms: [ALG] });
     claims = payload as Record<string, unknown>;
   } catch (e) {
-    if (e instanceof joseErrors.JWTExpired) throw new Error('token expired');
-    if (e instanceof joseErrors.JWSSignatureVerificationFailed) throw new Error('bad signature');
-    throw new Error('malformed token');
+    if (e instanceof joseErrors.JWTExpired) throw new Error('token expired', { cause: e });
+    if (e instanceof joseErrors.JWSSignatureVerificationFailed)
+      throw new Error('bad signature', { cause: e });
+    throw new Error('malformed token', { cause: e });
   }
   const { sub, email, role, iat, exp } = claims;
   if (
@@ -119,8 +120,8 @@ export async function verifyStepUpToken(token: string, secret: string): Promise<
   try {
     ({ payload } = await jwtVerify(token, secretKey(secret), { algorithms: [ALG] }));
   } catch (e) {
-    if (e instanceof joseErrors.JWTExpired) throw new Error('step-up expired');
-    throw new Error('step-up invalid');
+    if (e instanceof joseErrors.JWTExpired) throw new Error('step-up expired', { cause: e });
+    throw new Error('step-up invalid', { cause: e });
   }
   if (payload.purpose !== 'step_up' || typeof payload.sub !== 'string') {
     throw new Error('step-up invalid');

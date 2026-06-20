@@ -107,7 +107,13 @@ export async function downloadAntelopeV2Default(
       }
     }
     await new Promise<void>((resolve, reject) => {
-      sink.end((err?: Error | null) => (err ? reject(err) : resolve()));
+      let settled = false;
+      sink.end((err?: Error | null) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve();
+      });
     });
   } catch (err) {
     // Partial file is unusable; remove so the next attempt re-downloads.
@@ -138,6 +144,7 @@ export async function downloadAntelopeV2Default(
     throw new Error(
       `Failed to extract antelopev2.zip (${msg}). Install unzip (\`apt install unzip\`) ` +
         `or drop the model files at ${join(dir, detectorBasename)} and ${join(dir, recognizerBasename)} manually.`,
+      { cause: err },
     );
   }
 

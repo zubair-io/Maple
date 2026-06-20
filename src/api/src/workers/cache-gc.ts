@@ -172,7 +172,9 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
           { errno, count: recentFailCount },
           'cache-gc: too many unlink failures — aborting sweep',
         );
-        throw new Error(`cache-gc aborted: ${recentFailCount} consecutive ${errno} failures`);
+        throw new Error(`cache-gc aborted: ${recentFailCount} consecutive ${errno} failures`, {
+          cause: err,
+        });
       }
       return false;
     }
