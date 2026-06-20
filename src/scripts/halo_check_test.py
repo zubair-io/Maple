@@ -8,7 +8,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import imageio.v3 as iio
 
 # Add current dir to sys.path to import halo_check
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +15,12 @@ SCRIPTS_DIR = REPO_ROOT / "src/scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import halo_check
+
+try:
+    import imageio.v3 as iio
+    _IMAGEIO_AVAILABLE = True
+except ImportError:
+    _IMAGEIO_AVAILABLE = False
 
 
 def test_radial_profile():
@@ -69,7 +74,14 @@ def test_halo_overshoot_with_overshoot():
 
 
 def test_integration():
-    """Integration test: write a synthetic EXR and run halo_check.py."""
+    """Integration test: write a synthetic EXR and run halo_check.py.
+
+    Skipped when imageio is not installed — the pure-function unit tests above
+    still run so the module logic is covered in that environment.
+    """
+    if not _IMAGEIO_AVAILABLE:
+        print("  (skipped: imageio not installed)")
+        return
     with tempfile.TemporaryDirectory() as tmp:
         dump_dir = Path(tmp)
         stage = "16_agx"
