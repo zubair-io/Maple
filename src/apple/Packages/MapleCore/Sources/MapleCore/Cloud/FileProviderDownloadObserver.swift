@@ -108,7 +108,7 @@ public final class FileProviderDownloadObserver {
         pollTask = Task.detached { [weak progress] in
             var lastExpected: Int64? = initialExpected
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 200_000_000)
+                try? await Task.sleep(for: .milliseconds(200))
                 guard !Task.isCancelled else { break }
                 // Re-read the weak capture each iteration so we exit as soon
                 // as the editor releases the progress sink (typically when
