@@ -2,6 +2,7 @@ pub mod auto_exposure;
 pub mod auto_adjustments;
 pub mod auto_tone;
 pub mod white_balance;
+pub mod white_balance_auto;
 pub mod scene_tone_controls;
 pub mod tone_curves;
 pub mod vibrance;
