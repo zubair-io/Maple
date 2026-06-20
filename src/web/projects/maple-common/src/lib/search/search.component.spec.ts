@@ -322,8 +322,12 @@ describe('SearchComponent initialQuery seeding', () => {
     fixture.componentRef.setInput('initialQuery', '   ');
     fixture.detectChanges();
     vi.advanceTimersByTime(300);
-    // Trims to empty → no fetch, and no results/empty-state body renders.
+    // Trims to empty → bar stays blank, no fetch, no results/empty-state body.
     expect(stubService.calls.length).toBe(0);
+    const input = fixture.nativeElement.querySelector(
+      '[data-testid="search-input"]',
+    ) as HTMLInputElement;
+    expect(input.value).toBe('');
     const photoSec = fixture.nativeElement.querySelector('[data-testid="photo-results-section"]');
     expect(photoSec).toBeNull();
   });
