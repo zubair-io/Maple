@@ -162,7 +162,21 @@ describe('SearchComponent', () => {
     expect(stubService.calls.length).toBe(0); // still inside debounce window
     vi.advanceTimersByTime(250);
     expect(stubService.calls.length).toBe(1);
-    expect(stubService.calls[0].q).toBe('paris');
+    expect(stubService.calls[0].placeQuery).toBe('paris');
+    stubService.resolveLatest();
+  });
+
+  it('sends the term as placeQuery (content search), not q (filename match)', () => {
+    // The single responsive search box is the *content* search — it must hit
+    // the unified search_blob (place + caption + OCR + people, NL-dates,
+    // semantic ranking) via `placeQuery`, exactly like the advanced search
+    // box. Sending `q` (filename substring) instead returns nothing for the
+    // normal "search my photos for Paris / a person / a caption" case.
+    typeInput(fixture, 'paris');
+    vi.advanceTimersByTime(300);
+    expect(stubService.calls.length).toBe(1);
+    expect(stubService.calls[0]!.placeQuery).toBe('paris');
+    expect(stubService.calls[0]!.q).toBeUndefined();
     stubService.resolveLatest();
   });
 
@@ -249,6 +263,69 @@ describe('SearchComponent', () => {
     fixture.detectChanges();
     const empty = fixture.nativeElement.querySelector('[data-testid="search-no-results"]');
     expect(empty).toBeNull();
+  });
+});
+
+describe('SearchComponent initialQuery seeding', () => {
+  // Regression guard: the toolbar search (browse-shell) and the drawer search
+  // pill navigate to `/search?q=…`. The host page reads `?q` and feeds it in
+  // through the `initialQuery` input — without seeding, the landing page is
+  // blank and the user's query is silently dropped at the route boundary.
+  let fixture: ComponentFixture<SearchComponent>;
+  let stubService: StubSearchService;
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    stubService = new StubSearchService();
+    localStorage.removeItem(RECENT_QUERIES_KEY);
+    await TestBed.configureTestingModule({
+      imports: [SearchComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+        { provide: SearchService, useValue: stubService },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(SearchComponent);
+    // NOTE: no detectChanges() here — the seed must be applied BEFORE the first
+    // change-detection run so ngOnInit reads the bound input.
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.removeItem(RECENT_QUERIES_KEY);
+  });
+
+  it('seeds the bar and issues a search from initialQuery', () => {
+    fixture.componentRef.setInput('initialQuery', 'paris');
+    fixture.detectChanges();
+
+    const input = fixture.nativeElement.querySelector(
+      '[data-testid="search-input"]',
+    ) as HTMLInputElement;
+    expect(input.value).toBe('paris');
+
+    vi.advanceTimersByTime(300);
+    expect(stubService.calls.length).toBe(1);
+    expect(stubService.calls[0]!.placeQuery).toBe('paris');
+    stubService.resolveLatest();
+  });
+
+  it('does not search when initialQuery is empty', () => {
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stubService.calls.length).toBe(0);
+  });
+
+  it('ignores a whitespace-only initialQuery', () => {
+    fixture.componentRef.setInput('initialQuery', '   ');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    // Trims to empty → no fetch, and no results/empty-state body renders.
+    expect(stubService.calls.length).toBe(0);
+    const photoSec = fixture.nativeElement.querySelector('[data-testid="photo-results-section"]');
+    expect(photoSec).toBeNull();
   });
 });
 
@@ -382,7 +459,7 @@ describe('SearchComponent scope flow', () => {
     vi.advanceTimersByTime(300);
     expect(stubService.calls.length).toBe(2);
     expect(stubService.calls[1]!.scope).toBe('places');
-    expect(stubService.calls[1]!.q).toBe('paris');
+    expect(stubService.calls[1]!.placeQuery).toBe('paris');
   });
 
   it('tapping the People chip sends scope=people', () => {
