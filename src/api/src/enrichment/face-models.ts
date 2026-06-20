@@ -329,20 +329,24 @@ export async function loadFaceModels(config: FaceModelsConfig = {}): Promise<Fac
       await downloadAntelopeV2Default(dir, DETECTOR_BASENAME, RECOGNIZER_BASENAME);
     }
 
-    const [detectorPath, recognizerPath] = await Promise.all([
-      ensureModelFile({
-        dir,
-        basename: DETECTOR_BASENAME,
-        url: detectorUrl,
-        sha256: detectorSha,
-      }),
-      ensureModelFile({
-        dir,
-        basename: RECOGNIZER_BASENAME,
-        url: recognizerUrl,
-        sha256: recognizerSha,
-      }),
-    ]);
+    // ensureModelFile downloads the model via res.arrayBuffer(), buffering
+    // the full blob in memory. Running both concurrently would hold two
+    // large ONNX files (~100–200 MB each) in RAM at once. Keep them
+    // sequential to halve peak memory on first-install. Already-present
+    // models return immediately via a sync existsSync check, so there is no
+    // meaningful throughput cost on subsequent boots.
+    const detectorPath = await ensureModelFile({
+      dir,
+      basename: DETECTOR_BASENAME,
+      url: detectorUrl,
+      sha256: detectorSha,
+    });
+    const recognizerPath = await ensureModelFile({
+      dir,
+      basename: RECOGNIZER_BASENAME,
+      url: recognizerUrl,
+      sha256: recognizerSha,
+    });
     const ort = await loadOnnxRuntime();
     // Constrain ORT thread pools. Without explicit thread counts, the native
     // binding sizes its intra-op pool to the host's logical CPU count and
