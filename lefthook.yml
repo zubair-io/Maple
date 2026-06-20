@@ -14,12 +14,15 @@ pre-commit:
     # Runs only on staged src/api/src/*.ts files. Soft-skips if oxlint isn't
     # installed locally (CI is the gate).
     oxlint-api:
+      # `root` runs oxlint INSIDE src/api so it picks up src/api/.oxlintrc.json
+      # and the allowlist override paths (relative to that config) resolve.
+      root: 'src/api/'
       glob: 'src/api/src/**/*.ts'
       run: |
         if command -v oxlint >/dev/null 2>&1; then
           oxlint {staged_files}
-        elif [ -x src/api/node_modules/.bin/oxlint ]; then
-          src/api/node_modules/.bin/oxlint {staged_files}
+        elif [ -x node_modules/.bin/oxlint ]; then
+          node_modules/.bin/oxlint {staged_files}
         else
           echo "lefthook: oxlint not installed — skipping (CI will gate)"
         fi
