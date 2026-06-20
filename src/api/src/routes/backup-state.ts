@@ -20,8 +20,7 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
-import type { PhotoKitAssetLink, AssetDoc, FolderDoc } from '../db/schema.ts';
-import path from 'node:path';
+import type { PhotoKitAssetLink, AssetDoc } from '../db/schema.ts';
 
 export const backupStateRoutes = new Elysia().get(
   '/api/libraries/:libraryId/backup/state',

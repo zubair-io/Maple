@@ -260,7 +260,7 @@ export type XmpWriteOutcome =
 function sanitizeDeviceName(raw: string | undefined): string {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) return 'Unknown device';
-  return trimmed.replace(/[\/\\:*?"<>|]/g, '-').slice(0, 64);
+  return trimmed.replace(/[/\\:*?"<>|]/g, '-').slice(0, 64);
 }
 
 /** Compose the conflict-copy path for a given RAW + device name. */

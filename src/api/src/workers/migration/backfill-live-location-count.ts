@@ -58,19 +58,14 @@ export const backfillLiveLocationCount: Migration = {
 
     const ids = candidates.map((c) => c._id);
 
-    let processed = 0;
-    try {
-      const result = await assets.updateMany({ _id: { $in: ids } }, [
-        {
-          $set: {
-            live_location_count: liveLocationCountExpression(),
-          },
+    const result = await assets.updateMany({ _id: { $in: ids } }, [
+      {
+        $set: {
+          live_location_count: liveLocationCountExpression(),
         },
-      ]);
-      processed = result.modifiedCount;
-    } catch (err) {
-      throw err;
-    }
+      },
+    ]);
+    const processed = result.modifiedCount;
 
     return { processed, errors: 0 };
   },

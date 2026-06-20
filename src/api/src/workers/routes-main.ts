@@ -32,8 +32,6 @@ import {
 } from '../ffi/ffi-pool-config.repo.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
-import { buildClaimQuery, deriveBatchSize } from './run-stage.ts';
-import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
 import { DEDUPLICATE_NAME } from './dedupe.ts';
@@ -54,18 +52,12 @@ import {
 } from './migration-config.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { child } from '../log.ts';
 import {
-  CLAIM_STAGE_NAMES,
   DEAD_LIST_LIMIT_DEFAULT,
   DEAD_LIST_LIMIT_MAX,
-  sanitizeWorkerConfig,
   invalidateStatusCache,
-  getStatusDbStateCached,
-  assembleWorkersStatus,
   computeWorkersStatus,
 } from './routes-status.ts';
-const log = child('workers:routes');
 
 /**
  * Every worker name the API accepts for name-gated routes.

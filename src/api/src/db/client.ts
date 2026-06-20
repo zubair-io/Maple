@@ -1215,8 +1215,8 @@ export async function ensureIndexes(): Promise<void> {
             {
               $or: [
                 { 'place.search_blob': { $exists: true, $ne: '' } },
-                { description: { $exists: true, $ne: null, $ne: '' } },
-                { ocr_text: { $exists: true, $ne: null, $ne: '' } },
+                { description: { $exists: true, $nin: [null, ''] } },
+                { ocr_text: { $exists: true, $nin: [null, ''] } },
               ],
             },
           ],

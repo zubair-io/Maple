@@ -161,7 +161,7 @@ describe('POST /api/folders/:id/rescan', () => {
     const outside = await db!
       .collection('assets')
       .findOne({ 'fileinfo.library_id': otherFolderId });
-    expect((outside?.stages as Record<string, { version: number }>).exif.version).toBe(1);
+    expect((outside!.stages as Record<string, { version: number }>).exif.version).toBe(1);
   });
 
   it('returns 404 when the folder does not exist', async () => {
@@ -221,6 +221,6 @@ describe('POST /api/folders/:id/rescan', () => {
     expect(result.modifiedCount).toBe(0);
 
     const doc = await db!.collection('assets').findOne({ 'fileinfo.library_id': otherFolderId });
-    expect((doc?.stages as Record<string, { version: number }>).exif.version).toBe(1);
+    expect((doc!.stages as Record<string, { version: number }>).exif.version).toBe(1);
   });
 });

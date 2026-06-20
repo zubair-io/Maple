@@ -94,6 +94,26 @@ jobs:
           xargs -a /tmp/check.txt ./src/web/node_modules/.bin/prettier --check \
             --config src/web/.prettierrc
 
+  oxlint-api:
+    name: oxlint-api (correctness + fs-import guardrail)
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install API devDeps (provides oxlint)
+        working-directory: src/api
+        run: HOME=/tmp/xbun bun install --frozen-lockfile
+
+      - name: oxlint src/api
+        working-directory: src/api
+        run: HOME=/tmp/xbun bunx oxlint src
+
   file-budget:
     name: file-budget (400 soft / 600 hard LOC)
     runs-on: ubuntu-latest

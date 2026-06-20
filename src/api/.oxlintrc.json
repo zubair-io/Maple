@@ -1,0 +1,150 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "eslint/no-unused-vars": "error",
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "node:fs/promises",
+            "message": "Use src/fs/mirrored.ts so durable writes replicate to the backup mirror. If you genuinely need raw fs (reads-only, temp paths, or the mirror machinery), add this file to the allowlist override in .oxlintrc.json with a one-line reason."
+          },
+          {
+            "name": "fs/promises",
+            "message": "Use src/fs/mirrored.ts so durable writes replicate to the backup mirror. If you genuinely need raw fs (reads-only, temp paths, or the mirror machinery), add this file to the allowlist override in .oxlintrc.json with a one-line reason."
+          },
+          {
+            "name": "node:fs",
+            "message": "Use src/fs/mirrored.ts so durable writes replicate to the backup mirror. If you genuinely need raw fs (reads-only, temp paths, or the mirror machinery), add this file to the allowlist override in .oxlintrc.json with a one-line reason."
+          },
+          {
+            "name": "fs",
+            "message": "Use src/fs/mirrored.ts so durable writes replicate to the backup mirror. If you genuinely need raw fs (reads-only, temp paths, or the mirror machinery), add this file to the allowlist override in .oxlintrc.json with a one-line reason."
+          }
+        ]
+      }
+    ],
+    "unicorn/no-new-array": "off",
+    "unicorn/no-useless-fallback-in-spread": "off",
+    "unicorn/no-useless-spread": "off"
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/enrichment/place-parser.test.ts",
+        "src/fs/mirrored.ts",
+        "src/fs/root.ts",
+        "src/imports/scan.ts",
+        "src/routes/folders.mkdir.test.ts",
+        "src/routes/fs-thumbs.etag.test.ts",
+        "src/routes/fs.etag.test.ts",
+        "src/routes/static_ui.ts",
+        "src/thumbs/apply-orientation.test.ts",
+        "src/workers/migration/restructure-fs.ts",
+        "src/auth/jwt-bootstrap.ts",
+        "src/backup/config.ts",
+        "src/backup/fs-util.ts",
+        "src/enrichment/face-models-bootstrap.ts",
+        "src/enrichment/face-models.test.ts",
+        "src/enrichment/face-models.ts",
+        "src/enrichment/face-pool.test.ts",
+        "src/ffi/raw_ffi.ts",
+        "src/fs/browse.ts",
+        "src/fs/duplicates.test.ts",
+        "src/fs/mirror-config.test.ts",
+        "src/fs/mirrored.test.ts",
+        "src/imports/copy.test.ts",
+        "src/imports/scan.test.ts",
+        "src/imports/worker.test.ts",
+        "src/indexer/exif.formats.test.ts",
+        "src/indexer/exif.ts",
+        "src/indexer/heic-exif.test.ts",
+        "src/indexer/heic-exif.ts",
+        "src/indexer/id.test.ts",
+        "src/indexer/id.ts",
+        "src/indexer/previewer.ts",
+        "src/indexer/thumbnailer.ts",
+        "src/indexer/webp-exif.test.ts",
+        "src/indexer/webp-exif.ts",
+        "src/job-runner/handlers/batch-jpeg-export.ts",
+        "src/job-runner/handlers/pano-stitch.ts",
+        "src/library/address.test.ts",
+        "src/library/address.ts",
+        "src/people/clustering-quality-harness.ts",
+        "src/routes/assets.changes.integration.test.ts",
+        "src/routes/assets.histogram.test.ts",
+        "src/routes/assets.thumb-etag.test.ts",
+        "src/routes/assets/histogram.ts",
+        "src/routes/assets/metadata.ts",
+        "src/routes/assets/trash.ts",
+        "src/routes/backup-ingest.ts",
+        "src/routes/backup-rendered.ts",
+        "src/routes/folders.move.test.ts",
+        "src/routes/folders.scan-relink.test.ts",
+        "src/routes/folders.slug-retry.test.ts",
+        "src/routes/folders.ts",
+        "src/routes/folders.upload.test.ts",
+        "src/routes/fs-thumbs.ts",
+        "src/routes/fs.ts",
+        "src/routes/imports.test.ts",
+        "src/routes/imports.ts",
+        "src/routes/library/folder.test.ts",
+        "src/routes/library/folder.ts",
+        "src/routes/library/image.test.ts",
+        "src/routes/library/preview.test.ts",
+        "src/routes/library/shared.ts",
+        "src/routes/library/thumb.test.ts",
+        "src/routes/mirror.ts",
+        "src/routes/pano.resolve.test.ts",
+        "src/routes/pano.test.ts",
+        "src/routes/pano.ts",
+        "src/routes/xmp.ts",
+        "src/thumbs/apply-orientation.ts",
+        "src/thumbs/imgdecode-pool.test.ts",
+        "src/thumbs/render.test.ts",
+        "src/thumbs/render.ts",
+        "src/workers/cache-gc.test.ts",
+        "src/workers/cache-gc.ts",
+        "src/workers/dedupe.test.ts",
+        "src/workers/discover/discover.dedup.test.ts",
+        "src/workers/discover/discover.events.test.ts",
+        "src/workers/discover/discover.fileinfo.test.ts",
+        "src/workers/discover/discover.idempotency.test.ts",
+        "src/workers/discover/discover.skeleton.test.ts",
+        "src/workers/discover/sweeper.test.ts",
+        "src/workers/discover/sweeper.ts",
+        "src/workers/migration.test.ts",
+        "src/workers/migration/refile-backups.e2e.test.ts",
+        "src/workers/migration/restructure-fs.test.ts",
+        "src/workers/migration/scrub-mirror-orphans.test.ts",
+        "src/workers/mirror/copy.test.ts",
+        "src/workers/mirror/replicate.test.ts",
+        "src/workers/mirror/replicate.ts",
+        "src/workers/mirror/scan.test.ts",
+        "src/workers/mirror/scrub.test.ts",
+        "src/workers/mirror/scrub.ts",
+        "src/workers/missing-reaper.helpers.ts",
+        "src/workers/missing-reaper.test.ts",
+        "src/workers/smoke.test.ts",
+        "src/workers/stages/describe.test.ts",
+        "src/workers/stages/describe.ts",
+        "src/workers/stages/exif.test.ts",
+        "src/workers/stages/exif.ts",
+        "src/workers/stages/face-detect.test.ts",
+        "src/workers/stages/face-embed.test.ts",
+        "src/workers/stages/face-stage-shared.ts",
+        "src/workers/stages/preview.test.ts",
+        "src/workers/stages/thumb.test.ts",
+        "src/workers/trash-gc.test.ts",
+        "src/workers/trash-gc.ts"
+      ],
+      "rules": {
+        "eslint/no-restricted-imports": "off"
+      }
+    }
+  ]
+}

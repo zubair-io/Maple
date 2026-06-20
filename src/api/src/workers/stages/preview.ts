@@ -20,7 +20,7 @@
  * Not `pausedOnFirstBoot` — this is purely local file IO, free, and downstream
  * stages need it.
  */
-import { generatePreview, resolvePreviewPath, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
+import { generatePreview, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';

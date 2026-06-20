@@ -272,9 +272,9 @@ export const xmpRoutes = new Elysia()
 export function xmlAttrEscape(s: string): string {
   // Strip XML 1.0-invalid control bytes (U+0000..U+0008, U+000B, U+000C,
   // U+000E..U+001F) before entity-escaping. TAB / LF / CR are preserved.
-  // eslint-disable-next-line no-control-regex
-  return s
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+  // oxlint-disable-next-line no-control-regex -- intentional: strips XML 1.0 invalid control bytes from XMP values
+  const stripped = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  return stripped
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

@@ -275,7 +275,7 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
       expect(after?.fileinfo?.[0].path).toBe('vacation/2024');
       expect(after?.fileinfo?.[0].filename).toBe('IMG_001.dng');
       expect(
-        (after?.fileinfo?.[0].library_id as { equals: (o: unknown) => boolean }).equals(folderId),
+        (after!.fileinfo![0].library_id as { equals: (o: unknown) => boolean }).equals(folderId),
       ).toBe(true);
     });
 
