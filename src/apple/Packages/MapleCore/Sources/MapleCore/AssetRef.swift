@@ -43,10 +43,16 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// Closure used to fetch bytes on demand. `nil` means the asset lives on
     /// disk at `primaryURL`.
     public let bytesProvider: BytesProvider?
-    /// Stable cross-session identifier for sourceless assets — typically the
-    /// upstream `ImageRef.id` (BLAKE3 maple:id hex from the Bun API, or a
-    /// PHAsset localIdentifier). `nil` for filesystem assets, where the URL
-    /// path serves as the cache key.
+    /// Stable cross-session identifier used as the thumbnail cache key and
+    /// the deep-link resolution target (`maple://image/{id}`).
+    ///
+    /// For filesystem-backed assets (`AssetRef(url:)`) this is set to
+    /// `url.path` so deep links can navigate to a local file by absolute path
+    /// without any additional index lookup.
+    ///
+    /// For sourceless assets (PhotoKit, SelfHosted) this is the upstream
+    /// `ImageRef.id` — a BLAKE3 maple:id hex string from the Bun API, or a
+    /// PHAsset `localIdentifier`.
     public let stableID: String?
 
     /// Bookmark-resolved ancestor URL that grants security-scoped access to
