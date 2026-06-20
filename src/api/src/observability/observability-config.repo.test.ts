@@ -26,11 +26,16 @@ describe('validateHttpUrl', () => {
     expect(validateHttpUrl('http://[::1]:4318')).toBe('http://[::1]:4318');
   });
 
-  it('handles URLs with paths, query strings, and hashes', () => {
+  it('strips query strings and hashes (OTLP consumers concatenate /v1/traces etc.)', () => {
     expect(validateHttpUrl('https://example.com/otlp')).toBe('https://example.com/otlp');
     expect(validateHttpUrl('https://example.com/otlp/')).toBe('https://example.com/otlp');
-    expect(validateHttpUrl('http://example.com?query=1')).toBe('http://example.com?query=1');
-    expect(validateHttpUrl('http://example.com#hash')).toBe('http://example.com#hash');
+    // Query strings and hashes are stripped — they would corrupt
+    // `${endpoint}/v1/traces` style concatenation that OTLP exporters rely on.
+    expect(validateHttpUrl('http://example.com?query=1')).toBe('http://example.com');
+    expect(validateHttpUrl('http://example.com#hash')).toBe('http://example.com');
+    expect(validateHttpUrl('https://example.com/otlp?version=2&key=abc')).toBe(
+      'https://example.com/otlp',
+    );
   });
 
   it('trims leading and trailing whitespace', () => {

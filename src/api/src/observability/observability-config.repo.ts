@@ -55,8 +55,12 @@ export function validateHttpUrl(raw: string | null): string | null | { error: st
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return { error: `Unsupported protocol: ${parsed.protocol}` };
   }
-  // Strip trailing slashes so `${endpoint}/v1/traces` doesn't double up.
-  return trimmed.replace(/\/+$/, '');
+  // Strip query strings and hashes: OTLP consumers do string concatenation
+  // (`${endpoint}/v1/traces`), so a stray `?foo=1` or `#anchor` in the
+  // saved value would corrupt the resulting export URL. Reconstruct from
+  // the parsed origin + pathname, then strip any trailing slashes.
+  const clean = `${parsed.origin}${parsed.pathname}`;
+  return clean.replace(/\/+$/, '');
 }
 
 /**
