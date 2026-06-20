@@ -270,6 +270,30 @@ describe('PUT /api/pano/config', () => {
     expect(body.maple_cli_path).toBe(fakeCli);
     expect(body.enabled).toBe(true);
   });
+
+  it('rejects relative paths for maple_cli_path', async () => {
+    if (!mongoReachable) return;
+    const res = await putJson('/api/pano/config', {
+      maple_cli_path: 'relative/path/to/maple-cli',
+      enabled: true,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; maple_cli_path: string | null; enabled: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.maple_cli_path).toBeNull();
+  });
+
+  it('rejects hyphen-prefixed paths for maple_cli_path', async () => {
+    if (!mongoReachable) return;
+    const res = await putJson('/api/pano/config', {
+      maple_cli_path: '-/usr/bin/maple-cli',
+      enabled: true,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; maple_cli_path: string | null; enabled: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.maple_cli_path).toBeNull();
+  });
 });
 
 // ── provisioning gate ─────────────────────────────────────────────────────────

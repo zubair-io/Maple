@@ -12,6 +12,7 @@
  * returns 409 { error: 'pano_not_provisioned', ... }.
  */
 
+import path from 'node:path';
 import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -85,6 +86,19 @@ function resolveStr(dbVal: string | null | undefined): {
   return { value: null, source: 'unset' };
 }
 
+function resolvePath(dbVal: string | null | undefined): {
+  value: string | null;
+  source: 'db' | 'unset';
+} {
+  if (typeof dbVal === 'string' && dbVal.trim().length > 0) {
+    const trimmed = dbVal.trim();
+    if (path.isAbsolute(trimmed) && !trimmed.startsWith('-')) {
+      return { value: trimmed, source: 'db' };
+    }
+  }
+  return { value: null, source: 'unset' };
+}
+
 /**
  * Resolve the effective config. Pure function — no side effects.
  * `strategy_supported` is always false here; the route probes it separately.
@@ -92,9 +106,9 @@ function resolveStr(dbVal: string | null | undefined): {
 export function resolvePanoConfig(
   db: PanoConfig | null,
 ): Omit<ResolvedPanoConfig, 'strategy_supported'> {
-  const cliPath = resolveStr(db?.maple_cli_path);
-  const modelsDir = resolveStr(db?.models_dir);
-  const ortDylib = resolveStr(db?.ort_dylib_path);
+  const cliPath = resolvePath(db?.maple_cli_path);
+  const modelsDir = resolvePath(db?.models_dir);
+  const ortDylib = resolvePath(db?.ort_dylib_path);
 
   let enabled = false;
   let enabledSource: 'db' | 'default' = 'default';
