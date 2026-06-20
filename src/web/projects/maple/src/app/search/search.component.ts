@@ -7,8 +7,9 @@
 //
 // Result thumbnails come from `FilesystemBrowseService.getThumbBlobUrl`
 // (same blob-URL cache the browse grid uses), and clicking a result
-// navigates to `/library/editor/<id>` — that id matches the editor's
-// cold-load contract from filesystem-browse.
+// navigates to `/library/editor/<id>`. Note: Self-Hosted search returns
+// `fs:<absPath>` ids; the responsive editor's `fs:` cold-load/hydration
+// path is a follow-up (#625) and not yet implemented.
 //
 // Pure derivation (param coercion, CSV-set plumbing, active-filter
 // predicate, date-preset math, `currentParams` builder, label helpers,
