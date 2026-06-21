@@ -33,10 +33,15 @@ import {
 } from './image-canvas.draw2d';
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
 import { CanvasZoomGestures } from './image-canvas.zoom-gestures';
+import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
+import { CropSessionService } from '../crop-overlay/crop-session.service';
+import { CROP_IDENTITY, type AdjustmentModel } from '../../models/adjustment-model';
+import { coverScaleForAngle } from '../crop-overlay/crop-geometry';
 
 @Component({
   selector: 'editor-image-canvas',
   standalone: true,
+  imports: [CropOverlayComponent],
   templateUrl: './image-canvas.component.html',
   styleUrl: './image-canvas.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -51,6 +56,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // Public for `GpuPresentHost` (the GPU cold-open serializes the live model).
   readonly xmpSerializer = inject(XmpSerializerService);
   private readonly injector = inject(Injector);
+  private readonly cropSession = inject(CropSessionService);
 
   readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
@@ -181,6 +187,38 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     );
   });
 
+  // ── Crop tool (#638) ───────────────────────────────────────────────────────
+  // While the Crop tool is armed the canvas shows the image UNCROPPED (the crop
+  // is stripped from the render model) and rotated by the straighten angle (a
+  // CSS transform on the canvas element); the interactive rectangle is drawn by
+  // `CropOverlayComponent`. Exiting the tool re-renders the cropped result.
+
+  /** True while the crop overlay should be shown (Crop pill armed). */
+  protected readonly cropActive = computed(() => this.cropSession.active());
+
+  /** CSS transform for the live straighten preview: rotate the displayed image
+   *  by the crop angle and up-scale just enough that the rotated frame still
+   *  covers the crop box (no empty corners). `'none'` while not cropping. */
+  protected readonly cropCanvasTransform = computed<string>(() => {
+    if (!this.cropSession.active()) return 'none';
+    const a = this.state.focusedAsset();
+    if (!a) return 'none';
+    const angle = this.state.adjustmentFor(a.id)().crop.angle;
+    if (!angle) return 'none';
+    const { canvasW, canvasH } = this.effectivePx();
+    const cover = coverScaleForAngle(angle, canvasW, canvasH);
+    return `scale(${cover}) rotate(${angle}deg)`;
+  });
+
+  /** Serialize the model for the renderer, stripping the crop while the crop
+   *  tool is active so the live canvas shows the full (uncropped) frame under
+   *  the overlay. Public: also satisfies `GpuPresentHost` so the GPU cold-open
+   *  dedup key matches the 2D path. */
+  serializeForRender(model: AdjustmentModel): string {
+    const m = this.cropSession.active() ? { ...model, crop: CROP_IDENTITY } : model;
+    return this.xmpSerializer.serialize(m);
+  }
+
   /**
    * Commit a view from the gesture controller (#1100): pixelScale (0 = fit)
    * + pan. The controller already clamped the pan against the geometry.
@@ -287,8 +325,11 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
         if (!this.currentBytes || a.id !== this.currentAssetId || !this.coldOpenDone) return;
         // Dedup: cold open + As-Shot WB seed both land on the same XMP the
         // canvas already shows, so skip the redundant decode. A genuine edit
-        // produces a different XMP and renders.
-        const xmp = this.xmpSerializer.serialize(model);
+        // produces a different XMP and renders. Reading `cropSession.active()`
+        // (via `serializeForRender`) makes entering/leaving crop re-fire this
+        // effect — crop-on strips the crop (renders full frame), crop-off
+        // restores it (renders the cropped result).
+        const xmp = this.serializeForRender(model);
         if (xmp === this.lastRenderedXmp) return;
         this.scheduleRerender(xmp);
       },
@@ -334,7 +375,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
         if (!a || a.id !== this.currentAssetId) return;
         // Untracked: the rerender effect owns model-driven renders; this
         // effect only reacts to view geometry.
-        const xmp = untracked(() => this.xmpSerializer.serialize(this.state.adjustmentFor(a.id)()));
+        const xmp = untracked(() => this.serializeForRender(this.state.adjustmentFor(a.id)()));
         this.twoPhase.scheduleRefine(xmp, this.renderGeneration);
       },
       { injector: this.injector },
@@ -433,7 +474,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
         // equivalent to the post-seed default model (As-Shot WB, default
         // sliders), so serializing the current model after the seed yields the
         // XMP the canvas now shows.
-        const liveXmp = this.xmpSerializer.serialize(this.state.adjustmentFor(assetId)());
+        const liveXmp = this.serializeForRender(this.state.adjustmentFor(assetId)());
         if (liveXmp === this.lastRenderedXmp) {
           // Already what the canvas shows (re-entrant cold open) — nothing to do.
         } else if (this.lastRenderedXmp === null) {

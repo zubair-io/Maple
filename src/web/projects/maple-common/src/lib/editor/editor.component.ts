@@ -23,6 +23,7 @@ import { LibraryStateService } from '../state/library-state.service';
 import { BottomSheetComponent } from '../shells/bottom-sheet.component';
 import { TabBarVisibilityService } from '../shells/tab-bar-visibility.service';
 
+import { CropToolbarComponent } from './crop-toolbar.component';
 import { DragBarComponent } from './drag-bar.component';
 import { EditorHeaderComponent } from './editor-header.component';
 import { EditorStateService } from './editor-state.service';
@@ -38,6 +39,7 @@ import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from './tool-mod
   standalone: true,
   imports: [
     BottomSheetComponent,
+    CropToolbarComponent,
     DragBarComponent,
     EditorHeaderComponent,
     GroupTabsComponent,
