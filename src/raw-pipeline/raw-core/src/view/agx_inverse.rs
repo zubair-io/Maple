@@ -53,7 +53,11 @@ fn inv_lut(y: f32) -> f32 {
         }
     }
     let denom = l[hi] - l[lo];
-    let frac = if denom > 1e-12 { (y - l[lo]) / denom } else { 0.0 };
+    let frac = if denom > 1e-12 {
+        (y - l[lo]) / denom
+    } else {
+        0.0
+    };
     ((lo as f32) + frac) / ((AGX_LUT_SIZE - 1) as f32)
 }
 
@@ -131,7 +135,14 @@ mod tests {
             let back = inverse_agx_pixel(disp, slope);
             for c in 0..3 {
                 let rel = (back[c] - scene[c]).abs() / scene[c];
-                assert!(rel < 0.02, "neutral {} ch{} rel err {} (back={:?})", v, c, rel, back);
+                assert!(
+                    rel < 0.02,
+                    "neutral {} ch{} rel err {} (back={:?})",
+                    v,
+                    c,
+                    rel,
+                    back
+                );
             }
         }
     }
@@ -139,13 +150,24 @@ mod tests {
     #[test]
     fn roundtrip_midtone_color_preserves_hue_and_value() {
         // In-gamut colored mid-tones round-trip within a few percent.
-        let cases = [[0.22f32, 0.14, 0.09], [0.10, 0.18, 0.12], [0.12, 0.13, 0.25]];
+        let cases = [
+            [0.22f32, 0.14, 0.09],
+            [0.10, 0.18, 0.12],
+            [0.12, 0.13, 0.25],
+        ];
         for scene in cases {
             let disp = forward(scene, 0.0);
             let back = inverse_agx_pixel(disp, 1.0);
             for c in 0..3 {
                 let rel = (back[c] - scene[c]).abs() / scene[c].max(1e-3);
-                assert!(rel < 0.05, "color {:?} ch{} rel err {} (back={:?})", scene, c, rel, back);
+                assert!(
+                    rel < 0.05,
+                    "color {:?} ch{} rel err {} (back={:?})",
+                    scene,
+                    c,
+                    rel,
+                    back
+                );
             }
         }
     }
