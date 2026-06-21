@@ -97,7 +97,15 @@ mod tests {
                 inverse_white_balance(&mut img, t, tint, method);
                 for c in 0..3 {
                     let rel = (img.pixels[0][c] - pre[c]).abs() / pre[c];
-                    assert!(rel < 1e-4, "{:?} ({},{}) ch{} rel {}", method, t, tint, c, rel);
+                    assert!(
+                        rel < 1e-4,
+                        "{:?} ({},{}) ch{} rel {}",
+                        method,
+                        t,
+                        tint,
+                        c,
+                        rel
+                    );
                 }
             }
         }
