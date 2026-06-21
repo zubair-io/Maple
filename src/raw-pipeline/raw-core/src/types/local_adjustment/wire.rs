@@ -22,15 +22,33 @@ pub fn encode_local_adjustments(layers: &[LocalAdjustment]) -> String {
     Value::Array(arr).to_string()
 }
 
-/// Decode a `papp:LocalAdjustments` JSON string back into a `Vec`. Unknown
-/// keys are silently ignored (forward-compat). Missing or malformed mask
-/// fields return an error so corrupt sidecars don't silently lose layers.
+/// Decode a `papp:LocalAdjustments` JSON string back into a `Vec`.
+///
+/// **Tolerant reader (design doc §3c, ticket #1484).** Each array element is
+/// parsed independently: an element this build doesn't recognize — an unknown
+/// `mask.type` (e.g. a future `removal` / `raster` kind), a non-object element,
+/// or one missing `mask` entirely — is **skipped**, not fatal. Only a *known*
+/// mask shape (`linear` / `radial`) with a corrupt field returns `Err`, so a
+/// genuinely broken sidecar still surfaces loudly while a newer-schema sidecar
+/// degrades to "render the layers I understand" instead of losing every layer.
+///
+/// This replaces the pre-#1484 behavior where `arr.iter().map(...).collect()`
+/// short-circuited on the first unknown element — one `removal` layer written by
+/// a newer build would otherwise drop *all* local adjustments in the file.
 pub fn decode_local_adjustments(s: &str) -> Result<Vec<LocalAdjustment>, String> {
     let v: Value = serde_json::from_str(s).map_err(|e| format!("invalid JSON: {e}"))?;
     let arr = v
         .as_array()
         .ok_or_else(|| "LocalAdjustments wire format must be a JSON array".to_string())?;
-    arr.iter().map(layer_from_json).collect()
+    let mut out = Vec::with_capacity(arr.len());
+    for el in arr {
+        // `Ok(None)` = element this build doesn't understand → skip it;
+        // `Err` = a recognized shape that is corrupt → fail loudly.
+        if let Some(layer) = layer_from_json(el)? {
+            out.push(layer);
+        }
+    }
+    Ok(out)
 }
 
 fn layer_to_json(l: &LocalAdjustment) -> Value {
@@ -40,17 +58,30 @@ fn layer_to_json(l: &LocalAdjustment) -> Value {
     })
 }
 
-fn layer_from_json(v: &Value) -> Result<LocalAdjustment, String> {
-    let obj = v.as_object().ok_or_else(|| "layer must be an object".to_string())?;
-    let mask = mask_from_json(
-        obj.get("mask")
-            .ok_or_else(|| "layer missing `mask`".to_string())?,
-    )?;
+/// Parse one array element. `Ok(Some)` = a recognized grade layer; `Ok(None)` =
+/// an element this build doesn't recognize (skip, forward-compat); `Err` = a
+/// recognized mask shape with a corrupt field (fail loudly).
+fn layer_from_json(v: &Value) -> Result<Option<LocalAdjustment>, String> {
+    // Non-object array element → not something we model; skip.
+    let obj = match v.as_object() {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+    // No `mask` key → a future element kind (e.g. `removal`) or junk; skip.
+    let mask = match obj.get("mask") {
+        Some(m) => match mask_from_json(m)? {
+            Some(mask) => mask,      // recognized shape, valid
+            None => return Ok(None), // unknown mask type → skip
+        },
+        None => return Ok(None),
+    };
+    // A recognized mask shape with a missing `adjustments` block is a corrupt
+    // grade layer — surface it rather than silently dropping a real edit.
     let adjustments = adjustments_from_json(
         obj.get("adjustments")
             .ok_or_else(|| "layer missing `adjustments`".to_string())?,
     )?;
-    Ok(LocalAdjustment { mask, adjustments })
+    Ok(Some(LocalAdjustment { mask, adjustments }))
 }
 
 fn mask_to_json(m: &Mask) -> Value {
@@ -82,29 +113,36 @@ fn mask_to_json(m: &Mask) -> Value {
     }
 }
 
-fn mask_from_json(v: &Value) -> Result<Mask, String> {
-    let obj = v.as_object().ok_or_else(|| "mask must be an object".to_string())?;
-    let ty = obj
-        .get("type")
-        .and_then(|x| x.as_str())
-        .ok_or_else(|| "mask missing `type`".to_string())?;
+/// `Ok(Some)` = recognized + valid mask; `Ok(None)` = unrecognized mask (no
+/// object, no `type`, or an unknown `type` string) → caller skips the element;
+/// `Err` = recognized `type` (`linear`/`radial`) with a corrupt field.
+fn mask_from_json(v: &Value) -> Result<Option<Mask>, String> {
+    let obj = match v.as_object() {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+    let ty = match obj.get("type").and_then(|x| x.as_str()) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
     match ty {
-        "linear" => Ok(Mask::Linear {
+        "linear" => Ok(Some(Mask::Linear {
             start: point_from_json(obj.get("start"), "start")?,
             end: point_from_json(obj.get("end"), "end")?,
             feather: f32_from_json(obj.get("feather"), "feather")?,
-        }),
-        "radial" => Ok(Mask::Radial {
+        })),
+        "radial" => Ok(Some(Mask::Radial {
             center: point_from_json(obj.get("center"), "center")?,
             radii: point_from_json(obj.get("radii"), "radii")?,
             angle: f32_from_json(obj.get("angle"), "angle")?,
             feather: f32_from_json(obj.get("feather"), "feather")?,
-            invert: obj
-                .get("invert")
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false),
-        }),
-        other => Err(format!("unknown mask type: {other}")),
+            invert: obj.get("invert").and_then(|x| x.as_bool()).unwrap_or(false),
+        })),
+        // Unknown mask kind (brush / raster / removal / future) — skip, don't
+        // fail the whole array. The element's raw JSON is left untouched in the
+        // sidecar (raw-core has no LocalAdjustments writer; preserve-on-write is
+        // a per-platform writer concern, Phase 2).
+        _ => Ok(None),
     }
 }
 
@@ -273,14 +311,67 @@ mod tests {
     }
 
     #[test]
-    fn decode_unknown_mask_type_errors() {
-        let bad = r#"[{"mask":{"type":"brush"},"adjustments":{}}]"#;
+    fn decode_unknown_mask_type_is_skipped() {
+        // Tolerant reader (#1484): an unknown mask kind (future `removal`/
+        // `raster`/`brush`) is skipped, NOT fatal. Pre-#1484 this errored and
+        // — worse — failed the whole array.
+        let s = r#"[{"mask":{"type":"brush"},"adjustments":{}}]"#;
+        let v = decode_local_adjustments(s).unwrap();
+        assert!(
+            v.is_empty(),
+            "unknown mask type must be skipped, got {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn decode_missing_mask_is_skipped() {
+        // An element with no `mask` key (e.g. a future removal element) is an
+        // unrecognized kind → skip, not error.
+        let s = r#"[{"adjustments":{}}]"#;
+        let v = decode_local_adjustments(s).unwrap();
+        assert!(
+            v.is_empty(),
+            "element without mask must be skipped, got {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn decode_unknown_element_does_not_drop_known_layers() {
+        // The load-bearing compat property: a newer-schema element next to a
+        // valid radial layer must NOT nuke the radial. Pre-#1484, the unknown
+        // element failed the whole array and lost the radial too.
+        let s = r#"[
+            {"mask":{"type":"removal","schema":2,"patch":"blake3:abc"},"region":[0,0,1,1]},
+            {"mask":{"type":"radial","center":[0.5,0.5],"radii":[0.3,0.2],"angle":0.0,"feather":0.5,"invert":false},"adjustments":{"exposure":0.5}}
+        ]"#;
+        let v = decode_local_adjustments(s).unwrap();
+        assert_eq!(
+            v.len(),
+            1,
+            "the radial layer must survive the unknown removal element"
+        );
+        assert_eq!(v[0].adjustments.exposure, Some(0.5));
+        match v[0].mask {
+            Mask::Radial { .. } => {}
+            _ => panic!("expected the surviving layer to be the radial mask"),
+        }
+    }
+
+    #[test]
+    fn decode_corrupt_known_mask_still_errors() {
+        // Corruption guard: a RECOGNIZED mask shape with a bad field is loud,
+        // not silently dropped — distinguishes real corruption from forward-compat.
+        let bad = r#"[{"mask":{"type":"linear","start":"oops","end":[1,0],"feather":0},"adjustments":{}}]"#;
         assert!(decode_local_adjustments(bad).is_err());
     }
 
     #[test]
-    fn decode_missing_mask_field_errors() {
-        let bad = r#"[{"adjustments":{}}]"#;
+    fn decode_corrupt_known_mask_missing_adjustments_errors() {
+        // A recognized mask shape but no `adjustments` block is a corrupt grade
+        // layer, not a future kind — surface it.
+        let bad = r#"[{"mask":{"type":"radial","center":[0.5,0.5],"radii":[0.3,0.2],"angle":0,"feather":0.5}}]"#;
         assert!(decode_local_adjustments(bad).is_err());
     }
 
