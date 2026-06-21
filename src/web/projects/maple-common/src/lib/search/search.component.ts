@@ -12,6 +12,8 @@
 //   - the in-flight `Subscription` so scope changes / new queries
 //     cancel the previous fetch (no client-side filter — scope changes
 //     re-issue a server call).
+//   - infinite-scroll pagination via `onLoadMore()` (driven by the sentinel
+//     in PhotoResultsSectionComponent).
 //   - the recents list persisted at `cm.search.recent`.
 //
 // Routing:
@@ -20,10 +22,9 @@
 //     EditorShellComponent is already at `/edit/:id` (today's contract).
 //     Hosted (`maple-syrup`) routes the same id through its
 //     EditorShellComponent.
-//   - "See all" → currently no-op placeholder until the filtered grid
-//     view lands; the spec leaves wiring to S7 (Risk §6.5) and the
-//     button is wired through an output so the host can replace the
-//     behaviour without touching this component.
+//   - Filters → host navigates to the advanced filter page with the current
+//     query + scope prefilled. Wired through the `filters` output so this
+//     component stays router-free.
 
 import {
   AfterViewInit,
@@ -100,6 +101,11 @@ export class SearchComponent implements OnInit, AfterViewInit {
    * fires for a whitespace-only seed). */
   readonly initialQuery = input<string>('');
 
+  /** When true, render the "Filters" button (emits `filters`). Hosts that
+   * have an advanced filter page (`/search/advanced`) set this; hosts without
+   * one (e.g. Hosted/maple-syrup) leave it false so no dead control shows. */
+  readonly showFilters = input<boolean>(false);
+
   /** Emitted when the user taps a photo result. Hosts route to the
    * Editor (S5) — kept as an output so this component stays router-free
    * and can be embedded inside an overlay without owning navigation. */
@@ -108,8 +114,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
    * keyword / person). v0.1 never fires this because there are no
    * non-photo top hits on the wire yet. */
   readonly topHitTap = output<TopHit>();
-  /** Emitted on "See all". Hosts push to a filtered grid view. */
-  readonly seeAll = output<{ query: string; scope: SearchScope }>();
+  /** Emitted when the user taps the Filters button. Hosts navigate to the
+   * advanced filter page (`/search/advanced`) with the current query + scope
+   * prefilled as query params. */
+  readonly filters = output<{ query: string; scope: SearchScope }>();
 
   private readonly searchService = inject(SearchService);
   private readonly destroyRef = inject(DestroyRef);
@@ -120,6 +128,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly total = signal<number>(0);
   protected readonly isStale = signal<boolean>(false);
   protected readonly recent = signal<readonly string[]>(readRecents());
+  protected readonly page = signal<number>(0);
+  protected readonly isLoadingMore = signal<boolean>(false);
 
   /** Top hits = head-of-`results` until a dedicated endpoint lands.
    * Derived (not a separate signal) so we never go out of sync with
@@ -127,6 +137,9 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected readonly topHits = computed(() =>
     topHitsFromResults(this.results() as readonly SearchResult[], 3),
   );
+
+  /** True when there are server-side results not yet loaded locally. */
+  protected readonly canLoadMore = computed(() => this.results().length < this.total());
 
   /** Display state for the recents section — hidden once the user types.
    * Uses `trim()` so whitespace-only input behaves like an empty query
@@ -142,6 +155,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Subscription | null = null;
+  private loadMoreSub: Subscription | null = null;
 
   constructor() {
     // Reactive search effect — keystrokes mutate `query()` / `scope()`,
@@ -154,10 +168,16 @@ export class SearchComponent implements OnInit, AfterViewInit {
       if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
       this.inFlight?.unsubscribe();
       this.inFlight = null;
+      // Also cancel any in-flight load-more — the query changed, so the
+      // page we were loading is stale.
+      this.loadMoreSub?.unsubscribe();
+      this.loadMoreSub = null;
+      this.isLoadingMore.set(false);
       const trimmed = q.trim();
       if (trimmed.length === 0) {
         this.results.set([]);
         this.total.set(0);
+        this.page.set(0);
         this.isStale.set(false);
         return;
       }
@@ -176,6 +196,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
           limit: 30,
           ...scopeToParams(sc),
         };
+        this.page.set(0);
         this.inFlight = this.searchService.search(params).subscribe({
           next: (res) => {
             this.results.set(res.results);
@@ -195,6 +216,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.destroyRef.onDestroy(() => {
       if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
       this.inFlight?.unsubscribe();
+      this.loadMoreSub?.unsubscribe();
     });
   }
 
@@ -262,9 +284,33 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.topHitTap.emit(hit);
   }
 
-  protected onSeeAll(): void {
-    this.onSubmit();
-    this.seeAll.emit({ query: this.query().trim(), scope: this.scope() });
+  protected onLoadMore(): void {
+    const q = this.query().trim();
+    if (!this.canLoadMore() || this.isLoadingMore() || q.length === 0) return;
+    this.isLoadingMore.set(true);
+    const nextPage = this.page() + 1;
+    const params: SearchParams = {
+      placeQuery: q,
+      page: nextPage,
+      limit: 30,
+      ...scopeToParams(this.scope()),
+    };
+    this.loadMoreSub?.unsubscribe();
+    this.loadMoreSub = this.searchService.search(params).subscribe({
+      next: (res) => {
+        this.results.update((prev) => [...prev, ...res.results]);
+        this.total.set(res.total);
+        this.page.set(nextPage);
+        this.isLoadingMore.set(false);
+      },
+      error: () => {
+        this.isLoadingMore.set(false);
+      },
+    });
+  }
+
+  protected onFilters(): void {
+    this.filters.emit({ query: this.query().trim(), scope: this.scope() });
   }
 
   protected onRecentTap(q: string): void {
