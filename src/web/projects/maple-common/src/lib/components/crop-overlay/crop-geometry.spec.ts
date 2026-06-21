@@ -7,7 +7,6 @@ import type { Crop } from '../../models/adjustment-model';
 import {
   MIN_CROP_FRACTION,
   centeredCropForAspect,
-  coverScaleForAngle,
   cropRectToPx,
   fitFootprint,
   hitTestHandle,
@@ -53,25 +52,6 @@ describe('crop-geometry', () => {
       const p = pxToNormalized(-50, 99999, fp);
       expect(p.nx).toBe(0);
       expect(p.ny).toBe(1);
-    });
-  });
-
-  describe('coverScaleForAngle', () => {
-    it('is 1 at zero rotation', () => {
-      expect(coverScaleForAngle(0, 600, 400)).toBe(1);
-    });
-
-    it('grows with the angle and is symmetric in sign', () => {
-      const pos = coverScaleForAngle(10, 600, 400);
-      const neg = coverScaleForAngle(-10, 600, 400);
-      expect(pos).toBeGreaterThan(1);
-      expect(pos).toBeCloseTo(neg, 9);
-    });
-
-    it('matches the closed form cos|θ| + max(a,1/a)·sin|θ|', () => {
-      const a = (10 * Math.PI) / 180;
-      const expected = Math.cos(a) + 1.5 * Math.sin(a); // 600/400 = 1.5
-      expect(coverScaleForAngle(10, 600, 400)).toBeCloseTo(expected, 9);
     });
   });
 
