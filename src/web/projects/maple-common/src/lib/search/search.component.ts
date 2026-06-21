@@ -286,7 +286,10 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   protected onLoadMore(): void {
     const q = this.query().trim();
-    if (!this.canLoadMore() || this.isLoadingMore() || q.length === 0) return;
+    // Skip while a fresh (page-0) search is debouncing/in flight: the sentinel
+    // can still be intersecting from the previous result set, and paging the
+    // NEW query before page 0 returns would desync `page` and mix results.
+    if (this.isStale() || !this.canLoadMore() || this.isLoadingMore() || q.length === 0) return;
     this.isLoadingMore.set(true);
     const nextPage = this.page() + 1;
     const params: SearchParams = {
@@ -310,6 +313,9 @@ export class SearchComponent implements OnInit, AfterViewInit {
   }
 
   protected onFilters(): void {
+    // Commit the query to recents on navigation, matching onPhotoTap() (and
+    // the prior onSeeAll() behaviour) so opening Filters records the search.
+    this.onSubmit();
     this.filters.emit({ query: this.query().trim(), scope: this.scope() });
   }
 
