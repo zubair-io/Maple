@@ -447,3 +447,54 @@ extension AppShell {
         mode = imageOpenMode
     }
 }
+
+#if os(iOS)
+// MARK: - iPhone global Search tab session
+
+/// Everything the iPhone Search tab needs: an account-wide SearchViewModel
+/// plus a thumb client/cache, all sharing one AuthenticatedHTTPClient.
+struct PhoneSearchSession {
+    let server: URL
+    let vm: SearchViewModel
+    let thumbClient: CloudThumbClient
+    let thumbCache: CloudThumbCache
+}
+
+@MainActor
+extension AppShell {
+    /// Resolve the cloud server the global phone Search tab queries: the
+    /// currently-open cloud library's server if there is one, else the first
+    /// connected cloud account. nil → no cloud account → empty state.
+    func resolveSearchServerURL() -> URL? {
+        if case .cloudLibrary(let serverID, _) = librarySelection { return serverID }
+        return CloudServerRegistry.shared.servers.first
+    }
+
+    /// Stable identity for the resolved server. Drives the Search tab's
+    /// `.task(id:)` so the session rebuilds when the active account changes
+    /// (open a cloud library, sign in). nil → empty state.
+    var phoneSearchServerKey: String? { resolveSearchServerURL()?.absoluteString }
+
+    /// Build an account-wide (no libraryID) search session for the resolved
+    /// server. Bootstraps the auth session first (cold-start keychain
+    /// restore) so the first query carries a bearer token — same dance as
+    /// `loadCloudLibrary`. nil when no cloud account is connected/signed-in.
+    func makePhoneSearchSession() async -> PhoneSearchSession? {
+        guard let serverID = resolveSearchServerURL() else { return nil }
+        let session = sessionFor(serverID)
+        if !session.isSignedIn { await session.bootstrapAndRestore() }
+        guard session.isSignedIn else { return nil }
+
+        let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+        let vm = SearchViewModel(
+            server: serverID,
+            libraryID: nil, // account-wide
+            searchClient: CloudSearchClient(server: serverID, httpClient: httpClient))
+        return PhoneSearchSession(
+            server: serverID,
+            vm: vm,
+            thumbClient: CloudThumbClient(server: serverID, httpClient: httpClient),
+            thumbCache: CloudThumbCache())
+    }
+}
+#endif
