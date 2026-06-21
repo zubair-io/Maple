@@ -103,6 +103,17 @@ struct EditorView: View {
                 } fallback: {
                     canvasPlaceholder
                 }
+                // Crop / straighten overlay (#638): shown while the Crop tool
+                // is armed. The canvas behind renders UNCROPPED (the render
+                // path strips the crop while `session.cropEditingActive`) and
+                // rotated by the straighten angle (applied to the canvas leaf
+                // in `canvasLeaf`); this overlay draws the interactive crop
+                // rectangle, mask, grid, and handles. It fills the whole
+                // canvas region and computes its own footprint, so it does NOT
+                // rotate with the image.
+                if state.armedTool == .crop {
+                    CropOverlay(state: state)
+                }
                 ValueChipOverlay(state: state)
                     .padding(.top, 14)
             }
@@ -140,7 +151,16 @@ struct EditorView: View {
             // chip row sits directly above the drag bar; it renders
             // nothing while a single-param tool is armed.
             SubParamRow(state: state)
-            DragBar(state: state)
+            // Crop (#638): the crop toolbar (aspect chips + straighten slider
+            // + Reset/Done) replaces the drag bar while the Crop tool is
+            // armed, matching the web `CropToolbarComponent`. Crop carries no
+            // drag-bar value (`Tool.crop.isWired == false`), so the bar would
+            // be inert anyway.
+            if state.armedTool == .crop {
+                CropToolbar(state: state)
+            } else {
+                DragBar(state: state)
+            }
             ToolPillRow(state: state, onPresetsTap: { presetsOpen = true })
             #if os(macOS)
                 // Desktop presentation of the presets pill (#1115): a
@@ -261,8 +281,23 @@ struct EditorView: View {
     // MARK: - Canvas
 
     /// True when the canvas should present via the wgpu live path.
+    ///
+    /// #638: forced OFF when a crop is APPLIED (non-identity crop AND the
+    /// crop tool is not armed). The GPU live path presents the uncropped
+    /// frame directly into its `CAMetalLayer` and has no CoreImage crop hook,
+    /// so the render path skips the GPU present and publishes the cropped
+    /// `renderedPreview` on the CPU path instead (see EditSession+Render). The
+    /// canvas leaf must then show that CPU `CanvasImageView`, not the stale
+    /// (uncropped) Metal layer — so the GPU branch is disabled here in lock-
+    /// step. While the crop tool is ARMED the GPU path stays on (the image is
+    /// shown uncropped under the overlay).
+    private var cropApplied: Bool {
+        state.armedTool != .crop && !state.session.model.crop.isIdentity
+    }
+
     private var useGpuCanvas: Bool {
-        FullImageViewVM.shouldPresentViaGpuCanvas(
+        guard !cropApplied else { return false }
+        return FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: state.session.asset.isRaw,
             showingOriginal: state.session.showingOriginal
@@ -317,8 +352,26 @@ struct EditorView: View {
         state.session.isFullQualityDecoding || !state.session.gpuFramePresented
     }
 
+    /// Live straighten-preview rotation for the canvas leaf (#638). While
+    /// the Crop tool is armed, the displayed (uncropped) image rotates by the
+    /// straighten angle — positive = clockwise on screen, matching the
+    /// renderer (`CropImageStage`) and the web CSS preview. Deliberately NO
+    /// cover-scale: the preview must match the renderer, which applies no
+    /// corner fill, so a pure straighten previews the same bounds it will
+    /// render. `0` (no rotation) while not cropping.
+    private var straightenAngle: Double {
+        guard state.armedTool == .crop else { return 0 }
+        return state.session.model.crop.angle
+    }
+
     @ViewBuilder
     private var canvasLeaf: some View {
+        canvasLeafContent
+            .rotationEffect(.degrees(straightenAngle))
+    }
+
+    @ViewBuilder
+    private var canvasLeafContent: some View {
         if useGpuCanvas {
             ZStack {
                 GpuLiveCanvasView(session: state.session)
