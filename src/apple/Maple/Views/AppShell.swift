@@ -588,7 +588,7 @@ struct AppShell: View {
     /// `TabView` with three per-tab NavigationStacks (Library / Search /
     /// Settings). Library tab content is `PhoneLibraryView`, which wraps
     /// the existing `AppShellIPhoneShell` drawer + center column. Search
-    /// is `PhoneSearchStub`; Settings embeds the existing `SettingsView`.
+    /// is `PhoneSearchTab` (S7, #622); Settings embeds the existing `SettingsView`.
     @ViewBuilder
     private var phoneTabShell: some View {
         PhoneTabShell(
@@ -607,6 +607,9 @@ struct AppShell: View {
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
+            phoneSearchServerKey: phoneSearchServerKey,
+            makePhoneSearchSession: { await makePhoneSearchSession() },
+            resolveSearchAsset: { asset, server in prepareCloudSession(asset, server: server) },
             sidebar: { sharedSidebar },
             toolbarContent: { browseToolbarContent },
             // iPhone (#809): resolve the cloud / merged-PhotoKit asset's
