@@ -46,6 +46,13 @@ private struct ToolPillButton: View {
 
     private var isSelected: Bool { state.armedTool == tool }
     private var isModified: Bool {
+        // Crop (#638) is intentionally `isWired == false` (no drag-bar value;
+        // it arms the overlay instead — mirrors the web STUB_TOOLS decision),
+        // but it still carries a persisted `AdjustmentModel.crop`, so its dot
+        // must light whenever the crop is non-identity.
+        if tool == .crop {
+            return !state.session.model.crop.isIdentity
+        }
         guard tool.isWired else { return false }
         // Multi-param pills (#1108): the dot lights when ANY sub-param is
         // off its canonical default (e.g. Noise with only Color raised).
