@@ -6,7 +6,7 @@
 // transient UI state (never persisted to XMP), mirroring how the Apple side
 // keeps the crop aspect on `EditorState`.
 
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { ASPECT_PRESETS, type AspectId, type AspectPreset } from './crop-aspect';
 
@@ -18,8 +18,21 @@ export class CropSessionService {
    *  uncropped live render. */
   readonly active = computed(() => this.editor.armedTool() === 'crop');
 
-  /** Selected aspect-ratio lock (transient; defaults to Free each session). */
+  /** Selected aspect-ratio lock (transient; reset to Free on each crop entry —
+   *  see the effect below — and never persisted to XMP). */
   readonly aspectId = signal<AspectId>('free');
+
+  constructor() {
+    // Reset the aspect lock to Free on every inactive→active transition so a
+    // ratio chosen on one image doesn't silently carry into the next crop
+    // session (the comment on `aspectId` promised this).
+    let wasActive = false;
+    effect(() => {
+      const now = this.active();
+      if (now && !wasActive) this.aspectId.set('free');
+      wasActive = now;
+    });
+  }
 
   readonly aspectPreset = computed<AspectPreset>(
     () => ASPECT_PRESETS.find((p) => p.id === this.aspectId()) ?? ASPECT_PRESETS[0],
