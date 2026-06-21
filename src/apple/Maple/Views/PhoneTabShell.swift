@@ -54,6 +54,12 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
+    /// iPhone Search tab (S7): resolved-account key, session factory, and
+    /// result-tap resolver. Distinct from the desktop overlay's `searchVM`.
+    let phoneSearchServerKey: String?
+    let makePhoneSearchSession: () async -> PhoneSearchSession?
+    let resolveSearchAsset: (SearchAsset, URL) -> AssetRef
+
     let sidebar: () -> SidebarContent
     let toolbarContent: () -> ToolbarContentT
 
@@ -150,9 +156,12 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
             .tabItem { Label("Library", systemImage: "photo.on.rectangle.angled") }
             .tag("library")
 
-            NavigationStack {
-                PhoneSearchStub()
-            }
+            PhoneSearchTab(
+                sessions: $sessions,
+                serverKey: phoneSearchServerKey,
+                makeSession: makePhoneSearchSession,
+                resolveAsset: resolveSearchAsset
+            )
             .tabItem { Label("Search", systemImage: "magnifyingglass") }
             .tag("search")
 
