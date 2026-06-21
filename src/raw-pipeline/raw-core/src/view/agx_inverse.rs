@@ -15,8 +15,8 @@
 
 use crate::color::matrices::M_REC2020_TO_SRGB;
 use crate::view::agx::{
-    self, lut, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY, AGX_MIN_EV,
-    AGX_OUTSET_MATRIX, MID_NORM,
+    lut, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_GRAY, AGX_MIN_EV, AGX_OUTSET_MATRIX,
+    MID_NORM,
 };
 
 /// Below this, the forward ratio-preserving sigmoid collapsed the pixel to a
@@ -116,6 +116,7 @@ pub fn display_u8_to_scene_linear(rgb: [u8; 3], slope: f32) -> [f32; 3] {
 mod tests {
     use super::*;
     use crate::image::{ColorSpace, Image};
+    use crate::view::agx;
 
     /// Forward AgX one pixel via the public stage, return display-linear RGB.
     fn forward(scene: [f32; 3], contrast: f32) -> [f32; 3] {
