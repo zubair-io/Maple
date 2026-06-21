@@ -31,7 +31,7 @@ public final class SearchViewModel {
   // MARK: - Dependencies
 
   public nonisolated let server: URL
-  public let libraryID: String
+  public let libraryID: String?
   private let searchClient: CloudSearchClient
   private let limit: Int
 
@@ -59,7 +59,7 @@ public final class SearchViewModel {
   }
 
   public init(server: URL,
-              libraryID: String,
+              libraryID: String? = nil,
               searchClient: CloudSearchClient,
               limit: Int = 100) {
     self.server = server

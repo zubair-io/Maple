@@ -73,6 +73,20 @@ final class SearchViewModelTests: XCTestCase {
       "Cancelled loadMore must not append or remove results")
   }
 
+  // MARK: - Account-wide search (nil libraryID)
+
+  @MainActor
+  func test_accountWideInit_omitsLibraryIdOnWire() {
+    let server = URL(string: "https://acct.example")!
+    let vm = SearchViewModel(
+      server: server,
+      libraryID: nil,
+      searchClient: CloudSearchClient.preview(server: server))
+    let items = vm.params.listQueryItems(page: 0, limit: 100)
+    XCTAssertFalse(items.contains { $0.name == "libraryId" },
+                   "account-wide search must not send a libraryId")
+  }
+
   // MARK: - Helpers
 
   /// Build a SearchViewModel backed by a stub that immediately throws `error`
