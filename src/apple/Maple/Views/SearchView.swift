@@ -1,52 +1,39 @@
 // SearchView.swift — responsive-program S7 (#622) Search content.
 //
-// Spec: docs/design/responsive-program/s7-search.md §3 "Apple".
-//
-// One top-level view used at every breakpoint:
-//   • Phone — placed inside the Search tab's NavigationStack
-//     (replaces `PhoneSearchStub`).
-//   • Tablet / Desktop — presented as an overlay anchored to the sidebar
-//     search pill (popover-style; the caller decides the anchor).
+// Phone layout: the search FIELD and the bottom navigation are both the
+// native system tab bar (iOS 26 `Tab(role: .search)` + `.searchable` +
+// `.tabBarMinimizeBehavior`, wired in `PhoneTabShell`), so they're the same
+// element as the Library / Settings tabs. This view is just the *content*
+// under the search field: the scope chips plus either recent queries (empty
+// query) or the paginated result grid. The live query text is owned by the
+// host's `.searchable` and passed in as a binding.
 //
 // State:
-//   • `query` — the live text. 250ms debounce drives a `SearchViewModel`
-//     submission today (when a `vm` is injected); otherwise the view
-//     renders empty-state and recent queries only. That keeps the view
-//     drop-in usable in `PhoneSearchStub` even before the S1a wiring
-//     attaches a real `SearchViewModel`.
-//   • `scope` — `SearchScope` enum chip selection. v0.1 only `all` /
-//     `photos` route to a real call (same params); the others are
-//     stubbed pending a backend `scope` extension (spec §6 Risks).
+//   • `query` — the live text (binding from `.searchable`). A 250ms debounce
+//     drives a `SearchViewModel` submission when a `vm` is injected.
+//   • `scope` — `SearchScope` enum chip selection.
 //   • `recent` — JSON-encoded `[String]` in `@AppStorage("cm.search.recent")`,
 //     capped at 10, dedup'd, most-recent-first.
-//
-// Auto-focus: `onAppear` plus the `.mapleFocusSearch` notification emitted
-// by `AppShellIPhoneDrawer` when the user taps the source-picker drawer's
-// search pill. The notification name was declared in #600 specifically
-// for this listener.
 
 #if os(iOS)
 
 import SwiftUI
 import MapleCore
-import Combine
 
 struct SearchView: View {
     /// Optional view model — when nil the view runs in "shell" mode
-    /// (renders the UI scaffold but doesn't issue search calls). This
-    /// lets the phone Search tab render before a backing index exists.
+    /// (renders the UI scaffold but doesn't issue search calls).
     var viewModel: SearchViewModel?
     /// Cloud thumb client + cache for result thumbnails. nil → placeholders.
     var thumbClient: CloudThumbClient?
     var thumbCache: CloudThumbCache?
+    /// Live query text, owned by the host's `.searchable` search field.
+    @Binding var query: String
     var onSelectAsset: (SearchAsset) -> Void = { _ in }
 
-    @State private var query: String = ""
     @State private var scope: SearchScope = .all
     @State private var isStale: Bool = false
     @AppStorage("cm.search.recent") private var recentJSON: String = "[]"
-
-    @FocusState private var searchFocused: Bool
 
     /// Debounces query → SearchViewModel submission. Recreated whenever
     /// `query` changes; the prior task is cancelled so a slow first
@@ -67,44 +54,22 @@ struct SearchView: View {
         results.map { SearchResultTile(id: $0.id, displayName: $0.filename, absPath: $0.abs_path) }
     }
 
-    private var topHits: [SearchTopHit] {
-        results.prefix(3).map { asset in
-            let camera = [asset.camera?.make ?? "", asset.camera?.model ?? ""]
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-            return SearchTopHit(
-                id: asset.id,
-                kind: .photo,
-                label: asset.filename,
-                subLabel: camera.isEmpty ? nil : camera,
-                assetID: asset.id,
-                absPath: asset.abs_path
-            )
-        }
-    }
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SearchBar(
-                    query: $query,
-                    onSubmit: commitRecent,
-                    onClear: clearQuery,
-                    isFocused: $searchFocused
-                )
-
                 SearchScopeChips(scope: $scope)
                     .onChange(of: scope) { _, _ in scheduleSearch(force: true) }
 
-                if query.isEmpty {
+                if trimmedQuery.isEmpty {
                     SearchRecentQueries(recent: recent, onTap: tapRecent)
                 } else {
-                    SearchTopHitsSection(hits: topHits, query: query, onTap: tapTopHit, thumb: thumbContext)
                     SearchPhotoResultsSection(
                         results: resultTiles,
                         total: total,
                         isStale: isStale,
-                        hasQuery: !query.isEmpty,
+                        hasQuery: true,
                         query: query,
                         onTap: tapTile,
                         onLoadMore: { Task { await viewModel?.loadMore() } },
@@ -117,20 +82,11 @@ struct SearchView: View {
         }
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("search-root")
-        .onAppear { searchFocused = true }
         .onChange(of: query) { _, _ in scheduleSearch(force: false) }
-        .onReceive(NotificationCenter.default.publisher(for: .mapleFocusSearch)) { _ in
-            searchFocused = true
-        }
         .onDisappear { debounceTask?.cancel() }
     }
 
     // MARK: - Actions
-
-    private func clearQuery() {
-        query = ""
-        searchFocused = true
-    }
 
     private func tapRecent(_ q: String) {
         query = q
@@ -145,16 +101,8 @@ struct SearchView: View {
         }
     }
 
-    private func tapTopHit(_ hit: SearchTopHit) {
-        guard hit.kind == .photo, let id = hit.assetID,
-              let asset = results.first(where: { $0.id == id }) else { return }
-        commitRecent()
-        onSelectAsset(asset)
-    }
-
-
     private func commitRecent() {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let trimmed = trimmedQuery
         guard !trimmed.isEmpty else { return }
         recentJSON = encodeRecents(pushRecent(recent, trimmed))
     }
@@ -167,7 +115,7 @@ struct SearchView: View {
     /// the chip is selected, not 250ms later).
     private func scheduleSearch(force: Bool) {
         debounceTask?.cancel()
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let trimmed = trimmedQuery
         guard !trimmed.isEmpty else {
             isStale = false
             return
@@ -204,7 +152,7 @@ struct SearchView: View {
 
 #Preview("SearchView — empty state") {
     NavigationStack {
-        SearchView()
+        SearchView(query: .constant(""))
     }
 }
 

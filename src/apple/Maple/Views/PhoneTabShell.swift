@@ -37,6 +37,10 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// trivial vs. a type-erased `NavigationPath`.
     @State private var libraryPath: [AssetRef] = []
 
+    /// Live text for the Search tab's native `.searchable` field (the
+    /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
+    @State private var searchQuery: String = ""
+
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -97,7 +101,8 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
 
     private var tabView: some View {
         TabView(selection: $activeTab) {
-            NavigationStack(path: $libraryPath) {
+            Tab("Library", systemImage: "photo.on.rectangle.angled", value: "library") {
+              NavigationStack(path: $libraryPath) {
                 PhoneLibraryView(
                     isDrawerOpen: $isDrawerOpen,
                     mode: mode,
@@ -152,32 +157,35 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     onFullImageFallback: onFullImageFallback,
                     onMergePanorama: onMergePanorama
                 )
+              }
             }
-            .tabItem { Label("Library", systemImage: "photo.on.rectangle.angled") }
-            .tag("library")
 
-            PhoneSearchTab(
-                sessions: $sessions,
-                serverKey: phoneSearchServerKey,
-                makeSession: makePhoneSearchSession,
-                resolveAsset: resolveSearchAsset
-            )
-            .tabItem { Label("Search", systemImage: "magnifyingglass") }
-            .tag("search")
-
-            NavigationStack {
-                // SettingsView is itself a TabView (General/Backup/Self
-                // Hosted/Files) — embedding it inside the Settings tab's
-                // NavigationStack yields nested tabs for S1a. S8 will
-                // replace this with an iOS Settings-style List.
-                SettingsView()
-                    .navigationTitle("Settings")
-                    .navigationBarTitleDisplayMode(.inline)
+            Tab("Search", systemImage: "magnifyingglass", value: "search", role: .search) {
+                PhoneSearchTab(
+                    sessions: $sessions,
+                    query: $searchQuery,
+                    serverKey: phoneSearchServerKey,
+                    makeSession: makePhoneSearchSession,
+                    resolveAsset: resolveSearchAsset
+                )
             }
-            .tabItem { Label("Settings", systemImage: "gearshape") }
-            .tag("settings")
+
+            Tab("Settings", systemImage: "gearshape", value: "settings") {
+                NavigationStack {
+                    // SettingsView is itself a TabView (General/Backup/Self
+                    // Hosted/Files) — embedding it inside the Settings tab's
+                    // NavigationStack yields nested tabs for S1a. S8 will
+                    // replace this with an iOS Settings-style List.
+                    SettingsView()
+                        .navigationTitle("Settings")
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+            }
         }
-        .accentColor(MapleTokens.primary)
+        // iOS 26 floating tab bar that minimizes on scroll — the collapse
+        // behaviour the Search screen used to fake with a custom pill.
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tint(MapleTokens.primary)
     }
 }
 
