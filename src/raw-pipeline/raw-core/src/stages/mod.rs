@@ -20,6 +20,7 @@ pub mod capture_sharpening;
 pub mod chroma_prefilter;
 pub mod noise_reduction;
 pub mod local_adjustments;
+pub mod inpaint_composite;
 pub mod vignette;
 pub mod grain;
 pub mod split_tone;
