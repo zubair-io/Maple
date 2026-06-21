@@ -17,12 +17,14 @@
 ## File Structure
 
 **MapleCore package (`src/apple/Packages/MapleCore`)** — unit-tested via `swift test`:
+
 - Modify `Sources/MapleCore/Cloud/SearchParams.swift` — add `scope` field + serialization.
 - Modify `Sources/MapleCore/Cloud/SearchViewModel.swift` — make `libraryID` optional (enables account-wide construction).
 - Modify `Tests/MapleCoreTests/SearchParamsTests.swift` — scope serialization tests.
 - Modify `Tests/MapleCoreTests/SearchViewModelTests.swift` — account-wide construction test.
 
 **App target (`src/apple/Maple`)** — verified via `xcodebuild build`:
+
 - Create `Maple/Views/CloudThumbTile.swift` — reusable cloud-thumbnail loader/render + `SearchThumbContext`.
 - Modify `Maple/Views/SearchPhotoResultsSection.swift` — real thumbnails in tiles; `SearchResultTile.absPath`.
 - Modify `Maple/Views/SearchTopHitsSection.swift` — real thumbnails in top-hit rows; `SearchTopHit.absPath`.
@@ -49,9 +51,11 @@ Record `<N>`; use `Closes #<N>` in the PR body later.
 - [ ] **Step 0b: Confirm the app target builds clean before changes** (baseline).
 
 Run:
+
 ```bash
 cd /Users/riabuz/Projects/_Maple/.claude/worktrees/friendly-pike-f34415/src/apple/Packages/MapleCore && swift build
 ```
+
 Expected: builds (warnings OK). If `RawPipeline` header errors appear during the later app build, regenerate per CLAUDE.md (`build-xcframework.sh`); MapleCore alone does not need the framework.
 
 ---
@@ -59,6 +63,7 @@ Expected: builds (warnings OK). If `RawPipeline` header errors appear during the
 ## Task 1: Add `scope` to `SearchParams`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/SearchParams.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SearchParamsTests.swift`
 
@@ -85,9 +90,11 @@ func test_scope_omittedWhenNilOrEmpty() {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run:
+
 ```bash
 cd src/apple/Packages/MapleCore && swift test --filter SearchParamsTests 2>&1 | grep -E "error:|test_scope"
 ```
+
 Expected: compile error — `value of type 'SearchParams' has no member 'scope'`.
 
 - [ ] **Step 3: Add the field + serialization**
@@ -110,9 +117,11 @@ In `baseItems()`, add a line alongside the other `add(...)` calls (e.g. after `a
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run:
+
 ```bash
 cd src/apple/Packages/MapleCore && swift test --filter SearchParamsTests 2>&1 | tail -5
 ```
+
 Expected: all `SearchParamsTests` pass (no failures).
 
 - [ ] **Step 5: Commit**
@@ -128,6 +137,7 @@ git commit -m "feat(search): add scope param to SearchParams (Swift)"
 ## Task 2: Make `SearchViewModel.libraryID` optional (account-wide)
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/SearchViewModel.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/SearchViewModelTests.swift`
 
@@ -152,9 +162,11 @@ func test_accountWideInit_omitsLibraryIdOnWire() {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run:
+
 ```bash
 cd src/apple/Packages/MapleCore && swift test --filter SearchViewModelTests 2>&1 | grep -E "error:|nil"
 ```
+
 Expected: compile error — `'nil' is not compatible with expected argument type 'String'`.
 
 - [ ] **Step 3: Make `libraryID` optional**
@@ -162,11 +174,13 @@ Expected: compile error — `'nil' is not compatible with expected argument type
 In `SearchViewModel.swift`:
 
 Change the stored property:
+
 ```swift
   public let libraryID: String?
 ```
 
 Change the initializer signature + default:
+
 ```swift
   public init(server: URL,
               libraryID: String? = nil,
@@ -185,9 +199,11 @@ Change the initializer signature + default:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run:
+
 ```bash
 cd src/apple/Packages/MapleCore && swift test --filter SearchViewModelTests 2>&1 | tail -5
 ```
+
 Expected: all `SearchViewModelTests` pass. (The desktop caller passes a non-nil String, which still binds fine.)
 
 - [ ] **Step 5: Commit**
@@ -203,6 +219,7 @@ git commit -m "feat(search): allow account-wide SearchViewModel (optional librar
 ## Task 3: Reusable `CloudThumbTile` + `SearchThumbContext`
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/CloudThumbTile.swift`
 
 - [ ] **Step 1: Create the file**
@@ -292,6 +309,7 @@ git commit -m "feat(search): add reusable CloudThumbTile + SearchThumbContext"
 ## Task 4: Real thumbnails in the result sections
 
 **Files:**
+
 - Modify: `src/apple/Maple/Views/SearchPhotoResultsSection.swift`
 - Modify: `src/apple/Maple/Views/SearchTopHitsSection.swift`
 
@@ -365,6 +383,7 @@ Update the two `#Preview` blocks’ `SearchResultTile(...)` calls to pass `absPa
 ```swift
         results: (1...6).map { SearchResultTile(id: "r\($0)", displayName: "img-\($0).dng", absPath: "/p/img-\($0).dng") },
 ```
+
 and for the empty preview leave `results: []` unchanged.
 
 - [ ] **Step 2: Add `absPath` to `SearchTopHit` + thumbnail in the row**
@@ -442,6 +461,7 @@ git commit -m "feat(search): render real cloud thumbnails in result sections"
 ## Task 5: Wire `SearchView` — thumbnails, `placeQuery`, scope
 
 **Files:**
+
 - Modify: `src/apple/Maple/Views/SearchView.swift`
 
 - [ ] **Step 1: Add thumbnail inputs + a derived context**
@@ -548,6 +568,7 @@ git commit -m "fix(search): drive placeQuery + thumbnails + scope in SearchView"
 ## Task 6: AppShell phone-search factory + server resolver
 
 **Files:**
+
 - Modify: `src/apple/Maple/Views/AppShell+CloudActions.swift`
 
 - [ ] **Step 1: Add the session type + resolver + factory**
@@ -619,6 +640,7 @@ git commit -m "feat(search): AppShell factory for account-wide phone search sess
 ## Task 7: `PhoneSearchTab` host + tab-shell wiring
 
 **Files:**
+
 - Modify: `src/apple/Maple/Views/PhoneSearchStub.swift`
 - Modify: `src/apple/Maple/Views/PhoneTabShell.swift`
 - Modify: `src/apple/Maple/Views/AppShell.swift`
@@ -777,19 +799,23 @@ git commit -m "feat(search): host account-wide Search tab on iPhone with editor 
 - [ ] **Step 1: MapleCore unit tests**
 
 Run:
+
 ```bash
 cd src/apple/Packages/MapleCore && swift test 2>&1 | tail -20
 ```
+
 Expected: all tests pass (including the new `SearchParamsTests` / `SearchViewModelTests` cases). No piping through `tail` mid-stream of a long compile if a watchdog is present — this is a final summary tail only; if the runner is sensitive, run `swift test` plain and read the summary.
 
 - [ ] **Step 2: App target builds for iOS simulator**
 
 Run:
+
 ```bash
 cd src/apple
 xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -30
 ```
+
 Expected: `** BUILD SUCCEEDED **`. If `RawPipeline.h not found` / `could not build module`, regenerate the xcframework headers per CLAUDE.md (`./src/apple/scripts/build-xcframework.sh`) and rebuild. If `cannot find 'CloudThumbTile' / 'PhoneSearchTab' / 'PhoneSearchSession' in scope`, add the new file to the `Maple` target in `Maple.xcodeproj` (Task 3 Step 2) and rebuild.
 
 - [ ] **Step 3: Manual smoke (simulator, if fixtures/account available)**
@@ -815,6 +841,7 @@ Open as ready for review (not draft). Do not merge without explicit approval.
 ## Self-Review (completed during planning)
 
 **Spec coverage:**
+
 - §"Resolve target server" → Task 6 (`resolveSearchServerURL`, bootstrap).
 - §"Dedicated phone-search session" → Task 6 (`makePhoneSearchSession`, shared httpClient, no libraryID) + Task 2 (optional libraryID).
 - §"Fix the query field bug" → Task 5 Step 4 (`q`→`placeQuery`).
@@ -828,5 +855,6 @@ Open as ready for review (not draft). Do not merge without explicit approval.
 **Type consistency:** `SearchThumbContext` (client/cache/host) defined in Task 3, consumed identically in Tasks 4/5. `PhoneSearchSession` (server/vm/thumbClient/thumbCache) defined in Task 6, consumed in Task 7. `SearchResultTile.absPath` / `SearchTopHit.absPath` added in Task 4, populated in Task 5. `makePhoneSearchSession` / `resolveSearchAsset` / `phoneSearchServerKey` names match across Tasks 6/7.
 
 **Known judgment calls (intentional):**
+
 - `albums` scope sends the token; the server currently returns empty (no album backing) — chip is no longer inert but shows "No matches". Documented in Task 5.
 - Empty state covers both "no account" and "signed-out account" (no separate sign-in affordance — the user signs in via the Library tab). YAGNI per spec.

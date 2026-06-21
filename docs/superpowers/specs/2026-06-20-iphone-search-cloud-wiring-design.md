@@ -15,8 +15,8 @@ Root cause, two layers:
 1. **No view model is ever injected.** The Search tab renders
    `PhoneSearchStub` → `SearchView()` with a `nil` `viewModel`
    (`src/apple/Maple/Views/PhoneSearchStub.swift`). Per `SearchView`'s own
-   contract, in that "shell mode" it *"renders the UI scaffold but doesn't
-   issue search calls."* Nothing on the phone constructs a `SearchViewModel`
+   contract, in that "shell mode" it _"renders the UI scaffold but doesn't
+   issue search calls."_ Nothing on the phone constructs a `SearchViewModel`
    — only the desktop toolbar's `activateSearch()`
    (`AppShell+CloudActions.swift`) does, and that path is library-scoped and
    tied to the desktop center-column overlay (`isSearchActive`), not the
