@@ -41,12 +41,17 @@ struct SearchTopHit: Identifiable, Hashable {
     /// Asset id (for `.photo` hits) so the host can route to the editor
     /// without the renderer importing routing types.
     let assetID: String?
+    /// Cloud abs_path for `.photo` hits (drives the row thumbnail). nil for
+    /// non-photo kinds.
+    let absPath: String?
 }
 
 struct SearchTopHitsSection: View {
     let hits: [SearchTopHit]
     let query: String
     let onTap: (SearchTopHit) -> Void
+    /// Live cloud session for thumbnails; nil → glyph placeholder (previews).
+    var thumb: SearchThumbContext? = nil
 
     var body: some View {
         if hits.isEmpty {
@@ -73,14 +78,25 @@ struct SearchTopHitsSection: View {
             onTap(hit)
         } label: {
             HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(MapleTokens.surfaceAlt)
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Image(systemName: hit.kind == .photo ? "photo" : "tag")
-                            .font(.system(size: 14))
-                            .foregroundStyle(MapleTokens.textMuted)
-                    )
+                Group {
+                    if let thumb, hit.kind == .photo, let absPath = hit.absPath {
+                        CloudThumbTile(
+                            absPath: absPath,
+                            thumbClient: thumb.client,
+                            thumbCache: thumb.cache,
+                            host: thumb.host)
+                    } else {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(MapleTokens.surfaceAlt)
+                            .overlay(
+                                Image(systemName: hit.kind == .photo ? "photo" : "tag")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(MapleTokens.textMuted)
+                            )
+                    }
+                }
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     highlightedLabel(hit.label, query: query)
@@ -164,9 +180,9 @@ struct SearchTopHitsSection: View {
     SearchTopHitsSection(
         hits: [
             SearchTopHit(id: "1", kind: .photo, label: "paris-rooftop.dng",
-                         subLabel: "Hasselblad L3D-100c", assetID: "1"),
+                         subLabel: "Hasselblad L3D-100c", assetID: "1", absPath: "/p/paris-rooftop.dng"),
             SearchTopHit(id: "2", kind: .photo, label: "paris-night.dng",
-                         subLabel: "Hasselblad L3D-100c", assetID: "2"),
+                         subLabel: "Hasselblad L3D-100c", assetID: "2", absPath: "/p/paris-night.dng"),
         ],
         query: "paris",
         onTap: { _ in }
