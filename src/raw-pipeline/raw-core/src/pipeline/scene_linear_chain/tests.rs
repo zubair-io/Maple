@@ -377,3 +377,160 @@ fn apply_scene_linear_chain_f32_rgba_length_overflow_errors() {
         other => panic!("expected Pipeline overflow error, got: {other:?}"),
     }
 }
+
+// ---- Inpaint patch seam threading (#1486 M1) ----
+
+#[test]
+fn with_patches_empty_matches_plain_entry_f32() {
+    let (w, h) = (4u32, 4u32);
+    let n = (w * h) as usize;
+    let mut input = Vec::with_capacity(n * 4);
+    for i in 0..n {
+        let v = 0.05 + 0.2 * (i as f32 / n as f32);
+        input.extend_from_slice(&[v, v * 0.9, v * 0.8, 1.0]);
+    }
+    let model = AdjustmentModel::default();
+    let plain = apply_scene_linear_chain_f32(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    )
+    .unwrap();
+    let with = apply_scene_linear_chain_f32_with_patches(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        plain, with,
+        "empty patches must be bit-identical to the plain entry"
+    );
+}
+
+#[test]
+fn with_patches_equals_manual_composite_then_chain_f32() {
+    use crate::image::{ColorSpace, Image};
+    use crate::stages::inpaint_composite;
+    use crate::types::InpaintPatch;
+    let (w, h) = (4u32, 4u32);
+    let n = (w * h) as usize;
+    let mut input = Vec::with_capacity(n * 4);
+    for _ in 0..n {
+        input.extend_from_slice(&[0.2, 0.2, 0.2, 1.0]);
+    }
+    let model = AdjustmentModel::default();
+    let patch = InpaintPatch {
+        width: w,
+        height: h,
+        origin: [0.0, 0.0],
+        extent: [1.0, 1.0],
+        pixels: vec![[0.6, 0.4, 0.3]; n],
+        coverage: vec![1.0; n],
+    };
+    let via_entry = apply_scene_linear_chain_f32_with_patches(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+        std::slice::from_ref(&patch),
+    )
+    .unwrap();
+    // Manual: composite into a copy of the input, then the plain chain.
+    let mut img = Image {
+        width: w,
+        height: h,
+        pixels: input.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect(),
+        space: ColorSpace::SceneLinearRec2020,
+    };
+    inpaint_composite::apply(&mut img, std::slice::from_ref(&patch));
+    let mut composited = Vec::with_capacity(n * 4);
+    for p in &img.pixels {
+        composited.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
+    }
+    let manual = apply_scene_linear_chain_f32(
+        &composited,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    )
+    .unwrap();
+    assert_eq!(
+        via_entry, manual,
+        "with_patches must equal composite-then-chain"
+    );
+    let plain = apply_scene_linear_chain_f32(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    )
+    .unwrap();
+    assert_ne!(
+        via_entry, plain,
+        "a full-coverage patch must change the output"
+    );
+}
+
+#[test]
+fn with_patches_empty_matches_plain_entry_fp16() {
+    let (w, h) = (3u32, 3u32);
+    let n = (w * h) as usize;
+    let g = f32_to_f16_bits(0.18);
+    let one = f32_to_f16_bits(1.0);
+    let mut input = Vec::with_capacity(n * 4);
+    for _ in 0..n {
+        input.extend_from_slice(&[g, g, g, one]);
+    }
+    let model = AdjustmentModel::default();
+    let plain = apply_scene_linear_chain(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    )
+    .unwrap();
+    let with = apply_scene_linear_chain_with_patches(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        plain, with,
+        "fp16 empty patches must be bit-identical to the plain entry"
+    );
+}
