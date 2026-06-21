@@ -26,11 +26,14 @@ mod develop;
 mod develop_sized;
 mod downsample;
 mod fp16;
+mod inpaint_store;
 mod orient;
 mod pano;
 mod render;
 mod scene_linear_chain;
 mod tile;
+
+pub use inpaint_store::{patch_from_bytes, patch_to_bytes};
 
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
@@ -41,19 +44,18 @@ pub use develop_sized::{
     develop_scene_linear_sized_from_raw_with_quality_cancellable,
 };
 pub use downsample::downsample_image_area;
+pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use render::{
     fit_auto_profile_from_raw, fit_profile_curve_from_raw, native_render_dims, render_from_raw,
-    render_from_raw_with_quality,
-    render_from_raw_with_quality_and_source,
+    render_from_raw_with_quality, render_from_raw_with_quality_and_source,
     render_from_scene_linear, render_from_scene_linear_with_chain,
-    render_sized_from_raw_with_quality_and_source,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
     render_scene_linear_from_raw_with_quality_f32_cancellable,
     render_scene_linear_sized_from_raw_with_quality,
     render_scene_linear_sized_from_raw_with_quality_f32,
-    render_scene_linear_sized_from_raw_with_quality_f32_cancellable, RawInput,
+    render_scene_linear_sized_from_raw_with_quality_f32_cancellable,
+    render_sized_from_raw_with_quality_and_source, RawInput,
 };
-pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, encode_display_srgb_f32,
 };
