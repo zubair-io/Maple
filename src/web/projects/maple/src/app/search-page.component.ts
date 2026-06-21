@@ -33,8 +33,9 @@ import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
     <app-search
       [initialQuery]="initialQuery"
       [autoFocus]="autoFocus"
+      [showFilters]="true"
       (photoTap)="onPhotoTap($event)"
-      (seeAll)="onSeeAll($event)"
+      (filters)="onFilters($event)"
     />
   `,
   styles: [
@@ -75,12 +76,13 @@ export class SearchPageComponent implements AfterViewInit {
     void this.router.navigate(['/library/editor', r.id]);
   }
 
-  protected onSeeAll(payload: { query: string; scope: SearchScope }): void {
-    // Until a filtered grid lands, route "See all" into the rich filter
-    // page so the user can drill further. The rich page sits at
-    // `/search/advanced` (alias) and accepts `?q=` on entry. The scope
-    // is preserved in the payload type so a future filtered-grid landing
-    // can read it without changing the `<app-search>` contract.
+  protected onFilters(payload: { query: string; scope: SearchScope }): void {
+    // The Filters button routes into the rich filter page so the user can
+    // drill further (ISO/camera/lens ranges, vision facets). The rich page
+    // sits at `/search/advanced` and accepts `?q=` on entry; the current
+    // query is forwarded so the advanced box lands prefilled. Scope is in the
+    // payload type for a future filtered-grid landing without changing the
+    // `<app-search>` contract.
     void this.router.navigate(['/search/advanced'], {
       queryParams: payload.query ? { q: payload.query } : {},
     });

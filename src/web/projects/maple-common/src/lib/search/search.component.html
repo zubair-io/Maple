@@ -1,10 +1,23 @@
 <div class="search" data-testid="search-root">
-  <app-search-bar
-    [query]="query()"
-    (queryChange)="onQueryChange($event)"
-    (clear)="onClear()"
-    (submit)="onSubmit()"
-  />
+  <div class="bar-row">
+    <app-search-bar
+      [query]="query()"
+      (queryChange)="onQueryChange($event)"
+      (clear)="onClear()"
+      (submit)="onSubmit()"
+    />
+    @if (showFilters()) {
+      <button
+        type="button"
+        class="filters-btn"
+        data-testid="search-filters"
+        (click)="onFilters()"
+        aria-label="Open filters"
+      >
+        Filters
+      </button>
+    }
+  </div>
   <app-search-scope-chips [scope]="scope()" (scopeChange)="onScopeChange($event)" />
 
   @if (showRecents()) {
@@ -17,8 +30,9 @@
       [isStale]="isStale()"
       [hasQuery]="hasQuery() && !isStale()"
       [query]="query()"
+      [isLoadingMore]="isLoadingMore()"
       (resultTap)="onPhotoTap($event)"
-      (seeAll)="onSeeAll()"
+      (loadMore)="onLoadMore()"
     />
   }
 </div>
