@@ -33,6 +33,7 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import type { AssetId } from '../../models/asset';
+import type { AdjustmentModel } from '../../models/adjustment-model';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -49,6 +50,9 @@ export interface GpuPresentHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly xmpSerializer: XmpSerializerService;
+  /** Serialize a model for the renderer, stripping the crop while the crop
+   *  tool is armed (#638) so cold-open dedup matches the 2D path. */
+  serializeForRender(model: AdjustmentModel): string;
   readonly loading: WritableSignal<boolean>;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
 
@@ -154,7 +158,7 @@ export class ImageCanvasGpuPresent {
       this.host.recordNativeDims(nativeW, nativeH);
       this.host.state.seedAsShotWhiteBalance(assetId, info.asShotTemperature, info.asShotTint);
       this.host.markColdOpenDone();
-      const liveXmp = this.host.xmpSerializer.serialize(this.host.state.adjustmentFor(assetId)());
+      const liveXmp = this.host.serializeForRender(this.host.state.adjustmentFor(assetId)());
       if (this.host.lastRenderedXmp === null) {
         this.host.lastRenderedXmp = liveXmp;
       }
