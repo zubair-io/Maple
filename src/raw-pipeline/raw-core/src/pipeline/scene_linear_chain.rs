@@ -490,6 +490,186 @@ pub fn apply_scene_linear_chain_f32(
     Ok(out)
 }
 
+/// Composite synthetic-raw `patches` into an f32 RGBA scene-linear buffer at the
+/// pre-user-grade seam, returning a new f32 RGBA buffer (alpha = 1.0). Pure
+/// resample + coverage-lerp; no grade is applied here.
+fn composite_into_f32(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    patches: &[crate::types::InpaintPatch],
+) -> Result<Vec<f32>> {
+    use crate::image::{ColorSpace, Image};
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| {
+            crate::error::Error::Pipeline(format!(
+                "composite_into_f32: pixel count overflow: {width}x{height}"
+            ))
+        })?;
+    let expected_len = pixel_count.checked_mul(4).ok_or_else(|| {
+        crate::error::Error::Pipeline(format!(
+            "composite_into_f32: expected length overflow: {width}x{height}"
+        ))
+    })?;
+    if in_f32_rgba.len() != expected_len {
+        return Err(crate::error::Error::Pipeline(format!(
+            "composite_into_f32: input length {} != {width}*{height}*4 = {expected_len}",
+            in_f32_rgba.len()
+        )));
+    }
+    let mut img = Image {
+        width,
+        height,
+        pixels: in_f32_rgba
+            .chunks_exact(4)
+            .map(|c| [c[0], c[1], c[2]])
+            .collect(),
+        space: ColorSpace::SceneLinearRec2020,
+    };
+    crate::stages::inpaint_composite::apply(&mut img, patches);
+    let mut out = Vec::with_capacity(expected_len);
+    for p in &img.pixels {
+        out.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
+    }
+    Ok(out)
+}
+
+/// fp16 sibling of [`composite_into_f32`]. fp16 unpack→pack is lossless for
+/// already-fp16 data, so sensor pixels are untouched; only the patch is
+/// fp16-quantized (it is fp16 on disk anyway).
+fn composite_into_fp16(
+    in_fp16_rgba: &[u16],
+    width: u32,
+    height: u32,
+    patches: &[crate::types::InpaintPatch],
+) -> Result<Vec<u16>> {
+    use crate::image::{ColorSpace, Image};
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| {
+            crate::error::Error::Pipeline(format!(
+                "composite_into_fp16: pixel count overflow: {width}x{height}"
+            ))
+        })?;
+    let expected_len = pixel_count.checked_mul(4).ok_or_else(|| {
+        crate::error::Error::Pipeline(format!(
+            "composite_into_fp16: expected length overflow: {width}x{height}"
+        ))
+    })?;
+    if in_fp16_rgba.len() != expected_len {
+        return Err(crate::error::Error::Pipeline(format!(
+            "composite_into_fp16: input length {} != {width}*{height}*4 = {expected_len}",
+            in_fp16_rgba.len()
+        )));
+    }
+    let mut img = Image {
+        width,
+        height,
+        pixels: in_fp16_rgba
+            .chunks_exact(4)
+            .map(|c| {
+                [
+                    f16_bits_to_f32(c[0]),
+                    f16_bits_to_f32(c[1]),
+                    f16_bits_to_f32(c[2]),
+                ]
+            })
+            .collect(),
+        space: ColorSpace::SceneLinearRec2020,
+    };
+    crate::stages::inpaint_composite::apply(&mut img, patches);
+    let alpha_one = f32_to_f16_bits(1.0);
+    let mut out = Vec::with_capacity(expected_len);
+    for p in &img.pixels {
+        out.push(f32_to_f16_bits(p[0]));
+        out.push(f32_to_f16_bits(p[1]));
+        out.push(f32_to_f16_bits(p[2]));
+        out.push(alpha_one);
+    }
+    Ok(out)
+}
+
+/// fp16 per-tick chain with synthetic-raw `patches` composited at the
+/// pre-user-grade seam (before `white_balance`), so the patch rides every
+/// downstream stage — WB, exposure, tone, AgX — exactly like sensor data
+/// (design doc §4). Empty `patches` is bit-identical to
+/// [`apply_scene_linear_chain`].
+#[allow(clippy::too_many_arguments)]
+pub fn apply_scene_linear_chain_with_patches(
+    in_fp16_rgba: &[u16],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    decoded_temp: f32,
+    decoded_tint: f32,
+    skip_agx: bool,
+    target_primaries: TargetPrimaries,
+    patches: &[crate::types::InpaintPatch],
+) -> Result<Vec<u16>> {
+    if patches.is_empty() {
+        return apply_scene_linear_chain(
+            in_fp16_rgba,
+            width,
+            height,
+            model,
+            decoded_temp,
+            decoded_tint,
+            skip_agx,
+            target_primaries,
+        );
+    }
+    let composited = composite_into_fp16(in_fp16_rgba, width, height, patches)?;
+    apply_scene_linear_chain(
+        &composited,
+        width,
+        height,
+        model,
+        decoded_temp,
+        decoded_tint,
+        skip_agx,
+        target_primaries,
+    )
+}
+
+/// f32 sibling of [`apply_scene_linear_chain_with_patches`].
+#[allow(clippy::too_many_arguments)]
+pub fn apply_scene_linear_chain_f32_with_patches(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    decoded_temp: f32,
+    decoded_tint: f32,
+    skip_agx: bool,
+    target_primaries: TargetPrimaries,
+    patches: &[crate::types::InpaintPatch],
+) -> Result<Vec<f32>> {
+    if patches.is_empty() {
+        return apply_scene_linear_chain_f32(
+            in_f32_rgba,
+            width,
+            height,
+            model,
+            decoded_temp,
+            decoded_tint,
+            skip_agx,
+            target_primaries,
+        );
+    }
+    let composited = composite_into_f32(in_f32_rgba, width, height, patches)?;
+    apply_scene_linear_chain_f32(
+        &composited,
+        width,
+        height,
+        model,
+        decoded_temp,
+        decoded_tint,
+        skip_agx,
+        target_primaries,
+    )
+}
+
 /// Canonical display encode (#877). Split into a sibling submodule for the
 /// file-size budget; re-exported here so the public path
 /// `pipeline::scene_linear_chain::encode_display_srgb_f32` (and the
