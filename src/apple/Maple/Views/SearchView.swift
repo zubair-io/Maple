@@ -107,7 +107,8 @@ struct SearchView: View {
                         hasQuery: !query.isEmpty,
                         query: query,
                         onTap: tapTile,
-                        onSeeAll: seeAll,
+                        onLoadMore: { Task { await viewModel?.loadMore() } },
+                        isLoadingMore: viewModel?.isLoadingMore ?? false,
                         thumb: thumbContext
                     )
                 }
@@ -151,11 +152,6 @@ struct SearchView: View {
         onSelectAsset(asset)
     }
 
-    private func seeAll() {
-        commitRecent()
-        // No-op until a filtered grid view exists — spec §6.5 leaves
-        // wiring to a follow-up.
-    }
 
     private func commitRecent() {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
