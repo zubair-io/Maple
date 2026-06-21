@@ -9,10 +9,12 @@
 //! `quick-xml` for other modules.
 
 pub mod adjustment;
+pub mod inpaint;
 pub mod local_adjustment;
 
 pub use adjustment::{
     AdjustmentModel, Crop, FieldKind, FieldSpec, HighlightRecoveryMode, Profile, ToneCurve,
     ToneCurveMode, ToneCurvePoint, WbMethod, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
 };
+pub use inpaint::InpaintPatch;
 pub use local_adjustment::{LocalAdjustment, Mask, PartialAdjustments, Point2};
