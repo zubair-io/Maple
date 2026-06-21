@@ -1,6 +1,6 @@
 # iPhone Search → Cloud Account Wiring — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan was executed task-by-task; steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the iPhone bottom-bar **Search** tab issue real, account-wide `/api/search` queries against the active Maple Cloud account, render results with real cloud thumbnails, and open a tapped result in the editor.
 
