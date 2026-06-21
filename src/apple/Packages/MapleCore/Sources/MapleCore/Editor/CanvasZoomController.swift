@@ -50,10 +50,18 @@ public final class CanvasZoomController {
     // MARK: - Derived geometry
 
     /// Geometry snapshot for the current viewport + session extent.
+    ///
+    /// Uses `session.effectiveImageSize` (#638) rather than the raw
+    /// `nativeImageSize`: when a crop is applied (and the crop tool is not
+    /// armed) the canvas, fit/100%/pan, and the visible-tile rect all key
+    /// off the CROPPED extent so the cropped result fills the frame instead
+    /// of being letterboxed inside the full-sensor rect. While the crop
+    /// tool is armed `effectiveImageSize` resolves back to the full frame
+    /// (the overlay sits over the uncropped image).
     public var context: CanvasZoomContext {
         CanvasZoomContext(
             viewportPoints: viewportPoints,
-            nativeImageSize: session.nativeImageSize,
+            nativeImageSize: session.effectiveImageSize,
             displayScale: displayScale
         )
     }

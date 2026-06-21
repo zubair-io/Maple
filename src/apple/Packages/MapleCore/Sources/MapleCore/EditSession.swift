@@ -73,12 +73,37 @@ public final class EditSession {
             editSessionLogger.debug(
                 "model changed — exposure=\(self.model.exposure, format: .fixed(precision: 2)) contrast=\(self.model.contrast, format: .fixed(precision: 0)) temp=\(self.model.temperature, format: .fixed(precision: 0))"
             )
-            _scheduleRender(phase: .fast)
+            // Crop-edit fast path (#638): while the Crop tool is armed the
+            // canvas renders UNCROPPED and a handle drag mutates ONLY
+            // `model.crop`. Re-rendering on every drag frame would be pure
+            // waste — the rendered pixels don't change (effectiveCrop is
+            // identity while editing) and the overlay draws the rect itself.
+            // Skip the render so a crop drag costs zero pipeline work
+            // (mirrors the web overlay). The sidecar write below still runs
+            // so the rect persists. Leaving crop (cropEditingActive → false)
+            // re-renders via its own `didSet`.
+            let onlyCropChanged = onlyCropFieldChanged(from: oldValue, to: model)
+            if !(cropEditingActive && onlyCropChanged) {
+                _scheduleRender(phase: .fast)
+            }
             if let store = sidecarStore {
                 Task { await store.update(model: model, culling: culling) }
             }
         }
     }
+    /// True when `b` differs from `a` ONLY in the `crop` field — used by
+    /// `model`'s `didSet` to skip the render on a crop-handle drag while the
+    /// crop tool is armed (#638). Compares by zeroing the crop on both: if
+    /// the crop-stripped models are equal, the only delta was the crop.
+    private func onlyCropFieldChanged(from a: AdjustmentModel, to b: AdjustmentModel) -> Bool {
+        guard a.crop != b.crop else { return false }
+        var aStripped = a
+        var bStripped = b
+        aStripped.crop = .identity
+        bStripped.crop = .identity
+        return aStripped == bStripped
+    }
+
     public var culling: CullingState {
         didSet {
             guard !isHydratingInitialState else { return }
@@ -158,6 +183,48 @@ public final class EditSession {
     /// upscale on display), and anchoring zoom against the preview extent
     /// produces inconsistent targets across fast/refine and slider ticks.
     public internal(set) var nativeImageSize: CGSize = .zero
+
+    // MARK: Crop (#638)
+
+    /// True while the Crop tool is armed in the editor. The crop overlay
+    /// sits over the FULL frame, so while this is set the render path shows
+    /// the image UNCROPPED (and the canvas/zoom extent stays the full
+    /// `nativeImageSize`). Cleared when another tool arms / Done — the next
+    /// render publishes the cropped+straightened result. Mirrors the web
+    /// `CropSessionService.active` (derived from `armedTool == .crop`); set
+    /// by `EditorState.arm(tool:)`.
+    ///
+    /// Writing it re-kicks a fast render so entering/leaving crop swaps the
+    /// canvas between full-frame and cropped immediately (the web canvas
+    /// re-renders on the same transition).
+    public var cropEditingActive: Bool = false {
+        didSet {
+            guard cropEditingActive != oldValue else { return }
+            guard !isHydratingInitialState else { return }
+            // A new image is a new session, so this only fires on a genuine
+            // arm/disarm. Re-render so the canvas reflects the cropped vs.
+            // uncropped state, and re-push the zoom geometry so fit math
+            // retargets the new (cropped or full-frame) extent.
+            _scheduleRender(phase: .fast)
+        }
+    }
+
+    /// The crop rect the render path should apply right now: identity while
+    /// the crop tool is armed (show the full frame under the overlay),
+    /// otherwise the model's crop. Mirrors the web `renderModelForCrop`.
+    var effectiveCrop: Crop {
+        cropEditingActive ? .identity : model.crop
+    }
+
+    /// Image extent the canvas / zoom math should anchor to: the CROPPED
+    /// size when a crop is applied (not editing), otherwise the full-frame
+    /// `nativeImageSize`. Keeps fit / 100% / pan and the canvas frame on the
+    /// cropped image. `.zero` until the metadata seed lands (same contract
+    /// as `nativeImageSize`).
+    public var effectiveImageSize: CGSize {
+        guard nativeImageSize != .zero else { return nativeImageSize }
+        return CropImageStage.croppedSize(effectiveCrop, nativeSize: nativeImageSize)
+    }
 
     // MARK: Zoom / pan
 

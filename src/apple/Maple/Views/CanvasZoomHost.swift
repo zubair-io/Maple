@@ -161,10 +161,16 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
                 // so 100% stays pixel-perfect on the new screen.
                 controller.viewportChanged(points: geo.size, displayScale: newScale)
             }
-            .onChange(of: controller.session.nativeImageSize) { _, _ in
+            .onChange(of: controller.session.effectiveImageSize) { _, _ in
                 // Pre-decode, fit mode guesses; recompute once the real
                 // size lands so the idle refine stays at viewport
                 // resolution (legacy FullImageView did the same).
+                //
+                // #638: keyed on `effectiveImageSize` (not raw
+                // `nativeImageSize`) so applying / changing / clearing a
+                // crop — which changes the displayed extent without touching
+                // the sensor dims — re-resolves fit and re-frames the canvas
+                // onto the cropped image.
                 controller.nativeImageSizeChanged()
             }
             .onChange(of: controller.session.asset.id) { _, _ in

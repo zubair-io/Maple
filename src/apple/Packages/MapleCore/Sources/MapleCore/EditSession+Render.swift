@@ -129,8 +129,20 @@ extension EditSession {
     private func refineBody(gen: UInt64) async {
         let live = await renderActor.currentGeneration()
         guard gen == live, !Task.isCancelled else { return }
+        // #638: when a crop is applied (tool disarmed, non-identity crop)
+        // the two fast refine paths below operate on FULL-FRAME source
+        // geometry and can't honor the crop: the deep-zoom tile composite
+        // and the visible-region refine both crop the full-frame decode to a
+        // viewport rect, but `viewportSourceRect` is in CROPPED-image coords
+        // (the canvas/zoom now anchor to `effectiveImageSize`). Re-rendering
+        // the whole frame through `decodeAndRender(.refine)` is the correct,
+        // crop-aware path (it applies `CropImageStage` on the developed
+        // output) — a touch slower at deep zoom on a cropped image, but
+        // correct. Full-frame (uncropped) renders keep both fast paths.
+        let cropApplied = !cropEditingActive && CropImageStage.shouldApply(model.crop)
         // Plan 3 / Ticket 06 M4 — deep-zoom branch.
-        if Self.deepZoomEnabled,
+        if !cropApplied,
+           Self.deepZoomEnabled,
            pixelScale >= 1.0,
            !viewportSourceRect.isEmpty,
            let _ = asset.primaryURL {
@@ -151,7 +163,8 @@ extension EditSession {
         // re-decodes full (#785).
         let visible = viewportSourceRect
         let snapshot = await renderActor.snapshot(forAsset: asset)
-        if !visible.isEmpty,
+        if !cropApplied,
+           !visible.isEmpty,
            nativeImageSize.width > 0, nativeImageSize.height > 0,
            snapshot.isFresh,
            snapshot.isFull,
@@ -260,6 +273,31 @@ extension EditSession {
         let m = model
         let asset = self.asset
         let pipeline = self.pipeline
+        // Crop + straighten (#638). Applied as a CoreImage geometry op on the
+        // FINAL developed CIImage — the crop is not in the Rust core on Apple,
+        // so it rides here on the published preview. The crop applies only
+        // when the tool is NOT armed (`!cropEditingActive`): while armed the
+        // overlay sits over the full frame and the render shows the uncropped
+        // image. `effectiveCrop` already folds in that armed/disarmed gate.
+        let crop = effectiveCrop
+        let applyCrop = CropImageStage.shouldApply(crop)
+        // When a crop is applied the chain still develops the FULL frame and
+        // `CropImageStage` trims afterward. The incoming `targetSize` is sized
+        // for the CROPPED extent (the canvas/zoom anchor to `effectiveImageSize`),
+        // so prescaling the full frame to it would render the kept region too
+        // soft. Scale the full-frame process target up by the inverse crop
+        // fraction so the kept region lands at (about) the requested resolution.
+        // Capped so a tiny crop on a 100 MP frame can't request an absurd
+        // full-frame target (the source's own resolution is the real ceiling
+        // — `prescaleForDisplay` never upscales past it anyway).
+        let targetSize: CGSize? = {
+            guard applyCrop, let t = targetSize else { return targetSize }
+            let fracW = max(crop.right - crop.left, CropGeometry.minCropFraction)
+            let fracH = max(crop.bottom - crop.top, CropGeometry.minCropFraction)
+            let scaleW = CGFloat(min(1.0 / fracW, 8.0))
+            let scaleH = CGFloat(min(1.0 / fracH, 8.0))
+            return CGSize(width: t.width * scaleW, height: t.height * scaleH)
+        }()
         let snapshot = await renderActor.snapshot(forAsset: asset)
         let cached = snapshot.image
         // Fast phase accepts any fresh cache (a downsampled decode is
@@ -317,7 +355,14 @@ extension EditSession {
                 // skip the CPU `processSceneLinear` + `renderedPreview` publish.
                 // Returns false (CPU fallback) when off / no layer / non-RAW /
                 // readback fails. See EditSession+GpuLive.swift.
-                if await presentViaGpuLive(decoded: cached, targetSize: targetSize, gen: gen) {
+                //
+                // #638: the GPU live path presents directly to the
+                // `CAMetalLayer` with no CIImage, so it has no hook for the
+                // CoreImage crop+straighten stage. When a crop must be
+                // applied, force the CPU path (which crops the developed
+                // CIImage below) by skipping the GPU present entirely.
+                if !applyCrop,
+                   await presentViaGpuLive(decoded: cached, targetSize: targetSize, gen: gen) {
                     isRendering = false
                     return
                 }
@@ -378,7 +423,10 @@ extension EditSession {
                 }
                 // wgpu live present on the fresh decode (epic #925, P4b-apple) —
                 // same runtime-gated parallel path as the cached branch above.
-                if await presentViaGpuLive(decoded: decoded, targetSize: targetSize, gen: gen) {
+                // #638: skip when a crop must be applied — the GPU present has
+                // no CIImage crop hook, so the CPU path below owns crop frames.
+                if !applyCrop,
+                   await presentViaGpuLive(decoded: decoded, targetSize: targetSize, gen: gen) {
                     isRendering = false
                     return
                 }
@@ -403,6 +451,15 @@ extension EditSession {
                 image = processed
             }
 
+            // Crop + straighten (#638) — final geometry op on the developed
+            // display-domain image. `image` is the full-frame developed
+            // CIImage; `CropImageStage.apply` rotates about center by the
+            // straighten angle and cuts the axis-aligned crop rect,
+            // re-origining the result to (0,0) so framing/zoom anchors the
+            // cropped buffer like every other publish. No-op when `applyCrop`
+            // is false (identity crop or crop tool armed).
+            let displayImage = applyCrop ? CropImageStage.apply(crop, to: image) : image
+
             guard !Task.isCancelled else {
                 editSessionLogger.debug("decodeAndRender gen=\(gen ?? 0) cancelled, dropping result")
                 isRendering = false
@@ -416,10 +473,10 @@ extension EditSession {
                     return
                 }
             }
-            renderedPreview = image
+            renderedPreview = displayImage
             renderError = nil
             editSessionLogger.debug(
-                "decodeAndRender published preview gen=\(gen ?? 0) extent=\(image.extent.width)x\(image.extent.height)"
+                "decodeAndRender published preview gen=\(gen ?? 0) extent=\(displayImage.extent.width)x\(displayImage.extent.height)"
             )
             // First full-quality frame on screen — the cold-open's fast render
             // lands here. Drop the loading indicator, but only once the
@@ -436,8 +493,11 @@ extension EditSession {
             }
 
             if phase == .refine, let url = asset.primaryURL {
+                // Use the cropped `displayImage` so the browse thumbnail +
+                // rendered-preview cache reflect what the user sees (#638).
+                let thumbSource = displayImage
                 Task.detached(priority: .utility) {
-                    await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
+                    await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
                 }
                 persistCurrentPreviewToCache()
             }

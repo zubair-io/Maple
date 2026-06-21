@@ -70,10 +70,16 @@ struct ValueChipOverlay: View {
                         .foregroundStyle(MapleTokens.textMuted)
                         .accessibilityIdentifier("editor-value-chip-subparam")
                 }
-                Text(formattedValue)
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(MapleTokens.primary)
+                // Crop (#638) carries no drag-bar value — its affordance is
+                // the overlay + crop toolbar — so suppress the misleading
+                // "+0" value readout for it (the GROUP · TOOL chip still
+                // shows "DETAIL · CROP").
+                if state.armedTool != .crop {
+                    Text(formattedValue)
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(MapleTokens.primary)
+                }
                 // Render-path indicator — surfaces whether the canvas is being
                 // driven by the wgpu live chain (`GPU`) or the CPU
                 // `processSceneLinear` + Metal fallback (`CPU`). `gpuFramePresented`

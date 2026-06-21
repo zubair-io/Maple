@@ -368,16 +368,52 @@ public final class EditorState {
         session.model != session.originalModel
     }
 
+    // MARK: Crop session (#638)
+
+    /// Selected crop aspect-ratio lock. Transient UI state — never persisted
+    /// to XMP. Reset to `.free` on every crop entry (matches the web
+    /// `CropSessionService`). Read by the crop toolbar + overlay.
+    public var cropAspectId: CropAspectId = .free
+
+    /// Resolved aspect preset for `cropAspectId`.
+    public var cropAspectPreset: CropAspectPreset {
+        CropAspect.preset(for: cropAspectId)
+    }
+
+    /// Select a crop aspect-ratio lock.
+    public func setCropAspect(_ id: CropAspectId) {
+        cropAspectId = id
+    }
+
     // MARK: Arm / select
 
     /// Arm a tool. If it belongs to a different group, switch group too.
     /// The armed sub-param re-resolves from the session memory (#1108).
+    ///
+    /// Crop (#638): arming `.crop` puts the session into crop-editing mode
+    /// (`session.cropEditingActive`) so the canvas renders UNCROPPED under
+    /// the overlay, resets the aspect lock to Free (so a ratio chosen on one
+    /// image doesn't carry into the next crop session), and snaps the canvas
+    /// to fit + zero pan (the overlay footprint maps 1:1 onto the painted
+    /// image only at fit). Arming any other tool clears crop-editing mode, so
+    /// the next render publishes the cropped+straightened result.
     public func arm(tool: Tool) {
+        let wasCropEditing = session.cropEditingActive
         self.armedTool = tool
         self.armedGroup = tool.group
         self.armedSubParamId = Self.resolveSubParamId(
             for: tool, memory: subParamMemory
         )
+        let nowCropEditing = (tool == .crop)
+        // Set the session flag FIRST so `effectiveImageSize` resolves to the
+        // full frame before we fit — entering crop fits the whole frame, not
+        // the cropped extent.
+        session.cropEditingActive = nowCropEditing
+        if nowCropEditing && !wasCropEditing {
+            // Entering crop — reset the aspect lock and force fit + zero pan.
+            cropAspectId = .free
+            zoom.resetToFit()
+        }
     }
 
     /// Arm a group. Re-arms the first tool in that group if the currently-
