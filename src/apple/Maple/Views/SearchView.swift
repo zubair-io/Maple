@@ -36,9 +36,9 @@ struct SearchView: View {
     /// (renders the UI scaffold but doesn't issue search calls). This
     /// lets the phone Search tab render before a backing index exists.
     var viewModel: SearchViewModel?
-    /// Called when the user taps a photo result. Hosts route to the
-    /// Editor (S5). If S5 hasn't merged yet, this stays a no-op so the
-    /// UI is exercisable without crashing.
+    /// Cloud thumb client + cache for result thumbnails. nil → placeholders.
+    var thumbClient: CloudThumbClient?
+    var thumbCache: CloudThumbCache?
     var onSelectAsset: (SearchAsset) -> Void = { _ in }
 
     @State private var query: String = ""
@@ -58,8 +58,13 @@ struct SearchView: View {
     private var results: [SearchAsset] { viewModel?.results ?? [] }
     private var total: Int { viewModel?.total ?? 0 }
 
+    private var thumbContext: SearchThumbContext? {
+        guard let vm = viewModel, let client = thumbClient, let cache = thumbCache else { return nil }
+        return SearchThumbContext(client: client, cache: cache, host: vm.server.cacheHostKey)
+    }
+
     private var resultTiles: [SearchResultTile] {
-        results.map { SearchResultTile(id: $0.id, displayName: $0.filename) }
+        results.map { SearchResultTile(id: $0.id, displayName: $0.filename, absPath: $0.abs_path) }
     }
 
     private var topHits: [SearchTopHit] {
@@ -72,7 +77,8 @@ struct SearchView: View {
                 kind: .photo,
                 label: asset.filename,
                 subLabel: camera.isEmpty ? nil : camera,
-                assetID: asset.id
+                assetID: asset.id,
+                absPath: asset.abs_path
             )
         }
     }
@@ -93,7 +99,7 @@ struct SearchView: View {
                 if query.isEmpty {
                     SearchRecentQueries(recent: recent, onTap: tapRecent)
                 } else {
-                    SearchTopHitsSection(hits: topHits, query: query, onTap: tapTopHit)
+                    SearchTopHitsSection(hits: topHits, query: query, onTap: tapTopHit, thumb: thumbContext)
                     SearchPhotoResultsSection(
                         results: resultTiles,
                         total: total,
@@ -101,7 +107,8 @@ struct SearchView: View {
                         hasQuery: !query.isEmpty,
                         query: query,
                         onTap: tapTile,
-                        onSeeAll: seeAll
+                        onSeeAll: seeAll,
+                        thumb: thumbContext
                     )
                 }
             }
@@ -176,7 +183,7 @@ struct SearchView: View {
             }
             if Task.isCancelled { return }
             await MainActor.run {
-                viewModel?.params.q = trimmed
+                viewModel?.params.placeQuery = trimmed
                 applyScopeParams(scope, on: viewModel)
             }
             await viewModel?.submit()
@@ -184,14 +191,17 @@ struct SearchView: View {
         }
     }
 
-    /// Mirror of `scopeToParams` on the web side. v0.1 leaves SearchParams
-    /// untouched for every scope; reserved here for the day a server-side
-    /// `scope` enum lands.
+    /// Map the S7 scope chip into the server `scope` param. `all` / `photos`
+    /// = the full live set (no scope token, matching the web + server, which
+    /// treat absent and `photos` identically). `places` / `people` narrow
+    /// server-side; `albums` is server-not-implemented (returns empty).
     private func applyScopeParams(_ scope: SearchScope, on vm: SearchViewModel?) {
-        guard vm != nil else { return }
+        guard let vm else { return }
         switch scope {
-        case .all, .photos, .places, .people, .albums:
-            break
+        case .all, .photos: vm.params.scope = nil
+        case .places:       vm.params.scope = "places"
+        case .people:       vm.params.scope = "people"
+        case .albums:       vm.params.scope = "albums"
         }
     }
 }
