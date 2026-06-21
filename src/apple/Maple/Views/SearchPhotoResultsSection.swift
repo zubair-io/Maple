@@ -1,10 +1,12 @@
-// SearchPhotoResultsSection.swift — 3-col preview grid for S7 (#622).
+// SearchPhotoResultsSection.swift — full 3-col results grid for S7 (#622).
 //
 // Spec: docs/design/responsive-program/s7-search.md §2 "PHOTOS · {count}".
 //
-// Eyebrow + "See all" link on the same row, then up to 9 tiles in a
-// 3-col grid. Stale state (debounced fetch in flight) dims the grid to
-// 60% opacity.
+// Eyebrow ("PHOTOS · {count}") then the full result set in a 3-col grid with
+// infinite-scroll pagination — the last loaded tile's appearance asks the host
+// to page in the next batch. (The old capped 9-tile preview + "See all" hop was
+// dropped: the results ARE the page, so there's nowhere separate to "see all".)
+// Stale state (debounced fetch in flight) dims the grid to 60% opacity.
 
 #if os(iOS)
 
@@ -27,7 +29,11 @@ struct SearchPhotoResultsSection: View {
     let hasQuery: Bool
     let query: String
     let onTap: (SearchResultTile) -> Void
-    let onSeeAll: () -> Void
+    /// Called when the last loaded tile appears — the host pages in more
+    /// results (the host's loader no-ops once the full set is loaded).
+    var onLoadMore: () -> Void = {}
+    /// True while the next page is in flight — drives the footer spinner.
+    var isLoadingMore: Bool = false
     /// Live cloud session for thumbnails; nil → grey placeholders (previews).
     var thumb: SearchThumbContext? = nil
 
@@ -43,21 +49,13 @@ struct SearchPhotoResultsSection: View {
                 .accessibilityIdentifier("search-no-results")
         } else if !results.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("PHOTOS \u{00B7} \(total)")
-                        .font(.custom("Lato-Bold", size: 10))
-                        .tracking(0.6)
-                        .foregroundStyle(MapleTokens.textMuted)
-                    Spacer()
-                    Button("See all", action: onSeeAll)
-                        .font(.custom("Lato-Bold", size: 11))
-                        .foregroundStyle(MapleTokens.primary)
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("search-see-all")
-                }
+                Text("PHOTOS \u{00B7} \(total)")
+                    .font(.custom("Lato-Bold", size: 10))
+                    .tracking(0.6)
+                    .foregroundStyle(MapleTokens.textMuted)
 
                 LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(results.prefix(9)) { tile in
+                    ForEach(results) { tile in
                         Button {
                             onTap(tile)
                         } label: {
@@ -85,10 +83,22 @@ struct SearchPhotoResultsSection: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("search-tile-\(tile.id)")
                         .accessibilityLabel(tile.displayName)
+                        // Infinite scroll: pull the next page when the last
+                        // loaded tile scrolls into view.
+                        .onAppear {
+                            if tile.id == results.last?.id { onLoadMore() }
+                        }
                     }
                 }
                 .opacity(isStale ? 0.6 : 1.0)
                 .animation(.linear(duration: 0.12), value: isStale)
+
+                if isLoadingMore {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
             }
         }
     }
@@ -101,8 +111,7 @@ struct SearchPhotoResultsSection: View {
         isStale: false,
         hasQuery: true,
         query: "paris",
-        onTap: { _ in },
-        onSeeAll: {}
+        onTap: { _ in }
     )
     .padding()
     .background(MapleTokens.bg)
@@ -115,8 +124,7 @@ struct SearchPhotoResultsSection: View {
         isStale: false,
         hasQuery: true,
         query: "nothing matches",
-        onTap: { _ in },
-        onSeeAll: {}
+        onTap: { _ in }
     )
     .padding()
     .background(MapleTokens.bg)
