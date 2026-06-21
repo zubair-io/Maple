@@ -55,7 +55,13 @@ fn synthetic_patch() -> Vec<[f32; 3]> {
 /// Forward bake-preview / live path: WB → exposure → AgX → rec2020→sRGB →
 /// gamma, returning display-encoded f32 in [0, 1] (creative/spatial stages off
 /// by construction). `slope`/contrast fixed at 0 (slope 1.0).
-fn forward_display(pre: &[[f32; 3]], t: f32, tint: f32, ev: f32, method: WbMethod) -> Vec<[f32; 3]> {
+fn forward_display(
+    pre: &[[f32; 3]],
+    t: f32,
+    tint: f32,
+    ev: f32,
+    method: WbMethod,
+) -> Vec<[f32; 3]> {
     let mut img = Image {
         width: W as u32,
         height: H as u32,
@@ -154,7 +160,13 @@ fn synthetic_raw_roundtrip_regrades_within_budget() {
         }
     }
 
-    let mean = |z: usize| if cnt[z] > 0 { sum[z] / cnt[z] as f64 } else { 0.0 };
+    let mean = |z: usize| {
+        if cnt[z] > 0 {
+            sum[z] / cnt[z] as f64
+        } else {
+            0.0
+        }
+    };
     mid_errs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let p95 = if mid_errs.is_empty() {
         0.0
@@ -175,7 +187,10 @@ fn synthetic_raw_roundtrip_regrades_within_budget() {
     // Gate: everything finite (no banding-to-NaN); midtone tight; shadows/
     // highlights bounded (finite + not absurd) — the design's "graceful
     // degradation at the extremes" bar.
-    assert!(all_finite, "non-finite re-grade error — inverse produced NaN/Inf");
+    assert!(
+        all_finite,
+        "non-finite re-grade error — inverse produced NaN/Inf"
+    );
     assert!(
         mean(1) < 3.0,
         "midtone mean re-grade error {:.3} u8 exceeds budget 3.0",
