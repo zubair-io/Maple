@@ -12,9 +12,9 @@
 //
 // The straighten preview rotates the displayed IMAGE by `angle` while the crop
 // rectangle stays axis-aligned — mirroring the renderer's "rotate the frame,
-// then cut an axis-aligned rect" model (spec § 3.12). `coverScaleForAngle`
-// gives the uniform up-scale that keeps the rotated image covering the whole
-// footprint so no empty corners ever show through the crop box.
+// then cut an axis-aligned rect" model (spec § 3.12). The preview applies no
+// corner fill, matching the renderer, so a near-edge crop reveals the same
+// corner in both preview and output.
 
 import type { Crop } from '../../models/adjustment-model';
 
@@ -75,22 +75,6 @@ export function pxToNormalized(px: number, py: number, fp: Footprint): { nx: num
   const nx = fp.width > 0 ? (px - fp.left) / fp.width : 0;
   const ny = fp.height > 0 ? (py - fp.top) / fp.height : 0;
   return { nx: clamp01(nx), ny: clamp01(ny) };
-}
-
-/**
- * Uniform scale that keeps an `w × h` image, rotated by `angleDeg` about its
- * center, fully covering its own un-rotated footprint — so the crop box (a
- * subset of the footprint) never reveals an empty corner during a straighten.
- *
- * Derivation: the worst-case footprint corner (±w/2, ±h/2), mapped into the
- * image-local frame (rotate by −θ), must stay inside the scaled half-extents.
- * The binding corner gives `cos|θ| + max(w/h, h/w)·sin|θ|`.
- */
-export function coverScaleForAngle(angleDeg: number, w: number, h: number): number {
-  const a = (Math.abs(angleDeg) * Math.PI) / 180;
-  if (a === 0 || w <= 0 || h <= 0) return 1;
-  const aspect = Math.max(w / h, h / w);
-  return Math.cos(a) + aspect * Math.sin(a);
 }
 
 /** Which handle (if any) the pointer hit. Corners win over edges; the interior

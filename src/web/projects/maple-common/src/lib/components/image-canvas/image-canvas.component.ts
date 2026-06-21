@@ -19,7 +19,6 @@ import {
 } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
-import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 import { ImageCanvasService } from './image-canvas.service';
 import { AssetId } from '../../models/asset';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
@@ -35,8 +34,9 @@ import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-p
 import { CanvasZoomGestures } from './image-canvas.zoom-gestures';
 import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
-import { CROP_IDENTITY, type AdjustmentModel } from '../../models/adjustment-model';
-import { coverScaleForAngle } from '../crop-overlay/crop-geometry';
+import { type AdjustmentModel } from '../../models/adjustment-model';
+import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
+import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.render2d';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -46,7 +46,9 @@ import { coverScaleForAngle } from '../crop-overlay/crop-geometry';
   styleUrl: './image-canvas.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresentHost {
+export class ImageCanvasComponent
+  implements AfterViewInit, OnDestroy, GpuPresentHost, Render2dHost
+{
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('wrap') wrapRef!: ElementRef<HTMLElement>;
 
@@ -105,6 +107,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // Long edge of the bitmap currently painted — refine only runs when it can
   // beat this (so zoom-out never re-renders, and fit never refines).
   private paintedLongEdge = 0;
+  // Aspect (w/h) of the bitmap currently painted — feeds the fit/draw geometry
+  // so a cropped render (different aspect) isn't stretched into the full-frame
+  // rect (#638 review). Null until the first paint → falls back to asset dims.
+  private paintedAspect = signal<{ w: number; h: number } | null>(null);
   // Gate the adjustment effect until the cold-open decode has finished and
   // recorded `lastRenderedXmp`. Without this, the synchronous-bytes path sets
   // `currentBytes` before `await decode` yields, so the adjustment effect can
@@ -176,47 +182,35 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // Displayed image size + scale in CSS px (the draw transform's geometry).
   // Pure geometry lives in `image-canvas.draw2d.ts`; this computed only wires
   // the signals (zoom / asset dims / wrap dims) into it.
+  // Displayed image size: derives from the painted bitmap's aspect (which
+  // reflects the crop) so a cropped result isn't stretched into the full-frame
+  // rect (#638 review); falls back to the asset's stored dims pre-paint.
   private effectivePx = computed(() => {
     const asset = this.state.focusedAsset();
-    return computeEffectivePx(
-      this.cssZoom(),
-      asset?.width,
-      asset?.height,
-      this.wrapW(),
-      this.wrapH(),
-    );
+    const { w, h } = displayDims(this.paintedAspect(), asset?.width, asset?.height);
+    return computeEffectivePx(this.cssZoom(), w, h, this.wrapW(), this.wrapH());
   });
 
-  // ── Crop tool (#638) ───────────────────────────────────────────────────────
-  // While the Crop tool is armed the canvas shows the image UNCROPPED (the crop
-  // is stripped from the render model) and rotated by the straighten angle (a
-  // CSS transform on the canvas element); the interactive rectangle is drawn by
-  // `CropOverlayComponent`. Exiting the tool re-renders the cropped result.
+  // ── Crop tool (#638; helpers in image-canvas.crop.ts) ───────────────────────
+  // While Crop is armed the canvas shows the image UNCROPPED (crop stripped from
+  // the render model) + rotated by the straighten angle; `CropOverlayComponent`
+  // draws the interactive rect. Exiting re-renders the cropped result.
 
   /** True while the crop overlay should be shown (Crop pill armed). */
   protected readonly cropActive = computed(() => this.cropSession.active());
 
-  /** CSS transform for the live straighten preview: rotate the displayed image
-   *  by the crop angle and up-scale just enough that the rotated frame still
-   *  covers the crop box (no empty corners). `'none'` while not cropping. */
+  /** CSS transform for the live straighten preview (rotate only). */
   protected readonly cropCanvasTransform = computed<string>(() => {
-    if (!this.cropSession.active()) return 'none';
     const a = this.state.focusedAsset();
-    if (!a) return 'none';
-    const angle = this.state.adjustmentFor(a.id)().crop.angle;
-    if (!angle) return 'none';
-    const { canvasW, canvasH } = this.effectivePx();
-    const cover = coverScaleForAngle(angle, canvasW, canvasH);
-    return `scale(${cover}) rotate(${angle}deg)`;
+    const angle = a ? this.state.adjustmentFor(a.id)().crop.angle : 0;
+    return cropStraightenTransform(this.cropSession.active(), angle);
   });
 
-  /** Serialize the model for the renderer, stripping the crop while the crop
-   *  tool is active so the live canvas shows the full (uncropped) frame under
-   *  the overlay. Public: also satisfies `GpuPresentHost` so the GPU cold-open
-   *  dedup key matches the 2D path. */
+  /** Serialize for the renderer, crop-stripped while cropping so the canvas
+   *  shows the full frame under the overlay. Public: also satisfies
+   *  `GpuPresentHost` so the GPU cold-open dedup matches the 2D path. */
   serializeForRender(model: AdjustmentModel): string {
-    const m = this.cropSession.active() ? { ...model, crop: CROP_IDENTITY } : model;
-    return this.xmpSerializer.serialize(m);
+    return this.xmpSerializer.serialize(renderModelForCrop(model, this.cropSession.active()));
   }
 
   /**
@@ -272,6 +266,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
         this.coldOpenDone = false;
         this.nativeDims.set(null);
         this.paintedLongEdge = 0;
+        this.paintedAspect.set(null);
 
         const bytes = this.state.bytesFor(a.id);
         if (bytes) {
@@ -404,7 +399,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // `image-canvas.draw2d.ts`; these wrappers wire the signals into them.
 
   // Fast-phase target: the viewport long edge, floored at 1 (degenerate wrap).
-  private fastTargetPx(): number {
+  // Public for `Render2dHost`.
+  fastTargetPx(): number {
     return this.viewportTargetLongEdge() ?? 1;
   }
 
@@ -440,78 +436,19 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
       // GPU open failed (e.g. non-gpu bundle / no WebGPU) — fall through to 2D.
     }
 
-    this.loading.set(true);
-    // Bracket the whole click → pixels path. `maple:open` is the outer
-    // measure; `maple:decode` (service) and `maple:wasm` (worker) are nested
-    // sub-intervals. View in DevTools → Performance → User Timings.
-    performance.mark(`maple:open:${assetId}:start`);
-    try {
-      // Viewport-sized cold open (#1101): decode at the fast-phase target so
-      // first pixels land at viewport resolution (Preview demosaic). The
-      // refine pass below sharpens when the view is zoomed past fit.
-      const decoded = await this.pipeline.decode(bytes, ext, undefined, this.fastTargetPx(), true);
+    // WASM-CPU cold-open decode + paint (image-canvas.render2d.ts).
+    await coldOpen2d(this, assetId, filename, ext, bytes);
+  }
 
-      // Update dimensions on the asset — the NATIVE dims (the sized reply
-      // carries them), not the viewport-sized buffer's.
-      const nativeW = decoded.nativeWidth ?? decoded.width;
-      const nativeH = decoded.nativeHeight ?? decoded.height;
-      this.state.updateAssetDimensions(assetId, nativeW, nativeH);
-      if (assetId === this.currentAssetId) {
-        this.nativeDims.set({ w: nativeW, h: nativeH });
-      }
+  /** Record the painted bitmap's long edge + aspect (`Render2dHost`). */
+  recordPaintedDims(w: number, h: number): void {
+    this.paintedLongEdge = Math.max(w, h);
+    this.paintedAspect.set({ w, h });
+  }
 
-      // Seed WB sliders from the camera's "As Shot" metadata on the first
-      // render — purely cosmetic sync with what Rust actually used, doesn't
-      // overwrite user edits (the state method guards on "still default").
-      this.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
-
-      // Open the cold-open gate and record what this no-XMP render reflects
-      // (the seed's effect re-fire dedups against it). Guard on still-current
-      // asset so a fast A→B switch doesn't stamp A's XMP onto B.
-      if (assetId === this.currentAssetId) {
-        this.coldOpenDone = true;
-        // Record the XMP this cold-open render reflects. The no-XMP decode is
-        // equivalent to the post-seed default model (As-Shot WB, default
-        // sliders), so serializing the current model after the seed yields the
-        // XMP the canvas now shows.
-        const liveXmp = this.serializeForRender(this.state.adjustmentFor(assetId)());
-        if (liveXmp === this.lastRenderedXmp) {
-          // Already what the canvas shows (re-entrant cold open) — nothing to do.
-        } else if (this.lastRenderedXmp === null) {
-          // Normal cold open: the live model is the seeded baseline; record it
-          // so the gate-driven + As-Shot-seed effect re-fires dedup against it.
-          // (A rare mid-decode edit folds into this baseline and self-corrects
-          // on the user's next edit.)
-          this.lastRenderedXmp = liveXmp;
-        }
-      }
-
-      // Publish pixels for scopes.
-      this.canvasSvc.currentPixels.set(decoded);
-
-      const bitmap = await imageDataToBitmap(decoded);
-      // Close any previous bitmap to free GPU memory.
-      this.imageBitmap()?.close();
-      this.imageBitmap.set(bitmap);
-      this.paintedLongEdge = Math.max(decoded.width, decoded.height);
-      performance.mark(`maple:open:${assetId}:paint`);
-      performance.measure(
-        `maple:open`,
-        `maple:open:${assetId}:start`,
-        `maple:open:${assetId}:paint`,
-      );
-
-      // A cold open while zoomed past fit needs the refine pass right away
-      // (no edit will come to trigger it).
-      if (assetId === this.currentAssetId && this.lastRenderedXmp !== null) {
-        this.twoPhase.scheduleRefine(this.lastRenderedXmp, this.renderGeneration);
-      }
-    } catch (e) {
-      console.error('Decode failed for', filename, e);
-      this.imageBitmap.set(null);
-    } finally {
-      this.loading.set(false);
-    }
+  /** Schedule a refine pass (`Render2dHost`). */
+  scheduleRefine(xmp: string, generation: number): void {
+    this.twoPhase.scheduleRefine(xmp, generation);
   }
 
   // ── GpuPresentHost ───────────────────────────────────────────────────────
@@ -565,7 +502,6 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
    */
   private async runRender(xmp: string, generation: number, sizing: RenderSizing): Promise<void> {
     const bytes = this.currentBytes;
-    const ext = this.currentExt;
     if (!bytes) return;
 
     if (this.gpuPresent.active()) {
@@ -576,32 +512,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
       return;
     }
 
-    try {
-      const decoded = await this.pipeline.decode(
-        bytes,
-        ext,
-        xmp,
-        sizing.maxLongEdge,
-        sizing.qualityPreview,
-      );
-      // Stale guard: a newer edit (or asset switch) bumped the generation
-      // while this decode was in flight — drop it.
-      if (generation !== this.renderGeneration) return;
-
-      this.canvasSvc.currentPixels.set(decoded);
-      const bitmap = await imageDataToBitmap(decoded);
-      // Re-check after the async bitmap step.
-      if (generation !== this.renderGeneration) {
-        bitmap.close();
-        return;
-      }
-      this.imageBitmap()?.close();
-      this.imageBitmap.set(bitmap);
-      this.paintedLongEdge = Math.max(decoded.width, decoded.height);
-      this.lastRenderedXmp = xmp;
-    } catch (e) {
-      console.error('[image-canvas] adjustment re-render failed:', e);
-    }
+    // WASM-CPU re-render + paint (image-canvas.render2d.ts).
+    await runRender2d(this, xmp, generation, sizing, bytes, this.currentExt);
   }
 
   /**
