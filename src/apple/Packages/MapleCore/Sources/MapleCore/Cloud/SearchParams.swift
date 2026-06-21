@@ -121,6 +121,10 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   public var sceneType: SearchSceneType?
   /// Vision activity (open vocab, exact match).
   public var activity: String?
+  /// UI scope chip (S7): `places` / `people` / `albums`. nil / empty = the
+  /// full live set (the server treats absent and `photos` identically). Raw
+  /// server tokens — see `SEARCH_SCOPES` in src/api/src/routes/search/query.ts.
+  public var scope: String?
   /// Subject tags. Sent comma-joined; the server OR's within the field.
   public var subjects: [String] = []
   /// Tri-state screenshot filter: true → screenshots only, false →
@@ -196,6 +200,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     if let hasCapturedAt { add("hasCapturedAt", hasCapturedAt ? "true" : "false") }
     add("sceneType", sceneType?.rawValue)
     add("activity", activity)
+    add("scope", scope)
     if !subjects.isEmpty { add("subjects", subjects.joined(separator: ",")) }
     if let isScreenshot { add("isScreenshot", isScreenshot ? "true" : "false") }
     return items
