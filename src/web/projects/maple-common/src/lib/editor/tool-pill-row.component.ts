@@ -19,6 +19,7 @@ import {
   type ToolId,
 } from './tool-model';
 import { subParamDefaultDisplay, subParamsFor } from './tool-sub-param';
+import { isIdentityCrop } from '../models/adjustment-model';
 
 @Component({
   selector: 'app-tool-pill-row',
@@ -47,8 +48,11 @@ export class ToolPillRowComponent {
   }
 
   protected isModified(tool: ToolId): boolean {
-    if (!isWired(tool)) return false;
     const adj = this.state.currentAdjustment();
+    // Crop is drag-bar-inert (a STUB_TOOLS member) but IS editable via the
+    // canvas overlay — light the dot whenever the crop rect/angle is non-identity.
+    if (tool === 'crop') return adj ? !isIdentityCrop(adj.crop) : false;
+    if (!isWired(tool)) return false;
     if (!adj) return false;
     // Multi-param pills (#1108): the dot lights when ANY sub-param is
     // off its canonical default (e.g. Noise with only Color NR raised).

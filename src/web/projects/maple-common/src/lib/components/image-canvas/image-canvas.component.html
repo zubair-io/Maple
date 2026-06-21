@@ -56,7 +56,19 @@
   <!-- Viewport-sized backing store (#1101): the canvas fills the wrap; the
        backing store is viewport × devicePixelRatio and zoom/pan are a draw
        transform inside `draw()` — never an image-sized canvas. -->
-  <canvas #canvas class="block absolute inset-0 h-full w-full"></canvas>
+  <canvas
+    #canvas
+    class="block absolute inset-0 h-full w-full"
+    [style.transform]="cropCanvasTransform()"
+    style="transform-origin: 50% 50%"
+  ></canvas>
+
+  <!-- Crop / straighten overlay (#638): shown while the Crop tool is armed. The
+       canvas above renders UNCROPPED (crop stripped) + rotated by the straighten
+       angle; this draws the interactive crop rectangle. -->
+  @if (cropActive()) {
+    <editor-crop-overlay></editor-crop-overlay>
+  }
 
   <!-- Before/after divider -->
   @if (canvasSvc.showBeforeAfter()) {

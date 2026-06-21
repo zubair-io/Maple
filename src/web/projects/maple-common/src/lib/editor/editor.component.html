@@ -13,10 +13,17 @@
     </div>
   </div>
 
-  <!-- Sub-param chips (#1108): rendered only while a multi-param tool is
-       armed — single-param tools keep the pre-#1108 layout exactly. -->
-  <app-sub-param-row></app-sub-param-row>
-  <app-drag-bar></app-drag-bar>
+  <!-- Crop tool (#638): the interactive overlay lives on the canvas; the crop
+       toolbar (aspect presets + straighten + reset/done) replaces the drag bar
+       while Crop is armed. Otherwise the normal value pipe shows. -->
+  @if (state.armedTool() === 'crop') {
+    <app-crop-toolbar></app-crop-toolbar>
+  } @else {
+    <!-- Sub-param chips (#1108): rendered only while a multi-param tool is
+         armed — single-param tools keep the pre-#1108 layout exactly. -->
+    <app-sub-param-row></app-sub-param-row>
+    <app-drag-bar></app-drag-bar>
+  }
   <app-group-tabs></app-group-tabs>
   <app-tool-pill-row (presetsTap)="presetsOpen.set(true)"></app-tool-pill-row>
 
