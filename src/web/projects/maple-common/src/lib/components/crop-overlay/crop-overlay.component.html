@@ -1,0 +1,68 @@
+<!-- Interactive crop / straighten overlay (#638). Fills the canvas wrap; the
+     image behind is shown uncropped + rotated by the straighten angle. All
+     geometry is CSS px in the wrap's coordinate space. -->
+<svg
+  class="crop-svg"
+  [style.cursor]="cursor()"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event); onHover($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  data-testid="crop-overlay"
+  role="group"
+  aria-label="Crop and straighten"
+>
+  <!-- Darkened mask outside the crop box -->
+  @for (m of maskRects(); track $index) {
+    <rect class="crop-mask" [attr.x]="m.x" [attr.y]="m.y" [attr.width]="m.w" [attr.height]="m.h" />
+  }
+
+  <!-- Crop rectangle border -->
+  <rect
+    class="crop-frame"
+    [attr.x]="rect().x"
+    [attr.y]="rect().y"
+    [attr.width]="rect().width"
+    [attr.height]="rect().height"
+  />
+
+  <!-- Rule-of-thirds grid -->
+  @for (l of gridLines(); track $index) {
+    <line class="crop-grid" [attr.x1]="l.x1" [attr.y1]="l.y1" [attr.x2]="l.x2" [attr.y2]="l.y2" />
+  }
+
+  <!-- Edge handles (mid-points) -->
+  <rect
+    class="crop-edge"
+    [attr.x]="rect().x + rect().width / 2 - 12"
+    [attr.y]="rect().y - 2"
+    width="24"
+    height="4"
+  />
+  <rect
+    class="crop-edge"
+    [attr.x]="rect().x + rect().width / 2 - 12"
+    [attr.y]="rect().y + rect().height - 2"
+    width="24"
+    height="4"
+  />
+  <rect
+    class="crop-edge"
+    [attr.x]="rect().x - 2"
+    [attr.y]="rect().y + rect().height / 2 - 12"
+    width="4"
+    height="24"
+  />
+  <rect
+    class="crop-edge"
+    [attr.x]="rect().x + rect().width - 2"
+    [attr.y]="rect().y + rect().height / 2 - 12"
+    width="4"
+    height="24"
+  />
+
+  <!-- Corner handles (L-brackets) -->
+  @for (c of corners(); track c.id) {
+    <circle class="crop-corner" [attr.cx]="c.x" [attr.cy]="c.y" r="6" />
+  }
+</svg>
