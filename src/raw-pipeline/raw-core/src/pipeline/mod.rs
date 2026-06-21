@@ -35,6 +35,12 @@ mod tile;
 
 pub use inpaint_store::{patch_from_bytes, patch_to_bytes};
 
+/// Phase-1 end-to-end seam test (#1484): baked patch composited at the
+/// pre-grade seam via the real stages re-grades like sensor data. Test-only.
+#[cfg(test)]
+#[path = "inpaint_seam_tests.rs"]
+mod inpaint_seam_tests;
+
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,

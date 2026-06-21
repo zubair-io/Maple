@@ -67,13 +67,17 @@ pub fn apply(img: &mut Image, patches: &[InpaintPatch]) {
             if v < oy || v > oy + ey {
                 continue;
             }
-            let pv = ((v - oy) / ey).clamp(0.0, 1.0) * (ph as f32 - 1.0);
+            // Pixel-center mapping: normalized-within-patch → source pixel
+            // space `[-0.5, ph-0.5]` (centers at integers). The `- 0.5` makes a
+            // matching-resolution composite an exact 1:1 read, not a half-pixel
+            // blur; bilinear_idx clamps the out-of-range ends.
+            let pv = ((v - oy) / ey).clamp(0.0, 1.0) * ph as f32 - 0.5;
             for x in 0..iw {
                 let u = (x as f32 + 0.5) / iw as f32;
                 if u < ox || u > ox + ex {
                     continue;
                 }
-                let pu = ((u - ox) / ex).clamp(0.0, 1.0) * (pw as f32 - 1.0);
+                let pu = ((u - ox) / ex).clamp(0.0, 1.0) * pw as f32 - 0.5;
                 let cov = sample_cov(&patch.coverage, pw, ph, pu, pv).clamp(0.0, 1.0);
                 if cov <= 0.0 {
                     continue;
@@ -164,6 +168,45 @@ mod tests {
         };
         apply(&mut img, &[bad]);
         assert_eq!(img.pixels, before);
+    }
+
+    #[test]
+    fn full_frame_matching_resolution_gradient_is_near_identity() {
+        // A patch authored at the exact buffer resolution, full coverage, must
+        // reproduce its pixels 1:1 (no half-pixel resample blur). A gradient
+        // exposes the fencepost the constant-color tests can't.
+        let w = 16u32;
+        let h = 4u32;
+        let n = (w * h) as usize;
+        let grad: Vec<[f32; 3]> = (0..n)
+            .map(|i| {
+                let x = (i as u32 % w) as f32 / (w - 1) as f32;
+                [x, 1.0 - x, 0.5 * x]
+            })
+            .collect();
+        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels {
+            *p = [0.0, 0.0, 0.0];
+        }
+        let patch = InpaintPatch {
+            width: w,
+            height: h,
+            origin: [0.0, 0.0],
+            extent: [1.0, 1.0],
+            pixels: grad.clone(),
+            coverage: vec![1.0; n],
+        };
+        apply(&mut img, &[patch]);
+        for i in 0..n {
+            for c in 0..3 {
+                assert!(
+                    (img.pixels[i][c] - grad[i][c]).abs() < 1e-5,
+                    "pixel {i} ch{c}: {} != {} (resample not 1:1)",
+                    img.pixels[i][c],
+                    grad[i][c]
+                );
+            }
+        }
     }
 
     #[test]
