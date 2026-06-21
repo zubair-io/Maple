@@ -64,12 +64,21 @@ struct PhoneSearchTab: View {
                 didLoad = true
                 return
             }
+            // Same account as the current session — keep it (and its results).
             if session?.server.absoluteString == key {
                 didLoad = true
                 return
             }
+            // Account changed: clear the stale session so the loading state
+            // shows (not the previous account's results) while the new one
+            // builds.
+            session = nil
             didLoad = false
-            session = await makeSession()
+            let newSession = await makeSession()
+            // `.task(id:)` cancels this when serverKey changes again; don't let
+            // a superseded build overwrite a newer session.
+            guard !Task.isCancelled else { return }
+            session = newSession
             didLoad = true
         }
     }

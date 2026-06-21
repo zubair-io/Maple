@@ -83,6 +83,13 @@ struct SearchView: View {
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("search-root")
         .onChange(of: query) { _, _ in scheduleSearch(force: false) }
+        .onAppear {
+            // The session / view model can arrive AFTER the user has already
+            // typed (the `.searchable` field lives above this view and is
+            // live while the session loads). Re-issue any pending query so it
+            // isn't stranded showing no results until the next keystroke.
+            if !trimmedQuery.isEmpty { scheduleSearch(force: false) }
+        }
         .onDisappear { debounceTask?.cancel() }
     }
 
