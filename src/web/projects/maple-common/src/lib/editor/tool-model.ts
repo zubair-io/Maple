@@ -8,9 +8,11 @@
 // `tool-sub-param.ts`; the mappings here remain their FIRST sub-param's
 // (the drag-bar default), so single-param call sites are unchanged.
 //
-// Stub tools (Crop) render in the pill row but reject writes (see
-// STUB_TOOLS). Crop has no AdjustmentModel field and no pipeline math yet
-// (#638). Vignette/Grain/SplitTone/HSL are wired (#1109/#1110/#1111/#1112).
+// Crop renders in the pill row but rejects DRAG-BAR writes (see STUB_TOOLS):
+// its model field + pipeline math exist (#277), and it's edited through the
+// interactive canvas overlay (`CropOverlayComponent`) + `CropToolbarComponent`
+// rather than the single-value drag bar (#638). Vignette/Grain/SplitTone/HSL
+// are wired (#1109/#1110/#1111/#1112).
 // Presets (#1115) is wired: the pill opens the presets sheet/popover
 // instead of carrying a drag-bar value.
 
@@ -103,7 +105,9 @@ export function groupOf(tool: ToolId): ToolGroup {
 // The S5 effects pills are all real pipeline stages now — vignette (#1109),
 // grain (#1110), splitTone (#1111) left the #952 stub list as their stages
 // landed. HSL left at #1112: 24 sub-params wired, stage live in raw-gpu.
-// Crop (#638) remains a stub pending its own spec.
+// Crop (#638) stays in the stub set so the DRAG BAR rejects writes, but it is
+// fully interactive via the canvas crop overlay (the pill arms crop mode; the
+// overlay + crop toolbar drive `model.crop`).
 // Presets left the stub list at #1115: the pill opens the presets
 // sheet/popover (see EditorComponent) — it has no drag-bar value, so
 // `fieldFor` stays null and the value pipe is inert.
