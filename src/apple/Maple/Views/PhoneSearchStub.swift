@@ -2,8 +2,11 @@
 //
 // The file name is retained for git/Xcode-group continuity (a later PR
 // renames it). `PhoneSearchTab` is the production view: it owns the
-// account-wide `SearchViewModel` (built by AppShell's factory), its own
-// NavigationStack, and the editor push for tapped results.
+// account-wide `SearchViewModel`, its own NavigationStack, and the editor
+// push for tapped results. The search FIELD and the bottom nav are the
+// native system tab bar — this tab lives inside a `Tab(role: .search)` in
+// `PhoneTabShell` and carries the `.searchable` field whose text is bound
+// here as `query`.
 
 #if os(iOS)
 
@@ -12,6 +15,8 @@ import MapleCore
 
 struct PhoneSearchTab: View {
     @Binding var sessions: [AssetRef.ID: EditSession]
+    /// Live query text, bound to the host's `.searchable` search field.
+    @Binding var query: String
     /// Stable id for the resolved cloud account; nil → no account → empty state.
     let serverKey: String?
     /// Builds the account-wide search session for the resolved server.
@@ -23,6 +28,7 @@ struct PhoneSearchTab: View {
     @State private var session: PhoneSearchSession?
     @State private var path: [AssetRef] = []
     @State private var didLoad = false
+    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -35,12 +41,35 @@ struct PhoneSearchTab: View {
                         .toolbar(.hidden, for: .navigationBar)
                 }
         }
-        // Rebuild whenever the resolved account changes (open a cloud library,
-        // sign in). serverKey == nil short-circuits to the empty state with no
-        // network attempt.
+        // The native search field for the `Tab(role: .search)` this view
+        // lives in — its text drives the same `query` the content reads.
+        .searchable(text: $query, prompt: "Search your library")
+        .searchFocused($searchFieldFocused)
+        // Focus the search field the moment the Search tab is entered (Apple
+        // Photos drops you straight into typing). Deferred one runloop so the
+        // searchable field is in the hierarchy before focus moves to it; only
+        // when the editor isn't pushed on top (path empty).
+        .onAppear {
+            if path.isEmpty {
+                Task { @MainActor in searchFieldFocused = true }
+            }
+        }
+        // Build the account-wide session once per resolved account. Guard on
+        // the existing session's own server so a tab re-appearance KEEPS the
+        // current view model — and its results — instead of rebuilding an
+        // empty one. Rebuild only when the account changes, or none exists yet.
         .task(id: serverKey) {
+            guard let key = serverKey else {
+                session = nil
+                didLoad = true
+                return
+            }
+            if session?.server.absoluteString == key {
+                didLoad = true
+                return
+            }
             didLoad = false
-            session = serverKey == nil ? nil : await makeSession()
+            session = await makeSession()
             didLoad = true
         }
     }
@@ -52,6 +81,7 @@ struct PhoneSearchTab: View {
                 viewModel: session.vm,
                 thumbClient: session.thumbClient,
                 thumbCache: session.thumbCache,
+                query: $query,
                 onSelectAsset: { asset in
                     path.append(resolveAsset(asset, session.server))
                 }
