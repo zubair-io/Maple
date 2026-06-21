@@ -267,13 +267,6 @@ describe('SearchComponent', () => {
 
   // ── Infinite-scroll pagination (onLoadMore) + Filters ────────────────────
 
-  type Pageable = {
-    onLoadMore(): void;
-    onFilters(): void;
-    page(): number;
-    results(): readonly SearchResult[];
-  };
-
   function loadPageZero(total: number): void {
     typeInput(fixture, 'paris');
     vi.advanceTimersByTime(300);
@@ -288,13 +281,10 @@ describe('SearchComponent', () => {
 
   it('onLoadMore fetches the next page and appends results', () => {
     loadPageZero(60);
-    expect(stubService.calls.length).toBe(1);
-
-    (component as unknown as Pageable).onLoadMore();
+    (component as any).onLoadMore();
     expect(stubService.calls.length).toBe(2);
     expect(stubService.calls[1].page).toBe(1);
     expect(stubService.calls[1].placeQuery).toBe('paris');
-
     stubService.resolveLatest({
       total: 60,
       page: 1,
@@ -302,37 +292,29 @@ describe('SearchComponent', () => {
       results: Array.from({ length: 30 }, (_, i) => makeResult('p1-' + i, 'p1-' + i + '.dng')),
     });
     fixture.detectChanges();
-    expect((component as unknown as Pageable).results().length).toBe(60);
-    expect((component as unknown as Pageable).page()).toBe(1);
+    expect((component as any).results().length).toBe(60);
+    expect((component as any).page()).toBe(1);
   });
 
   it('onLoadMore is a no-op while a fresh search is debouncing (isStale)', () => {
     loadPageZero(60);
-    expect(stubService.calls.length).toBe(1);
-
-    // A new query starts debouncing (isStale = true) but hasn't fired yet.
-    typeInput(fixture, 'beach');
-    expect(stubService.calls.length).toBe(1);
-
-    (component as unknown as Pageable).onLoadMore();
-    // No page-1 request for the stale result set while page 0 of the new
-    // query is still pending.
-    expect(stubService.calls.length).toBe(1);
+    typeInput(fixture, 'beach'); // new query debouncing → isStale, not yet fired
+    (component as any).onLoadMore();
+    expect(stubService.calls.length).toBe(1); // no page-1 for the stale set
   });
 
   it('onLoadMore guards against duplicate concurrent loads', () => {
     loadPageZero(90);
-
-    (component as unknown as Pageable).onLoadMore(); // page 1 in flight (unresolved)
-    (component as unknown as Pageable).onLoadMore(); // ignored — already loading
-    expect(stubService.calls.length).toBe(2); // page-0 + one page-1, not two
+    (component as any).onLoadMore(); // page 1 in flight
+    (component as any).onLoadMore(); // ignored — already loading
+    expect(stubService.calls.length).toBe(2);
   });
 
   it('onFilters commits the query to recents', () => {
     typeInput(fixture, 'paris');
     vi.advanceTimersByTime(300);
     stubService.resolveLatest();
-    (component as unknown as Pageable).onFilters();
+    (component as any).onFilters();
     expect(readRecents()).toContain('paris');
   });
 });
