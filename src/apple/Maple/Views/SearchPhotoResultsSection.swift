@@ -17,6 +17,7 @@ import MapleCore
 struct SearchResultTile: Identifiable, Hashable {
     let id: String
     let displayName: String
+    let absPath: String
 }
 
 struct SearchPhotoResultsSection: View {
@@ -27,6 +28,8 @@ struct SearchPhotoResultsSection: View {
     let query: String
     let onTap: (SearchResultTile) -> Void
     let onSeeAll: () -> Void
+    /// Live cloud session for thumbnails; nil → grey placeholders (previews).
+    var thumb: SearchThumbContext? = nil
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 3)
 
@@ -58,14 +61,26 @@ struct SearchPhotoResultsSection: View {
                         Button {
                             onTap(tile)
                         } label: {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(MapleTokens.surfaceAlt)
-                                .aspectRatio(1, contentMode: .fit)
-                                .overlay(
-                                    Image(systemName: "photo")
-                                        .font(.system(size: 22))
-                                        .foregroundStyle(MapleTokens.textMuted.opacity(0.5))
-                                )
+                            Group {
+                                if let thumb {
+                                    CloudThumbTile(
+                                        absPath: tile.absPath,
+                                        thumbClient: thumb.client,
+                                        thumbCache: thumb.cache,
+                                        host: thumb.host)
+                                } else {
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .fill(MapleTokens.surfaceAlt)
+                                        .overlay(
+                                            Image(systemName: "photo")
+                                                .font(.system(size: 22))
+                                                .foregroundStyle(MapleTokens.textMuted.opacity(0.5))
+                                        )
+                                }
+                            }
+                            .aspectRatio(1, contentMode: .fill)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("search-tile-\(tile.id)")
@@ -81,7 +96,7 @@ struct SearchPhotoResultsSection: View {
 
 #Preview("Photos — populated") {
     SearchPhotoResultsSection(
-        results: (1...6).map { SearchResultTile(id: "r\($0)", displayName: "img-\($0).dng") },
+        results: (1...6).map { SearchResultTile(id: "r\($0)", displayName: "img-\($0).dng", absPath: "/p/img-\($0).dng") },
         total: 42,
         isStale: false,
         hasQuery: true,
