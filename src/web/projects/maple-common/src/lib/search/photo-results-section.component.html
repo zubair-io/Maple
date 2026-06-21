@@ -4,12 +4,9 @@
   <section class="section" data-testid="photo-results-section">
     <header class="eyebrow-row">
       <h3 class="eyebrow">PHOTOS · {{ total() }}</h3>
-      <button type="button" class="see-all" (click)="onSeeAllClick()" data-testid="search-see-all">
-        See all
-      </button>
     </header>
     <ul class="grid" [class.stale]="isStale()">
-      @for (r of tiles(); track trackResult($index, r)) {
+      @for (r of results(); track trackResult($index, r)) {
         <li>
           <button
             type="button"
@@ -29,5 +26,9 @@
         </li>
       }
     </ul>
+    @if (isLoadingMore()) {
+      <p class="loading-more" data-testid="search-loading-more" aria-live="polite">Loading…</p>
+    }
+    <div #loadMoreSentinel class="load-more-sentinel" aria-hidden="true"></div>
   </section>
 }
