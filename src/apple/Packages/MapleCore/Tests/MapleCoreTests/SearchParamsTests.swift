@@ -128,4 +128,18 @@ final class SearchParamsTests: XCTestCase {
     p.rating = 3
     XCTAssertTrue(p.hasActiveFilters)
   }
+
+  func test_scope_serialisesWhenSet() {
+    var p = SearchParams(libraryID: "lib-1")
+    p.scope = "places"
+    let d = dict(p.listQueryItems(page: 0, limit: 100))
+    XCTAssertEqual(d["scope"], "places")
+  }
+
+  func test_scope_omittedWhenNilOrEmpty() {
+    var p = SearchParams(libraryID: "lib-1")
+    XCTAssertNil(dict(p.listQueryItems(page: 0, limit: 100))["scope"])
+    p.scope = ""
+    XCTAssertNil(dict(p.listQueryItems(page: 0, limit: 100))["scope"])
+  }
 }
