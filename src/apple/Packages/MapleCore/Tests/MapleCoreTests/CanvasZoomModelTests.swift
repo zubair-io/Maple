@@ -384,6 +384,30 @@ final class CanvasZoomModelTests: XCTestCase {
         XCTAssertEqual(pan.height, 50, accuracy: 0.001)
     }
 
+    func testDragResumingAfterPinchDoesNotJumpByPinchTravel() {
+        // The simultaneous DragGesture reports `translation` cumulative from
+        // the touch-sequence start and does NOT reset when the pinch ends. When
+        // a finger keeps dragging after the pinch, the drag must resume from a
+        // fresh origin (delta since the pinch ended), not slam the pan by the
+        // whole pinch-time finger travel.
+        var model = CanvasZoomModel()
+        let center = CGPoint(x: 500, y: 400)
+        // Pinch in around the centre (→ no pan), while the simultaneous drag
+        // fires (suppressed) and accumulates translation to (100, 0).
+        model.pinchChanged(magnification: 2.0, location: center, context: context)
+        XCTAssertFalse(
+            model.dragChanged(translation: CGSize(width: 100, height: 0), context: context),
+            "drag must not pan while a pinch owns the gesture"
+        )
+        model.pinchEnded(magnification: 2.0, context: context)
+        let panAfterPinch = model.panOffset
+        // One finger keeps dragging: cumulative translation is now (110, 0).
+        model.dragChanged(translation: CGSize(width: 110, height: 0), context: context)
+        // Pan moved by the 10pt delta since the pinch ended — not the full 110.
+        XCTAssertEqual(model.panOffset.width - panAfterPinch.width, 10, accuracy: 1e-6)
+        XCTAssertEqual(model.panOffset.height - panAfterPinch.height, 0, accuracy: 1e-6)
+    }
+
     func testLivePinchPanPureCentroidDriftPansByDelta() {
         // No scale change; the centroid drifts by (+30,−20). The pan follows
         // by exactly that delta (pan-while-pinch), regardless of position.
