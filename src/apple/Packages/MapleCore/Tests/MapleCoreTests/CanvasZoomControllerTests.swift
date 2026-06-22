@@ -221,4 +221,32 @@ final class CanvasZoomControllerTests: XCTestCase {
         XCTAssertEqual(controller.session.pixelScale, 0.25, accuracy: 1e-9)
         XCTAssertEqual(controller.session.previewSize, CGSize(width: 2000, height: 1600))
     }
+
+    // MARK: - Live pinch transform (#1493)
+
+    func testGestureTransformLivePanIsClampedToCommittedPan() {
+        // Pan-while-pinch toward a corner: the live compositor drift must be
+        // clamped to the same legal region the commit uses, so the visual can't
+        // overshoot the viewport edge and snap back on release. With the focal
+        // at the viewport centre the focal-anchored pan is zero, so the live net
+        // pan IS the drift — assert it equals the committed pan and that it was
+        // clamped (the image stays attached).
+        let controller = makeController()
+        let focal = CGPoint(x: 500, y: 400)   // viewport centre → focalPan == 0
+        controller.pinchChanged(magnification: 1.0, location: focal)
+
+        let live = CGPoint(x: 0, y: 0)        // large drift toward the top-left
+        let t = controller.gestureTransform(magnification: 2.0, liveCentroid: live)
+        XCTAssertEqual(t.zoom, 2.0, accuracy: 1e-9, "fit→2× pinch from fit")
+        // Unclamped this pan would be (−500, −400); at 2× max pan is (500, 350),
+        // so the height clamps to −350 (the image stays attached on the bottom).
+        XCTAssertEqual(t.drift.width, -500, accuracy: 1e-6)
+        XCTAssertEqual(t.drift.height, -350, accuracy: 1e-6)
+
+        // The live drift equals the pan the gesture actually commits — no snap.
+        controller.pinchChanged(magnification: 2.0, location: live)
+        controller.pinchEnded(magnification: 2.0)
+        XCTAssertEqual(controller.panOffset.width, t.drift.width, accuracy: 1e-6)
+        XCTAssertEqual(controller.panOffset.height, t.drift.height, accuracy: 1e-6)
+    }
 }
