@@ -72,6 +72,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     @State private var gestureDrift: CGSize = .zero
     @State private var pinchActive = false
     @State private var pinchLastCentroid: CGPoint = .zero
+    // Magnification of the LAST rendered frame. The commit uses this (not the
+    // gesture-end recognizer scale, which differs as the fingers lift) so the
+    // committed scale/pan exactly matches the last frame shown — no snap.
+    @State private var pinchLastMag: CGFloat = 1
     #endif
 
     var body: some View {
@@ -194,6 +198,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             gestureAnchor = UnitPoint(x: unit.x, y: unit.y)
         }
         pinchLastCentroid = location
+        pinchLastMag = scale
         // Clamped to the same legal region the commit uses, so the live visual
         // can't overshoot the viewport edge and snap back on release.
         let transform = controller.gestureTransform(magnification: scale, liveCentroid: location)
@@ -212,12 +217,16 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             controller.pinchEnded(magnification: scale)
             return
         }
-        controller.pinchChanged(magnification: scale, location: pinchLastCentroid)
-        controller.pinchEnded(magnification: scale)
+        // Commit the LAST displayed frame's magnification + centroid (not the
+        // gesture-end scale, which drifts as the fingers lift) so the committed
+        // scale/pan equals what was on screen — the transform reset is pop-free.
+        controller.pinchChanged(magnification: pinchLastMag, location: pinchLastCentroid)
+        controller.pinchEnded(magnification: pinchLastMag)
         pinchActive = false
         gestureZoom = 1
         gestureDrift = .zero
         gestureAnchor = .center
+        pinchLastMag = 1
     }
     #endif
 
