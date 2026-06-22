@@ -174,7 +174,11 @@ fn defaults_includes_slice5_detail_fields() {
 fn parse_sharpen_amount_max() {
     let xml = load_fixture("test_0002/xmp/sharpen_amount_max.xmp");
     let m = parse(&xml).unwrap();
-    assert!(m.sharpen_amount >= 100.0, "sharpen_amount = {}", m.sharpen_amount);
+    assert!(
+        m.sharpen_amount >= 100.0,
+        "sharpen_amount = {}",
+        m.sharpen_amount
+    );
 }
 
 #[test]
@@ -182,7 +186,11 @@ fn parse_sharpen_amount_max() {
 fn parse_sharpen_radius_max() {
     let xml = load_fixture("test_0002/xmp/sharpen_radius_max.xmp");
     let m = parse(&xml).unwrap();
-    assert!(m.sharpen_radius >= 2.9, "sharpen_radius = {}", m.sharpen_radius);
+    assert!(
+        m.sharpen_radius >= 2.9,
+        "sharpen_radius = {}",
+        m.sharpen_radius
+    );
 }
 
 #[test]
@@ -266,6 +274,46 @@ fn parse_local_adjustments_linear_round_trips() {
 fn parse_local_adjustments_malformed_errors() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
         papp:LocalAdjustments="{not json}"/></x>"#;
+    assert!(parse(xml).is_err());
+}
+
+// -----------------------------------------------------------------
+// Inpaint removals (ticket #1486).
+// -----------------------------------------------------------------
+
+#[test]
+fn default_inpaint_removals_is_empty() {
+    let m = AdjustmentModel::default();
+    assert!(m.inpaint_removals.is_empty());
+}
+
+#[test]
+fn parse_inpaint_removals_round_trips() {
+    use crate::types::inpaint::{encode_removals, BakeGrade, Removal};
+    let removals = vec![Removal {
+        region: [0.25, 0.1, 0.5, 0.4],
+        patch_ref: "blake3:deadbeef".to_string(),
+        model_version: "lama-bigl-1".to_string(),
+        bake: BakeGrade {
+            temperature: 5500.0,
+            tint: 4.0,
+            exposure: 0.3,
+        },
+    }];
+    let attr = encode_removals(&removals);
+    let escaped = attr.replace('"', "&quot;");
+    let xml = format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:InpaintRemovals="{escaped}"/></x>"#
+    );
+    let m = parse(&xml).expect("parse");
+    assert_eq!(m.inpaint_removals, removals);
+}
+
+#[test]
+fn parse_inpaint_removals_malformed_errors() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:InpaintRemovals="{not json}"/></x>"#;
     assert!(parse(xml).is_err());
 }
 
@@ -411,11 +459,13 @@ fn parse_capture_sharpening_sigma_seen_does_not_leak_across_elements() {
 #[test]
 fn parse_auto_exposure_modes() {
     fn mode(v: &str) -> AutoExposureMode {
-        let x = format!(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:AutoExposure="{v}"/></x>"#);
+        let x = format!(
+            r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:AutoExposure="{v}"/></x>"#
+        );
         parse(&x).unwrap().auto_exposure
     }
     assert_eq!(mode("Off"), AutoExposureMode::Off);
-    assert_eq!(mode("on"),  AutoExposureMode::On);
+    assert_eq!(mode("on"), AutoExposureMode::On);
     let absent = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x" crs:Exposure2012="0.5"/></x>"#;
     assert_eq!(parse(absent).unwrap().auto_exposure, AutoExposureMode::On);
     let bad = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:AutoExposure="auto"/></x>"#;
@@ -478,10 +528,16 @@ fn profile_auto_is_default_and_omitted_from_serialized_output() {
     let mut model = crate::types::adjustment::AdjustmentModel::default();
     assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
     let xmp = crate::xmp::serialize(&model);
-    assert!(!xmp.contains("papp:Profile"), "default Auto should not serialize");
+    assert!(
+        !xmp.contains("papp:Profile"),
+        "default Auto should not serialize"
+    );
     model.profile = crate::types::adjustment::Profile::Neutral;
     let xmp = crate::xmp::serialize(&model);
-    assert!(xmp.contains(r#"papp:Profile="Neutral""#), "Neutral must serialize, got:\n{xmp}");
+    assert!(
+        xmp.contains(r#"papp:Profile="Neutral""#),
+        "Neutral must serialize, got:\n{xmp}"
+    );
 }
 
 #[test]
@@ -545,7 +601,10 @@ fn hot_pixel_suppression_serialize_roundtrip_and_default_omission() {
     );
     m.hot_pixel_suppression = HotPixelSuppressionMode::On;
     let frag = serialize(&m);
-    assert!(frag.contains(r#"papp:HotPixelSuppression="On""#), "got: {frag}");
+    assert!(
+        frag.contains(r#"papp:HotPixelSuppression="On""#),
+        "got: {frag}"
+    );
     let xml = format!(
         r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"{frag}/></x>"#
     );
