@@ -89,6 +89,7 @@ fn schema_matches_struct() {
         look,
         profile,
         local_adjustments,
+        inpaint_removals,
         tone_curve_mode,
         tone_curve_luma,
         tone_curve_red,
@@ -274,6 +275,10 @@ fn schema_matches_struct() {
         "AdjustmentModel::default().local_adjustments must be empty"
     );
     assert!(
+        inpaint_removals.is_empty(),
+        "AdjustmentModel::default().inpaint_removals must be empty"
+    );
+    assert!(
         crop.is_identity(),
         "AdjustmentModel::default().crop must be identity"
     );
@@ -288,10 +293,11 @@ fn schema_matches_struct() {
 #[test]
 fn schema_exemption_allowlist() {
     // `crop` added in #277: nested `Crop` struct, not a codegen scalar.
-    const ALLOWED: &[&str] = &["local_adjustments", "crop"];
+    // `inpaint_removals` added in #1486: Vec<Removal> structured payload.
+    const ALLOWED: &[&str] = &["local_adjustments", "inpaint_removals", "crop"];
     assert_eq!(
         ALLOWED.len(),
-        2,
+        3,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
     );
@@ -299,6 +305,11 @@ fn schema_exemption_allowlist() {
         ALLOWED.contains(&"local_adjustments"),
         "local_adjustments must remain on the schema-exemption allow-list \
          until the codegen table grows a structured-field FieldKind variant"
+    );
+    assert!(
+        ALLOWED.contains(&"inpaint_removals"),
+        "inpaint_removals must remain on the schema-exemption allow-list \
+         (Vec<Removal> structured payload, not a codegen-eligible scalar/enum)"
     );
     assert!(
         ALLOWED.contains(&"crop"),
