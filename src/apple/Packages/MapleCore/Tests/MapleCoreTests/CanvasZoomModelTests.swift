@@ -384,6 +384,16 @@ final class CanvasZoomModelTests: XCTestCase {
         XCTAssertEqual(pan.height, 50, accuracy: 0.001)
     }
 
+    func testDragEndedWhilePinchActiveDoesNotCommit() {
+        // The simultaneous drag can deliver its end before the pinch end (both
+        // fingers lifting together). While a pinch still owns the gesture, that
+        // drag-end must not commit a pan (which would also fire a mid-pinch
+        // session commit via the host) — the pinch commits on its own end.
+        var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 2.0, location: CGPoint(x: 500, y: 400), context: context)
+        XCTAssertFalse(model.dragEnded(), "a drag ending while a pinch is active must not commit a pan")
+    }
+
     func testDragResumingAfterPinchDoesNotJumpByPinchTravel() {
         // The simultaneous DragGesture reports `translation` cumulative from
         // the touch-sequence start and does NOT reset when the pinch ends. When
