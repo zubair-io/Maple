@@ -409,6 +409,15 @@ pub struct AdjustmentModel {
     /// (see `schema` module-level doc).
     pub local_adjustments: Vec<super::local_adjustment::LocalAdjustment>,
 
+    /// Baked AI-removal layers (ticket #1486). Each carries a mask region, a
+    /// content-hash reference to the synthetic-raw patch
+    /// (`.maple/inpaint/<patch_ref>.f16`), and the bake-grade snapshot. The
+    /// patch pixels are out-of-band; only this metadata round-trips through XMP
+    /// (`papp:InpaintRemovals`). **Not part of `ADJUSTMENT_SCHEMA`** (same
+    /// rationale as `local_adjustments`). Empty `Vec` (the default) is a no-op —
+    /// the compositor short-circuits.
+    pub inpaint_removals: Vec<super::inpaint::Removal>,
+
     /// Tone-curve application mode (ticket #436). Controls how the
     /// three per-channel `tone_curve_{red,green,blue}` curves are applied:
     /// `PerChannel` (default) treats them as three independent 1-D LUTs
@@ -561,6 +570,7 @@ impl Default for AdjustmentModel {
             // `papp:Profile="Neutral"` (AgX scene-referred view transform).
             profile: Profile::Auto,
             local_adjustments: Vec::new(),
+            inpaint_removals: Vec::new(),
             // Per-#436: `PerChannel` is the pre-existing behavior. Default
             // chosen for backward compatibility — `RatioPreserving` is opt-in.
             tone_curve_mode: ToneCurveMode::PerChannel,
