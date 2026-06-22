@@ -227,6 +227,14 @@ fn set_field(
                 crate::types::local_adjustment::decode_local_adjustments(value)
                     .map_err(|e| Error::Xmp(format!("LocalAdjustments: {e}")))?;
         }
+        // Baked AI removals (#1486). Compact-JSON array of removal metadata
+        // (region + patch_ref + bake snapshot); patch pixels live out-of-band in
+        // `.maple/inpaint/`. Tolerant reader — unknown element kinds skip, only a
+        // corrupt removal errors.
+        "papp:InpaintRemovals" => {
+            m.inpaint_removals = crate::types::inpaint::decode_removals(value)
+                .map_err(|e| Error::Xmp(format!("InpaintRemovals: {e}")))?;
+        }
         "papp:HighlightRecoveryMode" => {
             m.highlight_recovery = match value {
                 "off" | "Off" => HighlightRecoveryMode::Off,
