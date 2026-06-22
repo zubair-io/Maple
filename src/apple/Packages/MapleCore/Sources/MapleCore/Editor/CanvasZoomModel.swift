@@ -113,6 +113,12 @@ public struct CanvasZoomModel: Equatable, Sendable {
     /// Pan committed at the end of the last drag — live drags accumulate
     /// `translation` on top of this.
     public private(set) var basePan: CGSize = .zero
+    /// The simultaneous SwiftUI `DragGesture` reports `translation` cumulative
+    /// from the touch-sequence start and never resets when a pinch ends. While
+    /// a pinch suppresses the drag we record the latest translation here so a
+    /// post-pinch drag (a finger lifted, one still down) measures deltas from
+    /// this baseline instead of jumping by the whole pinch-time travel.
+    public private(set) var dragTranslationBase: CGSize?
     /// Scale captured at pinch start (compounding guard + snap basis).
     public private(set) var pinchStartScale: CGFloat?
     /// Pan captured at pinch start. Each frame re-derives the pan from these
@@ -367,15 +373,21 @@ public struct CanvasZoomModel: Equatable, Sendable {
     /// the editing surface and the model must not move.
     @discardableResult
     public mutating func dragChanged(translation: CGSize, context: CanvasZoomContext) -> Bool {
-        guard dragIntent == .pan else { return false }
         // A two-finger pinch also fires the simultaneous drag gesture (the
         // touch centroid moves). While a pinch is active the pinch owns pan —
         // letting the drag write `panOffset` too means two writers fight every
-        // frame, which reads as the zoom jittering / lagging behind the fingers.
-        guard pinchStartScale == nil else { return false }
+        // frame. Record the running translation so that if the pinch ends with
+        // a finger still down, the resuming drag measures deltas from here and
+        // doesn't jump by the whole pinch-time travel.
+        guard pinchStartScale == nil else {
+            dragTranslationBase = translation
+            return false
+        }
+        guard dragIntent == .pan else { return false }
+        let base = dragTranslationBase ?? .zero
         let raw = CGSize(
-            width: basePan.width + translation.width,
-            height: basePan.height + translation.height
+            width: basePan.width + translation.width - base.width,
+            height: basePan.height + translation.height - base.height
         )
         panOffset = context.clampedPan(raw, at: pixelScale)
         return true
@@ -385,6 +397,8 @@ public struct CanvasZoomModel: Equatable, Sendable {
     /// pan was committed (callers push the new visible rect on commit).
     @discardableResult
     public mutating func dragEnded() -> Bool {
+        // The touch sequence is over — the next drag starts a fresh baseline.
+        dragTranslationBase = nil
         guard dragIntent == .pan else { return false }
         basePan = panOffset
         return true
@@ -473,6 +487,7 @@ public struct CanvasZoomModel: Equatable, Sendable {
         pixelScale = 0
         panOffset = .zero
         basePan = .zero
+        dragTranslationBase = nil
         pinchStartScale = nil
         pinchStartPan = .zero
         pinchStartCentroid = .zero
