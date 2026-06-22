@@ -77,8 +77,11 @@ public final class CanvasZoomController {
         magnification: CGFloat,
         liveCentroid: CGPoint
     ) -> (zoom: CGFloat, drift: CGSize) {
-        let start = model.pinchStartScale ?? context.effectiveScale(for: model.pixelScale)
-        guard start > 0 else { return (1, .zero) }
+        // Require the start-capture frame (`pinchChanged` magnification 1) to
+        // have run: the drift is derived from `pinchStartCentroid`/`Pan`, which
+        // default to .zero, so without a capture the result would be computed
+        // from an inconsistent start state. No capture → identity transform.
+        guard let start = model.pinchStartScale, start > 0 else { return (1, .zero) }
         let next = CanvasZoomModel.pinchScale(
             start: start, magnification: magnification, fit: context.fitScale
         )
