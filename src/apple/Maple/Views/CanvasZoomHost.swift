@@ -76,6 +76,11 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // gesture-end recognizer scale, which differs as the fingers lift) so the
     // committed scale/pan exactly matches the last frame shown — no snap.
     @State private var pinchLastMag: CGFloat = 1
+    // Live effective scale shown in the zoom badge during a pinch. `pixelScale`
+    // is frozen mid-gesture (the zoom is a compositor transform), so the badge
+    // would otherwise read the pre-pinch value — drive it from the live factor.
+    // nil → not pinching → badge reads the committed `effectivePixelScale`.
+    @State private var liveZoomScale: CGFloat?
     #endif
 
     var body: some View {
@@ -204,6 +209,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         let transform = controller.gestureTransform(magnification: scale, liveCentroid: location)
         gestureZoom = transform.zoom
         gestureDrift = transform.drift
+        // `effectivePixelScale` is frozen at the start scale mid-gesture, so
+        // `start × zoom` == the live (would-be-committed) scale for the badge.
+        liveZoomScale = controller.effectivePixelScale * transform.zoom
     }
 
     /// Pinch release: commit the final scale + focal-anchored pan to the model
@@ -227,6 +235,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         gestureDrift = .zero
         gestureAnchor = .center
         pinchLastMag = 1
+        liveZoomScale = nil
     }
     #endif
 
@@ -300,7 +309,13 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// container above keeps it anchored to the visible canvas, not the
     /// potentially-huge image frame.
     private var zoomBadge: some View {
+        #if os(iOS)
+        // During an iOS pinch `pixelScale` is frozen (the zoom is a compositor
+        // transform), so read the live factor; macOS updates pixelScale live.
+        let scale = liveZoomScale ?? controller.effectivePixelScale
+        #else
         let scale = controller.effectivePixelScale
+        #endif
         return Text(FullImageViewVM.zoomPercentLabel(for: scale))
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(.white)
