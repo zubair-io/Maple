@@ -63,6 +63,49 @@ public final class CanvasZoomController {
         context.effectiveScale(for: model.pixelScale)
     }
 
+    /// Live pinch transform for the iOS host's compositor `.scaleEffect` +
+    /// `.offset` (#1493): the scale factor relative to the start-captured scale,
+    /// and the pan drift. Both are computed with the SAME clamps the gesture
+    /// will commit to — `pinchScale` for the scale, `clampedPan` for the pan —
+    /// so the live visual can neither over-zoom nor detach the image from the
+    /// viewport, and therefore never snaps back on release. The `drift` is the
+    /// clamped pan MINUS the focal-anchored pan the `.scaleEffect(anchor:)` alone
+    /// produces, so `scaleEffect(zoom, anchor: focal).offset(drift)` lands
+    /// exactly on the committed `panOffset`. Call only between the start
+    /// `pinchChanged` (magnification 1) and `pinchEnded`.
+    public func gestureTransform(
+        magnification: CGFloat,
+        liveCentroid: CGPoint
+    ) -> (zoom: CGFloat, drift: CGSize) {
+        let start = model.pinchStartScale ?? context.effectiveScale(for: model.pixelScale)
+        guard start > 0 else { return (1, .zero) }
+        let next = CanvasZoomModel.pinchScale(
+            start: start, magnification: magnification, fit: context.fitScale
+        )
+        let startCentroid = model.pinchStartCentroid
+        let startPan = model.pinchStartPan
+        let vp = context.viewportPoints
+        // Pan from the focal-anchored zoom alone (no centroid drift) — this is
+        // what `.scaleEffect(zoom, anchor: focal)` produces on its own.
+        let focalPan = CanvasZoomModel.livePinchPan(
+            liveCentroid: startCentroid, startCentroid: startCentroid,
+            startPan: startPan, startScale: start, newScale: next, viewportPoints: vp
+        )
+        // Full focal + drift pan, clamped to the legal region (what the commit
+        // will land on). `.offset(drift)` carries the difference.
+        let committed = context.clampedPan(
+            CanvasZoomModel.livePinchPan(
+                liveCentroid: liveCentroid, startCentroid: startCentroid,
+                startPan: startPan, startScale: start, newScale: next, viewportPoints: vp
+            ),
+            at: next
+        )
+        return (
+            next / start,
+            CGSize(width: committed.width - focalPan.width, height: committed.height - focalPan.height)
+        )
+    }
+
     /// On-screen image frame (points) at the current zoom. `nil` until
     /// the native size is seeded — consumers show their fallback.
     public var displayFrameInPoints: CGSize? {
