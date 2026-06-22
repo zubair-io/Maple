@@ -113,13 +113,18 @@ public struct CanvasZoomModel: Equatable, Sendable {
     /// Pan committed at the end of the last drag — live drags accumulate
     /// `translation` on top of this.
     public private(set) var basePan: CGSize = .zero
-    /// Scale captured at pinch start (compounding guard).
+    /// Scale captured at pinch start (compounding guard + snap basis).
     public private(set) var pinchStartScale: CGFloat?
-    /// Pan captured at pinch start — the anchored-zoom formula derives
-    /// each frame's pan from the start pan, not the live one.
+    /// Pan captured at pinch start. Each frame re-derives the pan from these
+    /// start values (not the previous, possibly-clamped frame) so per-frame
+    /// pan clamping can't accumulate and drift the zoom anchor.
     public private(set) var pinchStartPan: CGSize = .zero
-    /// Gesture anchor (viewport points) captured at pinch start.
-    public private(set) var pinchAnchor: CGPoint = .zero
+    /// Centroid (viewport points) captured at pinch start — the scale change
+    /// anchors here, then translates by how far the live centroid has moved.
+    public private(set) var pinchStartCentroid: CGPoint = .zero
+    /// Most recent live centroid — lets `pinchEnded` finalise at the same
+    /// focal point the last `pinchChanged` used.
+    public private(set) var pinchLastCentroid: CGPoint = .zero
 
     public init() {}
 
@@ -273,59 +278,82 @@ public struct CanvasZoomModel: Equatable, Sendable {
             start = context.effectiveScale(for: pixelScale)
             pinchStartScale = start
             pinchStartPan = panOffset
-            pinchAnchor = location
+            pinchStartCentroid = location
         }
         let fit = context.fitScale
         let next = Self.pinchScale(start: start, magnification: magnification, fit: fit)
         pixelScale = next
         panOffset = context.clampedPan(
-            Self.anchoredPan(
-                anchor: pinchAnchor,
-                viewportPoints: context.viewportPoints,
+            Self.livePinchPan(
+                liveCentroid: location,
+                startCentroid: pinchStartCentroid,
                 startPan: pinchStartPan,
                 startScale: start,
-                newScale: next
+                newScale: next,
+                viewportPoints: context.viewportPoints
             ),
             at: next
+        )
+        pinchLastCentroid = location
+    }
+
+    /// Pan that keeps the image point under the gesture's START centroid fixed
+    /// under the LIVE centroid, across a `startScale → newScale` change. Derived
+    /// fresh from the START values every frame (never the previous frame), so
+    /// per-frame pan clamping can't accumulate and drift the anchor. A static,
+    /// pure function of its inputs — easy to unit-test.
+    ///
+    /// `newPan = aLive − (aStart − startPan)·(newScale/startScale)`
+    /// where `a· = centroid − viewportCenter`. Pure scale (centroids equal)
+    /// reduces to a start-anchored zoom; pure centroid drift (scales equal)
+    /// translates the pan by the centroid delta (pan-while-pinch).
+    public static func livePinchPan(
+        liveCentroid: CGPoint,
+        startCentroid: CGPoint,
+        startPan: CGSize,
+        startScale: CGFloat,
+        newScale: CGFloat,
+        viewportPoints: CGSize
+    ) -> CGSize {
+        guard startScale > 0 else { return startPan }
+        let halfW = viewportPoints.width / 2
+        let halfH = viewportPoints.height / 2
+        let ratio = newScale / startScale
+        return CGSize(
+            width: (liveCentroid.x - halfW) - ((startCentroid.x - halfW) - startPan.width) * ratio,
+            height: (liveCentroid.y - halfH) - ((startCentroid.y - halfH) - startPan.height) * ratio
         )
     }
 
     /// Pinch release: commit the final scale, snap to fit when the
     /// gesture ended within tolerance, clear the start capture.
     public mutating func pinchEnded(magnification: CGFloat, context: CanvasZoomContext) {
-        let start: CGFloat
-        let startPan: CGSize
-        let anchor: CGPoint
-        if let captured = pinchStartScale {
-            start = captured
-            startPan = pinchStartPan
-            anchor = pinchAnchor
-        } else {
-            // Degenerate gesture — ended without a change frame. Anchor
-            // at the viewport center so the zoom stays where it was.
-            start = context.effectiveScale(for: pixelScale)
-            startPan = panOffset
-            anchor = CGPoint(x: context.viewportPoints.width / 2,
-                             y: context.viewportPoints.height / 2)
-        }
         let fit = context.fitScale
-        let final = Self.pinchScale(start: start, magnification: magnification, fit: fit)
-        pixelScale = final
-        panOffset = context.clampedPan(
-            Self.anchoredPan(
-                anchor: anchor,
-                viewportPoints: context.viewportPoints,
-                startPan: startPan,
-                startScale: start,
-                newScale: final
-            ),
-            at: final
-        )
+        // Commit the final scale anchored at the same focal point the last
+        // frame used (derived from the START values). When `pinchStartScale`
+        // is nil the gesture ended without a change frame — leave it untouched.
+        if let start = pinchStartScale {
+            let final = Self.pinchScale(start: start, magnification: magnification, fit: fit)
+            pixelScale = final
+            panOffset = context.clampedPan(
+                Self.livePinchPan(
+                    liveCentroid: pinchLastCentroid,
+                    startCentroid: pinchStartCentroid,
+                    startPan: pinchStartPan,
+                    startScale: start,
+                    newScale: final,
+                    viewportPoints: context.viewportPoints
+                ),
+                at: final
+            )
+        }
         pinchStartScale = nil
         pinchStartPan = .zero
-        pinchAnchor = .zero
+        pinchStartCentroid = .zero
+        pinchLastCentroid = .zero
 
-        if Self.shouldSnapToFit(final, fit: fit) {
+        let finalScale = context.effectiveScale(for: pixelScale)
+        if Self.shouldSnapToFit(finalScale, fit: fit) {
             resetToFit()
         } else {
             basePan = panOffset
@@ -340,6 +368,11 @@ public struct CanvasZoomModel: Equatable, Sendable {
     @discardableResult
     public mutating func dragChanged(translation: CGSize, context: CanvasZoomContext) -> Bool {
         guard dragIntent == .pan else { return false }
+        // A two-finger pinch also fires the simultaneous drag gesture (the
+        // touch centroid moves). While a pinch is active the pinch owns pan —
+        // letting the drag write `panOffset` too means two writers fight every
+        // frame, which reads as the zoom jittering / lagging behind the fingers.
+        guard pinchStartScale == nil else { return false }
         let raw = CGSize(
             width: basePan.width + translation.width,
             height: basePan.height + translation.height
@@ -442,7 +475,8 @@ public struct CanvasZoomModel: Equatable, Sendable {
         basePan = .zero
         pinchStartScale = nil
         pinchStartPan = .zero
-        pinchAnchor = .zero
+        pinchStartCentroid = .zero
+        pinchLastCentroid = .zero
     }
 
     /// Explicit zoom target (toolbar "100%", ⌘1). Clamped; pan resets

@@ -365,4 +365,37 @@ final class CanvasZoomModelTests: XCTestCase {
         XCTAssertEqual(model.panOffset, .zero)
         XCTAssertNil(empty.displayFrameInPoints(at: model.pixelScale))
     }
+
+    // MARK: - Live-centroid pinch pan (focal point + pan-while-pinch)
+
+    func testLivePinchPanPureScaleAnchorsAtCentroid() {
+        // Centroid fixed at the top-left quadrant; scale doubles. The image
+        // point under the centroid must stay put: with a 200×200 viewport,
+        // a = centroid − centre = (−50,−50); pan = a − a·2 = −a = (50,50).
+        let pan = CanvasZoomModel.livePinchPan(
+            liveCentroid: CGPoint(x: 50, y: 50),
+            startCentroid: CGPoint(x: 50, y: 50),
+            startPan: .zero,
+            startScale: 1,
+            newScale: 2,
+            viewportPoints: CGSize(width: 200, height: 200)
+        )
+        XCTAssertEqual(pan.width, 50, accuracy: 0.001)
+        XCTAssertEqual(pan.height, 50, accuracy: 0.001)
+    }
+
+    func testLivePinchPanPureCentroidDriftPansByDelta() {
+        // No scale change; the centroid drifts by (+30,−20). The pan follows
+        // by exactly that delta (pan-while-pinch), regardless of position.
+        let pan = CanvasZoomModel.livePinchPan(
+            liveCentroid: CGPoint(x: 130, y: 80),
+            startCentroid: CGPoint(x: 100, y: 100),
+            startPan: CGSize(width: 10, height: 10),
+            startScale: 2,
+            newScale: 2,
+            viewportPoints: CGSize(width: 200, height: 200)
+        )
+        XCTAssertEqual(pan.width, 40, accuracy: 0.001)
+        XCTAssertEqual(pan.height, -10, accuracy: 0.001)
+    }
 }

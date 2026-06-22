@@ -33,6 +33,9 @@
 
 import SwiftUI
 import MapleCore
+#if os(iOS)
+import UIKit
+#endif
 
 struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// Zoom state + EditSession plumbing. Owned by the consumer so
@@ -74,7 +77,23 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .clipped()
             .contentShape(Rectangle())
-            .gesture(magnifyGesture)
+            #if os(iOS)
+            // UIKit pinch — its `location(in:)` reports the exact two-finger
+            // centroid, which SwiftUI's `MagnifyGesture` did not anchor on
+            // dependably (the zoom drifted off the fingers).
+            .gesture(
+                CanvasPinchGesture(
+                    onChanged: { scale, location in
+                        controller.pinchChanged(magnification: scale, location: location)
+                    },
+                    onEnded: { scale in
+                        controller.pinchEnded(magnification: scale)
+                    }
+                )
+            )
+            #else
+            .gesture(magnifyGesture(viewport: geo.size))
+            #endif
             .simultaneousGesture(dragGesture)
             .onTapGesture(count: 2) { location in
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -112,21 +131,27 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
 
     // MARK: - Gestures
 
-    private var magnifyGesture: some Gesture {
+    #if os(macOS)
+    private func magnifyGesture(viewport: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
                 // The controller captures the start scale/pan/anchor on
                 // the first frame — `magnification` is cumulative, so
                 // anchoring against the live scale would compound.
+                let anchor = CGPoint(
+                    x: value.startAnchor.x * viewport.width,
+                    y: value.startAnchor.y * viewport.height
+                )
                 controller.pinchChanged(
                     magnification: value.magnification,
-                    location: value.startLocation
+                    location: anchor
                 )
             }
             .onEnded { value in
                 controller.pinchEnded(magnification: value.magnification)
             }
     }
+    #endif
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 1)
@@ -210,6 +235,42 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             .accessibilityIdentifier("canvas-zoom-indicator")
     }
 }
+
+// MARK: - CanvasPinchGesture (iOS)
+
+#if os(iOS)
+/// Bridges a UIKit `UIPinchGestureRecognizer` into SwiftUI so the canvas
+/// zoom can anchor at the EXACT two-finger centroid. `recognizer.scale` is
+/// the cumulative magnification since the gesture began (matching what the
+/// `CanvasZoomController` expects); `recognizer.location(in:)` is the centroid
+/// in the gesture view's local space — the reliable focal point SwiftUI's
+/// `MagnifyGesture` (startAnchor / startLocation) failed to provide.
+private struct CanvasPinchGesture: UIGestureRecognizerRepresentable {
+    let onChanged: (CGFloat, CGPoint) -> Void
+    let onEnded: (CGFloat) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIPinchGestureRecognizer {
+        UIPinchGestureRecognizer()
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPinchGestureRecognizer, context: Context) {
+        // `context.converter.localLocation` is the centroid in the SwiftUI
+        // view's LOCAL space (the viewport) — the space the zoom math uses.
+        // `recognizer.location(in: recognizer.view)` is measured against a
+        // larger hosting view whose origin sits above the viewport, so it read
+        // `y` too large and the focal point landed below the fingers.
+        let centroid = context.converter.localLocation
+        switch recognizer.state {
+        case .began, .changed:
+            onChanged(recognizer.scale, centroid)
+        case .ended, .cancelled, .failed:
+            onEnded(recognizer.scale)
+        default:
+            break
+        }
+    }
+}
+#endif
 
 // MARK: - ScrollWheelCatcher (macOS)
 
