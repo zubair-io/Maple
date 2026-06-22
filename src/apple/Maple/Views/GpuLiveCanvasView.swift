@@ -133,12 +133,17 @@ struct GpuLiveCanvasView: NSViewRepresentable {
         override func makeBackingLayer() -> CALayer { controller.layer }
         override func layout() {
             super.layout()
+            // Apply layer geometry instantly — no implicit resize animation on
+            // a zoom commit (mirrors the iOS sublayer fix, #1495).
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             controller.layer.frame = bounds
             let scale = window?.backingScaleFactor ?? 2.0
             controller.layoutAndPresent(
                 pixelWidth: bounds.width * scale,
                 pixelHeight: bounds.height * scale
             )
+            CATransaction.commit()
         }
     }
 }
@@ -171,12 +176,20 @@ struct GpuLiveCanvasView: UIViewRepresentable {
         override func layoutSubviews() {
             super.layoutSubviews()
             let scale = window?.screen.scale ?? UIScreen.main.scale
+            // The canvas layer is a SUBLAYER, so its geometry changes implicitly
+            // animate (~0.25s). When the frame grows on a zoom commit the layer
+            // would animate from `(0,0, oldSize)` outward — the image visibly
+            // slides from the top-left and snaps to place. Disable the implicit
+            // actions so the new size/scale apply instantly. (#1495)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             controller.layer.frame = bounds
             controller.layer.contentsScale = scale
             controller.layoutAndPresent(
                 pixelWidth: bounds.width * scale,
                 pixelHeight: bounds.height * scale
             )
+            CATransaction.commit()
         }
     }
 }
