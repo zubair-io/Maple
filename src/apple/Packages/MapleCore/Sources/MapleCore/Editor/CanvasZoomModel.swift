@@ -399,6 +399,12 @@ public struct CanvasZoomModel: Equatable, Sendable {
     public mutating func dragEnded() -> Bool {
         // The touch sequence is over — the next drag starts a fresh baseline.
         dragTranslationBase = nil
+        // If a pinch still owns the gesture (both fingers lifting together can
+        // deliver the drag-end before the pinch-end), the pinch commits the
+        // pan — the suppressed drag must not, or it both re-commits a pan the
+        // drag never performed and fires a mid-pinch session commit (the host's
+        // `dragEnded` calls `commitToSession`), defeating "pinch owns pan".
+        guard pinchStartScale == nil else { return false }
         guard dragIntent == .pan else { return false }
         basePan = panOffset
         return true
