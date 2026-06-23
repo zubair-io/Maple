@@ -108,6 +108,69 @@ pub fn patch_from_bytes(bytes: &[u8]) -> Result<InpaintPatch, String> {
     })
 }
 
+/// Concatenate multiple patches into one FFI transport blob:
+/// `[u32 count][patch0][patch1]…`, each `patchK` the self-describing
+/// [`patch_to_bytes`] record (its header carries `w`/`h`, so the decoder walks
+/// records without a separate length table). Empty input → 4-byte `count=0`.
+/// Used to hand a render's active patch set across the C-ABI in one pointer.
+pub fn patches_to_blob(patches: &[InpaintPatch]) -> Vec<u8> {
+    let mut out = (patches.len() as u32).to_le_bytes().to_vec();
+    for p in patches {
+        out.extend_from_slice(&patch_to_bytes(p));
+    }
+    out
+}
+
+/// Inverse of [`patches_to_blob`]. Validates the count, then walks each record
+/// by computing its length from the per-patch header (`HEADER_LEN + w*h*8`).
+/// Errors on a truncated count / header / body rather than reading out of
+/// bounds — the blob crosses the FFI boundary, so it is treated as untrusted.
+pub fn patches_from_blob(bytes: &[u8]) -> Result<Vec<InpaintPatch>, String> {
+    if bytes.len() < 4 {
+        return Err(format!(
+            "inpaint blob: truncated count ({} < 4 bytes)",
+            bytes.len()
+        ));
+    }
+    let count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    let mut off = 4;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        if bytes.len() < off + HEADER_LEN {
+            return Err(format!("inpaint blob: truncated header for patch {i}"));
+        }
+        // `width`/`height` live at byte offsets 8 and 12 within the record header.
+        let w = u32::from_le_bytes([
+            bytes[off + 8],
+            bytes[off + 9],
+            bytes[off + 10],
+            bytes[off + 11],
+        ]) as usize;
+        let h = u32::from_le_bytes([
+            bytes[off + 12],
+            bytes[off + 13],
+            bytes[off + 14],
+            bytes[off + 15],
+        ]) as usize;
+        let n = w
+            .checked_mul(h)
+            .ok_or_else(|| format!("inpaint blob: patch {i} dimension overflow"))?;
+        // 3 fp16 pixel lanes + 1 fp16 coverage lane = 8 bytes/pixel.
+        let body = n
+            .checked_mul(8)
+            .ok_or_else(|| format!("inpaint blob: patch {i} body overflow"))?;
+        let end = off
+            .checked_add(HEADER_LEN + body)
+            .ok_or_else(|| format!("inpaint blob: patch {i} offset overflow"))?;
+        if bytes.len() < end {
+            return Err(format!("inpaint blob: truncated body for patch {i}"));
+        }
+        out.push(patch_from_bytes(&bytes[off..end])?);
+        off = end;
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +237,49 @@ mod tests {
         bytes[4] = 0xFF;
         bytes[5] = 0xFF;
         assert!(patch_from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn blob_round_trips_variable_size_patches() {
+        let a = sample(); // 3×2
+        let mut b = sample();
+        b.width = 2;
+        b.height = 2;
+        b.pixels = vec![[0.1, 0.2, 0.3]; 4];
+        b.coverage = vec![0.5; 4];
+        let blob = patches_to_blob(&[a.clone(), b.clone()]);
+        let back = patches_from_blob(&blob).expect("decode blob");
+        assert_eq!(back.len(), 2);
+        for (got, want) in back.iter().zip([&a, &b]) {
+            assert_eq!(got.width, want.width);
+            assert_eq!(got.height, want.height);
+            assert_eq!(got.origin, want.origin);
+            assert_eq!(got.extent, want.extent);
+            assert_eq!(got.pixels.len(), want.pixels.len());
+            assert!(got.is_valid());
+        }
+    }
+
+    #[test]
+    fn blob_empty_is_count_zero() {
+        let blob = patches_to_blob(&[]);
+        assert_eq!(blob, 0u32.to_le_bytes().to_vec());
+        assert!(patches_from_blob(&blob).unwrap().is_empty());
+    }
+
+    #[test]
+    fn blob_truncated_errors() {
+        let blob = patches_to_blob(&[sample()]);
+        assert!(patches_from_blob(&blob[..2]).is_err()); // truncated count
+        assert!(patches_from_blob(&blob[..10]).is_err()); // truncated header
+        assert!(patches_from_blob(&blob[..blob.len() - 4]).is_err()); // truncated body
+    }
+
+    #[test]
+    fn blob_overlong_count_errors() {
+        // Count claims 5 patches but there is no body to back it.
+        let mut blob = 5u32.to_le_bytes().to_vec();
+        blob.extend_from_slice(&[0u8; 4]);
+        assert!(patches_from_blob(&blob).is_err());
     }
 }

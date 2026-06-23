@@ -33,7 +33,7 @@ mod render;
 mod scene_linear_chain;
 mod tile;
 
-pub use inpaint_store::{patch_from_bytes, patch_to_bytes};
+pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, patches_to_blob};
 
 /// Phase-1 end-to-end seam test (#1484): baked patch composited at the
 /// pre-grade seam via the real stages re-grades like sensor data. Test-only.
