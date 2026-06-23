@@ -3,6 +3,7 @@
   <div class="px-4 py-[5px]">
     @if (editing()) {
       <textarea
+        aria-label="Description caption"
         rows="3"
         class="box-border w-full rounded-[3px] border-[0.5px] border-border bg-input-bg px-1.5 py-1 text-[11px] text-text-main outline-none focus:border-primary resize-y"
         [value]="draft()"
