@@ -63,50 +63,39 @@ public final class CanvasZoomController {
         context.effectiveScale(for: model.pixelScale)
     }
 
-    /// Live pinch transform for the iOS host's compositor `.scaleEffect` +
-    /// `.offset` (#1493): the scale factor relative to the start-captured scale,
-    /// and the pan drift. Both are computed with the SAME clamps the gesture
-    /// will commit to — `pinchScale` for the scale, `clampedPan` for the pan —
-    /// so the live visual can neither over-zoom nor detach the image from the
-    /// viewport, and therefore never snaps back on release. The `drift` is the
-    /// clamped pan MINUS the focal-anchored pan the `.scaleEffect(anchor:)` alone
-    /// produces, so `scaleEffect(zoom, anchor: focal).offset(drift)` lands
-    /// exactly on the committed `panOffset`. Call only between the start
+    /// Live pinch transform for the iOS host's compositor `.scaleEffect(anchor:
+    /// .center)` + `.offset` (#1493): the scale factor relative to the
+    /// start-captured scale, and the would-be COMMITTED pan. Both use the SAME
+    /// clamps the release will — `pinchScale` for the scale, `clampedPan` for the
+    /// pan — so the live visual can't over-zoom or detach the image, and the pan
+    /// (which carries the focal anchor via `livePinchPan`) makes the live visual
+    /// land exactly on the committed `panOffset`: scaling the frozen frame about
+    /// its centre and offsetting by `committedPan` reproduces the committed
+    /// geometry, so there's no jump on release. Call only between the start
     /// `pinchChanged` (magnification 1) and `pinchEnded`.
     public func gestureTransform(
         magnification: CGFloat,
         liveCentroid: CGPoint
-    ) -> (zoom: CGFloat, drift: CGSize) {
+    ) -> (zoom: CGFloat, committedPan: CGSize) {
         // Require the start-capture frame (`pinchChanged` magnification 1) to
-        // have run: the drift is derived from `pinchStartCentroid`/`Pan`, which
+        // have run: the pan is derived from `pinchStartCentroid`/`Pan`, which
         // default to .zero, so without a capture the result would be computed
         // from an inconsistent start state. No capture → identity transform.
         guard let start = model.pinchStartScale, start > 0 else { return (1, .zero) }
         let next = CanvasZoomModel.pinchScale(
             start: start, magnification: magnification, fit: context.fitScale
         )
-        let startCentroid = model.pinchStartCentroid
-        let startPan = model.pinchStartPan
-        let vp = context.viewportPoints
-        // Pan from the focal-anchored zoom alone (no centroid drift) — this is
-        // what `.scaleEffect(zoom, anchor: focal)` produces on its own.
-        let focalPan = CanvasZoomModel.livePinchPan(
-            liveCentroid: startCentroid, startCentroid: startCentroid,
-            startPan: startPan, startScale: start, newScale: next, viewportPoints: vp
-        )
-        // Full focal + drift pan, clamped to the legal region (what the commit
-        // will land on). `.offset(drift)` carries the difference.
         let committed = context.clampedPan(
             CanvasZoomModel.livePinchPan(
-                liveCentroid: liveCentroid, startCentroid: startCentroid,
-                startPan: startPan, startScale: start, newScale: next, viewportPoints: vp
+                liveCentroid: liveCentroid,
+                startCentroid: model.pinchStartCentroid,
+                startPan: model.pinchStartPan,
+                startScale: start, newScale: next,
+                viewportPoints: context.viewportPoints
             ),
             at: next
         )
-        return (
-            next / start,
-            CGSize(width: committed.width - focalPan.width, height: committed.height - focalPan.height)
-        )
+        return (next / start, committed)
     }
 
     /// On-screen image frame (points) at the current zoom. `nil` until
