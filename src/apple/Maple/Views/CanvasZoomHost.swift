@@ -63,13 +63,14 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     @State private var nudgeAccumulator = CanvasWheelNudgeAccumulator()
     #endif
     #if os(iOS)
-    // Live pinch is rendered as a compositor `.scaleEffect` on the committed
-    // frame — `pixelScale` is left untouched until release, so the frame never
-    // grows mid-gesture and the canvas never re-decodes per frame (#1493). At
-    // rest these are identity, so the modifier chain is inert.
+    // Live pinch is rendered as a compositor `.scaleEffect` about the viewport
+    // CENTRE — `pixelScale` is left untouched until release, so the frame never
+    // grows mid-gesture and the canvas never re-decodes per frame (#1493). The
+    // focal-anchoring lives entirely in `gestureCommittedPan` (the would-be
+    // committed pan), so the live visual equals the committed geometry exactly.
+    // At rest `gestureZoom == 1`, so the modifier chain is inert.
     @State private var gestureZoom: CGFloat = 1
-    @State private var gestureAnchor: UnitPoint = .center
-    @State private var gestureDrift: CGSize = .zero
+    @State private var gestureCommittedPan: CGSize = .zero
     @State private var pinchActive = false
     @State private var pinchLastCentroid: CGPoint = .zero
     // Magnification of the LAST rendered frame. The commit uses this (not the
@@ -89,13 +90,18 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
                 if canvasReady, let frame = controller.displayFrameInPoints {
                     canvasLeaf()
                         .frame(width: frame.width, height: frame.height)
-                        .offset(controller.panOffset)
                         #if os(iOS)
-                        // Live pinch: scale the committed frame in the
-                        // compositor (cheap, no re-decode) + follow the
-                        // centroid drift. Inert at rest (zoom 1, drift 0).
-                        .scaleEffect(gestureZoom, anchor: gestureAnchor)
-                        .offset(gestureDrift)
+                        // Live pinch: scale the frozen frame about its centre in
+                        // the compositor (cheap, no re-decode), positioned by the
+                        // would-be committed pan (which carries the focal anchor).
+                        // `.scaleEffect(1)` is identity at rest. On release the
+                        // frame grows to `frame×zoom` with `panOffset ==
+                        // gestureCommittedPan`, which is geometrically identical —
+                        // no jump.
+                        .scaleEffect(gestureZoom, anchor: .center)
+                        .offset(pinchActive ? gestureCommittedPan : controller.panOffset)
+                        #else
+                        .offset(controller.panOffset)
                         #endif
                 } else {
                     fallback()
@@ -114,7 +120,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             .gesture(
                 CanvasPinchGesture(
                     onChanged: { scale, location in
-                        pinchChangedLive(scale: scale, location: location, viewport: geo.size)
+                        pinchChangedLive(scale: scale, location: location)
                     },
                     onEnded: { scale in
                         pinchEndedLive(scale: scale)
@@ -190,25 +196,23 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// this focal + the start scale/pan; subsequent frames only update the cheap
     /// `.scaleEffect` (no `pixelScale` write → no frame growth → no per-frame
     /// re-decode, which was the lag).
-    private func pinchChangedLive(scale: CGFloat, location: CGPoint, viewport: CGSize) {
+    private func pinchChangedLive(scale: CGFloat, location: CGPoint) {
         if !pinchActive {
             pinchActive = true
+            // Capture the start state in the model (magnification 1 → no change)
+            // so the release commit + the live `gestureTransform` both anchor at
+            // this focal + the start scale/pan.
             controller.pinchChanged(magnification: 1.0, location: location)
-            let unit = CanvasZoomModel.pinchAnchorUnit(
-                focal: location,
-                viewport: viewport,
-                committedPan: controller.panOffset,
-                frame: controller.displayFrameInPoints ?? viewport
-            )
-            gestureAnchor = UnitPoint(x: unit.x, y: unit.y)
         }
         pinchLastCentroid = location
         pinchLastMag = scale
-        // Clamped to the same legal region the commit uses, so the live visual
-        // can't overshoot the viewport edge and snap back on release.
+        // The would-be committed scale + pan, clamped to the same legal region
+        // the release will use. The pan carries the focal anchor, so scaling the
+        // frozen frame about its centre and offsetting by this pan reproduces the
+        // committed geometry exactly — the live visual == the commit, no jump.
         let transform = controller.gestureTransform(magnification: scale, liveCentroid: location)
         gestureZoom = transform.zoom
-        gestureDrift = transform.drift
+        gestureCommittedPan = transform.committedPan
         // `effectivePixelScale` is frozen at the start scale mid-gesture, so
         // `start × zoom` == the live (would-be-committed) scale for the badge.
         liveZoomScale = controller.effectivePixelScale * transform.zoom
@@ -232,8 +236,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         controller.pinchEnded(magnification: pinchLastMag)
         pinchActive = false
         gestureZoom = 1
-        gestureDrift = .zero
-        gestureAnchor = .center
+        gestureCommittedPan = .zero
         pinchLastMag = 1
         liveZoomScale = nil
     }

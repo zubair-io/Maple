@@ -433,38 +433,4 @@ final class CanvasZoomModelTests: XCTestCase {
         XCTAssertEqual(pan.height, -10, accuracy: 0.001)
     }
 
-    // MARK: - Pinch focal anchor (compositor .scaleEffect, #1493)
-
-    func testPinchAnchorUnitMapsFocalIntoLeafFrame() {
-        // Fit frame is 1000×750 in a 1000×800 viewport (see fixtures): the leaf
-        // is vertically letterboxed, so its top sits 25pt below the viewport.
-        let viewport = CGSize(width: 1000, height: 800)
-        let frame = CGSize(width: 1000, height: 750)
-
-        // Focal at the viewport centre → the leaf centre (0.5, 0.5).
-        let center = CanvasZoomModel.pinchAnchorUnit(
-            focal: CGPoint(x: 500, y: 400), viewport: viewport, committedPan: .zero, frame: frame)
-        XCTAssertEqual(center.x, 0.5, accuracy: 1e-9)
-        XCTAssertEqual(center.y, 0.5, accuracy: 1e-9)
-
-        // A committed pan shifts the leaf: a focal 100pt right of centre still
-        // maps to the leaf centre when the leaf is panned 100pt right.
-        let panned = CanvasZoomModel.pinchAnchorUnit(
-            focal: CGPoint(x: 600, y: 400), viewport: viewport,
-            committedPan: CGSize(width: 100, height: 0), frame: frame)
-        XCTAssertEqual(panned.x, 0.5, accuracy: 1e-9)
-        XCTAssertEqual(panned.y, 0.5, accuracy: 1e-9)
-
-        // The leaf's top-left corner → (0, 0).
-        let topLeft = CanvasZoomModel.pinchAnchorUnit(
-            focal: CGPoint(x: 0, y: 25), viewport: viewport, committedPan: .zero, frame: frame)
-        XCTAssertEqual(topLeft.x, 0, accuracy: 1e-9)
-        XCTAssertEqual(topLeft.y, 0, accuracy: 1e-9)
-
-        // Degenerate frame → centre (no divide-by-zero).
-        let degenerate = CanvasZoomModel.pinchAnchorUnit(
-            focal: .zero, viewport: viewport, committedPan: .zero, frame: .zero)
-        XCTAssertEqual(degenerate.x, 0.5, accuracy: 1e-9)
-        XCTAssertEqual(degenerate.y, 0.5, accuracy: 1e-9)
-    }
 }
