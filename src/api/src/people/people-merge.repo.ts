@@ -46,9 +46,15 @@ export async function mergePeopleInto(
     throw new Error(`person already merged: ${targetId.toHexString()}`);
   }
   let mergedCount = 0;
+
+  // Optimization: bulk fetch all source people to avoid N+1 queries.
+  const sources = await coll.find({ _id: { $in: sourceIds } }).toArray();
+  // Convert hex IDs to string for case-insensitive lookup (consistent with ID handling best practices)
+  const sourcesById = new Map(sources.map((s) => [s._id.toHexString(), s]));
+
   for (const sourceId of sourceIds) {
     if (sourceId.equals(targetId)) continue;
-    const source = await coll.findOne({ _id: sourceId });
+    const source = sourcesById.get(sourceId.toHexString());
     if (!source || source.merged_into) continue;
     // Target stays the survivor; pass its current name so the canonical name
     // is unchanged (no rename on an explicit merge).
