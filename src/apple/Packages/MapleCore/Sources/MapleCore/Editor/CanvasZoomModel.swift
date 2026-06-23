@@ -309,6 +309,14 @@ public struct CanvasZoomModel: Equatable, Sendable {
         return true
     }
 
+    /// Track the drag's running translation WITHOUT panning. The host calls
+    /// this during the post-pinch cooldown so the lingering-finger movement is
+    /// absorbed into the baseline — when the cooldown ends, a deliberate
+    /// continued pan resumes from here with no accumulated jump.
+    public mutating func rebaseDragBaseline(_ translation: CGSize) {
+        dragTranslationBase = translation
+    }
+
     // MARK: Transitions — wheel
 
     /// Two-finger scroll / wheel pan while zoomed in. Deltas are in

@@ -82,6 +82,18 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // would otherwise read the pre-pinch value — drive it from the live factor.
     // nil → not pinching → badge reads the committed `effectivePixelScale`.
     @State private var liveZoomScale: CGFloat?
+    // When a pinch released. Two fingers never lift in the same instant, so the
+    // lingering finger fires a one-finger drag the moment the pinch ends —
+    // which would pan/jump the just-committed canvas. We ignore drag-pans for a
+    // short window after release (absorbing the movement into the baseline so a
+    // deliberate continued pan resumes smoothly). Time-based → self-clearing.
+    @State private var lastPinchEnd: Date?
+    #endif
+
+    #if os(iOS)
+    /// How long after a pinch release to ignore drag-pans (the second-finger
+    /// lift-off window). Computed (generic types can't hold static stored vars).
+    private static var postPinchPanCooldown: TimeInterval { 0.3 }
     #endif
 
     var body: some View {
@@ -239,18 +251,35 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         gestureCommittedPan = .zero
         pinchLastMag = 1
         liveZoomScale = nil
+        lastPinchEnd = Date()   // open the cooldown for the lingering finger
     }
     #endif
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
+                #if os(iOS)
+                // Within the post-pinch cooldown this is the lingering finger
+                // from the lift, not a deliberate pan — absorb it into the
+                // baseline (so a pan that continues past the window resumes with
+                // no jump) and don't move the canvas.
+                if let end = lastPinchEnd {
+                    if Date().timeIntervalSince(end) < Self.postPinchPanCooldown {
+                        controller.rebaseDrag(translation: value.translation)
+                        return
+                    }
+                    lastPinchEnd = nil   // window elapsed — resume normal panning
+                }
+                #endif
                 // Pans only when zoomed in; a no-op at fit so the
                 // editing surface (armed-tool scrub on DragBar, system
                 // edge-swipe) keeps full ownership of fit-mode drags.
                 controller.dragChanged(translation: value.translation)
             }
             .onEnded { _ in
+                #if os(iOS)
+                lastPinchEnd = nil
+                #endif
                 controller.dragEnded()
             }
     }
