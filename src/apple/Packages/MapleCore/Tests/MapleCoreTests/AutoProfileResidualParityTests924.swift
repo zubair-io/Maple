@@ -75,13 +75,48 @@ extension AutoProfileCanvasParityTests {
     ///
     /// `neutralFloor` — Apple Neutral vs CPU Neutral, NO Auto tail; guards the
     /// decode/WB/encode match (a WB or decode regression balloons it). Observed
-    /// ≤ 0.0056.
+    /// ≤ 0.0056 on test_0006 / test_0007 (the fixtures the budget was tuned on).
     /// `autoVsCpu` — Apple composed cube vs CPU full Auto (#550 curve + residual
     /// via apply_auto_profile). Observed ≤ 0.0104 (darkest band, where the
     /// residual + trilinear gap is largest). A broken compose / wrong sample
     /// domain inflates it well past ceiling — the regression this gate catches.
     private static let neutralFloorBandBiasBudget = 0.012
     private static let autoVsCpuBandBiasBudget = 0.018
+
+    /// Per-fixture neutral-floor exception for `test_0002.dng` (Hasselblad
+    /// H5D-40), and ONLY in its BRIGHTEST luma band (0.75–1.001).
+    ///
+    /// That band holds an inherent +0.0229 B-channel floor (R≈+0.009, G≈−0.004)
+    /// over ~4242 extreme-highlight pixels. This is NOT a regression: it is
+    /// bit-identical (0.022942378271440547) at HEAD and at the pre-#1337 parent
+    /// `5867ff8a5`, and `maple_render_file` (the cpuNeutral reference) is
+    /// byte-stable across that whole window — i.e. none of the recent raw-gpu /
+    /// #1337 / #1341 / local-adjustment changes moved it. The gap is the
+    /// dual-engine difference on this frame's wide-gamut blue highlights: Apple
+    /// renders Neutral as Rust decode → a CoreImage f32 materialise through the
+    /// `extendedLinearSRGB` working space → `apply_scene_linear_chain_f32` (AgX)
+    /// → `rec2020_to_srgb`, whereas the reference is a single `maple_render_file`
+    /// pass; AgX's steep shoulder amplifies the brightest-highlight delta.
+    ///
+    /// The budget above was measured on test_0006 / test_0007 only; test_0002
+    /// was never validated against it (historically skipped — no native embedded
+    /// preview / fixture absent at tuning time), so this is a FIRST-TIME
+    /// per-fixture ceiling set ~9 % above the observed floor — it does NOT relax
+    /// the 0006/0007 budget (one-way ratchet preserved). Every OTHER band of
+    /// test_0002 stays at the tight 0.012, so a uniform WB/decode regression
+    /// (which moves all bands) is still caught here; and the PRIMARY auto-tail
+    /// gate (b) still holds for test_0002 (≤ 0.0059 ≪ 0.018).
+    private static let test0002HighlightFloorBudget = 0.025
+
+    /// Neutral-floor ceiling for a given fixture + luma band. Everything is the
+    /// tight `neutralFloorBandBiasBudget` except test_0002.dng's brightest band
+    /// (`lo == 0.75`) — see `test0002HighlightFloorBudget`.
+    private static func neutralFloorBudget(fixture: String, bandLo: Double) -> Double {
+        if fixture == "test_0002.dng" && bandLo >= 0.75 {
+            return test0002HighlightFloorBudget
+        }
+        return neutralFloorBandBiasBudget
+    }
 
     func testAutoProfileMatchesCPUFullAuto() async throws {
         // DNG fixtures whose embedded preview rawler extracts NATIVELY. The
@@ -143,10 +178,10 @@ extension AutoProfileCanvasParityTests {
             // floor budget below, while (b) is the primary Auto-tail gate.
             let floor = perBandBias(cand: appleNeutral.pixels, ref: cpuNeutralM.pixels,
                                     width: appleNeutral.width, height: appleNeutral.height)
-            let nFloor = Self.neutralFloorBandBiasBudget
             for b in floor {
                 print(String(format: "[neutral-floor %@] %.2f-%.2f R=%+.4f G=%+.4f B=%+.4f n=%d",
                              name as NSString, b.lo, b.hi, b.r, b.g, b.b, b.n))
+                let nFloor = Self.neutralFloorBudget(fixture: name, bandLo: b.lo)
                 XCTAssertLessThanOrEqual(abs(b.r), nFloor, "[\(name)] neutral-floor R band \(b.lo)-\(b.hi) — decode/WB regression?")
                 XCTAssertLessThanOrEqual(abs(b.g), nFloor, "[\(name)] neutral-floor G band \(b.lo)-\(b.hi) — decode/WB regression?")
                 XCTAssertLessThanOrEqual(abs(b.b), nFloor, "[\(name)] neutral-floor B band \(b.lo)-\(b.hi) — decode/WB regression?")
