@@ -192,7 +192,7 @@ public struct CanvasZoomModel: Equatable, Sendable {
     }
 
     // Pure scale/pan geometry helpers (pinchScale, anchoredPan, livePinchPan,
-    // pinchAnchorUnit, …) live in CanvasZoomModel+Geometry.swift.
+    // the zoom-step targets) live in CanvasZoomModel+Geometry.swift.
 
     // MARK: Transitions — pinch
 

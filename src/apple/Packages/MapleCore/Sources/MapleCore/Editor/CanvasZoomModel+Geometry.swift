@@ -116,32 +116,4 @@ extension CanvasZoomModel {
         )
     }
 
-    /// Anchor (a unit point of the canvas leaf's frame) for a live pinch's
-    /// `.scaleEffect`, so scaling the leaf keeps the image point under the
-    /// gesture focal fixed (#1493). The leaf is centred in the viewport and then
-    /// shifted by the committed pan; the focal (viewport points) maps into the
-    /// leaf's frame as a unit point.
-    ///
-    /// The result MAY fall outside `0...1` when the focal lies in the
-    /// letterboxed margin around the image — that is intentional and valid for
-    /// SwiftUI's `.scaleEffect(anchor:)` (an out-of-bounds anchor scales about a
-    /// point outside the view); clamping it would shift the anchor and break the
-    /// focal-fixed property. Returned as a `CGPoint` (the host wraps it in a
-    /// `UnitPoint`) so it's unit-testable in the pure model. Degenerate frame →
-    /// centre.
-    public static func pinchAnchorUnit(
-        focal: CGPoint,
-        viewport: CGSize,
-        committedPan: CGSize,
-        frame: CGSize
-    ) -> CGPoint {
-        guard frame.width > 0, frame.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }
-        // Leaf frame's top-left on screen: centred, then offset by committedPan.
-        let originX = viewport.width / 2 + committedPan.width - frame.width / 2
-        let originY = viewport.height / 2 + committedPan.height - frame.height / 2
-        return CGPoint(
-            x: (focal.x - originX) / frame.width,
-            y: (focal.y - originY) / frame.height
-        )
-    }
 }
