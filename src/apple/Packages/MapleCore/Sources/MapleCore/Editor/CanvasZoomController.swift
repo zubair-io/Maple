@@ -187,7 +187,7 @@ public final class CanvasZoomController {
     /// Absorb a drag's running translation into the baseline without panning —
     /// used by the host during the post-pinch cooldown so the lingering finger
     /// can't pan, yet a deliberate pan that continues past the cooldown resumes
-    /// smoothly (#1495 follow-up).
+    /// smoothly (#1509).
     public func rebaseDrag(translation: CGSize) {
         model.rebaseDragBaseline(translation)
     }
