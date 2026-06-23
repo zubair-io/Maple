@@ -35,6 +35,11 @@ import SwiftUI
 import MapleCore
 #if os(iOS)
 import UIKit
+
+/// How long after a pinch release to ignore drag-pans — the second-finger
+/// lift-off window, during which the lingering finger would otherwise fire a
+/// one-finger pan that jumps the just-committed canvas (#1509).
+private let postPinchPanCooldown: TimeInterval = 0.3
 #endif
 
 struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
@@ -82,18 +87,12 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // would otherwise read the pre-pinch value — drive it from the live factor.
     // nil → not pinching → badge reads the committed `effectivePixelScale`.
     @State private var liveZoomScale: CGFloat?
-    // When a pinch released. Two fingers never lift in the same instant, so the
+    // When a pinch was released. Two fingers never lift in the same instant, so the
     // lingering finger fires a one-finger drag the moment the pinch ends —
     // which would pan/jump the just-committed canvas. We ignore drag-pans for a
     // short window after release (absorbing the movement into the baseline so a
     // deliberate continued pan resumes smoothly). Time-based → self-clearing.
     @State private var lastPinchEnd: Date?
-    #endif
-
-    #if os(iOS)
-    /// How long after a pinch release to ignore drag-pans (the second-finger
-    /// lift-off window). Computed (generic types can't hold static stored vars).
-    private static var postPinchPanCooldown: TimeInterval { 0.3 }
     #endif
 
     var body: some View {
@@ -264,7 +263,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
                 // baseline (so a pan that continues past the window resumes with
                 // no jump) and don't move the canvas.
                 if let end = lastPinchEnd {
-                    if Date().timeIntervalSince(end) < Self.postPinchPanCooldown {
+                    if Date().timeIntervalSince(end) < postPinchPanCooldown {
                         controller.rebaseDrag(translation: value.translation)
                         return
                     }
