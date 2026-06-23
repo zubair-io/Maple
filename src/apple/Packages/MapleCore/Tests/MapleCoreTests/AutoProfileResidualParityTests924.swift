@@ -110,9 +110,13 @@ extension AutoProfileCanvasParityTests {
 
     /// Neutral-floor ceiling for a given fixture + luma band. Everything is the
     /// tight `neutralFloorBandBiasBudget` except test_0002.dng's brightest band
-    /// (`lo == 0.75`) — see `test0002HighlightFloorBudget`.
+    /// (`lo == 0.75`) — see `test0002HighlightFloorBudget`. The equality match
+    /// pins the exception to exactly the `(0.75, 1.001)` band `perBandBias`
+    /// emits today; if the band edges are ever re-split, this fails closed (the
+    /// new sub-bands fall back to the tight budget) rather than silently
+    /// inheriting the loose one — forcing the exception to be re-justified.
     private static func neutralFloorBudget(fixture: String, bandLo: Double) -> Double {
-        if fixture == "test_0002.dng" && bandLo >= 0.75 {
+        if fixture == "test_0002.dng" && bandLo == 0.75 {
             return test0002HighlightFloorBudget
         }
         return neutralFloorBandBiasBudget
