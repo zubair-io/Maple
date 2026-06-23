@@ -247,4 +247,31 @@ final class CanvasZoomControllerTests: XCTestCase {
         XCTAssertEqual(controller.panOffset.width, t.committedPan.width, accuracy: 1e-6)
         XCTAssertEqual(controller.panOffset.height, t.committedPan.height, accuracy: 1e-6)
     }
+
+    func testGestureTransformFromAlreadyPannedStateMatchesCommit() {
+        // The exact bug this fix repairs: pinching from an already-zoomed +
+        // PANNED state used to commit to a wrong position (the start pan
+        // mis-anchored the scale). With the centre-scale + committed-pan model
+        // the live `committedPan` must equal the actual committed pan even when
+        // the start pan is non-zero — for an off-centre focal, unclamped.
+        let controller = makeController()
+        controller.zoomToScale(1.0)                                   // 100%
+        controller.dragChanged(translation: CGSize(width: -300, height: -200))
+        controller.dragEnded()
+        XCTAssertNotEqual(controller.panOffset, .zero, "precondition: panned start")
+
+        let focal = CGPoint(x: 400, y: 300)                          // off-centre
+        controller.pinchChanged(magnification: 1.0, location: focal) // capture start
+        let live = CGPoint(x: 450, y: 280)                           // small drift
+        let t = controller.gestureTransform(magnification: 1.5, liveCentroid: live)
+        XCTAssertEqual(t.zoom, 1.5, accuracy: 1e-9)
+        // Focal-anchored pan from the panned start (within the legal range at 1.5×).
+        XCTAssertEqual(t.committedPan.width, -350, accuracy: 1e-6)
+        XCTAssertEqual(t.committedPan.height, -270, accuracy: 1e-6)
+
+        controller.pinchChanged(magnification: 1.5, location: live)
+        controller.pinchEnded(magnification: 1.5)
+        XCTAssertEqual(controller.panOffset.width, t.committedPan.width, accuracy: 1e-6)
+        XCTAssertEqual(controller.panOffset.height, t.committedPan.height, accuracy: 1e-6)
+    }
 }
