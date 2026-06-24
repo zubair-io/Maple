@@ -456,30 +456,48 @@ fn chain_signature_folds_in_residual_lut_size() {
     );
 }
 
-/// NON-RAW INPUT SHAPE (#1331): a `LinearRec2020Fp16` chain with the WB slider
-/// at default (6500K/0) must (a) omit `capture_sharpening` AND (b) OMIT WB
-/// too (the `wb_is_noop` gate fires at default), yielding the same view-tail-only
-/// count as a neutral RAW chain. With the WB slider engaged, WB IS present
-/// (not skipped because non-RAW — the fix for the correctness bug where WB was
-/// always dropped for non-RAW shapes, making temperature/tint sliders inert).
-/// The `active_mask` bit for WB must also track the builder's inclusion logic.
+/// NON-RAW INPUT SHAPE (#1331, #1513): a `LinearRec2020Fp16` chain with the WB
+/// slider at default (6500K/0) must (a) omit `capture_sharpening`, (b) OMIT WB
+/// (the `wb_is_noop` gate fires at default), AND (c) OMIT AgX — non-RAW input is
+/// already display-referred, so the scene→display tone-map is skipped to match
+/// the CPU `skipAgX` path (#1513). The result is the RAW view tail MINUS AgX
+/// (`VIEW_TAIL_PASS_COUNT - 1`). With the WB slider engaged, WB IS present (the
+/// fix for the bug where WB was always dropped for non-RAW, making temperature/
+/// tint sliders inert). The `active_mask` bit for WB must track the builder too.
 #[test]
-fn linear_rec2020_shape_skips_capture_sharpening_and_keeps_wb_gated() {
-    // (a) Default sliders → WB is a no-op (6500K/0 in the skip band); only
-    //     the view tail runs. capture_sharpening is always absent for non-RAW.
+fn linear_rec2020_shape_skips_capture_sharpening_agx_and_keeps_wb_gated() {
+    // (a) Default sliders → WB is a no-op (6500K/0 in the skip band) and AgX is
+    //     skipped (non-RAW is display-referred); only the AgX-less view tail
+    //     runs. capture_sharpening is always absent for non-RAW.
     let mut case = neutral_case();
     let mut inputs = case.gpu_inputs();
     inputs.input_shape = crate::full_chain::InputShape::LinearRec2020Fp16;
     // Confirm capture_sharpening is None (neutral_case sets None already).
     assert!(inputs.capture_sharpening.is_none());
 
+    // A neutral RAW chain (default shape) is the FULL view tail incl. AgX; the
+    // non-RAW chain must be exactly that minus AgX — proving AgX is gated on the
+    // input shape and RAW output is unchanged.
+    let raw_passes = build_live_chain(&case.gpu_inputs(), AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        raw_passes.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "neutral RAW chain must keep the full view tail incl. AgX ({VIEW_TAIL_PASS_COUNT})"
+    );
+
     let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         passes.len(),
-        VIEW_TAIL_PASS_COUNT,
-        "LinearRec2020Fp16 + default WB must yield view-tail-only ({VIEW_TAIL_PASS_COUNT} passes); \
-         got {} — WB or a leaked stage present",
+        VIEW_TAIL_PASS_COUNT - 1,
+        "LinearRec2020Fp16 + default WB must yield the AgX-less view tail ({} passes); \
+         got {} — AgX leaked, WB present, or a stage leaked",
+        VIEW_TAIL_PASS_COUNT - 1,
         passes.len()
+    );
+    assert_eq!(
+        passes.len(),
+        raw_passes.len() - 1,
+        "non-RAW chain must be the RAW view tail minus exactly one pass (AgX)"
     );
 
     // (b) WB engaged (temp outside the 6500±0.5 skip band) → WB IS included
@@ -492,9 +510,9 @@ fn linear_rec2020_shape_skips_capture_sharpening_and_keeps_wb_gated() {
     let passes_wb = build_live_chain(&inputs_wb, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         passes_wb.len(),
-        VIEW_TAIL_PASS_COUNT + 1,
-        "LinearRec2020Fp16 + engaged WB must add exactly 1 pass (WhiteBalancePass); \
-         got {} — WB missing or extra pass leaked",
+        VIEW_TAIL_PASS_COUNT,
+        "LinearRec2020Fp16 + engaged WB must add exactly 1 pass (WhiteBalancePass) to the \
+         AgX-less tail (= {VIEW_TAIL_PASS_COUNT}); got {} — WB missing or extra pass leaked",
         passes_wb.len()
     );
 
