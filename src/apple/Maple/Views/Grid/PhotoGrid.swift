@@ -68,7 +68,12 @@ enum ColumnStrategy {
 /// Call sites supply `items`, a `ThumbnailProvider`, and the `ColumnStrategy`.
 /// Tap routing, selection, and the zoom-transition namespace are all optional
 /// so the grid composes cleanly at every surface.
-struct PhotoGrid: View {
+///
+/// The optional `leading` slot renders INSIDE the same `LazyVGrid` before the
+/// photo cells, so folder cells keep the interleaved column flow (no reflow).
+/// The optional `onAppearItem` closure is called from each cell's `.onAppear`
+/// for priming sessions and similar eager-load use cases.
+struct PhotoGrid<Leading: View>: View {
 
     let items: [PhotoGridItem]
     let columns: ColumnStrategy
@@ -76,7 +81,9 @@ struct PhotoGrid: View {
     let displayMode: GridDisplayMode
     var selection: Set<String> = []
     var transitionNamespace: Namespace.ID? = nil
+    var onAppearItem: ((PhotoGridItem) -> Void)? = nil
     let onTap: (PhotoGridItem) -> Void
+    @ViewBuilder let leading: () -> Leading
 
     @Environment(\.mapleLayout) private var layout
 
@@ -85,6 +92,7 @@ struct PhotoGrid: View {
             columns: columns.gridItems(for: layout),
             spacing: columns.rowSpacing(for: layout)
         ) {
+            leading()
             ForEach(items) { item in
                 PhotoThumbnailCell(
                     item: item,
@@ -92,10 +100,38 @@ struct PhotoGrid: View {
                     displayMode: displayMode,
                     isSelected: selection.contains(item.id),
                     transitionNamespace: transitionNamespace,
-                    onTap: { onTap(item) }
+                    onTap: { onTap(item) },
+                    onAppear: onAppearItem.map { cb in { cb(item) } }
                 )
             }
         }
+    }
+}
+
+// MARK: - EmptyView convenience initialiser (no leading content)
+
+extension PhotoGrid where Leading == EmptyView {
+    init(
+        items: [PhotoGridItem],
+        columns: ColumnStrategy,
+        provider: ThumbnailProvider,
+        displayMode: GridDisplayMode,
+        selection: Set<String> = [],
+        transitionNamespace: Namespace.ID? = nil,
+        onAppearItem: ((PhotoGridItem) -> Void)? = nil,
+        onTap: @escaping (PhotoGridItem) -> Void
+    ) {
+        self.init(
+            items: items,
+            columns: columns,
+            provider: provider,
+            displayMode: displayMode,
+            selection: selection,
+            transitionNamespace: transitionNamespace,
+            onAppearItem: onAppearItem,
+            onTap: onTap,
+            leading: { EmptyView() }
+        )
     }
 }
 
