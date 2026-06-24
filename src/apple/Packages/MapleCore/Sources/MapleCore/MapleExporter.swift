@@ -73,7 +73,14 @@ public enum ExportFileFormat: String, Sendable, CaseIterable {
         switch self {
         case .jpegSRGB:  return CGColorSpace(name: CGColorSpace.sRGB)!
         case .jpegP3, .heicP3: return CGColorSpace(name: CGColorSpace.displayP3)!
-        case .tiff16, .png: return CGColorSpace(name: CGColorSpace.linearSRGB)!
+        // PNG is an 8-bit delivery format: it MUST be gamma-encoded sRGB.
+        // Writing 8-bit *linear* sRGB (the old `.tiff16, .png` grouping) tagged
+        // the file "sRGB IEC61966-2.1 Linear" — viewers that ignore the PNG ICC
+        // (most do) read the linear bytes as gamma and render it far too dark,
+        // and 8-bit linear bands hard in the shadows (#1511). TIFF stays
+        // linear because it is 16-bit (a valid high-bit-depth working format).
+        case .png:    return CGColorSpace(name: CGColorSpace.sRGB)!
+        case .tiff16: return CGColorSpace(name: CGColorSpace.linearSRGB)!
         }
     }
 }
