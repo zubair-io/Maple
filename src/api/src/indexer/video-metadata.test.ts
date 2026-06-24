@@ -190,4 +190,18 @@ describe('readVideoMetadata (file-level: seeks past mdat)', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('returns null (no crash) for a 64-bit-size box truncated before its largesize', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'vidmeta-'));
+    const file = path.join(dir, 'trunc.MOV');
+    try {
+      // ftyp, then a box header declaring size === 1 (64-bit) but the file ends
+      // before the 8-byte largesize. The reader must NOT consume stale bytes.
+      const truncated = Buffer.concat([Buffer.from([0, 0, 0, 1]), Buffer.from('moov', 'latin1')]);
+      await fs.writeFile(file, Buffer.concat([box('ftyp', Buffer.alloc(0)), truncated]));
+      expect(await readVideoMetadata(file)).toBeNull();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });

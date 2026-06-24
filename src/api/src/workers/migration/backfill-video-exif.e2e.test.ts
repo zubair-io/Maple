@@ -185,4 +185,53 @@ describe('backfill-video-exif end-to-end', () => {
       setLibraryRootsForTests(null);
     }
   });
+
+  it('reads the live VIDEO entry, not the primary still (still+video asset)', async () => {
+    if (!(await connectOrSkip('still+video'))) return;
+    const { getDb } = await import('../../db/client.ts');
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const db = await getDb();
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'backfill-vid-'));
+    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
+    const rel = '2026/2595';
+    await fs.mkdir(path.join(dir, ...rel.split('/')), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, rel, 'clip.MOV'),
+      mov({ date: '2026-04-05T11:26:20-0700', gps: '+48.8041+002.1176/' }),
+    );
+    const id = new ObjectId();
+    await assets.insertOne({
+      _id: id,
+      maple_id: 'still-video-' + id.toHexString(),
+      // Primary live entry is the STILL; the video is second — the migration must
+      // still read the .MOV, not the .HEIC (which doesn't even exist on disk).
+      fileinfo: [
+        { path: rel, filename: 'still.HEIC', library_id: libId, deleted_at: null },
+        { path: rel, filename: 'clip.MOV', library_id: libId, deleted_at: null },
+      ],
+      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
+      backup_layout_version: 4,
+      stages: { geocode: { version: 2 } },
+      size: 1,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: new Date().toISOString(),
+    } as never);
+    try {
+      await backfillVideoExif.runBatch(50);
+      const doc = (await assets.findOne({ _id: id })) as {
+        exif?: { gps?: unknown };
+        video_meta_version?: number;
+      } | null;
+      expect(doc?.exif?.gps).toEqual({ lat: 48.8041, lng: 2.1176 });
+      expect(doc?.video_meta_version).toBe(VIDEO_META_VERSION);
+    } finally {
+      await assets.deleteOne({ _id: id });
+      setLibraryRootsForTests(null);
+    }
+  });
 });

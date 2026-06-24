@@ -20,10 +20,10 @@
  */
 
 import type { Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
+import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { assetAbsPath, isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename, VIDEO_EXTS } from '../../indexer/media-types.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { child as childLogger } from '../../log.ts';
@@ -94,9 +94,15 @@ export const backfillVideoExif: Migration = {
     let skippedNoRoot = 0;
 
     for (const doc of docs) {
-      const primary = assetPrimaryFileInfo(doc);
-      if (!primary || !isVideoFilename(primary.filename)) {
-        // No live video entry to read — stamp so it drops out (never clogs).
+      // Read the live VIDEO entry specifically, not `assetPrimaryFileInfo` (the
+      // first live entry) — an asset could carry a still + video pair, and the
+      // selector matched on *a* live video entry, so that's the one to read.
+      const video = ((doc.fileinfo ?? []) as FileInfo[]).find(
+        (fi) => isLiveFileInfo(fi) && isVideoFilename(fi.filename),
+      );
+      if (!video) {
+        // Selector matched a live video entry but none survives now (stale shape)
+        // — stamp so it drops out (never clogs).
         await coll.updateOne(
           { _id: doc._id },
           { $set: { video_meta_version: VIDEO_META_VERSION } },
@@ -105,7 +111,8 @@ export const backfillVideoExif: Migration = {
         continue;
       }
 
-      const absPath = assetAbsPath(doc, libs);
+      // Single-entry view so `assetAbsPath` resolves THIS video, not the primary.
+      const absPath = assetAbsPath({ fileinfo: [video] }, libs);
       if (!absPath) {
         // Library unregistered / offline — retry next tick once the mount returns.
         skippedNoRoot++;
