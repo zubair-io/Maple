@@ -56,16 +56,20 @@ struct LibraryGrid: View {
     /// ThumbnailLoader handles them through the `.local` backend.
     @State private var provider = ThumbnailProvider.local()
 
-    /// Stable id → AssetRef lookup for tap/prime routing. Rebuilt whenever
-    /// `vm.assets` changes (the assets array is the source of truth).
-    private var assetByID: [String: AssetRef] {
+    /// Stable id → AssetRef lookup for tap/prime routing. Built ONCE per body
+    /// evaluation (see `body`) and captured by the cell closures — never rebuilt
+    /// per-cell, so scrolling stays allocation-free in the render loop.
+    private func makeAssetByID() -> [String: AssetRef] {
         Dictionary(vm.assets.map { asset in
             (asset.stableID ?? asset.id.uuidString, asset)
         }, uniquingKeysWith: { first, _ in first })
     }
 
     var body: some View {
-        ScrollView {
+        // Build the id→asset map once here; the `onTap`/`onAppearItem` closures
+        // below capture this local, so a scroll never rebuilds it per cell.
+        let assetByID = makeAssetByID()
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // The in-content source title and the cull filter-chip row
                 // (All / Picks / 4+ stars / Edited) were removed (#782):
