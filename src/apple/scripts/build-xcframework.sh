@@ -174,11 +174,14 @@ compute_input_hash() {
         # GPU live/present FFI delegates into raw-gpu (the wgpu/WGSL chain), so a
         # raw-gpu change MUST trigger a rebuild. Omitting it (the bug #1513
         # exposed) let a raw-gpu-only edit hash-skip and ship a stale xcframework.
+        # Includes `*.wgsl` shaders: raw-gpu `include_str!`s them into the compiled
+        # library (the kernels run from those strings), so a shader-only edit also
+        # changes the lib and must not hash-skip.
         find "$RAW_PIPELINE_DIR/raw-core/src" \
              "$RAW_PIPELINE_DIR/raw-ffi/src" \
              "$RAW_PIPELINE_DIR/maple-pano/src" \
              "$RAW_PIPELINE_DIR/raw-gpu/src" \
-            -type f -name '*.rs' -print0 2>/dev/null | sort -z | xargs -0 shasum
+            -type f \( -name '*.rs' -o -name '*.wgsl' \) -print0 2>/dev/null | sort -z | xargs -0 shasum
         for f in \
             "$RAW_PIPELINE_DIR/Cargo.lock" \
             "$RAW_PIPELINE_DIR/Cargo.toml" \

@@ -53,10 +53,11 @@ def _lab(rgb01: np.ndarray) -> np.ndarray:
 
 
 def measure(render_path: str, meta_path: str, crop, assume_srgb: bool) -> dict:
-    meta = json.load(open(meta_path))
-    im = Image.open(render_path)
-    had_icc = bool(im.info.get("icc_profile"))
-    im = _to_srgb(im, assume_srgb)
+    with open(meta_path) as f:
+        meta = json.load(f)
+    with Image.open(render_path) as src:
+        had_icc = bool(src.info.get("icc_profile"))
+        im = _to_srgb(src, assume_srgb)  # returns a new, independent image
     if crop:
         im = im.crop(crop)
     arr = np.asarray(im, dtype=np.uint8)

@@ -26,9 +26,11 @@
 // from the same pixel bounds (as the CPU `FullImageView` does), so the decode
 // target and the layer size agree.
 //
-// Colour space: tagged Display P3 authoritatively on the Swift side (the chain
-// outputs sRGB-primary gamma-encoded; CoreAnimation converts sRGB → P3 with
-// everything in-gamut), mirroring `MetalPresentLayerController`.
+// Colour space: the chain outputs sRGB-primary, gamma-encoded pixels, so the
+// layer is tagged sRGB (#1512) and CoreAnimation converts sRGB → the display's
+// space (P3 on a P3 panel). It was previously tagged Display P3, which made
+// CoreAnimation treat the sRGB bytes as ALREADY P3 and skip the conversion,
+// over-saturating every image. See the tag set in `init()` below.
 
 import SwiftUI
 import MapleCore
