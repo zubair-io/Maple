@@ -40,8 +40,13 @@ import { moveBackupAsset, type MoveOutcome } from './move-backup-asset.ts';
 const log = childLogger('migration:refile');
 
 /** Layout generation stamped on a refiled asset — the worker's done-marker, NOT a
- * correctness oracle. See `AssetDoc.backup_layout_version`. */
-export const BACKUP_LAYOUT_VERSION = 3;
+ * correctness oracle. See `AssetDoc.backup_layout_version`.
+ *
+ * v4 (#1525): the no-location branch now mirrors `formatBackupPath`'s `<year>/<MM>`
+ * (it previously left undated/junk-folder files in place), so the bump re-sweeps
+ * the library once to normalise e.g. `2026/2595` → `2026/05`. Only mis-filed
+ * assets actually move; the rest no-op and re-stamp. */
+export const BACKUP_LAYOUT_VERSION = 4;
 
 /** Matches the screenshot destination layout (`<year>/Screenshot`) exactly — the
  * "already filed" gate inside `relocateBackupScreenshot`. */
@@ -63,6 +68,21 @@ function yearFor(oldDir: string, capturedYear: number | null | undefined): strin
   return null;
 }
 
+/** Zero-padded `MM` for the no-location `<year>/<MM>` layout, or `null` when the
+ * capture month is unknown (then we don't invent a month-folder — see the
+ * no-location branch). */
+function monthFor(capturedMonth: number | null | undefined): string | null {
+  if (
+    capturedMonth != null &&
+    Number.isInteger(capturedMonth) &&
+    capturedMonth >= 1 &&
+    capturedMonth <= 12
+  ) {
+    return String(capturedMonth).padStart(2, '0');
+  }
+  return null;
+}
+
 /**
  * The canonical directory a backup asset's canonical live entry
  * (`assetPrimaryFileInfo` — the first live `fileinfo`, i.e. neither `deleted_at`
@@ -73,8 +93,9 @@ function yearFor(oldDir: string, capturedYear: number | null | undefined): strin
  *
  *   1. screenshot (`is_screenshot`)         → `<year>/Screenshot`  (wins over location)
  *   2. resolved location (`place` segments) → `<year>/<seg>/<seg>`
- *   3. otherwise: flatten a recognised old day-folder, else leave the asset where it
- *      is (a stub `place` already sits in the date-only fallback).
+ *   3. no location, capture month known     → `<year>/<MM>`  (mirrors formatBackupPath)
+ *   4. no location, no month                → flatten a recognised old day-folder,
+ *      else leave the asset where it is (we never invent a month-folder).
  *
  * Pure (no DB / fs) and exhaustively unit-tested. Mirrors `formatBackupPath` so a
  * migrated file matches a fresh ingest of the same asset.
@@ -83,7 +104,10 @@ export function computeCanonicalDir(doc: {
   fileinfo?: FileInfo[];
   place?: Place | null;
   is_screenshot?: boolean;
-  exif?: { captured_year?: AssetExif['captured_year'] } | null;
+  exif?: {
+    captured_year?: AssetExif['captured_year'];
+    captured_month?: AssetExif['captured_month'];
+  } | null;
 }): string | null {
   const primary = doc.fileinfo ? assetPrimaryFileInfo({ fileinfo: doc.fileinfo }) : null;
   const oldDir = primary?.path;
@@ -97,9 +121,14 @@ export function computeCanonicalDir(doc: {
   const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
   if (segs.length > 0) return `${year}/${segs.join('/')}`;
 
-  // No usable location: flatten a recognised old `<year>/<loc>/<MM-DD>` (or
-  // `<year>/<MM>/<DD>`) day-folder; otherwise the asset is already in its
-  // date-only / flat fallback, so leave it exactly where it is.
+  // No usable location → mirror `formatBackupPath`'s `<year>/<MM>` when the capture
+  // month is known (this is what normalises junk no-geo folders like `2026/2595`).
+  const month = monthFor(doc.exif?.captured_month);
+  if (month) return `${year}/${month}`;
+
+  // No location and no month: flatten a recognised old `<year>/<loc>/<MM-DD>` (or
+  // `<year>/<MM>/<DD>`) day-folder; otherwise leave the (undated) asset in place
+  // rather than invent a month it might mis-file under.
   return restructureDir(oldDir) ?? oldDir;
 }
 
@@ -157,6 +186,7 @@ export const refileBackups: Migration = {
           place: 1,
           is_screenshot: 1,
           'exif.captured_year': 1,
+          'exif.captured_month': 1,
         },
       })
       .limit(batchSize)
