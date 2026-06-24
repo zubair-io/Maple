@@ -229,11 +229,16 @@ async function readTopLevelBox(
   const header = Buffer.alloc(16);
   let offset = 0;
   while (offset + 8 <= fileSize) {
-    await fh.read(header, 0, 16, offset);
+    // The buffer is reused across iterations, so a short read near a truncated
+    // EOF would otherwise leave stale bytes from the previous box. Only consume
+    // bytes we actually read this iteration.
+    const { bytesRead } = await fh.read(header, 0, 16, offset);
+    if (bytesRead < 8) return null;
     let size = header.readUInt32BE(0);
     const type = header.toString('latin1', 4, 8);
     let headerLen = 8;
     if (size === 1) {
+      if (bytesRead < 16) return null; // 64-bit size declared but header truncated
       size = Number(header.readBigUInt64BE(8));
       headerLen = 16;
     } else if (size === 0) {
