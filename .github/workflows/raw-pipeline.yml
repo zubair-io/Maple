@@ -37,6 +37,7 @@ on:
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
       - 'src/scripts/test_synthetic_grey.sh'
+      - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
       - 'src/scripts/test_grey_dcp.sh'
       - '.github/workflows/raw-pipeline.yml'
@@ -50,6 +51,7 @@ on:
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
       - 'src/scripts/test_synthetic_grey.sh'
+      - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
       - 'src/scripts/test_grey_dcp.sh'
       - '.github/workflows/raw-pipeline.yml'
@@ -137,6 +139,8 @@ jobs:
         run: cargo test -p raw-core --features test-support
       - name: Synthetic grey gate (test_synthetic_grey.sh)
         run: bash src/scripts/test_synthetic_grey.sh
+      - name: Synthetic color-chart gate (test_synthetic_color_chart.sh)
+        run: bash src/scripts/test_synthetic_color_chart.sh
       - name: Grey adjustments gate (test_grey_adjustments.sh)
         run: bash src/scripts/test_grey_adjustments.sh
       - name: Grey DCP gate (test_grey_dcp.sh)
