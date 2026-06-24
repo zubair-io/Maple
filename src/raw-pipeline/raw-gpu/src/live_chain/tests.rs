@@ -456,6 +456,41 @@ fn chain_signature_folds_in_residual_lut_size() {
     );
 }
 
+/// #1513 PIXEL PROOF (GPU render): a WHITE scene-linear pixel rendered through
+/// the live chain must be AgX-compressed for a RAW shape (white 1.0 crushes to
+/// ~0.76 gamma — the #1513 symptom) but pass through ~unchanged for a NON-RAW
+/// shape (AgX skipped → white stays ~1.0 = 255). This renders on the real GPU,
+/// so it proves the gate's PIXEL effect, not just the pass list.
+#[test]
+fn nonraw_white_survives_agx_but_raw_white_is_crushed() {
+    let (w, h) = (8usize, 8usize);
+    let input: Vec<f32> = std::iter::repeat([1.0f32, 1.0, 1.0, 1.0])
+        .take(w * h)
+        .flatten()
+        .collect();
+    let case = neutral_case();
+
+    let mut raw_inputs = case.gpu_inputs();
+    raw_inputs.input_shape = crate::full_chain::InputShape::PostDcpRec2020Fp16;
+    let raw_white = run_live_chain(&input, w as u32, h as u32, &raw_inputs)[0];
+
+    let mut nonraw_inputs = case.gpu_inputs();
+    nonraw_inputs.input_shape = crate::full_chain::InputShape::LinearRec2020Fp16;
+    let nonraw_white = run_live_chain(&input, w as u32, h as u32, &nonraw_inputs)[0];
+
+    eprintln!(
+        "[#1513] RAW white={raw_white:.4} (AgX crush, ~0.76)  NON-RAW white={nonraw_white:.4} (AgX skipped, ~1.0)"
+    );
+    assert!(
+        raw_white < 0.9,
+        "RAW white must be AgX-compressed (<0.9 gamma); got {raw_white}"
+    );
+    assert!(
+        nonraw_white > 0.97,
+        "NON-RAW white must NOT be AgX-crushed (>0.97 ~= 255); got {nonraw_white} — Fix #1513 ineffective"
+    );
+}
+
 /// NON-RAW INPUT SHAPE (#1331, #1513): a `LinearRec2020Fp16` chain with the WB
 /// slider at default (6500K/0) must (a) omit `capture_sharpening`, (b) OMIT WB
 /// (the `wb_is_noop` gate fires at default), AND (c) OMIT AgX — non-RAW input is
