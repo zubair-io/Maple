@@ -243,11 +243,11 @@ public actor GpuLiveSession {
     ///
     /// Auto Profile artifacts ride the chain's passes (as in `present`). Serialized
     /// by the actor.
-    public func renderToBuffer(model: AdjustmentModel) throws -> [UInt8]? {
+    public func renderToBuffer(model: AdjustmentModel, inputShape: UInt32 = 0) throws -> [UInt8]? {
         guard let h = handle else {
             throw GpuLiveError(message: "renderToBuffer: session is closed")
         }
-        let params = PipelineRenderer.makeGpuLiveParams(from: model)
+        let params = PipelineRenderer.makeGpuLiveParams(from: model, inputShape: inputShape)
         var out = [UInt8](repeating: 0, count: width * height * 3)
         let rc = withGpuLiveParams(params) { pp in
             withUnsafePointer(to: h) { hp in
