@@ -55,8 +55,17 @@ final class GpuLiveCanvasController {
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
         layer.isOpaque = true
-        if let p3 = CGColorSpace(name: CGColorSpace.displayP3) {
-            layer.colorspace = p3
+        // The present chain writes sRGB-primary, sRGB-gamma pixels
+        // (`display_encode` with target_primaries=0). Tag the layer sRGB so
+        // CoreAnimation color-manages sRGB→the display's space (P3 on a P3
+        // panel) — exactly the conversion the header comment above describes.
+        // Tagging the layer `.displayP3` (the old value) instead told
+        // CoreAnimation the bytes were ALREADY P3, so NO conversion ran and
+        // sRGB values were reinterpreted as P3 — over-saturating every image
+        // (raw + non-raw); neutrals were unaffected (gray axis is tag-invariant).
+        // #1512.
+        if let srgb = CGColorSpace(name: CGColorSpace.sRGB) {
+            layer.colorspace = srgb
         }
     }
 
