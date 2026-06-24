@@ -456,11 +456,9 @@ fn chain_signature_folds_in_residual_lut_size() {
     );
 }
 
-/// #1513 PIXEL PROOF (GPU render): a WHITE scene-linear pixel rendered through
-/// the live chain must be AgX-compressed for a RAW shape (white 1.0 crushes to
-/// ~0.76 gamma — the #1513 symptom) but pass through ~unchanged for a NON-RAW
-/// shape (AgX skipped → white stays ~1.0 = 255). This renders on the real GPU,
-/// so it proves the gate's PIXEL effect, not just the pass list.
+/// #1513/#1516 PIXEL PROOF (real GPU): a WHITE scene-linear pixel is AgX-crushed
+/// to ~0.76 gamma for a RAW shape but passes ~unchanged (1.0 = 255) for a NON-RAW
+/// shape (look stages skipped) — proving the gate's pixel effect, not just the list.
 #[test]
 fn nonraw_white_survives_agx_but_raw_white_is_crushed() {
     let (w, h) = (8usize, 8usize);
@@ -478,71 +476,52 @@ fn nonraw_white_survives_agx_but_raw_white_is_crushed() {
     nonraw_inputs.input_shape = crate::full_chain::InputShape::LinearRec2020Fp16;
     let nonraw_white = run_live_chain(&input, w as u32, h as u32, &nonraw_inputs)[0];
 
-    eprintln!(
-        "[#1513/#1516] RAW white={raw_white:.4} (AgX crush, ~0.76)  NON-RAW white={nonraw_white:.4} (look stages skipped, =1.0)"
-    );
     assert!(
         raw_white < 0.9,
         "RAW white must be AgX-compressed (<0.9 gamma); got {raw_white}"
     );
     assert!(
         nonraw_white > 0.999,
-        "NON-RAW white must be FULLY white (=1.0 = 255), not crushed by AgX (#1513) or the \
-         look stages (#1516); got {nonraw_white}"
+        "NON-RAW white must stay 1.0 (=255), not crushed by AgX/look stages (#1513/#1516); got {nonraw_white}"
     );
 }
 
-/// NON-RAW INPUT SHAPE (#1331, #1513, #1516): a `LinearRec2020Fp16` chain with
-/// the WB slider at default (6500K/0) must (a) omit `capture_sharpening`, (b)
-/// OMIT WB (the `wb_is_noop` gate fires at default), AND (c) OMIT the entire
-/// LOOK portion of the view tail — AgX (#1513) PLUS the Auto-Profile curve +
-/// residual LUT (#1516) — because non-RAW input is already display-referred and
-/// has no profile to fit. The tail collapses to the colorimetric encode only
-/// (display_encode + srgb_gamma), matching the CPU `processSceneLinearNonRaw`
-/// path (which also crushed white to 248 when the look stages leaked). That is
-/// the RAW view tail MINUS 3 (`VIEW_TAIL_PASS_COUNT - 3`). With the WB slider
-/// engaged, WB IS present (temperature/tint sliders must work for non-RAW too).
+/// NON-RAW INPUT SHAPE (#1331, #1513, #1516): a `LinearRec2020Fp16` chain at
+/// default WB must omit `capture_sharpening`, omit WB (the `wb_is_noop` gate),
+/// AND omit the whole LOOK portion of the view tail — AgX (#1513) + auto-profile
+/// curve + residual LUT (#1516) — leaving the colorimetric encode only
+/// (display_encode + srgb_gamma), i.e. `VIEW_TAIL_PASS_COUNT - 3`. With WB
+/// engaged, WB is present (temp/tint sliders must work for non-RAW too).
 #[test]
 fn linear_rec2020_shape_skips_capture_sharpening_look_and_keeps_wb_gated() {
-    // (a) Default sliders → WB is a no-op (6500K/0 in the skip band) and the look
-    //     stages (AgX + auto-profile + residual) are skipped (non-RAW is
-    //     display-referred with no profile); only display_encode + srgb_gamma
-    //     run. capture_sharpening is always absent for non-RAW.
     let mut case = neutral_case();
     let mut inputs = case.gpu_inputs();
     inputs.input_shape = crate::full_chain::InputShape::LinearRec2020Fp16;
-    // Confirm capture_sharpening is None (neutral_case sets None already).
     assert!(inputs.capture_sharpening.is_none());
 
-    // A neutral RAW chain (default shape) is the FULL view tail incl. the look
-    // stages; the non-RAW chain must be exactly that minus the 3 look passes —
-    // proving they are gated on the input shape and RAW output is unchanged.
+    // A neutral RAW chain is the FULL view tail; non-RAW must be that minus the 3 look passes.
     let raw_passes = build_live_chain(&case.gpu_inputs(), AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         raw_passes.len(),
         VIEW_TAIL_PASS_COUNT,
-        "neutral RAW chain must keep the full view tail incl. the look stages ({VIEW_TAIL_PASS_COUNT})"
+        "neutral RAW chain must keep the full view tail ({VIEW_TAIL_PASS_COUNT})"
     );
 
     let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         passes.len(),
         VIEW_TAIL_PASS_COUNT - 3,
-        "LinearRec2020Fp16 + default WB must yield the encode-only tail (display_encode + \
-         srgb_gamma = {} passes); got {} — a look stage (AgX/auto-profile/residual) leaked, \
-         WB present, or a stage leaked",
+        "non-RAW default-WB tail must be encode-only ({} passes); got {}",
         VIEW_TAIL_PASS_COUNT - 3,
         passes.len()
     );
     assert_eq!(
         passes.len(),
         raw_passes.len() - 3,
-        "non-RAW chain must be the RAW view tail minus exactly the 3 look passes \
-         (AgX + auto-profile + residual)"
+        "non-RAW = RAW tail minus exactly the 3 look passes"
     );
 
-    // (b) WB engaged (temp outside the 6500±0.5 skip band) → WB IS included
-    //     even for non-RAW shape: temperature/tint sliders must work.
+    // WB engaged (temp outside the 6500±0.5 skip band) → WB included even for non-RAW.
     case.model.temperature = 4800.0;
     case.model.tint = 12.0;
     let mut inputs_wb = case.gpu_inputs();
@@ -552,8 +531,7 @@ fn linear_rec2020_shape_skips_capture_sharpening_look_and_keeps_wb_gated() {
     assert_eq!(
         passes_wb.len(),
         VIEW_TAIL_PASS_COUNT - 2,
-        "LinearRec2020Fp16 + engaged WB must add exactly 1 pass (WhiteBalancePass) to the \
-         encode-only tail (= {}); got {} — WB missing or extra pass leaked",
+        "non-RAW + engaged WB must add exactly 1 pass (WB) to the encode-only tail ({}); got {}",
         VIEW_TAIL_PASS_COUNT - 2,
         passes_wb.len()
     );
