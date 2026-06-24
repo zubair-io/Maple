@@ -32,7 +32,7 @@
 import type { Collection, WithId } from 'mongodb';
 import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { child as childLogger } from '../../log.ts';
-import { updateLiveLocationCount } from '../../indexer/images.repo.ts';
+import { assetPrimaryFileInfo, updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
 
 const log = childLogger('migration:move');
@@ -71,6 +71,24 @@ function buildRepointSet(args: {
   return set;
 }
 
+/** `$elemMatch` for the asset's canonical LIVE entry (the one
+ * `assetPrimaryFileInfo` returns). The `deleted_at`/`missing_since` null tags are
+ * load-bearing: a delete-then-readd doc has a soft-deleted tombstone sharing the
+ * live entry's (library_id, path, filename), so without them the positional `$`
+ * would repoint the tombstone and `finalize` would delete the live file's source
+ * (#1519). Matches the liveness definition in `isLiveFileInfo`. */
+function liveEntryElemMatch(primary: FileInfo): Record<string, unknown> {
+  return {
+    $elemMatch: {
+      library_id: primary.library_id,
+      path: primary.path,
+      filename: primary.filename,
+      deleted_at: null,
+      missing_since: null,
+    },
+  };
+}
+
 /** Collapse exact-duplicate LIVE fileinfo entries (same library_id/path/
  * filename), keeping the first. A no-op when there are none. Covers the
  * discover-watcher race where `add(new)` lands a second entry before our
@@ -104,8 +122,9 @@ export async function dedupeLiveFileinfo(
 }
 
 /**
- * Relocate the asset's canonical file (`fileinfo[0]`) into `newDir`, repointing
- * the row between verify and delete. `extraSet` is merged into the repoint
+ * Relocate the asset's canonical file (its first live `fileinfo` entry, via
+ * `assetPrimaryFileInfo`) into `newDir`, repointing the row between verify and
+ * delete. `extraSet` is merged into the repoint
  * write and, in the `newDir === oldDir` case, written on its own.
  *
  * Throws `SourceMissingError` (re-exported from `restructure-fs.ts`) when the
@@ -118,8 +137,11 @@ export async function moveBackupAsset(
   newDir: string,
   extraSet?: Record<string, unknown>,
 ): Promise<MoveOutcome> {
-  const primary = doc.fileinfo?.[0];
-  if (!primary || primary.deleted_at) return 'skipped';
+  // Canonical entry = first LIVE fileinfo, not blindly `fileinfo[0]` (which may be
+  // a delete-then-readd tombstone). `assetPrimaryFileInfo` already filters to live,
+  // so no separate `deleted_at` guard is needed (#1519).
+  const primary = assetPrimaryFileInfo(doc);
+  if (!primary) return 'skipped';
   const oldDir = primary.path;
 
   // Already where it belongs — stamp the marker (if any) and bail without
@@ -135,13 +157,7 @@ export async function moveBackupAsset(
       const res = await coll.updateOne(
         {
           _id: doc._id,
-          fileinfo: {
-            $elemMatch: {
-              library_id: primary.library_id,
-              path: primary.path,
-              filename: primary.filename,
-            },
-          },
+          fileinfo: liveEntryElemMatch(primary),
         },
         { $set: extraSet },
       );
@@ -172,13 +188,7 @@ export async function moveBackupAsset(
   const res = await coll.updateOne(
     {
       _id: doc._id,
-      fileinfo: {
-        $elemMatch: {
-          library_id: primary.library_id,
-          path: primary.path,
-          filename: primary.filename,
-        },
-      },
+      fileinfo: liveEntryElemMatch(primary),
     },
     {
       $set: buildRepointSet({
