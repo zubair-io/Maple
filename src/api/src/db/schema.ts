@@ -380,10 +380,17 @@ export interface AssetDoc {
    * computed from its current data. Generations 1 (pre-geo flat, #744, never
    * stamped) and 2 (the old geo migration, which could freeze an asset stamped on
    * a no-op before its geocode resolved) are superseded; the cleanup selects on
-   * `{ $ne: 3 }` so the whole backlog re-sweeps exactly once. Only backup-origin
-   * assets carry it.
+   * `{ $ne: N }` (N = current generation) so the whole backlog re-sweeps exactly
+   * once per bump. Only backup-origin assets carry it.
    */
   backup_layout_version?: number;
+  /**
+   * Video-metadata backfill generation (`workers/migration/backfill-video-exif.ts`).
+   * Stamped once that migration has read a video's QuickTime `moov` capture date +
+   * GPS into `exif` (#1525); its `{ $ne: N }` selector re-sweeps videos once per
+   * bump. Only set on backup-origin video assets.
+   */
+  video_meta_version?: number;
   /**
    * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
    * endpoint; null/absent for assets indexed by other paths (the indexer

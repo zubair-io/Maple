@@ -129,6 +129,7 @@
         "src/workers/discover/sweeper.test.ts",
         "src/workers/discover/sweeper.ts",
         "src/workers/migration.test.ts",
+        "src/workers/migration/backfill-video-exif.e2e.test.ts",
         "src/workers/migration/refile-backups.e2e.test.ts",
         "src/workers/migration/refile-backups.tombstone.e2e.test.ts",
         "src/workers/migration/restructure-fs.test.ts",
