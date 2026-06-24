@@ -83,9 +83,33 @@ struct PhotoGrid<Leading: View>: View {
     var transitionNamespace: Namespace.ID? = nil
     var onAppearItem: ((PhotoGridItem) -> Void)? = nil
     let onTap: (PhotoGridItem) -> Void
-    @ViewBuilder let leading: () -> Leading
+    let leading: () -> Leading
 
     @Environment(\.mapleLayout) private var layout
+
+    /// Primary initialiser. Explicit so `leading` can carry `@ViewBuilder`.
+    /// Use the `EmptyView` convenience below when no leading content is needed.
+    init(
+        items: [PhotoGridItem],
+        columns: ColumnStrategy,
+        provider: ThumbnailProvider,
+        displayMode: GridDisplayMode,
+        selection: Set<String> = [],
+        transitionNamespace: Namespace.ID? = nil,
+        onAppearItem: ((PhotoGridItem) -> Void)? = nil,
+        onTap: @escaping (PhotoGridItem) -> Void,
+        @ViewBuilder leading: @escaping () -> Leading
+    ) {
+        self.items = items
+        self.columns = columns
+        self.provider = provider
+        self.displayMode = displayMode
+        self.selection = selection
+        self.transitionNamespace = transitionNamespace
+        self.onAppearItem = onAppearItem
+        self.onTap = onTap
+        self.leading = leading
+    }
 
     var body: some View {
         LazyVGrid(
@@ -153,7 +177,27 @@ struct SectionedPhotoGrid<Header: View>: View {
     var selection: Set<String> = []
     var transitionNamespace: Namespace.ID? = nil
     let onTap: (PhotoGridItem) -> Void
-    @ViewBuilder let header: (String) -> Header
+    let header: (String) -> Header
+
+    init(
+        sections: [(key: String, items: [PhotoGridItem])],
+        columns: ColumnStrategy,
+        provider: ThumbnailProvider,
+        displayMode: GridDisplayMode,
+        selection: Set<String> = [],
+        transitionNamespace: Namespace.ID? = nil,
+        onTap: @escaping (PhotoGridItem) -> Void,
+        @ViewBuilder header: @escaping (String) -> Header
+    ) {
+        self.sections = sections
+        self.columns = columns
+        self.provider = provider
+        self.displayMode = displayMode
+        self.selection = selection
+        self.transitionNamespace = transitionNamespace
+        self.onTap = onTap
+        self.header = header
+    }
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
