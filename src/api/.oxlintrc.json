@@ -70,6 +70,7 @@
         "src/imports/worker.test.ts",
         "src/indexer/exif.formats.test.ts",
         "src/indexer/exif.ts",
+        "src/indexer/exif.video.test.ts",
         "src/indexer/heic-exif.test.ts",
         "src/indexer/heic-exif.ts",
         "src/indexer/id.test.ts",
