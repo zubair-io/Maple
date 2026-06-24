@@ -22,7 +22,6 @@
 
 use raw_core::image::Image;
 use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
-use raw_core::test_support::colorchecker::COLORCHECKER_REC2020;
 use raw_core::test_support::synth_chart::SyntheticColorChart;
 use raw_core::xmp::AdjustmentModel;
 
@@ -49,7 +48,7 @@ fn lsq_gain(chart: &SyntheticColorChart, scene: &Image) -> f32 {
     for row in 0..4 {
         for col in 0..6 {
             let got = chart.read_patch_mean(scene, col, row);
-            let want = COLORCHECKER_REC2020[row][col];
+            let want = chart.patches[row][col];
             for c in 0..3 {
                 num += (got[c] * want[c]) as f64;
                 den += (want[c] * want[c]) as f64;
@@ -77,7 +76,7 @@ fn chart_chroma_fidelity_scene_linear() {
     for row in 0..4 {
         for col in 0..6 {
             let got = chart.read_patch_mean(&scene, col, row);
-            let want = COLORCHECKER_REC2020[row][col];
+            let want = chart.patches[row][col];
             for c in 0..3 {
                 let resid = (got[c] - g * want[c]).abs();
                 assert!(
@@ -91,8 +90,8 @@ fn chart_chroma_fidelity_scene_linear() {
     }
 }
 
-/// Neutral column (row 3) must develop neutral (R==G==B) — chroma sliders and
-/// the color matrix must not tint the gray axis.
+/// Neutral row (row 3 in `colorchecker.rs`) must develop neutral (R==G==B) —
+/// chroma sliders and the color matrix must not tint the gray axis.
 #[test]
 fn chart_neutrals_stay_neutral() {
     let (chart, scene) = develop(&AdjustmentModel::default());
@@ -113,6 +112,13 @@ fn chart_neutrals_stay_neutral() {
 #[test]
 fn chart_patches_are_flat() {
     let (chart, scene) = develop(&AdjustmentModel::default());
+    // The sampler skips a 4px border on every side, so the interior is
+    // `patch_size - 8`; assert the precondition rather than underflow-panic.
+    assert!(
+        chart.patch_size >= 16,
+        "patch sampling needs patch_size >= 16 (got {})",
+        chart.patch_size
+    );
     let stride = (chart.patch_size + chart.guard) as usize;
     let inner = chart.patch_size as usize - 8;
     let w = scene.width as usize;
@@ -157,9 +163,9 @@ fn chart_saturation_slider_moves_color_not_neutrals() {
     let (_, more) = develop(&up);
     let (_, less) = develop(&down);
 
-    // A strongly colored patch (moderate red) must gain chroma at +100 and lose
-    // it at -100, by a clear margin well above the flatness noise floor.
-    let (rc, rr) = (2usize, 2usize); // red
+    // A strongly colored patch (primary red, row 2 col 2) must gain chroma at
+    // +100 and lose it at -100, by a clear margin above the flatness noise floor.
+    let (rc, rr) = (2usize, 2usize); // primary red
     let (c0, cup, cdn) = (
         chroma(chart.read_patch_mean(&base, rc, rr)),
         chroma(chart.read_patch_mean(&more, rc, rr)),
