@@ -197,6 +197,34 @@ final class GpuLiveSessionTests: XCTestCase {
                              "likely didn't run (plumbing or upload failure)")
     }
 
+    /// #1513 END-TO-END through the LINKED xcframework: a white scene-linear pixel
+    /// rendered with the NON-RAW input shape must NOT be AgX-crushed (white ~249),
+    /// while the RAW shape IS (white ~194). This exercises the full Swift→FFI→
+    /// `build_live_chain` path against the static lib the app actually links, so it
+    /// catches a stale `.a` that lacks the AgX gate (the exact deploy bug that made
+    /// the app render non-raw white at 194 even with #1513 in the source).
+    func test_nonraw_white_survives_agx_through_linked_xcframework() async throws {
+        let (w, h) = (16, 16)
+        let pixels = [Float](repeating: 1.0, count: w * h * 4)  // pure white
+        let session = try GpuLiveSession(pixels: pixels, width: w, height: h)
+        var model = AdjustmentModel()
+        model.sharpenAmount = 0
+        model.nrColor = 0
+        model.profile = .neutral
+
+        guard let rawOut = try await session.renderToBuffer(model: model, inputShape: 0),
+              let nonrawOut = try await session.renderToBuffer(model: model, inputShape: 1)
+        else { return XCTFail("renderToBuffer returned nil") }
+
+        let rawWhite = Int(rawOut[0])
+        let nonrawWhite = Int(nonrawOut[0])
+        print("[#1513 xcframework] RAW white=\(rawWhite)  NON-RAW white=\(nonrawWhite)")
+        XCTAssertLessThan(rawWhite, 210,
+            "RAW white must be AgX-compressed (~194); got \(rawWhite)")
+        XCTAssertGreaterThan(nonrawWhite, 240,
+            "NON-RAW white must NOT be AgX-crushed (~249) — the linked xcframework lacks #1513; got \(nonrawWhite)")
+    }
+
     /// The session rejects a pixel buffer whose length doesn't match the dims (a
     /// caller bug — guards the upload contract before it reaches the FFI).
     func test_session_rejects_mismatched_pixel_count() {
