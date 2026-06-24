@@ -7,11 +7,13 @@ import type { Migration } from './types.ts';
 import { refileBackups } from './refile-backups.ts';
 import { scrubMirrorOrphans } from './scrub-mirror-orphans.ts';
 import { backfillLiveLocationCount } from './backfill-live-location-count.ts';
+import { backfillVideoExif } from './backfill-video-exif.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   refileBackups,
   scrubMirrorOrphans,
   backfillLiveLocationCount,
+  backfillVideoExif,
 ];
 
 export function getMigration(id: string): Migration | undefined {
