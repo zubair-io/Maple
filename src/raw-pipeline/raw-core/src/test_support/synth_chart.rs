@@ -4,7 +4,7 @@
 use crate::image::{CfaPattern, Image};
 use crate::test_support::colorchecker::COLORCHECKER_REC2020;
 use crate::test_support::synth_dng::{
-    matrix_to_srationals, vec3_to_rationals, write_u16_le, write_u32_le, Ifd, IfdEntry,
+    matrix_to_srationals, vec3_to_rationals, write_u16_le, write_u32_le, Ifd,
 };
 use std::io;
 use std::path::Path;
