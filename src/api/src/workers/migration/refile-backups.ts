@@ -65,8 +65,9 @@ function yearFor(oldDir: string, capturedYear: number | null | undefined): strin
 
 /**
  * The canonical directory a backup asset's canonical live entry
- * (`assetPrimaryFileInfo` — the first non-deleted `fileinfo`, NOT blindly
- * `fileinfo[0]`, which may be a delete-then-readd tombstone) should live in, or
+ * (`assetPrimaryFileInfo` — the first live `fileinfo`, i.e. neither `deleted_at`
+ * nor `missing_since` set per `isLiveFileInfo`, NOT blindly `fileinfo[0]`, which
+ * may be a delete-then-readd tombstone) should live in, or
  * `null` when there is no live entry / the year can't be determined (pathological
  * — every backup path starts with `<year>/`). The rule, in precedence order:
  *
