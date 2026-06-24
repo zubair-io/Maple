@@ -127,6 +127,7 @@
         "src/workers/discover/sweeper.ts",
         "src/workers/migration.test.ts",
         "src/workers/migration/refile-backups.e2e.test.ts",
+        "src/workers/migration/refile-backups.tombstone.e2e.test.ts",
         "src/workers/migration/restructure-fs.test.ts",
         "src/workers/migration/scrub-mirror-orphans.test.ts",
         "src/workers/mirror/copy.test.ts",
