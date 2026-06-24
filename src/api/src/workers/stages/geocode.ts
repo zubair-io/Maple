@@ -23,8 +23,26 @@ import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
 } from '../../enrichment/enrichment-config.repo.ts';
+import { backupLocationSegments } from '../../backup/location-segments.ts';
+import type { Place } from '../../db/schema.ts';
 
 export const GEOCODE_HANDLER_VERSION = 1;
+
+/** The canonical backup folder is derived from a place's location segments
+ * (`<Country|State>/<City>`). Reset value for `backup_layout_version` that puts
+ * an asset back into the refile-backups candidate set. */
+const REFILE_RESET_VERSION = 0;
+
+/** True when geocoding produced a place whose backup folder differs from where
+ * the asset is currently filed — i.e. the file should be re-located. Comparing
+ * the derived segments (not the whole place) means a cosmetic place change that
+ * doesn't move the folder won't trigger a needless re-file. */
+function backupFolderChanged(oldPlace: Place | null | undefined, newPlace: Place): boolean {
+  return (
+    backupLocationSegments(oldPlace ?? null).join('/') !==
+    backupLocationSegments(newPlace).join('/')
+  );
+}
 
 interface GeocodeDeps {
   client: NominatimClient;
@@ -60,13 +78,27 @@ export async function geocodeHandler(image: ImageDoc, _ctx: StageContext): Promi
   }
   const { lat, lng } = gps;
   const cached = await cache.get(lat, lng);
-  if (cached) {
-    return { patch: { place: cached } };
-  }
+  const place = cached ?? null;
+  if (place) return { patch: placePatch(image, place) };
+
   const raw = await client.reverse(lat, lng);
-  const place = parseNominatimResponse(raw, lat, lng, GEOCODE_HANDLER_VERSION, () => new Date());
-  await cache.set(lat, lng, place);
-  return { patch: { place } };
+  const fresh = parseNominatimResponse(raw, lat, lng, GEOCODE_HANDLER_VERSION, () => new Date());
+  await cache.set(lat, lng, fresh);
+  return { patch: placePatch(image, fresh) };
+}
+
+/** Write the place, and — when it changes the canonical backup folder — reset
+ * `backup_layout_version` so the refile-backups migration re-files the asset to
+ * the resolved location. This decouples "place resolved" from "file moved":
+ * whether the place arrives at ingest, via this stage, or via a backfill, the
+ * asset lands in the right folder once it's enabled. Previously a place that
+ * resolved AFTER the file was first placed left it frozen in the wrong folder. */
+function placePatch(image: ImageDoc, place: Place): Record<string, unknown> {
+  const patch: Record<string, unknown> = { place };
+  if (backupFolderChanged(image.place, place)) {
+    patch.backup_layout_version = REFILE_RESET_VERSION;
+  }
+  return patch;
 }
 
 const geocodeStage = defineStage({
