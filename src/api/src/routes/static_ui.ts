@@ -77,7 +77,7 @@ async function serveStatic(
   const filePath = path.join(UI_DIST, uiRelPath);
 
   // Prevent directory traversal.
-  if (!filePath.startsWith(UI_DIST)) {
+  if (filePath !== UI_DIST && !filePath.startsWith(UI_DIST + path.sep)) {
     return new Response("Forbidden", { status: 403 });
   }
 
