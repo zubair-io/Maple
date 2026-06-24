@@ -31,9 +31,10 @@ struct PhotoThumbnailCell: View {
     /// this seam in M1+. Setting this to `nil` is a no-op (no transition tag).
     var transitionNamespace: Namespace.ID? = nil
     let onTap: () -> Void
-    /// Called once when the cell scrolls into view. Use for priming sessions
-    /// or triggering page loads. The `.task(id:)` for thumbnail loading runs
-    /// independently — this is a supplemental notification hook.
+    /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
+    /// once (re-insertion / scroll in-out), so the work MUST be idempotent — use
+    /// it for session priming or page-load triggers, not exactly-once side effects.
+    /// The thumbnail `.task(id:)` runs independently; this is a supplemental hook.
     var onAppear: (() -> Void)? = nil
 
     // MARK: State
