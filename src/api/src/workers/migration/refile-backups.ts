@@ -12,9 +12,9 @@
  * at the time it ran). Nothing ever cleared that stamp, so an asset migrated before
  * its geocode resolved was frozen in the wrong folder forever. This migration drops
  * the stamp-trust model: it computes the canonical dir from each asset's CURRENT
- * data and moves only when the actual path differs. The stamp is bumped to 3 purely
- * as the worker's done-marker, so the `{ $ne: 3 }` selector re-sweeps the whole
- * backlog exactly once and then terminates.
+ * data and moves only when the actual path differs. The stamp is bumped each
+ * generation purely as the worker's done-marker, so the `{ $ne: BACKUP_LAYOUT_VERSION }`
+ * selector re-sweeps the whole backlog exactly once per bump and then terminates.
  *
  * The canonical dir mirrors what a fresh ingest (`backup/path-formatter.ts`) would
  * produce, so a migrated file lands byte-for-byte where a re-ingest would put it.
@@ -70,8 +70,9 @@ function yearFor(oldDir: string, capturedYear: number | null | undefined): strin
 
 /** Zero-padded `MM` for the no-location `<year>/<MM>` layout, or `null` when the
  * capture month is unknown (then we don't invent a month-folder — see the
- * no-location branch). */
-function monthFor(capturedMonth: number | null | undefined): string | null {
+ * no-location branch). Exported for the video-exif backfill, which only resets the
+ * refile marker when a usable month exists. */
+export function monthFor(capturedMonth: number | null | undefined): string | null {
   if (
     capturedMonth != null &&
     Number.isInteger(capturedMonth) &&
@@ -135,8 +136,9 @@ export function computeCanonicalDir(doc: {
 /** Selects backup-origin assets not yet refiled into the current layout. No `place`
  * or `is_screenshot` constraint — `computeCanonicalDir` handles geo, screenshot, and
  * date-fallback uniformly, so this one selector subsumes all three old migrations.
- * The `{ $ne: 3 }` gate is the done-marker: a refiled (moved or no-op) asset is
- * stamped `3` and drops out, so `countRemaining` reaches 0.
+ * The `{ $ne: BACKUP_LAYOUT_VERSION }` gate is the done-marker: a refiled (moved or
+ * no-op) asset is stamped with the current generation and drops out, so
+ * `countRemaining` reaches 0.
  *
  * Liveness is gated with the shared `liveFileInfoElemMatch()` ("has ≥1 live
  * entry"), NOT `'fileinfo.0.deleted_at': null`. The old form leaked
