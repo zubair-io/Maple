@@ -8,8 +8,10 @@
 //
 // Note on Hashable: ThumbnailSource intentionally does NOT conform to Hashable
 // because the `.local` case carries `(any ImageSource)?` — an existential
-// backed by an actor protocol — which is not Hashable. PhotoGridItem.Hashable
-// is derived from `id` only, matching the Identifiable contract.
+// backed by an actor protocol — which is not Hashable. PhotoGridItem equality
+// compares `id` + `overlays` so SwiftUI re-renders a cell when its badges change
+// (rating/flag/sync) under a stable id; `hash(into:)` stays `id`-only (a same-id,
+// different-overlays hash collision is permitted by the Hashable contract).
 
 import Foundation
 
@@ -126,7 +128,7 @@ public struct PhotoGridItem: Identifiable, Sendable {
 
 extension PhotoGridItem: Hashable {
     public static func == (lhs: PhotoGridItem, rhs: PhotoGridItem) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id && lhs.overlays == rhs.overlays
     }
 
     public func hash(into hasher: inout Hasher) {

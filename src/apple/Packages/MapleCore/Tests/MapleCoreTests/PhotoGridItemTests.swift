@@ -29,14 +29,31 @@ final class PhotoGridItemTests: XCTestCase {
 
     // MARK: - Hashable (id-based)
 
-    func testHashableEqualityOnSameID() {
-        let a = PhotoGridItem(id: "same", thumbnailSource: .photoKit(localID: "local1"))
+    func testEqualitySameIDAndOverlaysIgnoresSource() {
+        let a = PhotoGridItem(
+            id: "same",
+            thumbnailSource: .photoKit(localID: "local1"),
+            overlays: GridCellOverlays(rating: 2)
+        )
         let b = PhotoGridItem(
             id: "same",
             thumbnailSource: .cloud(absPath: "/photos/img.dng", host: "server"),
+            overlays: GridCellOverlays(rating: 2)
+        )
+        XCTAssertEqual(a, b, "Same id + same overlays are equal regardless of thumbnail source")
+    }
+
+    func testInequalityWhenOverlaysDiffer() {
+        // Critical for SwiftUI: a stable id with changed badges (rating/flag/sync)
+        // must compare UNEQUAL so the cell re-renders. (#1490 review — Jules)
+        let a = PhotoGridItem(id: "same", thumbnailSource: .photoKit(localID: "l"))
+        let b = PhotoGridItem(
+            id: "same",
+            thumbnailSource: .photoKit(localID: "l"),
             overlays: GridCellOverlays(rating: 5)
         )
-        XCTAssertEqual(a, b, "Items with the same id must be equal regardless of source or overlays")
+        XCTAssertNotEqual(a, b, "Same id but different overlays must NOT be equal")
+        XCTAssertEqual(a.hashValue, b.hashValue, "hash stays id-based — collision is permitted")
     }
 
     func testHashableInequalityOnDifferentID() {
