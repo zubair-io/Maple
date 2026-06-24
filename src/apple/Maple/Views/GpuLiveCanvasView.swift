@@ -64,6 +64,12 @@ final class GpuLiveCanvasController {
         // sRGB values were reinterpreted as P3 — over-saturating every image
         // (raw + non-raw); neutrals were unaffected (gray axis is tag-invariant).
         // #1512.
+        //
+        // NOTE: this tag MUST track `GpuLiveParams.target_primaries`. It is `0`
+        // (sRGB) today, so the canvas caps at sRGB gamut. When #1338 wires the
+        // Display-P3 path (`target_primaries = 1`, outputting P3-primary pixels to
+        // use the panel's full gamut), this tag must flip back to `.displayP3` so
+        // the layer tag again matches the encoded primaries.
         if let srgb = CGColorSpace(name: CGColorSpace.sRGB) {
             layer.colorspace = srgb
         }
