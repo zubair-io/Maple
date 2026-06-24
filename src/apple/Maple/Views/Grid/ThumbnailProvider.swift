@@ -27,34 +27,33 @@ import UIKit
 
 // MARK: - ThumbnailProvider
 
-/// Facade actor. `PhotoThumbnailCell` calls `thumbnail(for:targetSize:)` and
-/// gets JPEG bytes back regardless of which backend served them.
+/// Facade actor. `PhotoThumbnailCell` calls `thumbnail(for:)` and gets JPEG
+/// bytes back regardless of which backend served them.
 ///
 /// Inject once per grid surface (same lifetime as the owning view model) and
-/// share it across all cells in that grid. The actor serialises concurrent
-/// requests through `CloudThumbClient` so the cloud connection is not
-/// hammered; the PhotoKit and ThumbnailLoader paths are independently
-/// concurrent.
+/// share it across all cells in that grid. This actor is a thin dispatcher: it
+/// does NOT add coalescing or throttling. `ThumbnailLoader` already coalesces
+/// in-flight local requests; the cloud/PhotoKit paths inherit whatever
+/// concurrency their callers drive (one `.task` per visible cell).
 actor ThumbnailProvider {
 
     // MARK: - Dependencies
 
     private let thumbClient: CloudThumbClient
     private let thumbCache: CloudThumbCache
-    private let host: String
 
     // MARK: - Init
 
-    /// Create a provider wired to the cloud-thumb infrastructure.
+    /// Create a provider wired to the cloud-thumb infrastructure. The cloud host
+    /// travels with each `ThumbnailSource` (`.cloud`/`.merged` carry it), so it is
+    /// not stored here — one source of truth.
     ///
     /// - Parameters:
     ///   - thumbClient: Cloud thumb fetcher (from the timeline's existing wiring).
     ///   - thumbCache:  Disk cache for cloud thumbs (same instance the timeline uses).
-    ///   - host:        Server cache-host key (`vm.server.cacheHostKey`).
-    init(thumbClient: CloudThumbClient, thumbCache: CloudThumbCache, host: String) {
+    init(thumbClient: CloudThumbClient, thumbCache: CloudThumbCache) {
         self.thumbClient = thumbClient
         self.thumbCache = thumbCache
-        self.host = host
     }
 
     // MARK: - Public API
@@ -63,11 +62,12 @@ actor ThumbnailProvider {
     /// The caller (`PhotoThumbnailCell`) drives this from a `.task(id: item.id)`
     /// so the load is automatically cancelled when the cell disappears.
     ///
-    /// Target sizes follow the conventions established by the original cells:
-    ///   - cloud: 512 px (CloudThumbClient's default)
-    ///   - local: 256 px (ThumbnailDiskCache.defaultThumbSize)
+    /// Each backend keeps its established target size (no caller override — the
+    /// cloud cache is keyed without size, so a per-call size wouldn't be honoured):
+    ///   - cloud:    512 px (CloudThumbClient's default)
+    ///   - local:    ThumbnailLoader's own sizing (256 px disk cache)
     ///   - PhotoKit: ThumbnailDiskCache.defaultThumbSize (Photos' own cache)
-    func thumbnail(for source: ThumbnailSource, targetSize: Int = 256) async -> Data? {
+    func thumbnail(for source: ThumbnailSource) async -> Data? {
         let backend = source.resolvedBackend()
         switch backend {
         case .thumbnailLoader(let ref, let box):
@@ -189,8 +189,7 @@ extension ThumbnailProvider {
     static func preview() -> ThumbnailProvider {
         ThumbnailProvider(
             thumbClient: CloudThumbClient.preview(),
-            thumbCache: CloudThumbCache.preview(),
-            host: "preview"
+            thumbCache: CloudThumbCache.preview()
         )
     }
 }

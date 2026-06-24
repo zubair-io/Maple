@@ -52,16 +52,16 @@ struct PhotoGridItem: Identifiable {
     var overlays: GridCellOverlays = .init()
 }
 
-enum ThumbnailSource {
-    case local(AssetRef, source: (any ImageSource)?)   // -> ThumbnailLoader
+enum ThumbnailSource {                                 // Sendable, NOT Hashable (carries any ImageSource)
+    case local(AssetRef, source: ImageSourceBox?)      // -> ThumbnailLoader
     case cloud(absPath: String, host: String)          // -> CloudThumbClient + CloudThumbCache
     case photoKit(localID: String)                     // -> PHImageManager
-    case merged(MergedTimelineCell)                     // -> resolves to photoKit or cloud
+    case merged(MergedTimelineCell, host: String)      // -> resolves to photoKit or cloud
 }
 
 struct GridCellOverlays {                   // badges become DATA, not divergent code
     var rating: Int = 0                     // 0..5 stars
-    var flag: AssetFlag? = nil              // pick / reject
+    var flag: CullFlag? = nil               // pick / reject (existing AdjustmentModel enum)
     var sync: SyncBadge? = nil             // synced / cloudOnly / localOnly
     var isVideo: Bool = false
     var style: OverlayStyle = .phone        // phone pick-dot vs desktop flag+stars
