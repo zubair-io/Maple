@@ -310,13 +310,20 @@ pub fn build_live_split(
         }));
     }
 
-    // View tail — ALWAYS runs (the scene→display transform). AgX at contrast 0
-    // is the neutral view transform, not a no-op: it still tone-maps. Mirrors
-    // `build_split`'s tail order exactly (agx → display_encode → srgb_gamma →
-    // auto_profile_curve → residual_lut). `dither` is the session's terminal.
-    suffix.push(Box::new(AgxPass {
-        contrast: inputs.contrast,
-    }));
+    // View tail. AgX is the scene→display tone-map. It runs for RAW shapes
+    // (`PostDcpRec2020Fp16`), whose buffer is scene-referred. NON-RAW shapes
+    // (`LinearRec2020Fp16` / `SrgbGammaEncoded8`) are ALREADY display-referred —
+    // a JPEG/PNG/HEIF tone-mapped at capture — so AgX would double-tone-map them
+    // (white 1.0 crushes to ~0.82, dim and warm). The CPU pipeline skips AgX for
+    // non-RAW for exactly this reason (`ImageEditPipeline.processSceneLinearNonRaw`,
+    // `skipAgX: true`); mirror it here so the GPU-live and CPU paths agree. The
+    // rest of the tail (`display_encode` → `srgb_gamma` → …) still runs: the
+    // non-RAW buffer is linear Rec.2020 and must be encoded to display sRGB. #1513
+    if is_raw_shape {
+        suffix.push(Box::new(AgxPass {
+            contrast: inputs.contrast,
+        }));
+    }
     // Split toning (#1111) — display-linear, post-AgX; GATED on the two
     // saturations (zero saturations are a true no-op regardless of hues /
     // balance, exactly raw-core's `apply` short-circuit).
@@ -369,12 +376,13 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
     inputs.dehaze.abs() >= SLIDER_EPS
 }
 
-/// The number of always-on view-tail passes (`agx`, `display_encode`,
-/// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral chain has
+/// The number of view-tail passes for a RAW input shape (`agx`, `display_encode`,
+/// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral RAW chain has
 /// exactly this many passes; each engaged slider adds one (or, for the spatial
-/// stages, still one `Pass` — they orchestrate their own sub-dispatches). Public
-/// so the live-session terminal-`dither` wiring (C2/C3) and the tests can assert
-/// the floor without re-counting the tail by hand.
+/// stages, still one `Pass` — they orchestrate their own sub-dispatches). NON-RAW
+/// shapes skip `agx` (display-referred input, #1513), so a neutral non-RAW chain
+/// has `VIEW_TAIL_PASS_COUNT - 1`. Public so the live-session terminal-`dither`
+/// wiring (C2/C3) and the tests can assert the floor without re-counting by hand.
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 
 /// The active-stage bitmask — which gated passes [`build_live_split`] includes
