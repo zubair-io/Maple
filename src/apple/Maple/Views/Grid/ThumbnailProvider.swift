@@ -54,10 +54,18 @@ actor ThumbnailProvider {
     /// The cloud host travels with each `ThumbnailSource` (`.cloud`/`.merged`
     /// carry it), so it is not stored here — one source of truth.
     ///
+    /// The two cloud deps must be wired together: pass BOTH or NEITHER. A partial
+    /// configuration would silently make every cloud thumb return `nil` (the cloud
+    /// branch needs both the client and the cache), so it's asserted against.
+    ///
     /// - Parameters:
     ///   - thumbClient: Cloud thumb fetcher (from the timeline's existing wiring).
     ///   - thumbCache:  Disk cache for cloud thumbs (same instance the timeline uses).
     init(thumbClient: CloudThumbClient? = nil, thumbCache: CloudThumbCache? = nil) {
+        assert(
+            (thumbClient == nil) == (thumbCache == nil),
+            "ThumbnailProvider cloud deps must be wired together — pass both or neither"
+        )
         self.thumbClient = thumbClient
         self.thumbCache = thumbCache
     }
@@ -196,8 +204,11 @@ private extension ThumbnailProvider {
 // MARK: - Preview support
 
 extension ThumbnailProvider {
-    /// Preview provider that never makes network or Photos requests.
-    /// Returns `nil` for every load — cells show the placeholder.
+    /// Provider for SwiftUI `#Preview`s: a local-only provider (no cloud deps,
+    /// so it never hits the network). Preview items use bogus ids, so `.photoKit`
+    /// finds no `PHAsset` and `.local` has no bytes — every load resolves to `nil`
+    /// and cells render the placeholder. (It is not a hard stub; it simply has
+    /// nothing real to load in a preview.)
     static func preview() -> ThumbnailProvider {
         ThumbnailProvider()
     }
