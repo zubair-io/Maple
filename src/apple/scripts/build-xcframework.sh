@@ -170,11 +170,14 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 # filesystem ordering.
 compute_input_hash() {
     {
-        # raw-core, raw-ffi, and (since M3 #1235) maple-pano — the pano FFI
-        # delegates directly to maple-pano, so its source is also an input.
+        # raw-core, raw-ffi, (since M3 #1235) maple-pano, and raw-gpu — raw-ffi's
+        # GPU live/present FFI delegates into raw-gpu (the wgpu/WGSL chain), so a
+        # raw-gpu change MUST trigger a rebuild. Omitting it (the bug #1513
+        # exposed) let a raw-gpu-only edit hash-skip and ship a stale xcframework.
         find "$RAW_PIPELINE_DIR/raw-core/src" \
              "$RAW_PIPELINE_DIR/raw-ffi/src" \
              "$RAW_PIPELINE_DIR/maple-pano/src" \
+             "$RAW_PIPELINE_DIR/raw-gpu/src" \
             -type f -name '*.rs' -print0 2>/dev/null | sort -z | xargs -0 shasum
         for f in \
             "$RAW_PIPELINE_DIR/Cargo.lock" \
@@ -182,6 +185,7 @@ compute_input_hash() {
             "$RAW_PIPELINE_DIR/raw-core/Cargo.toml" \
             "$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml" \
             "$RAW_PIPELINE_DIR/maple-pano/Cargo.toml" \
+            "$RAW_PIPELINE_DIR/raw-gpu/Cargo.toml" \
             "$RAW_FFI_DIR/cbindgen.toml" \
             "$SCRIPT_DIR/fetch-ort-ios.sh"; do
             [[ -f "$f" ]] && shasum "$f"
