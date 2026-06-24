@@ -76,6 +76,8 @@
         "src/indexer/id.ts",
         "src/indexer/previewer.ts",
         "src/indexer/thumbnailer.ts",
+        "src/indexer/video-metadata.test.ts",
+        "src/indexer/video-metadata.ts",
         "src/indexer/webp-exif.test.ts",
         "src/indexer/webp-exif.ts",
         "src/job-runner/handlers/batch-jpeg-export.ts",
