@@ -39,21 +39,32 @@ actor ThumbnailProvider {
 
     // MARK: - Dependencies
 
-    private let thumbClient: CloudThumbClient
-    private let thumbCache: CloudThumbCache
+    private let thumbClient: CloudThumbClient?
+    private let thumbCache: CloudThumbCache?
 
     // MARK: - Init
 
-    /// Create a provider wired to the cloud-thumb infrastructure. The cloud host
-    /// travels with each `ThumbnailSource` (`.cloud`/`.merged` carry it), so it is
-    /// not stored here — one source of truth.
+    /// Create a provider optionally wired to cloud-thumb infrastructure.
+    ///
+    /// Pass `nil` for both parameters when the grid is local-only (LibraryGrid,
+    /// BrowseGrid local sources) — cloud branches return `nil` in that case,
+    /// which is correct because a local grid never dispatches `.cloud` or
+    /// `.merged(.cloudOnly)` sources anyway.
+    ///
+    /// The cloud host travels with each `ThumbnailSource` (`.cloud`/`.merged`
+    /// carry it), so it is not stored here — one source of truth.
     ///
     /// - Parameters:
     ///   - thumbClient: Cloud thumb fetcher (from the timeline's existing wiring).
     ///   - thumbCache:  Disk cache for cloud thumbs (same instance the timeline uses).
-    init(thumbClient: CloudThumbClient, thumbCache: CloudThumbCache) {
+    init(thumbClient: CloudThumbClient? = nil, thumbCache: CloudThumbCache? = nil) {
         self.thumbClient = thumbClient
         self.thumbCache = thumbCache
+    }
+
+    /// Convenience for local-only grid surfaces that need no cloud infrastructure.
+    static func local() -> ThumbnailProvider {
+        ThumbnailProvider()
     }
 
     // MARK: - Public API
@@ -74,11 +85,12 @@ actor ThumbnailProvider {
             return await ThumbnailLoader.shared.load(for: ref, from: box?.source)
 
         case .cloudThumb(let absPath, let host):
+            guard let cache = thumbCache, let client = thumbClient else { return nil }
             return await Self.fetchCloudThumb(
                 host: host,
                 absPath: absPath,
-                cache: thumbCache,
-                client: thumbClient,
+                cache: cache,
+                client: client,
                 size: 512
             )
 
@@ -187,9 +199,6 @@ extension ThumbnailProvider {
     /// Preview provider that never makes network or Photos requests.
     /// Returns `nil` for every load — cells show the placeholder.
     static func preview() -> ThumbnailProvider {
-        ThumbnailProvider(
-            thumbClient: CloudThumbClient.preview(),
-            thumbCache: CloudThumbCache.preview()
-        )
+        ThumbnailProvider()
     }
 }
