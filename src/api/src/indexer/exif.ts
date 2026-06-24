@@ -17,6 +17,7 @@ import exifr from 'exifr';
 import { readHeicExifTiff } from './heic-exif.ts';
 import { readWebpExifTiff } from './webp-exif.ts';
 import { VIDEO_EXTS } from './media-types.ts';
+import { readVideoMetadata } from './video-metadata.ts';
 
 /** HEIC/HEIF containers — exifr's `canHandle` rejects modern (>50-byte ftyp)
  * variants, so these go through our own box walker in `heic-exif.ts`, which
@@ -210,6 +211,24 @@ const EXIFR_PARSE_OPTS = {
  */
 export async function readExif(absPath: string): Promise<AssetExif | null> {
   const ext = path.extname(absPath).toLowerCase();
+
+  // Video containers carry no EXIF, but iPhone `.mov`/`.mp4` keep their capture
+  // date + GPS in the QuickTime `moov` atom. Read those (pure-JS, seeks past the
+  // media body) and map onto the same `AssetExif` shape so videos get dated and
+  // geo-filed exactly like photos. `VIDEO_EXTS ⊂ NO_EXIF_EXTS`, so this branch
+  // must precede the skip below.
+  if (VIDEO_EXTS.has(ext)) {
+    const meta = await readVideoMetadata(absPath);
+    if (!meta) return null;
+    return normalizeExif({
+      CreateDate: meta.creationDate ?? undefined,
+      latitude: meta.latitude ?? undefined,
+      longitude: meta.longitude ?? undefined,
+      Make: meta.make ?? undefined,
+      Model: meta.model ?? undefined,
+    });
+  }
+
   if (NO_EXIF_EXTS.has(ext)) return null;
 
   // A real image is never 0 bytes. Handed an empty file, exifr's reader trips
