@@ -31,6 +31,10 @@ struct PhotoThumbnailCell: View {
     /// this seam in M1+. Setting this to `nil` is a no-op (no transition tag).
     var transitionNamespace: Namespace.ID? = nil
     let onTap: () -> Void
+    /// Called once when the cell scrolls into view. Use for priming sessions
+    /// or triggering page loads. The `.task(id:)` for thumbnail loading runs
+    /// independently — this is a supplemental notification hook.
+    var onAppear: (() -> Void)? = nil
 
     // MARK: State
 
@@ -52,6 +56,7 @@ struct PhotoThumbnailCell: View {
             .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
+            .onAppear { onAppear?() }
             .task(id: item.id) {
                 let bytes = await provider.thumbnail(for: item.thumbnailSource)
                 // Skip the assignment if the cell scrolled away mid-load, and
