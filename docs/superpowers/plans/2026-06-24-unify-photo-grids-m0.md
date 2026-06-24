@@ -61,11 +61,11 @@
 ```swift
 import Foundation
 
-public enum ThumbnailSource: Sendable, Hashable {
+public enum ThumbnailSource: Sendable {            // NOT Hashable — `.local` carries any ImageSource
     case local(AssetRef, source: ImageSourceBox?)   // → ThumbnailLoader
     case cloud(absPath: String, host: String)        // → CloudThumbClient + CloudThumbCache
     case photoKit(localID: String)                   // → PHImageManager
-    case merged(MergedTimelineCell)                  // → resolves to photoKit or cloud
+    case merged(MergedTimelineCell, host: String)    // → resolves to photoKit or cloud
 }
 
 public enum SyncBadge: Sendable, Hashable { case synced, cloudOnly, localOnly }
@@ -73,7 +73,7 @@ public enum OverlayStyle: Sendable, Hashable { case phone, desktop }
 
 public struct GridCellOverlays: Sendable, Hashable {
     public var rating: Int = 0
-    public var flag: AssetFlag? = nil
+    public var flag: CullFlag? = nil
     public var sync: SyncBadge? = nil
     public var isVideo: Bool = false
     public var style: OverlayStyle = .phone

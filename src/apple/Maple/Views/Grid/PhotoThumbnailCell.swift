@@ -53,7 +53,13 @@ struct PhotoThumbnailCell: View {
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
             .task(id: item.id) {
-                thumb = await provider.thumbnail(for: item.thumbnailSource)
+                let bytes = await provider.thumbnail(for: item.thumbnailSource)
+                // Skip the assignment if the cell scrolled away mid-load, and
+                // fade the thumbnail in — matches the original CloudTimelineCell.
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    thumb = bytes
+                }
             }
     }
 }
