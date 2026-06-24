@@ -146,6 +146,32 @@ describe('geocodeHandler — lat/lon provenance', () => {
   });
 });
 
+describe('geocodeHandler — refile re-trigger (#1525)', () => {
+  it('resets backup_layout_version when geocoding adds a place (folder changes)', async () => {
+    const doc = fakeDoc(); // place: null
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
+    const patch = ((await geocodeHandler(doc, fakeCtx)) as { patch: Record<string, unknown> })
+      .patch;
+    expect(patch.place).toBeTruthy();
+    expect(patch.backup_layout_version).toBe(0);
+  });
+
+  it('does NOT reset backup_layout_version when the folder is unchanged', async () => {
+    const cache = freshCache();
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache });
+    // First pass resolves the place; capture it.
+    const first = ((await geocodeHandler(fakeDoc(), fakeCtx)) as { patch: { place: unknown } })
+      .patch;
+    // An asset already filed at that exact place re-geocodes to the same folder.
+    const doc2 = fakeDoc();
+    (doc2 as { place: unknown }).place = first.place;
+    const patch2 = ((await geocodeHandler(doc2, fakeCtx)) as { patch: Record<string, unknown> })
+      .patch;
+    expect(patch2.place).toBeTruthy();
+    expect(patch2.backup_layout_version).toBeUndefined();
+  });
+});
+
 describe('geocode stage config', () => {
   it('requires exif v2 so it never reads pre-fix wrong-sign GPS', () => {
     expect(geocodeStage.dependsOn).toEqual([{ name: 'exif', minVersion: 2 }]);
