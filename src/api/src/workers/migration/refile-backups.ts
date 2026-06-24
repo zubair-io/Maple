@@ -28,6 +28,7 @@ import type { Filter, ObjectId } from 'mongodb';
 import type { AssetDoc, FileInfo, Place, AssetExif } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { assetPrimaryFileInfo, liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { backupLocationSegments } from '../../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../../backup/path-formatter.ts';
 import { child as childLogger } from '../../log.ts';
@@ -63,9 +64,11 @@ function yearFor(oldDir: string, capturedYear: number | null | undefined): strin
 }
 
 /**
- * The canonical directory a backup asset's canonical entry (`fileinfo[0]`) should
- * live in, or `null` when the year can't be determined (pathological — every backup
- * path starts with `<year>/`). The rule, in precedence order:
+ * The canonical directory a backup asset's canonical live entry
+ * (`assetPrimaryFileInfo` — the first non-deleted `fileinfo`, NOT blindly
+ * `fileinfo[0]`, which may be a delete-then-readd tombstone) should live in, or
+ * `null` when there is no live entry / the year can't be determined (pathological
+ * — every backup path starts with `<year>/`). The rule, in precedence order:
  *
  *   1. screenshot (`is_screenshot`)         → `<year>/Screenshot`  (wins over location)
  *   2. resolved location (`place` segments) → `<year>/<seg>/<seg>`
@@ -81,7 +84,8 @@ export function computeCanonicalDir(doc: {
   is_screenshot?: boolean;
   exif?: { captured_year?: AssetExif['captured_year'] } | null;
 }): string | null {
-  const oldDir = doc.fileinfo?.[0]?.path;
+  const primary = doc.fileinfo ? assetPrimaryFileInfo({ fileinfo: doc.fileinfo }) : null;
+  const oldDir = primary?.path;
   if (oldDir == null) return null;
   const year = yearFor(oldDir, doc.exif?.captured_year);
   if (!year) return null;
@@ -102,13 +106,21 @@ export function computeCanonicalDir(doc: {
  * or `is_screenshot` constraint — `computeCanonicalDir` handles geo, screenshot, and
  * date-fallback uniformly, so this one selector subsumes all three old migrations.
  * The `{ $ne: 3 }` gate is the done-marker: a refiled (moved or no-op) asset is
- * stamped `3` and drops out, so `countRemaining` reaches 0. */
+ * stamped `3` and drops out, so `countRemaining` reaches 0.
+ *
+ * Liveness is gated with the shared `liveFileInfoElemMatch()` ("has ≥1 live
+ * entry"), NOT `'fileinfo.0.deleted_at': null`. The old form leaked
+ * delete-then-readd docs (a soft-deleted tombstone at `fileinfo[0]` + a live
+ * entry later) through MongoDB's array null-path matching; the migration then took
+ * the tombstone as primary, `moveBackupAsset` skipped it without stamping, and —
+ * the fetch being unsorted — those un-stampable docs head-of-line-blocked every
+ * batch (#1519). */
 function candidateFilter(): Filter<AssetDoc> {
   return {
     'phasset_links.0': { $exists: true },
-    'fileinfo.0.deleted_at': null,
+    ...liveFileInfoElemMatch(),
     backup_layout_version: { $ne: BACKUP_LAYOUT_VERSION },
-  };
+  } as Filter<AssetDoc>;
 }
 
 export const refileBackups: Migration = {
@@ -151,12 +163,30 @@ export const refileBackups: Migration = {
 
     let processed = 0;
     let errors = 0;
+    let skippedNoRoot = 0;
     for (const doc of docs) {
-      const primary = (doc.fileinfo as FileInfo[] | undefined)?.[0];
-      const root = primary ? libs.get(primary.library_id.toHexString()) : undefined;
+      // The canonical entry is the first LIVE fileinfo, not blindly `fileinfo[0]`:
+      // delete-then-readd docs carry a soft-deleted tombstone at index 0 with the
+      // live file later in the array (#1519).
+      const primary = assetPrimaryFileInfo(doc);
+      if (!primary) {
+        // No live entry to refile (an all-tombstone doc the selector should not
+        // surface). Stamp it done so it drops out instead of head-of-line-blocking
+        // the unsorted batch forever.
+        await coll.updateOne(
+          { _id: doc._id },
+          { $set: { backup_layout_version: BACKUP_LAYOUT_VERSION } },
+        );
+        processed++;
+        continue;
+      }
+      const root = libs.get(primary.library_id.toHexString());
       if (!root) {
         // Library unregistered / offline — skip without erroring; retried once a
-        // tick until the mount returns. Never delete on an offline mount.
+        // tick until the mount returns. Never delete on an offline mount. Counted
+        // + logged after the loop so a fleet-wide root-resolution stall is visible
+        // instead of masquerading as a clean "batch complete".
+        skippedNoRoot++;
         continue;
       }
 
@@ -221,6 +251,12 @@ export const refileBackups: Migration = {
         );
       }
     }
+    if (skippedNoRoot > 0) {
+      log.warn(
+        { skippedNoRoot, batchSize: docs.length, processed },
+        'refile: assets skipped — library root unresolved (offline mount?); will retry next tick',
+      );
+    }
     return { processed, errors };
   },
 };
@@ -264,8 +300,8 @@ export async function relocateBackupScreenshot(
   // Backup-origin only — the <year>/Screenshot layout is the PhotoKit-backup
   // contract; a folder-scanned library is laid out by the user, untouched.
   if (!doc.phasset_links || doc.phasset_links.length === 0) return 'not-applicable';
-  const primary = doc.fileinfo?.[0];
-  if (!primary || primary.deleted_at) return 'not-applicable';
+  const primary = assetPrimaryFileInfo(doc);
+  if (!primary) return 'not-applicable';
   // A dated backup folder, not already filed under <year>/Screenshot.
   if (!DATED_BACKUP_DIR_RE.test(primary.path) || SCREENSHOT_DIR_RE.test(primary.path)) {
     return 'not-applicable';
