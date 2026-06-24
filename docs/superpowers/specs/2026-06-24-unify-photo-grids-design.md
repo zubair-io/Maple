@@ -9,12 +9,12 @@ source can be tagged once and adopted everywhere.
 Four near-duplicate grid/cell implementations render the same conceptual thing (a
 tappable thumbnail in a grid) with divergent code:
 
-| Surface | File | Model | Load path | Layout |
-| --- | --- | --- | --- | --- |
-| `SearchPhotoResultsSection` | `Maple/Views/SearchPhotoResultsSection.swift` | `SearchResultTile` (placeholder, **no real thumbnails**) | none | fixed 3-col, 9 cap |
-| `LibraryGrid` / `LibraryCell` | `Maple/Views/LibraryGrid.swift`, `LibraryCell.swift` | `AssetRef` | `ThumbnailLoader` | responsive 3·5·adaptive |
-| `BrowseGrid` (+ `MergedCellView`) | `Maple/Views/BrowseGrid.swift` | `AssetRef` / `MergedTimelineCell` | `ThumbnailLoader` / `PHImageManager` | adaptive 140–200, multi-select |
-| `CloudTimelineView` (`CloudTimelineCell`, `CloudTimelineMergedCell`) | `Maple/Views/CloudTimelineView.swift` | `SearchAsset` / `MergedTimelineCell` | `CloudThumbClient`+`CloudThumbCache` / `PHImageManager` | month-sectioned 4-col |
+| Surface                                                              | File                                                 | Model                                                    | Load path                                               | Layout                         |
+| -------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------ |
+| `SearchPhotoResultsSection`                                          | `Maple/Views/SearchPhotoResultsSection.swift`        | `SearchResultTile` (placeholder, **no real thumbnails**) | none                                                    | fixed 3-col, 9 cap             |
+| `LibraryGrid` / `LibraryCell`                                        | `Maple/Views/LibraryGrid.swift`, `LibraryCell.swift` | `AssetRef`                                               | `ThumbnailLoader`                                       | responsive 3·5·adaptive        |
+| `BrowseGrid` (+ `MergedCellView`)                                    | `Maple/Views/BrowseGrid.swift`                       | `AssetRef` / `MergedTimelineCell`                        | `ThumbnailLoader` / `PHImageManager`                    | adaptive 140–200, multi-select |
+| `CloudTimelineView` (`CloudTimelineCell`, `CloudTimelineMergedCell`) | `Maple/Views/CloudTimelineView.swift`                | `SearchAsset` / `MergedTimelineCell`                     | `CloudThumbClient`+`CloudThumbCache` / `PHImageManager` | month-sectioned 4-col          |
 
 Already shared: `ThumbnailImage` (JPEG→rounded square leaf renderer) and `LibraryCell`
 (library + browse). The load+JPEG-encode+`PHImageManager` logic is **copy-pasted**
@@ -92,11 +92,11 @@ existing ones. (`PHImageManager` lives in Photos, so the provider sits app-side 
   cancel on disappear) → `ThumbnailImage` → overlays from `item.overlays` →
   `onTapGesture` / selection. Per-surface visuals unchanged.
 - **`PhotoGrid`**: `ColumnStrategy = .fixed(Int) | .adaptive(min:max:) |
-  .responsiveBySizeClass`; a `.sectioned` wrapper composes the flat grid per month
+.responsiveBySizeClass`; a `.sectioned` wrapper composes the flat grid per month
   bucket for the cloud timeline.
 - **Zoom seam**: the cell tags itself with `item.id` (iOS 18 `matchedTransitionSource`
-  + an anchor-preference fallback so a custom transition can read the source frame).
-  Seam only — no animation in this work; #1489 adopts it.
+  - an anchor-preference fallback so a custom transition can read the source frame).
+    Seam only — no animation in this work; #1489 adopts it.
 
 ### Out of scope
 

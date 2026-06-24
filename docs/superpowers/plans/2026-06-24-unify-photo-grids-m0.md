@@ -14,13 +14,13 @@
 
 ## File structure
 
-| File | Module | Responsibility |
-| --- | --- | --- |
-| `Packages/MapleCore/Sources/MapleCore/Grid/PhotoGridItem.swift` | MapleCore | `PhotoGridItem`, `ThumbnailSource`, `GridCellOverlays`, `SyncBadge`, `OverlayStyle` — pure value types + a couple of derivation helpers |
-| `Packages/MapleCore/Tests/MapleCoreTests/PhotoGridItemTests.swift` | MapleCoreTests | unit tests for the model + overlay derivation |
-| `Maple/Views/Grid/ThumbnailProvider.swift` | Maple | the single load facade (actor) dispatching `ThumbnailSource` → existing loaders; absorbs the duplicated PHImageManager + JPEG-encode logic |
-| `Maple/Views/Grid/PhotoThumbnailCell.swift` | Maple | the shared cell: load lifecycle, overlays, tap/selection, zoom tag |
-| `Maple/Views/Grid/PhotoGrid.swift` | Maple | `ColumnStrategy` + flat `PhotoGrid` + `SectionedPhotoGrid` |
+| File                                                               | Module         | Responsibility                                                                                                                             |
+| ------------------------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Packages/MapleCore/Sources/MapleCore/Grid/PhotoGridItem.swift`    | MapleCore      | `PhotoGridItem`, `ThumbnailSource`, `GridCellOverlays`, `SyncBadge`, `OverlayStyle` — pure value types + a couple of derivation helpers    |
+| `Packages/MapleCore/Tests/MapleCoreTests/PhotoGridItemTests.swift` | MapleCoreTests | unit tests for the model + overlay derivation                                                                                              |
+| `Maple/Views/Grid/ThumbnailProvider.swift`                         | Maple          | the single load facade (actor) dispatching `ThumbnailSource` → existing loaders; absorbs the duplicated PHImageManager + JPEG-encode logic |
+| `Maple/Views/Grid/PhotoThumbnailCell.swift`                        | Maple          | the shared cell: load lifecycle, overlays, tap/selection, zoom tag                                                                         |
+| `Maple/Views/Grid/PhotoGrid.swift`                                 | Maple          | `ColumnStrategy` + flat `PhotoGrid` + `SectionedPhotoGrid`                                                                                 |
 
 `ThumbnailImage` and `GridDisplayMode` move from `BrowseGrid.swift` into `Maple/Views/Grid/ThumbnailImage.swift` (no logic change) so the new components don't depend on `BrowseGrid.swift`. Re-export/keep the `BrowseGrid.swift` call sites compiling unchanged.
 
@@ -41,6 +41,7 @@
 ## Task 1: Move `ThumbnailImage` + `GridDisplayMode` into `Views/Grid/`
 
 **Files:**
+
 - Create: `Maple/Views/Grid/ThumbnailImage.swift`
 - Modify: `Maple/Views/BrowseGrid.swift` (remove the two type definitions; keep all usages)
 
@@ -51,6 +52,7 @@
 ## Task 2: `PhotoGridItem` model + tests
 
 **Files:**
+
 - Create: `Packages/MapleCore/Sources/MapleCore/Grid/PhotoGridItem.swift`
 - Test: `Packages/MapleCore/Tests/MapleCoreTests/PhotoGridItemTests.swift`
 
@@ -137,7 +139,8 @@ func thumbnail(for source: ThumbnailSource, targetSize: Int) async -> Data?
   .merged(cell)        → switch: .synced/.localOnly → photoKit(local.id); .cloudOnly → cloud(absPath,host)
 ```
 
-  Inject `CloudThumbClient`, `CloudThumbCache`, and `host` at construction (the cloud path needs them; pass via an initializer the app already has wired for the timeline). The PhotoKit JPEG-encode helper is moved here verbatim from `BrowseGrid.MergedCellView` (one copy) and both old cells will delegate in M1/M2.
+Inject `CloudThumbClient`, `CloudThumbCache`, and `host` at construction (the cloud path needs them; pass via an initializer the app already has wired for the timeline). The PhotoKit JPEG-encode helper is moved here verbatim from `BrowseGrid.MergedCellView` (one copy) and both old cells will delegate in M1/M2.
+
 - [ ] **Step 2:** Verify the PhotoKit/cloud behaviour is byte-for-byte the relocated logic (no new caching, same target sizes: cloud 512, local 256, PhotoKit current size). Build the app (Task 1 build command). Expected: compiles.
 - [ ] **Step 3:** Pure-logic test for the `.merged` → backend routing (extract the switch into a pure `static func backend(for: ThumbnailSource) -> Backend` enum-returning helper and test it in MapleCoreTests — keeps the I/O out of the unit test).
 - [ ] **Step 4:** Commit: `feat(apple): ThumbnailProvider single load facade (#1490 M0)`.
@@ -166,7 +169,8 @@ struct PhotoThumbnailCell: View {
 }
 ```
 
-  `GridCellOverlayView` renders the badges from `GridCellOverlays` — port the existing overlay visuals (phone pick-dot + ≥4★ gold; desktop FlagBadge + StarView; cloud rating ★; merged sync `checkmark.icloud.fill`/`icloud.fill`) verbatim so visuals are identical. `ZoomSourceTag` applies `.matchedTransitionSource(id:in:)` when a namespace is provided (iOS 18+) and is a no-op otherwise.
+`GridCellOverlayView` renders the badges from `GridCellOverlays` — port the existing overlay visuals (phone pick-dot + ≥4★ gold; desktop FlagBadge + StarView; cloud rating ★; merged sync `checkmark.icloud.fill`/`icloud.fill`) verbatim so visuals are identical. `ZoomSourceTag` applies `.matchedTransitionSource(id:in:)` when a namespace is provided (iOS 18+) and is a no-op otherwise.
+
 - [ ] **Step 2:** Add a `#Preview` exercising each overlay style + selection. Build the app. Expected: compiles; preview renders.
 - [ ] **Step 3:** Commit: `feat(apple): PhotoThumbnailCell shared cell + zoom seam (#1490 M0)`.
 
