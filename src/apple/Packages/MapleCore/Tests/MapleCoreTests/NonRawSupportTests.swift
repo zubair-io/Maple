@@ -547,10 +547,16 @@ final class NonRawSupportTests: XCTestCase {
         let src = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
         let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(src, 0, nil))
         var px = [UInt8](repeating: 0, count: 4)
-        let readCtx = try XCTUnwrap(CGContext(
-            data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        readCtx.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        // `&px` would only keep the pointer valid for the CGContext initializer
+        // call; the context stores it and `draw` writes to it later → dangling
+        // pointer / UB. Keep the buffer pinned for the context's whole lifetime.
+        try px.withUnsafeMutableBytes { raw in
+            let readCtx = try XCTUnwrap(CGContext(
+                data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                bytesPerRow: 4, space: cs,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            readCtx.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
         let (r, g, b) = (Int(px[0]), Int(px[1]), Int(px[2]))
 
         XCTAssertEqual(Double(r), Double(g), accuracy: 3,
