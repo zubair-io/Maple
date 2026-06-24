@@ -49,12 +49,14 @@ enum ColumnStrategy {
         }
     }
 
-    /// Inter-cell spacing for the grid as a whole (row gap).
-    var rowSpacing: CGFloat {
+    /// Inter-row spacing for the grid as a whole. Layout-aware so
+    /// `.responsiveBySizeClass` matches its column gap exactly (phone uses a 2pt
+    /// gap in BOTH directions per the S2 spec; tablet/desktop use 4pt).
+    func rowSpacing(for layout: MapleLayout) -> CGFloat {
         switch self {
         case .fixed(_, let spacing): return spacing
         case .adaptive(_, _, let spacing): return spacing
-        case .responsiveBySizeClass: return 4
+        case .responsiveBySizeClass: return layout == .phone ? 2 : 4
         }
     }
 }
@@ -81,7 +83,7 @@ struct PhotoGrid: View {
     var body: some View {
         LazyVGrid(
             columns: columns.gridItems(for: layout),
-            spacing: columns.rowSpacing
+            spacing: columns.rowSpacing(for: layout)
         ) {
             ForEach(items) { item in
                 PhotoThumbnailCell(
