@@ -80,6 +80,28 @@ final class MapleExporterTests: XCTestCase {
         XCTAssertEqual(image.bitsPerComponent, 8)
     }
 
+    /// #1511: PNG must be GAMMA-encoded sRGB. It was previously written as
+    /// 8-bit *linear* sRGB (tagged "sRGB IEC61966-2.1 Linear") because `.png`
+    /// shared `targetColorSpace` with `.tiff16`. Viewers that ignore the PNG
+    /// ICC (most do) then read the linear bytes as gamma and render the export
+    /// far too dark. Pin the transfer so the regression can't return.
+    func testPngEncodesGammaSRGBNotLinear() throws {
+        let data = try MapleExporter.encodeImage(
+            sampleImage(width: 32, height: 32),
+            options: ExportOptions(format: .png))
+        let (_, image) = try decode(data)
+        let cs = try XCTUnwrap(image.colorSpace, "PNG must carry a color space")
+        let linearICC = CGColorSpace(name: CGColorSpace.linearSRGB)!.copyICCData()
+        let gammaICC = CGColorSpace(name: CGColorSpace.sRGB)!.copyICCData()
+        let pngICC = cs.copyICCData()
+        XCTAssertNotEqual(
+            pngICC, linearICC,
+            "PNG must NOT be tagged linear sRGB — that renders dark in viewers that ignore the ICC (#1511)")
+        XCTAssertEqual(
+            pngICC, gammaICC,
+            "PNG must be tagged gamma sRGB (IEC 61966-2.1)")
+    }
+
     func testTiff16PreservesSixteenBit() throws {
         // The clearest #922 regression: > 50MP TIFF used to drop to 8-bit.
         let data = try MapleExporter.encodeImage(
