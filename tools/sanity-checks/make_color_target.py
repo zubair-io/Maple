@@ -61,7 +61,10 @@ PW = PH = 240  # patch size in source pixels
 
 
 def build(out_png: str, out_json: str) -> None:
-    assert len(PATCHES) == COLS * ROWS, f"need {COLS*ROWS} patches, have {len(PATCHES)}"
+    # Explicit raise (not `assert`): `python -O` strips asserts, which would let a
+    # patch/grid mismatch silently generate an incorrect target.
+    if len(PATCHES) != COLS * ROWS:
+        raise ValueError(f"need {COLS * ROWS} patches, have {len(PATCHES)}")
     w, h = COLS * PW, ROWS * PH
     arr = np.zeros((h, w, 3), dtype=np.uint8)
     meta = []
