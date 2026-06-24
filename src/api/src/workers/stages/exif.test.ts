@@ -231,36 +231,43 @@ describe('readExif — failures are retryable, not swallowed', () => {
   });
 });
 
-describe('readExif — video extension short-circuit', () => {
-  // Regression for the log-spam noticed in production: the backup-ingest
-  // route doesn't filter by extension, so .mov/.mp4 assets reach the exif
-  // stage and exifr throws "Unknown file format" once per file. The
-  // short-circuit in readExif() must return null BEFORE exifr.parse runs.
-  it('returns null for video extensions without calling exifr.parse', async () => {
+describe('readExif — videos route to the moov reader, never exifr', () => {
+  // .mov/.mp4 assets reach the exif stage (the backup-ingest route doesn't filter
+  // by extension). They must NOT hit exifr — which throws "Unknown file format"
+  // and log-spams once per file. readExif (#1525) sends them to the QuickTime
+  // `moov` reader instead; a file with no `moov` yields null (no metadata) without
+  // ever invoking exifr.parse.
+  it('reads video extensions via the moov reader, not exifr.parse', async () => {
     const realExifr = (await import('exifr')).default;
     let parseCalls = 0;
     const exifrSpy = spyOn(realExifr, 'parse').mockImplementation(async () => {
       parseCalls += 1;
       throw new Error('exifr.parse should not be invoked for video extensions');
     });
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'exif-video-'));
     try {
       const { readExif } = await import('../../indexer/exif.ts');
-      for (const p of [
-        '/tmp/clip.mov',
-        '/tmp/CLIP.MOV',
-        '/tmp/clip.mp4',
-        '/tmp/clip.m4v',
-        '/tmp/clip.webm',
-        '/tmp/clip.avi',
-        '/tmp/clip.mkv',
-        '/tmp/clip.mts',
-        '/tmp/clip.m2ts',
-        '/tmp/clip.3gp',
+      // A minimal container (one `ftyp` box, no `moov`) → reader finds nothing → null.
+      const noMoov = Buffer.concat([Buffer.from([0, 0, 0, 8]), Buffer.from('ftyp', 'latin1')]);
+      for (const ext of [
+        '.mov',
+        '.MOV',
+        '.mp4',
+        '.m4v',
+        '.webm',
+        '.avi',
+        '.mkv',
+        '.mts',
+        '.m2ts',
+        '.3gp',
       ]) {
-        await expect(readExif(p)).resolves.toBeNull();
+        const file = path.join(dir, `clip${ext}`);
+        await writeFile(file, noMoov);
+        await expect(readExif(file)).resolves.toBeNull();
       }
       expect(parseCalls).toBe(0);
     } finally {
+      await rm(dir, { recursive: true, force: true });
       exifrSpy.mockRestore();
     }
   });
