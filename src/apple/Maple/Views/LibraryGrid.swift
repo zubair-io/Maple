@@ -21,6 +21,11 @@
 // `vm.assets` unfiltered.
 //
 // Spec: docs/design/responsive-program/s2-library-grid.md.
+//
+// M1a (#1490): migrated onto the shared PhotoGrid / PhotoThumbnailCell /
+// ThumbnailProvider. The LazyVGrid body is replaced; LibraryFolderCell
+// is kept for the `leading:` slot. LibraryCell is NOT deleted — BrowseGrid
+// still uses it (that's M1b).
 
 #if os(iOS)
 
@@ -46,6 +51,19 @@ struct LibraryGrid: View {
     /// via the active security-scope bookmark.
     let onNavigateFolder: (URL) -> Void
 
+    /// Local-only thumbnail provider. No cloud infra needed here — all
+    /// assets in LibraryGrid are local filesystem / PhotoKit refs; the
+    /// ThumbnailLoader handles them through the `.local` backend.
+    @State private var provider = ThumbnailProvider.local()
+
+    /// Stable id → AssetRef lookup for tap/prime routing. Rebuilt whenever
+    /// `vm.assets` changes (the assets array is the source of truth).
+    private var assetByID: [String: AssetRef] {
+        Dictionary(vm.assets.map { asset in
+            (asset.stableID ?? asset.id.uuidString, asset)
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -53,51 +71,50 @@ struct LibraryGrid: View {
                 // (All / Picks / 4+ stars / Edited) were removed (#782):
                 // the source name already lives in the nav bar, and the
                 // chips duplicated cull state that belongs in the editor.
-                LazyVGrid(columns: columns, spacing: gridGap) {
-                    // Sub-folders first (Finder-style), then images — matches
-                    // the desktop BrowseGrid. `vm.subfolders` is populated by
-                    // loadFolder / loadCloudDir; without this the iPhone grid
-                    // dropped folders entirely (they loaded but were never
-                    // drawn). Order is reversed per request (#782) so the
-                    // first-level folders read newest/last-first.
-                    ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
-                        LibraryFolderCell(url: url) { onNavigateFolder(url) }
-                    }
-                    ForEach(vm.assets) { asset in
-                        LibraryCell(
-                            asset: asset,
-                            isSelected: vm.selectedID == asset.id,
-                            session: sessions[asset.id],
-                            source: source,
-                            displayMode: displayMode,
-                            style: .phone
-                        )
-                        .id(asset.id)
-                        .contentShape(Rectangle())
-                        .onAppear { onPrimeSession(asset) }
-                        .onTapGesture {
-                            vm.selectedID = asset.id
-                            // Selection haptic — matches the spec §2 phone
-                            // interaction model (`.selection` on iOS).
-                            #if canImport(UIKit)
-                            UISelectionFeedbackGenerator().selectionChanged()
-                            #endif
-                            // Pushes the S5 Editor onto the phone Library
-                            // tab's NavigationStack (#791). `PhoneTabShell`
-                            // injects an `onOpenEditor` that appends `asset`
-                            // to its `libraryPath`; `PhoneLibraryView`'s
-                            // `.navigationDestination(for: AssetRef.self)`
-                            // then resolves it into `EditorDestination →
-                            // EditorView` and `.toolbar(.hidden, for:
-                            // .tabBar)` hides the tab bar on push (spec §2).
-                            // The Mac/iPad pane shell injects a different
-                            // `onOpenEditor` (AppShell's `.browse →
-                            // .fullImage` mode flip) — this shared cell stays
-                            // agnostic to which one it got.
-                            onOpenEditor(asset)
+                PhotoGrid(
+                    items: photoItems,
+                    columns: .responsiveBySizeClass,
+                    provider: provider,
+                    displayMode: displayMode,
+                    selection: selectedGridID.map { Set([$0]) } ?? [],
+                    onAppearItem: { item in
+                        guard let asset = assetByID[item.id] else { return }
+                        onPrimeSession(asset)
+                    },
+                    onTap: { item in
+                        guard let asset = assetByID[item.id] else { return }
+                        vm.selectedID = asset.id
+                        // Selection haptic — matches the spec §2 phone
+                        // interaction model (`.selection` on iOS).
+                        #if canImport(UIKit)
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        #endif
+                        // Pushes the S5 Editor onto the phone Library
+                        // tab's NavigationStack (#791). `PhoneTabShell`
+                        // injects an `onOpenEditor` that appends `asset`
+                        // to its `libraryPath`; `PhoneLibraryView`'s
+                        // `.navigationDestination(for: AssetRef.self)`
+                        // then resolves it into `EditorDestination →
+                        // EditorView` and `.toolbar(.hidden, for:
+                        // .tabBar)` hides the tab bar on push (spec §2).
+                        // The Mac/iPad pane shell injects a different
+                        // `onOpenEditor` (AppShell's `.browse →
+                        // .fullImage` mode flip) — this shared cell stays
+                        // agnostic to which one it got.
+                        onOpenEditor(asset)
+                    },
+                    leading: {
+                        // Sub-folders first (Finder-style), then images — matches
+                        // the desktop BrowseGrid. `vm.subfolders` is populated by
+                        // loadFolder / loadCloudDir; without this the iPhone grid
+                        // dropped folders entirely (they loaded but were never
+                        // drawn). Order is reversed per request (#782) so the
+                        // first-level folders read newest/last-first.
+                        ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
+                            LibraryFolderCell(url: url) { onNavigateFolder(url) }
                         }
                     }
-                }
+                )
                 .padding(.horizontal, outerHorizontalPadding)
                 .accessibilityIdentifier("library-grid")
             }
@@ -105,22 +122,49 @@ struct LibraryGrid: View {
         .background(MapleTokens.bg)
     }
 
-    // MARK: - Layout
+    // MARK: - Selection
 
-    private var columns: [GridItem] {
-        switch layout {
-        case .phone:
-            return Array(repeating: GridItem(.flexible(), spacing: gridGap), count: 3)
-        case .tablet:
-            return Array(repeating: GridItem(.flexible(), spacing: gridGap), count: 5)
-        case .desktop:
-            return [GridItem(.adaptive(minimum: 180), spacing: gridGap)]
+    /// Maps `vm.selectedID` (a `UUID?`) to the grid-item id string used by
+    /// `PhotoGridItem(local:)`: `stableID ?? id.uuidString`. Finds the matching
+    /// asset in `vm.assets` and applies the same derivation so the selection
+    /// outline renders on the correct cell.
+    private var selectedGridID: String? {
+        guard let selectedUUID = vm.selectedID,
+              let asset = vm.assets.first(where: { $0.id == selectedUUID })
+        else { return nil }
+        return asset.stableID ?? asset.id.uuidString
+    }
+
+    // MARK: - PhotoGridItem mapping
+
+    /// Builds the item list from `vm.assets`, deriving phone badge overlays
+    /// from `sessions[asset.id]` exactly as `LibraryCell.phoneBadgeOverlay` did:
+    ///
+    ///   - `rating`  = session?.culling.stars ?? 0
+    ///   - `flag`    = session?.culling.flag == .pick  → .pick
+    ///                 session?.culling.flag == .reject → .reject
+    ///                 .none / nil                      → nil
+    ///   - `style`   = .phone  (green pick dot top-left, ≥4★ gold bottom-left)
+    private var photoItems: [PhotoGridItem] {
+        vm.assets.map { asset in
+            let session = sessions[asset.id]
+            let stars = session?.culling.stars ?? 0
+            let cullFlag = session?.culling.flag ?? .none
+            // Map CullFlag (.none/.pick/.reject) → CullFlag? (nil for .none)
+            // GridCellOverlays.flag is CullFlag? where nil == no flag shown.
+            let flag: CullFlag? = cullFlag == .none ? nil : cullFlag
+            let overlays = GridCellOverlays(
+                rating: stars,
+                flag: flag,
+                sync: nil,
+                isVideo: false,
+                style: .phone
+            )
+            return PhotoGridItem(local: asset, source: source, overlays: overlays)
         }
     }
 
-    private var gridGap: CGFloat {
-        layout == .phone ? 2 : 4
-    }
+    // MARK: - Layout
 
     private var outerHorizontalPadding: CGFloat {
         switch layout {
