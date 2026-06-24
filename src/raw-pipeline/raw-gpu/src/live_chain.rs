@@ -355,13 +355,23 @@ pub fn build_live_split(
         target_primaries: inputs.target_primaries,
     }));
     suffix.push(Box::new(SrgbGammaPass));
-    suffix.push(Box::new(AutoProfileCurvePass {
-        flat_curve: inputs.profile_curve_flat.clone(),
-    }));
-    suffix.push(Box::new(ResidualLutPass {
-        size: inputs.residual_lut_size,
-        data: inputs.residual_lut_data.clone(),
-    }));
+    // Auto-Profile curve + residual LUT are the per-image AUTO-profile LOOK
+    // artifacts (fit in gamma space from a camera JPEG). NON-RAW input has no
+    // JPEG to fit, so there is no look to apply — and applying the default
+    // "identity" artifacts is NOT a no-op: it crushes white from 1.0 to ~0.973
+    // (byte 248 instead of 255). The CPU non-RAW path runs ONLY display_encode +
+    // srgb_gamma for exactly this reason. Skip them for non-RAW so the colorimetric
+    // encode is the whole tail; RAW keeps them (its fitted per-image tone curve).
+    // #1516 (completes the #1513 non-RAW view-tail skip — AgX above + look here).
+    if is_raw_shape {
+        suffix.push(Box::new(AutoProfileCurvePass {
+            flat_curve: inputs.profile_curve_flat.clone(),
+        }));
+        suffix.push(Box::new(ResidualLutPass {
+            size: inputs.residual_lut_size,
+            data: inputs.residual_lut_data.clone(),
+        }));
+    }
 
     (prefix, suffix)
 }
@@ -380,8 +390,10 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
 /// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral RAW chain has
 /// exactly this many passes; each engaged slider adds one (or, for the spatial
 /// stages, still one `Pass` — they orchestrate their own sub-dispatches). NON-RAW
-/// shapes skip `agx` (display-referred input, #1513), so a neutral non-RAW chain
-/// has `VIEW_TAIL_PASS_COUNT - 1`. Public so the live-session terminal-`dither`
+/// shapes skip the whole LOOK portion — `agx` (#1513) plus `auto_profile_curve`
+/// + `residual_lut` (#1516) — leaving only the colorimetric encode
+/// (`display_encode` + `srgb_gamma`), so a neutral non-RAW chain has
+/// `VIEW_TAIL_PASS_COUNT - 3`. Public so the live-session terminal-`dither`
 /// wiring (C2/C3) and the tests can assert the floor without re-counting by hand.
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 

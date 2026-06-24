@@ -197,12 +197,13 @@ final class GpuLiveSessionTests: XCTestCase {
                              "likely didn't run (plumbing or upload failure)")
     }
 
-    /// #1513 END-TO-END through the LINKED xcframework: a white scene-linear pixel
-    /// rendered with the NON-RAW input shape must NOT be AgX-crushed (white ~249),
-    /// while the RAW shape IS (white ~194). This exercises the full Swift→FFI→
+    /// #1513 + #1516 END-TO-END through the LINKED xcframework: a white scene-linear
+    /// pixel rendered with the NON-RAW input shape must come out FULLY white (255) —
+    /// the look stages (AgX #1513 + auto-profile/residual #1516) are all skipped —
+    /// while the RAW shape is AgX-crushed (white ~193). Exercises the full Swift→FFI→
     /// `build_live_chain` path against the static lib the app actually links, so it
-    /// catches a stale `.a` that lacks the AgX gate (the exact deploy bug that made
-    /// the app render non-raw white at 194 even with #1513 in the source).
+    /// catches a stale `.a` lacking the gates (the deploy bug that rendered non-raw
+    /// white at 194, then 248, even with the fixes in source).
     func test_nonraw_white_survives_agx_through_linked_xcframework() async throws {
         let (w, h) = (16, 16)
         let pixels = [Float](repeating: 1.0, count: w * h * 4)  // pure white
@@ -218,11 +219,12 @@ final class GpuLiveSessionTests: XCTestCase {
 
         let rawWhite = Int(rawOut[0])
         let nonrawWhite = Int(nonrawOut[0])
-        print("[#1513 xcframework] RAW white=\(rawWhite)  NON-RAW white=\(nonrawWhite)")
+        print("[#1513/#1516 xcframework] RAW white=\(rawWhite)  NON-RAW white=\(nonrawWhite)")
         XCTAssertLessThan(rawWhite, 210,
-            "RAW white must be AgX-compressed (~194); got \(rawWhite)")
-        XCTAssertGreaterThan(nonrawWhite, 240,
-            "NON-RAW white must NOT be AgX-crushed (~249) — the linked xcframework lacks #1513; got \(nonrawWhite)")
+            "RAW white must be AgX-compressed (~193); got \(rawWhite)")
+        XCTAssertGreaterThan(nonrawWhite, 253,
+            "NON-RAW white must be FULLY white (255) — look stages (AgX #1513 + auto-profile/"
+            + "residual #1516) skipped; got \(nonrawWhite) (stale .a or a leaked look stage)")
     }
 
     /// The session rejects a pixel buffer whose length doesn't match the dims (a
