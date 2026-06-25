@@ -101,12 +101,14 @@ extension RenderActor {
                 if let bytes = try? await provider() {
                     if let detected = AssetRef.detectIsRaw(bytes: bytes) {
                         dispatchIsRaw = detected
+                        // Surface the AUTHORITATIVE content sniff so the GPU
+                        // live path tags `inputShape` from the same signal the
+                        // decode uses, not the RAW-defaulting `AssetRef.isRaw`
+                        // (#1553). Only a definitive sniff is recorded — an
+                        // unrecognised signature leaves `resolvedIsRaw` nil so
+                        // callers fall back to `AssetRef.isRaw`.
+                        await self.recordResolvedIsRaw(asset.id, detected)
                     }
-                    // Surface the content-sniffed classification so the GPU
-                    // live path tags `inputShape` from the same signal the
-                    // decode uses, not the RAW-defaulting `AssetRef.isRaw`
-                    // (#1553).
-                    await self.recordResolvedIsRaw(asset.id, dispatchIsRaw)
                     let cachedBytes = bytes
                     let displayName = asset.displayName
                     let hint: String? = {

@@ -19,7 +19,7 @@ final class PhotoKitInputShapeTests: XCTestCase {
     /// A solid-white 4×4 sRGB PNG — the kind of non-RAW asset PhotoKit hands us.
     private func makePNGBytes() throws -> Data {
         let (w, h) = (4, 4)
-        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let cs = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
         let ctx = try XCTUnwrap(CGContext(
             data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
             space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
