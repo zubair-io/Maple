@@ -47,9 +47,10 @@ export async function mergePeopleInto(
   }
   let mergedCount = 0;
 
-  // Optimization: bulk fetch all source people to avoid N+1 queries.
+  // Bulk-fetch every source in one query to avoid an N+1 findOne per id.
   const sources = await coll.find({ _id: { $in: sourceIds } }).toArray();
-  // Convert hex IDs to string for case-insensitive lookup (consistent with ID handling best practices)
+  // Key by canonical hex string — ObjectId instances are not value-equal as
+  // Map keys, so `.get(sourceId)` would always miss without the string form.
   const sourcesById = new Map(sources.map((s) => [s._id.toHexString(), s]));
 
   for (const sourceId of sourceIds) {
