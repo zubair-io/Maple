@@ -1,0 +1,391 @@
+bun test v1.2.14 (6a363a38)
+[04:13:55.261] [33mWARN[39m: [36mstatic UI dist NOT found[39m
+    [35mcomponent[39m: "static"
+    [35muiDist[39m: "/app/src/web/dist/maple/browser"
+[04:14:16.839] [33mWARN[39m: [36mbackup-ingest-geocode live geocode failed — falling back to date-only path[39m
+    [35mcomponent[39m: "backup-ingest-geocode"
+    [35mlat[39m: 48.8566
+    [35mlon[39m: 2.3522
+    err: "nominatim down"
+[search-place-route.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[enrichment-route.test] skipping: MongoDB unreachable
+[04:14:27.408] [33mWARN[39m: [36mraw-ffi native library not found. RAW thumbnail generation will be skipped. Run scripts/build-raw-ffi.sh to build it.[39m
+    [35mcomponent[39m: "raw-ffi"
+    [35mlibPath[39m: "/app/src/api/native/libraw_ffi.so"
+[images-repo-meilisearch.test] skipping: MongoDB unreachable
+[fs-dir-asset-link.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[geocode-reverse.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[04:14:53.490] [33mWARN[39m <moveToTrash>: [36mfs/trash pickFreePath: destination occupied — suffixed path chosen (this creates a .N. filename)[39m
+    [35mcomponent[39m: "fs/trash"
+    [35mcollision[39m: "/tmp/maple-trash-move-ah4zvL/.maple/trash/redelete/IMG_2.ARW"
+    [35mchosen[39m: "/tmp/maple-trash-move-ah4zvL/.maple/trash/redelete/IMG_2.1.ARW"
+[04:14:53.497] [33mWARN[39m <unknown>: [36mfs/trash pickFreePath: destination occupied — suffixed path chosen (this creates a .N. filename)[39m
+    [35mcomponent[39m: "fs/trash"
+    [35mcollision[39m: "/tmp/maple-trash-move-ah4zvL/extensionless-pickfree/noext"
+    [35mchosen[39m: "/tmp/maple-trash-move-ah4zvL/extensionless-pickfree/noext.1"
+[fs-dir-paging-sidecars.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[jobs-route.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[indexer-images-repo.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[04:15:14.210] [31mERROR[39m: [36mrequest request error (db unavailable)[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFT9C77C1N9FKTPYB1MGSA"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/libraries/6a3cab488bf34102ec9dbb7a/backup/sidecar"
+    err: {
+      "type": "Error",
+      "message": "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/: Failed to connect: Failed to connect: Failed to connect",
+      "stack":
+          Error: [db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect
+          Tip: run "docker compose up -d mongo" from src/api/
+              at <anonymous> (/app/src/api/src/db/client.ts:92:17)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoSystemError (/app/src/api/node_modules/mongodb/lib/error.js:1160:13)
+              at new MongoServerSelectionError (/app/src/api/node_modules/mongodb/lib/error.js:1195:9)
+              at selectServer (/app/src/api/node_modules/mongodb/lib/sdam/topology.js:327:50)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoNetworkError (/app/src/api/node_modules/mongodb/lib/error.js:969:9)
+              at <anonymous> (/app/src/api/node_modules/mongodb/lib/cmap/connect.js:286:56)
+              at emitError (node:events:43:23)
+              at <anonymous> (node:net:501:20)
+              at processTicksAndRejections (native:7:39)
+          caused by:
+    }
+[04:15:19.217] [31mERROR[39m: [36mrequest request error (db unavailable)[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFTE95KG7Y4JFNTG04QMRQ"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/libraries/6a3cab488bf34102ec9dbb7a/backup/sidecar"
+    err: {
+      "type": "Error",
+      "message": "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/: Failed to connect: Failed to connect: Failed to connect",
+      "stack":
+          Error: [db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect
+          Tip: run "docker compose up -d mongo" from src/api/
+              at <anonymous> (/app/src/api/src/db/client.ts:92:17)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoSystemError (/app/src/api/node_modules/mongodb/lib/error.js:1160:13)
+              at new MongoServerSelectionError (/app/src/api/node_modules/mongodb/lib/error.js:1195:9)
+              at selectServer (/app/src/api/node_modules/mongodb/lib/sdam/topology.js:327:50)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoNetworkError (/app/src/api/node_modules/mongodb/lib/error.js:969:9)
+              at <anonymous> (/app/src/api/node_modules/mongodb/lib/cmap/connect.js:286:56)
+              at emitError (node:events:43:23)
+              at <anonymous> (node:net:501:20)
+              at processTicksAndRejections (native:7:39)
+          caused by:
+    }
+[04:15:24.225] [31mERROR[39m: [36mrequest request error (db unavailable)[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFTK5MBE8K4X219GSDRSYD"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/libraries/6a3cab488bf34102ec9dbb7a/backup/sidecar"
+    err: {
+      "type": "Error",
+      "message": "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/: Failed to connect: Failed to connect: Failed to connect",
+      "stack":
+          Error: [db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect
+          Tip: run "docker compose up -d mongo" from src/api/
+              at <anonymous> (/app/src/api/src/db/client.ts:92:17)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoSystemError (/app/src/api/node_modules/mongodb/lib/error.js:1160:13)
+              at new MongoServerSelectionError (/app/src/api/node_modules/mongodb/lib/error.js:1195:9)
+              at selectServer (/app/src/api/node_modules/mongodb/lib/sdam/topology.js:327:50)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoNetworkError (/app/src/api/node_modules/mongodb/lib/error.js:969:9)
+              at <anonymous> (/app/src/api/node_modules/mongodb/lib/cmap/connect.js:286:56)
+              at emitError (node:events:43:23)
+              at <anonymous> (node:net:501:20)
+              at processTicksAndRejections (native:7:39)
+          caused by:
+    }
+[04:15:29.233] [31mERROR[39m: [36mrequest request error (db unavailable)[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFTR25DFPPMZM1R3RFGHYF"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/libraries/6a3cab488bf34102ec9dbb7a/backup/sidecar"
+    err: {
+      "type": "Error",
+      "message": "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/: Failed to connect: Failed to connect: Failed to connect",
+      "stack":
+          Error: [db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect
+          Tip: run "docker compose up -d mongo" from src/api/
+              at <anonymous> (/app/src/api/src/db/client.ts:92:17)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoSystemError (/app/src/api/node_modules/mongodb/lib/error.js:1160:13)
+              at new MongoServerSelectionError (/app/src/api/node_modules/mongodb/lib/error.js:1195:9)
+              at selectServer (/app/src/api/node_modules/mongodb/lib/sdam/topology.js:327:50)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoNetworkError (/app/src/api/node_modules/mongodb/lib/error.js:969:9)
+              at <anonymous> (/app/src/api/node_modules/mongodb/lib/cmap/connect.js:286:56)
+              at emitError (node:events:43:23)
+              at <anonymous> (node:net:501:20)
+              at processTicksAndRejections (native:7:39)
+          caused by:
+    }
+[04:15:34.245] [31mERROR[39m: [36mrequest request error (db unavailable)[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFTWYKTYHQWB7R4BBF4AMG"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/libraries/6a3cab618bf34102ec9dbb7b/backup/sidecar"
+    err: {
+      "type": "Error",
+      "message": "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/: Failed to connect: Failed to connect: Failed to connect",
+      "stack":
+          Error: [db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect
+          Tip: run "docker compose up -d mongo" from src/api/
+              at <anonymous> (/app/src/api/src/db/client.ts:92:17)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoSystemError (/app/src/api/node_modules/mongodb/lib/error.js:1160:13)
+              at new MongoServerSelectionError (/app/src/api/node_modules/mongodb/lib/error.js:1195:9)
+              at selectServer (/app/src/api/node_modules/mongodb/lib/sdam/topology.js:327:50)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoNetworkError (/app/src/api/node_modules/mongodb/lib/error.js:969:9)
+              at <anonymous> (/app/src/api/node_modules/mongodb/lib/cmap/connect.js:286:56)
+              at emitError (node:events:43:23)
+              at <anonymous> (node:net:501:20)
+              at processTicksAndRejections (native:7:39)
+          caused by:
+    }
+[04:15:39.255] [31mERROR[39m: [36mrequest request error (db unavailable)[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFV1V98Z74H1HN1E3WWVYG"
+    [35mmethod[39m: "POST"
+    [35mpath[39m: "/api/libraries/6a3cab488bf34102ec9dbb7a/backup/sidecar"
+    err: {
+      "type": "Error",
+      "message": "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/: Failed to connect: Failed to connect: Failed to connect",
+      "stack":
+          Error: [db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect
+          Tip: run "docker compose up -d mongo" from src/api/
+              at <anonymous> (/app/src/api/src/db/client.ts:92:17)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoSystemError (/app/src/api/node_modules/mongodb/lib/error.js:1160:13)
+              at new MongoServerSelectionError (/app/src/api/node_modules/mongodb/lib/error.js:1195:9)
+              at selectServer (/app/src/api/node_modules/mongodb/lib/sdam/topology.js:327:50)
+              at processTicksAndRejections (native:7:39)
+          caused by: Error: Failed to connect
+              at new MongoError (/app/src/api/node_modules/mongodb/lib/error.js:120:9)
+              at new MongoNetworkError (/app/src/api/node_modules/mongodb/lib/error.js:969:9)
+              at <anonymous> (/app/src/api/node_modules/mongodb/lib/cmap/connect.js:286:56)
+              at emitError (node:events:43:23)
+              at <anonymous> (node:net:501:20)
+              at processTicksAndRejections (native:7:39)
+          caused by:
+    }
+[people-route.test] skipping: MongoDB unreachable
+[04:15:52.323] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-RFwMZ5"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:15:57.330] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-RFwMZ5"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:15:57.332] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-RFwMZ5"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:02.338] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-RFwMZ5"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:02.340] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-RFwMZ5"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:02.385] [31mERROR[39m: [36mrequest request error[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFVXAGP3KBHENKE7FNCCJE"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/does-not-exist"
+    err: {
+      "type": "NotFoundError",
+      "message": "NOT_FOUND",
+      "stack":
+          Error
+              at NotFoundError (/app/src/api/node_modules/elysia/dist/error.mjs:30:5)
+              at anonymous (file:///app/src/api/node_modules/elysia/dist/compose.mjs:12:33)
+              at composeGeneralHandler (/app/src/api/node_modules/elysia/dist/compose.mjs:1187:3)
+              at fetch (/app/src/api/node_modules/elysia/dist/index.mjs:1893:37)
+              at <anonymous> (/app/src/api/node_modules/elysia/dist/index.mjs:151:38)
+              at <anonymous> (/app/src/api/node_modules/elysia/dist/index.mjs:151:56)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:83:27)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:81:67)
+      "code": "NOT_FOUND",
+      "status": 404
+    }
+[04:16:02.407] [31mERROR[39m: [36mrequest request error[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFVXB6GSQMZE7MBYW7TY2B"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/secret"
+    err: {
+      "type": "Error",
+      "message": "missing bearer",
+      "stack":
+          Error: missing bearer
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:150:19)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:11:14)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:6:80)
+              at <anonymous> (/app/src/api/node_modules/elysia/dist/index.mjs:151:56)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:153:27)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:146:81)
+    }
+[04:16:02.413] [31mERROR[39m: [36mrequest request error[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "boom-trace-id"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/boom"
+    err: {
+      "type": "Error",
+      "message": "kaboom",
+      "stack":
+          Error: kaboom
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:166:19)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:11:14)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:6:80)
+              at <anonymous> (/app/src/api/node_modules/elysia/dist/index.mjs:151:56)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:170:27)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:163:64)
+    }
+[04:16:02.418] [31mERROR[39m: [36mrequest request error (db unavailable)[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "01KVYFVXBHNKDGYG72095DR5BM"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/db"
+    err: {
+      "type": "Error",
+      "message": "[db] MongoDB connection refused",
+      "stack":
+          Error: [db] MongoDB connection refused
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:185:19)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:11:14)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:6:80)
+              at <anonymous> (/app/src/api/node_modules/elysia/dist/index.mjs:151:56)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:188:27)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:182:88)
+    }
+[04:16:02.445] [33mWARN[39m: [36mauth rejected[39m
+    [35mcomponent[39m: "auth"
+    [35mreason[39m: "missing bearer"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/folders"
+[04:16:02.445] [31mERROR[39m: [36mrequest request error[39m
+    [35mcomponent[39m: "request"
+    [35mrequestId[39m: "integration-test-id"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/folders"
+    err: {
+      "type": "Error",
+      "message": "missing bearer",
+      "stack":
+          Error: missing bearer
+              at <anonymous> (/app/src/api/src/auth/middleware.ts:36:17)
+              at <anonymous> (/app/src/api/src/auth/middleware.ts:25:3)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:13:33)
+              at handle (file:///app/src/api/node_modules/elysia/dist/compose.mjs:6:80)
+              at <anonymous> (/app/src/api/node_modules/elysia/dist/index.mjs:151:56)
+              at <anonymous> (/app/src/api/tests/request-context.test.ts:223:27)
+              at processTicksAndRejections (native:7:39)
+    }
+[fs-dir-sidecars.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[04:16:07.349] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-RFwMZ5"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:19.298] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/small"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:24.303] [31mERROR[39m: [36mfs/browse global image-base lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:24.305] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/small"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:29.312] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:34.317] [31mERROR[39m: [36mfs/browse global image-base lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:34.319] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:39.326] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:44.331] [31mERROR[39m: [36mfs/browse global image-base lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:44.332] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:49.337] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:54.342] [31mERROR[39m: [36mfs/browse global image-base lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:54.347] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[04:16:59.357] [31mERROR[39m: [36mfs/browse exif lookup failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[observability-route.test] skipping: MongoDB unreachable
+[observability-config.repo.test] skipping Mongo round-trip: MongoDB unreachable
+[admin-backfill-meilisearch.test] skipping: MongoDB unreachable
+[04:17:04.362] [33mWARN[39m: [36mfs/browse enqueue browse index failed[39m
+    [35mcomponent[39m: "fs/browse"
+    [35mreal[39m: "/tmp/maple-fsdir-paging-Bt3UG0/big"
+    err: "[db] Cannot connect to MongoDB (mongodb://localhost:27017): Failed to connect\nTip: run \"docker compose up -d mongo\" from src/api/"
+[indexer-dead-letter.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[search-route-meilisearch.test] skipping: MongoDB unreachable
+[enrichment-dead-letter.test] skipping: MongoDB unreachable
+[assets-overrides.test] skipping: MongoDB unreachable at mongodb://localhost:27017
+[search/scope.test] skipping: MongoDB unreachable
+[search/buckets.test] skipping: MongoDB unreachable
+[search/list.test] skipping: MongoDB unreachable
+[search/facets.test] skipping: MongoDB unreachable
+[fs-thumbs.test] skipping: FFI not built
+[fs-thumbs.test] skipping: FFI not built
+[04:19:59.828] [33mWARN[39m: [36mauth rejected[39m
+    [35mcomponent[39m: "auth"
+    [35mreason[39m: "missing bearer"
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/api/folders"
