@@ -1,0 +1,138 @@
+// ControlCard — floating glass bottom panel (#1535).
+@use '../../pro-tokens';
+
+:host {
+  display: block;
+}
+
+.card {
+  background: var(--pro-glass-bg);
+  backdrop-filter: var(--pro-glass-blur);
+  -webkit-backdrop-filter: var(--pro-glass-blur);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  border-radius: var(--pro-glass-radius-card) var(--pro-glass-radius-card) 0 0;
+  overflow: hidden;
+  transition: height var(--pro-motion-card);
+
+  @media (min-width: 768px) {
+    background: var(--pro-glass-bg-heavy);
+    backdrop-filter: var(--pro-glass-blur-heavy);
+    -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+    border-radius: var(--pro-glass-radius-card-desktop) var(--pro-glass-radius-card-desktop) 0 0;
+  }
+}
+
+// Grab handle
+.grab-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.grab-bar {
+  width: 32px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+// Header: chips + reset
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+
+// Group chips row
+.group-chips {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.group-chip {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 0.5px solid transparent;
+  background: transparent;
+  font-size: 12px;
+  color: var(--pro-text-muted);
+  cursor: pointer;
+  transition:
+    background var(--pro-motion-group),
+    color var(--pro-motion-group),
+    border-color var(--pro-motion-group);
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+  white-space: nowrap;
+
+  &:hover:not(.group-chip--active) {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--pro-text);
+  }
+
+  &.group-chip--active {
+    background: var(--pro-accent-28);
+    border-color: var(--pro-accent);
+    color: var(--pro-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 2px;
+  }
+}
+
+// Reset button
+.reset-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 0.5px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--pro-border);
+  }
+
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 2px;
+  }
+}
+
+// Slider grid — 1 col phone / 2 col tablet+desktop
+.slider-grid {
+  padding: 4px 0 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+
+  @media (min-width: 768px) {
+    grid-template-columns: 1fr 1fr;
+  }
+}

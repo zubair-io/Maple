@@ -1,0 +1,22 @@
+<!-- LivingSlider — gradient track + bipolar zero notch + accent ring thumb -->
+<div class="slider-row">
+  <!-- Label -->
+  <span class="slider-label" [title]="label()">{{ label() }}</span>
+
+  <!-- Track area -->
+  <div #trackEl class="track-wrap" (pointerdown)="onTrackPointerDown($event)">
+    <!-- Track gradient fill -->
+    <div class="track" [style.background]="gradient()">
+      <!-- Zero notch (bipolar only) -->
+      @if (bipolar()) {
+        <div class="zero-notch"></div>
+      }
+
+      <!-- Thumb -->
+      <div class="thumb" [class.thumb--modified]="isModified()" [style.left.%]="thumbPct()"></div>
+    </div>
+  </div>
+
+  <!-- Value chip -->
+  <span class="value-chip" [class.value-chip--modified]="isModified()">{{ valueLabel() }}</span>
+</div>
