@@ -62,11 +62,15 @@ public enum SyncBadge: Sendable, Hashable {
 
 /// Controls which badge layout variant `GridCellOverlayView` renders.
 ///
-/// - `.phone` — S2 phone spec: green pick dot top-left, ≥4★ gold bottom-left.
+/// - `.phone`   — S2 phone spec: green pick dot top-left, ≥4★ gold bottom-left.
 /// - `.desktop` — iPad/Mac chrome: `FlagBadge` + `StarView` row bottom-leading.
+/// - `.cloud`   — Cloud-timeline cells: rating stars top-leading (yellow, caption2),
+///               regardless of sync-badge presence. Use for cloud-only `SearchAsset`
+///               cells where `sync == nil` but rating still appears at top-leading.
 public enum OverlayStyle: Sendable, Hashable {
     case phone
     case desktop
+    case cloud
 }
 
 // MARK: - GridCellOverlays

@@ -151,6 +151,8 @@ private struct GridCellOverlayView: View {
                 phoneBadges
             case .desktop:
                 desktopBadges
+            case .cloud:
+                cloudBadges
             }
         }
     }
@@ -232,6 +234,31 @@ private struct GridCellOverlayView: View {
                     }
                     .padding(4)
                 }
+            }
+        }
+    }
+
+    // MARK: Cloud badge layout (cloud-only timeline cells)
+
+    /// Rating stars at top-leading, yellow, caption2 font. Used for cloud-only
+    /// `SearchAsset` cells that have no sync badge (`sync == nil`) but still need
+    /// the cloud-timeline star placement. Matches `CloudTimelineCell` exactly:
+    /// `Image(systemName:"star.fill").font(.caption2).foregroundStyle(.yellow)`,
+    /// 4pt padding, top-leading alignment.
+    @ViewBuilder
+    private var cloudBadges: some View {
+        let stars = overlays.rating
+        if stars > 0 {
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                HStack(spacing: 1) {
+                    ForEach(0..<stars, id: \.self) { _ in
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                    }
+                }
+                .foregroundStyle(.yellow)
+                .padding(4)
             }
         }
     }
