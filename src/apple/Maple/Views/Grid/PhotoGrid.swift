@@ -202,6 +202,11 @@ extension PhotoGrid where Leading == EmptyView {
 /// a month label `Text`). `SectionedPhotoGrid` itself does not paginate —
 /// the caller's `.task(id:)` on each section drives page loads, exactly as
 /// `CloudTimelineView` does today.
+///
+/// M2 addition (#1490): optional `onAppearItem` forwarded to the inner
+/// `PhotoGrid` so the timeline can drive per-section pagination priming
+/// via the same mechanism `CloudTimelineView` used with `.onAppear` on
+/// each cell.
 struct SectionedPhotoGrid<Element: Identifiable, Header: View>: View {
 
     let sections: [(key: String, data: [Element])]
@@ -210,6 +215,10 @@ struct SectionedPhotoGrid<Element: Identifiable, Header: View>: View {
     let displayMode: GridDisplayMode
     var selection: Set<Element.ID> = []
     var transitionNamespace: Namespace.ID? = nil
+    /// Optional per-element appear callback. When non-nil, forwarded to the inner
+    /// `PhotoGrid` so individual cell appearances surface to the call site.
+    /// Idempotent — may fire more than once per cell (scroll in/out).
+    var onAppearItem: ((Element) -> Void)? = nil
     let onTap: (Element) -> Void
     let makeItem: (Element) -> PhotoGridItem
     let header: (String) -> Header
@@ -221,6 +230,7 @@ struct SectionedPhotoGrid<Element: Identifiable, Header: View>: View {
         displayMode: GridDisplayMode,
         selection: Set<Element.ID> = [],
         transitionNamespace: Namespace.ID? = nil,
+        onAppearItem: ((Element) -> Void)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder header: @escaping (String) -> Header
@@ -231,6 +241,7 @@ struct SectionedPhotoGrid<Element: Identifiable, Header: View>: View {
         self.displayMode = displayMode
         self.selection = selection
         self.transitionNamespace = transitionNamespace
+        self.onAppearItem = onAppearItem
         self.onTap = onTap
         self.makeItem = makeItem
         self.header = header
@@ -248,6 +259,7 @@ struct SectionedPhotoGrid<Element: Identifiable, Header: View>: View {
                         displayMode: displayMode,
                         selection: selection,
                         transitionNamespace: transitionNamespace,
+                        onAppearItem: onAppearItem,
                         onTap: onTap,
                         makeItem: makeItem
                     )
