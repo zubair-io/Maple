@@ -281,11 +281,20 @@ export class ImageCanvasComponent
           return;
         }
 
-        // Self-Hosted FS-walk path (and any other async source): the bytes
-        // aren't in the in-memory cache yet. Kick off the async read; once
-        // it resolves we re-enter loadReal. Guard with a stale-id check so
-        // a fast asset switch doesn't decode the wrong file.
-        if (a.absPath) {
+        // Backend-resolvable asset (Self-Hosted): the bytes aren't in the
+        // in-memory cache yet. Kick off the async read; once it resolves we
+        // re-enter loadReal. Guard with a stale-id check so a fast asset switch
+        // doesn't decode the wrong file.
+        //
+        // The gate accepts EITHER the legacy `fs:<absPath>` deep-link field OR a
+        // MapleAddress id. The M2 unified addressing (#1325) keys assets by
+        // `slug:relPath` and no longer populates `absPath`, so gating on
+        // `absPath` alone dropped every browse-opened backend asset into the
+        // mock-gradient branch below — it fetched nothing and showed a
+        // placeholder. A MapleAddress id always contains ':' (slug:relPath);
+        // mock assets (Hosted demo: `a-film`, `f-france`, …) and UUID imports
+        // never do, so they still fall through to the gradient / in-memory path.
+        if (a.absPath || a.id.includes(':')) {
           const requestedId = a.id;
           this.imageBitmap.set(null);
           this.canvasSvc.currentPixels.set(null);
