@@ -17,6 +17,11 @@
 // nothing, and overlay state stays live (it's read per visible cell, not
 // snapshotted into an eagerly-built array). The element is handed back through
 // `onTap`/`onAppearItem`, so call sites need no id→element reverse lookup.
+//
+// M1b addition (#1490): optional `multiSelectChecked` closure. When provided,
+// the closure is called per visible element and its result is forwarded to
+// `PhotoThumbnailCell.multiSelectChecked`. `nil` (default) keeps the existing
+// single-select outline behaviour unchanged.
 
 import SwiftUI
 import MapleCore
@@ -73,12 +78,17 @@ enum ColumnStrategy {
 
 /// A flat `LazyVGrid` that maps a source collection (`data`) to
 /// `PhotoThumbnailCell`s via `makeItem`, mapping each element lazily inside the
-/// `ForEach` (only realized cells pay the cost).
+/// `ForEach` (only realized cells build their item + derive overlays).
 ///
 /// `selection` is keyed by `Element.ID`; `onTap` / `onAppearItem` hand the
 /// element back so call sites avoid any id→element reverse lookup. The optional
 /// `leading` slot renders INSIDE the same `LazyVGrid` before the photo cells, so
 /// folder cells keep the interleaved column flow (no reflow).
+///
+/// `multiSelectChecked` — when non-nil, is called per visible element and the
+/// result is forwarded to `PhotoThumbnailCell.multiSelectChecked`. Enables the
+/// top-trailing checkmark badge (BrowseGrid multi-select) without polluting the
+/// `PhotoGridItem` model with UI-only state.
 struct PhotoGrid<Element: Identifiable, Leading: View>: View {
 
     let data: [Element]
@@ -88,6 +98,11 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     var selection: Set<Element.ID> = []
     var transitionNamespace: Namespace.ID? = nil
     var onAppearItem: ((Element) -> Void)? = nil
+    /// Optional multi-select badge state per element. When non-nil, the closure
+    /// is called for each visible element and the result is passed to
+    /// `PhotoThumbnailCell.multiSelectChecked`. `nil` preserves the single-select
+    /// outline behaviour of the original grid surfaces.
+    var multiSelectChecked: ((Element) -> Bool?)? = nil
     let onTap: (Element) -> Void
     let makeItem: (Element) -> PhotoGridItem
     let leading: () -> Leading
@@ -104,6 +119,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         selection: Set<Element.ID> = [],
         transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
+        multiSelectChecked: ((Element) -> Bool?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder leading: @escaping () -> Leading
@@ -115,6 +131,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         self.selection = selection
         self.transitionNamespace = transitionNamespace
         self.onAppearItem = onAppearItem
+        self.multiSelectChecked = multiSelectChecked
         self.onTap = onTap
         self.makeItem = makeItem
         self.leading = leading
@@ -136,6 +153,7 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                     displayMode: displayMode,
                     isSelected: selection.contains(element.id),
                     transitionNamespace: transitionNamespace,
+                    multiSelectChecked: multiSelectChecked?(element),
                     onTap: { onTap(element) },
                     onAppear: onAppearItem.map { cb in { cb(element) } }
                 )
@@ -155,6 +173,7 @@ extension PhotoGrid where Leading == EmptyView {
         selection: Set<Element.ID> = [],
         transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
+        multiSelectChecked: ((Element) -> Bool?)? = nil,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem
     ) {
@@ -166,6 +185,7 @@ extension PhotoGrid where Leading == EmptyView {
             selection: selection,
             transitionNamespace: transitionNamespace,
             onAppearItem: onAppearItem,
+            multiSelectChecked: multiSelectChecked,
             onTap: onTap,
             makeItem: makeItem,
             leading: { EmptyView() }
@@ -243,6 +263,7 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
     (0..<count).map { i in
         PhotoGridItem(
             id: "prev-\(i)",
+            displayName: "IMG_\(String(format: "%04d", i)).dng",
             thumbnailSource: .photoKit(localID: "local-\(i)"),
             overlays: GridCellOverlays(
                 rating: i % 6,
@@ -302,12 +323,32 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
     .background(MapleTokens.bg)
 }
 
+#Preview("Multi-select badges") {
+    let items = previewItems(count: 9, style: .desktop)
+    let checkedIDs = Set(["prev-0", "prev-2", "prev-5"])
+    ScrollView {
+        PhotoGrid(
+            data: items,
+            columns: .adaptive(min: 140, spacing: 4),
+            provider: .preview(),
+            displayMode: .fill,
+            selection: checkedIDs,
+            multiSelectChecked: { item in checkedIDs.contains(item.id) },
+            onTap: { _ in },
+            makeItem: { $0 }
+        )
+        .padding(4)
+    }
+    .frame(width: 720, height: 600)
+    .background(MapleTokens.bg)
+}
+
 #Preview("Sectioned — month buckets") {
     let months = ["June 2026", "May 2026"]
     let sections = months.enumerated().map { (i, key) in
         (key: key, data: previewItems(count: 8, style: .desktop).map {
-            PhotoGridItem(id: "\(i)-\($0.id)", thumbnailSource: $0.thumbnailSource,
-                          overlays: $0.overlays)
+            PhotoGridItem(id: "\(i)-\($0.id)", displayName: $0.displayName,
+                          thumbnailSource: $0.thumbnailSource, overlays: $0.overlays)
         })
     }
     ScrollView {
