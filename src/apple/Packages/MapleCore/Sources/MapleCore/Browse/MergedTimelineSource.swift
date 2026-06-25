@@ -133,3 +133,26 @@ public enum MergedTimelineSource {
         }
     }
 }
+
+// MARK: - MergedTimelineCell Identifiable (#1490 M1b)
+
+/// `Identifiable` conformance so `MergedTimelineCell` can be used directly
+/// as `PhotoGrid`'s `Element` type without a separate ForEach `id:` parameter.
+/// Identity delegates to `MergedTimelineSource.renderID` — the same stable key
+/// the original `ForEach(vm.mergedCells, id: \.self)` derived via Hashable.
+extension MergedTimelineCell: Identifiable {
+    public var id: String { MergedTimelineSource.renderID(self) }
+}
+
+extension MergedTimelineSource {
+    /// Human-readable display name for a merged cell. Prefers the local ref
+    /// for `.synced` (the PhotoKit name is what the user sees in Apple Photos).
+    /// Used by `PhotoGridItem(merged:)` to populate `displayName` for the
+    /// accessibility identifier on `PhotoThumbnailCell`.
+    public static func displayName(_ cell: MergedTimelineCell) -> String {
+        switch cell {
+        case .localOnly(let r), .cloudOnly(let r): return r.displayName
+        case .synced(let local, _): return local.displayName
+        }
+    }
+}
