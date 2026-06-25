@@ -56,6 +56,22 @@ struct PhotoThumbnailCell: View {
 
     @State private var thumb: Data?
 
+    /// Multi-select-aware accessibility label — restores the per-cell
+    /// "<name>, selected / not selected" announcement BrowseGrid had before the
+    /// shared-cell migration. Single-select mode announces just the name.
+    private var accessibilityLabelText: String {
+        guard let checked = multiSelectChecked else { return item.displayName }
+        return "\(item.displayName), \(checked ? "selected" : "not selected")"
+    }
+
+    /// Selection hint, multi-select only. Empty (no hint) in single-select
+    /// because the tap action is surface-specific (open vs. select), so only the
+    /// universal multi-select select/deselect hint is asserted here.
+    private var accessibilityHintText: String {
+        guard let checked = multiSelectChecked else { return "" }
+        return "Double tap to \(checked ? "deselect" : "select")"
+    }
+
     // MARK: Body
 
     var body: some View {
@@ -93,7 +109,8 @@ struct PhotoThumbnailCell: View {
             // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
             // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
             .accessibilityIdentifier("thumb-\(item.displayName)")
-            .accessibilityLabel(item.displayName)
+            .accessibilityLabel(accessibilityLabelText)
+            .accessibilityHint(accessibilityHintText)
             .task(id: item.id) {
                 let bytes = await provider.thumbnail(for: item.thumbnailSource)
                 // Skip the assignment if the cell scrolled away mid-load, and
