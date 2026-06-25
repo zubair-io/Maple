@@ -2,9 +2,10 @@
 // and its primary sub-param. Used by LivingSliderComponent to paint the
 // track with the tool's characteristic colour ramp.
 //
-// Stop values are pending final design import from primitives.jsx (GRAD
+// Stop values are pending the final design import from primitives.jsx (GRAD
 // constants); these are recognisable placeholders derived from the token
-// palette. Do NOT remove the TODO — it is an explicit design handoff marker.
+// palette. The TODO below is an intentional design-handoff marker, kept until
+// the import lands.
 //
 // TODO: replace placeholder stop colours with the exact values from
 // _design-reference/lib/primitives.jsx GRAD constants (#1535 follow-up).
@@ -16,6 +17,9 @@ export type SubParamGradientKey = string;
 
 /** Gradient entry: a CSS `linear-gradient(...)` value string. */
 export type GradientValue = string;
+
+/** Neutral fallback so the function is total even for an unmapped tool id. */
+const DEFAULT_GRADIENT: GradientValue = 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)';
 
 // ── Tool gradients (primary drag-bar) ─────────────────────────────────────
 const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
@@ -94,7 +98,7 @@ export function gradientFor(toolId: ToolId, subParamId?: string | null): Gradien
     const override = SUB_PARAM_GRADIENTS[key];
     if (override) return override;
   }
-  return TOOL_GRADIENTS[toolId];
+  return TOOL_GRADIENTS[toolId] ?? DEFAULT_GRADIENT;
 }
 
 /**
