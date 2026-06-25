@@ -22,13 +22,26 @@ import MapleCore
 private struct GridZoomPinch: ViewModifier {
     @Binding var level: GridZoomLevel
     @State private var liveScale: CGFloat = 1
+    /// Scale origin — the pinch focal point, so the grid zooms under the
+    /// fingers rather than from the screen centre.
+    @State private var anchor: UnitPoint = .center
+    /// While true, a transparent overlay swallows taps so lifting fingers off a
+    /// pinch doesn't register as a tap that opens an image.
+    @State private var blockingTaps = false
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(liveScale, anchor: .center)
+            .scaleEffect(liveScale, anchor: anchor)
+            .overlay {
+                if blockingTaps {
+                    Color.clear.contentShape(Rectangle())
+                }
+            }
             .simultaneousGesture(
                 MagnifyGesture()
                     .onChanged { value in
+                        anchor = value.startAnchor          // zoom under the fingers
+                        blockingTaps = true
                         // Live feedback only — clamp so the grid can't run away,
                         // and so pinching past a clamped end rubber-bands back.
                         liveScale = min(max(value.magnification, 0.55), 1.8)
@@ -40,6 +53,10 @@ private struct GridZoomPinch: ViewModifier {
                         withAnimation(.smooth) {
                             level = snapped
                             liveScale = 1
+                        }
+                        // Keep eating taps briefly after the fingers lift.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            blockingTaps = false
                         }
                     }
             )

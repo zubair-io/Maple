@@ -79,13 +79,6 @@ struct PhotoThumbnailCell: View {
             .overlay {
                 GridCellOverlayView(overlays: item.overlays)
             }
-            .overlay {
-                // Single-select outline — suppressed when multi-select badge is active.
-                if isSelected && multiSelectChecked == nil {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(MapleTokens.primary, lineWidth: 2)
-                }
-            }
             .overlay(alignment: .topTrailing) {
                 // Multi-select badge — only present when multiSelectChecked is non-nil.
                 if let checked = multiSelectChecked {

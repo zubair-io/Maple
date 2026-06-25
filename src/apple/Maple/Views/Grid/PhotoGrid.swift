@@ -39,10 +39,10 @@ enum ColumnStrategy {
     ///   tablet  → 5 fixed, 4pt gap
     ///   desktop → adaptive 180pt min, 4pt gap
     case responsiveBySizeClass
-    /// Size-based zoom (#1550): phone uses exact fixed counts (1/3/5/10);
-    /// tablet/desktop use adaptive at the target cell width so the cell size
-    /// stays constant while the column count grows with the window.
-    /// fullWidth always yields 1 column on every layout.
+    /// Size-based zoom (#1550): phone uses exact fixed counts (1/3/5/10, where
+    /// fullWidth == 1); tablet/desktop decouple to `desktopCellWidth` adaptively,
+    /// so the grid reflows responsively on window resize while staying sensible
+    /// at both ends (no single-image jump, no wall of tiny cells).
     case zoom(GridZoomLevel)
 
     /// Resolve to SwiftUI `GridItem` array given the current `MapleLayout`.
@@ -65,14 +65,14 @@ enum ColumnStrategy {
             }
         case .zoom(let level):
             let gap = zoomGap(for: layout)
-            if level == .fullWidth {
-                return [GridItem(.flexible(), spacing: gap)]
-            }
             switch layout {
             case .phone:
+                // Exact counts; fullWidth → phoneColumns == 1 (a single image).
                 return Array(repeating: GridItem(.flexible(), spacing: gap), count: level.phoneColumns)
             case .tablet, .desktop:
-                return [GridItem(.adaptive(minimum: level.targetCellWidth), spacing: gap)]
+                // Decoupled + responsive: adaptive reflows as the window resizes;
+                // tamed sizes avoid the single-image jump and the tiny-cell end.
+                return [GridItem(.adaptive(minimum: level.desktopCellWidth), spacing: gap)]
             }
         }
     }
