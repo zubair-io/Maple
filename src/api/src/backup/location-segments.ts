@@ -44,26 +44,19 @@ function nonEmpty(value: string | null | undefined): string | null {
 const CIVIC_PREFIX = /^(?:City|Town|Village)\s+of\s+/i;
 
 /**
- * Operator override for the backup folder's city/town segment (the locality).
- * Applied only to the locality — never the State/Country top segment — so the
- * `New York` rename below touches the city without disturbing the `New York`
- * state folder.
+ * Strip a leading "City of " / "Town of " / "Village of " civic prefix from a
+ * locality so it files under the bare place name ("City of London" → "London").
+ * Falls back to the original when a strip would leave nothing (defensive — the
+ * locality is pre-trimmed by `nonEmpty`).
  *
- *   1. Drop a leading "City of " / "Town of " / "Village of " prefix, filing the
- *      place under its bare name. Falls back to the original if a strip would
- *      leave nothing (defensive — the locality is pre-trimmed by `nonEmpty`).
- *   2. Rename the city "New York" → "New York City".
- *
- * Rule 1 runs before rule 2 so the official "City of New York" lands on
- * "New York City" too.
+ * Country-agnostic: civic prefixes occur worldwide, so this runs regardless of
+ * country. The NYC rename is scoped to the USA and applied by the caller, which
+ * has the country/state context (see `backupLocationSegments`).
  */
-function normalizeBackupLocality(name: string | null): string | null {
+function stripCivicPrefix(name: string | null): string | null {
   if (name == null) return null;
-
   const stripped = name.replace(CIVIC_PREFIX, '').trim();
-  const finalName = stripped.length > 0 ? stripped : name;
-
-  return finalName === 'New York' ? 'New York City' : finalName;
+  return stripped.length > 0 ? stripped : name;
 }
 
 export function backupLocationSegments(place: Place | null | undefined): string[] {
@@ -90,7 +83,12 @@ export function backupLocationSegments(place: Place | null | undefined): string[
 
   // Town/City || Place Name. The locality (the actual town/city) carries the
   // operator overrides; the POI fallback is a landmark name and is left as-is.
-  const sub =
-    normalizeBackupLocality(nonEmpty(rollups?.locality)) ?? nonEmpty(place.pois?.[0]?.name);
+  const locality = stripCivicPrefix(nonEmpty(rollups?.locality));
+  // Rename the city "New York" → "New York City", scoped to NY state in the USA
+  // so a non-US locality named "New York" (e.g. the Lincolnshire village) and
+  // the "New York" state folder (the top segment) both stay untouched.
+  const city =
+    locality === 'New York' && isUSA && state === 'New York' ? 'New York City' : locality;
+  const sub = city ?? nonEmpty(place.pois?.[0]?.name);
   return sub ? [top, sub] : [top];
 }

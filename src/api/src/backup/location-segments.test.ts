@@ -241,4 +241,26 @@ describe('backupLocationSegments — city/town name overrides', () => {
       ),
     ).toEqual(['Idaho', 'City of Rocks National Reserve']);
   });
+
+  test('does not rename a non-US locality named "New York" (e.g. Lincolnshire, UK)', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'England', country: 'United Kingdom', country_code: 'gb' },
+          rollups: { locality: 'New York', region: 'England', country_code: 'gb' },
+        }),
+      ),
+    ).toEqual(['United Kingdom', 'New York']);
+  });
+
+  test('does not rename a US locality named "New York" outside New York state', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'Florida', country: 'United States', country_code: 'us' },
+          rollups: { locality: 'New York', region: 'Florida', country_code: 'us' },
+        }),
+      ),
+    ).toEqual(['Florida', 'New York']);
+  });
 });
