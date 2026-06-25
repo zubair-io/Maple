@@ -1,0 +1,51 @@
+--- src/api/src/enrichment/face-bootstrap.ts
++++ src/api/src/enrichment/face-bootstrap.ts
+@@ -52,26 +52,24 @@
+ export const FACE_STAGE_NAMES = ['face-detect', 'face-embed'] as const;
+
+-/**
+- * Propagate the paused state for a stage into the worker_config collection.
+- * Uses upsert so it's safe to call before any stage has been seeded.
+- */
+-async function applyPausedToWorkerConfig(name: string, paused: boolean): Promise<void> {
+-  try {
+-    const coll = await workerConfigCollection();
+-    await coll.updateOne(
+-      { name },
+-      { $set: { paused }, $setOnInsert: { name } as never },
+-      { upsert: true },
+-    );
+-  } catch (err) {
+-    // Non-fatal — log and continue. The stage controller will fall back to
+-    // the stage's built-in defaults if the DB write fails.
+-    const msg = err instanceof Error ? err.message : String(err);
+-    log.warn({ err: msg, name }, 'failed to write paused state to worker_config');
+-  }
+-}
+-
+ /** Apply the paused state to every stage in the split face pipeline. */
+ async function applyPausedToFaceStages(paused: boolean): Promise<void> {
+-  await Promise.all(FACE_STAGE_NAMES.map((name) => applyPausedToWorkerConfig(name, paused)));
++  try {
++    const coll = await workerConfigCollection();
++    await Promise.all(
++      FACE_STAGE_NAMES.map(async (name) => {
++        try {
++          await coll.updateOne(
++            { name },
++            { $set: { paused }, $setOnInsert: { name } as never },
++            { upsert: true },
++          );
++        } catch (err) {
++          // Non-fatal — log and continue. The stage controller will fall back to
++          // the stage's built-in defaults if the DB write fails.
++          const msg = err instanceof Error ? err.message : String(err);
++          log.warn({ err: msg, name }, 'failed to write paused state to worker_config');
++        }
++      })
++    );
++  } catch (err) {
++    const msg = err instanceof Error ? err.message : String(err);
++    log.warn({ err: msg }, 'failed to access worker_config collection');
++  }
+ }
