@@ -47,18 +47,26 @@ export async function mergePeopleInto(
   }
   let mergedCount = 0;
 
-  // Optimization: bulk fetch all source people to avoid N+1 queries.
+  // Bulk-fetch every source in one query to avoid an N+1 findOne per id.
   const sources = await coll.find({ _id: { $in: sourceIds } }).toArray();
-  // Convert hex IDs to string for case-insensitive lookup (consistent with ID handling best practices)
+  // Key by canonical hex string — ObjectId instances are not value-equal as
+  // Map keys, so `.get(sourceId)` would always miss without the string form.
   const sourcesById = new Map(sources.map((s) => [s._id.toHexString(), s]));
 
+  // The map is a snapshot taken before the loop, so — unlike the prior
+  // per-iteration findOne — a duplicate id would not see the merged_into the
+  // first pass wrote. Callers (routes/people.ts) already de-dupe, but track
+  // merged ids here so the function is correct on its own regardless.
+  const mergedIds = new Set<string>();
   for (const sourceId of sourceIds) {
-    if (sourceId.equals(targetId)) continue;
-    const source = sourcesById.get(sourceId.toHexString());
+    const hex = sourceId.toHexString();
+    if (sourceId.equals(targetId) || mergedIds.has(hex)) continue;
+    const source = sourcesById.get(hex);
     if (!source || source.merged_into) continue;
     // Target stays the survivor; pass its current name so the canonical name
     // is unchanged (no rename on an explicit merge).
     await mergeInto(targetId, sourceId, target.name);
+    mergedIds.add(hex);
     mergedCount += 1;
   }
   if (mergedCount > 0) {
