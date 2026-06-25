@@ -13,24 +13,7 @@ import Foundation
 @MainActor
 @Observable
 public final class BrowseViewModel {
-    public var assets: [AssetRef] = [] {
-        didSet { rebuildAssetIndex() }
-    }
-
-    /// Stable-id → `AssetRef` index for grid tap / prime routing. Rebuilt ONLY
-    /// when `assets` changes (via `didSet`), never per SwiftUI body pass — so the
-    /// shared `PhotoGrid` call sites can map a tapped/appeared `PhotoGridItem.id`
-    /// back to its asset without allocating an O(N) dictionary in the render path
-    /// (#1490 M1a review). Key derivation matches `PhotoGridItem(local:)`:
-    /// `stableID ?? id.uuidString`.
-    public private(set) var assetByStableID: [String: AssetRef] = [:]
-
-    private func rebuildAssetIndex() {
-        assetByStableID = Dictionary(
-            assets.map { ($0.stableID ?? $0.id.uuidString, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-    }
+    public var assets: [AssetRef] = []
     /// Sub-folders directly inside the currently-opened folder. Populated
     /// alongside `assets` by the filesystem `loadFolder(url:)` path so the
     /// explorer can render a Finder-style mix of folders + images at the
