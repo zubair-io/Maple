@@ -3,7 +3,6 @@
 // Part of the grid-unify refactor (#1490 M0). Provides:
 //   - `ColumnStrategy` — describes how columns are computed per layout
 //   - `PhotoGrid`         — flat LazyVGrid mapping a source collection to cells
-//   - `SectionedPhotoGrid`— LazyVStack of month-labelled PhotoGrids
 //
 // Column counts / gaps mirror `LibraryGrid` (responsive-program S2, #623):
 //   phone   — 3 fixed columns, 2pt gap
@@ -193,82 +192,6 @@ extension PhotoGrid where Leading == EmptyView {
     }
 }
 
-// MARK: - SectionedPhotoGrid (month buckets)
-
-/// A `LazyVStack` of section headers each followed by a flat `PhotoGrid`.
-/// Mirrors the month-bucketed layout in `CloudTimelineMonthSection`.
-///
-/// `Header` is any `View` the caller provides for each section key (typically
-/// a month label `Text`). `SectionedPhotoGrid` itself does not paginate —
-/// the caller's `.task(id:)` on each section drives page loads, exactly as
-/// `CloudTimelineView` does today.
-///
-/// M2 addition (#1490): optional `onAppearItem` forwarded to the inner
-/// `PhotoGrid` so the timeline can drive per-section pagination priming
-/// via the same mechanism `CloudTimelineView` used with `.onAppear` on
-/// each cell.
-struct SectionedPhotoGrid<Element: Identifiable, Header: View>: View {
-
-    let sections: [(key: String, data: [Element])]
-    let columns: ColumnStrategy
-    let provider: ThumbnailProvider
-    let displayMode: GridDisplayMode
-    var selection: Set<Element.ID> = []
-    var transitionNamespace: Namespace.ID? = nil
-    /// Optional per-element appear callback. When non-nil, forwarded to the inner
-    /// `PhotoGrid` so individual cell appearances surface to the call site.
-    /// Idempotent — may fire more than once per cell (scroll in/out).
-    var onAppearItem: ((Element) -> Void)? = nil
-    let onTap: (Element) -> Void
-    let makeItem: (Element) -> PhotoGridItem
-    let header: (String) -> Header
-
-    init(
-        sections: [(key: String, data: [Element])],
-        columns: ColumnStrategy,
-        provider: ThumbnailProvider,
-        displayMode: GridDisplayMode,
-        selection: Set<Element.ID> = [],
-        transitionNamespace: Namespace.ID? = nil,
-        onAppearItem: ((Element) -> Void)? = nil,
-        onTap: @escaping (Element) -> Void,
-        makeItem: @escaping (Element) -> PhotoGridItem,
-        @ViewBuilder header: @escaping (String) -> Header
-    ) {
-        self.sections = sections
-        self.columns = columns
-        self.provider = provider
-        self.displayMode = displayMode
-        self.selection = selection
-        self.transitionNamespace = transitionNamespace
-        self.onAppearItem = onAppearItem
-        self.onTap = onTap
-        self.makeItem = makeItem
-        self.header = header
-    }
-
-    var body: some View {
-        LazyVStack(alignment: .leading, spacing: 24) {
-            ForEach(sections, id: \.key) { section in
-                VStack(alignment: .leading, spacing: 8) {
-                    header(section.key)
-                    PhotoGrid(
-                        data: section.data,
-                        columns: columns,
-                        provider: provider,
-                        displayMode: displayMode,
-                        selection: selection,
-                        transitionNamespace: transitionNamespace,
-                        onAppearItem: onAppearItem,
-                        onTap: onTap,
-                        makeItem: makeItem
-                    )
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Previews
 
 private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGridItem] {
@@ -352,32 +275,5 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
         .padding(4)
     }
     .frame(width: 720, height: 600)
-    .background(MapleTokens.bg)
-}
-
-#Preview("Sectioned — month buckets") {
-    let months = ["June 2026", "May 2026"]
-    let sections = months.enumerated().map { (i, key) in
-        (key: key, data: previewItems(count: 8, style: .desktop).map {
-            PhotoGridItem(id: "\(i)-\($0.id)", displayName: $0.displayName,
-                          thumbnailSource: $0.thumbnailSource, overlays: $0.overlays)
-        })
-    }
-    ScrollView {
-        SectionedPhotoGrid(
-            sections: sections,
-            columns: .fixed(4, spacing: 6),
-            provider: .preview(),
-            displayMode: .fill,
-            onTap: { _ in },
-            makeItem: { $0 }
-        ) { key in
-            Text(key)
-                .font(.title3.bold())
-                .padding(.horizontal, 16)
-        }
-        .padding(.vertical, 12)
-    }
-    .frame(width: 720, height: 700)
     .background(MapleTokens.bg)
 }
