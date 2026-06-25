@@ -56,10 +56,10 @@ struct SearchPhotoResultsSection: View {
                     columns: .fixed(3, spacing: 4),
                     provider: provider ?? .preview(),
                     displayMode: .fill,
-                    onTap: onTap,
                     onAppearItem: { asset in
                         if asset.id == results.last?.id { onLoadMore() }
                     },
+                    onTap: onTap,
                     makeItem: { asset in
                         PhotoGridItem(cloud: asset, host: host, style: .phone)
                     }
