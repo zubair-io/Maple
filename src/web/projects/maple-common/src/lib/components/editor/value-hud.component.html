@@ -1,0 +1,9 @@
+<!-- ValueHud — center overlay during canvas scrub -->
+<div class="hud-inner">
+  <span class="hud-eyebrow">{{ eyebrow() }}</span>
+  <span class="hud-value">{{ valueText() }}</span>
+  <div class="hud-rail">
+    <div class="hud-rail-fill" [style.width.%]="progress() * 100"></div>
+    <div class="hud-rail-center"></div>
+  </div>
+</div>

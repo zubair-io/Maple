@@ -1,0 +1,70 @@
+// ToolDock — vertical glass column (#1535).
+@use '../../pro-tokens';
+
+:host {
+  display: flex;
+  flex-direction: column;
+}
+
+.dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  background: var(--pro-glass-bg);
+  backdrop-filter: var(--pro-glass-blur);
+  -webkit-backdrop-filter: var(--pro-glass-blur);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  border-radius: var(--pro-glass-radius-card);
+
+  // Tablet/desktop: heavier glass
+  @media (min-width: 768px) {
+    background: var(--pro-glass-bg-heavy);
+    backdrop-filter: var(--pro-glass-blur-heavy);
+    -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+    border-radius: var(--pro-glass-radius-card-desktop);
+  }
+}
+
+.dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  border: 0.5px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+
+  &:hover:not(.dock-btn--disabled):not(.dock-btn--active) {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--pro-border);
+  }
+
+  &.dock-btn--active {
+    background: var(--pro-accent-30);
+    border-color: var(--pro-accent);
+  }
+
+  &.dock-btn--disabled {
+    cursor: default;
+    opacity: 0.35;
+  }
+
+  // Remove default button styles
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 2px;
+  }
+}
