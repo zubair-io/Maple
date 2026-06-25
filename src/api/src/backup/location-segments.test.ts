@@ -139,3 +139,106 @@ describe('backupLocationSegments', () => {
     ).toEqual(['Texas', 'Austin']);
   });
 });
+
+describe('backupLocationSegments — city/town name overrides', () => {
+  test('strips a leading "City of " prefix from the locality', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { country: 'United Kingdom', country_code: 'gb' },
+          rollups: { locality: 'City of London' },
+        }),
+      ),
+    ).toEqual(['United Kingdom', 'London']);
+  });
+
+  test('strips a leading "Town of " prefix from the locality', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'North Carolina', country: 'United States', country_code: 'us' },
+          rollups: { locality: 'Town of Cary' },
+        }),
+      ),
+    ).toEqual(['North Carolina', 'Cary']);
+  });
+
+  test('strips a leading "Village of " prefix from the locality', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'Illinois', country: 'United States', country_code: 'us' },
+          rollups: { locality: 'Village of Oak Park' },
+        }),
+      ),
+    ).toEqual(['Illinois', 'Oak Park']);
+  });
+
+  test('prefix match is case-insensitive', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { country: 'United Kingdom', country_code: 'gb' },
+          rollups: { locality: 'CITY OF Westminster' },
+        }),
+      ),
+    ).toEqual(['United Kingdom', 'Westminster']);
+  });
+
+  test('does not strip a place whose name merely starts with City/Town/Village', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'Queensland', country: 'Australia', country_code: 'au' },
+          rollups: { locality: 'Townsville' },
+        }),
+      ),
+    ).toEqual(['Australia', 'Townsville']);
+  });
+
+  test('a locality that is only the prefix is left intact (never emptied)', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'Nevada', country: 'United States', country_code: 'us' },
+          rollups: { locality: 'City of' },
+        }),
+      ),
+    ).toEqual(['Nevada', 'City of']);
+  });
+
+  test('renames the city "New York" to "New York City" without touching the state', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'New York', country: 'United States', country_code: 'us' },
+          rollups: { locality: 'New York', region: 'New York', country_code: 'us' },
+        }),
+      ),
+    ).toEqual(['New York', 'New York City']);
+  });
+
+  test('"City of New York" → "New York City" (strip prefix, then rename)', () => {
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'New York', country: 'United States', country_code: 'us' },
+          rollups: { locality: 'City of New York', region: 'New York', country_code: 'us' },
+        }),
+      ),
+    ).toEqual(['New York', 'New York City']);
+  });
+
+  test('overrides apply to the locality only, not a POI fallback', () => {
+    // "City of Rocks" is a natural landmark (POI), not a city — leave it alone.
+    expect(
+      backupLocationSegments(
+        place({
+          address: { state: 'Idaho', country: 'United States', country_code: 'us' },
+          rollups: { locality: null },
+          pois: [{ name: 'City of Rocks National Reserve', category: 'natural', type: 'reserve' }],
+        }),
+      ),
+    ).toEqual(['Idaho', 'City of Rocks National Reserve']);
+  });
+});
