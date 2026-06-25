@@ -31,9 +31,10 @@ struct SearchPhotoResultsSection: View {
     var isLoadingMore: Bool = false
     /// Cloud thumb provider. nil → grey placeholders (previews / no-session).
     var provider: ThumbnailProvider? = nil
-    /// Server cache-host key — used to build PhotoGridItem.cloud source so
-    /// ThumbnailProvider routes to the right cache namespace. Empty string
-    /// when provider is nil (the two travel together).
+    /// Server cache-host key for `PhotoGridItem.cloud` cache-namespace routing.
+    /// Passed unconditionally by the host (it may be non-empty even when
+    /// `provider` is nil); when `provider` is nil no thumbnails load, so its
+    /// value is unused in that case (cells show grey placeholders).
     var host: String = ""
 
     var body: some View {
