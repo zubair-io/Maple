@@ -1,0 +1,55 @@
+<!-- ControlCard — floating glass bottom card with group chips + living sliders -->
+<div class="card" [class.card--peek]="isPeek()">
+  <!-- Grab handle -->
+  <div class="grab-handle" (click)="toggleCardState()" role="button" aria-label="Toggle panel">
+    <div class="grab-bar"></div>
+  </div>
+
+  <!-- Header row: group chips + reset button -->
+  <div class="card-header">
+    <!-- Group chips -->
+    <div class="group-chips" role="tablist" aria-label="Tool groups">
+      @for (group of allGroups; track group) {
+        <button
+          class="group-chip"
+          [class.group-chip--active]="group === activeGroup()"
+          role="tab"
+          [attr.aria-selected]="group === activeGroup()"
+          (click)="groupChange.emit(group)"
+        >
+          {{ groupLabel(group) }}
+        </button>
+      }
+    </div>
+
+    <!-- Reset group button -->
+    <button
+      class="reset-btn"
+      title="Reset {{ groupLabel(activeGroup()) }}"
+      aria-label="Reset {{ groupLabel(activeGroup()) }} adjustments"
+      (click)="resetGroup()"
+    >
+      <maple-icon name="revert" [size]="13" color="var(--pro-text-muted)" />
+    </button>
+  </div>
+
+  <!-- Slider grid (hidden in peek mode) -->
+  @if (!isPeek()) {
+    <div class="slider-grid">
+      @for (tool of slidersFor(activeGroup()); track tool) {
+        <pro-living-slider
+          [label]="labelFor(tool)"
+          [value]="valueFor(tool)"
+          [min]="minFor(tool)"
+          [max]="maxFor(tool)"
+          [step]="stepFor(tool)"
+          [gradient]="gradientFor(tool)"
+          [bipolar]="bipolarFor(tool)"
+          [defaultValue]="defaultFor(tool)"
+          (valueChange)="onSliderChange(tool, $event)"
+          (resetRequest)="onSliderReset(tool)"
+        />
+      }
+    </div>
+  }
+</div>
