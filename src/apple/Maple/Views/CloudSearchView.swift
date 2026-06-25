@@ -2,10 +2,9 @@
 //
 // Native port of the web search page (search.component). A top search bar
 // (free-text query + sort + filters) over a flat grid of result cells.
-// Reuses the cloud Timeline's `CloudTimelineCell` (cloud thumb fetch +
-// rating overlay) so search results render identically to the rest of the
-// cloud library, and routes taps through the same `onSelectAsset` →
-// `openCloudAsset` path the Timeline uses.
+// Uses the shared PhotoGrid with OverlayStyle.cloud so search results render
+// identically to the cloud Timeline, and routes taps through the same
+// `onSelectAsset` → `openCloudAsset` path the Timeline uses.
 //
 // Search is Maple-Cloud-only (the /api/search endpoint is auth-gated and
 // server-backed). AppShell gates the toolbar entry point to cloud
@@ -25,10 +24,23 @@ struct CloudSearchView: View {
   let onClose: () -> Void
 
   @State private var showFilters = false
+  @State private var provider: ThumbnailProvider
 
-  private let columns = Array(
-    repeating: GridItem(.flexible(), spacing: 6),
-    count: CloudTimelineViewVM.columnCount)
+  init(vm: SearchViewModel,
+       thumbClient: CloudThumbClient,
+       thumbCache: CloudThumbCache,
+       displayMode: GridDisplayMode,
+       onSelectAsset: @escaping (SearchAsset) -> Void,
+       onClose: @escaping () -> Void) {
+    self.vm = vm
+    self.thumbClient = thumbClient
+    self.thumbCache = thumbCache
+    self.displayMode = displayMode
+    self.onSelectAsset = onSelectAsset
+    self.onClose = onClose
+    self._provider = State(initialValue: ThumbnailProvider(
+      thumbClient: thumbClient, thumbCache: thumbCache))
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -147,24 +159,26 @@ struct CloudSearchView: View {
         .padding(.horizontal, 16)
         .padding(.top, 10)
 
-        LazyVGrid(columns: columns, spacing: 6) {
-          ForEach(vm.results, id: \.id) { asset in
-            CloudTimelineCell(
-              asset: asset,
-              thumbClient: thumbClient,
-              thumbCache: thumbCache,
+        PhotoGrid(
+          data: vm.results,
+          columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
+          provider: provider,
+          displayMode: displayMode,
+          onAppearItem: { asset in
+            // Infinite scroll — when the last visible cell appears,
+            // pull the next page.
+            if asset.id == vm.results.last?.id {
+              Task { await vm.loadMore() }
+            }
+          },
+          onTap: { onSelectAsset($0) },
+          makeItem: { asset in
+            PhotoGridItem(
+              cloud: asset,
               host: vm.server.cacheHostKey,
-              displayMode: displayMode,
-              onSelect: { onSelectAsset(asset) })
-              // Infinite scroll — when the last visible cell appears,
-              // pull the next page.
-              .onAppear {
-                if asset.id == vm.results.last?.id {
-                  Task { await vm.loadMore() }
-                }
-              }
+              style: .cloud)
           }
-        }
+        )
         .accessibilityIdentifier("search-results-grid")
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
