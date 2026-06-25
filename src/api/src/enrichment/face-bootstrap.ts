@@ -69,7 +69,7 @@ async function applyPausedToFaceStages(paused: boolean): Promise<void> {
           const msg = err instanceof Error ? err.message : String(err);
           log.warn({ err: msg, name }, 'failed to write paused state to worker_config');
         }
-      })
+      }),
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
