@@ -2,14 +2,11 @@
 // grid for the Library tab.
 //
 // Drives column count, gap, and outer padding off the
-// `@Environment(\.mapleLayout)` density signal published by AppShell:
-//
-//   * phone   — 3 fixed columns, 2pt gaps, 2pt horizontal padding
-//               (edge-bleed: no vertical padding).
-//   * tablet  — 5 fixed columns, 4pt gaps, 8pt outer padding.
-//   * desktop — adaptive tracks at `minmax(180pt, 1fr)`, 4pt gaps,
-//               12pt outer padding. Mirrors the web spec's CSS
-//               `repeat(auto-fill, minmax(180px, 1fr))` rule.
+// `@Environment(\.mapleLayout)` density signal published by AppShell.
+// ColumnStrategy.zoom resolves per layout:
+//   * phone   — exact fixed counts (1/3/5/10) per GridZoomLevel
+//   * tablet  — adaptive at targetCellWidth, grows columns with window
+//   * desktop — adaptive at targetCellWidth, grows columns with window
 //
 // Cell tap routes through `onOpenEditor` (same callback BrowseGrid
 // uses — the iPhone shell already pushes the Editor via
@@ -26,6 +23,8 @@
 // ThumbnailProvider. The LazyVGrid body is replaced; LibraryFolderCell
 // is kept for the `leading:` slot. LibraryCell was deleted in M1b (#1490)
 // after BrowseGrid migrated off it.
+//
+// #1550: ColumnStrategy.zoom replaces .responsiveBySizeClass; pinch modifier added.
 
 #if os(iOS)
 
@@ -42,6 +41,8 @@ struct LibraryGrid: View {
     let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Binding var displayMode: GridDisplayMode
+    /// Current zoom level — drives ColumnStrategy.zoom (#1550).
+    @Binding var zoomLevel: GridZoomLevel
 
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
@@ -65,7 +66,7 @@ struct LibraryGrid: View {
                 // chips duplicated cull state that belongs in the editor.
                 PhotoGrid(
                     data: vm.assets,
-                    columns: .responsiveBySizeClass,
+                    columns: .zoom(zoomLevel),
                     provider: provider,
                     displayMode: displayMode,
                     // Selection is keyed by AssetRef.ID, so `vm.selectedID` maps
@@ -115,6 +116,7 @@ struct LibraryGrid: View {
                 .accessibilityIdentifier("library-grid")
             }
         }
+        .gridZoomPinch(level: $zoomLevel)
         .background(MapleTokens.bg)
     }
 
