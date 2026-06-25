@@ -25,7 +25,6 @@ import {
   effect,
   inject,
   signal,
-  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -49,8 +48,6 @@ import {
   TOOL_GROUP_DISPLAY,
   TOOL_DISPLAY,
   displayRange,
-  displayValueFromInternal,
-  fieldFor,
 } from '../../editor/tool-model';
 
 /** Chrome visibility states driven by idle timer + scrub. */
@@ -85,11 +82,22 @@ export class EditorShellComponent implements OnInit, OnDestroy {
   private router = inject(Router);
 
   @ViewChild('canvasWrap') canvasWrapRef?: ElementRef<HTMLElement>;
+  @ViewChild(ControlCardComponent) controlCard?: ControlCardComponent;
 
   // ── Route subscription (preserved) ────────────────────────────────────
   constructor() {
     this.route.url.pipe(takeUntilDestroyed()).subscribe(() => {
       this.applyRouteAddress();
+    });
+
+    // Bind EditorStateService to the focused asset so canvas scrub
+    // (commit + setArmedInternalValue) and Shift+Arrow nudges operate
+    // on the correct asset id (#1537 review — was always null).
+    effect(() => {
+      const id = this.state.focusedAssetId();
+      if (id != null) {
+        this.editorState.bind(id);
+      }
     });
   }
 
@@ -122,6 +130,7 @@ export class EditorShellComponent implements OnInit, OnDestroy {
   private _scrubStartInternal = 0;
   private _scrubBound: ((e: PointerEvent) => void) | null = null;
   private _scrubUpBound: ((e: PointerEvent) => void) | null = null;
+  private _scrubCancelBound: ((e: PointerEvent) => void) | null = null;
 
   // HUD state
   readonly hudVisible = signal<boolean>(false);
@@ -167,12 +176,18 @@ export class EditorShellComponent implements OnInit, OnDestroy {
     if (typeof window === 'undefined') return;
     const update = () => {
       const w = window.innerWidth;
+      const wasDesktop = this.isDesktop();
       this.isTabletPlus.set(w >= 768);
       this.isDesktop.set(w >= 1100);
       if (w >= 1100) {
         // Desktop opts out of auto-recede — always full
         this._clearRecedeTimer();
         this.chromeState.set('full');
+      } else if (wasDesktop) {
+        // Crossed back below the desktop breakpoint: restart the idle
+        // recede timer so chrome auto-recedes again on phone/tablet.
+        this.chromeState.set('full');
+        this._restartRecedeTimer();
       }
     };
     this._ro = new ResizeObserver(update);
@@ -228,8 +243,10 @@ export class EditorShellComponent implements OnInit, OnDestroy {
 
     this._scrubBound = (ev: PointerEvent) => this._onScrubMove(ev);
     this._scrubUpBound = (ev: PointerEvent) => this._onScrubUp(ev);
+    this._scrubCancelBound = (_ev: PointerEvent) => this._onScrubCancel();
     window.addEventListener('pointermove', this._scrubBound);
     window.addEventListener('pointerup', this._scrubUpBound);
+    window.addEventListener('pointercancel', this._scrubCancelBound);
     wrap.setPointerCapture(e.pointerId);
   }
 
@@ -255,6 +272,16 @@ export class EditorShellComponent implements OnInit, OnDestroy {
     this._restartRecedeTimer();
   }
 
+  /** pointercancel (e.g. stylus removed, browser-interrupted gesture):
+   * mirror pointerup cleanup but do NOT commit the interrupted value —
+   * just restore chrome state and release the listeners. */
+  private _onScrubCancel(): void {
+    this._cleanupScrub();
+    this.hudVisible.set(false);
+    this.chromeState.set('full');
+    this._restartRecedeTimer();
+  }
+
   private _cleanupScrub(): void {
     this.scrubbing.set(false);
     if (this._scrubBound) {
@@ -264,6 +291,10 @@ export class EditorShellComponent implements OnInit, OnDestroy {
     if (this._scrubUpBound) {
       window.removeEventListener('pointerup', this._scrubUpBound);
       this._scrubUpBound = null;
+    }
+    if (this._scrubCancelBound) {
+      window.removeEventListener('pointercancel', this._scrubCancelBound);
+      this._scrubCancelBound = null;
     }
   }
 
@@ -426,42 +457,41 @@ export class EditorShellComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Arrow left/right — prev/next (with ← / → also as ±1 slider nudge
-    // when no meta key: arrow-only means navigate; with shift = bigger step)
-    if (e.key === 'ArrowLeft' && !e.shiftKey) {
-      if (fid) {
-        const prev = this.state.peekPrev(fid);
-        if (prev) {
-          this.state.selectAsset(prev);
-          void this.router.navigate(editRouteCommands(prev));
-        }
-      }
-      e.preventDefault();
-      return;
-    }
-    if (e.key === 'ArrowRight' && !e.shiftKey) {
-      if (fid) {
-        const next = this.state.peekNext(fid);
-        if (next) {
-          this.state.selectAsset(next);
-          void this.router.navigate(editRouteCommands(next));
-        }
-      }
-      e.preventDefault();
-      return;
-    }
-
-    // ← / → ±1 step on the armed slider (bare), ±10 with Shift
+    // Arrow navigation / slider nudge (Pro spec §13):
+    //   ← / →             (bare)       — navigate prev / next image
+    //   Shift + ← / →                  — nudge armed slider ±10
+    //
+    // The two behaviors are mutually exclusive by modifier key, so there
+    // is no ambiguity and no dead code path.
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.metaKey && !e.ctrlKey) {
-      if (this.editorState.armedToolAcceptsValueEdits()) {
-        const step = e.shiftKey ? 10 : 1;
-        const dir = e.key === 'ArrowLeft' ? -1 : 1;
-        const cur = this.editorState.armedInternalValue();
-        const next = Math.min(100, Math.max(-100, cur + dir * step));
-        this.editorState.commit();
-        this.editorState.setArmedInternalValue(next);
-        e.preventDefault();
+      if (e.shiftKey) {
+        // Shift+Arrow — nudge the armed slider ±10 internal units
+        if (this.editorState.armedToolAcceptsValueEdits()) {
+          const dir = e.key === 'ArrowLeft' ? -1 : 1;
+          const cur = this.editorState.armedInternalValue();
+          const next = Math.min(100, Math.max(-100, cur + dir * 10));
+          this.editorState.commit();
+          this.editorState.setArmedInternalValue(next);
+        }
+      } else {
+        // Bare Arrow — navigate prev / next
+        if (fid) {
+          if (e.key === 'ArrowLeft') {
+            const prev = this.state.peekPrev(fid);
+            if (prev) {
+              this.state.selectAsset(prev);
+              void this.router.navigate(editRouteCommands(prev));
+            }
+          } else {
+            const next = this.state.peekNext(fid);
+            if (next) {
+              this.state.selectAsset(next);
+              void this.router.navigate(editRouteCommands(next));
+            }
+          }
+        }
       }
+      e.preventDefault();
       return;
     }
 
@@ -522,8 +552,9 @@ export class EditorShellComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // R: reset armed group
+    // R: reset armed group — delegates to ControlCard which owns group state
     if ((e.key === 'r' || e.key === 'R') && !meta) {
+      this.controlCard?.resetGroup();
       e.preventDefault();
       return;
     }

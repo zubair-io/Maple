@@ -4,7 +4,7 @@
 // Curve / Optics / Heal / Mask are visibly disabled with a tooltip + code
 // comment referencing the milestone ticket — NOT fake panels (CLAUDE.md #6).
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import type { ToolGroup } from '../../editor/tool-model';
 

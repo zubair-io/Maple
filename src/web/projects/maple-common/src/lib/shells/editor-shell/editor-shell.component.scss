@@ -1,6 +1,5 @@
 // EditorShell — canvas-first layered layout (#1535).
-// Pro tokens imported so all chrome components can read them.
-@use '../../pro-tokens';
+// Pro tokens are imported once in the global styles.scss (#1535/#1537).
 
 :host {
   display: block;

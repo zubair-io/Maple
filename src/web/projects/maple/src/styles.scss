@@ -9,6 +9,9 @@
 // Emits `--safe-area-inset-{top,right,bottom,left}` at :root — one canonical
 // name for every shell surface that hugs a screen edge. PWA polish (#620).
 @use '../../maple-common/src/lib/safe-area';
+// Pro Editor canvas-first design tokens (#1535). Imported once globally so
+// the :root { --pro-* } block is emitted exactly once, not per component.
+@use '../../maple-common/src/lib/pro-tokens';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 // Wrap the universal margin/padding reset in `@layer base` so Tailwind v4

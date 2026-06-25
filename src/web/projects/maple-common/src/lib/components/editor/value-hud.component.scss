@@ -1,5 +1,5 @@
 // ValueHud styles — fade-in/out, mono value, accent, progress rail.
-@use '../../pro-tokens';
+// Pro tokens imported once globally in styles.scss (#1537).
 
 :host {
   display: flex;

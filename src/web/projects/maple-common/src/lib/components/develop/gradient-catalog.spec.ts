@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { ALL_TOOLS } from '../../editor/tool-model';
-import { allGradientToolIds } from './gradient-catalog';
+import { allGradientToolIds, gradientFor } from './gradient-catalog';
 
 describe('gradient-catalog completeness', () => {
   it('covers every ToolId in ALL_TOOLS', () => {
@@ -14,7 +14,6 @@ describe('gradient-catalog completeness', () => {
   });
 
   it('returns a valid CSS gradient for every ToolId', () => {
-    const { gradientFor } = require('./gradient-catalog');
     for (const toolId of ALL_TOOLS) {
       const grad = gradientFor(toolId);
       expect(typeof grad).toBe('string');
@@ -23,7 +22,6 @@ describe('gradient-catalog completeness', () => {
   });
 
   it('returns sub-param override when provided', () => {
-    const { gradientFor } = require('./gradient-catalog');
     const primary = gradientFor('vignette');
     const override = gradientFor('vignette', 'feather');
     // The override for vignette/feather exists and differs from the base gradient
@@ -35,7 +33,6 @@ describe('gradient-catalog completeness', () => {
   });
 
   it('falls back to tool gradient for unknown sub-param ids', () => {
-    const { gradientFor } = require('./gradient-catalog');
     const primary = gradientFor('exposure');
     const fallback = gradientFor('exposure', 'nonexistent-sub-param');
     expect(fallback).toBe(primary);

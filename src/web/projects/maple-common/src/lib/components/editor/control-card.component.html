@@ -1,9 +1,9 @@
 <!-- ControlCard — floating glass bottom card with group chips + living sliders -->
 <div class="card" [class.card--peek]="isPeek()">
-  <!-- Grab handle -->
-  <div class="grab-handle" (click)="toggleCardState()" role="button" aria-label="Toggle panel">
+  <!-- Grab handle — real button so it's keyboard-focusable (Enter/Space toggle) -->
+  <button class="grab-handle" (click)="toggleCardState()" aria-label="Toggle panel">
     <div class="grab-bar"></div>
-  </div>
+  </button>
 
   <!-- Header row: group chips + reset button -->
   <div class="card-header">
