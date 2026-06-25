@@ -31,7 +31,7 @@ public struct SearchAssetCamera: Codable, Equatable, Sendable {
   public let model: String?
 }
 
-public struct SearchAsset: Codable, Equatable, Sendable {
+public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let folder_id: String
   public let abs_path: String
