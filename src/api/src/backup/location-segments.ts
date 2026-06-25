@@ -38,9 +38,9 @@ function nonEmpty(value: string | null | undefined): string | null {
 }
 
 /** Leading civic prefix Nominatim attaches to some official locality names
- * ("City of London", "Town of Cary", "Village of Oak Park"). The trailing `\s+`
- * is what makes "Townsville"/"Cityscape" safe — they have no " of " after the
- * word, so they never match. */
+ * ("City of London", "Town of Cary", "Village of Oak Park"). The `\s+` right
+ * after the keyword is what keeps "Townsville"/"Cityscape" safe — there's no
+ * whitespace there, so the match fails before it ever reaches "of". */
 const CIVIC_PREFIX = /^(?:City|Town|Village)\s+of\s+/i;
 
 /**
@@ -50,8 +50,8 @@ const CIVIC_PREFIX = /^(?:City|Town|Village)\s+of\s+/i;
  * state folder.
  *
  *   1. Drop a leading "City of " / "Town of " / "Village of " prefix, filing the
- *      place under its bare name. Skipped if stripping would empty the segment
- *      (a locality that is literally just "City of").
+ *      place under its bare name. Falls back to the original if a strip would
+ *      leave nothing (defensive — the locality is pre-trimmed by `nonEmpty`).
  *   2. Rename the city "New York" → "New York City".
  *
  * Rule 1 runs before rule 2 so the official "City of New York" lands on
@@ -59,14 +59,11 @@ const CIVIC_PREFIX = /^(?:City|Town|Village)\s+of\s+/i;
  */
 function normalizeBackupLocality(name: string | null): string | null {
   if (name == null) return null;
-  let out = name;
 
-  const stripped = out.replace(CIVIC_PREFIX, '').trim();
-  if (stripped.length > 0) out = stripped;
+  const stripped = name.replace(CIVIC_PREFIX, '').trim();
+  const finalName = stripped.length > 0 ? stripped : name;
 
-  if (out === 'New York') out = 'New York City';
-
-  return out;
+  return finalName === 'New York' ? 'New York City' : finalName;
 }
 
 export function backupLocationSegments(place: Place | null | undefined): string[] {
