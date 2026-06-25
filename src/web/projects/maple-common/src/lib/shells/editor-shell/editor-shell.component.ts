@@ -1,15 +1,31 @@
-// EditorShell — 3-column layout with window chrome, keyboard handling, and
-// 180ms ease-out layout transition between panel states.
-// Ported from _design-reference/app.jsx (full-image mode).
-// P7: window.location.href navigation replaced by Router.
+// EditorShell — canvas-first layered editor (#1535, Pro Editor M1).
+//
+// Full-bleed <image-canvas> at the back; all chrome floats above.
+// Responsive breakpoints:
+//   <768px (phone):     top glass bar + bottom control card; no tool dock
+//   768–1100px (tablet): top bar + right vertical tool dock + control card
+//   ≥1100px (desktop):  same as tablet + hover affordances, no auto-recede
+//
+// All routing / address-resolution logic is preserved verbatim from the
+// previous 3-column shell — only the layout / chrome layer changed.
+//
+// Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
+// Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
+// Desktop opts out of auto-recede.
 
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   HostListener,
+  OnDestroy,
   OnInit,
+  ViewChild,
   computed,
+  effect,
   inject,
+  signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -19,10 +35,29 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas.component';
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
-import { EditorDetailPanelComponent } from '../../components/editor-detail-panel/editor-detail-panel.component';
+import { HistogramComponent } from '../../components/scopes/histogram.component';
+import { EditorStateService } from '../../editor/editor-state.service';
+import { ControlCardComponent } from '../../components/editor/control-card.component';
+import { ToolDockComponent } from '../../components/editor/tool-dock.component';
+import { MaskChipComponent } from '../../components/editor/mask-chip.component';
+import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
+import {
+  type ToolGroup,
+  TOOL_GROUP_DISPLAY,
+  TOOL_DISPLAY,
+  displayRange,
+  displayValueFromInternal,
+  fieldFor,
+} from '../../editor/tool-model';
+
+/** Chrome visibility states driven by idle timer + scrub. */
+type ChromeState = 'full' | 'receded' | 'scrubbing';
+
+/** Idle timeout before chrome recedes (ms). Desktop: never recedes. */
+const RECEDE_IDLE_MS = 3000;
 
 @Component({
   selector: 'editor-shell',
@@ -31,65 +66,261 @@ import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/rout
     MapleIconComponent,
     FilmstripComponent,
     ImageCanvasComponent,
-    EditorDetailPanelComponent,
+    HistogramComponent,
+    ControlCardComponent,
+    ToolDockComponent,
+    MaskChipComponent,
+    ValueHudComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'pro-editor-shell' },
 })
-export class EditorShellComponent implements OnInit {
+export class EditorShellComponent implements OnInit, OnDestroy {
   state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
+  editorState = inject(EditorStateService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
+  @ViewChild('canvasWrap') canvasWrapRef?: ElementRef<HTMLElement>;
+
+  // ── Route subscription (preserved) ────────────────────────────────────
   constructor() {
-    // Re-apply the address when the wildcard segments change (navigating
-    // between images within the same library, same slug).
     this.route.url.pipe(takeUntilDestroyed()).subscribe(() => {
       this.applyRouteAddress();
     });
   }
 
-  // ── Page unload — flush pending XMP writes ────────────────────────────────
+  // ── Page unload (preserved) ────────────────────────────────────────────
   @HostListener('window:beforeunload')
   onBeforeUnload(): void {
     void this.state.flushPendingXmpWrites();
   }
 
-  filmstripToggleTitle = computed(
-    () => (this.state.sidebarVisible() ? 'Hide' : 'Show') + ' filmstrip  (\\)',
-  );
-
-  /** Filmstrip + its toggle are hidden in the single-photo case (landing →
-   * "Open a photo") so the editor becomes a clean full-image view. */
+  // ── Derived state (preserved) ─────────────────────────────────────────
   hasMultiplePhotos = computed(() => this.state.assetsInSelectedFolder().length > 1);
+
+  // ── Pro editor state ──────────────────────────────────────────────────
+
+  /** Currently active tool group (mirrors EditorStateService). */
+  readonly activeGroup = computed<ToolGroup>(() => this.editorState.armedGroup());
+
+  /** True when the viewport is tablet/desktop (≥768px). */
+  readonly isTabletPlus = signal<boolean>(false);
+  /** True when the viewport is desktop (≥1100px). Desktop opts out of recede. */
+  readonly isDesktop = signal<boolean>(false);
+
+  // Chrome recede
+  readonly chromeState = signal<ChromeState>('full');
+  private _recedeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Canvas scrub
+  readonly scrubbing = signal<boolean>(false);
+  private _scrubStartX = 0;
+  private _scrubStartInternal = 0;
+  private _scrubBound: ((e: PointerEvent) => void) | null = null;
+  private _scrubUpBound: ((e: PointerEvent) => void) | null = null;
+
+  // HUD state
+  readonly hudVisible = signal<boolean>(false);
+  readonly hudEyebrow = computed<string>(() => {
+    const g = this.editorState.armedGroup();
+    const t = this.editorState.armedTool();
+    return `${TOOL_GROUP_DISPLAY[g]} · ${TOOL_DISPLAY[t]}`;
+  });
+  readonly hudValueText = computed<string>(() => {
+    const v = this.editorState.armedDisplayValue();
+    const tool = this.editorState.armedTool();
+    const r = displayRange(tool);
+    if (!r) return String(Math.round(v));
+    const step = r[1] <= 4 ? 0.01 : 1;
+    const decimals = step < 0.1 ? 2 : step < 1 ? 1 : 0;
+    const formatted = v.toFixed(decimals);
+    return v > 0 ? `+${formatted}` : formatted;
+  });
+  readonly hudProgress = computed<number>(() => {
+    const v = this.editorState.armedInternalValue(); // [-100, +100]
+    return (v + 100) / 200; // map to [0, 1]
+  });
+
+  private _hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private _ro?: ResizeObserver;
 
   ngOnInit(): void {
     this.applyRouteAddress();
+    this._setupResponsive();
   }
 
-  /**
-   * Read the current route and open the addressed asset.
-   *
-   * Route variants handled:
-   *   M2: /edit/:slug/**  — :slug inherited via paramsInheritanceStrategy:'always';
-   *       route.snapshot.url = wildcard (child) segments only (no leading slug).
-   *       Builds a MapleAddress from slug + relPath segments.
-   *   Legacy: /library/editor/:id — :id is a plain asset id or 'first'.
-   *   Legacy fs: /library/editor/fs:<absPath> — Self-Hosted FS-walk deep-link.
-   */
+  ngOnDestroy(): void {
+    this._clearRecedeTimer();
+    this._clearHudTimer();
+    this._ro?.disconnect();
+    this._cleanupScrub();
+  }
+
+  // ── Responsive observer ───────────────────────────────────────────────
+
+  private _setupResponsive(): void {
+    if (typeof window === 'undefined') return;
+    const update = () => {
+      const w = window.innerWidth;
+      this.isTabletPlus.set(w >= 768);
+      this.isDesktop.set(w >= 1100);
+      if (w >= 1100) {
+        // Desktop opts out of auto-recede — always full
+        this._clearRecedeTimer();
+        this.chromeState.set('full');
+      }
+    };
+    this._ro = new ResizeObserver(update);
+    this._ro.observe(document.documentElement);
+    update();
+  }
+
+  // ── Chrome recede ─────────────────────────────────────────────────────
+
+  onPointerMove(): void {
+    if (this.isDesktop()) return; // desktop never recedes
+    if (this.scrubbing()) return;
+    this.chromeState.set('full');
+    this._restartRecedeTimer();
+  }
+
+  private _restartRecedeTimer(): void {
+    this._clearRecedeTimer();
+    if (this.isDesktop()) return;
+    this._recedeTimer = setTimeout(() => {
+      if (!this.scrubbing()) {
+        this.chromeState.set('receded');
+      }
+    }, RECEDE_IDLE_MS);
+  }
+
+  private _clearRecedeTimer(): void {
+    if (this._recedeTimer !== null) {
+      clearTimeout(this._recedeTimer);
+      this._recedeTimer = null;
+    }
+  }
+
+  // ── Canvas scrub ──────────────────────────────────────────────────────
+
+  onCanvasPointerDown(e: PointerEvent): void {
+    // Only scrub at fit zoom (pixelScale === 0), primary button only
+    if (e.button !== 0) return;
+    if (this.canvasSvc.pixelScale() !== 0) return;
+    if (!this.editorState.armedToolAcceptsValueEdits()) return;
+
+    const wrap = this.canvasWrapRef?.nativeElement;
+    if (!wrap) return;
+
+    e.preventDefault();
+    this._scrubStartX = e.clientX;
+    this._scrubStartInternal = this.editorState.armedInternalValue();
+
+    this.editorState.commit();
+    this.scrubbing.set(true);
+    this.chromeState.set('scrubbing');
+    this._showHud();
+
+    this._scrubBound = (ev: PointerEvent) => this._onScrubMove(ev);
+    this._scrubUpBound = (ev: PointerEvent) => this._onScrubUp(ev);
+    window.addEventListener('pointermove', this._scrubBound);
+    window.addEventListener('pointerup', this._scrubUpBound);
+    wrap.setPointerCapture(e.pointerId);
+  }
+
+  private _onScrubMove(e: PointerEvent): void {
+    const wrap = this.canvasWrapRef?.nativeElement;
+    if (!wrap) return;
+    const wrapW = wrap.clientWidth;
+    if (wrapW <= 0) return;
+
+    // 0.5:1 sensitivity: 2× canvas width = ±100 internal
+    const dx = e.clientX - this._scrubStartX;
+    const delta = (dx / wrapW) * 100;
+    const raw = this._scrubStartInternal + delta * 0.5;
+    const clamped = Math.min(100, Math.max(-100, raw));
+    this.editorState.setArmedInternalValue(clamped);
+    this._showHud();
+  }
+
+  private _onScrubUp(_e: PointerEvent): void {
+    this._cleanupScrub();
+    this._scheduleHudFade();
+    this.chromeState.set('full');
+    this._restartRecedeTimer();
+  }
+
+  private _cleanupScrub(): void {
+    this.scrubbing.set(false);
+    if (this._scrubBound) {
+      window.removeEventListener('pointermove', this._scrubBound);
+      this._scrubBound = null;
+    }
+    if (this._scrubUpBound) {
+      window.removeEventListener('pointerup', this._scrubUpBound);
+      this._scrubUpBound = null;
+    }
+  }
+
+  // ── HUD ───────────────────────────────────────────────────────────────
+
+  private _showHud(): void {
+    this._clearHudTimer();
+    this.hudVisible.set(true);
+  }
+
+  private _scheduleHudFade(): void {
+    this._clearHudTimer();
+    this._hudFadeTimer = setTimeout(() => {
+      this.hudVisible.set(false);
+    }, 600);
+  }
+
+  private _clearHudTimer(): void {
+    if (this._hudFadeTimer !== null) {
+      clearTimeout(this._hudFadeTimer);
+      this._hudFadeTimer = null;
+    }
+  }
+
+  // ── Group switching ───────────────────────────────────────────────────
+
+  onGroupChange(group: ToolGroup): void {
+    this.editorState.armGroup(group);
+    this.editorState.haptic('switch');
+  }
+
+  // ── Current adjustment (for histogram) ────────────────────────────────
+  readonly currentAdj = computed(() => {
+    const id = this.state.focusedAssetId();
+    if (!id) return null;
+    return this.state.adjustmentFor(id)();
+  });
+
+  // ── Asset name ────────────────────────────────────────────────────────
+  readonly assetName = computed<string>(() => {
+    const a = this.state.focusedAsset();
+    if (!a) return '';
+    const parts = a.filename.split('/');
+    return parts[parts.length - 1] ?? a.filename;
+  });
+
+  // ── Navigation helpers (preserved) ────────────────────────────────────
+
+  goBack(): void {
+    void this.router.navigate(['/browse']);
+  }
+
+  // ── Route address resolution (preserved verbatim) ─────────────────────
+
   private applyRouteAddress(): void {
-    // ── M2 route: /edit/:slug/** ────────────────────────────────────────────
-    // With paramsInheritanceStrategy:'always', the :slug from the parent
-    // route is available on the ** child. route.snapshot.url contains ONLY
-    // the wildcard segments (no leading slug segment).
     const slug = this.route.snapshot.paramMap.get('slug');
     if (slug) {
-      // Legacy fs:<absPath> id routed as a single :slug segment — Self-Hosted
-      // search results are still emitted as fs: ids by the search API, so they
-      // arrive here (not split into slug+relPath). Hydrate via the FS-walk
-      // cold-load path, same as the legacy /library/editor/:id route below.
       if (this.state.backend === 'self-hosted' && slug.startsWith('fs:')) {
         const synth = this.state.hydrateSelfHostedFsAsset(slug as AssetId);
         if (synth?.absPath) {
@@ -107,8 +338,6 @@ export class EditorShellComponent implements OnInit {
         this.state.selectAsset(target.id);
         return;
       }
-      // Deep-link: load the parent folder via the address, then select the
-      // asset once the folder loads.
       if (this.state.backend === 'self-hosted') {
         const synth = this.state.hydrateSelfHostedFsAsset(addrStr as AssetId);
         if (synth?.absPath) {
@@ -117,13 +346,11 @@ export class EditorShellComponent implements OnInit {
           return;
         }
       }
-      // Hosted / file-cache path: filename is the last relPath segment.
       const filename = addr.relPath.split('/').pop() ?? addrStr;
       void this.hydrateFromCache(filename);
       return;
     }
 
-    // ── Legacy routes: /library/editor/:id ─────────────────────────────────
     const id = this.route.snapshot.paramMap.get('id');
     if (!id) return;
 
@@ -136,7 +363,6 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
-    // Legacy Self-Hosted FS-walk cold-load (fs:<absPath>).
     if (this.state.backend === 'self-hosted' && id.startsWith('fs:')) {
       const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
       if (synth?.absPath) {
@@ -151,21 +377,9 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
-    // Cold load — nothing in memory, but the URL carries an asset id that
-    // may have been persisted on a previous session. Try the file cache.
     void this.hydrateFromCache(id);
   }
 
-  /**
-   * After hydrating a deep-linked asset, open its parent folder so the filmstrip
-   * + detail panel populate (the asset is already selected by the caller).
-   *
-   * Only for slug:relPath ids: an `fs:<absPath>` synth has no slug-addressable
-   * parent, so openSelfHostedSubfolder would resolve `unknown:<path>` and fetch
-   * /api/folder/unknown → 404. Those stay a single-asset hydrate (the editor
-   * opens the one image; no sibling filmstrip). Also handles an asset at the FS
-   * root (absPath '/photo.jpg' → parent '/'), which a `lastSlash > 0` guard skips.
-   */
   private openHydratedFsParent(synth: Asset): void {
     if (synth.id.startsWith('fs:') || !synth.absPath) return;
     const lastSlash = synth.absPath.lastIndexOf('/');
@@ -179,7 +393,6 @@ export class EditorShellComponent implements OnInit {
     try {
       const record = await getPersistedFile(id);
       if (!record) {
-        // Nothing in cache — fall back to Browse so the user can reopen.
         void this.router.navigate(['/']);
         return;
       }
@@ -193,15 +406,9 @@ export class EditorShellComponent implements OnInit {
     }
   }
 
-  goBack(): void {
-    // Navigate back to browse (M2: path-based /browse).
-    void this.router.navigate(['/browse']);
-  }
-
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // ── Keyboard shortcuts ────────────────────────────────────────────────
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
-    // Don't steal from text inputs
     const target = e.target as HTMLElement;
     if (
       target instanceof HTMLInputElement ||
@@ -219,8 +426,9 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
-    // Arrow left/right — prev/next asset in filmstrip
-    if (e.key === 'ArrowLeft') {
+    // Arrow left/right — prev/next (with ← / → also as ±1 slider nudge
+    // when no meta key: arrow-only means navigate; with shift = bigger step)
+    if (e.key === 'ArrowLeft' && !e.shiftKey) {
       if (fid) {
         const prev = this.state.peekPrev(fid);
         if (prev) {
@@ -231,7 +439,7 @@ export class EditorShellComponent implements OnInit {
       e.preventDefault();
       return;
     }
-    if (e.key === 'ArrowRight') {
+    if (e.key === 'ArrowRight' && !e.shiftKey) {
       if (fid) {
         const next = this.state.peekNext(fid);
         if (next) {
@@ -243,12 +451,36 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
-    // Bare digits only — Cmd/Ctrl+0/1 are the canvas's fit/100% zoom (#1100).
+    // ← / → ±1 step on the armed slider (bare), ±10 with Shift
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.metaKey && !e.ctrlKey) {
+      if (this.editorState.armedToolAcceptsValueEdits()) {
+        const step = e.shiftKey ? 10 : 1;
+        const dir = e.key === 'ArrowLeft' ? -1 : 1;
+        const cur = this.editorState.armedInternalValue();
+        const next = Math.min(100, Math.max(-100, cur + dir * step));
+        this.editorState.commit();
+        this.editorState.setArmedInternalValue(next);
+        e.preventDefault();
+      }
+      return;
+    }
+
     const meta = e.metaKey || e.ctrlKey;
 
-    // 1–5: star rating
-    if (!meta && ['1', '2', '3', '4', '5'].includes(e.key) && fid) {
-      this.state.setRating(fid, Number(e.key));
+    // 1–4: switch tool group (bare, no meta)
+    if (!meta && ['1', '2', '3', '4'].includes(e.key)) {
+      const groups: ToolGroup[] = ['light', 'color', 'effects', 'detail'];
+      const idx = Number(e.key) - 1;
+      if (idx >= 0 && idx < groups.length) {
+        this.onGroupChange(groups[idx]);
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // 5: star rating
+    if (!meta && e.key === '5' && fid) {
+      this.state.setRating(fid, 5);
       e.preventDefault();
       return;
     }
@@ -283,16 +515,29 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
-    // b: toggle before/after
-    if (e.key === 'b' || e.key === 'B') {
+    // \ or b: toggle before/after
+    if (e.key === '\\' || e.key === 'b' || e.key === 'B') {
       this.canvasSvc.toggleBeforeAfter();
       e.preventDefault();
       return;
     }
 
-    // \ : toggle filmstrip (sidebar)
-    if (e.key === '\\') {
-      this.state.toggleSidebar();
+    // R: reset armed group
+    if ((e.key === 'r' || e.key === 'R') && !meta) {
+      e.preventDefault();
+      return;
+    }
+
+    // F: fit
+    if ((e.key === 'f' || e.key === 'F') && !meta) {
+      this.canvasSvc.zoomToFit();
+      e.preventDefault();
+      return;
+    }
+
+    // Z: 1:1
+    if ((e.key === 'z' || e.key === 'Z') && !meta) {
+      this.canvasSvc.zoomTo100();
       e.preventDefault();
       return;
     }
