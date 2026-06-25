@@ -64,9 +64,13 @@ public struct LivingSlider: View {
     // MARK: Internal state
 
     /// Snapshot of `value` at the moment a drag gesture begins.
-    /// `nil` between gestures; set exactly once on first `.onChanged` event
-    /// and cleared in `.onEnded` so mid-drag re-entries cannot re-snapshot.
-    @State private var dragStartValue: Double? = nil
+    ///
+    /// `@GestureState` resets to its initial value (`nil`) automatically when
+    /// the gesture ends **or is cancelled** (e.g. a parent ScrollView steals
+    /// the touch). A plain `@State` field only resets inside `.onEnded`, so a
+    /// cancellation leaves a stale snapshot that causes the next drag to start
+    /// from the wrong baseline.
+    @GestureState private var dragStartValue: Double? = nil
 
     // MARK: Geometry constants
 
@@ -219,7 +223,11 @@ public struct LivingSlider: View {
                         .accessibilityLabel(label)
                         .accessibilityValue(formattedValue)
                         .accessibilityAdjustableAction { direction in
-                            let step = (range.upperBound - range.lowerBound) / 100
+                            // Use 5% per swipe (range/20) so VoiceOver users
+                            // traverse the full range in ~20 gestures rather
+                            // than ~100. Fine enough for precision, coarse
+                            // enough to be practical.
+                            let step = (range.upperBound - range.lowerBound) / 20
                             switch direction {
                             case .increment: value = min(value + step, range.upperBound)
                             case .decrement: value = max(value - step, range.lowerBound)
@@ -234,17 +242,15 @@ public struct LivingSlider: View {
                 .contentShape(Rectangle().inset(by: -8)) // larger hit area
                 .gesture(
                     DragGesture(minimumDistance: 0)
+                        // Capture the pre-drag value exactly once. `@GestureState`
+                        // is the right primitive here: SwiftUI resets it to `nil`
+                        // automatically when the gesture ends *or* is cancelled
+                        // (e.g. a parent ScrollView intercepts the touch), so
+                        // the next drag always starts from a clean baseline.
+                        .updating($dragStartValue) { _, state, _ in
+                            if state == nil { state = value }
+                        }
                         .onChanged { g in
-                            // Snapshot exactly once per gesture — on the first
-                            // event (dragStartValue == nil). Using startLocation
-                            // == location is unreliable: the first event almost
-                            // always carries a small non-zero translation,
-                            // so the condition fails and the snapshot is skipped,
-                            // causing the value to snap to `0 + delta` instead
-                            // of `preDragValue + delta`.
-                            if dragStartValue == nil {
-                                dragStartValue = value
-                            }
                             let totalDx = g.translation.width
                             let span = range.upperBound - range.lowerBound
                             guard span > 0, trackWidth > 0 else { return }
@@ -256,7 +262,6 @@ public struct LivingSlider: View {
                             value = newVal
                         }
                         .onEnded { _ in
-                            dragStartValue = nil
                             onCommit?()
                         }
                 )
