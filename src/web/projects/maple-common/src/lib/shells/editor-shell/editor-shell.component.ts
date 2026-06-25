@@ -193,6 +193,13 @@ export class EditorShellComponent implements OnInit, OnDestroy {
     this._ro = new ResizeObserver(update);
     this._ro.observe(document.documentElement);
     update();
+    // On initial phone/tablet load the idle recede timer must start even if
+    // the user never moves the pointer or resizes (the resize handler only
+    // (re)starts it when crossing back from desktop). Desktop opts out.
+    if (!this.isDesktop()) {
+      this.chromeState.set('full');
+      this._restartRecedeTimer();
+    }
   }
 
   // ── Chrome recede ─────────────────────────────────────────────────────
