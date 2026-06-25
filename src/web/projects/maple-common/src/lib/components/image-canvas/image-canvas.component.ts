@@ -14,6 +14,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   signal,
   untracked,
 } from '@angular/core';
@@ -51,6 +52,12 @@ export class ImageCanvasComponent
 {
   @ViewChild('canvas') canvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('wrap') wrapRef!: ElementRef<HTMLElement>;
+
+  /** Hide the legacy zoom/before-after toolbar. The canvas-first Pro editor
+   * (#1535) supplies zoom via gestures + keyboard and before/after via its
+   * floating top-bar, so the toolbar would be a duplicate header there.
+   * Defaults false so the classic 3-column editor keeps its toolbar. */
+  readonly hideToolbar = input<boolean>(false);
 
   state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
