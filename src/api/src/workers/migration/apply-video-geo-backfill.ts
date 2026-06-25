@@ -49,7 +49,9 @@ const log = childLogger('migration:geo-backfill');
 function candidateFilter(): Filter<AssetDoc> {
   return {
     'exif.gps': null,
-    'exif.captured_at': { $ne: null },
+    // `$type: 'string'` excludes null, missing, and non-string values so only a
+    // real ISO timestamp can enter the candidate set (matches the audit pass).
+    'exif.captured_at': { $type: 'string' },
     geo_backfill_skipped: { $exists: false },
     fileinfo: {
       $elemMatch: {
@@ -101,10 +103,20 @@ export const applyVideoGeoBackfill: Migration = {
     for (const doc of docs) {
       try {
         const capturedAt = doc.exif?.captured_at;
-        if (!capturedAt) continue; // guarded by candidate filter; defensive check
-
         const primary = assetPrimaryFileInfo(doc);
-        if (!primary) continue;
+
+        // The candidate filter should guarantee both; if either is missing (e.g.
+        // an empty-string timestamp, or no live fileinfo entry) set the sentinel
+        // so the doc converges instead of head-of-line-blocking the queue (#1519).
+        if (!capturedAt || !primary) {
+          await assets.updateOne({ _id: doc._id }, { $set: { geo_backfill_skipped: 'skip' } });
+          log.warn(
+            { video_id: String(doc._id), maple_id: doc.maple_id },
+            'apply: missing captured_at or live fileinfo — set geo_backfill_skipped sentinel',
+          );
+          processed++;
+          continue;
+        }
 
         const libraryId = primary.library_id;
         const result = await findDonor(assets, doc._id, capturedAt, libraryId);
@@ -122,12 +134,15 @@ export const applyVideoGeoBackfill: Migration = {
 
         const { donor, deltaMs } = result;
         const donorGps = donor.exif?.gps;
-        if (!donorGps) {
-          // Donor had no GPS at apply time (race: deleted between audit and apply).
+        if (!donorGps || typeof donorGps.lat !== 'number' || typeof donorGps.lng !== 'number') {
+          // Donor GPS missing or malformed (non-numeric lat/lng). The donor query
+          // requires both coordinates to exist, so this only fires on a corrupt
+          // value or a race where the donor changed after selection — skip safely
+          // rather than writing a bad coordinate onto an original.
           await assets.updateOne({ _id: doc._id }, { $set: { geo_backfill_skipped: 'no-donor' } });
           log.warn(
             { video_id: String(doc._id), donor_id: String(donor._id) },
-            'apply: donor GPS vanished at apply time — set no-donor sentinel',
+            'apply: donor GPS missing/malformed at apply time — set no-donor sentinel',
           );
           processed++;
           continue;
