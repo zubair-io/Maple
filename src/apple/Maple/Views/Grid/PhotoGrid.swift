@@ -2,13 +2,21 @@
 //
 // Part of the grid-unify refactor (#1490 M0). Provides:
 //   - `ColumnStrategy` — describes how columns are computed per layout
-//   - `PhotoGrid`         — flat LazyVGrid of PhotoThumbnailCells
+//   - `PhotoGrid`         — flat LazyVGrid mapping a source collection to cells
 //   - `SectionedPhotoGrid`— LazyVStack of month-labelled PhotoGrids
 //
 // Column counts / gaps mirror `LibraryGrid` (responsive-program S2, #623):
 //   phone   — 3 fixed columns, 2pt gap
 //   tablet  — 5 fixed columns, 4pt gap
 //   desktop — adaptive 180pt min, 4pt gap
+//
+// Lazy mapping (#1530 / #1490 M1a review): the grid takes the call site's
+// source collection (`data: [Element]`) plus a `makeItem` transform, and builds
+// each `PhotoGridItem` INSIDE the `LazyVGrid`'s `ForEach`. Only realized
+// (on-screen) cells derive their item + overlays — off-screen assets cost
+// nothing, and overlay state stays live (it's read per visible cell, not
+// snapshotted into an eagerly-built array). The element is handed back through
+// `onTap`/`onAppearItem`, so call sites need no id→element reverse lookup.
 
 import SwiftUI
 import MapleCore
@@ -63,26 +71,25 @@ enum ColumnStrategy {
 
 // MARK: - PhotoGrid (flat)
 
-/// A flat `LazyVGrid` of `PhotoThumbnailCell` items.
+/// A flat `LazyVGrid` that maps a source collection (`data`) to
+/// `PhotoThumbnailCell`s via `makeItem`, mapping each element lazily inside the
+/// `ForEach` (only realized cells pay the cost).
 ///
-/// Call sites supply `items`, a `ThumbnailProvider`, and the `ColumnStrategy`.
-/// Tap routing, selection, and the zoom-transition namespace are all optional
-/// so the grid composes cleanly at every surface.
-///
-/// The optional `leading` slot renders INSIDE the same `LazyVGrid` before the
-/// photo cells, so folder cells keep the interleaved column flow (no reflow).
-/// The optional `onAppearItem` closure is called from each cell's `.onAppear`
-/// for priming sessions and similar eager-load use cases.
-struct PhotoGrid<Leading: View>: View {
+/// `selection` is keyed by `Element.ID`; `onTap` / `onAppearItem` hand the
+/// element back so call sites avoid any id→element reverse lookup. The optional
+/// `leading` slot renders INSIDE the same `LazyVGrid` before the photo cells, so
+/// folder cells keep the interleaved column flow (no reflow).
+struct PhotoGrid<Element: Identifiable, Leading: View>: View {
 
-    let items: [PhotoGridItem]
+    let data: [Element]
     let columns: ColumnStrategy
     let provider: ThumbnailProvider
     let displayMode: GridDisplayMode
-    var selection: Set<String> = []
+    var selection: Set<Element.ID> = []
     var transitionNamespace: Namespace.ID? = nil
-    var onAppearItem: ((PhotoGridItem) -> Void)? = nil
-    let onTap: (PhotoGridItem) -> Void
+    var onAppearItem: ((Element) -> Void)? = nil
+    let onTap: (Element) -> Void
+    let makeItem: (Element) -> PhotoGridItem
     let leading: () -> Leading
 
     @Environment(\.mapleLayout) private var layout
@@ -90,17 +97,18 @@ struct PhotoGrid<Leading: View>: View {
     /// Primary initialiser. Explicit so `leading` can carry `@ViewBuilder`.
     /// Use the `EmptyView` convenience below when no leading content is needed.
     init(
-        items: [PhotoGridItem],
+        data: [Element],
         columns: ColumnStrategy,
         provider: ThumbnailProvider,
         displayMode: GridDisplayMode,
-        selection: Set<String> = [],
+        selection: Set<Element.ID> = [],
         transitionNamespace: Namespace.ID? = nil,
-        onAppearItem: ((PhotoGridItem) -> Void)? = nil,
-        onTap: @escaping (PhotoGridItem) -> Void,
+        onAppearItem: ((Element) -> Void)? = nil,
+        onTap: @escaping (Element) -> Void,
+        makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder leading: @escaping () -> Leading
     ) {
-        self.items = items
+        self.data = data
         self.columns = columns
         self.provider = provider
         self.displayMode = displayMode
@@ -108,6 +116,7 @@ struct PhotoGrid<Leading: View>: View {
         self.transitionNamespace = transitionNamespace
         self.onAppearItem = onAppearItem
         self.onTap = onTap
+        self.makeItem = makeItem
         self.leading = leading
     }
 
@@ -117,15 +126,18 @@ struct PhotoGrid<Leading: View>: View {
             spacing: columns.rowSpacing(for: layout)
         ) {
             leading()
-            ForEach(items) { item in
+            ForEach(data) { element in
+                // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
+                // only realized (visible) cells build their item + derive overlays.
+                let item = makeItem(element)
                 PhotoThumbnailCell(
                     item: item,
                     provider: provider,
                     displayMode: displayMode,
-                    isSelected: selection.contains(item.id),
+                    isSelected: selection.contains(element.id),
                     transitionNamespace: transitionNamespace,
-                    onTap: { onTap(item) },
-                    onAppear: onAppearItem.map { cb in { cb(item) } }
+                    onTap: { onTap(element) },
+                    onAppear: onAppearItem.map { cb in { cb(element) } }
                 )
             }
         }
@@ -136,17 +148,18 @@ struct PhotoGrid<Leading: View>: View {
 
 extension PhotoGrid where Leading == EmptyView {
     init(
-        items: [PhotoGridItem],
+        data: [Element],
         columns: ColumnStrategy,
         provider: ThumbnailProvider,
         displayMode: GridDisplayMode,
-        selection: Set<String> = [],
+        selection: Set<Element.ID> = [],
         transitionNamespace: Namespace.ID? = nil,
-        onAppearItem: ((PhotoGridItem) -> Void)? = nil,
-        onTap: @escaping (PhotoGridItem) -> Void
+        onAppearItem: ((Element) -> Void)? = nil,
+        onTap: @escaping (Element) -> Void,
+        makeItem: @escaping (Element) -> PhotoGridItem
     ) {
         self.init(
-            items: items,
+            data: data,
             columns: columns,
             provider: provider,
             displayMode: displayMode,
@@ -154,6 +167,7 @@ extension PhotoGrid where Leading == EmptyView {
             transitionNamespace: transitionNamespace,
             onAppearItem: onAppearItem,
             onTap: onTap,
+            makeItem: makeItem,
             leading: { EmptyView() }
         )
     }
@@ -161,32 +175,34 @@ extension PhotoGrid where Leading == EmptyView {
 
 // MARK: - SectionedPhotoGrid (month buckets)
 
-/// A `LazyVStack` of month-section headers each followed by a flat `PhotoGrid`.
+/// A `LazyVStack` of section headers each followed by a flat `PhotoGrid`.
 /// Mirrors the month-bucketed layout in `CloudTimelineMonthSection`.
 ///
 /// `Header` is any `View` the caller provides for each section key (typically
 /// a month label `Text`). `SectionedPhotoGrid` itself does not paginate —
 /// the caller's `.task(id:)` on each section drives page loads, exactly as
 /// `CloudTimelineView` does today.
-struct SectionedPhotoGrid<Header: View>: View {
+struct SectionedPhotoGrid<Element: Identifiable, Header: View>: View {
 
-    let sections: [(key: String, items: [PhotoGridItem])]
+    let sections: [(key: String, data: [Element])]
     let columns: ColumnStrategy
     let provider: ThumbnailProvider
     let displayMode: GridDisplayMode
-    var selection: Set<String> = []
+    var selection: Set<Element.ID> = []
     var transitionNamespace: Namespace.ID? = nil
-    let onTap: (PhotoGridItem) -> Void
+    let onTap: (Element) -> Void
+    let makeItem: (Element) -> PhotoGridItem
     let header: (String) -> Header
 
     init(
-        sections: [(key: String, items: [PhotoGridItem])],
+        sections: [(key: String, data: [Element])],
         columns: ColumnStrategy,
         provider: ThumbnailProvider,
         displayMode: GridDisplayMode,
-        selection: Set<String> = [],
+        selection: Set<Element.ID> = [],
         transitionNamespace: Namespace.ID? = nil,
-        onTap: @escaping (PhotoGridItem) -> Void,
+        onTap: @escaping (Element) -> Void,
+        makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder header: @escaping (String) -> Header
     ) {
         self.sections = sections
@@ -196,6 +212,7 @@ struct SectionedPhotoGrid<Header: View>: View {
         self.selection = selection
         self.transitionNamespace = transitionNamespace
         self.onTap = onTap
+        self.makeItem = makeItem
         self.header = header
     }
 
@@ -205,13 +222,14 @@ struct SectionedPhotoGrid<Header: View>: View {
                 VStack(alignment: .leading, spacing: 8) {
                     header(section.key)
                     PhotoGrid(
-                        items: section.items,
+                        data: section.data,
                         columns: columns,
                         provider: provider,
                         displayMode: displayMode,
                         selection: selection,
                         transitionNamespace: transitionNamespace,
-                        onTap: onTap
+                        onTap: onTap,
+                        makeItem: makeItem
                     )
                 }
             }
@@ -238,11 +256,12 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
 #Preview("Flat — .fixed(3)") {
     ScrollView {
         PhotoGrid(
-            items: previewItems(count: 12),
+            data: previewItems(count: 12),
             columns: .fixed(3, spacing: 2),
             provider: .preview(),
             displayMode: .fill,
-            onTap: { _ in }
+            onTap: { _ in },
+            makeItem: { $0 }
         )
         .padding(2)
     }
@@ -253,11 +272,12 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
 #Preview("Flat — .adaptive(min:140)") {
     ScrollView {
         PhotoGrid(
-            items: previewItems(count: 12, style: .desktop),
+            data: previewItems(count: 12, style: .desktop),
             columns: .adaptive(min: 140, spacing: 4),
             provider: .preview(),
             displayMode: .fill,
-            onTap: { _ in }
+            onTap: { _ in },
+            makeItem: { $0 }
         )
         .padding(4)
     }
@@ -268,12 +288,13 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
 #Preview("Flat — .responsiveBySizeClass") {
     ScrollView {
         PhotoGrid(
-            items: previewItems(count: 12),
+            data: previewItems(count: 12),
             columns: .responsiveBySizeClass,
             provider: .preview(),
             displayMode: .fill,
             selection: Set(["prev-0", "prev-2"]),
-            onTap: { _ in }
+            onTap: { _ in },
+            makeItem: { $0 }
         )
         .padding(2)
     }
@@ -284,7 +305,7 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
 #Preview("Sectioned — month buckets") {
     let months = ["June 2026", "May 2026"]
     let sections = months.enumerated().map { (i, key) in
-        (key: key, items: previewItems(count: 8, style: .desktop).map {
+        (key: key, data: previewItems(count: 8, style: .desktop).map {
             PhotoGridItem(id: "\(i)-\($0.id)", thumbnailSource: $0.thumbnailSource,
                           overlays: $0.overlays)
         })
@@ -295,7 +316,8 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
             columns: .fixed(4, spacing: 6),
             provider: .preview(),
             displayMode: .fill,
-            onTap: { _ in }
+            onTap: { _ in },
+            makeItem: { $0 }
         ) { key in
             Text(key)
                 .font(.title3.bold())
