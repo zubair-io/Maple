@@ -56,6 +56,8 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     let searchThumbClient: CloudThumbClient?
     let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
+    /// Grid zoom level threaded from AppShell (#1550).
+    @Binding var browseZoomLevel: GridZoomLevel
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
@@ -112,6 +114,7 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             searchThumbClient: searchThumbClient,
             searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
+            browseZoomLevel: $browseZoomLevel,
             browseVM: browseVM,
             sessions: $sessions,
             onSelectCloudAsset: onSelectCloudAsset,

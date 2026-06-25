@@ -47,6 +47,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let searchThumbClient: CloudThumbClient?
     let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
+    /// Grid zoom level threaded from AppShell (#1550).
+    @Binding var browseZoomLevel: GridZoomLevel
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
     /// Pre-built sidebar — both NavigationSplitView legs render this.
@@ -174,6 +176,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             searchThumbClient: searchThumbClient,
             searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
+            browseZoomLevel: $browseZoomLevel,
             browseVM: browseVM,
             sessions: $sessions,
             onSelectCloudAsset: onSelectCloudAsset,
