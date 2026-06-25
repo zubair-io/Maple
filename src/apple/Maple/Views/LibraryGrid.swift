@@ -5,8 +5,8 @@
 // `@Environment(\.mapleLayout)` density signal published by AppShell.
 // ColumnStrategy.zoom resolves per layout:
 //   * phone   — exact fixed counts (1/3/5/10) per GridZoomLevel
-//   * tablet  — adaptive at targetCellWidth, grows columns with window
-//   * desktop — adaptive at targetCellWidth, grows columns with window
+//   * tablet  — adaptive at desktopCellWidth, reflows columns on resize
+//   * desktop — adaptive at desktopCellWidth, reflows columns on resize
 //
 // Cell tap routes through `onOpenEditor` (same callback BrowseGrid
 // uses — the iPhone shell already pushes the Editor via

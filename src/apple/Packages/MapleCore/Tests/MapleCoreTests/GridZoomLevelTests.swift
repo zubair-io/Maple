@@ -11,10 +11,11 @@ final class GridZoomLevelTests: XCTestCase {
         XCTAssertEqual(GridZoomLevel.dense.phoneColumns, 10)
     }
 
-    func testTargetCellWidthShrinksWithMoreColumns() {
-        XCTAssertGreaterThan(GridZoomLevel.comfortable.targetCellWidth, GridZoomLevel.compact.targetCellWidth)
-        XCTAssertGreaterThan(GridZoomLevel.compact.targetCellWidth, GridZoomLevel.dense.targetCellWidth)
-        XCTAssertEqual(GridZoomLevel.comfortable.targetCellWidth, 130, accuracy: 0.01) // 390/3
+    func testDesktopCellWidthShrinksTowardDenser() {
+        // Monotonically smaller cells from the biggest level (fullWidth) to dense.
+        XCTAssertGreaterThan(GridZoomLevel.fullWidth.desktopCellWidth, GridZoomLevel.comfortable.desktopCellWidth)
+        XCTAssertGreaterThan(GridZoomLevel.comfortable.desktopCellWidth, GridZoomLevel.compact.desktopCellWidth)
+        XCTAssertGreaterThan(GridZoomLevel.compact.desktopCellWidth, GridZoomLevel.dense.desktopCellWidth)
     }
 
     func testZoomClampsAtEnds() {
