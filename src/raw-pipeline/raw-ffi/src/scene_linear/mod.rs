@@ -103,10 +103,10 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            raw_core::pipeline::RenderQuality::Preview
-        } else {
-            raw_core::pipeline::RenderQuality::Full
+        let quality = match quality_preview {
+            1 => raw_core::pipeline::RenderQuality::Preview,
+            2 => raw_core::pipeline::RenderQuality::Amaze,
+            _ => raw_core::pipeline::RenderQuality::Full,
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit,
         // so the Apple displayed buffer matches the CLI/WASM buffer the curve
@@ -180,10 +180,10 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            raw_core::pipeline::RenderQuality::Preview
-        } else {
-            raw_core::pipeline::RenderQuality::Full
+        let quality = match quality_preview {
+            1 => raw_core::pipeline::RenderQuality::Preview,
+            2 => raw_core::pipeline::RenderQuality::Amaze,
+            _ => raw_core::pipeline::RenderQuality::Full,
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit
         // (see the file-source entry above for the rationale).
@@ -275,10 +275,10 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            raw_core::pipeline::RenderQuality::Preview
-        } else {
-            raw_core::pipeline::RenderQuality::Full
+        let quality = match quality_preview {
+            1 => raw_core::pipeline::RenderQuality::Preview,
+            2 => raw_core::pipeline::RenderQuality::Amaze,
+            _ => raw_core::pipeline::RenderQuality::Full,
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
@@ -358,10 +358,10 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            raw_core::pipeline::RenderQuality::Preview
-        } else {
-            raw_core::pipeline::RenderQuality::Full
+        let quality = match quality_preview {
+            1 => raw_core::pipeline::RenderQuality::Preview,
+            2 => raw_core::pipeline::RenderQuality::Amaze,
+            _ => raw_core::pipeline::RenderQuality::Full,
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
