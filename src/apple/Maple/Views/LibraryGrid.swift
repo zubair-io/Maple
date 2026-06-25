@@ -64,17 +64,15 @@ struct LibraryGrid: View {
                 // the source name already lives in the nav bar, and the
                 // chips duplicated cull state that belongs in the editor.
                 PhotoGrid(
-                    items: photoItems,
+                    data: vm.assets,
                     columns: .responsiveBySizeClass,
                     provider: provider,
                     displayMode: displayMode,
-                    selection: selectedGridID.map { Set([$0]) } ?? [],
-                    onAppearItem: { item in
-                        guard let asset = vm.assetByStableID[item.id] else { return }
-                        onPrimeSession(asset)
-                    },
-                    onTap: { item in
-                        guard let asset = vm.assetByStableID[item.id] else { return }
+                    // Selection is keyed by AssetRef.ID, so `vm.selectedID` maps
+                    // straight through — no string-id derivation needed.
+                    selection: vm.selectedID.map { Set([$0]) } ?? [],
+                    onAppearItem: { asset in onPrimeSession(asset) },
+                    onTap: { asset in
                         vm.selectedID = asset.id
                         // Selection haptic — matches the spec §2 phone
                         // interaction model (`.selection` on iOS).
@@ -95,6 +93,12 @@ struct LibraryGrid: View {
                         // agnostic to which one it got.
                         onOpenEditor(asset)
                     },
+                    // Lazy: PhotoGrid calls this only for realized (visible)
+                    // cells, so overlays are derived live per visible asset
+                    // (never an eager map over the whole library).
+                    makeItem: { asset in
+                        PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
+                    },
                     leading: {
                         // Sub-folders first (Finder-style), then images — matches
                         // the desktop BrowseGrid. `vm.subfolders` is populated by
@@ -114,46 +118,26 @@ struct LibraryGrid: View {
         .background(MapleTokens.bg)
     }
 
-    // MARK: - Selection
+    // MARK: - Overlay derivation
 
-    /// Maps `vm.selectedID` (a `UUID?`) to the grid-item id string used by
-    /// `PhotoGridItem(local:)`: `stableID ?? id.uuidString`. Finds the matching
-    /// asset in `vm.assets` and applies the same derivation so the selection
-    /// outline renders on the correct cell.
-    private var selectedGridID: String? {
-        guard let selectedUUID = vm.selectedID,
-              let asset = vm.assets.first(where: { $0.id == selectedUUID })
-        else { return nil }
-        return asset.stableID ?? asset.id.uuidString
-    }
-
-    // MARK: - PhotoGridItem mapping
-
-    /// Builds the item list from `vm.assets`, deriving phone badge overlays
-    /// from `sessions[asset.id]` exactly as `LibraryCell.phoneBadgeOverlay` did:
+    /// Phone badge overlays for one asset, derived from `sessions[asset.id]`
+    /// exactly as `LibraryCell.phoneBadgeOverlay` did. `PhotoGrid` calls this
+    /// lazily per realized cell, so badges stay live (re-read on each body pass
+    /// for visible cells) without an eager map over the whole library:
     ///
-    ///   - `rating`  = session?.culling.stars ?? 0
-    ///   - `flag`    = session?.culling.flag == .pick  → .pick
-    ///                 session?.culling.flag == .reject → .reject
-    ///                 .none / nil                      → nil
-    ///   - `style`   = .phone  (green pick dot top-left, ≥4★ gold bottom-left)
-    private var photoItems: [PhotoGridItem] {
-        vm.assets.map { asset in
-            let session = sessions[asset.id]
-            let stars = session?.culling.stars ?? 0
-            let cullFlag = session?.culling.flag ?? .none
-            // Map CullFlag (.none/.pick/.reject) → CullFlag? (nil for .none)
-            // GridCellOverlays.flag is CullFlag? where nil == no flag shown.
-            let flag: CullFlag? = cullFlag == .none ? nil : cullFlag
-            let overlays = GridCellOverlays(
-                rating: stars,
-                flag: flag,
-                sync: nil,
-                isVideo: false,
-                style: .phone
-            )
-            return PhotoGridItem(local: asset, source: source, overlays: overlays)
-        }
+    ///   - `rating` = session?.culling.stars ?? 0
+    ///   - `flag`   = .pick / .reject / nil (`.none` → nil = no badge)
+    ///   - `style`  = .phone  (green pick dot top-left, ≥4★ gold bottom-left)
+    private func overlays(for asset: AssetRef) -> GridCellOverlays {
+        let session = sessions[asset.id]
+        let cullFlag = session?.culling.flag ?? .none
+        return GridCellOverlays(
+            rating: session?.culling.stars ?? 0,
+            flag: cullFlag == .none ? nil : cullFlag,
+            sync: nil,
+            isVideo: false,
+            style: .phone
+        )
     }
 
     // MARK: - Layout
