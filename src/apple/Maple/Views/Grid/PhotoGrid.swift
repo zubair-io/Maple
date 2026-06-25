@@ -39,10 +39,15 @@ enum ColumnStrategy {
     ///   tablet  → 5 fixed, 4pt gap
     ///   desktop → adaptive 180pt min, 4pt gap
     case responsiveBySizeClass
+    /// Size-based zoom (#1550): phone uses exact fixed counts (1/3/5/10);
+    /// tablet/desktop use adaptive at the target cell width so the cell size
+    /// stays constant while the column count grows with the window.
+    /// fullWidth always yields 1 column on every layout.
+    case zoom(GridZoomLevel)
 
     /// Resolve to SwiftUI `GridItem` array given the current `MapleLayout`.
-    /// For `.responsiveBySizeClass`, `layout` is read from the environment
-    /// before calling this method.
+    /// For `.responsiveBySizeClass` and `.zoom`, `layout` is read from the
+    /// environment before calling this method.
     func gridItems(for layout: MapleLayout) -> [GridItem] {
         switch self {
         case .fixed(let count, let spacing):
@@ -58,6 +63,17 @@ enum ColumnStrategy {
             case .desktop:
                 return [GridItem(.adaptive(minimum: 180), spacing: 4)]
             }
+        case .zoom(let level):
+            let gap = zoomGap(for: layout)
+            if level == .fullWidth {
+                return [GridItem(.flexible(), spacing: gap)]
+            }
+            switch layout {
+            case .phone:
+                return Array(repeating: GridItem(.flexible(), spacing: gap), count: level.phoneColumns)
+            case .tablet, .desktop:
+                return [GridItem(.adaptive(minimum: level.targetCellWidth), spacing: gap)]
+            }
         }
     }
 
@@ -69,8 +85,12 @@ enum ColumnStrategy {
         case .fixed(_, let spacing): return spacing
         case .adaptive(_, _, let spacing): return spacing
         case .responsiveBySizeClass: return layout == .phone ? 2 : 4
+        case .zoom: return zoomGap(for: layout)
         }
     }
+
+    /// Column gap for zoom levels: 2pt on phone (matching the S2 spec), 4pt elsewhere.
+    private func zoomGap(for layout: MapleLayout) -> CGFloat { layout == .phone ? 2 : 4 }
 }
 
 // MARK: - PhotoGrid (flat)
