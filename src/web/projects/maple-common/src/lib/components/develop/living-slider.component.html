@@ -8,12 +8,14 @@
     #trackEl
     class="track-wrap"
     role="slider"
+    tabindex="0"
     [attr.aria-label]="label()"
     [attr.aria-valuemin]="min()"
     [attr.aria-valuemax]="max()"
     [attr.aria-valuenow]="value()"
     [attr.aria-valuetext]="valueLabel()"
     (pointerdown)="onTrackPointerDown($event)"
+    (keydown)="onTrackKeyDown($event)"
   >
     <!-- Track gradient fill -->
     <div class="track" [style.background]="gradient()">

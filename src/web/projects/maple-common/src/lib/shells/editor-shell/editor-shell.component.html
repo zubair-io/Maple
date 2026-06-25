@@ -1,6 +1,6 @@
 <!-- EditorShell — canvas-first layered layout (#1535) -->
 <!-- Chrome opacity controlled by chromeState signal -->
-<div class="shell" [class.shell--desktop]="isDesktop()" (pointermove)="onPointerMove()">
+<div class="shell" [class.shell--desktop]="isDesktop()">
   <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
   <div #canvasWrap class="canvas-layer" (pointerdown)="onCanvasPointerDown($event)">
     <editor-image-canvas />
