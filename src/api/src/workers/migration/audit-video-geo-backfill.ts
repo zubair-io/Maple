@@ -39,7 +39,10 @@ const WINDOW_MS = 15 * 60 * 1000;
 function candidateFilter(): Filter<AssetDoc> {
   return {
     'exif.gps': null,
-    'exif.captured_at': { $ne: null },
+    // `$type: 'string'` is stricter than `$ne: null`: it excludes null, missing,
+    // and any non-string value, so only a real ISO timestamp string can enter the
+    // candidate set (the donor range query relies on string comparison).
+    'exif.captured_at': { $type: 'string' },
     fileinfo: {
       $elemMatch: {
         filename: { $regex: /\.(mp4|mov)$/i },
@@ -56,7 +59,7 @@ export interface AuditDoc {
   _id: ObjectId;
   maple_id: string | undefined;
   captured_at: string;
-  decision: 'match' | 'no-donor';
+  decision: 'match' | 'no-donor' | 'skip';
   donor_id?: ObjectId;
   donor_maple_id?: string;
   donor_gps?: { lat: number; lng: number };
@@ -100,14 +103,23 @@ export async function findDonor(
   const candidates = await assets
     .find(
       {
-        'exif.gps': { $ne: null },
+        // GPS must be present. Predicate on `exif.gps.lat` (not the whole `exif.gps`
+        // object) so the partial index `exif_captured_at_gps_lat` is eligible and odd
+        // shapes are avoided; numeric validity is re-checked by the apply caller.
+        'exif.gps.lat': { $exists: true },
+        'exif.gps.lng': { $exists: true },
         'exif.captured_at': { $gte: lo, $lte: hi },
+        // Only borrow from a ground-truth photo: exclude any already-inferred asset
+        // so inferred GPS can never daisy-chain (video → video), and exclude videos
+        // (a donor video's GPS is rare and not what the operator intends to borrow).
+        geo_inferred: { $exists: false },
         _id: { $ne: videoId },
         fileinfo: {
           $elemMatch: {
             library_id: libraryId,
             deleted_at: { $in: [null] },
             missing_since: { $in: [null] },
+            filename: { $not: /\.(mp4|mov)$/i },
           },
         },
       },
@@ -241,15 +253,32 @@ export const auditVideoGeoBackfill: Migration = {
     for (const doc of docs) {
       try {
         const capturedAt = doc.exif?.captured_at;
-        if (!capturedAt) continue; // guarded by candidate filter; defensive check
-
         const primary = assetPrimaryFileInfo(doc);
-        if (!primary) continue;
+        const now = new Date().toISOString();
+
+        // The candidate filter should guarantee both, but if either is missing
+        // (e.g. an empty-string timestamp, or no live fileinfo entry) record a
+        // `skip` decision so the doc converges instead of head-of-line-blocking
+        // the unsorted batch forever (the #1519 lesson).
+        if (!capturedAt || !primary) {
+          await audit.replaceOne(
+            { _id: doc._id },
+            {
+              _id: doc._id,
+              maple_id: doc.maple_id,
+              captured_at: capturedAt ?? '',
+              decision: 'skip',
+              at: now,
+            },
+            { upsert: true },
+          );
+          processed++;
+          continue;
+        }
 
         const libraryId = primary.library_id;
         const result = await findDonor(assets, doc._id, capturedAt, libraryId);
 
-        const now = new Date().toISOString();
         let auditDoc: AuditDoc;
 
         if (result) {
