@@ -70,6 +70,12 @@ struct BrowseGrid: View {
     /// Thumbnail provider for normal (local) mode.
     @State private var localProvider = ThumbnailProvider.local()
 
+    /// Thumbnail provider for merged mode. Built ONCE in `.task` when cloud infra
+    /// is wired (not per body evaluation, per `ThumbnailProvider`'s "inject once
+    /// per grid surface" guidance). `nil` until set / when no cloud infra — merged
+    /// mode then falls back to `localProvider`.
+    @State private var mergedProvider: ThumbnailProvider?
+
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
@@ -134,6 +140,15 @@ struct BrowseGrid: View {
             }
         }
         .keyboardShortcuts(vm: vm, sessions: sessions)
+        .task {
+            // Build the merged-mode cloud provider ONCE (not per body eval). The
+            // host must be set when cloud infra is wired, else CloudThumbCache
+            // lookups collide across servers under an empty namespace.
+            guard mergedProvider == nil, let client = thumbClient, let cache = thumbCache
+            else { return }
+            assert(!mergedHost.isEmpty, "BrowseGrid: cloud thumb infra wired without a mergedHost")
+            mergedProvider = ThumbnailProvider(thumbClient: client, thumbCache: cache)
+        }
     }
 
     // MARK: - Merged grid (PhotoKit + Cloud timeline)
@@ -146,7 +161,7 @@ struct BrowseGrid: View {
         PhotoGrid(
             data: vm.mergedCells,
             columns: .adaptive(min: 140, max: 200, spacing: 4),
-            provider: makeMergedProvider(),
+            provider: mergedProvider ?? localProvider,
             displayMode: resolvedDisplayMode,
             // Tap routing: the original BrowseGrid merged-mode ForEach had no
             // .onTapGesture — merged cells in BrowseGrid are informational only;
@@ -245,24 +260,6 @@ struct BrowseGrid: View {
         }
     }
 
-    // MARK: - Provider factory
-
-    /// Returns a `ThumbnailProvider` for merged mode. When cloud infra is
-    /// wired by the caller (`thumbClient` + `thumbCache` are non-nil), cloud
-    /// thumb routing is available for `.cloudOnly` cells. Otherwise falls back
-    /// to `ThumbnailProvider.local()` (same as the original MergedCellView
-    /// behaviour — cloud-only cells just fail to load their thumb).
-    ///
-    /// Called once per merged-grid body evaluation. Creating a new actor per
-    /// evaluation is acceptable here: the actor is a thin dispatcher with no
-    /// retained state of its own; the real caches (`ThumbnailLoader.shared`,
-    /// `CloudThumbCache`) are injected by reference and shared.
-    private func makeMergedProvider() -> ThumbnailProvider {
-        if let client = thumbClient, let cache = thumbCache {
-            return ThumbnailProvider(thumbClient: client, thumbCache: cache)
-        }
-        return ThumbnailProvider.local()
-    }
 }
 
 // MARK: - FolderCell
