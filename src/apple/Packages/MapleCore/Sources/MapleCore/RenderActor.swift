@@ -180,6 +180,28 @@ public actor RenderActor {
     var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
     var refineDecodeSlotCounter: UInt64 = 0
 
+    /// Content-resolved RAW/non-RAW classification for bytes-backed assets
+    /// (PhotoKit / Self-Hosted) that arrive with no URL and no extension hint,
+    /// keyed by asset id. Filled from the authoritative magic-byte sniff in
+    /// `sharedDecode`; read by `presentViaGpuLive` so the GPU `inputShape`
+    /// matches the decode rather than `AssetRef.isRaw` — whose extension
+    /// fallback defaults bytes-backed assets to RAW, which made the GPU view
+    /// tail run AgX on a non-RAW buffer and crush white to grey (#1553).
+    private var resolvedIsRawByAsset: [AssetRef.ID: Bool] = [:]
+
+    /// Record the content-sniffed classification for `id`. Called from the
+    /// `sharedDecode` worker once the magic-byte sniff resolves.
+    func recordResolvedIsRaw(_ id: AssetRef.ID, _ isRaw: Bool) {
+        resolvedIsRawByAsset[id] = isRaw
+    }
+
+    /// The content-resolved RAW classification for `id`, or `nil` when the asset
+    /// never needed a sniff (URL/extension-backed assets — `AssetRef.isRaw` is
+    /// authoritative for those).
+    func resolvedIsRaw(for id: AssetRef.ID) -> Bool? {
+        resolvedIsRawByAsset[id]
+    }
+
     struct RefineDecodeSlot {
         let id: UInt64
         let task: Task<CIImage?, Never>
