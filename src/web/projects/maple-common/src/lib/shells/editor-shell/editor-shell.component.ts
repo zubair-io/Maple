@@ -9,6 +9,7 @@
 // All routing / address-resolution logic is preserved verbatim from the
 // previous 3-column shell — only the layout / chrome layer changed.
 //
+// Curve panel: glass card that opens/closes via the Curve dock entry (#1540).
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
 // Desktop opts out of auto-recede.
@@ -41,6 +42,8 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import { ControlCardComponent } from '../../components/editor/control-card.component';
 import { ToolDockComponent } from '../../components/editor/tool-dock.component';
 import { ValueHudComponent } from '../../components/editor/value-hud.component';
+import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
+import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
@@ -69,6 +72,8 @@ const RECEDE_IDLE_MS = 3000;
     ControlCardComponent,
     ToolDockComponent,
     ValueHudComponent,
+    ToneCurveComponent,
+    WbPadComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
@@ -121,6 +126,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly isTabletPlus = signal<boolean>(false);
   /** True when the viewport is desktop (≥1100px). Desktop opts out of recede. */
   readonly isDesktop = signal<boolean>(false);
+
+  /** True when the curve panel (tone curve + WB pad) is open (#1540). */
+  readonly curveOpen = signal<boolean>(false);
 
   // Chrome recede
   readonly chromeState = signal<ChromeState>('full');
@@ -360,6 +368,10 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   onGroupChange(group: ToolGroup): void {
     this.editorState.armGroup(group);
     this.editorState.haptic('switch');
+  }
+
+  onCurvePanelToggle(): void {
+    this.curveOpen.update((v) => !v);
   }
 
   // ── Current adjustment (for histogram) ────────────────────────────────

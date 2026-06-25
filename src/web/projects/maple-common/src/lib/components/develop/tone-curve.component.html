@@ -1,0 +1,36 @@
+<!-- ToneCurveComponent — parametric tone curve (#1540) -->
+<div class="curve-widget">
+  <!-- Channel selector -->
+  <div class="channel-row" role="tablist" aria-label="Curve channel">
+    @for (ch of channels; track ch.id) {
+      <button
+        class="ch-btn"
+        [class.ch-btn--active]="activeChannel() === ch.id && ch.id === 'luma'"
+        [disabled]="ch.id !== 'luma'"
+        [title]="ch.id !== 'luma' ? ch.label + ' — coming in #1542' : ch.label"
+        [attr.aria-label]="ch.label"
+        [attr.aria-selected]="activeChannel() === ch.id"
+        role="tab"
+        (click)="setChannel(ch.id)"
+      >
+        {{ ch.label }}
+      </button>
+    }
+  </div>
+
+  <!-- Plot area -->
+  <canvas
+    #plotCanvas
+    class="curve-plot"
+    aria-label="Tone curve — drag control points to adjust"
+    (pointerdown)="onPlotPointerDown($event)"
+  ></canvas>
+
+  <!-- Control-point labels (below plot) -->
+  <div class="region-labels" aria-hidden="true">
+    <span>Shadows</span>
+    <span>Darks</span>
+    <span>Lights</span>
+    <span>Highlights</span>
+  </div>
+</div>

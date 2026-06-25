@@ -8,7 +8,8 @@
       [disabled]="entry.disabled"
       [title]="entry.disabled ? entry.label + ' — coming in ' + entry.ticket : entry.label"
       [attr.aria-label]="entry.label"
-      [attr.aria-current]="isActive(entry) ? 'page' : null"
+      [attr.aria-current]="!entry.panel && isActive(entry) ? 'page' : null"
+      [attr.aria-pressed]="entry.panel ? isActive(entry) : null"
       (click)="onEntryClick(entry)"
     >
       <maple-icon
