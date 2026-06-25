@@ -155,13 +155,6 @@ public struct RangeFacet: Codable, Equatable, Sendable {
   public let max: Double
 }
 
-// MARK: - Identifiable conformance
-
-/// `SearchAsset.id` is the server-assigned stable asset identifier —
-/// `Identifiable` lets `SearchAsset` be used directly as a `PhotoGrid`
-/// `Element` type without a separate `ForEach(... id: \.id)` parameter.
-extension SearchAsset: Identifiable {}
-
 public struct CaptureRangeFacet: Codable, Equatable, Sendable {
   public let from: String
   public let to: String
