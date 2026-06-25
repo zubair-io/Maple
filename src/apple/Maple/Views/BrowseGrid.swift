@@ -25,6 +25,9 @@ struct BrowseGrid: View {
     /// the toolbar toggle survives BrowseGrid view re-creation. Defaults to
     /// `.fill` when the parent doesn't pass a binding.
     var displayMode: Binding<GridDisplayMode>? = nil
+    /// Grid zoom level — drives ColumnStrategy.zoom (#1550). Optional so
+    /// previews can omit it; defaults to .comfortable when nil.
+    var zoomLevel: Binding<GridZoomLevel>? = nil
     /// Fired by the empty state's "Grant Access" button when
     /// `vm.photosAuthNeeded` is true. `nil` in previews / non-Photos flows.
     var onGrantPhotosAccess: (() -> Void)? = nil
@@ -54,10 +57,22 @@ struct BrowseGrid: View {
     /// Local fallback when no parent binding is supplied (e.g. previews).
     /// Real toolbar wiring lives on `AppShell`.
     @State private var localDisplayMode: GridDisplayMode = .fill
+    @State private var localZoomLevel: GridZoomLevel = .comfortable
 
     /// Resolved mode — parent binding wins; otherwise the local @State.
     private var resolvedDisplayMode: GridDisplayMode {
         displayMode?.wrappedValue ?? localDisplayMode
+    }
+
+    /// Resolved zoom level — parent binding wins; otherwise local @State.
+    private var resolvedZoomLevel: GridZoomLevel {
+        zoomLevel?.wrappedValue ?? localZoomLevel
+    }
+
+    /// Binding for the pinch modifier. Writes to parent or local depending
+    /// on whether a parent binding was supplied.
+    private var zoomLevelBinding: Binding<GridZoomLevel> {
+        zoomLevel ?? $localZoomLevel
     }
 
     /// True when the current folder has neither sub-folders nor images. The
@@ -101,6 +116,7 @@ struct BrowseGrid: View {
                         // the selection bar when it's shown.
                         .padding(.bottom, vm.isSelecting ? 60 : 0)
                     }
+                    .gridZoomPinch(level: zoomLevelBinding)
                     .background(MapleTokens.bg)
                     .opacity(isEmpty ? 0 : 1)
                     .onChange(of: vm.selectedID) { _, newID in
@@ -160,7 +176,7 @@ struct BrowseGrid: View {
     private var mergedGrid: some View {
         PhotoGrid(
             data: vm.mergedCells,
-            columns: .adaptive(min: 140, max: 200, spacing: 4),
+            columns: .zoom(resolvedZoomLevel),
             provider: mergedProvider ?? localProvider,
             displayMode: resolvedDisplayMode,
             // Tap routing: the original BrowseGrid merged-mode ForEach had no
@@ -187,7 +203,7 @@ struct BrowseGrid: View {
     private var normalGrid: some View {
         PhotoGrid(
             data: vm.assets,
-            columns: .adaptive(min: 140, max: 200, spacing: 4),
+            columns: .zoom(resolvedZoomLevel),
             provider: localProvider,
             displayMode: resolvedDisplayMode,
             selection: vm.isSelecting
