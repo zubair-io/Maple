@@ -315,6 +315,36 @@ describe('PUT /api/pano/config', () => {
     expect(body.ok).toBe(true);
     expect(body.maple_cli_path).toBeNull();
   });
+
+  it('rejects relative paths for models_dir', async () => {
+    if (!mongoReachable) return;
+    const res = await putJson('/api/pano/config', {
+      models_dir: 'relative/models',
+      enabled: true,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      models_dir: string | null;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.models_dir).toBeNull();
+  });
+
+  it('rejects relative paths for ort_dylib_path', async () => {
+    if (!mongoReachable) return;
+    const res = await putJson('/api/pano/config', {
+      ort_dylib_path: 'relative/libonnxruntime.dylib',
+      enabled: true,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      ort_dylib_path: string | null;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.ort_dylib_path).toBeNull();
+  });
 });
 
 // ── provisioning gate ─────────────────────────────────────────────────────────
