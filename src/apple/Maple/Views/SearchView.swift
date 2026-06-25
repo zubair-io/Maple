@@ -45,13 +45,16 @@ struct SearchView: View {
     private var results: [SearchAsset] { viewModel?.results ?? [] }
     private var total: Int { viewModel?.total ?? 0 }
 
-    private var thumbContext: SearchThumbContext? {
-        guard let vm = viewModel, let client = thumbClient, let cache = thumbCache else { return nil }
-        return SearchThumbContext(client: client, cache: cache, host: vm.server.cacheHostKey)
+    /// ThumbnailProvider wired to the cloud thumb infra, or nil when no
+    /// cloud session is available (shell mode / previews → grey placeholders).
+    private var thumbProvider: ThumbnailProvider? {
+        guard let client = thumbClient, let cache = thumbCache else { return nil }
+        return ThumbnailProvider(thumbClient: client, thumbCache: cache)
     }
 
-    private var resultTiles: [SearchResultTile] {
-        results.map { SearchResultTile(id: $0.id, displayName: $0.filename, absPath: $0.abs_path) }
+    /// Server cache-host key for `PhotoGridItem.cloud` namespace routing.
+    private var host: String {
+        viewModel?.server.cacheHostKey ?? ""
     }
 
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
@@ -66,15 +69,19 @@ struct SearchView: View {
                     SearchRecentQueries(recent: recent, onTap: tapRecent)
                 } else {
                     SearchPhotoResultsSection(
-                        results: resultTiles,
+                        results: results,
                         total: total,
                         isStale: isStale,
                         hasQuery: true,
                         query: query,
-                        onTap: tapTile,
+                        onTap: { asset in
+                            commitRecent()
+                            onSelectAsset(asset)
+                        },
                         onLoadMore: { Task { await viewModel?.loadMore() } },
                         isLoadingMore: viewModel?.isLoadingMore ?? false,
-                        thumb: thumbContext
+                        provider: thumbProvider,
+                        host: host
                     )
                 }
             }
@@ -99,13 +106,6 @@ struct SearchView: View {
         query = q
         // Promote to head on tap so the list reflects most-recent-first.
         recentJSON = encodeRecents(pushRecent(recent, q))
-    }
-
-    private func tapTile(_ tile: SearchResultTile) {
-        commitRecent()
-        if let asset = results.first(where: { $0.id == tile.id }) {
-            onSelectAsset(asset)
-        }
     }
 
     private func commitRecent() {
