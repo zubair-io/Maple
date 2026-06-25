@@ -62,6 +62,7 @@ export class LivingSliderComponent implements OnDestroy {
   private _pointerDownValue = 0;
   private _boundPointerMove: ((e: PointerEvent) => void) | null = null;
   private _boundPointerUp: ((e: PointerEvent) => void) | null = null;
+  private _boundPointerCancel: ((e: PointerEvent) => void) | null = null;
 
   // ── View model ────────────────────────────────────────────────────────
 
@@ -113,8 +114,13 @@ export class LivingSliderComponent implements OnDestroy {
 
     this._boundPointerMove = (ev: PointerEvent) => this._onPointerMove(ev);
     this._boundPointerUp = (ev: PointerEvent) => this._onPointerUp(ev);
+    // pointercancel (system gesture takeover, context menu, tab switch) must
+    // also tear down the drag, else the window listeners leak and the slider
+    // stays stuck in its dragging state.
+    this._boundPointerCancel = (ev: PointerEvent) => this._onPointerUp(ev);
     window.addEventListener('pointermove', this._boundPointerMove);
     window.addEventListener('pointerup', this._boundPointerUp);
+    window.addEventListener('pointercancel', this._boundPointerCancel);
     track.setPointerCapture(e.pointerId);
   }
 
@@ -152,6 +158,10 @@ export class LivingSliderComponent implements OnDestroy {
     if (this._boundPointerUp) {
       window.removeEventListener('pointerup', this._boundPointerUp);
       this._boundPointerUp = null;
+    }
+    if (this._boundPointerCancel) {
+      window.removeEventListener('pointercancel', this._boundPointerCancel);
+      this._boundPointerCancel = null;
     }
   }
 
