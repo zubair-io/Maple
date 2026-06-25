@@ -11,6 +11,14 @@
 //   - desktop FlagBadge + StarView ← LibraryCell.badgeOverlay(.desktop)
 //   - cloud rating ★               ← CloudTimelineCell (rating top-leading)
 //   - merged sync badge            ← CloudTimelineMergedCell.badgeView
+//
+// M1b additions (#1490):
+//   - accessibilityIdentifier("thumb-\(item.displayName)") — restores the
+//     UITest harness identifier that LibraryCell had (`asset.displayName`).
+//   - multiSelectChecked — when non-nil, renders a top-trailing checkmark
+//     badge (checked: white-on-accent; unchecked: white-on-scrim) and
+//     suppresses the single-select outline. Matches BrowseGrid's original
+//     multi-select chrome exactly.
 
 import SwiftUI
 import MapleCore
@@ -30,6 +38,13 @@ struct PhotoThumbnailCell: View {
     /// using `item.id` as the tag. The zoom-open transition (#1489) adopts
     /// this seam in M1+. Setting this to `nil` is a no-op (no transition tag).
     var transitionNamespace: Namespace.ID? = nil
+    /// Multi-select checked state. When non-nil the cell is in multi-select
+    /// mode and renders a checkmark badge at top-trailing:
+    ///   - `true`  — filled checkmark.circle.fill white-on-accent (selected)
+    ///   - `false` — unfilled circle white-on-dark-scrim (unselected)
+    /// Also suppresses the single-select outline so the two indicators don't
+    /// conflict. When `nil` behaves as before (single-select outline only).
+    var multiSelectChecked: Bool? = nil
     let onTap: () -> Void
     /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
     /// once (re-insertion / scroll in-out), so the work MUST be idempotent — use
@@ -49,15 +64,36 @@ struct PhotoThumbnailCell: View {
                 GridCellOverlayView(overlays: item.overlays)
             }
             .overlay {
-                if isSelected {
+                // Single-select outline — suppressed when multi-select badge is active.
+                if isSelected && multiSelectChecked == nil {
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(MapleTokens.primary, lineWidth: 2)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                // Multi-select badge — only present when multiSelectChecked is non-nil.
+                if let checked = multiSelectChecked {
+                    Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(checked ? .white : Color.white.opacity(0.90))
+                        .background(
+                            Circle()
+                                .fill(checked ? Color.accentColor : Color.black.opacity(0.45))
+                                .padding(-2)
+                        )
+                        .padding(6)
+                        .accessibilityHidden(true)
                 }
             }
             .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
             .contentShape(Rectangle())
             .onTapGesture { onTap() }
             .onAppear { onAppear?() }
+            // Accessibility: UITest harness resolves cells by displayName via
+            // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
+            // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
+            .accessibilityIdentifier("thumb-\(item.displayName)")
+            .accessibilityLabel(item.displayName)
             .task(id: item.id) {
                 let bytes = await provider.thumbnail(for: item.thumbnailSource)
                 // Skip the assignment if the cell scrolled away mid-load, and
@@ -229,7 +265,8 @@ private struct ZoomSourceTag: ViewModifier {
 
 #Preview("Phone — pick + 4★ selected") {
     let overlays = GridCellOverlays(rating: 4, flag: .pick, sync: nil, style: .phone)
-    let item = PhotoGridItem(id: "p1", thumbnailSource: .photoKit(localID: "x"), overlays: overlays)
+    let item = PhotoGridItem(id: "p1", displayName: "IMG_0001.dng",
+                             thumbnailSource: .photoKit(localID: "x"), overlays: overlays)
     PhotoThumbnailCell(
         item: item,
         provider: .preview(),
@@ -244,7 +281,8 @@ private struct ZoomSourceTag: ViewModifier {
 
 #Preview("Desktop — reject + 3★") {
     let overlays = GridCellOverlays(rating: 3, flag: .reject, sync: nil, style: .desktop)
-    let item = PhotoGridItem(id: "d1", thumbnailSource: .photoKit(localID: "y"), overlays: overlays)
+    let item = PhotoGridItem(id: "d1", displayName: "IMG_0002.dng",
+                             thumbnailSource: .photoKit(localID: "y"), overlays: overlays)
     PhotoThumbnailCell(
         item: item,
         provider: .preview(),
@@ -261,6 +299,7 @@ private struct ZoomSourceTag: ViewModifier {
     let overlays = GridCellOverlays(rating: 5, flag: nil, sync: .synced, style: .desktop)
     let item = PhotoGridItem(
         id: "c1",
+        displayName: "cloud.dng",
         thumbnailSource: .cloud(absPath: "/photos/a.dng", host: "srv"),
         overlays: overlays
     )
@@ -276,21 +315,36 @@ private struct ZoomSourceTag: ViewModifier {
     .background(MapleTokens.bg)
 }
 
-#Preview("Cloud-only badge — no select") {
-    let overlays = GridCellOverlays(rating: 0, flag: nil, sync: .cloudOnly, style: .desktop)
-    let item = PhotoGridItem(
-        id: "co1",
-        thumbnailSource: .cloud(absPath: "/photos/b.dng", host: "srv"),
-        overlays: overlays
+#Preview("Multi-select — checked") {
+    let overlays = GridCellOverlays(rating: 0, flag: nil, style: .desktop)
+    let item = PhotoGridItem(id: "ms1", displayName: "IMG_0010.dng",
+                             thumbnailSource: .photoKit(localID: "z"), overlays: overlays)
+    PhotoThumbnailCell(
+        item: item,
+        provider: .preview(),
+        displayMode: .fill,
+        isSelected: true,
+        multiSelectChecked: true,
+        onTap: {}
     )
+    .frame(width: 180, height: 180)
+    .padding()
+    .background(MapleTokens.bg)
+}
+
+#Preview("Multi-select — unchecked") {
+    let overlays = GridCellOverlays(rating: 0, flag: nil, style: .desktop)
+    let item = PhotoGridItem(id: "ms2", displayName: "IMG_0011.dng",
+                             thumbnailSource: .photoKit(localID: "w"), overlays: overlays)
     PhotoThumbnailCell(
         item: item,
         provider: .preview(),
         displayMode: .fill,
         isSelected: false,
+        multiSelectChecked: false,
         onTap: {}
     )
-    .frame(width: 140, height: 140)
+    .frame(width: 180, height: 180)
     .padding()
     .background(MapleTokens.bg)
 }

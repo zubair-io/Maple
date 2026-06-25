@@ -108,17 +108,25 @@ public struct GridCellOverlays: Sendable, Hashable {
 ///
 /// `id` is the stable grid identity used as the SwiftUI `.task(id:)` token,
 /// the selection key, and the zoom-transition tag (`matchedTransitionSource`).
+/// `displayName` is the human-readable asset name used for the per-cell
+/// accessibility identifier (`"thumb-<displayName>"`) that the UITest harness
+/// resolves — e.g. `app.otherElements["thumb-test_0017"]`. LibraryCell carried
+/// this as `asset.displayName`; the shared cell restores it via this field.
 public struct PhotoGridItem: Identifiable, Sendable {
     public let id: String
+    /// Human-readable name used for `.accessibilityIdentifier("thumb-\(displayName)")`.
+    public let displayName: String
     public let thumbnailSource: ThumbnailSource
     public var overlays: GridCellOverlays
 
     public init(
         id: String,
+        displayName: String,
         thumbnailSource: ThumbnailSource,
         overlays: GridCellOverlays = .init()
     ) {
         self.id = id
+        self.displayName = displayName
         self.thumbnailSource = thumbnailSource
         self.overlays = overlays
     }
@@ -155,6 +163,7 @@ extension PhotoGridItem {
         let stableID = asset.stableID ?? asset.id.uuidString
         self.init(
             id: stableID,
+            displayName: asset.displayName,
             thumbnailSource: .local(asset, source: ImageSourceBox(source)),
             overlays: overlays
         )
@@ -188,6 +197,7 @@ extension PhotoGridItem {
         )
         self.init(
             id: asset.id,
+            displayName: asset.filename,
             thumbnailSource: .cloud(absPath: asset.abs_path, host: host),
             overlays: overlays
         )
@@ -207,6 +217,7 @@ extension PhotoGridItem {
     ///   - style: Badge layout for this surface.
     public init(merged cell: MergedTimelineCell, host: String, sync: SyncBadge, style: OverlayStyle) {
         let id = MergedTimelineSource.renderID(cell)
+        let displayName = MergedTimelineSource.displayName(cell)
         let overlays = GridCellOverlays(
             rating: 0,
             flag: nil,
@@ -216,6 +227,7 @@ extension PhotoGridItem {
         )
         self.init(
             id: id,
+            displayName: displayName,
             thumbnailSource: .merged(cell, host: host),
             overlays: overlays
         )

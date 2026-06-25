@@ -3,6 +3,9 @@
 // Tests for: default overlays, Identifiable id passthrough, Hashable equality,
 // per-surface adapters (local / cloud / merged), and ThumbnailSource routing.
 // Ticket #1490 M0.
+//
+// M1b additions: displayName threading through each adapter, and
+// MergedTimelineCell.Identifiable conformance.
 
 import XCTest
 @testable import MapleCore
@@ -12,7 +15,8 @@ final class PhotoGridItemTests: XCTestCase {
     // MARK: - Default overlays
 
     func testDefaultOverlaysAreEmpty() {
-        let item = PhotoGridItem(id: "x", thumbnailSource: .photoKit(localID: "x"))
+        let item = PhotoGridItem(id: "x", displayName: "x.dng",
+                                 thumbnailSource: .photoKit(localID: "x"))
         XCTAssertEqual(item.overlays.rating, 0)
         XCTAssertNil(item.overlays.flag)
         XCTAssertNil(item.overlays.sync)
@@ -23,8 +27,15 @@ final class PhotoGridItemTests: XCTestCase {
     // MARK: - Identifiable
 
     func testIdPassthrough() {
-        let item = PhotoGridItem(id: "abc-123", thumbnailSource: .photoKit(localID: "abc-123"))
+        let item = PhotoGridItem(id: "abc-123", displayName: "test.dng",
+                                 thumbnailSource: .photoKit(localID: "abc-123"))
         XCTAssertEqual(item.id, "abc-123")
+    }
+
+    func testDisplayNamePassthrough() {
+        let item = PhotoGridItem(id: "x", displayName: "IMG_0001.dng",
+                                 thumbnailSource: .photoKit(localID: "x"))
+        XCTAssertEqual(item.displayName, "IMG_0001.dng")
     }
 
     // MARK: - Hashable (id-based)
@@ -32,23 +43,27 @@ final class PhotoGridItemTests: XCTestCase {
     func testEqualitySameIDAndOverlaysIgnoresSource() {
         let a = PhotoGridItem(
             id: "same",
+            displayName: "a.dng",
             thumbnailSource: .photoKit(localID: "local1"),
             overlays: GridCellOverlays(rating: 2)
         )
         let b = PhotoGridItem(
             id: "same",
+            displayName: "b.dng",
             thumbnailSource: .cloud(absPath: "/photos/img.dng", host: "server"),
             overlays: GridCellOverlays(rating: 2)
         )
-        XCTAssertEqual(a, b, "Same id + same overlays are equal regardless of thumbnail source")
+        XCTAssertEqual(a, b, "Same id + same overlays are equal regardless of thumbnail source or displayName")
     }
 
     func testInequalityWhenOverlaysDiffer() {
         // Critical for SwiftUI: a stable id with changed badges (rating/flag/sync)
         // must compare UNEQUAL so the cell re-renders. (#1490 review — Jules)
-        let a = PhotoGridItem(id: "same", thumbnailSource: .photoKit(localID: "l"))
+        let a = PhotoGridItem(id: "same", displayName: "x.dng",
+                              thumbnailSource: .photoKit(localID: "l"))
         let b = PhotoGridItem(
             id: "same",
+            displayName: "x.dng",
             thumbnailSource: .photoKit(localID: "l"),
             overlays: GridCellOverlays(rating: 5)
         )
@@ -57,14 +72,18 @@ final class PhotoGridItemTests: XCTestCase {
     }
 
     func testHashableInequalityOnDifferentID() {
-        let a = PhotoGridItem(id: "aaa", thumbnailSource: .photoKit(localID: "x"))
-        let b = PhotoGridItem(id: "bbb", thumbnailSource: .photoKit(localID: "x"))
+        let a = PhotoGridItem(id: "aaa", displayName: "a.dng",
+                              thumbnailSource: .photoKit(localID: "x"))
+        let b = PhotoGridItem(id: "bbb", displayName: "b.dng",
+                              thumbnailSource: .photoKit(localID: "x"))
         XCTAssertNotEqual(a, b)
     }
 
     func testHashableSetMembership() {
-        let a = PhotoGridItem(id: "dup", thumbnailSource: .photoKit(localID: "1"))
-        let b = PhotoGridItem(id: "dup", thumbnailSource: .photoKit(localID: "2"))
+        let a = PhotoGridItem(id: "dup", displayName: "a.dng",
+                              thumbnailSource: .photoKit(localID: "1"))
+        let b = PhotoGridItem(id: "dup", displayName: "b.dng",
+                              thumbnailSource: .photoKit(localID: "2"))
         var set = Set<PhotoGridItem>()
         set.insert(a)
         set.insert(b)
@@ -97,6 +116,7 @@ final class PhotoGridItemTests: XCTestCase {
         let overlays = GridCellOverlays(rating: 3, flag: .pick, style: .desktop)
         let item = PhotoGridItem(local: asset, source: nil, overlays: overlays)
         XCTAssertEqual(item.id, "stable-abc")
+        XCTAssertEqual(item.displayName, "IMG_0001.dng")
         XCTAssertEqual(item.overlays.rating, 3)
         XCTAssertEqual(item.overlays.flag, .pick)
     }
@@ -110,6 +130,7 @@ final class PhotoGridItemTests: XCTestCase {
         )
         let item = PhotoGridItem(local: asset, source: nil, overlays: .init())
         XCTAssertFalse(item.id.isEmpty, "id must not be empty even without a stableID")
+        XCTAssertEqual(item.displayName, "noID.dng")
     }
 
     // MARK: - Cloud asset adapter
@@ -125,6 +146,7 @@ final class PhotoGridItemTests: XCTestCase {
         )
         let item = PhotoGridItem(cloud: asset, host: "myserver", style: .phone)
         XCTAssertEqual(item.id, "cloud-001")
+        XCTAssertEqual(item.displayName, "a.dng")
         XCTAssertEqual(item.overlays.rating, 4)
         XCTAssertEqual(item.overlays.flag, .pick)
         if case .cloud(let absPath, let host) = item.thumbnailSource {
@@ -145,6 +167,7 @@ final class PhotoGridItemTests: XCTestCase {
         )
         let item = PhotoGridItem(cloud: asset, host: "h", style: .desktop)
         XCTAssertEqual(item.overlays.flag, .reject)
+        XCTAssertEqual(item.displayName, "b.dng")
     }
 
     func testCloudAdapterNilFlag() {
@@ -168,6 +191,7 @@ final class PhotoGridItemTests: XCTestCase {
         let item = PhotoGridItem(merged: cell, host: "h", sync: .synced, style: .phone)
         // renderID for .synced returns the local id
         XCTAssertEqual(item.id, "local-id")
+        XCTAssertEqual(item.displayName, "local.dng", "displayName prefers local ref for .synced")
         XCTAssertEqual(item.overlays.sync, .synced)
     }
 
@@ -176,6 +200,7 @@ final class PhotoGridItemTests: XCTestCase {
         let cell = MergedTimelineCell.cloudOnly(cloudRef)
         let item = PhotoGridItem(merged: cell, host: "myhost", sync: .cloudOnly, style: .desktop)
         XCTAssertEqual(item.id, "cloud-ref")
+        XCTAssertEqual(item.displayName, "cloud.dng")
         XCTAssertEqual(item.overlays.sync, .cloudOnly)
     }
 
@@ -184,7 +209,30 @@ final class PhotoGridItemTests: XCTestCase {
         let cell = MergedTimelineCell.localOnly(localRef)
         let item = PhotoGridItem(merged: cell, host: "h", sync: .localOnly, style: .phone)
         XCTAssertEqual(item.id, "local-ref")
+        XCTAssertEqual(item.displayName, "local.dng")
         XCTAssertEqual(item.overlays.sync, .localOnly)
+    }
+
+    // MARK: - MergedTimelineCell Identifiable (M1b)
+
+    func testMergedCellIdentifiableSynced() {
+        let local = ImageRef(id: "l-id", displayName: "local.dng")
+        let cloud = ImageRef(id: "c-id", displayName: "cloud.dng")
+        let cell = MergedTimelineCell.synced(local: local, cloud: cloud)
+        // .id must equal MergedTimelineSource.renderID (local id for .synced)
+        XCTAssertEqual(cell.id, "l-id")
+    }
+
+    func testMergedCellIdentifiableCloudOnly() {
+        let cloudRef = ImageRef(id: "cloud-only-id", displayName: "c.dng")
+        let cell = MergedTimelineCell.cloudOnly(cloudRef)
+        XCTAssertEqual(cell.id, "cloud-only-id")
+    }
+
+    func testMergedCellIdentifiableLocalOnly() {
+        let localRef = ImageRef(id: "local-only-id", displayName: "l.dng")
+        let cell = MergedTimelineCell.localOnly(localRef)
+        XCTAssertEqual(cell.id, "local-only-id")
     }
 
     // MARK: - ThumbnailSource.resolvedBackend (pure routing)
