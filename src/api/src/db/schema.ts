@@ -408,12 +408,13 @@ export interface AssetDoc {
     at: string;
   } | null;
   /**
-   * Sentinel written by `apply-video-geo-backfill` when no GPS donor was found
-   * for this video (±15 min window, same library). Prevents the document from
-   * head-of-line-blocking the migration queue indefinitely. Absent on assets
-   * that were successfully backfilled or were never candidates.
+   * Sentinel written by `apply-video-geo-backfill` so a non-applicable video
+   * cannot head-of-line-block the migration queue indefinitely. `'no-donor'`:
+   * no GPS donor within ±15 min in the same library. `'skip'`: defensive —
+   * missing `captured_at` or no live `fileinfo` entry. Absent on assets that
+   * were successfully backfilled or were never candidates.
    */
-  geo_backfill_skipped?: 'no-donor';
+  geo_backfill_skipped?: 'no-donor' | 'skip';
   /**
    * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
    * endpoint; null/absent for assets indexed by other paths (the indexer

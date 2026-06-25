@@ -729,16 +729,20 @@ export async function ensureIndexes(): Promise<void> {
   // `fileinfo.path`.
   await db.collection('assets').createIndex({ 'exif.captured_at': -1 }, { sparse: true });
   // Donor lookup for the apply-video-geo-backfill migration (#1529): the donor
-  // query ranges on `exif.captured_at` (±15 min window) and requires GPS to be
-  // present. The compound index lets the planner seek the narrow time window
-  // then filter by GPS presence without a separate post-filter scan. `sparse: true`
-  // keeps the index small (assets without captured_at don't bloat it).
-  await db
-    .collection('assets')
-    .createIndex(
-      { 'exif.captured_at': 1, 'exif.gps.lat': 1 },
-      { name: 'exif_captured_at_gps_lat', sparse: true },
-    );
+  // query ranges on `exif.captured_at` (±15 min window) among GPS-bearing assets.
+  // A `partialFilterExpression` on `exif.gps.lat` — NOT `sparse` — is what keeps
+  // this index small: a SPARSE *compound* index includes a document that has ANY
+  // of the keyed fields, so `exif.captured_at` (present on nearly every asset)
+  // would drag almost the whole collection in. The partial filter indexes only
+  // the GPS-bearing rows, so the donor query (which predicates on `exif.gps.lat`)
+  // seeks the narrow time window within that subset.
+  await db.collection('assets').createIndex(
+    { 'exif.captured_at': 1, 'exif.gps.lat': 1 },
+    {
+      name: 'exif_captured_at_gps_lat',
+      partialFilterExpression: { 'exif.gps.lat': { $exists: true } },
+    },
+  );
   await db
     .collection('assets')
     .createIndex({ 'exif.camera_make': 1, 'exif.camera_model': 1 }, { sparse: true });
