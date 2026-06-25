@@ -2,17 +2,14 @@
 //
 // Mac/iPad: column in NavigationSplitView. iPhone: main view in TabView.
 // Supports selection, keyboard culling (stars 1-5, P/X flags, arrow nav).
+//
+// M1b (#1490): migrated onto the shared PhotoGrid / PhotoThumbnailCell /
+// ThumbnailProvider. The inline LazyVGrid / ForEach body + MergedCellView
+// are replaced; FolderCell / FolderCellButtonStyle / BrowseEmptyState /
+// ErrorBanner / keyboard shortcuts are kept unchanged.
 
 import SwiftUI
 import MapleCore
-import Photos
-import ImageIO
-import CoreGraphics
-#if canImport(AppKit)
-import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
 
 // MARK: - GridDisplayMode
 // Moved to Maple/Views/Grid/ThumbnailImage.swift (#1490 M0).
@@ -44,6 +41,15 @@ struct BrowseGrid: View {
     /// Fired when the user taps "Merge to Panorama…" from the selection bar
     /// (≥2 assets selected). `nil` suppresses the bar entirely (e.g. previews).
     var onMergePanorama: (() -> Void)? = nil
+    /// Cloud thumb infrastructure for merged mode. When nil (the default),
+    /// cloud-only merged cells fall through to `ThumbnailLoader.shared`
+    /// (same behaviour as the old MergedCellView's cloud-only path).
+    var thumbClient: CloudThumbClient? = nil
+    var thumbCache: CloudThumbCache? = nil
+    /// Server cache-host key for merged-mode cloud thumbs. Used by
+    /// `ThumbnailProvider` to namespace the disk cache per-server identically
+    /// to the cloud timeline. Empty string when no cloud infra is wired.
+    var mergedHost: String = ""
 
     /// Local fallback when no parent binding is supplied (e.g. previews).
     /// Real toolbar wiring lives on `AppShell`.
@@ -54,14 +60,15 @@ struct BrowseGrid: View {
         displayMode?.wrappedValue ?? localDisplayMode
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 4)]
-
     /// True when the current folder has neither sub-folders nor images. The
     /// empty-state overlay only takes over in that case — otherwise we're
     /// browsing a populated folder.
     private var isEmpty: Bool {
         vm.assets.isEmpty && vm.subfolders.isEmpty
     }
+
+    /// Thumbnail provider for normal (local) mode.
+    @State private var localProvider = ThumbnailProvider.local()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,86 +79,11 @@ struct BrowseGrid: View {
                 // loaded at all.
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 4) {
+                        Group {
                             if vm.isMerged {
-                                // Merged Photos + Cloud timeline mode.
-                                ForEach(vm.mergedCells, id: \.self) { cell in
-                                    MergedCellView(cell: cell,
-                                                   displayMode: resolvedDisplayMode)
-                                }
+                                mergedGrid
                             } else {
-                                // Sub-folders first — Finder-style — then images.
-                                // Folder cells are hidden during multi-select so
-                                // only image tiles can be checked.
-                                if !vm.isSelecting {
-                                    ForEach(vm.subfolders, id: \.self) { url in
-                                        // Single tap navigates into the folder. The
-                                        // FolderCell button style provides press
-                                        // feedback (scale + tinted background) so the
-                                        // user gets immediate confirmation the tap
-                                        // registered before the grid reloads.
-                                        FolderCell(url: url) {
-                                            onNavigateFolder?(url)
-                                        }
-                                    }
-                                }
-                                ForEach(vm.assets) { asset in
-                                    let isChecked = vm.selectedIDs.contains(asset.id)
-                                    ZStack(alignment: .topTrailing) {
-                                        LibraryCell(asset: asset,
-                                                    isSelected: vm.isSelecting
-                                                        ? isChecked
-                                                        : vm.selectedID == asset.id,
-                                                    session: sessions[asset.id],
-                                                    source: vm.currentSource,
-                                                    displayMode: resolvedDisplayMode,
-                                                    style: .desktop)
-
-                                        // Multi-select checkmark badge.
-                                        // Checked: white glyph on accent fill (visible on any thumbnail).
-                                        // Unchecked: white circle outline on a dark scrim (readable
-                                        //   on both light and dark thumbnails).
-                                        if vm.isSelecting {
-                                            Image(systemName: isChecked
-                                                  ? "checkmark.circle.fill"
-                                                  : "circle")
-                                                .font(.system(size: 20, weight: .semibold))
-                                                .foregroundStyle(isChecked ? .white : Color.white.opacity(0.90))
-                                                .background(
-                                                    Circle()
-                                                        .fill(isChecked
-                                                              ? Color.accentColor
-                                                              : Color.black.opacity(0.45))
-                                                        .padding(-2)
-                                                )
-                                                .padding(6)
-                                                .accessibilityHidden(true)
-                                        }
-                                    }
-                                    .id(asset.id)
-                                    // Pin hit testing to the cell rectangle.
-                                    .contentShape(Rectangle())
-                                    // Lazy session prime — fires when SwiftUI
-                                    // instantiates this cell (i.e. when it
-                                    // scrolls into view in the LazyVGrid).
-                                    .onAppear { onPrimeSession?(asset) }
-                                    .onTapGesture {
-                                        if vm.isSelecting {
-                                            // Multi-select mode: tap toggles check.
-                                            vm.toggleSelected(asset.id)
-                                        } else {
-                                            // Normal mode: tap opens the editor.
-                                            vm.selectedID = asset.id
-                                            onOpenEditor?(asset)
-                                        }
-                                    }
-                                    .accessibilityLabel(vm.isSelecting
-                                        ? "\(asset.displayName), \(isChecked ? "selected" : "not selected")"
-                                        : asset.displayName)
-                                    .accessibilityHint(vm.isSelecting
-                                        ? "Double tap to \(isChecked ? "deselect" : "select")"
-                                        : "Double tap to open")
-                                }
+                                normalGrid
                             }
                         }
                         // UITest sentinel — the harness uses
@@ -202,6 +134,134 @@ struct BrowseGrid: View {
             }
         }
         .keyboardShortcuts(vm: vm, sessions: sessions)
+    }
+
+    // MARK: - Merged grid (PhotoKit + Cloud timeline)
+
+    /// Renders when `vm.isMerged` is true. No folders, no multi-select.
+    /// Each `MergedTimelineCell` maps to a `PhotoGridItem(merged:)` inside
+    /// the `LazyVGrid`'s `ForEach` (lazy — only visible cells pay the cost).
+    @ViewBuilder
+    private var mergedGrid: some View {
+        PhotoGrid(
+            data: vm.mergedCells,
+            columns: .adaptive(min: 140, max: 200, spacing: 4),
+            provider: makeMergedProvider(),
+            displayMode: resolvedDisplayMode,
+            // Tap routing: the original BrowseGrid merged-mode ForEach had no
+            // .onTapGesture — merged cells in BrowseGrid are informational only;
+            // the full merged-tap routing lives in CloudTimelineView. Kept as
+            // no-op to preserve the same behaviour.
+            onTap: { _ in },
+            makeItem: { cell in
+                PhotoGridItem(
+                    merged: cell,
+                    host: mergedHost,
+                    sync: syncBadge(for: cell),
+                    style: .desktop
+                )
+            }
+        )
+    }
+
+    // MARK: - Normal grid (local assets + subfolders)
+
+    /// Renders when `vm.isMerged` is false. Includes folder cells in the
+    /// `leading:` slot, desktop badge overlays, multi-select, and session priming.
+    @ViewBuilder
+    private var normalGrid: some View {
+        PhotoGrid(
+            data: vm.assets,
+            columns: .adaptive(min: 140, max: 200, spacing: 4),
+            provider: localProvider,
+            displayMode: resolvedDisplayMode,
+            selection: vm.isSelecting
+                ? vm.selectedIDs
+                : (vm.selectedID.map { Set([$0]) } ?? []),
+            onAppearItem: { asset in onPrimeSession?(asset) },
+            multiSelectChecked: vm.isSelecting ? { asset in
+                vm.selectedIDs.contains(asset.id)
+            } : nil,
+            onTap: { asset in
+                if vm.isSelecting {
+                    // Multi-select mode: tap toggles check.
+                    vm.toggleSelected(asset.id)
+                } else {
+                    // Normal mode: tap opens the editor.
+                    vm.selectedID = asset.id
+                    onOpenEditor?(asset)
+                }
+            },
+            makeItem: { asset in
+                PhotoGridItem(local: asset, source: vm.currentSource,
+                              overlays: desktopOverlays(for: asset))
+            },
+            leading: {
+                // Sub-folders first — Finder-style — then images.
+                // Folder cells are hidden during multi-select so
+                // only image tiles can be checked.
+                if !vm.isSelecting {
+                    ForEach(vm.subfolders, id: \.self) { url in
+                        // Single tap navigates into the folder. The
+                        // FolderCell button style provides press
+                        // feedback (scale + tinted background) so the
+                        // user gets immediate confirmation the tap
+                        // registered before the grid reloads.
+                        FolderCell(url: url) {
+                            onNavigateFolder?(url)
+                        }
+                    }
+                }
+            }
+        )
+        // ScrollViewReader uses the element's `.id` as the scrollTo anchor.
+        // ForEach inside PhotoGrid tags each element by `element.id` (AssetRef.ID),
+        // which is the same value `vm.selectedID` holds — so scrollTo works.
+    }
+
+    // MARK: - Overlay derivation
+
+    /// Desktop badge overlays for one asset, derived from `sessions[asset.id]`.
+    /// Matches the original LibraryCell `.desktop` badge derivation exactly.
+    private func desktopOverlays(for asset: AssetRef) -> GridCellOverlays {
+        let session = sessions[asset.id]
+        let cullFlag = session?.culling.flag ?? .none
+        return GridCellOverlays(
+            rating: session?.culling.stars ?? 0,
+            flag: cullFlag == .none ? nil : cullFlag,
+            sync: nil,
+            isVideo: false,
+            style: .desktop
+        )
+    }
+
+    // MARK: - Merged cell SyncBadge derivation
+
+    private func syncBadge(for cell: MergedTimelineCell) -> SyncBadge {
+        switch cell {
+        case .synced:    return .synced
+        case .cloudOnly: return .cloudOnly
+        case .localOnly: return .localOnly
+        }
+    }
+
+    // MARK: - Provider factory
+
+    /// Returns a `ThumbnailProvider` for merged mode. When cloud infra is
+    /// wired by the caller (`thumbClient` + `thumbCache` are non-nil), cloud
+    /// thumb routing is available for `.cloudOnly` cells. Otherwise falls back
+    /// to `ThumbnailProvider.local()` (same as the original MergedCellView
+    /// behaviour — cloud-only cells just fail to load their thumb).
+    ///
+    /// Called once per merged-grid body evaluation. Creating a new actor per
+    /// evaluation is acceptable here: the actor is a thin dispatcher with no
+    /// retained state of its own; the real caches (`ThumbnailLoader.shared`,
+    /// `CloudThumbCache`) are injected by reference and shared.
+    private func makeMergedProvider() -> ThumbnailProvider {
+        if let client = thumbClient, let cache = thumbCache {
+            return ThumbnailProvider(thumbClient: client, thumbCache: cache)
+        }
+        return ThumbnailProvider.local()
     }
 }
 
@@ -434,125 +494,6 @@ private extension View {
         modifier(BrowseKeyboardShortcuts(vm: vm, sessions: sessions))
     }
 }
-
-// MARK: - MergedCellView
-
-/// Grid cell for the merged PhotoKit + Cloud timeline. Renders a thumbnail with
-/// a small status badge indicating whether the asset is local-only, cloud-only,
-/// or synced (present in both places). Thumbnail preference: PhotoKit for
-/// `.synced` and `.localOnly` (instant, already on device); CloudSource thumb
-/// for `.cloudOnly` via `ThumbnailLoader`.
-private struct MergedCellView: View {
-    let cell: MergedTimelineCell
-    let displayMode: GridDisplayMode
-
-    @State private var thumbData: Data?
-    @State private var loadTask: Task<Void, Never>?
-
-    var body: some View {
-        VStack(spacing: 4) {
-            ZStack(alignment: .bottomTrailing) {
-                ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
-
-                // Status badge
-                badgeView
-                    .padding(4)
-            }
-
-        }
-        // Same fill-mode hit-test fix as ThumbnailCell — pin the tap area to
-        // the cell rectangle so the inner Image's .fill overflow doesn't bleed
-        // into neighboring cells.
-        .contentShape(Rectangle())
-        .onAppear { startLoad() }
-        .onDisappear {
-            loadTask?.cancel()
-            loadTask = nil
-        }
-    }
-
-    private var badgeView: some View {
-        Image(systemName: BrowseGridVM.mergedCellBadgeIconName(cell))
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white)
-            .shadow(radius: 1)
-    }
-
-    private var displayName: String {
-        BrowseGridVM.mergedCellDisplayName(cell)
-    }
-
-    /// For `.synced` and `.localOnly`, fetch via PHImageManager (fast, cached
-    /// by Photos). For `.cloudOnly`, defer to `ThumbnailLoader` (CloudSource
-    /// thumb path).
-    private func startLoad() {
-        guard loadTask == nil else { return }
-        switch cell {
-        case .synced(let local, _), .localOnly(let local):
-            let phid = local.id
-            loadTask = Task { @MainActor in
-                let asset = PhotoKitCatalog.shared.asset(localId: phid)
-                guard let asset else { return }
-                let options = PHImageRequestOptions()
-                options.deliveryMode = .opportunistic
-                options.resizeMode = .fast
-                options.isNetworkAccessAllowed = true
-                options.isSynchronous = false
-                let target = ThumbnailDiskCache.defaultThumbSize
-                final class Latch: @unchecked Sendable {
-                    let lock = NSLock(); var fired = false
-                    func tryFire() -> Bool { lock.lock(); defer { lock.unlock() }; if fired { return false }; fired = true; return true }
-                }
-                let latch = Latch()
-                let img: PlatformImage? = await withCheckedContinuation { cont in
-                    PHImageManager.default().requestImage(for: asset, targetSize: target,
-                                                          contentMode: .aspectFill,
-                                                          options: options) { image, info in
-                        if (info?[PHImageResultIsDegradedKey] as? Bool) == true { return }
-                        guard latch.tryFire() else { return }
-                        cont.resume(returning: image)
-                    }
-                }
-                guard !Task.isCancelled, let image = img else { return }
-                if let data = jpegBytes(from: image) {
-                    withAnimation(.easeInOut(duration: 0.18)) { thumbData = data }
-                }
-                loadTask = nil
-            }
-        case .cloudOnly(let ref):
-            loadTask = Task { @MainActor in
-                let data = await ThumbnailLoader.shared.load(for: AssetRef(
-                    displayName: ref.displayName,
-                    hintExtension: (ref.displayName as NSString).pathExtension.lowercased(),
-                    stableID: ref.id,
-                    bytesProvider: { throw ImageSourceError.unsupported("cloud-only preview") }
-                ), from: nil)
-                guard !Task.isCancelled, let data else { return }
-                withAnimation(.easeInOut(duration: 0.18)) { thumbData = data }
-                loadTask = nil
-            }
-        }
-    }
-
-    private func jpegBytes(from image: PlatformImage) -> Data? {
-        #if canImport(UIKit)
-        let cg = image.cgImage
-        #elseif canImport(AppKit)
-        var rect = CGRect(origin: .zero, size: image.size)
-        let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
-        #endif
-        guard let cg else { return nil }
-        let data = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
-        let opts: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.82]
-        CGImageDestinationAddImage(dest, cg, opts as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return data as Data
-    }
-}
-
-// MARK: - ThumbnailImage
-// Moved to Maple/Views/Grid/ThumbnailImage.swift (#1490 M0).
 
 // MARK: - Previews
 //
