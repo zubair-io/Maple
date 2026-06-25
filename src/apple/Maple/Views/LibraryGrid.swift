@@ -24,8 +24,8 @@
 //
 // M1a (#1490): migrated onto the shared PhotoGrid / PhotoThumbnailCell /
 // ThumbnailProvider. The LazyVGrid body is replaced; LibraryFolderCell
-// is kept for the `leading:` slot. LibraryCell is NOT deleted — BrowseGrid
-// still uses it (that's M1b).
+// is kept for the `leading:` slot. LibraryCell was deleted in M1b (#1490)
+// after BrowseGrid migrated off it.
 
 #if os(iOS)
 
