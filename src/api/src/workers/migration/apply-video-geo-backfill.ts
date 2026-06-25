@@ -111,10 +111,7 @@ export const applyVideoGeoBackfill: Migration = {
 
         if (!result) {
           // No donor found. Set sentinel so this video can't block the queue.
-          await assets.updateOne(
-            { _id: doc._id },
-            { $set: { geo_backfill_skipped: 'no-donor' } },
-          );
+          await assets.updateOne({ _id: doc._id }, { $set: { geo_backfill_skipped: 'no-donor' } });
           log.warn(
             { video_id: String(doc._id), maple_id: doc.maple_id },
             'apply: no-donor — set geo_backfill_skipped sentinel',
@@ -127,10 +124,7 @@ export const applyVideoGeoBackfill: Migration = {
         const donorGps = donor.exif?.gps;
         if (!donorGps) {
           // Donor had no GPS at apply time (race: deleted between audit and apply).
-          await assets.updateOne(
-            { _id: doc._id },
-            { $set: { geo_backfill_skipped: 'no-donor' } },
-          );
+          await assets.updateOne({ _id: doc._id }, { $set: { geo_backfill_skipped: 'no-donor' } });
           log.warn(
             { video_id: String(doc._id), donor_id: String(donor._id) },
             'apply: donor GPS vanished at apply time — set no-donor sentinel',
