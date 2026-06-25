@@ -56,20 +56,8 @@ struct LibraryGrid: View {
     /// ThumbnailLoader handles them through the `.local` backend.
     @State private var provider = ThumbnailProvider.local()
 
-    /// Stable id → AssetRef lookup for tap/prime routing. Built ONCE per body
-    /// evaluation (see `body`) and captured by the cell closures — never rebuilt
-    /// per-cell, so scrolling stays allocation-free in the render loop.
-    private func makeAssetByID() -> [String: AssetRef] {
-        Dictionary(vm.assets.map { asset in
-            (asset.stableID ?? asset.id.uuidString, asset)
-        }, uniquingKeysWith: { first, _ in first })
-    }
-
     var body: some View {
-        // Build the id→asset map once here; the `onTap`/`onAppearItem` closures
-        // below capture this local, so a scroll never rebuilds it per cell.
-        let assetByID = makeAssetByID()
-        return ScrollView {
+        ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // The in-content source title and the cull filter-chip row
                 // (All / Picks / 4+ stars / Edited) were removed (#782):
@@ -82,11 +70,11 @@ struct LibraryGrid: View {
                     displayMode: displayMode,
                     selection: selectedGridID.map { Set([$0]) } ?? [],
                     onAppearItem: { item in
-                        guard let asset = assetByID[item.id] else { return }
+                        guard let asset = vm.assetByStableID[item.id] else { return }
                         onPrimeSession(asset)
                     },
                     onTap: { item in
-                        guard let asset = assetByID[item.id] else { return }
+                        guard let asset = vm.assetByStableID[item.id] else { return }
                         vm.selectedID = asset.id
                         // Selection haptic — matches the spec §2 phone
                         // interaction model (`.selection` on iOS).
