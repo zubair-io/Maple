@@ -60,6 +60,7 @@ export class LivingSliderComponent implements OnDestroy {
   readonly dragging = signal(false);
   private _pointerDownX = 0;
   private _pointerDownValue = 0;
+  private _cachedTrackWidth = 0;
   private _boundPointerMove: ((e: PointerEvent) => void) | null = null;
   private _boundPointerUp: ((e: PointerEvent) => void) | null = null;
   private _boundPointerCancel: ((e: PointerEvent) => void) | null = null;
@@ -72,11 +73,6 @@ export class LivingSliderComponent implements OnDestroy {
     const lo = this.min();
     const hi = this.max();
     if (hi === lo) return 50;
-    if (this.bipolar()) {
-      // Bipolar: map [min..max] → [0..100], zero = 50%
-      const range = hi - lo;
-      return ((v - lo) / range) * 100;
-    }
     return ((v - lo) / (hi - lo)) * 100;
   });
 
@@ -103,10 +99,14 @@ export class LivingSliderComponent implements OnDestroy {
 
   onTrackPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return;
-    e.preventDefault();
 
     const track = this.trackRef?.nativeElement;
     if (!track) return;
+
+    // Cache track width once at drag start (avoids getBoundingClientRect on
+    // every move tick — Fix #4). Touch scrolling is already suppressed by
+    // `touch-action: none` on .track-wrap in the stylesheet (Fix #3).
+    this._cachedTrackWidth = track.getBoundingClientRect().width;
 
     this.dragging.set(true);
     this._pointerDownX = e.clientX;
@@ -125,10 +125,7 @@ export class LivingSliderComponent implements OnDestroy {
   }
 
   private _onPointerMove(e: PointerEvent): void {
-    const track = this.trackRef?.nativeElement;
-    if (!track) return;
-
-    const trackW = track.getBoundingClientRect().width;
+    const trackW = this._cachedTrackWidth;
     if (trackW <= 0) return;
 
     const dx = e.clientX - this._pointerDownX;
@@ -163,6 +160,26 @@ export class LivingSliderComponent implements OnDestroy {
       window.removeEventListener('pointercancel', this._boundPointerCancel);
       this._boundPointerCancel = null;
     }
+  }
+
+  /** Keyboard operation for the focused track (role="slider" + tabindex="0").
+   * ArrowLeft/Down decrement by step; ArrowRight/Up increment by step.
+   * All other keys pass through. */
+  onTrackKeyDown(e: KeyboardEvent): void {
+    const lo = this.min();
+    const hi = this.max();
+    const s = this.step();
+    let delta = 0;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      delta = -s;
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      delta = s;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    const next = Math.min(hi, Math.max(lo, this.value() + delta));
+    this.valueChange.emit(next);
   }
 
   /** Double-click resets to default. */

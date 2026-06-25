@@ -14,10 +14,12 @@
 // Desktop opts out of auto-recede.
 
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
   HostListener,
+  NgZone,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -74,12 +76,13 @@ const RECEDE_IDLE_MS = 3000;
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'pro-editor-shell' },
 })
-export class EditorShellComponent implements OnInit, OnDestroy {
+export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
   editorState = inject(EditorStateService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private ngZone = inject(NgZone);
 
   @ViewChild('canvasWrap') canvasWrapRef?: ElementRef<HTMLElement>;
   @ViewChild(ControlCardComponent) controlCard?: ControlCardComponent;
@@ -157,10 +160,15 @@ export class EditorShellComponent implements OnInit, OnDestroy {
   private _hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
 
   private _ro?: ResizeObserver;
+  private _pointerMoveBound: ((e: PointerEvent) => void) | null = null;
 
   ngOnInit(): void {
     this.applyRouteAddress();
     this._setupResponsive();
+  }
+
+  ngAfterViewInit(): void {
+    this._setupPointerMove();
   }
 
   ngOnDestroy(): void {
@@ -168,6 +176,35 @@ export class EditorShellComponent implements OnInit, OnDestroy {
     this._clearHudTimer();
     this._ro?.disconnect();
     this._cleanupScrub();
+    if (this._pointerMoveBound) {
+      document.removeEventListener('pointermove', this._pointerMoveBound);
+      this._pointerMoveBound = null;
+    }
+  }
+
+  // ── Outside-zone pointermove ──────────────────────────────────────────
+
+  private _setupPointerMove(): void {
+    if (typeof document === 'undefined') return;
+    this._pointerMoveBound = (_e: PointerEvent) => {
+      // Only re-enter the zone when we need to flip chromeState back to full
+      // (i.e. currently receded and not on desktop). Idle-restart always runs.
+      if (this.isDesktop()) return;
+      if (this.scrubbing()) return;
+      if (this.chromeState() === 'receded') {
+        this.ngZone.run(() => {
+          this.chromeState.set('full');
+          this._restartRecedeTimer();
+        });
+      } else {
+        // Already full — just restart the timer without a zone re-entry
+        // (setTimeout is not tracked by Angular, so this is fine outside).
+        this._restartRecedeTimer();
+      }
+    };
+    this.ngZone.runOutsideAngular(() => {
+      document.addEventListener('pointermove', this._pointerMoveBound!);
+    });
   }
 
   // ── Responsive observer ───────────────────────────────────────────────
@@ -203,13 +240,6 @@ export class EditorShellComponent implements OnInit, OnDestroy {
   }
 
   // ── Chrome recede ─────────────────────────────────────────────────────
-
-  onPointerMove(): void {
-    if (this.isDesktop()) return; // desktop never recedes
-    if (this.scrubbing()) return;
-    this.chromeState.set('full');
-    this._restartRecedeTimer();
-  }
 
   private _restartRecedeTimer(): void {
     this._clearRecedeTimer();
