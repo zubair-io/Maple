@@ -383,6 +383,68 @@ describe('audit-video-geo-backfill', () => {
     expect(auditDoc!.decision).toBe('no-donor');
   });
 
+  it('does NOT borrow GPS from a video donor (donors must be photos)', async () => {
+    if (!mongoReachable || !db) return;
+
+    const assets = db.collection('assets');
+    const audit = db.collection('video_geo_backfill_audit');
+    await assets.deleteMany({});
+    await audit.deleteMany({});
+
+    const videoId = new ObjectId();
+    const donorVideoId = new ObjectId();
+    const videoTime = '2019-05-18T17:45:00.000Z';
+
+    await assets.insertMany([
+      videoAsset(videoId, { capturedAt: videoTime }),
+      // A *video* (.mov) with GPS in the window — must NOT be selected as a donor.
+      videoAsset(donorVideoId, {
+        capturedAt: '2019-05-18T17:45:30.000Z',
+        gps: { lat: 1, lng: 2 },
+        filename: 'other.mov',
+      }),
+    ]);
+
+    const { auditVideoGeoBackfill } = await import('./audit-video-geo-backfill.ts');
+    await auditVideoGeoBackfill.runBatch(50);
+
+    const auditDoc = await audit.findOne({ _id: videoId });
+    expect(auditDoc!.decision).toBe('no-donor');
+  });
+
+  it('does NOT borrow GPS from an already-inferred asset (no daisy-chaining)', async () => {
+    if (!mongoReachable || !db) return;
+
+    const assets = db.collection('assets');
+    const audit = db.collection('video_geo_backfill_audit');
+    await assets.deleteMany({});
+    await audit.deleteMany({});
+
+    const videoId = new ObjectId();
+    const inferredId = new ObjectId();
+    const videoTime = '2019-05-18T17:45:00.000Z';
+
+    const inferred = photoAsset(inferredId, {
+      capturedAt: '2019-05-18T17:45:30.000Z',
+      gps: { lat: 1, lng: 2 },
+    }) as Record<string, unknown>;
+    // Mark the photo as itself inferred — it must be excluded as a donor.
+    inferred.geo_inferred = {
+      source: 'temporal-neighbor',
+      donor_id: new ObjectId(),
+      donor_delta_ms: 0,
+      at: new Date().toISOString(),
+    };
+
+    await assets.insertMany([videoAsset(videoId, { capturedAt: videoTime }), inferred]);
+
+    const { auditVideoGeoBackfill } = await import('./audit-video-geo-backfill.ts');
+    await auditVideoGeoBackfill.runBatch(50);
+
+    const auditDoc = await audit.findOne({ _id: videoId });
+    expect(auditDoc!.decision).toBe('no-donor');
+  });
+
   it('is idempotent: second runBatch writes no new audit docs', async () => {
     if (!mongoReachable || !db) return;
 
