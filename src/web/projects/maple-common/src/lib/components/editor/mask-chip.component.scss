@@ -1,5 +1,5 @@
 // MaskChip styles — disabled glass chip (#1535).
-@use '../../pro-tokens';
+// Pro tokens imported once globally in styles.scss (#1537).
 
 :host {
   display: block;

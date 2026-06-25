@@ -8,7 +8,7 @@
 //
 // Phone: value 30px / rail 200px. Desktop: value 22px / rail 240px.
 
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 @Component({
   selector: 'pro-value-hud',
