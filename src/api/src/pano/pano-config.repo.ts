@@ -76,16 +76,6 @@ export async function savePanoConfig(patch: Partial<PanoConfig>): Promise<void> 
   log.info({ patch }, 'pano config saved');
 }
 
-function resolveStr(dbVal: string | null | undefined): {
-  value: string | null;
-  source: 'db' | 'unset';
-} {
-  if (typeof dbVal === 'string' && dbVal.trim().length > 0) {
-    return { value: dbVal.trim(), source: 'db' };
-  }
-  return { value: null, source: 'unset' };
-}
-
 function resolvePath(dbVal: string | null | undefined): {
   value: string | null;
   source: 'db' | 'unset';
