@@ -25,16 +25,16 @@ export interface DockEntry {
 const DOCK_ENTRIES: DockEntry[] = [
   { id: 'light', icon: 'tool-exposure', label: 'Light', group: 'light' },
   { id: 'color', icon: 'tool-tint', label: 'Color', group: 'color' },
-  // Curve: coming in #1536 (web M2 tone-curve panel)
-  { id: 'curve', icon: 'tool-contrast', label: 'Curve', disabled: true, ticket: '#1536' },
+  // Curve: coming in #1540 (web M2 — tone curve + WB pad)
+  { id: 'curve', icon: 'tool-contrast', label: 'Curve', disabled: true, ticket: '#1540' },
   { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },
   { id: 'detail', icon: 'tool-sharpen', label: 'Detail', group: 'detail' },
-  // Optics: coming in #1537 (web M3 optics/lens-correction panel)
-  { id: 'optics', icon: 'zoom-in', label: 'Optics', disabled: true, ticket: '#1537' },
-  // Mask: coming in web M3 — no masking exists yet; a fake contour would
-  // violate CLAUDE.md principle #6. Reference web-M3 in code. (#1538)
-  { id: 'mask', icon: 'tool-dehaze', label: 'Mask', disabled: true, ticket: '#1538' },
-  // Heal: coming in #1472 (local AI inpainting) — not wired in M1.
+  // Optics: out of v0.1 scope — tracked in epic #1534.
+  { id: 'optics', icon: 'zoom-in', label: 'Optics', disabled: true, ticket: '#1534' },
+  // Mask: coming in #1541 (web M3 — masking). No masking exists yet; a fake
+  // contour would violate CLAUDE.md principle #6.
+  { id: 'mask', icon: 'tool-dehaze', label: 'Mask', disabled: true, ticket: '#1541' },
+  // Heal: tracked in #1472 (local AI inpainting / Remove) — not wired in M1.
   { id: 'heal', icon: 'tool-texture', label: 'Heal', disabled: true, ticket: '#1472' },
 ];
 
