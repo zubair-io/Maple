@@ -28,12 +28,16 @@ use std::ffi::{c_char, CStr};
 ///
 /// `quality_preview` selects the internal demosaic / downsample strategy:
 ///   0 → `RenderQuality::Full`    (bilinear or HA demosaic, full resolution;
-///                                  export path, matches the parity harness)
+///                                  legacy value kept for ABI compatibility)
 ///   1 → `RenderQuality::Preview` (half-res quad demosaic; the returned
 ///                                  buffer is at half the sensor's dimensions
 ///                                  in both axes — caller must scale for
 ///                                  display; use for interactive fast-phase
 ///                                  so a 100MP RAW decodes in seconds)
+///   2 → `RenderQuality::Amaze`   (AMaZE demosaic, full resolution; the
+///                                  export/refine path — highest quality on
+///                                  Bayer sensors; same cost as Full on X-Trans
+///                                  (maps to markesteijn))
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file(
     raw_path: *const c_char,
@@ -89,10 +93,10 @@ pub unsafe extern "C" fn maple_render_file(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
+        let quality = match quality_preview {
+            1 => RenderQuality::Preview,
+            2 => RenderQuality::Amaze,
+            _ => RenderQuality::Full,
         };
         // Pass the RAW path through so `Profile::Auto` (#537) can read the
         // embedded JPEG. `maple_render_file` is the file-backed entry —
@@ -139,7 +143,7 @@ pub unsafe extern "C" fn maple_render_file(
 /// `quality_preview` mirrors `maple_render_file` — 1 = half-res preview
 /// demosaic for the fast interactive path (returned buffer is at half the
 /// sensor's dimensions in both axes; caller must scale for display),
-/// 0 = full export quality.
+/// 2 = AMaZE demosaic for the export/refine path, 0 = legacy Full.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_bytes(
     raw_bytes: *const u8,
@@ -193,10 +197,10 @@ pub unsafe extern "C" fn maple_render_bytes(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
+        let quality = match quality_preview {
+            1 => RenderQuality::Preview,
+            2 => RenderQuality::Amaze,
+            _ => RenderQuality::Full,
         };
         let (w, h, out_bytes) = match render_from_raw_with_quality(&raw_img, &model, quality) {
             Ok(t) => t,
@@ -341,12 +345,12 @@ pub unsafe extern "C" fn maple_histogram_file(
                 return 7;
             }
         };
-        // Full-quality render so the histogram reflects the authoritative
-        // export pixels (mirrors `maple_render_file` with quality_preview = 0).
+        // AMaZE render so the histogram reflects the authoritative export pixels
+        // (mirrors `maple_render_file` with quality_preview = 2, the export path).
         let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
             &raw_img,
             &model,
-            RenderQuality::Full,
+            RenderQuality::Amaze,
             Some(RawInput::Path(raw_path)),
         ) {
             Ok(t) => t,
@@ -466,10 +470,10 @@ pub unsafe extern "C" fn maple_histogram_bytes(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
+        let quality = match quality_preview {
+            1 => RenderQuality::Preview,
+            2 => RenderQuality::Amaze,
+            _ => RenderQuality::Full,
         };
         let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
             &raw_img,
