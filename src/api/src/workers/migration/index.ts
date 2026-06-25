@@ -8,12 +8,16 @@ import { refileBackups } from './refile-backups.ts';
 import { scrubMirrorOrphans } from './scrub-mirror-orphans.ts';
 import { backfillLiveLocationCount } from './backfill-live-location-count.ts';
 import { backfillVideoExif } from './backfill-video-exif.ts';
+import { auditVideoGeoBackfill } from './audit-video-geo-backfill.ts';
+import { applyVideoGeoBackfill } from './apply-video-geo-backfill.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   refileBackups,
   scrubMirrorOrphans,
   backfillLiveLocationCount,
   backfillVideoExif,
+  auditVideoGeoBackfill,
+  applyVideoGeoBackfill,
 ];
 
 export function getMigration(id: string): Migration | undefined {

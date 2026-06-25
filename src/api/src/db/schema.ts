@@ -392,6 +392,29 @@ export interface AssetDoc {
    */
   video_meta_version?: number;
   /**
+   * Provenance written by the `apply-video-geo-backfill` migration when it
+   * borrows GPS from a temporally-nearby photo. Lives outside `exif` so a
+   * future EXIF re-parse cannot silently overwrite it. Set alongside the GPS
+   * write; never updated. `null` on assets whose GPS came from EXIF directly.
+   */
+  geo_inferred?: {
+    /** Always "temporal-neighbor" for v1. */
+    source: 'temporal-neighbor';
+    /** _id of the donor asset whose GPS was borrowed. */
+    donor_id: import('mongodb').ObjectId;
+    /** Absolute time difference in milliseconds between the video and the donor. */
+    donor_delta_ms: number;
+    /** ISO timestamp when the backfill was applied. */
+    at: string;
+  } | null;
+  /**
+   * Sentinel written by `apply-video-geo-backfill` when no GPS donor was found
+   * for this video (±15 min window, same library). Prevents the document from
+   * head-of-line-blocking the migration queue indefinitely. Absent on assets
+   * that were successfully backfilled or were never candidates.
+   */
+  geo_backfill_skipped?: 'no-donor';
+  /**
    * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
    * endpoint; null/absent for assets indexed by other paths (the indexer
    * pipeline does not compute it — only the PhotoKit backup path does).
