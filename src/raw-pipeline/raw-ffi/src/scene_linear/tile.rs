@@ -98,10 +98,10 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            raw_core::pipeline::RenderQuality::Preview
-        } else {
-            raw_core::pipeline::RenderQuality::Full
+        let quality = match quality_preview {
+            1 => raw_core::pipeline::RenderQuality::Preview,
+            2 => raw_core::pipeline::RenderQuality::Amaze,
+            _ => raw_core::pipeline::RenderQuality::Full,
         };
         if dehaze_active(&model) {
             set_last_error("dehaze unsupported on tile path".into());
@@ -211,10 +211,10 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                 return 7;
             }
         };
-        let quality = if quality_preview != 0 {
-            raw_core::pipeline::RenderQuality::Preview
-        } else {
-            raw_core::pipeline::RenderQuality::Full
+        let quality = match quality_preview {
+            1 => raw_core::pipeline::RenderQuality::Preview,
+            2 => raw_core::pipeline::RenderQuality::Amaze,
+            _ => raw_core::pipeline::RenderQuality::Full,
         };
         if dehaze_active(&model) {
             set_last_error("dehaze unsupported on tile path".into());

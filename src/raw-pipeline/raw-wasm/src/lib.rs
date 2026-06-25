@@ -199,7 +199,9 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
         &raw_img,
         &model,
-        raw_core::pipeline::RenderQuality::Full,
+        // Export/display path: use AMaZE for best quality on Bayer images.
+        // Web live path deferred — see render_bytes_scene_linear (#846/#321).
+        raw_core::pipeline::RenderQuality::Amaze,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
     )
         .map_err(|e| JsError::new(&e.to_string()))?;
@@ -264,7 +266,9 @@ pub fn render_bytes_sized(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        raw_core::pipeline::RenderQuality::Full
+        // Export path: use AMaZE for best quality on Bayer images.
+        // Web live path deferred — see render_bytes_scene_linear comment (#846/#321).
+        raw_core::pipeline::RenderQuality::Amaze
     };
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
@@ -355,7 +359,9 @@ impl MapleSceneLinearRender {
 /// but returns fp16 instead of sRGB u8.
 ///
 /// `quality_preview = true` runs the half-res Preview pipeline; `false`
-/// runs full-res Full. Same mapping as the legacy entry.
+/// runs AMaZE for the export path. Web live/preview keeps Preview; AMaZE
+/// on the web live path is deferred until the develop cache lands
+/// (see issue #846 / #321) so demosaic runs once per open, not per slider tick.
 ///
 /// Plan 3 M1 — see .archived-plans/plans/2026-04-25-plan-3-web-ffi-split-m1.md.
 #[wasm_bindgen]
@@ -389,7 +395,11 @@ pub fn render_bytes_scene_linear(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        raw_core::pipeline::RenderQuality::Full
+        // Export path: use AMaZE for best quality on Bayer images.
+        // Web live/interactive path deferred (#846 / #321) — AMaZE on the
+        // live canvas requires the develop cache so demosaic runs once per
+        // open, not per slider tick.
+        raw_core::pipeline::RenderQuality::Amaze
     };
     let (w, h, fp16_rgba) =
         raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)
@@ -454,7 +464,9 @@ pub fn render_bytes_scene_linear_sized(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        raw_core::pipeline::RenderQuality::Full
+        // Export path: use AMaZE for best quality on Bayer images.
+        // Web live path deferred — see render_bytes_scene_linear comment (#846/#321).
+        raw_core::pipeline::RenderQuality::Amaze
     };
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(

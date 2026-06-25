@@ -111,10 +111,13 @@ public struct PipelineRenderer: Sendable {
     /// Render quality knob. `preview` takes the half-resolution path through
     /// the Rust pipeline (quad demosaic + 4× fewer pixels through every
     /// downstream stage) so a 100 MP RAW lands in a few seconds instead of
-    /// minutes. `full` is the export path — the parity harness locks this.
+    /// minutes. `full` uses bilinear demosaic (legacy value, preserved for ABI
+    /// compatibility). `amaze` uses the AMaZE demosaic for highest quality on
+    /// Bayer images — this is the export/refine path (#940).
     public enum Quality: Int32 {
         case full = 0
         case preview = 1
+        case amaze = 2
     }
 
     public static func render(
