@@ -1,89 +1,101 @@
-<div class="w-full h-full bg-bg overflow-hidden flex flex-col font-sans">
-  <!-- Toolbar -->
+<!-- EditorShell — canvas-first layered layout (#1535) -->
+<!-- Chrome opacity controlled by chromeState signal -->
+<div class="shell" [class.shell--desktop]="isDesktop()" (pointermove)="onPointerMove()">
+  <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
+  <div #canvasWrap class="canvas-layer" (pointerdown)="onCanvasPointerDown($event)">
+    <editor-image-canvas />
+  </div>
+
+  <!-- ── Chrome layers (float above canvas) ──────────────────────────── -->
+
+  <!-- Chrome opacity wrapper — transitions on recede/scrub -->
   <div
-    class="flex items-center h-10 bg-surface border-b-[0.5px] border-border px-3 flex-shrink-0 gap-2.5"
+    class="chrome-layer"
+    [class.chrome--receded]="chromeState() === 'receded'"
+    [class.chrome--scrubbing]="chromeState() === 'scrubbing'"
   >
-    <!-- Back to Browse -->
-    <div
-      class="flex items-center gap-1 h-6 px-2 rounded-[5px] bg-surface-alt border-[0.5px] border-border font-sans text-[11px] text-text-muted cursor-pointer transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
-      (click)="goBack()"
-      title="Back to Browse (Esc)"
-    >
-      <maple-icon name="back" [size]="11" color="var(--color-text-muted)" />
-      <span>Library</span>
+    <!-- ── Top bar ────────────────────────────────────────────────── -->
+    <div class="top-bar">
+      <!-- Back button -->
+      <button
+        class="top-btn"
+        title="Back to Library (Esc)"
+        aria-label="Back to Library"
+        (click)="goBack()"
+      >
+        <maple-icon name="back" [size]="14" color="var(--pro-text-muted)" />
+        <span class="top-btn-label">Library</span>
+      </button>
+
+      <!-- Asset name -->
+      <span class="top-name">{{ assetName() }}</span>
+
+      <!-- Center spacer -->
+      <div class="top-spacer"></div>
+
+      <!-- Histogram (tablet/desktop) -->
+      @if (isTabletPlus() && currentAdj()) {
+        <div class="top-histogram">
+          <editor-histogram [adjustment]="currentAdj()!" />
+        </div>
+      }
+
+      <!-- Before/After split toggle -->
+      <button
+        class="top-icon-btn"
+        [class.top-icon-btn--active]="canvasSvc.showBeforeAfter()"
+        title="Before/After (\)"
+        aria-label="Toggle before/after"
+        (click)="canvasSvc.toggleBeforeAfter()"
+      >
+        <maple-icon name="split" [size]="16" color="var(--pro-text-muted)" />
+      </button>
+
+      <!-- Export -->
+      <button
+        class="export-btn"
+        [class.export-btn--enabled]="state.focusedAssetId() !== null"
+        [disabled]="state.focusedAssetId() === null"
+        title="Export"
+        aria-label="Export"
+      >
+        <maple-icon name="export" [size]="14" color="currentColor" />
+        <span>Export</span>
+      </button>
     </div>
 
-    <!-- Filmstrip toggle — hidden when there's only one photo to navigate. -->
-    @if (hasMultiplePhotos()) {
-      <div
-        class="chrome-btn w-7 h-6 rounded-[5px] flex items-center justify-center cursor-pointer transition-colors duration-[120ms] border-[0.5px] border-transparent hover:bg-surface-hover hover:border-border"
-        [class.is-active]="state.sidebarVisible()"
-        [title]="filmstripToggleTitle()"
-        (click)="state.toggleSidebar()"
-      >
-        <maple-icon
-          name="sidebar"
-          [size]="13"
-          [color]="
-            state.sidebarVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'
-          "
-        />
+    <!-- ── Right tool dock (tablet/desktop only) ─────────────────── -->
+    @if (isTabletPlus()) {
+      <div class="tool-dock-anchor">
+        <pro-tool-dock [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
       </div>
     }
 
-    <div class="flex-1"></div>
+    <!-- ── Bottom control card ────────────────────────────────────── -->
+    <div class="control-card-anchor">
+      <!-- Filmstrip strip above card (when multiple photos) -->
+      @if (hasMultiplePhotos()) {
+        <div class="filmstrip-strip">
+          <editor-filmstrip />
+        </div>
+      }
 
-    <!-- Export -->
-    <div
-      class="export-btn flex items-center gap-1 px-2.5 py-1 rounded-[5px] text-[11px] cursor-pointer"
-      [class.has-selection]="state.focusedAssetId() !== null"
-      [class.no-selection]="state.focusedAssetId() === null"
-    >
-      <maple-icon name="export" [size]="11" />
-      <span>Export</span>
+      <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
     </div>
 
-    <!-- Inspector toggle -->
-    <div
-      class="chrome-btn w-7 h-6 rounded-[5px] flex items-center justify-center cursor-pointer transition-colors duration-[120ms] border-[0.5px] border-transparent hover:bg-surface-hover hover:border-border"
-      [class.is-active]="state.inspectorVisible()"
-      [title]="(state.inspectorVisible() ? 'Hide' : 'Show') + ' inspector  ⌥⌘D'"
-      (click)="state.toggleInspector()"
-    >
-      <maple-icon
-        name="inspector"
-        [size]="13"
-        [color]="
-          state.inspectorVisible() ? 'var(--color-text-main)' : 'var(--color-text-muted)'
-        "
-      />
+    <!-- ── Lower-left mask chip ───────────────────────────────────── -->
+    <div class="mask-chip-anchor">
+      <pro-mask-chip />
     </div>
   </div>
 
-  <!-- Body -->
-  <div class="flex-1 flex min-h-0 min-w-0 bg-bg">
-    <!-- Left: filmstrip (only when multiple photos are in the folder) -->
-    @if (hasMultiplePhotos()) {
-      <div
-        class="flex-shrink-0 overflow-hidden transition-[width] duration-[180ms] ease-out"
-        [style.width]="state.sidebarVisible() ? '110px' : '0px'"
-      >
-        <editor-filmstrip />
-      </div>
-    }
-
-    <!-- Center: image canvas (crossfade on asset change) -->
-    <div class="flex-1 flex flex-col min-w-0 relative transition-opacity duration-[180ms] ease-out">
-      <editor-image-canvas />
-    </div>
-
-    <!-- Right: detail panel -->
-    <div
-      class="panel-right flex-shrink-0 overflow-hidden transition-[width] duration-[180ms] ease-out border-l-[0.5px] border-border"
-      [class.is-hidden]="!state.inspectorVisible()"
-      [style.width]="state.inspectorVisible() ? '280px' : '0px'"
-    >
-      <editor-detail-panel />
-    </div>
+  <!-- ── Value HUD (always visible layer, fades with its own signal) ── -->
+  <div class="hud-layer">
+    <pro-value-hud
+      [visible]="hudVisible()"
+      [eyebrow]="hudEyebrow()"
+      [valueText]="hudValueText()"
+      [progress]="hudProgress()"
+    />
   </div>
 </div>
