@@ -213,6 +213,41 @@ final class PhotoGridItemTests: XCTestCase {
         XCTAssertEqual(item.overlays.sync, .localOnly)
     }
 
+    // MARK: - OverlayStyle.cloud (M2)
+
+    /// `.cloud` style must be distinct from `.phone` and `.desktop` so GridCellOverlays
+    /// that differ only by style compare unequal (driving cell re-renders on style changes).
+    func testCloudOverlayStyleDistinct() {
+        let phone   = GridCellOverlays(rating: 3, style: .phone)
+        let desktop = GridCellOverlays(rating: 3, style: .desktop)
+        let cloud   = GridCellOverlays(rating: 3, style: .cloud)
+        XCTAssertNotEqual(phone, desktop)
+        XCTAssertNotEqual(phone, cloud)
+        XCTAssertNotEqual(desktop, cloud)
+    }
+
+    /// Cloud adapter with `.cloud` style carries the rating and uses the cloud ThumbnailSource.
+    func testCloudAdapterWithCloudStyle() {
+        let asset = SearchAsset(
+            id: "cloud-cloud-style",
+            folder_id: "f1",
+            abs_path: "/photos/cloud.dng",
+            filename: "cloud.dng",
+            rating: 3,
+            flag: nil
+        )
+        let item = PhotoGridItem(cloud: asset, host: "myhost", style: .cloud)
+        XCTAssertEqual(item.overlays.style, .cloud)
+        XCTAssertEqual(item.overlays.rating, 3)
+        XCTAssertNil(item.overlays.sync, "cloud-only cells have no sync badge")
+    }
+
+    /// SearchAsset.Identifiable: id is the server-assigned asset id (M2).
+    func testSearchAssetIdentifiable() {
+        let asset = SearchAsset(id: "sa-id-123", folder_id: "f", abs_path: "/a.dng", filename: "a.dng")
+        XCTAssertEqual(asset.id, "sa-id-123")
+    }
+
     // MARK: - MergedTimelineCell Identifiable (M1b)
 
     func testMergedCellIdentifiableSynced() {
