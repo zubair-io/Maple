@@ -41,7 +41,11 @@ async function tryConnect(): Promise<MongoClient | null> {
     await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch { /* ignore */ }
+    try {
+      await c.close();
+    } catch {
+      /* ignore */
+    }
     return null;
   }
 }
@@ -275,11 +279,11 @@ describe('audit-video-geo-backfill', () => {
     const farPhotoId = new ObjectId();
 
     const videoTime = '2019-05-18T17:45:00.000Z';
-    const nearTime  = '2019-05-18T17:46:00.000Z'; // 1 min away
-    const farTime   = '2019-05-18T17:55:00.000Z'; // 10 min away
+    const nearTime = '2019-05-18T17:46:00.000Z'; // 1 min away
+    const farTime = '2019-05-18T17:55:00.000Z'; // 10 min away
 
     const nearGps = { lat: 10.0, lng: 20.0 };
-    const farGps  = { lat: 50.0, lng: 60.0 };
+    const farGps = { lat: 50.0, lng: 60.0 };
 
     await assets.insertMany([
       videoAsset(videoId, { capturedAt: videoTime }),
@@ -420,9 +424,7 @@ describe('audit-video-geo-backfill', () => {
     await audit.deleteMany({});
 
     const noTimestampId = new ObjectId();
-    await assets.insertOne(
-      videoAsset(noTimestampId, { capturedAt: null }),
-    );
+    await assets.insertOne(videoAsset(noTimestampId, { capturedAt: null }));
 
     const { auditVideoGeoBackfill } = await import('./audit-video-geo-backfill.ts');
     expect(await auditVideoGeoBackfill.countRemaining()).toBe(0);
@@ -444,9 +446,7 @@ describe('audit-video-geo-backfill', () => {
 
     const videoId = new ObjectId();
     // The fileinfo entry is deleted — not live.
-    await assets.insertOne(
-      videoAsset(videoId, { deleted_at: '2024-01-01T00:00:00.000Z' }),
-    );
+    await assets.insertOne(videoAsset(videoId, { deleted_at: '2024-01-01T00:00:00.000Z' }));
 
     const { auditVideoGeoBackfill } = await import('./audit-video-geo-backfill.ts');
     expect(await auditVideoGeoBackfill.countRemaining()).toBe(0);
@@ -605,19 +605,19 @@ describe('apply-video-geo-backfill', () => {
 
     const videoId = new ObjectId();
     const nearId = new ObjectId();
-    const farId  = new ObjectId();
+    const farId = new ObjectId();
 
     const videoTime = '2019-05-18T17:45:00.000Z';
-    const nearTime  = '2019-05-18T17:46:00.000Z'; // 1 min
-    const farTime   = '2019-05-18T17:55:00.000Z'; // 10 min
+    const nearTime = '2019-05-18T17:46:00.000Z'; // 1 min
+    const farTime = '2019-05-18T17:55:00.000Z'; // 10 min
 
     const nearGps = { lat: 10.0, lng: 20.0 };
-    const farGps  = { lat: 50.0, lng: 60.0 };
+    const farGps = { lat: 50.0, lng: 60.0 };
 
     await assets.insertMany([
       videoAsset(videoId, { capturedAt: videoTime }),
       photoAsset(nearId, { capturedAt: nearTime, gps: nearGps }),
-      photoAsset(farId,  { capturedAt: farTime,  gps: farGps }),
+      photoAsset(farId, { capturedAt: farTime, gps: farGps }),
     ]);
 
     const { applyVideoGeoBackfill } = await import('./apply-video-geo-backfill.ts');
