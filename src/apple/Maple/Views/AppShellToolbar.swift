@@ -110,35 +110,36 @@ struct AppShellToolbar: ToolbarContent {
                 .accessibilityIdentifier("browse-grid-display-mode-toggle")
             }
         }
-        // Grid zoom − / + control — browse mode only (#1550). Sits next to the
-        // fill/fit button. − zooms in (fewer columns, bigger cells); + zooms out
-        // (more columns, smaller cells). Disabled at the clamped ends.
-        // ⌘= is the conventional "zoom in" key on Mac (same as ⌘+, which is
-        // actually ⌘Shift+= on US keyboards); ⌘- is zoom out.
-        if !isFullImage && !isEditing {
+        // Grid zoom − / + control — browse mode only, and not on iPhone (the
+        // phone uses pinch-to-zoom; #1550). Sits next to the fill/fit button.
+        // + zooms in (fewer columns, bigger cells); − zooms out (more columns,
+        // smaller cells). Disabled at the clamped ends. ⌘= is the conventional
+        // "zoom in" key on Mac (same as ⌘+, which is actually ⌘Shift+= on US
+        // keyboards); ⌘- is zoom out.
+        if !isFullImage && !isEditing && !isCompact {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 2) {
                     Button {
-                        withAnimation(.smooth) { browseZoomLevel = browseZoomLevel.zoomedIn() }
+                        withAnimation(.smooth) { browseZoomLevel = browseZoomLevel.zoomedOut() }
                     } label: {
                         Image(systemName: "minus")
                             .foregroundStyle(MapleTokens.textMuted)
                     }
-                    .disabled(browseZoomLevel == .fullWidth)
+                    .disabled(browseZoomLevel == .dense)
                     .keyboardShortcut("-", modifiers: .command)
-                    .accessibilityLabel("Zoom in grid")
-                    .accessibilityIdentifier("grid-zoom-in")
+                    .accessibilityLabel("Zoom out grid")
+                    .accessibilityIdentifier("grid-zoom-out")
 
                     Button {
-                        withAnimation(.smooth) { browseZoomLevel = browseZoomLevel.zoomedOut() }
+                        withAnimation(.smooth) { browseZoomLevel = browseZoomLevel.zoomedIn() }
                     } label: {
                         Image(systemName: "plus")
                             .foregroundStyle(MapleTokens.textMuted)
                     }
-                    .disabled(browseZoomLevel == .dense)
+                    .disabled(browseZoomLevel == .fullWidth)
                     .keyboardShortcut("=", modifiers: .command)
-                    .accessibilityLabel("Zoom out grid")
-                    .accessibilityIdentifier("grid-zoom-out")
+                    .accessibilityLabel("Zoom in grid")
+                    .accessibilityIdentifier("grid-zoom-in")
                 }
             }
         }
