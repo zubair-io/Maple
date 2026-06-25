@@ -82,7 +82,15 @@ extension EditSession {
         // decoded=6500/0 so the user's temperature/tint slider edits land
         // correctly). All formats that reach here have a valid `decoded` CIImage
         // from the existing decode dispatch. (#1331)
-        let inputShape: UInt32 = asset.isRaw ? 0 : 1
+        //
+        // Prefer the content-sniffed classification recorded by `sharedDecode`
+        // over `asset.isRaw`. Bytes-backed PhotoKit / Self-Hosted assets carry
+        // no URL or extension, so `asset.isRaw` defaults them to RAW and the GPU
+        // tail would run AgX on a non-RAW buffer — crushing white to grey (#1553).
+        // URL/extension-backed assets never sniff (`resolvedIsRaw` is nil) and
+        // fall back to `asset.isRaw`, which classifies them correctly up front.
+        let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
+        let inputShape: UInt32 = resolvedIsRaw ? 0 : 1
         guard driver.hasLayer else {
             editSessionLogger.notice("GPU-TRACE reject no-layer gen=\(gen ?? 0)")
             return false
