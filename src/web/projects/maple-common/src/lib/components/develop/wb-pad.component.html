@@ -1,0 +1,61 @@
+<!-- WbPadComponent — 2-D white balance pad (#1540) -->
+<div class="wb-widget">
+  <!-- Readout row: K label + eyedropper -->
+  <div class="readout-row">
+    <span class="temp-label" aria-label="Color temperature">{{ tempLabel() }}</span>
+    <span class="tint-label" aria-label="Tint">{{ tintLabel() }}</span>
+    <div class="readout-spacer"></div>
+    <button
+      class="eyedrop-btn"
+      [class.eyedrop-btn--active]="eyedropperActive()"
+      title="Sample neutral grey point from canvas"
+      aria-label="Eyedropper: set neutral white balance from canvas"
+      (click)="onEyedropperClick()"
+    >
+      <!-- Eyedropper icon (inline SVG — no icon registry dep) -->
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path
+          d="M10.5 1.5L12.5 3.5L5 11l-2 .5.5-2L10.5 1.5Z"
+          stroke="currentColor"
+          stroke-width="1.2"
+          stroke-linejoin="round"
+        />
+        <circle cx="3.5" cy="10.5" r="1" fill="currentColor" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- 2-D pad -->
+  <div
+    #padEl
+    class="pad"
+    role="application"
+    tabindex="0"
+    aria-label="White balance — drag to set temperature and tint"
+    [attr.aria-valuetext]="'Temp ' + tempLabel() + ', Tint ' + tintLabel()"
+    (pointerdown)="onPadPointerDown($event)"
+    (keydown)="onPadKeyDown($event)"
+  >
+    <!-- Gradient layers -->
+    <div class="pad-grad-temp"></div>
+    <div class="pad-grad-tint"></div>
+
+    <!-- Crosshair -->
+    <div class="crosshair-h" [style.top.%]="(1 - puckPos().y) * 100"></div>
+    <div class="crosshair-v" [style.left.%]="puckPos().x * 100"></div>
+
+    <!-- Puck -->
+    <div
+      class="puck"
+      [style.left.%]="puckPos().x * 100"
+      [style.top.%]="(1 - puckPos().y) * 100"
+      aria-hidden="true"
+    ></div>
+  </div>
+
+  <!-- Axis labels -->
+  <div class="axis-row" aria-hidden="true">
+    <span>2000 K</span>
+    <span>12000 K</span>
+  </div>
+</div>

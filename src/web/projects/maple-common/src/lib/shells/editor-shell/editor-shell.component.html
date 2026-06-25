@@ -72,7 +72,21 @@
     <!-- ── Right tool dock (tablet/desktop only) ─────────────────── -->
     @if (isTabletPlus()) {
       <div class="tool-dock-anchor">
-        <pro-tool-dock [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
+        <pro-tool-dock
+          [activeGroup]="activeGroup()"
+          [curveOpen]="curveOpen()"
+          (groupChange)="onGroupChange($event)"
+          (curvePanelToggle)="onCurvePanelToggle()"
+        />
+
+        <!-- Curve panel (tone curve + WB pad) — glass card, tablet/desktop only -->
+        @if (curveOpen()) {
+          <div class="curve-panel">
+            <pro-tone-curve />
+            <div class="curve-panel-divider"></div>
+            <pro-wb-pad />
+          </div>
+        }
       </div>
     }
 
@@ -80,6 +94,8 @@
     <div class="control-card-anchor">
       <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
     </div>
+
+    <!-- Phone Curve trigger + sheet deferred to #1569 (no phone affordance opens curveOpen yet) -->
   </div>
 
   <!-- ── Value HUD (always visible layer, fades with its own signal) ── -->

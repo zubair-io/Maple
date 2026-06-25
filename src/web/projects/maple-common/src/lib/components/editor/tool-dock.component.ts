@@ -1,7 +1,8 @@
 // ToolDockComponent — vertical glass icon column on tablet/desktop (#1535).
 // 8 icons: Light · Color · Curve · Effects · Detail · Optics · Mask · Heal.
 // Light / Color / Effects / Detail switch the active ToolGroup.
-// Curve / Optics / Heal / Mask are visibly disabled with a tooltip + code
+// Curve opens the tone-curve panel (M2 #1540).
+// Optics / Mask / Heal are visibly disabled with a tooltip + code
 // comment referencing the milestone ticket — NOT fake panels (CLAUDE.md #6).
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
@@ -20,13 +21,15 @@ export interface DockEntry {
   disabled?: boolean;
   /** Code comment indicating the milestone ticket for disabled items. */
   ticket?: string;
+  /** If true, clicking opens a floating panel rather than switching a group. */
+  panel?: boolean;
 }
 
 const DOCK_ENTRIES: DockEntry[] = [
   { id: 'light', icon: 'tool-exposure', label: 'Light', group: 'light' },
   { id: 'color', icon: 'tool-tint', label: 'Color', group: 'color' },
-  // Curve: coming in #1540 (web M2 — tone curve + WB pad)
-  { id: 'curve', icon: 'tool-contrast', label: 'Curve', disabled: true, ticket: '#1540' },
+  // Curve: enabled in #1540 (web M2 — tone curve + WB pad)
+  { id: 'curve', icon: 'tool-contrast', label: 'Curve', panel: true },
   { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },
   { id: 'detail', icon: 'tool-sharpen', label: 'Detail', group: 'detail' },
   // Optics: out of v0.1 scope — tracked in epic #1534.
@@ -49,17 +52,28 @@ const DOCK_ENTRIES: DockEntry[] = [
 export class ToolDockComponent {
   /** Currently active tool group. */
   activeGroup = input.required<ToolGroup>();
+  /** True when the curve panel is open. */
+  curveOpen = input<boolean>(false);
   /** Fired when the user taps an enabled group entry. */
   groupChange = output<ToolGroup>();
+  /** Fired when user taps the Curve entry (toggle). */
+  curvePanelToggle = output<void>();
 
   readonly entries = DOCK_ENTRIES;
 
   isActive(entry: DockEntry): boolean {
+    if (entry.panel) return entry.id === 'curve' && this.curveOpen();
     return !!entry.group && entry.group === this.activeGroup();
   }
 
   onEntryClick(entry: DockEntry): void {
-    if (entry.disabled || !entry.group) return;
-    this.groupChange.emit(entry.group);
+    if (entry.disabled) return;
+    if (entry.panel) {
+      this.curvePanelToggle.emit();
+      return;
+    }
+    if (entry.group) {
+      this.groupChange.emit(entry.group);
+    }
   }
 }

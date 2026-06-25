@@ -1,0 +1,72 @@
+// ToneCurveComponent — styles (#1540).
+
+:host {
+  display: block;
+}
+
+.curve-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+
+// Channel selector row
+.channel-row {
+  display: flex;
+  gap: 4px;
+}
+
+.ch-btn {
+  flex: 1;
+  padding: 3px 0;
+  border: 0.5px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 10px;
+  color: var(--pro-text-dim);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition:
+    background 100ms ease-out,
+    color 100ms ease-out,
+    border-color 100ms ease-out;
+  outline: none;
+
+  &:focus-visible {
+    outline: 2px solid var(--pro-accent);
+    outline-offset: 1px;
+  }
+
+  &.ch-btn--active {
+    background: var(--pro-accent-28);
+    border-color: var(--pro-accent);
+    color: var(--pro-accent);
+  }
+
+  &:disabled {
+    opacity: 0.32;
+    cursor: default;
+  }
+}
+
+// Canvas plot — square
+.curve-plot {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+// Labels below the plot
+.region-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 6%;
+  font-size: 9px;
+  color: var(--pro-text-dim);
+  user-select: none;
+}
