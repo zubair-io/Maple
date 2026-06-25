@@ -733,10 +733,12 @@ export async function ensureIndexes(): Promise<void> {
   // present. The compound index lets the planner seek the narrow time window
   // then filter by GPS presence without a separate post-filter scan. `sparse: true`
   // keeps the index small (assets without captured_at don't bloat it).
-  await db.collection('assets').createIndex(
-    { 'exif.captured_at': 1, 'exif.gps.lat': 1 },
-    { name: 'exif_captured_at_gps_lat', sparse: true },
-  );
+  await db
+    .collection('assets')
+    .createIndex(
+      { 'exif.captured_at': 1, 'exif.gps.lat': 1 },
+      { name: 'exif_captured_at_gps_lat', sparse: true },
+    );
   await db
     .collection('assets')
     .createIndex({ 'exif.camera_make': 1, 'exif.camera_model': 1 }, { sparse: true });
