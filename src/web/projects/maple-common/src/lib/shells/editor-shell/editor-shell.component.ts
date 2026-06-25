@@ -45,6 +45,7 @@ import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
+import { handleEditorKeydown } from './editor-shell-keyboard';
 import {
   type ToolGroup,
   TOOL_GROUP_DISPLAY,
@@ -384,6 +385,12 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     void this.router.navigate(['/browse']);
   }
 
+  /** Select an asset and deep-link the editor route to it (prev/next nav). */
+  navigateToAsset(id: AssetId): void {
+    this.state.selectAsset(id);
+    void this.router.navigate(editRouteCommands(id));
+  }
+
   // ── Route address resolution (preserved verbatim) ─────────────────────
 
   private applyRouteAddress(): void {
@@ -477,151 +484,6 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Keyboard shortcuts ────────────────────────────────────────────────
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
-    const target = e.target as HTMLElement;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target.isContentEditable
-    )
-      return;
-
-    const fid = this.state.focusedAssetId();
-
-    // Esc — back to browse
-    if (e.key === 'Escape') {
-      this.goBack();
-      e.preventDefault();
-      return;
-    }
-
-    // Arrow navigation / slider nudge (Pro spec §13):
-    //   ← / →             (bare)       — navigate prev / next image
-    //   Shift + ← / →                  — nudge armed slider ±10
-    //
-    // The two behaviors are mutually exclusive by modifier key, so there
-    // is no ambiguity and no dead code path.
-    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.metaKey && !e.ctrlKey) {
-      if (e.shiftKey) {
-        // Shift+Arrow — nudge the armed slider ±10 internal units
-        if (this.editorState.armedToolAcceptsValueEdits()) {
-          const dir = e.key === 'ArrowLeft' ? -1 : 1;
-          const cur = this.editorState.armedInternalValue();
-          const next = Math.min(100, Math.max(-100, cur + dir * 10));
-          this.editorState.commit();
-          this.editorState.setArmedInternalValue(next);
-        }
-      } else {
-        // Bare Arrow — navigate prev / next
-        if (fid) {
-          if (e.key === 'ArrowLeft') {
-            const prev = this.state.peekPrev(fid);
-            if (prev) {
-              this.state.selectAsset(prev);
-              void this.router.navigate(editRouteCommands(prev));
-            }
-          } else {
-            const next = this.state.peekNext(fid);
-            if (next) {
-              this.state.selectAsset(next);
-              void this.router.navigate(editRouteCommands(next));
-            }
-          }
-        }
-      }
-      e.preventDefault();
-      return;
-    }
-
-    const meta = e.metaKey || e.ctrlKey;
-
-    // 1–4: switch tool group (bare, no meta)
-    if (!meta && ['1', '2', '3', '4'].includes(e.key)) {
-      const groups: ToolGroup[] = ['light', 'color', 'effects', 'detail'];
-      const idx = Number(e.key) - 1;
-      if (idx >= 0 && idx < groups.length) {
-        this.onGroupChange(groups[idx]);
-        e.preventDefault();
-        return;
-      }
-    }
-
-    // 5: star rating
-    if (!meta && e.key === '5' && fid) {
-      this.state.setRating(fid, 5);
-      e.preventDefault();
-      return;
-    }
-
-    // 0: clear rating
-    if (!meta && e.key === '0' && fid) {
-      this.state.setRating(fid, 0);
-      e.preventDefault();
-      return;
-    }
-
-    // P: pick
-    if ((e.key === 'p' || e.key === 'P') && fid) {
-      const asset = this.state.focusedAsset();
-      if (asset) this.state.setFlag(fid, asset.flag === 'pick' ? 'unflagged' : 'pick');
-      e.preventDefault();
-      return;
-    }
-
-    // X: reject
-    if ((e.key === 'x' || e.key === 'X') && fid) {
-      const asset = this.state.focusedAsset();
-      if (asset) this.state.setFlag(fid, asset.flag === 'reject' ? 'unflagged' : 'reject');
-      e.preventDefault();
-      return;
-    }
-
-    // U: clear flag
-    if ((e.key === 'u' || e.key === 'U') && fid) {
-      this.state.setFlag(fid, 'unflagged');
-      e.preventDefault();
-      return;
-    }
-
-    // \ or b: toggle before/after
-    if (e.key === '\\' || e.key === 'b' || e.key === 'B') {
-      this.canvasSvc.toggleBeforeAfter();
-      e.preventDefault();
-      return;
-    }
-
-    // R: reset armed group — delegates to ControlCard which owns group state
-    if ((e.key === 'r' || e.key === 'R') && !meta) {
-      this.controlCard?.resetGroup();
-      e.preventDefault();
-      return;
-    }
-
-    // F: fit
-    if ((e.key === 'f' || e.key === 'F') && !meta) {
-      this.canvasSvc.zoomToFit();
-      e.preventDefault();
-      return;
-    }
-
-    // Z: 1:1
-    if ((e.key === 'z' || e.key === 'Z') && !meta) {
-      this.canvasSvc.zoomTo100();
-      e.preventDefault();
-      return;
-    }
-
-    // ⌘⌥S / Ctrl+Alt+S — toggle sidebar/filmstrip
-    if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 's' || e.key === 'S')) {
-      this.state.toggleSidebar();
-      e.preventDefault();
-      return;
-    }
-
-    // ⌘⌥D / Ctrl+Alt+D — toggle inspector
-    if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === 'd' || e.key === 'D')) {
-      this.state.toggleInspector();
-      e.preventDefault();
-      return;
-    }
+    handleEditorKeydown(this, e);
   }
 }
