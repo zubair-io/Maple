@@ -63,7 +63,10 @@ public struct LivingSlider: View {
 
     // MARK: Internal state
 
-    @State private var dragStartValue: Double = 0
+    /// Snapshot of `value` at the moment a drag gesture begins.
+    /// `nil` between gestures; set exactly once on first `.onChanged` event
+    /// and cleared in `.onEnded` so mid-drag re-entries cannot re-snapshot.
+    @State private var dragStartValue: Double? = nil
 
     // MARK: Geometry constants
 
@@ -101,12 +104,7 @@ public struct LivingSlider: View {
 
     private var formattedValue: String {
         if let dv = displayValue { return dv }
-        let v = value
-        if abs(v) < 0.005 { return "0" }
-        let sign = v > 0 ? "+" : ""
-        // 2 decimal places for sub-1 ranges (EV), 0 for integer ranges
-        let decimals = (range.upperBound - range.lowerBound) > 10 ? 0 : 2
-        return sign + String(format: decimals == 0 ? "%.0f" : "%.2f", v)
+        return LivingSliderMath.format(value: value, range: range)
     }
 
     private func thumbPct(for val: Double) -> Double {
@@ -177,7 +175,10 @@ public struct LivingSlider: View {
             GeometryReader { geo in
                 let trackWidth = geo.size.width
                 let thumbPctNow = thumbPct(for: value)
-                let thumbX = thumbPctNow * trackWidth
+                // Inset the travel range by thumbRadius so the thumb circle
+                // stays fully inside the track at both extremes (pct 0 and 1).
+                let thumbRadius = thumbDiameter / 2
+                let thumbX = thumbRadius + thumbPctNow * (trackWidth - thumbDiameter)
 
                 ZStack(alignment: .leading) {
                     // Gradient track
@@ -224,6 +225,9 @@ public struct LivingSlider: View {
                             case .decrement: value = max(value - step, range.lowerBound)
                             @unknown default: break
                             }
+                            // Commit after each VoiceOver step so the undo
+                            // boundary is recorded the same way drag does.
+                            onCommit?()
                         }
                 }
                 .frame(height: trackHeight)
@@ -231,18 +235,28 @@ public struct LivingSlider: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { g in
-                            if g.startLocation == g.location {
+                            // Snapshot exactly once per gesture — on the first
+                            // event (dragStartValue == nil). Using startLocation
+                            // == location is unreliable: the first event almost
+                            // always carries a small non-zero translation,
+                            // so the condition fails and the snapshot is skipped,
+                            // causing the value to snap to `0 + delta` instead
+                            // of `preDragValue + delta`.
+                            if dragStartValue == nil {
                                 dragStartValue = value
                             }
                             let totalDx = g.translation.width
                             let span = range.upperBound - range.lowerBound
                             guard span > 0, trackWidth > 0 else { return }
-                            let delta = totalDx / trackWidth * span
-                            let newVal = (dragStartValue + delta)
+                            let travelWidth = trackWidth - thumbDiameter
+                            guard travelWidth > 0 else { return }
+                            let delta = totalDx / travelWidth * span
+                            let newVal = ((dragStartValue ?? value) + delta)
                                 .clamped(to: range)
                             value = newVal
                         }
                         .onEnded { _ in
+                            dragStartValue = nil
                             onCommit?()
                         }
                 )
