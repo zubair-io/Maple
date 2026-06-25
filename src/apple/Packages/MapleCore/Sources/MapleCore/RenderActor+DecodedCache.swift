@@ -94,7 +94,7 @@ extension RenderActor {
         // cancelAll can flip it to abandon this decode.
         let cancelFlag = CancelFlag()
         decodeCancelFlag = cancelFlag
-        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag] in
+        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
             var dispatchAsset = asset
             var dispatchIsRaw = extensionIsRaw
             if needsSniff, let provider = asset.bytesProvider {
@@ -102,6 +102,11 @@ extension RenderActor {
                     if let detected = AssetRef.detectIsRaw(bytes: bytes) {
                         dispatchIsRaw = detected
                     }
+                    // Surface the content-sniffed classification so the GPU
+                    // live path tags `inputShape` from the same signal the
+                    // decode uses, not the RAW-defaulting `AssetRef.isRaw`
+                    // (#1553).
+                    await self.recordResolvedIsRaw(asset.id, dispatchIsRaw)
                     let cachedBytes = bytes
                     let displayName = asset.displayName
                     let hint: String? = {
