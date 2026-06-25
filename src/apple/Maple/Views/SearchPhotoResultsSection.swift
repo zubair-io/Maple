@@ -7,37 +7,34 @@
 // to page in the next batch. (The old capped 9-tile preview + "See all" hop was
 // dropped: the results ARE the page, so there's nowhere separate to "see all".)
 // Stale state (debounced fetch in flight) dims the grid to 60% opacity.
+//
+// M3 (#1490): migrated from SearchResultTile placeholder tiles + CloudThumbTile
+// to the shared PhotoGrid / PhotoThumbnailCell / ThumbnailProvider stack.
+// Real cloud thumbnails are now rendered for every result cell.
 
 #if os(iOS)
 
 import SwiftUI
 import MapleCore
 
-/// Lightweight result tile — the host owns the source data and supplies
-/// the id + display name so the renderer can stay decoupled from the
-/// SearchAsset wire type.
-struct SearchResultTile: Identifiable, Hashable {
-    let id: String
-    let displayName: String
-    let absPath: String
-}
-
 struct SearchPhotoResultsSection: View {
-    let results: [SearchResultTile]
+    let results: [SearchAsset]
     let total: Int
     let isStale: Bool
     let hasQuery: Bool
     let query: String
-    let onTap: (SearchResultTile) -> Void
+    let onTap: (SearchAsset) -> Void
     /// Called when the last loaded tile appears — the host pages in more
     /// results (the host's loader no-ops once the full set is loaded).
     var onLoadMore: () -> Void = {}
     /// True while the next page is in flight — drives the footer spinner.
     var isLoadingMore: Bool = false
-    /// Live cloud session for thumbnails; nil → grey placeholders (previews).
-    var thumb: SearchThumbContext? = nil
-
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 3)
+    /// Cloud thumb provider. nil → grey placeholders (previews / no-session).
+    var provider: ThumbnailProvider? = nil
+    /// Server cache-host key — used to build PhotoGridItem.cloud source so
+    /// ThumbnailProvider routes to the right cache namespace. Empty string
+    /// when provider is nil (the two travel together).
+    var host: String = ""
 
     var body: some View {
         if hasQuery && results.isEmpty && !isStale {
@@ -54,44 +51,22 @@ struct SearchPhotoResultsSection: View {
                     .tracking(0.6)
                     .foregroundStyle(MapleTokens.textMuted)
 
-                LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(results) { tile in
-                        Button {
-                            onTap(tile)
-                        } label: {
-                            Group {
-                                if let thumb {
-                                    CloudThumbTile(
-                                        absPath: tile.absPath,
-                                        thumbClient: thumb.client,
-                                        thumbCache: thumb.cache,
-                                        host: thumb.host)
-                                } else {
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(MapleTokens.surfaceAlt)
-                                        .overlay(
-                                            Image(systemName: "photo")
-                                                .font(.system(size: 22))
-                                                .foregroundStyle(MapleTokens.textMuted.opacity(0.5))
-                                        )
-                                }
-                            }
-                            .aspectRatio(1, contentMode: .fill)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("search-tile-\(tile.id)")
-                        .accessibilityLabel(tile.displayName)
-                        // Infinite scroll: pull the next page when the last
-                        // loaded tile scrolls into view.
-                        .onAppear {
-                            if tile.id == results.last?.id { onLoadMore() }
-                        }
+                PhotoGrid(
+                    data: results,
+                    columns: .fixed(3, spacing: 4),
+                    provider: provider ?? .preview(),
+                    displayMode: .fill,
+                    onTap: onTap,
+                    onAppearItem: { asset in
+                        if asset.id == results.last?.id { onLoadMore() }
+                    },
+                    makeItem: { asset in
+                        PhotoGridItem(cloud: asset, host: host, style: .phone)
                     }
-                }
+                )
                 .opacity(isStale ? 0.6 : 1.0)
                 .animation(.linear(duration: 0.12), value: isStale)
+                .accessibilityIdentifier("search-photo-grid")
 
                 if isLoadingMore {
                     ProgressView()
@@ -106,9 +81,28 @@ struct SearchPhotoResultsSection: View {
 
 #Preview("Photos — populated") {
     SearchPhotoResultsSection(
-        results: (1...6).map { SearchResultTile(id: "r\($0)", displayName: "img-\($0).dng", absPath: "/p/img-\($0).dng") },
+        results: (1...6).map {
+            SearchAsset(id: "r\($0)", folder_id: "f1",
+                        abs_path: "/p/img-\($0).dng", filename: "img-\($0).dng")
+        },
         total: 42,
         isStale: false,
+        hasQuery: true,
+        query: "paris",
+        onTap: { _ in }
+    )
+    .padding()
+    .background(MapleTokens.bg)
+}
+
+#Preview("Photos — stale (dimmed)") {
+    SearchPhotoResultsSection(
+        results: (1...6).map {
+            SearchAsset(id: "r\($0)", folder_id: "f1",
+                        abs_path: "/p/img-\($0).dng", filename: "img-\($0).dng")
+        },
+        total: 42,
+        isStale: true,
         hasQuery: true,
         query: "paris",
         onTap: { _ in }
