@@ -27,6 +27,8 @@ struct CloudTimelineView: View {
   /// `ThumbnailImage.displayMode` for every cell — same toggle, same
   /// behavior across both grids.
   let displayMode: GridDisplayMode
+  /// Grid zoom level threaded from AppShell (#1550).
+  let zoomLevel: GridZoomLevel
   let onSelectAsset: (SearchAsset) -> Void
   /// Tap target for `.localOnly` merged cells — these are PhotoKit photos
   /// the backup hasn't uploaded yet, so they have no `SearchAsset` to
@@ -43,6 +45,7 @@ struct CloudTimelineView: View {
     thumbClient: CloudThumbClient,
     thumbCache: CloudThumbCache,
     displayMode: GridDisplayMode,
+    zoomLevel: GridZoomLevel = .comfortable,
     onSelectAsset: @escaping (SearchAsset) -> Void,
     onSelectLocalAsset: @escaping (ImageRef) -> Void
   ) {
@@ -50,6 +53,7 @@ struct CloudTimelineView: View {
     self.thumbClient = thumbClient
     self.thumbCache = thumbCache
     self.displayMode = displayMode
+    self.zoomLevel = zoomLevel
     self.onSelectAsset = onSelectAsset
     self.onSelectLocalAsset = onSelectLocalAsset
     self._provider = State(initialValue: ThumbnailProvider(
@@ -88,6 +92,7 @@ struct CloudTimelineView: View {
               || vm.mergedPagesByBucket[bucketKey] != nil,
             host: vm.server.cacheHostKey,
             displayMode: displayMode,
+            zoomLevel: zoomLevel,
             provider: provider,
             onSelectAsset: onSelectAsset,
             onSelectLocalAsset: onSelectLocalAsset
@@ -144,6 +149,9 @@ struct CloudTimelineMonthSection: View {
   let hasLoaded: Bool
   let host: String
   let displayMode: GridDisplayMode
+  /// Grid zoom level — drives ColumnStrategy.zoom for both cloudGrid
+  /// and mergedGrid (#1550).
+  let zoomLevel: GridZoomLevel
   let provider: ThumbnailProvider
   let onSelectAsset: (SearchAsset) -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
@@ -200,7 +208,7 @@ struct CloudTimelineMonthSection: View {
   private func cloudGrid(assets: [SearchAsset]) -> some View {
     PhotoGrid(
       data: assets,
-      columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
+      columns: .zoom(zoomLevel),
       provider: provider,
       displayMode: displayMode,
       onTap: { onSelectAsset($0) },
@@ -225,7 +233,7 @@ struct CloudTimelineMonthSection: View {
     let absPathToAsset = CloudTimelineViewVM.absPathMap(from: assets)
     PhotoGrid(
       data: cells,
-      columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
+      columns: .zoom(zoomLevel),
       provider: provider,
       displayMode: displayMode,
       onTap: { cell in
