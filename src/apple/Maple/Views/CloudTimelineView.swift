@@ -1,27 +1,21 @@
 // CloudTimelineView.swift
 //
 // Native port of the web app's timeline-view.component.ts. Renders a
-// LazyVStack of month sections; each section's onAppear triggers
-// CloudTimelineViewModel.loadPage. Asset cells fetch + cache thumbnails
-// asynchronously via CloudThumbCache + CloudThumbClient.
+// LazyVStack of month sections; each section's .task(id:) triggers
+// CloudTimelineViewModel.loadPage. Cells are rendered via the shared
+// PhotoGrid / PhotoThumbnailCell / ThumbnailProvider components.
 //
-// Cell rendering (square thumb + rounded corners + fill/fit content
-// mode) is shared with BrowseGrid via the `ThumbnailImage` view. The
-// only Timeline-specific bits are: month-section headers, rating
-// overlay, and the cloud-thumb load path. Caption is suppressed
-// because the timeline is dense and filename labels would crowd it.
+// M2 (#1490): migrated onto shared grid components. The per-section
+// LazyVGrid + inline CloudTimelineCell / CloudTimelineMergedCell are
+// replaced by PhotoGrid using PhotoGridItem(cloud:) / PhotoGridItem(merged:).
+// CloudTimelineMonthSection retains its header + spinner/no-results logic;
+// the grid body is now a PhotoGrid. CloudTimelineCell and
+// CloudTimelineMergedCell are deleted — ThumbnailProvider absorbs their
+// load paths.
 
 import SwiftUI
 import MapleCore
 import OSLog
-import Photos
-import ImageIO
-import UniformTypeIdentifiers
-#if canImport(AppKit)
-import AppKit
-#elseif canImport(UIKit)
-import UIKit
-#endif
 
 private let timelineLog = Logger(subsystem: "app.justmaple.aperture", category: "CloudTimeline")
 
@@ -39,6 +33,28 @@ struct CloudTimelineView: View {
   /// route through `onSelectAsset`. AppShell opens them via PhotoKit
   /// using the local identifier carried on the `ImageRef`.
   let onSelectLocalAsset: (ImageRef) -> Void
+
+  /// Shared provider wired to the cloud thumb infrastructure, created once
+  /// and reused across all sections so the underlying cache is shared.
+  @State private var provider: ThumbnailProvider
+
+  init(
+    vm: CloudTimelineViewModel,
+    thumbClient: CloudThumbClient,
+    thumbCache: CloudThumbCache,
+    displayMode: GridDisplayMode,
+    onSelectAsset: @escaping (SearchAsset) -> Void,
+    onSelectLocalAsset: @escaping (ImageRef) -> Void
+  ) {
+    self.vm = vm
+    self.thumbClient = thumbClient
+    self.thumbCache = thumbCache
+    self.displayMode = displayMode
+    self.onSelectAsset = onSelectAsset
+    self.onSelectLocalAsset = onSelectLocalAsset
+    self._provider = State(initialValue: ThumbnailProvider(
+      thumbClient: thumbClient, thumbCache: thumbCache))
+  }
 
   var body: some View {
     ScrollView {
@@ -70,12 +86,9 @@ struct CloudTimelineView: View {
             // local grid.
             hasLoaded: vm.pagesByBucket[bucketKey] != nil
               || vm.mergedPagesByBucket[bucketKey] != nil,
-            thumbClient: thumbClient,
-            thumbCache: thumbCache,
-            // Same port-aware key the buckets/pages caches use, so all
-            // three on-disk caches namespace per-server identically.
             host: vm.server.cacheHostKey,
             displayMode: displayMode,
+            provider: provider,
             onSelectAsset: onSelectAsset,
             onSelectLocalAsset: onSelectLocalAsset
           )
@@ -129,10 +142,9 @@ struct CloudTimelineMonthSection: View {
   /// server has answered, the spinner goes away even if the answer was
   /// `results: []`.
   let hasLoaded: Bool
-  let thumbClient: CloudThumbClient
-  let thumbCache: CloudThumbCache
   let host: String
   let displayMode: GridDisplayMode
+  let provider: ThumbnailProvider
   let onSelectAsset: (SearchAsset) -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
 
@@ -170,61 +182,76 @@ struct CloudTimelineMonthSection: View {
         Spacer()
       }
       if hasContent {
-        LazyVGrid(
-          columns: Array(repeating: GridItem(.flexible(), spacing: 6),
-                         count: CloudTimelineViewVM.columnCount),
-          spacing: 6
-        ) {
-          // Prefer the merged view when the VM produced one. Otherwise
-          // fall back to the raw cloud-only cells.
-          if let merged = mergedCells {
-            // abs_path → SearchAsset map so each merged cell can find its
-            // cloud-side asset by id (cell.id is "fs:<abs_path>"). Built
-            // once per section render rather than per-cell, via the pure
-            // VM helper.
-            let absPathToAsset = CloudTimelineViewVM.absPathMap(from: assets)
-            ForEach(merged, id: \.renderID) { cell in
-              CloudTimelineMergedCell(
-                cell: cell,
-                thumbClient: thumbClient,
-                thumbCache: thumbCache,
-                host: host,
-                displayMode: displayMode,
-                // Cloud-side cells route through the SearchAsset map so the
-                // editor opens via CloudSource. `.localOnly` cells aren't on
-                // the server yet — open the PhotoKit asset directly via the
-                // local identifier carried on the local ImageRef. The
-                // routing decision is encoded as a pure switch in the VM.
-                onSelect: {
-                  switch CloudTimelineViewVM.selectionTarget(
-                    for: cell, absPathMap: absPathToAsset
-                  ) {
-                  case .cloud(let asset):
-                    onSelectAsset(asset)
-                  case .local(let local):
-                    onSelectLocalAsset(local)
-                  case .none:
-                    break
-                  }
-                }
-              )
-            }
-          } else {
-            ForEach(assets, id: \.id) { asset in
-              CloudTimelineCell(
-                asset: asset,
-                thumbClient: thumbClient,
-                thumbCache: thumbCache,
-                host: host,
-                displayMode: displayMode,
-                onSelect: { onSelectAsset(asset) }
-              )
-            }
-          }
+        if let merged = mergedCells {
+          mergedGrid(cells: merged)
+        } else {
+          cloudGrid(assets: assets)
         }
       }
     }
   }
+
+  // MARK: - Cloud-only grid (no merge)
+
+  /// Grid for a pure cloud section: maps `SearchAsset`s to
+  /// `PhotoGridItem(cloud:host:style:.cloud)` via the shared `PhotoGrid`.
+  /// Rating stars appear top-leading (`.cloud` overlay style).
+  @ViewBuilder
+  private func cloudGrid(assets: [SearchAsset]) -> some View {
+    PhotoGrid(
+      data: assets,
+      columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
+      provider: provider,
+      displayMode: displayMode,
+      onTap: { onSelectAsset($0) },
+      makeItem: { asset in
+        PhotoGridItem(cloud: asset, host: host, style: .cloud)
+      }
+    )
+  }
+
+  // MARK: - Merged grid (PhotoKit + Cloud)
+
+  /// Grid for a merged section: maps `MergedTimelineCell`s to
+  /// `PhotoGridItem(merged:host:sync:style:.desktop)` via the shared `PhotoGrid`.
+  /// Tap routing replicates the original `CloudTimelineViewVM.selectionTarget`
+  /// logic: `.cloud(asset)` → `onSelectAsset`; `.local(ref)` → `onSelectLocalAsset`;
+  /// `.none` → no-op.
+  @ViewBuilder
+  private func mergedGrid(cells: [MergedTimelineCell]) -> some View {
+    // abs_path → SearchAsset map so each merged cell can find its
+    // cloud-side asset by id (cell.id is "fs:<abs_path>"). Built
+    // once per section render rather than per-cell, via the pure VM helper.
+    let absPathToAsset = CloudTimelineViewVM.absPathMap(from: assets)
+    PhotoGrid(
+      data: cells,
+      columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
+      provider: provider,
+      displayMode: displayMode,
+      onTap: { cell in
+        // Cloud-side cells route through the SearchAsset map so the
+        // editor opens via CloudSource. `.localOnly` cells aren't on
+        // the server yet — open the PhotoKit asset directly via the
+        // local identifier carried on the local ImageRef. The
+        // routing decision is encoded as a pure switch in the VM.
+        switch CloudTimelineViewVM.selectionTarget(
+          for: cell, absPathMap: absPathToAsset
+        ) {
+        case .cloud(let asset):
+          onSelectAsset(asset)
+        case .local(let local):
+          onSelectLocalAsset(local)
+        case .none:
+          break
+        }
+      },
+      makeItem: { cell in
+        PhotoGridItem(merged: cell, host: host, sync: syncBadge(for: cell), style: .desktop)
+      }
+    )
+  }
+
+  // MARK: - Helpers
 
   /// Human-readable section title — delegates to the pure VM helper so
   /// the date-formatter cache lives in one place and the format is
@@ -232,204 +259,12 @@ struct CloudTimelineMonthSection: View {
   private var monthLabel: String {
     CloudTimelineViewVM.monthLabel(year: year, month: month)
   }
-}
 
-// MARK: - Cell
-
-struct CloudTimelineCell: View {
-  let asset: SearchAsset
-  let thumbClient: CloudThumbClient
-  let thumbCache: CloudThumbCache
-  let host: String
-  let displayMode: GridDisplayMode
-  let onSelect: () -> Void
-
-  /// Raw JPEG bytes once the cloud thumb has loaded. Drives
-  /// `ThumbnailImage` directly — same data shape BrowseGrid uses.
-  @State private var thumbData: Data?
-
-  var body: some View {
-    ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
-      .overlay(alignment: .topLeading) {
-        if let rating = asset.rating, rating > 0 {
-          HStack(spacing: 1) {
-            ForEach(0..<rating, id: \.self) { _ in
-              Image(systemName: "star.fill").font(.caption2)
-            }
-          }
-          .foregroundStyle(.yellow)
-          .padding(4)
-        }
-      }
-      // Tap target is the whole cell rectangle. `Button(.plain)` inside a
-      // LazyVGrid was registering inconsistently on macOS — the cell's
-      // clipShape narrowed the active hit area to the rounded rect and
-      // the corners (and sometimes more) silently swallowed clicks. The
-      // .contentShape + .onTapGesture pair is the pattern BrowseGrid uses
-      // and it gives a reliable hit area across macOS/iPad/iPhone.
-      .contentShape(Rectangle())
-      .onTapGesture { onSelect() }
-      // `.task(id:)` instead of `.onAppear` because LazyVGrid doesn't
-      // reliably fire `.onAppear` for cells created NEW when the parent's
-      // body re-evaluates (e.g. skeleton placeholders → real cells when
-      // a page finishes loading) — they're already in the lazy grid's
-      // visible window so the appear callback never gets queued. `.task`
-      // runs on first attachment regardless of layout state, restarts
-      // when `asset.id` changes, and auto-cancels on disappear.
-      .task(id: asset.id) {
-      timelineLog.debug("cell task fire id=\(asset.id, privacy: .public) abs=\(asset.abs_path, privacy: .public)")
-      let bytes = await Self.fetchThumbBytes(
-        host: host,
-        absPath: asset.abs_path,
-        cache: thumbCache,
-        client: thumbClient
-      )
-      guard !Task.isCancelled else {
-        timelineLog.debug("cell task cancelled id=\(asset.id, privacy: .public)")
-        return
-      }
-      timelineLog.debug("cell task got bytes id=\(asset.id, privacy: .public) size=\(bytes?.count ?? -1, privacy: .public)")
-      withAnimation(.easeInOut(duration: 0.18)) {
-        thumbData = bytes
-      }
-    }
-  }
-
-  fileprivate static func fetchThumbBytes(
-    host: String,
-    absPath: String,
-    cache: CloudThumbCache,
-    client: CloudThumbClient
-  ) async -> Data? {
-    if let cached = await cache.get(host: host, absPath: absPath) {
-      return cached
-    }
-    do {
-      let bytes = try await client.thumb(absPath: absPath)
-      await cache.put(host: host, absPath: absPath, bytes)
-      return bytes
-    } catch {
-      return nil
-    }
-  }
-}
-
-// MARK: - CloudTimelineMergedCell
-
-/// Grid cell for a merged Photos+Cloud timeline entry. Shows a thumbnail
-/// and a sync-status badge (.synced / .localOnly / .cloudOnly).
-///
-/// Thumb priority mirrors BrowseGrid.MergedCellView:
-///   .synced / .localOnly — PhotoKit fast path via PHImageManager
-///   .cloudOnly           — cloud thumb via CloudThumbClient
-///
-/// Tapping currently no-ops for .localOnly cells (no SearchAsset to open).
-/// .cloudOnly / .synced open via the parent's `onSelect` callback which
-/// the caller wires to `onSelectAsset` in AppShell.
-struct CloudTimelineMergedCell: View {
-  let cell: MergedTimelineCell
-  let thumbClient: CloudThumbClient
-  let thumbCache: CloudThumbCache
-  let host: String
-  let displayMode: GridDisplayMode
-  let onSelect: () -> Void
-
-  @State private var thumbData: Data?
-  @State private var loadTask: Task<Void, Never>?
-
-  var body: some View {
-    ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
-      .overlay(alignment: .bottomTrailing) {
-        badgeView.padding(4)
-      }
-      // See CloudTimelineCell — same reason. Reliable LazyVGrid tap target.
-      .contentShape(Rectangle())
-      .onTapGesture { onSelect() }
-      .task(id: MergedTimelineSource.renderID(cell)) {
-        await startLoad()
-      }
-  }
-
-  @ViewBuilder
-  private var badgeView: some View {
+  private func syncBadge(for cell: MergedTimelineCell) -> SyncBadge {
     switch cell {
-    case .synced:
-      Image(systemName: "checkmark.icloud.fill")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(.white)
-        .shadow(radius: 1)
-    case .cloudOnly:
-      Image(systemName: "icloud.fill")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(.white)
-        .shadow(radius: 1)
-    case .localOnly:
-      // Pending-upload state is implied (PhotoKit photo in the cloud-library
-      // view = enrolled in backup, not yet uploaded). Showing
-      // `icloud.and.arrow.up` on every cell during initial backup made the
-      // grid feel cluttered — the BackupStatusPanel surfaces the real
-      // upload progress. Synced/cloud-only stay visible because they're
-      // genuinely informative.
-      EmptyView()
-    }
-  }
-
-  private func startLoad() async {
-    switch cell {
-    case .synced(let local, _), .localOnly(let local):
-      thumbData = await Self.fetchPhotoKitThumb(localID: local.id)
-    case .cloudOnly(let cloud):
-      // Extract the abs_path from the "fs:<path>" id shape via the pure
-      // VM helper.
-      let absPath = CloudTimelineViewVM.absPath(fromCloudID: cloud.id)
-      thumbData = await CloudTimelineCell.fetchThumbBytes(
-        host: host, absPath: absPath, cache: thumbCache, client: thumbClient)
-    }
-  }
-
-  private static func fetchPhotoKitThumb(localID: String) async -> Data? {
-    // PHImageManager fast path — Photos' preview cache makes this ~5–50 ms.
-    guard let phAsset = PHAsset
-      .fetchAssets(withLocalIdentifiers: [localID], options: nil)
-      .firstObject else { return nil }
-
-    let target = ThumbnailDiskCache.defaultThumbSize
-    return await withCheckedContinuation { cont in
-      let options = PHImageRequestOptions()
-      options.deliveryMode = .opportunistic
-      options.resizeMode = .fast
-      options.isNetworkAccessAllowed = true
-      options.isSynchronous = false
-      final class Latch: @unchecked Sendable {
-        let lock = NSLock(); var fired = false
-        func tryFire() -> Bool {
-          lock.lock(); defer { lock.unlock() }
-          if fired { return false }; fired = true; return true
-        }
-      }
-      let latch = Latch()
-      PHImageManager.default().requestImage(
-        for: phAsset, targetSize: target, contentMode: .aspectFill, options: options
-      ) { image, info in
-        if (info?[PHImageResultIsDegradedKey] as? Bool) == true { return }
-        guard latch.tryFire() else { return }
-        guard let image else { cont.resume(returning: nil); return }
-        #if canImport(AppKit)
-        var rect = CGRect(origin: .zero, size: image.size)
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
-          cont.resume(returning: nil); return
-        }
-        #elseif canImport(UIKit)
-        guard let cg = image.cgImage else { cont.resume(returning: nil); return }
-        #endif
-        let mutableData = NSMutableData()
-        let type = UTType.jpeg.identifier as CFString
-        guard let dest = CGImageDestinationCreateWithData(mutableData, type, 1, nil) else {
-          cont.resume(returning: nil); return
-        }
-        CGImageDestinationAddImage(dest, cg, [kCGImageDestinationLossyCompressionQuality: ThumbnailDiskCache.jpegQuality] as CFDictionary)
-        cont.resume(returning: CGImageDestinationFinalize(dest) ? (mutableData as Data) : nil)
-      }
+    case .synced:    return .synced
+    case .cloudOnly: return .cloudOnly
+    case .localOnly: return .localOnly
     }
   }
 }
