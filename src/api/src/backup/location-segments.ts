@@ -37,6 +37,38 @@ function nonEmpty(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** Leading civic prefix Nominatim attaches to some official locality names
+ * ("City of London", "Town of Cary", "Village of Oak Park"). The trailing `\s+`
+ * is what makes "Townsville"/"Cityscape" safe — they have no " of " after the
+ * word, so they never match. */
+const CIVIC_PREFIX = /^(?:City|Town|Village)\s+of\s+/i;
+
+/**
+ * Operator override for the backup folder's city/town segment (the locality).
+ * Applied only to the locality — never the State/Country top segment — so the
+ * `New York` rename below touches the city without disturbing the `New York`
+ * state folder.
+ *
+ *   1. Drop a leading "City of " / "Town of " / "Village of " prefix, filing the
+ *      place under its bare name. Skipped if stripping would empty the segment
+ *      (a locality that is literally just "City of").
+ *   2. Rename the city "New York" → "New York City".
+ *
+ * Rule 1 runs before rule 2 so the official "City of New York" lands on
+ * "New York City" too.
+ */
+function normalizeBackupLocality(name: string | null): string | null {
+  if (name == null) return null;
+  let out = name;
+
+  const stripped = out.replace(CIVIC_PREFIX, '').trim();
+  if (stripped.length > 0) out = stripped;
+
+  if (out === 'New York') out = 'New York City';
+
+  return out;
+}
+
 export function backupLocationSegments(place: Place | null | undefined): string[] {
   if (!place) return [];
   const addr = place.address ?? {};
@@ -59,7 +91,9 @@ export function backupLocationSegments(place: Place | null | undefined): string[
   const top = isUSA ? (state ?? country) : (country ?? state);
   if (!top) return [];
 
-  // Town/City || Place Name.
-  const sub = nonEmpty(rollups?.locality) ?? nonEmpty(place.pois?.[0]?.name);
+  // Town/City || Place Name. The locality (the actual town/city) carries the
+  // operator overrides; the POI fallback is a landmark name and is left as-is.
+  const sub =
+    normalizeBackupLocality(nonEmpty(rollups?.locality)) ?? nonEmpty(place.pois?.[0]?.name);
   return sub ? [top, sub] : [top];
 }
