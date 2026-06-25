@@ -16,7 +16,7 @@ import Foundation
 
 // MARK: - Value types
 
-/// A single color stop in a slider gradient, expressed as linear sRGB.
+/// A single color stop in a slider gradient, expressed as sRGB.
 ///
 /// The position `t` is in [0, 1]: 0 = left edge, 1 = right edge.
 /// Positions are explicit so the catalog can represent non-uniform
@@ -24,11 +24,11 @@ import Foundation
 public struct GradientStop: Sendable, Hashable {
     /// Normalised position within the gradient, 0 (left) … 1 (right).
     public let t: Double
-    /// Red component in linear sRGB, [0, 1].
+    /// Red component in sRGB (display-referred, gamma-encoded), [0, 1].
     public let r: Double
-    /// Green component in linear sRGB, [0, 1].
+    /// Green component in sRGB (display-referred, gamma-encoded), [0, 1].
     public let g: Double
-    /// Blue component in linear sRGB, [0, 1].
+    /// Blue component in sRGB (display-referred, gamma-encoded), [0, 1].
     public let b: Double
 
     public init(t: Double, r: Double, g: Double, b: Double) {
@@ -41,10 +41,10 @@ public struct GradientStop: Sendable, Hashable {
 
 extension GradientStop {
     /// Convenience init from 8-bit sRGB hex (e.g. `0x0B0A08`) and a
-    /// position in [0, 1]. Values are stored as linear-light after dividing
-    /// by 255 — these are display-referred catalogue colours, not scene
-    /// linear, so no gamma decode is applied here; the GPU path handles
-    /// any necessary colour management at render time.
+    /// position in [0, 1]. Values are stored as gamma-encoded sRGB channel
+    /// values in [0, 1] — just the byte divided by 255. No gamma decode is
+    /// applied; these are display-referred palette colours, not scene-linear.
+    /// The GPU path handles any necessary colour management at render time.
     public init(t: Double, hex: UInt32) {
         self.t = t
         self.r = Double((hex >> 16) & 0xFF) / 255.0
@@ -234,33 +234,38 @@ public enum GradientCatalog {
         }
     }
 
-    /// Returns gradient stops by sub-param `id`.
+    /// Returns gradient stops for a sub-param identified by its **unqualified**
+    /// `id` (as declared in `ToolSubParam.id`, e.g. `"amount"`, `"feather"`)
+    /// together with its parent `tool`.
+    ///
+    /// Callers pass `subParam.id` directly — no manual string concatenation
+    /// required, and the lookup is unambiguous across tools that share ids
+    /// (e.g. both `.grain` and `.vignette` have a sub-param called `"amount"`).
     ///
     /// Split-tone, grain, vignette, sharpen, and noise sub-params each map
     /// to the parent tool's entry (they share the visual; finer per-sub-param
     /// gradients are a follow-up for A2).
-    public static func stops(forSubParamId id: String) -> [GradientStop]? {
-        // Sub-param ids are declared in ToolSubParam.swift.
-        switch id {
-        // Vignette sub-params
-        case "vignette.amount", "vignette.feather":
+    public static func stops(for tool: Tool, subParamId id: String) -> [GradientStop]? {
+        switch tool {
+        case .vignette:
+            // "amount", "feather"
             return vignette
-        // Grain sub-params
-        case "grain.amount", "grain.size", "grain.roughness":
+        case .grain:
+            // "amount", "size", "roughness"
             return grain
-        // Sharpen sub-params
-        case "sharpen.amount", "sharpen.radius", "sharpen.detail", "sharpen.masking":
+        case .sharpen:
+            // "amount", "radius", "detail", "masking"
             return sharpen
-        // Noise sub-params
-        case "noise.luminance", "noise.color":
+        case .noise:
+            // "luminance", "color"
             return noise
-        // Split-tone sub-params — no slider gradient (bipolar hue/sat wheels)
-        case "splitTone.balance",
-             "splitTone.shadowHue", "splitTone.shadowSat",
-             "splitTone.highlightHue", "splitTone.highlightSat":
+        case .splitTone:
+            // Sub-params use colour wheels, not gradient tracks
             return nil
         default:
-            return nil
+            // Single-param tools have no sub-params; fall back to the
+            // tool-level entry.
+            return stops(for: tool)
         }
     }
 }

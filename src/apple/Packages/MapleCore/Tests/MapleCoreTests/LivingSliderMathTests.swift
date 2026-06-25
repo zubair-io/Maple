@@ -152,6 +152,57 @@ final class LivingSliderMathTests: XCTestCase {
         // A range starting at zero: zero-pct = 0
         XCTAssertEqual(LivingSliderMath.zeroPctUnipolar(range: 0...100), 0.0, accuracy: 1e-9)
     }
+
+    // MARK: format(value:range:)
+
+    func testFormatExactZeroIntegerRange() {
+        XCTAssertEqual(LivingSliderMath.format(value: 0.0, range: -100...100), "0")
+    }
+
+    func testFormatExactZeroDecimalRange() {
+        XCTAssertEqual(LivingSliderMath.format(value: 0.0, range: -4...4), "0")
+    }
+
+    /// 0.4 on an integer-range slider is within the 0.5 threshold → "0".
+    func testFormatNearZeroIntegerRangeRoundsToZero() {
+        XCTAssertEqual(LivingSliderMath.format(value: 0.4,  range: -100...100), "0")
+        XCTAssertEqual(LivingSliderMath.format(value: -0.4, range: -100...100), "0")
+    }
+
+    /// 0.4 on a decimal range is outside the 0.005 threshold → "+0.40".
+    func testFormatSmallDecimalRangeNotRoundedToZero() {
+        XCTAssertEqual(LivingSliderMath.format(value: 0.4, range: -4...4), "+0.40")
+    }
+
+    func testFormatPositiveValueIntegerRange() {
+        XCTAssertEqual(LivingSliderMath.format(value: 35.0, range: -100...100), "+35")
+    }
+
+    func testFormatNegativeValueIntegerRange() {
+        XCTAssertEqual(LivingSliderMath.format(value: -35.0, range: -100...100), "-35")
+    }
+
+    func testFormatPositiveValueDecimalRange() {
+        XCTAssertEqual(LivingSliderMath.format(value: 1.5, range: -4...4), "+1.50")
+    }
+
+    func testFormatNegativeValueDecimalRange() {
+        XCTAssertEqual(LivingSliderMath.format(value: -2.25, range: -4...4), "-2.25")
+    }
+
+    /// Exactly ±0.5 on integer range is at the inclusive threshold (0.5 ≤ 0.5)
+    /// so it formats as "0" (unsigned) rather than "+0" (which %.0f + sign
+    /// would otherwise produce via IEEE-754 round-half-to-even).
+    func testFormatHalfStepIntegerRangeIsZero() {
+        XCTAssertEqual(LivingSliderMath.format(value:  0.5, range: -100...100), "0")
+        XCTAssertEqual(LivingSliderMath.format(value: -0.5, range: -100...100), "0")
+    }
+
+    /// 0.6 on integer range is above the 0.5 threshold and %.0f rounds to 1.
+    func testFormatAboveHalfStepIntegerRangeFormatsNonZero() {
+        XCTAssertEqual(LivingSliderMath.format(value: 0.6, range: -100...100), "+1")
+        XCTAssertEqual(LivingSliderMath.format(value: -0.6, range: -100...100), "-1")
+    }
 }
 
 // MARK: - 2. GradientCatalogTests
@@ -239,39 +290,54 @@ final class GradientCatalogTests: XCTestCase {
         XCTAssertEqual(stops[1].t, 0.5, accuracy: 1e-9)
     }
 
+    // MARK: Sub-param lookup — unqualified ids + tool
+
     func testSubParamIdsForVignette() {
-        XCTAssertNotNil(GradientCatalog.stops(forSubParamId: "vignette.amount"))
-        XCTAssertNotNil(GradientCatalog.stops(forSubParamId: "vignette.feather"))
+        // ToolSubParam.id values are unqualified ("amount", not "vignette.amount")
+        XCTAssertNotNil(GradientCatalog.stops(for: .vignette, subParamId: "amount"))
+        XCTAssertNotNil(GradientCatalog.stops(for: .vignette, subParamId: "feather"))
     }
 
     func testSubParamIdsForGrain() {
-        XCTAssertNotNil(GradientCatalog.stops(forSubParamId: "grain.amount"))
-        XCTAssertNotNil(GradientCatalog.stops(forSubParamId: "grain.size"))
-        XCTAssertNotNil(GradientCatalog.stops(forSubParamId: "grain.roughness"))
+        XCTAssertNotNil(GradientCatalog.stops(for: .grain, subParamId: "amount"))
+        XCTAssertNotNil(GradientCatalog.stops(for: .grain, subParamId: "size"))
+        XCTAssertNotNil(GradientCatalog.stops(for: .grain, subParamId: "roughness"))
     }
 
     func testSubParamIdsForSharpen() {
-        for id in ["sharpen.amount", "sharpen.radius", "sharpen.detail", "sharpen.masking"] {
-            XCTAssertNotNil(GradientCatalog.stops(forSubParamId: id))
+        for id in ["amount", "radius", "detail", "masking"] {
+            XCTAssertNotNil(GradientCatalog.stops(for: .sharpen, subParamId: id),
+                "sharpen sub-param '\(id)' should return non-nil")
         }
     }
 
     func testSubParamIdsForNoise() {
-        XCTAssertNotNil(GradientCatalog.stops(forSubParamId: "noise.luminance"))
-        XCTAssertNotNil(GradientCatalog.stops(forSubParamId: "noise.color"))
+        XCTAssertNotNil(GradientCatalog.stops(for: .noise, subParamId: "luminance"))
+        XCTAssertNotNil(GradientCatalog.stops(for: .noise, subParamId: "color"))
     }
 
     func testSplitToneSubParamsReturnNil() {
         // Split-tone sub-params use colour wheels, not gradient tracks
-        let splitToneIds = [
-            "splitTone.balance",
-            "splitTone.shadowHue", "splitTone.shadowSat",
-            "splitTone.highlightHue", "splitTone.highlightSat",
-        ]
+        let splitToneIds = ["balance", "shadowHue", "shadowSat", "highlightHue", "highlightSat"]
         for id in splitToneIds {
-            XCTAssertNil(GradientCatalog.stops(forSubParamId: id),
+            XCTAssertNil(GradientCatalog.stops(for: .splitTone, subParamId: id),
                 "splitTone sub-param '\(id)' should return nil")
         }
+    }
+
+    /// "amount" is ambiguous across tools — grain.amount and vignette.amount
+    /// are different sub-params. Verify the tool-keyed lookup returns the
+    /// correct (different) gradient for each.
+    func testSubParamAmountIsUnambiguousAcrossTools() {
+        let vignetteStops = GradientCatalog.stops(for: .vignette, subParamId: "amount")
+        let grainStops    = GradientCatalog.stops(for: .grain,    subParamId: "amount")
+        XCTAssertNotNil(vignetteStops)
+        XCTAssertNotNil(grainStops)
+        // Vignette has 3 stops (symmetric arc); grain has 2 — they are distinct.
+        XCTAssertEqual(vignetteStops?.count, 3,
+            "vignette gradient should have 3 stops (symmetric arc)")
+        XCTAssertEqual(grainStops?.count, 2,
+            "grain gradient should have 2 stops")
     }
 }
 
