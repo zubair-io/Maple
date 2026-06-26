@@ -128,7 +128,9 @@ struct ScaleZoomTest: View {
                         y: (focalScreen.y - offset.height) / scale
                     )
                 }
-                let mag = min(max(value.magnification, 0.4), 2.5)
+                // Wide clamp (just a runaway guard) so a hard pinch can traverse
+                // multiple levels in one gesture instead of hitting an artificial cap.
+                let mag = min(max(value.magnification, 0.08), 12)
                 let newScale = gestureStartScale * mag
                 // Keep the focal content point pinned under the finger (zoom-under-finger).
                 scale = newScale
@@ -186,9 +188,10 @@ struct ScaleZoomTest: View {
                 // Momentum: project a fling endpoint from the release velocity and
                 // ease to it, so a flick coasts instead of stopping at the finger.
                 let v = value.velocity.height            // pts/sec (iOS 17+)
-                let projected = offset.height + v * 0.16
+                // Stronger momentum: project further and decelerate over longer.
+                let projected = offset.height + v * 0.42
                 let target = clampY(projected, scale: scale, H: H, baseContentH: baseContentH)
-                withAnimation(.easeOut(duration: min(max(abs(v) / 2600, 0.15), 0.9))) {
+                withAnimation(.easeOut(duration: min(max(abs(v) / 1500, 0.3), 1.6))) {
                     offset.height = target
                 }
             }
