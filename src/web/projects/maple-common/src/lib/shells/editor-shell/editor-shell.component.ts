@@ -40,7 +40,6 @@ import { HistogramComponent } from '../../components/scopes/histogram.component'
 import { EditorStateService } from '../../editor/editor-state.service';
 import { ControlCardComponent } from '../../components/editor/control-card.component';
 import { ToolDockComponent } from '../../components/editor/tool-dock.component';
-import { MaskChipComponent } from '../../components/editor/mask-chip.component';
 import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress } from '../../addressing/maple-address';
@@ -69,7 +68,6 @@ const RECEDE_IDLE_MS = 3000;
     HistogramComponent,
     ControlCardComponent,
     ToolDockComponent,
-    MaskChipComponent,
     ValueHudComponent,
   ],
   styleUrl: './editor-shell.component.scss',
