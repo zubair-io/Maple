@@ -40,9 +40,10 @@ struct ScaleZoomTest: View {
 
     // Crossfade transition.
     @State private var transitioning = false
-    @State private var crossfade: Double = 0   // 0 = outgoing, 1 = incoming
+    @State private var align: Double = 0       // 0 = focal under finger, 1 = edge-aligned (settle motion)
+    @State private var fade: Double = 0        // 0 = outgoing, 1 = incoming (opacity dissolve)
     @State private var outLevelIndex = 0
-    @State private var tScale: CGFloat = 1      // shared scale during the crossfade
+    @State private var tScale: CGFloat = 1      // shared scale during the transition
 
     private var targetColumns: Int { levels[levelIndex] }
 
@@ -56,13 +57,13 @@ struct ScaleZoomTest: View {
             ZStack(alignment: .topLeading) {
                 if transitioning {
                     gridLayer(level: outLevelIndex, layerScale: tScale,
-                              layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: crossfade, cell: cell, pitch: pitch, H: H),
+                              layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: align, cell: cell, pitch: pitch, H: H),
                               cell: cell)
-                        .opacity(1 - crossfade)
+                        .opacity(1 - fade)
                     gridLayer(level: levelIndex, layerScale: tScale,
-                              layerOffset: layerOffset(level: levelIndex, s: tScale, align: crossfade, cell: cell, pitch: pitch, H: H),
+                              layerOffset: layerOffset(level: levelIndex, s: tScale, align: align, cell: cell, pitch: pitch, H: H),
                               cell: cell)
-                        .opacity(crossfade)
+                        .opacity(fade)
                 } else {
                     gridLayer(level: levelIndex, layerScale: scale, layerOffset: offset, cell: cell)
                 }
@@ -198,16 +199,23 @@ struct ScaleZoomTest: View {
                 outLevelIndex = levelIndex
                 levelIndex = newIndex
                 tScale = liveScale
-                crossfade = 0
+                align = 0
+                fade = 0
                 transitioning = true
+                // 1) Settle: scale lands + focal slides to its edge-aligned column.
                 withAnimation(.smooth(duration: 0.46)) {
                     tScale = newScale
-                    crossfade = 1
+                    align = 1
+                }
+                // 2) Dissolve: starts after a beat, runs slower — the content fade.
+                withAnimation(.smooth(duration: 0.75).delay(0.18)) {
+                    fade = 1
                 } completion: {
                     scale = newScale
                     offset = layerOffset(level: newIndex, s: newScale, align: 1, cell: cell, pitch: pitch, H: H)
                     transitioning = false
-                    crossfade = 0
+                    fade = 0
+                    align = 0
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragSuppressed = false }
             }
