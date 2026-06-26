@@ -194,3 +194,47 @@ export function metadataNamespacePrefixes(m: XmpMetadata): Set<string> {
   if (m.copyrightStatus && m.copyrightStatus !== 'unknown') used.add('xmpRights');
   return used;
 }
+
+const MARKED_TO_COPYRIGHT: Record<string, CopyrightStatus> = {
+  True: 'copyrighted',
+  False: 'public-domain',
+};
+
+/** Map `xmpRights:Marked` text to the tri-state; `null` for absent/unknown. */
+export function copyrightStatusFromMarked(marked: string | null): CopyrightStatus | null {
+  if (marked === null) return null;
+  return MARKED_TO_COPYRIGHT[marked] ?? null;
+}
+
+/**
+ * The managed metadata attribute keys (for KNOWN_ATTRIBUTES extension) and the
+ * managed nested element local-names (for passthrough exclusion).
+ */
+export const METADATA_ATTR_KEYS: readonly string[] = [
+  'exif:GPSLatitude',
+  'exif:GPSLongitude',
+  'exif:GPSAltitude',
+  'exif:GPSAltitudeRef',
+  'exif:DateTimeOriginal',
+  'papp:TimeZone',
+  'Iptc4xmpCore:Location',
+  'photoshop:City',
+  'photoshop:State',
+  'photoshop:Country',
+  'Iptc4xmpCore:CountryCode',
+  'photoshop:Headline',
+  'photoshop:Instructions',
+  'photoshop:AuthorsPosition',
+  'photoshop:Credit',
+  'photoshop:Source',
+  'xmpRights:Marked',
+];
+
+/** Managed nested elements `{ ns, local, tag }` — excluded from passthrough. */
+export const METADATA_NESTED_ELEMENTS: ReadonlyArray<{ ns: string; local: string; tag: string }> = [
+  { ns: METADATA_NAMESPACES['dc'], local: 'title', tag: 'dc:title' },
+  { ns: METADATA_NAMESPACES['dc'], local: 'creator', tag: 'dc:creator' },
+  { ns: METADATA_NAMESPACES['dc'], local: 'description', tag: 'dc:description' },
+  { ns: METADATA_NAMESPACES['dc'], local: 'rights', tag: 'dc:rights' },
+  { ns: METADATA_NAMESPACES['xmpRights'], local: 'UsageTerms', tag: 'xmpRights:UsageTerms' },
+];
