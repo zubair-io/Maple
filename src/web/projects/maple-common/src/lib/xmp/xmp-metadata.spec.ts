@@ -41,6 +41,25 @@ describe('gpsFromXmp', () => {
   it('returns null for malformed input', () => {
     expect(gpsFromXmp('not-a-coord')).toBeNull();
   });
+  it('normalises a zero-magnitude west coordinate to +0 (no -0)', () => {
+    expect(Object.is(gpsFromXmp('0,0.0000W'), -0)).toBe(false);
+    expect(gpsFromXmp('0,0.0000W')).toBe(0);
+  });
+});
+
+describe('gps round-trip edge cases', () => {
+  it('zero-magnitude is hemisphere-stable across encode -> decode -> encode', () => {
+    // A tiny-negative longitude rounds to zero minutes; it must not flip to E
+    // and back. Encode always uses the positive hemisphere at magnitude zero.
+    const enc = gpsToXmp(-1e-7, 'lon');
+    expect(enc).toBe('0,0.0000E');
+    expect(gpsToXmp(gpsFromXmp(enc)!, 'lon')).toBe(enc);
+  });
+  it('carries minutes that round to 60 into the degrees (no 89,60.0000)', () => {
+    const enc = gpsToXmp(89.9999999, 'lon');
+    expect(enc).toBe('90,0.0000E');
+    expect(gpsToXmp(gpsFromXmp(enc)!, 'lon')).toBe(enc);
+  });
 });
 
 describe('altitudeToXmp', () => {
