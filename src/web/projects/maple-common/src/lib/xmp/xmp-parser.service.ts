@@ -9,7 +9,13 @@
 //                          serializer doesn't double-emit it.
 
 import { Injectable } from '@angular/core';
-import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
+import type {
+  XmpCulling,
+  XmpFlag,
+  XmpColorLabel,
+  PassthroughBucket,
+  XmpMetadata,
+} from './xmp.types';
 import type { AdjustmentModel, WhiteBalancePreset, Crop } from '../models/adjustment-model';
 import type {
   HotPixelSuppressionMode,
@@ -17,6 +23,13 @@ import type {
   Profile,
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
+import {
+  gpsFromXmp,
+  altitudeFromXmp,
+  copyrightStatusFromMarked,
+  METADATA_ATTR_KEYS,
+  METADATA_NESTED_ELEMENTS,
+} from './xmp-metadata';
 
 /**
  * Precomputed `xmpKey → alias` lookup for `LEGACY_READ_ALIASES`. Used by both
@@ -83,6 +96,8 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'crs:Version',
   'crs:ProcessVersion',
   'crs:HasSettings',
+  // Batch Metadata block (spec 2026-06-26) — keep these out of passthrough.
+  ...METADATA_ATTR_KEYS,
 ]);
 
 @Injectable({ providedIn: 'root' })
@@ -178,6 +193,93 @@ export class XmpParserService {
     }
 
     return result;
+  }
+
+  // ── Metadata block (Batch Metadata, spec 2026-06-26) ────────────────────────
+
+  /**
+   * Parse the IPTC/EXIF metadata block. Returns only the fields present;
+   * absent fields are left undefined.
+   */
+  parseMetadata(xml: string): XmpMetadata {
+    const result: XmpMetadata = {};
+    let desc: Element | null = null;
+    try {
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      if (doc.querySelector('parseerror')) return result;
+      desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
+    } catch {
+      return result;
+    }
+    if (!desc) return result;
+
+    // GPS
+    const lat = this._attr(desc, ['exif:GPSLatitude']);
+    if (lat !== null) {
+      const v = gpsFromXmp(lat);
+      if (v !== null) result.gpsLatitude = v;
+    }
+    const lon = this._attr(desc, ['exif:GPSLongitude']);
+    if (lon !== null) {
+      const v = gpsFromXmp(lon);
+      if (v !== null) result.gpsLongitude = v;
+    }
+    const alt = this._attr(desc, ['exif:GPSAltitude']);
+    if (alt !== null) {
+      const v = altitudeFromXmp(alt, this._attr(desc, ['exif:GPSAltitudeRef']) ?? '0');
+      if (v !== null) result.gpsAltitude = v;
+    }
+
+    // Simple string attributes.
+    const str = (keys: string[]): string | undefined => {
+      const v = this._attr(desc!, keys);
+      return v === null ? undefined : v;
+    };
+    result.dateTimeOriginal = str(['exif:DateTimeOriginal']);
+    result.timeZone = str(['papp:TimeZone']);
+    result.sublocation = str(['Iptc4xmpCore:Location']);
+    result.city = str(['photoshop:City']);
+    result.state = str(['photoshop:State']);
+    result.country = str(['photoshop:Country']);
+    result.countryCode = str(['Iptc4xmpCore:CountryCode']);
+    result.headline = str(['photoshop:Headline']);
+    result.instructions = str(['photoshop:Instructions']);
+    result.creatorJobTitle = str(['photoshop:AuthorsPosition']);
+    result.credit = str(['photoshop:Credit']);
+    result.source = str(['photoshop:Source']);
+
+    const status = copyrightStatusFromMarked(this._attr(desc, ['xmpRights:Marked']));
+    if (status !== null) result.copyrightStatus = status;
+
+    // Nested lang-alt / seq elements → first rdf:li text content.
+    const DC = 'http://purl.org/dc/elements/1.1/';
+    result.title = this._nestedText(desc, DC, 'title', 'dc:title');
+    result.caption = this._nestedText(desc, DC, 'description', 'dc:description');
+    result.creator = this._nestedText(desc, DC, 'creator', 'dc:creator');
+    result.copyrightNotice = this._nestedText(desc, DC, 'rights', 'dc:rights');
+    result.usageTerms = this._nestedText(
+      desc,
+      'http://ns.adobe.com/xap/1.0/rights/',
+      'UsageTerms',
+      'xmpRights:UsageTerms',
+    );
+
+    // Strip undefined keys so an empty edit yields {} (byte-stable round-trip).
+    for (const k of Object.keys(result) as (keyof XmpMetadata)[]) {
+      if (result[k] === undefined) delete result[k];
+    }
+    return result;
+  }
+
+  /** First `rdf:li` text content of a nested lang-alt/seq element, or undefined. */
+  private _nestedText(desc: Element, ns: string, local: string, qname: string): string | undefined {
+    const elsNS = desc.getElementsByTagNameNS(ns, local);
+    const el = elsNS.length > 0 ? elsNS[0] : desc.getElementsByTagName(qname)[0];
+    if (!el) return undefined;
+    const liNS = el.getElementsByTagNameNS('http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'li');
+    const li = liNS.length > 0 ? liNS[0] : el.getElementsByTagName('rdf:li')[0];
+    const text = (li?.textContent ?? '').trim();
+    return text.length > 0 ? text : undefined;
   }
 
   // ── Full AdjustmentModel parser (P6) ────────────────────────────────────────
@@ -407,12 +509,23 @@ export class XmpParserService {
     // namespaced and prefix-only forms because DOMParser normalisation
     // varies across browsers.
     const unknownNodes: string[] = [];
+    const isManaged = (child: Element): boolean => {
+      // dc:subject (keywords) stays excluded as before.
+      if (
+        (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
+        child.tagName === 'dc:subject'
+      ) {
+        return true;
+      }
+      // Batch Metadata managed nested elements (spec 2026-06-26).
+      return METADATA_NESTED_ELEMENTS.some(
+        (e) =>
+          (child.namespaceURI === e.ns && child.localName === e.local) || child.tagName === e.tag,
+      );
+    };
     for (let i = 0; i < desc.children.length; i++) {
       const child = desc.children[i];
-      const isDcSubject =
-        (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
-        child.tagName === 'dc:subject';
-      if (isDcSubject) continue;
+      if (isManaged(child)) continue;
       unknownNodes.push(child.outerHTML);
     }
 
