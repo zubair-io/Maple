@@ -1,4 +1,4 @@
-// ScaleZoomGrid.swift — reusable generic scale-zoom photo grid (#1570 M0).
+// ScaleZoomGrid.swift — reusable generic scale-zoom photo grid (#1570 M0/M2).
 //
 // Generalises the validated interaction from ScaleZoomTest into a production
 // component. All tuned numbers are preserved verbatim from the prototype:
@@ -9,13 +9,15 @@
 // API:
 //   ScaleZoomGrid(
 //       data:         [Element],             // photo items
+//       level:        Binding<GridZoomLevel>, // persisted zoom level (M2+)
 //       provider:     ThumbnailProvider,
 //       makeItem:     (Element) -> PhotoGridItem,
 //       onTap:        (Element) -> Void,
 //       leadingCount: Int,                   // leading slot count (folders)
 //       leading:      (Int) -> AnyView?      // leading cell view by slot index
 //   )
-// Optional: selection: Set<Element.ID>, multiSelectChecked: ((Element) -> Bool?)?
+// Optional: selection: Set<Element.ID>, multiSelectChecked: ((Element) -> Bool?)?,
+//           displayMode: GridDisplayMode
 //
 // Leading cells occupy global slots 0..<leadingCount; photo index f maps to
 // global slot (leadingCount + f). This preserves today's leading-slot layout
@@ -23,6 +25,11 @@
 //
 // Cells use PhotoThumbnailCell (with the M1 sync cache peek) — no placeholder
 // flash for thumbnails already in the memory cache.
+//
+// M2: `level` is now a Binding<GridZoomLevel>. The component converts the
+// GridZoomLevel to its internal levelIndex on appear and on change, and writes
+// back through the binding whenever a settle completes. `displayMode` is
+// threaded through to PhotoThumbnailCell.
 
 #if os(iOS)
 
@@ -36,9 +43,15 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     // MARK: Inputs
 
     let data: [Element]
+    /// Persisted zoom level. The component maps GridZoomLevel ↔ internal
+    /// levelIndex via phoneColumns and writes back on each settle.
+    @Binding var level: GridZoomLevel
     let provider: ThumbnailProvider
     let makeItem: (Element) -> PhotoGridItem
     let onTap: (Element) -> Void
+
+    /// How thumbnails fill the square cell. Defaults to .fill (cover crop).
+    var displayMode: GridDisplayMode = .fill
 
     /// Number of leading slots (folders) packed before the photo items.
     var leadingCount: Int = 0
@@ -64,7 +77,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
 
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
-    @State private var levelIndex = 0
+    @State private var levelIndex: Int = 0
     @State private var focalImage: Int? = nil   // global slot index of focal cell
 
     // MARK: Gesture scratch
@@ -85,6 +98,19 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     @State private var tScale: CGFloat = 1
 
     private var targetColumns: Int { levels[levelIndex] }
+
+    // MARK: - Level <-> binding mapping
+
+    /// Convert a GridZoomLevel to the internal levelIndex.
+    private func indexFor(_ zoomLevel: GridZoomLevel) -> Int {
+        levels.firstIndex(of: zoomLevel.phoneColumns) ?? 2
+    }
+
+    /// Convert an internal levelIndex to a GridZoomLevel (falls back to .comfortable).
+    private func zoomLevelFor(_ idx: Int) -> GridZoomLevel {
+        let cols = levels[idx]
+        return GridZoomLevel.allCases.first { $0.phoneColumns == cols } ?? .comfortable
+    }
 
     // MARK: Body
 
@@ -120,9 +146,21 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             .contentShape(Rectangle())
             .gesture(magnify(W: W, H: H, pitch: pitch, cell: cell))
             .simultaneousGesture(verticalDrag(cell: cell, H: H))
+            // Sync internal levelIndex when the external binding changes
+            // (e.g. toolbar +/- in M3). Guard against recursive updates
+            // triggered by our own write-backs.
+            .onChange(of: level) { _, newLevel in
+                let newIdx = indexFor(newLevel)
+                guard newIdx != levelIndex, !pinching, !transitioning else { return }
+                levelIndex = newIdx
+            }
         }
         .ignoresSafeArea()
         .background(Color.black)
+        // Initialise the internal index from the binding on first appear.
+        .onAppear {
+            levelIndex = indexFor(level)
+        }
     }
 
     // MARK: - Grid layer (windowed: only visible rows realized)
@@ -184,7 +222,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             PhotoThumbnailCell(
                 item: item,
                 provider: provider,
-                displayMode: .fill,
+                displayMode: displayMode,
                 isSelected: selection.contains(element.id),
                 multiSelectChecked: multiSelectChecked?(element),
                 onTap: { onTap(element) }
@@ -267,8 +305,8 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 let liveScale = scale
                 let newIndex: Int
                 if mag > 1.05 {
-                    // Pinching out → fewer columns (zoom in). Pick the first
-                    // level whose computed scale is ≥ current live scale.
+                    // Pinching out -> fewer columns (zoom in). Pick the first
+                    // level whose computed scale is >= current live scale.
                     var idx = levels.count - 1
                     for i in 0..<levels.count
                     where levelScale(levels[i], cell: cell, W: W) >= liveScale {
@@ -276,8 +314,8 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                     }
                     newIndex = idx
                 } else if mag < 0.95 {
-                    // Pinching in → more columns (zoom out). Pick the last
-                    // level whose computed scale is ≤ current live scale.
+                    // Pinching in -> more columns (zoom out). Pick the last
+                    // level whose computed scale is <= current live scale.
                     var idx = 0
                     for i in 0..<levels.count
                     where levelScale(levels[i], cell: cell, W: W) <= liveScale {
@@ -323,6 +361,9 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                                          cell: cell, pitch: pitch, H: H)
                     transitioning = false
                     fade = 0
+                    // Write the settled level back through the binding so
+                    // the caller can persist it (M2+).
+                    level = zoomLevelFor(newIndex)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     dragSuppressed = false
