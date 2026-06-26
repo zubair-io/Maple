@@ -21,9 +21,27 @@
 // the closure is called per visible element and its result is forwarded to
 // `PhotoThumbnailCell.multiSelectChecked`. `nil` (default) keeps the existing
 // single-select outline behaviour unchanged.
+//
+// #1550 focal-anchoring: `leadingSpacerCount` + `publishFrames` inputs, and a
+// `CellFramePreferenceKey` that surfaces on-screen cell frames in the named
+// coordinate space "gridViewport". Spacers use `height: 0.1` (landmine #1 —
+// zero-height cells are dropped from layout). Frame publishing is gated to
+// `publishFrames == true` so steady-state scrolling adds no overhead.
 
 import SwiftUI
 import MapleCore
+
+// MARK: - CellFramePreferenceKey
+
+/// Collects viewport-space frames of realized photo cells during a pinch.
+/// Keyed by `AnyHashable`-erased element id; merged by union (last writer wins
+/// for duplicate keys, which can't happen within one layout pass).
+struct CellFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [AnyHashable: CGRect] = [:]
+    static func reduce(value: inout [AnyHashable: CGRect], nextValue: () -> [AnyHashable: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
 
 // MARK: - ColumnStrategy
 
@@ -108,6 +126,15 @@ enum ColumnStrategy {
 /// result is forwarded to `PhotoThumbnailCell.multiSelectChecked`. Enables the
 /// top-trailing checkmark badge (BrowseGrid multi-select) without polluting the
 /// `PhotoGridItem` model with UI-only state.
+///
+/// **Focal anchoring (#1550):**
+/// - `leadingSpacerCount` — prepend this many invisible spacer cells (height 0.1)
+///   so the focal image lands in the correct column after a zoom level change.
+/// - `publishFrames` — when true each realized photo cell publishes its
+///   viewport-space frame via `CellFramePreferenceKey` in the coordinate space
+///   named `"gridViewport"`. The surface reads this via `.onPreferenceChange`
+///   to locate the focal image on pinch-start. Gated to while pinching so
+///   steady-state scrolling adds no overhead.
 struct PhotoGrid<Element: Identifiable, Leading: View>: View {
 
     let data: [Element]
@@ -126,7 +153,35 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     let makeItem: (Element) -> PhotoGridItem
     let leading: () -> Leading
 
+    // MARK: Focal-anchoring inputs (#1550)
+
+    /// Number of invisible spacer cells to prepend before `leading()` + data.
+    /// Each spacer occupies a column track (height 0.1, not 0 — landmine #1)
+    /// but is visually invisible. Defaults to 0 (no change to steady-state layout).
+    var leadingSpacerCount: Int = 0
+
+    /// When true, each realized photo cell publishes its frame in the
+    /// `"gridViewport"` coordinate space via `CellFramePreferenceKey`.
+    /// Set true only while a pinch is active to avoid steady-state overhead.
+    var publishFrames: Bool = false
+
     @Environment(\.mapleLayout) private var layout
+
+    /// Returns a frame-publishing background view for a photo cell when
+    /// `publishFrames` is true, or an `EmptyView` when false. Kept as a
+    /// separate `@ViewBuilder` method so both branches are the same opaque type
+    /// (avoids the "branches have different types" error from a plain ternary).
+    @ViewBuilder
+    private func framePublisher(for element: Element) -> some View {
+        if publishFrames {
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: CellFramePreferenceKey.self,
+                    value: [AnyHashable(element.id): geo.frame(in: .named("gridViewport"))]
+                )
+            }
+        }
+    }
 
     /// Primary initialiser. Explicit so `leading` can carry `@ViewBuilder`.
     /// Use the `EmptyView` convenience below when no leading content is needed.
@@ -139,6 +194,8 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
+        leadingSpacerCount: Int = 0,
+        publishFrames: Bool = false,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem,
         @ViewBuilder leading: @escaping () -> Leading
@@ -151,6 +208,8 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
         self.transitionNamespace = transitionNamespace
         self.onAppearItem = onAppearItem
         self.multiSelectChecked = multiSelectChecked
+        self.leadingSpacerCount = leadingSpacerCount
+        self.publishFrames = publishFrames
         self.onTap = onTap
         self.makeItem = makeItem
         self.leading = leading
@@ -161,6 +220,14 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
             columns: columns.gridItems(for: layout),
             spacing: columns.rowSpacing(for: layout)
         ) {
+            // Invisible leading spacer cells for focal anchoring.
+            // height: 0.1 — NOT 0 (zero-height cells get dropped from layout,
+            // bleeding the next cell leftward — landmine #1 from the plan).
+            if leadingSpacerCount > 0 {
+                ForEach(0..<leadingSpacerCount, id: \.self) { _ in
+                    Color.clear.frame(height: 0.1)
+                }
+            }
             leading()
             ForEach(data) { element in
                 // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
@@ -176,6 +243,13 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
                     onTap: { onTap(element) },
                     onAppear: onAppearItem.map { cb in { cb(element) } }
                 )
+                // Tag each photo cell so ScrollViewReader.scrollTo can target it.
+                .id(element.id)
+                // Publish viewport-space frame while a pinch is active.
+                // GeometryReader reads in the named "gridViewport" space set
+                // by the surrounding ScrollView in LibraryGrid / BrowseGrid.
+                // The `if publishFrames` guard keeps this zero-cost at rest.
+                .background(framePublisher(for: element))
             }
         }
     }
@@ -193,6 +267,8 @@ extension PhotoGrid where Leading == EmptyView {
         transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
+        leadingSpacerCount: Int = 0,
+        publishFrames: Bool = false,
         onTap: @escaping (Element) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem
     ) {
@@ -205,6 +281,8 @@ extension PhotoGrid where Leading == EmptyView {
             transitionNamespace: transitionNamespace,
             onAppearItem: onAppearItem,
             multiSelectChecked: multiSelectChecked,
+            leadingSpacerCount: leadingSpacerCount,
+            publishFrames: publishFrames,
             onTap: onTap,
             makeItem: makeItem,
             leading: { EmptyView() }
