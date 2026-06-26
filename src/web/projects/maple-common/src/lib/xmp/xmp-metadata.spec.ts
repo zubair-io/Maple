@@ -7,7 +7,9 @@ import {
   langAltBlock,
   seqBlock,
   escapeXmlText,
+  metadataAttrParts,
 } from './xmp-metadata';
+import type { XmpMetadata } from './xmp.types';
 
 describe('gpsToXmp', () => {
   it('encodes a northern latitude as deg,decimal-min with N', () => {
@@ -96,5 +98,51 @@ describe('seqBlock', () => {
 describe('escapeXmlText', () => {
   it('escapes &, <, >', () => {
     expect(escapeXmlText('a & b < c > d')).toBe('a &amp; b &lt; c &gt; d');
+  });
+});
+
+describe('metadataAttrParts', () => {
+  it('emits GPS, datetime, place, headline, and rights-marked attributes in order', () => {
+    const m: XmpMetadata = {
+      gpsLatitude: 48.8566,
+      gpsLongitude: 2.3522,
+      gpsAltitude: 35,
+      dateTimeOriginal: '2026-06-26T18:40:00+02:00',
+      timeZone: 'Europe/Paris',
+      city: 'Paris',
+      country: 'France',
+      countryCode: 'FR',
+      headline: 'Trip',
+      copyrightStatus: 'copyrighted',
+    };
+    expect(metadataAttrParts(m)).toEqual([
+      'exif:GPSLatitude="48,51.3960N"',
+      'exif:GPSLongitude="2,21.1320E"',
+      'exif:GPSAltitude="35000/1000"',
+      'exif:GPSAltitudeRef="0"',
+      'exif:DateTimeOriginal="2026-06-26T18:40:00+02:00"',
+      'papp:TimeZone="Europe/Paris"',
+      'photoshop:City="Paris"',
+      'photoshop:Country="France"',
+      'Iptc4xmpCore:CountryCode="FR"',
+      'photoshop:Headline="Trip"',
+      'xmpRights:Marked="True"',
+    ]);
+  });
+  it('omits everything for an empty metadata object', () => {
+    expect(metadataAttrParts({})).toEqual([]);
+  });
+  it('emits public-domain as Marked=False', () => {
+    expect(metadataAttrParts({ copyrightStatus: 'public-domain' })).toEqual([
+      'xmpRights:Marked="False"',
+    ]);
+  });
+  it('omits Marked when status is unknown', () => {
+    expect(metadataAttrParts({ copyrightStatus: 'unknown' })).toEqual([]);
+  });
+  it('escapes attribute values', () => {
+    expect(metadataAttrParts({ city: 'A "B" & C' })).toEqual([
+      'photoshop:City="A &quot;B&quot; &amp; C"',
+    ]);
   });
 });
