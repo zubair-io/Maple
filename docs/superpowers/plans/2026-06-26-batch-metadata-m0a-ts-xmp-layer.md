@@ -4,7 +4,7 @@
 
 **Goal:** Add user-authored capture/IPTC metadata (GPS, capture date/time, time zone, place text, title/caption/headline/instructions, creator & rights) to Maple's TypeScript XMP sidecar layer — parsed and serialized non-destructively alongside the existing adjustment + culling blocks.
 
-**Architecture:** Metadata is a *separate concern* from `AdjustmentModel` (exactly like the existing `XmpCulling`). A new `XmpMetadata` type carries the values in native units (signed decimal degrees, ISO datetime strings, plain strings). A focused `xmp-metadata.ts` helper module owns the standard-XMP encodings (GPS deg/min rationals, altitude rationals, lang-alt/seq RDF containers, copyright-status mapping). `XmpSerializerService.serialize()` gains an optional `metadata` argument; `XmpParserService` gains `parseMetadata()`. New attribute keys join `KNOWN_ATTRIBUTES` and new nested elements join the passthrough-exclusion list so nothing double-emits. This is the M0a foundation referenced by the spec; Swift parity, Rust tolerance, codegen constants, and the API/effective-resolver land in later plans.
+**Architecture:** Metadata is a _separate concern_ from `AdjustmentModel` (exactly like the existing `XmpCulling`). A new `XmpMetadata` type carries the values in native units (signed decimal degrees, ISO datetime strings, plain strings). A focused `xmp-metadata.ts` helper module owns the standard-XMP encodings (GPS deg/min rationals, altitude rationals, lang-alt/seq RDF containers, copyright-status mapping). `XmpSerializerService.serialize()` gains an optional `metadata` argument; `XmpParserService` gains `parseMetadata()`. New attribute keys join `KNOWN_ATTRIBUTES` and new nested elements join the passthrough-exclusion list so nothing double-emits. This is the M0a foundation referenced by the spec; Swift parity, Rust tolerance, codegen constants, and the API/effective-resolver land in later plans.
 
 **Tech Stack:** TypeScript, Angular (services), Vitest (the maple-common test runner), the browser `DOMParser` (already used by the parser).
 
@@ -32,14 +32,14 @@ cd src/web && HOME=/tmp/maple-binst bun x ng test Maple-common --watch=false --f
 
 ## File Structure
 
-| File | Responsibility | Change |
-| --- | --- | --- |
-| `src/web/projects/maple-common/src/lib/xmp/xmp.types.ts` | Shared XMP value types | **Modify** — add `CopyrightStatus`, `XmpMetadata` |
-| `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts` | Standard-XMP encodings + field tables for metadata | **Create** |
-| `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.spec.ts` | Unit tests for the encodings | **Create** |
-| `src/web/projects/maple-common/src/lib/xmp/xmp-serializer.service.ts` | Serialize model+culling+**metadata** → XMP | **Modify** — accept `metadata`, emit attrs + nested + namespaces |
-| `src/web/projects/maple-common/src/lib/xmp/xmp-parser.service.ts` | Parse XMP → model/culling/**metadata** + passthrough | **Modify** — add `parseMetadata`, extend known set + exclusion |
-| `src/web/projects/maple-common/src/lib/xmp/xmp-metadata-roundtrip.spec.ts` | End-to-end round-trip + byte-stable + no-double-emit | **Create** |
+| File                                                                       | Responsibility                                       | Change                                                           |
+| -------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
+| `src/web/projects/maple-common/src/lib/xmp/xmp.types.ts`                   | Shared XMP value types                               | **Modify** — add `CopyrightStatus`, `XmpMetadata`                |
+| `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts`                | Standard-XMP encodings + field tables for metadata   | **Create**                                                       |
+| `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.spec.ts`           | Unit tests for the encodings                         | **Create**                                                       |
+| `src/web/projects/maple-common/src/lib/xmp/xmp-serializer.service.ts`      | Serialize model+culling+**metadata** → XMP           | **Modify** — accept `metadata`, emit attrs + nested + namespaces |
+| `src/web/projects/maple-common/src/lib/xmp/xmp-parser.service.ts`          | Parse XMP → model/culling/**metadata** + passthrough | **Modify** — add `parseMetadata`, extend known set + exclusion   |
+| `src/web/projects/maple-common/src/lib/xmp/xmp-metadata-roundtrip.spec.ts` | End-to-end round-trip + byte-stable + no-double-emit | **Create**                                                       |
 
 **Field set (native units in `XmpMetadata`; XMP encoding in parens):**
 
@@ -55,15 +55,16 @@ cd src/web && HOME=/tmp/maple-binst bun x ng test Maple-common --watch=false --f
 
 **Deterministic emission order (for per-platform byte-stability):**
 
-- *Attributes* appended after culling, before passthrough, in this order: `exif:GPSLatitude`, `exif:GPSLongitude`, `exif:GPSAltitude`, `exif:GPSAltitudeRef`, `exif:DateTimeOriginal`, `papp:TimeZone`, `Iptc4xmpCore:Location`, `photoshop:City`, `photoshop:State`, `photoshop:Country`, `Iptc4xmpCore:CountryCode`, `photoshop:Headline`, `photoshop:Instructions`, `photoshop:AuthorsPosition`, `photoshop:Credit`, `photoshop:Source`, `xmpRights:Marked`.
-- *Nested elements* among the children, in this order: `dc:title`, `dc:creator`, `dc:description`, `dc:subject` (existing keywords), `dc:rights`, `xmpRights:UsageTerms`, then passthrough `unknownNodes`.
-- *Namespace declarations*: always `xmp`, `crs`, `papp`; then conditionally (only when used) `dc`, `exif`, `photoshop`, `Iptc4xmpCore`, `xmpRights`, in that order.
+- _Attributes_ appended after culling, before passthrough, in this order: `exif:GPSLatitude`, `exif:GPSLongitude`, `exif:GPSAltitude`, `exif:GPSAltitudeRef`, `exif:DateTimeOriginal`, `papp:TimeZone`, `Iptc4xmpCore:Location`, `photoshop:City`, `photoshop:State`, `photoshop:Country`, `Iptc4xmpCore:CountryCode`, `photoshop:Headline`, `photoshop:Instructions`, `photoshop:AuthorsPosition`, `photoshop:Credit`, `photoshop:Source`, `xmpRights:Marked`.
+- _Nested elements_ among the children, in this order: `dc:title`, `dc:creator`, `dc:description`, `dc:subject` (existing keywords), `dc:rights`, `xmpRights:UsageTerms`, then passthrough `unknownNodes`.
+- _Namespace declarations_: always `xmp`, `crs`, `papp`; then conditionally (only when used) `dc`, `exif`, `photoshop`, `Iptc4xmpCore`, `xmpRights`, in that order.
 
 ---
 
 ## Task 1: GPS coordinate ↔ decimal conversion
 
 **Files:**
+
 - Create: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts`
 - Test: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.spec.ts`
 
@@ -170,6 +171,7 @@ git commit -m "feat(xmp): GPS decimal<->XMP deg/min conversion for metadata bloc
 ## Task 2: Altitude ↔ rational conversion
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts`
 - Test: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.spec.ts`
 
@@ -254,6 +256,7 @@ git commit -m "feat(xmp): altitude<->rational conversion for GPS metadata"
 ## Task 3: lang-alt + seq RDF container build/parse helpers
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts`
 - Test: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.spec.ts`
 
@@ -366,6 +369,7 @@ git commit -m "feat(xmp): lang-alt + seq RDF container helpers for metadata"
 ## Task 4: `XmpMetadata` type + simple-attribute field table
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp.types.ts`
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts`
 - Test: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.spec.ts`
@@ -443,6 +447,7 @@ describe('metadataAttrParts', () => {
       'photoshop:Country="France"',
       'Iptc4xmpCore:CountryCode="FR"',
       'photoshop:Headline="Trip"',
+      'xmpRights:Marked="True"',
     ]);
   });
   it('omits everything for an empty metadata object', () => {
@@ -552,6 +557,7 @@ git commit -m "feat(xmp): XmpMetadata type + ordered simple-attribute emitter"
 ## Task 5: Nested-element emitter + namespace computation
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts`
 - Test: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.spec.ts`
 
@@ -638,9 +644,23 @@ export function metadataNestedBlocks(m: XmpMetadata): string[] {
  */
 export function metadataNamespacePrefixes(m: XmpMetadata): Set<string> {
   const used = new Set<string>();
-  if (m.gpsLatitude != null || m.gpsLongitude != null || m.gpsAltitude != null || m.dateTimeOriginal)
+  if (
+    m.gpsLatitude != null ||
+    m.gpsLongitude != null ||
+    m.gpsAltitude != null ||
+    m.dateTimeOriginal
+  )
     used.add('exif');
-  if (m.city || m.state || m.country || m.headline || m.instructions || m.creatorJobTitle || m.credit || m.source)
+  if (
+    m.city ||
+    m.state ||
+    m.country ||
+    m.headline ||
+    m.instructions ||
+    m.creatorJobTitle ||
+    m.credit ||
+    m.source
+  )
     used.add('photoshop');
   if (m.sublocation || m.countryCode) used.add('Iptc4xmpCore');
   if (m.title || m.creator || m.caption || m.copyrightNotice) used.add('dc');
@@ -668,6 +688,7 @@ git commit -m "feat(xmp): nested-element emitter + namespace-prefix computation"
 ## Task 6: Serializer integration
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp-serializer.service.ts:29-171`
 - Test: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata-roundtrip.spec.ts` (create)
 
@@ -721,9 +742,14 @@ describe('serialize with metadata', () => {
   });
 
   it('coexists with keyword dc:subject (single dc namespace decl)', () => {
-    const xml = ser.serialize(defaultAdjustmentModel(), undefined, { keywords: ['travel'] }, {
-      title: 'T',
-    });
+    const xml = ser.serialize(
+      defaultAdjustmentModel(),
+      undefined,
+      { keywords: ['travel'] },
+      {
+        title: 'T',
+      },
+    );
     expect(xml).toContain('<dc:subject>');
     expect(xml).toContain('<dc:title>');
     // dc namespace declared exactly once
@@ -770,58 +796,61 @@ Extend the method signature (line 29-39) — add the 4th parameter:
 Insert metadata attributes after the culling block and **before** the passthrough attribute loop (between current line 115 and line 117):
 
 ```typescript
-    // Metadata block — simple attributes (Batch Metadata, spec 2026-06-26).
-    // Inserted before passthrough so the fixed metadata order is stable.
-    if (metadata) {
-      for (const part of metadataAttrParts(metadata)) {
-        parts.push(part);
-      }
-    }
+// Metadata block — simple attributes (Batch Metadata, spec 2026-06-26).
+// Inserted before passthrough so the fixed metadata order is stable.
+if (metadata) {
+  for (const part of metadataAttrParts(metadata)) {
+    parts.push(part);
+  }
+}
 ```
 
 Replace the `dcNamespaceLine` computation (lines 153-157) and the namespace lines in the return array (lines 159-171). First, compute the nested blocks and the namespace set. Replace lines 148-171 with:
 
 ```typescript
-    // Metadata nested elements (lang-alt / seq), in fixed order.
-    const metadataBlocks = metadata ? metadataNestedBlocks(metadata) : [];
+// Metadata nested elements (lang-alt / seq), in fixed order.
+const metadataBlocks = metadata ? metadataNestedBlocks(metadata) : [];
 
-    // Compose nested children: metadata title/creator/description first, then
-    // keywords (dc:subject), then metadata rights/usageTerms, then any unknown
-    // passthrough nodes. We interleave by inserting the keyword block at its
-    // canonical slot: title, creator, description, [keywords], rights, usageTerms.
-    const titleCreatorDesc = metadataBlocks.filter((b) =>
-      /^  <(dc:title|dc:creator|dc:description)>/.test(b),
-    );
-    const rightsUsage = metadataBlocks.filter((b) =>
-      /^  <(dc:rights|xmpRights:UsageTerms)>/.test(b),
-    );
-    const childBlocks = [titleCreatorDesc.join('\n'), keywordsBlock, rightsUsage.join('\n'), nestedNodes]
-      .filter((b) => b.length > 0)
-      .join('\n');
-    const nestedSection = childBlocks ? `\n${childBlocks}\n` : '\n';
+// Compose nested children: metadata title/creator/description first, then
+// keywords (dc:subject), then metadata rights/usageTerms, then any unknown
+// passthrough nodes. We interleave by inserting the keyword block at its
+// canonical slot: title, creator, description, [keywords], rights, usageTerms.
+const titleCreatorDesc = metadataBlocks.filter((b) =>
+  /^  <(dc:title|dc:creator|dc:description)>/.test(b),
+);
+const rightsUsage = metadataBlocks.filter((b) => /^  <(dc:rights|xmpRights:UsageTerms)>/.test(b));
+const childBlocks = [
+  titleCreatorDesc.join('\n'),
+  keywordsBlock,
+  rightsUsage.join('\n'),
+  nestedNodes,
+]
+  .filter((b) => b.length > 0)
+  .join('\n');
+const nestedSection = childBlocks ? `\n${childBlocks}\n` : '\n';
 
-    // Namespace declarations: always xmp/crs/papp; then conditional metadata
-    // namespaces plus dc-for-keywords, in fixed prefix order.
-    const usedPrefixes = metadata ? metadataNamespacePrefixes(metadata) : new Set<string>();
-    if (keywords.length > 0) usedPrefixes.add('dc');
-    const NS_ORDER = ['dc', 'exif', 'photoshop', 'Iptc4xmpCore', 'xmpRights'];
-    const extraNsLines = NS_ORDER.filter((p) => usedPrefixes.has(p))
-      .map((p) => `\n    xmlns:${p}="${METADATA_NAMESPACES[p]}"`)
-      .join('');
+// Namespace declarations: always xmp/crs/papp; then conditional metadata
+// namespaces plus dc-for-keywords, in fixed prefix order.
+const usedPrefixes = metadata ? metadataNamespacePrefixes(metadata) : new Set<string>();
+if (keywords.length > 0) usedPrefixes.add('dc');
+const NS_ORDER = ['dc', 'exif', 'photoshop', 'Iptc4xmpCore', 'xmpRights'];
+const extraNsLines = NS_ORDER.filter((p) => usedPrefixes.has(p))
+  .map((p) => `\n    xmlns:${p}="${METADATA_NAMESPACES[p]}"`)
+  .join('');
 
-    return [
-      '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>',
-      '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Maple Hosted 0.1.0">',
-      ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
-      '  <rdf:Description rdf:about=""',
-      '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
-      '    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"',
-      `    xmlns:papp="http://ns.justmaple.app/photo/1.0/"${extraNsLines}`,
-      `${attrsBlock}>${nestedSection}  </rdf:Description>`,
-      ' </rdf:RDF>',
-      '</x:xmpmeta>',
-      '<?xpacket end="w"?>',
-    ].join('\n');
+return [
+  '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>',
+  '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Maple Hosted 0.1.0">',
+  ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
+  '  <rdf:Description rdf:about=""',
+  '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
+  '    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"',
+  `    xmlns:papp="http://ns.justmaple.app/photo/1.0/"${extraNsLines}`,
+  `${attrsBlock}>${nestedSection}  </rdf:Description>`,
+  ' </rdf:RDF>',
+  '</x:xmpmeta>',
+  '<?xpacket end="w"?>',
+].join('\n');
 ```
 
 > The existing `keywordsBlock` (lines 136-146) and `dcNamespaceLine` removal: delete the old `dcNamespaceLine` const entirely — the dc namespace is now handled by `usedPrefixes`. Keep `keywords` and `keywordsBlock` as-is.
@@ -844,6 +873,7 @@ git commit -m "feat(xmp): serialize XmpMetadata block (attrs + nested + namespac
 ## Task 7: Parser integration + passthrough exclusion + full round-trip
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata.ts` (parse helpers)
 - Modify: `src/web/projects/maple-common/src/lib/xmp/xmp-parser.service.ts`
 - Test: `src/web/projects/maple-common/src/lib/xmp/xmp-metadata-roundtrip.spec.ts`
@@ -933,7 +963,13 @@ describe('parseMetadata round-trip', () => {
     const { passthrough } = parser.parseAdjustmentModel(xml1);
     // None of the managed nested elements leak into passthrough nodes.
     const joined = passthrough.unknownNodes.join('');
-    for (const tag of ['dc:title', 'dc:creator', 'dc:description', 'dc:rights', 'xmpRights:UsageTerms']) {
+    for (const tag of [
+      'dc:title',
+      'dc:creator',
+      'dc:description',
+      'dc:rights',
+      'xmpRights:UsageTerms',
+    ]) {
       expect(joined).not.toContain(tag);
     }
     // None of the managed attributes leak into passthrough attributes.
@@ -946,7 +982,9 @@ describe('parseMetadata round-trip', () => {
   it('leaves a genuinely-unknown node in passthrough untouched', () => {
     const src = ser.serialize(defaultAdjustmentModel(), {
       unknownAttributes: [],
-      unknownNodes: ['<crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li></rdf:Seq></crs:ToneCurvePV2012>'],
+      unknownNodes: [
+        '<crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li></rdf:Seq></crs:ToneCurvePV2012>',
+      ],
     });
     const { passthrough } = parser.parseAdjustmentModel(src);
     expect(passthrough.unknownNodes.join('')).toContain('crs:ToneCurvePV2012');
@@ -1137,26 +1175,25 @@ Add the `parseMetadata` method to the class (after `parseCulling`, before `parse
 Extend the passthrough nested-node exclusion (the loop at lines 409-417). Replace the `isDcSubject` check with a general managed-element check:
 
 ```typescript
-    const unknownNodes: string[] = [];
-    const isManaged = (child: Element): boolean => {
-      // dc:subject (keywords) stays excluded as before.
-      if (
-        (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
-        child.tagName === 'dc:subject'
-      ) {
-        return true;
-      }
-      // Batch Metadata managed nested elements (spec 2026-06-26).
-      return METADATA_NESTED_ELEMENTS.some(
-        (e) =>
-          (child.namespaceURI === e.ns && child.localName === e.local) || child.tagName === e.tag,
-      );
-    };
-    for (let i = 0; i < desc.children.length; i++) {
-      const child = desc.children[i];
-      if (isManaged(child)) continue;
-      unknownNodes.push(child.outerHTML);
-    }
+const unknownNodes: string[] = [];
+const isManaged = (child: Element): boolean => {
+  // dc:subject (keywords) stays excluded as before.
+  if (
+    (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
+    child.tagName === 'dc:subject'
+  ) {
+    return true;
+  }
+  // Batch Metadata managed nested elements (spec 2026-06-26).
+  return METADATA_NESTED_ELEMENTS.some(
+    (e) => (child.namespaceURI === e.ns && child.localName === e.local) || child.tagName === e.tag,
+  );
+};
+for (let i = 0; i < desc.children.length; i++) {
+  const child = desc.children[i];
+  if (isManaged(child)) continue;
+  unknownNodes.push(child.outerHTML);
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
