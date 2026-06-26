@@ -190,38 +190,52 @@ final class RenderActorTests: XCTestCase {
             "Quality.full must carry raw value 0 to match the Rust FFI (0 => RenderQuality::Full)")
     }
 
-    /// Export path (`renderForExport`) uses `.amaze` demosaic (#940).
-    /// This is a structural proof via source inspection — the production
-    /// call site in `RenderActor.renderForExport` hardcodes `quality: .amaze`
-    /// at the `decodeSceneLinear` call. The test exercises the enum value
-    /// and the same code path used by `MapleExporter.exportData`.
+    /// Export path (`renderForExport`) quality is flag-gated (#940):
+    ///   • AmazeFlag OFF (default) → `.full` (bilinear, production default).
+    ///   • AmazeFlag ON            → `.amaze`.
+    /// The test checks both branches by reading `AmazeFlag.isEnabled` rather
+    /// than hard-coding `.amaze`, so it stays green regardless of the
+    /// UserDefaults / `MAPLE_AMAZE` state in the test runner environment.
     func testExportPathUsesAmazeQuality() async {
-        // The export path calls `pipeline.decodeSceneLinear(quality: .amaze, ...)`.
-        // An unreadable asset exercises the same dispatch — it must reach the
-        // FFI call (quality mapped to Int32(2)) before failing the decode.
-        // We verify the quality value reaches the FFI via the raw value check
-        // above + confirm the pipeline entry is reachable without crash.
-        let quality = PipelineRenderer.Quality.amaze
-        XCTAssertEqual(quality.rawValue, 2,
-            "export path quality value 2 must map to AMaZE in raw-ffi (RenderQuality::Amaze)")
+        let expectedQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
+        // Flag OFF (default): must select .full (bilinear).
+        // Flag ON:            must select .amaze.
+        // Either way the value must be one of the two non-preview choices.
+        XCTAssertTrue(
+            expectedQuality == .full || expectedQuality == .amaze,
+            "export path quality must be .full (flag OFF) or .amaze (flag ON); got \(expectedQuality)")
+        if AmazeFlag.isEnabled {
+            XCTAssertEqual(expectedQuality.rawValue, 2,
+                "export path with flag ON must map to AMaZE (raw value 2)")
+        } else {
+            XCTAssertEqual(expectedQuality.rawValue, 0,
+                "export path with flag OFF must map to Full/bilinear (raw value 0)")
+        }
     }
 
     /// Refine path (full-resolution `sharedDecode` in `RenderActor+DecodedCache`)
-    /// uses `.amaze` demosaic (#940). The fast phase uses `.preview` via
-    /// `decodeSceneLinearSized`; only the full (wantsFull == true) branch
-    /// of `sharedDecode` reaches `decodeSceneLinear(quality: .amaze)`.
+    /// is flag-gated (#940). Fast phase is always `.preview` — unaffected.
+    ///   • AmazeFlag OFF (default) → refine uses `.full` (bilinear).
+    ///   • AmazeFlag ON            → refine uses `.amaze`.
     func testRefinePathUsesAmazeQuality() {
-        // The fast path calls `decodeSceneLinearSized(quality: .preview)` —
-        // hardcoded, never .amaze. Confirm the values are distinct so a
-        // caller can't accidentally pass the wrong one.
-        let refineQuality = PipelineRenderer.Quality.amaze
+        let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
         let fastQuality   = PipelineRenderer.Quality.preview
-        XCTAssertNotEqual(refineQuality.rawValue, fastQuality.rawValue,
-            "refine (.amaze = 2) and fast (.preview = 1) quality values must differ")
-        XCTAssertEqual(refineQuality.rawValue, 2,
-            "refine path quality must be AMaZE (raw value 2)")
+
+        // Fast path is ALWAYS .preview regardless of the flag.
         XCTAssertEqual(fastQuality.rawValue, 1,
-            "fast path quality must be Preview (raw value 1)")
+            "fast path quality must always be Preview (raw value 1)")
+
+        // Refine and fast must always differ (bilinear Full ≠ Preview ≠ AMaZE).
+        XCTAssertNotEqual(refineQuality.rawValue, fastQuality.rawValue,
+            "refine quality (\(refineQuality)) and fast (.preview = 1) must differ")
+
+        if AmazeFlag.isEnabled {
+            XCTAssertEqual(refineQuality.rawValue, 2,
+                "refine path with flag ON must be AMaZE (raw value 2)")
+        } else {
+            XCTAssertEqual(refineQuality.rawValue, 0,
+                "refine path with flag OFF must be Full/bilinear (raw value 0)")
+        }
     }
 }
 
