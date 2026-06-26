@@ -1,12 +1,13 @@
 // ScaleZoomTest.swift — THROWAWAY prototype (#1550).
 //
-// Fixed 9-column grid + single scaleEffect zoom (smooth, no reflow), custom
-// transform vertical scroll. All the zoom/scale/scroll logic is unchanged; the
-// ADDON here is content mapping: per level the visible T columns are packed with
-// the full image sequence (`row*T + col-offset`, ceil(total/T) rows deep) and the
-// off-screen columns render empty — so every image is browsable at every level,
-// and zooming out visibly fills the side columns from the rows below. Order is
-// not preserved across a level change (accepted).
+// Scale-based grid zoom with content repacking + a crossfade settle:
+//   - Each level T renders a T-column grid of ALL images, scaled (single GPU
+//     transform) so the zoom is smooth; vertical scroll is a clamped offset.
+//   - The pinched image is tracked and kept under the finger (focal-anchored,
+//     both axes) through the zoom AND the settle.
+//   - On settle the level changes by repacking into T columns. To avoid the
+//     content "blink", the outgoing packing CROSSFADES into the incoming one
+//     over the held focal — two layers, both focal-anchored, opacity dissolve.
 //
 // Reachable via the temporary 🧪 button in LibraryGrid. DELETE once decided.
 
@@ -17,27 +18,31 @@ import SwiftUI
 struct ScaleZoomTest: View {
     let onClose: () -> Void
 
-    private let baseColumns = 9
     private let levels = [9, 5, 3, 1]   // visible-column targets (out → in)
+    private let baseColumns = 9         // cell SIZE basis (cell = width / 9)
     private let gap: CGFloat = 2
-    private let total = 180             // number of "photos" to browse
+    private let total = 200             // number of "photos" to browse
 
-    // Committed transform (updated live during gestures).
+    // Resting transform.
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var levelIndex = 0
-    /// The image under the finger when a pinch begins — preserved across the
-    /// level change so zooming into image N keeps showing image N.
     @State private var focalImage: Int? = nil
 
-    // Live-gesture scratch.
+    // Gesture scratch.
     @State private var pinching = false
     @State private var gestureStartScale: CGFloat = 1
     @State private var focalScreen: CGPoint = .zero
-    @State private var focalContent: CGPoint = .zero
+    @State private var focalFallback: CGPoint = .zero
     @State private var dragging = false
     @State private var dragBaseY: CGFloat = 0
     @State private var dragSuppressed = false
+
+    // Crossfade transition.
+    @State private var transitioning = false
+    @State private var crossfade: Double = 0   // 0 = outgoing, 1 = incoming
+    @State private var outLevelIndex = 0
+    @State private var tScale: CGFloat = 1      // shared scale during the crossfade
 
     private var targetColumns: Int { levels[levelIndex] }
 
@@ -47,62 +52,57 @@ struct ScaleZoomTest: View {
             let H = geo.size.height
             let cell = (W - gap * CGFloat(baseColumns - 1)) / CGFloat(baseColumns)
             let pitch = cell + gap
-            let T = targetColumns
-            let rows = rowCount(forT: T)
-            let baseContentH = baseContentHeight(forT: T, cell: cell)
 
-            grid(cell: cell, T: T, cLeft: 0, rows: rows)
-                .frame(width: W, alignment: .topLeading)
-                .scaleEffect(scale, anchor: .topLeading)
-                .offset(offset)
-                .frame(width: W, height: H, alignment: .topLeading)
-                .clipped()
-                .contentShape(Rectangle())
-                .gesture(magnify(W: W, H: H, pitch: pitch, cell: cell))
-                .simultaneousGesture(verticalDrag(H: H, baseContentH: baseContentH))
+            ZStack(alignment: .topLeading) {
+                if transitioning {
+                    gridLayer(level: outLevelIndex, layerScale: tScale,
+                              layerOffset: focalOffset(level: outLevelIndex, s: tScale, cell: cell, pitch: pitch, H: H),
+                              cell: cell)
+                        .opacity(1 - crossfade)
+                    gridLayer(level: levelIndex, layerScale: tScale,
+                              layerOffset: focalOffset(level: levelIndex, s: tScale, cell: cell, pitch: pitch, H: H),
+                              cell: cell)
+                        .opacity(crossfade)
+                } else {
+                    gridLayer(level: levelIndex, layerScale: scale, layerOffset: offset, cell: cell)
+                }
+            }
+            .frame(width: W, height: H, alignment: .topLeading)
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(magnify(W: W, H: H, pitch: pitch, cell: cell))
+            .simultaneousGesture(verticalDrag(cell: cell, H: H))
         }
         .ignoresSafeArea()
         .background(Color.black)
         .overlay(alignment: .top) { hud }
     }
 
-    // MARK: - Grid (content-mapped)
+    // MARK: - Grid layer (T columns of ALL images, scaled)
 
     @ViewBuilder
-    private func grid(cell: CGFloat, T: Int, cLeft: Int, rows: Int) -> some View {
-        let cols = Array(repeating: GridItem(.fixed(cell), spacing: gap), count: baseColumns)
+    private func gridLayer(level: Int, layerScale: CGFloat, layerOffset: CGSize, cell: CGFloat) -> some View {
+        let T = levels[level]
+        let cols = Array(repeating: GridItem(.fixed(cell), spacing: gap), count: T)
+        let contentW = CGFloat(T) * cell + CGFloat(T - 1) * gap
         LazyVGrid(columns: cols, spacing: gap) {
-            ForEach(0..<(baseColumns * rows), id: \.self) { i in
-                cellView(r: i / baseColumns, c: i % baseColumns, T: T, cLeft: cLeft, cell: cell)
+            ForEach(0..<total, id: \.self) { idx in
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color(hue: Double(idx % 18) / 18.0, saturation: 0.55, brightness: 0.92))
+                    .frame(height: cell)
+                    .overlay(
+                        Text("\(idx)")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                    )
             }
         }
+        .frame(width: contentW, alignment: .topLeading)
+        .scaleEffect(layerScale, anchor: .topLeading)
+        .offset(layerOffset)
     }
 
-    /// The image index shown at physical cell (r, c) for the current packing, or
-    /// nil if this cell is outside the visible columns / past the end.
-    private func imageIndex(r: Int, c: Int, T: Int, cLeft: Int) -> Int? {
-        guard c >= cLeft, c < cLeft + T else { return nil }
-        let idx = r * T + (c - cLeft)
-        return idx < total ? idx : nil
-    }
-
-    @ViewBuilder
-    private func cellView(r: Int, c: Int, T: Int, cLeft: Int, cell: CGFloat) -> some View {
-        if let idx = imageIndex(r: r, c: c, T: T, cLeft: cLeft) {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color(hue: Double(idx % 18) / 18.0, saturation: 0.55, brightness: 0.92))
-                .frame(height: cell)
-                .overlay(
-                    Text("\(idx)")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.9))
-                )
-        } else {
-            Color.clear.frame(height: cell)   // empty side / tail cell
-        }
-    }
-
-    // MARK: - Math helpers
+    // MARK: - Math
 
     private func rowCount(forT T: Int) -> Int { Int(ceil(Double(total) / Double(T))) }
 
@@ -111,7 +111,7 @@ struct ScaleZoomTest: View {
         return CGFloat(rows) * cell + CGFloat(max(rows - 1, 0)) * gap
     }
 
-    /// Gap-aware scale so T columns fill W exactly.
+    /// Scale so a T-column grid (base cell size) fills the width.
     private func levelScale(_ T: Int, cell: CGFloat, W: CGFloat) -> CGFloat {
         W / (CGFloat(T) * cell + CGFloat(T - 1) * gap)
     }
@@ -121,7 +121,30 @@ struct ScaleZoomTest: View {
         return min(0, max(-maxDown, y))
     }
 
-    // MARK: - Pinch (zoom + settle; content remaps on level change)
+    private func imageIndex(r: Int, c: Int, T: Int) -> Int? {
+        guard c >= 0, c < T else { return nil }
+        let idx = r * T + c
+        return idx < total ? idx : nil
+    }
+
+    /// Offset putting the focal image's cell-centre under `focalScreen` at scale s.
+    private func focalOffset(level: Int, s: CGFloat, cell: CGFloat, pitch: CGFloat, H: CGFloat) -> CGSize {
+        let T = levels[level]
+        let bch = baseContentHeight(forT: T, cell: cell)
+        let cx: CGFloat, cy: CGFloat
+        if let img = focalImage {
+            cx = CGFloat(img % T) * pitch + cell / 2
+            cy = CGFloat(img / T) * (cell + gap) + cell / 2
+        } else {
+            cx = focalFallback.x
+            cy = focalFallback.y
+        }
+        return CGSize(width: focalScreen.x - cx * s,
+                      height: clampY(focalScreen.y - cy * s, scale: s, H: H, baseContentH: bch))
+    }
+
+    // MARK: - Pinch (zoom + crossfade settle)
+
     private func magnify(W: CGFloat, H: CGFloat, pitch: CGFloat, cell: CGFloat) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
@@ -130,103 +153,78 @@ struct ScaleZoomTest: View {
                     dragSuppressed = true
                     gestureStartScale = scale
                     focalScreen = CGPoint(x: value.startAnchor.x * W, y: value.startAnchor.y * H)
-                    focalContent = CGPoint(
-                        x: (focalScreen.x - offset.width) / scale,
-                        y: (focalScreen.y - offset.height) / scale
-                    )
-                    // Which image is under the finger right now (old packing)?
-                    let colFocal = Int(focalContent.x / pitch)
-                    let rowFocal = Int(focalContent.y / (cell + gap))
-                    focalImage = imageIndex(r: rowFocal, c: colFocal, T: targetColumns, cLeft: 0)
+                    let cp = CGPoint(x: (focalScreen.x - offset.width) / scale,
+                                     y: (focalScreen.y - offset.height) / scale)
+                    focalFallback = cp
+                    focalImage = imageIndex(r: Int(cp.y / (cell + gap)), c: Int(cp.x / pitch), T: targetColumns)
                 }
                 let mag = min(max(value.magnification, 0.08), 12)
-                let newScale = gestureStartScale * mag
-                let bch = baseContentHeight(forT: targetColumns, cell: cell)
-                scale = newScale
-                offset = CGSize(
-                    width: focalScreen.x - focalContent.x * newScale,
-                    height: clampY(focalScreen.y - focalContent.y * newScale,
-                                   scale: newScale, H: H, baseContentH: bch)
-                )
+                scale = gestureStartScale * mag
+                offset = focalOffset(level: levelIndex, s: scale, cell: cell, pitch: pitch, H: H)
             }
             .onEnded { value in
-                // Round toward the pinch direction (no opposite bounce; ≥1 level).
                 let mag = value.magnification
                 let liveScale = scale
                 let newIndex: Int
                 if mag > 1.05 {
                     var idx = levels.count - 1
-                    for i in 0..<levels.count where levelScale(levels[i], cell: cell, W: W) >= liveScale {
-                        idx = i; break
-                    }
+                    for i in 0..<levels.count where levelScale(levels[i], cell: cell, W: W) >= liveScale { idx = i; break }
                     newIndex = idx
                 } else if mag < 0.95 {
                     var idx = 0
-                    for i in 0..<levels.count where levelScale(levels[i], cell: cell, W: W) <= liveScale {
-                        idx = i
-                    }
+                    for i in 0..<levels.count where levelScale(levels[i], cell: cell, W: W) <= liveScale { idx = i }
                     newIndex = idx
                 } else {
                     newIndex = levelIndex
                 }
-
-                let T = levels[newIndex]
-                let newScale = levelScale(T, cell: cell, W: W)
-                let newBCH = baseContentHeight(forT: T, cell: cell)
+                let newScale = levelScale(levels[newIndex], cell: cell, W: W)
                 pinching = false
 
-                // Focal image's row in the NEW packing.
-                let rowNew = focalImage.map { $0 / T }
-
-                // INSTANT: remap content + place the focal under the finger at the
-                // CURRENT (released) scale — no animated scroll, so the grid never
-                // visibly flies through rows. The focal stays put; only its
-                // neighbours change to the new packing.
-                let oyNow: CGFloat
-                if let r = rowNew {
-                    oyNow = clampY(focalScreen.y - CGFloat(r) * (cell + gap) * liveScale,
-                                   scale: liveScale, H: H, baseContentH: newBCH)
-                } else {
-                    oyNow = clampY(offset.height, scale: liveScale, H: H, baseContentH: newBCH)
-                }
-                levelIndex = newIndex
-                offset = CGSize(width: 0, height: oyNow)
-
-                // ANIMATE: only the scale settles (the transition that covers the
-                // swap), keeping the focal anchored at the same screen point.
-                let newOY: CGFloat
-                if let r = rowNew {
-                    newOY = clampY(focalScreen.y - CGFloat(r) * (cell + gap) * newScale,
-                                   scale: newScale, H: H, baseContentH: newBCH)
-                } else {
-                    newOY = clampY(oyNow * (newScale / max(liveScale, 0.0001)),
-                                   scale: newScale, H: H, baseContentH: newBCH)
-                }
-                DispatchQueue.main.async {
-                    withAnimation(.smooth(duration: 0.46)) {
+                if newIndex == levelIndex {
+                    // No level change — settle scale back, focal anchored.
+                    withAnimation(.smooth(duration: 0.30)) {
                         scale = newScale
-                        offset = CGSize(width: 0, height: newOY)
+                        offset = focalOffset(level: levelIndex, s: newScale, cell: cell, pitch: pitch, H: H)
                     }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragSuppressed = false }
+                    return
+                }
+
+                // Crossfade the old packing into the new one over the held focal.
+                outLevelIndex = levelIndex
+                levelIndex = newIndex
+                tScale = liveScale
+                crossfade = 0
+                transitioning = true
+                withAnimation(.smooth(duration: 0.46)) {
+                    tScale = newScale
+                    crossfade = 1
+                } completion: {
+                    scale = newScale
+                    offset = focalOffset(level: newIndex, s: newScale, cell: cell, pitch: pitch, H: H)
+                    transitioning = false
+                    crossfade = 0
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragSuppressed = false }
             }
     }
 
     // MARK: - Vertical drag (scroll) with momentum
-    private func verticalDrag(H: CGFloat, baseContentH: CGFloat) -> some Gesture {
+
+    private func verticalDrag(cell: CGFloat, H: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
-                guard !pinching, !dragSuppressed else { return }
+                guard !pinching, !dragSuppressed, !transitioning else { return }
                 if !dragging { dragging = true; dragBaseY = offset.height }
-                offset.height = clampY(dragBaseY + value.translation.height,
-                                       scale: scale, H: H, baseContentH: baseContentH)
+                let bch = baseContentHeight(forT: targetColumns, cell: cell)
+                offset.height = clampY(dragBaseY + value.translation.height, scale: scale, H: H, baseContentH: bch)
             }
             .onEnded { value in
-                guard !pinching, !dragSuppressed else { dragging = false; return }
+                guard !pinching, !dragSuppressed, !transitioning else { dragging = false; return }
                 dragging = false
                 let v = value.velocity.height
-                let projected = offset.height + v * 0.42
-                let target = clampY(projected, scale: scale, H: H, baseContentH: baseContentH)
+                let bch = baseContentHeight(forT: targetColumns, cell: cell)
+                let target = clampY(offset.height + v * 0.42, scale: scale, H: H, baseContentH: bch)
                 withAnimation(.easeOut(duration: min(max(abs(v) / 1500, 0.3), 1.6))) {
                     offset.height = target
                 }
