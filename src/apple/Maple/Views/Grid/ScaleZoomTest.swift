@@ -56,11 +56,11 @@ struct ScaleZoomTest: View {
             ZStack(alignment: .topLeading) {
                 if transitioning {
                     gridLayer(level: outLevelIndex, layerScale: tScale,
-                              layerOffset: focalOffset(level: outLevelIndex, s: tScale, cell: cell, pitch: pitch, H: H),
+                              layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: crossfade, cell: cell, pitch: pitch, H: H),
                               cell: cell)
                         .opacity(1 - crossfade)
                     gridLayer(level: levelIndex, layerScale: tScale,
-                              layerOffset: focalOffset(level: levelIndex, s: tScale, cell: cell, pitch: pitch, H: H),
+                              layerOffset: layerOffset(level: levelIndex, s: tScale, align: crossfade, cell: cell, pitch: pitch, H: H),
                               cell: cell)
                         .opacity(crossfade)
                 } else {
@@ -127,8 +127,11 @@ struct ScaleZoomTest: View {
         return idx < total ? idx : nil
     }
 
-    /// Offset putting the focal image's cell-centre under `focalScreen` at scale s.
-    private func focalOffset(level: Int, s: CGFloat, cell: CGFloat, pitch: CGFloat, H: CGFloat) -> CGSize {
+    /// Layer offset. Vertical is always focal-anchored (the focal row stays under
+    /// the finger). Horizontal lerps by `align`: 0 = focal under the finger,
+    /// 1 = edge-aligned (column 0 at the left edge → columns snap to both edges).
+    /// Live uses align 0 (under finger); rest/settle uses align 1 (edge-aligned).
+    private func layerOffset(level: Int, s: CGFloat, align: Double, cell: CGFloat, pitch: CGFloat, H: CGFloat) -> CGSize {
         let T = levels[level]
         let bch = baseContentHeight(forT: T, cell: cell)
         let cx: CGFloat, cy: CGFloat
@@ -139,7 +142,8 @@ struct ScaleZoomTest: View {
             cx = focalFallback.x
             cy = focalFallback.y
         }
-        return CGSize(width: focalScreen.x - cx * s,
+        let w = (focalScreen.x - cx * s) * (1 - align)   // → 0 as align→1 (edge-aligned)
+        return CGSize(width: w,
                       height: clampY(focalScreen.y - cy * s, scale: s, H: H, baseContentH: bch))
     }
 
@@ -160,7 +164,7 @@ struct ScaleZoomTest: View {
                 }
                 let mag = min(max(value.magnification, 0.08), 12)
                 scale = gestureStartScale * mag
-                offset = focalOffset(level: levelIndex, s: scale, cell: cell, pitch: pitch, H: H)
+                offset = layerOffset(level: levelIndex, s: scale, align: 0, cell: cell, pitch: pitch, H: H)
             }
             .onEnded { value in
                 let mag = value.magnification
@@ -181,10 +185,10 @@ struct ScaleZoomTest: View {
                 pinching = false
 
                 if newIndex == levelIndex {
-                    // No level change — settle scale back, focal anchored.
+                    // No level change — settle scale back + edge-align.
                     withAnimation(.smooth(duration: 0.30)) {
                         scale = newScale
-                        offset = focalOffset(level: levelIndex, s: newScale, cell: cell, pitch: pitch, H: H)
+                        offset = layerOffset(level: levelIndex, s: newScale, align: 1, cell: cell, pitch: pitch, H: H)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragSuppressed = false }
                     return
@@ -201,7 +205,7 @@ struct ScaleZoomTest: View {
                     crossfade = 1
                 } completion: {
                     scale = newScale
-                    offset = focalOffset(level: newIndex, s: newScale, cell: cell, pitch: pitch, H: H)
+                    offset = layerOffset(level: newIndex, s: newScale, align: 1, cell: cell, pitch: pitch, H: H)
                     transitioning = false
                     crossfade = 0
                 }
