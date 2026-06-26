@@ -19,6 +19,40 @@ export interface XmpCulling {
   keywords?: string[];
 }
 
+/** Copyright status (`xmpRights:Marked`): tri-state. `unknown` omits the attribute. */
+export type CopyrightStatus = 'unknown' | 'copyrighted' | 'public-domain';
+
+/**
+ * User-authored capture/IPTC metadata persisted to the XMP sidecar (Batch
+ * Metadata, spec 2026-06-26). All fields optional; `null`/`undefined` mean
+ * "not set" and emit nothing. Values are in native units (signed decimal
+ * degrees, ISO-8601 datetime with offset, plain strings) — the standard-XMP
+ * text encodings live in `xmp-metadata.ts`.
+ */
+export interface XmpMetadata {
+  gpsLatitude?: number | null;
+  gpsLongitude?: number | null;
+  gpsAltitude?: number | null;
+  dateTimeOriginal?: string | null;
+  timeZone?: string | null;
+  sublocation?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  countryCode?: string | null;
+  title?: string | null;
+  caption?: string | null;
+  headline?: string | null;
+  instructions?: string | null;
+  creator?: string | null;
+  creatorJobTitle?: string | null;
+  copyrightNotice?: string | null;
+  copyrightStatus?: CopyrightStatus;
+  usageTerms?: string | null;
+  credit?: string | null;
+  source?: string | null;
+}
+
 /**
  * Unknown attributes and nested elements from a source sidecar that Maple
  * does not model (ToneCurve, MaskGroupBasedCorrections, etc.).

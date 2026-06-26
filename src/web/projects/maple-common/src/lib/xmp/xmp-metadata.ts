@@ -2,6 +2,8 @@
 // metadata block (Batch Metadata, spec 2026-06-26). Kept separate from the
 // adjustment/culling field tables so the serializer/parser stay focused.
 
+import type { XmpMetadata, CopyrightStatus } from './xmp.types';
+
 /** Axis selector for GPS encoding (picks the N/S vs E/W hemisphere suffix). */
 export type GpsAxis = 'lat' | 'lon';
 
@@ -85,4 +87,63 @@ export function seqBlock(qname: string, text: string): string {
     '   </rdf:Seq>',
     `  </${qname}>`,
   ].join('\n');
+}
+
+/** Namespace declarations keyed by prefix (only emitted when used). */
+export const METADATA_NAMESPACES: Record<string, string> = {
+  dc: 'http://purl.org/dc/elements/1.1/',
+  exif: 'http://ns.adobe.com/exif/1.0/',
+  photoshop: 'http://ns.adobe.com/photoshop/1.0/',
+  Iptc4xmpCore: 'http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/',
+  xmpRights: 'http://ns.adobe.com/xap/1.0/rights/',
+};
+
+/** Attribute-content escaping (matches the serializer's `_escapeAttr`). */
+function escapeXmlAttr(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+const COPYRIGHT_TO_MARKED: Record<CopyrightStatus, string | null> = {
+  unknown: null,
+  copyrighted: 'True',
+  'public-domain': 'False',
+};
+
+/**
+ * Build the ordered list of simple-attribute parts for the metadata block
+ * (the nested lang-alt/seq elements are handled separately in the serializer).
+ * Order is fixed for per-platform byte-stability.
+ */
+export function metadataAttrParts(m: XmpMetadata): string[] {
+  const parts: string[] = [];
+  const push = (key: string, value: string) => parts.push(`${key}="${escapeXmlAttr(value)}"`);
+
+  if (m.gpsLatitude != null) push('exif:GPSLatitude', gpsToXmp(m.gpsLatitude, 'lat'));
+  if (m.gpsLongitude != null) push('exif:GPSLongitude', gpsToXmp(m.gpsLongitude, 'lon'));
+  if (m.gpsAltitude != null) {
+    const alt = altitudeToXmp(m.gpsAltitude);
+    push('exif:GPSAltitude', alt.value);
+    push('exif:GPSAltitudeRef', alt.ref);
+  }
+  if (m.dateTimeOriginal) push('exif:DateTimeOriginal', m.dateTimeOriginal);
+  if (m.timeZone) push('papp:TimeZone', m.timeZone);
+  if (m.sublocation) push('Iptc4xmpCore:Location', m.sublocation);
+  if (m.city) push('photoshop:City', m.city);
+  if (m.state) push('photoshop:State', m.state);
+  if (m.country) push('photoshop:Country', m.country);
+  if (m.countryCode) push('Iptc4xmpCore:CountryCode', m.countryCode);
+  if (m.headline) push('photoshop:Headline', m.headline);
+  if (m.instructions) push('photoshop:Instructions', m.instructions);
+  if (m.creatorJobTitle) push('photoshop:AuthorsPosition', m.creatorJobTitle);
+  if (m.credit) push('photoshop:Credit', m.credit);
+  if (m.source) push('photoshop:Source', m.source);
+  if (m.copyrightStatus) {
+    const marked = COPYRIGHT_TO_MARKED[m.copyrightStatus];
+    if (marked !== null) push('xmpRights:Marked', marked);
+  }
+  return parts;
 }
