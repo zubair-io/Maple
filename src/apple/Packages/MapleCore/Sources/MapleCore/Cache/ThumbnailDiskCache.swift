@@ -49,7 +49,11 @@ public actor ThumbnailDiskCache {
     // then populates both caches for subsequent sync peeks).
     let syncPeekCache: NSCache<NSString, NSData> = {
         let c = NSCache<NSString, NSData>()
-        c.countLimit = 200   // generous — cheap to hold 200 JPEG thumbnails
+        // Hold enough that already-seen thumbnails aren't evicted while
+        // browsing/zooming a large folder — eviction makes the sync peek miss
+        // and flashes the placeholder on a repacked/rewindowed cell. JPEG
+        // thumbnails are small; NSCache still purges under real memory pressure.
+        c.countLimit = 2000
         return c
     }()
 
