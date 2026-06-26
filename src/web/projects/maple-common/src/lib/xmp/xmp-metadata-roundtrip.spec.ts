@@ -172,4 +172,24 @@ describe('parseMetadata round-trip', () => {
     const { passthrough } = parser.parseAdjustmentModel(src);
     expect(passthrough.unknownNodes.join('')).toContain('crs:ToneCurvePV2012');
   });
+
+  it('reads empty / whitespace-only attributes back as undefined (not "")', () => {
+    const xml = [
+      '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>',
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
+      ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
+      '  <rdf:Description rdf:about=""',
+      '    xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"',
+      '    xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"',
+      '    photoshop:City=""',
+      '    Iptc4xmpCore:Location="   ">',
+      '  </rdf:Description>',
+      ' </rdf:RDF>',
+      '</x:xmpmeta>',
+      '<?xpacket end="w"?>',
+    ].join('\n');
+    const parsed = parser.parseMetadata(xml);
+    expect(parsed.city).toBeUndefined();
+    expect(parsed.sublocation).toBeUndefined();
+  });
 });

@@ -47,7 +47,7 @@ export interface XmpMetadata {
   creator?: string | null;
   creatorJobTitle?: string | null;
   copyrightNotice?: string | null;
-  copyrightStatus?: CopyrightStatus;
+  copyrightStatus?: CopyrightStatus | null;
   usageTerms?: string | null;
   credit?: string | null;
   source?: string | null;
