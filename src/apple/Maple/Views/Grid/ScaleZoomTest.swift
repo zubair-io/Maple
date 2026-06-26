@@ -1,27 +1,34 @@
-// ScaleZoomTest.swift — THROWAWAY prototype (#1550).
+// ScaleZoomTest.swift — THROWAWAY prototype (#1550), now on REAL photos.
 //
-// Scale-based grid zoom with content repacking + a crossfade settle:
-//   - Each level T renders a T-column grid of ALL images, scaled (single GPU
-//     transform) so the zoom is smooth; vertical scroll is a clamped offset.
-//   - The pinched image is tracked and kept under the finger (focal-anchored,
-//     both axes) through the zoom AND the settle.
-//   - On settle the level changes by repacking into T columns. To avoid the
-//     content "blink", the outgoing packing CROSSFADES into the incoming one
-//     over the held focal — two layers, both focal-anchored, opacity dissolve.
+// Scale-based grid zoom with content repacking + a delayed crossfade settle,
+// driven over the real library (vm.assets via ThumbnailProvider / PhotoThumbnailCell):
+//   - Each level T renders a T-column packing of ALL assets, scaled (single GPU
+//     transform) so the zoom is smooth; vertical scroll is a clamped offset + momentum.
+//   - WINDOWED: only the rows in/near the viewport are realized (manual placement
+//     in a ZStack), because the custom transform container can't use LazyVGrid's
+//     native windowing — rendering every thumbnail would choke a big library.
+//   - The pinched asset is tracked + kept under the finger across the repack.
+//   - On settle the new packing dissolves in at its final edge-aligned position
+//     (no horizontal motion); the outgoing settles scale + fades out.
 //
 // Reachable via the temporary 🧪 button in LibraryGrid. DELETE once decided.
 
 #if os(iOS)
 
 import SwiftUI
+import MapleCore
 
 struct ScaleZoomTest: View {
+    let assets: [AssetRef]
+    let source: (any ImageSource)?
+    let provider: ThumbnailProvider
     let onClose: () -> Void
 
-    private let levels = [9, 5, 3, 1]   // visible-column targets (out → in)
-    private let baseColumns = 9         // cell SIZE basis (cell = width / 9)
+    private let levels = [9, 5, 3, 1]
+    private let baseColumns = 9
     private let gap: CGFloat = 2
-    private let total = 200             // number of "photos" to browse
+
+    private var total: Int { assets.count }
 
     // Resting transform.
     @State private var scale: CGFloat = 1
@@ -40,9 +47,9 @@ struct ScaleZoomTest: View {
 
     // Crossfade transition.
     @State private var transitioning = false
-    @State private var fade: Double = 0        // 0 = outgoing, 1 = incoming (opacity dissolve)
+    @State private var fade: Double = 0
     @State private var outLevelIndex = 0
-    @State private var tScale: CGFloat = 1      // outgoing scale settle during the transition
+    @State private var tScale: CGFloat = 1
 
     private var targetColumns: Int { levels[levelIndex] }
 
@@ -56,19 +63,17 @@ struct ScaleZoomTest: View {
             ZStack(alignment: .topLeading) {
                 if transitioning {
                     let nScale = levelScale(levels[levelIndex], cell: cell, W: W)
-                    // Outgoing: old packing, scale settling, focal under the finger — fades out.
                     gridLayer(level: outLevelIndex, layerScale: tScale,
                               layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: 0, cell: cell, pitch: pitch, H: H),
-                              cell: cell)
+                              cell: cell, pitch: pitch, H: H)
                         .opacity(1 - fade)
-                    // Incoming: new packing, already at its FINAL edge-aligned position
-                    // (no horizontal motion) — just fades in.
                     gridLayer(level: levelIndex, layerScale: nScale,
                               layerOffset: layerOffset(level: levelIndex, s: nScale, align: 1, cell: cell, pitch: pitch, H: H),
-                              cell: cell)
+                              cell: cell, pitch: pitch, H: H)
                         .opacity(fade)
                 } else {
-                    gridLayer(level: levelIndex, layerScale: scale, layerOffset: offset, cell: cell)
+                    gridLayer(level: levelIndex, layerScale: scale, layerOffset: offset,
+                              cell: cell, pitch: pitch, H: H)
                 }
             }
             .frame(width: W, height: H, alignment: .topLeading)
@@ -82,40 +87,53 @@ struct ScaleZoomTest: View {
         .overlay(alignment: .top) { hud }
     }
 
-    // MARK: - Grid layer (T columns of ALL images, scaled)
+    // MARK: - Grid layer (windowed: only visible rows realized)
 
     @ViewBuilder
-    private func gridLayer(level: Int, layerScale: CGFloat, layerOffset: CGSize, cell: CGFloat) -> some View {
+    private func gridLayer(level: Int, layerScale: CGFloat, layerOffset: CGSize, cell: CGFloat, pitch: CGFloat, H: CGFloat) -> some View {
         let T = levels[level]
-        let cols = Array(repeating: GridItem(.fixed(cell), spacing: gap), count: T)
+        let rowH = cell + gap
+        let rows = rowCount(forT: T)
+        // Content-space vertical window (undo scale + offset), with a 1-row buffer.
+        let yTop = (-layerOffset.height) / layerScale
+        let yBot = (H - layerOffset.height) / layerScale
+        let firstRow = max(0, Int(floor(yTop / rowH)) - 1)
+        let lastRow = min(rows - 1, Int(ceil(yBot / rowH)) + 1)
         let contentW = CGFloat(T) * cell + CGFloat(T - 1) * gap
-        LazyVGrid(columns: cols, spacing: gap) {
-            ForEach(0..<total, id: \.self) { idx in
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Color(hue: Double(idx % 18) / 18.0, saturation: 0.55, brightness: 0.92))
-                    .frame(height: cell)
-                    .overlay(
-                        Text("\(idx)")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.9))
-                    )
+
+        ZStack(alignment: .topLeading) {
+            if firstRow <= lastRow {
+                ForEach(firstRow...lastRow, id: \.self) { r in
+                    ForEach(0..<T, id: \.self) { c in
+                        let idx = r * T + c
+                        if idx < total {
+                            PhotoThumbnailCell(
+                                item: PhotoGridItem(local: assets[idx], source: source, overlays: GridCellOverlays()),
+                                provider: provider,
+                                displayMode: .fill,
+                                onTap: {}
+                            )
+                            .frame(width: cell, height: cell)
+                            .offset(x: CGFloat(c) * pitch, y: CGFloat(r) * rowH)
+                        }
+                    }
+                }
             }
         }
-        .frame(width: contentW, alignment: .topLeading)
+        .frame(width: contentW, height: baseContentHeight(forT: T, cell: cell), alignment: .topLeading)
         .scaleEffect(layerScale, anchor: .topLeading)
         .offset(layerOffset)
     }
 
     // MARK: - Math
 
-    private func rowCount(forT T: Int) -> Int { Int(ceil(Double(total) / Double(T))) }
+    private func rowCount(forT T: Int) -> Int { max(1, Int(ceil(Double(total) / Double(T)))) }
 
     private func baseContentHeight(forT T: Int, cell: CGFloat) -> CGFloat {
         let rows = rowCount(forT: T)
         return CGFloat(rows) * cell + CGFloat(max(rows - 1, 0)) * gap
     }
 
-    /// Scale so a T-column grid (base cell size) fills the width.
     private func levelScale(_ T: Int, cell: CGFloat, W: CGFloat) -> CGFloat {
         W / (CGFloat(T) * cell + CGFloat(T - 1) * gap)
     }
@@ -131,10 +149,6 @@ struct ScaleZoomTest: View {
         return idx < total ? idx : nil
     }
 
-    /// Layer offset. Vertical is always focal-anchored (the focal row stays under
-    /// the finger). Horizontal lerps by `align`: 0 = focal under the finger,
-    /// 1 = edge-aligned (column 0 at the left edge → columns snap to both edges).
-    /// Live uses align 0 (under finger); rest/settle uses align 1 (edge-aligned).
     private func layerOffset(level: Int, s: CGFloat, align: Double, cell: CGFloat, pitch: CGFloat, H: CGFloat) -> CGSize {
         let T = levels[level]
         let bch = baseContentHeight(forT: T, cell: cell)
@@ -146,7 +160,7 @@ struct ScaleZoomTest: View {
             cx = focalFallback.x
             cy = focalFallback.y
         }
-        let w = (focalScreen.x - cx * s) * (1 - align)   // → 0 as align→1 (edge-aligned)
+        let w = (focalScreen.x - cx * s) * (1 - align)
         return CGSize(width: w,
                       height: clampY(focalScreen.y - cy * s, scale: s, H: H, baseContentH: bch))
     }
@@ -189,7 +203,6 @@ struct ScaleZoomTest: View {
                 pinching = false
 
                 if newIndex == levelIndex {
-                    // No level change — settle scale back + edge-align.
                     withAnimation(.smooth(duration: 0.30)) {
                         scale = newScale
                         offset = layerOffset(level: levelIndex, s: newScale, align: 1, cell: cell, pitch: pitch, H: H)
@@ -198,20 +211,14 @@ struct ScaleZoomTest: View {
                     return
                 }
 
-                // Dissolve the old packing into the new one. No horizontal motion:
-                // the incoming layer is rendered at its final edge-aligned position
-                // and only its opacity fades in. The outgoing settles its scale
-                // (focal stays under the finger) and fades out.
                 outLevelIndex = levelIndex
                 levelIndex = newIndex
                 tScale = liveScale
                 fade = 0
                 transitioning = true
-                // Outgoing scale settle (focal-anchored, no slide).
                 withAnimation(.smooth(duration: 0.46)) {
                     tScale = newScale
                 }
-                // Content dissolve: delayed start, then dissolve.
                 withAnimation(.smooth(duration: 1.0).delay(0.2)) {
                     fade = 1
                 } completion: {
@@ -248,7 +255,7 @@ struct ScaleZoomTest: View {
 
     private var hud: some View {
         HStack {
-            Text("\(targetColumns)-wide  scale \(String(format: "%.2f", scale))  focal \(focalImage.map(String.init) ?? "-")")
+            Text("\(targetColumns)-wide  \(total) photos  focal \(focalImage.map(String.init) ?? "-")")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)
             Spacer()
