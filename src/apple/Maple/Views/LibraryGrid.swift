@@ -78,6 +78,10 @@ struct LibraryGrid: View {
     /// Column count inferred from first-row distinct x-origins in frozenFrames (nil = unmeasured).
     @State private var measuredColumnCount: Int? = nil
 
+    /// TEMPORARY (#1550): presents the scale-zoom smoothness prototype. Remove
+    /// this + the overlay button + ScaleZoomTest.swift once the approach is decided.
+    @State private var showZoomTest = false
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -143,6 +147,22 @@ struct LibraryGrid: View {
                 applyFocalZoom(proxy: proxy, anchor: anchor, snappedLevel: snappedLevel)
             }
             .background(MapleTokens.bg)
+            // TEMPORARY (#1550): scale-zoom prototype entry — remove with ScaleZoomTest.swift.
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    showZoomTest = true
+                } label: {
+                    Text("🧪")
+                        .font(.system(size: 22))
+                        .padding(10)
+                        .background(Circle().fill(.black.opacity(0.55)))
+                }
+                .padding(16)
+                .accessibilityIdentifier("scale-zoom-test-button")
+            }
+            .fullScreenCover(isPresented: $showZoomTest) {
+                ScaleZoomTest { showZoomTest = false }
+            }
         }
     }
 
