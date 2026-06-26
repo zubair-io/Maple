@@ -173,12 +173,13 @@
 }
 
 .export-btn {
+  // Icon-only (#1564 follow-up) — matches the split toggle's footprint.
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border-radius: 6px;
-  font-size: 11px;
   cursor: pointer;
   flex-shrink: 0;
   transition:
@@ -239,10 +240,12 @@
 // this rounded, glass-clipped anchor from below the header pill to the bottom
 // edge, clear of the centered control card. (#1564)
 .filmstrip-anchor {
+  // Vertically centered (#1564 follow-up), like the tool dock. The anchor sizes
+  // to the filmstrip's content; the strip's own max-height caps + scrolls it.
   position: absolute;
   left: 12px;
-  top: 70px;
-  bottom: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 110px;
   pointer-events: auto;
   border-radius: var(--pro-glass-radius-bar);
@@ -254,27 +257,6 @@
   -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
   border: 0.5px solid var(--pro-glass-border);
   box-shadow: var(--pro-glass-shadow);
-
-  editor-filmstrip {
-    width: 100%;
-    height: 100%;
-  }
-}
-
-// ── Lower-left mask chip anchor ────────────────────────────────────────────
-.mask-chip-anchor {
-  position: absolute;
-  bottom: calc(var(--control-card-height, 200px) + 12px);
-  left: 12px;
-  // Disabled placeholder until web M3 (#1541). It must never intercept canvas
-  // or filmstrip-rail clicks (a disabled <button> is opaque to hit-testing).
-  // M3 re-enables interaction + finalizes placement. (#1564)
-  pointer-events: none;
-
-  @media (min-width: 768px) {
-    // Clear the left filmstrip rail (left:12 + width:110 + gap).
-    left: 134px;
-  }
 }
 
 // ── HUD layer (always full opacity — HUD component manages its own fade) ──
