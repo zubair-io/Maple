@@ -8,7 +8,7 @@ final class GridZoomLevelTests: XCTestCase {
         XCTAssertEqual(GridZoomLevel.fullWidth.phoneColumns, 1)
         XCTAssertEqual(GridZoomLevel.comfortable.phoneColumns, 3)
         XCTAssertEqual(GridZoomLevel.compact.phoneColumns, 5)
-        XCTAssertEqual(GridZoomLevel.dense.phoneColumns, 10)
+        XCTAssertEqual(GridZoomLevel.dense.phoneColumns, 9)
     }
 
     func testDesktopCellWidthShrinksTowardDenser() {
