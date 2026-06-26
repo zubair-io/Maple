@@ -230,10 +230,15 @@ export class XmpParserService {
       if (v !== null) result.gpsAltitude = v;
     }
 
-    // Simple string attributes.
+    // Simple string attributes. Empty / whitespace-only values read back as
+    // `undefined` (not `""`) so parse matches the "absent field" contract and
+    // the serializer's clear-semantics (empty = omitted), and stays consistent
+    // with the nested lang-alt/seq text path below.
     const str = (keys: string[]): string | undefined => {
       const v = this._attr(desc!, keys);
-      return v === null ? undefined : v;
+      if (v === null) return undefined;
+      const trimmed = v.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
     };
     result.dateTimeOriginal = str(['exif:DateTimeOriginal']);
     result.timeZone = str(['papp:TimeZone']);
