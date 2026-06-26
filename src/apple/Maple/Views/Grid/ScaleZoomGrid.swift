@@ -156,12 +156,17 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     // MARK: Body
 
     var body: some View {
-        GeometryReader { geo in
+        // Outer reader does NOT ignore the safe area, so it reports the REAL top
+        // inset (nav + status bar). Under the inner .ignoresSafeArea() that value
+        // reads 0, which is why the earlier content-inset attempt produced no
+        // padding. (#1570 Issue 4.)
+        GeometryReader { outer in
+            let topInset = outer.safeAreaInsets.top
+            GeometryReader { geo in
             let W = geo.size.width
             let H = geo.size.height
             let cell = (W - gap * CGFloat(baseColumns - 1)) / CGFloat(baseColumns)
             let pitch = cell + gap
-                let topInset = geo.safeAreaInsets.top
 
             ZStack(alignment: .topLeading) {
                 if transitioning {
@@ -190,6 +195,11 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             .contentShape(Rectangle())
             .gesture(magnify(W: W, H: H, pitch: pitch, cell: cell, topInset: topInset))
             .simultaneousGesture(verticalDrag(cell: cell, H: H, topInset: topInset))
+            // Taps are handled HERE at the container as a sibling of the pan/pinch
+            // (not per-cell). A scroll's movement cancels this tap and a pinch is
+            // guarded, so a finger-lift no longer opens an image (#1570 Issue 1/2).
+            .simultaneousGesture(tapGesture(W: W, H: H, cell: cell, pitch: pitch,
+                                            topInset: topInset))
             // First layout: always open at .comfortable (3-wide) regardless of
             // the persisted level — consistent, predictable open state (#1570 Issue 3).
             .onAppear {
@@ -219,12 +229,12 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                               geo: GridGeometry(W: W, H: H, cell: cell, pitch: pitch,
                                                 topInset: topInset))
             }
+            }
+            // Inner grid fills the full screen (ignores safe area) so content
+            // scrolls UNDER the translucent bars; the outer reader's topInset is
+            // the rest-offset so it OPENS below them (#1570 Issue 4).
+            .ignoresSafeArea()
         }
-        // Full-screen ignoresSafeArea so content can scroll under the translucent
-        // nav/status bars. The topInset from safeAreaInsets.top (still reported
-        // accurately) is used as the content rest-offset so the grid OPENS below
-        // the bars, but scrolling lets content travel under them (#1570 Issue 4).
-        .ignoresSafeArea()
         .background(Color.black)
     }
 
@@ -287,14 +297,9 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 displayMode: displayMode,
                 isSelected: selection.contains(element.id),
                 multiSelectChecked: multiSelectChecked?(element),
-                onTap: {
-                    // Ignore taps during/just after a pinch or a real scroll.
-                    // Time-based guard: reject taps within 0.5s of any gesture end.
-                    let recentGesture = Date().timeIntervalSince(lastGestureEnd) < 0.5
-                    guard !tapBlocked, !transitioning, !pinching, !dragging,
-                          !recentGesture else { return }
-                    onTap(element)
-                },
+                // nil → no per-cell tap gesture. Taps are handled at the container
+                // (see `tapGesture`) so the pan/pinch can cancel them (#1570 Issue 1).
+                onTap: nil,
                 onAppear: onAppearItem.map { cb in { cb(element) } }
             )
             .frame(width: cellSize, height: cellSize)
@@ -552,6 +557,39 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                     dragSuppressed = false
                     tapBlocked = false
                 }
+            }
+    }
+
+    // MARK: - Tap (container-level, hit-tested)
+
+    /// Container tap gesture — a SIBLING of the pan/pinch (not a per-cell child),
+    /// so a scroll's movement cancels it and a pinch is guarded; a finger-lift no
+    /// longer opens an image. Hit-tests the tap location against the resting
+    /// layout to find the photo cell. (#1570 Issue 1.)
+    private func tapGesture(W: CGFloat, H: CGFloat, cell: CGFloat, pitch: CGFloat,
+                             topInset: CGFloat) -> some Gesture {
+        SpatialTapGesture()
+            .onEnded { value in
+                // Reject taps during/just after any gesture.
+                let recentGesture = Date().timeIntervalSince(lastGestureEnd) < 0.5
+                guard !tapBlocked, !transitioning, !pinching, !dragging,
+                      !recentGesture else { return }
+                // Invert the resting transform (screen -> content space). The
+                // resting offset already encodes topInset, so no extra term.
+                let contentX = (value.location.x - offset.width) / scale
+                let contentY = (value.location.y - offset.height) / scale
+                let T = targetColumns
+                let col = Int(floor(contentX / pitch))
+                let row = Int(floor(contentY / pitch))
+                guard col >= 0, col < T, row >= 0 else { return }
+                // Ignore taps in the inter-cell gap (not on a cell).
+                let inCellX = contentX - CGFloat(col) * pitch
+                let inCellY = contentY - CGFloat(row) * pitch
+                guard inCellX <= cell, inCellY <= cell else { return }
+                let g = row * T + col
+                // Photos only — folders (leading slots) keep their own Button tap.
+                guard g >= leadingCount, g < total else { return }
+                onTap(data[g - leadingCount])
             }
     }
 
