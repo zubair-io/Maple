@@ -173,13 +173,18 @@ struct PhotoGrid<Element: Identifiable, Leading: View>: View {
     /// (avoids the "branches have different types" error from a plain ternary).
     @ViewBuilder
     private func framePublisher(for element: Element) -> some View {
-        if publishFrames {
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: CellFramePreferenceKey.self,
-                    value: [AnyHashable(element.id): geo.frame(in: .named("gridViewport"))]
-                )
-            }
+        // The GeometryReader is ALWAYS present so toggling `publishFrames` never
+        // restructures the cell mid-gesture (which would re-realize cells and
+        // re-fire the thumbnail fade = flicker). Only the published value is
+        // gated, so at rest the preference carries an empty dict (cheap, and the
+        // surface's onPreferenceChange handler no-ops unless pinching).
+        GeometryReader { geo in
+            Color.clear.preference(
+                key: CellFramePreferenceKey.self,
+                value: publishFrames
+                    ? [AnyHashable(element.id): geo.frame(in: .named("gridViewport"))]
+                    : [:]
+            )
         }
     }
 

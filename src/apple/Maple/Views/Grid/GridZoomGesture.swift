@@ -170,13 +170,11 @@ private struct GridZoomPinchFocal: ViewModifier {
                         }
                         blockingTaps = true
 
-                        let mag = value.magnification
-                        // On zoom-in, clamp live scale ≤ 1 so the grid never renders
-                        // larger than the incoming cell size (no-overshoot, plan §4).
-                        let wouldZoomIn = mag > 1.25 && level.zoomedIn() != level
-                        liveScale = wouldZoomIn
-                            ? min(mag, 1.0)
-                            : min(max(mag, 0.55), 1.8)
+                        // Live feedback: track the pinch magnitude in BOTH directions
+                        // so the grid visibly grows/shrinks under the fingers. (The
+                        // earlier "no-overshoot clamp" pinned zoom-in to 1.0, which
+                        // killed the growth and flickered across the threshold.)
+                        liveScale = min(max(value.magnification, 0.55), 1.8)
                     }
                     .onEnded { value in
                         let snapped = value.magnification > 1.25 ? level.zoomedIn()
