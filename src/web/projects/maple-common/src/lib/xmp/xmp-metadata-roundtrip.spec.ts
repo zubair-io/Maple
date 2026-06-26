@@ -58,6 +58,16 @@ describe('serialize with metadata', () => {
     // dc namespace declared exactly once
     expect(xml.match(/xmlns:dc=/g)?.length).toBe(1);
   });
+
+  it('treats empty-string and null as "not set" (clear = omit field + namespace)', () => {
+    const empty = ser.serialize(defaultAdjustmentModel(), undefined, undefined, { city: '' });
+    expect(empty).not.toContain('photoshop:City');
+    expect(empty).not.toContain('xmlns:photoshop');
+    const nulled = ser.serialize(defaultAdjustmentModel(), undefined, undefined, { city: null });
+    expect(nulled).not.toContain('photoshop:City');
+    // null and empty-string produce byte-identical output (both = cleared).
+    expect(nulled).toBe(empty);
+  });
 });
 
 describe('parseMetadata round-trip', () => {
