@@ -7,13 +7,13 @@
 
 ## Problem
 
-A working photographer routinely needs to fix or stamp metadata across many photos at once: correct a camera clock that was off by hours, set the time zone for a trip, drop the right location onto a day's shoot, and stamp copyright / creator / caption onto a whole import. Maple can select multiple images today (the panorama flow) but offers no way to edit their metadata in bulk — and it has no concept of *editing* capture metadata at all (GPS, capture time, time zone are read-only from the file's EXIF).
+A working photographer routinely needs to fix or stamp metadata across many photos at once: correct a camera clock that was off by hours, set the time zone for a trip, drop the right location onto a day's shoot, and stamp copyright / creator / caption onto a whole import. Maple can select multiple images today (the panorama flow) but offers no way to edit their metadata in bulk — and it has no concept of _editing_ capture metadata at all (GPS, capture time, time zone are read-only from the file's EXIF).
 
-This feature adds a **Batch Metadata** editor: select N assets, edit a defined set of metadata fields, and persist the edits **non-destructively** — to XMP sidecars, never to the original file. Edited values become the *effective* metadata that the rest of the app (display, search, sort, geo-organised backups) reads.
+This feature adds a **Batch Metadata** editor: select N assets, edit a defined set of metadata fields, and persist the edits **non-destructively** — to XMP sidecars, never to the original file. Edited values become the _effective_ metadata that the rest of the app (display, search, sort, geo-organised backups) reads.
 
 ## Goals
 
-1. From the existing selection, open a **Batch Metadata** panel that edits one *or many* selected assets.
+1. From the existing selection, open a **Batch Metadata** panel that edits one _or many_ selected assets.
 2. Edit, non-destructively (sidecar only):
    - **Capture correction:** GPS location, capture date/time (set or shift), time zone.
    - **Place names (IPTC text):** sublocation, city, state/province, country, country code.
@@ -29,44 +29,44 @@ This feature adds a **Batch Metadata** editor: select N assets, edit a defined s
 
 - **No mutation of original files.** Ever. (Load-bearing principle #1.)
 - **No pixel-pipeline change.** This is metadata; the scene-linear chain and parity gates are untouched.
-- **No EXIF/IPTC writing *into* the original** image or video container — sidecars only.
+- **No EXIF/IPTC writing _into_ the original** image or video container — sidecars only.
 - **No new contact-block / IPTC-Extension structures** beyond the fields listed (YAGNI — add when a real caller needs them).
-- **No bulk re-file migration changes.** `refile-backups` stays the one-time cleanup it is; we add a *targeted, on-demand* relocate that reuses its canonical-path function and mover.
+- **No bulk re-file migration changes.** `refile-backups` stays the one-time cleanup it is; we add a _targeted, on-demand_ relocate that reuses its canonical-path function and mover.
 - **No timeline/effort framing in this doc** — milestones below are sequencing only.
 
 ---
 
 ## Field catalog
 
-All edits map to **standard** XMP/IPTC namespaces so they round-trip through Lightroom, Bridge, Apple Photos, and exiftool. Today these attributes already survive Maple's sidecar round-trip as *passthrough* (`unknownAttributes`/`unknownNodes`), so promoting them to first-class fields is backward-compatible.
+All edits map to **standard** XMP/IPTC namespaces so they round-trip through Lightroom, Bridge, Apple Photos, and exiftool. Today these attributes already survive Maple's sidecar round-trip as _passthrough_ (`unknownAttributes`/`unknownNodes`), so promoting them to first-class fields is backward-compatible.
 
-| UI label | XMP field | Form | Batch op |
-| --- | --- | --- | --- |
-| **GPS latitude** | `exif:GPSLatitude` | `DDD,MM.mmmmN` | set / clear |
-| **GPS longitude** | `exif:GPSLongitude` | `DDD,MM.mmmmW` | set / clear |
-| **GPS altitude** | `exif:GPSAltitude` + `exif:GPSAltitudeRef` | rational + 0/1 | set / clear (optional, follows location) |
-| **Capture date/time** | `exif:DateTimeOriginal` | ISO-8601 with offset | set (2 modes) / shift |
-| **Time zone** | offset embedded in `exif:DateTimeOriginal`; IANA name in `papp:TimeZone` | `+02:00` / `Europe/Paris` | set |
-| **Sublocation** | `Iptc4xmpCore:Location` | text | set / clear |
-| **City** | `photoshop:City` | text | set / clear |
-| **State/Province** | `photoshop:State` | text | set / clear |
-| **Country** | `photoshop:Country` | text | set / clear |
-| **Country code** | `Iptc4xmpCore:CountryCode` | ISO 3166-1 | set / clear |
-| **Title** | `dc:title` | lang-alt | set / clear |
-| **Caption (Notes)** | `dc:description` | lang-alt | set / clear |
-| **Headline** | `photoshop:Headline` | text | set / clear |
-| **Keywords** | `dc:subject` | bag | add / remove / replace |
-| **Instructions** | `photoshop:Instructions` | text | set / clear |
-| **Creator / Author** | `dc:creator` | seq | set / clear |
-| **Creator job title** | `photoshop:AuthorsPosition` | text | set / clear |
-| **Copyright notice** | `dc:rights` | lang-alt | set / clear |
-| **Copyright status** | `xmpRights:Marked` | bool (unknown = absent) | set tri-state |
-| **Usage terms** | `xmpRights:UsageTerms` | lang-alt | set / clear |
-| **Credit** | `photoshop:Credit` | text | set / clear |
-| **Source** | `photoshop:Source` | text | set / clear |
-| **Rating** | `xmp:Rating` | 0–5 | set |
-| **Flag** | `papp:Flag` | pick/reject/unflagged | set |
-| **Color label** | `papp:ColorLabel` | red…blue | set |
+| UI label              | XMP field                                                                | Form                      | Batch op                                 |
+| --------------------- | ------------------------------------------------------------------------ | ------------------------- | ---------------------------------------- |
+| **GPS latitude**      | `exif:GPSLatitude`                                                       | `DDD,MM.mmmmN`            | set / clear                              |
+| **GPS longitude**     | `exif:GPSLongitude`                                                      | `DDD,MM.mmmmW`            | set / clear                              |
+| **GPS altitude**      | `exif:GPSAltitude` + `exif:GPSAltitudeRef`                               | rational + 0/1            | set / clear (optional, follows location) |
+| **Capture date/time** | `exif:DateTimeOriginal`                                                  | ISO-8601 with offset      | set (2 modes) / shift                    |
+| **Time zone**         | offset embedded in `exif:DateTimeOriginal`; IANA name in `papp:TimeZone` | `+02:00` / `Europe/Paris` | set                                      |
+| **Sublocation**       | `Iptc4xmpCore:Location`                                                  | text                      | set / clear                              |
+| **City**              | `photoshop:City`                                                         | text                      | set / clear                              |
+| **State/Province**    | `photoshop:State`                                                        | text                      | set / clear                              |
+| **Country**           | `photoshop:Country`                                                      | text                      | set / clear                              |
+| **Country code**      | `Iptc4xmpCore:CountryCode`                                               | ISO 3166-1                | set / clear                              |
+| **Title**             | `dc:title`                                                               | lang-alt                  | set / clear                              |
+| **Caption (Notes)**   | `dc:description`                                                         | lang-alt                  | set / clear                              |
+| **Headline**          | `photoshop:Headline`                                                     | text                      | set / clear                              |
+| **Keywords**          | `dc:subject`                                                             | bag                       | add / remove / replace                   |
+| **Instructions**      | `photoshop:Instructions`                                                 | text                      | set / clear                              |
+| **Creator / Author**  | `dc:creator`                                                             | seq                       | set / clear                              |
+| **Creator job title** | `photoshop:AuthorsPosition`                                              | text                      | set / clear                              |
+| **Copyright notice**  | `dc:rights`                                                              | lang-alt                  | set / clear                              |
+| **Copyright status**  | `xmpRights:Marked`                                                       | bool (unknown = absent)   | set tri-state                            |
+| **Usage terms**       | `xmpRights:UsageTerms`                                                   | lang-alt                  | set / clear                              |
+| **Credit**            | `photoshop:Credit`                                                       | text                      | set / clear                              |
+| **Source**            | `photoshop:Source`                                                       | text                      | set / clear                              |
+| **Rating**            | `xmp:Rating`                                                             | 0–5                       | set                                      |
+| **Flag**              | `papp:Flag`                                                              | pick/reject/unflagged     | set                                      |
+| **Color label**       | `papp:ColorLabel`                                                        | red…blue                  | set                                      |
 
 `xmp:Rating`, `papp:Flag`, `papp:ColorLabel`, and `dc:subject` already exist in Maple's culling model — this feature reuses them and adds multi-asset application.
 
@@ -74,7 +74,7 @@ All edits map to **standard** XMP/IPTC namespaces so they round-trip through Lig
 
 - **"Notes" = Caption** → `dc:description` (portable; shows as Caption in Lightroom/Apple Photos). A separate private note was considered and rejected for v1.
 - **Time zone** is carried as the **offset in the `exif:DateTimeOriginal` string** (the interoperable representation). The **IANA zone name** is additionally stored in a proprietary `papp:TimeZone` field so Maple can round-trip the user's intent (e.g. `Europe/Paris` vs a bare `+02:00`) and handle DST correctly on later shifts. Readers that don't know `papp:TimeZone` still get a correct absolute instant from the offset.
-- **Copyright status** is tri-state: *unknown* (omit `xmpRights:Marked`), *copyrighted* (`True`), *public domain* (`False`).
+- **Copyright status** is tri-state: _unknown_ (omit `xmpRights:Marked`), _copyrighted_ (`True`), _public domain_ (`False`).
 
 ---
 
@@ -103,12 +103,12 @@ All edits map to **standard** XMP/IPTC namespaces so they round-trip through Lig
     "captured_at": "2026-06-26T18:40:00+02:00",
     "time_zone": "Europe/Paris",
     "place_text": { "city": "Paris", "country": "France", "country_code": "FR" },
-    "keywords": ["travel", "france"]
-  }
+    "keywords": ["travel", "france"],
+  },
 }
 ```
 
-- **`gps` keeps the existing `{ lat, lng }` shape** used by `asset.exif.gps` (`src/api/src/db/schema.ts:126`) — *not* GeoJSON. Matching the original's shape keeps the effective resolver symmetric; nothing in `src/api` uses a `2dsphere` index or `$near`/`$geoWithin` today (geo is facet-based via `place.rollups`), so GeoJSON would be speculative (YAGNI). If spatial search is ever added it must be introduced on **both** `exif.gps` and the override together — and only then does the GeoJSON `[lng, lat]` ordering caveat apply.
+- **`gps` keeps the existing `{ lat, lng }` shape** used by `asset.exif.gps` (`src/api/src/db/schema.ts:126`) — _not_ GeoJSON. Matching the original's shape keeps the effective resolver symmetric; nothing in `src/api` uses a `2dsphere` index or `$near`/`$geoWithin` today (geo is facet-based via `place.rollups`), so GeoJSON would be speculative (YAGNI). If spatial search is ever added it must be introduced on **both** `exif.gps` and the override together — and only then does the GeoJSON `[lng, lat]` ordering caveat apply.
 - The complete authored set always lives in the sidecar; the override subdoc is a projection. `touched_fields` makes provenance (file vs user) explicit per field.
 
 ### 3. Effective resolver
@@ -129,7 +129,7 @@ effective.place_text  = override.place_text  ?? (derived place)
 
 ### Where the ingest happens
 
-Heavy ingest work (geocode, derived recompute, geo-path) runs **off the request path** as a polled background stage that reuses the existing version-mismatch worker model (`StageConfig` / `runStage` / `versionBumpReset`, `src/api/src/workers/`) — *not* synchronously inside the HTTP write. This keeps a large batch from saturating the single-process event loop and serialises work per-asset through the existing claim query. The stage is idempotent and crash-safe: a re-run reconciles `metadata_override` from the sidecar (the source of truth).
+Heavy ingest work (geocode, derived recompute, geo-path) runs **off the request path** as a polled background stage that reuses the existing version-mismatch worker model (`StageConfig` / `runStage` / `versionBumpReset`, `src/api/src/workers/`) — _not_ synchronously inside the HTTP write. This keeps a large batch from saturating the single-process event loop and serialises work per-asset through the existing claim query. The stage is idempotent and crash-safe: a re-run reconciles `metadata_override` from the sidecar (the source of truth).
 
 - **Web / Self-Hosted:** the client writes sidecars via the XMP route; a batch edit uses a new **`POST /api/xmp/batch`** carrying N `{path, metadata}` entries, so a 500-asset edit is one request, not 500. The server writes each sidecar (atomic temp-file + rename, as today) and marks each asset's new `override-ingest` stage dirty (the path-keyed `/api/xmp?path=` route does no DB update today — `src/api/src/routes/xmp.ts` — so it gains this dirty-mark). The polled `override-ingest` stage then parses the metadata block → updates `metadata_override` → recomputes `captured_year/month` → re-geocodes `place` on GPS change.
 - **Apple standalone (local library, no server):** the override is read straight from the sidecar into the local view model; there is no Mongo, so search/geo are local and read effective directly. The backup re-file offer (a server feature) does not appear.
@@ -188,8 +188,8 @@ Primary input is **address search**:
 
 When a GPS edit changes an asset's **effective location**, its geo-organised backup/mirror copies may now sit in the wrong folder. The geo layout is `<year>/<State|Country>/<Town·City|Place>/<file>` (`backupLocationSegments` in `src/api/src/backup/location-segments.ts`; sanitised by `backup/path-formatter.ts`).
 
-- After applying a location change, the panel surfaces an **explicit, separate opt-in**: *"Move N backup copies to match the new location?"* — never automatic.
-- Accepting computes the canonical folder from the *new* effective `place` and moves each affected asset through the existing **crash-safe `moveBackupAsset`** (`src/api/src/workers/migration/move-backup-asset.ts`), the same mover `refile-backups` uses, and updates `backup_layout_version`.
+- After applying a location change, the panel surfaces an **explicit, separate opt-in**: _"Move N backup copies to match the new location?"_ — never automatic.
+- Accepting computes the canonical folder from the _new_ effective `place` and moves each affected asset through the existing **crash-safe `moveBackupAsset`** (`src/api/src/workers/migration/move-backup-asset.ts`), the same mover `refile-backups` uses, and updates `backup_layout_version`.
 - This is a **targeted, on-demand relocate** for the edited assets — distinct from the bulk `refile-backups` migration, which remains untouched. (The describe-stage already establishes that a real-time relocate hook is acceptable; this is the user-triggered analogue.)
 - **Scope:** the offer appears only for assets that actually have geo-organised backup copies (the device-backup / mirror libraries). Plain libraries are not geo-foldered, so no offer. Apple standalone never shows it.
 - No asset file is deleted except as the trailing step of the verified crash-safe copy. (Load-bearing: originals and their backups are sacred.)
@@ -215,7 +215,7 @@ A modal/sheet following the established pano-dialog pattern. The selection is **
 
 Before writing, a summary states exactly what will change, e.g.:
 
-> **42 photos** — capture time **+5h 00m**; location → **Paris, France**; copyright → **© 2026 Z. Lawrence**; keywords **+travel, +france**. *3 photos have no capture time and will be skipped for the time shift.*
+> **42 photos** — capture time **+5h 00m**; location → **Paris, France**; copyright → **© 2026 Z. Lawrence**; keywords **+travel, +france**. _3 photos have no capture time and will be skipped for the time shift._
 
 Apply writes each sidecar (and triggers override-ingest server-side). Partial failures are reported per-asset; successful writes are not rolled back. The backup re-file offer (if any) appears as a follow-up step after a successful location change.
 
@@ -229,7 +229,7 @@ A per-field / per-section **Reset to original** clears the override and falls ba
 
 - **XMP layers:** the new fields are added to the **TypeScript** serializer/parser (`src/web/projects/maple-common/src/lib/xmp/`) and the **Swift** serializer/parser (`src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift`) with **semantic parity** (same field set, same values, each per-platform byte-stable) — not cross-platform byte-identical output (see Testing). The **Rust** parser (`src/raw-pipeline/raw-core/src/xmp/mod.rs`) silently ignores unknown attributes and nested elements (`_ => {}`), so it already tolerates the new fields (it parses the adjustment model only) — a test confirms it does not error or mis-parse.
 - **Single-source constants:** any enumerations or defaults that appear in more than one language (e.g. copyright-status mapping, namespace URIs) are emitted from `raw-core` via the `codegen` crate and `tools/codegen.sh`, guarded by the `codegen-drift` CI job.
-- **Geocoder divergence is acceptable:** GPS coordinates are the authored truth; place *text* is derived and may differ slightly between Nominatim (web/server) and CLGeocoder (Apple). Self-Hosted re-canonicalises place server-side, so the stored `Place` is consistent.
+- **Geocoder divergence is acceptable:** GPS coordinates are the authored truth; place _text_ is derived and may differ slightly between Nominatim (web/server) and CLGeocoder (Apple). Self-Hosted re-canonicalises place server-side, so the stored `Place` is consistent.
 
 ---
 
@@ -247,7 +247,7 @@ A per-field / per-section **Reset to original** clears the override and falls ba
 
 ## Testing
 
-- **XMP parity (M0 gate), two layers:** (a) **Per-platform byte-stable round-trip** — `serialize → parse → serialize` is byte-identical on each platform independently (TS and Swift), over real `.xmp` files in temp dirs, exercising lang-alt / seq / bag and GPS/altitude formatting; passthrough preserved. (b) **Cross-platform semantic parity** — parsing platform A's output yields the same model *and the same set of emitted fields/values* on platform B. No byte-diff requirement across platforms (see below). No mocks.
+- **XMP parity (M0 gate), two layers:** (a) **Per-platform byte-stable round-trip** — `serialize → parse → serialize` is byte-identical on each platform independently (TS and Swift), over real `.xmp` files in temp dirs, exercising lang-alt / seq / bag and GPS/altitude formatting; passthrough preserved. (b) **Cross-platform semantic parity** — parsing platform A's output yields the same model _and the same set of emitted fields/values_ on platform B. No byte-diff requirement across platforms (see below). No mocks.
 - **Byte-canonical TS↔Swift harmonization is out of scope** — pre-existing debt: the two serializers already diverge on the `papp:` URI, namespace-declaration order, indentation, and attribute sort (none implement the `docs/xmp-canonical-format.md` ordering). This feature adds semantically-parity-safe fields on top of each existing serializer; making the two byte-identical is tracked in a **separate KTLO ticket**.
 - **Rust tolerance test:** a sidecar carrying the new metadata fields parses to the same `AdjustmentModel` and the fields survive (no drop).
 - **Effective-resolver unit tests:** override-present, override-absent, partial override, reset; `captured_year/month` recompute; anchor-vs-same-time-vs-shift math (incl. no-capture-time skip).
@@ -264,7 +264,7 @@ A per-field / per-section **Reset to original** clears the override and falls ba
 - **M2 — Web UI.** Batch Metadata panel; selection-bar entry; address search; confirm/preview; reset.
 - **M3 — Backup re-file.** On-demand targeted relocate offer reusing `backupLocationSegments` + `moveBackupAsset`; scoped to geo-backup assets.
 - **M4 — Apple UI.** Selection-bar entry; panel; CLGeocoder address search; standalone (sidecar-direct) + server-connected paths.
-- **M5 — Video.** Metadata-only sidecar path on both platforms; override-ingest for video assets. **Bundles the scanner change atomically:** today `src/api/src/imports/scan.ts:160` pairs sidecars to images only and counts a movie's `.xmp` as an orphan, so a re-index would silently drop a video override. Video sidecar *writing* is therefore gated on the scanner recognising `clip.xmp ↔ clip.mov` (via `canonicalBaseFromSidecarFilename`, `src/api/src/fs/browse.ts`); both land in the same change — writes never ship before pairing.
+- **M5 — Video.** Metadata-only sidecar path on both platforms; override-ingest for video assets. **Bundles the scanner change atomically:** today `src/api/src/imports/scan.ts:160` pairs sidecars to images only and counts a movie's `.xmp` as an orphan, so a re-index would silently drop a video override. Video sidecar _writing_ is therefore gated on the scanner recognising `clip.xmp ↔ clip.mov` (via `canonicalBaseFromSidecarFilename`, `src/api/src/fs/browse.ts`); both land in the same change — writes never ship before pairing.
 
 Each milestone is its own ticket and PR (per `CONTRIBUTING.md`), with `Closes #N`.
 
