@@ -45,7 +45,12 @@ struct PhotoThumbnailCell: View {
     /// Also suppresses the single-select outline so the two indicators don't
     /// conflict. When `nil` behaves as before (single-select outline only).
     var multiSelectChecked: Bool? = nil
-    let onTap: () -> Void
+    /// Cell tap handler. Pass `nil` to attach NO tap gesture — used by
+    /// `ScaleZoomGrid`, which handles taps at the container level (a sibling of
+    /// its pan/pinch) so a scroll/pinch reliably cancels the tap. A per-cell
+    /// `.onTapGesture` is a CHILD gesture that wins over the container's gestures
+    /// and fires on scroll/pinch finger-lift (the accidental-open bug).
+    let onTap: (() -> Void)?
     /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
     /// once (re-insertion / scroll in-out), so the work MUST be idempotent — use
     /// it for session priming or page-load triggers, not exactly-once side effects.
@@ -100,7 +105,7 @@ struct PhotoThumbnailCell: View {
             }
             .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
             .contentShape(Rectangle())
-            .onTapGesture { onTap() }
+            .optionalTap(onTap)
             .onAppear { onAppear?() }
             // Accessibility: UITest harness resolves cells by displayName via
             // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
@@ -117,6 +122,18 @@ struct PhotoThumbnailCell: View {
                     thumb = bytes
                 }
             }
+    }
+}
+
+// MARK: - Optional tap
+
+private extension View {
+    /// Attaches `.onTapGesture` only when an action is provided. When `nil`, NO
+    /// tap gesture is attached, so a parent/container tap gesture can receive the
+    /// tap instead (see `PhotoThumbnailCell.onTap`).
+    @ViewBuilder
+    func optionalTap(_ action: (() -> Void)?) -> some View {
+        if let action { self.onTapGesture { action() } } else { self }
     }
 }
 
