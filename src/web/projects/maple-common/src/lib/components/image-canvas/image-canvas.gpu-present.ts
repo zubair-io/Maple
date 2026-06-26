@@ -87,6 +87,22 @@ export interface GpuPresentHost {
 }
 
 /**
+ * Returns `true` when every channel in the packed-RGB snapshot is at or below the
+ * black-present threshold (#1572). A threshold of 4 (of 255) absorbs quantization
+ * noise in the 2D-canvas readback while staying well below any real image content.
+ *
+ * Called only when `scopePixels.rgb` is defined (non-empty); an empty snapshot
+ * returns `true` conservatively (zero pixels == no evidence of content).
+ */
+function isPresentBlack(rgb: Uint8Array): boolean {
+  const BLACK_THRESHOLD = 4;
+  for (let i = 0; i < rgb.length; i++) {
+    if (rgb[i] > BLACK_THRESHOLD) return false;
+  }
+  return true;
+}
+
+/**
  * Owns the GPU live session + its dedicated canvas element. The component delegates
  * cold-open, edit re-render, view-positioning, and teardown here; it keeps the shared
  * cold-open bookkeeping (via `GpuPresentHost`) so the 2D and GPU paths stay in sync.
@@ -95,6 +111,17 @@ export class ImageCanvasGpuPresent {
   /** True while a worker GPU session is presenting to the OffscreenCanvas. */
   readonly active = signal(false);
   private canvasEl: HTMLCanvasElement | null = null;
+
+  /**
+   * Set to `true` once a black-present is detected for this session (#1572). When
+   * true, `open()` returns `false` immediately without attempting a GPU session —
+   * so subsequent images skip the GPU probe entirely rather than re-detecting on
+   * every open. Reset to `false` only when the page context is replaced (page
+   * reload / new app instance), which is appropriate: a browser / driver that
+   * produces a black present on the first image is not going to fix itself within
+   * the same session.
+   */
+  private presentBroken = false;
 
   constructor(private readonly host: GpuPresentHost) {}
 
@@ -107,12 +134,16 @@ export class ImageCanvasGpuPresent {
    * Cold-open a RAW through the persistent GPU live session (#1038): create a fresh
    * GPU canvas, transfer it to the worker, and open the session (which presents the
    * first frame with no readback). Returns `true` on success, `false` on any failure
-   * (a gpu-off WASM bundle, no WebGPU, decode error) so the caller falls back to the
-   * 2D `decode()` path. Mirrors the cold-open bookkeeping of `loadReal` (dims, the
-   * As-Shot WB seed, the `coldOpenDone` gate + `lastRenderedXmp` dedup) so the #846
-   * adjustment effect behaves identically — only the render mechanism differs.
+   * (a gpu-off WASM bundle, no WebGPU, decode error, or a black-present detected on
+   * a prior image) so the caller falls back to the 2D `decode()` path. Mirrors the
+   * cold-open bookkeeping of `loadReal` (dims, the As-Shot WB seed, the
+   * `coldOpenDone` gate + `lastRenderedXmp` dedup) so the #846 adjustment effect
+   * behaves identically — only the render mechanism differs.
    */
   async open(assetId: AssetId, bytes: Uint8Array, ext: string): Promise<boolean> {
+    // Skip the GPU probe entirely for the rest of this page session once a
+    // black-present has been confirmed (#1572). No teardown needed — nothing opened.
+    if (this.presentBroken) return false;
     // `OffscreenCanvas` / `transferControlToOffscreen` must exist (they do on every
     // WebGPU-capable browser; guard so an old browser falls back cleanly).
     if (typeof OffscreenCanvas === 'undefined') return false;
@@ -137,6 +168,29 @@ export class ImageCanvasGpuPresent {
       // while the open was in flight.
       if (assetId !== this.host.currentAssetId || this.canvasEl !== canvasEl) {
         return true; // superseded; the newer open/teardown owns the canvas now
+      }
+
+      // Present-failure detection (#1572): browsers that advertise `navigator.gpu`
+      // but cannot actually present (Safari, headless Chromium, some drivers) leave
+      // the OffscreenCanvas black after the session open. The worker already reads
+      // back the canvas via `readbackScopeSnapshot()` and folds it into `info` as
+      // `scopePixels`. When the snapshot is defined (readback succeeded) but every
+      // sampled pixel is at or near zero, the present failed — the decoded image has
+      // content but the visible canvas is blank. In that case tear down, mark the
+      // session broken (so subsequent images skip the GPU probe), and return `false`
+      // to fall back to the 2D path.
+      //
+      // `scopePixels === undefined` means the readback failed for an unrelated reason
+      // (canvas not yet snapshottable, context miss) — don't treat that as a failed
+      // present; let the session stand and let the scopes degrade to their pseudo
+      // fallback, which is the behaviour before this change.
+      if (info.scopePixels !== undefined && isPresentBlack(info.scopePixels.rgb)) {
+        console.warn(
+          '[image-canvas] GPU present produced a black canvas; falling back to 2D for this session.',
+        );
+        this.presentBroken = true;
+        this.teardown();
+        return false;
       }
 
       this.active.set(true);
