@@ -75,7 +75,11 @@ struct PhotoThumbnailCell: View {
     // MARK: Body
 
     var body: some View {
-        ThumbnailImage(jpegData: thumb, displayMode: displayMode)
+        // Sync peek first: if the thumbnail is already in the memory cache
+        // (from a prior load), show it immediately without a placeholder frame.
+        // `thumb` (async-loaded) takes precedence once the .task completes.
+        ThumbnailImage(jpegData: thumb ?? provider.cachedThumbnail(for: item.thumbnailSource),
+                       displayMode: displayMode)
             .overlay {
                 GridCellOverlayView(overlays: item.overlays)
             }
