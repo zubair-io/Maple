@@ -325,7 +325,7 @@ public actor RenderActor {
             return url
         }()
         guard let decoded = await pipeline.decodeSceneLinear(
-            asset: asset, quality: .amaze, xmpPath: sidecar,
+            asset: asset, quality: AmazeFlag.isEnabled ? .amaze : .full, xmpPath: sidecar,
             profileOverride: asset.isRaw ? m.profile : nil
         ) else {
             throw RenderError.pipelineFailed

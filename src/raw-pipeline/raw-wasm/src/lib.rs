@@ -199,9 +199,10 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
         &raw_img,
         &model,
-        // Export/display path: use AMaZE for best quality on Bayer images.
-        // Web live path deferred — see render_bytes_scene_linear (#846/#321).
-        raw_core::pipeline::RenderQuality::Amaze,
+        // Export/display path: bilinear Full by default. AMaZE is opt-in via
+        // the Apple AmazeFlag / CLI --demosaic amaze. Web live path deferred
+        // — see render_bytes_scene_linear (#846/#321).
+        raw_core::pipeline::RenderQuality::Full,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
     )
         .map_err(|e| JsError::new(&e.to_string()))?;
@@ -266,9 +267,9 @@ pub fn render_bytes_sized(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        // Export path: use AMaZE for best quality on Bayer images.
-        // Web live path deferred — see render_bytes_scene_linear comment (#846/#321).
-        raw_core::pipeline::RenderQuality::Amaze
+        // Export path: bilinear Full by default. AMaZE is opt-in via
+        // AmazeFlag (Apple) or CLI --demosaic amaze.
+        raw_core::pipeline::RenderQuality::Full
     };
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
@@ -395,11 +396,10 @@ pub fn render_bytes_scene_linear(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        // Export path: use AMaZE for best quality on Bayer images.
-        // Web live/interactive path deferred (#846 / #321) — AMaZE on the
-        // live canvas requires the develop cache so demosaic runs once per
-        // open, not per slider tick.
-        raw_core::pipeline::RenderQuality::Amaze
+        // Export path: bilinear Full by default. AMaZE is opt-in via
+        // AmazeFlag (Apple) or CLI --demosaic amaze.
+        // Web live/interactive path deferred (#846 / #321).
+        raw_core::pipeline::RenderQuality::Full
     };
     let (w, h, fp16_rgba) =
         raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)
@@ -464,9 +464,10 @@ pub fn render_bytes_scene_linear_sized(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        // Export path: use AMaZE for best quality on Bayer images.
-        // Web live path deferred — see render_bytes_scene_linear comment (#846/#321).
-        raw_core::pipeline::RenderQuality::Amaze
+        // Export path: bilinear Full by default. AMaZE is opt-in via
+        // AmazeFlag (Apple) or CLI --demosaic amaze.
+        // Web live path deferred (#846/#321).
+        raw_core::pipeline::RenderQuality::Full
     };
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
