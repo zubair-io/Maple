@@ -16,17 +16,17 @@
 
 ## Running tests
 
-`maple-common` uses the `@angular/build:unit-test` builder (vitest under the hood). Run the library suite with:
+`maple-common` uses the `@angular/build:unit-test` builder (vitest under the hood). The builder compiles the whole library, so the generated `raw_wasm` pkg must be present (see provisioning below). One-shot, scoped run (verified):
 
 ```bash
-cd src/web && bun x ng test Maple-common
+cd src/web && HOME=/tmp/maple-binst bun x ng test Maple-common --watch=false --filter=gps
 ```
 
-If your Angular version supports it, `bun x ng test Maple-common --filter=xmp` scopes to the xmp specs for faster iteration; otherwise run the full library suite.
+**`--filter` matches TEST NAMES (describe/it text), not file paths** (verified: `--filter=gps` runs exactly the `gpsToXmp`/`gpsFromXmp` describes). Use a describe-name token from the task you're running (e.g. `gps`, `altitude`, `metadataAttrParts`, `parseMetadata`). Drop `--filter` to run the whole library suite. `--watch=false` makes it one-shot.
 
 **Known-red baseline:** the maple-common suite has a pre-existing failing observability spec on `origin/main`. The gate for this work is **no NEW failures** — confirm every new `xmp-metadata*` test passes in the run output and the total failure count is unchanged from base. The pure-function spec (`xmp-metadata.spec.ts`) imports from `vitest` directly; the service round-trip spec instantiates the dependency-free services directly with `new` (TestBed.inject is the house alternative and also works).
 
-**First run in a fresh worktree:** deps may need `HOME=/tmp/x bun install` first (the default `bun install` is blocked by a socket scanner in worktrees).
+**First run in a fresh worktree (provisioning):** (1) install deps with a HOME override — `HOME=/tmp/maple-binst bun install` (the default `bun install` is blocked by a socket scanner in worktrees); (2) build + sync the WASM pkg — `bash src/raw-pipeline/scripts/build-raw-wasm.sh && bash src/web/scripts/sync-raw-wasm.sh` (the test build compiles the raw-pipeline worker, which imports `raw_wasm`). Use the same `HOME=/tmp/maple-binst` prefix for `bun x ng test`.
 
 ---
 
@@ -108,7 +108,7 @@ describe('gpsFromXmp', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: FAIL — `gpsToXmp`/`gpsFromXmp` not exported (module not found).
 
 - [ ] **Step 3: Write minimal implementation**
@@ -154,7 +154,7 @@ export function gpsFromXmp(s: string): number | null {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: PASS (8 assertions).
 
 - [ ] **Step 5: Commit**
@@ -204,7 +204,7 @@ describe('altitudeFromXmp', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: FAIL — `altitudeToXmp`/`altitudeFromXmp` not exported.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -238,7 +238,7 @@ export function altitudeFromXmp(value: string, ref: string): number | null {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -308,7 +308,7 @@ describe('escapeXmlText', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: FAIL — helpers not exported.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -350,7 +350,7 @@ export function seqBlock(qname: string, text: string): string {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -535,7 +535,7 @@ Note: the import of `gpsToXmp`/`altitudeToXmp` is intra-module (same file) — n
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -608,7 +608,7 @@ describe('metadataNamespacePrefixes', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: FAIL — `metadataNestedBlocks`/`metadataNamespacePrefixes` not exported.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -652,7 +652,7 @@ export function metadataNamespacePrefixes(m: XmpMetadata): Set<string> {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=gps`)
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -734,7 +734,7 @@ describe('serialize with metadata', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata-roundtrip` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=metadata` or `--filter=parseMetadata`)
 Expected: FAIL — `serialize` has only 3 params; 4th `meta` arg ignored, namespaces/fields absent.
 
 - [ ] **Step 3: Modify the serializer**
@@ -956,7 +956,7 @@ describe('parseMetadata round-trip', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=xmp-metadata-roundtrip` if supported)
+Run: `cd src/web && bun x ng test Maple-common` (see "Running tests"; scope with `--filter=<describe-name>`, e.g. `--filter=metadata` or `--filter=parseMetadata`)
 Expected: FAIL — `parser.parseMetadata` is not a function; managed fields appear in passthrough.
 
 - [ ] **Step 3a: Add parse helpers to `xmp-metadata.ts`**
