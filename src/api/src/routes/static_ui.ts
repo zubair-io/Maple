@@ -42,7 +42,15 @@ function resolveUiDist(): string {
   );
 }
 
-const UI_DIST = resolveUiDist();
+let _uiDist: string | undefined;
+/**
+ * Memoised UI dist path. Resolved lazily so MAPLE_UI_DIST is read at first use
+ * rather than at import — this keeps module load side-effect-free and lets
+ * tests point it at a fixture dir before the first request.
+ */
+function uiDist(): string {
+  return (_uiDist ??= resolveUiDist());
+}
 
 /** MIME type map for static serving. */
 const MIME: Record<string, string> = {
@@ -72,10 +80,11 @@ function mimeFor(filePath: string): string {
  * Returns null if the file doesn't exist.
  */
 async function serveStatic(uiRelPath: string): Promise<Response | null> {
-  const filePath = path.join(UI_DIST, uiRelPath);
+  const root = uiDist();
+  const filePath = path.join(root, uiRelPath);
 
   // Prevent directory traversal.
-  if (filePath !== UI_DIST && !filePath.startsWith(UI_DIST + path.sep)) {
+  if (filePath !== root && !filePath.startsWith(root + path.sep)) {
     return new Response('Forbidden', { status: 403 });
   }
 
@@ -156,7 +165,7 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
     return {
       error: 'UI bundle not built',
       tip: 'Run: cd src/web && ng build maple --configuration=production',
-      dist_path: UI_DIST,
+      dist_path: uiDist(),
     };
   }
 
@@ -169,7 +178,7 @@ export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) =>
   if (indexHtml) return indexHtml;
 
   set.status = 404;
-  return { error: 'UI index.html not found in ' + UI_DIST };
+  return { error: 'UI index.html not found in ' + uiDist() };
 });
 
 // One-time dist availability check.
@@ -178,15 +187,12 @@ let _distExists: boolean | null = null;
 async function checkDist(): Promise<boolean> {
   if (_distExists !== null) return _distExists;
   try {
-    await fs.access(path.join(UI_DIST, 'index.html'));
+    await fs.access(path.join(uiDist(), 'index.html'));
     _distExists = true;
-    log.info({ uiDist: UI_DIST }, 'UI dist found');
+    log.info({ uiDist: uiDist() }, 'UI dist found');
   } catch {
     _distExists = false;
-    log.warn({ uiDist: UI_DIST }, 'UI dist NOT found');
+    log.warn({ uiDist: uiDist() }, 'UI dist NOT found');
   }
   return _distExists;
 }
-
-// Eagerly check dist availability at module load time.
-checkDist();
