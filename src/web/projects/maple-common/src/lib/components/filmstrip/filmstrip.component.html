@@ -1,19 +1,39 @@
 <div
-  class="strip-title shrink-0 pl-2.5 pr-2.5 pt-2 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted"
+  class="strip-title flex items-center justify-between shrink-0 pl-2.5 pr-1.5 pt-2 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted"
 >
-  FILMSTRIP
+  <span>FILMSTRIP</span>
+  <button
+    type="button"
+    class="strip-toggle"
+    (click)="collapsed.set(!collapsed())"
+    [attr.aria-expanded]="!collapsed()"
+    [attr.aria-label]="collapsed() ? 'Show filmstrip' : 'Hide filmstrip'"
+    [title]="collapsed() ? 'Show filmstrip' : 'Hide filmstrip'"
+  >
+    <maple-icon
+      name="back"
+      [size]="11"
+      color="var(--color-text-muted)"
+      [class.strip-toggle--collapsed]="collapsed()"
+    />
+  </button>
 </div>
 
-<div class="strip-scroll flex-1 overflow-y-auto p-1 flex flex-col gap-[3px]" #scrollContainer>
-  @for (asset of state.assetsInSelectedFolder(); track asset.id) {
-    @let isFocused = state.focusedAssetId() === asset.id;
-    <div class="shrink-0" [style.height.px]="thumbH(asset)" [attr.data-id]="asset.id">
-      <maple-asset-thumb
-        [asset]="asset"
-        variant="filmstrip"
-        [focused]="isFocused"
-        (thumbClick)="select(asset)"
-      />
-    </div>
-  }
-</div>
+@if (!collapsed()) {
+  <div
+    class="strip-scroll overflow-y-auto p-1 flex flex-col gap-[3px] max-h-[calc(100dvh-56px)]"
+    #scrollContainer
+  >
+    @for (asset of state.assetsInSelectedFolder(); track asset.id) {
+      @let isFocused = state.focusedAssetId() === asset.id;
+      <div class="shrink-0" [style.height.px]="thumbH(asset)" [attr.data-id]="asset.id">
+        <maple-asset-thumb
+          [asset]="asset"
+          variant="filmstrip"
+          [focused]="isFocused"
+          (thumbClick)="select(asset)"
+        />
+      </div>
+    }
+  </div>
+}

@@ -14,3 +14,27 @@
   background: var(--color-border);
   border-radius: 2px;
 }
+
+/* Collapse/hide toggle in the FILMSTRIP header. */
+.strip-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin: -2px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: background 120ms ease-out;
+}
+.strip-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.strip-toggle maple-icon {
+  display: block;
+  transition: transform 160ms ease-out;
+}
+/* Expanded chevron points left ("collapse"); rotate 180 to point right when collapsed ("expand"). */
+.strip-toggle--collapsed {
+  transform: rotate(180deg);
+}
