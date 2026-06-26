@@ -40,10 +40,9 @@ struct ScaleZoomTest: View {
 
     // Crossfade transition.
     @State private var transitioning = false
-    @State private var align: Double = 0       // 0 = focal under finger, 1 = edge-aligned (settle motion)
     @State private var fade: Double = 0        // 0 = outgoing, 1 = incoming (opacity dissolve)
     @State private var outLevelIndex = 0
-    @State private var tScale: CGFloat = 1      // shared scale during the transition
+    @State private var tScale: CGFloat = 1      // outgoing scale settle during the transition
 
     private var targetColumns: Int { levels[levelIndex] }
 
@@ -56,12 +55,16 @@ struct ScaleZoomTest: View {
 
             ZStack(alignment: .topLeading) {
                 if transitioning {
+                    let nScale = levelScale(levels[levelIndex], cell: cell, W: W)
+                    // Outgoing: old packing, scale settling, focal under the finger — fades out.
                     gridLayer(level: outLevelIndex, layerScale: tScale,
-                              layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: align, cell: cell, pitch: pitch, H: H),
+                              layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: 0, cell: cell, pitch: pitch, H: H),
                               cell: cell)
                         .opacity(1 - fade)
-                    gridLayer(level: levelIndex, layerScale: tScale,
-                              layerOffset: layerOffset(level: levelIndex, s: tScale, align: align, cell: cell, pitch: pitch, H: H),
+                    // Incoming: new packing, already at its FINAL edge-aligned position
+                    // (no horizontal motion) — just fades in.
+                    gridLayer(level: levelIndex, layerScale: nScale,
+                              layerOffset: layerOffset(level: levelIndex, s: nScale, align: 1, cell: cell, pitch: pitch, H: H),
                               cell: cell)
                         .opacity(fade)
                 } else {
@@ -195,19 +198,20 @@ struct ScaleZoomTest: View {
                     return
                 }
 
-                // Crossfade the old packing into the new one over the held focal.
+                // Dissolve the old packing into the new one. No horizontal motion:
+                // the incoming layer is rendered at its final edge-aligned position
+                // and only its opacity fades in. The outgoing settles its scale
+                // (focal stays under the finger) and fades out.
                 outLevelIndex = levelIndex
                 levelIndex = newIndex
                 tScale = liveScale
-                align = 0
                 fade = 0
                 transitioning = true
-                // 1) Settle: scale lands + focal slides to its edge-aligned column.
+                // Outgoing scale settle (focal-anchored, no slide).
                 withAnimation(.smooth(duration: 0.46)) {
                     tScale = newScale
-                    align = 1
                 }
-                // 2) Dissolve: starts after a beat, runs slower — the content fade.
+                // Content dissolve: delayed start, slower.
                 withAnimation(.smooth(duration: 0.75).delay(0.18)) {
                     fade = 1
                 } completion: {
@@ -215,7 +219,6 @@ struct ScaleZoomTest: View {
                     offset = layerOffset(level: newIndex, s: newScale, align: 1, cell: cell, pitch: pitch, H: H)
                     transitioning = false
                     fade = 0
-                    align = 0
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragSuppressed = false }
             }
