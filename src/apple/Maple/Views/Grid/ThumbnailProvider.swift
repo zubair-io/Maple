@@ -106,6 +106,35 @@ actor ThumbnailProvider {
             return await Self.fetchPhotoKitThumb(localID: localID)
         }
     }
+
+    // MARK: - Synchronous cache peek (M1 scale-zoom)
+
+    /// Synchronous, non-awaiting peek into the in-memory thumbnail cache.
+    /// Returns JPEG bytes only when the thumbnail is already hot in memory;
+    /// returns `nil` on any miss without blocking or doing I/O.
+    ///
+    /// Backed by `ThumbnailDiskCache.syncPeekCache` (an `NSCache`, thread-safe).
+    /// Only effective for `.local` and `.photoKit` sources loaded through
+    /// `ThumbnailLoader` / `ThumbnailDiskCache` — cloud thumbs (routed through
+    /// `CloudThumbCache`) always return `nil` here.
+    ///
+    /// Key derivation mirrors `ThumbnailLoader.load(for:from:)`:
+    ///   - URL-backed local assets: the asset filename (basename).
+    ///   - Sourceless assets (PhotoKit, stableID-only): `stableID ?? displayName`.
+    nonisolated func cachedThumbnail(for source: ThumbnailSource) -> Data? {
+        let backend = source.resolvedBackend()
+        switch backend {
+        case .thumbnailLoader(let ref, _):
+            let key = ref.primaryURL?.lastPathComponent
+                ?? ref.stableID
+                ?? ref.displayName
+            return ThumbnailDiskCache.shared.syncPeekData(forKey: key)
+        case .photoKit(let localID):
+            return ThumbnailDiskCache.shared.syncPeekData(forKey: localID)
+        case .cloudThumb:
+            return nil   // cloud cache not synchronously peekable
+        }
+    }
 }
 
 // MARK: - Cloud thumb fetch + cache
