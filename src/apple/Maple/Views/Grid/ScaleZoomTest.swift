@@ -26,8 +26,9 @@ struct ScaleZoomTest: View {
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var levelIndex = 0
-    /// Leftmost visible column — the content packs into [cLeft, cLeft+T).
-    @State private var visibleCLeft = 0
+    /// The image under the finger when a pinch begins — preserved across the
+    /// level change so zooming into image N keeps showing image N.
+    @State private var focalImage: Int? = nil
 
     // Live-gesture scratch.
     @State private var pinching = false
@@ -50,7 +51,7 @@ struct ScaleZoomTest: View {
             let rows = rowCount(forT: T)
             let baseContentH = baseContentHeight(forT: T, cell: cell)
 
-            grid(cell: cell, T: T, cLeft: visibleCLeft, rows: rows)
+            grid(cell: cell, T: T, cLeft: 0, rows: rows)
                 .frame(width: W, alignment: .topLeading)
                 .scaleEffect(scale, anchor: .topLeading)
                 .offset(offset)
@@ -133,6 +134,10 @@ struct ScaleZoomTest: View {
                         x: (focalScreen.x - offset.width) / scale,
                         y: (focalScreen.y - offset.height) / scale
                     )
+                    // Which image is under the finger right now (old packing)?
+                    let colFocal = Int(focalContent.x / pitch)
+                    let rowFocal = Int(focalContent.y / (cell + gap))
+                    focalImage = imageIndex(r: rowFocal, c: colFocal, T: targetColumns, cLeft: 0)
                 }
                 let mag = min(max(value.magnification, 0.08), 12)
                 let newScale = gestureStartScale * mag
@@ -165,25 +170,24 @@ struct ScaleZoomTest: View {
                     newIndex = levelIndex
                 }
 
-                let zoomOut = newIndex < levelIndex
                 let T = levels[newIndex]
                 let newScale = levelScale(T, cell: cell, W: W)
-                let f = min(max(Int(focalContent.x / pitch), 0), baseColumns - 1)
-                let sidePos: Int = zoomOut ? (T - 1) / 2
-                    : focalScreen.x / W < 1.0 / 3 ? 0
-                    : focalScreen.x / W > 2.0 / 3 ? (T - 1)
-                    : (T - 1) / 2
-                let cLeft = min(max(f - sidePos, 0), baseColumns - T)
-                let newTX = -newScale * CGFloat(cLeft) * pitch
                 let newBCH = baseContentHeight(forT: T, cell: cell)
-                let newOY = clampY(focalScreen.y - focalContent.y * newScale,
+                // Preserve the focal IMAGE: scroll its row in the NEW packing back
+                // under the finger, so zooming into image N keeps N under your finger.
+                let newOY: CGFloat
+                if let img = focalImage {
+                    let rowNew = img / T
+                    newOY = clampY(focalScreen.y - CGFloat(rowNew) * (cell + gap) * newScale,
                                    scale: newScale, H: H, baseContentH: newBCH)
-
+                } else {
+                    newOY = clampY(focalScreen.y - focalContent.y * newScale,
+                                   scale: newScale, H: H, baseContentH: newBCH)
+                }
                 withAnimation(.smooth(duration: 0.46)) {
                     levelIndex = newIndex
-                    visibleCLeft = cLeft     // content repacks into the new visible columns
                     scale = newScale
-                    offset = CGSize(width: newTX, height: newOY)
+                    offset = CGSize(width: 0, height: newOY)   // content packs from col 0 → edge-aligned
                 }
                 pinching = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragSuppressed = false }
@@ -213,7 +217,7 @@ struct ScaleZoomTest: View {
 
     private var hud: some View {
         HStack {
-            Text("\(targetColumns)-wide  scale \(String(format: "%.2f", scale))  col \(visibleCLeft)")
+            Text("\(targetColumns)-wide  scale \(String(format: "%.2f", scale))  focal \(focalImage.map(String.init) ?? "-")")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)
             Spacer()
