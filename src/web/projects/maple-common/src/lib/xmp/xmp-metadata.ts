@@ -147,3 +147,50 @@ export function metadataAttrParts(m: XmpMetadata): string[] {
   }
   return parts;
 }
+
+/**
+ * Build the nested lang-alt/seq element blocks for the metadata, in fixed
+ * order (dc:title, dc:creator, dc:description, dc:rights, xmpRights:UsageTerms).
+ * The `dc:subject` keyword bag is NOT here — it stays in the serializer's
+ * culling path.
+ */
+export function metadataNestedBlocks(m: XmpMetadata): string[] {
+  const blocks: string[] = [];
+  if (m.title) blocks.push(langAltBlock('dc:title', m.title));
+  if (m.creator) blocks.push(seqBlock('dc:creator', m.creator));
+  if (m.caption) blocks.push(langAltBlock('dc:description', m.caption));
+  if (m.copyrightNotice) blocks.push(langAltBlock('dc:rights', m.copyrightNotice));
+  if (m.usageTerms) blocks.push(langAltBlock('xmpRights:UsageTerms', m.usageTerms));
+  return blocks;
+}
+
+/**
+ * Which namespace prefixes the metadata requires declared on rdf:Description.
+ * Mirrors exactly what `metadataAttrParts` + `metadataNestedBlocks` emit.
+ */
+export function metadataNamespacePrefixes(m: XmpMetadata): Set<string> {
+  const used = new Set<string>();
+  if (
+    m.gpsLatitude != null ||
+    m.gpsLongitude != null ||
+    m.gpsAltitude != null ||
+    m.dateTimeOriginal
+  )
+    used.add('exif');
+  if (
+    m.city ||
+    m.state ||
+    m.country ||
+    m.headline ||
+    m.instructions ||
+    m.creatorJobTitle ||
+    m.credit ||
+    m.source
+  )
+    used.add('photoshop');
+  if (m.sublocation || m.countryCode) used.add('Iptc4xmpCore');
+  if (m.title || m.creator || m.caption || m.copyrightNotice) used.add('dc');
+  if (m.usageTerms) used.add('xmpRights');
+  if (m.copyrightStatus && m.copyrightStatus !== 'unknown') used.add('xmpRights');
+  return used;
+}
