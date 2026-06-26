@@ -173,23 +173,41 @@ struct ScaleZoomTest: View {
                 let T = levels[newIndex]
                 let newScale = levelScale(T, cell: cell, W: W)
                 let newBCH = baseContentHeight(forT: T, cell: cell)
-                // Preserve the focal IMAGE: scroll its row in the NEW packing back
-                // under the finger, so zooming into image N keeps N under your finger.
+                pinching = false
+
+                // Focal image's row in the NEW packing.
+                let rowNew = focalImage.map { $0 / T }
+
+                // INSTANT: remap content + place the focal under the finger at the
+                // CURRENT (released) scale — no animated scroll, so the grid never
+                // visibly flies through rows. The focal stays put; only its
+                // neighbours change to the new packing.
+                let oyNow: CGFloat
+                if let r = rowNew {
+                    oyNow = clampY(focalScreen.y - CGFloat(r) * (cell + gap) * liveScale,
+                                   scale: liveScale, H: H, baseContentH: newBCH)
+                } else {
+                    oyNow = clampY(offset.height, scale: liveScale, H: H, baseContentH: newBCH)
+                }
+                levelIndex = newIndex
+                offset = CGSize(width: 0, height: oyNow)
+
+                // ANIMATE: only the scale settles (the transition that covers the
+                // swap), keeping the focal anchored at the same screen point.
                 let newOY: CGFloat
-                if let img = focalImage {
-                    let rowNew = img / T
-                    newOY = clampY(focalScreen.y - CGFloat(rowNew) * (cell + gap) * newScale,
+                if let r = rowNew {
+                    newOY = clampY(focalScreen.y - CGFloat(r) * (cell + gap) * newScale,
                                    scale: newScale, H: H, baseContentH: newBCH)
                 } else {
-                    newOY = clampY(focalScreen.y - focalContent.y * newScale,
+                    newOY = clampY(oyNow * (newScale / max(liveScale, 0.0001)),
                                    scale: newScale, H: H, baseContentH: newBCH)
                 }
-                withAnimation(.smooth(duration: 0.46)) {
-                    levelIndex = newIndex
-                    scale = newScale
-                    offset = CGSize(width: 0, height: newOY)   // content packs from col 0 → edge-aligned
+                DispatchQueue.main.async {
+                    withAnimation(.smooth(duration: 0.46)) {
+                        scale = newScale
+                        offset = CGSize(width: 0, height: newOY)
+                    }
                 }
-                pinching = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dragSuppressed = false }
             }
     }
