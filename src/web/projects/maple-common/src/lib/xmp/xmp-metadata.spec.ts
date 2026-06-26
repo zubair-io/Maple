@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { gpsToXmp, gpsFromXmp, altitudeToXmp, altitudeFromXmp } from './xmp-metadata';
+import {
+  gpsToXmp,
+  gpsFromXmp,
+  altitudeToXmp,
+  altitudeFromXmp,
+  langAltBlock,
+  seqBlock,
+  escapeXmlText,
+} from './xmp-metadata';
 
 describe('gpsToXmp', () => {
   it('encodes a northern latitude as deg,decimal-min with N', () => {
@@ -49,5 +57,44 @@ describe('altitudeFromXmp', () => {
   });
   it('returns null for a malformed rational', () => {
     expect(altitudeFromXmp('abc', '0')).toBeNull();
+  });
+});
+
+describe('langAltBlock', () => {
+  it('emits an x-default rdf:Alt block with 2-space indentation', () => {
+    expect(langAltBlock('dc:title', 'Sunset')).toBe(
+      [
+        '  <dc:title>',
+        '   <rdf:Alt>',
+        '    <rdf:li xml:lang="x-default">Sunset</rdf:li>',
+        '   </rdf:Alt>',
+        '  </dc:title>',
+      ].join('\n'),
+    );
+  });
+  it('escapes XML text content', () => {
+    expect(langAltBlock('dc:rights', '© A & B <x>')).toContain(
+      '<rdf:li xml:lang="x-default">© A &amp; B &lt;x&gt;</rdf:li>',
+    );
+  });
+});
+
+describe('seqBlock', () => {
+  it('emits an rdf:Seq with one rdf:li', () => {
+    expect(seqBlock('dc:creator', 'Ansel Adams')).toBe(
+      [
+        '  <dc:creator>',
+        '   <rdf:Seq>',
+        '    <rdf:li>Ansel Adams</rdf:li>',
+        '   </rdf:Seq>',
+        '  </dc:creator>',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('escapeXmlText', () => {
+  it('escapes &, <, >', () => {
+    expect(escapeXmlText('a & b < c > d')).toBe('a &amp; b &lt; c &gt; d');
   });
 });
