@@ -88,9 +88,9 @@ struct LibraryGrid: View {
                         provider: provider,
                         displayMode: displayMode,
                         selection: vm.selectedID.map { Set([$0]) } ?? [],
+                        onAppearItem: { asset in onPrimeSession(asset) },
                         leadingSpacerCount: leadingSpacerCount,
                         publishFrames: isPinching,
-                        onAppearItem: { asset in onPrimeSession(asset) },
                         onTap: { asset in
                             vm.selectedID = asset.id
                             #if canImport(UIKit)
