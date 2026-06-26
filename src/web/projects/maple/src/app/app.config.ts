@@ -11,7 +11,6 @@ import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/
 import { provideServiceWorker } from '@angular/service-worker';
 import {
   AppUpdateService,
-  GPU_LIVE_RENDER_ENABLED,
   LIBRARY_BACKEND,
   MapleErrorHandler,
   ObservabilityService,
@@ -38,14 +37,15 @@ export const appConfig: ApplicationConfig = {
     provideAuthBootstrap(),
     provideLibrarySource,
     { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
-    // #1559 — the WebGPU live-render path presents a BLACK canvas on browsers
-    // that advertise `navigator.gpu` but can't actually present (Safari,
-    // headless). The RAW decodes fine (its readback even feeds the histogram),
-    // but the visible offscreen canvas stays black, and the only fallback today
-    // is for *open* failure — not a black present. Until that per-session
-    // detection lands (#1559 follow-up), use the documented kill-switch so every
-    // browser gets the working 2D/CPU render. Trade-off: loses the GPU 16ms tick.
-    { provide: GPU_LIVE_RENDER_ENABLED, useValue: false },
+    // GPU live-render is on by default (token factory) and the token override
+    // here was a blanket kill-switch from #1560 (#1559). #1572 replaced the
+    // kill-switch with per-session present-failure detection in
+    // `ImageCanvasGpuPresent.open()`: after the first GPU present the worker
+    // reads back the canvas; if it is all-black while a scope snapshot was
+    // successfully captured the present failed — the session is torn down, GPU
+    // is skipped for the rest of the page session, and the component falls back
+    // to 2D. Chrome/Edge (working WebGPU) get the 16ms GPU tick; Safari /
+    // headless fall back transparently on the first image open.
     provideServiceWorker('ngsw-worker.js', {
       enabled: !isDevMode(),
       registrationStrategy: 'registerWhenStable:30000',
