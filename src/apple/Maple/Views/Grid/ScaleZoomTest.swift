@@ -50,7 +50,7 @@ struct ScaleZoomTest: View {
             let H = geo.size.height
             let cell = (W - gap * CGFloat(baseColumns - 1)) / CGFloat(baseColumns)
             let pitch = cell + gap
-            let count = baseColumns * 26
+            let count = baseColumns * 80   // plenty of rows to test scrolling
             let rows = Int(ceil(Double(count) / Double(baseColumns)))
             let baseContentH = CGFloat(rows) * cell + CGFloat(max(rows - 1, 0)) * gap
 
@@ -100,6 +100,19 @@ struct ScaleZoomTest: View {
         return min(0, max(-maxDown, y))
     }
 
+    /// The level whose gap-aware scale is nearest (in log space, since zoom is
+    /// multiplicative) to `s`. Lets a big pinch jump several levels (9→3, 5→1)
+    /// instead of always stepping ±1.
+    private func nearestLevelIndex(toScale s: CGFloat, cell: CGFloat, W: CGFloat) -> Int {
+        var best = 0
+        var bestDist = CGFloat.greatestFiniteMagnitude
+        for (i, T) in levels.enumerated() {
+            let d = abs(log(levelScale(T, cell: cell, W: W)) - log(s))
+            if d < bestDist { bestDist = d; best = i }
+        }
+        return best
+    }
+
     // MARK: - Pinch (zoom about focal; snap + edge-align on release)
     private func magnify(W: CGFloat, H: CGFloat, pitch: CGFloat, cell: CGFloat, baseContentH: CGFloat) -> some Gesture {
         MagnifyGesture()
@@ -126,11 +139,10 @@ struct ScaleZoomTest: View {
                 )
             }
             .onEnded { value in
-                let zoomIn = value.magnification > 1.15
-                let zoomOut = value.magnification < 0.87
-                let newIndex = zoomIn ? min(levelIndex + 1, levels.count - 1)
-                             : zoomOut ? max(levelIndex - 1, 0)
-                             : levelIndex
+                // Snap to the level nearest where the pinch actually landed, so a
+                // big pinch jumps multiple levels (9→3, 5→1), a small one steps once.
+                let newIndex = nearestLevelIndex(toScale: scale, cell: cell, W: W)
+                let zoomOut = newIndex < levelIndex
                 let T = levels[newIndex]
                 let newScale = levelScale(T, cell: cell, W: W)
 
@@ -168,7 +180,18 @@ struct ScaleZoomTest: View {
                 offset.height = clampY(dragBaseY + value.translation.height,
                                        scale: scale, H: H, baseContentH: baseContentH)
             }
-            .onEnded { _ in dragging = false }
+            .onEnded { value in
+                guard !pinching, !dragSuppressed else { dragging = false; return }
+                dragging = false
+                // Momentum: project a fling endpoint from the release velocity and
+                // ease to it, so a flick coasts instead of stopping at the finger.
+                let v = value.velocity.height            // pts/sec (iOS 17+)
+                let projected = offset.height + v * 0.16
+                let target = clampY(projected, scale: scale, H: H, baseContentH: baseContentH)
+                withAnimation(.easeOut(duration: min(max(abs(v) / 2600, 0.15), 0.9))) {
+                    offset.height = target
+                }
+            }
     }
 
     private var hud: some View {
