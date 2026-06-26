@@ -259,12 +259,12 @@ struct BrowseGrid: View {
             selection: vm.isSelecting
                 ? vm.selectedIDs
                 : (vm.selectedID.map { Set([$0]) } ?? []),
-            leadingSpacerCount: leadingSpacerCount,
-            publishFrames: isPinching,
             onAppearItem: { asset in onPrimeSession?(asset) },
             multiSelectChecked: vm.isSelecting ? { asset in
                 vm.selectedIDs.contains(asset.id)
             } : nil,
+            leadingSpacerCount: leadingSpacerCount,
+            publishFrames: isPinching,
             onTap: { asset in
                 if vm.isSelecting {
                     // Multi-select mode: tap toggles check.
