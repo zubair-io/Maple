@@ -55,3 +55,34 @@ export function altitudeFromXmp(value: string, ref: string): number | null {
   const meters = Number(m[1]) / denom;
   return ref === '1' ? -meters : meters;
 }
+
+/** Minimal XML text-content escaping (matches the serializer's `_escapeText`). */
+export function escapeXmlText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+/**
+ * Build a lang-alt nested element:
+ *   <prefix:Name><rdf:Alt><rdf:li xml:lang="x-default">text</rdf:li></rdf:Alt></prefix:Name>
+ * Indentation mirrors the existing `dc:subject` block (2/3/4 spaces).
+ */
+export function langAltBlock(qname: string, text: string): string {
+  return [
+    `  <${qname}>`,
+    '   <rdf:Alt>',
+    `    <rdf:li xml:lang="x-default">${escapeXmlText(text)}</rdf:li>`,
+    '   </rdf:Alt>',
+    `  </${qname}>`,
+  ].join('\n');
+}
+
+/** Build an rdf:Seq nested element holding a single entry (v1 single-creator). */
+export function seqBlock(qname: string, text: string): string {
+  return [
+    `  <${qname}>`,
+    '   <rdf:Seq>',
+    `    <rdf:li>${escapeXmlText(text)}</rdf:li>`,
+    '   </rdf:Seq>',
+    `  </${qname}>`,
+  ].join('\n');
+}
