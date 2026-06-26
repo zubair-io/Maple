@@ -3,7 +3,7 @@
 <div class="shell" [class.shell--desktop]="isDesktop()">
   <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
   <div #canvasWrap class="canvas-layer" (pointerdown)="onCanvasPointerDown($event)">
-    <editor-image-canvas [hideToolbar]="true" />
+    <editor-image-canvas />
   </div>
 
   <!-- ── Chrome layers (float above canvas) ──────────────────────────── -->
@@ -59,7 +59,6 @@
         aria-label="Export"
       >
         <maple-icon name="export" [size]="14" color="currentColor" />
-        <span>Export</span>
       </button>
     </div>
 
@@ -80,11 +79,6 @@
     <!-- ── Bottom control card ────────────────────────────────────── -->
     <div class="control-card-anchor">
       <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
-    </div>
-
-    <!-- ── Lower-left mask chip ───────────────────────────────────── -->
-    <div class="mask-chip-anchor">
-      <pro-mask-chip />
     </div>
   </div>
 

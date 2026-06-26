@@ -12,20 +12,22 @@ import {
   ViewChildren,
   effect,
   inject,
+  signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { Asset } from '../../models/asset';
 import { editRouteCommands } from '../../addressing/route-address';
 import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
+import { MapleIconComponent } from '../../icons/maple-icon.component';
 
 @Component({
   selector: 'editor-filmstrip',
   standalone: true,
-  imports: [AssetThumbComponent],
+  imports: [AssetThumbComponent, MapleIconComponent],
   styleUrl: './filmstrip.component.scss',
   host: {
-    class: 'flex flex-col w-[110px] min-w-[110px] h-full overflow-hidden',
+    class: 'flex flex-col w-[110px] min-w-[110px] overflow-hidden',
   },
   templateUrl: './filmstrip.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -38,6 +40,9 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
   private readonly injector = inject(Injector);
 
   private cleanupEffect?: () => void;
+
+  /** Collapse toggle — hides the thumbnails, leaving the FILMSTRIP header. */
+  readonly collapsed = signal(false);
 
   thumbH(asset: Asset): number {
     const w = 102; // strip width - 2*4 padding
