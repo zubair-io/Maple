@@ -102,17 +102,17 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                               layerScale: tScale,
                               layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: 0,
                                                        cell: cell, pitch: pitch, H: H),
-                              cell: cell, pitch: pitch, H: H)
+                              cellSize: cell, pitch: pitch, H: H)
                         .opacity(1 - fade)
                     gridLayer(level: levelIndex,
                               layerScale: nScale,
                               layerOffset: layerOffset(level: levelIndex, s: nScale, align: 1,
                                                        cell: cell, pitch: pitch, H: H),
-                              cell: cell, pitch: pitch, H: H)
+                              cellSize: cell, pitch: pitch, H: H)
                         .opacity(fade)
                 } else {
                     gridLayer(level: levelIndex, layerScale: scale, layerOffset: offset,
-                              cell: cell, pitch: pitch, H: H)
+                              cellSize: cell, pitch: pitch, H: H)
                 }
             }
             .frame(width: W, height: H, alignment: .topLeading)
@@ -129,9 +129,9 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
 
     @ViewBuilder
     private func gridLayer(level: Int, layerScale: CGFloat, layerOffset: CGSize,
-                            cell: CGFloat, pitch: CGFloat, H: CGFloat) -> some View {
+                            cellSize: CGFloat, pitch: CGFloat, H: CGFloat) -> some View {
         let T = levels[level]
-        let rowH = cell + gap
+        let rowH = cellSize + gap
         let rows = rowCount(forT: T)
         // Content-space vertical window (undo scale + offset). Realize a full
         // viewport of rows above and below so cells load ahead of being seen —
@@ -141,7 +141,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         let visibleRows = max(1, Int(ceil((yBot - yTop) / rowH)))
         let firstRow = max(0, Int(floor(yTop / rowH)) - visibleRows)
         let lastRow = min(rows - 1, Int(ceil(yBot / rowH)) + visibleRows)
-        let contentW = CGFloat(T) * cell + CGFloat(T - 1) * gap
+        let contentW = CGFloat(T) * cellSize + CGFloat(T - 1) * gap
 
         ZStack(alignment: .topLeading) {
             if firstRow <= lastRow {
@@ -149,14 +149,14 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                     ForEach(0..<T, id: \.self) { c in
                         let g = r * T + c   // global slot index
                         if g < total {
-                            cell(globalSlot: g, cellSize: cell)
+                            cell(globalSlot: g, cellSize: cellSize)
                                 .offset(x: CGFloat(c) * pitch, y: CGFloat(r) * rowH)
                         }
                     }
                 }
             }
         }
-        .frame(width: contentW, height: baseContentHeight(forT: T, cell: cell),
+        .frame(width: contentW, height: baseContentHeight(forT: T, cellSize: cellSize),
                alignment: .topLeading)
         .scaleEffect(layerScale, anchor: .topLeading)
         .offset(layerOffset)
@@ -200,9 +200,9 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         max(1, Int(ceil(Double(total) / Double(T))))
     }
 
-    private func baseContentHeight(forT T: Int, cell: CGFloat) -> CGFloat {
+    private func baseContentHeight(forT T: Int, cellSize: CGFloat) -> CGFloat {
         let rows = rowCount(forT: T)
-        return CGFloat(rows) * cell + CGFloat(max(rows - 1, 0)) * gap
+        return CGFloat(rows) * cellSize + CGFloat(max(rows - 1, 0)) * gap
     }
 
     private func levelScale(_ T: Int, cell: CGFloat, W: CGFloat) -> CGFloat {
@@ -224,7 +224,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     private func layerOffset(level: Int, s: CGFloat, align: Double,
                               cell: CGFloat, pitch: CGFloat, H: CGFloat) -> CGSize {
         let T = levels[level]
-        let bch = baseContentHeight(forT: T, cell: cell)
+        let bch = baseContentHeight(forT: T, cellSize: cell)
         let cx: CGFloat
         let cy: CGFloat
         if let g = focalImage {
@@ -337,7 +337,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             .onChanged { value in
                 guard !pinching, !dragSuppressed, !transitioning else { return }
                 if !dragging { dragging = true; dragBaseY = offset.height }
-                let bch = baseContentHeight(forT: targetColumns, cell: cell)
+                let bch = baseContentHeight(forT: targetColumns, cellSize: cell)
                 offset.height = clampY(dragBaseY + value.translation.height,
                                        scale: scale, H: H, baseContentH: bch)
             }
@@ -347,7 +347,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 }
                 dragging = false
                 let v = value.velocity.height
-                let bch = baseContentHeight(forT: targetColumns, cell: cell)
+                let bch = baseContentHeight(forT: targetColumns, cellSize: cell)
                 let target = clampY(offset.height + v * 0.42, scale: scale, H: H, baseContentH: bch)
                 withAnimation(.easeOut(duration: min(max(abs(v) / 1500, 0.3), 1.6))) {
                     offset.height = target
