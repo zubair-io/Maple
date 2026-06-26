@@ -212,7 +212,7 @@ struct ScaleZoomTest: View {
                     tScale = newScale
                 }
                 // Content dissolve: delayed start, then dissolve.
-                withAnimation(.smooth(duration: 0.45).delay(0.2)) {
+                withAnimation(.smooth(duration: 1.0).delay(0.2)) {
                     fade = 1
                 } completion: {
                     scale = newScale
