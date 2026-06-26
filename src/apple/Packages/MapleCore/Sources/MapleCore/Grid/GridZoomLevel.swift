@@ -16,7 +16,7 @@ public enum GridZoomLevel: Int, CaseIterable, Sendable, Codable {
     case fullWidth    // 1 column
     case comfortable  // 3-wide on iPhone (default)
     case compact      // 5-wide on iPhone
-    case dense        // 10-wide on iPhone
+    case dense        // 9-wide on iPhone
 
     /// Canonical iPhone column count.
     public var phoneColumns: Int {
@@ -24,7 +24,7 @@ public enum GridZoomLevel: Int, CaseIterable, Sendable, Codable {
         case .fullWidth:   return 1
         case .comfortable: return 3
         case .compact:     return 5
-        case .dense:       return 10
+        case .dense:       return 9
         }
     }
 
