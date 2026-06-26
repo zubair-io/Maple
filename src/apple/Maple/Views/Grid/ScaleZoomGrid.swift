@@ -26,34 +26,31 @@
 // Cells use PhotoThumbnailCell (with the M1 sync cache peek) — no placeholder
 // flash for thumbnails already in the memory cache.
 //
-// M2: `level` is now a Binding<GridZoomLevel>. The component converts the
-// GridZoomLevel to its internal levelIndex on appear and on change, and writes
-// back through the binding whenever a settle completes. `displayMode` is
-// threaded through to PhotoThumbnailCell.
+// M2: `level` Binding<GridZoomLevel>; writes back on settle. M3: cross-platform
+// MagnifyGesture; external level changes drive the settle from viewport centre;
+// `onAppearItem` for lazy priming.
 //
-// M3: `#if os(iOS)` guard removed — MagnifyGesture is cross-platform (trackpad
-// pinch on macOS maps to the same gesture). External level changes (toolbar +/-,
-// ⌘±) now run the full settle animation anchored on the viewport centre, using
-// geometry captured on each layout pass. An `externalAnimating` flag prevents
-// the onChange write-back from triggering a second animation cycle.
-// `onAppearItem` added so BrowseGrid can call `onPrimeSession` when a cell
-// enters the windowed realisation region.
+// Fixes (#1570 scalezoom-fixes):
+//   1 — stuck crossfade: asyncAfter finalization + transitionToken + suppressLevelObserver
+//   2 — accidental opens: lastGestureEnd time guard + scroll threshold 8->4pt
+//   3 — always open at .comfortable (3-wide) regardless of persisted value
+//   4 — content inset: full ignoresSafeArea() + topInset so grid opens below
+//       bars and scrolls under them
 
 import SwiftUI
 import MapleCore
 
 // MARK: - Geometry snapshot
 
-/// Captured on each GeometryReader layout pass so external-level changes
-/// (toolbar +/- , ⌘±) can drive the settle animation without being inside
-/// the GeometryReader closure.
+/// Geometry snapshot for external-level settle animations (toolbar +/-, ⌘±).
 private struct GridGeometry {
     let W: CGFloat
     let H: CGFloat
     let cell: CGFloat
     let pitch: CGFloat
+    let topInset: CGFloat
 
-    static let zero = GridGeometry(W: 0, H: 0, cell: 0, pitch: 0)
+    static let zero = GridGeometry(W: 0, H: 0, cell: 0, pitch: 0, topInset: 0)
 }
 
 // MARK: - ScaleZoomGrid
@@ -63,7 +60,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     // MARK: Inputs
 
     let data: [Element]
-    /// Persisted zoom level. The component maps GridZoomLevel ↔ internal
+    /// Persisted zoom level. The component maps GridZoomLevel <-> internal
     /// levelIndex via phoneColumns and writes back on each settle.
     @Binding var level: GridZoomLevel
     let provider: ThumbnailProvider
@@ -117,6 +114,8 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     /// finger doesn't open an image by mistake. Distinct from `dragSuppressed`
     /// (which gates the drag gesture) — this gates the cell `onTap`.
     @State private var tapBlocked = false
+    /// Records end of each pinch/drag; tap guard rejects taps within 0.5s.
+    @State private var lastGestureEnd: Date = .distantPast
     /// One-time initialisation guard: set the resting scale/offset for the
     /// persisted level on first layout (needs geometry, so done inside the
     /// GeometryReader rather than a top-level onAppear).
@@ -128,24 +127,27 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     @State private var fade: Double = 0
     @State private var outLevelIndex = 0
     @State private var tScale: CGFloat = 1
+    /// Monotonically-increasing; asyncAfter finalizer only commits if token matches.
+    @State private var transitionToken: Int = 0
+
+    // MARK: Observer-suppression guard
+
+    /// Suppresses `.onChange(of: level)` during internal write-backs to stop re-entry.
+    @State private var suppressLevelObserver = false
 
     // MARK: External-animation guard (M3)
 
-    /// Set to true while the component is executing an externally-triggered
-    /// level-change settle animation. Guards `.onChange(of: level)` so the
-    /// write-back at the end of the settle doesn't trigger a second animation.
+    /// Guards `.onChange(of: level)` write-backs from re-triggering settleToLevel.
     @State private var externalAnimating = false
 
     private var targetColumns: Int { levels[levelIndex] }
 
-    // MARK: - Level <-> binding mapping
+    // MARK: - Level mapping
 
-    /// Convert a GridZoomLevel to the internal levelIndex.
     private func indexFor(_ zoomLevel: GridZoomLevel) -> Int {
         levels.firstIndex(of: zoomLevel.phoneColumns) ?? 2
     }
 
-    /// Convert an internal levelIndex to a GridZoomLevel (falls back to .comfortable).
     private func zoomLevelFor(_ idx: Int) -> GridZoomLevel {
         let cols = levels[idx]
         return GridZoomLevel.allCases.first { $0.phoneColumns == cols } ?? .comfortable
@@ -159,6 +161,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             let H = geo.size.height
             let cell = (W - gap * CGFloat(baseColumns - 1)) / CGFloat(baseColumns)
             let pitch = cell + gap
+                let topInset = geo.safeAreaInsets.top
 
             ZStack(alignment: .topLeading) {
                 if transitioning {
@@ -166,13 +169,15 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                     gridLayer(level: outLevelIndex,
                               layerScale: tScale,
                               layerOffset: layerOffset(level: outLevelIndex, s: tScale, align: 0,
-                                                       cell: cell, pitch: pitch, H: H),
+                                                       cell: cell, pitch: pitch, H: H,
+                                                       topInset: topInset),
                               cellSize: cell, pitch: pitch, H: H)
                         .opacity(1 - fade)
                     gridLayer(level: levelIndex,
                               layerScale: nScale,
                               layerOffset: layerOffset(level: levelIndex, s: nScale, align: 1,
-                                                       cell: cell, pitch: pitch, H: H),
+                                                       cell: cell, pitch: pitch, H: H,
+                                                       topInset: topInset),
                               cellSize: cell, pitch: pitch, H: H)
                         .opacity(fade)
                 } else {
@@ -183,34 +188,43 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             .frame(width: W, height: H, alignment: .topLeading)
             .clipped()
             .contentShape(Rectangle())
-            .gesture(magnify(W: W, H: H, pitch: pitch, cell: cell))
-            .simultaneousGesture(verticalDrag(cell: cell, H: H))
-            // First layout: set the resting scale + offset for the persisted
-            // level (not just levelIndex) so a non-dense level opens correctly
-            // instead of rendering at the stale scale=1.
+            .gesture(magnify(W: W, H: H, pitch: pitch, cell: cell, topInset: topInset))
+            .simultaneousGesture(verticalDrag(cell: cell, H: H, topInset: topInset))
+            // First layout: always open at .comfortable (3-wide) regardless of
+            // the persisted level — consistent, predictable open state (#1570 Issue 3).
             .onAppear {
                 guard !didInit, W > 0 else { return }
                 didInit = true
-                let idx = indexFor(level)
+                // Always open at 3-wide (.comfortable), ignoring the persisted value.
+                let idx = indexFor(.comfortable)
                 levelIndex = idx
                 scale = levelScale(levels[idx], cell: cell, W: W)
-                offset = .zero   // top, edge-aligned
+                // Issue 4: rest below the top bars at topInset (not 0).
+                offset = CGSize(width: 0, height: topInset)
+                // Suppress the observer so this write-back doesn't trigger a settle.
+                suppressLevelObserver = true
+                level = .comfortable
+                suppressLevelObserver = false
             }
             // Sync internal levelIndex when the external binding changes
             // (e.g. toolbar +/- in M3). Guard against recursive updates
             // triggered by our own write-backs (pinch settle or external settle).
             .onChange(of: level) { _, newLevel in
+                guard !suppressLevelObserver else { return }
                 let newIdx = indexFor(newLevel)
                 guard newIdx != levelIndex, !pinching, !transitioning else { return }
                 // External change — run the full settle animation anchored on
                 // the viewport centre (no finger focal point available).
                 settleToLevel(newIdx,
-                              geo: GridGeometry(W: W, H: H, cell: cell, pitch: pitch))
+                              geo: GridGeometry(W: W, H: H, cell: cell, pitch: pitch,
+                                                topInset: topInset))
             }
         }
-        // Respect the top safe area (nav/status bar) so the grid doesn't open
-        // overflowing under it; still extend under the bottom edge.
-        .ignoresSafeArea(edges: .bottom)
+        // Full-screen ignoresSafeArea so content can scroll under the translucent
+        // nav/status bars. The topInset from safeAreaInsets.top (still reported
+        // accurately) is used as the content rest-offset so the grid OPENS below
+        // the bars, but scrolling lets content travel under them (#1570 Issue 4).
+        .ignoresSafeArea()
         .background(Color.black)
     }
 
@@ -222,9 +236,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         let T = levels[level]
         let rowH = cellSize + gap
         let rows = rowCount(forT: T)
-        // Content-space vertical window (undo scale + offset). Realize a full
-        // viewport of rows above and below so cells load ahead of being seen —
-        // a tight buffer churns cells at the edges and flashes the placeholder.
+            // Windowed realisation: ±1 viewport buffer so cells load ahead.
         let yTop = (-layerOffset.height) / layerScale
         let yBot = (H - layerOffset.height) / layerScale
         let visibleRows = max(1, Int(ceil((yBot - yTop) / rowH)))
@@ -253,7 +265,6 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
 
     // MARK: - Cell dispatch
 
-    /// Render the correct content for a global slot: leading view or photo cell.
     @ViewBuilder
     private func cell(globalSlot g: Int, cellSize: CGFloat) -> some View {
         if g < leadingCount {
@@ -278,7 +289,10 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 multiSelectChecked: multiSelectChecked?(element),
                 onTap: {
                     // Ignore taps during/just after a pinch or a real scroll.
-                    guard !tapBlocked, !transitioning, !pinching else { return }
+                    // Time-based guard: reject taps within 0.5s of any gesture end.
+                    let recentGesture = Date().timeIntervalSince(lastGestureEnd) < 0.5
+                    guard !tapBlocked, !transitioning, !pinching, !dragging,
+                          !recentGesture else { return }
                     onTap(element)
                 },
                 onAppear: onAppearItem.map { cb in { cb(element) } }
@@ -303,9 +317,16 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         W / (CGFloat(T) * cell + CGFloat(T - 1) * gap)
     }
 
-    private func clampY(_ y: CGFloat, scale s: CGFloat, H: CGFloat, baseContentH: CGFloat) -> CGFloat {
-        let maxDown = max(0, baseContentH * s - H)
-        return min(0, max(-maxDown, y))
+    /// Clamp vertical scroll. Upper bound = topInset (content rests below bars);
+    /// lower bound lets the last row reach the screen bottom.
+    private func clampY(_ y: CGFloat, scale s: CGFloat, H: CGFloat,
+                         baseContentH: CGFloat, topInset: CGFloat) -> CGFloat {
+        let contentPx = baseContentH * s
+        // maxDown: how far we can scroll before the bottom of content hits the
+        // screen bottom. Anchored from topInset (not 0) because the content
+        // starts at topInset at rest.
+        let maxDown = max(0, contentPx - (H - topInset))
+        return min(topInset, max(topInset - maxDown, y))
     }
 
     /// Image index under a content-space point (row, col).
@@ -316,7 +337,8 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     }
 
     private func layerOffset(level: Int, s: CGFloat, align: Double,
-                              cell: CGFloat, pitch: CGFloat, H: CGFloat) -> CGSize {
+                              cell: CGFloat, pitch: CGFloat, H: CGFloat,
+                              topInset: CGFloat) -> CGSize {
         let T = levels[level]
         let bch = baseContentHeight(forT: T, cellSize: cell)
         let cx: CGFloat
@@ -330,18 +352,35 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         }
         let w = (focalScreen.x - cx * s) * (1 - align)
         return CGSize(width: w,
-                      height: clampY(focalScreen.y - cy * s, scale: s, H: H, baseContentH: bch))
+                      height: clampY(focalScreen.y - cy * s, scale: s, H: H,
+                                     baseContentH: bch, topInset: topInset))
+    }
+
+    // MARK: - Transition finalization
+
+    /// Deterministic settle finalizer via asyncAfter. Token-guarded so a newer
+    /// transition started between kick-off and the timer fire doesn't clobber state.
+    private func finalizeTransition(
+        token: Int, newIndex: Int, newScale: CGFloat,
+        cell: CGFloat, pitch: CGFloat, H: CGFloat, topInset: CGFloat
+    ) {
+        guard transitioning, transitionToken == token else { return }
+        scale = newScale
+        offset = layerOffset(level: newIndex, s: newScale, align: 1,
+                             cell: cell, pitch: pitch, H: H, topInset: topInset)
+        transitioning = false
+        fade = 0
+        externalAnimating = false
+        // Write back through binding — suppress observer so this doesn't re-enter.
+        suppressLevelObserver = true
+        level = zoomLevelFor(newIndex)
+        suppressLevelObserver = false
     }
 
     // MARK: - External level change settle (M3)
 
-    /// Runs the full two-layer crossfade settle when the `level` binding is
-    /// mutated externally (toolbar +/-, ⌘±). Uses the viewport centre as the
-    /// focal point since no finger position is available.
-    ///
-    /// Guards against double-animate: `externalAnimating` is set true for the
-    /// duration of the settle; the `.onChange(of: level)` guard stops re-entry
-    /// because `transitioning` is true throughout.
+    /// Full crossfade settle for external `level` changes (toolbar +/-, ⌘±).
+    /// Anchors on the viewport centre — no finger position available.
     private func settleToLevel(_ newIndex: Int, geo: GridGeometry) {
         guard !transitioning, !pinching, newIndex != levelIndex else { return }
 
@@ -349,6 +388,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         let H = geo.H
         let cell = geo.cell
         let pitch = geo.pitch
+        let topInset = geo.topInset
 
         // Anchor on viewport centre — no finger focal available.
         let centerX = W / 2
@@ -371,22 +411,24 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         transitioning = true
         externalAnimating = true
 
+        // Bump the token — any previously-scheduled finalizer for a prior
+        // transition will see a stale token and no-op.
+        let token = transitionToken + 1
+        transitionToken = token
+
         withAnimation(.smooth(duration: 0.46)) {
             tScale = newScale
         }
         withAnimation(.smooth(duration: 1.0).delay(0.2)) {
             fade = 1
-        } completion: {
-            scale = newScale
-            offset = layerOffset(level: newIndex, s: newScale, align: 1,
-                                 cell: cell, pitch: pitch, H: H)
-            transitioning = false
-            fade = 0
-            externalAnimating = false
-            // Write the settled level back through the binding so the caller
-            // can persist it. The onChange guard (`newIdx != levelIndex`) stops
-            // re-entry since levelIndex already matches the new level.
-            level = zoomLevelFor(newIndex)
+        }
+
+        // Deterministic finalization: 0.2s delay + 1.0s fade + 0.1s buffer = 1.3s.
+        // Does not rely on withAnimation(completion:) which can fire late or be
+        // interrupted — this fires unconditionally and is token-guarded.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+            finalizeTransition(token: token, newIndex: newIndex, newScale: newScale,
+                               cell: cell, pitch: pitch, H: H, topInset: topInset)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             dragSuppressed = false
@@ -395,10 +437,30 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
 
     // MARK: - Pinch (zoom + crossfade settle)
 
-    private func magnify(W: CGFloat, H: CGFloat, pitch: CGFloat, cell: CGFloat) -> some Gesture {
+    private func magnify(W: CGFloat, H: CGFloat, pitch: CGFloat, cell: CGFloat,
+                          topInset: CGFloat) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
                 if !pinching {
+                    // Issue 1 re-entrancy guard: a new pinch starting while a
+                    // crossfade is in-flight must NOT stack a second transition.
+                    // Commit to the in-flight target level immediately, then start
+                    // the new pinch from that settled state.
+                    if transitioning {
+                        let inFlightIndex = levelIndex
+                        let inFlightScale = levelScale(levels[inFlightIndex], cell: cell, W: W)
+                        // Invalidate the pending asyncAfter by bumping the token.
+                        transitionToken += 1
+                        scale = inFlightScale
+                        offset = layerOffset(level: inFlightIndex, s: inFlightScale, align: 1,
+                                             cell: cell, pitch: pitch, H: H, topInset: topInset)
+                        transitioning = false
+                        fade = 0
+                        externalAnimating = false
+                        suppressLevelObserver = true
+                        level = zoomLevelFor(inFlightIndex)
+                        suppressLevelObserver = false
+                    }
                     pinching = true
                     dragSuppressed = true
                     tapBlocked = true
@@ -415,7 +477,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 let mag = min(max(value.magnification, 0.08), 12)
                 scale = gestureStartScale * mag
                 offset = layerOffset(level: levelIndex, s: scale, align: 0,
-                                     cell: cell, pitch: pitch, H: H)
+                                     cell: cell, pitch: pitch, H: H, topInset: topInset)
             }
             .onEnded { value in
                 let mag = value.magnification
@@ -444,13 +506,15 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 }
                 let newScale = levelScale(levels[newIndex], cell: cell, W: W)
                 pinching = false
+                // Issue 2: record gesture end for the 0.5s time-based tap guard.
+                lastGestureEnd = Date()
 
                 if newIndex == levelIndex {
                     // No level change — animate back to the resting scale.
                     withAnimation(.smooth(duration: 0.30)) {
                         scale = newScale
                         offset = layerOffset(level: levelIndex, s: newScale, align: 1,
-                                             cell: cell, pitch: pitch, H: H)
+                                             cell: cell, pitch: pitch, H: H, topInset: topInset)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         dragSuppressed = false
@@ -467,20 +531,22 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 tScale = liveScale
                 fade = 0
                 transitioning = true
+
+                // Issue 1: bump the token — any prior pending finalizer no-ops.
+                let token = transitionToken + 1
+                transitionToken = token
+
                 withAnimation(.smooth(duration: 0.46)) {
                     tScale = newScale
                 }
                 withAnimation(.smooth(duration: 1.0).delay(0.2)) {
                     fade = 1
-                } completion: {
-                    scale = newScale
-                    offset = layerOffset(level: newIndex, s: newScale, align: 1,
-                                         cell: cell, pitch: pitch, H: H)
-                    transitioning = false
-                    fade = 0
-                    // Write the settled level back through the binding so
-                    // the caller can persist it (M2+).
-                    level = zoomLevelFor(newIndex)
+                }
+
+                // Deterministic finalization — does NOT rely on withAnimation(completion:).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+                    finalizeTransition(token: token, newIndex: newIndex, newScale: newScale,
+                                       cell: cell, pitch: pitch, H: H, topInset: topInset)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     dragSuppressed = false
@@ -491,27 +557,33 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
 
     // MARK: - Vertical drag (scroll) with momentum
 
-    private func verticalDrag(cell: CGFloat, H: CGFloat) -> some Gesture {
+    private func verticalDrag(cell: CGFloat, H: CGFloat,
+                               topInset: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
                 guard !pinching, !dragSuppressed, !transitioning else { return }
                 if !dragging { dragging = true; dragBaseY = offset.height }
                 // A real scroll (not a tap-jiggle) blocks taps so a finger-up
-                // after scrolling doesn't open an image.
-                if abs(value.translation.height) > 8 { tapBlocked = true }
+                // after scrolling doesn't open an image. Threshold lowered from
+                // 8pt -> 4pt for sharper detection (#1570 Issue 2).
+                if abs(value.translation.height) > 4 { tapBlocked = true }
                 let bch = baseContentHeight(forT: targetColumns, cellSize: cell)
                 offset.height = clampY(dragBaseY + value.translation.height,
-                                       scale: scale, H: H, baseContentH: bch)
+                                       scale: scale, H: H, baseContentH: bch,
+                                       topInset: topInset)
             }
             .onEnded { value in
                 guard !pinching, !dragSuppressed, !transitioning else {
                     dragging = false; return
                 }
                 dragging = false
+                // Issue 2: record gesture end for the 0.5s time-based tap guard.
+                lastGestureEnd = Date()
                 let v = value.velocity.height
                 let bch = baseContentHeight(forT: targetColumns, cellSize: cell)
                 // Stronger momentum so flicks coast further (faster browsing).
-                let target = clampY(offset.height + v * 0.7, scale: scale, H: H, baseContentH: bch)
+                let target = clampY(offset.height + v * 0.7, scale: scale, H: H,
+                                    baseContentH: bch, topInset: topInset)
                 let dur = min(max(abs(v) / 1200, 0.3), 2.2)
                 withAnimation(.easeOut(duration: dur)) {
                     offset.height = target
