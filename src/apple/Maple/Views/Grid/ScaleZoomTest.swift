@@ -141,9 +141,19 @@ struct ScaleZoomTest: View {
                 )
             }
             .onEnded { value in
-                // Snap to the level nearest where the pinch actually landed, so a
-                // big pinch jumps multiple levels (9→3, 5→1), a small one steps once.
-                let newIndex = nearestLevelIndex(toScale: scale, cell: cell, W: W)
+                // Snap to the level nearest where the pinch landed (a big pinch jumps
+                // several: 9→3, 5→1), but a deliberate pinch ALWAYS commits at least
+                // one level in its direction — never snaps back to the same size.
+                let mag = value.magnification
+                let nearest = nearestLevelIndex(toScale: scale, cell: cell, W: W)
+                let newIndex: Int
+                if mag > 1.05 {        // zoomed in → ≥1 level toward bigger cells
+                    newIndex = min(max(nearest, levelIndex + 1), levels.count - 1)
+                } else if mag < 0.95 { // zoomed out → ≥1 level toward smaller cells
+                    newIndex = max(min(nearest, levelIndex - 1), 0)
+                } else {
+                    newIndex = levelIndex
+                }
                 let zoomOut = newIndex < levelIndex
                 let T = levels[newIndex]
                 let newScale = levelScale(T, cell: cell, W: W)
@@ -161,7 +171,7 @@ struct ScaleZoomTest: View {
                 let newOY = clampY(focalScreen.y - focalContent.y * newScale,
                                    scale: newScale, H: H, baseContentH: baseContentH)
 
-                withAnimation(.smooth(duration: 0.38)) {
+                withAnimation(.smooth(duration: 0.46)) {   // ~20% slower settle
                     levelIndex = newIndex
                     scale = newScale
                     offset = CGSize(width: newTX, height: newOY)
