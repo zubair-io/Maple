@@ -94,11 +94,14 @@ struct ScaleZoomTest: View {
         let T = levels[level]
         let rowH = cell + gap
         let rows = rowCount(forT: T)
-        // Content-space vertical window (undo scale + offset), with a 1-row buffer.
+        // Content-space vertical window (undo scale + offset). Realize a full
+        // viewport of rows ABOVE and BELOW so cells load ahead of being seen —
+        // a tight buffer churns cells at the edges and flashes the placeholder.
         let yTop = (-layerOffset.height) / layerScale
         let yBot = (H - layerOffset.height) / layerScale
-        let firstRow = max(0, Int(floor(yTop / rowH)) - 1)
-        let lastRow = min(rows - 1, Int(ceil(yBot / rowH)) + 1)
+        let visibleRows = max(1, Int(ceil((yBot - yTop) / rowH)))
+        let firstRow = max(0, Int(floor(yTop / rowH)) - visibleRows)
+        let lastRow = min(rows - 1, Int(ceil(yBot / rowH)) + visibleRows)
         let contentW = CGFloat(T) * cell + CGFloat(T - 1) * gap
 
         ZStack(alignment: .topLeading) {
