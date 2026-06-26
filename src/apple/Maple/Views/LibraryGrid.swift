@@ -161,7 +161,9 @@ struct LibraryGrid: View {
                 .accessibilityIdentifier("scale-zoom-test-button")
             }
             .fullScreenCover(isPresented: $showZoomTest) {
-                ScaleZoomTest { showZoomTest = false }
+                ScaleZoomTest(assets: vm.assets, source: source, provider: provider) {
+                    showZoomTest = false
+                }
             }
         }
     }
