@@ -2,7 +2,8 @@
   <label
     class="grow-0 shrink-0 basis-20 text-[11px] text-text-muted whitespace-nowrap overflow-hidden text-ellipsis"
     [title]="label()"
-  >{{ label() }}</label>
+    >{{ label() }}</label
+  >
   <input
     type="range"
     class="flex-1 min-w-0 accent-primary cursor-pointer h-4"
@@ -11,6 +12,7 @@
     [min]="min()"
     [max]="max()"
     [step]="step()"
+    [attr.aria-label]="label()"
   />
   <input
     type="number"
@@ -20,5 +22,6 @@
     [min]="min()"
     [max]="max()"
     [step]="step()"
+    [attr.aria-label]="label() + ' value'"
   />
 </div>
