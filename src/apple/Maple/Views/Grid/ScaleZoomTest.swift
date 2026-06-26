@@ -18,6 +18,42 @@
 import SwiftUI
 import MapleCore
 
+/// Prototype-local thumbnail cache (assetID → jpeg bytes). Shared across both
+/// crossfade layers + all levels, so an asset loaded once renders SYNCHRONOUSLY
+/// everywhere after — no placeholder flash when the packing repacks on zoom.
+/// A class so inserts don't trigger SwiftUI re-renders.
+private final class ThumbCache {
+    var map: [String: Data] = [:]
+}
+
+/// Thumbnail cell that seeds from the shared cache synchronously (no placeholder
+/// for already-loaded assets), falling back to an async load on a cache miss.
+private struct CachedThumb: View {
+    let asset: AssetRef
+    let source: (any ImageSource)?
+    let provider: ThumbnailProvider
+    let cache: ThumbCache
+    let cell: CGFloat
+
+    @State private var loaded: Data?
+
+    private var key: String { asset.stableID ?? asset.id.uuidString }
+
+    var body: some View {
+        ThumbnailImage(jpegData: loaded ?? cache.map[key], displayMode: .fill)
+            .frame(width: cell, height: cell)
+            .clipped()
+            .task(id: asset.id) {
+                if cache.map[key] != nil { return }   // cached → already shown, no reload
+                let item = PhotoGridItem(local: asset, source: source, overlays: GridCellOverlays())
+                let bytes = await provider.thumbnail(for: item.thumbnailSource)
+                guard !Task.isCancelled else { return }
+                if let bytes { cache.map[key] = bytes }
+                loaded = bytes
+            }
+    }
+}
+
 struct ScaleZoomTest: View {
     let assets: [AssetRef]
     let source: (any ImageSource)?
@@ -44,6 +80,9 @@ struct ScaleZoomTest: View {
     @State private var dragging = false
     @State private var dragBaseY: CGFloat = 0
     @State private var dragSuppressed = false
+
+    // Shared thumbnail cache so repacked cells render cached thumbs synchronously.
+    @State private var cache = ThumbCache()
 
     // Crossfade transition.
     @State private var transitioning = false
@@ -110,14 +149,8 @@ struct ScaleZoomTest: View {
                     ForEach(0..<T, id: \.self) { c in
                         let idx = r * T + c
                         if idx < total {
-                            PhotoThumbnailCell(
-                                item: PhotoGridItem(local: assets[idx], source: source, overlays: GridCellOverlays()),
-                                provider: provider,
-                                displayMode: .fill,
-                                onTap: {}
-                            )
-                            .frame(width: cell, height: cell)
-                            .offset(x: CGFloat(c) * pitch, y: CGFloat(r) * rowH)
+                            CachedThumb(asset: assets[idx], source: source, provider: provider, cache: cache, cell: cell)
+                                .offset(x: CGFloat(c) * pitch, y: CGFloat(r) * rowH)
                         }
                     }
                 }
