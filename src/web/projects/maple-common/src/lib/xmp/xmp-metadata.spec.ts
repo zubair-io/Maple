@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gpsToXmp, gpsFromXmp } from './xmp-metadata';
+import { gpsToXmp, gpsFromXmp, altitudeToXmp, altitudeFromXmp } from './xmp-metadata';
 
 describe('gpsToXmp', () => {
   it('encodes a northern latitude as deg,decimal-min with N', () => {
@@ -28,5 +28,26 @@ describe('gpsFromXmp', () => {
   });
   it('returns null for malformed input', () => {
     expect(gpsFromXmp('not-a-coord')).toBeNull();
+  });
+});
+
+describe('altitudeToXmp', () => {
+  it('encodes a positive altitude as a /1000 rational, ref 0', () => {
+    expect(altitudeToXmp(35)).toEqual({ value: '35000/1000', ref: '0' });
+  });
+  it('encodes a below-sea-level altitude with ref 1 and positive magnitude', () => {
+    expect(altitudeToXmp(-12.5)).toEqual({ value: '12500/1000', ref: '1' });
+  });
+});
+
+describe('altitudeFromXmp', () => {
+  it('decodes a /1000 rational with ref 0 to positive meters', () => {
+    expect(altitudeFromXmp('35000/1000', '0')).toBeCloseTo(35, 3);
+  });
+  it('decodes ref 1 to negative meters', () => {
+    expect(altitudeFromXmp('12500/1000', '1')).toBeCloseTo(-12.5, 3);
+  });
+  it('returns null for a malformed rational', () => {
+    expect(altitudeFromXmp('abc', '0')).toBeNull();
   });
 });
