@@ -53,11 +53,14 @@
 
 // ── Top bar ────────────────────────────────────────────────────────────────
 .top-bar {
+  // Centered, content-width glass pill (#1564) — not a full-width bar. The
+  // tool dock sits on the right edge; the centered pill clears it naturally.
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  height: 40px;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 96px);
+  height: 44px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -69,14 +72,12 @@
   border: 0.5px solid var(--pro-glass-border);
   box-shadow: var(--pro-glass-shadow);
   border-radius: var(--pro-glass-radius-bar);
-  padding: 0 12px;
+  padding: 0 8px;
 
   @media (min-width: 768px) {
     background: var(--pro-glass-bg-heavy);
     backdrop-filter: var(--pro-glass-blur-heavy);
     -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
-    // On tablet+, leave room for the tool dock on the right
-    right: 72px;
   }
 }
 
@@ -105,12 +106,6 @@
   }
 }
 
-.top-btn-label {
-  font-size: 11px;
-  color: var(--pro-text-muted);
-  white-space: nowrap;
-}
-
 .top-name {
   font-size: 12px;
   color: var(--pro-text);
@@ -122,16 +117,22 @@
 }
 
 .top-spacer {
-  flex: 1;
+  // Small fixed gap between the name and the histogram/actions cluster — the
+  // pill is content-width now, so a flex:1 spacer would have nothing to fill.
+  flex: 0 0 4px;
 }
 
 .top-histogram {
-  width: 100px;
-  height: 28px;
+  width: 70px;
+  height: 30px;
   flex-shrink: 0;
-  opacity: 0.75;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  opacity: 0.9;
 
   editor-histogram {
+    display: block;
     width: 100%;
     height: 100%;
   }
@@ -226,20 +227,37 @@
   pointer-events: auto;
 
   @media (min-width: 768px) {
-    // Leave room for the tool dock
-    right: 72px;
+    // Centered between the left filmstrip rail and the right tool dock (#1564).
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(860px, calc(100vw - 320px));
   }
 }
 
-// Filmstrip strip above the control card
-.filmstrip-strip {
-  height: 80px;
+// Left filmstrip rail (tablet+). editor-filmstrip is a vertical strip; it fills
+// this rounded, glass-clipped anchor from below the header pill to the bottom
+// edge, clear of the centered control card. (#1564)
+.filmstrip-anchor {
+  position: absolute;
+  left: 12px;
+  top: 70px;
+  bottom: 12px;
+  width: 110px;
+  pointer-events: auto;
+  border-radius: var(--pro-glass-radius-bar);
   overflow: hidden;
+  // Glass, consistent with the tool dock + control card. The filmstrip host is
+  // transparent (no bg-sidebar) so this shows through behind the thumbnails.
+  background: var(--pro-glass-bg-heavy);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+  -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
 
   editor-filmstrip {
+    width: 100%;
     height: 100%;
-    // Override filmstrip's default vertical layout for horizontal strip
-    --filmstrip-direction: row;
   }
 }
 
@@ -248,7 +266,15 @@
   position: absolute;
   bottom: calc(var(--control-card-height, 200px) + 12px);
   left: 12px;
-  pointer-events: auto;
+  // Disabled placeholder until web M3 (#1541). It must never intercept canvas
+  // or filmstrip-rail clicks (a disabled <button> is opaque to hit-testing).
+  // M3 re-enables interaction + finalizes placement. (#1564)
+  pointer-events: none;
+
+  @media (min-width: 768px) {
+    // Clear the left filmstrip rail (left:12 + width:110 + gap).
+    left: 134px;
+  }
 }
 
 // ── HUD layer (always full opacity — HUD component manages its own fade) ──

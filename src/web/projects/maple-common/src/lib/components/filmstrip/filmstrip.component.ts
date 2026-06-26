@@ -25,7 +25,7 @@ import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
   imports: [AssetThumbComponent],
   styleUrl: './filmstrip.component.scss',
   host: {
-    class: 'flex flex-col w-[110px] min-w-[110px] h-full bg-sidebar overflow-hidden',
+    class: 'flex flex-col w-[110px] min-w-[110px] h-full overflow-hidden',
   },
   templateUrl: './filmstrip.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,

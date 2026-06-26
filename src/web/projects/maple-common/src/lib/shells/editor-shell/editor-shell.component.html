@@ -24,7 +24,6 @@
         (click)="goBack()"
       >
         <maple-icon name="back" [size]="14" color="var(--pro-text-muted)" />
-        <span class="top-btn-label">Library</span>
       </button>
 
       <!-- Asset name -->
@@ -64,6 +63,13 @@
       </button>
     </div>
 
+    <!-- ── Left filmstrip rail (tablet/desktop) ──────────────────── -->
+    @if (isTabletPlus() && hasMultiplePhotos()) {
+      <div class="filmstrip-anchor">
+        <editor-filmstrip />
+      </div>
+    }
+
     <!-- ── Right tool dock (tablet/desktop only) ─────────────────── -->
     @if (isTabletPlus()) {
       <div class="tool-dock-anchor">
@@ -73,13 +79,6 @@
 
     <!-- ── Bottom control card ────────────────────────────────────── -->
     <div class="control-card-anchor">
-      <!-- Filmstrip strip above card (when multiple photos) -->
-      @if (hasMultiplePhotos()) {
-        <div class="filmstrip-strip">
-          <editor-filmstrip />
-        </div>
-      }
-
       <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
     </div>
 
