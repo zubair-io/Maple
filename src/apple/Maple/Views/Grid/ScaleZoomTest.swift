@@ -100,19 +100,6 @@ struct ScaleZoomTest: View {
         return min(0, max(-maxDown, y))
     }
 
-    /// The level whose gap-aware scale is nearest (in log space, since zoom is
-    /// multiplicative) to `s`. Lets a big pinch jump several levels (9→3, 5→1)
-    /// instead of always stepping ±1.
-    private func nearestLevelIndex(toScale s: CGFloat, cell: CGFloat, W: CGFloat) -> Int {
-        var best = 0
-        var bestDist = CGFloat.greatestFiniteMagnitude
-        for (i, T) in levels.enumerated() {
-            let d = abs(log(levelScale(T, cell: cell, W: W)) - log(s))
-            if d < bestDist { bestDist = d; best = i }
-        }
-        return best
-    }
-
     // MARK: - Pinch (zoom about focal; snap + edge-align on release)
     private func magnify(W: CGFloat, H: CGFloat, pitch: CGFloat, cell: CGFloat, baseContentH: CGFloat) -> some Gesture {
         MagnifyGesture()
@@ -141,16 +128,27 @@ struct ScaleZoomTest: View {
                 )
             }
             .onEnded { value in
-                // Snap to the level nearest where the pinch landed (a big pinch jumps
-                // several: 9→3, 5→1), but a deliberate pinch ALWAYS commits at least
-                // one level in its direction — never snaps back to the same size.
+                // Round the level TOWARD the pinch direction so the settle always
+                // continues the pinch (never bounces back the opposite way). A big
+                // pinch still jumps multiple levels; this also guarantees ≥1 level.
+                // levels are ordered by INCREASING scale with index.
                 let mag = value.magnification
-                let nearest = nearestLevelIndex(toScale: scale, cell: cell, W: W)
+                let liveScale = scale
                 let newIndex: Int
-                if mag > 1.05 {        // zoomed in → ≥1 level toward bigger cells
-                    newIndex = min(max(nearest, levelIndex + 1), levels.count - 1)
-                } else if mag < 0.95 { // zoomed out → ≥1 level toward smaller cells
-                    newIndex = max(min(nearest, levelIndex - 1), 0)
+                if mag > 1.05 {
+                    // Zoom in → keep growing: smallest level whose scale ≥ liveScale.
+                    var idx = levels.count - 1
+                    for i in 0..<levels.count where levelScale(levels[i], cell: cell, W: W) >= liveScale {
+                        idx = i; break
+                    }
+                    newIndex = idx
+                } else if mag < 0.95 {
+                    // Zoom out → keep shrinking: largest level whose scale ≤ liveScale.
+                    var idx = 0
+                    for i in 0..<levels.count where levelScale(levels[i], cell: cell, W: W) <= liveScale {
+                        idx = i
+                    }
+                    newIndex = idx
                 } else {
                     newIndex = levelIndex
                 }
