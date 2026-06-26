@@ -11,12 +11,18 @@ export type GpsAxis = 'lat' | 'lon';
  * Encode a signed decimal degree to the Adobe XMP `exif:GPSLatitude/Longitude`
  * form: `DDD,MM.mmmm{N|S|E|W}` (degrees, decimal-minutes, hemisphere). Minutes
  * are formatted to 4 decimal places — Lightroom's precision (~2cm).
+ *
+ * Round-trip-stable by construction: minutes are rounded to 4dp *first* so a
+ * value within rounding distance of a degree boundary carries into the degrees
+ * (never emits the invalid `89,60.0000`), and a magnitude that rounds to zero
+ * always takes the positive hemisphere so `+0`/`-0` can't flip N/S↔E/W.
  */
 export function gpsToXmp(value: number, axis: GpsAxis): string {
-  const positive = value >= 0;
   const abs = Math.abs(value);
-  const deg = Math.floor(abs);
-  const min = (abs - deg) * 60;
+  const roundedMinutes = Math.round(abs * 60 * 1e4) / 1e4;
+  const deg = Math.floor(roundedMinutes / 60);
+  const min = roundedMinutes - deg * 60;
+  const positive = roundedMinutes === 0 ? true : value >= 0;
   const hemi = axis === 'lat' ? (positive ? 'N' : 'S') : positive ? 'E' : 'W';
   return `${deg},${min.toFixed(4)}${hemi}`;
 }
@@ -25,6 +31,8 @@ export function gpsToXmp(value: number, axis: GpsAxis): string {
  * Decode an `exif:GPSLatitude/Longitude` string back to signed decimal
  * degrees. Accepts the canonical `DDD,MM.mmmm{N|S|E|W}` form. Returns `null`
  * if the string does not match (so a hand-edited sidecar never throws).
+ * Normalises `-0` to `0` so a zero-magnitude coordinate can't flip hemisphere
+ * on the next encode.
  */
 export function gpsFromXmp(s: string): number | null {
   const m = /^(\d+),(\d+(?:\.\d+)?)([NSEW])$/.exec(s.trim());
@@ -32,7 +40,8 @@ export function gpsFromXmp(s: string): number | null {
   const deg = Number(m[1]);
   const min = Number(m[2]);
   const sign = m[3] === 'S' || m[3] === 'W' ? -1 : 1;
-  return sign * (deg + min / 60);
+  const result = sign * (deg + min / 60);
+  return result === 0 ? 0 : result;
 }
 
 /** `exif:GPSAltitude` rational + `exif:GPSAltitudeRef` (0 = above, 1 = below). */
