@@ -38,6 +38,21 @@ public actor ThumbnailDiskCache {
     /// JPEG encode quality per spec § 03 (q = 0.82).
     public static let jpegQuality: CGFloat = 0.82
 
+    // MARK: - Nonisolated synchronous peek (M1 scale-zoom)
+    //
+    // NSCache is internally thread-safe, so it can be stored as a `let` on the
+    // actor and read from a `nonisolated` context without an actor hop.
+    // Every write to `dataMemCache` also writes here; evictIfNeeded() keeps it
+    // capped at the same `maxMemEntries` limit (NSCache auto-evicts under memory
+    // pressure as well, so the peek may return nil even for a key that was
+    // recently stored — the `.task` async path always fills on a miss, which
+    // then populates both caches for subsequent sync peeks).
+    let syncPeekCache: NSCache<NSString, NSData> = {
+        let c = NSCache<NSString, NSData>()
+        c.countLimit = 200   // generous — cheap to hold 200 JPEG thumbnails
+        return c
+    }()
+
     // MARK: - Configure
 
     /// Set the folder cache base dir (e.g. the open folder's .maple/ subdirectory).
@@ -93,7 +108,24 @@ public actor ThumbnailDiskCache {
               let data = try? Data(contentsOf: fileURL) else { return nil }
         evictIfNeeded()
         dataMemCache[hashed] = data
+        syncPeekCache.setObject(data as NSData, forKey: hashed as NSString)
         return data
+    }
+
+    // MARK: - Nonisolated synchronous memory peek
+
+    /// Synchronous, non-awaiting peek into `syncPeekCache`. Returns JPEG bytes
+    /// if the thumbnail is already in the NSCache hot store; returns `nil` on
+    /// any miss (disk not consulted — no blocking I/O). Safe to call from any
+    /// context (nonisolated, main thread, a gesture handler) because NSCache is
+    /// internally thread-safe.
+    ///
+    /// Key derivation mirrors `thumbnailData(forKey:)`: pass the **basename** for
+    /// URL-backed assets and the stable ID for sourceless assets — the same input
+    /// you would pass to `storeThumbnailData(_:forKey:)`.
+    public nonisolated func syncPeekData(forKey key: String) -> Data? {
+        let hashed = MapleThumbCacheKey.sha256Prefix16(key)
+        return syncPeekCache.object(forKey: hashed as NSString) as Data?
     }
 
     // MARK: - Write
@@ -113,6 +145,7 @@ public actor ThumbnailDiskCache {
             options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: Self.jpegQuality]
         ) else { return }
         dataMemCache[key] = data
+        syncPeekCache.setObject(data as NSData, forKey: key as NSString)
         try? data.write(to: fileURL, options: .atomic)
     }
 
@@ -129,6 +162,7 @@ public actor ThumbnailDiskCache {
         let hashed = hashKey(key)
         evictIfNeeded()
         dataMemCache[hashed] = data
+        syncPeekCache.setObject(data as NSData, forKey: hashed as NSString)
         guard let dir = cacheDir else { return }
         let fileURL = dir.appendingPathComponent("\(hashed).jpg")
         try? data.write(to: fileURL, options: .atomic)
