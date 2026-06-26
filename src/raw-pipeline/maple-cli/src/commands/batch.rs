@@ -1,7 +1,7 @@
 //! `maple-cli batch` — render every case in a JSON manifest. The end-to-end
 //! color-pipeline harness (`src/scripts/test_color_pipeline.sh`) drives this
-//! command. Uses AMaZE demosaic (`DemosaicChoice::Amaze`) for highest quality
-//! on Bayer images — this is the export/refine path.
+//! command. Uses bilinear Full demosaic (`DemosaicChoice::Full`) by default —
+//! pass `--demosaic amaze` to enable AMaZE for highest quality on Bayer images.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -57,7 +57,7 @@ pub fn run(
             &out_png,
             None,
             92,
-            DemosaicChoice::Amaze,
+            DemosaicChoice::Full,
             profile,
         ) {
             Ok(_) => {

@@ -169,14 +169,16 @@ extension RenderActor {
                 guard let decoded else { return nil }
                 return decoded
             }
-            // #940 — refine pass (full-resolution) uses AMaZE demosaic.
+            // #940 — refine pass (full-resolution): use AMaZE when AmazeFlag
+            // is enabled, otherwise bilinear Full (the production default).
             // Fast phase routes through `decodeSceneLinearSized` above with
             // quality: .preview (half-res bilinear). Only the full decode
-            // (wantsFull == true, decodeTarget == nil) lands here, so
-            // quality: .amaze never fires on a per-slider-tick fast decode.
+            // (wantsFull == true, decodeTarget == nil) lands here, so the
+            // AMaZE path never fires on a per-slider-tick fast decode.
+            let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
             let decoded = await mapleStageAsync("rust FFI scene-linear decode") {
                 await pipeline.decodeSceneLinear(
-                    asset: asset, quality: .amaze, xmpPath: sidecar,
+                    asset: asset, quality: refineQuality, xmpPath: sidecar,
                     profileOverride: decodeProfile, cancel: cancelFlag
                 )
             }

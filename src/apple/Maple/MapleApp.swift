@@ -288,11 +288,24 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettingsTab: View {
+    @AppStorage(AmazeFlag.defaultsKey) private var useAmaze: Bool = false
+
     var body: some View {
         Form {
             LabeledContent("Version") {
                 Text(MapleCore.version())
                     .foregroundStyle(.secondary)
+            }
+            Section("Experimental") {
+                Toggle(isOn: $useAmaze) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("AMaZE demosaic")
+                        Text("Higher-quality demosaic on the full-res preview and export; slower.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("general.settings.useAmazeDemosaic")
             }
         }
         .padding(24)
