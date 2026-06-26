@@ -24,7 +24,6 @@ import UIKit
 #endif
 
 struct LibraryGrid: View {
-    @Environment(\.mapleLayout) private var layout
 
     let vm: BrowseViewModel
     let source: (any ImageSource)?
@@ -83,16 +82,6 @@ struct LibraryGrid: View {
             isVideo: false,
             style: .phone
         )
-    }
-
-    // MARK: - Layout
-
-    private var outerHorizontalPadding: CGFloat {
-        switch layout {
-        case .phone:   return 2
-        case .tablet:  return 8
-        case .desktop: return 12
-        }
     }
 }
 
