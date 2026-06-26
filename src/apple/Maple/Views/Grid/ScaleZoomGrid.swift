@@ -113,6 +113,14 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     @State private var dragging = false
     @State private var dragBaseY: CGFloat = 0
     @State private var dragSuppressed = false
+    /// Blocks cell taps during/after a pinch or a real scroll so a lingering
+    /// finger doesn't open an image by mistake. Distinct from `dragSuppressed`
+    /// (which gates the drag gesture) — this gates the cell `onTap`.
+    @State private var tapBlocked = false
+    /// One-time initialisation guard: set the resting scale/offset for the
+    /// persisted level on first layout (needs geometry, so done inside the
+    /// GeometryReader rather than a top-level onAppear).
+    @State private var didInit = false
 
     // MARK: Crossfade transition
 
@@ -177,6 +185,17 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             .contentShape(Rectangle())
             .gesture(magnify(W: W, H: H, pitch: pitch, cell: cell))
             .simultaneousGesture(verticalDrag(cell: cell, H: H))
+            // First layout: set the resting scale + offset for the persisted
+            // level (not just levelIndex) so a non-dense level opens correctly
+            // instead of rendering at the stale scale=1.
+            .onAppear {
+                guard !didInit, W > 0 else { return }
+                didInit = true
+                let idx = indexFor(level)
+                levelIndex = idx
+                scale = levelScale(levels[idx], cell: cell, W: W)
+                offset = .zero   // top, edge-aligned
+            }
             // Sync internal levelIndex when the external binding changes
             // (e.g. toolbar +/- in M3). Guard against recursive updates
             // triggered by our own write-backs (pinch settle or external settle).
@@ -189,12 +208,10 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                               geo: GridGeometry(W: W, H: H, cell: cell, pitch: pitch))
             }
         }
-        .ignoresSafeArea()
+        // Respect the top safe area (nav/status bar) so the grid doesn't open
+        // overflowing under it; still extend under the bottom edge.
+        .ignoresSafeArea(edges: .bottom)
         .background(Color.black)
-        // Initialise the internal index from the binding on first appear.
-        .onAppear {
-            levelIndex = indexFor(level)
-        }
     }
 
     // MARK: - Grid layer (windowed: only visible rows realized)
@@ -259,7 +276,11 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 displayMode: displayMode,
                 isSelected: selection.contains(element.id),
                 multiSelectChecked: multiSelectChecked?(element),
-                onTap: { onTap(element) },
+                onTap: {
+                    // Ignore taps during/just after a pinch or a real scroll.
+                    guard !tapBlocked, !transitioning, !pinching else { return }
+                    onTap(element)
+                },
                 onAppear: onAppearItem.map { cb in { cb(element) } }
             )
             .frame(width: cellSize, height: cellSize)
@@ -380,6 +401,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 if !pinching {
                     pinching = true
                     dragSuppressed = true
+                    tapBlocked = true
                     gestureStartScale = scale
                     focalScreen = CGPoint(x: value.startAnchor.x * W,
                                          y: value.startAnchor.y * H)
@@ -460,8 +482,9 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                     // the caller can persist it (M2+).
                     level = zoomLevelFor(newIndex)
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     dragSuppressed = false
+                    tapBlocked = false
                 }
             }
     }
@@ -473,6 +496,9 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             .onChanged { value in
                 guard !pinching, !dragSuppressed, !transitioning else { return }
                 if !dragging { dragging = true; dragBaseY = offset.height }
+                // A real scroll (not a tap-jiggle) blocks taps so a finger-up
+                // after scrolling doesn't open an image.
+                if abs(value.translation.height) > 8 { tapBlocked = true }
                 let bch = baseContentHeight(forT: targetColumns, cellSize: cell)
                 offset.height = clampY(dragBaseY + value.translation.height,
                                        scale: scale, H: H, baseContentH: bch)
@@ -484,9 +510,17 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 dragging = false
                 let v = value.velocity.height
                 let bch = baseContentHeight(forT: targetColumns, cellSize: cell)
-                let target = clampY(offset.height + v * 0.42, scale: scale, H: H, baseContentH: bch)
-                withAnimation(.easeOut(duration: min(max(abs(v) / 1500, 0.3), 1.6))) {
+                // Stronger momentum so flicks coast further (faster browsing).
+                let target = clampY(offset.height + v * 0.7, scale: scale, H: H, baseContentH: bch)
+                let dur = min(max(abs(v) / 1200, 0.3), 2.2)
+                withAnimation(.easeOut(duration: dur)) {
                     offset.height = target
+                }
+                // Keep taps blocked through the momentum coast, then release.
+                if tapBlocked {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.15) {
+                        tapBlocked = false
+                    }
                 }
             }
     }
