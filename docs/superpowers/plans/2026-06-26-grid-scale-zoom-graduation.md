@@ -37,6 +37,7 @@ iPhone Library, Mac/iPad Browse, and Cloud Timeline. The prototype is the
 A reusable generic component replaces `PhotoGrid` on each surface:
 
 `ScaleZoomGrid<Element: Identifiable>` (new, `Maple/Views/Grid/`):
+
 - Inputs: `data: [Element]`, `zoomLevel` binding (or internal), `provider`,
   `makeItem: (Element) -> PhotoGridItem`, `onTap: (Element) -> Void`,
   `leadingCount: Int` + `makeLeading: (Int) -> AnyView?` (folders), `selection`,
@@ -88,6 +89,7 @@ A reusable generic component replaces `PhotoGrid` on each surface:
 
 `swift test` (MapleCore) green; `xcodebuild` BUILD SUCCEEDED on **iOS Simulator**
 AND macOS (the `#if os(iOS)` surfaces only compile on iOS-sim); then device-build
-+ install to Artemis for on-device feel. Manual: pinch through levels, scroll +
-momentum, focal preserved, edge-aligned at rest, no placeholder flicker, tap
-opens the editor, selection/multi-select work, folders navigate.
+
+- install to Artemis for on-device feel. Manual: pinch through levels, scroll +
+  momentum, focal preserved, edge-aligned at rest, no placeholder flicker, tap
+  opens the editor, selection/multi-select work, folders navigate.

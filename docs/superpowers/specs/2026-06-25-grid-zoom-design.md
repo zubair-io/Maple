@@ -8,15 +8,15 @@ grid from [#1490](https://github.com/zubair-io/Maple/issues/1490) (shared `Photo
 
 A 4-level zoom for the photo grid:
 
-| Level | iPhone columns | Meaning |
-| --- | --- | --- |
-| `fullWidth` | 1 | one image filling the width |
-| `comfortable` | 3 | today's iOS default |
-| `compact` | 5 | |
-| `dense` | 10 | |
+| Level         | iPhone columns | Meaning                     |
+| ------------- | -------------- | --------------------------- |
+| `fullWidth`   | 1              | one image filling the width |
+| `comfortable` | 3              | today's iOS default         |
+| `compact`     | 5              |                             |
+| `dense`       | 10             |                             |
 
 Smooth animated transitions between levels. The levels translate to bigger screens
-by **cell size**, not raw column count: the 1/3/5/10 counts define cell *sizes* at
+by **cell size**, not raw column count: the 1/3/5/10 counts define cell _sizes_ at
 iPhone width, and iPad / a resized Mac window keep those cell sizes while the column
 count grows with the window.
 
