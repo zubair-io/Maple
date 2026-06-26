@@ -13,9 +13,15 @@
 
 import { Injectable } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import type { XmpCulling, PassthroughBucket } from './xmp.types';
+import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { ColorLabel, Flag } from '../models/asset';
 import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
+import {
+  metadataAttrParts,
+  metadataNestedBlocks,
+  metadataNamespacePrefixes,
+  METADATA_NAMESPACES,
+} from './xmp-metadata';
 
 @Injectable({ providedIn: 'root' })
 export class XmpSerializerService {
@@ -36,6 +42,7 @@ export class XmpSerializerService {
       /** IPTC keywords (#632) — emitted as a nested `dc:subject` element. */
       keywords?: readonly string[];
     },
+    metadata?: XmpMetadata,
   ): string {
     const parts: string[] = [];
 
@@ -114,6 +121,14 @@ export class XmpSerializerService {
       parts.push(`papp:ColorLabel="${culling.colorLabel}"`);
     }
 
+    // Metadata block — simple attributes (Batch Metadata, spec 2026-06-26).
+    // Inserted before passthrough so the fixed metadata order is stable.
+    if (metadata) {
+      for (const part of metadataAttrParts(metadata)) {
+        parts.push(part);
+      }
+    }
+
     // Passthrough: unknown attributes from the source sidecar.
     if (passthrough) {
       for (const attr of passthrough.unknownAttributes) {
@@ -145,16 +160,37 @@ export class XmpSerializerService {
             '  </dc:subject>',
           ].join('\n');
 
-    // Compose nested children: keywords first (canonical content), then
-    // any unknown passthrough nodes the source sidecar carried.
-    const childBlocks = [keywordsBlock, nestedNodes].filter((b) => b.length > 0).join('\n');
+    // Metadata nested elements (lang-alt / seq), in fixed order.
+    const metadataBlocks = metadata ? metadataNestedBlocks(metadata) : [];
+
+    // Compose nested children in canonical slots: metadata
+    // title/creator/description first, then keywords (dc:subject), then
+    // metadata rights/usageTerms, then any unknown passthrough nodes.
+    const titleCreatorDesc = metadataBlocks.filter((b) =>
+      /^ {2}<(dc:title|dc:creator|dc:description)>/.test(b),
+    );
+    const rightsUsage = metadataBlocks.filter((b) =>
+      /^ {2}<(dc:rights|xmpRights:UsageTerms)>/.test(b),
+    );
+    const childBlocks = [
+      titleCreatorDesc.join('\n'),
+      keywordsBlock,
+      rightsUsage.join('\n'),
+      nestedNodes,
+    ]
+      .filter((b) => b.length > 0)
+      .join('\n');
     const nestedSection = childBlocks ? `\n${childBlocks}\n` : '\n';
 
-    // The `dc:` namespace declaration is only added when keywords are
-    // present — keeps the attribute list quiet for the common "no
-    // keywords" sidecar and avoids advertising namespaces we don't use.
-    const dcNamespaceLine =
-      keywords.length > 0 ? '\n    xmlns:dc="http://purl.org/dc/elements/1.1/"' : '';
+    // Namespace declarations: always xmp/crs/papp; then conditional metadata
+    // namespaces plus dc-for-keywords, in fixed prefix order. Keeps the
+    // attribute list quiet for sidecars that use none of them.
+    const usedPrefixes = metadata ? metadataNamespacePrefixes(metadata) : new Set<string>();
+    if (keywords.length > 0) usedPrefixes.add('dc');
+    const NS_ORDER = ['dc', 'exif', 'photoshop', 'Iptc4xmpCore', 'xmpRights'];
+    const extraNsLines = NS_ORDER.filter((p) => usedPrefixes.has(p))
+      .map((p) => `\n    xmlns:${p}="${METADATA_NAMESPACES[p]}"`)
+      .join('');
 
     return [
       '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>',
@@ -163,7 +199,7 @@ export class XmpSerializerService {
       '  <rdf:Description rdf:about=""',
       '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
       '    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"',
-      `    xmlns:papp="http://ns.justmaple.app/photo/1.0/"${dcNamespaceLine}`,
+      `    xmlns:papp="http://ns.justmaple.app/photo/1.0/"${extraNsLines}`,
       `${attrsBlock}>${nestedSection}  </rdf:Description>`,
       ' </rdf:RDF>',
       '</x:xmpmeta>',
