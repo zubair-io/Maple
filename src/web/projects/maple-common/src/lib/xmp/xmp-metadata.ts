@@ -32,3 +32,26 @@ export function gpsFromXmp(s: string): number | null {
   const sign = m[3] === 'S' || m[3] === 'W' ? -1 : 1;
   return sign * (deg + min / 60);
 }
+
+/** `exif:GPSAltitude` rational + `exif:GPSAltitudeRef` (0 = above, 1 = below). */
+export interface XmpAltitude {
+  value: string;
+  ref: '0' | '1';
+}
+
+/** Encode signed meters as a `/1000` rational + altitude-ref flag. */
+export function altitudeToXmp(meters: number): XmpAltitude {
+  const ref: '0' | '1' = meters < 0 ? '1' : '0';
+  const thousandths = Math.round(Math.abs(meters) * 1000);
+  return { value: `${thousandths}/1000`, ref };
+}
+
+/** Decode an altitude rational + ref back to signed meters; `null` if malformed. */
+export function altitudeFromXmp(value: string, ref: string): number | null {
+  const m = /^(\d+)\/(\d+)$/.exec(value.trim());
+  if (!m) return null;
+  const denom = Number(m[2]);
+  if (denom === 0) return null;
+  const meters = Number(m[1]) / denom;
+  return ref === '1' ? -meters : meters;
+}
