@@ -8,6 +8,8 @@ import {
   seqBlock,
   escapeXmlText,
   metadataAttrParts,
+  metadataNestedBlocks,
+  metadataNamespacePrefixes,
 } from './xmp-metadata';
 import type { XmpMetadata } from './xmp.types';
 
@@ -144,5 +146,48 @@ describe('metadataAttrParts', () => {
     expect(metadataAttrParts({ city: 'A "B" & C' })).toEqual([
       'photoshop:City="A &quot;B&quot; &amp; C"',
     ]);
+  });
+});
+
+describe('metadataNestedBlocks', () => {
+  it('emits title, creator, description, rights, usageTerms in order', () => {
+    const blocks = metadataNestedBlocks({
+      title: 'T',
+      creator: 'C',
+      caption: 'D',
+      copyrightNotice: 'R',
+      usageTerms: 'U',
+    });
+    expect(blocks.map((b) => b.split('\n')[0].trim())).toEqual([
+      '<dc:title>',
+      '<dc:creator>',
+      '<dc:description>',
+      '<dc:rights>',
+      '<xmpRights:UsageTerms>',
+    ]);
+  });
+  it('returns [] when no nested fields are set', () => {
+    expect(metadataNestedBlocks({ city: 'Paris' })).toEqual([]);
+  });
+});
+
+describe('metadataNamespacePrefixes', () => {
+  it('reports exif + photoshop + Iptc4xmpCore for a place+gps edit', () => {
+    expect(metadataNamespacePrefixes({ gpsLatitude: 1, city: 'X', countryCode: 'FR' })).toEqual(
+      new Set(['exif', 'photoshop', 'Iptc4xmpCore']),
+    );
+  });
+  it('reports dc for title and xmpRights for usageTerms', () => {
+    expect(metadataNamespacePrefixes({ title: 'T', usageTerms: 'U' })).toEqual(
+      new Set(['dc', 'xmpRights']),
+    );
+  });
+  it('reports xmpRights for copyrightStatus=copyrighted', () => {
+    expect(metadataNamespacePrefixes({ copyrightStatus: 'copyrighted' })).toEqual(
+      new Set(['xmpRights']),
+    );
+  });
+  it('reports nothing for copyrightStatus=unknown', () => {
+    expect(metadataNamespacePrefixes({ copyrightStatus: 'unknown' })).toEqual(new Set());
   });
 });
