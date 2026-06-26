@@ -49,6 +49,15 @@ A reusable generic component replaces `PhotoGrid` on each surface:
 - Cells are `PhotoThumbnailCell` (overlays/selection/badges/a11y), NOT the
   prototype's `CachedThumb`.
 
+## Scope update (2026-06-26): gated to iPhone
+
+Live testing showed the scale-zoom is a touch-first interaction; on Mac/iPad
+(mouse/trackpad) the discrete reflow zoom is a better fit. **Final scope is
+iPhone Library only.** M2 shipped. **M3 (Browse) was reverted** to the pre-M3
+`PhotoGrid` + `ColumnStrategy.zoom`, and **M4 (Cloud) is dropped** (Cloud stays
+as-is, no zoom). The M3-only external-level-settle path was removed from
+`ScaleZoomGrid` along with the revert. Milestones below are kept for history.
+
 ## Milestones (sequenced; each builds + verifies on iOS-sim + macOS, then device)
 
 - **M0 — `ScaleZoomGrid` component.** Extract + generalize the prototype into the
@@ -67,14 +76,11 @@ A reusable generic component replaces `PhotoGrid` on each surface:
   `ScaleZoomGrid`: folders as leading cells, tap → `onOpenEditor`, single-select,
   overlays. Remove `ScaleZoomTest` + the 🧪 button. Persist the zoom level
   (`@AppStorage`, like `browseZoomLevel`).
-- **M3 — Browse (Mac/iPad).** `BrowseGrid` normal + merged: folders, multi-select
-  badges, trackpad pinch + the existing toolbar +/- + ⌘± driving the same level.
-  Resolve: the toolbar/buttons have no focal point → default focal = the selected
-  item (or viewport center).
-- **M4 — Cloud Timeline.** Sectioned per-month — **design decision required at
-  this milestone**: flatten the timeline into one continuous zoomable grid (with
-  month-header rows interleaved or dropped) vs. per-section zoom. Decide with the
-  user before building M4.
+- **M3 — Browse (Mac/iPad).** ~~`BrowseGrid` normal + merged…~~ **REVERTED.** Browse
+  stays on the discrete `PhotoGrid` + `ColumnStrategy.zoom` (toolbar +/- / ⌘± /
+  focal pinch) — scale-zoom is iPhone-only.
+- **M4 — Cloud Timeline.** ~~Sectioned per-month…~~ **DROPPED.** Cloud Timeline is
+  left as-is (no zoom).
 
 ## Open design decisions
 
