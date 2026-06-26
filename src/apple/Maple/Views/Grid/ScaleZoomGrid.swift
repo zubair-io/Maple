@@ -1,4 +1,4 @@
-// ScaleZoomGrid.swift — reusable generic scale-zoom photo grid (#1570 M0/M2).
+// ScaleZoomGrid.swift — reusable generic scale-zoom photo grid (#1570 M0/M2/M3).
 //
 // Generalises the validated interaction from ScaleZoomTest into a production
 // component. All tuned numbers are preserved verbatim from the prototype:
@@ -17,7 +17,7 @@
 //       leading:      (Int) -> AnyView?      // leading cell view by slot index
 //   )
 // Optional: selection: Set<Element.ID>, multiSelectChecked: ((Element) -> Bool?)?,
-//           displayMode: GridDisplayMode
+//           displayMode: GridDisplayMode, onAppearItem: ((Element) -> Void)?
 //
 // Leading cells occupy global slots 0..<leadingCount; photo index f maps to
 // global slot (leadingCount + f). This preserves today's leading-slot layout
@@ -30,11 +30,31 @@
 // GridZoomLevel to its internal levelIndex on appear and on change, and writes
 // back through the binding whenever a settle completes. `displayMode` is
 // threaded through to PhotoThumbnailCell.
-
-#if os(iOS)
+//
+// M3: `#if os(iOS)` guard removed — MagnifyGesture is cross-platform (trackpad
+// pinch on macOS maps to the same gesture). External level changes (toolbar +/-,
+// ⌘±) now run the full settle animation anchored on the viewport centre, using
+// geometry captured on each layout pass. An `externalAnimating` flag prevents
+// the onChange write-back from triggering a second animation cycle.
+// `onAppearItem` added so BrowseGrid can call `onPrimeSession` when a cell
+// enters the windowed realisation region.
 
 import SwiftUI
 import MapleCore
+
+// MARK: - Geometry snapshot
+
+/// Captured on each GeometryReader layout pass so external-level changes
+/// (toolbar +/- , ⌘±) can drive the settle animation without being inside
+/// the GeometryReader closure.
+private struct GridGeometry {
+    let W: CGFloat
+    let H: CGFloat
+    let cell: CGFloat
+    let pitch: CGFloat
+
+    static let zero = GridGeometry(W: 0, H: 0, cell: 0, pitch: 0)
+}
 
 // MARK: - ScaleZoomGrid
 
@@ -64,6 +84,10 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     /// Multi-select badge state per element. When non-nil the element is in
     /// multi-select mode and renders a checkmark badge at top-trailing.
     var multiSelectChecked: ((Element) -> Bool?)? = nil
+
+    /// Called when a photo element's cell enters the windowed realisation
+    /// region. Use for lazy session priming or prefetch. Optional.
+    var onAppearItem: ((Element) -> Void)? = nil
 
     // MARK: Fixed geometry
 
@@ -96,6 +120,13 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     @State private var fade: Double = 0
     @State private var outLevelIndex = 0
     @State private var tScale: CGFloat = 1
+
+    // MARK: External-animation guard (M3)
+
+    /// Set to true while the component is executing an externally-triggered
+    /// level-change settle animation. Guards `.onChange(of: level)` so the
+    /// write-back at the end of the settle doesn't trigger a second animation.
+    @State private var externalAnimating = false
 
     private var targetColumns: Int { levels[levelIndex] }
 
@@ -148,11 +179,14 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             .simultaneousGesture(verticalDrag(cell: cell, H: H))
             // Sync internal levelIndex when the external binding changes
             // (e.g. toolbar +/- in M3). Guard against recursive updates
-            // triggered by our own write-backs.
+            // triggered by our own write-backs (pinch settle or external settle).
             .onChange(of: level) { _, newLevel in
                 let newIdx = indexFor(newLevel)
                 guard newIdx != levelIndex, !pinching, !transitioning else { return }
-                levelIndex = newIdx
+                // External change — run the full settle animation anchored on
+                // the viewport centre (no finger focal point available).
+                settleToLevel(newIdx,
+                              geo: GridGeometry(W: W, H: H, cell: cell, pitch: pitch))
             }
         }
         .ignoresSafeArea()
@@ -225,7 +259,8 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                 displayMode: displayMode,
                 isSelected: selection.contains(element.id),
                 multiSelectChecked: multiSelectChecked?(element),
-                onTap: { onTap(element) }
+                onTap: { onTap(element) },
+                onAppear: onAppearItem.map { cb in { cb(element) } }
             )
             .frame(width: cellSize, height: cellSize)
             .clipped()
@@ -275,6 +310,66 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
         let w = (focalScreen.x - cx * s) * (1 - align)
         return CGSize(width: w,
                       height: clampY(focalScreen.y - cy * s, scale: s, H: H, baseContentH: bch))
+    }
+
+    // MARK: - External level change settle (M3)
+
+    /// Runs the full two-layer crossfade settle when the `level` binding is
+    /// mutated externally (toolbar +/-, ⌘±). Uses the viewport centre as the
+    /// focal point since no finger position is available.
+    ///
+    /// Guards against double-animate: `externalAnimating` is set true for the
+    /// duration of the settle; the `.onChange(of: level)` guard stops re-entry
+    /// because `transitioning` is true throughout.
+    private func settleToLevel(_ newIndex: Int, geo: GridGeometry) {
+        guard !transitioning, !pinching, newIndex != levelIndex else { return }
+
+        let W = geo.W
+        let H = geo.H
+        let cell = geo.cell
+        let pitch = geo.pitch
+
+        // Anchor on viewport centre — no finger focal available.
+        let centerX = W / 2
+        let centerY = H / 2
+        focalScreen = CGPoint(x: centerX, y: centerY)
+        let cpX = (centerX - offset.width) / scale
+        let cpY = (centerY - offset.height) / scale
+        focalFallback = CGPoint(x: cpX, y: cpY)
+        focalImage = imageIndex(r: Int(cpY / (cell + gap)),
+                                c: Int(cpX / pitch),
+                                T: targetColumns)
+
+        let liveScale = scale
+        let newScale = levelScale(levels[newIndex], cell: cell, W: W)
+
+        outLevelIndex = levelIndex
+        levelIndex = newIndex
+        tScale = liveScale
+        fade = 0
+        transitioning = true
+        externalAnimating = true
+
+        withAnimation(.smooth(duration: 0.46)) {
+            tScale = newScale
+        }
+        withAnimation(.smooth(duration: 1.0).delay(0.2)) {
+            fade = 1
+        } completion: {
+            scale = newScale
+            offset = layerOffset(level: newIndex, s: newScale, align: 1,
+                                 cell: cell, pitch: pitch, H: H)
+            transitioning = false
+            fade = 0
+            externalAnimating = false
+            // Write the settled level back through the binding so the caller
+            // can persist it. The onChange guard (`newIdx != levelIndex`) stops
+            // re-entry since levelIndex already matches the new level.
+            level = zoomLevelFor(newIndex)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            dragSuppressed = false
+        }
     }
 
     // MARK: - Pinch (zoom + crossfade settle)
@@ -396,5 +491,3 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             }
     }
 }
-
-#endif
