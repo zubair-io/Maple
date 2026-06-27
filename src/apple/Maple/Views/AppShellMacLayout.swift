@@ -79,6 +79,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     /// M2: called when the user taps "Merge to Panorama…" from BrowseGrid
     /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
     var onMergePanorama: (() -> Void)? = nil
+    /// M4: called when the user taps "Edit Metadata…" from BrowseGrid
+    /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
+    var onEditMetadata: (() -> Void)? = nil
 
     var body: some View {
         // In Browse mode the detail panel is suppressed entirely — the
@@ -190,7 +193,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onEditorDismiss: onEditorDismiss,
             onEditorShare: onEditorShare,
             onEditorInfo: onEditorInfo,
-            onMergePanorama: onMergePanorama
+            onMergePanorama: onMergePanorama,
+            onEditMetadata: onEditMetadata
         )
     }
 }
