@@ -23,6 +23,7 @@ import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { setupMongoHarness } from '../people/people-repo.test-helpers.ts';
 import type { AssetFaceDoc, PersonDoc } from '../db/schema.ts';
+import { isRemovable, pullElementPredicate } from './admin-purge-subthreshold-faces.ts';
 
 const TEST_DB = `maple_test_purge_sub_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -62,12 +63,14 @@ async function setMinSize(size: number): Promise<void> {
 /** Insert a minimal PersonDoc so recomputePersonFaceCount can write to it. */
 async function insertPerson(name: string, faceCount = 0): Promise<string> {
   const oid = new ObjectId();
+  const now = new Date().toISOString();
   await h.db.collection('people').insertOne({
     _id: oid,
     name,
     face_count: faceCount,
     hidden: false,
-    created_at: new Date().toISOString(),
+    created_at: now,
+    updated_at: now,
   } as unknown as PersonDoc);
   return oid.toHexString();
 }
@@ -274,5 +277,72 @@ describe('purge-subthreshold', () => {
     const second = await callRoute({ apply: true });
     expect((second.body.applied as Record<string, unknown>).facesRemoved).toBe(0);
     expect((second.body.applied as Record<string, unknown>).assetsUpdated).toBe(0);
+  });
+
+  it('atomic $pull preserves a concurrent per-index field on a SURVIVING face', async () => {
+    if (!h.mongoReachable) return;
+    await setMinSize(0.1);
+
+    // 3 faces: [0] above-threshold (kept), [1] sub-threshold unassigned
+    // (removed), [2] above-threshold (kept). A whole-array read-modify-write
+    // would clobber an embedding set on a surviving face mid-purge; $pull
+    // matches elements by value and leaves untouched fields intact.
+    const assetId = await h.insertAssetWithFaces([
+      face(0.3, 0.3), // kept
+      face(0.04, 0.04), // removed
+      face(0.25, 0.25), // kept
+    ]);
+
+    // Simulate a concurrent face-embed worker writing an embedding onto a
+    // SURVIVING face (index 2) just before the purge runs.
+    const embedding = [0.1, 0.2, 0.3, 0.4];
+    await h.db
+      .collection('assets')
+      .updateOne({ _id: assetId } as never, { $set: { 'faces.2.embedding': embedding } });
+
+    const { status, body } = await callRoute({ apply: true });
+    expect(status).toBe(200);
+    expect((body.applied as Record<string, unknown>).facesRemoved).toBe(1);
+
+    const stored = (await h.db.collection('assets').findOne({ _id: assetId } as never)) as {
+      faces?: Array<AssetFaceDoc & { embedding?: number[] }>;
+    } | null;
+    const remaining = stored?.faces ?? [];
+    expect(remaining.length).toBe(2);
+    // The removed face is gone; the embedding written on the surviving face
+    // is NOT clobbered (it moved index but kept its data — $pull matches by
+    // value, never overwrites the array wholesale).
+    const withEmbedding = remaining.find((f) => Array.isArray(f.embedding));
+    expect(withEmbedding).toBeDefined();
+    expect(withEmbedding?.embedding).toEqual(embedding);
+    // And the face it belongs to is the above-threshold one we kept.
+    expect(Math.min(withEmbedding!.bbox.w, withEmbedding!.bbox.h) >= 0.1).toBe(true);
+  });
+
+  it('JS isRemovable and the Mongo $pull predicate agree (default: unassigned-only)', () => {
+    const t = 0.1;
+    const unassignedSub = face(0.05, 0.05);
+    const assignedSub = face(0.05, 0.05, { person_id: 'p1' });
+    const hiddenSub = face(0.05, 0.05, { hidden: true });
+    const aboveThreshold = face(0.3, 0.3);
+
+    // Default: only unassigned sub-threshold is removable.
+    expect(isRemovable(unassignedSub, t, false)).toBe(true);
+    expect(isRemovable(assignedSub, t, false)).toBe(false);
+    expect(isRemovable(hiddenSub, t, false)).toBe(false);
+    expect(isRemovable(aboveThreshold, t, false)).toBe(false);
+
+    // includeAssigned: assigned sub-threshold also removable, hidden never.
+    expect(isRemovable(assignedSub, t, true)).toBe(true);
+    expect(isRemovable(hiddenSub, t, true)).toBe(false);
+
+    // The Mongo element predicate carries person_id:null by default and drops
+    // it when assigned faces are opted in.
+    expect(pullElementPredicate(t, false)).toMatchObject({
+      $or: [{ 'bbox.w': { $lt: t } }, { 'bbox.h': { $lt: t } }],
+      hidden: { $ne: true },
+      person_id: null,
+    });
+    expect(pullElementPredicate(t, true)).not.toHaveProperty('person_id');
   });
 });
