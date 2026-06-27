@@ -76,6 +76,9 @@ struct AppShellCenterColumn: View {
     /// Called when the user taps "Merge to Panorama…" from the BrowseGrid
     /// multi-select action bar (M2, #1236). nil suppresses the bar.
     var onMergePanorama: (() -> Void)? = nil
+    /// Called when the user taps "Edit Metadata…" from the BrowseGrid
+    /// multi-select action bar (M4, #1629). nil hides the button.
+    var onEditMetadata: (() -> Void)? = nil
 
     var body: some View {
         // The center column switches between the explorer grid (browse
@@ -166,7 +169,8 @@ struct AppShellCenterColumn: View {
                         onNavigateFolder: onNavigateFolder,
                         onOpenEditor: onOpenEditor,
                         onPrimeSession: onPrimeSession,
-                        onMergePanorama: onMergePanorama
+                        onMergePanorama: onMergePanorama,
+                        onEditMetadata: onEditMetadata
                     )
                 }
                 #else
@@ -179,7 +183,8 @@ struct AppShellCenterColumn: View {
                     onNavigateFolder: onNavigateFolder,
                     onOpenEditor: onOpenEditor,
                     onPrimeSession: onPrimeSession,
-                    onMergePanorama: onMergePanorama
+                    onMergePanorama: onMergePanorama,
+                    onEditMetadata: onEditMetadata
                 )
                 #endif
             }
