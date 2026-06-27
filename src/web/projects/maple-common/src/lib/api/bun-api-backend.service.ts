@@ -577,7 +577,7 @@ export class BunApiBackendService {
     face_detector_sha256?: string | null;
     face_recognizer_url?: string | null;
     face_recognizer_sha256?: string | null;
-    /** Minimum face size (normalised [0,1] on the 640-px detection frame).
+    /** Minimum face size (normalised [0,1) on the 640-px detection frame).
      * `null` clears back to the built-in default (0.06). */
     face_min_detection_size?: number | null;
     // ── Search index (Phase 7) ────────────────────────────────────
@@ -836,7 +836,7 @@ export interface EnrichmentConfigResponse {
   face_recognizer_sha256: string | null;
   /** Resolved minimum face-size threshold. Always a number on the wire
    * (default 0.06). Detections whose shorter bbox side is below this value
-   * (normalised [0,1] on the 640-px frame) are dropped before persisting. */
+   * (normalised [0,1) on the 640-px frame) are dropped before persisting. */
   face_min_detection_size: number;
   /** Meilisearch sidecar URL (DB → env → null). `null` disables the sidecar;
    * search then falls back to the Mongo `$text` path. */
