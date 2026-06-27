@@ -129,6 +129,31 @@ extension EditSession {
         renderRequested = true
         if let url = asset.primaryURL {
             seedNativeImageSizeFromMetadata(url)
+        } else if asset.bytesProvider != nil {
+            // Sourceless / remote asset (Self-Hosted, SMB, PhotoKit) has no URL
+            // to read synchronously. Seed `nativeImageSize` from the bytes at
+            // cold-open — in parallel with the decode — instead of leaving it to
+            // the decode's normalize closure, which only kicks the async seed
+            // AFTER the first present. Without an early seed `nativeImageSize`
+            // stays .zero → `displayFrameInPoints` nil → the canvas shows the
+            // placeholder, so `GpuLiveCanvasView` never mounts, `register(layer:)`
+            // never fires, and the first `presentViaGpuLive` takes the no-layer
+            // reject → CPU fallback. Local files don't hit this — they seed
+            // synchronously above, so their GPU layer is registered before the
+            // decode lands. The async seed is idempotent (guards on `.zero`), so
+            // it no-ops on revisit and races harmlessly with the decode's kick. (#1604)
+            let seedAsset = asset
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.seedNativeImageSizeFromMetadataAsync(seedAsset)
+                // Re-present once the size lands (still the current asset): the
+                // canvas leaf has now mounted + registered its layer, so this
+                // render goes through the GPU live path. `.fast` reuses the
+                // in-flight/cached decode — no second decode.
+                if self.asset.id == seedAsset.id, self.nativeImageSize != .zero {
+                    self._scheduleRender(phase: .fast)
+                }
+            }
         }
         // `EditSession.asset` is `let`, so once a preview lands for this
         // session it's guaranteed to be for `self.asset`. The decoded-
