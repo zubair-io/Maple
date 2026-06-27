@@ -16,8 +16,8 @@ import {
 } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { Subscription } from 'rxjs';
-import { debounceTime, distinctUntilChanged, filter, switchMap } from 'rxjs/operators';
+import { Subscription, of } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 import { BatchMetadataService } from './batch-metadata.service';
 import { BatchMetadataConfirmDialogComponent } from './batch-metadata-confirm-dialog.component';
 import {
@@ -153,21 +153,29 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       .pipe(
         debounceTime(300),
         distinctUntilChanged(),
-        filter((q) => q.trim().length >= 2),
+        // Length check lives inside switchMap (not an upstream `filter`) so that
+        // shortening the query to <2 chars still emits and switchMap cancels any
+        // in-flight request — avoiding stale candidates from a late response.
         switchMap((q) => {
+          const query = q.trim();
+          if (query.length < 2) {
+            this.geocodeLoading.set(false);
+            return of<GeocodeCandidate[]>([]);
+          }
           this.geocodeLoading.set(true);
-          return this.svc.geocodeSearch(q.trim());
+          // catchError INSIDE switchMap: a failed lookup yields [] for that
+          // query without erroring (and killing) the long-lived outer pipeline.
+          return this.svc.geocodeSearch(query).pipe(
+            catchError(() => {
+              this.geocodeLoading.set(false);
+              return of<GeocodeCandidate[]>([]);
+            }),
+          );
         }),
       )
-      .subscribe({
-        next: (candidates) => {
-          this.geocodeLoading.set(false);
-          this.geocodeCandidates.set(candidates);
-        },
-        error: () => {
-          this.geocodeLoading.set(false);
-          this.geocodeCandidates.set([]);
-        },
+      .subscribe((candidates) => {
+        this.geocodeLoading.set(false);
+        this.geocodeCandidates.set(candidates);
       });
   }
 
@@ -212,22 +220,17 @@ export class BatchMetadataPanelComponent implements OnDestroy {
     const country = addr['country'] ?? '';
     const countryCode = (addr['country_code'] ?? '').toUpperCase();
 
-    if (city) {
-      this.cityVal.set(city);
-      this.onFieldChange('city');
-    }
-    if (state) {
-      this.stateVal.set(state);
-      this.onFieldChange('state');
-    }
-    if (country) {
-      this.countryVal.set(country);
-      this.onFieldChange('country');
-    }
-    if (countryCode) {
-      this.countryCodeVal.set(countryCode);
-      this.onFieldChange('countryCode');
-    }
+    // Set all four unconditionally: when the chosen result lacks a city/state,
+    // the empty value must CLEAR any previously-set place text rather than leave
+    // a stale name mismatched against the new coordinates.
+    this.cityVal.set(city);
+    this.onFieldChange('city');
+    this.stateVal.set(state);
+    this.onFieldChange('state');
+    this.countryVal.set(country);
+    this.onFieldChange('country');
+    this.countryCodeVal.set(countryCode);
+    this.onFieldChange('countryCode');
 
     this.geocodeCandidates.set([]);
     this.geocodeQuery.set('');
