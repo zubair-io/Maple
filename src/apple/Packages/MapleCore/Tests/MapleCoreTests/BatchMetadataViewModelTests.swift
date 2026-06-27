@@ -104,4 +104,60 @@ final class BatchMetadataViewModelTests: XCTestCase {
         XCTAssertEqual(parsed.gpsLatitude!, 48.8566, accuracy: 1e-4)
         XCTAssertEqual(parsed.gpsLongitude!, 2.3522, accuracy: 1e-4)
     }
+
+    func testApplyGPSExplicitClear() async throws {
+        var m = XmpMetadata(); m.gpsLatitude = 10; m.gpsLongitude = 20
+        let (asset, store) = try await tempAsset(metadata: m)
+        let sidecarURL = await store.url
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+        // Clear GPS button sets .some(nil) on lat/lon/alt.
+        vm.touchedMetadata.gpsLatitude = .some(nil)
+        vm.touchedMetadata.gpsLongitude = .some(nil)
+        try await vm.apply()
+        let parsed = XMPParser.parseMetadata(try String(contentsOf: sidecarURL, encoding: .utf8))
+        XCTAssertNil(parsed.gpsLatitude, "Explicitly-cleared GPS latitude must be removed")
+        XCTAssertNil(parsed.gpsLongitude, "Explicitly-cleared GPS longitude must be removed")
+    }
+
+    // MARK: - Multi-asset apply
+
+    func testApplyMultiAssetPreservesPerAssetUntouched() async throws {
+        var m1 = XmpMetadata(); m1.city = "Paris"; m1.headline = "H1"
+        var m2 = XmpMetadata(); m2.city = "Paris"; m2.headline = "H2"
+        let (a1, s1) = try await tempAsset(metadata: m1)
+        let (a2, s2) = try await tempAsset(metadata: m2)
+        let u1 = await s1.url
+        let u2 = await s2.url
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+        vm.touchedMetadata.city = "Berlin"   // touch only the (common) city
+        try await vm.apply()
+
+        let p1 = XMPParser.parseMetadata(try String(contentsOf: u1, encoding: .utf8))
+        let p2 = XMPParser.parseMetadata(try String(contentsOf: u2, encoding: .utf8))
+        XCTAssertEqual(p1.city, "Berlin"); XCTAssertEqual(p2.city, "Berlin")
+        XCTAssertEqual(p1.headline, "H1", "per-asset untouched headline must survive")
+        XCTAssertEqual(p2.headline, "H2", "per-asset untouched headline must survive")
+    }
+
+    // MARK: - Store preserves metadata on a model-only write
+
+    func testModelOnlyWritePreservesExistingMetadata() async throws {
+        var m = XmpMetadata(); m.city = "Paris"; m.creator = "Ansel"
+        let (asset, _) = try await tempAsset(metadata: m)
+        let rawURL = try XCTUnwrap(asset.primaryURL)
+
+        // A later model/culling-only write (e.g. a slider edit through a fresh
+        // EditSession store) must NOT drop the batch-authored metadata block.
+        let later = XMPSidecarStore(rawURL: rawURL)
+        await later.update(model: .default, culling: CullingState())
+        await later.flush()
+
+        let sidecarURL = await later.url
+        let parsed = XMPParser.parseMetadata(try String(contentsOf: sidecarURL, encoding: .utf8))
+        XCTAssertEqual(parsed.city, "Paris", "model-only write must preserve existing metadata")
+        XCTAssertEqual(parsed.creator, "Ansel", "model-only write must preserve existing metadata")
+    }
 }

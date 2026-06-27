@@ -1,6 +1,6 @@
 # Batch Metadata Editor — M4 Apple Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan is organised task-by-task; steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a SwiftUI "Edit Metadata…" action to the Browse selection bar that opens a sheet where the user can bulk-edit the 21-field XmpMetadata set across all selected assets, writing each asset's `.xmp` sidecar via the existing `XMPSerializer.serialize(model:culling:metadata:)` — non-destructively, never touching originals.
 
