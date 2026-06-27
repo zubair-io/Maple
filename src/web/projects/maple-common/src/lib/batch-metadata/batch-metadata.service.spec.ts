@@ -13,18 +13,15 @@ describe('computeMixedValues', () => {
     const result = computeMixedValues([]);
     expect(result.gpsLatitude).toBeUndefined();
     expect(result.city).toBeUndefined();
-    expect(result.rating).toBeUndefined();
-    expect(result.flag).toBeUndefined();
   });
 
   it('returns single value when all snapshots agree on a string field', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris', rating: 3 } },
-      { path: '/b.dng', metadata: { city: 'Paris', rating: 3 } },
+      { path: '/a.dng', metadata: { city: 'Paris' } },
+      { path: '/b.dng', metadata: { city: 'Paris' } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.city).toBe('Paris');
-    expect(result.rating).toBe(3);
   });
 
   it('returns MIXED when string field values differ', () => {
@@ -81,9 +78,6 @@ describe('computeMixedValues', () => {
           gpsLongitude: 2.3522,
           city: 'Paris',
           copyrightStatus: 'copyrighted',
-          flag: 'pick',
-          colorLabel: 'red',
-          rating: 4,
         },
       },
     ];
@@ -92,9 +86,6 @@ describe('computeMixedValues', () => {
     expect(result.gpsLongitude).toBe(2.3522);
     expect(result.city).toBe('Paris');
     expect(result.copyrightStatus).toBe('copyrighted');
-    expect(result.flag).toBe('pick');
-    expect(result.colorLabel).toBe('red');
-    expect(result.rating).toBe(4);
   });
 
   it('returns MIXED only for differing fields; uniform fields stay their value', () => {
@@ -132,14 +123,5 @@ describe('computeMixedValues', () => {
     ];
     const result = computeMixedValues(snapshots);
     expect(result.copyrightStatus).toBe(MIXED);
-  });
-
-  it('handles flag values correctly', () => {
-    const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { flag: 'pick' } },
-      { path: '/b.dng', metadata: { flag: 'pick' } },
-    ];
-    const result = computeMixedValues(snapshots);
-    expect(result.flag).toBe('pick');
   });
 });

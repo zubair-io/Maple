@@ -85,10 +85,6 @@ function buildPayload(
   if (touched.has('keywords')) {
     meta.keywords = parseKeywords(values['keywords'] ?? '');
   }
-  if (touched.has('rating')) {
-    const v = values['rating'] ?? '';
-    meta.rating = v === '' ? undefined : Number(v);
-  }
 
   return paths.map((path) => ({ path, metadata: meta }));
 }
@@ -109,12 +105,11 @@ describe('BatchMetadataPanel — mixed-value placeholders', () => {
 
   it('shows single value when all assets agree on a field', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris', rating: 4 } },
-      { path: '/b.dng', metadata: { city: 'Paris', rating: 4 } },
+      { path: '/a.dng', metadata: { city: 'Paris' } },
+      { path: '/b.dng', metadata: { city: 'Paris' } },
     ];
     const mixed = computeMixedValues(snapshots);
     expect(mixed.city).toBe('Paris');
-    expect(mixed.rating).toBe(4);
   });
 
   it('shows undefined for a field absent on all assets', () => {
@@ -156,12 +151,11 @@ describe('BatchMetadataPanel — payload building (only touched fields)', () => 
   });
 
   it('only touched fields appear in payload', () => {
-    const touched = new Set<keyof MixedValueMap>(['city', 'rating'] as Array<keyof MixedValueMap>);
-    const values = { city: 'Paris', rating: '4', country: 'France' }; // country NOT touched
+    const touched = new Set<keyof MixedValueMap>(['city'] as Array<keyof MixedValueMap>);
+    const values = { city: 'Paris', country: 'France' }; // country NOT touched
     const payload = buildPayload(['/a.dng'], touched, values);
 
     expect(payload[0]!.metadata).toHaveProperty('city', 'Paris');
-    expect(payload[0]!.metadata).toHaveProperty('rating', 4);
     expect(payload[0]!.metadata).not.toHaveProperty('country');
   });
 

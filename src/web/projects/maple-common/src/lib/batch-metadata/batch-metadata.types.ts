@@ -1,7 +1,7 @@
 // batch-metadata.types.ts — shared types for the Batch Metadata M2 web UI (#1606).
 // Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
 
-import type { XmpMetadata, XmpFlag, XmpColorLabel } from '../xmp/xmp.types';
+import type { XmpMetadata } from '../xmp/xmp.types';
 
 // ---------------------------------------------------------------------------
 // Mixed-value sentinel
@@ -50,9 +50,6 @@ export interface MixedValueMap {
   usageTerms: MixedOr<string | null | undefined>;
   credit: MixedOr<string | null | undefined>;
   source: MixedOr<string | null | undefined>;
-  rating: MixedOr<number | undefined>;
-  flag: MixedOr<XmpFlag | undefined>;
-  colorLabel: MixedOr<XmpColorLabel | undefined>;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,9 +62,6 @@ export interface AssetMetadataSnapshot {
   path: string;
   metadata: Partial<XmpMetadata> & {
     keywords?: string[];
-    rating?: number;
-    flag?: XmpFlag;
-    colorLabel?: XmpColorLabel;
   };
 }
 
@@ -134,9 +128,6 @@ export function computeMixedValues(snapshots: AssetMetadataSnapshot[]): MixedVal
     usageTerms: scalar((s) => s.metadata.usageTerms),
     credit: scalar((s) => s.metadata.credit),
     source: scalar((s) => s.metadata.source),
-    rating: scalar((s) => s.metadata.rating),
-    flag: scalar((s) => s.metadata.flag as XmpFlag | undefined),
-    colorLabel: scalar((s) => s.metadata.colorLabel as XmpColorLabel | undefined),
   };
 }
 
@@ -164,9 +155,6 @@ function _emptyMixedMap(): MixedValueMap {
     usageTerms: undefined,
     credit: undefined,
     source: undefined,
-    rating: undefined,
-    flag: undefined,
-    colorLabel: undefined,
   };
 }
 
@@ -176,9 +164,6 @@ function _emptyMixedMap(): MixedValueMap {
 
 export type BatchApplyMetadata = Partial<XmpMetadata> & {
   keywords?: string[];
-  rating?: number;
-  flag?: XmpFlag;
-  colorLabel?: XmpColorLabel;
 };
 
 export interface BatchApplyEntry {
