@@ -42,6 +42,10 @@ import {
   THUMB_MISSING_REASON,
   THUMB_UNDECODABLE_REASON,
 } from './face-stage-shared.ts';
+import {
+  loadEnrichmentConfig,
+  resolveEnrichmentConfig,
+} from '../../enrichment/enrichment-config.repo.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 
@@ -72,7 +76,15 @@ export async function faceDetectHandler(image: ImageDoc, _ctx: StageContext): Pr
     }
     throw err;
   }
-  return { patch: { faces: detections.map(detectionToDoc) } };
+
+  // Read the size threshold at run time so an operator change (via
+  // /settings/workers) takes effect on the next asset without a restart.
+  const dbConfig = await loadEnrichmentConfig();
+  const { face_min_detection_size: minSize } = resolveEnrichmentConfig(dbConfig);
+  const filtered =
+    minSize > 0 ? detections.filter((d) => Math.min(d.bbox.w, d.bbox.h) >= minSize) : detections;
+
+  return { patch: { faces: filtered.map(detectionToDoc) } };
 }
 
 /** Detection → face doc. No embedding here — `face-embed` fills that in.
