@@ -174,57 +174,79 @@
       } @else {
         <div class="face-grid">
           @for (f of visibleFaces(); track faceKey(f)) {
-            <button
-              type="button"
+            <div
               class="face-cell"
               [class.is-selected]="isFaceSelected(f)"
-              [attr.aria-pressed]="isFaceSelected(f)"
-              [attr.aria-label]="
-                'Face from ' +
-                f.absPath +
-                ' (' +
-                (f.confidence * 100 | number: '1.0-0') +
-                '% detector confidence)'
-              "
               (mouseenter)="hoveredFace.set(faceKey(f))"
               (mouseleave)="hoveredFace.set(null)"
-              (focus)="hoveredFace.set(faceKey(f))"
-              (blur)="hoveredFace.set(null)"
-              (click)="toggleFaceSelection(f)"
-              [title]="f.absPath"
             >
-              <span class="face-thumb">
-                @if (faceThumbUrl(f); as url) {
-                  <img
-                    [src]="url"
-                    [style.transform]="faceCropTransform(f.bbox, url)"
-                    style="transform-origin: 0 0"
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    (load)="onFaceImgLoad(url, $event)"
-                  />
-                }
-                <span class="confidence-badge">{{ f.confidence * 100 | number: '1.0-0' }}%</span>
-                @if (isFaceSelected(f) || hoveredFace() === faceKey(f)) {
-                  <span class="select-check" [class.is-selected]="isFaceSelected(f)">
-                    @if (isFaceSelected(f)) {
-                      <maple-settings-icon
-                        name="check"
-                        [size]="11"
-                        color="#ffffff"
-                        [stroke]="2.4"
-                      />
-                    }
-                  </span>
-                }
-                @if (f.confidence < 0.7) {
-                  <span class="low-confidence-bar"></span>
-                }
-              </span>
-            </button>
+              <button
+                type="button"
+                class="face-select-btn"
+                [attr.aria-pressed]="isFaceSelected(f)"
+                [attr.aria-label]="
+                  'Select face from ' +
+                  f.absPath +
+                  ' (' +
+                  (f.confidence * 100 | number: '1.0-0') +
+                  '% detector confidence)'
+                "
+                (focus)="hoveredFace.set(faceKey(f))"
+                (blur)="hoveredFace.set(null)"
+                (click)="toggleFaceSelection(f)"
+                [title]="f.absPath"
+              >
+                <span class="face-thumb">
+                  @if (faceThumbUrl(f); as url) {
+                    <img
+                      [src]="url"
+                      [style.transform]="faceCropTransform(f.bbox, url)"
+                      style="transform-origin: 0 0"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      (load)="onFaceImgLoad(url, $event)"
+                    />
+                  }
+                  <span class="confidence-badge">{{ f.confidence * 100 | number: '1.0-0' }}%</span>
+                  @if (isFaceSelected(f) || hoveredFace() === faceKey(f)) {
+                    <span class="select-check" [class.is-selected]="isFaceSelected(f)">
+                      @if (isFaceSelected(f)) {
+                        <maple-settings-icon
+                          name="check"
+                          [size]="11"
+                          color="#ffffff"
+                          [stroke]="2.4"
+                        />
+                      }
+                    </span>
+                  }
+                  @if (f.confidence < 0.7) {
+                    <span class="low-confidence-bar"></span>
+                  }
+                </span>
+              </button>
+              <!-- Open-in-editor affordance. Distinct from the select button so
+                   clicking the image doesn't toggle selection. -->
+              @if (hoveredFace() === faceKey(f) || isFaceSelected(f)) {
+                <button
+                  type="button"
+                  class="face-open-btn"
+                  aria-label="Open photo"
+                  title="Open in editor"
+                  (click)="openInEditor(f)"
+                >
+                  <maple-settings-icon name="open" [size]="12" color="#ffffff" />
+                </button>
+              }
+            </div>
           }
         </div>
+        <!-- Infinite-scroll sentinel: when it enters the viewport,
+             load the next page of faces. -->
+        @if (hasMoreFaces()) {
+          <div class="face-load-more" (mapleVisibleOnce)="loadMoreFaces()">Loading more…</div>
+        }
       }
 
       @if (selectedFaces().size > 0) {
@@ -232,6 +254,19 @@
           <div class="bulk-toolbar">
             <span class="bulk-count">{{ selectedFaces().size }} selected</span>
             <div class="bulk-sep"></div>
+
+            @if (canSetCover()) {
+              <button
+                type="button"
+                class="bulk-btn"
+                [disabled]="bulkBusy() > 0"
+                (click)="setSelectedAsCover()"
+                aria-label="Set as cover photo for this person"
+              >
+                <maple-settings-icon name="image" [size]="13" color="#f5f4f2" />
+                Set as cover
+              </button>
+            }
 
             <!-- Move-to-person dropdown — uses a native <select> for
                  accessibility/keyboard. The dropdown trigger looks like

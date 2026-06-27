@@ -23,12 +23,14 @@ import { clusterCoordinator } from '../people/cluster-coordinator.ts';
 import {
   assignFaceToPerson,
   createPerson,
+  FACE_DETAIL_LIMIT,
   getPerson,
   hideFace,
   hidePerson,
   listHiddenPeople,
   listPeople,
   renamePerson,
+  setPersonCover,
   unhidePerson,
   type PersonWithCount,
 } from '../people/people.repo.ts';
@@ -61,6 +63,11 @@ const HideBody = t.Object({
 const MergeBody = t.Object({
   target_id: t.String({ minLength: 1 }),
   source_ids: t.Array(t.String({ minLength: 1 }), { minItems: 1 }),
+});
+
+const CoverBody = t.Object({
+  asset_id: t.String({ minLength: 1 }),
+  face_index: t.Number(),
 });
 
 function safeObjectId(raw: string): ObjectId | null {
@@ -131,33 +138,52 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
   })
 
   // ── Single ──────────────────────────────────────────────────────────
-  .get('/:id', async ({ params, set }) => {
-    const id = safeObjectId(params.id);
-    if (!id) {
-      set.status = 400;
-      return { error: 'invalid person id' };
-    }
-    const detail = await getPerson(id);
-    if (!detail) {
-      set.status = 404;
-      return { error: 'person not found' };
-    }
-    return {
-      id: detail.person._id.toHexString(),
-      name: detail.person.name,
-      created_at: detail.person.created_at,
-      updated_at: detail.person.updated_at,
-      cover_asset_id: detail.person.cover_asset_id ?? null,
-      cover_bbox: detail.person.cover_bbox ?? null,
-      faces: detail.faces.map((f) => ({
-        asset_id: f.asset_id,
-        face_index: f.face_index,
-        abs_path: f.abs_path,
-        bbox: f.bbox,
-        confidence: f.confidence,
-      })),
-    };
-  })
+  // Supports ?offset=N&limit=N for the infinite-scroll detail face grid.
+  // A page with fewer than `limit` faces signals end-of-list to the client.
+  .get(
+    '/:id',
+    async ({ params, query, set }) => {
+      const id = safeObjectId(params.id);
+      if (!id) {
+        set.status = 400;
+        return { error: 'invalid person id' };
+      }
+      const offset = Math.max(0, Number(query.offset ?? 0) || 0);
+      const limit = Math.min(
+        200,
+        Math.max(1, Number(query.limit ?? FACE_DETAIL_LIMIT) || FACE_DETAIL_LIMIT),
+      );
+      const detail = await getPerson(id, offset, limit);
+      if (!detail) {
+        set.status = 404;
+        return { error: 'person not found' };
+      }
+      return {
+        id: detail.person._id.toHexString(),
+        name: detail.person.name,
+        created_at: detail.person.created_at,
+        updated_at: detail.person.updated_at,
+        cover_asset_id: detail.person.cover_asset_id ?? null,
+        cover_bbox: detail.person.cover_bbox ?? null,
+        faces: detail.faces.map((f) => ({
+          asset_id: f.asset_id,
+          face_index: f.face_index,
+          abs_path: f.abs_path,
+          bbox: f.bbox,
+          confidence: f.confidence,
+        })),
+        /** Echoed back so the client can accumulate pages without tracking offset state. */
+        offset,
+        limit,
+      };
+    },
+    {
+      query: t.Object({
+        offset: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+      }),
+    },
+  )
 
   // ── Create (or dedupe) ──────────────────────────────────────────────
   .post(
@@ -283,6 +309,33 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
     await unhidePerson(id);
     return { ok: true };
   })
+
+  // ── Set a face as the person's cover ────────────────────────────────
+  // body { asset_id, face_index } — bbox is read SERVER-SIDE from the
+  // asset doc; the client never supplies coordinates. Validates that the
+  // face belongs to this person and is not hidden.
+  .post(
+    '/:id/cover',
+    async ({ params, body, set }) => {
+      const id = safeObjectId(params.id);
+      if (!id) {
+        set.status = 400;
+        return { error: 'invalid person id' };
+      }
+      const assetId = safeObjectId(body.asset_id);
+      if (!assetId) {
+        set.status = 400;
+        return { error: 'invalid asset_id' };
+      }
+      const result = await setPersonCover(id, assetId, body.face_index);
+      if ('error' in result) {
+        set.status = result.status;
+        return { error: result.error };
+      }
+      return { ok: true };
+    },
+    { body: CoverBody },
+  )
 
   // ── Online clustering ───────────────────────────────────────────────
   .post(

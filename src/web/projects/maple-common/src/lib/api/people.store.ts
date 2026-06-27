@@ -43,6 +43,7 @@ import {
   type ApiMergeResult,
   type ApiPerson,
   type ApiPersonDetail,
+  type ApiPersonFace,
 } from './bun-api-backend.service';
 import type { Store, StoreStatus } from '../state/store';
 
@@ -143,14 +144,23 @@ export class PeopleStore implements Store<ApiPerson[]> {
   }
 
   // ── Detail cache (keyed by person id) ───────────────────────────────────────
+  //
+  // Detail entries accumulate face pages: the first fetch loads offset=0, and
+  // subsequent `loadMoreFaces(id)` calls append the next page. Faces are
+  // deduped by `assetId:faceIndex` so a race between a manual invalidation and
+  // a loadMore never introduces duplicates. The "has more" flag tracks whether
+  // the last page returned fewer faces than `limit`, signalling end-of-list.
 
   private readonly _activeDetailId = signal<string | null>(null);
+  /** Accumulated detail (merged page metadata + accumulated faces) per person. */
   private readonly _details = signal<Map<string, ApiPersonDetail>>(new Map());
   /** Ids whose detail fetch is currently in flight. */
   private readonly _detailLoadingIds = signal<ReadonlySet<string>>(new Set());
   private readonly _detailError = signal<Error | null>(null);
   /** Imperative in-flight guard (mirrors `_listInFlight`) keyed by id. */
   private readonly _detailInFlight = new Set<string>();
+  /** Per-person "has more faces" flag. True until a page returns fewer faces than its limit. */
+  private readonly _detailHasMore = signal<ReadonlyMap<string, boolean>>(new Map());
 
   /** The detail for the active id, or undefined if not loaded. */
   readonly detail: Signal<ApiPersonDetail | undefined> = computed(() => {
@@ -175,6 +185,13 @@ export class PeopleStore implements Store<ApiPerson[]> {
 
   readonly detailError: Signal<Error | null> = this._detailError.asReadonly();
 
+  /** True when there are more face pages to load for the active person. */
+  readonly detailHasMore: Signal<boolean> = computed(() => {
+    const id = this._activeDetailId();
+    if (!id) return false;
+    return this._detailHasMore().get(id) ?? false;
+  });
+
   /**
    * Point the detail accessors at a person id (URL-driven). `null` clears the
    * active detail (back to the list). A cached id surfaces via `detail()`
@@ -184,17 +201,33 @@ export class PeopleStore implements Store<ApiPerson[]> {
   setActiveDetailId(id: string | null): void {
     this._activeDetailId.set(id);
     this._detailError.set(null);
-    if (id) this._fetchDetail(id);
+    if (id) this._fetchDetail(id, 0);
   }
 
   /**
-   * Force a re-fetch of a specific person's detail. Used after a mutation
-   * touches that person (rename, bulk assign/hide on its faces) so the open
-   * panel reflects server state. Keeps the cached value visible while the
-   * refresh lands.
+   * Force a re-fetch of a specific person's detail (resets to page 0).
+   * Used after a mutation touches that person (rename, bulk assign/hide on its
+   * faces) so the open panel reflects server state. Clears the accumulated faces
+   * so the grid resets cleanly rather than mixing stale and fresh entries.
    */
   invalidateDetail(id: string): void {
-    this._fetchDetail(id);
+    // Drop the accumulated faces so we restart from page 0.
+    this.evictDetail(id);
+    this._fetchDetail(id, 0);
+  }
+
+  /**
+   * Load the next page of faces for a person. No-op if a fetch is already in
+   * flight or there are no more pages. Should be called when the face grid
+   * scrolls near the bottom.
+   */
+  loadMoreFaces(id: string): void {
+    if (this._detailInFlight.has(id)) return;
+    const hasMore = this._detailHasMore().get(id) ?? false;
+    if (!hasMore) return;
+    const existing = this._details().get(id);
+    const nextOffset = existing ? existing.faces.length : 0;
+    this._fetchDetail(id, nextOffset);
   }
 
   /** Drop a person's cached detail entirely — used after a delete so a later
@@ -206,9 +239,15 @@ export class PeopleStore implements Store<ApiPerson[]> {
       next.delete(id);
       return next;
     });
+    this._detailHasMore.update((m) => {
+      if (!m.has(id)) return m;
+      const next = new Map(m);
+      next.delete(id);
+      return next;
+    });
   }
 
-  private _fetchDetail(id: string): void {
+  private _fetchDetail(id: string, offset: number): void {
     if (this._detailInFlight.has(id)) return;
     this._detailInFlight.add(id);
     // Reset the error on every fetch start so a stale failure can't linger over
@@ -216,9 +255,24 @@ export class PeopleStore implements Store<ApiPerson[]> {
     // the `Store<T>` contract of resetting error on a successful re-fetch.
     this._detailError.set(null);
     this._detailLoadingIds.update((s) => new Set(s).add(id));
-    this.api.getPerson(id).subscribe({
-      next: (detail) => {
-        this._details.update((m) => new Map(m).set(id, detail));
+    this.api.getPerson(id, { offset, limit: 50 }).subscribe({
+      next: (page) => {
+        const hasMore = page.faces.length >= page.limit;
+        this._detailHasMore.update((m) => new Map(m).set(id, hasMore));
+        this._details.update((m) => {
+          const existing = m.get(id);
+          if (offset === 0 || !existing) {
+            // First page (or invalidation reset): replace entirely.
+            return new Map(m).set(id, page);
+          }
+          // Subsequent page: accumulate, deduping by assetId:faceIndex.
+          const seen = new Set(existing.faces.map((f) => `${f.assetId}:${f.faceIndex}`));
+          const newFaces: ApiPersonFace[] = page.faces.filter(
+            (f) => !seen.has(`${f.assetId}:${f.faceIndex}`),
+          );
+          const merged: ApiPersonDetail = { ...existing, faces: [...existing.faces, ...newFaces] };
+          return new Map(m).set(id, merged);
+        });
         this._clearDetailLoading(id);
       },
       error: (err: unknown) => {
@@ -367,5 +421,18 @@ export class PeopleStore implements Store<ApiPerson[]> {
     const ok = results.filter((r) => r.status === 'fulfilled').length;
     this._evictAndRefreshLists(ids);
     return { ok, failed: ids.length - ok };
+  }
+
+  /**
+   * Set a face as the person's cover. Invalidates both the detail (to reflect
+   * the new cover_asset_id / cover_bbox) and the list (so the card poster
+   * updates). Throws on failure so the caller can surface an error toast.
+   */
+  async setPersonCover(personId: string, assetId: string, faceIndex: number): Promise<void> {
+    await firstValueFrom(this.api.setPersonCover(personId, assetId, faceIndex));
+    // Invalidate detail so cover_bbox + cover_asset_id refresh.
+    this.invalidateDetail(personId);
+    // Invalidate list so the people-card poster updates.
+    this.invalidate();
   }
 }

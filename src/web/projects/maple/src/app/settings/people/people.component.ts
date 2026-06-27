@@ -582,6 +582,47 @@ export class PeopleComponent implements OnDestroy {
     return this.thumbs.url(face.absPath);
   }
 
+  // ── Set as cover ────────────────────────────────────────────────────
+
+  /** "Set as cover" — only enabled when exactly one face is selected. */
+  readonly canSetCover = computed<boolean>(() => this.selectedFaces().size === 1);
+
+  async setSelectedAsCover(): Promise<void> {
+    const detail = this.selected();
+    if (!detail || !this.canSetCover()) return;
+    const [key] = [...this.selectedFaces()];
+    const face = detail.faces.find((f) => this.faceKey(f) === key);
+    if (!face) return;
+    this.bulkBusy.update((n) => n + 1);
+    try {
+      await this.store.setPersonCover(detail.id, face.assetId, face.faceIndex);
+      this.clearSelection();
+      this.showToast('Cover updated', 'success');
+    } catch (err) {
+      this.showToast(errorMessage(err), 'error');
+    } finally {
+      this.bulkBusy.update((n) => Math.max(0, n - 1));
+    }
+  }
+
+  // ── Open in editor (Feature 2) ──────────────────────────────────────
+
+  openInEditor(face: ApiPersonFace): void {
+    void this.router.navigate(['/library/editor', face.assetId]);
+  }
+
+  // ── Infinite scroll (Feature 3) ─────────────────────────────────────
+
+  /** True when more face pages are available for the current person. */
+  readonly hasMoreFaces = computed<boolean>(() => this.store.detailHasMore());
+
+  /** Called when the face grid scrolls near the bottom. */
+  loadMoreFaces(): void {
+    const detail = this.selected();
+    if (!detail) return;
+    this.store.loadMoreFaces(detail.id);
+  }
+
   // ── Helpers ─────────────────────────────────────────────────────────
 
   private showToast(text: string, tone: Tone): void {

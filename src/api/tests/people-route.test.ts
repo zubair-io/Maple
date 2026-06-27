@@ -525,3 +525,124 @@ describe('cover_bbox surface', () => {
     expect(rows[0].cover_bbox).toEqual(bbox);
   });
 });
+
+describe('POST /api/people/:id/cover', () => {
+  it('sets cover_asset_id and cover_bbox from the face doc server-side', async () => {
+    if (!mongoReachable) return;
+    const created = await post('/api/people', { name: 'Cover' });
+    const personId = (created.body as { id: string }).id;
+    const bbox = { x: 0.1, y: 0.2, w: 0.3, h: 0.4 };
+    const asset = await insertAssetWithFaces([{ bbox, person_id: personId, confidence: 0.88 }]);
+    const r = await post(`/api/people/${personId}/cover`, {
+      asset_id: asset.toHexString(),
+      face_index: 0,
+    });
+    expect(r.status).toBe(200);
+    expect((r.body as { ok: boolean }).ok).toBe(true);
+    // Verify via GET /api/people/:id that cover fields updated.
+    const detail = await get(`/api/people/${personId}`);
+    expect((detail.body as { cover_asset_id: string }).cover_asset_id).toBe(asset.toHexString());
+    expect((detail.body as { cover_bbox: object }).cover_bbox).toEqual(bbox);
+  });
+
+  it('400 when face does not belong to this person', async () => {
+    if (!mongoReachable) return;
+    const p1 = await post('/api/people', { name: 'CoverP1' });
+    const p2 = await post('/api/people', { name: 'CoverP2' });
+    const p1Id = (p1.body as { id: string }).id;
+    const p2Id = (p2.body as { id: string }).id;
+    const asset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: p2Id, confidence: 0.9 },
+    ]);
+    const r = await post(`/api/people/${p1Id}/cover`, {
+      asset_id: asset.toHexString(),
+      face_index: 0,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('400 when face is hidden', async () => {
+    if (!mongoReachable) return;
+    const created = await post('/api/people', { name: 'CoverHidden' });
+    const personId = (created.body as { id: string }).id;
+    const asset = await insertAssetWithFaces([
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: personId,
+        confidence: 0.9,
+        hidden: true,
+      } as AssetFaceDoc & { hidden: boolean },
+    ]);
+    const r = await post(`/api/people/${personId}/cover`, {
+      asset_id: asset.toHexString(),
+      face_index: 0,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('404 for unknown asset_id', async () => {
+    if (!mongoReachable) return;
+    const created = await post('/api/people', { name: 'CoverMissing' });
+    const personId = (created.body as { id: string }).id;
+    const r = await post(`/api/people/${personId}/cover`, {
+      asset_id: new ObjectId().toHexString(),
+      face_index: 0,
+    });
+    expect(r.status).toBe(404);
+  });
+
+  it('does not clobber a manually-set cover on backfill', async () => {
+    if (!mongoReachable) return;
+    // Set up a person with two faces; manually pin the cover to face 0 (lower
+    // confidence). backfillCoverAssets should NOT overwrite a manually-set cover.
+    const created = await post('/api/people', { name: 'CoverStable' });
+    const personId = (created.body as { id: string }).id;
+    const bboxManual = { x: 0.5, y: 0.5, w: 0.1, h: 0.1 };
+    const assetLow = await insertAssetWithFaces([
+      { bbox: bboxManual, person_id: personId, confidence: 0.6 },
+    ]);
+    // Face with higher confidence on a second asset.
+    await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: personId, confidence: 0.98 },
+    ]);
+    // Manually set the low-confidence face as cover.
+    const setCover = await post(`/api/people/${personId}/cover`, {
+      asset_id: assetLow.toHexString(),
+      face_index: 0,
+    });
+    expect(setCover.status).toBe(200);
+    // Run backfill — it should only fill MISSING covers.
+    const { backfillCoverAssets } = await import('../src/people/clustering-job.ts');
+    await backfillCoverAssets();
+    // The cover should still point at the manually-pinned (lower-conf) asset.
+    const detail = await get(`/api/people/${personId}`);
+    expect((detail.body as { cover_asset_id: string }).cover_asset_id).toBe(assetLow.toHexString());
+    expect((detail.body as { cover_bbox: object }).cover_bbox).toEqual(bboxManual);
+  });
+});
+
+describe('GET /api/people/:id pagination', () => {
+  it('respects offset and limit query params', async () => {
+    if (!mongoReachable) return;
+    const created = await post('/api/people', { name: 'PaginatedPerson' });
+    const personId = (created.body as { id: string }).id;
+    // Insert 5 faces across 5 separate assets.
+    for (let i = 0; i < 5; i++) {
+      await insertAssetWithFaces([
+        { bbox: { x: i * 0.1, y: 0, w: 0.1, h: 0.1 }, person_id: personId, confidence: 0.9 },
+      ]);
+    }
+    // First page of 3.
+    const page1 = await get(`/api/people/${personId}?offset=0&limit=3`);
+    expect(page1.status).toBe(200);
+    const p1body = page1.body as { faces: unknown[]; offset: number; limit: number };
+    expect(p1body.faces).toHaveLength(3);
+    expect(p1body.offset).toBe(0);
+    expect(p1body.limit).toBe(3);
+    // Second page — fewer than limit signals end-of-list.
+    const page2 = await get(`/api/people/${personId}?offset=3&limit=3`);
+    expect(page2.status).toBe(200);
+    const p2body = page2.body as { faces: unknown[] };
+    expect(p2body.faces).toHaveLength(2);
+  });
+});

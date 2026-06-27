@@ -465,18 +465,9 @@
 }
 
 .face-cell {
-  // Native <button> so keyboard activation (Enter + Space) is free and
-  // the cell is reachable via Tab; resets below strip the default chrome
-  // so it reads as a card.
-  display: block;
-  padding: 0;
-  font-family: inherit;
-  appearance: none;
-  -webkit-appearance: none;
-  text-align: left;
-
+  // Container div for the face thumb + open button overlay. Relative
+  // so the `.face-open-btn` can be positioned inside it.
   position: relative;
-  cursor: pointer;
   border-radius: 6px;
   overflow: hidden;
   border: 1.5px solid transparent;
@@ -485,6 +476,20 @@
   &.is-selected {
     border-color: var(--s-accent);
   }
+}
+
+.face-select-btn {
+  // Full-bleed button that covers the cell and handles selection.
+  display: block;
+  width: 100%;
+  padding: 0;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: none;
 
   // Visible keyboard focus — accent ring at 2px offset matches the rest
   // of the Settings surfaces (see styles.scss global reset).
@@ -492,6 +497,46 @@
     outline: 1.5px solid var(--s-accent);
     outline-offset: 1px;
   }
+}
+
+// "Open photo" button — appears on hover/focus in the bottom-right corner
+// of the face cell, visually distinct from the selection checkbox.
+.face-open-btn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  background: rgba(13, 12, 11, 0.72);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  z-index: 2;
+
+  &:hover {
+    background: var(--s-accent);
+  }
+
+  &:focus-visible {
+    outline: 1.5px solid var(--s-accent);
+    outline-offset: 1px;
+  }
+}
+
+// Infinite-scroll sentinel — shown at the bottom of the face grid when
+// more pages are available. mapleVisibleOnce fires loadMoreFaces() once
+// this div enters the viewport.
+.face-load-more {
+  grid-column: 1 / -1;
+  padding: 16px 0 8px;
+  text-align: center;
+  font-family: var(--s-mono);
+  font-size: 11px;
+  color: var(--s-text-dim);
 }
 
 .face-thumb {

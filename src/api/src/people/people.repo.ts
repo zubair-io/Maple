@@ -69,7 +69,8 @@ export interface PersonDetail {
   faces: PersonDetailFace[];
 }
 
-const FACE_DETAIL_LIMIT = 50;
+export const FACE_DETAIL_LIMIT = 50;
+const FACE_DETAIL_MAX = 200;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -373,12 +374,16 @@ async function faceCountByPerson(): Promise<Map<string, number>> {
   return out;
 }
 
-/** Single person + up to 50 face thumbnails (asset_id + face_index +
- * bbox), most-recent first by `exif.captured_at`. */
+/** Single person + a page of face thumbnails (asset_id + face_index +
+ * bbox), most-recent first by `exif.captured_at`. Supports offset-based
+ * pagination via `faceOffset` + `faceLimit`. */
 export async function getPerson(
   id: ObjectId,
+  faceOffset: number = 0,
   faceLimit: number = FACE_DETAIL_LIMIT,
 ): Promise<PersonDetail | null> {
+  const clampedLimit = Math.min(Math.max(1, faceLimit), FACE_DETAIL_MAX);
+  const clampedOffset = Math.max(0, faceOffset);
   const coll = await peopleCollection();
   const person = await coll.findOne({ _id: id });
   if (!person) return null;
@@ -414,7 +419,8 @@ export async function getPerson(
       },
     },
     { $sort: { captured_at: -1, _id: 1 } },
-    { $limit: faceLimit },
+    { $skip: clampedOffset },
+    { $limit: clampedLimit },
   ]);
   const libs = await loadLibraryRoots();
   const faces: PersonDetailFace[] = [];
@@ -569,6 +575,53 @@ export async function unhidePerson(id: ObjectId): Promise<void> {
   const coll = await peopleCollection();
   await coll.updateOne({ _id: id }, { $set: { hidden: false, updated_at: nowIso() } });
   log.info({ id: id.toHexString() }, 'unhid person');
+}
+
+/**
+ * Set a specific face as the person's cover. The bbox is read server-side
+ * from the asset doc — the client never supplies coordinates. Validates that
+ * the face belongs to this person and is not hidden; returns `false` when no
+ * matching face is found so the caller can 404/400 as appropriate.
+ */
+export async function setPersonCover(
+  personId: ObjectId,
+  assetId: ObjectId,
+  faceIndex: number,
+): Promise<{ ok: true } | { error: string; status: 400 | 404 }> {
+  if (!Number.isInteger(faceIndex) || faceIndex < 0) {
+    return { error: `invalid face index: ${faceIndex}`, status: 400 };
+  }
+  const assets = await assetsCollection();
+  const asset = await assets.findOne({ _id: assetId }, { projection: { faces: 1 } });
+  if (!asset) {
+    return { error: `asset not found: ${assetId.toHexString()}`, status: 404 };
+  }
+  const faces = (asset.faces ?? []) as AssetFaceDoc[];
+  if (faceIndex >= faces.length) {
+    return {
+      error: `face index out of range: ${faceIndex} (asset has ${faces.length} faces)`,
+      status: 400,
+    };
+  }
+  const face = faces[faceIndex];
+  if (face.person_id !== personId.toHexString()) {
+    return { error: 'face does not belong to this person', status: 400 };
+  }
+  if (face.hidden === true) {
+    return { error: 'face is hidden', status: 400 };
+  }
+  const coll = await peopleCollection();
+  await coll.updateOne(
+    { _id: personId },
+    {
+      $set: { cover_asset_id: assetId.toHexString(), cover_bbox: face.bbox, updated_at: nowIso() },
+    },
+  );
+  log.info(
+    { personId: personId.toHexString(), assetId: assetId.toHexString(), faceIndex },
+    'set person cover',
+  );
+  return { ok: true };
 }
 
 /**
