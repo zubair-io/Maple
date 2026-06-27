@@ -134,6 +134,16 @@ public actor XMPSidecarStore {
 
     // MARK: Private
 
+    /// The IPTC/EXIF metadata block currently persisted in the sidecar, or nil
+    /// when none exists. Used to preserve metadata across model-only writes.
+    private func existingMetadataOnDisk() -> XmpMetadata? {
+        guard FileManager.default.fileExists(atPath: sidecarURL.path),
+              let xml = try? String(contentsOf: sidecarURL, encoding: .utf8)
+        else { return nil }
+        let metadata = XMPParser.parseMetadata(xml)
+        return metadata.isEmpty ? nil : metadata
+    }
+
     private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
         guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
             return (.default, CullingState())
@@ -156,10 +166,16 @@ public actor XMPSidecarStore {
     }
 
     private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
+        // Non-destructive: a model/culling-only write must NOT drop an existing
+        // IPTC/EXIF metadata block (e.g. one authored by the batch editor). Use
+        // the pending metadata if this write carries one, otherwise preserve
+        // whatever is already on disk. (parseMetadata of a no-metadata sidecar
+        // returns an empty struct, which we treat as "no block".)
+        let metadata = pendingMetadata ?? existingMetadataOnDisk()
+        pendingMetadata = nil
         let xml: String
-        if let m = pendingMetadata {
-            xml = XMPSerializer.serialize(model: model, culling: culling, metadata: m)
-            pendingMetadata = nil
+        if let metadata, !metadata.isEmpty {
+            xml = XMPSerializer.serialize(model: model, culling: culling, metadata: metadata)
         } else {
             xml = XMPSerializer.serialize(model: model, culling: culling)
         }
