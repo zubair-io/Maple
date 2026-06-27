@@ -281,6 +281,12 @@ extension EditSession {
         // image. `effectiveCrop` already folds in that armed/disarmed gate.
         let crop = effectiveCrop
         let applyCrop = CropImageStage.shouldApply(crop)
+        // #1617: the GPU live present crops the decoded scene-linear buffer
+        // itself (a geometry op before the f32 readback), so it opens the
+        // session at the CROPPED dims and needs the un-upscaled canvas target —
+        // the cropped buffer already IS the kept region. Capture it before the
+        // CPU-path upscale shadows `targetSize` just below.
+        let gpuTargetSize = targetSize
         // When a crop is applied the chain still develops the FULL frame and
         // `CropImageStage` trims afterward. The incoming `targetSize` is sized
         // for the CROPPED extent (the canvas/zoom anchor to `effectiveImageSize`),
@@ -356,13 +362,16 @@ extension EditSession {
                 // Returns false (CPU fallback) when off / no layer / non-RAW /
                 // readback fails. See EditSession+GpuLive.swift.
                 //
-                // #638: the GPU live path presents directly to the
-                // `CAMetalLayer` with no CIImage, so it has no hook for the
-                // CoreImage crop+straighten stage. When a crop must be
-                // applied, force the CPU path (which crops the developed
-                // CIImage below) by skipping the GPU present entirely.
-                if !applyCrop,
-                   await presentViaGpuLive(decoded: cached, targetSize: targetSize, gen: gen) {
+                // #1617: crop the decoded scene-linear buffer before the GPU
+                // readback so the live session opens at the cropped dims and
+                // presents the kept region — the GPU path no longer forces the
+                // CPU path for cropped frames (#638 lifted). `gpuTargetSize` is
+                // the un-upscaled canvas target (the cropped buffer is already
+                // the kept region). The CPU fallback below still develops the
+                // full frame and trims via `CropImageStage.apply` when the
+                // present is declined (flag off / no layer / readback fail).
+                let gpuCached = applyCrop ? CropImageStage.apply(crop, to: cached) : cached
+                if await presentViaGpuLive(decoded: gpuCached, targetSize: gpuTargetSize, gen: gen) {
                     isRendering = false
                     return
                 }
@@ -423,10 +432,10 @@ extension EditSession {
                 }
                 // wgpu live present on the fresh decode (epic #925, P4b-apple) —
                 // same runtime-gated parallel path as the cached branch above.
-                // #638: skip when a crop must be applied — the GPU present has
-                // no CIImage crop hook, so the CPU path below owns crop frames.
-                if !applyCrop,
-                   await presentViaGpuLive(decoded: decoded, targetSize: targetSize, gen: gen) {
+                // #1617: crop the decoded buffer before the GPU readback (as the
+                // cached branch) so cropped frames present on the GPU too.
+                let gpuDecoded = applyCrop ? CropImageStage.apply(crop, to: decoded) : decoded
+                if await presentViaGpuLive(decoded: gpuDecoded, targetSize: gpuTargetSize, gen: gen) {
                     isRendering = false
                     return
                 }

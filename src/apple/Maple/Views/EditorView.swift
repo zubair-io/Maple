@@ -300,13 +300,14 @@ struct EditorView: View {
 
     // MARK: - Canvas leaf helpers
 
-    private var cropApplied: Bool {
-        state.armedTool != .crop && !state.session.model.crop.isIdentity
-    }
-
     private var useGpuCanvas: Bool {
-        guard !cropApplied else { return false }
-        return FullImageViewVM.shouldPresentViaGpuCanvas(
+        // #1617: cropped frames now present via the GPU live path too — the
+        // render layer crops the decoded buffer before the readback, so the
+        // canvas no longer forces CPU for a static crop. Crop-EDITING still
+        // shows the uncropped full frame (`effectiveCrop` folds in the armed
+        // gate and `straightenAngle` drives the live rotation), which this
+        // predicate already permits.
+        FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: state.session.asset.isRaw,
             showingOriginal: state.session.showingOriginal
