@@ -114,6 +114,7 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
   face_detector_sha256: null,
   face_recognizer_url: null,
   face_recognizer_sha256: null,
+  face_min_detection_size: 0.06,
   meilisearch_url: null,
   meilisearch_api_key_set: false,
   source: {
@@ -132,6 +133,7 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
     face_detector_sha256: 'unset',
     face_recognizer_url: 'unset',
     face_recognizer_sha256: 'unset',
+    face_min_detection_size: 'default',
     meilisearch_url: 'unset',
     meilisearch_api_key: 'unset',
   },
