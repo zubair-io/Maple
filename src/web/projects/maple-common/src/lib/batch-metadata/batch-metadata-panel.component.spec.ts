@@ -191,6 +191,69 @@ describe('BatchMetadataPanel — payload building (only touched fields)', () => 
 });
 
 // ---------------------------------------------------------------------------
+// Tests: refile-offer phase transition logic
+// These mirror the onConfirm() branching rules without instantiating the
+// Angular component (pure function extractions).
+// ---------------------------------------------------------------------------
+
+/** Returns true when GPS was touched — mirrors component logic. */
+function gpsWasTouched(touched: Set<string>): boolean {
+  return touched.has('gpsLatitude') || touched.has('gpsLongitude');
+}
+
+type RefilePhaseOutcome = 'show-offer' | 'auto-dismiss';
+
+/**
+ * Mirrors the refile-offer decision: if GPS was touched and count > 0,
+ * show the offer; otherwise auto-dismiss.
+ */
+function refileOfferDecision(
+  touched: Set<string>,
+  count: number | null, // null = count fetch failed
+): RefilePhaseOutcome {
+  if (!gpsWasTouched(touched)) return 'auto-dismiss';
+  if (count === null || count === 0) return 'auto-dismiss';
+  return 'show-offer';
+}
+
+describe('BatchMetadataPanel — refile-offer phase transition', () => {
+  it('shows offer when GPS was touched and count > 0', () => {
+    const touched = new Set(['gpsLatitude', 'gpsLongitude']);
+    expect(refileOfferDecision(touched, 5)).toBe('show-offer');
+  });
+
+  it('auto-dismisses when GPS not touched even if count > 0', () => {
+    const touched = new Set(['city']);
+    expect(refileOfferDecision(touched, 5)).toBe('auto-dismiss');
+  });
+
+  it('auto-dismisses when GPS touched but count is 0', () => {
+    const touched = new Set(['gpsLatitude']);
+    expect(refileOfferDecision(touched, 0)).toBe('auto-dismiss');
+  });
+
+  it('auto-dismisses when count fetch failed (null)', () => {
+    const touched = new Set(['gpsLongitude']);
+    expect(refileOfferDecision(touched, null)).toBe('auto-dismiss');
+  });
+
+  it('shows offer when only gpsLatitude was touched and count > 0', () => {
+    const touched = new Set(['gpsLatitude']);
+    expect(refileOfferDecision(touched, 1)).toBe('show-offer');
+  });
+
+  it('shows offer when only gpsLongitude was touched and count > 0', () => {
+    const touched = new Set(['gpsLongitude']);
+    expect(refileOfferDecision(touched, 1)).toBe('show-offer');
+  });
+
+  it('auto-dismisses when touched is empty', () => {
+    const touched = new Set<string>();
+    expect(refileOfferDecision(touched, 10)).toBe('auto-dismiss');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: geocode candidate selection → field mapping
 // ---------------------------------------------------------------------------
 

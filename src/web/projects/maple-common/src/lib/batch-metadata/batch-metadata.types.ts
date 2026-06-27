@@ -174,3 +174,25 @@ export interface BatchApplyEntry {
 export interface BatchApplyResult {
   results: Array<{ path: string; ok: boolean; error?: string }>;
 }
+
+// ---------------------------------------------------------------------------
+// Refile (maps to POST /api/backup/refile-count and POST /api/backup/refile)
+// ---------------------------------------------------------------------------
+
+/** Response from POST /api/backup/refile-count */
+export interface RefileCountResult {
+  count: number;
+}
+
+/** One per-asset outcome from POST /api/backup/refile */
+export interface RefileItemResult {
+  path: string;
+  ok: boolean;
+  outcome?: string;
+  error?: string;
+}
+
+/** Response from POST /api/backup/refile */
+export interface RefileResult {
+  results: RefileItemResult[];
+}
