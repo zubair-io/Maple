@@ -943,10 +943,13 @@ export interface ApiPersonDetail {
   coverBbox: Bbox | null;
   createdAt: string;
   updatedAt: string;
-  /** Offset of this page (echoed from the server response). */
-  offset: number;
-  /** Page size used for this fetch (echoed from the server response). */
-  limit: number;
+  /** Offset of this page (echoed from the server response). Optional so
+   * direct constructions / fixtures that don't paginate stay valid;
+   * `getPerson` always populates it. */
+  offset?: number;
+  /** Page size used for this fetch (echoed from the server response).
+   * Optional for the same reason as `offset`. */
+  limit?: number;
   faces: ApiPersonFace[];
 }
 
