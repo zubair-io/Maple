@@ -540,6 +540,28 @@
                           </div>
                         </div>
                       </div>
+                      <div class="field">
+                        <div class="field-label">Minimum face size</div>
+                        <div class="num-input">
+                          <input
+                            type="number"
+                            min="0"
+                            max="0.99"
+                            step="0.01"
+                            [value]="enrichmentValue(s, 'face_min_detection_size')"
+                            (input)="
+                              setEnrichment(s, 'face_min_detection_size', $any($event.target).value)
+                            "
+                          />
+                          <span class="num-suffix">fraction of frame</span>
+                        </div>
+                        <div class="field-hint">
+                          Drop detections whose shorter bbox side is smaller than this fraction of
+                          the 640-px detection frame (0.06 ≈ 38 px). Set to 0 to disable the filter.
+                          Applies to new detections only — existing faces are unaffected without a
+                          re-detect.
+                        </div>
+                      </div>
                     </div>
                   }
 

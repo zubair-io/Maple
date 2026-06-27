@@ -238,3 +238,73 @@ describe('faceDetectHandler — thumb undecodable', () => {
     }
   });
 });
+
+// The handler reads face_min_detection_size from the DB at run time; when no
+// DB is configured (as in this test suite), loadEnrichmentConfig() returns null
+// and the resolver falls back to DEFAULT_FACE_MIN_DETECTION_SIZE (0.06).
+// Large faces (w/h ≥ 0.06) survive; tiny faces (w/h < 0.06) are dropped.
+describe('faceDetectHandler — minimum face size filter', () => {
+  function tinyDetection(): DetectedFace {
+    // Both w and h are well below the default threshold of 0.06.
+    return {
+      bbox: { x: 0.5, y: 0.5, w: 0.02, h: 0.02 },
+      confidence: 0.9,
+      landmarks: [
+        { x: 0.51, y: 0.51 },
+        { x: 0.53, y: 0.51 },
+        { x: 0.52, y: 0.52 },
+        { x: 0.51, y: 0.53 },
+        { x: 0.53, y: 0.53 },
+      ],
+    };
+  }
+
+  it('keeps faces that meet or exceed the default threshold', async () => {
+    const { root, libraryId } = setup();
+    try {
+      const { doc, thumbPath } = stageAsset(root, libraryId, 'big.dng');
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, 'stub-jpeg');
+      setDefaultFaceDetectorForTests(mockDetector([fakeDetection()]));
+      const result = await faceDetectHandler(doc, noopCtx);
+      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
+      // fakeDetection() has w=0.4, h=0.5 — both ≥ 0.06.
+      expect(faces).toHaveLength(1);
+    } finally {
+      teardown();
+    }
+  });
+
+  it('drops faces smaller than the default threshold (0.06)', async () => {
+    const { root, libraryId } = setup();
+    try {
+      const { doc, thumbPath } = stageAsset(root, libraryId, 'tiny-face.dng');
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, 'stub-jpeg');
+      // Mix: one tiny face (should be dropped) + one normal face (kept).
+      setDefaultFaceDetectorForTests(mockDetector([tinyDetection(), fakeDetection()]));
+      const result = await faceDetectHandler(doc, noopCtx);
+      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
+      // Only the normal detection survives.
+      expect(faces).toHaveLength(1);
+      expect(faces[0]!.bbox.w).toBeCloseTo(0.4);
+    } finally {
+      teardown();
+    }
+  });
+
+  it('returns empty faces when all detections are below the threshold', async () => {
+    const { root, libraryId } = setup();
+    try {
+      const { doc, thumbPath } = stageAsset(root, libraryId, 'all-tiny.dng');
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, 'stub-jpeg');
+      setDefaultFaceDetectorForTests(mockDetector([tinyDetection(), tinyDetection()]));
+      const result = await faceDetectHandler(doc, noopCtx);
+      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
+      expect(faces).toHaveLength(0);
+    } finally {
+      teardown();
+    }
+  });
+});

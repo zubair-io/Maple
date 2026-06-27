@@ -486,6 +486,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.face_model_dir = form.face_model_dir.trim() || null;
       body.face_detector_url = form.face_detector_url.trim() || null;
       body.face_detector_sha256 = form.face_detector_sha256.trim() || null;
+      const minSize = Number(form.face_min_detection_size.trim());
+      body.face_min_detection_size =
+        Number.isFinite(minSize) && minSize >= 0 && minSize < 1 ? minSize : null;
     } else if (kind === 'face-embed') {
       // Recognizer-only slice — see the face-detect note above. The model dir
       // is owned by the face-detect row, so it is deliberately not sent here.

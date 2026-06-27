@@ -159,6 +159,8 @@ export interface EnrichmentForm {
   face_detector_sha256: string;
   face_recognizer_url: string;
   face_recognizer_sha256: string;
+  /** Minimum face size as a string for the input element (normalised [0,1]). */
+  face_min_detection_size: string;
   // Meili (search index)
   meilisearch_url: string;
   // Write-only: always starts blank (the saved key is never echoed). A
@@ -213,6 +215,7 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     face_detector_sha256: ec?.face_detector_sha256 ?? '',
     face_recognizer_url: ec?.face_recognizer_url ?? '',
     face_recognizer_sha256: ec?.face_recognizer_sha256 ?? '',
+    face_min_detection_size: String(ec?.face_min_detection_size ?? 0.06),
     meilisearch_url: ec?.meilisearch_url ?? '',
     // Never seeded from the response — the key is write-only.
     meilisearch_api_key: '',
