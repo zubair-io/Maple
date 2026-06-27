@@ -1,5 +1,5 @@
 /**
- * `override-ingest` stage (#1580 — Batch Metadata M1).
+ * `sidecar-metadata-index` stage (#1580 — Batch Metadata M1).
  *
  * Reconciles `metadata_override` from the XMP sidecar, off the request path.
  * Idempotent and crash-safe: a re-run re-reads the sidecar (source of truth)
@@ -17,7 +17,7 @@
  *  8. Return `{ patch }`.
  *
  * The `POST /api/xmp/batch` route marks this stage dirty by setting
- * `stages.override-ingest.version = 0` on affected assets, causing the claim
+ * `stages.sidecar-metadata-index.version = 0` on affected assets, causing the claim
  * query to pick them up on the next poll.
  *
  * Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
@@ -34,10 +34,10 @@ import { parseYearMonth } from '../../metadata/override-resolver.ts';
 import type { MetadataOverride } from '../../db/schema.ts';
 import { coll } from '../../indexer/images.repo.ts';
 
-export const OVERRIDE_INGEST_VERSION = 1;
+export const SIDECAR_METADATA_INDEX_VERSION = 1;
 
 /** Name constant (used by batch route to find stage). */
-export const OVERRIDE_INGEST_STAGE_NAME = 'override-ingest' as const;
+export const SIDECAR_METADATA_INDEX_STAGE_NAME = 'sidecar-metadata-index' as const;
 
 // ---------------------------------------------------------------------------
 // GPS-change detection (for geocode re-trigger)
@@ -59,7 +59,7 @@ function gpsChanged(
 // Stage handler
 // ---------------------------------------------------------------------------
 
-export async function overrideIngestHandler(
+export async function sidecarMetadataIndexHandler(
   image: ImageDoc,
   ctx: StageContext,
 ): Promise<StageResult> {
@@ -147,7 +147,7 @@ export async function overrideIngestHandler(
     );
     ctx.log.info(
       { id: image._id.toHexString() },
-      'override-ingest: GPS changed, reset geocode stage',
+      'sidecar-metadata-index: GPS changed, reset geocode stage',
     );
   }
 
@@ -158,9 +158,9 @@ export async function overrideIngestHandler(
 // Stage registration
 // ---------------------------------------------------------------------------
 
-const overrideIngestStage = defineStage({
-  name: OVERRIDE_INGEST_STAGE_NAME,
-  targetVersion: OVERRIDE_INGEST_VERSION,
+const sidecarMetadataIndexStage = defineStage({
+  name: SIDECAR_METADATA_INDEX_STAGE_NAME,
+  targetVersion: SIDECAR_METADATA_INDEX_VERSION,
   dependsOn: ['exif'],
   defaults: {
     concurrency: 4,
@@ -169,11 +169,11 @@ const overrideIngestStage = defineStage({
     last_seen_target_version: 0,
     pausedOnFirstBoot: false,
   },
-  handler: overrideIngestHandler,
+  handler: sidecarMetadataIndexHandler,
 });
 
-export default overrideIngestStage;
+export default sidecarMetadataIndexStage;
 
 export async function startOverrideIngestStage(): Promise<RunStageHandle> {
-  return runStage(overrideIngestStage);
+  return runStage(sidecarMetadataIndexStage);
 }

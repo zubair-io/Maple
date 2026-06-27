@@ -1,5 +1,5 @@
 /**
- * Unit tests for the override-ingest stage handler.
+ * Unit tests for the sidecar-metadata-index stage handler.
  *
  * Uses `setLibraryRootsForTests` + a real temp directory for sidecars
  * so the handler runs real fs calls without needing MongoDB.
@@ -10,7 +10,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { ObjectId } from 'mongodb';
-import { overrideIngestHandler, OVERRIDE_INGEST_VERSION } from './override-ingest.ts';
+import { sidecarMetadataIndexHandler, SIDECAR_METADATA_INDEX_VERSION } from './sidecar-metadata-index.ts';
 import type { ImageDoc } from '../run-stage.ts';
 import type { StageContext } from '../stage-config.ts';
 import type { Logger } from 'pino';
@@ -62,7 +62,7 @@ function makeImage(overrides: Partial<ImageDoc> = {}): ImageDoc {
     color_label: '',
     indexed_at: new Date().toISOString(),
     stages: {
-      'override-ingest': {
+      'sidecar-metadata-index': {
         version: 0,
         attempts: 0,
         last_error: null,
@@ -98,7 +98,7 @@ ${nested}  </rdf:Description>
 let tmpDir: string;
 
 beforeEach(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'override-ingest-test-'));
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sidecar-metadata-index-test-'));
   // Wire the library cache to point FAKE_LIB_ID → tmpDir.
   setLibraryRootsForTests(new Map([[FAKE_LIB_ID, tmpDir]]));
 });
@@ -120,19 +120,19 @@ async function writeSidecar(xmpContent: string): Promise<ImageDoc> {
 // Skip paths
 // ---------------------------------------------------------------------------
 
-describe('overrideIngestHandler — skip paths', () => {
+describe('sidecarMetadataIndexHandler — skip paths', () => {
   test('skip: no-sidecar when sidecar does not exist', async () => {
     const rawFile = path.join(tmpDir, 'test.dng');
     await fs.writeFile(rawFile, '');
     const image = makeImage();
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result).toHaveProperty('skip', 'no-sidecar');
   });
 
   test('skip: no-metadata when sidecar has only adjustment fields', async () => {
     const xml = makeXmp('crs:Exposure2012="0.5" crs:Contrast2012="0"');
     const image = await writeSidecar(xml);
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result).toHaveProperty('skip', 'no-metadata');
   });
 });
@@ -141,11 +141,11 @@ describe('overrideIngestHandler — skip paths', () => {
 // Patch paths
 // ---------------------------------------------------------------------------
 
-describe('overrideIngestHandler — patch path', () => {
+describe('sidecarMetadataIndexHandler — patch path', () => {
   test('returns patch with metadata_override when GPS present', async () => {
     const xml = makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"');
     const image = await writeSidecar(xml);
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
@@ -162,7 +162,7 @@ describe('overrideIngestHandler — patch path', () => {
     // 2026-06-26T18:40:00+02:00 → UTC 2026-06-26T16:40:00Z → year=2026, month=6
     const xml = makeXmp('exif:DateTimeOriginal="2026-06-26T18:40:00+02:00"');
     const image = await writeSidecar(xml);
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
@@ -179,7 +179,7 @@ describe('overrideIngestHandler — patch path', () => {
     const image = await writeSidecar(xml);
     // No exif on the image doc
     (image as Partial<ImageDoc>).exif = null;
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
@@ -194,7 +194,7 @@ describe('overrideIngestHandler — patch path', () => {
   test('patch includes place_text when IPTC attrs present', async () => {
     const xml = makeXmp('photoshop:City="Paris" photoshop:Country="France"');
     const image = await writeSidecar(xml);
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
@@ -215,7 +215,7 @@ describe('overrideIngestHandler — patch path', () => {
   </dc:title>`,
     );
     const image = await writeSidecar(xml);
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
@@ -242,7 +242,7 @@ describe('overrideIngestHandler — patch path', () => {
       focal_length: null,
       gps: null,
     };
-    const result = await overrideIngestHandler(image, fakeCtx);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
@@ -258,9 +258,9 @@ describe('overrideIngestHandler — patch path', () => {
 // Version constant
 // ---------------------------------------------------------------------------
 
-describe('OVERRIDE_INGEST_VERSION', () => {
+describe('SIDECAR_METADATA_INDEX_VERSION', () => {
   test('is a positive integer', () => {
-    expect(Number.isInteger(OVERRIDE_INGEST_VERSION)).toBe(true);
-    expect(OVERRIDE_INGEST_VERSION).toBeGreaterThan(0);
+    expect(Number.isInteger(SIDECAR_METADATA_INDEX_VERSION)).toBe(true);
+    expect(SIDECAR_METADATA_INDEX_VERSION).toBeGreaterThan(0);
   });
 });

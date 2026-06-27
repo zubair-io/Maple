@@ -9,7 +9,7 @@
 1. `metadata_override` schema additions to `AssetDoc`
 2. Effective-metadata resolver (pure function, unit-tested)
 3. Server-side XMP metadata parser (Bun-compatible, no DOMParser)
-4. Polled `override-ingest` stage (reads sidecar → updates `metadata_override` → recomputes derived fields)
+4. Polled `sidecar-metadata-index` stage (reads sidecar → updates `metadata_override` → recomputes derived fields)
 5. `POST /api/xmp/batch` — bulk sidecar write + dirty-mark
 6. `GET /api/geocode/search?q=` — Nominatim forward geocode proxy
 
@@ -51,15 +51,15 @@ src/api/src/
     override-resolver.ts        NEW  effective resolver + captured_year/month recompute
     override-resolver.test.ts   NEW  unit tests (TDD)
   workers/stages/
-    override-ingest.ts          NEW  polled stage: sidecar → metadata_override → dirty geocode
-    override-ingest.test.ts     NEW  unit tests (TDD, no Mongo)
+    sidecar-metadata-index.ts          NEW  polled stage: sidecar → metadata_override → dirty geocode
+    sidecar-metadata-index.test.ts     NEW  unit tests (TDD, no Mongo)
   routes/
     xmp-batch.ts                NEW  POST /api/xmp/batch
     xmp-batch.test.ts           NEW  integration tests (temp dir + in-mem Mongo)
     geocode-search.ts           NEW  GET /api/geocode/search?q=
     geocode-search.test.ts      NEW  unit tests (mock Nominatim)
   db/schema.ts                  EDIT add MetadataOverride interface + AssetDoc.metadata_override
-  workers/stages/manifest.ts    EDIT add override-ingest stage
+  workers/stages/manifest.ts    EDIT add sidecar-metadata-index stage
   index.ts                      EDIT register xmm-batch and geocode-search routes
 ```
 
@@ -108,7 +108,7 @@ And on `AssetDoc`:
 metadata_override?: MetadataOverride | null;
 ```
 
-No migration needed — sparse subdoc, absent until written by `override-ingest`.
+No migration needed — sparse subdoc, absent until written by `sidecar-metadata-index`.
 
 ---
 
@@ -191,16 +191,16 @@ Use the serializer output from the web layer's test fixture XMP strings copied h
 
 ---
 
-### Task 5 — `override-ingest` stage
+### Task 5 — `sidecar-metadata-index` stage
 
-**Files:** `src/api/src/workers/stages/override-ingest.ts`, `override-ingest.test.ts`
+**Files:** `src/api/src/workers/stages/sidecar-metadata-index.ts`, `sidecar-metadata-index.test.ts`
 
 ```typescript
-export const OVERRIDE_INGEST_VERSION = 1;
+export const SIDECAR_METADATA_INDEX_VERSION = 1;
 
-const overrideIngestStage = defineStage({
-  name: 'override-ingest',
-  targetVersion: OVERRIDE_INGEST_VERSION,
+const sidecarMetadataIndexStage = defineStage({
+  name: 'sidecar-metadata-index',
+  targetVersion: SIDECAR_METADATA_INDEX_VERSION,
   dependsOn: ['exif'],
   defaults: {
     concurrency: 4,
@@ -209,7 +209,7 @@ const overrideIngestStage = defineStage({
     last_seen_target_version: 0,
     pausedOnFirstBoot: false,
   },
-  handler: overrideIngestHandler,
+  handler: sidecarMetadataIndexHandler,
 });
 ```
 
@@ -226,7 +226,7 @@ const overrideIngestStage = defineStage({
 9. Return `{ patch }`.
 
 **Stage dirty-mark:** the `POST /api/xmp/batch` route uses a targeted `$set` to reset
-`stages.override-ingest.version = 0` for each asset, which the claim query picks up as "needs processing".
+`stages.sidecar-metadata-index.version = 0` for each asset, which the claim query picks up as "needs processing".
 
 **Unit tests (no Mongo):** test the handler logic in isolation by injecting fake docs and asserting the returned patch.
 
@@ -253,8 +253,8 @@ Where `XmpMetadataInput` is `XmpMetadata & { keywords?: { op: 'add'|'remove'|'re
    build the metadata attr string and nested blocks and inject them into the existing sidecar, or
    create a minimal stub sidecar if none exists).
 4. `writeXmpAtomic` (atomic temp+rename).
-5. Find asset in DB by path (query `fileinfo.path` + `fileinfo.library_id`): mark override-ingest
-   stage dirty (`$set: { 'stages.override-ingest.version': 0 }`).
+5. Find asset in DB by path (query `fileinfo.path` + `fileinfo.library_id`): mark sidecar-metadata-index
+   stage dirty (`$set: { 'stages.sidecar-metadata-index.version': 0 }`).
 
 **Response:** `{ results: Array<{ path: string; ok: boolean; error?: string }> }` — per-asset
 status; partial failures don't roll back successes.
@@ -297,7 +297,7 @@ UI typeahead, not a hot path).
 
 ## Registration
 
-- `manifest.ts`: add `overrideIngestStage` to `stageManifest` + `ALL_STAGE_NAMES`.
+- `manifest.ts`: add `sidecarMetadataIndexStage` to `stageManifest` + `ALL_STAGE_NAMES`.
 - `index.ts`: import + use `xmpBatchRoutes` and `geocodeSearchRoutes`.
 
 ---
@@ -308,7 +308,7 @@ UI typeahead, not a hot path).
 # Unit tests only (fast, no MongoDB needed):
 cd src/api && bun test src/xmp/metadata-parser.test.ts
 cd src/api && bun test src/metadata/override-resolver.test.ts
-cd src/api && bun test src/workers/stages/override-ingest.test.ts
+cd src/api && bun test src/workers/stages/sidecar-metadata-index.test.ts
 cd src/api && bun test src/routes/geocode-search.test.ts
 
 # Integration tests (spins mongodb-memory-server):
@@ -322,12 +322,12 @@ cd src/api && bun test
 
 ## Notes
 
-- 600-line file budget: `override-ingest.ts` should stay under 200 lines; split handler helpers
-  into `override-ingest-helpers.ts` if needed.
+- 600-line file budget: `sidecar-metadata-index.ts` should stay under 200 lines; split handler helpers
+  into `sidecar-metadata-index-helpers.ts` if needed.
 - `resolveAndAuthorizePath` is duplicated in `routes/xmp.ts`. The batch route imports it from
   there or we extract a shared helper — prefer extraction to `src/routes/xmp-path-auth.ts` to
   avoid a circular dep and keep each file under budget.
-- The `override-ingest` stage does NOT depend on `geocode` — it runs first and then triggers
+- The `sidecar-metadata-index` stage does NOT depend on `geocode` — it runs first and then triggers
   geocode re-run. `dependsOn: ['exif']` is correct.
 - GPS change detection for geocode re-trigger: compare the parsed lat/lng from the sidecar against
   `doc.metadata_override?.gps` — if different, reset geocode stage. On first run (no existing

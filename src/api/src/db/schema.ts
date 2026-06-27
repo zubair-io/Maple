@@ -444,7 +444,7 @@ export interface AssetDoc {
   has_xmp?: boolean;
   /**
    * Sparse user-edit overlay reconciled from the XMP sidecar by the
-   * `override-ingest` stage (#1580 — Batch Metadata M1). Absent until first
+   * `sidecar-metadata-index` stage (#1580 — Batch Metadata M1). Absent until first
    * batch edit; `null` when the override has been reset.
    * `effectiveMetadata()` reads this first, then falls back to `exif.*`.
    */
@@ -1216,7 +1216,7 @@ export type ServerStateWithId = WithId<ServerStateDoc>;
 // ---------------------------------------------------------------------------
 
 /**
- * Sparse subdoc reconciled from the XMP sidecar by the `override-ingest`
+ * Sparse subdoc reconciled from the XMP sidecar by the `sidecar-metadata-index`
  * stage. Holds the search/sort/geo-relevant subset of the user's edits.
  * `asset.exif` stays immutable — this overlay is what `effectiveMetadata()`
  * reads first.
@@ -1270,7 +1270,7 @@ export interface MetadataOverride {
   /**
    * Derived effective capture year/month (from `captured_at ?? exif.captured_at`),
    * stored here — NOT under `exif.*`, which stays the immutable file-original.
-   * Populated by the override-ingest stage; search/sort read the effective value.
+   * Populated by the sidecar-metadata-index stage; search/sort read the effective value.
    */
   captured_year?: number;
   captured_month?: number;

@@ -1232,4 +1232,4 @@ no double-emit). Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-d
 
 - **M0b:** Swift XMP metadata layer (mirror `XmpMetadata`), Rust tolerance test, cross-platform **semantic** parity tests, codegen for shared constants (namespace URIs, copyright-status mapping).
 - **KTLO debt ticket:** TS↔Swift byte-canonical harmonization (papp: URI, namespace order, attribute sort, indentation).
-- **M1+:** API (`POST /api/xmp/batch`, `override-ingest` stage, `GET /api/geocode/search`, effective resolver), Web UI, Apple UI, backup re-file, video.
+- **M1+:** API (`POST /api/xmp/batch`, `sidecar-metadata-index` stage, `GET /api/geocode/search`, effective resolver), Web UI, Apple UI, backup re-file, video.
