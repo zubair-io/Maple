@@ -40,9 +40,10 @@ export interface EffectiveMetadata {
  * Returns `{ year: null, month: null }` when the string is absent or
  * un-parseable — mirrors the exif-stage's handling of bad DateTimeOriginal.
  */
-export function parseYearMonth(
-  isoString: string | null | undefined,
-): { year: number | null; month: number | null } {
+export function parseYearMonth(isoString: string | null | undefined): {
+  year: number | null;
+  month: number | null;
+} {
   if (!isoString) return { year: null, month: null };
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return { year: null, month: null };
@@ -73,7 +74,9 @@ export function effectiveMetadata(
   // When no override is present, fall back to exif.gps.
   const overrideHasGps = override !== null && 'gps' in override;
   const gps: { lat: number; lng: number } | null = overrideHasGps
-    ? (override!.gps ? { lat: override!.gps.lat, lng: override!.gps.lng } : null)
+    ? override!.gps
+      ? { lat: override!.gps.lat, lng: override!.gps.lng }
+      : null
     : (exif?.gps ?? null);
 
   return {

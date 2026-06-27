@@ -52,8 +52,6 @@ export interface XmpMetadataResult {
 // Decode helpers (copied from xmp-metadata.ts — pure math, no browser deps)
 // ---------------------------------------------------------------------------
 
-type GpsAxis = 'lat' | 'lon';
-
 /** Decode `DDD,MM.mmmm{N|S|E|W}` → signed decimal degrees; `null` if malformed. */
 function gpsFromXmp(s: string): number | null {
   const m = /^(\d+),(\d+(?:\.\d+)?)([NSEW])$/.exec(s.trim());
@@ -81,7 +79,9 @@ const MARKED_TO_COPYRIGHT: Record<string, 'copyrighted' | 'public-domain'> = {
 };
 
 /** Map `xmpRights:Marked` value to tri-state; `null` for absent/unrecognised. */
-function copyrightStatusFromMarked(marked: string | null): 'unknown' | 'copyrighted' | 'public-domain' | null {
+function copyrightStatusFromMarked(
+  marked: string | null,
+): 'unknown' | 'copyrighted' | 'public-domain' | null {
   if (marked === null) return null;
   return MARKED_TO_COPYRIGHT[marked] ?? null;
 }
@@ -102,9 +102,10 @@ function copyrightStatusFromMarked(marked: string | null): 'unknown' | 'copyrigh
 function extractAttributes(xml: string): Map<string, string> {
   // Find the rdf:Description opening tag (or the root element if no wrapper).
   // The tag may span multiple lines due to pretty-printing.
-  const descMatch = /<rdf:Description([^>]*(?:>[^<]*<[^>]+>[^>]*)*)?>/.exec(xml) ??
+  const descMatch =
+    /<rdf:Description([^>]*(?:>[^<]*<[^>]+>[^>]*)*)?>/.exec(xml) ??
     /<Description([^>]*)>/.exec(xml);
-  const attrStr = descMatch ? descMatch[1] ?? '' : xml;
+  const attrStr = descMatch ? (descMatch[1] ?? '') : xml;
 
   const attrs = new Map<string, string>();
   // Match name="value" pairs; value may contain escaped entities but not unescaped quotes.
@@ -140,7 +141,10 @@ function unescapeXml(s: string): string {
 function extractNestedText(xml: string, tagName: string): string | undefined {
   // Match: <tagName[attrs]>...<rdf:li[attrs]>text</rdf:li>...</tagName>
   // The `s` (dotAll) flag lets `.` match newlines for multi-line XML.
-  const blockRe = new RegExp(`<${tagName}[\\s>][\\s\\S]*?<rdf:li[^>]*>([\\s\\S]*?)<\\/rdf:li>`, 's');
+  const blockRe = new RegExp(
+    `<${tagName}[\\s>][\\s\\S]*?<rdf:li[^>]*>([\\s\\S]*?)<\\/rdf:li>`,
+    's',
+  );
   const m = blockRe.exec(xml);
   if (!m) return undefined;
   const text = unescapeXml(m[1]).trim();

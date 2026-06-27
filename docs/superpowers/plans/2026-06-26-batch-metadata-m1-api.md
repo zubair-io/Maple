@@ -72,9 +72,10 @@ src/api/src/
 **File:** `src/api/src/db/schema.ts`
 
 Add to `AssetDoc`:
+
 ```typescript
 export interface MetadataOverride {
-  edited_at: string;                  // ISO 8601
+  edited_at: string; // ISO 8601
   touched_fields: string[];
   gps?: { lat: number; lng: number; alt?: number } | null;
   captured_at?: string | null;
@@ -102,6 +103,7 @@ export interface MetadataOverride {
 ```
 
 And on `AssetDoc`:
+
 ```typescript
 metadata_override?: MetadataOverride | null;
 ```
@@ -120,6 +122,7 @@ where `XmpMetadataResult` mirrors `XmpMetadata` from the web layer (same field n
 semantics), plus `keywords: string[]`.
 
 **Algorithm:**
+
 1. Extract `rdf:Description` element (or the whole XML if no wrapper) — regex on `<rdf:Description[^>]*>`.
 2. Pull attribute string from the opening tag: regex `/ ([\w:.-]+)="([^"]*)"/g`
 3. Map attribute names → field values using the same lookup table as the web parser.
@@ -130,6 +133,7 @@ semantics), plus `keywords: string[]`.
 **Decode functions copied from `xmp-metadata.ts`:** `gpsFromXmp`, `altitudeFromXmp`, `copyrightStatusFromMarked`.
 
 **Test cases (minimal, exact XMP snippets):**
+
 - GPS latitude/longitude/altitude round-trip
 - dateTimeOriginal, timeZone (papp:TimeZone)
 - Sublocation, city, state, country, countryCode (IPTC text attrs)
@@ -158,7 +162,9 @@ export interface EffectiveMetadata {
   place_text: MetadataOverride['place_text'];
 }
 
-export function effectiveMetadata(doc: Pick<AssetDoc, 'exif' | 'metadata_override'>): EffectiveMetadata;
+export function effectiveMetadata(
+  doc: Pick<AssetDoc, 'exif' | 'metadata_override'>,
+): EffectiveMetadata;
 ```
 
 Rule: `override.field ?? exif.field ?? null`.
@@ -168,6 +174,7 @@ string). GPS uses `{lat, lng}` only (altitude stays in the override for the batc
 `exif.gps`).
 
 **Test cases:**
+
 - No override: returns exif values
 - Override GPS: returns override GPS, exif captured_at
 - Override captured_at: returns new year/month derived from it
@@ -195,12 +202,19 @@ const overrideIngestStage = defineStage({
   name: 'override-ingest',
   targetVersion: OVERRIDE_INGEST_VERSION,
   dependsOn: ['exif'],
-  defaults: { concurrency: 4, maxAttempts: 3, paused: false, last_seen_target_version: 0, pausedOnFirstBoot: false },
+  defaults: {
+    concurrency: 4,
+    maxAttempts: 3,
+    paused: false,
+    last_seen_target_version: 0,
+    pausedOnFirstBoot: false,
+  },
   handler: overrideIngestHandler,
 });
 ```
 
 **Handler algorithm:**
+
 1. Resolve asset's sidecar path via `assetAbsPath` + `xmpSidecarPath`.
 2. Read sidecar (ENOENT → `{ skip: 'no-sidecar' }`).
 3. Parse with `parseXmpMetadata`.
@@ -230,6 +244,7 @@ Body: JSON { entries: Array<{ path: string; metadata: XmpMetadataInput }> }
 Where `XmpMetadataInput` is `XmpMetadata & { keywords?: { op: 'add'|'remove'|'replace'; values: string[] } }`.
 
 **Per-entry algorithm:**
+
 1. `resolveAndAuthorizePath(entry.path)` — reuse the same helper from `routes/xmp.ts` (extract to
    shared module `routes/xmp-path-auth.ts` or import directly).
 2. Read existing sidecar (or start with empty stub).
@@ -262,12 +277,13 @@ Proxies Nominatim `/search?q=...&format=jsonv2&addressdetails=1&limit=5`.
 Add `search(q: string): Promise<NominatimSearchResult[]>` method to `NominatimClient`.
 
 Response shape:
+
 ```typescript
 interface GeocodeSuggestion {
   displayName: string;
   lat: number;
   lon: number;
-  address: NominatimAddress;   // same shape as place-parser's PlaceAddress
+  address: NominatimAddress; // same shape as place-parser's PlaceAddress
 }
 ```
 

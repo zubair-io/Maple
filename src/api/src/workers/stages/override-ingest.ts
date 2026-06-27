@@ -23,7 +23,6 @@
  * Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
  */
 
-import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
@@ -31,7 +30,7 @@ import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { parseXmpMetadata, xmpMetadataToOverridePatch } from '../../xmp/metadata-parser.ts';
-import { parseYearMonth, effectiveMetadata } from '../../metadata/override-resolver.ts';
+import { parseYearMonth } from '../../metadata/override-resolver.ts';
 import type { MetadataOverride } from '../../db/schema.ts';
 import { coll } from '../../indexer/images.repo.ts';
 
