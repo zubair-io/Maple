@@ -16,9 +16,10 @@
 
   <div class="field-hint">
     Remove faces already in the library whose bounding box is below the current
-    <span class="mono">Minimum face size</span>. This does <strong>not</strong> re-detect and does
-    <strong>not</strong> touch your assignments or merges — manually-assigned and hidden tiny faces
-    are preserved by default.
+    <span class="mono">Minimum face size</span>. This does <strong>not</strong> re-detect. By
+    default it removes only <strong>unassigned</strong> tiny faces; faces assigned to a person and
+    hidden faces are kept. Removing a face never changes any other face's assignment —
+    <span class="mono">person_id</span> lives on each face object.
   </div>
 
   @if (error()) {
@@ -42,7 +43,7 @@
         }}</span>
       </div>
       <div class="report-row">
-        <span class="report-label">Manually assigned (preserved by default)</span>
+        <span class="report-label">Assigned to a person (preserved by default)</span>
         <span class="report-value mono" data-testid="face-purge-assigned">{{
           a.subThresholdFaces.assigned
         }}</span>
@@ -62,17 +63,24 @@
     </div>
 
     <div class="purge-apply">
-      <label class="purge-check">
-        <input
-          type="checkbox"
-          data-testid="face-purge-include-assigned"
-          aria-label="Also remove manually-assigned tiny faces"
-          [checked]="includeAssigned()"
-          [disabled]="busy()"
-          (change)="includeAssigned.set($any($event.target).checked)"
-        />
-        <span>Also remove manually-assigned tiny faces</span>
-      </label>
+      <div class="purge-opt-in">
+        <label class="purge-check">
+          <input
+            type="checkbox"
+            data-testid="face-purge-include-assigned"
+            aria-label="Also remove tiny faces that are assigned to a person"
+            [checked]="includeAssigned()"
+            [disabled]="busy()"
+            (change)="includeAssigned.set($any($event.target).checked)"
+          />
+          <span>Also remove tiny faces that are assigned to a person</span>
+        </label>
+        <div class="purge-check-hint" data-testid="face-purge-include-assigned-hint">
+          Includes faces you labeled by hand AND faces auto-grouping assigned — these can't be told
+          apart. Off by default; unassigned tiny faces are always removed, hidden faces are always
+          kept.
+        </div>
+      </div>
       <button
         type="button"
         class="purge-btn purge-btn-danger"
