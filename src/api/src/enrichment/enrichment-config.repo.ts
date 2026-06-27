@@ -46,6 +46,19 @@ export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
 export const MIN_NOMINATIM_RATE_LIMIT_PER_SEC = 0.1;
 export const MAX_NOMINATIM_RATE_LIMIT_PER_SEC = 100;
 
+/** Default minimum face size, as a fraction of the 640-px detection frame.
+ * A detection whose shorter bbox side is below this threshold is dropped
+ * before persisting — upscaling such tiny crops to 112×112 for the ArcFace
+ * recogniser yields garbage embeddings that pollute people-clustering.
+ * 0.06 ≈ 38 px on the 640-px input. Operators can lower to 0 to disable
+ * the gate entirely, or raise it to filter out faces too small to cluster
+ * reliably. */
+export const DEFAULT_FACE_MIN_DETECTION_SIZE = 0.06;
+/** Must be in [0, 1). Zero disables the filter; one would drop every
+ * detection, so the upper bound is exclusive — the route rejects >= 1. */
+export const MIN_FACE_MIN_DETECTION_SIZE = 0;
+export const MAX_FACE_MIN_DETECTION_SIZE = 1;
+
 /** Defaults for the describe worker. The local Ollama default keeps Maple's
  * Self Hosted deploy working out of the box without an API key. */
 export const DEFAULT_DESCRIBE_PROVIDER: DescribeProviderName = 'ollama';
@@ -146,6 +159,10 @@ export interface EnrichmentConfig {
   face_detector_sha256?: string | null;
   face_recognizer_url?: string | null;
   face_recognizer_sha256?: string | null;
+  /** Minimum face size filter (normalised [0, 1] on the 640-px detection
+   * frame). Detections whose shorter bbox side is below this value are
+   * dropped before persisting. `null`/missing → DEFAULT_FACE_MIN_DETECTION_SIZE. */
+  face_min_detection_size?: number | null;
   /** Legacy field names — reader uses them as fallback for the new names;
    * writer never sets them. Kept on the type so DB rows written by the v1
    * face pipeline still round-trip cleanly. Operators upgrading should
@@ -278,6 +295,9 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   if (remapped.face_recognizer_sha256 !== undefined) {
     set['config.face_recognizer_sha256'] = remapped.face_recognizer_sha256;
   }
+  if (remapped.face_min_detection_size !== undefined) {
+    set['config.face_min_detection_size'] = remapped.face_min_detection_size;
+  }
   if (remapped.meilisearch_url !== undefined) {
     set['config.meilisearch_url'] = remapped.meilisearch_url;
   }
@@ -320,6 +340,10 @@ export interface ResolvedEnrichmentConfig {
   /** Resolved face-recognizer (ArcFace R100) download URL. */
   face_recognizer_url: string | null;
   face_recognizer_sha256: string | null;
+  /** Resolved minimum face-size threshold (DB → default). Always a number.
+   * The face-detect stage drops any bbox whose shorter side is below this
+   * value (normalised [0, 1] on the 640-px detection frame). */
+  face_min_detection_size: number;
   /** Resolved Meilisearch sidecar URL (DB → env → null). `null` leaves the
    * sidecar disabled and search falls back to the Mongo `$text` path. */
   meilisearch_url: string | null;
@@ -344,6 +368,7 @@ export interface ResolvedEnrichmentConfig {
     face_detector_sha256: 'db' | 'env' | 'unset';
     face_recognizer_url: 'db' | 'env' | 'unset';
     face_recognizer_sha256: 'db' | 'env' | 'unset';
+    face_min_detection_size: 'db' | 'default';
     meilisearch_url: 'db' | 'env' | 'unset';
     meilisearch_api_key: 'db' | 'env' | 'unset';
   };
@@ -543,6 +568,21 @@ export function resolveEnrichmentConfig(
   const meilisearchUrl = resolveStr(db?.meilisearch_url, env.MAPLE_MEILISEARCH_URL);
   const meilisearchApiKey = resolveStr(db?.meilisearch_api_key, env.MAPLE_MEILISEARCH_API_KEY);
 
+  // Minimum face size — DB-only (no env var); falls back to built-in default.
+  let faceMinDetectionSize = DEFAULT_FACE_MIN_DETECTION_SIZE;
+  let faceMinDetectionSizeSource: ResolvedEnrichmentConfig['source']['face_min_detection_size'] =
+    'default';
+  if (
+    db &&
+    typeof db.face_min_detection_size === 'number' &&
+    Number.isFinite(db.face_min_detection_size) &&
+    db.face_min_detection_size >= MIN_FACE_MIN_DETECTION_SIZE &&
+    db.face_min_detection_size < MAX_FACE_MIN_DETECTION_SIZE
+  ) {
+    faceMinDetectionSize = db.face_min_detection_size;
+    faceMinDetectionSizeSource = 'db';
+  }
+
   return {
     nominatim_url: url,
     geocode_worker_enabled: enabled,
@@ -559,6 +599,7 @@ export function resolveEnrichmentConfig(
     face_detector_sha256: faceDetectorSha.value,
     face_recognizer_url: faceRecognizerUrl.value,
     face_recognizer_sha256: faceRecognizerSha.value,
+    face_min_detection_size: faceMinDetectionSize,
     meilisearch_url: meilisearchUrl.value,
     meilisearch_api_key: meilisearchApiKey.value,
     source: {
@@ -577,6 +618,7 @@ export function resolveEnrichmentConfig(
       face_detector_sha256: faceDetectorSha.source,
       face_recognizer_url: faceRecognizerUrl.source,
       face_recognizer_sha256: faceRecognizerSha.source,
+      face_min_detection_size: faceMinDetectionSizeSource,
       meilisearch_url: meilisearchUrl.source,
       meilisearch_api_key: meilisearchApiKey.source,
     },

@@ -234,6 +234,48 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(dbWins.meilisearch_api_key).toBe('db-key');
     expect(dbWins.source.meilisearch_api_key).toBe('db');
   });
+
+  it('face_min_detection_size defaults to 0.06 when no DB row', () => {
+    const r = resolveEnrichmentConfig(null, {});
+    expect(r.face_min_detection_size).toBeCloseTo(0.06);
+    expect(r.source.face_min_detection_size).toBe('default');
+  });
+
+  it('face_min_detection_size DB row wins over default', () => {
+    const r = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, face_min_detection_size: 0.1 },
+      {},
+    );
+    expect(r.face_min_detection_size).toBeCloseTo(0.1);
+    expect(r.source.face_min_detection_size).toBe('db');
+  });
+
+  it('face_min_detection_size accepts 0 to disable the filter', () => {
+    const r = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, face_min_detection_size: 0 },
+      {},
+    );
+    expect(r.face_min_detection_size).toBe(0);
+    expect(r.source.face_min_detection_size).toBe('db');
+  });
+
+  it('face_min_detection_size DB null falls through to default', () => {
+    const r = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, face_min_detection_size: null },
+      {},
+    );
+    expect(r.face_min_detection_size).toBeCloseTo(0.06);
+    expect(r.source.face_min_detection_size).toBe('default');
+  });
+
+  it('face_min_detection_size rejects DB value >= 1 (falls through to default)', () => {
+    const r = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, face_min_detection_size: 1 },
+      {},
+    );
+    expect(r.face_min_detection_size).toBeCloseTo(0.06);
+    expect(r.source.face_min_detection_size).toBe('default');
+  });
 });
 
 describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () => {
@@ -335,5 +377,28 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
     const c = await loadEnrichmentConfig();
     expect(c!.face_detector_url).toBe('http://new.lan/scrfd_10g.onnx');
     expect(c!.face_recognizer_url).toBe('http://new.lan/arcface.onnx');
+  });
+
+  it('face_min_detection_size round-trips through save/load', async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({
+      nominatim_url: null,
+      geocode_worker_enabled: true,
+      face_min_detection_size: 0.08,
+    });
+    const c = await loadEnrichmentConfig();
+    expect(c!.face_min_detection_size).toBeCloseTo(0.08);
+  });
+
+  it('can clear face_min_detection_size back to null', async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({
+      nominatim_url: null,
+      geocode_worker_enabled: true,
+      face_min_detection_size: 0.08,
+    });
+    await saveEnrichmentConfig({ face_min_detection_size: null });
+    const c = await loadEnrichmentConfig();
+    expect(c!.face_min_detection_size).toBeNull();
   });
 });
