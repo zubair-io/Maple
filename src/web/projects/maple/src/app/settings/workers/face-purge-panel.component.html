@@ -1,0 +1,103 @@
+<div class="face-purge" data-testid="face-purge-panel">
+  <div class="purge-head">
+    <div class="purge-title">Sub-threshold face cleanup</div>
+    <button
+      type="button"
+      class="purge-btn"
+      data-testid="face-purge-audit"
+      [disabled]="busy()"
+      [attr.aria-busy]="state() === 'auditing'"
+      aria-label="Audit existing sub-threshold faces"
+      (click)="runAudit()"
+    >
+      {{ state() === 'auditing' ? 'Auditing…' : 'Audit' }}
+    </button>
+  </div>
+
+  <div class="field-hint">
+    Remove faces already in the library whose bounding box is below the current
+    <span class="mono">Minimum face size</span>. This does <strong>not</strong> re-detect and does
+    <strong>not</strong> touch your assignments or merges — manually-assigned and hidden tiny faces
+    are preserved by default.
+  </div>
+
+  @if (error()) {
+    <div class="purge-error" data-testid="face-purge-error" role="alert">
+      {{ error() }}
+    </div>
+  }
+
+  @if (audit(); as a) {
+    <div class="purge-report" data-testid="face-purge-report">
+      <div class="report-row">
+        <span class="report-label">Total tiny faces</span>
+        <span class="report-value mono" data-testid="face-purge-total">{{
+          a.subThresholdFaces.total
+        }}</span>
+      </div>
+      <div class="report-row">
+        <span class="report-label">Unassigned (removable)</span>
+        <span class="report-value mono" data-testid="face-purge-unassigned">{{
+          a.subThresholdFaces.unassigned
+        }}</span>
+      </div>
+      <div class="report-row">
+        <span class="report-label">Manually assigned (preserved by default)</span>
+        <span class="report-value mono" data-testid="face-purge-assigned">{{
+          a.subThresholdFaces.assigned
+        }}</span>
+      </div>
+      <div class="report-row">
+        <span class="report-label">Hidden (always preserved)</span>
+        <span class="report-value mono" data-testid="face-purge-hidden">{{
+          a.subThresholdFaces.hidden
+        }}</span>
+      </div>
+      <div class="report-row">
+        <span class="report-label">People affected</span>
+        <span class="report-value mono" data-testid="face-purge-people">{{
+          a.affectedPeople.length
+        }}</span>
+      </div>
+    </div>
+
+    <div class="purge-apply">
+      <label class="purge-check">
+        <input
+          type="checkbox"
+          data-testid="face-purge-include-assigned"
+          aria-label="Also remove manually-assigned tiny faces"
+          [checked]="includeAssigned()"
+          [disabled]="busy()"
+          (change)="includeAssigned.set($any($event.target).checked)"
+        />
+        <span>Also remove manually-assigned tiny faces</span>
+      </label>
+      <button
+        type="button"
+        class="purge-btn purge-btn-danger"
+        data-testid="face-purge-apply"
+        [disabled]="!canApply()"
+        [attr.aria-busy]="state() === 'applying'"
+        aria-label="Apply sub-threshold face purge"
+        (click)="apply()"
+      >
+        {{
+          state() === 'applying'
+            ? 'Applying…'
+            : 'Remove ' + removableCount() + ' tiny ' + (removableCount() === 1 ? 'face' : 'faces')
+        }}
+      </button>
+    </div>
+
+    @if (lastApplied(); as applied) {
+      <div class="purge-success" data-testid="face-purge-success" role="status">
+        Removed {{ applied.facesRemoved }}
+        {{ applied.facesRemoved === 1 ? 'face' : 'faces' }} across {{ applied.assetsUpdated }}
+        {{ applied.assetsUpdated === 1 ? 'asset' : 'assets' }}; recomputed counts for
+        {{ applied.personCountsRecomputed }}
+        {{ applied.personCountsRecomputed === 1 ? 'person' : 'people' }}.
+      </div>
+    }
+  }
+</div>
