@@ -1,0 +1,219 @@
+/**
+ * Integration tests for POST /api/xmp/batch.
+ *
+ * Uses a real temp directory for sidecar files. MongoDB calls from
+ * markOverrideIngestDirty are allowed to fail (they're best-effort),
+ * so we don't need a live Mongo for the core sidecar-write path.
+ */
+
+import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { Elysia } from 'elysia';
+import { xmpBatchRoutes } from './xmp-batch.ts';
+import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
+
+// Isolate the shared db-client singleton to a unique test DB and reset it
+// around this file, so markOverrideIngestDirty's Mongo touch neither writes
+// the real `maple` DB nor leaves the singleton connected for later test files
+// (mirrors the convention in folder.test.ts / imports/repo.test.ts).
+process.env.MAPLE_MONGO_DB = `maple_test_xmp_batch_${process.pid}`;
+beforeAll(async () => {
+  await (await import('../db/client.ts')).closeDb();
+});
+afterAll(async () => {
+  await (await import('../db/client.ts')).closeDb();
+});
+
+// ---------------------------------------------------------------------------
+// Test app
+// ---------------------------------------------------------------------------
+
+const app = new Elysia().use(xmpBatchRoutes);
+
+// ---------------------------------------------------------------------------
+// Temp dir setup
+// ---------------------------------------------------------------------------
+
+let tmpDir: string;
+const originalMapleRoots = process.env.MAPLE_ROOTS;
+
+beforeEach(async () => {
+  // realpath the temp dir: on macOS os.tmpdir() is under /var → /private/var
+  // symlink, and writeXmpAtomic realpaths before its root check, so an
+  // un-realpath'd MAPLE_ROOTS would look "outside" the registered root.
+  tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xmp-batch-test-')));
+  process.env.MAPLE_ROOTS = tmpDir;
+});
+
+afterEach(async () => {
+  if (originalMapleRoots !== undefined) {
+    process.env.MAPLE_ROOTS = originalMapleRoots;
+  } else {
+    delete process.env.MAPLE_ROOTS;
+  }
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function post(body: unknown): Promise<Response> {
+  return app.handle(
+    new Request('http://localhost/api/xmp/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+function rawPath(filename: string): string {
+  return path.join(tmpDir, filename);
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('POST /api/xmp/batch', () => {
+  test('returns 400 for empty entries array', async () => {
+    const res = await post({ entries: [] });
+    expect(res.status).toBe(400);
+  });
+
+  test('returns 400 for entries exceeding limit', async () => {
+    const entries = Array.from({ length: 1001 }, (_, i) => ({
+      path: rawPath(`img${i}.dng`),
+      metadata: { city: 'Paris' },
+    }));
+    const res = await post({ entries });
+    expect(res.status).toBe(400);
+  });
+
+  test('writes sidecar for a new file with GPS', async () => {
+    const rawFile = rawPath('test.dng');
+    await fs.writeFile(rawFile, '');
+
+    const res = await post({
+      entries: [
+        {
+          path: rawFile,
+          metadata: { gpsLatitude: 48.8566, gpsLongitude: 2.3522, city: 'Paris' },
+        },
+      ],
+    });
+
+    // Status 200 (all succeeded)
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].ok).toBe(true);
+
+    // Sidecar was written
+    const sidecarPath = rawPath('test.xmp');
+    const xml = await fs.readFile(sidecarPath, 'utf-8');
+    const parsed = parseXmpMetadata(xml);
+    expect(parsed.gpsLatitude).toBeCloseTo(48.8566, 3);
+    expect(parsed.gpsLongitude).toBeCloseTo(2.3522, 3);
+    expect(parsed.city).toBe('Paris');
+  });
+
+  test('merges metadata into existing sidecar without destroying adjustment fields', async () => {
+    const rawFile = rawPath('existing.dng');
+    const sidecarFile = rawPath('existing.xmp');
+    await fs.writeFile(rawFile, '');
+    await fs.writeFile(
+      sidecarFile,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+   xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:Exposure2012="0.75"
+   crs:HasSettings="True">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`,
+    );
+
+    const res = await post({
+      entries: [{ path: rawFile, metadata: { title: 'Summer Trip', city: 'Rome' } }],
+    });
+
+    expect(res.status).toBe(200);
+    const sidecarXml = await fs.readFile(sidecarFile, 'utf-8');
+    // Adjustment field preserved
+    expect(sidecarXml).toContain('crs:Exposure2012="0.75"');
+    // New metadata injected
+    const parsed = parseXmpMetadata(sidecarXml);
+    expect(parsed.title).toBe('Summer Trip');
+    expect(parsed.city).toBe('Rome');
+  });
+
+  test('returns 403 for path outside library root', async () => {
+    const res = await post({
+      entries: [{ path: '/etc/passwd', metadata: { city: 'Paris' } }],
+    });
+    // Either 207 with ok:false or 200 with ok:false for that entry
+    const body = await res.json();
+    const result = body.results[0];
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/not inside|cannot authorise/i);
+  });
+
+  test('handles batch of multiple entries', async () => {
+    const files = ['a.dng', 'b.dng', 'c.dng'];
+    await Promise.all(files.map((f) => fs.writeFile(rawPath(f), '')));
+
+    const entries = files.map((f) => ({
+      path: rawPath(f),
+      metadata: { city: 'London' },
+    }));
+
+    const res = await post({ entries });
+    const body = await res.json();
+    expect(body.results).toHaveLength(3);
+    expect(body.results.every((r: { ok: boolean }) => r.ok)).toBe(true);
+
+    // All sidecars written
+    for (const f of files) {
+      const xml = await fs.readFile(rawPath(f.replace('.dng', '.xmp')), 'utf-8');
+      expect(parseXmpMetadata(xml).city).toBe('London');
+    }
+  });
+
+  test('partial failure: bad path returns ok:false, good path returns ok:true', async () => {
+    const goodFile = rawPath('good.dng');
+    await fs.writeFile(goodFile, '');
+
+    const res = await post({
+      entries: [
+        { path: '/outside/the/root/bad.dng', metadata: { city: 'Paris' } },
+        { path: goodFile, metadata: { city: 'London' } },
+      ],
+    });
+
+    // 207 for partial failure
+    expect(res.status).toBe(207);
+    const body = await res.json();
+    expect(body.results[0].ok).toBe(false);
+    expect(body.results[1].ok).toBe(true);
+  });
+
+  test('writes keywords bag', async () => {
+    const rawFile = rawPath('keywords.dng');
+    await fs.writeFile(rawFile, '');
+
+    const res = await post({
+      entries: [{ path: rawFile, metadata: { keywords: ['travel', 'france'] } }],
+    });
+
+    expect(res.status).toBe(200);
+    const xml = await fs.readFile(rawPath('keywords.xmp'), 'utf-8');
+    const parsed = parseXmpMetadata(xml);
+    expect(parsed.keywords).toEqual(['travel', 'france']);
+  });
+});

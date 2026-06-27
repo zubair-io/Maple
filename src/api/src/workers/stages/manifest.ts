@@ -18,6 +18,7 @@ import faceEmbedStage from './face-embed.ts';
 import describeStage from './describe.ts';
 import geocodeStage from './geocode.ts';
 import meiliStage from './meili.ts';
+import overrideIngestStage from './override-ingest.ts';
 
 export const stageManifest = [
   exifStage,
@@ -28,6 +29,7 @@ export const stageManifest = [
   describeStage,
   geocodeStage,
   meiliStage,
+  overrideIngestStage,
 ];
 
 export const ALL_STAGE_NAMES = [
@@ -39,6 +41,7 @@ export const ALL_STAGE_NAMES = [
   'describe',
   'geocode',
   'meili',
+  'override-ingest',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];
