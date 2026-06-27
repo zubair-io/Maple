@@ -1,0 +1,541 @@
+@if (visible()) {
+  <div
+    class="bm-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Edit metadata"
+    (click)="onBackdropClick()"
+  >
+    <div class="bm-card" (click)="$event.stopPropagation()">
+      <!-- Header -->
+      <div class="bm-header">
+        <span class="bm-title">
+          Edit Metadata
+          @if (assetCount() > 0) {
+            <span class="bm-count">({{ assetCount() }})</span>
+          }
+        </span>
+        @if (phase() !== 'applying') {
+          <button type="button" class="bm-close" aria-label="Close" (click)="onClose()">✕</button>
+        }
+      </div>
+
+      <!-- Error state -->
+      @if (phase() === 'error') {
+        <div class="bm-body bm-center">
+          <p class="bm-error-msg">{{ errorMessage() }}</p>
+          <div class="bm-footer">
+            <button type="button" class="bm-btn bm-btn-ghost" (click)="onClose()">Close</button>
+          </div>
+        </div>
+      }
+
+      <!-- Confirm / applying / done state -->
+      @if (confirmVisible()) {
+        <div class="bm-body">
+          <app-batch-metadata-confirm-dialog
+            [visible]="confirmVisible()"
+            [assetCount]="assetCount()"
+            [touchedFields]="touchedFieldLabels()"
+            [applying]="applying()"
+            [errors]="applyErrors()"
+            (confirm)="onConfirm()"
+            (cancel)="onConfirmCancel()"
+          />
+        </div>
+      }
+
+      <!-- Form state -->
+      @if (phase() === 'form') {
+        <div class="bm-body">
+          <!-- ── Section: Capture ───────────────────────────────────────── -->
+          <section class="bm-section">
+            <h3 class="bm-section-title">Capture</h3>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-datetime">Date / Time</label>
+              <input
+                id="bm-datetime"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().dateTimeOriginal === MIXED && touched().size === 0"
+                [placeholder]="
+                  mixed().dateTimeOriginal === MIXED
+                    ? '(mixed)'
+                    : 'ISO-8601 e.g. 2026-06-26T18:40:00+02:00'
+                "
+                [value]="dateTimeOriginalVal()"
+                (input)="
+                  dateTimeOriginalVal.set($any($event.target).value);
+                  onFieldChange('dateTimeOriginal')
+                "
+              />
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-timezone">Time Zone (IANA or offset)</label>
+              <input
+                id="bm-timezone"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().timeZone === MIXED && !touched().has('timeZone')"
+                [placeholder]="
+                  mixed().timeZone === MIXED ? '(mixed)' : 'e.g. Europe/Paris or +02:00'
+                "
+                [value]="timeZoneVal()"
+                (input)="timeZoneVal.set($any($event.target).value); onFieldChange('timeZone')"
+              />
+            </div>
+          </section>
+
+          <!-- ── Section: GPS / Location ────────────────────────────────── -->
+          <section class="bm-section">
+            <h3 class="bm-section-title">GPS Location</h3>
+
+            <!-- Address search -->
+            <div class="bm-field">
+              <label class="bm-label" for="bm-geocode">Search by address</label>
+              <input
+                id="bm-geocode"
+                type="text"
+                class="bm-input"
+                placeholder="Type an address…"
+                [value]="geocodeQuery()"
+                (input)="onGeocodeQueryInput($any($event.target).value)"
+              />
+              @if (geocodeLoading()) {
+                <span class="bm-hint">Searching…</span>
+              }
+              @if (geocodeCandidates().length > 0) {
+                <ul class="bm-candidates" role="listbox" aria-label="Address suggestions">
+                  @for (c of geocodeCandidates(); track c.displayName) {
+                    <li
+                      class="bm-candidate"
+                      role="option"
+                      tabindex="0"
+                      (click)="onGeocodeSelect(c)"
+                      (keydown.enter)="onGeocodeSelect(c)"
+                    >
+                      {{ c.displayName }}
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+
+            <!-- Manual coords -->
+            <div class="bm-row">
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-lat">Latitude</label>
+                <input
+                  id="bm-lat"
+                  type="number"
+                  step="any"
+                  class="bm-input"
+                  [class.is-mixed]="mixed().gpsLatitude === MIXED && !touched().has('gpsLatitude')"
+                  [placeholder]="mixed().gpsLatitude === MIXED ? '(mixed)' : ''"
+                  [value]="gpsLatitudeVal()"
+                  (input)="
+                    gpsLatitudeVal.set($any($event.target).value); onFieldChange('gpsLatitude')
+                  "
+                />
+              </div>
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-lon">Longitude</label>
+                <input
+                  id="bm-lon"
+                  type="number"
+                  step="any"
+                  class="bm-input"
+                  [class.is-mixed]="
+                    mixed().gpsLongitude === MIXED && !touched().has('gpsLongitude')
+                  "
+                  [placeholder]="mixed().gpsLongitude === MIXED ? '(mixed)' : ''"
+                  [value]="gpsLongitudeVal()"
+                  (input)="
+                    gpsLongitudeVal.set($any($event.target).value); onFieldChange('gpsLongitude')
+                  "
+                />
+              </div>
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-alt">Altitude (meters)</label>
+              <input
+                id="bm-alt"
+                type="number"
+                step="any"
+                class="bm-input"
+                [class.is-mixed]="mixed().gpsAltitude === MIXED && !touched().has('gpsAltitude')"
+                [placeholder]="mixed().gpsAltitude === MIXED ? '(mixed)' : ''"
+                [value]="gpsAltitudeVal()"
+                (input)="
+                  gpsAltitudeVal.set($any($event.target).value); onFieldChange('gpsAltitude')
+                "
+              />
+            </div>
+          </section>
+
+          <!-- ── Section: IPTC Place Text ───────────────────────────────── -->
+          <section class="bm-section">
+            <h3 class="bm-section-title">Place Names (IPTC)</h3>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-subloc">Sublocation</label>
+              <input
+                id="bm-subloc"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().sublocation === MIXED && !touched().has('sublocation')"
+                [placeholder]="mixed().sublocation === MIXED ? '(mixed)' : ''"
+                [value]="sublocationVal()"
+                (input)="
+                  sublocationVal.set($any($event.target).value); onFieldChange('sublocation')
+                "
+              />
+            </div>
+
+            <div class="bm-row">
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-city">City</label>
+                <input
+                  id="bm-city"
+                  type="text"
+                  class="bm-input"
+                  [class.is-mixed]="mixed().city === MIXED && !touched().has('city')"
+                  [placeholder]="mixed().city === MIXED ? '(mixed)' : ''"
+                  [value]="cityVal()"
+                  (input)="cityVal.set($any($event.target).value); onFieldChange('city')"
+                />
+              </div>
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-state">State / Province</label>
+                <input
+                  id="bm-state"
+                  type="text"
+                  class="bm-input"
+                  [class.is-mixed]="mixed().state === MIXED && !touched().has('state')"
+                  [placeholder]="mixed().state === MIXED ? '(mixed)' : ''"
+                  [value]="stateVal()"
+                  (input)="stateVal.set($any($event.target).value); onFieldChange('state')"
+                />
+              </div>
+            </div>
+
+            <div class="bm-row">
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-country">Country</label>
+                <input
+                  id="bm-country"
+                  type="text"
+                  class="bm-input"
+                  [class.is-mixed]="mixed().country === MIXED && !touched().has('country')"
+                  [placeholder]="mixed().country === MIXED ? '(mixed)' : ''"
+                  [value]="countryVal()"
+                  (input)="countryVal.set($any($event.target).value); onFieldChange('country')"
+                />
+              </div>
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-countrycode">Country Code (ISO 3166-1)</label>
+                <input
+                  id="bm-countrycode"
+                  type="text"
+                  class="bm-input"
+                  maxlength="3"
+                  [class.is-mixed]="mixed().countryCode === MIXED && !touched().has('countryCode')"
+                  [placeholder]="mixed().countryCode === MIXED ? '(mixed)' : 'e.g. FR'"
+                  [value]="countryCodeVal()"
+                  (input)="
+                    countryCodeVal.set($any($event.target).value); onFieldChange('countryCode')
+                  "
+                />
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Section: Description & Cataloging ──────────────────────── -->
+          <section class="bm-section">
+            <h3 class="bm-section-title">Description &amp; Cataloging</h3>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-title">Title</label>
+              <input
+                id="bm-title"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().title === MIXED && !touched().has('title')"
+                [placeholder]="mixed().title === MIXED ? '(mixed)' : ''"
+                [value]="titleVal()"
+                (input)="titleVal.set($any($event.target).value); onFieldChange('title')"
+              />
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-caption">Caption (Notes)</label>
+              <textarea
+                id="bm-caption"
+                class="bm-textarea"
+                rows="3"
+                [class.is-mixed]="mixed().caption === MIXED && !touched().has('caption')"
+                [placeholder]="mixed().caption === MIXED ? '(mixed)' : ''"
+                [value]="captionVal()"
+                (input)="captionVal.set($any($event.target).value); onFieldChange('caption')"
+              ></textarea>
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-headline">Headline</label>
+              <input
+                id="bm-headline"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().headline === MIXED && !touched().has('headline')"
+                [placeholder]="mixed().headline === MIXED ? '(mixed)' : ''"
+                [value]="headlineVal()"
+                (input)="headlineVal.set($any($event.target).value); onFieldChange('headline')"
+              />
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-keywords">Keywords (comma-separated)</label>
+              <input
+                id="bm-keywords"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().keywords === MIXED && !touched().has('keywords')"
+                [placeholder]="mixed().keywords === MIXED ? '(mixed)' : 'travel, france, street'"
+                [value]="keywordsVal()"
+                (input)="keywordsVal.set($any($event.target).value); onFieldChange('keywords')"
+              />
+              <span class="bm-hint">Replaces the full keyword set on all selected photos.</span>
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-instructions">Instructions</label>
+              <input
+                id="bm-instructions"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().instructions === MIXED && !touched().has('instructions')"
+                [placeholder]="mixed().instructions === MIXED ? '(mixed)' : ''"
+                [value]="instructionsVal()"
+                (input)="
+                  instructionsVal.set($any($event.target).value); onFieldChange('instructions')
+                "
+              />
+            </div>
+          </section>
+
+          <!-- ── Section: Creator & Rights ─────────────────────────────── -->
+          <section class="bm-section">
+            <h3 class="bm-section-title">Creator &amp; Rights</h3>
+
+            <div class="bm-row">
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-creator">Creator / Author</label>
+                <input
+                  id="bm-creator"
+                  type="text"
+                  class="bm-input"
+                  [class.is-mixed]="mixed().creator === MIXED && !touched().has('creator')"
+                  [placeholder]="mixed().creator === MIXED ? '(mixed)' : ''"
+                  [value]="creatorVal()"
+                  (input)="creatorVal.set($any($event.target).value); onFieldChange('creator')"
+                />
+              </div>
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-jobtitle">Creator Job Title</label>
+                <input
+                  id="bm-jobtitle"
+                  type="text"
+                  class="bm-input"
+                  [class.is-mixed]="
+                    mixed().creatorJobTitle === MIXED && !touched().has('creatorJobTitle')
+                  "
+                  [placeholder]="mixed().creatorJobTitle === MIXED ? '(mixed)' : ''"
+                  [value]="creatorJobTitleVal()"
+                  (input)="
+                    creatorJobTitleVal.set($any($event.target).value);
+                    onFieldChange('creatorJobTitle')
+                  "
+                />
+              </div>
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-copyright">Copyright Notice</label>
+              <input
+                id="bm-copyright"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="
+                  mixed().copyrightNotice === MIXED && !touched().has('copyrightNotice')
+                "
+                [placeholder]="mixed().copyrightNotice === MIXED ? '(mixed)' : '© 2026 Your Name'"
+                [value]="copyrightNoticeVal()"
+                (input)="
+                  copyrightNoticeVal.set($any($event.target).value);
+                  onFieldChange('copyrightNotice')
+                "
+              />
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-copyrightStatus">Copyright Status</label>
+              <select
+                id="bm-copyrightStatus"
+                class="bm-select"
+                [value]="copyrightStatusVal()"
+                (change)="
+                  copyrightStatusVal.set($any($event.target).value);
+                  onFieldChange('copyrightStatus')
+                "
+              >
+                <option value="">
+                  @if (mixed().copyrightStatus === MIXED) {
+                    (mixed)
+                  } @else {
+                    — leave unchanged —
+                  }
+                </option>
+                <option value="unknown">Unknown</option>
+                <option value="copyrighted">Copyrighted</option>
+                <option value="public-domain">Public Domain</option>
+              </select>
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-usageterms">Usage Terms</label>
+              <input
+                id="bm-usageterms"
+                type="text"
+                class="bm-input"
+                [class.is-mixed]="mixed().usageTerms === MIXED && !touched().has('usageTerms')"
+                [placeholder]="mixed().usageTerms === MIXED ? '(mixed)' : ''"
+                [value]="usageTermsVal()"
+                (input)="usageTermsVal.set($any($event.target).value); onFieldChange('usageTerms')"
+              />
+            </div>
+
+            <div class="bm-row">
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-credit">Credit</label>
+                <input
+                  id="bm-credit"
+                  type="text"
+                  class="bm-input"
+                  [class.is-mixed]="mixed().credit === MIXED && !touched().has('credit')"
+                  [placeholder]="mixed().credit === MIXED ? '(mixed)' : ''"
+                  [value]="creditVal()"
+                  (input)="creditVal.set($any($event.target).value); onFieldChange('credit')"
+                />
+              </div>
+              <div class="bm-field bm-field-half">
+                <label class="bm-label" for="bm-source">Source</label>
+                <input
+                  id="bm-source"
+                  type="text"
+                  class="bm-input"
+                  [class.is-mixed]="mixed().source === MIXED && !touched().has('source')"
+                  [placeholder]="mixed().source === MIXED ? '(mixed)' : ''"
+                  [value]="sourceVal()"
+                  (input)="sourceVal.set($any($event.target).value); onFieldChange('source')"
+                />
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Section: Batch Culling ─────────────────────────────────── -->
+          <section class="bm-section">
+            <h3 class="bm-section-title">Batch Culling</h3>
+
+            <div class="bm-row">
+              <div class="bm-field bm-field-third">
+                <label class="bm-label" for="bm-rating">Rating</label>
+                <select
+                  id="bm-rating"
+                  class="bm-select"
+                  [value]="ratingVal()"
+                  (change)="ratingVal.set($any($event.target).value); onFieldChange('rating')"
+                >
+                  <option value="">
+                    @if (mixed().rating === MIXED) {
+                      (mixed)
+                    } @else {
+                      —
+                    }
+                  </option>
+                  <option value="0">0 — None</option>
+                  <option value="1">★</option>
+                  <option value="2">★★</option>
+                  <option value="3">★★★</option>
+                  <option value="4">★★★★</option>
+                  <option value="5">★★★★★</option>
+                </select>
+              </div>
+
+              <div class="bm-field bm-field-third">
+                <label class="bm-label" for="bm-flag">Flag</label>
+                <select
+                  id="bm-flag"
+                  class="bm-select"
+                  [value]="flagVal()"
+                  (change)="flagVal.set($any($event.target).value); onFieldChange('flag')"
+                >
+                  <option value="">
+                    @if (mixed().flag === MIXED) {
+                      (mixed)
+                    } @else {
+                      —
+                    }
+                  </option>
+                  <option value="pick">Pick</option>
+                  <option value="reject">Reject</option>
+                  <option value="unflagged">Unflagged</option>
+                </select>
+              </div>
+
+              <div class="bm-field bm-field-third">
+                <label class="bm-label" for="bm-colorlabel">Color Label</label>
+                <select
+                  id="bm-colorlabel"
+                  class="bm-select"
+                  [value]="colorLabelVal()"
+                  (change)="
+                    colorLabelVal.set($any($event.target).value); onFieldChange('colorLabel')
+                  "
+                >
+                  <option value="">
+                    @if (mixed().colorLabel === MIXED) {
+                      (mixed)
+                    } @else {
+                      —
+                    }
+                  </option>
+                  <option value="red">Red</option>
+                  <option value="orange">Orange</option>
+                  <option value="yellow">Yellow</option>
+                  <option value="green">Green</option>
+                  <option value="blue">Blue</option>
+                </select>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Footer -->
+        <div class="bm-footer">
+          <button type="button" class="bm-btn bm-btn-ghost" (click)="onReset()">Reset</button>
+          <button
+            type="button"
+            class="bm-btn bm-btn-primary"
+            [disabled]="touched().size === 0"
+            (click)="onApply()"
+          >
+            Apply…
+          </button>
+        </div>
+      }
+    </div>
+  </div>
+}

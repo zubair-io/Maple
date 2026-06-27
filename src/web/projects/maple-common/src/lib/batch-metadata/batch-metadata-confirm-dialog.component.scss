@@ -1,0 +1,111 @@
+// batch-metadata-confirm-dialog.component.scss
+
+.bm-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bm-summary {
+  font-size: 12px;
+  color: var(--color-text-main);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.bm-field-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bm-field-item {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.bm-error-heading {
+  font-size: 12px;
+  color: var(--color-error, #cc3333);
+  margin: 0;
+  font-weight: 600;
+}
+
+.bm-error-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.bm-error-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bm-error-path {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.bm-error-msg {
+  font-size: 11px;
+  color: var(--color-error, #cc3333);
+}
+
+.bm-confirm-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.bm-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    opacity 120ms;
+  border: 0.5px solid transparent;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &-ghost {
+    background: transparent;
+    border-color: var(--color-border);
+    color: var(--color-text-main);
+
+    &:hover:not(:disabled) {
+      background: var(--color-surface-hover);
+    }
+  }
+
+  &-primary {
+    background: var(--color-accent, #0066cc);
+    color: #fff;
+    border-color: var(--color-accent, #0066cc);
+
+    &:hover:not(:disabled) {
+      opacity: 0.88;
+    }
+  }
+}

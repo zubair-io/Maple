@@ -1,0 +1,52 @@
+@if (visible()) {
+  <div class="bm-confirm-body">
+    @if (errors().length === 0) {
+      <p class="bm-summary">
+        Apply changes to <strong>{{ assetCount() }}</strong>
+        {{ assetCount() === 1 ? 'photo' : 'photos' }}?
+      </p>
+      @if (touchedFields().length > 0) {
+        <ul class="bm-field-list">
+          @for (field of touchedFields(); track field) {
+            <li class="bm-field-item">{{ field }}</li>
+          }
+        </ul>
+      }
+    } @else {
+      <p class="bm-error-heading">
+        {{ assetCount() - errors().length }} of {{ assetCount() }} succeeded. Failures:
+      </p>
+      <ul class="bm-error-list">
+        @for (e of errors(); track e.path) {
+          <li class="bm-error-item">
+            <span class="bm-error-path">{{ e.path }}</span>
+            <span class="bm-error-msg">{{ e.error }}</span>
+          </li>
+        }
+      </ul>
+    }
+
+    <div class="bm-confirm-footer">
+      @if (errors().length === 0) {
+        <button
+          type="button"
+          class="bm-btn bm-btn-ghost"
+          [disabled]="applying()"
+          (click)="onCancel()"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="bm-btn bm-btn-primary"
+          [disabled]="applying()"
+          (click)="onConfirm()"
+        >
+          {{ applying() ? 'Applying…' : 'Apply' }}
+        </button>
+      } @else {
+        <button type="button" class="bm-btn bm-btn-ghost" (click)="onCancel()">Close</button>
+      }
+    </div>
+  </div>
+}

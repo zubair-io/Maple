@@ -34,6 +34,8 @@ import { LibraryPickerComponent } from '../../components/library-picker/library-
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
 import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
 import { PanoDialogComponent } from '../../pano/pano-dialog.component';
+import { BatchMetadataPanelComponent } from '../../batch-metadata/batch-metadata-panel.component';
+import type { AssetMetadataSnapshot } from '../../batch-metadata/batch-metadata.types';
 
 @Component({
   selector: 'browse-shell',
@@ -51,6 +53,7 @@ import { PanoDialogComponent } from '../../pano/pano-dialog.component';
     LibraryPickerModalComponent,
     TimelineViewComponent,
     PanoDialogComponent,
+    BatchMetadataPanelComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
@@ -69,6 +72,15 @@ export class BrowseShellComponent implements OnInit {
 
   /** True when ≥2 assets are selected (enables the "Merge to panorama…" button). */
   readonly canMergePano = computed(() => this.state.selectedCount() >= 2);
+
+  /** True when the batch metadata panel is open. */
+  readonly batchMetaDialogVisible = signal(false);
+
+  /** Snapshotted asset metadata when the panel opens. */
+  readonly batchMetaAssetSnapshots = signal<AssetMetadataSnapshot[]>([]);
+
+  /** True when ≥1 asset is selected (enables "Edit Metadata…" button). */
+  readonly canEditMetadata = computed(() => this.state.selectedCount() >= 1);
 
   constructor() {
     // ── URL (slug:relPath) → selection ─────────────────────────────────────
@@ -127,6 +139,37 @@ export class BrowseShellComponent implements OnInit {
   onPanoDismiss(): void {
     this.panoDialogVisible.set(false);
     this.panoAssetIds.set([]);
+  }
+
+  // ── Batch metadata dialog ─────────────────────────────────────────────────
+  onEditMetadata(): void {
+    // Snapshot the selection (asset paths + metadata) at click time.
+    const selectedIds = this.state.selectedAssetIds();
+    const assets = this.state.assetsInSelectedFolder().filter((a) => selectedIds.has(a.id));
+    const snapshots: AssetMetadataSnapshot[] = assets.map((a) => {
+      const path = this.state.absPathFor(a.id) ?? a.absPath ?? a.id;
+      return {
+        path,
+        metadata: {
+          gpsLatitude: a.gps?.lat,
+          gpsLongitude: a.gps?.lon,
+          city: a.city ?? undefined,
+          country: a.country ?? undefined,
+          title: a.title ?? undefined,
+          keywords: a.keywords,
+          rating: a.rating,
+          flag: a.flag,
+          colorLabel: a.colorLabel ?? undefined,
+        },
+      };
+    });
+    this.batchMetaAssetSnapshots.set(snapshots);
+    this.batchMetaDialogVisible.set(true);
+  }
+
+  onBatchMetaDismiss(): void {
+    this.batchMetaDialogVisible.set(false);
+    this.batchMetaAssetSnapshots.set([]);
   }
 
   ngOnInit(): void {
