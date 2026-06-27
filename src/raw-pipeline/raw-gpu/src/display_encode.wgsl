@@ -82,35 +82,80 @@ fn in_unit_box(rgb: vec3<f32>) -> bool {
         && rgb.z >= eps_lo && rgb.z <= eps_hi;
 }
 
-// Hue-preserving compression toward [0, 1]^3 via Oklab (a, b) bisection at
-// constant L. Mirrors raw_core::color::oklab_gamut::compress_to_unit_cube_oklab
-// specialised to the sRGB-linear working space (the encode call site).
-fn compress_to_unit_cube(rgb: vec3<f32>) -> vec3<f32> {
-    // Byte-identity fast-path: in-gamut input is returned UNTOUCHED (no
-    // round-trip). The trailing clamp below is deliberately NOT applied here.
-    if (in_unit_box(rgb)) {
-        return rgb;
+// Largest in-gamut chroma scale at constant L and hue (bracket + 24-iter
+// bisection). Mirrors raw_core::color::oklab_gamut::hull_scale.
+fn hull_scale_srgb(l: f32, a: f32, b: f32) -> f32 {
+    var lo: f32;
+    var hi: f32;
+    if (in_unit_box(oklab_to_srgb_linear(vec3<f32>(l, a, b)))) {
+        // In gamut at the input chroma — grow until we exit the box.
+        var s: f32 = 1.0;
+        var steps: i32 = 0;
+        loop {
+            if (!(in_unit_box(oklab_to_srgb_linear(vec3<f32>(l, a * s, b * s))) && steps < 16)) {
+                break;
+            }
+            s = s * 2.0;
+            steps = steps + 1;
+        }
+        if (in_unit_box(oklab_to_srgb_linear(vec3<f32>(l, a * s, b * s)))) {
+            return s;
+        }
+        lo = s * 0.5;
+        hi = s;
+    } else {
+        lo = 0.0;
+        hi = 1.0;
     }
-    let lab = srgb_linear_to_oklab(rgb);
-    let l = lab.x;
-    let a = lab.y;
-    let b = lab.z;
-    // 24-iteration binary search for the largest in-gamut scale s in [0, 1].
-    var lo: f32 = 0.0;
-    var hi: f32 = 1.0;
     for (var iter: i32 = 0; iter < 24; iter = iter + 1) {
         let mid = 0.5 * (lo + hi);
-        let candidate = oklab_to_srgb_linear(vec3<f32>(l, a * mid, b * mid));
-        if (in_unit_box(candidate)) {
+        if (in_unit_box(oklab_to_srgb_linear(vec3<f32>(l, a * mid, b * mid)))) {
             lo = mid;
         } else {
             hi = mid;
         }
     }
-    let out = oklab_to_srgb_linear(vec3<f32>(l, a * lo, b * lo));
-    // Tighten with the trailing clamp — Oklab round-trips can drift a few ULPs
-    // past 0 or 1 even when the bisection landed inside.
-    return clamp(out, vec3<f32>(0.0), vec3<f32>(1.0));
+    return lo;
+}
+
+// Soft, hue-preserving gamut compression toward [0, 1]^3 via Oklab (a, b)
+// scaling at constant L. Mirrors raw_core::color::oklab_gamut::compress_to_unit_cube_oklab
+// (#1621), specialised to the sRGB-linear working space. Chroma below
+// THRESHOLD*hull passes through; chroma beyond is rolled off with a Reinhard
+// soft-knee (strictly increasing, bounded by the hull — no clip plateau).
+fn compress_to_unit_cube(rgb: vec3<f32>) -> vec3<f32> {
+    let chroma_floor = 1e-5;
+    let threshold = 0.8; // raw-core COMPRESS_THRESHOLD
+
+    let lab = srgb_linear_to_oklab(rgb);
+    let l = lab.x;
+    let a = lab.y;
+    let b = lab.z;
+    let c_in = sqrt(a * a + b * b);
+    if (c_in <= chroma_floor) {
+        return clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    // Knee probe: below the knee -> untouched (byte-identity + skip bisection).
+    if (in_unit_box(oklab_to_srgb_linear(vec3<f32>(l, a / threshold, b / threshold)))) {
+        return rgb;
+    }
+    let s_hull = hull_scale_srgb(l, a, b);
+    let hull = c_in * s_hull;
+    if (!(hull == hull) || hull > 3.4e38 || hull <= chroma_floor) {
+        // Degenerate (extreme L / non-finite) — hard projection fallback.
+        return clamp(oklab_to_srgb_linear(vec3<f32>(l, a * max(s_hull, 0.0), b * max(s_hull, 0.0))),
+                     vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    let knee = threshold * hull;
+    var c_out: f32;
+    if (c_in <= knee) {
+        c_out = c_in;
+    } else {
+        let x = (c_in - knee) / (hull - knee);
+        c_out = knee + (hull - knee) * (x / (1.0 + x));
+    }
+    let s = c_out / c_in;
+    return clamp(oklab_to_srgb_linear(vec3<f32>(l, a * s, b * s)), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 // Note: mul_rec2020_to_srgb and mul_srgb_to_p3 are provided by the generated

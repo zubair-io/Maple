@@ -344,6 +344,43 @@ mod tests {
         );
     }
 
+    /// #1621 end-to-end: the user's actual "push the color" scenario through
+    /// the COMPOSED view tail — AgX (Rec.2020 gamut compress) THEN
+    /// `rec2020_to_srgb` (sRGB gamut compress). A scene-linear ramp of
+    /// increasing green saturation (foliage) must produce output chroma that
+    /// is monotonic non-decreasing and spans a real range (the old hard
+    /// clip-to-hull flattened the saturated half into a posterized plateau).
+    #[test]
+    fn full_view_tail_saturated_green_ramp_no_collapse() {
+        use crate::color::oklab::srgb_linear_to_oklab;
+        const N: usize = 128;
+        let mut chromas = Vec::with_capacity(N);
+        for i in 0..N {
+            let s = 0.95 * (i as f32) / ((N - 1) as f32); // 0 → 0.95 saturation
+            let m = 0.22f32; // mid scene-linear luminance
+            let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+            // Hold green, pull red/blue down → increasingly saturated green.
+            img.pixels[0] = [m * (1.0 - s), m, m * (1.0 - s)];
+            crate::view::agx::apply(&mut img, 0.0);
+            rec2020_to_srgb(&mut img);
+            let lab = srgb_linear_to_oklab(img.pixels[0]);
+            chromas.push((lab[1] * lab[1] + lab[2] * lab[2]).sqrt());
+        }
+        // Monotonic non-decreasing (sub-LSB tolerance, per the gamut sweep).
+        for w in chromas.windows(2) {
+            assert!(
+                w[1] >= w[0] - 1.5e-3,
+                "view-tail chroma inverted: {} -> {}",
+                w[0],
+                w[1]
+            );
+        }
+        // No collapse: the saturated ramp must span a real output-chroma range.
+        let span = chromas[N - 1] - chromas[0];
+        eprintln!("full view-tail green ramp: out-chroma span = {span:.4}");
+        assert!(span > 0.05, "view-tail saturated ramp collapsed (span {span})");
+    }
+
     #[test]
     fn quantize_produces_expected_length() {
         let mut img = Image::new(4, 4, ColorSpace::DisplayLinearSrgb);
