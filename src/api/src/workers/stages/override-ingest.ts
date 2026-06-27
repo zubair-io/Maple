@@ -103,18 +103,20 @@ export async function overrideIngestHandler(
     ...overridePatch,
   };
 
-  // 6. Recompute captured_year/month from effective captured_at.
+  // 6. Recompute effective capture year/month and store them in the override
+  //    (derived). NEVER write `exif.*` — it is the immutable file-original
+  //    (spec invariant). effective = override ?? exif; migrating the search/sort
+  //    indexes to read the effective year/month is tracked as a follow-up.
   const effectiveCapturedAt = override.captured_at ?? image.exif?.captured_at ?? null;
   const { year, month } = parseYearMonth(effectiveCapturedAt);
+  if (year !== null) {
+    override.captured_year = year;
+    override.captured_month = month ?? undefined;
+  }
 
   const patch: Record<string, unknown> = {
     metadata_override: override,
   };
-  // Only write year/month when we have an effective captured_at.
-  if (year !== null) {
-    patch['exif.captured_year'] = year;
-    patch['exif.captured_month'] = month;
-  }
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps
