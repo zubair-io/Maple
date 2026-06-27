@@ -128,8 +128,8 @@ public final class BatchMetadataViewModel {
 
         let loadedMetadatas: [XmpMetadata] = await withTaskGroup(of: XmpMetadata?.self) { group in
             for asset in assets {
-                group.addTask { [weak self] in
-                    await self?.readMetadata(for: asset)
+                group.addTask {
+                    await self.readMetadata(for: asset)
                 }
             }
             var results: [XmpMetadata] = []
