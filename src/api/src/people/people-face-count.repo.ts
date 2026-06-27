@@ -17,7 +17,7 @@
  * No `any`. snake_case Mongo fields. Functional immutable style.
  */
 
-import { ObjectId, type AnyBulkWriteOperation, type Db } from 'mongodb';
+import { ObjectId, type AnyBulkWriteOperation, type Db, type Filter } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { PersonDoc } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
@@ -55,16 +55,48 @@ export async function faceCountByPerson(): Promise<Map<string, number>> {
   return out;
 }
 
+/**
+ * Recompute ONE person's `face_count` from their actual assigned, non-hidden
+ * faces and write it. Used where trusting the stored count is unsafe — e.g.
+ * after a merge repoints an orphan's faces onto the survivor, the survivor's
+ * count is recomputed from ground truth rather than summing a possibly-drifted
+ * stored value. Returns the recomputed count.
+ */
+export async function recomputePersonFaceCount(personHex: string): Promise<number> {
+  let oid: ObjectId;
+  try {
+    oid = new ObjectId(personHex);
+  } catch {
+    log.warn({ personHex }, 'recomputePersonFaceCount: invalid hex id — skipping');
+    return 0;
+  }
+  const assets = await assetsCollection();
+  const cursor = assets.aggregate<{ count: number }>([
+    { $match: { 'faces.person_id': personHex } },
+    { $unwind: '$faces' },
+    { $match: { 'faces.person_id': personHex, 'faces.hidden': { $ne: true } } },
+    { $count: 'count' },
+  ]);
+  let count = 0;
+  for await (const row of cursor) count = row.count;
+  const coll = await peopleCollection();
+  await coll.updateOne({ _id: oid }, { $set: { face_count: count } });
+  return count;
+}
+
 // ---------------------------------------------------------------------------
 // Incremental maintenance
 // ---------------------------------------------------------------------------
 
 /**
  * Atomically adjust `face_count` by `delta` (typically +1 or -1) for the
- * person identified by `personHex`. Uses `$inc` so concurrent callers compose
- * correctly. A no-op when `personHex` is null/empty or `delta` is zero.
+ * person identified by `personHex`. A no-op when `personHex` is null/empty or
+ * `delta` is zero.
  *
- * The person is looked up by ObjectId (from the hex) so the `_id` index is
+ * Uses an aggregation-pipeline update (not `$inc`) so a missing/unset
+ * `face_count` is treated as 0 and the result is clamped at 0 — a legacy
+ * person with no field, or a stray double-decrement, can never drive the
+ * count negative. The person is looked up by ObjectId so the `_id` index is
  * used and the update is O(1).
  */
 export async function adjustPersonFaceCount(
@@ -80,7 +112,15 @@ export async function adjustPersonFaceCount(
     return;
   }
   const coll = await peopleCollection();
-  await coll.updateOne({ _id: oid }, { $inc: { face_count: delta } });
+  await coll.updateOne({ _id: oid }, [
+    {
+      $set: {
+        face_count: {
+          $max: [0, { $add: [{ $ifNull: ['$face_count', 0] }, delta] }],
+        },
+      },
+    },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,29 +134,26 @@ export async function adjustPersonFaceCount(
  * makes each clustering run the self-healing source of truth for any incremental
  * drift that accumulated between passes.
  *
- * `counts` is a Map from person hex id → count. Persons not in the map are
- * left unchanged (they had no faces during this pass — e.g. manually-created
- * people with no clustering assignment yet).
+ * Truly authoritative: it writes EVERY live (non-merged) person, setting
+ * `face_count = counts.get(id) ?? 0`. A person who is absent from `counts`
+ * (their faces all dropped to zero since the last pass) is reset to 0 — so
+ * drift heals DOWN as well as up. `counts` is a Map from person hex id → count.
  */
 export async function writeAuthoritativeFaceCounts(counts: Map<string, number>): Promise<void> {
-  if (counts.size === 0) return;
   const coll = await peopleCollection();
-  const ops: AnyBulkWriteOperation<PersonDoc>[] = [];
-  for (const [hex, count] of counts) {
-    let oid: ObjectId;
-    try {
-      oid = new ObjectId(hex);
-    } catch {
-      continue;
-    }
-    ops.push({
-      updateOne: {
-        filter: { _id: oid },
-        update: { $set: { face_count: count } },
-      },
-    });
-  }
-  if (ops.length === 0) return;
+  // Drive the write off the live-people set, not the counts map, so people
+  // who dropped to zero get corrected (they won't appear in `counts`).
+  const people = await coll
+    .find({ merged_into: null } as Filter<PersonDoc>)
+    .project<{ _id: ObjectId }>({ _id: 1 })
+    .toArray();
+  if (people.length === 0) return;
+  const ops: AnyBulkWriteOperation<PersonDoc>[] = people.map((p) => ({
+    updateOne: {
+      filter: { _id: p._id },
+      update: { $set: { face_count: counts.get(p._id.toHexString()) ?? 0 } },
+    },
+  }));
   const res = await coll.bulkWrite(ops, { ordered: false });
   log.debug(
     { updated: res.modifiedCount, total: ops.length },
@@ -144,10 +181,17 @@ export interface BackfillPersonFaceCountResult {
  * through `db/client.ts`.
  */
 export async function backfillPersonFaceCount(db: Db): Promise<BackfillPersonFaceCountResult> {
-  const cursor = db.collection('assets').aggregate<{
-    _id: string;
-    count: number;
-  }>([{ $match: { faces: { $exists: true, $ne: [] } } }, { $unwind: '$faces' }, { $match: { 'faces.person_id': { $ne: null }, 'faces.hidden': { $ne: true } } }, { $group: { _id: '$faces.person_id', count: { $sum: 1 } } }]);
+  const cursor = db.collection('assets').aggregate<{ _id: string; count: number }>([
+    { $match: { faces: { $exists: true, $ne: [] } } },
+    { $unwind: '$faces' },
+    {
+      $match: {
+        'faces.person_id': { $ne: null },
+        'faces.hidden': { $ne: true },
+      },
+    },
+    { $group: { _id: '$faces.person_id', count: { $sum: 1 } } },
+  ]);
   const counts = new Map<string, number>();
   for await (const row of cursor) {
     if (typeof row._id === 'string') counts.set(row._id, row.count);

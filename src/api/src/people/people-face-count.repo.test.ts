@@ -17,8 +17,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { ObjectId } from 'mongodb';
-import type { AssetDoc, PersonDoc } from '../db/schema.ts';
+import type { PersonDoc } from '../db/schema.ts';
 import { setupMongoHarness } from './people-repo.test-helpers.ts';
 
 const TEST_DB = `maple_test_face_count_${process.pid}`;
@@ -308,6 +307,107 @@ describe('face_count — clustering pass self-heal', () => {
     const healed = await h.db.collection<PersonDoc>('people').findOne({ _id: p._id });
     expect(healed?.face_count).toBe(2);
   });
+
+  it('writeAuthoritativeFaceCounts heals DOWN: a person with stale count but zero faces becomes 0', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { writeAuthoritativeFaceCounts, faceCountByPerson } =
+      await import('./people-face-count.repo.ts');
+
+    // A person with NO assigned faces but a stale non-zero count.
+    const ghost = await createPerson('Ghost-NoFaces');
+    await h.db
+      .collection<PersonDoc>('people')
+      .updateOne({ _id: ghost._id }, { $set: { face_count: 5 } });
+
+    // The aggregation won't include `ghost` (zero faces). The authoritative
+    // recompute must still reset it to 0 rather than leaving the stale 5.
+    const counts = await faceCountByPerson();
+    expect(counts.has(ghost._id.toHexString())).toBe(false);
+    await writeAuthoritativeFaceCounts(counts);
+
+    const healed = await h.db.collection<PersonDoc>('people').findOne({ _id: ghost._id });
+    expect(healed?.face_count).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Negative-count clamping (legacy / drift / double-decrement)
+// ---------------------------------------------------------------------------
+
+describe('face_count — adjustPersonFaceCount clamps at 0', () => {
+  it('decrementing a person whose face_count is unset stays 0, never -1', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { adjustPersonFaceCount } = await import('./people-face-count.repo.ts');
+
+    // Legacy shape: a person doc with no face_count field at all.
+    const legacy = await createPerson('Legacy-NoField');
+    await h.db
+      .collection<PersonDoc>('people')
+      .updateOne({ _id: legacy._id }, { $unset: { face_count: '' } });
+
+    await adjustPersonFaceCount(legacy._id.toHexString(), -1);
+
+    const stored = await h.db.collection<PersonDoc>('people').findOne({ _id: legacy._id });
+    expect(stored?.face_count).toBe(0);
+  });
+
+  it('double-decrement past zero clamps at 0', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { adjustPersonFaceCount } = await import('./people-face-count.repo.ts');
+
+    const p = await createPerson('Clamp-Double');
+    await h.db
+      .collection<PersonDoc>('people')
+      .updateOne({ _id: p._id }, { $set: { face_count: 1 } });
+
+    await adjustPersonFaceCount(p._id.toHexString(), -1); // 1 → 0
+    await adjustPersonFaceCount(p._id.toHexString(), -1); // 0 → clamp 0
+
+    const stored = await h.db.collection<PersonDoc>('people').findOne({ _id: p._id });
+    expect(stored?.face_count).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Merge recomputes survivor from ground truth (not orphan's stored count)
+// ---------------------------------------------------------------------------
+
+describe('face_count — mergeInto recomputes survivor from real faces', () => {
+  it('orphan with missing face_count merges → survivor count equals its real face total', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson, assignFaceToPerson, renamePerson } = await import('./people.repo.ts');
+
+    const survivor = await createPerson('Aaa-Survivor');
+    const orphan = await createPerson('Zzz-Orphan');
+
+    // Survivor has 1 face, orphan has 2 — 3 real faces total post-merge.
+    const asset = await h.insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, person_id: null, confidence: 0.9 },
+      { bbox: { x: 0.3, y: 0, w: 0.2, h: 0.2 }, person_id: null, confidence: 0.9 },
+      { bbox: { x: 0.6, y: 0, w: 0.2, h: 0.2 }, person_id: null, confidence: 0.9 },
+    ]);
+    await assignFaceToPerson(asset, 0, survivor._id);
+    await assignFaceToPerson(asset, 1, orphan._id);
+    await assignFaceToPerson(asset, 2, orphan._id);
+
+    // Corrupt: drop the orphan's stored face_count entirely. If the merge
+    // trusted the stored value it would add 0 and the survivor would end at 1.
+    await h.db
+      .collection<PersonDoc>('people')
+      .updateOne({ _id: orphan._id }, { $unset: { face_count: '' } });
+
+    // Rename orphan to survivor's name → merge-on-collision. Older _id wins;
+    // "Aaa-Survivor" was created first so it is the survivor.
+    const result = await renamePerson(orphan._id, 'Aaa-Survivor');
+    expect(result.survivor._id.toHexString()).toBe(survivor._id.toHexString());
+
+    const stored = await h.db.collection<PersonDoc>('people').findOne({ _id: survivor._id });
+    // Recomputed from the 3 real repointed faces, NOT 1 + (missing → 0).
+    expect(stored?.face_count).toBe(3);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -337,7 +437,3 @@ describe('face_count — listPeople reads denormalised field', () => {
     expect(row?.faceCount).toBe(42);
   });
 });
-
-// unused import guard — ObjectId is used only for type annotation above.
-type _Oid = ObjectId;
-type _AssetDoc = AssetDoc;
