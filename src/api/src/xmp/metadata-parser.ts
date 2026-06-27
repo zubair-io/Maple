@@ -20,7 +20,7 @@ export const METADATA_PARSER_VERSION = 1;
 
 /**
  * Parsed metadata result: all fields from XmpMetadata + keywords (keyword
- * bag lives in culling but is needed by override-ingest). Fields are
+ * bag lives in culling but is needed by sidecar-metadata-index). Fields are
  * undefined when absent in the sidecar.
  */
 export interface XmpMetadataResult {
