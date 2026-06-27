@@ -2,7 +2,7 @@
  * Integration tests for POST /api/xmp/batch.
  *
  * Uses a real temp directory for sidecar files. MongoDB calls from
- * markOverrideIngestDirty are allowed to fail (they're best-effort),
+ * markSidecarMetadataIndexDirty are allowed to fail (they're best-effort),
  * so we don't need a live Mongo for the core sidecar-write path.
  */
 
@@ -15,7 +15,7 @@ import { xmpBatchRoutes } from './xmp-batch.ts';
 import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
 
 // Isolate the shared db-client singleton to a unique test DB and reset it
-// around this file, so markOverrideIngestDirty's Mongo touch neither writes
+// around this file, so markSidecarMetadataIndexDirty's Mongo touch neither writes
 // the real `maple` DB nor leaves the singleton connected for later test files
 // (mirrors the convention in folder.test.ts / imports/repo.test.ts).
 process.env.MAPLE_MONGO_DB = `maple_test_xmp_batch_${process.pid}`;

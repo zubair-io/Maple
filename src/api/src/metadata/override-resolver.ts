@@ -11,7 +11,7 @@
  *
  * `captured_year` / `captured_month` are re-derived from the effective
  * `captured_at` string so a time-shift edit doesn't require a separate
- * re-index step; the override-ingest stage writes them into the asset doc.
+ * re-index step; the sidecar-metadata-index stage writes them into the asset doc.
  *
  * Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
  * §"Storage & data-flow model" / "Effective resolver".

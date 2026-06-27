@@ -92,7 +92,7 @@ All edits map to **standard** XMP/IPTC namespaces so they round-trip through Lig
 ### 2. DB (derived, for search / sort / geo)
 
 - `asset.exif` stays the **file-original**, immutable. Never written by this feature.
-- New sparse subdoc **`asset.metadata_override`**, reconciled from the sidecar by the `override-ingest` stage. It carries the search/sort/geo-relevant subset and records what was touched:
+- New sparse subdoc **`asset.metadata_override`**, reconciled from the sidecar by the `sidecar-metadata-index` stage. It carries the search/sort/geo-relevant subset and records what was touched:
 
 ```jsonc
 {
@@ -131,7 +131,7 @@ effective.place_text  = override.place_text  ?? (derived place)
 
 Heavy ingest work (geocode, derived recompute, geo-path) runs **off the request path** as a polled background stage that reuses the existing version-mismatch worker model (`StageConfig` / `runStage` / `versionBumpReset`, `src/api/src/workers/`) — _not_ synchronously inside the HTTP write. This keeps a large batch from saturating the single-process event loop and serialises work per-asset through the existing claim query. The stage is idempotent and crash-safe: a re-run reconciles `metadata_override` from the sidecar (the source of truth).
 
-- **Web / Self-Hosted:** the client writes sidecars via the XMP route; a batch edit uses a new **`POST /api/xmp/batch`** carrying N `{path, metadata}` entries, so a 500-asset edit is one request, not 500. The server writes each sidecar (atomic temp-file + rename, as today) and marks each asset's new `override-ingest` stage dirty (the path-keyed `/api/xmp?path=` route does no DB update today — `src/api/src/routes/xmp.ts` — so it gains this dirty-mark). The polled `override-ingest` stage then parses the metadata block → updates `metadata_override` → recomputes `captured_year/month` → re-geocodes `place` on GPS change.
+- **Web / Self-Hosted:** the client writes sidecars via the XMP route; a batch edit uses a new **`POST /api/xmp/batch`** carrying N `{path, metadata}` entries, so a 500-asset edit is one request, not 500. The server writes each sidecar (atomic temp-file + rename, as today) and marks each asset's new `sidecar-metadata-index` stage dirty (the path-keyed `/api/xmp?path=` route does no DB update today — `src/api/src/routes/xmp.ts` — so it gains this dirty-mark). The polled `sidecar-metadata-index` stage then parses the metadata block → updates `metadata_override` → recomputes `captured_year/month` → re-geocodes `place` on GPS change.
 - **Apple standalone (local library, no server):** the override is read straight from the sidecar into the local view model; there is no Mongo, so search/geo are local and read effective directly. The backup re-file offer (a server feature) does not appear.
 
 ---
@@ -217,7 +217,7 @@ Before writing, a summary states exactly what will change, e.g.:
 
 > **42 photos** — capture time **+5h 00m**; location → **Paris, France**; copyright → **© 2026 Z. Lawrence**; keywords **+travel, +france**. _3 photos have no capture time and will be skipped for the time shift._
 
-Apply writes each sidecar (and triggers override-ingest server-side). Partial failures are reported per-asset; successful writes are not rolled back. The backup re-file offer (if any) appears as a follow-up step after a successful location change.
+Apply writes each sidecar (and triggers sidecar-metadata-index server-side). Partial failures are reported per-asset; successful writes are not rolled back. The backup re-file offer (if any) appears as a follow-up step after a successful location change.
 
 ### Reset
 
@@ -239,7 +239,7 @@ A per-field / per-section **Reset to original** clears the override and falls ba
 - **Heterogeneous selection (mixed file types, mixed values):** "(mixed)" placeholders; only touched fields written; video vs image sidecar path chosen per-asset.
 - **Videos without an existing sidecar:** a new metadata-only `.xmp` is created beside the file.
 - **Partial write failure:** per-asset error reporting; no silent success; successes kept.
-- **Concurrent edits / autosave:** the `override-ingest` stage reconciles from the sidecar idempotently, so a re-run after an adjustment autosave is safe; the write path must not clobber the passthrough block or an in-flight adjustment autosave (the metadata and adjustment blocks share one sidecar).
+- **Concurrent edits / autosave:** the `sidecar-metadata-index` stage reconciles from the sidecar idempotently, so a re-run after an adjustment autosave is safe; the write path must not clobber the passthrough block or an in-flight adjustment autosave (the metadata and adjustment blocks share one sidecar).
 - **DST / ambiguous local times** when converting zones: resolved via the IANA `papp:TimeZone`, not a bare offset.
 - **Re-index from file** must not overwrite `metadata_override` (it only refreshes `exif.*`); effective resolution keeps the override on top.
 
@@ -260,11 +260,11 @@ A per-field / per-section **Reset to original** clears the override and falls ba
 ## Milestones (sequencing)
 
 - **M0 — Shared core.** New XMP fields in TS + Swift (+ Rust tolerance); `metadata_override` schema; effective resolver; codegen constants. Round-trip + resolver tests.
-- **M1 — API.** `POST /api/xmp/batch` write + per-asset stage-dirty mark; new polled `override-ingest` stage (reconcile `metadata_override`, recompute `captured_year/month`, re-geocode `place`); `GET /api/geocode/search` (Nominatim forward); search/sort/geo read effective.
+- **M1 — API.** `POST /api/xmp/batch` write + per-asset stage-dirty mark; new polled `sidecar-metadata-index` stage (reconcile `metadata_override`, recompute `captured_year/month`, re-geocode `place`); `GET /api/geocode/search` (Nominatim forward); search/sort/geo read effective.
 - **M2 — Web UI.** Batch Metadata panel; selection-bar entry; address search; confirm/preview; reset.
 - **M3 — Backup re-file.** On-demand targeted relocate offer reusing `backupLocationSegments` + `moveBackupAsset`; scoped to geo-backup assets.
 - **M4 — Apple UI.** Selection-bar entry; panel; CLGeocoder address search; standalone (sidecar-direct) + server-connected paths.
-- **M5 — Video.** Metadata-only sidecar path on both platforms; override-ingest for video assets. **Bundles the scanner change atomically:** today `src/api/src/imports/scan.ts:160` pairs sidecars to images only and counts a movie's `.xmp` as an orphan, so a re-index would silently drop a video override. Video sidecar _writing_ is therefore gated on the scanner recognising `clip.xmp ↔ clip.mov` (via `canonicalBaseFromSidecarFilename`, `src/api/src/fs/browse.ts`); both land in the same change — writes never ship before pairing.
+- **M5 — Video.** Metadata-only sidecar path on both platforms; sidecar-metadata-index for video assets. **Bundles the scanner change atomically:** today `src/api/src/imports/scan.ts:160` pairs sidecars to images only and counts a movie's `.xmp` as an orphan, so a re-index would silently drop a video override. Video sidecar _writing_ is therefore gated on the scanner recognising `clip.xmp ↔ clip.mov` (via `canonicalBaseFromSidecarFilename`, `src/api/src/fs/browse.ts`); both land in the same change — writes never ship before pairing.
 
 Each milestone is its own ticket and PR (per `CONTRIBUTING.md`), with `Closes #N`.
 
