@@ -19,7 +19,25 @@
  * Spec: `docs/indexer-enrichment.md` §4.1, §4.2.
  */
 
-import type { NominatimReverseResponse } from "./place-parser.ts";
+import type { NominatimReverseResponse } from './place-parser.ts';
+
+/**
+ * One candidate from a Nominatim forward geocode `/search` response.
+ * Only the fields used by the `GET /api/geocode/search` route are typed;
+ * the full Nominatim response carries many more.
+ */
+export interface NominatimSearchResult {
+  /** Nominatim internal place id. */
+  place_id: number;
+  /** Human-readable full address string. */
+  display_name: string;
+  /** Latitude as a string (Nominatim JSON quirk). */
+  lat: string;
+  /** Longitude as a string. */
+  lon: string;
+  /** Structured address components (same shape as reverse response). */
+  address?: Record<string, string>;
+}
 
 export interface NominatimClientConfig {
   /** Base URL, e.g. `http://nominatim.lan:8080`. No trailing slash required. */
@@ -51,7 +69,7 @@ export class NominatimError extends Error {
   readonly status?: number;
   constructor(message: string, retryable: boolean, status?: number) {
     super(message);
-    this.name = "NominatimError";
+    this.name = 'NominatimError';
     this.retryable = retryable;
     this.status = status;
   }
@@ -75,14 +93,12 @@ export class NominatimClient {
   private lastRefillAt: number;
 
   constructor(config: NominatimClientConfig) {
-    this.baseUrl = config.baseUrl.replace(/\/+$/, "");
+    this.baseUrl = config.baseUrl.replace(/\/+$/, '');
     this.timeoutMs = config.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.rateLimitPerSec = config.rateLimitPerSec ?? DEFAULT_RATE_LIMIT;
     this.bucketCapacity = Math.max(1, this.rateLimitPerSec);
     this.now = config.now ?? (() => Date.now());
-    this.sleep =
-      config.sleep ??
-      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.fetchImpl = config.fetchImpl ?? fetch;
 
     this.tokens = this.bucketCapacity;
@@ -98,11 +114,7 @@ export class NominatimClient {
     const url = `${this.baseUrl}/status`;
     const res = await this.timedFetch(url);
     if (!res.ok) {
-      throw new NominatimError(
-        `Nominatim /status returned ${res.status}`,
-        false,
-        res.status,
-      );
+      throw new NominatimError(`Nominatim /status returned ${res.status}`, false, res.status);
     }
   }
 
@@ -112,28 +124,20 @@ export class NominatimClient {
     const params = new URLSearchParams({
       lat: String(lat),
       lon: String(lon),
-      format: "jsonv2",
-      addressdetails: "1",
-      extratags: "1",
-      namedetails: "1",
-      zoom: "18",
+      format: 'jsonv2',
+      addressdetails: '1',
+      extratags: '1',
+      namedetails: '1',
+      zoom: '18',
     });
     const url = `${this.baseUrl}/reverse?${params.toString()}`;
     const res = await this.timedFetch(url);
 
     if (res.status >= 500) {
-      throw new NominatimError(
-        `Nominatim 5xx: ${res.status}`,
-        true,
-        res.status,
-      );
+      throw new NominatimError(`Nominatim 5xx: ${res.status}`, true, res.status);
     }
     if (res.status >= 400) {
-      throw new NominatimError(
-        `Nominatim 4xx: ${res.status}`,
-        false,
-        res.status,
-      );
+      throw new NominatimError(`Nominatim 4xx: ${res.status}`, false, res.status);
     }
 
     let body: unknown;
@@ -144,10 +148,48 @@ export class NominatimClient {
       throw new NominatimError(`Malformed Nominatim JSON: ${msg}`, false);
     }
 
-    if (typeof body !== "object" || body === null) {
-      throw new NominatimError("Nominatim response was not an object", false);
+    if (typeof body !== 'object' || body === null) {
+      throw new NominatimError('Nominatim response was not an object', false);
     }
     return body as NominatimReverseResponse;
+  }
+
+  /**
+   * GET `/search?q=…`. Forward geocode: returns up to `limit` candidates
+   * ordered by Nominatim's relevance score. Rate-limited by the same bucket
+   * as `reverse()`. Empty array when no results. Throws `NominatimError`
+   * on failure (retryable classification matches `reverse()`).
+   */
+  async search(q: string, limit = 5): Promise<NominatimSearchResult[]> {
+    await this.acquireToken();
+    const params = new URLSearchParams({
+      q,
+      format: 'jsonv2',
+      addressdetails: '1',
+      limit: String(limit),
+    });
+    const url = `${this.baseUrl}/search?${params.toString()}`;
+    const res = await this.timedFetch(url);
+
+    if (res.status >= 500) {
+      throw new NominatimError(`Nominatim 5xx: ${res.status}`, true, res.status);
+    }
+    if (res.status >= 400) {
+      throw new NominatimError(`Nominatim 4xx: ${res.status}`, false, res.status);
+    }
+
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new NominatimError(`Malformed Nominatim JSON: ${msg}`, false);
+    }
+
+    if (!Array.isArray(body)) {
+      throw new NominatimError('Nominatim /search response was not an array', false);
+    }
+    return body as NominatimSearchResult[];
   }
 
   /** Wrap `fetchImpl` with an `AbortController`-based timeout. Network
@@ -159,11 +201,12 @@ export class NominatimClient {
     try {
       return await this.fetchImpl(url, { signal: ctrl.signal });
     } catch (err) {
-      const aborted =
-        err instanceof Error && (err.name === "AbortError" || ctrl.signal.aborted);
+      const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
       const msg = err instanceof Error ? err.message : String(err);
       throw new NominatimError(
-        aborted ? `Nominatim request timed out after ${this.timeoutMs}ms` : `Nominatim request failed: ${msg}`,
+        aborted
+          ? `Nominatim request timed out after ${this.timeoutMs}ms`
+          : `Nominatim request failed: ${msg}`,
         true,
       );
     } finally {
@@ -193,10 +236,7 @@ export class NominatimClient {
         return;
       }
       const tokensNeeded = 1 - this.tokens;
-      const waitMs = Math.max(
-        1,
-        Math.ceil((tokensNeeded / this.rateLimitPerSec) * 1000),
-      );
+      const waitMs = Math.max(1, Math.ceil((tokensNeeded / this.rateLimitPerSec) * 1000));
       await this.sleep(waitMs);
     }
   }

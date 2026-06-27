@@ -46,6 +46,13 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 beforeAll(async () => {
+  // Make this file order-independent: another test file's module-load may have
+  // overwritten MAPLE_MONGO_DB and/or left the shared db-client singleton
+  // connected to a different DB. Re-assert our DB and reset the singleton so
+  // the route's getDb() reconnects to TEST_DB on first use.
+  process.env.MAPLE_MONGO_DB = TEST_DB;
+  await (await import('../../db/client.ts')).closeDb();
+
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {

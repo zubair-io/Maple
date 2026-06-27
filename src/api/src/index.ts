@@ -62,6 +62,7 @@ import { peopleRoutes } from './routes/people.ts';
 import { presetsRoutes } from './routes/presets.ts';
 import { panoRoutes } from './routes/pano.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
+import { batchMetadataRoutes } from './routes/batch-metadata.ts';
 import { backupIngestRoutes } from './routes/backup-ingest.ts';
 import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
 import { uploadSessions } from './backup/upload-session.ts';
@@ -197,6 +198,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(assetsListRoutes)
         .use(assetsRoutes)
         .use(xmpPathRoutes)
+        .use(batchMetadataRoutes)
         .use(fsRoutes)
         .use(fsThumbsRoutes)
         .use(searchRoutes)
