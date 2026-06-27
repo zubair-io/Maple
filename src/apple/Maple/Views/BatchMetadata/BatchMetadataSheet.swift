@@ -68,7 +68,11 @@ struct BatchMetadataSheet: View {
                         try await vm.apply()
                         if vm.applyError == nil { onDismiss() }
                     } catch {
-                        assertionFailure("vm.apply() threw unexpectedly; applyError should have been set. Error: \(error)")
+                        // Expected on partial failure: apply() records `applyError`
+                        // (which drives the alert) and rethrows. Keep the sheet open.
+                        // Only a throw WITHOUT a recorded error would be a bug.
+                        assert(vm.applyError != nil,
+                               "vm.apply() threw without recording applyError: \(error)")
                     }
                 }
             }

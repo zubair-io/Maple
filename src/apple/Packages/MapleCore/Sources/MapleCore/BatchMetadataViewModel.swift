@@ -76,7 +76,7 @@ public struct TouchedMetadata {
 /// 4. Call `apply()` to flush touched fields to each asset's sidecar.
 @MainActor
 @Observable
-public final class BatchMetadataViewModel {
+public final class BatchMetadataViewModel: Identifiable {
 
     /// Snapshotted selection (immutable after init).
     public let assets: [AssetRef]
@@ -174,7 +174,9 @@ public final class BatchMetadataViewModel {
     /// Read metadata from the asset's sidecar XML directly.
     /// The sidecar is read from disk so the metadata block is preserved —
     /// re-serializing with the 2-param `serialize(model:culling:)` would drop it.
-    private func readMetadata(for asset: AssetRef) async -> XmpMetadata? {
+    /// `nonisolated` so the TaskGroup runs the synchronous disk reads off the
+    /// main actor (otherwise every `readMetadata` would hop back and serialize).
+    nonisolated private func readMetadata(for asset: AssetRef) async -> XmpMetadata? {
         guard let url = asset.primaryURL else { return XmpMetadata() }
         let sidecarURL = url.deletingPathExtension().appendingPathExtension("xmp")
         guard FileManager.default.fileExists(atPath: sidecarURL.path),

@@ -72,7 +72,10 @@ struct AppShell: View {
     @State var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
     @State private var showSettings = false
-    @State private var showBatchMetadata: Bool = false
+    // Held in @State (not constructed inside the .sheet content closure) so a
+    // re-render of AppShell while the sheet is open cannot rebuild the view model
+    // and discard the user's in-progress edits. nil = sheet closed.
+    @State private var batchMetadataVM: BatchMetadataViewModel?
     /// Non-nil when the Settings sheet should open on a specific tab.
     /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
     /// callback so the sheet lands directly on the Pano tab. (#1241)
@@ -500,14 +503,8 @@ struct AppShell: View {
             SettingsView(initialTab: settingsInitialTab)
                 .frame(minWidth: 540, minHeight: 480)
         }
-        .sheet(isPresented: $showBatchMetadata) {
-            BatchMetadataSheet(
-                vm: BatchMetadataViewModel(
-                    assets: browseVM.selectedAssets,
-                    sessions: sessions
-                ),
-                onDismiss: { showBatchMetadata = false }
-            )
+        .sheet(item: $batchMetadataVM) { vm in
+            BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
         }
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
@@ -711,14 +708,8 @@ struct AppShell: View {
         }
         // M4: batch metadata editor sheet for iPhone — same sheet as Mac/iPad,
         // but presented over the tab shell instead of the pane shell.
-        .sheet(isPresented: $showBatchMetadata) {
-            BatchMetadataSheet(
-                vm: BatchMetadataViewModel(
-                    assets: browseVM.selectedAssets,
-                    sessions: sessions
-                ),
-                onDismiss: { showBatchMetadata = false }
-            )
+        .sheet(item: $batchMetadataVM) { vm in
+            BatchMetadataSheet(vm: vm, onDismiss: { batchMetadataVM = nil })
         }
     }
     #endif
@@ -808,7 +799,12 @@ struct AppShell: View {
     /// Open the batch metadata editor with the currently-selected assets.
     private func openBatchMetadata() {
         guard !browseVM.selectedIDs.isEmpty else { return }
-        showBatchMetadata = true
+        // Snapshot the selection + sessions once, at open time. Presenting via
+        // .sheet(item:) keeps this instance alive for the sheet's lifetime.
+        batchMetadataVM = BatchMetadataViewModel(
+            assets: browseVM.selectedAssets,
+            sessions: sessions
+        )
     }
 
     // MARK: - Panorama merge actions (M2, #1236)
