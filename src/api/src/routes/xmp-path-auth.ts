@@ -58,7 +58,7 @@ export async function resolveAndAuthorizePath(
   }
 
   for (const root of allRoots) {
-    if (normalized === root || normalized.startsWith(root + '/')) {
+    if (normalized === root || normalized.startsWith(root + path.sep)) {
       return { ok: true, data: normalized };
     }
   }
