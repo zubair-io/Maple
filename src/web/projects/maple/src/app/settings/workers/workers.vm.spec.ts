@@ -179,6 +179,7 @@ describe('blankEnrichment', () => {
       face_detector_sha256: null,
       face_recognizer_url: null,
       face_recognizer_sha256: null,
+      face_min_detection_size: 0.08,
       meilisearch_url: 'http://meili.local:7700',
       meilisearch_api_key_set: true,
       source: {} as EnrichmentConfigResponse['source'],
@@ -190,6 +191,7 @@ describe('blankEnrichment', () => {
     // qwen2.5-VL via FIXED_DESCRIBE_MODEL.
     expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
+    expect(form.face_min_detection_size).toBe('0.08');
     expect(form.meilisearch_url).toBe('http://meili.local:7700');
     // API key is write-only — never seeded from the response, even when set.
     expect(form.meilisearch_api_key).toBe('');
