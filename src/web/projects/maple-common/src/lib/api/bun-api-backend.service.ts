@@ -685,24 +685,41 @@ export class BunApiBackendService {
       .pipe(map((rows) => rows.map(normalisePerson)));
   }
 
-  getPerson(id: string): Observable<ApiPersonDetail> {
-    return this.http.get<ApiPersonDetailRaw>(`${this.base}/people/${id}`).pipe(
-      map((r) => ({
-        id: r.id,
-        name: r.name,
-        coverAssetId: r.cover_asset_id ?? null,
-        coverBbox: r.cover_bbox ?? null,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-        faces: r.faces.map((f) => ({
-          assetId: f.asset_id,
-          faceIndex: f.face_index,
-          absPath: f.abs_path,
-          bbox: f.bbox,
-          confidence: f.confidence,
+  getPerson(id: string, page?: { offset: number; limit: number }): Observable<ApiPersonDetail> {
+    const params =
+      page != null
+        ? new HttpParams().set('offset', String(page.offset)).set('limit', String(page.limit))
+        : undefined;
+    return this.http
+      .get<ApiPersonDetailRaw>(`${this.base}/people/${id}`, params ? { params } : undefined)
+      .pipe(
+        map((r) => ({
+          id: r.id,
+          name: r.name,
+          coverAssetId: r.cover_asset_id ?? null,
+          coverBbox: r.cover_bbox ?? null,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+          offset: r.offset ?? 0,
+          limit: r.limit ?? 50,
+          faces: r.faces.map((f) => ({
+            assetId: f.asset_id,
+            faceIndex: f.face_index,
+            absPath: f.abs_path,
+            bbox: f.bbox,
+            confidence: f.confidence,
+          })),
         })),
-      })),
-    );
+      );
+  }
+
+  /** Set a face as the person's cover. The bbox is read server-side from the
+   * asset doc — the client supplies only `assetId` + `faceIndex`. */
+  setPersonCover(id: string, assetId: string, faceIndex: number): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/${id}/cover`, {
+      asset_id: assetId,
+      face_index: faceIndex,
+    });
   }
 
   createPerson(body: { name: string }): Observable<ApiPersonSummary> {
@@ -926,6 +943,10 @@ export interface ApiPersonDetail {
   coverBbox: Bbox | null;
   createdAt: string;
   updatedAt: string;
+  /** Offset of this page (echoed from the server response). */
+  offset: number;
+  /** Page size used for this fetch (echoed from the server response). */
+  limit: number;
   faces: ApiPersonFace[];
 }
 
@@ -983,6 +1004,8 @@ interface ApiPersonDetailRaw {
   cover_bbox?: Bbox | null;
   created_at: string;
   updated_at: string;
+  offset?: number;
+  limit?: number;
   faces: Array<{
     asset_id: string;
     face_index: number;
