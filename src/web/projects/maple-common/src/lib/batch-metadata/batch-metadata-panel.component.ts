@@ -28,7 +28,7 @@ import {
   type GeocodeCandidate,
   type MixedValueMap,
 } from './batch-metadata.types';
-import type { XmpFlag, XmpColorLabel, CopyrightStatus } from '../xmp/xmp.types';
+import type { CopyrightStatus } from '../xmp/xmp.types';
 
 type PanelPhase = 'form' | 'confirm' | 'applying' | 'done' | 'error';
 
@@ -56,9 +56,6 @@ const FIELD_LABELS: Partial<Record<keyof MixedValueMap, string>> = {
   usageTerms: 'Usage Terms',
   credit: 'Credit',
   source: 'Source',
-  rating: 'Rating',
-  flag: 'Flag',
-  colorLabel: 'Color Label',
 };
 
 @Component({
@@ -108,9 +105,6 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly usageTermsVal = signal<string>('');
   readonly creditVal = signal<string>('');
   readonly sourceVal = signal<string>('');
-  readonly ratingVal = signal<string>('');
-  readonly flagVal = signal<XmpFlag | ''>('');
-  readonly colorLabelVal = signal<XmpColorLabel | ''>('');
 
   // ── Per-field touched flags ────────────────────────────────────────────────
   readonly touched = signal<Set<keyof MixedValueMap>>(new Set());
@@ -201,6 +195,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
     this.geocodeQuery.set(value);
     if (value.trim().length < 2) {
       this.geocodeCandidates.set([]);
+      this.geocodeLoading.set(false);
     }
   }
 
@@ -387,18 +382,6 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       const v = this.sourceVal().trim();
       meta.source = v === '' ? null : v;
     }
-    if (t.has('rating')) {
-      const v = this.ratingVal();
-      meta.rating = v === '' ? undefined : Number(v);
-    }
-    if (t.has('flag')) {
-      const v = this.flagVal();
-      meta.flag = v === '' ? undefined : (v as XmpFlag);
-    }
-    if (t.has('colorLabel')) {
-      const v = this.colorLabelVal();
-      meta.colorLabel = v === '' ? undefined : (v as XmpColorLabel);
-    }
 
     return this.assetSnapshots().map((snap) => ({ path: snap.path, metadata: meta }));
   }
@@ -444,8 +427,5 @@ export class BatchMetadataPanelComponent implements OnDestroy {
     this.usageTermsVal.set(str(m.usageTerms));
     this.creditVal.set(str(m.credit));
     this.sourceVal.set(str(m.source));
-    this.ratingVal.set(str(m.rating));
-    this.flagVal.set(m.flag === MIXED || m.flag == null ? '' : m.flag);
-    this.colorLabelVal.set(m.colorLabel === MIXED || m.colorLabel == null ? '' : m.colorLabel);
   }
 }
