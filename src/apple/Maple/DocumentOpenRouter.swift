@@ -48,11 +48,25 @@ final class DocumentOpenRouter {
 
     /// Claim the LaunchServices security scope for an opened file and stash it
     /// for the shell. Non-file URLs are ignored (those are `maple://` deep
-    /// links handled by `DeepLinkRouter`). Releasing the prior held scope first
-    /// keeps at most one opened-document grant alive at a time.
+    /// links handled by `DeepLinkRouter`). At most one opened-document grant is
+    /// alive at a time, and every `startAccessingSecurityScopedResource()` is
+    /// balanced by exactly one `stop` (re-claiming the same URL without
+    /// releasing the prior grant would leave the retain count unbalanced and
+    /// leak the sandbox resource).
     func handle(_ url: URL) {
         guard url.isFileURL else { return }
-        if let prev = heldScope, prev != url {
+        // Same file re-opened while its grant is still held: reuse it. A second
+        // `start` without a matching `stop` leaks the grant, so just re-stash
+        // the URL so the shell re-opens it.
+        if heldScope == url {
+            pendingFileURL = url
+            docOpenLog.notice(
+                "document re-open \(url.lastPathComponent, privacy: .public) — reusing held security scope")
+            return
+        }
+        // Different file (or nothing held): release the previous grant before
+        // claiming the new one, keeping start/stop balanced.
+        if let prev = heldScope {
             prev.stopAccessingSecurityScopedResource()
         }
         let granted = url.startAccessingSecurityScopedResource()
