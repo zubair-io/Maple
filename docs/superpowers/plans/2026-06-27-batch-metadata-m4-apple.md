@@ -33,16 +33,16 @@
 
 ## File Map
 
-| File | Action | Responsibility |
-|------|--------|---------------|
-| `src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift` | **Create** | `@Observable` class holding selection snapshot, mixed-value detection, apply logic. |
-| `src/apple/Maple/Views/BatchMetadata/BatchMetadataSheet.swift` | **Create** | Top-level sheet: section-grouped ScrollView + toolbar (Cancel / Apply). |
-| `src/apple/Maple/Views/BatchMetadata/BatchMetadataCaptureSection.swift` | **Create** | GPS, datetime, timezone fields + CLGeocoder address search. |
-| `src/apple/Maple/Views/BatchMetadata/BatchMetadataTextSection.swift` | **Create** | Location text (sublocation, city, state, country, country code), Description (title, caption, headline, instructions), Creator & Rights. |
-| `src/apple/Maple/Views/PanoSelectionBar.swift` | **Modify** | Add `onEditMetadata: (() -> Void)?` parameter + "Edit Metadata…" button. |
-| `src/apple/Maple/Views/AppShell.swift` | **Modify** | Add `@State var showBatchMetadata = false`, wire `onEditMetadata` from `PanoSelectionBar`, add `.sheet(isPresented: $showBatchMetadata)`. |
-| `src/apple/Maple/Views/BrowseGrid.swift` | **Modify** | Thread `onEditMetadata` callback through to `PanoSelectionBar`. |
-| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/BatchMetadataViewModelTests.swift` | **Create** | Unit tests for mixed-value detection, apply logic, field-merging. |
+| File                                                                                  | Action     | Responsibility                                                                                                                            |
+| ------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift`         | **Create** | `@Observable` class holding selection snapshot, mixed-value detection, apply logic.                                                       |
+| `src/apple/Maple/Views/BatchMetadata/BatchMetadataSheet.swift`                        | **Create** | Top-level sheet: section-grouped ScrollView + toolbar (Cancel / Apply).                                                                   |
+| `src/apple/Maple/Views/BatchMetadata/BatchMetadataCaptureSection.swift`               | **Create** | GPS, datetime, timezone fields + CLGeocoder address search.                                                                               |
+| `src/apple/Maple/Views/BatchMetadata/BatchMetadataTextSection.swift`                  | **Create** | Location text (sublocation, city, state, country, country code), Description (title, caption, headline, instructions), Creator & Rights.  |
+| `src/apple/Maple/Views/PanoSelectionBar.swift`                                        | **Modify** | Add `onEditMetadata: (() -> Void)?` parameter + "Edit Metadata…" button.                                                                  |
+| `src/apple/Maple/Views/AppShell.swift`                                                | **Modify** | Add `@State var showBatchMetadata = false`, wire `onEditMetadata` from `PanoSelectionBar`, add `.sheet(isPresented: $showBatchMetadata)`. |
+| `src/apple/Maple/Views/BrowseGrid.swift`                                              | **Modify** | Thread `onEditMetadata` callback through to `PanoSelectionBar`.                                                                           |
+| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/BatchMetadataViewModelTests.swift` | **Create** | Unit tests for mixed-value detection, apply logic, field-merging.                                                                         |
 
 **Why this decomposition:** `BatchMetadataViewModel` has no SwiftUI dependency — it can be unit-tested in MapleCore. The sheet splits into three files to stay under 600 LOC: top-level sheet frame, capture-section (CLGeocoder + date logic), and text-section (IPTC text fields). `PanoSelectionBar` receives a callback (nil-optional, same pattern as `onMerge`).
 
@@ -51,10 +51,12 @@
 ## Task 1 — BatchMetadataViewModel (MapleCore, testable)
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/BatchMetadataViewModelTests.swift`
 
 **Interfaces:**
+
 - Produces:
   - `public class BatchMetadataViewModel` (`@Observable`, `@MainActor`)
   - `init(assets: [AssetRef], sessions: [AssetRef.ID: EditSession])`
@@ -196,6 +198,7 @@ cd /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Packages/M
 swift test --filter BatchMetadataViewModelTests > /tmp/m4-t1-fail.log 2>&1
 cat /tmp/m4-t1-fail.log | grep -E "error:|BUILD FAILED|PASS|FAIL" | head -20
 ```
+
 Expected: BUILD FAILED (type not yet defined).
 
 - [ ] **Step 3: Create BatchMetadataViewModel.swift**
@@ -518,6 +521,7 @@ Edit `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift` to a
 And add `private var pendingMetadata: XmpMetadata? = nil` to the stored properties.
 
 Update `writeAtomically` to:
+
 ```swift
     private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
         let xml: String
@@ -570,6 +574,7 @@ cd /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Packages/M
 swift test --filter BatchMetadataViewModelTests > /tmp/m4-t1-pass.log 2>&1
 cat /tmp/m4-t1-pass.log | grep -E "PASS|FAIL|error:" | head -20
 ```
+
 Expected: all BatchMetadataViewModelTests PASS.
 
 - [ ] **Step 7: Commit**
@@ -596,9 +601,11 @@ EOF
 ## Task 2 — BatchMetadataSheet (top-level SwiftUI shell)
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/BatchMetadata/BatchMetadataSheet.swift`
 
 **Interfaces:**
+
 - Consumes: `BatchMetadataViewModel` (from Task 1)
 - Produces: `struct BatchMetadataSheet: View` with `init(vm: BatchMetadataViewModel, onDismiss: () -> Void)`
 
@@ -703,6 +710,7 @@ struct BatchMetadataSheet: View {
 ```bash
 wc -l /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Maple/Views/BatchMetadata/BatchMetadataSheet.swift
 ```
+
 Expected: under 100. (It will grow slightly with preview, but won't approach 600.)
 
 - [ ] **Step 4: Add a `#Preview` at the bottom**
@@ -742,9 +750,11 @@ EOF
 ## Task 3 — BatchMetadataCaptureSection (GPS + datetime + timezone)
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/BatchMetadata/BatchMetadataCaptureSection.swift`
 
 **Interfaces:**
+
 - Consumes: `BatchMetadataViewModel`
 - Produces: `struct BatchMetadataCaptureSection: View`
 - CLGeocoder address search: `@State private var addressQuery: String`, search on commit, populate lat/lon + place text fields in `vm.touchedMetadata`.
@@ -986,6 +996,7 @@ struct BatchMetadataCaptureSection: View {
 ```bash
 wc -l /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Maple/Views/BatchMetadata/BatchMetadataCaptureSection.swift
 ```
+
 Expected: under 200.
 
 - [ ] **Step 3: Commit**
@@ -1009,9 +1020,11 @@ EOF
 ## Task 4 — BatchMetadataTextSection (IPTC text + rights)
 
 **Files:**
+
 - Create: `src/apple/Maple/Views/BatchMetadata/BatchMetadataTextSection.swift`
 
 **Interfaces:**
+
 - Consumes: `BatchMetadataViewModel`
 - Produces: `struct BatchMetadataTextSection: View`
 - Groups: Location text (sublocation, city, state, country, countryCode) + Description (title, caption, headline, instructions) + Creator & Rights (creator, creatorJobTitle, copyrightNotice, copyrightStatus, usageTerms, credit, source).
@@ -1197,6 +1210,7 @@ struct BatchMetadataTextSection: View {
 ```bash
 wc -l /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Maple/Views/BatchMetadata/BatchMetadataTextSection.swift
 ```
+
 Expected: under 200.
 
 - [ ] **Step 3: Commit**
@@ -1221,11 +1235,13 @@ EOF
 ## Task 5 — Wire PanoSelectionBar + BrowseGrid + AppShell
 
 **Files:**
+
 - Modify: `src/apple/Maple/Views/PanoSelectionBar.swift`
 - Modify: `src/apple/Maple/Views/BrowseGrid.swift`
 - Modify: `src/apple/Maple/Views/AppShell.swift`
 
 **Interfaces:**
+
 - `PanoSelectionBar` gains `let onEditMetadata: (() -> Void)?` (nil-optional, same pattern as `onMerge`).
 - `BrowseGrid` gains `var onEditMetadata: (() -> Void)? = nil` and threads it into `PanoSelectionBar`.
 - `AppShell` adds `@State var showBatchMetadata = false` and `openBatchMetadata()` action; sets `onEditMetadata` on both Mac/iPad and iPhone layouts.
@@ -1267,6 +1283,7 @@ Update call sites that instantiate `PanoSelectionBar` (in BrowseGrid.swift) to p
 - [ ] Add `var onEditMetadata: (() -> Void)? = nil` property to `BrowseGrid` (alongside `onMergePanorama`).
 
 - [ ] Thread it into `PanoSelectionBar`:
+
 ```swift
             if vm.isSelecting, let onMergePanorama {
                 PanoSelectionBar(vm: vm, onMerge: onMergePanorama, onEditMetadata: onEditMetadata)
@@ -1277,6 +1294,7 @@ Update call sites that instantiate `PanoSelectionBar` (in BrowseGrid.swift) to p
 
 - [ ] Add `var onEditMetadata: (() -> Void)? = nil` property (alongside `onMergePanorama`).
 - [ ] Thread it into `BrowseGrid`:
+
 ```swift
                     onEditMetadata: onEditMetadata
 ```
@@ -1285,6 +1303,7 @@ Update call sites that instantiate `PanoSelectionBar` (in BrowseGrid.swift) to p
 
 - [ ] Add `var onEditMetadata: (() -> Void)? = nil` property.
 - [ ] Thread it into `AppShellCenterColumn` in the `browse` computed property:
+
 ```swift
                     onEditMetadata: onEditMetadata
 ```
@@ -1292,11 +1311,13 @@ Update call sites that instantiate `PanoSelectionBar` (in BrowseGrid.swift) to p
 **Step 5: Modify AppShell**
 
 - [ ] Add to AppShell state:
+
 ```swift
     @State var showBatchMetadata: Bool = false
 ```
 
 - [ ] Add `openBatchMetadata()` action (alongside `openPanoramaMerge()`):
+
 ```swift
     func openBatchMetadata() {
         guard !browseVM.selectedIDs.isEmpty else { return }
@@ -1305,11 +1326,13 @@ Update call sites that instantiate `PanoSelectionBar` (in BrowseGrid.swift) to p
 ```
 
 - [ ] Wire `onEditMetadata` on both the Mac layout and the iPhone layout (search for `onMergePanorama: { openPanoramaMerge() }` — there are two call sites):
+
 ```swift
             onEditMetadata: { openBatchMetadata() }
 ```
 
 - [ ] Add the sheet (alongside the panorama merge sheet):
+
 ```swift
         .sheet(isPresented: $showBatchMetadata) {
             BatchMetadataSheet(
@@ -1331,6 +1354,7 @@ wc -l /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Maple/V
 wc -l /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Maple/Views/BrowseGrid.swift
 wc -l /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Maple/Views/AppShell.swift
 ```
+
 `AppShell.swift` and `BrowseGrid.swift` are in the allowlist; `PanoSelectionBar.swift` should stay under 100.
 
 - [ ] **Step 7: Commit**
@@ -1365,6 +1389,7 @@ cd /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/apple/Packages/M
 swift test > /tmp/m4-swifttest.log 2>&1
 grep -E "Test Suite|PASS|FAIL|error:|BUILD" /tmp/m4-swifttest.log | tail -20
 ```
+
 Expected: All tests pass. No new failures.
 
 - [ ] **Step 2: Run xcodebuild macOS build**
@@ -1377,13 +1402,16 @@ xcodebuild -project src/apple/Maple.xcodeproj \
     build > /tmp/m4-xcode.log 2>&1
 grep -E "BUILD SUCCEEDED|BUILD FAILED|error:" /tmp/m4-xcode.log | head -20
 ```
+
 Expected: `BUILD SUCCEEDED`.
 
 If BUILD FAILED due to missing xcframework (libraw_ffi.a), follow CONTRIBUTING.md fast-xcframework path:
+
 ```bash
 cd /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple/src/raw-pipeline
 cargo build -p raw-ffi --features gpu,pano --target aarch64-apple-darwin > /tmp/xcfw.log 2>&1
 ```
+
 Then copy the `.a` and regenerate the header per `src/apple/scripts/build-xcframework.sh`. Report BLOCKED if this fails.
 
 - [ ] **Step 3: Run file budget**
@@ -1393,6 +1421,7 @@ cd /Users/riabuz/Projects/_Maple/.claude/worktrees/m4-apple
 bash tools/check-file-budget.sh > /tmp/m4-budget.log 2>&1
 cat /tmp/m4-budget.log | grep -E "HARD|SOFT|0 hard" | head -10
 ```
+
 Expected: 0 hard violations.
 
 - [ ] **Step 4: Push and open PR**
@@ -1438,30 +1467,31 @@ EOF
 
 **Spec coverage check:**
 
-| Requirement | Covered by |
-|------------|------------|
-| "Edit Metadata…" action in selection bar | Task 5 (PanoSelectionBar + AppShell wiring) |
-| Enabled when ≥1 selected | Task 5 (`disabled(vm.selectedIDs.isEmpty)`) |
-| Capture date/time fields | Task 3 (BatchMetadataCaptureSection) |
-| Time zone field | Task 3 |
-| GPS location via CLGeocoder | Task 3 |
-| Manual lat/lon | Task 3 |
-| IPTC place text (sublocation, city, state, country, code) | Task 4 |
-| Description (title/caption/headline/instructions) | Task 4 |
-| Creator & rights (all 7 fields) | Task 4 |
-| Copyright status tri-state | Task 4 |
-| Mixed-value `(mixed)` placeholder | Tasks 1 + 3 + 4 |
-| Only touched fields written | Task 1 (apply logic) |
-| Explicit-clear distinct from untouched | Task 1 (empty string = clear, nil = untouched) |
-| Apply writes via XMPSerializer.serialize(model:culling:metadata:) | Task 1 + XMPSidecarStore overload |
-| Non-destructive (originals never touched) | XMPSidecarStore only writes .xmp |
-| Selection snapshotted at open | Task 1 (init takes `assets` snapshot) |
-| Partial failure reporting | Task 2 (alert + ApplyError.partialFailure) |
-| No backup re-file offer on Apple standalone | Not present (correct per spec) |
+| Requirement                                                       | Covered by                                     |
+| ----------------------------------------------------------------- | ---------------------------------------------- |
+| "Edit Metadata…" action in selection bar                          | Task 5 (PanoSelectionBar + AppShell wiring)    |
+| Enabled when ≥1 selected                                          | Task 5 (`disabled(vm.selectedIDs.isEmpty)`)    |
+| Capture date/time fields                                          | Task 3 (BatchMetadataCaptureSection)           |
+| Time zone field                                                   | Task 3                                         |
+| GPS location via CLGeocoder                                       | Task 3                                         |
+| Manual lat/lon                                                    | Task 3                                         |
+| IPTC place text (sublocation, city, state, country, code)         | Task 4                                         |
+| Description (title/caption/headline/instructions)                 | Task 4                                         |
+| Creator & rights (all 7 fields)                                   | Task 4                                         |
+| Copyright status tri-state                                        | Task 4                                         |
+| Mixed-value `(mixed)` placeholder                                 | Tasks 1 + 3 + 4                                |
+| Only touched fields written                                       | Task 1 (apply logic)                           |
+| Explicit-clear distinct from untouched                            | Task 1 (empty string = clear, nil = untouched) |
+| Apply writes via XMPSerializer.serialize(model:culling:metadata:) | Task 1 + XMPSidecarStore overload              |
+| Non-destructive (originals never touched)                         | XMPSidecarStore only writes .xmp               |
+| Selection snapshotted at open                                     | Task 1 (init takes `assets` snapshot)          |
+| Partial failure reporting                                         | Task 2 (alert + ApplyError.partialFailure)     |
+| No backup re-file offer on Apple standalone                       | Not present (correct per spec)                 |
 
 **Placeholder scan:** None found. All steps contain actual code.
 
 **Type consistency:**
+
 - `TouchedMetadata.gpsLatitude` uses `Double??` (outer nil = untouched, inner nil = clear). This is correct but note: in the apply logic, `if let v = t.gpsLatitude { merged.gpsLatitude = v }` — this pattern works for `Double??` because `if let` unwraps the outer optional, leaving `v: Double?` (which can be nil = clear). Swift's `if let` on double-optional unwraps one layer, so `v` is `Optional<Double>` — which is exactly what `merged.gpsLatitude` expects. Correct.
 - `copyrightStatus: CopyrightStatus??` — same pattern. Correct.
 - `vm.touchedMetadata.city = nil` means untouched; `vm.touchedMetadata.city = ""` means clear. The apply logic correctly maps: `if let v = t.city { merged.city = v.isEmpty ? nil : v }`.
