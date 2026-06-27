@@ -18,20 +18,20 @@
  * §"Task 1: API — refile-count and refile-by-asset routes"
  */
 
-import { Elysia, t } from "elysia";
-import * as nodePath from "node:path";
-import { resolveAndAuthorizePath } from "./xmp-path-auth.ts";
-import { assetsCollection } from "../db/client.ts";
-import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
-import { assetPrimaryFileInfo } from "../indexer/images.repo.ts";
-import { backupLocationSegments } from "../backup/location-segments.ts";
-import { sanitizeLocationSegments } from "../backup/path-formatter.ts";
-import { moveBackupAsset } from "../workers/migration/move-backup-asset.ts";
-import { child as childLogger } from "../log.ts";
-import type { AssetDoc } from "../db/schema.ts";
-import type { WithId } from "mongodb";
+import { Elysia, t } from 'elysia';
+import * as nodePath from 'node:path';
+import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { assetsCollection } from '../db/client.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+import { backupLocationSegments } from '../backup/location-segments.ts';
+import { sanitizeLocationSegments } from '../backup/path-formatter.ts';
+import { moveBackupAsset } from '../workers/migration/move-backup-asset.ts';
+import { child as childLogger } from '../log.ts';
+import type { AssetDoc } from '../db/schema.ts';
+import type { WithId } from 'mongodb';
 
-const log = childLogger("routes/backup-refile");
+const log = childLogger('routes/backup-refile');
 
 const MAX_PATHS = 1000;
 
@@ -43,14 +43,11 @@ const MAX_PATHS = 1000;
  * Prefer the 4-digit year already in the relative path prefix; fall back to
  * the DB captured_year. Returns null when neither is available (caller skips).
  */
-function yearForDir(
-  currentPath: string,
-  capturedYear: number | null | undefined,
-): string | null {
-  const seg0 = currentPath.split("/")[0] ?? "";
+function yearForDir(currentPath: string, capturedYear: number | null | undefined): string | null {
+  const seg0 = currentPath.split('/')[0] ?? '';
   if (/^\d{4}$/.test(seg0)) return seg0;
   if (capturedYear != null && Number.isFinite(capturedYear)) {
-    return String(Math.trunc(capturedYear)).padStart(4, "0");
+    return String(Math.trunc(capturedYear)).padStart(4, '0');
   }
   return null;
 }
@@ -62,13 +59,11 @@ function yearForDir(
 function geoDir(doc: WithId<AssetDoc>): string | null {
   const primary = assetPrimaryFileInfo(doc);
   if (!primary) return null;
-  const segs = sanitizeLocationSegments(
-    backupLocationSegments(doc.place ?? null),
-  );
+  const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
   if (segs.length === 0) return null;
   const year = yearForDir(primary.path, doc.exif?.captured_year ?? null);
   if (!year) return null;
-  return `${year}/${segs.join("/")}`;
+  return `${year}/${segs.join('/')}`;
 }
 
 /** True when the asset is backup-origin and has a usable geo location. */
@@ -76,26 +71,20 @@ function isGeoBackupCandidate(doc: WithId<AssetDoc>): boolean {
   if (!doc.phasset_links || doc.phasset_links.length === 0) return false;
   const primary = assetPrimaryFileInfo(doc);
   if (!primary) return false;
-  const segs = sanitizeLocationSegments(
-    backupLocationSegments(doc.place ?? null),
-  );
+  const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
   return segs.length > 0;
 }
 
 /** Look up backup-origin asset docs for the given absolute paths. */
-async function findGeoBackupDocs(
-  absPaths: string[],
-): Promise<WithId<AssetDoc>[]> {
+async function findGeoBackupDocs(absPaths: string[]): Promise<WithId<AssetDoc>[]> {
   if (absPaths.length === 0) return [];
-  const filenames = [
-    ...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean)),
-  ];
+  const filenames = [...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean))];
   const c = await assetsCollection();
   return c
     .find(
       {
-        "fileinfo.filename": { $in: filenames },
-        "phasset_links.0": { $exists: true },
+        'fileinfo.filename': { $in: filenames },
+        'phasset_links.0': { $exists: true },
       },
       {
         projection: {
@@ -105,7 +94,7 @@ async function findGeoBackupDocs(
           apple_rendered_path: 1,
           place: 1,
           phasset_links: 1,
-          "exif.captured_year": 1,
+          'exif.captured_year': 1,
         },
       },
     )
@@ -124,16 +113,16 @@ const RefileBodySchema = t.Object({
 // Routes
 // ---------------------------------------------------------------------------
 
-export const backupRefileRoutes = new Elysia({ name: "backupRefile" })
+export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
 
   // ── Count ───────────────────────────────────────────────────────────────
   .post(
-    "/api/backup/refile-count",
+    '/api/backup/refile-count',
     async ({ body, set }) => {
       const { paths } = body;
       if (!Array.isArray(paths) || paths.length === 0) {
         set.status = 400;
-        return { error: "paths must be a non-empty array" };
+        return { error: 'paths must be a non-empty array' };
       }
       if (paths.length > MAX_PATHS) {
         set.status = 400;
@@ -155,20 +144,20 @@ export const backupRefileRoutes = new Elysia({ name: "backupRefile" })
     {
       body: RefileBodySchema,
       detail: {
-        summary: "Count geo-backup assets that would be relocated",
-        tags: ["backup"],
+        summary: 'Count geo-backup assets that would be relocated',
+        tags: ['backup'],
       },
     },
   )
 
   // ── Refile ──────────────────────────────────────────────────────────────
   .post(
-    "/api/backup/refile",
+    '/api/backup/refile',
     async ({ body, set }) => {
       const { paths } = body;
       if (!Array.isArray(paths) || paths.length === 0) {
         set.status = 400;
-        return { error: "paths must be a non-empty array" };
+        return { error: 'paths must be a non-empty array' };
       }
       if (paths.length > MAX_PATHS) {
         set.status = 400;
@@ -204,12 +193,8 @@ export const backupRefileRoutes = new Elysia({ name: "backupRefile" })
         // Pick a representative input path (best-effort; used only for the response label).
         const representativePath =
           primary != null
-            ? (absPaths.find(
-                (p) => nodePath.basename(p) === primary.filename,
-              ) ??
-              paths[0] ??
-              "")
-            : (paths[0] ?? "");
+            ? (absPaths.find((p) => nodePath.basename(p) === primary.filename) ?? paths[0] ?? '')
+            : (paths[0] ?? '');
 
         if (!isGeoBackupCandidate(doc)) {
           // Not a geo-backup asset — silently skip (not an error).
@@ -223,14 +208,11 @@ export const backupRefileRoutes = new Elysia({ name: "backupRefile" })
 
         const libRoot = libs.get(primary!.library_id.toHexString());
         if (!libRoot) {
-          log.warn(
-            { _id: String(doc._id) },
-            "backup-refile: no library root for asset — skipping",
-          );
+          log.warn({ _id: String(doc._id) }, 'backup-refile: no library root for asset — skipping');
           results.push({
             path: representativePath,
             ok: false,
-            error: "library root not found",
+            error: 'library root not found',
           });
           continue;
         }
@@ -240,16 +222,10 @@ export const backupRefileRoutes = new Elysia({ name: "backupRefile" })
           // That stamp belongs to the bulk refile-backups migration only.
           const outcome = await moveBackupAsset(c, doc, libRoot, newDir);
           results.push({ path: representativePath, ok: true, outcome });
-          log.info(
-            { _id: String(doc._id), outcome, newDir },
-            "backup-refile: asset relocated",
-          );
+          log.info({ _id: String(doc._id), outcome, newDir }, 'backup-refile: asset relocated');
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          log.warn(
-            { _id: String(doc._id), err: msg },
-            "backup-refile: move failed",
-          );
+          log.warn({ _id: String(doc._id), err: msg }, 'backup-refile: move failed');
           results.push({ path: representativePath, ok: false, error: msg });
         }
       }
@@ -261,9 +237,8 @@ export const backupRefileRoutes = new Elysia({ name: "backupRefile" })
     {
       body: RefileBodySchema,
       detail: {
-        summary:
-          "Relocate geo-backup copies of edited assets into their canonical folder",
-        tags: ["backup"],
+        summary: 'Relocate geo-backup copies of edited assets into their canonical folder',
+        tags: ['backup'],
       },
     },
   );
