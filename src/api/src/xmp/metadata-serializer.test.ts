@@ -205,3 +205,44 @@ describe('mergeMetadataIntoXmp — namespace declarations', () => {
     expect(count).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Partial-edit preservation (regression for #1600 data-loss bug)
+// ---------------------------------------------------------------------------
+
+describe('mergeMetadataIntoXmp — partial edits preserve untouched fields', () => {
+  test('editing only city preserves existing GPS', () => {
+    // WITH_EXISTING_META has GPS + photoshop:City="New York".
+    const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, { city: 'Rome' });
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.city).toBe('Rome'); // updated
+    expect(parsed.gpsLatitude).toBeCloseTo(40.7128, 3); // untouched, preserved
+    expect(parsed.gpsLongitude).toBeCloseTo(-74.006, 3);
+  });
+
+  test('editing only GPS preserves existing city', () => {
+    const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, {
+      gpsLatitude: 48.8566,
+      gpsLongitude: 2.3522,
+    });
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.gpsLatitude).toBeCloseTo(48.8566, 3); // updated
+    expect(parsed.city).toBe('New York'); // untouched, preserved
+  });
+
+  test('editing one nested field preserves an existing nested field', () => {
+    // Seed a sidecar with both a title and a creator, then edit only the title.
+    const seeded = mergeMetadataIntoXmp(EMPTY_XMP, { title: 'Old Title', creator: 'Ansel Adams' });
+    const merged = mergeMetadataIntoXmp(seeded, { title: 'New Title' });
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.title).toBe('New Title'); // updated
+    expect(parsed.creator).toBe('Ansel Adams'); // untouched, preserved
+  });
+
+  test('explicit null clears only that field, leaving others intact', () => {
+    const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, { city: null });
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.city).toBeUndefined(); // cleared
+    expect(parsed.gpsLatitude).toBeCloseTo(40.7128, 3); // preserved
+  });
+});

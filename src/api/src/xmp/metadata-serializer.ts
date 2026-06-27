@@ -93,36 +93,39 @@ function bagBlock(qname: string, values: string[]): string {
 // Managed field registry
 // ---------------------------------------------------------------------------
 
-/** All attribute keys this serializer owns — used to remove stale values. */
-const MANAGED_ATTR_KEYS: ReadonlySet<string> = new Set([
-  'exif:GPSLatitude',
-  'exif:GPSLongitude',
-  'exif:GPSAltitude',
-  'exif:GPSAltitudeRef',
-  'exif:DateTimeOriginal',
-  'papp:TimeZone',
-  'Iptc4xmpCore:Location',
-  'photoshop:City',
-  'photoshop:State',
-  'photoshop:Country',
-  'Iptc4xmpCore:CountryCode',
-  'photoshop:Headline',
-  'photoshop:Instructions',
-  'photoshop:AuthorsPosition',
-  'photoshop:Credit',
-  'photoshop:Source',
-  'xmpRights:Marked',
-]);
+/**
+ * Map each input field to the managed attribute key(s) it owns. ONLY keys for
+ * fields present in the edit are removed/rewritten, so untouched fields in an
+ * existing sidecar survive a partial edit (spec: untouched fields unchanged).
+ */
+const FIELD_TO_ATTR_KEYS: Record<string, readonly string[]> = {
+  gpsLatitude: ['exif:GPSLatitude'],
+  gpsLongitude: ['exif:GPSLongitude'],
+  gpsAltitude: ['exif:GPSAltitude', 'exif:GPSAltitudeRef'],
+  dateTimeOriginal: ['exif:DateTimeOriginal'],
+  timeZone: ['papp:TimeZone'],
+  sublocation: ['Iptc4xmpCore:Location'],
+  city: ['photoshop:City'],
+  state: ['photoshop:State'],
+  country: ['photoshop:Country'],
+  countryCode: ['Iptc4xmpCore:CountryCode'],
+  headline: ['photoshop:Headline'],
+  instructions: ['photoshop:Instructions'],
+  creatorJobTitle: ['photoshop:AuthorsPosition'],
+  credit: ['photoshop:Credit'],
+  source: ['photoshop:Source'],
+  copyrightStatus: ['xmpRights:Marked'],
+};
 
-/** All nested element tag names this serializer owns. */
-const MANAGED_NESTED_TAGS: ReadonlySet<string> = new Set([
-  'dc:title',
-  'dc:creator',
-  'dc:description',
-  'dc:rights',
-  'xmpRights:UsageTerms',
-  'dc:subject',
-]);
+/** Map each input field to the managed nested element tag it owns. */
+const FIELD_TO_NESTED_TAG: Record<string, string> = {
+  title: 'dc:title',
+  creator: 'dc:creator',
+  caption: 'dc:description',
+  copyrightNotice: 'dc:rights',
+  usageTerms: 'xmpRights:UsageTerms',
+  keywords: 'dc:subject',
+};
 
 /** Namespace prefix → URI (only prefixes used by managed metadata fields). */
 const NS_MAP: Record<string, string> = {
@@ -131,7 +134,9 @@ const NS_MAP: Record<string, string> = {
   Iptc4xmpCore: 'http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/',
   xmpRights: 'http://ns.adobe.com/xap/1.0/rights/',
   dc: 'http://purl.org/dc/elements/1.1/',
-  papp: 'https://justmaple.app/ns/1.0/',
+  // Align to the web serializer's papp URI (M0a) so sidecars this route writes
+  // match what the web layer writes; the Swift/Rust variant is tracked in #1577.
+  papp: 'http://ns.justmaple.app/photo/1.0/',
 };
 
 // ---------------------------------------------------------------------------
@@ -252,16 +257,28 @@ export function mergeMetadataIntoXmp(xml: string, meta: XmpMetadataInput): strin
 }
 
 function applyMerge(xml: string, meta: XmpMetadataInput): string {
-  // 1. Remove managed attribute keys from the rdf:Description opening tag.
+  // Determine which managed keys/tags this edit TOUCHES — only fields present
+  // in the input (by key, so an explicit `null` clear counts; an omitted field
+  // does not). Untouched fields in the existing sidecar are left intact.
+  const touchedAttrKeys = new Set<string>();
+  const touchedTags = new Set<string>();
+  for (const field of Object.keys(meta)) {
+    const keys = FIELD_TO_ATTR_KEYS[field];
+    if (keys) for (const k of keys) touchedAttrKeys.add(k);
+    const tag = FIELD_TO_NESTED_TAG[field];
+    if (tag) touchedTags.add(tag);
+  }
+
+  // 1. Remove ONLY the touched managed attribute keys from rdf:Description.
   let result = xml;
-  for (const key of MANAGED_ATTR_KEYS) {
+  for (const key of touchedAttrKeys) {
     // Match: whitespace? key="value" (with possible entity sequences in value)
     const re = new RegExp(`\\s*${escapeRegex(key)}="[^"]*"`, 'g');
     result = result.replace(re, '');
   }
 
-  // 2. Remove managed nested element blocks.
-  for (const tag of MANAGED_NESTED_TAGS) {
+  // 2. Remove ONLY the touched managed nested element blocks.
+  for (const tag of touchedTags) {
     // Match the full element including its content, across lines.
     const re = new RegExp(`\\s*<${escapeRegex(tag)}[\\s\\S]*?<\\/${escapeRegex(tag)}>`, 'g');
     result = result.replace(re, '');
