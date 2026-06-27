@@ -118,6 +118,14 @@ async function insertAssetWithFaces(faces: AssetFaceDoc[]): Promise<ObjectId> {
     faces,
   };
   const res = await db!.collection('assets').insertOne(doc as AssetDoc);
+  // These tests seed faces directly with `person_id` already set, bypassing
+  // the maintained write paths (assign / hide / merge) that keep the
+  // denormalized `PersonDoc.face_count` in sync. Reconcile the field the same
+  // way production does on boot — the idempotent `backfillPersonFaceCount`
+  // migration primitive — so `listPeople` (which now reads `face_count`)
+  // reflects the seeded faces.
+  const { backfillPersonFaceCount } = await import('../src/people/people-face-count.repo.ts');
+  await backfillPersonFaceCount(db!);
   return res.insertedId;
 }
 
