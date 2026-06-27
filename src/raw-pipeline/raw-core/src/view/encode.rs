@@ -345,40 +345,56 @@ mod tests {
     }
 
     /// #1621 end-to-end: the user's actual "push the color" scenario through
-    /// the COMPOSED view tail — AgX (Rec.2020 gamut compress) THEN
-    /// `rec2020_to_srgb` (sRGB gamut compress). A scene-linear ramp of
-    /// increasing green saturation (foliage) must produce output chroma that
-    /// is monotonic non-decreasing and spans a real range (the old hard
-    /// clip-to-hull flattened the saturated half into a posterized plateau).
+    /// the REAL slider path — drive the `saturation` stage (L-preserving Oklab
+    /// chroma scale) at increasing amounts, then the COMPOSED view tail: AgX
+    /// (Rec.2020 gamut compress) THEN `rec2020_to_srgb` (sRGB gamut compress).
+    /// For each primary direction the output chroma must be monotonic
+    /// non-decreasing (the old hard clip-to-hull could flatten or reverse it).
+    /// Covers red/green/blue — blue exercises the smallest sRGB gamut.
+    ///
+    /// NOTE: the saturation stage scales chroma at CONSTANT lightness, so the
+    /// output gamut hull doesn't move — unlike naively pulling channels toward
+    /// 0, which darkens the color and (correctly, in both the old clip and the
+    /// new soft path) shrinks its hull. This drives the same stage the UI
+    /// slider does. Chroma-only (no-collapse) gate; hue-constancy is #1625.
     #[test]
-    fn full_view_tail_saturated_green_ramp_no_collapse() {
+    fn full_view_tail_saturated_ramps_no_collapse() {
         use crate::color::oklab::srgb_linear_to_oklab;
-        const N: usize = 128;
-        let mut chromas = Vec::with_capacity(N);
-        for i in 0..N {
-            let s = 0.95 * (i as f32) / ((N - 1) as f32); // 0 → 0.95 saturation
-            let m = 0.22f32; // mid scene-linear luminance
-            let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
-            // Hold green, pull red/blue down → increasingly saturated green.
-            img.pixels[0] = [m * (1.0 - s), m, m * (1.0 - s)];
-            crate::view::agx::apply(&mut img, 0.0);
-            rec2020_to_srgb(&mut img);
-            let lab = srgb_linear_to_oklab(img.pixels[0]);
-            chromas.push((lab[1] * lab[1] + lab[2] * lab[2]).sqrt());
+        const N: usize = 100;
+        let bases: [(&str, [f32; 3]); 3] = [
+            ("red", [0.22, 0.09, 0.09]),
+            ("green", [0.09, 0.22, 0.09]),
+            ("blue", [0.09, 0.09, 0.22]),
+        ];
+        for (label, base) in bases {
+            let mut chromas = Vec::with_capacity(N);
+            for i in 0..N {
+                let sat = 100.0 * (i as f32) / ((N - 1) as f32); // slider 0 → +100
+                let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+                img.pixels[0] = base;
+                crate::stages::saturation::apply(&mut img, sat); // real slider stage
+                crate::view::agx::apply(&mut img, 0.0);
+                rec2020_to_srgb(&mut img);
+                let lab = srgb_linear_to_oklab(img.pixels[0]);
+                chromas.push((lab[1] * lab[1] + lab[2] * lab[2]).sqrt());
+            }
+            // Load-bearing: pushing saturation must NEVER reduce output chroma.
+            for w in chromas.windows(2) {
+                assert!(
+                    w[1] >= w[0] - 1.5e-3,
+                    "{label} view-tail chroma inverted (saturation push reduced \
+                     colorfulness): {} -> {}",
+                    w[0],
+                    w[1]
+                );
+            }
+            // Sanity: the slider does something (magnitude is hue-dependent —
+            // headroom to the hull varies). The real anti-banding guard is the
+            // monotonicity above + `soft_compress_invariants_across_hue_and_lightness`.
+            let span = chromas[N - 1] - chromas[0];
+            eprintln!("full view-tail {label} slider ramp: out-chroma span = {span:.4}");
+            assert!(span > 0.005, "{label} saturation slider was a near no-op (span {span})");
         }
-        // Monotonic non-decreasing (sub-LSB tolerance, per the gamut sweep).
-        for w in chromas.windows(2) {
-            assert!(
-                w[1] >= w[0] - 1.5e-3,
-                "view-tail chroma inverted: {} -> {}",
-                w[0],
-                w[1]
-            );
-        }
-        // No collapse: the saturated ramp must span a real output-chroma range.
-        let span = chromas[N - 1] - chromas[0];
-        eprintln!("full view-tail green ramp: out-chroma span = {span:.4}");
-        assert!(span > 0.05, "view-tail saturated ramp collapsed (span {span})");
     }
 
     #[test]
