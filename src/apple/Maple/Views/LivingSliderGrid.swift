@@ -11,13 +11,22 @@ import MapleCore
 
 struct LivingSliderGrid: View {
     @Bindable var state: EditorState
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+
+    /// Two gradient-slider columns on regular (iPad/Mac) so the contained
+    /// card fills nicely; a single full-width column on compact (iPhone).
+    private var columns: [GridItem] {
+        hSizeClass == .regular
+            ? [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)]
+            : [GridItem(.flexible())]
+    }
 
     var body: some View {
         let tools = Tool.tools(in: state.armedGroup)
             .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }
 
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 0) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 6) {
                 ForEach(tools, id: \.self) { tool in
                     LivingSliderRow(state: state, tool: tool)
                         .contentShape(Rectangle())
@@ -25,7 +34,7 @@ struct LivingSliderGrid: View {
                 }
             }
         }
-        .frame(maxHeight: 280)
+        .frame(maxHeight: 240)
         .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
     }
 }

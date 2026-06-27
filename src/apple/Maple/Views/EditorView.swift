@@ -59,6 +59,12 @@ struct EditorView: View {
     @State private var presetsOpen = false
     @State private var presetStore = PresetStore()
 
+    /// Value HUD (center) — fades in while a value is being scrubbed, then
+    /// recedes.  Mirrors the web `hudVisible()` gated HUD layer; replaces the
+    /// always-on top-center chip that collided with the pill header.
+    @State private var hudVisible = false
+    @State private var hudHideTask: Task<Void, Never>?
+
     private var isRegular: Bool { hSizeClass == .regular }
 
     var body: some View {
@@ -66,53 +72,54 @@ struct EditorView: View {
             // ── LAYER 0 : full-bleed canvas ──────────────────────────────
             canvasLayer
 
-            // ── LAYER 1 : value-chip HUD (top-center, always) ─────────────
-            VStack {
-                ValueChipOverlay(state: state)
-                    .padding(.top, 14)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .ignoresSafeArea(edges: .bottom)
+            // ── LAYER 1 : value HUD (center, fades in during scrub) ───────
+            // Gated by `hudVisible` so it only appears while a value is being
+            // changed — the always-on top-center chip used to overlap the
+            // pill header (LAYER 4).
+            ValueChipOverlay(state: state)
+                .opacity(hudVisible ? 1 : 0)
+                .animation(.easeOut(duration: 0.18), value: hudVisible)
+                .allowsHitTesting(false)
 
             // ── LAYER 2 : left filmstrip rail (regular only) ───────────────
+            // Vertically centered with its own max-height cap (set inside
+            // FilmstripRail) so it floats mid-canvas instead of spanning the
+            // full height.  `alignment: .leading` = left edge + vertical center.
             if isRegular && !filmstripAssets.isEmpty {
-                HStack {
-                    FilmstripRail(
-                        assets: filmstripAssets,
-                        activeID: state.session.asset.id,
-                        source: filmstripSource,
-                        onSelect: onSelectAsset
-                    )
-                    Spacer()
-                }
-                .padding(.leading, 8)
-                .frame(maxHeight: .infinity)
+                FilmstripRail(
+                    assets: filmstripAssets,
+                    activeID: state.session.asset.id,
+                    source: filmstripSource,
+                    onSelect: onSelectAsset
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .padding(.leading, 12)
                 .ignoresSafeArea(edges: .bottom)
                 .opacity(chromeOpacity)
+                .allowsHitTesting(isRegular || chromeVisible)
             }
 
             // ── LAYER 3 : right tool dock (regular only) ──────────────────
+            // Vertically centered with its own max-height cap (set inside
+            // ToolDock).  `alignment: .trailing` = right edge + vertical center.
             if isRegular {
-                HStack {
-                    Spacer()
-                    ToolDock(state: state, onPresetsTap: { presetsOpen = true })
-                        #if os(macOS)
-                        .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
-                            PresetsPanel(
-                                state: state,
-                                store: presetStore,
-                                onApplied: { presetsOpen = false }
-                            )
-                            .frame(width: 340, height: 460)
-                            .background(MapleTokens.surface)
-                        }
-                        #endif
-                }
-                .padding(.trailing, 8)
-                .frame(maxHeight: .infinity)
-                .ignoresSafeArea(edges: .bottom)
-                .opacity(chromeOpacity)
+                ToolDock(state: state, onPresetsTap: { presetsOpen = true })
+                    #if os(macOS)
+                    .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
+                        PresetsPanel(
+                            state: state,
+                            store: presetStore,
+                            onApplied: { presetsOpen = false }
+                        )
+                        .frame(width: 340, height: 460)
+                        .background(MapleTokens.surface)
+                    }
+                    #endif
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .padding(.trailing, 12)
+                    .ignoresSafeArea(edges: .bottom)
+                    .opacity(chromeOpacity)
+                    .allowsHitTesting(isRegular || chromeVisible)
             }
 
             // ── LAYER 4 : top pill header ─────────────────────────────────
@@ -131,27 +138,37 @@ struct EditorView: View {
             .frame(maxWidth: .infinity)
             .ignoresSafeArea(edges: .bottom)
             .opacity(chromeOpacity)
+            .allowsHitTesting(isRegular || chromeVisible)
 
             // ── LAYER 5 : bottom control card ─────────────────────────────
-            VStack {
-                Spacer()
-                ControlCard(
-                    state: state,
-                    onPresetsTap: { presetsOpen = true }
-                )
-                #if os(iOS)
-                .mapleBottomSheet(isPresented: $presetsOpen) {
-                    PresetsPanel(
+            GeometryReader { geo in
+                VStack {
+                    Spacer()
+                    ControlCard(
                         state: state,
-                        store: presetStore,
-                        onApplied: { presetsOpen = false }
+                        onPresetsTap: { presetsOpen = true }
                     )
+                    #if os(iOS)
+                    .mapleBottomSheet(isPresented: $presetsOpen) {
+                        PresetsPanel(
+                            state: state,
+                            store: presetStore,
+                            onApplied: { presetsOpen = false }
+                        )
+                    }
+                    #endif
+                    // Contained width on regular (iPad/Mac) so the card centers
+                    // between the filmstrip rail (~122pt left) and the tool dock
+                    // (~76pt right). Clamped so it can't underlap either column
+                    // on a narrow regular window.
+                    .frame(maxWidth: isRegular ? min(860, geo.size.width - 300) : .infinity)
                 }
-                #endif
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity)
             .ignoresSafeArea(edges: .bottom)
             .opacity(chromeOpacity)
+            .allowsHitTesting(isRegular || chromeVisible)
         }
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("editor-view")
@@ -166,11 +183,15 @@ struct EditorView: View {
         #if os(macOS)
         .toolbar { editorZoomToolbar }
         #endif
-        .onChange(of: state.armedTool) { _, _ in bumpChrome() }
+        .onChange(of: state.armedTool) { _, _ in bumpChrome(); flashHUD() }
         .onChange(of: state.armedGroup) { _, _ in bumpChrome() }
-        // Cancel the idle-recede timer on tear-down so it can't fire and
-        // mutate `chromeVisible` after the editor is gone (review #3).
-        .onDisappear { recedeTask?.cancel() }
+        .onChange(of: state.armedDisplayValue) { _, _ in flashHUD() }
+        // Cancel the idle-recede + HUD timers on tear-down so they can't fire
+        // and mutate state after the editor is gone (review #3).
+        .onDisappear {
+            recedeTask?.cancel()
+            hudHideTask?.cancel()
+        }
     }
 
     // MARK: - Chrome recede
@@ -185,6 +206,18 @@ struct EditorView: View {
         recedeTask?.cancel()
         chromeVisible = true
         scheduleRecede()
+    }
+
+    /// Flash the center value HUD, then schedule it to recede ~1.1s after the
+    /// last value change (mirrors the web scrub HUD behaviour).
+    private func flashHUD() {
+        hudHideTask?.cancel()
+        hudVisible = true
+        hudHideTask = Task {
+            try? await Task.sleep(for: .milliseconds(1100))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { hudVisible = false }
+        }
     }
 
     private func scheduleRecede() {
