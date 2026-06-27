@@ -117,11 +117,12 @@ struct BatchMetadataCaptureSection: View {
             // Clear GPS button — only shown when GPS has been touched
             if vm.touchedMetadata.gpsLatitude != nil || vm.touchedMetadata.gpsLongitude != nil {
                 Button("Clear GPS") {
-                    vm.touchedMetadata.gpsLatitude  = nil
-                    vm.touchedMetadata.gpsLongitude = nil
-                    vm.touchedMetadata.gpsAltitude  = nil
+                    vm.touchedMetadata.gpsLatitude  = .some(nil)
+                    vm.touchedMetadata.gpsLongitude = .some(nil)
+                    vm.touchedMetadata.gpsAltitude  = .some(nil)
                     latText = ""
                     lonText = ""
+                    geocodeResults = []
                 }
                 .font(.subheadline)
                 .foregroundStyle(.red)
