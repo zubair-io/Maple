@@ -72,7 +72,7 @@ struct AppShell: View {
     @State var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
     @State private var showSettings = false
-    @State var showBatchMetadata: Bool = false
+    @State private var showBatchMetadata: Bool = false
     /// Non-nil when the Settings sheet should open on a specific tab.
     /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
     /// callback so the sheet lands directly on the Pano tab. (#1241)
@@ -709,6 +709,17 @@ struct AppShell: View {
                 }
             )
         }
+        // M4: batch metadata editor sheet for iPhone — same sheet as Mac/iPad,
+        // but presented over the tab shell instead of the pane shell.
+        .sheet(isPresented: $showBatchMetadata) {
+            BatchMetadataSheet(
+                vm: BatchMetadataViewModel(
+                    assets: browseVM.selectedAssets,
+                    sessions: sessions
+                ),
+                onDismiss: { showBatchMetadata = false }
+            )
+        }
     }
     #endif
 
@@ -795,7 +806,7 @@ struct AppShell: View {
     // MARK: - Batch metadata actions (M4, #1629)
 
     /// Open the batch metadata editor with the currently-selected assets.
-    func openBatchMetadata() {
+    private func openBatchMetadata() {
         guard !browseVM.selectedIDs.isEmpty else { return }
         showBatchMetadata = true
     }
