@@ -102,7 +102,9 @@ impl Pass for ExposurePass {
         pass.set_bind_group(0, &bind_group, &[]);
         let groups = pixel_count.div_ceil(64);
         let gx = groups.min(65535);
-        let gy = groups.div_ceil(gx);
+        // Guard the empty dispatch: pixel_count==0 -> gx==0, and div_ceil(0)
+        // panics. (0,0,1) is a safe no-op (the original 1-D (0,1,1) was). #1623
+        let gy = if gx == 0 { 0 } else { groups.div_ceil(gx) };
         pass.dispatch_workgroups(gx, gy, 1);
     }
 }
