@@ -26,11 +26,11 @@
             @if (detail.coverBbox; as bbox) {
               <img
                 [src]="url"
-                [style.transform]="faceCropTransform(bbox, url)"
+                [style.transform]="crop.transform(bbox, url)"
                 style="transform-origin: 0 0"
                 alt=""
                 decoding="async"
-                (load)="onFaceImgLoad(url, $event)"
+                (load)="crop.onImgLoad(url, $event)"
               />
             } @else {
               <img class="cover-fill" [src]="url" alt="" decoding="async" />
@@ -200,12 +200,12 @@
                   @if (faceThumbUrl(f); as url) {
                     <img
                       [src]="url"
-                      [style.transform]="faceCropTransform(f.bbox, url)"
+                      [style.transform]="crop.transform(f.bbox, url)"
                       style="transform-origin: 0 0"
                       alt=""
                       loading="lazy"
                       decoding="async"
-                      (load)="onFaceImgLoad(url, $event)"
+                      (load)="crop.onImgLoad(url, $event)"
                     />
                   }
                   <span class="confidence-badge">{{ f.confidence * 100 | number: '1.0-0' }}%</span>
@@ -234,7 +234,7 @@
                   class="face-open-btn"
                   aria-label="Open photo"
                   title="Open in editor"
-                  (click)="openInEditor(f)"
+                  (click)="detailCtl.openInEditor(f)"
                 >
                   <maple-settings-icon name="open" [size]="12" color="#ffffff" />
                 </button>
@@ -244,8 +244,10 @@
         </div>
         <!-- Infinite-scroll sentinel: when it enters the viewport,
              load the next page of faces. -->
-        @if (hasMoreFaces()) {
-          <div class="face-load-more" (mapleVisibleOnce)="loadMoreFaces()">Loading more…</div>
+        @if (detailCtl.hasMoreFaces()) {
+          <div class="face-load-more" (mapleVisibleOnce)="detailCtl.loadMoreFaces()">
+            Loading more…
+          </div>
         }
       }
 
@@ -255,12 +257,12 @@
             <span class="bulk-count">{{ selectedFaces().size }} selected</span>
             <div class="bulk-sep"></div>
 
-            @if (canSetCover()) {
+            @if (detailCtl.canSetCover()) {
               <button
                 type="button"
                 class="bulk-btn"
                 [disabled]="bulkBusy() > 0"
-                (click)="setSelectedAsCover()"
+                (click)="detailCtl.setSelectedAsCover()"
                 aria-label="Set as cover photo for this person"
               >
                 <maple-settings-icon name="image" [size]="13" color="#f5f4f2" />
@@ -445,12 +447,12 @@
                       @if (p.coverBbox; as bbox) {
                         <img
                           [src]="url"
-                          [style.transform]="faceCropTransform(bbox, url)"
+                          [style.transform]="crop.transform(bbox, url)"
                           style="transform-origin: 0 0"
                           alt=""
                           loading="lazy"
                           decoding="async"
-                          (load)="onFaceImgLoad(url, $event)"
+                          (load)="crop.onImgLoad(url, $event)"
                         />
                       } @else {
                         <img

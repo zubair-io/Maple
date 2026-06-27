@@ -578,53 +578,6 @@ export async function unhidePerson(id: ObjectId): Promise<void> {
 }
 
 /**
- * Set a specific face as the person's cover. The bbox is read server-side
- * from the asset doc — the client never supplies coordinates. Validates that
- * the face belongs to this person and is not hidden; returns `false` when no
- * matching face is found so the caller can 404/400 as appropriate.
- */
-export async function setPersonCover(
-  personId: ObjectId,
-  assetId: ObjectId,
-  faceIndex: number,
-): Promise<{ ok: true } | { error: string; status: 400 | 404 }> {
-  if (!Number.isInteger(faceIndex) || faceIndex < 0) {
-    return { error: `invalid face index: ${faceIndex}`, status: 400 };
-  }
-  const assets = await assetsCollection();
-  const asset = await assets.findOne({ _id: assetId }, { projection: { faces: 1 } });
-  if (!asset) {
-    return { error: `asset not found: ${assetId.toHexString()}`, status: 404 };
-  }
-  const faces = (asset.faces ?? []) as AssetFaceDoc[];
-  if (faceIndex >= faces.length) {
-    return {
-      error: `face index out of range: ${faceIndex} (asset has ${faces.length} faces)`,
-      status: 400,
-    };
-  }
-  const face = faces[faceIndex];
-  if (face.person_id !== personId.toHexString()) {
-    return { error: 'face does not belong to this person', status: 400 };
-  }
-  if (face.hidden === true) {
-    return { error: 'face is hidden', status: 400 };
-  }
-  const coll = await peopleCollection();
-  await coll.updateOne(
-    { _id: personId },
-    {
-      $set: { cover_asset_id: assetId.toHexString(), cover_bbox: face.bbox, updated_at: nowIso() },
-    },
-  );
-  log.info(
-    { personId: personId.toHexString(), assetId: assetId.toHexString(), faceIndex },
-    'set person cover',
-  );
-  return { ok: true };
-}
-
-/**
  * Returns the asset's `faces[]` array (typed). Helper used by the clustering
  * job + tests; not exported to routes directly. Unused export removed for
  * lint cleanliness.
