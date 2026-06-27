@@ -80,6 +80,9 @@ struct EditorView: View {
                 .opacity(hudVisible ? 1 : 0)
                 .animation(.easeOut(duration: 0.18), value: hudVisible)
                 .allowsHitTesting(false)
+                // `opacity(0)` stays in the a11y tree — hide it from VoiceOver
+                // while it's not visible so the chip isn't read mid-scrub-idle.
+                .accessibilityHidden(!hudVisible)
 
             // ── LAYER 2 : left filmstrip rail (regular only) ───────────────
             // Vertically centered with its own max-height cap (set inside
@@ -213,7 +216,7 @@ struct EditorView: View {
     private func flashHUD() {
         hudHideTask?.cancel()
         hudVisible = true
-        hudHideTask = Task {
+        hudHideTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(1100))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.25)) { hudVisible = false }
