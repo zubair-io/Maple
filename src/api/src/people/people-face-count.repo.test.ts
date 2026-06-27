@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import type { AssetDoc, PersonDoc } from '../db/schema.ts';
-import { setupMongoHarness, makeEmbedding } from './people-repo.test-helpers.ts';
+import { setupMongoHarness } from './people-repo.test-helpers.ts';
 
 const TEST_DB = `maple_test_face_count_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
