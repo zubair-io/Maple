@@ -163,8 +163,11 @@ struct EditorView: View {
                     // Contained width on regular (iPad/Mac) so the card centers
                     // between the filmstrip rail (~122pt left) and the tool dock
                     // (~76pt right). Clamped so it can't underlap either column
-                    // on a narrow regular window.
-                    .frame(maxWidth: isRegular ? min(860, geo.size.width - 300) : .infinity)
+                    // on a narrow regular window. The `max(320, …)` floor keeps
+                    // the value non-negative before `geo` settles — without it,
+                    // `geo.size.width - 300` is < 0 during the first layout pass
+                    // and SwiftUI logs "Invalid frame dimension (negative …)".
+                    .frame(maxWidth: isRegular ? min(860, max(320, geo.size.width - 300)) : .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
