@@ -19,8 +19,10 @@ import { Elysia, t } from 'elysia';
 import { child as childLogger } from '../log.ts';
 import {
   MAX_DESCRIBE_DAILY_CAP_USD,
+  MAX_FACE_MIN_DETECTION_SIZE,
   MAX_NOMINATIM_RATE_LIMIT_PER_SEC,
   MIN_DESCRIBE_DAILY_CAP_USD,
+  MIN_FACE_MIN_DETECTION_SIZE,
   MIN_NOMINATIM_RATE_LIMIT_PER_SEC,
   asDescribeProvider,
   loadEnrichmentConfig,
@@ -65,6 +67,9 @@ const ConfigBody = t.Object({
   face_detector_sha256: t.Optional(t.Union([t.String(), t.Null()])),
   face_recognizer_url: t.Optional(t.Union([t.String(), t.Null()])),
   face_recognizer_sha256: t.Optional(t.Union([t.String(), t.Null()])),
+  /** Minimum face size filter (normalised [0,1] on the 640-px detection
+   * frame). `null` clears back to the built-in default (0.06). */
+  face_min_detection_size: t.Optional(t.Union([t.Number(), t.Null()])),
   // Legacy field names kept on the body schema so operator UIs that still
   // post them don't get a 400. The route forwards them to
   // saveEnrichmentConfig, which transparently remaps each legacy key
@@ -223,6 +228,23 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         }
       }
 
+      // ── Face min-size validation ──────────────────────────────────
+      // `undefined` = field omitted (keep existing); `null` = clear back to
+      // default. Must be in [MIN, MAX) when supplied as a number.
+      const faceMinSize = body.face_min_detection_size;
+      if (typeof faceMinSize === 'number') {
+        if (
+          !Number.isFinite(faceMinSize) ||
+          faceMinSize < MIN_FACE_MIN_DETECTION_SIZE ||
+          faceMinSize >= MAX_FACE_MIN_DETECTION_SIZE
+        ) {
+          set.status = 400;
+          return {
+            error: `Invalid face_min_detection_size: must be a number in [${MIN_FACE_MIN_DETECTION_SIZE}, ${MAX_FACE_MIN_DETECTION_SIZE}) (got ${faceMinSize})`,
+          };
+        }
+      }
+
       // ── Meilisearch URL validation ────────────────────────────────
       // `undefined` = field omitted (keep existing); `null`/empty = clear
       // back to env-or-disabled. Unlike Nominatim, an unreachable Meili URL
@@ -284,6 +306,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         ...(body.face_recognizer_sha256 !== undefined
           ? { face_recognizer_sha256: body.face_recognizer_sha256 }
           : {}),
+        ...(faceMinSize !== undefined ? { face_min_detection_size: faceMinSize } : {}),
         ...(body.face_retinaface_url !== undefined
           ? { face_retinaface_url: body.face_retinaface_url }
           : {}),
