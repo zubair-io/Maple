@@ -33,14 +33,15 @@ struct PillHeader: View {
             .accessibilityLabel("Back")
             .accessibilityIdentifier("editor-back")
 
-            // Filename — capped so the pill hugs its content (content-width,
-            // centered) instead of stretching to fill the screen.
+            // Filename — capped at 200pt so a pathologically long name
+            // truncates (middle) rather than overflowing; the pill's own
+            // `fixedSize` (below) keeps it content-width for normal names.
             Text(state.session.asset.displayName)
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(ProTokens.text)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: 200)
                 .accessibilityIdentifier("editor-filename")
 
             // Before/after toggle — shown only when there are edits
@@ -104,6 +105,9 @@ struct PillHeader: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 44)
+        // Hug content horizontally so a short filename keeps the pill
+        // content-width; the filename's own maxWidth: 200 truncates long names.
+        .fixedSize(horizontal: true, vertical: false)
         .background(ProTokens.bg.opacity(ProGlass.opacity), in: Capsule())
         .accessibilityIdentifier("editor-pill-header")
     }

@@ -32,7 +32,10 @@ struct FilmstripRail: View {
     private var thumbWidth: CGFloat { railWidth - 16 }
     private var thumbHeight: CGFloat { (thumbWidth * 2 / 3).rounded() } // 3:2 landscape
     private var contentHeight: CGFloat {
-        CGFloat(assets.count) * (thumbHeight + thumbSpacing)
+        // n thumbnails have only (n-1) inter-thumb gaps — the last carries no
+        // trailing spacing, so the rail hugs the thumbs exactly when few.
+        let n = CGFloat(assets.count)
+        return n > 0 ? n * thumbHeight + (n - 1) * thumbSpacing : 0
     }
 
     var body: some View {
