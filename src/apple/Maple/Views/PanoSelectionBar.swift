@@ -14,6 +14,8 @@ struct PanoSelectionBar: View {
     let vm: BrowseViewModel
     /// Fired when the user taps "Merge to panorama…" with ≥2 selected.
     let onMerge: () -> Void
+    /// Fired when the user taps "Edit Metadata…". nil hides the button.
+    let onEditMetadata: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,6 +50,20 @@ struct PanoSelectionBar: View {
                     .accessibilityLabel("\(vm.selectedIDs.count) images selected")
 
                 Spacer()
+
+                // Right: Edit Metadata CTA (optional — nil suppresses the button)
+                if let onEditMetadata {
+                    Button {
+                        onEditMetadata()
+                    } label: {
+                        Label("Edit Metadata\u{2026}", systemImage: "pencil.and.list.clipboard")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .disabled(vm.selectedIDs.isEmpty)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Edit metadata for \(vm.selectedIDs.count) selected images")
+                }
 
                 // Right: merge CTA
                 Button {

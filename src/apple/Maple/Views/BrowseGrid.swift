@@ -59,6 +59,9 @@ struct BrowseGrid: View {
     /// Fired when the user taps "Merge to Panorama…" from the selection bar
     /// (≥2 assets selected). `nil` suppresses the bar entirely (e.g. previews).
     var onMergePanorama: (() -> Void)? = nil
+    /// Fired when the user taps "Edit Metadata…" from the selection bar.
+    /// `nil` hides the button; the bar itself is still shown when `onMergePanorama` is set.
+    var onEditMetadata: (() -> Void)? = nil
     /// Cloud thumb infrastructure for merged mode. When nil (the default),
     /// cloud-only merged cells fall through to `ThumbnailLoader.shared`
     /// (same behaviour as the old MergedCellView's cloud-only path).
@@ -202,7 +205,7 @@ struct BrowseGrid: View {
             // Multi-select action bar — shown only when in select mode and an
             // onMergePanorama handler was wired (prevents showing in previews).
             if vm.isSelecting, let onMergePanorama {
-                PanoSelectionBar(vm: vm, onMerge: onMergePanorama)
+                PanoSelectionBar(vm: vm, onMerge: onMergePanorama, onEditMetadata: onEditMetadata)
             }
         }
         .keyboardShortcuts(vm: vm, sessions: sessions)

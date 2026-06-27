@@ -72,6 +72,7 @@ struct AppShell: View {
     @State var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
     @State private var showSettings = false
+    @State var showBatchMetadata: Bool = false
     /// Non-nil when the Settings sheet should open on a specific tab.
     /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
     /// callback so the sheet lands directly on the Pano tab. (#1241)
@@ -491,11 +492,22 @@ struct AppShell: View {
             // armed-tool / fine-mode state (#816), unlike a column swap.
             onEditorInfo: { withAnimation { editorDetailVisible.toggle() } },
             // M2 panorama merge (#1236).
-            onMergePanorama: { openPanoramaMerge() }
+            onMergePanorama: { openPanoramaMerge() },
+            // M4 batch metadata editor (#1629).
+            onEditMetadata: { openBatchMetadata() }
         )
         .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
             SettingsView(initialTab: settingsInitialTab)
                 .frame(minWidth: 540, minHeight: 480)
+        }
+        .sheet(isPresented: $showBatchMetadata) {
+            BatchMetadataSheet(
+                vm: BatchMetadataViewModel(
+                    assets: browseVM.selectedAssets,
+                    sessions: sessions
+                ),
+                onDismiss: { showBatchMetadata = false }
+            )
         }
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
@@ -673,7 +685,8 @@ struct AppShell: View {
             onOpenEditor: { asset in openEditor(for: asset) },
             onPrimeSession: { asset in ensureSession(for: asset) },
             onFullImageFallback: { mode = .browse },
-            onMergePanorama: { openPanoramaMerge() }
+            onMergePanorama: { openPanoramaMerge() },
+            onEditMetadata: { openBatchMetadata() }
         )
         // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
         // but presented over the tab shell instead of the pane shell.
@@ -777,6 +790,14 @@ struct AppShell: View {
                 }
             } : nil
         )
+    }
+
+    // MARK: - Batch metadata actions (M4, #1629)
+
+    /// Open the batch metadata editor with the currently-selected assets.
+    func openBatchMetadata() {
+        guard !browseVM.selectedIDs.isEmpty else { return }
+        showBatchMetadata = true
     }
 
     // MARK: - Panorama merge actions (M2, #1236)

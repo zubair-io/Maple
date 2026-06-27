@@ -87,6 +87,8 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let onFullImageFallback: () -> Void
     /// M2: triggers panorama merge view when the user taps "Merge to Panorama…".
     var onMergePanorama: (() -> Void)? = nil
+    /// M4: triggers batch metadata editor when the user taps "Edit Metadata…".
+    var onEditMetadata: (() -> Void)? = nil
 
     var body: some View {
         // The LIBRARY drawer wraps the whole tab view so it overlays the
@@ -158,7 +160,8 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     onOpenEditor: { asset in libraryPath.append(asset) },
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback,
-                    onMergePanorama: onMergePanorama
+                    onMergePanorama: onMergePanorama,
+                    onEditMetadata: onEditMetadata
                 )
               }
             }

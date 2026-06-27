@@ -77,6 +77,8 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     let onFullImageFallback: () -> Void
     /// M2: called when the user taps "Merge to Panorama…" from PanoSelectionBar.
     var onMergePanorama: (() -> Void)? = nil
+    /// M4: called when the user taps "Edit Metadata…" from PanoSelectionBar.
+    var onEditMetadata: (() -> Void)? = nil
 
     var body: some View {
         // The LIBRARY drawer is hosted one level up, in `PhoneTabShell`, so it
@@ -125,7 +127,8 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             onOpenEditor: onOpenEditor,
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
-            onMergePanorama: onMergePanorama
+            onMergePanorama: onMergePanorama,
+            onEditMetadata: onEditMetadata
         )
         .navigationTitle(mode == .fullImage
                          ? (selectedSession?.asset.displayName ?? "Image")

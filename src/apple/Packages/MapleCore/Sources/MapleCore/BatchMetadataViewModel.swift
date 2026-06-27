@@ -113,6 +113,11 @@ public final class BatchMetadataViewModel {
         self.sessions = sessions
     }
 
+    /// Clear the apply error (called by the alert dismissal binding).
+    public func clearApplyError() {
+        applyError = nil
+    }
+
     // MARK: - Load existing metadata
 
     /// Read the existing metadata from each asset's sidecar (or default) and
