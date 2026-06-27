@@ -167,35 +167,69 @@ fn in_unit_box(rgb: [f32; 3]) -> bool {
         && rgb[2] <= EPS_HI
 }
 
-/// Hue-preserving gamut compression toward `[0, 1]^3` via Oklab `(a, b)`
-/// bisection at constant `L`. Mirrors `agx_hue_restoration::oklab_gamut_compress`.
+/// Soft, hue-preserving gamut compression toward `[0, 1]^3` via Oklab `(a, b)`
+/// scaling at constant `L`. Mirrors `agx_hue_restoration::oklab_gamut_compress`,
+/// which now delegates to `oklab_gamut::compress_to_unit_cube_oklab` (#1621):
+/// a Reinhard soft-knee that rolls chroma off toward the hull instead of
+/// clipping flat.
 fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
-    if in_unit_box(rgb) {
-        return [
-            rgb[0].clamp(0.0, 1.0),
-            rgb[1].clamp(0.0, 1.0),
-            rgb[2].clamp(0.0, 1.0),
-        ];
-    }
+    const CHROMA_FLOOR: f32 = 1e-5;
+    const COMPRESS_THRESHOLD: f32 = 0.8;
+
     let lab = rec2020_to_oklab(rgb);
     let (l, a, b) = (lab[0], lab[1], lab[2]);
-    let mut lo: f32 = 0.0;
-    let mut hi: f32 = 1.0;
+    let c_in = (a * a + b * b).sqrt();
+    if c_in <= CHROMA_FLOOR {
+        return [rgb[0].clamp(0.0, 1.0), rgb[1].clamp(0.0, 1.0), rgb[2].clamp(0.0, 1.0)];
+    }
+    let scale_chroma = |s: f32| oklab_to_rec2020([l, a * s, b * s]);
+    if in_unit_box(scale_chroma(1.0 / COMPRESS_THRESHOLD)) {
+        return rgb;
+    }
+    let s_hull = hull_scale(&scale_chroma);
+    let hull = c_in * s_hull;
+    if !hull.is_finite() || hull <= CHROMA_FLOOR {
+        let out = scale_chroma(s_hull.max(0.0));
+        return [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)];
+    }
+    let knee = COMPRESS_THRESHOLD * hull;
+    let c_out = if c_in <= knee {
+        c_in
+    } else {
+        let x = (c_in - knee) / (hull - knee);
+        knee + (hull - knee) * (x / (1.0 + x))
+    };
+    let out = scale_chroma(c_out / c_in);
+    [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)]
+}
+
+/// Largest in-gamut chroma scale (bracket + 24-iter bisection). Mirrors
+/// `raw_core::color::oklab_gamut::hull_scale`.
+fn hull_scale<S: Fn(f32) -> [f32; 3]>(scaled: &S) -> f32 {
+    let in_at = |s: f32| in_unit_box(scaled(s));
+    let (mut lo, mut hi) = if in_at(1.0) {
+        let mut s = 1.0f32;
+        let mut steps = 0;
+        while in_at(s) && steps < 16 {
+            s *= 2.0;
+            steps += 1;
+        }
+        if in_at(s) {
+            return s;
+        }
+        (s * 0.5, s)
+    } else {
+        (0.0, 1.0)
+    };
     for _ in 0..24 {
         let mid = 0.5 * (lo + hi);
-        let candidate = oklab_to_rec2020([l, a * mid, b * mid]);
-        if in_unit_box(candidate) {
+        if in_at(mid) {
             lo = mid;
         } else {
             hi = mid;
         }
     }
-    let out = oklab_to_rec2020([l, a * lo, b * lo]);
-    [
-        out[0].clamp(0.0, 1.0),
-        out[1].clamp(0.0, 1.0),
-        out[2].clamp(0.0, 1.0),
-    ]
+    lo
 }
 
 /// Parse the embedded LUT into `[f32; AGX_LUT_SIZE]` once. Mirrors raw-core's
