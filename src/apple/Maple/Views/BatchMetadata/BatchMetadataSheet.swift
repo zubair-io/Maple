@@ -30,7 +30,7 @@ struct BatchMetadataSheet: View {
         .alert("Some assets could not be updated",
                isPresented: Binding(
                    get: { vm.applyError != nil },
-                   set: { if !$0 { vm.applyError = nil } }
+                   set: { if !$0 { vm.clearApplyError() } }
                ),
                presenting: vm.applyError) { _ in
             Button("OK", role: .cancel) {}
