@@ -193,6 +193,7 @@ struct AppShell: View {
     /// `.onOpenURL` after the app is up) would never fire `consume()`.
     /// Spec: docs/design/responsive-program/deep-links.md §2.
     @State private var deepLinkRouter = DeepLinkRouter.shared
+    @State private var documentOpenRouter = DocumentOpenRouter.shared
 
     #if os(iOS)
 
@@ -401,6 +402,11 @@ struct AppShell: View {
             // deep-link destination, not the restored grid.
             // Implementation: AppShell+DeepLink.swift.
             consumePendingDeepLink()
+            // Cold-start opened document ("Open With Maple" / `open -a`) —
+            // captured by `.onOpenURL` before this `.task` ran. Consumed after
+            // restore so the opened file lands as the active editor session.
+            // Implementation: AppShell+DocumentOpen.swift (#1589).
+            consumePendingOpenedDocument()
         }
         // Warm-launch delivery. An `.onOpenURL` while the app is
         // already foregrounded sets `pendingDestination`; we observe
@@ -410,6 +416,14 @@ struct AppShell: View {
         .onChange(of: deepLinkRouter.pendingDestination) { _, newValue in
             guard newValue != nil else { return }
             consumePendingDeepLink()
+        }
+        // Warm-launch opened document — an `.onOpenURL` file delivery while the
+        // app is foregrounded sets `pendingFileURL`; observe it (the
+        // `@State`-bound singleton registers the dependency) and open the file.
+        // #1589.
+        .onChange(of: documentOpenRouter.pendingFileURL) { _, newValue in
+            guard newValue != nil else { return }
+            consumePendingOpenedDocument()
         }
     }
 
