@@ -48,8 +48,8 @@ fn luma_at(xi: i32, yi: i32, w: i32, h: i32) -> f32 {
 }
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let idx = gid.y * ng.x * 64u + gid.x;
     let w = i32(params.width);
     let h = i32(params.height);
     if (idx >= params.width * params.height) {
