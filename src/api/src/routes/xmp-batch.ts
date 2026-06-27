@@ -1,5 +1,5 @@
 /**
- * POST /api/xmp/batch — bulk sidecar write + override-ingest dirty-mark.
+ * POST /api/xmp/batch — bulk sidecar write + sidecar-metadata-index dirty-mark.
  *
  * Accepts N `{ path, metadata }` entries. For each:
  *   1. Validates path is under a registered library root (same jail as the
@@ -7,7 +7,7 @@
  *   2. Reads existing sidecar (creates a stub when none exists).
  *   3. Merges the metadata fields into the sidecar via `mergeMetadataIntoXmp`.
  *   4. Writes the merged sidecar atomically (temp-file + rename).
- *   5. Marks the asset's `override-ingest` stage dirty in MongoDB so the
+ *   5. Marks the asset's `sidecar-metadata-index` stage dirty in MongoDB so the
  *      polled stage reconciles `metadata_override` on the next tick.
  *
  * Partial failures are reported per-asset; successes are not rolled back.
@@ -24,7 +24,7 @@ import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
 import { coll } from '../indexer/images.repo.ts';
-import { OVERRIDE_INGEST_STAGE_NAME } from '../workers/stages/override-ingest.ts';
+import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('routes/xmp-batch');
@@ -81,13 +81,13 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
     return { path: entry.path, ok: false, error: writeResult.error };
   }
 
-  // The override-ingest dirty-mark is batched into a single updateMany after
+  // The sidecar-metadata-index dirty-mark is batched into a single updateMany after
   // the whole request completes (see the route handler) — never per-entry.
   return { path: entry.path, ok: true, absPath };
 }
 
 /**
- * Mark the override-ingest stage dirty (version 0) for every successfully
+ * Mark the sidecar-metadata-index stage dirty (version 0) for every successfully
  * written asset, in a SINGLE `updateMany` (one collection handle, one query) —
  * never per-entry. The claim query picks the assets up on the next poll.
  *
@@ -95,12 +95,12 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
  * we match on `filename` (via `$in`) as a cheap filter; a duplicate filename
  * across libraries marks both dirty — harmless (the stage is idempotent).
  */
-async function markOverrideIngestDirtyBatch(absPaths: string[]): Promise<void> {
+async function markSidecarMetadataIndexDirtyBatch(absPaths: string[]): Promise<void> {
   const filenames = [...new Set(absPaths.map((p) => path.basename(p)).filter(Boolean))];
   if (filenames.length === 0) return;
 
   const images = await coll();
-  const stagePath = `stages.${OVERRIDE_INGEST_STAGE_NAME}`;
+  const stagePath = `stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`;
   await images.updateMany(
     { 'fileinfo.filename': { $in: filenames } },
     {
@@ -181,17 +181,17 @@ export const xmpBatchRoutes = new Elysia().post(
       results.push(...batchResults);
     }
 
-    // Mark override-ingest dirty for all successful writes in ONE updateMany
+    // Mark sidecar-metadata-index dirty for all successful writes in ONE updateMany
     // (best-effort: a reconcile-trigger failure doesn't invalidate the writes).
     const okPaths = results.filter((r) => r.ok && r.absPath).map((r) => r.absPath as string);
     if (okPaths.length > 0) {
       try {
-        await markOverrideIngestDirtyBatch(okPaths);
+        await markSidecarMetadataIndexDirtyBatch(okPaths);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(
           { count: okPaths.length, err: msg },
-          'xmp-batch: failed to mark override-ingest dirty',
+          'xmp-batch: failed to mark sidecar-metadata-index dirty',
         );
       }
     }
@@ -212,7 +212,7 @@ export const xmpBatchRoutes = new Elysia().post(
     detail: {
       summary: 'Bulk-write XMP metadata sidecars',
       description:
-        'Write metadata fields to N asset sidecars in one request. Each entry is processed atomically (temp-file + rename). Partial failures are reported per-asset. Successful writes trigger the `override-ingest` stage for each asset.',
+        'Write metadata fields to N asset sidecars in one request. Each entry is processed atomically (temp-file + rename). Partial failures are reported per-asset. Successful writes trigger the `sidecar-metadata-index` stage for each asset.',
       tags: ['xmp'],
     },
   },
