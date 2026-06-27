@@ -21,6 +21,7 @@ import {
   markAssetsForMeiliReindexBestEffort,
   markAssetIdsForMeiliReindexBestEffort,
 } from './people-search-reindex.ts';
+import { adjustPersonFaceCount } from './people-face-count.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -207,6 +208,10 @@ export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: stri
   const orphanHex = orphan.toHexString();
   const assets = await assetsCollection();
   const peopleC = await peopleCollection();
+  // Read the orphan's face_count BEFORE repointing so we can transfer it.
+  const orphanDoc = await peopleC.findOne({ _id: orphan }, { projection: { face_count: 1 } });
+  const orphanFaceCount = orphanDoc?.face_count ?? 0;
+
   // Repoint faces. Faces are stored as a sub-array of objects; Mongo's
   // arrayFilters lets us update every matching element in one pass per
   // asset doc.
@@ -219,14 +224,14 @@ export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: stri
       arrayFilters: [{ 'face.person_id': orphanHex }],
     },
   );
-  // Mark the orphan as merged. Keep its name for audit (the partial unique
-  // index excludes merged rows).
+  // Mark the orphan as merged and zero out its face_count (faces are gone).
   await peopleC.updateOne(
     { _id: orphan },
-    { $set: { merged_into: survivor, updated_at: nowIso() } },
+    { $set: { merged_into: survivor, updated_at: nowIso(), face_count: 0 } },
   );
-  // Canonicalise the survivor's name + bump updated_at. Centroid is now
-  // stale (more faces); the next clustering run will recompute.
+  // Canonicalise the survivor's name + bump updated_at. Absorb the orphan's
+  // face count. Centroid is now stale (more faces); the next clustering run
+  // will recompute.
   await peopleC.updateOne(
     { _id: survivor },
     {
@@ -236,6 +241,7 @@ export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: stri
         // Force a centroid recompute on the next pass.
         centroid_face_count: -1,
       },
+      $inc: { face_count: orphanFaceCount },
     },
   );
   log.info(
@@ -292,17 +298,11 @@ async function listPeopleByFilter(
   // One batched _id lookup gets every cover asset's abs_path. Indexed by
   // _id, so this is O(N) bytes returned, not O(N) round-trips.
   const coverAbsPaths = await coverAbsPathByPerson(people);
-  if (!withCounts) {
-    return people.map((p) => ({
-      person: p as PersonWithId,
-      faceCount: 0,
-      coverAbsPath: coverAbsPaths.get(p._id.toHexString()) ?? null,
-    }));
-  }
-  const counts = await faceCountByPerson();
   return people.map((p) => ({
     person: p as PersonWithId,
-    faceCount: counts.get(p._id.toHexString()) ?? 0,
+    // Read the denormalised face_count directly — O(1) per person, no
+    // aggregation. Falls back to 0 when the migration hasn't run yet.
+    faceCount: withCounts ? (p.face_count ?? 0) : 0,
     coverAbsPath: coverAbsPaths.get(p._id.toHexString()) ?? null,
   }));
 }
@@ -347,31 +347,6 @@ function safeObjectId(raw: string): ObjectId | null {
   } catch {
     return null;
   }
-}
-
-/** Aggregation: count `asset.faces` grouped by `person_id`. Returns a map
- * from hex person id to count. Excludes faces with no `person_id` (i.e.
- * unassigned), faces whose person was merged (their person_id was already
- * repointed by `mergeInto`), and hidden faces (operator marked as
- * not-tracked). */
-async function faceCountByPerson(): Promise<Map<string, number>> {
-  const assets = await assetsCollection();
-  const cursor = assets.aggregate<{ _id: string; count: number }>([
-    { $match: { faces: { $exists: true, $ne: [] } } },
-    { $unwind: '$faces' },
-    {
-      $match: {
-        'faces.person_id': { $ne: null },
-        'faces.hidden': { $ne: true },
-      },
-    },
-    { $group: { _id: '$faces.person_id', count: { $sum: 1 } } },
-  ]);
-  const out = new Map<string, number>();
-  for await (const row of cursor) {
-    if (typeof row._id === 'string') out.set(row._id, row.count);
-  }
-  return out;
 }
 
 /** Single person + a page of face thumbnails (asset_id + face_index +
@@ -473,10 +448,9 @@ export async function assignFaceToPerson(
     { $set: { [`faces.${faceIndex}.person_id`]: personHex } },
   );
 
-  // Mark affected people as "dirty" so their centroids are recomputed on
-  // the next clustering pass. Only run when the person_id actually changed —
-  // an idempotent reassign to the same person should not trigger unnecessary
-  // centroid recomputes or Meili reindexing.
+  // Only act when the person_id actually changed — an idempotent reassign to
+  // the same person should not trigger centroid recomputes, count adjustments,
+  // or Meili reindexing.
   if (priorPersonId !== personHex) {
     const peopleC = await peopleCollection();
     const dirtyIds: ObjectId[] = [];
@@ -493,9 +467,19 @@ export async function assignFaceToPerson(
       );
     }
 
-    // Only this asset's people set changed — re-index exactly it. Re-queuing
-    // the prior/new person's whole corpus would be wasteful (and could flood
-    // the worker for a heavily-photographed person).
+    // Adjust denormalised face counts. Only visible (non-hidden) faces are
+    // counted: if the face was hidden its prior person_id was already null'd
+    // (hideFace writes both together) so priorPersonId is null here and we
+    // correctly skip the decrement.
+    const faceIsHidden = faces[faceIndex]?.hidden === true;
+    if (!faceIsHidden) {
+      // Decrement the person losing the face.
+      if (priorPersonId) await adjustPersonFaceCount(priorPersonId, -1);
+      // Increment the person gaining the face.
+      if (personHex) await adjustPersonFaceCount(personHex, 1);
+    }
+
+    // Only this asset's people set changed — re-index exactly it.
     markAssetIdsForMeiliReindexBestEffort([assetId]);
   }
 }
@@ -532,8 +516,8 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
     },
   );
 
-  // Hiding drops the face's person — mark them as "dirty" for recompute and
-  // re-index only this asset.
+  // Hiding drops the face's person — mark them as "dirty" for recompute,
+  // decrement their denormalised face count, and re-index only this asset.
   if (priorPersonId) {
     const oid = safeObjectId(priorPersonId);
     if (oid) {
@@ -542,6 +526,14 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
         { _id: oid },
         { $set: { centroid_face_count: -1, updated_at: nowIso() } },
       );
+    }
+    // Only decrement if the face was previously visible (not already hidden).
+    // We read the face BEFORE the write so if it was already hidden its prior
+    // person_id was already null and priorPersonId would be null — but defend
+    // against a re-hide anyway by checking the pre-write hidden flag.
+    const wasAlreadyHidden = faces[faceIndex]?.hidden === true;
+    if (!wasAlreadyHidden) {
+      await adjustPersonFaceCount(priorPersonId, -1);
     }
     markAssetIdsForMeiliReindexBestEffort([assetId]);
   }

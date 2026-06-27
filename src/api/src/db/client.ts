@@ -12,6 +12,7 @@ import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
   backfillFileinfo,
   backfillFolderSlugs,
+  backfillPersonFaceCount,
   countAssetsMissingFileinfo,
   dropLegacyLocationFields,
   hardenFileinfoCompoundIndex,
@@ -540,6 +541,16 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('folders')
     .createIndex({ slug: 1 }, { unique: true, sparse: true, name: 'folders_slug_unique' });
+
+  // Populate `face_count` on every live person doc. Before this migration,
+  // GET /api/people ran an O(total-faces) $unwind aggregation per request;
+  // after it the hot path reads `person.face_count` directly. Non-blocking:
+  // zeroed people (no faces yet) are set to 0 explicitly.
+  if (!(await migrationApplied(db, 'backfill-person-face-count-2026-06-27'))) {
+    const res = await backfillPersonFaceCount(db);
+    await recordMigration(db, 'backfill-person-face-count-2026-06-27', res.updated + res.zeroed);
+    log.info(res, 'applied backfill-person-face-count');
+  }
 
   // assets: legacy compound + standalone indexes on `folder_id` / `filename`
   // were retired in the drop-abs-path-2026-05-21 migration below (see end of
