@@ -227,18 +227,19 @@
                 </span>
               </button>
               <!-- Open-in-editor affordance. Distinct from the select button so
-                   clicking the image doesn't toggle selection. -->
-              @if (hoveredFace() === faceKey(f) || isFaceSelected(f)) {
-                <button
-                  type="button"
-                  class="face-open-btn"
-                  aria-label="Open photo"
-                  title="Open in editor"
-                  (click)="detailCtl.openInEditor(f)"
-                >
-                  <maple-settings-icon name="open" [size]="12" color="#ffffff" />
-                </button>
-              }
+                   clicking the image doesn't toggle selection. Always present in
+                   the DOM (in normal tab order, so it's keyboard-reachable) and
+                   revealed via CSS on hover / focus-within / selection. -->
+              <button
+                type="button"
+                class="face-open-btn"
+                [class.is-revealed]="isFaceSelected(f)"
+                aria-label="Open photo"
+                title="Open in editor"
+                (click)="detailCtl.openInEditor(f)"
+              >
+                <maple-settings-icon name="open" [size]="12" color="#ffffff" />
+              </button>
             </div>
           }
         </div>
