@@ -146,7 +146,7 @@ describe('effectiveMetadata — with override', () => {
 });
 
 // ---------------------------------------------------------------------------
-// effectiveMetadata — explicit clears (null in override)
+// effectiveMetadata — nullish override falls back to exif (spec: override ?? exif)
 // ---------------------------------------------------------------------------
 
 describe('effectiveMetadata — nullish override falls back to exif (spec: override ?? exif)', () => {
