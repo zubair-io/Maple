@@ -141,35 +141,70 @@ fn in_unit_box(rgb: [f32; 3]) -> bool {
         && rgb[2] <= EPS_HI
 }
 
-/// Hue-preserving compression toward `[0, 1]^3` via Oklab `(a, b)` bisection at
-/// constant `L`, specialised to the sRGB-linear working space. Mirrors
-/// `raw_core::color::oklab_gamut::compress_to_unit_cube_oklab` with the encode
-/// call site's `(srgb_linear_to_oklab, oklab_to_srgb_linear)` pair: in-gamut
-/// input is returned untouched (byte-identity); otherwise 24-iter bisection +
-/// trailing clamp.
+/// Soft, hue-preserving gamut compression toward `[0, 1]^3` via Oklab `(a, b)`
+/// scaling at constant `L`, specialised to the sRGB-linear working space.
+/// Mirrors `raw_core::color::oklab_gamut::compress_to_unit_cube_oklab` (#1621):
+/// chroma below `THRESHOLD * hull` passes through untouched; chroma beyond is
+/// rolled off with a Reinhard soft-knee that stays strictly increasing and
+/// bounded by the hull (no clip-to-hull plateau).
 fn compress_to_unit_cube(rgb: [f32; 3]) -> [f32; 3] {
-    if in_unit_box(rgb) {
-        return rgb;
-    }
+    const CHROMA_FLOOR: f32 = 1e-5;
+    const COMPRESS_THRESHOLD: f32 = 0.8;
+
     let lab = srgb_linear_to_oklab(rgb);
     let (l, a, b) = (lab[0], lab[1], lab[2]);
-    let mut lo: f32 = 0.0;
-    let mut hi: f32 = 1.0;
+    let c_in = (a * a + b * b).sqrt();
+    if c_in <= CHROMA_FLOOR {
+        return [rgb[0].clamp(0.0, 1.0), rgb[1].clamp(0.0, 1.0), rgb[2].clamp(0.0, 1.0)];
+    }
+    let scale_chroma = |s: f32| oklab_to_srgb_linear([l, a * s, b * s]);
+    if in_unit_box(scale_chroma(1.0 / COMPRESS_THRESHOLD)) {
+        return rgb;
+    }
+    let s_hull = hull_scale(&scale_chroma);
+    let hull = c_in * s_hull;
+    if !hull.is_finite() || hull <= CHROMA_FLOOR {
+        let out = scale_chroma(s_hull.max(0.0));
+        return [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)];
+    }
+    let knee = COMPRESS_THRESHOLD * hull;
+    let c_out = if c_in <= knee {
+        c_in
+    } else {
+        let x = (c_in - knee) / (hull - knee);
+        knee + (hull - knee) * (x / (1.0 + x))
+    };
+    let out = scale_chroma(c_out / c_in);
+    [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)]
+}
+
+/// Largest in-gamut chroma scale (bracket + 24-iter bisection). Mirrors
+/// `raw_core::color::oklab_gamut::hull_scale`.
+fn hull_scale<S: Fn(f32) -> [f32; 3]>(scaled: &S) -> f32 {
+    let in_at = |s: f32| in_unit_box(scaled(s));
+    let (mut lo, mut hi) = if in_at(1.0) {
+        let mut s = 1.0f32;
+        let mut steps = 0;
+        while in_at(s) && steps < 16 {
+            s *= 2.0;
+            steps += 1;
+        }
+        if in_at(s) {
+            return s;
+        }
+        (s * 0.5, s)
+    } else {
+        (0.0, 1.0)
+    };
     for _ in 0..24 {
         let mid = 0.5 * (lo + hi);
-        let candidate = oklab_to_srgb_linear([l, a * mid, b * mid]);
-        if in_unit_box(candidate) {
+        if in_at(mid) {
             lo = mid;
         } else {
             hi = mid;
         }
     }
-    let out = oklab_to_srgb_linear([l, a * lo, b * lo]);
-    [
-        out[0].clamp(0.0, 1.0),
-        out[1].clamp(0.0, 1.0),
-        out[2].clamp(0.0, 1.0),
-    ]
+    lo
 }
 
 /// Rec.2020 → sRGB display encode with hue-preserving gamut compression on an
@@ -235,24 +270,50 @@ mod tests {
     use crate::chain::ChainRunner;
     use crate::image::GpuImage;
 
-    /// A buffer that exercises BOTH encode branches:
+    /// A buffer that exercises EVERY branch of the soft compressor:
     ///   - in-gamut neutrals/mids → the byte-identity fast-path (most pixels),
-    ///   - saturated wide-gamut primaries (pure Rec.2020 R/G/B and a magenta)
-    ///     whose post-matrix sRGB triple leaves `[0, 1]^3` (one or two channels
-    ///     negative) → the 24-iter bisection path,
-    ///   - HDR-headroom (> 1) → also out-of-gamut (overshoot).
+    ///   - near-boundary in-gamut saturated colors → the knee probe + grow-loop
+    ///     hull search + Reinhard soft-knee (the #1621 paths most likely to
+    ///     diverge between the WGSL grow-loop and the Rust one),
+    ///   - saturated wide-gamut primaries (pure Rec.2020 R/G/B + magenta) whose
+    ///     post-matrix sRGB triple leaves `[0, 1]^3` → out-of-gamut bisection,
+    ///   - HDR-headroom (> 1) → out-of-gamut overshoot.
+    ///
+    /// The hand-picked corner cases are followed by a dense sweep over
+    /// (lightness × hue × chroma) generated in Oklab, so the GPU↔CPU parity
+    /// gate covers the whole color volume rather than a handful of points.
     fn encode_buffer() -> Vec<f32> {
-        vec![
+        let mut buf = vec![
             // r,    g,    b,    a       branch
             0.18, 0.18, 0.18, 1.0, // neutral mid-gray → in-gamut fast-path
             0.40, 0.30, 0.20, 0.7, // warm mid → in-gamut
             0.05, 0.05, 0.05, 1.0, // deep neutral → in-gamut
+            0.70, 0.12, 0.12, 1.0, // near-boundary red → knee/grow path
+            0.12, 0.55, 0.18, 1.0, // near-boundary green → knee/grow path
+            0.20, 0.20, 0.62, 0.9, // near-boundary blue → knee/grow path
             1.00, 0.00, 0.00, 1.0, // pure Rec.2020 red → out-of-gamut (G,B neg)
             0.00, 1.00, 0.00, 1.0, // pure Rec.2020 green → out-of-gamut
             0.00, 0.00, 1.00, 0.5, // pure Rec.2020 blue → out-of-gamut
             0.90, 0.05, 0.85, 1.0, // saturated magenta → out-of-gamut
             2.00, 1.50, 0.50, 1.0, // HDR headroom (> 1) → out-of-gamut overshoot
-        ]
+        ];
+        // Dense (L × hue × chroma) sweep in Oklab → Rec.2020, spanning in-gamut
+        // core, the compression knee, and well out of gamut.
+        let mut hue_deg = 0.0f32;
+        while hue_deg < 360.0 {
+            let h = hue_deg.to_radians();
+            let (sin_h, cos_h) = h.sin_cos();
+            for li in 0..3 {
+                let l = 0.30 + 0.20 * li as f32; // 0.30, 0.50, 0.70
+                for ci in 0..5 {
+                    let c = 0.04 + 0.06 * ci as f32; // 0.04 .. 0.28
+                    let rgb = raw_core::color::oklab::oklab_to_rec2020([l, c * cos_h, c * sin_h]);
+                    buf.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+                }
+            }
+            hue_deg += 30.0;
+        }
+        buf
     }
 
     /// Run `raw_core::view::encode::rec2020_to_srgb` on a flat interleaved RGBA
