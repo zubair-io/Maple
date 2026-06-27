@@ -18,7 +18,6 @@
 
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { backfillCoverAssets } from '../people/clustering-job.ts';
 import { clusterCoordinator } from '../people/cluster-coordinator.ts';
 import {
   assignFaceToPerson,
@@ -105,18 +104,6 @@ function toPersonListRow(r: PersonWithCount) {
 export const peopleRoutes = new Elysia({ prefix: '/api/people' })
   // ── List ────────────────────────────────────────────────────────────
   .get('/', async () => {
-    // Opportunistic heal: installs clustered before cover_asset_id shipped
-    // still have null covers on every person doc. backfillCoverAssets is
-    // idempotent and fast on a healthy DB (one find that returns 0 rows).
-    // Errors are logged but don't fail the listing.
-    try {
-      await backfillCoverAssets();
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'cover backfill failed; serving list anyway',
-      );
-    }
     const rows = await listPeople({ withCounts: true });
     return rows.map(toPersonListRow);
   })
@@ -125,14 +112,6 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
   // Registered BEFORE `/:id` so "hidden" isn't swallowed as a person id.
   // Same wire shape as `GET /` so the web reuses `ApiPerson`.
   .get('/hidden', async () => {
-    try {
-      await backfillCoverAssets();
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'cover backfill failed; serving hidden list anyway',
-      );
-    }
     const rows = await listHiddenPeople({ withCounts: true });
     return rows.map(toPersonListRow);
   })
