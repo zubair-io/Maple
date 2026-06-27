@@ -256,11 +256,14 @@ export async function runOnlineClustering(
   // created manually via `POST /api/people` ahead of any face assignment.
   await backfillCoverAssets();
 
-  // Write authoritative face counts — the clustering pass is the one place
-  // that walks all face assignments, so use it to self-heal any incremental
-  // drift from manual assign/unassign/hide operations between passes.
-  // `faceCountByPerson` runs once per clustering pass (not per request), so
-  // this is O(total-faces) amortised across the whole pass, not per-request.
+  // Intentional background-pass recompute: the clustering pass is the one
+  // place that walks all face assignments, so it doubles as the authoritative
+  // self-heal for any incremental drift from manual assign/unassign/hide/merge
+  // between passes. `faceCountByPerson` is an extra O(total-faces) aggregation,
+  // but it runs once per clustering pass (never per request) and clustering
+  // already does a full-ish pass, so the cost is acceptable — and it's what
+  // guarantees `face_count` self-heals (up AND down) regardless of incremental
+  // bugs. Deliberate; do not remove.
   const { faceCountByPerson } = await import('./people-face-count.repo.ts');
   const authCounts = await faceCountByPerson();
   await writeAuthoritativeFaceCounts(authCounts);

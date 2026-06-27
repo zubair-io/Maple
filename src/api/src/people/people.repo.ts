@@ -21,7 +21,7 @@ import {
   markAssetsForMeiliReindexBestEffort,
   markAssetIdsForMeiliReindexBestEffort,
 } from './people-search-reindex.ts';
-import { adjustPersonFaceCount } from './people-face-count.repo.ts';
+import { adjustPersonFaceCount, recomputePersonFaceCount } from './people-face-count.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -208,9 +208,6 @@ export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: stri
   const orphanHex = orphan.toHexString();
   const assets = await assetsCollection();
   const peopleC = await peopleCollection();
-  // Read the orphan's face_count BEFORE repointing so we can transfer it.
-  const orphanDoc = await peopleC.findOne({ _id: orphan }, { projection: { face_count: 1 } });
-  const orphanFaceCount = orphanDoc?.face_count ?? 0;
 
   // Repoint faces. Faces are stored as a sub-array of objects; Mongo's
   // arrayFilters lets us update every matching element in one pass per
@@ -229,9 +226,8 @@ export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: stri
     { _id: orphan },
     { $set: { merged_into: survivor, updated_at: nowIso(), face_count: 0 } },
   );
-  // Canonicalise the survivor's name + bump updated_at. Absorb the orphan's
-  // face count. Centroid is now stale (more faces); the next clustering run
-  // will recompute.
+  // Canonicalise the survivor's name + bump updated_at. Centroid is now
+  // stale (more faces); the next clustering run will recompute.
   await peopleC.updateOne(
     { _id: survivor },
     {
@@ -241,9 +237,13 @@ export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: stri
         // Force a centroid recompute on the next pass.
         centroid_face_count: -1,
       },
-      $inc: { face_count: orphanFaceCount },
     },
   );
+  // Recompute the survivor's face_count from its ACTUAL assigned, non-hidden
+  // faces (now including the repointed ones) rather than summing the orphan's
+  // stored count — which may be missing or drifted and would corrupt the
+  // survivor. Runs after the repoint so it sees the merged faces.
+  await recomputePersonFaceCount(survivorHex);
   log.info(
     {
       survivor: survivorHex,
