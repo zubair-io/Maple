@@ -32,6 +32,8 @@ public actor XMPSidecarStore {
     private var pendingModel: AdjustmentModel?
     private var pendingCulling: CullingState?
 
+    private var pendingMetadata: XmpMetadata? = nil
+
     private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
     private var nextSubscriberID: UInt64 = 0
 
@@ -70,6 +72,25 @@ public actor XMPSidecarStore {
     public func update(model: AdjustmentModel, culling: CullingState) {
         pendingModel = model
         pendingCulling = culling
+        cached = (model, culling)
+
+        pendingTask?.cancel()
+        pendingTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: XMPSidecarStore.debounceInterval)
+                await self?.writePending()
+            } catch {
+                // Task cancelled — a newer update superseded this one.
+            }
+        }
+    }
+
+    /// Schedule a debounced write including the IPTC/EXIF metadata block.
+    /// Resets the 750ms timer on each call, superseding any pending write.
+    public func update(model: AdjustmentModel, culling: CullingState, metadata: XmpMetadata) {
+        pendingModel = model
+        pendingCulling = culling
+        pendingMetadata = metadata
         cached = (model, culling)
 
         pendingTask?.cancel()
@@ -135,7 +156,13 @@ public actor XMPSidecarStore {
     }
 
     private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
-        let xml = XMPSerializer.serialize(model: model, culling: culling)
+        let xml: String
+        if let m = pendingMetadata {
+            xml = XMPSerializer.serialize(model: model, culling: culling, metadata: m)
+            pendingMetadata = nil
+        } else {
+            xml = XMPSerializer.serialize(model: model, culling: culling)
+        }
         guard let data = xml.data(using: .utf8) else {
             throw XMPStoreError.encodingError
         }
