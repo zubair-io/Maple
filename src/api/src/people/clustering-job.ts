@@ -21,6 +21,7 @@ import { type Filter, ObjectId, type AnyBulkWriteOperation } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc } from '../db/schema.ts';
 import { markAssetIdsForMeiliReindexBestEffort } from './people-search-reindex.ts';
+import { writeAuthoritativeFaceCounts } from './people-face-count.repo.ts';
 import { child as childLogger } from '../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD, EMBEDDING_DIM } from './cluster-embeddings.ts';
 import { loadCentroids, loadUnassignedFaces, maxAutoNameIndex } from './cluster-load.ts';
@@ -254,6 +255,15 @@ export async function runOnlineClustering(
   // missing on rows created before cover-seeding landed, or on people
   // created manually via `POST /api/people` ahead of any face assignment.
   await backfillCoverAssets();
+
+  // Write authoritative face counts — the clustering pass is the one place
+  // that walks all face assignments, so use it to self-heal any incremental
+  // drift from manual assign/unassign/hide operations between passes.
+  // `faceCountByPerson` runs once per clustering pass (not per request), so
+  // this is O(total-faces) amortised across the whole pass, not per-request.
+  const { faceCountByPerson } = await import('./people-face-count.repo.ts');
+  const authCounts = await faceCountByPerson();
+  await writeAuthoritativeFaceCounts(authCounts);
 
   // Re-index exactly the assets whose face assignments changed so person-name
   // search reflects the new clustering — not every asset of the touched
