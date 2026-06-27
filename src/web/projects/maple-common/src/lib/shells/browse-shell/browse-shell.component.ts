@@ -146,22 +146,22 @@ export class BrowseShellComponent implements OnInit {
     // Snapshot the selection (asset paths + metadata) at click time.
     const selectedIds = this.state.selectedAssetIds();
     const assets = this.state.assetsInSelectedFolder().filter((a) => selectedIds.has(a.id));
-    const snapshots: AssetMetadataSnapshot[] = assets.map((a) => {
-      const path = this.state.absPathFor(a.id) ?? a.absPath ?? a.id;
-      return {
-        path,
-        metadata: {
-          gpsLatitude: a.gps?.lat,
-          gpsLongitude: a.gps?.lon,
-          city: a.city ?? undefined,
-          country: a.country ?? undefined,
-          title: a.title ?? undefined,
-          keywords: a.keywords,
-          rating: a.rating,
-          flag: a.flag,
-          colorLabel: a.colorLabel ?? undefined,
+    const snapshots: AssetMetadataSnapshot[] = assets.flatMap((a) => {
+      const path = this.state.absPathFor(a.id) ?? a.absPath;
+      if (!path) return [];
+      return [
+        {
+          path,
+          metadata: {
+            gpsLatitude: a.gps?.lat,
+            gpsLongitude: a.gps?.lon,
+            city: a.city ?? undefined,
+            country: a.country ?? undefined,
+            title: a.title ?? undefined,
+            keywords: a.keywords,
+          },
         },
-      };
+      ];
     });
     this.batchMetaAssetSnapshots.set(snapshots);
     this.batchMetaDialogVisible.set(true);
