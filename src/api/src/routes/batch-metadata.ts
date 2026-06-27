@@ -6,10 +6,12 @@
  * under control) rather than two.
  */
 
-import { Elysia } from 'elysia';
-import { xmpBatchRoutes } from './xmp-batch.ts';
-import { geocodeSearchRoutes } from './geocode-search.ts';
+import { Elysia } from "elysia";
+import { xmpBatchRoutes } from "./xmp-batch.ts";
+import { geocodeSearchRoutes } from "./geocode-search.ts";
+import { backupRefileRoutes } from "./backup-refile.ts";
 
-export const batchMetadataRoutes = new Elysia({ name: 'batchMetadata' })
+export const batchMetadataRoutes = new Elysia({ name: "batchMetadata" })
   .use(xmpBatchRoutes)
-  .use(geocodeSearchRoutes);
+  .use(geocodeSearchRoutes)
+  .use(backupRefileRoutes);
