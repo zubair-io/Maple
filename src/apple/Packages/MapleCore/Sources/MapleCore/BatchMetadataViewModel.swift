@@ -54,7 +54,7 @@ public struct TouchedMetadata {
     public init() {}
 
     /// True iff at least one field has been touched.
-    var hasTouched: Bool {
+    public var hasTouched: Bool {
         gpsLatitude != nil || gpsLongitude != nil || gpsAltitude != nil ||
         dateTimeOriginal != nil || timeZone != nil ||
         sublocation != nil || city != nil || state != nil ||
@@ -183,7 +183,19 @@ public final class BatchMetadataViewModel {
     private func applyToAsset(_ asset: AssetRef) async throws {
         guard let url = asset.primaryURL else { return }
         let store = XMPSidecarStore(rawURL: url)
-        let (model, culling) = (try? await store.load()) ?? (.default, CullingState())
+
+        // Prefer the live model+culling from an open EditSession to avoid
+        // overwriting uncommitted slider changes with stale sidecar values.
+        // Note: we still write via a fresh XMPSidecarStore because the session's
+        // internal store is private. A cross-store debounce race remains if the
+        // session flushes after us — acceptable in M4 scope; revisit when
+        // EditSession exposes an apply(metadata:) API.
+        let (model, culling): (AdjustmentModel, CullingState)
+        if let session = sessions[asset.id] {
+            (model, culling) = (session.model, session.culling)
+        } else {
+            (model, culling) = (try? await store.load()) ?? (.default, CullingState())
+        }
 
         // Read the existing metadata from the sidecar XML on disk.
         let sidecarURL = url.deletingPathExtension().appendingPathExtension("xmp")
