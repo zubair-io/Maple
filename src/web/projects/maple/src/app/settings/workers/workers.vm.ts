@@ -159,7 +159,7 @@ export interface EnrichmentForm {
   face_detector_sha256: string;
   face_recognizer_url: string;
   face_recognizer_sha256: string;
-  /** Minimum face size as a string for the input element (normalised [0,1]). */
+  /** Minimum face size as a string for the input element (normalised [0,1)). */
   face_min_detection_size: string;
   // Meili (search index)
   meilisearch_url: string;

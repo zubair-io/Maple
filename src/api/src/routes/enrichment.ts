@@ -67,7 +67,7 @@ const ConfigBody = t.Object({
   face_detector_sha256: t.Optional(t.Union([t.String(), t.Null()])),
   face_recognizer_url: t.Optional(t.Union([t.String(), t.Null()])),
   face_recognizer_sha256: t.Optional(t.Union([t.String(), t.Null()])),
-  /** Minimum face size filter (normalised [0,1] on the 640-px detection
+  /** Minimum face size filter (normalised [0,1) on the 640-px detection
    * frame). `null` clears back to the built-in default (0.06). */
   face_min_detection_size: t.Optional(t.Union([t.Number(), t.Null()])),
   // Legacy field names kept on the body schema so operator UIs that still
