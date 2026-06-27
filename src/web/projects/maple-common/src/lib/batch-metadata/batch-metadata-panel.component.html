@@ -58,7 +58,9 @@
                 id="bm-datetime"
                 type="text"
                 class="bm-input"
-                [class.is-mixed]="mixed().dateTimeOriginal === MIXED && touched().size === 0"
+                [class.is-mixed]="
+                  mixed().dateTimeOriginal === MIXED && !touched().has('dateTimeOriginal')
+                "
                 [placeholder]="
                   mixed().dateTimeOriginal === MIXED
                     ? '(mixed)'
@@ -441,83 +443,6 @@
                   [value]="sourceVal()"
                   (input)="sourceVal.set($any($event.target).value); onFieldChange('source')"
                 />
-              </div>
-            </div>
-          </section>
-
-          <!-- ── Section: Batch Culling ─────────────────────────────────── -->
-          <section class="bm-section">
-            <h3 class="bm-section-title">Batch Culling</h3>
-
-            <div class="bm-row">
-              <div class="bm-field bm-field-third">
-                <label class="bm-label" for="bm-rating">Rating</label>
-                <select
-                  id="bm-rating"
-                  class="bm-select"
-                  [value]="ratingVal()"
-                  (change)="ratingVal.set($any($event.target).value); onFieldChange('rating')"
-                >
-                  <option value="">
-                    @if (mixed().rating === MIXED) {
-                      (mixed)
-                    } @else {
-                      —
-                    }
-                  </option>
-                  <option value="0">0 — None</option>
-                  <option value="1">★</option>
-                  <option value="2">★★</option>
-                  <option value="3">★★★</option>
-                  <option value="4">★★★★</option>
-                  <option value="5">★★★★★</option>
-                </select>
-              </div>
-
-              <div class="bm-field bm-field-third">
-                <label class="bm-label" for="bm-flag">Flag</label>
-                <select
-                  id="bm-flag"
-                  class="bm-select"
-                  [value]="flagVal()"
-                  (change)="flagVal.set($any($event.target).value); onFieldChange('flag')"
-                >
-                  <option value="">
-                    @if (mixed().flag === MIXED) {
-                      (mixed)
-                    } @else {
-                      —
-                    }
-                  </option>
-                  <option value="pick">Pick</option>
-                  <option value="reject">Reject</option>
-                  <option value="unflagged">Unflagged</option>
-                </select>
-              </div>
-
-              <div class="bm-field bm-field-third">
-                <label class="bm-label" for="bm-colorlabel">Color Label</label>
-                <select
-                  id="bm-colorlabel"
-                  class="bm-select"
-                  [value]="colorLabelVal()"
-                  (change)="
-                    colorLabelVal.set($any($event.target).value); onFieldChange('colorLabel')
-                  "
-                >
-                  <option value="">
-                    @if (mixed().colorLabel === MIXED) {
-                      (mixed)
-                    } @else {
-                      —
-                    }
-                  </option>
-                  <option value="red">Red</option>
-                  <option value="orange">Orange</option>
-                  <option value="yellow">Yellow</option>
-                  <option value="green">Green</option>
-                  <option value="blue">Blue</option>
-                </select>
               </div>
             </div>
           </section>
