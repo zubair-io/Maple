@@ -443,6 +443,13 @@ export interface AssetDoc {
    * rows pre-date the flag; readers should treat missing as `false`. */
   has_xmp?: boolean;
   /**
+   * Sparse user-edit overlay reconciled from the XMP sidecar by the
+   * `override-ingest` stage (#1580 — Batch Metadata M1). Absent until first
+   * batch edit; `null` when the override has been reset.
+   * `effectiveMetadata()` reads this first, then falls back to `exif.*`.
+   */
+  metadata_override?: MetadataOverride | null;
+  /**
    * Soft-delete marker. Set by the discover watcher when a file vanishes
    * from disk (in which case `original_path` stays unset), AND by the
    * File Provider DELETE handler when a user drags an asset to Trash
@@ -1192,6 +1199,64 @@ export interface ServerStateDoc {
 }
 
 export type ServerStateWithId = WithId<ServerStateDoc>;
+
+// ---------------------------------------------------------------------------
+// Metadata override (#1580 — Batch Metadata M1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sparse subdoc reconciled from the XMP sidecar by the `override-ingest`
+ * stage. Holds the search/sort/geo-relevant subset of the user's edits.
+ * `asset.exif` stays immutable — this overlay is what `effectiveMetadata()`
+ * reads first.
+ *
+ * GPS stays in `{ lat, lng }` form to match `exif.gps` (not GeoJSON).
+ * `touched_fields` records which fields the user actually set, for provenance.
+ */
+export interface MetadataOverride {
+  /** ISO 8601 timestamp of the most recent edit. */
+  edited_at: string;
+  /** Keys the user has explicitly set (drives reset-to-original). */
+  touched_fields: string[];
+  /** Overridden GPS coordinates; `null` = explicitly cleared. */
+  gps?: { lat: number; lng: number; alt?: number } | null;
+  /** Overridden ISO 8601 capture time with offset. */
+  captured_at?: string | null;
+  /** IANA time zone name, e.g. "Europe/Paris". */
+  time_zone?: string | null;
+  /** IPTC place text fields. */
+  place_text?: {
+    sublocation?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    country_code?: string | null;
+  } | null;
+  /** IPTC keywords (dc:subject bag). */
+  keywords?: string[] | null;
+  /** XMP title (dc:title). */
+  title?: string | null;
+  /** XMP caption / description (dc:description). */
+  caption?: string | null;
+  /** Photoshop headline. */
+  headline?: string | null;
+  /** Photoshop instructions. */
+  instructions?: string | null;
+  /** Creator / author (dc:creator). */
+  creator?: string | null;
+  /** Creator job title (photoshop:AuthorsPosition). */
+  creator_job_title?: string | null;
+  /** Copyright notice (dc:rights). */
+  copyright_notice?: string | null;
+  /** Copyright status tri-state (xmpRights:Marked). */
+  copyright_status?: 'unknown' | 'copyrighted' | 'public-domain' | null;
+  /** Usage terms (xmpRights:UsageTerms). */
+  usage_terms?: string | null;
+  /** Credit (photoshop:Credit). */
+  credit?: string | null;
+  /** Source (photoshop:Source). */
+  source?: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Presets (#1115, spec §10.7)
