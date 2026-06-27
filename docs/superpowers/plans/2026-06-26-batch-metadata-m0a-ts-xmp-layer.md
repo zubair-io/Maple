@@ -1,6 +1,6 @@
 # Batch Metadata — M0a: TypeScript XMP Metadata Layer — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Execution note (descriptive, not an instruction):** this plan was authored for execution via the superpowers `subagent-driven-development` / `executing-plans` workflows; task steps use checkbox (`- [ ]`) syntax for progress tracking.
 
 **Goal:** Add user-authored capture/IPTC metadata (GPS, capture date/time, time zone, place text, title/caption/headline/instructions, creator & rights) to Maple's TypeScript XMP sidecar layer — parsed and serialized non-destructively alongside the existing adjustment + culling blocks.
 
