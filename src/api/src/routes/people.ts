@@ -30,11 +30,11 @@ import {
   listHiddenPeople,
   listPeople,
   renamePerson,
-  setPersonCover,
   unhidePerson,
   type PersonWithCount,
 } from '../people/people.repo.ts';
 import { mergePeopleInto } from '../people/people-merge.repo.ts';
+import { setPersonCover } from '../people/people-cover.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:routes');

@@ -43,7 +43,6 @@ import {
   ApiPerson,
   ApiPersonDetail,
   ApiPersonFace,
-  Bbox,
   BunApiBackendService,
   FilesystemBrowseService,
   PeopleStore,
@@ -52,6 +51,7 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MapleVisibleOnceDirective } from './visible-once.directive';
 import { ThumbBlobCache } from './thumb-blob-cache';
+import { FaceThumbCrop } from './face-thumb-crop';
 import {
   TOAST_TTL_MS,
   Toast,
@@ -62,13 +62,11 @@ import {
   chunkPeopleRows,
   clusteringSummary,
   errorMessage,
-  faceCropTransform,
   faceKey,
   filterNamed,
   hiddenFaceCount,
   hidePersonConfirm,
   isAutoNamed,
-  NaturalDims,
   PEOPLE_GRID,
   peopleCardWidth,
   peopleGridColumns,
@@ -80,9 +78,9 @@ import {
   sortPeople,
   toggleSelection,
   visibleFaces,
-  withNaturalDims,
 } from './people.vm';
 import { PeopleBulkController } from './people-bulk.controller';
+import { PeopleDetailController } from './people-detail.controller';
 
 @Component({
   standalone: true,
@@ -177,6 +175,17 @@ export class PeopleComponent implements OnDestroy {
     toast: (text, tone) => this.showToast(text, tone),
   });
 
+  /** Detail-view face actions: set-as-cover, open-in-editor, infinite scroll. */
+  readonly detailCtl = new PeopleDetailController({
+    store: this.store,
+    router: this.router,
+    selected: this.selected,
+    selectedFaces: this.selectedFaces,
+    clearSelection: () => this.clearSelection(),
+    bulkBusy: this.bulkBusy,
+    toast: (text, tone) => this.showToast(text, tone),
+  });
+
   // ── List-view virtual scroll ────────────────────────────────────────────
   // The list grid is windowed by `cdk-virtual-scroll-viewport`: sorted people
   // are packed into fixed-height rows of `gridColumns()` cards (see the
@@ -244,28 +253,9 @@ export class PeopleComponent implements OnDestroy {
    * card can use the same `^Person N$` rule. */
   protected readonly isAutoName = isAutoNamed;
 
-  /** Natural pixel dimensions of each face-thumb's source image, keyed by
-   * thumb URL. Populated from the `<img>` `(load)` event. Used by
-   * `faceCropTransform` to undo the `object-fit: cover` letterbox so the
-   * bbox lands where the detector said it would, regardless of source
-   * aspect ratio. */
-  protected readonly imgNaturalDims = signal<ReadonlyMap<string, NaturalDims>>(new Map());
-
-  onFaceImgLoad(url: string, event: Event): void {
-    const img = event.target as HTMLImageElement;
-    this.imgNaturalDims.set(
-      withNaturalDims(this.imgNaturalDims(), url, img.naturalWidth, img.naturalHeight),
-    );
-  }
-
-  /** Template wrapper around the pure `faceCropTransform` from
-   * `people.vm.ts` — looks up the natural dimensions captured by
-   * `onFaceImgLoad` for the given thumb URL and threads them through so
-   * the transform can compensate for the cover-fit letterbox. */
-  faceCropTransform(bbox: Bbox, url: string | null): string {
-    const dims = url ? (this.imgNaturalDims().get(url) ?? null) : null;
-    return faceCropTransform(bbox, dims);
-  }
+  /** Face-thumbnail crop-transform state (natural-dims capture + transform).
+   * Shared by the list cover thumbs and the detail face grid. */
+  protected readonly crop = new FaceThumbCrop();
 
   /** Bearer-gated thumbnail blob cache. See {@link ThumbBlobCache} for
    * lifecycle / cache-key rules. Created once per component instance. */
@@ -580,47 +570,6 @@ export class PeopleComponent implements OnDestroy {
 
   faceThumbUrl(face: ApiPersonFace): string | null {
     return this.thumbs.url(face.absPath);
-  }
-
-  // ── Set as cover ────────────────────────────────────────────────────
-
-  /** "Set as cover" — only enabled when exactly one face is selected. */
-  readonly canSetCover = computed<boolean>(() => this.selectedFaces().size === 1);
-
-  async setSelectedAsCover(): Promise<void> {
-    const detail = this.selected();
-    if (!detail || !this.canSetCover()) return;
-    const [key] = [...this.selectedFaces()];
-    const face = detail.faces.find((f) => this.faceKey(f) === key);
-    if (!face) return;
-    this.bulkBusy.update((n) => n + 1);
-    try {
-      await this.store.setPersonCover(detail.id, face.assetId, face.faceIndex);
-      this.clearSelection();
-      this.showToast('Cover updated', 'success');
-    } catch (err) {
-      this.showToast(errorMessage(err), 'error');
-    } finally {
-      this.bulkBusy.update((n) => Math.max(0, n - 1));
-    }
-  }
-
-  // ── Open in editor (Feature 2) ──────────────────────────────────────
-
-  openInEditor(face: ApiPersonFace): void {
-    void this.router.navigate(['/library/editor', face.assetId]);
-  }
-
-  // ── Infinite scroll (Feature 3) ─────────────────────────────────────
-
-  /** True when more face pages are available for the current person. */
-  readonly hasMoreFaces = computed<boolean>(() => this.store.detailHasMore());
-
-  /** Called when the face grid scrolls near the bottom. */
-  loadMoreFaces(): void {
-    const detail = this.selected();
-    if (!detail) return;
-    this.store.loadMoreFaces(detail.id);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────
