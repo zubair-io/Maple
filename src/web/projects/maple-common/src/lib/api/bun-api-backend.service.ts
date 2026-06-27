@@ -625,6 +625,32 @@ export class BunApiBackendService {
   }
 
   // -------------------------------------------------------------------------
+  // Sub-threshold face cleanup (#1607). Audit/purge existing faces whose bbox
+  // is below the configured `face_min_detection_size`, WITHOUT a re-detect
+  // (which would null every person_id and destroy manual curation).
+  // -------------------------------------------------------------------------
+
+  /** Dry-run audit — scans every asset and reports the sub-threshold-face
+   * breakdown WITHOUT writing anything. Safe to call repeatedly. */
+  auditSubthresholdFaces(): Observable<SubthresholdFaceAuditResponse> {
+    return this.http.post<SubthresholdFaceAuditResponse>(
+      `${this.base}/admin/faces/purge-subthreshold`,
+      {},
+    );
+  }
+
+  /** Apply — remove sub-threshold faces. Default removes only unassigned
+   * faces; `includeAssigned` also removes manually-assigned tiny faces.
+   * Hidden faces are always preserved server-side. */
+  purgeSubthresholdFaces(includeAssigned: boolean): Observable<SubthresholdFacePurgeResponse> {
+    const qs = includeAssigned ? '?apply=true&includeAssigned=true' : '?apply=true';
+    return this.http.post<SubthresholdFacePurgeResponse>(
+      `${this.base}/admin/faces/purge-subthreshold${qs}`,
+      {},
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Observability — SigNoz / OpenTelemetry config (#713). The web client pulls
   // this, caches it to IndexedDB, and wires the OTel web SDK to export traces +
   // logs DIRECTLY to the self-hosted SigNoz OTLP/HTTP endpoint. The `source`
@@ -822,6 +848,41 @@ function normalisePerson(r: ApiPersonRaw): ApiPerson {
 }
 
 export type DescribeProviderName = 'ollama' | 'anthropic' | 'openai' | 'gemini';
+
+/** Sub-threshold face-cleanup audit/apply response (#1607). The audit
+ * (dry-run) omits `applied`; the apply call includes it. */
+export interface SubthresholdFaceAuditResponse {
+  /** The `face_min_detection_size` threshold the scan used. */
+  threshold: number;
+  mode: 'dry-run' | 'apply:unassigned-only' | 'apply:all';
+  assetsScanned: number;
+  assetsAffected: number;
+  /** Sub-threshold faces split by curation state. Hidden faces are counted
+   * separately and are always preserved by the purge. */
+  subThresholdFaces: {
+    unassigned: number;
+    assigned: number;
+    hidden: number;
+    total: number;
+  };
+  policy: {
+    removesUnassigned: boolean;
+    removesAssigned: boolean;
+    preservesHidden: boolean;
+  };
+  /** People who would lose (or lost) manually-assigned sub-threshold faces. */
+  affectedPeople: Array<{ personId: string; subThresholdFaces: number }>;
+}
+
+/** Apply response — the audit shape plus the realised `applied` stats. */
+export interface SubthresholdFacePurgeResponse extends SubthresholdFaceAuditResponse {
+  applied: {
+    facesRemoved: number;
+    assetsUpdated: number;
+    personCountsRecomputed: number;
+    personRecomputes: Array<{ personId: string; newCount: number }>;
+  };
+}
 
 export interface EnrichmentConfigResponse {
   nominatim_url: string | null;
