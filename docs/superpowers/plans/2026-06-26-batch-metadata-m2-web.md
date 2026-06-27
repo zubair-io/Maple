@@ -33,17 +33,18 @@ src/web/projects/maple-common/src/lib/batch-metadata/
 
 ## Existing files to modify
 
-| File | Change |
-|---|---|
-| `src/web/projects/maple-common/src/lib/shells/browse-shell/browse-shell.component.ts` | Add `canEditMetadata` computed, `onEditMetadata()`, `batchMetaDialogVisible`, `batchMetaAssetPaths`; import `BatchMetadataPanelComponent` |
-| `src/web/projects/maple-common/src/lib/shells/browse-shell/browse-shell.component.html` | Add "Edit Metadata…" button next to "Merge to panorama…"; add `<app-batch-metadata-panel>` dialog |
-| `src/web/projects/maple-common/src/public-api.ts` | Export the new service and components |
+| File                                                                                    | Change                                                                                                                                    |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/web/projects/maple-common/src/lib/shells/browse-shell/browse-shell.component.ts`   | Add `canEditMetadata` computed, `onEditMetadata()`, `batchMetaDialogVisible`, `batchMetaAssetPaths`; import `BatchMetadataPanelComponent` |
+| `src/web/projects/maple-common/src/lib/shells/browse-shell/browse-shell.component.html` | Add "Edit Metadata…" button next to "Merge to panorama…"; add `<app-batch-metadata-panel>` dialog                                         |
+| `src/web/projects/maple-common/src/public-api.ts`                                       | Export the new service and components                                                                                                     |
 
 ---
 
 ## Component structure
 
 ### `batch-metadata.types.ts`
+
 - `MIXED = '__mixed__'` — sentinel string for mixed values across selection
 - `type MixedOr<T> = T | typeof MIXED`
 - `interface MixedValueMap` — one `MixedOr<...>` per `XmpMetadata` field plus `keywords`
@@ -53,6 +54,7 @@ src/web/projects/maple-common/src/lib/batch-metadata/
 - `interface AssetMetadataSnapshot { path: string; metadata: Partial<XmpMetadata> & { keywords?: string[] } }`
 
 ### `batch-metadata.service.ts`
+
 Injectable `providedIn: 'root'`. Observable-only public API (no async/await).
 
 - `computeMixedValues(snapshots: AssetMetadataSnapshot[]): MixedValueMap` — pure function.
@@ -68,14 +70,17 @@ Injectable `providedIn: 'root'`. Observable-only public API (no async/await).
 Standalone, `ChangeDetectionStrategy.OnPush`.
 
 Inputs (function-style):
+
 - `assetPaths = input<string[]>([])` — snapshotted absolute paths
 - `assetSnapshots = input<AssetMetadataSnapshot[]>([])` — snapshotted metadata per path
 - `visible = input<boolean>(false)`
 
 Output:
+
 - `dismiss = output<void>()`
 
 Local state (signals):
+
 - `phase: signal<'form' | 'confirm' | 'applying' | 'done' | 'error'>('form')`
 - `mixed: computed(() => service.computeMixedValues(this.assetSnapshots()))` — recomputes on open
 - Per-field touched signals: `gpsLatitudeTouched`, etc. — booleans, reset on Reset
@@ -86,6 +91,7 @@ Local state (signals):
 - `applyErrors = signal<Array<{ path: string; error: string }>>([])` — per-asset failures
 
 Observables live in the constructor (one `takeUntilDestroyed()` subscription for geocode):
+
 ```
 toObservable(this.geocodeQuery).pipe(
   debounceTime(300),
@@ -96,6 +102,7 @@ toObservable(this.geocodeQuery).pipe(
 ```
 
 Key methods:
+
 - `onFieldChange(field, value)` — marks field touched, sets value signal
 - `onReset()` — clears all touched flags, resets value signals to mixed/original
 - `onApply()` — builds payload from only touched fields, sets phase → 'confirm'
@@ -104,10 +111,12 @@ Key methods:
 - `onGeocodeSelect(candidate)` — sets lat/lon/place-text fields from candidate
 
 Computed:
+
 - `touchedFieldCount = computed(...)` — count of touched fields
 - `submitPayload = computed(...)` — array of `BatchApplyEntry`, one per path, only touched fields
 
 Sections (grouped in template):
+
 1. **Capture** — `dateTimeOriginal`, `timeZone` (simplified v1: text fields)
 2. **GPS / Location** — address search + candidates dropdown, lat/lon manual fallback, altitude
 3. **IPTC Place text** — sublocation, city, state, country, countryCode
@@ -120,6 +129,7 @@ Sections (grouped in template):
 Standalone, `ChangeDetectionStrategy.OnPush`.
 
 Inputs:
+
 - `visible = input<boolean>(false)`
 - `assetCount = input<number>(0)`
 - `touchedFields = input<string[]>([])` — human-readable field names
@@ -127,6 +137,7 @@ Inputs:
 - `errors = input<Array<{ path: string; error: string }>>([])` — after apply
 
 Outputs:
+
 - `confirm = output<void>()`
 - `cancel = output<void>()`
 
@@ -147,11 +158,13 @@ Shows: "N photos will be updated" + list of touched fields. Error state shows pe
 ## Test strategy
 
 ### `batch-metadata.service.spec.ts` (Vitest)
+
 - `computeMixedValues` — uniform values → single value; differing values → `MIXED`; undefined → not set
 - `batchApply` — `HttpClientTestingModule` + `HttpTestingController`; verifies POST to `/api/xmp/batch`
 - `geocodeSearch` — verifies GET to `/api/geocode/search?q=...`; maps `suggestions`
 
 ### `batch-metadata-panel.component.spec.ts` (TestBed + Vitest)
+
 - Renders mixed-value placeholder for a field that differs
 - Only touched fields appear in `submitPayload` computed
 - `onReset()` clears all touched flags
@@ -162,6 +175,7 @@ Shows: "N photos will be updated" + list of touched fields. Error state shows pe
 ## Wiring in browse-shell
 
 Mirror the pano pattern exactly:
+
 1. `readonly batchMetaDialogVisible = signal(false)`
 2. `readonly batchMetaAssetSnapshots = signal<AssetMetadataSnapshot[]>([])`
 3. `readonly canEditMetadata = computed(() => this.state.selectedCount() >= 1)`
