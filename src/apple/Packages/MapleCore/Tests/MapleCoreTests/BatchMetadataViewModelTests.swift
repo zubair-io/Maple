@@ -84,7 +84,7 @@ final class BatchMetadataViewModelTests: XCTestCase {
         vm.touchedMetadata.city = ""
         try await vm.apply()
 
-        let xml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
         let parsed = XMPParser.parseMetadata(xml)
         XCTAssertNil(parsed.city, "Explicitly cleared city should not appear in sidecar")
     }
