@@ -58,6 +58,7 @@ import { importsRoutes } from './routes/imports.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
 import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
+import { purgeSubthresholdFacesRoutes } from './routes/admin-purge-subthreshold-faces.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { presetsRoutes } from './routes/presets.ts';
 import { panoRoutes } from './routes/pano.ts';
@@ -207,6 +208,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(enrichmentRoutes)
         .use(observabilityRoutes)
         .use(meilisearchBackfillRoutes)
+        .use(purgeSubthresholdFacesRoutes)
         .use(peopleRoutes)
         .use(presetsRoutes)
         .use(panoRoutes)
