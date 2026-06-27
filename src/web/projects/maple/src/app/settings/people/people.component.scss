@@ -501,6 +501,11 @@
 
 // "Open photo" button — appears on hover/focus in the bottom-right corner
 // of the face cell, visually distinct from the selection checkbox.
+// "Open photo" button. Always in the DOM (so it sits in normal tab order and
+// is keyboard-reachable), but hidden until the cell is hovered / something in
+// the cell has focus / the face is selected. Visibility is CSS-driven rather
+// than `@if`-gated so tabbing onto the button doesn't remove it before it can
+// receive focus.
 .face-open-btn {
   position: absolute;
   bottom: 6px;
@@ -516,6 +521,27 @@
   cursor: pointer;
   backdrop-filter: blur(4px);
   z-index: 2;
+
+  // Hidden by default. `visibility: hidden` (not `display: none`) keeps it in
+  // the layout/tab order graph so `:focus-within` can still reveal it the
+  // instant it gains focus via keyboard. opacity drives the fade.
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 120ms,
+    visibility 120ms,
+    background 120ms;
+
+  // Revealed when the cell is hovered, anything inside the cell is focused
+  // (covers keyboard tab-in onto THIS button), the button itself is focused,
+  // or the face is selected (`.is-revealed`).
+  .face-cell:hover &,
+  .face-cell:focus-within &,
+  &:focus,
+  &.is-revealed {
+    opacity: 1;
+    visibility: visible;
+  }
 
   &:hover {
     background: var(--s-accent);

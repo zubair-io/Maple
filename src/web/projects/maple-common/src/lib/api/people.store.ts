@@ -166,6 +166,11 @@ export class PeopleStore implements Store<ApiPerson[]> {
   private readonly _detailError = signal<Error | null>(null);
   /** Imperative in-flight guard (mirrors `_listInFlight`) keyed by id. */
   private readonly _detailInFlight = new Set<string>();
+  /** Ids whose detail was `invalidateDetail`'d while a fetch was in flight
+   * (e.g. during a `loadMoreFaces` page>0 load). The in-flight fetch's
+   * completion handler re-fetches page 0 once so the invalidation can't be
+   * swallowed (mirrors `_listDirty` / `_hiddenDirty`). */
+  private readonly _detailDirty = new Set<string>();
   /** Per-person "has more faces" flag. True until a page returns fewer faces than its limit. */
   private readonly _detailHasMore = signal<ReadonlyMap<string, boolean>>(new Map());
 
@@ -221,8 +226,17 @@ export class PeopleStore implements Store<ApiPerson[]> {
    * (the `offset === 0` branch in `_fetchDetail`), so accumulated face pages
    * reset cleanly without a flash of an empty grid. We deliberately do NOT
    * `evictDetail` here — that would blank the panel mid-refresh.
+   *
+   * Race guard: if a fetch is already in flight for this id (e.g. a
+   * `loadMoreFaces` page>0 load), `_fetchDetail` would early-return and drop
+   * this call, leaving stale detail. Mark the id dirty so the in-flight
+   * fetch's completion re-fetches page 0 once (mirrors `_listDirty`).
    */
   invalidateDetail(id: string): void {
+    if (this._detailInFlight.has(id)) {
+      this._detailDirty.add(id);
+      return;
+    }
     this._fetchDetail(id, 0);
   }
 
@@ -241,8 +255,10 @@ export class PeopleStore implements Store<ApiPerson[]> {
   }
 
   /** Drop a person's cached detail entirely — used after a delete so a later
-   * visit to a recycled id can't serve a tombstone. */
+   * visit to a recycled id can't serve a tombstone. Also clears any pending
+   * dirty flag so an in-flight fetch's completion won't resurrect the row. */
   evictDetail(id: string): void {
+    this._detailDirty.delete(id);
     this._details.update((m) => {
       if (!m.has(id)) return m;
       const next = new Map(m);
@@ -304,6 +320,14 @@ export class PeopleStore implements Store<ApiPerson[]> {
       next.delete(id);
       return next;
     });
+    // If an `invalidateDetail` arrived while this fetch was in flight, honour it
+    // now with a fresh page-0 re-fetch (in-flight guard is already cleared
+    // above). One re-fetch only — `_fetchDetail` clears nothing here, so a
+    // single pending invalidation can't loop.
+    if (this._detailDirty.has(id)) {
+      this._detailDirty.delete(id);
+      this._fetchDetail(id, 0);
+    }
   }
 
   // ── Hidden-list cache (the Hidden page) ─────────────────────────────────────
