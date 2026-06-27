@@ -48,6 +48,13 @@ import {
 import type { Store, StoreStatus } from '../state/store';
 
 /**
+ * Page size for the detail face grid's infinite scroll. Mirrors the API's
+ * `FACE_DETAIL_LIMIT` default. Exported so tests can assert the exact
+ * `getPerson(id, { offset, limit })` shape without hard-coding a magic number.
+ */
+export const DETAIL_FACE_PAGE_SIZE = 50;
+
+/**
  * SWR cache for the People list + per-person detail. Implements
  * `Store<ApiPerson[]>` for the list; `detail*` accessors expose the same
  * signal shape keyed by person id.
@@ -207,12 +214,15 @@ export class PeopleStore implements Store<ApiPerson[]> {
   /**
    * Force a re-fetch of a specific person's detail (resets to page 0).
    * Used after a mutation touches that person (rename, bulk assign/hide on its
-   * faces) so the open panel reflects server state. Clears the accumulated faces
-   * so the grid resets cleanly rather than mixing stale and fresh entries.
+   * faces) so the open panel reflects server state.
+   *
+   * SWR semantics: the cached value stays visible (`detailRefreshing`) while
+   * the page-0 fetch is in flight; when it lands it REPLACES the entry whole
+   * (the `offset === 0` branch in `_fetchDetail`), so accumulated face pages
+   * reset cleanly without a flash of an empty grid. We deliberately do NOT
+   * `evictDetail` here — that would blank the panel mid-refresh.
    */
   invalidateDetail(id: string): void {
-    // Drop the accumulated faces so we restart from page 0.
-    this.evictDetail(id);
     this._fetchDetail(id, 0);
   }
 
@@ -255,7 +265,7 @@ export class PeopleStore implements Store<ApiPerson[]> {
     // the `Store<T>` contract of resetting error on a successful re-fetch.
     this._detailError.set(null);
     this._detailLoadingIds.update((s) => new Set(s).add(id));
-    const pageSize = 50;
+    const pageSize = DETAIL_FACE_PAGE_SIZE;
     this.api.getPerson(id, { offset, limit: pageSize }).subscribe({
       next: (page) => {
         // A full page (>= the requested size) means there may be more; a short

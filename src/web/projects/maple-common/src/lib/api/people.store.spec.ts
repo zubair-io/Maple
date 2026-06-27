@@ -23,7 +23,7 @@ import { TestBed } from '@angular/core/testing';
 import { of, throwError, Subject } from 'rxjs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { PeopleStore } from './people.store';
+import { DETAIL_FACE_PAGE_SIZE, PeopleStore } from './people.store';
 import {
   BunApiBackendService,
   type ApiPerson,
@@ -60,7 +60,11 @@ class ApiStub {
   hiddenResult: ApiPerson[] = [person('h1', 'Hidden Hugo')];
   listPeople = vi.fn(() => of(this.listResult));
   listHiddenPeople = vi.fn(() => of(this.hiddenResult));
-  getPerson = vi.fn((id: string) => of(detail(id, id === 'p1' ? 'Alice' : 'Person 7')));
+  // The store calls getPerson(id, { offset, limit }); the stub accepts (and
+  // ignores) the page opts so call-shape assertions and the runtime path match.
+  getPerson = vi.fn((id: string, _page?: { offset: number; limit: number }) =>
+    of(detail(id, id === 'p1' ? 'Alice' : 'Person 7')),
+  );
   hidePerson = vi.fn((_id: string) => of({ ok: true as const }));
   unhidePerson = vi.fn((_id: string) => of({ ok: true as const }));
 }
@@ -245,7 +249,8 @@ describe('PeopleStore', () => {
     store = TestBed.inject(PeopleStore);
 
     store.setActiveDetailId('p1');
-    expect(api.getPerson).toHaveBeenCalledWith('p1');
+    // The detail fetch always requests the first face page.
+    expect(api.getPerson).toHaveBeenCalledWith('p1', { offset: 0, limit: DETAIL_FACE_PAGE_SIZE });
     expect(store.detail()?.id).toBe('p1');
     expect(store.detailLoading()).toBe(false);
   });
@@ -253,7 +258,7 @@ describe('PeopleStore', () => {
   it('detail SWR: revisiting a cached id serves it instantly and refreshes', () => {
     const subjects: Record<string, Subject<ApiPersonDetail>[]> = {};
     const api = new ApiStub();
-    api.getPerson = vi.fn((id: string) => {
+    api.getPerson = vi.fn((id: string, _page?: { offset: number; limit: number }) => {
       const s = new Subject<ApiPersonDetail>();
       (subjects[id] ??= []).push(s);
       return s.asObservable();
@@ -305,7 +310,7 @@ describe('PeopleStore', () => {
   it('invalidateDetail(id) re-fetches a specific person', () => {
     const subjects: Subject<ApiPersonDetail>[] = [];
     const api = new ApiStub();
-    api.getPerson = vi.fn(() => {
+    api.getPerson = vi.fn((_id: string, _page?: { offset: number; limit: number }) => {
       const s = new Subject<ApiPersonDetail>();
       subjects.push(s);
       return s.asObservable();
@@ -330,7 +335,7 @@ describe('PeopleStore', () => {
     // refresh) that succeeded left the old error on screen over fresh data.
     const subjects: Subject<ApiPersonDetail>[] = [];
     const api = new ApiStub();
-    api.getPerson = vi.fn(() => {
+    api.getPerson = vi.fn((_id: string, _page?: { offset: number; limit: number }) => {
       const s = new Subject<ApiPersonDetail>();
       subjects.push(s);
       return s.asObservable();
