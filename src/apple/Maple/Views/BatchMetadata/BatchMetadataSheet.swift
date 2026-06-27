@@ -68,7 +68,7 @@ struct BatchMetadataSheet: View {
                         try await vm.apply()
                         if vm.applyError == nil { onDismiss() }
                     } catch {
-                        // applyError set on vm; alert is driven by the binding above.
+                        assertionFailure("vm.apply() threw unexpectedly; applyError should have been set. Error: \(error)")
                     }
                 }
             }
