@@ -98,7 +98,10 @@ function bagBlock(qname: string, values: string[]): string {
  * fields present in the edit are removed/rewritten, so untouched fields in an
  * existing sidecar survive a partial edit (spec: untouched fields unchanged).
  */
-const FIELD_TO_ATTR_KEYS: Record<string, readonly string[]> = {
+// `satisfies` enforces every key is a real XmpMetadataInput field, so a rename
+// or typo can't silently drop a field from the touched-set and reintroduce the
+// partial-edit data-loss bug.
+const FIELD_TO_ATTR_KEYS = {
   gpsLatitude: ['exif:GPSLatitude'],
   gpsLongitude: ['exif:GPSLongitude'],
   gpsAltitude: ['exif:GPSAltitude', 'exif:GPSAltitudeRef'],
@@ -115,17 +118,17 @@ const FIELD_TO_ATTR_KEYS: Record<string, readonly string[]> = {
   credit: ['photoshop:Credit'],
   source: ['photoshop:Source'],
   copyrightStatus: ['xmpRights:Marked'],
-};
+} satisfies Partial<Record<keyof XmpMetadataInput, readonly string[]>>;
 
 /** Map each input field to the managed nested element tag it owns. */
-const FIELD_TO_NESTED_TAG: Record<string, string> = {
+const FIELD_TO_NESTED_TAG = {
   title: 'dc:title',
   creator: 'dc:creator',
   caption: 'dc:description',
   copyrightNotice: 'dc:rights',
   usageTerms: 'xmpRights:UsageTerms',
   keywords: 'dc:subject',
-};
+} satisfies Partial<Record<keyof XmpMetadataInput, string>>;
 
 /** Namespace prefix → URI (only prefixes used by managed metadata fields). */
 const NS_MAP: Record<string, string> = {
@@ -262,11 +265,11 @@ function applyMerge(xml: string, meta: XmpMetadataInput): string {
   // does not). Untouched fields in the existing sidecar are left intact.
   const touchedAttrKeys = new Set<string>();
   const touchedTags = new Set<string>();
-  for (const field of Object.keys(meta)) {
-    const keys = FIELD_TO_ATTR_KEYS[field];
-    if (keys) for (const k of keys) touchedAttrKeys.add(k);
-    const tag = FIELD_TO_NESTED_TAG[field];
-    if (tag) touchedTags.add(tag);
+  for (const [field, keys] of Object.entries(FIELD_TO_ATTR_KEYS)) {
+    if (field in meta) for (const k of keys) touchedAttrKeys.add(k);
+  }
+  for (const [field, tag] of Object.entries(FIELD_TO_NESTED_TAG)) {
+    if (field in meta) touchedTags.add(tag);
   }
 
   // 1. Remove ONLY the touched managed attribute keys from rdf:Description.
