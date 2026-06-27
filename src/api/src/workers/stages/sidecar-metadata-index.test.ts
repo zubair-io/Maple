@@ -10,7 +10,10 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { ObjectId } from 'mongodb';
-import { sidecarMetadataIndexHandler, SIDECAR_METADATA_INDEX_VERSION } from './sidecar-metadata-index.ts';
+import {
+  sidecarMetadataIndexHandler,
+  SIDECAR_METADATA_INDEX_VERSION,
+} from './sidecar-metadata-index.ts';
 import type { ImageDoc } from '../run-stage.ts';
 import type { StageContext } from '../stage-config.ts';
 import type { Logger } from 'pino';
