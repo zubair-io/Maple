@@ -160,7 +160,7 @@ export interface EnrichmentConfig {
   face_detector_sha256?: string | null;
   face_recognizer_url?: string | null;
   face_recognizer_sha256?: string | null;
-  /** Minimum face size filter (normalised [0, 1] on the 640-px detection
+  /** Minimum face size filter (normalised [0, 1) on the 640-px detection
    * frame). Detections whose shorter bbox side is below this value are
    * dropped before persisting. `null`/missing → DEFAULT_FACE_MIN_DETECTION_SIZE. */
   face_min_detection_size?: number | null;

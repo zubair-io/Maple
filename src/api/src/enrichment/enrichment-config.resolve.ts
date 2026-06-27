@@ -64,7 +64,7 @@ export interface ResolvedEnrichmentConfig {
   face_recognizer_sha256: string | null;
   /** Resolved minimum face-size threshold (DB → default). Always a number.
    * The face-detect stage drops any bbox whose shorter side is below this
-   * value (normalised [0, 1] on the 640-px detection frame). */
+   * value (normalised [0, 1) on the 640-px detection frame). */
   face_min_detection_size: number;
   /** Resolved Meilisearch sidecar URL (DB → env → null). `null` leaves the
    * sidecar disabled and search falls back to the Mongo `$text` path. */

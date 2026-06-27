@@ -486,9 +486,16 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.face_model_dir = form.face_model_dir.trim() || null;
       body.face_detector_url = form.face_detector_url.trim() || null;
       body.face_detector_sha256 = form.face_detector_sha256.trim() || null;
-      const minSize = Number(form.face_min_detection_size.trim());
+      // Empty/whitespace clears back to the default (null) — NOT 0. A blank
+      // input must never persist 0, which would silently DISABLE the filter
+      // (0 is a valid "off" value, so it can't double as "cleared"). Only a
+      // non-blank, in-range [0,1) number is sent as an explicit value.
+      const minSizeRaw = form.face_min_detection_size.trim();
+      const minSize = Number(minSizeRaw);
       body.face_min_detection_size =
-        Number.isFinite(minSize) && minSize >= 0 && minSize < 1 ? minSize : null;
+        minSizeRaw !== '' && Number.isFinite(minSize) && minSize >= 0 && minSize < 1
+          ? minSize
+          : null;
     } else if (kind === 'face-embed') {
       // Recognizer-only slice — see the face-detect note above. The model dir
       // is owned by the face-detect row, so it is deliberately not sent here.

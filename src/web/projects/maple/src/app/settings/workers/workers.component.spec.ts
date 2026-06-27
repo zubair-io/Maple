@@ -539,4 +539,56 @@ describe('WorkersComponent', () => {
     expandPreviewRow();
     expect(fixture.nativeElement.querySelector('#ffi-workers-input')).toBeNull();
   });
+
+  function expandFaceDetectRow(): HTMLElement {
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
+    const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face-detect'))!;
+    faceRow.querySelector<HTMLElement>('.row-summary')?.click();
+    fixture.detectChanges();
+    return faceRow;
+  }
+
+  // Regression for the Copilot review note: clearing the Minimum face size
+  // input must NOT persist 0 (which silently disables the filter, since 0 is a
+  // valid "off" value). A blank field clears back to the default via null.
+  it('saves face_min_detection_size as null (not 0) when the input is cleared', () => {
+    initWithMock();
+    const faceRow = expandFaceDetectRow();
+    const input = faceRow.querySelector<HTMLInputElement>('[data-testid="face-min-size-input"]')!;
+    expect(input).not.toBeNull();
+    // Seeded from MOCK_ENRICHMENT (0.06); clear it.
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    faceRow.querySelector<HTMLButtonElement>('.btn-primary')?.click();
+
+    // saveStage first PATCHes the stage runtime config, then PUTs enrichment.
+    http.expectOne('/api/workers/face-detect/config').flush(null, { status: 204, statusText: '' });
+    const put = http.expectOne('/api/enrichment/config');
+    expect(put.request.method).toBe('PUT');
+    // The load-bearing assertion: cleared input → null, never 0.
+    expect(put.request.body.face_min_detection_size).toBeNull();
+    put.flush(MOCK_ENRICHMENT);
+    fixture.detectChanges();
+  });
+
+  it('saves face_min_detection_size as a number when a valid value is entered', () => {
+    initWithMock();
+    const faceRow = expandFaceDetectRow();
+    const input = faceRow.querySelector<HTMLInputElement>('[data-testid="face-min-size-input"]')!;
+    input.value = '0.1';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    faceRow.querySelector<HTMLButtonElement>('.btn-primary')?.click();
+
+    http.expectOne('/api/workers/face-detect/config').flush(null, { status: 204, statusText: '' });
+    const put = http.expectOne('/api/enrichment/config');
+    expect(put.request.body.face_min_detection_size).toBe(0.1);
+    put.flush(MOCK_ENRICHMENT);
+    fixture.detectChanges();
+  });
 });
