@@ -20,11 +20,12 @@
 //!   `luma_coupled_toe` band-aid — deep shadows preserve their chroma
 //!   through the same ratio scale.
 //!
-//! * `oklab_gamut_compress` — hue-preserving gamut compression. If any
-//!   channel after outset is `< 0` or `> 1`, bisect the Oklab `(a, b)`
-//!   chroma toward the neutral axis at the same `L` until the round-trip
-//!   to Rec.2020 fits in `[0, 1]^3`. Mirrors #471 (OklabChromaReduction)
-//!   but at the view-transform step rather than at highlight recovery.
+//! * `oklab_gamut_compress` — hue-preserving gamut compression at constant
+//!   Oklab `L`. Post-#1621 this delegates to the shared
+//!   `oklab_gamut::compress_to_unit_cube_oklab`: a Reinhard soft-knee that
+//!   begins rolling chroma off below the hull (rather than hard-clipping
+//!   onto it), keeping saturated gradients smooth. Mirrors #471
+//!   (OklabChromaReduction) but at the view-transform step.
 //!
 //! Sobotka's "rotate post-sigmoid toward per-channel sigmoid weighted by
 //! chroma" is a documented future refinement (more nuanced, but harder
@@ -81,16 +82,6 @@ pub fn norm_sigmoid_ratio<F: Fn(f32) -> f32>(
     [r * ratio, g * ratio, b * ratio]
 }
 
-/// Hue-preserving gamut compression toward the `[0, 1]^3` display box.
-///
-/// If `rgb` already fits, returns it untouched. Otherwise, bisects
-/// the Oklab `(a, b)` chroma toward 0 at constant `L` until the
-/// resulting Rec.2020 triple is in-gamut (with a small numerical
-/// margin). 24 iterations of bisection give `2^-24 ≈ 6e-8` precision
-/// on the chroma scale, comfortably below 8-bit quantisation.
-///
-/// Mid-gray and other neutrals pass through unchanged (chroma is zero,
-/// nothing to compress).
 /// Hue-preserving **soft** gamut compression toward the `[0, 1]^3` display box
 /// (#1621). Rebased onto the shared [`compress_to_unit_cube_oklab`] so the AgX
 /// (Rec.2020) and encode (sRGB) call sites use one algorithm — the soft-knee
