@@ -167,8 +167,11 @@ describe('overrideIngestHandler — patch path', () => {
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
-    expect(patch['exif.captured_year']).toBe(2026);
-    expect(patch['exif.captured_month']).toBe(6);
+    // Derived year/month live in metadata_override, NOT exif.* (immutable).
+    expect(patch['exif.captured_year']).toBeUndefined();
+    const override = patch['metadata_override'] as Record<string, unknown>;
+    expect(override['captured_year']).toBe(2026);
+    expect(override['captured_month']).toBe(6);
   });
 
   test('does not include year/month in patch when no captured_at in sidecar or exif', async () => {
@@ -181,9 +184,11 @@ describe('overrideIngestHandler — patch path', () => {
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
-    // year/month not set when no captured_at available
+    // year/month not set when no captured_at available (and never under exif.*)
     expect(patch['exif.captured_year']).toBeUndefined();
-    expect(patch['exif.captured_month']).toBeUndefined();
+    const override = patch['metadata_override'] as Record<string, unknown>;
+    expect(override['captured_year']).toBeUndefined();
+    expect(override['captured_month']).toBeUndefined();
   });
 
   test('patch includes place_text when IPTC attrs present', async () => {
@@ -242,8 +247,10 @@ describe('overrideIngestHandler — patch path', () => {
     expect(result).toHaveProperty('patch');
     if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
-    expect(patch['exif.captured_year']).toBe(2025);
-    expect(patch['exif.captured_month']).toBe(3);
+    expect(patch['exif.captured_year']).toBeUndefined();
+    const override = patch['metadata_override'] as Record<string, unknown>;
+    expect(override['captured_year']).toBe(2025);
+    expect(override['captured_month']).toBe(3);
   });
 });
 

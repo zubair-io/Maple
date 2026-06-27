@@ -62,21 +62,16 @@ export function effectiveMetadata(
   const override = doc.metadata_override ?? null;
   const exif = doc.exif ?? null;
 
-  // captured_at: override wins; fall back to exif.
-  const captured_at: string | null =
-    override !== null && 'captured_at' in override
-      ? (override.captured_at ?? null)
-      : (exif?.captured_at ?? null);
+  // Spec resolver formula: effective = override ?? exif. A nullish override
+  // value (absent OR explicit null) falls back to the exif file-original — so
+  // clearing an override reverts to the original (matches "Reset to original").
+  const captured_at: string | null = override?.captured_at ?? exif?.captured_at ?? null;
 
   const { year, month } = parseYearMonth(captured_at);
 
-  // GPS: override wins; null in override means "explicitly cleared".
-  // When no override is present, fall back to exif.gps.
-  const overrideHasGps = override !== null && 'gps' in override;
-  const gps: { lat: number; lng: number } | null = overrideHasGps
-    ? override!.gps
-      ? { lat: override!.gps.lat, lng: override!.gps.lng }
-      : null
+  const overrideGps = override?.gps;
+  const gps: { lat: number; lng: number } | null = overrideGps
+    ? { lat: overrideGps.lat, lng: overrideGps.lng }
     : (exif?.gps ?? null);
 
   return {
