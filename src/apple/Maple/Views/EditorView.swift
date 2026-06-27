@@ -272,6 +272,21 @@ struct EditorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MapleTokens.bg)
+        // Render-path badge (bottom-trailing) — mirrors the zoom % badge
+        // (bottom-leading, CanvasZoomHost) with the same pill style; surfaces
+        // whether the canvas is on the wgpu live path (GPU) or the CPU
+        // fallback (`gpuFramePresented` latches the first GPU present).
+        .overlay(alignment: .bottomTrailing) {
+            Text(state.session.gpuFramePresented ? "GPU" : "CPU")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
+                .padding(8)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("editor-render-path-badge")
+        }
         // Compact chrome recede: any tap on the canvas restores chrome.
         .contentShape(Rectangle())
         .onTapGesture {

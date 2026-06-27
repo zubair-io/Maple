@@ -511,6 +511,18 @@ struct AppShell: View {
             .frame(minWidth: 560, minHeight: 480)
             #endif
         }
+        // Full-bleed editor (#1586): hide the sources sidebar — and close the
+        // right inspector — when an image is open, so the canvas-first chrome
+        // floats over a full-bleed canvas (matching the web/design, where the
+        // floating filmstrip/dock replace the side panels). The sidebar
+        // returns on dismiss; ⌘\ and the Info button reopen them mid-session.
+        .onChange(of: mode) { _, newMode in
+            let imageOpen = (newMode == .editing || newMode == .fullImage)
+            withAnimation(.easeInOut(duration: 0.2)) {
+                columnVisibility = imageOpen ? .detailOnly : .all
+                if newMode == .editing { editorDetailVisible = false }
+            }
+        }
     }
 
     /// Shared between the Mac/iPad NavigationSplitView and the iPhone
