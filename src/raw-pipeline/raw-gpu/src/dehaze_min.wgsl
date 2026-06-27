@@ -49,10 +49,10 @@ const A_FLOOR: f32 = 1e-6;    // transmission-only per-channel A guard.
 @group(0) @binding(3) var<uniform> airlight: Airlight;
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
     let w = i32(params.width);
     let h = i32(params.height);
-    let i = gid.x;
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= u32(w * h)) {
         return;
     }

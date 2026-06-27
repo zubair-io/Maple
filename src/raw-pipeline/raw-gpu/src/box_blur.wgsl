@@ -28,10 +28,10 @@ struct Params {
 @group(0) @binding(2) var<storage, read_write> output_buf: array<f32>;
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
     let w = params.width;
     let h = params.height;
-    let i = gid.x;
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= w * h) {
         return;
     }

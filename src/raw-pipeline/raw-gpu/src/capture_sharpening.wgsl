@@ -46,8 +46,8 @@ struct CountParams {
 @group(0) @binding(2) var<storage, read_write> ex_luma: array<f32>;
 
 @compute @workgroup_size(64)
-fn extract_luma(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn extract_luma(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= ex_params.count) {
         return;
     }
@@ -77,10 +77,10 @@ struct GaussParams {
 @group(0) @binding(3) var<storage, read_write> g_out: array<f32>;
 
 @compute @workgroup_size(64)
-fn gaussian_blur(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn gaussian_blur(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
     let w = g_params.width;
     let h = g_params.height;
-    let i = gid.x;
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= w * h) {
         return;
     }
@@ -116,8 +116,8 @@ fn gaussian_blur(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(3) var<storage, read_write> r_ratio: array<f32>;
 
 @compute @workgroup_size(64)
-fn ratio_step(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn ratio_step(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= r_params.count) {
         return;
     }
@@ -131,8 +131,8 @@ fn ratio_step(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(2) var<storage, read> m_blur_ratio: array<f32>;
 
 @compute @workgroup_size(64)
-fn multiply_step(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn multiply_step(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= m_params.count) {
         return;
     }
@@ -158,8 +158,8 @@ struct ApplyParams {
 @group(0) @binding(4) var<storage, read_write> a_dst: array<vec4<f32>>;
 
 @compute @workgroup_size(64)
-fn apply_scale(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn apply_scale(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= a_params.count) {
         return;
     }

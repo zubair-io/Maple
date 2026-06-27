@@ -215,7 +215,10 @@ pub fn encode_simple(
     });
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, pooled.bind_group.as_ref(), &[]);
-    pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
+    let groups = count.div_ceil(64);
+    let gx = groups.min(65535);
+    let gy = groups.div_ceil(gx);
+    pass.dispatch_workgroups(gx, gy, 1);
 }
 
 /// THE separable box-blur primitive (epic #925 P2 wave 3b / #990).

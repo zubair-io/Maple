@@ -68,8 +68,8 @@ fn quantize_channel(c: f32, off: f32) -> u32 {
 }
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= params.count) {
         return;
     }

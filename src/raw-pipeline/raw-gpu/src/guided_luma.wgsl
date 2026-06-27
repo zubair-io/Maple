@@ -28,8 +28,8 @@ struct Params {
 @group(0) @binding(3) var<storage, read_write> luma2_buf: array<f32>;
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= params.count) {
         return;
     }
