@@ -27,18 +27,20 @@ struct PillHeader: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(ProTokens.text)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
             .accessibilityIdentifier("editor-back")
 
-            // Filename
+            // Filename — capped so the pill hugs its content (content-width,
+            // centered) instead of stretching to fill the screen.
             Text(state.session.asset.displayName)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(ProTokens.textMuted)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(ProTokens.text)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: .infinity)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("editor-filename")
 
             // Before/after toggle — shown only when there are edits
@@ -53,6 +55,7 @@ struct PillHeader: View {
                         .foregroundStyle(state.session.showingOriginal
                                          ? ProTokens.accent
                                          : ProTokens.textMuted)
+                        .frame(width: 30, height: 30)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(state.session.showingOriginal ? "Show edited" : "Show original")
@@ -66,6 +69,7 @@ struct PillHeader: View {
                     .foregroundStyle((state.canUndo || state.canRedo)
                                      ? ProTokens.text
                                      : ProTokens.textDim)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .disabled(!state.canUndo && !state.canRedo)
@@ -81,6 +85,7 @@ struct PillHeader: View {
                 Image(systemName: "info.circle")
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(ProTokens.text)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Info")
@@ -91,13 +96,14 @@ struct PillHeader: View {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(ProTokens.text)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Share")
             .accessibilityIdentifier("editor-share")
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .frame(height: 44)
         .background(ProTokens.bg.opacity(ProGlass.opacity), in: Capsule())
         .accessibilityIdentifier("editor-pill-header")
     }

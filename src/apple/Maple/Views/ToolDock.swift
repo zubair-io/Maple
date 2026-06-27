@@ -23,8 +23,10 @@ struct ToolDock: View {
             }
             .padding(.vertical, 10)
         }
-        .frame(width: 64)
-        .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 12))
+        // Content-height up to a cap so the dock floats as a short, vertically
+        // centered glass column instead of spanning the full canvas height.
+        .frame(width: 64, height: min(CGFloat(tools.count) * 58 + 20, 460))
+        .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
         .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
         .accessibilityIdentifier("editor-tool-dock")
     }
