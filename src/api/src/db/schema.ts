@@ -753,6 +753,17 @@ export interface PersonDoc {
    * faces keep flowing into the hidden person rather than spawning a fresh
    * visible "Person N". Additive — no migration needed. */
   hidden?: boolean;
+  /**
+   * Denormalized count of this person's live assigned faces: faces with
+   * `person_id` set to this person's hex id, `hidden !== true`, and a
+   * non-merged person doc. Maintained incrementally on every write path
+   * that changes face membership (assign, unassign, hide, merge) and
+   * recomputed authoritatively each clustering pass. Populated by the
+   * `backfill-person-face-count-2026-06-27` migration for existing rows.
+   * Absent/undefined on rows that pre-date the migration — readers fall
+   * back to 0 until the migration runs.
+   */
+  face_count?: number;
 }
 
 export type PersonWithId = WithId<PersonDoc>;

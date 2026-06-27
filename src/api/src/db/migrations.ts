@@ -36,7 +36,8 @@ export type MigrationId =
   | 'migrate-missing-since-to-fileinfo-2026-06-05'
   | 'repair-captured-year-month-2026-06-07'
   | 'drop-legacy-location-fields-2026-06-11'
-  | 'backfill-folder-slugs-2026-06-16';
+  | 'backfill-folder-slugs-2026-06-16'
+  | 'backfill-person-face-count-2026-06-27';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -591,3 +592,9 @@ export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniqu
   );
   return { violations: 0, promoted: true };
 }
+
+// backfill-person-face-count-2026-06-27 — populate `face_count` on every live
+// person so GET /api/people reads it directly instead of running an O(total-
+// faces) $unwind per request (#1594). Impl in people-face-count.repo.ts.
+export type { BackfillPersonFaceCountResult } from '../people/people-face-count.repo.ts';
+export { backfillPersonFaceCount } from '../people/people-face-count.repo.ts';
