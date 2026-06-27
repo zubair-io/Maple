@@ -30,6 +30,41 @@
         </div>
       }
 
+      <!-- Refile offer state -->
+      @if (refileOfferVisible()) {
+        <div class="bm-body bm-center">
+          @if (refileErrors().length > 0) {
+            <p class="bm-error-msg">
+              {{ refileErrors().length }} backup(s) could not be moved. The metadata was still
+              applied successfully.
+            </p>
+          } @else if (refileApplying()) {
+            <p class="bm-hint">Moving backup copies…</p>
+          } @else {
+            <p>
+              {{ refileCount() }} backup {{ refileCount() === 1 ? 'copy' : 'copies' }} can be
+              relocated to match the new GPS coordinates.
+            </p>
+            <p class="bm-hint">
+              This moves the backup file(s) into the geo-organised folder for the new location. The
+              original is never modified.
+            </p>
+          }
+          <div class="bm-footer">
+            @if (!refileApplying() && refileErrors().length === 0) {
+              <button type="button" class="bm-btn bm-btn-ghost" (click)="onRefileSkip()">
+                Skip
+              </button>
+              <button type="button" class="bm-btn bm-btn-primary" (click)="onRefileAccept()">
+                Move
+              </button>
+            } @else {
+              <button type="button" class="bm-btn bm-btn-ghost" (click)="onClose()">Close</button>
+            }
+          </div>
+        </div>
+      }
+
       <!-- Confirm / applying / done state -->
       @if (confirmVisible()) {
         <div class="bm-body">

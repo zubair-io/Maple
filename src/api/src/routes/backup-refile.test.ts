@@ -8,20 +8,20 @@
  * live Mongo instance.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { Elysia } from "elysia";
-import { backupRefileRoutes } from "./backup-refile.ts";
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { Elysia } from 'elysia';
+import { backupRefileRoutes } from './backup-refile.ts';
 
 // Isolate the shared db-client singleton to a unique test DB so test runs
 // against the real `maple` DB are prevented (matches xmp-batch.test.ts convention).
 process.env.MAPLE_MONGO_DB = `maple_test_backup_refile_${process.pid}`;
 
 beforeAll(async () => {
-  await (await import("../db/client.ts")).closeDb();
+  await (await import('../db/client.ts')).closeDb();
 });
 
 afterAll(async () => {
-  await (await import("../db/client.ts")).closeDb();
+  await (await import('../db/client.ts')).closeDb();
 });
 
 // ---------------------------------------------------------------------------
@@ -36,9 +36,9 @@ const app = new Elysia().use(backupRefileRoutes);
 
 async function postCount(body: unknown): Promise<Response> {
   return app.handle(
-    new Request("http://localhost/api/backup/refile-count", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    new Request('http://localhost/api/backup/refile-count', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
   );
@@ -46,9 +46,9 @@ async function postCount(body: unknown): Promise<Response> {
 
 async function postRefile(body: unknown): Promise<Response> {
   return app.handle(
-    new Request("http://localhost/api/backup/refile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    new Request('http://localhost/api/backup/refile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
   );
@@ -58,20 +58,20 @@ async function postRefile(body: unknown): Promise<Response> {
 // POST /api/backup/refile-count
 // ---------------------------------------------------------------------------
 
-describe("POST /api/backup/refile-count", () => {
-  test("route is registered (not 404)", async () => {
-    const res = await postCount({ paths: ["/some/photo.jpg"] });
+describe('POST /api/backup/refile-count', () => {
+  test('route is registered (not 404)', async () => {
+    const res = await postCount({ paths: ['/some/photo.jpg'] });
     expect(res.status).not.toBe(404);
   });
 
-  test("returns 400 for empty paths array", async () => {
+  test('returns 400 for empty paths array', async () => {
     const res = await postCount({ paths: [] });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/non-empty/i);
   });
 
-  test("returns 400 for paths exceeding limit", async () => {
+  test('returns 400 for paths exceeding limit', async () => {
     const paths = Array.from({ length: 1001 }, (_, i) => `/photos/img${i}.jpg`);
     const res = await postCount({ paths });
     expect(res.status).toBe(400);
@@ -79,7 +79,7 @@ describe("POST /api/backup/refile-count", () => {
     expect(body.error).toMatch(/maximum/i);
   });
 
-  test("returns 4xx for missing paths field", async () => {
+  test('returns 4xx for missing paths field', async () => {
     const res = await postCount({});
     // Elysia schema validation returns 422; our manual check returns 400.
     // Either is an error response.
@@ -87,15 +87,15 @@ describe("POST /api/backup/refile-count", () => {
     expect(res.status).toBeLessThan(500);
   });
 
-  test("returns count:0 when no DB docs match (empty-ish DB)", async () => {
+  test('returns count:0 when no DB docs match (empty-ish DB)', async () => {
     // The DB may be unreachable in unit-test environments; assetsCollection()
     // throws. The route catches Mongo errors and returns count:0 (safe default).
     // When MAPLE_ROOTS is unset every path fails auth → 0 docs resolved → count 0.
     const savedRoots = process.env.MAPLE_ROOTS;
-    process.env.MAPLE_ROOTS = "/nonexistent-maple-root-12345";
+    process.env.MAPLE_ROOTS = '/nonexistent-maple-root-12345';
     try {
       const res = await postCount({
-        paths: ["/nonexistent-maple-root-12345/photo.jpg"],
+        paths: ['/nonexistent-maple-root-12345/photo.jpg'],
       });
       // Either resolves count:0 or propagates a Mongo error as 500.
       // The critical check: route exists and responds.
@@ -114,20 +114,20 @@ describe("POST /api/backup/refile-count", () => {
 // POST /api/backup/refile
 // ---------------------------------------------------------------------------
 
-describe("POST /api/backup/refile", () => {
-  test("route is registered (not 404)", async () => {
-    const res = await postRefile({ paths: ["/some/photo.jpg"] });
+describe('POST /api/backup/refile', () => {
+  test('route is registered (not 404)', async () => {
+    const res = await postRefile({ paths: ['/some/photo.jpg'] });
     expect(res.status).not.toBe(404);
   });
 
-  test("returns 400 for empty paths array", async () => {
+  test('returns 400 for empty paths array', async () => {
     const res = await postRefile({ paths: [] });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/non-empty/i);
   });
 
-  test("returns 400 for paths exceeding limit", async () => {
+  test('returns 400 for paths exceeding limit', async () => {
     const paths = Array.from({ length: 1001 }, (_, i) => `/photos/img${i}.jpg`);
     const res = await postRefile({ paths });
     expect(res.status).toBe(400);
@@ -135,21 +135,21 @@ describe("POST /api/backup/refile", () => {
     expect(body.error).toMatch(/maximum/i);
   });
 
-  test("returns 4xx for missing paths field", async () => {
+  test('returns 4xx for missing paths field', async () => {
     const res = await postRefile({});
     // Elysia schema validation returns 422; our manual check returns 400.
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
   });
 
-  test("returns results array for valid input (auth-jail filters all paths)", async () => {
+  test('returns results array for valid input (auth-jail filters all paths)', async () => {
     // When all paths are outside library roots the auth jail drops them → 0 docs
     // resolved → empty results. Shape check only.
     const savedRoots = process.env.MAPLE_ROOTS;
-    process.env.MAPLE_ROOTS = "/nonexistent-maple-root-99999";
+    process.env.MAPLE_ROOTS = '/nonexistent-maple-root-99999';
     try {
       const res = await postRefile({
-        paths: ["/nonexistent-maple-root-99999/photo.jpg"],
+        paths: ['/nonexistent-maple-root-99999/photo.jpg'],
       });
       // Either succeeds with { results: [] } or 500 if Mongo unreachable.
       if (res.status === 200) {

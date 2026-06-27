@@ -1,12 +1,18 @@
 // batch-metadata.service.spec.ts — unit tests for BatchMetadataService (#1606).
 // Tests the pure computeMixedValues function directly from batch-metadata.types
 // (no Angular imports → no JIT compilation errors in plain vitest).
-// HTTP layer (batchApply, geocodeSearch) is covered by the type contracts;
-// the actual HTTP wiring is validated in the build (TypeScript + Angular compiler).
+// HTTP layer (batchApply, geocodeSearch, refileCount, refile) is covered by the
+// type contracts; the actual HTTP wiring is validated in the build (TypeScript +
+// Angular compiler) and by shape-checking the interface definitions below.
 
 import { describe, it, expect } from 'vitest';
 import { computeMixedValues, MIXED } from './batch-metadata.types';
-import type { AssetMetadataSnapshot } from './batch-metadata.types';
+import type {
+  AssetMetadataSnapshot,
+  RefileCountResult,
+  RefileResult,
+  RefileItemResult,
+} from './batch-metadata.types';
 
 describe('computeMixedValues', () => {
   it('returns empty map for empty snapshots', () => {
@@ -123,5 +129,49 @@ describe('computeMixedValues', () => {
     ];
     const result = computeMixedValues(snapshots);
     expect(result.copyrightStatus).toBe(MIXED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RefileCountResult and RefileResult interface contracts
+// These tests verify that the exported types have the correct shape.
+// (Type-level checks — if the interfaces change shape the TS build fails.)
+// ---------------------------------------------------------------------------
+
+describe('RefileCountResult type contract', () => {
+  it('has a count number field', () => {
+    const r: RefileCountResult = { count: 3 };
+    expect(r.count).toBe(3);
+  });
+
+  it('count can be zero', () => {
+    const r: RefileCountResult = { count: 0 };
+    expect(r.count).toBe(0);
+  });
+});
+
+describe('RefileResult type contract', () => {
+  it('has a results array of RefileItemResult', () => {
+    const item: RefileItemResult = { path: '/a.dng', ok: true };
+    const r: RefileResult = { results: [item] };
+    expect(r.results).toHaveLength(1);
+    expect(r.results[0]!.path).toBe('/a.dng');
+    expect(r.results[0]!.ok).toBe(true);
+  });
+
+  it('RefileItemResult can carry an outcome field', () => {
+    const item: RefileItemResult = { path: '/b.dng', ok: true, outcome: 'moved' };
+    expect(item.outcome).toBe('moved');
+  });
+
+  it('RefileItemResult can carry an error field', () => {
+    const item: RefileItemResult = { path: '/c.dng', ok: false, error: 'permission denied' };
+    expect(item.ok).toBe(false);
+    expect(item.error).toBe('permission denied');
+  });
+
+  it('results can be empty when no assets qualify', () => {
+    const r: RefileResult = { results: [] };
+    expect(r.results).toHaveLength(0);
   });
 });

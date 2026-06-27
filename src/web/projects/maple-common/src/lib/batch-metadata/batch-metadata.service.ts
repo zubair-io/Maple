@@ -14,6 +14,8 @@ import {
   type BatchApplyResult,
   type GeocodeCandidate,
   type MixedValueMap,
+  type RefileCountResult,
+  type RefileResult,
 } from './batch-metadata.types';
 
 @Injectable({ providedIn: 'root' })
@@ -54,5 +56,27 @@ export class BatchMetadataService {
         params: { q },
       })
       .pipe(map((r) => r.suggestions));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Refile (backup geo-organisation after a GPS apply)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * POST /api/backup/refile-count — count how many of the given asset paths
+   * have a geo-backup copy that would be relocated by the new coordinates.
+   * Returns `{ count: number }`.
+   */
+  refileCount(paths: string[]): Observable<RefileCountResult> {
+    return this.http.post<RefileCountResult>('/api/backup/refile-count', { paths });
+  }
+
+  /**
+   * POST /api/backup/refile — relocate geo-backup copies for the given paths.
+   * Partial failures are reported per-asset; successes are not rolled back.
+   * Returns `{ results: [...] }`.
+   */
+  refile(paths: string[]): Observable<RefileResult> {
+    return this.http.post<RefileResult>('/api/backup/refile', { paths });
   }
 }

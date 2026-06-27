@@ -30,7 +30,14 @@ import {
 } from './batch-metadata.types';
 import type { CopyrightStatus } from '../xmp/xmp.types';
 
-type PanelPhase = 'form' | 'confirm' | 'applying' | 'done' | 'error';
+type PanelPhase =
+  | 'form'
+  | 'confirm'
+  | 'applying'
+  | 'done'
+  | 'error'
+  | 'refile-offer'
+  | 'refile-applying';
 
 /** Human-readable labels for each metadata field (used in confirm summary). */
 const FIELD_LABELS: Partial<Record<keyof MixedValueMap, string>> = {
@@ -118,6 +125,12 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly applyErrors = signal<Array<{ path: string; error: string }>>([]);
   readonly errorMessage = signal<string>('');
 
+  // ── Refile offer state ────────────────────────────────────────────────────
+  /** Number of assets that would be relocated. Set after batchApply succeeds. */
+  readonly refileCount = signal<number>(0);
+  /** Errors from the refile operation, if any. */
+  readonly refileErrors = signal<Array<{ path: string; error: string }>>([]);
+
   // ── Computed helpers ──────────────────────────────────────────────────────
 
   readonly assetCount = computed(() => this.assetSnapshots().length);
@@ -134,11 +147,19 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   readonly applying = computed(() => this.phase() === 'applying');
 
+  readonly refileOfferVisible = computed(
+    () => this.phase() === 'refile-offer' || this.phase() === 'refile-applying',
+  );
+
+  readonly refileApplying = computed(() => this.phase() === 'refile-applying');
+
   // ── MIXED sentinel exposed to the template ─────────────────────────────────
   readonly MIXED = MIXED;
 
-  // ── Geocode subscription ───────────────────────────────────────────────────
+  // ── Subscriptions ─────────────────────────────────────────────────────────
   private readonly geocodeSub: Subscription;
+  /** Holds the in-flight refile-count or refile subscription for cleanup. */
+  private refileSub: Subscription | null = null;
 
   constructor() {
     // Reset form when the panel opens.
@@ -181,6 +202,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.geocodeSub.unsubscribe();
+    this.refileSub?.unsubscribe();
   }
 
   // ── Field change handlers ─────────────────────────────────────────────────
@@ -255,11 +277,37 @@ export class BatchMetadataPanelComponent implements OnDestroy {
           );
           // Stay on confirm phase showing errors.
           this.phase.set('confirm');
-        } else {
-          this.phase.set('done');
-          // Auto-dismiss after a brief moment.
-          setTimeout(() => this.dismiss.emit(), 800);
+          return;
         }
+
+        // Apply succeeded. Check whether we should offer a refile.
+        const gpsTouched = this.touched().has('gpsLatitude') || this.touched().has('gpsLongitude');
+
+        if (!gpsTouched) {
+          this.phase.set('done');
+          setTimeout(() => this.dismiss.emit(), 800);
+          return;
+        }
+
+        // GPS was touched — ask the API how many backups would be relocated.
+        const paths = this.assetSnapshots().map((s) => s.path);
+        this.refileSub?.unsubscribe();
+        this.refileSub = this.svc.refileCount(paths).subscribe({
+          next: ({ count }) => {
+            if (count > 0) {
+              this.refileCount.set(count);
+              this.phase.set('refile-offer');
+            } else {
+              this.phase.set('done');
+              setTimeout(() => this.dismiss.emit(), 800);
+            }
+          },
+          error: () => {
+            // Count fetch failed — skip the offer and auto-dismiss.
+            this.phase.set('done');
+            setTimeout(() => this.dismiss.emit(), 800);
+          },
+        });
       },
       error: (err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Apply failed. Please try again.';
@@ -279,9 +327,38 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   }
 
   onBackdropClick(): void {
-    if (this.phase() !== 'applying') {
+    if (this.phase() !== 'applying' && this.phase() !== 'refile-applying') {
       this.dismiss.emit();
     }
+  }
+
+  // ── Refile-offer handlers ─────────────────────────────────────────────────
+
+  /** User clicked "Move" — trigger the actual refile. */
+  onRefileAccept(): void {
+    this.phase.set('refile-applying');
+    const paths = this.assetSnapshots().map((s) => s.path);
+    this.refileSub?.unsubscribe();
+    this.refileSub = this.svc.refile(paths).subscribe({
+      next: (result) => {
+        const failures = result.results.filter((r) => !r.ok);
+        this.refileErrors.set(
+          failures.map((f) => ({ path: f.path, error: f.error ?? 'Unknown error' })),
+        );
+        // Show refile-offer again with any errors, then dismiss.
+        this.phase.set('refile-offer');
+        setTimeout(() => this.dismiss.emit(), failures.length > 0 ? 2000 : 800);
+      },
+      error: () => {
+        // Refile failed — dismiss without retrying.
+        this.dismiss.emit();
+      },
+    });
+  }
+
+  /** User clicked "Skip" — dismiss without refiling. */
+  onRefileSkip(): void {
+    this.dismiss.emit();
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
