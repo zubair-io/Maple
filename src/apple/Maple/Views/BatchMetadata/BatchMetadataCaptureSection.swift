@@ -21,6 +21,7 @@ struct BatchMetadataCaptureSection: View {
     @State private var geocodeResults: [CLPlacemark] = []
     @State private var isGeocoding: Bool = false
     @State private var geocodeError: String? = nil
+    @State private var geocoder = CLGeocoder()
 
     // Manual lat/lon text field buffers (parse to Double on change)
     @State private var latText: String = ""
@@ -92,7 +93,9 @@ struct BatchMetadataCaptureSection: View {
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: latText) { _, v in
                             if let d = Double(v) {
-                                vm.touchedMetadata.gpsLatitude = d
+                                vm.touchedMetadata.gpsLatitude = .some(d)
+                            } else if v.isEmpty {
+                                vm.touchedMetadata.gpsLatitude = nil
                             }
                         }
                 }
@@ -102,7 +105,9 @@ struct BatchMetadataCaptureSection: View {
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: lonText) { _, v in
                             if let d = Double(v) {
-                                vm.touchedMetadata.gpsLongitude = d
+                                vm.touchedMetadata.gpsLongitude = .some(d)
+                            } else if v.isEmpty {
+                                vm.touchedMetadata.gpsLongitude = nil
                             }
                         }
                 }
@@ -167,7 +172,8 @@ struct BatchMetadataCaptureSection: View {
         isGeocoding = true
         geocodeError = nil
         geocodeResults = []
-        CLGeocoder().geocodeAddressString(q) { placemarks, error in
+        geocoder.cancelGeocode()
+        geocoder.geocodeAddressString(q) { placemarks, error in
             Task { @MainActor in
                 isGeocoding = false
                 if let err = error {
