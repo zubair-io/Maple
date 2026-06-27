@@ -325,21 +325,14 @@ extension EditSession {
         let decodedSize = decoded.extent.size
         if nativeImageSize == .zero, let url = asset.primaryURL {
             seedNativeImageSizeFromMetadata(url)
-        } else if nativeImageSize == .zero, asset.bytesProvider != nil {
-            // Sourceless asset — bytes-based seed is async; kick it off so
-            // a subsequent render hop sees the real native size. The
-            // current call returns the unscaled decode (the guard below
-            // bails when nativeImageSize is still zero) which is correct:
-            // the next `_scheduleRender` after the seed lands will
-            // re-normalise to the real canvas.
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.seedNativeImageSizeFromMetadataAsync(asset)
-                if self.asset.id == asset.id, self.nativeImageSize != .zero {
-                    self._scheduleRender(phase: .fast)
-                }
-            }
         }
+        // Sourceless / bytes-backed assets seed `nativeImageSize` once, at
+        // cold-open in `ensureRenderStarted` (#1604) — a single trigger point.
+        // Re-kicking the async bytes seed here would race that one and could
+        // call `bytesProvider()` (a network fetch) a second time, so it is
+        // intentionally not duplicated. The current call returns the unscaled
+        // decode; the cold-open seed's `_scheduleRender(.fast)` re-normalises
+        // to the real canvas once the native size lands.
         // ONLY metadata is allowed to seed `nativeImageSize`. Earlier
         // versions of this method had a "slack-grow" path that wrote
         // `decodedSize` whenever it was 10% larger than the current
