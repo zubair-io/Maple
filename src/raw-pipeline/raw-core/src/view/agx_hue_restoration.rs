@@ -32,7 +32,7 @@
 //! preserving form and lands the #435 acceptance criterion (no magenta).
 
 use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
-use crate::color::oklab_gamut::clamp_unit_scrub_non_finite;
+use crate::color::oklab_gamut::compress_to_unit_cube_oklab;
 
 /// Cube root used to safely take a 0-or-positive value's logarithm — the
 /// sigmoid path needs a strictly positive scaling input. Below this floor
@@ -91,60 +91,16 @@ pub fn norm_sigmoid_ratio<F: Fn(f32) -> f32>(
 ///
 /// Mid-gray and other neutrals pass through unchanged (chroma is zero,
 /// nothing to compress).
+/// Hue-preserving **soft** gamut compression toward the `[0, 1]^3` display box
+/// (#1621). Rebased onto the shared [`compress_to_unit_cube_oklab`] so the AgX
+/// (Rec.2020) and encode (sRGB) call sites use one algorithm — the soft-knee
+/// roll-off lands in both at once, and the bisection/NaN-scrub logic lives in a
+/// single place. Mid-gray and other in-gamut-core neutrals pass through
+/// unchanged; saturated primaries near or beyond the hull roll off smoothly
+/// instead of clipping flat (which posterised saturated gradients pre-#1621).
 #[inline]
 pub fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
-    if in_unit_box(rgb) {
-        // Trim the tiny fp wobble at the edges so the next stage sees
-        // strict `[0, 1]`.
-        return [
-            rgb[0].clamp(0.0, 1.0),
-            rgb[1].clamp(0.0, 1.0),
-            rgb[2].clamp(0.0, 1.0),
-        ];
-    }
-    let lab = rec2020_to_oklab(rgb);
-    let l = lab[0];
-    let a = lab[1];
-    let b = lab[2];
-    // Binary search for the largest scale s in [0, 1] such that
-    // oklab_to_rec2020([l, s*a, s*b]) is in-gamut. 24 iterations.
-    let mut lo: f32 = 0.0;
-    let mut hi: f32 = 1.0;
-    for _ in 0..24 {
-        let mid = 0.5 * (lo + hi);
-        let candidate = oklab_to_rec2020([l, a * mid, b * mid]);
-        if in_unit_box(candidate) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    let out = oklab_to_rec2020([l, a * lo, b * lo]);
-    // Tighten with the trailing clamp — Oklab round-trips can drift a
-    // few ULPs past 0 or 1 even when the bisection landed inside.
-    //
-    // NaN/Inf scrub (#1088): Rust's `f32::clamp` passes NaN through, and
-    // a non-finite triple always lands in this fallthrough (NaN fails
-    // every `in_unit_box` comparison) — scrub to 0.0 so the AgX tail
-    // never emits a non-finite pixel. Mirrors the shared helper at
-    // `color::oklab_gamut::compress_to_unit_cube_oklab`.
-    [
-        clamp_unit_scrub_non_finite(out[0]),
-        clamp_unit_scrub_non_finite(out[1]),
-        clamp_unit_scrub_non_finite(out[2]),
-    ]
-}
-
-
-#[inline]
-fn in_unit_box(rgb: [f32; 3]) -> bool {
-    // Allow a tiny epsilon at the high end so values like 1.0 + 1e-7
-    // (fp error) don't trigger the expensive Oklab compression path.
-    const EPS_HI: f32 = 1.0 + 1e-5;
-    const EPS_LO: f32 = -1e-5;
-    rgb[0] >= EPS_LO && rgb[0] <= EPS_HI
-        && rgb[1] >= EPS_LO && rgb[1] <= EPS_HI
-        && rgb[2] >= EPS_LO && rgb[2] <= EPS_HI
+    compress_to_unit_cube_oklab(rgb, rec2020_to_oklab, oklab_to_rec2020)
 }
 
 #[cfg(test)]
