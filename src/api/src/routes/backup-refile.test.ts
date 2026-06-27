@@ -10,7 +10,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
-import { backupRefileRoutes } from './backup-refile.ts';
+import { backupRefileRoutes, geoSegmentsFromOverride } from './backup-refile.ts';
 
 // Isolate the shared db-client singleton to a unique test DB so test runs
 // against the real `maple` DB are prevented (matches xmp-batch.test.ts convention).
@@ -53,6 +53,96 @@ async function postRefile(body: unknown): Promise<Response> {
     }),
   );
 }
+
+// ---------------------------------------------------------------------------
+// geoSegmentsFromOverride — unit tests
+// ---------------------------------------------------------------------------
+
+describe('geoSegmentsFromOverride', () => {
+  test('returns correct segments for a full US place_text', () => {
+    const segs = geoSegmentsFromOverride({
+      edited_at: '2026-06-27T00:00:00Z',
+      touched_fields: ['place_text'],
+      place_text: {
+        city: 'San Francisco',
+        state: 'California',
+        country: 'United States',
+        country_code: 'us',
+      },
+    });
+    expect(segs).toEqual(['California', 'San Francisco']);
+  });
+
+  test('returns correct segments for a non-US place_text', () => {
+    const segs = geoSegmentsFromOverride({
+      edited_at: '2026-06-27T00:00:00Z',
+      touched_fields: ['place_text'],
+      place_text: {
+        city: 'Paris',
+        country: 'France',
+        country_code: 'fr',
+      },
+    });
+    expect(segs).toEqual(['France', 'Paris']);
+  });
+
+  test('applies NYC rename for New York city in New York state (USA)', () => {
+    const segs = geoSegmentsFromOverride({
+      edited_at: '2026-06-27T00:00:00Z',
+      touched_fields: ['place_text'],
+      place_text: {
+        city: 'New York',
+        state: 'New York',
+        country: 'United States',
+        country_code: 'us',
+      },
+    });
+    expect(segs).toEqual(['New York', 'New York City']);
+  });
+
+  test('strips civic prefix from city name', () => {
+    const segs = geoSegmentsFromOverride({
+      edited_at: '2026-06-27T00:00:00Z',
+      touched_fields: ['place_text'],
+      place_text: {
+        city: 'City of London',
+        country: 'United Kingdom',
+        country_code: 'gb',
+      },
+    });
+    expect(segs).toEqual(['United Kingdom', 'London']);
+  });
+
+  test('returns [] when place_text is absent', () => {
+    expect(geoSegmentsFromOverride(null)).toEqual([]);
+    expect(geoSegmentsFromOverride(undefined)).toEqual([]);
+    expect(
+      geoSegmentsFromOverride({
+        edited_at: '2026-06-27T00:00:00Z',
+        touched_fields: [],
+        // no place_text
+      }),
+    ).toEqual([]);
+  });
+
+  test('returns [] when place_text has no country or state', () => {
+    const segs = geoSegmentsFromOverride({
+      edited_at: '2026-06-27T00:00:00Z',
+      touched_fields: ['place_text'],
+      place_text: { city: 'Somewhere' },
+    });
+    expect(segs).toEqual([]);
+  });
+
+  test('returns [country] when city is absent', () => {
+    const segs = geoSegmentsFromOverride({
+      edited_at: '2026-06-27T00:00:00Z',
+      touched_fields: ['place_text'],
+      place_text: { country: 'Japan', country_code: 'jp' },
+    });
+    expect(segs).toEqual(['Japan']);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/backup/refile-count
