@@ -149,8 +149,8 @@ describe('effectiveMetadata — with override', () => {
 // effectiveMetadata — explicit clears (null in override)
 // ---------------------------------------------------------------------------
 
-describe('effectiveMetadata — explicit clears', () => {
-  test('override.gps = null clears GPS even when exif has GPS', () => {
+describe('effectiveMetadata — nullish override falls back to exif (spec: override ?? exif)', () => {
+  test('override.gps = null falls back to exif.gps', () => {
     const doc: Pick<AssetDoc, 'exif' | 'metadata_override'> = {
       exif: {
         captured_at: null,
@@ -171,10 +171,11 @@ describe('effectiveMetadata — explicit clears', () => {
         gps: null,
       },
     };
-    expect(effectiveMetadata(doc).gps).toBeNull();
+    // Spec formula override ?? exif: a nullish override reverts to the original.
+    expect(effectiveMetadata(doc).gps).toEqual({ lat: 40.7128, lng: -74.006 });
   });
 
-  test('override.captured_at = null clears timestamp', () => {
+  test('override.captured_at = null falls back to exif.captured_at', () => {
     const doc: Pick<AssetDoc, 'exif' | 'metadata_override'> = {
       exif: {
         captured_at: '2025-07-04T12:00:00Z',
@@ -196,9 +197,9 @@ describe('effectiveMetadata — explicit clears', () => {
       },
     };
     const r = effectiveMetadata(doc);
-    expect(r.captured_at).toBeNull();
-    expect(r.captured_year).toBeNull();
-    expect(r.captured_month).toBeNull();
+    expect(r.captured_at).toBe('2025-07-04T12:00:00Z');
+    expect(r.captured_year).toBe(2025);
+    expect(r.captured_month).toBe(7);
   });
 });
 

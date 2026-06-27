@@ -1218,9 +1218,9 @@ export interface MetadataOverride {
   edited_at: string;
   /** Keys the user has explicitly set (drives reset-to-original). */
   touched_fields: string[];
-  /** Overridden GPS coordinates; `null` = explicitly cleared. */
+  /** Overridden GPS coordinates. Nullish (absent/null) → effective falls back to exif.gps. */
   gps?: { lat: number; lng: number; alt?: number } | null;
-  /** Overridden ISO 8601 capture time with offset. */
+  /** Overridden ISO 8601 capture time with offset. Nullish → effective falls back to exif. */
   captured_at?: string | null;
   /** IANA time zone name, e.g. "Europe/Paris". */
   time_zone?: string | null;
@@ -1256,6 +1256,13 @@ export interface MetadataOverride {
   credit?: string | null;
   /** Source (photoshop:Source). */
   source?: string | null;
+  /**
+   * Derived effective capture year/month (from `captured_at ?? exif.captured_at`),
+   * stored here — NOT under `exif.*`, which stays the immutable file-original.
+   * Populated by the override-ingest stage; search/sort read the effective value.
+   */
+  captured_year?: number;
+  captured_month?: number;
 }
 
 // ---------------------------------------------------------------------------
