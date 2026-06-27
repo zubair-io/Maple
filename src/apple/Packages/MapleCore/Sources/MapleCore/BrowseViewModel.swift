@@ -359,17 +359,20 @@ public final class BrowseViewModel {
         photosAuthNeeded = false
     }
 
-    /// Seed the grid with a single filesystem asset and select it. Used by
-    /// the UITest harness to bypass folder browsing entirely — the test
-    /// driver passes a fixture path via `MAPLE_UITEST_FIXTURE` and the
-    /// shell calls this so a single-asset library is ready before the
-    /// harness flips into Full-image mode. The URL is treated as already
-    /// scope-resolved (the running user's process can reach it without
-    /// security-scope coordination); not appropriate for production
-    /// flows. Tied to `#if DEBUG` at the call site in MapleApp.init.
-    public func loadSingleAsset(url: URL) {
+    /// Seed the grid with a single filesystem asset and select it. Two
+    /// callers: the UITest harness (env-var fixture, bypassing folder
+    /// browsing) and the document-open path ("Open With Maple" / `open -a`).
+    ///
+    /// `scopeParentURL` is the URL the sandboxed FFI read claims security
+    /// scope on. A LaunchServices-opened document carries a security-scoped
+    /// grant on the FILE itself, so that caller passes the file URL; pass it
+    /// explicitly there. It defaults to the parent directory for callers whose
+    /// scope sits on a bookmarked ancestor (folder walks) or who run
+    /// unsandboxed. Without a valid scoped URL the sandbox denies the read and
+    /// the canvas can't decode (#1589).
+    public func loadSingleAsset(url: URL, scopeParentURL: URL? = nil) {
         loadGeneration &+= 1
-        let ref = AssetRef(url: url, scopeParentURL: url.deletingLastPathComponent())
+        let ref = AssetRef(url: url, scopeParentURL: scopeParentURL ?? url.deletingLastPathComponent())
         assets = [ref]
         subfolders = []
         selectedID = ref.id

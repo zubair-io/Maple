@@ -124,12 +124,20 @@ struct MapleApp: App {
     private var appShell: some View {
         AppShell(sessionFor: { server in session(for: server) })
                 .onOpenURL { url in
-                    // `maple://image/{id}` and `maple://source/{id}` —
-                    // routed by the AppShell `.task` after
+                    // File URLs are opened documents ("Open With Maple",
+                    // `open -a`, drag-onto-dock) — they arrive with a
+                    // LaunchServices security-scope grant the sandboxed FFI
+                    // read needs, so route them to `DocumentOpenRouter` (#1589).
+                    // Custom-scheme URLs are `maple://image|source/{id}` deep
+                    // links — routed by the AppShell `.task` after
                     // `restoreLastSource()` (cold start) and by an
                     // `.onChange(of: DeepLinkRouter.shared.pendingDestination)`
                     // observer (warm launch). Spec: docs/design/responsive-program/deep-links.md.
-                    DeepLinkRouter.shared.handle(url)
+                    if url.isFileURL {
+                        DocumentOpenRouter.shared.handle(url)
+                    } else {
+                        DeepLinkRouter.shared.handle(url)
+                    }
                 }
                 .task {
                     // Start telemetry first: reads the disk-cached SigNoz
