@@ -104,6 +104,14 @@
   flex-wrap: wrap;
 }
 
+.purge-opt-in {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
 .purge-check {
   display: flex;
   align-items: center;
@@ -115,6 +123,13 @@
   input {
     cursor: pointer;
   }
+}
+
+.purge-check-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--s-text-muted);
+  padding-left: 24px;
 }
 
 .purge-error {
