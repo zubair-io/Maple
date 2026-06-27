@@ -179,8 +179,24 @@ function buildMetadataNestedBlocks(m: XmpMetadataInput): string[] {
 
 function requiredNamespacePrefixes(m: XmpMetadataInput): Set<string> {
   const used = new Set<string>();
-  if (m.gpsLatitude != null || m.gpsLongitude != null || m.gpsAltitude != null || m.dateTimeOriginal) used.add('exif');
-  if (m.city || m.state || m.country || m.headline || m.instructions || m.creatorJobTitle || m.credit || m.source) used.add('photoshop');
+  if (
+    m.gpsLatitude != null ||
+    m.gpsLongitude != null ||
+    m.gpsAltitude != null ||
+    m.dateTimeOriginal
+  )
+    used.add('exif');
+  if (
+    m.city ||
+    m.state ||
+    m.country ||
+    m.headline ||
+    m.instructions ||
+    m.creatorJobTitle ||
+    m.credit ||
+    m.source
+  )
+    used.add('photoshop');
   if (m.sublocation || m.countryCode) used.add('Iptc4xmpCore');
   if (m.title || m.creator || m.caption || m.copyrightNotice) used.add('dc');
   if (m.usageTerms) used.add('xmpRights');
