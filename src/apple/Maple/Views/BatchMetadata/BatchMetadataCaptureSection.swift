@@ -114,8 +114,10 @@ struct BatchMetadataCaptureSection: View {
             }
             .padding(.horizontal, 16)
 
-            // Clear GPS button — only shown when GPS has been touched
-            if vm.touchedMetadata.gpsLatitude != nil || vm.touchedMetadata.gpsLongitude != nil {
+            // Clear GPS button — shown whenever there is GPS to clear (existing,
+            // mixed, or just-entered), so the user can remove coordinates without
+            // first having to edit one. Clears lat/lon/alt atomically.
+            if hasGpsToClear {
                 Button("Clear GPS") {
                     vm.touchedMetadata.gpsLatitude  = .some(nil)
                     vm.touchedMetadata.gpsLongitude = .some(nil)
@@ -147,7 +149,9 @@ struct BatchMetadataCaptureSection: View {
                 TextField(dateTimePlaceholder, text: $dateTimeText)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: dateTimeText) { _, v in
-                        vm.touchedMetadata.dateTimeOriginal = v.isEmpty ? nil : v
+                        // Empty = explicit clear (apply() maps "" → nil); editing
+                        // to empty therefore clears the field across the selection.
+                        vm.touchedMetadata.dateTimeOriginal = v
                     }
             }
             .padding(.horizontal, 16)
@@ -157,7 +161,7 @@ struct BatchMetadataCaptureSection: View {
                 TextField(timeZonePlaceholder, text: $timeZoneText)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: timeZoneText) { _, v in
-                        vm.touchedMetadata.timeZone = v.isEmpty ? nil : v
+                        vm.touchedMetadata.timeZone = v
                     }
             }
             .padding(.horizontal, 16)
@@ -211,6 +215,14 @@ struct BatchMetadataCaptureSection: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 4)
+    }
+
+    /// True when there are GPS coordinates to clear: just-entered (touched),
+    /// shared across the selection (common), or differing (mixed).
+    private var hasGpsToClear: Bool {
+        vm.touchedMetadata.gpsLatitude != nil || vm.touchedMetadata.gpsLongitude != nil
+            || vm.commonMetadata.gpsLatitude != nil || vm.commonMetadata.gpsLongitude != nil
+            || vm.mixedFields.contains(.gpsLatitude) || vm.mixedFields.contains(.gpsLongitude)
     }
 
     private func placemarkLabel(_ p: CLPlacemark) -> String {
