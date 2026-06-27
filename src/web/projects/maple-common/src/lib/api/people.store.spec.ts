@@ -55,6 +55,24 @@ function detail(id: string, name: string): ApiPersonDetail {
   };
 }
 
+/** A detail page with exactly `count` faces and the echoed `offset`/`limit`.
+ * A full page (count === DETAIL_FACE_PAGE_SIZE) makes `detailHasMore` true so
+ * `loadMoreFaces` will fire. */
+function page(id: string, name: string, offset: number, count: number): ApiPersonDetail {
+  return {
+    ...detail(id, name),
+    offset,
+    limit: DETAIL_FACE_PAGE_SIZE,
+    faces: Array.from({ length: count }, (_, i) => ({
+      assetId: `${id}-asset-${offset + i}`,
+      faceIndex: 0,
+      absPath: `/lib/${id}/${offset + i}.jpg`,
+      bbox: { x: 0, y: 0, w: 1, h: 1 },
+      confidence: 0.9,
+    })),
+  };
+}
+
 class ApiStub {
   listResult: ApiPerson[] = [person('p1', 'Alice'), person('p2', 'Person 7')];
   hiddenResult: ApiPerson[] = [person('h1', 'Hidden Hugo')];
@@ -327,6 +345,57 @@ describe('PeopleStore', () => {
     subjects[1].next(detail('p1', 'Renamed'));
     subjects[1].complete();
     expect(store.detail()?.name).toBe('Renamed');
+  });
+
+  it('invalidateDetail during an in-flight loadMore re-fetches page 0 once', () => {
+    // Regression: the per-id in-flight guard made invalidateDetail() early-return
+    // (dropping the invalidation) when a loadMoreFaces page>0 fetch was in
+    // flight, leaving stale detail. The dirty flag must re-fetch page 0 on the
+    // in-flight fetch's completion.
+    const calls: { offset: number; subject: Subject<ApiPersonDetail> }[] = [];
+    const api = new ApiStub();
+    api.getPerson = vi.fn((_id: string, opts?: { offset: number; limit: number }) => {
+      const s = new Subject<ApiPersonDetail>();
+      calls.push({ offset: opts?.offset ?? 0, subject: s });
+      return s.asObservable();
+    });
+    makeBed(api);
+    store = TestBed.inject(PeopleStore);
+
+    // First page lands full → detailHasMore is true.
+    store.setActiveDetailId('p1');
+    expect(calls[0].offset).toBe(0);
+    calls[0].subject.next(page('p1', 'Alice', 0, DETAIL_FACE_PAGE_SIZE));
+    calls[0].subject.complete();
+    expect(store.detailHasMore()).toBe(true);
+    expect(store.detail()?.faces.length).toBe(DETAIL_FACE_PAGE_SIZE);
+
+    // Start loading the next page — now in flight at offset = pageSize.
+    store.loadMoreFaces('p1');
+    expect(calls).toHaveLength(2);
+    expect(calls[1].offset).toBe(DETAIL_FACE_PAGE_SIZE);
+
+    // Invalidate WHILE the loadMore is in flight. Must NOT fire a third fetch
+    // immediately (guarded); it's deferred via the dirty flag.
+    store.invalidateDetail('p1');
+    expect(calls).toHaveLength(2);
+
+    // The in-flight loadMore lands (accumulates a second page)…
+    calls[1].subject.next(page('p1', 'Alice', DETAIL_FACE_PAGE_SIZE, DETAIL_FACE_PAGE_SIZE));
+    calls[1].subject.complete();
+
+    // …and the deferred invalidation now fires a fresh page-0 re-fetch.
+    expect(calls).toHaveLength(3);
+    expect(calls[2].offset).toBe(0);
+
+    // That page-0 response REPLACES the accumulated faces (no stale carryover).
+    calls[2].subject.next(page('p1', 'Alice (fresh)', 0, 2));
+    calls[2].subject.complete();
+    expect(store.detail()?.name).toBe('Alice (fresh)');
+    expect(store.detail()?.faces.length).toBe(2);
+
+    // Exactly one deferred re-fetch — completing it must not loop.
+    expect(calls).toHaveLength(3);
   });
 
   it('clears a stale detailError once a later detail fetch succeeds', () => {
