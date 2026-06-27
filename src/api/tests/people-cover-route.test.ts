@@ -198,6 +198,25 @@ describe('POST /api/people/:id/cover', () => {
     expect(r.status).toBe(404);
   });
 
+  it('404 when the person row was deleted after the face was assigned', async () => {
+    if (!mongoReachable) return;
+    // The face still points at this person id, but the person row is gone
+    // (deleted/merged out-of-band between the face read and the cover write).
+    // The update must match zero rows and report not-found, not a phantom 200.
+    const created = await post('/api/people', { name: 'CoverDeleted' });
+    const personId = (created.body as { id: string }).id;
+    const asset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: personId, confidence: 0.9 },
+    ]);
+    // Drop the person row, leaving the dangling face pointer behind.
+    await db!.collection('people').deleteOne({ _id: new ObjectId(personId) });
+    const r = await post(`/api/people/${personId}/cover`, {
+      asset_id: asset.toHexString(),
+      face_index: 0,
+    });
+    expect(r.status).toBe(404);
+  });
+
   it('does not clobber a manually-set cover on backfill', async () => {
     if (!mongoReachable) return;
     // Set up a person with two faces; manually pin the cover to face 0 (lower

@@ -55,7 +55,7 @@ export async function setPersonCover(
     return { error: 'face is hidden', status: 400 };
   }
   const coll = await peopleCollection();
-  await coll.updateOne(
+  const res = await coll.updateOne(
     { _id: personId },
     {
       $set: {
@@ -65,6 +65,13 @@ export async function setPersonCover(
       },
     },
   );
+  // The face belongs to this person id, but the PERSON row could have been
+  // deleted/merged between the face read and this write. A zero match means
+  // there is no person to set a cover on — report not-found rather than a
+  // phantom success.
+  if (res.matchedCount === 0) {
+    return { error: `person not found: ${personId.toHexString()}`, status: 404 };
+  }
   log.info(
     { personId: personId.toHexString(), assetId: assetId.toHexString(), faceIndex },
     'set person cover',
