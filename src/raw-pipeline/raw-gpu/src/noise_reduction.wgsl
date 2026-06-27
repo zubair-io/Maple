@@ -99,8 +99,8 @@ struct ExtractParams {
 @group(0) @binding(2) var<storage, read_write> ex_plane: array<f32>;
 
 @compute @workgroup_size(64)
-fn extract_channel(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn extract_channel(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= ex_params.count) {
         return;
     }
@@ -141,8 +141,8 @@ struct AccumParams {
 @group(0) @binding(4) var<storage, read_write> ac_maxw: array<f32>;  // storage 4
 
 @compute @workgroup_size(64)
-fn accumulate_shift(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn accumulate_shift(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let idx = gid.y * ng.x * 64u + gid.x;
     let w = ac_params.width;
     let h = ac_params.height;
     if (idx >= w * h) {
@@ -207,8 +207,8 @@ struct FinalizeParams {
 @group(0) @binding(4) var<storage, read> fin_maxw: array<f32>;
 
 @compute @workgroup_size(64)
-fn finalize(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn finalize(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= fin_params.count) {
         return;
     }
@@ -236,8 +236,8 @@ struct WbParams {
 @group(0) @binding(3) var<storage, read_write> wbl_dst: array<vec4<f32>>;
 
 @compute @workgroup_size(64)
-fn writeback_luma(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn writeback_luma(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= wbl_params.count) {
         return;
     }
@@ -259,8 +259,8 @@ fn writeback_luma(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(4) var<storage, read_write> wbc_dst: array<vec4<f32>>;
 
 @compute @workgroup_size(64)
-fn writeback_color(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn writeback_color(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= wbc_params.count) {
         return;
     }

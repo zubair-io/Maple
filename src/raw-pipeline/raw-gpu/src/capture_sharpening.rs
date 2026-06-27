@@ -202,7 +202,10 @@ fn dispatch(args: DispatchArgs) {
     });
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, &bind_group, &[]);
-    pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
+    let groups = count.div_ceil(64);
+    let gx = groups.min(65535);
+    let gy = groups.div_ceil(gx);
+    pass.dispatch_workgroups(gx, gy, 1);
 }
 
 pub(crate) struct GaussArgs<'a> {

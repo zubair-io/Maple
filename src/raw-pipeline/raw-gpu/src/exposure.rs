@@ -100,7 +100,10 @@ impl Pass for ExposurePass {
         });
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+        let groups = pixel_count.div_ceil(64);
+        let gx = groups.min(65535);
+        let gy = groups.div_ceil(gx);
+        pass.dispatch_workgroups(gx, gy, 1);
     }
 }
 
@@ -170,6 +173,54 @@ mod tests {
                 "ev={ev}: GPU vs CPU max abs diff {max_diff} exceeds 1e-4"
             );
         }
+    }
+
+    /// >cap 2-D dispatch regression: with more than 65535 workgroups the
+    /// dispatch tiles into a 2-D grid (`gy > 1`). The buggy 1-D index
+    /// (`gid.x` alone) addressed only the first 65535*64 pixels and left the
+    /// `gy==1` tile untouched; the fixed index
+    /// (`gid.y * ng.x * 64u + gid.x`) reaches every pixel. This test uses a
+    /// 2176x2176-equivalent buffer (4,734,976 px → 73,984 groups → gx=65535,
+    /// gy=2) so the high-index path is exercised; on small images the new and
+    /// old indices coincide and would pass regardless.
+    #[test]
+    fn wgsl_exposure_matches_cpu_oracle_above_dispatch_cap() {
+        // 2176 * 2176 = 4,734,976 pixels.
+        let pixel_count: usize = 2176 * 2176;
+        // Sanity: confirm this buffer actually drives a 2-D dispatch (gy > 1).
+        let groups = (pixel_count as u32).div_ceil(64);
+        let gx = groups.min(65535);
+        let gy = groups.div_ceil(gx);
+        assert!(groups > 65535, "buffer must exceed the 65535-group 1-D cap");
+        assert!(gy > 1, "dispatch must tile into 2-D (gy>1), got gy={gy}, gx={gx}");
+
+        let input = test_buffer(pixel_count);
+        let ev = 0.5_f32;
+        let mut cpu = input.clone();
+        apply_exposure_gain(&mut cpu, ev);
+        let gpu = run_exposure_gpu(&input, ev).expect("gpu exposure run");
+
+        // Track the worst diff AND its location so a regression that only
+        // misses the gy==1 tile (high pixel indices) is unmistakable.
+        let (max_diff, worst_idx) = cpu
+            .iter()
+            .zip(&gpu)
+            .enumerate()
+            .map(|(idx, (a, b))| ((a - b).abs(), idx))
+            .fold((0.0_f32, 0usize), |(m, mi), (d, idx)| {
+                if d > m { (d, idx) } else { (m, mi) }
+            });
+        eprintln!(
+            ">CAP PARITY ev={ev} pixels={pixel_count} gx={gx} gy={gy}: \
+             max abs diff = {max_diff:e} at flat idx {worst_idx} (px {})",
+            worst_idx / 4
+        );
+        assert!(
+            max_diff < 1e-4,
+            "above-cap GPU vs CPU max abs diff {max_diff} exceeds 1e-4 \
+             (worst at px {})",
+            worst_idx / 4
+        );
     }
 
     /// The headless P1a proof: an N-pass chain of `ExposurePass(ev_i)` equals
