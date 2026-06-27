@@ -2,11 +2,12 @@
 // gamut compression (raw-core spec; view::encode::rec2020_to_display / #438 / #1337).
 //
 // A P2 view-transform stage (epic #925 / #990). This is the f32 → f32
-// display-encode step ONLY: the linear-Rec.2020 → linear-display matrix, plus an
-// Oklab `(a, b)` bisection at constant `L` that compresses any post-matrix
-// triple leaving `[0, 1]^3` back into gamut while keeping hue invariant. It does
-// NOT fold in the sRGB gamma encode or the dither/quantize-to-u8 step — those
-// are format-changing output steps, not scene/display f32 chain passes.
+// display-encode step ONLY: the linear-Rec.2020 → linear-display matrix, plus a
+// hue-preserving Oklab soft gamut compression at constant `L` (#1621 — a
+// Reinhard soft-knee that rolls chroma off below the hull rather than
+// hard-clipping onto it). It does NOT fold in the sRGB gamma encode or the
+// dither/quantize-to-u8 step — those are format-changing output steps, not
+// scene/display f32 chain passes.
 //
 // Two target primaries are supported via the `target_primaries` uniform (0 = sRGB,
 // 1 = Display P3). The OETF (IEC 61966-2-1 / 2.4-gamma) is identical for both;
@@ -20,15 +21,15 @@
 //
 // PARITY-CRITICAL invariants (mirrored verbatim from raw-core):
 //
-// * In-gamut FAST-PATH: when the post-matrix triple is already inside the unit
-//   box (with the fp-edge epsilon), it is returned UNMODIFIED — byte-identical,
-//   NOT an Oklab round-trip (a round-trip would drift ~1e-7 and the encode's
-//   byte-identity contract gates exactly this branch). The unit-box predicate
-//   uses EPS_HI = 1 + 1e-5, EPS_LO = -1e-5.
-// * Out-of-gamut path: 24-iteration binary search for the largest scale s in
-//   [0, 1] such that `oklab_to_srgb_linear([L, s*a, s*b])` is in-gamut, then a
-//   trailing clamp to [0, 1] (Oklab round-trips can drift a few ULPs past the
-//   edge even when the bisection landed inside).
+// * Below-knee FAST-PATH: when scaling the chroma by 1/THRESHOLD still lands in
+//   the unit box (i.e. chroma <= THRESHOLD*hull), the input is returned
+//   UNMODIFIED — byte-identical, NOT an Oklab round-trip (a round-trip would
+//   drift ~1e-7 and the encode's byte-identity contract gates exactly this
+//   branch). The unit-box predicate uses EPS_HI = 1 + 1e-5, EPS_LO = -1e-5.
+// * Knee/out-of-gamut path: find the hull via bracket + 24-iteration bisection
+//   (`hull_scale`), then apply the Reinhard soft-knee to chroma in
+//   [THRESHOLD*hull, inf) -> [THRESHOLD*hull, hull), and a trailing clamp to
+//   [0, 1] (Oklab round-trips can drift a few ULPs past the edge).
 //
 // ## sRGB-only Oklab pair (NOT the rec2020 pair)
 //

@@ -27,8 +27,10 @@
 //     value around AGX_MID_NORM BEFORE sampling the LUT.
 //   * ratio sigmoid: n = max(R,G,B); if n <= 1e-6 (RATIO_FLOOR) sigmoid the
 //     floor once and return that neutral; else scale RGB by sigmoid(n)/n.
-//   * oklab_gamut_compress: in-gamut (EPS_HI=1+1e-5, EPS_LO=-1e-5) returns a
-//     clamp; else 24-iter (a,b) bisection at constant L, trailing clamp.
+//   * oklab_gamut_compress (#1621 soft-knee): below the knee (chroma <=
+//     THRESHOLD*hull, EPS_HI=1+1e-5, EPS_LO=-1e-5) passes through; else find
+//     the hull (bracket + 24-iter bisection) and apply the Reinhard soft-knee
+//     at constant L, trailing clamp.
 
 struct Params {
     count: u32,      // number of RGBA pixels

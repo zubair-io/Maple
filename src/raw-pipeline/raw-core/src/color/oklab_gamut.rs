@@ -1,22 +1,24 @@
-//! Shared Oklab gamut compression — bisect chroma at constant lightness
-//! until a triple fits inside the `[0, 1]^3` display box, while keeping
-//! hue invariant by construction.
+//! Shared Oklab gamut compression — softly roll chroma off at constant
+//! lightness toward the `[0, 1]^3` display box, while keeping hue invariant
+//! by construction. Pre-#1621 this was a hard clip (bisect to the hull and
+//! project onto it); #1621 replaced it with a Reinhard soft-knee that begins
+//! compressing below the hull so saturated gradients stay smooth instead of
+//! posterising. The hull itself is still found by bisection (`hull_scale`).
 //!
 //! This is the algorithm shape used by:
 //!
 //! * **AgX post-outset compression** (#435 / `view/agx_hue_restoration.rs`):
 //!   working space is **Rec.2020**, so callers pass
-//!   `rec2020_to_oklab` / `oklab_to_rec2020`. (#435 currently inlines its
-//!   own copy of the bisection; it can rebase onto
-//!   [`compress_to_unit_cube_oklab`] for free with no algorithm drift.)
+//!   `rec2020_to_oklab` / `oklab_to_rec2020`. As of #1621 AgX delegates to
+//!   [`compress_to_unit_cube_oklab`] directly (no inline copy).
 //! * **Rec.2020 → sRGB encode** (#438 / `view/encode.rs`): the matrix
 //!   leaves the working triple in **linear sRGB**, so the encode path
-//!   passes `srgb_linear_to_oklab` / `oklab_to_srgb_linear`. The bisection
-//!   loop and unit-box test are identical; only the two transform
+//!   passes `srgb_linear_to_oklab` / `oklab_to_srgb_linear`. The compression
+//!   curve and unit-box test are identical; only the two transform
 //!   functions differ.
 //!
-//! Keeping the loop in one place is the contract: future tunings (bisection
-//! count, epsilon, in-gamut fast-path) apply to every site at once.
+//! Keeping the curve in one place is the contract: future tunings (threshold,
+//! bisection count, epsilon, fast-path) apply to every site at once.
 
 /// Start of the compression zone as a fraction of the hull chroma. Chroma
 /// below `COMPRESS_THRESHOLD * hull` passes through untouched; chroma from

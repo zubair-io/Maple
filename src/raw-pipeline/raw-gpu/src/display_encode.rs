@@ -2,11 +2,11 @@
 //!
 //! Mirrors the vibrance template. Ports `raw_core::view::encode::rec2020_to_srgb`
 //! (#438): the linear-Rec.2020 → linear-sRGB matrix followed by a hue-preserving
-//! Oklab gamut compression that bisects `(a, b)` at constant `L` until any
-//! out-of-gamut post-matrix triple fits inside `[0, 1]^3`. This is the f32 → f32
-//! display-encode step ONLY — it does NOT include the sRGB gamma encode or the
-//! dither/quantize-to-u8 step (those are format-changing output steps, outside
-//! the scene/display f32 chain).
+//! Oklab soft gamut compression at constant `L` (#1621 — a Reinhard soft-knee
+//! that rolls chroma off below the hull rather than hard-clipping onto it).
+//! This is the f32 → f32 display-encode step ONLY — it does NOT include the
+//! sRGB gamma encode or the dither/quantize-to-u8 step (those are
+//! format-changing output steps, outside the scene/display f32 chain).
 //!
 //! Three pieces (the per-stage template):
 //! 1. [`apply_display_encode`] — the CPU oracle: a faithful port of
@@ -16,8 +16,9 @@
 //!    the generated color matrices (it needs the Oklab + Rec.2020/sRGB helpers).
 //! 3. The headless parity test (in `#[cfg(test)] mod tests`) — GPU vs
 //!    `raw_core::view::encode::rec2020_to_srgb` (the real stage, via the
-//!    test-only raw-core dev-dep) `< 1e-4`, on a buffer exercising both the
-//!    in-gamut byte-identity fast-path and the out-of-gamut bisection path.
+//!    test-only raw-core dev-dep) `< 1e-4`, on a buffer exercising the
+//!    in-gamut byte-identity fast-path, the near-boundary soft-knee, and the
+//!    out-of-gamut compression path, plus a dense (L × hue × chroma) sweep.
 //!
 //! ## Oracle color math (sRGB-only Oklab pair)
 //!

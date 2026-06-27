@@ -16,7 +16,7 @@ use crate::image::GpuImage;
 ///   - deep shadow with a non-trivial chroma + pure black -> the ratio path
 ///     (and the RATIO_FLOOR n<=1e-6 branch for black after the inset).
 fn agx_buffer() -> Vec<f32> {
-    vec![
+    let mut buf = vec![
         // r,     g,     b,     a        branch
         0.18, 0.18, 0.18, 1.0, // mid-gray neutral
         0.50, 0.50, 0.50, 0.7, // bright neutral
@@ -29,7 +29,25 @@ fn agx_buffer() -> Vec<f32> {
         0.005, 0.001, 0.0008, 1.0, // deep shadow w/ chroma -> ratio path
         0.0, 0.0, 0.0, 1.0, // pure black -> RATIO_FLOOR branch
         8.0, 6.0, 4.0, 1.0, // HDR highlight -> shoulder + compress
-    ]
+    ];
+    // Broaden hue/intensity coverage of the post-outset Rec.2020 soft-knee
+    // (#1621): saturated scene colors across more hues, each at three
+    // intensities, so the AgX grow-loop + Reinhard knee is parity-checked at
+    // many points rather than a few primaries.
+    let hues: [[f32; 3]; 6] = [
+        [1.0, 0.45, 0.05],  // orange
+        [0.85, 0.80, 0.05], // yellow
+        [0.05, 0.70, 0.55], // teal
+        [0.05, 0.55, 0.95], // azure
+        [0.55, 0.05, 0.90], // violet
+        [0.95, 0.05, 0.45], // rose
+    ];
+    for base in hues {
+        for scale in [0.4f32, 1.2, 4.0] {
+            buf.extend_from_slice(&[base[0] * scale, base[1] * scale, base[2] * scale, 1.0]);
+        }
+    }
+    buf
 }
 
 /// Run `raw_core::view::agx::apply` on a flat interleaved RGBA f32 buffer,
