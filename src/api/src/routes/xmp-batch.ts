@@ -18,6 +18,7 @@
 
 import { Elysia, t } from 'elysia';
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
@@ -41,6 +42,8 @@ interface EntryResult {
   path: string;
   ok: boolean;
   error?: string;
+  /** Resolved absolute path, set on success — collected for one batched dirty-mark. */
+  absPath?: string;
 }
 
 async function processEntry(entry: BatchEntry): Promise<EntryResult> {
@@ -78,39 +81,28 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
     return { path: entry.path, ok: false, error: writeResult.error };
   }
 
-  // Mark override-ingest stage dirty for this asset (best-effort: a
-  // reconcile failure here doesn't invalidate the sidecar write).
-  try {
-    await markOverrideIngestDirty(absPath);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn({ path: absPath, err: msg }, 'xmp-batch: failed to mark override-ingest dirty');
-    // Do NOT return an error — the sidecar was written successfully.
-  }
-
-  return { path: entry.path, ok: true };
+  // The override-ingest dirty-mark is batched into a single updateMany after
+  // the whole request completes (see the route handler) — never per-entry.
+  return { path: entry.path, ok: true, absPath };
 }
 
 /**
- * Mark the override-ingest stage as dirty (version 0) for the asset at
- * the given absolute path. The claim query picks it up on the next poll.
+ * Mark the override-ingest stage dirty (version 0) for every successfully
+ * written asset, in a SINGLE `updateMany` (one collection handle, one query) —
+ * never per-entry. The claim query picks the assets up on the next poll.
  *
- * Finds the asset by its primary fileinfo path (not by content hash) so
- * this works for any path regardless of deduplication.
+ * Assets store their location as a (library_root, relDir, filename) triple, so
+ * we match on `filename` (via `$in`) as a cheap filter; a duplicate filename
+ * across libraries marks both dirty — harmless (the stage is idempotent).
  */
-async function markOverrideIngestDirty(absPath: string): Promise<void> {
-  const images = await coll();
-  // The asset stores its location as a (library_root, relDir, filename) triple.
-  // We can't do a single-field absolute-path query; instead match on filename
-  // only as a cheap first filter and accept that the update touches 0 or 1 docs
-  // in the common case. In the unlikely duplicate-filename-across-libraries case
-  // we'll mark both dirty — harmless (the stage is idempotent).
-  const filename = absPath.split('/').pop() ?? '';
-  if (!filename) return;
+async function markOverrideIngestDirtyBatch(absPaths: string[]): Promise<void> {
+  const filenames = [...new Set(absPaths.map((p) => path.basename(p)).filter(Boolean))];
+  if (filenames.length === 0) return;
 
+  const images = await coll();
   const stagePath = `stages.${OVERRIDE_INGEST_STAGE_NAME}`;
   await images.updateMany(
-    { 'fileinfo.filename': filename },
+    { 'fileinfo.filename': { $in: filenames } },
     {
       $set: {
         [`${stagePath}.version`]: 0,
@@ -189,9 +181,31 @@ export const xmpBatchRoutes = new Elysia().post(
       results.push(...batchResults);
     }
 
+    // Mark override-ingest dirty for all successful writes in ONE updateMany
+    // (best-effort: a reconcile-trigger failure doesn't invalidate the writes).
+    const okPaths = results.filter((r) => r.ok && r.absPath).map((r) => r.absPath as string);
+    if (okPaths.length > 0) {
+      try {
+        await markOverrideIngestDirtyBatch(okPaths);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { count: okPaths.length, err: msg },
+          'xmp-batch: failed to mark override-ingest dirty',
+        );
+      }
+    }
+
     const hasErrors = results.some((r) => !r.ok);
     set.status = hasErrors ? 207 : 200;
-    return { results };
+    // Strip the internal absPath from the response.
+    return {
+      results: results.map((r) => ({
+        path: r.path,
+        ok: r.ok,
+        ...(r.error ? { error: r.error } : {}),
+      })),
+    };
   },
   {
     body: BatchBodySchema,

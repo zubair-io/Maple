@@ -34,9 +34,7 @@ ${nestedContent}  </rdf:Description>
 
 describe('parseXmpMetadata — GPS', () => {
   test('parses latitude and longitude', () => {
-    const xml = makeXmp(
-      'exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"',
-    );
+    const xml = makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"');
     const result = parseXmpMetadata(xml);
     // 48° + 31.4360/60 min ≈ 48.5240°
     expect(result.gpsLatitude).toBeCloseTo(48.524, 3);
@@ -166,47 +164,62 @@ describe('parseXmpMetadata — copyrightStatus', () => {
 
 describe('parseXmpMetadata — nested elements', () => {
   test('parses dc:title lang-alt block', () => {
-    const xml = makeXmp('', `  <dc:title>
+    const xml = makeXmp(
+      '',
+      `  <dc:title>
    <rdf:Alt>
     <rdf:li xml:lang="x-default">My Title</rdf:li>
    </rdf:Alt>
-  </dc:title>`);
+  </dc:title>`,
+    );
     expect(parseXmpMetadata(xml).title).toBe('My Title');
   });
 
   test('parses dc:creator seq block', () => {
-    const xml = makeXmp('', `  <dc:creator>
+    const xml = makeXmp(
+      '',
+      `  <dc:creator>
    <rdf:Seq>
     <rdf:li>Zubair Lawrence</rdf:li>
    </rdf:Seq>
-  </dc:creator>`);
+  </dc:creator>`,
+    );
     expect(parseXmpMetadata(xml).creator).toBe('Zubair Lawrence');
   });
 
   test('parses dc:description lang-alt (caption)', () => {
-    const xml = makeXmp('', `  <dc:description>
+    const xml = makeXmp(
+      '',
+      `  <dc:description>
    <rdf:Alt>
     <rdf:li xml:lang="x-default">A lovely photo</rdf:li>
    </rdf:Alt>
-  </dc:description>`);
+  </dc:description>`,
+    );
     expect(parseXmpMetadata(xml).caption).toBe('A lovely photo');
   });
 
   test('parses dc:rights lang-alt (copyright notice)', () => {
-    const xml = makeXmp('', `  <dc:rights>
+    const xml = makeXmp(
+      '',
+      `  <dc:rights>
    <rdf:Alt>
     <rdf:li xml:lang="x-default">© 2026 Z. Lawrence</rdf:li>
    </rdf:Alt>
-  </dc:rights>`);
+  </dc:rights>`,
+    );
     expect(parseXmpMetadata(xml).copyrightNotice).toBe('© 2026 Z. Lawrence');
   });
 
   test('parses xmpRights:UsageTerms lang-alt', () => {
-    const xml = makeXmp('', `  <xmpRights:UsageTerms>
+    const xml = makeXmp(
+      '',
+      `  <xmpRights:UsageTerms>
    <rdf:Alt>
     <rdf:li xml:lang="x-default">All rights reserved</rdf:li>
    </rdf:Alt>
-  </xmpRights:UsageTerms>`);
+  </xmpRights:UsageTerms>`,
+    );
     expect(parseXmpMetadata(xml).usageTerms).toBe('All rights reserved');
   });
 
@@ -221,11 +234,14 @@ describe('parseXmpMetadata — nested elements', () => {
   });
 
   test('XML entity escaping is decoded', () => {
-    const xml = makeXmp('', `  <dc:title>
+    const xml = makeXmp(
+      '',
+      `  <dc:title>
    <rdf:Alt>
     <rdf:li xml:lang="x-default">R&amp;D &lt;Notes&gt;</rdf:li>
    </rdf:Alt>
-  </dc:title>`);
+  </dc:title>`,
+    );
     expect(parseXmpMetadata(xml).title).toBe('R&D <Notes>');
   });
 });
@@ -236,24 +252,30 @@ describe('parseXmpMetadata — nested elements', () => {
 
 describe('parseXmpMetadata — keywords', () => {
   test('parses dc:subject bag', () => {
-    const xml = makeXmp('', `  <dc:subject>
+    const xml = makeXmp(
+      '',
+      `  <dc:subject>
    <rdf:Bag>
     <rdf:li>travel</rdf:li>
     <rdf:li>france</rdf:li>
     <rdf:li>paris</rdf:li>
    </rdf:Bag>
-  </dc:subject>`);
+  </dc:subject>`,
+    );
     expect(parseXmpMetadata(xml).keywords).toEqual(['travel', 'france', 'paris']);
   });
 
   test('deduplicates keywords', () => {
-    const xml = makeXmp('', `  <dc:subject>
+    const xml = makeXmp(
+      '',
+      `  <dc:subject>
    <rdf:Bag>
     <rdf:li>travel</rdf:li>
     <rdf:li>travel</rdf:li>
     <rdf:li>france</rdf:li>
    </rdf:Bag>
-  </dc:subject>`);
+  </dc:subject>`,
+    );
     expect(parseXmpMetadata(xml).keywords).toEqual(['travel', 'france']);
   });
 
