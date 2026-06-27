@@ -28,19 +28,19 @@ struct BatchMetadataTextSection: View {
             sectionHeader("Location")
             metadataTextField("Sublocation",     placeholder: placeholder(.sublocation),
                               value: Binding(get: { vm.touchedMetadata.sublocation  ?? "" },
-                                            set: { vm.touchedMetadata.sublocation  = $0 }))
+                                            set: { vm.touchedMetadata.sublocation  = $0.isEmpty ? nil : $0 }))
             metadataTextField("City",            placeholder: placeholder(.city),
                               value: Binding(get: { vm.touchedMetadata.city         ?? "" },
-                                            set: { vm.touchedMetadata.city         = $0 }))
+                                            set: { vm.touchedMetadata.city         = $0.isEmpty ? nil : $0 }))
             metadataTextField("State / Province", placeholder: placeholder(.state),
                               value: Binding(get: { vm.touchedMetadata.state        ?? "" },
-                                            set: { vm.touchedMetadata.state        = $0 }))
+                                            set: { vm.touchedMetadata.state        = $0.isEmpty ? nil : $0 }))
             metadataTextField("Country",         placeholder: placeholder(.country),
                               value: Binding(get: { vm.touchedMetadata.country      ?? "" },
-                                            set: { vm.touchedMetadata.country      = $0 }))
+                                            set: { vm.touchedMetadata.country      = $0.isEmpty ? nil : $0 }))
             metadataTextField("Country Code",    placeholder: placeholder(.countryCode),
                               value: Binding(get: { vm.touchedMetadata.countryCode  ?? "" },
-                                            set: { vm.touchedMetadata.countryCode  = $0 }))
+                                            set: { vm.touchedMetadata.countryCode  = $0.isEmpty ? nil : $0 }))
         }
         .padding(.bottom, 12)
     }
@@ -52,16 +52,16 @@ struct BatchMetadataTextSection: View {
             sectionHeader("Description")
             metadataTextField("Title",            placeholder: placeholder(.title),
                               value: Binding(get: { vm.touchedMetadata.title        ?? "" },
-                                            set: { vm.touchedMetadata.title        = $0 }))
+                                            set: { vm.touchedMetadata.title        = $0.isEmpty ? nil : $0 }))
             metadataTextField("Caption (Notes)",  placeholder: placeholder(.caption),
                               value: Binding(get: { vm.touchedMetadata.caption      ?? "" },
-                                            set: { vm.touchedMetadata.caption      = $0 }))
+                                            set: { vm.touchedMetadata.caption      = $0.isEmpty ? nil : $0 }))
             metadataTextField("Headline",         placeholder: placeholder(.headline),
                               value: Binding(get: { vm.touchedMetadata.headline     ?? "" },
-                                            set: { vm.touchedMetadata.headline     = $0 }))
+                                            set: { vm.touchedMetadata.headline     = $0.isEmpty ? nil : $0 }))
             metadataTextField("Instructions",     placeholder: placeholder(.instructions),
                               value: Binding(get: { vm.touchedMetadata.instructions ?? "" },
-                                            set: { vm.touchedMetadata.instructions = $0 }))
+                                            set: { vm.touchedMetadata.instructions = $0.isEmpty ? nil : $0 }))
         }
         .padding(.bottom, 12)
     }
@@ -73,23 +73,23 @@ struct BatchMetadataTextSection: View {
             sectionHeader("Creator & Rights")
             metadataTextField("Creator / Author",   placeholder: placeholder(.creator),
                               value: Binding(get: { vm.touchedMetadata.creator          ?? "" },
-                                            set: { vm.touchedMetadata.creator          = $0 }))
+                                            set: { vm.touchedMetadata.creator          = $0.isEmpty ? nil : $0 }))
             metadataTextField("Creator Job Title",  placeholder: placeholder(.creatorJobTitle),
                               value: Binding(get: { vm.touchedMetadata.creatorJobTitle  ?? "" },
-                                            set: { vm.touchedMetadata.creatorJobTitle  = $0 }))
+                                            set: { vm.touchedMetadata.creatorJobTitle  = $0.isEmpty ? nil : $0 }))
             metadataTextField("Copyright Notice",   placeholder: placeholder(.copyrightNotice),
                               value: Binding(get: { vm.touchedMetadata.copyrightNotice  ?? "" },
-                                            set: { vm.touchedMetadata.copyrightNotice  = $0 }))
+                                            set: { vm.touchedMetadata.copyrightNotice  = $0.isEmpty ? nil : $0 }))
             copyrightStatusPicker
             metadataTextField("Usage Terms",        placeholder: placeholder(.usageTerms),
                               value: Binding(get: { vm.touchedMetadata.usageTerms       ?? "" },
-                                            set: { vm.touchedMetadata.usageTerms       = $0 }))
+                                            set: { vm.touchedMetadata.usageTerms       = $0.isEmpty ? nil : $0 }))
             metadataTextField("Credit",             placeholder: placeholder(.credit),
                               value: Binding(get: { vm.touchedMetadata.credit           ?? "" },
-                                            set: { vm.touchedMetadata.credit           = $0 }))
+                                            set: { vm.touchedMetadata.credit           = $0.isEmpty ? nil : $0 }))
             metadataTextField("Source",             placeholder: placeholder(.source),
                               value: Binding(get: { vm.touchedMetadata.source           ?? "" },
-                                            set: { vm.touchedMetadata.source           = $0 }))
+                                            set: { vm.touchedMetadata.source           = $0.isEmpty ? nil : $0 }))
         }
         .padding(.bottom, 24)
     }
