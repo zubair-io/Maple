@@ -28,6 +28,7 @@ New file alongside `XMPSerialization.swift` (splits cleanly — follows the exis
 `+HSL`, `+Helpers` pattern). Stays under the 600-line budget.
 
 **Struct:**
+
 ```swift
 public struct XmpMetadata {
     public var gpsLatitude: Double?
@@ -60,6 +61,7 @@ public enum CopyrightStatus: String {
 ```
 
 **GPS encoding (mirrors TS):**
+
 - `gpsToXmp(value: Double, axis: GpsAxis) → String`
   - `abs = abs(value)`
   - `roundedMinutes = (abs * 60 * 1e4).rounded() / 1e4`
@@ -71,23 +73,26 @@ public enum CopyrightStatus: String {
 - `gpsFromXmp(_ s: String) → Double?`
   - regex `^(\d+),(\d+(?:\.\d+)?)([NSEW])$`
   - sign: S/W → -1, else +1
-  - result = sign * (deg + min/60); if result == 0 → 0 (normalize -0)
+  - result = sign \* (deg + min/60); if result == 0 → 0 (normalize -0)
 
 **Altitude encoding:**
+
 - `altitudeToXmp(meters: Double) → (value: String, ref: String)`
   - ref: meters < 0 → "1", else "0"
-  - thousandths = Int((abs(meters) * 1000).rounded())
+  - thousandths = Int((abs(meters) \* 1000).rounded())
   - value = "\(thousandths)/1000"
 - `altitudeFromXmp(value: String, ref: String) → Double?`
   - parse `N/D` rational; nil if denom == 0
   - ref == "1" → negate
 
 **Serialization extension on `XMPSerializer`:**
+
 - `metadataAttrParts(_ m: XmpMetadata) → [(String, String)]` — same field order as TS
 - `metadataNestedBlocks(_ m: XmpMetadata) → [String]` — title, creator, description, rights, usageTerms
 - `metadataNamespacePrefixes(_ m: XmpMetadata) → Set<String>` — conditional prefix set
 
 Namespace declarations (conditional, same as TS):
+
 ```
 dc: http://purl.org/dc/elements/1.1/
 exif: http://ns.adobe.com/exif/1.0/
@@ -98,6 +103,7 @@ xmpRights: http://ns.adobe.com/xap/1.0/rights/
 
 **Extend `XMPSerializer.serialize` signature:**
 Add `metadata: XmpMetadata? = nil` parameter. When present:
+
 1. Add conditional namespace declarations to `rdf:Description`.
 2. Append `metadataAttrParts` to the attrs list before passthrough.
 3. Append `metadataNestedBlocks` to nested content (before passthrough unknown nodes).
@@ -105,6 +111,7 @@ Add `metadata: XmpMetadata? = nil` parameter. When present:
 **Extend `_XMPParserDelegate` / `XMPParser.parse`:**
 Return type stays `(AdjustmentModel, CullingState)` — add a new
 `XMPParser.parseMetadata(_ xml: String) → XmpMetadata` that:
+
 - Parses using `XMLParser` with `_XMPMetadataDelegate`
 - Reads all 17 simple attributes off `rdf:Description` attributes
 - Reads 5 nested elements (lang-alt/seq) — extracts first `rdf:li` text content
@@ -118,6 +125,7 @@ wired when passthrough is added in a future slice. No double-emit risk yet.
 ### 2. Rust tolerance — `src/raw-pipeline/raw-core/src/xmp/tests.rs`
 
 Add `parse_ignores_metadata_fields` test:
+
 - Build an inline XMP string carrying all 17 metadata attributes + the 5 managed
   nested elements (dc:title, dc:creator, dc:description, dc:rights, xmpRights:UsageTerms)
 - Call `parse(&xml)` and assert `Ok(model)` where `model == AdjustmentModel::default()`
@@ -128,6 +136,7 @@ The Rust parser does NOT need code changes — this test confirms tolerance.
 ### 3. Codegen assessment
 
 Review what might be shared across languages:
+
 - **Namespace URIs:** currently hard-coded in TS (`xmp-metadata.ts`). Only used in TS and will
   be used in Swift. No Rust usage. Adding them to codegen would require a new codegen template
   for Swift string constants. The benefit is low (5 URIs, stable, copy is readable). **Decision:
@@ -143,6 +152,7 @@ Codegen is **not needed** for M0b. The existing codegen emits color matrices and
 File: `MapleCoreTests/XMPMetadataTests.swift`
 
 Tests (all real `.xmp` round-trips via `XMPParser.parseMetadata` and `XMPSerializer.serialize`):
+
 1. `testGpsEncodeEdgeCases` — boundary values: zero-magnitude, negative, near-boundary carry
 2. `testGpsRoundTrip` — `gpsToXmp` → `gpsFromXmp` recovers value within 1e-4 degrees
 3. `testAltitudeEncodeDecodeRoundTrip` — positive + negative meters
@@ -159,20 +169,22 @@ Tests (all real `.xmp` round-trips via `XMPParser.parseMetadata` and `XMPSeriali
 ### 5. Tests (Rust)
 
 Addition to `src/raw-pipeline/raw-core/src/xmp/tests.rs`:
+
 - `parse_ignores_metadata_fields` — confirm parse of a metadata-carrying sidecar does not error
 
 ## File changes
 
-| File | Action |
-|------|--------|
-| `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Metadata.swift` | **Create** |
-| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPMetadataTests.swift` | **Create** |
-| `src/raw-pipeline/raw-core/src/xmp/tests.rs` | **Edit** (add 1 test) |
-| `XMPSerialization.swift` | **Edit** (add `metadata:` param + emit namespaces/attrs/nested) |
+| File                                                                             | Action                                                          |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Metadata.swift` | **Create**                                                      |
+| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPMetadataTests.swift`       | **Create**                                                      |
+| `src/raw-pipeline/raw-core/src/xmp/tests.rs`                                     | **Edit** (add 1 test)                                           |
+| `XMPSerialization.swift`                                                         | **Edit** (add `metadata:` param + emit namespaces/attrs/nested) |
 
 ## GPS edge cases (from TS source)
 
 These must match exactly:
+
 - `gpsToXmp(0, 'lat')` → `"0,0.0000N"` (zero-magnitude → positive hemisphere N not S)
 - `gpsToXmp(-0.0, 'lat')` → `"0,0.0000N"` (same — normalize -0)
 - Near-boundary: a value where `abs * 60 * 1e4` rounds to exactly 60.0000 — e.g. some value
