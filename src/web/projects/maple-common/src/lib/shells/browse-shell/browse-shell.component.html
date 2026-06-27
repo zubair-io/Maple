@@ -101,6 +101,22 @@
 
     <div class="flex-1"></div>
 
+    <!-- Edit Metadata (self-hosted only; requires ≥1 selected) -->
+    @if (state.backend === 'self-hosted') {
+      <button
+        type="button"
+        class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+        [class.has-selection]="canEditMetadata()"
+        [class.no-selection]="!canEditMetadata()"
+        [disabled]="!canEditMetadata()"
+        title="Edit metadata for selected photos"
+        aria-label="Edit metadata"
+        (click)="onEditMetadata()"
+      >
+        <span>Edit Metadata…{{ canEditMetadata() ? ' (' + state.selectedCount() + ')' : '' }}</span>
+      </button>
+    }
+
     <!-- Merge to panorama (self-hosted only; requires ≥2 selected) -->
     @if (state.backend === 'self-hosted') {
       <button
@@ -177,4 +193,11 @@
   [visible]="panoDialogVisible()"
   [assetIds]="panoAssetIds()"
   (dismiss)="onPanoDismiss()"
+/>
+
+<!-- Batch metadata panel (#1606) -->
+<app-batch-metadata-panel
+  [visible]="batchMetaDialogVisible()"
+  [assetSnapshots]="batchMetaAssetSnapshots()"
+  (dismiss)="onBatchMetaDismiss()"
 />

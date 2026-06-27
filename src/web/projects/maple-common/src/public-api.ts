@@ -193,6 +193,12 @@ export * from './lib/util/errors';
 export * from './lib/util/idb';
 export * from './lib/util/typed-storage';
 
+// #1606 — Batch Metadata web UI (M2)
+export * from './lib/batch-metadata/batch-metadata.types';
+export * from './lib/batch-metadata/batch-metadata.service';
+export * from './lib/batch-metadata/batch-metadata-panel.component';
+export * from './lib/batch-metadata/batch-metadata-confirm-dialog.component';
+
 // M2 — Unified library addressing (MapleAddress + LibrarySource strategy).
 export * from './lib/addressing/maple-address';
 export * from './lib/addressing/library-source';
