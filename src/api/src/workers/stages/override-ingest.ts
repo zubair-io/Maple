@@ -112,6 +112,12 @@ export async function overrideIngestHandler(
   if (year !== null) {
     override.captured_year = year;
     override.captured_month = month ?? undefined;
+  } else {
+    // No effective capture time → derived year/month must be absent, never
+    // stale. (override is rebuilt fresh and the patch is a full $set of
+    // metadata_override, so this is also robust if patch semantics ever change.)
+    delete override.captured_year;
+    delete override.captured_month;
   }
 
   const patch: Record<string, unknown> = {
