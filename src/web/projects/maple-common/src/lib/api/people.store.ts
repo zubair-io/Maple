@@ -255,9 +255,13 @@ export class PeopleStore implements Store<ApiPerson[]> {
     // the `Store<T>` contract of resetting error on a successful re-fetch.
     this._detailError.set(null);
     this._detailLoadingIds.update((s) => new Set(s).add(id));
-    this.api.getPerson(id, { offset, limit: 50 }).subscribe({
+    const pageSize = 50;
+    this.api.getPerson(id, { offset, limit: pageSize }).subscribe({
       next: (page) => {
-        const hasMore = page.faces.length >= page.limit;
+        // A full page (>= the requested size) means there may be more; a short
+        // page signals end-of-list. `page.limit` echoes the server's size but
+        // falls back to the requested `pageSize` when absent.
+        const hasMore = page.faces.length >= (page.limit ?? pageSize);
         this._detailHasMore.update((m) => new Map(m).set(id, hasMore));
         this._details.update((m) => {
           const existing = m.get(id);
