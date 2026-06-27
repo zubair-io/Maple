@@ -45,7 +45,9 @@ export async function resolveAndAuthorizePath(
     ? process.env.MAPLE_ROOTS.split(':').filter(Boolean)
     : [];
   const libRoots = [...(await loadLibraryRoots()).values()];
-  const allRoots = [...envRoots, ...libRoots].map((r) => r.replace(/\/$/, ''));
+  // Normalize each root with path.resolve (strips any trailing separator,
+  // cross-platform) so the containment check below is separator-correct.
+  const allRoots = [...envRoots, ...libRoots].map((r) => path.resolve(r));
 
   if (allRoots.length === 0) {
     return {

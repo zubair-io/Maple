@@ -51,7 +51,11 @@ describe('mergeMetadataIntoXmp round-trip', () => {
   });
 
   test('GPS with altitude survives round-trip', () => {
-    const meta: XmpMetadataInput = { gpsLatitude: 48.8566, gpsLongitude: 2.3522, gpsAltitude: 35.5 };
+    const meta: XmpMetadataInput = {
+      gpsLatitude: 48.8566,
+      gpsLongitude: 2.3522,
+      gpsAltitude: 35.5,
+    };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
     expect(parsed.gpsAltitude).toBeCloseTo(35.5, 1);
