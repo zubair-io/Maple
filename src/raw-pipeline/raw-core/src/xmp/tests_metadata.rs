@@ -94,3 +94,33 @@ fn parse_ignores_batch_metadata_fields() {
     assert_eq!(m.highlights, d.highlights, "highlights must stay default");
     assert_eq!(m.crop.is_identity(), true, "crop must stay identity");
 }
+
+// -----------------------------------------------------------------------
+// Full-default round-trip assertion (deferred from M0b review, #1611)
+// -----------------------------------------------------------------------
+
+/// Serializing a full-default `AdjustmentModel` and parsing the result must
+/// yield a model equal to the default. Guards that the Rust `serialize` +
+/// `parse` pair are consistent on the identity case — neither step silently
+/// corrupts a default field.
+///
+/// The Rust `serialize` emits only non-default attributes (the full-default
+/// model produces an empty fragment). Wrapping that in a minimal XMP envelope
+/// and parsing must return a model equal to `AdjustmentModel::default()`.
+#[test]
+fn full_default_serialize_parse_round_trips() {
+    let d = AdjustmentModel::default();
+    let frag = serialize(&d);
+    let xml = format!(
+        r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description
+              xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+              xmlns:papp="http://ns.justmaple.app/1.0/"{frag}/>
+          </rdf:RDF>
+        </x:xmpmeta>"#
+    );
+    let parsed = parse(&xml).expect("full-default sidecar must parse without error");
+    assert_eq!(parsed, d, "parsing the serialized full-default must recover the default model");
+}
