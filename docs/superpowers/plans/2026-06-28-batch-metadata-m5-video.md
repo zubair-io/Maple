@@ -39,10 +39,12 @@ Change `pair()` to index movies by stem too (alongside images). Sidecars then at
 Remove the `if (it.kind !== 'image') continue;` guard in `pair()`, replacing it with logic that indexes ALL primaries (images and movies) by stem. A collision (rare) where `clip.jpg` and `clip.mov` coexist: the image wins because images appear first in the sorted `items` array (classified as `image` before `movie` in `classify()`). This is acceptable and mirrors the existing behaviour for images.
 
 **Changes:**
+
 - In `pair()`, remove the `kind !== 'image'` guard. Index every primary by stem.
 - Add a comment explaining the movie-sidecar pairing rationale.
 
 **Tests (scan.test.ts):**
+
 - Add a `clip.mov.xmp` (`clip.xmp`) sidecar in the existing temp dir and assert it pairs to `clip.mov`, not as orphan. `sidecarCount` should increase; `orphans` should not include it.
 - Add a regression test: when both `clip.jpg` and `clip.mov` coexist with a `clip.xmp`, the sidecar attaches to `clip.jpg` (image wins — first indexed).
 
@@ -65,6 +67,7 @@ The stage uses `xmpSidecarPath(absPath)` which works for any file. It is **alrea
 **File:** `src/api/src/workers/stages/sidecar-metadata-index.test.ts` (new)
 
 Test cases:
+
 1. Video asset (`.mov` extension) with metadata-only sidecar → returns `{ patch: { metadata_override: {...} } }`.
 2. Video asset with no sidecar → returns `{ skip: 'no-sidecar' }`.
 3. Video asset with adjustment-only sidecar (no metadata) → returns `{ skip: 'no-metadata' }`.
@@ -74,6 +77,7 @@ Test cases:
 **File:** `src/api/src/xmp/metadata-serializer.ts` — `mergeMetadataIntoXmp()`
 
 When called with an empty `existingXml` and only metadata fields (no adjustment block), the function must produce a valid XMP sidecar that:
+
 - Has the standard `x:xmpmeta`, `rdf:RDF`, `rdf:Description` structure.
 - Contains the metadata namespace declarations.
 - Contains NO `papp:` adjustment attributes.
@@ -88,12 +92,14 @@ The simplest approach: add an optional `metadataOnly: boolean` option to `mergeM
 **File:** `src/api/src/xmp/metadata-serializer.test.ts`
 
 Add tests:
+
 1. `mergeMetadataIntoXmp('', { gpsLatitude: 37.7 }, { metadataOnly: true })` → output has no `papp:` namespace, contains `exif:GPSLatitude`.
 2. Round-trip: `parseXmpMetadata(mergeMetadataIntoXmp('', meta, { metadataOnly: true }))` returns the original fields.
 
 **File:** `src/api/src/routes/xmp-batch.ts`
 
 The batch route calls `mergeMetadataIntoXmp(existingXml, entry.metadata)`. For video assets, `existingXml` will be empty (or a metadata-only sidecar). The route needs to detect video paths and pass `metadataOnly: true` when:
+
 - `existingXml` is empty (new sidecar for any asset) AND the asset is a video file.
 - `existingXml` is a metadata-only sidecar (no `papp:` block).
 
@@ -129,17 +135,17 @@ Run `cd src/apple/Packages/MapleCore && swift test`.
 
 ## File change summary
 
-| File | Change |
-|------|--------|
-| `src/api/src/imports/scan.ts` | Remove image-only guard in `pair()` — index all primaries by stem |
-| `src/api/src/imports/scan.test.ts` | Add video sidecar pairing tests |
-| `src/api/src/imports/worker.ts` | Remove image-only guard in `groupFiles()` if present |
-| `src/api/src/imports/worker.test.ts` | Add video sidecar pairing test in `groupFiles()` |
-| `src/api/src/workers/stages/sidecar-metadata-index.test.ts` | New — video passthrough tests |
-| `src/api/src/xmp/metadata-serializer.ts` | Add `metadataOnly` option to `mergeMetadataIntoXmp` |
-| `src/api/src/xmp/metadata-serializer.test.ts` | Add metadata-only sidecar emission tests |
-| `src/api/src/routes/xmp-batch.ts` | Pass `metadataOnly: true` when path is a video and no existing adjustment block |
-| `docs/superpowers/plans/2026-06-28-batch-metadata-m5-video.md` | This plan |
+| File                                                           | Change                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `src/api/src/imports/scan.ts`                                  | Remove image-only guard in `pair()` — index all primaries by stem               |
+| `src/api/src/imports/scan.test.ts`                             | Add video sidecar pairing tests                                                 |
+| `src/api/src/imports/worker.ts`                                | Remove image-only guard in `groupFiles()` if present                            |
+| `src/api/src/imports/worker.test.ts`                           | Add video sidecar pairing test in `groupFiles()`                                |
+| `src/api/src/workers/stages/sidecar-metadata-index.test.ts`    | New — video passthrough tests                                                   |
+| `src/api/src/xmp/metadata-serializer.ts`                       | Add `metadataOnly` option to `mergeMetadataIntoXmp`                             |
+| `src/api/src/xmp/metadata-serializer.test.ts`                  | Add metadata-only sidecar emission tests                                        |
+| `src/api/src/routes/xmp-batch.ts`                              | Pass `metadataOnly: true` when path is a video and no existing adjustment block |
+| `docs/superpowers/plans/2026-06-28-batch-metadata-m5-video.md` | This plan                                                                       |
 
 Apple and web files: no changes required (verified by assessment above).
 
