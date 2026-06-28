@@ -22,6 +22,7 @@ import * as path from 'node:path';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
+import { isVideoFilename } from '../indexer/media-types.ts';
 import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
 import { coll } from '../indexer/images.repo.ts';
 import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
@@ -72,8 +73,11 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
     // ENOENT is expected — start from empty (serializer will create stub).
   }
 
-  // Merge metadata into sidecar.
-  const merged = mergeMetadataIntoXmp(existingXml, entry.metadata);
+  // Merge metadata into sidecar. For video assets with no existing sidecar,
+  // use a metadata-only stub (no Camera Raw Settings attrs) so the sidecar
+  // is not misinterpreted as containing pixel adjustments.
+  const metadataOnly = existingXml.length === 0 && isVideoFilename(path.basename(absPath));
+  const merged = mergeMetadataIntoXmp(existingXml, entry.metadata, { metadataOnly });
 
   // Write atomically.
   const writeResult = await writeXmpAtomic(absPath, merged);
