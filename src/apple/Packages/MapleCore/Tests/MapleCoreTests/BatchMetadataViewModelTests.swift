@@ -173,6 +173,114 @@ final class BatchMetadataViewModelTests: XCTestCase {
                       "video sidecar must use full-name convention")
     }
 
+    // MARK: - Altitude apply (#1633)
+
+    func testApplyAltitudeRoundTrip() async throws {
+        let (asset, store) = try await tempAsset()
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        vm.touchedMetadata.gpsLatitude  = 48.8566
+        vm.touchedMetadata.gpsLongitude = 2.3522
+        vm.touchedMetadata.gpsAltitude  = 1234.5
+        try await vm.apply()
+
+        let xml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
+        let parsed = XMPParser.parseMetadata(xml)
+        XCTAssertEqual(parsed.gpsLatitude!,  48.8566, accuracy: 1e-4,
+                       "GPS latitude must round-trip")
+        XCTAssertEqual(parsed.gpsLongitude!, 2.3522,  accuracy: 1e-4,
+                       "GPS longitude must round-trip")
+        XCTAssertEqual(parsed.gpsAltitude!, 1234.5, accuracy: 0.001,
+                       "Altitude must round-trip to within 0.001 m")
+    }
+
+    func testApplyAltitudeExplicitClear() async throws {
+        var m = XmpMetadata()
+        m.gpsLatitude = 10; m.gpsLongitude = 20; m.gpsAltitude = 500
+        let (asset, store) = try await tempAsset(metadata: m)
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        // Clear GPS clears lat/lon/alt atomically.
+        vm.touchedMetadata.gpsLatitude  = .some(nil)
+        vm.touchedMetadata.gpsLongitude = .some(nil)
+        vm.touchedMetadata.gpsAltitude  = .some(nil)
+        try await vm.apply()
+
+        let parsed = XMPParser.parseMetadata(
+            try String(contentsOf: sidecarURL, encoding: .utf8)
+        )
+        XCTAssertNil(parsed.gpsAltitude, "Explicitly-cleared altitude must be removed")
+    }
+
+    // MARK: - Keywords apply (#1633)
+
+    func testApplyKeywordsRoundTrip() async throws {
+        var m = XmpMetadata(); m.city = "Paris"
+        let culling = CullingState(stars: 3, flag: .none, keywords: ["travel"])
+        let (asset, store) = try await tempAsset(metadata: m, culling: culling)
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        // Existing keywords are "travel"; load must detect them (not mixed, single asset).
+        XCTAssertFalse(vm.mixedFields.contains(.keywords),
+                       "Keywords should not be mixed for a single asset")
+        XCTAssertEqual(vm.commonKeywords, ["travel"])
+
+        // Replace keywords.
+        vm.touchedMetadata.keywords = .some(["france", "street"])
+        try await vm.apply()
+
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
+        let (_, parsedCulling) = try XMPParser.parse(xml)
+        XCTAssertEqual(parsedCulling.keywords, ["france", "street"],
+                       "New keywords must be written to the sidecar")
+
+        // The unrelated metadata field (city) must survive.
+        let parsedMeta = XMPParser.parseMetadata(xml)
+        XCTAssertEqual(parsedMeta.city, "Paris", "Untouched city must be preserved")
+    }
+
+    func testApplyKeywordsExplicitClear() async throws {
+        let culling = CullingState(stars: 0, flag: .none, keywords: ["old"])
+        let (asset, store) = try await tempAsset(culling: culling)
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        // Clear keywords by providing an empty list.
+        vm.touchedMetadata.keywords = .some([])
+        try await vm.apply()
+
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
+        let (_, parsedCulling) = try XMPParser.parse(xml)
+        XCTAssertEqual(parsedCulling.keywords, [],
+                       "Explicitly-cleared keywords must be empty after apply")
+    }
+
+    func testKeywordsMixedDetected() async throws {
+        let c1 = CullingState(stars: 0, flag: .none, keywords: ["travel"])
+        let c2 = CullingState(stars: 0, flag: .none, keywords: ["nature"])
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertTrue(vm.mixedFields.contains(.keywords),
+                      "Keywords should be mixed when assets differ")
+        XCTAssertNil(vm.commonKeywords,
+                     "commonKeywords must be nil when keywords are mixed")
+    }
+
     // MARK: - Store preserves metadata on a model-only write
 
     func testModelOnlyWritePreservesExistingMetadata() async throws {

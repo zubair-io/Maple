@@ -1,5 +1,7 @@
 // BatchMetadataTextSection.swift — "Location", "Description", and "Creator & Rights"
 // sections of the Batch Metadata sheet. All plain-text IPTC fields.
+// Keywords (#1633): comma-separated text field that reads/writes CullingState.keywords
+// via TouchedMetadata.keywords (dc:subject round-trip path).
 //
 // Ticket #1629 / epic #1575.
 
@@ -10,6 +12,9 @@ import MapleCore
 
 struct BatchMetadataTextSection: View {
     @Bindable var vm: BatchMetadataViewModel
+
+    /// Local text buffer for the keywords field. Converts to/from [String] on change.
+    @State private var keywordsText: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,11 +64,44 @@ struct BatchMetadataTextSection: View {
             metadataTextField("Headline",         placeholder: placeholder(.headline),
                               value: Binding(get: { vm.touchedMetadata.headline     ?? "" },
                                             set: { vm.touchedMetadata.headline     = $0 }))
+            keywordsField
             metadataTextField("Instructions",     placeholder: placeholder(.instructions),
                               value: Binding(get: { vm.touchedMetadata.instructions ?? "" },
                                             set: { vm.touchedMetadata.instructions = $0 }))
         }
         .padding(.bottom, 12)
+    }
+
+    // MARK: - Keywords field
+
+    /// Comma-separated keywords editor. Writes to `touchedMetadata.keywords` on change
+    /// (empty input = explicit clear to []). Mirrors the web "Keywords (comma-separated)"
+    /// field; value replaces the full keyword set on all selected photos.
+    private var keywordsField: some View {
+        HStack {
+            Text("Keywords")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 140, alignment: .leading)
+            TextField(keywordsPlaceholder, text: $keywordsText)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: keywordsText) { _, v in
+                    var seen = Set<String>()
+                    let parsed = v.split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty && seen.insert($0).inserted }
+                    // Outer .some marks the field as touched; inner value is the new list.
+                    // Empty input = explicit clear (empty array replaces existing keywords).
+                    vm.touchedMetadata.keywords = .some(parsed)
+                }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var keywordsPlaceholder: String {
+        if vm.mixedFields.contains(.keywords) { return "(mixed)" }
+        let common = vm.commonKeywords ?? []
+        return common.isEmpty ? "travel, france, street" : common.joined(separator: ", ")
     }
 
     // MARK: - Creator & Rights
