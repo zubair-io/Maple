@@ -43,6 +43,15 @@ extension RenderActor {
         profile: Profile = .auto,
         normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
     ) async -> CIImage? {
+        // Videos are selectable for metadata editing (#1638) but have no still
+        // frame to decode. No-op the decode rather than feeding container bytes
+        // to libraw (RAW path) or CGImageSource (non-RAW path) — both would fail
+        // or produce garbage. `AssetRef.isRaw` already returns false for video;
+        // this is the single chokepoint all open/render dispatch funnels
+        // through, so guarding here covers every entry point.
+        if asset.isVideo {
+            return nil
+        }
         let wantsFull = (target == nil)
         // #871: the decode buffer is profile-dependent for RAW (Auto
         // develops auto_exposure Off; Neutral keeps it On). Pass the live

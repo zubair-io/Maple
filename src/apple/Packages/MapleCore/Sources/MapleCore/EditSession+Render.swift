@@ -268,6 +268,16 @@ extension EditSession {
     // MARK: - Unified decode + render
 
     func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
+        // Videos are selectable for metadata editing (#1638) but have no still
+        // frame to develop. No-op the render rather than feeding container bytes
+        // to a decoder — `AssetRef.isRaw` is already false for video (so libraw
+        // is never reached), but the non-RAW path would still hand the .mov to
+        // CGImageSource. This is the single body all render phases (fast/refine/
+        // renderFull) funnel through, so guarding here covers every entry point.
+        if self.asset.isVideo {
+            isRendering = false
+            return
+        }
         isRendering = true
         renderPhase = phase
         let m = model
