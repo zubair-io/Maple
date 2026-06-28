@@ -35,6 +35,7 @@ export interface WatchEvent {
 }
 
 export const SUPPORTED_EXTS = new Set([
+  // RAW formats decoded via libraw FFI
   '.dng',
   '.cr2',
   '.cr3',
@@ -50,12 +51,23 @@ export const SUPPORTED_EXTS = new Set([
   '.mef',
   '.erf',
   '.mrw',
+  // Bitmap formats decoded via sharp / heic-convert
   '.jpg',
   '.jpeg',
   '.tif',
   '.tiff',
   '.heic',
   '.heif',
+  // Video containers — metadata-only indexing via video-metadata.ts
+  '.mov',
+  '.mp4',
+  '.m4v',
+  '.avi',
+  '.mkv',
+  '.webm',
+  '.mts',
+  '.m2ts',
+  '.3gp',
 ]);
 
 /**
