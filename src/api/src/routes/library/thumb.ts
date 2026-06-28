@@ -59,11 +59,11 @@ export const thumbRoutes = new Elysia().get(
       set.status = 400;
       return { error: 'Filename is required' };
     }
-    // Video containers have no still frame to thumbnail. Return a clean 404
-    // rather than attempting generation — `generateThumb` skips videos (no file
-    // written), so the read below would 404 anyway; short-circuiting here makes
-    // the contract explicit and avoids serving a 200 with garbage bytes. The
-    // grid renders a video placeholder for a 404, never a broken <img>.
+    // Video containers have no server-side poster yet. Extracting a frame
+    // requires ffmpeg or a native video decoder — a dependency not currently
+    // bundled. The grid renders a video placeholder on 404. Apple clients get
+    // a poster via AVAssetImageGenerator (shipped in #1642).
+    // Follow-up: #1643 (server-side video poster via platform ffmpeg or WASM).
     if (isVideoFilename(filename)) {
       set.status = 404;
       return { error: 'No thumbnail for video assets' };

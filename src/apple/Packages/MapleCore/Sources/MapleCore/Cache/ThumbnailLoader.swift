@@ -12,6 +12,7 @@
 //   - sRGB colourspace
 
 import Foundation
+import AVFoundation
 import CoreImage
 import ImageIO
 import os
@@ -125,6 +126,21 @@ public actor ThumbnailLoader {
             if FileManager.default.fileExists(atPath: relThumb.path),
                 let data = try? Data(contentsOf: relThumb)
             {
+                await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+                return data
+            }
+
+            // VIDEO PATH — extract a poster frame via AVFoundation (#1642).
+            // Checked AFTER the .maple/thumbs cache lookup above so a pre-written
+            // poster is served from disk without touching AVFoundation again.
+            // Short-circuits BEFORE CGImageSourceCreateThumbnailAtIndex so video
+            // container bytes are never fed to ImageIO or libraw.
+            if SidecarPath.isVideo(assetURL) {
+                guard let data = Self.posterJPEG(at: assetURL) else {
+                    logger.warning("video poster extraction failed for \(assetURL.lastPathComponent, privacy: .public)")
+                    return nil
+                }
+                logger.debug("video poster extracted for \(assetURL.lastPathComponent, privacy: .public)")
                 await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
                 return data
             }
@@ -323,5 +339,47 @@ public actor ThumbnailLoader {
             colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
             options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: ThumbnailDiskCache.jpegQuality]
         )
+    }
+
+    /// Extract a poster frame from a video file using AVFoundation (#1642).
+    ///
+    /// Requests a frame at 1 second in; if the asset is shorter (or frame
+    /// generation fails at 1s), falls back to the first frame at time zero.
+    /// Returns JPEG bytes downscaled to `ThumbnailDiskCache.defaultThumbSize`
+    /// long edge at `ThumbnailDiskCache.jpegQuality`, or nil if AVFoundation
+    /// cannot read the file (unsupported codec, missing file, etc.).
+    ///
+    /// Always call from inside a `Task.detached(priority: .utility)` block —
+    /// `AVAssetImageGenerator.copyCGImage` performs synchronous I/O and must
+    /// not block the actor or the main thread.
+    private static func posterJPEG(at url: URL) -> Data? {
+        let asset = AVAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        // Apply the track's preferred display transform so portrait clips
+        // (e.g. iPhone portrait video) are not served sideways.
+        generator.appliesPreferredTrackTransform = true
+        // Cap decode resolution: request at most 2× the thumbnail target to get a
+        // sharp downscale without decoding the full frame at native resolution.
+        let target = ThumbnailDiskCache.defaultThumbSize
+        generator.maximumSize = CGSize(width: target.width * 2, height: target.height * 2)
+
+        // Prefer 1s in; fall back to the first frame if the clip is shorter or
+        // generation fails at 1s.
+        let oneSecond = CMTime(seconds: 1, preferredTimescale: 600)
+        let cgImage: CGImage? = (try? generator.copyCGImage(at: oneSecond, actualTime: nil))
+            ?? (try? generator.copyCGImage(at: .zero, actualTime: nil))
+
+        guard let cg = cgImage else { return nil }
+
+        // Encode via the same CIContext + JPEG helper as the image thumbnail path.
+        let ci = CIImage(cgImage: cg)
+        let extent = ci.extent
+        let longEdge = max(extent.width, extent.height)
+        let scaled: CIImage = longEdge > target.width
+            ? ci.transformed(by: CGAffineTransform(
+                scaleX: target.width / longEdge,
+                y: target.width / longEdge))
+            : ci
+        return jpegData(from: scaled, ctx: CIContext())
     }
 }
