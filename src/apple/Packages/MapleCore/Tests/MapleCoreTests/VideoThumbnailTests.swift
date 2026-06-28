@@ -23,9 +23,9 @@ final class VideoThumbnailTests: XCTestCase {
         tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("maple-vidthumb-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        // Configure ThumbnailDiskCache so the loader can write to .maple/thumbs/.
-        let localCache = ThumbnailDiskCache()
-        await localCache.configure(folderURL: tmp)
+        // Configure the shared ThumbnailDiskCache so ThumbnailLoader can write
+        // to .maple/thumbs/ inside our tmp directory.
+        await ThumbnailDiskCache.shared.configure(folderURL: tmp)
     }
 
     override func tearDown() async throws {
