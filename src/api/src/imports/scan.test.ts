@@ -161,6 +161,86 @@ describe('walk() skips hidden/temp files (#793)', () => {
   });
 });
 
+// M5 — #1635: sidecars pair to movies as well as images.
+describe('video sidecar pairing (M5, #1635)', () => {
+  let videoRoot: string;
+
+  async function putV(rel: string, mtimeUtc: string): Promise<void> {
+    const abs = path.join(videoRoot, rel);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, `content-of-${rel}`);
+    const when = new Date(mtimeUtc);
+    await fs.utimes(abs, when, when);
+  }
+
+  beforeAll(async () => {
+    videoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-video-'));
+    // A movie with a sidecar (M5: sidecar should pair, not orphan).
+    await putV('clip.mov', '2024-06-15T10:00:00Z');
+    await putV('clip.xmp', '2024-06-15T10:05:00Z');
+    // An image with a sidecar — regression: must still pair correctly.
+    await putV('photo.dng', '2024-06-15T11:00:00Z');
+    await putV('photo.xmp', '2024-06-15T11:05:00Z');
+  });
+
+  afterAll(async () => {
+    await fs.rm(videoRoot, { recursive: true, force: true });
+  });
+
+  test('scanFolder: clip.xmp pairs to clip.mov, counted as sidecar not orphan', async () => {
+    const res = await scanFolder(videoRoot);
+    // Both the movie's sidecar and the image's sidecar are counted.
+    expect(res.totals.sidecars).toBe(2);
+    expect(res.totals.movies).toBe(1);
+    expect(res.totals.images).toBe(1);
+  });
+
+  test('buildImportFiles: clip.xmp is emitted as sidecar kind before clip.mov', async () => {
+    const files = await buildImportFiles(videoRoot, {});
+    const xmp = files.find((f) => f.dest.endsWith('clip.xmp'))!;
+    const mov = files.find((f) => f.dest.endsWith('clip.mov'))!;
+    expect(xmp).toBeDefined();
+    expect(xmp.kind).toBe('sidecar');
+    // Sidecar emitted before its primary.
+    const xmpIdx = files.indexOf(xmp);
+    const movIdx = files.indexOf(mov);
+    expect(xmpIdx).toBeGreaterThanOrEqual(0);
+    expect(xmpIdx).toBeLessThan(movIdx);
+  });
+
+  test('image sidecar still pairs correctly alongside a video sidecar', async () => {
+    const files = await buildImportFiles(videoRoot, {});
+    const photoXmp = files.find((f) => f.dest.endsWith('photo.xmp'))!;
+    const photoDng = files.find((f) => f.dest.endsWith('photo.dng'))!;
+    expect(photoXmp.kind).toBe('sidecar');
+    expect(files.indexOf(photoXmp)).toBeLessThan(files.indexOf(photoDng));
+  });
+
+  test('collision: image wins when same-stem image and movie coexist', async () => {
+    // Create a fresh dir with clip.jpg, clip.mov, clip.xmp — image should win.
+    const collRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-coll-'));
+    try {
+      const put2 = async (rel: string): Promise<void> => {
+        const abs = path.join(collRoot, rel);
+        await fs.writeFile(abs, `content-of-${rel}`);
+        const when = new Date('2024-07-01T00:00:00Z');
+        await fs.utimes(abs, when, when);
+      };
+      await put2('clip.jpg');
+      await put2('clip.mov');
+      await put2('clip.xmp');
+      const files = await buildImportFiles(collRoot, {});
+      const xmp = files.find((f) => f.dest.endsWith('clip.xmp'))!;
+      const jpg = files.find((f) => f.dest.endsWith('clip.jpg'))!;
+      // The sidecar attaches to the image (not lost as orphan).
+      expect(xmp.kind).toBe('sidecar');
+      expect(files.indexOf(xmp)).toBeLessThan(files.indexOf(jpg));
+    } finally {
+      await fs.rm(collRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 // #795: buildImportFiles must skip-and-continue when destRelPath throws on an
 // unsafe segment, instead of aborting the whole batch. An unsafe BUCKET LABEL
 // is the easiest reliable trigger (a too-long filename can't even be written to

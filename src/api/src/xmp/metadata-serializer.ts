@@ -231,9 +231,35 @@ const STUB_XMP = `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
 </x:xmpmeta>
 <?xpacket end="w"?>`;
 
+/**
+ * Minimal XMP stub for assets with no pixel-edit model (videos, metadata-only
+ * sidecars). Omits Camera Raw Settings attributes so the sidecar is not
+ * misinterpreted as containing adjustments by ACR or Lightroom.
+ */
+const METADATA_ONLY_STUB_XMP = `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
+
 // ---------------------------------------------------------------------------
 // Core merge function
 // ---------------------------------------------------------------------------
+
+export interface MergeMetadataOptions {
+  /**
+   * When true, use a metadata-only XMP stub as the base for new sidecars
+   * (no Camera Raw Settings attributes). Set for video assets that have no
+   * pixel-edit model — omitting CRS attrs prevents ACR/Lightroom from
+   * treating the sidecar as containing adjustments.
+   *
+   * Ignored when `xml` is non-empty (the existing sidecar is preserved as-is).
+   */
+  metadataOnly?: boolean;
+}
 
 /**
  * Merge metadata edits into an existing XMP sidecar string.
@@ -248,8 +274,13 @@ const STUB_XMP = `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
  * Returns the modified XMP string. Never throws on malformed XML — falls
  * back to returning the original unchanged string.
  */
-export function mergeMetadataIntoXmp(xml: string, meta: XmpMetadataInput): string {
-  const base = xml.trim().length > 0 ? xml : STUB_XMP;
+export function mergeMetadataIntoXmp(
+  xml: string,
+  meta: XmpMetadataInput,
+  opts: MergeMetadataOptions = {},
+): string {
+  const stub = opts.metadataOnly ? METADATA_ONLY_STUB_XMP : STUB_XMP;
+  const base = xml.trim().length > 0 ? xml : stub;
 
   try {
     return applyMerge(base, meta);
