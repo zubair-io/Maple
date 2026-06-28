@@ -84,6 +84,24 @@ The direct fix for the proven OOM. The live preview is display-res anyway; the r
 - **Color:** ΔE harness (`test_color_pipeline.sh` + `budgets.json`) on the export pipe for fit/curve parity; `sized_display_tests`, `SliderMatrixUITests`, the grey harnesses.
 - **On-device:** push the 100 MP fixture, launch via `MAPLE_UITEST_FIXTURE`, scan `systemCrashLogs` for jetsams after launch (existing workflow). Also test the **library/PhotoKit** path (async size seed) and a **second-image + slider** session — the real-world triggers a URL fixture can't reproduce.
 
+## 7b. Measurement update (2026-06-28) — the fit, not the chain resolution
+
+Instrumented the wgpu live chain on Metal (`raw-gpu` `measure_gpu_memory_at_dims`, worst case = every spatial pass engaged), peak RSS via `/usr/bin/time -l` (Apple unified memory ⇒ GPU planes count toward RSS):
+
+| Session dims | MP | Peak RSS | GPU chain (− baseline − CPU input) |
+|---|---|---|---|
+| 2048×1365 | 2.8 | 0.31 GB | ~0.19 GB |
+| 3072×2048 | 6.3 | 0.60 GB | ~0.42 GB |
+| 3960×2640 (iPhone fit-view) | 10.5 | 0.94 GB | ~0.70 GB |
+| 5120×3413 | 17.5 | 1.51 GB | ~1.16 GB |
+
+**Finding:** the GPU chain is only ~0.7 GB at the iPhone fit-view (~4 planes, linear in MP). The resolution cap saves ~0.28 GB — marginal, and it softens previews. The dominant GPU-path cost is the **Auto-Profile fit** (~1.4 GB transient): the GPU driver re-runs `session.fitAutoProfile` (a full sized develop) **concurrently with the open session**, on top of the CPU-side `profileLUT` (also a full fit) that is computed in `decodeAndRender` and then *discarded* when the GPU present succeeds. Two fits per frame, the GPU one stacked on the live buffers.
+
+**Revised M1:** target the fit, not the chain resolution.
+- Compute the Auto-Profile fit's develop ONCE per (raw, mtime, quality) and have BOTH the CPU `profileLUT` and the GPU `session.fitAutoProfile` consume that cached result (the bake to CIColorCube vs GPU buffer is cheap; the develop is the 1.4 GB). Parity-neutral (identical curve/LUT). Removes the concurrent GPU develop.
+- Keep the resolution cap as a cheap safety ceiling, not the primary fix; do NOT soften normal previews for it.
+- The `MemoryProbe` + `measure_gpu_memory_at_dims` are the standing tools for this.
+
 ## 8. Sequencing & recommendation
 M0 ships now (crash fixed). **M1 is the next step** — it directly removes the proven GPU OOM and lets us lift the gate, restoring the 16 ms slider on large RAWs, with the smallest blast radius. M2 hardens the fit. M3/M4 are the broader architecture (enable ROI/zoom + a real export path + the WebGPU 8192 cap) and are larger, separable efforts. M5 is the safety net.
 
