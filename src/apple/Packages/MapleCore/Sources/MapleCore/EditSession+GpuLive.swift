@@ -75,6 +75,19 @@ extension EditSession {
             editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
             return false
         }
+        // #1637: very large sensors blow the iOS ~6 GB per-process limit on the
+        // GPU-live path — its wgpu storage buffers (display-res) plus the
+        // in-driver auto-profile fit accumulate across image switches and, with
+        // the CPU develop, jetsam-kill the app (a device A/B confirmed the
+        // 100 MP reference RAW OOMs with GPU-live ON, survives with it OFF).
+        // Fall back to the proven CPU two-phase path above the sensor threshold.
+        // `nativeImageSize == .zero` (pre-seed) is allowed through (helper).
+        let sensorLongEdge = max(nativeImageSize.width, nativeImageSize.height)
+        guard ImageEditPipeline.gpuLiveSupportsSensor(longEdge: sensorLongEdge) else {
+            editSessionLogger.notice(
+                "GPU-TRACE reject large-sensor gen=\(gen ?? 0) longEdge=\(sensorLongEdge, format: .fixed(precision: 0))")
+            return false
+        }
         // Non-RAW assets (pano PNG, JPEG, HEIF) use the GPU live chain with
         // `inputShape = 1` (LinearRec2020Fp16): `decodeSceneLinearNonRaw` already
         // promotes the buffer to extended linear Rec.2020 via CoreImage. The chain
