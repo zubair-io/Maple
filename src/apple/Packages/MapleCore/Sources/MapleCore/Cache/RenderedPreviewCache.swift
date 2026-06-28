@@ -139,7 +139,7 @@ public actor RenderedPreviewCache {
     }
 
     private func sidecarMtimeString(for assetURL: URL) -> String {
-        let sidecar = assetURL.deletingPathExtension().appendingPathExtension("xmp")
+        let sidecar = SidecarPath.sidecarURL(for: assetURL)
         guard let attrs = try? fm.attributesOfItem(atPath: sidecar.path),
               let mtime = attrs[.modificationDate] as? Date else { return "0" }
         return String(Int64(mtime.timeIntervalSince1970 * 1000))

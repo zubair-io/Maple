@@ -12,6 +12,7 @@ import type { OpResult } from './root.ts';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { isVideoFilename } from '../indexer/media-types.ts';
 import type { AssetExif, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -258,13 +259,21 @@ export const SHARP_EXTENSIONS = new Set<string>([
 const IMAGE_EXTENSIONS = new Set<string>([...RAW_EXTENSIONS, ...SHARP_EXTENSIONS]);
 
 /**
- * Match a sidecar filename and return its canonical base (no .xmp).
+ * Match a sidecar filename and return the filename of the primary it pairs to.
  *
- * Recognized forms:
+ * Images use the stem-swap convention — the base has no extension, so it pairs
+ * to a primary by its filename stem:
  *   IMG_1.xmp                               → IMG_1
  *   IMG_1 (conflict from MacBook).xmp       → IMG_1
  *   IMG_1 (conflict from MacBook) (2).xmp   → IMG_1
- *   notes.txt                               → null
+ *
+ * Videos use the full-name convention (`clip.mov` → `clip.mov.xmp`) so a Live
+ * Photo's motion clip gets its own sidecar instead of clobbering the still's.
+ * Stripping only the trailing `.xmp` leaves the video's own extension intact,
+ * so the base pairs to the video by its FULL filename:
+ *   IMG_1234.MOV.xmp                        → IMG_1234.MOV
+ *
+ *   notes.txt                               → null (not a sidecar)
  *
  * The optional ` (N)` numeric suffix is produced by `pickFreeConflictPath`
  * when multiple writers race on the same conflict-copy filename.
@@ -638,6 +647,14 @@ export async function listDirContents(
   for (const cand of sidecarRaw) {
     const base = canonicalBaseFromSidecarFilename(cand.name);
     if (!base) continue;
+    // A video's full-name sidecar (`clip.mov.xmp`) yields a base that ends in a
+    // video extension (`clip.mov`). It belongs to the motion clip, which is not
+    // an indexed standalone asset, so it has no `asset_id` to surface here. Skip
+    // it explicitly — without this, a same-stem photo (`clip.heic`) could never
+    // match it (its key is the stem `clip`, not `clip.mov`), but the guard makes
+    // the intent unmistakable and forecloses a pathological `clip.mov.heic` image
+    // accidentally claiming it.
+    if (isVideoFilename(base)) continue;
     const assetID = imageBaseToAsset.get(base);
     if (!assetID) continue;
     sidecars.push({ ...cand, asset_id: assetID });

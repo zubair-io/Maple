@@ -41,7 +41,7 @@ public actor XMPSidecarStore {
 
     public init(rawURL: URL) {
         self.rawURL = rawURL
-        self.sidecarURL = rawURL.deletingPathExtension().appendingPathExtension("xmp")
+        self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
     }
 
     /// Load current model+culling from disk (or return cached).
