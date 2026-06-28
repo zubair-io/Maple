@@ -47,8 +47,6 @@ struct AppShellCenterColumn: View {
     let searchThumbClient: CloudThumbClient?
     let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
-    /// Grid zoom level (#1550) — threaded from AppShell, passed to grids.
-    @Binding var browseZoomLevel: GridZoomLevel
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
@@ -133,11 +131,9 @@ struct AppShellCenterColumn: View {
                     thumbClient: thumbClient,
                     thumbCache: thumbCache,
                     displayMode: browseDisplayMode,
-                    zoomLevel: browseZoomLevel,
                     onSelectAsset: { asset in onSelectCloudAsset(asset, vm.server) },
                     onSelectLocalAsset: onSelectLocalAsset
                 )
-                .gridZoomPinch(level: $browseZoomLevel)
             } else {
                 // Responsive-program S2 (#623): on phone, the Library tab
                 // renders the new responsive 3-col edge-bleed grid with
@@ -154,7 +150,6 @@ struct AppShellCenterColumn: View {
                         source: browseVM.currentSource,
                         sessions: $sessions,
                         displayMode: $browseDisplayMode,
-                        zoomLevel: $browseZoomLevel,
                         onOpenEditor: onOpenEditor,
                         onPrimeSession: onPrimeSession,
                         onNavigateFolder: onNavigateFolder
@@ -164,7 +159,6 @@ struct AppShellCenterColumn: View {
                         vm: browseVM,
                         sessions: $sessions,
                         displayMode: $browseDisplayMode,
-                        zoomLevel: $browseZoomLevel,
                         onGrantPhotosAccess: onGrantPhotosAccess,
                         onNavigateFolder: onNavigateFolder,
                         onOpenEditor: onOpenEditor,
@@ -178,7 +172,6 @@ struct AppShellCenterColumn: View {
                     vm: browseVM,
                     sessions: $sessions,
                     displayMode: $browseDisplayMode,
-                    zoomLevel: $browseZoomLevel,
                     onGrantPhotosAccess: onGrantPhotosAccess,
                     onNavigateFolder: onNavigateFolder,
                     onOpenEditor: onOpenEditor,
