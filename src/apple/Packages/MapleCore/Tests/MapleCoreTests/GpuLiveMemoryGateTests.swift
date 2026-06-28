@@ -26,11 +26,12 @@ final class GpuLiveMemoryGateTests: XCTestCase {
         XCTAssertTrue(ImageEditPipeline.gpuLiveSupportsSensor(longEdge: 6000))
     }
 
-    /// Unknown sensor size (0 — metadata not seeded) does NOT gate: the GPU
-    /// path's own dims checks still apply, and we must not disable it on a
-    /// missing-size false negative.
-    func testUnknownSensorKeepsGPU() {
-        XCTAssertTrue(ImageEditPipeline.gpuLiveSupportsSensor(longEdge: 0))
+    /// Unknown sensor size (0 — metadata not yet seeded, e.g. a bytes-provider
+    /// / PhotoKit asset mid-fetch) falls back to CPU: taking the GPU path on a
+    /// possibly-huge RAW before its size is known is exactly what OOM-killed a
+    /// 100 MP library photo (#1637). GPU-live resumes once the size seeds.
+    func testUnknownSensorFallsBackToCPU() {
+        XCTAssertFalse(ImageEditPipeline.gpuLiveSupportsSensor(longEdge: 0))
     }
 
     /// The boundary is exclusive at the threshold and gates just above it.

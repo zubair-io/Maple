@@ -80,8 +80,12 @@ extension EditSession {
         // in-driver auto-profile fit accumulate across image switches and, with
         // the CPU develop, jetsam-kill the app (a device A/B confirmed the
         // 100 MP reference RAW OOMs with GPU-live ON, survives with it OFF).
-        // Fall back to the proven CPU two-phase path above the sensor threshold.
-        // `nativeImageSize == .zero` (pre-seed) is allowed through (helper).
+        // Fall back to the proven CPU two-phase path above the sensor threshold
+        // AND when the size is unknown (`nativeImageSize == .zero`) — a
+        // bytes-provider / PhotoKit asset seeds its size ASYNchronously, so a
+        // 100 MP library photo can still read `.zero` here and must NOT take
+        // the GPU path on spec (that OOM'd). GPU-live resumes once the size
+        // seeds and proves small (see `gpuLiveSupportsSensor`).
         let sensorLongEdge = max(nativeImageSize.width, nativeImageSize.height)
         guard ImageEditPipeline.gpuLiveSupportsSensor(longEdge: sensorLongEdge) else {
             editSessionLogger.notice(
