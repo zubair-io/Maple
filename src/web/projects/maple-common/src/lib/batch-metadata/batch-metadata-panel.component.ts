@@ -267,6 +267,10 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   onConfirm(): void {
     this.phase.set('applying');
+    // Clear any refile state from a previous run so a fresh apply can't flash a
+    // stale error/count when it reaches the refile-offer phase.
+    this.refileErrors.set([]);
+    this.refileCount.set(0);
     const entries = this._buildPayload();
     this.svc.batchApply(entries).subscribe({
       next: (result) => {
