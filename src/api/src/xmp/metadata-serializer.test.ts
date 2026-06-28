@@ -246,3 +246,65 @@ describe('mergeMetadataIntoXmp — partial edits preserve untouched fields', () 
     expect(parsed.gpsLatitude).toBeCloseTo(40.7128, 3); // preserved
   });
 });
+
+// ---------------------------------------------------------------------------
+// metadataOnly option — video sidecar (M5, #1635)
+// ---------------------------------------------------------------------------
+
+describe('mergeMetadataIntoXmp with metadataOnly: true', () => {
+  test('creates a sidecar with no Camera Raw Settings attributes for a new video sidecar', () => {
+    const meta: XmpMetadataInput = { gpsLatitude: 37.7749, gpsLongitude: -122.4194 };
+    const merged = mergeMetadataIntoXmp('', meta, { metadataOnly: true });
+    // No CRS namespace declaration.
+    expect(merged).not.toContain('camera-raw-settings');
+    expect(merged).not.toContain('crs:Version');
+    expect(merged).not.toContain('crs:HasSettings');
+    // Metadata fields are present.
+    expect(merged).toContain('exif:GPSLatitude');
+    expect(merged).toContain('exif:GPSLongitude');
+  });
+
+  test('metadata-only sidecar round-trips through parseXmpMetadata', () => {
+    const meta: XmpMetadataInput = {
+      gpsLatitude: 51.5074,
+      gpsLongitude: -0.1278,
+      city: 'London',
+      country: 'United Kingdom',
+      creator: 'Jane Doe',
+      copyrightNotice: '© 2026 Jane Doe',
+    };
+    const merged = mergeMetadataIntoXmp('', meta, { metadataOnly: true });
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.gpsLatitude).toBeCloseTo(51.5074, 3);
+    expect(parsed.gpsLongitude).toBeCloseTo(-0.1278, 3);
+    expect(parsed.city).toBe('London');
+    expect(parsed.country).toBe('United Kingdom');
+    expect(parsed.creator).toBe('Jane Doe');
+    expect(parsed.copyrightNotice).toBe('© 2026 Jane Doe');
+  });
+
+  test('metadataOnly: true is ignored when existingXml is non-empty (existing sidecar preserved)', () => {
+    // Even for video, if a sidecar already exists we preserve it rather than
+    // swapping in a new stub.
+    const existingVideoSidecar = mergeMetadataIntoXmp(
+      '',
+      { city: 'Tokyo' },
+      { metadataOnly: true },
+    );
+    const merged = mergeMetadataIntoXmp(
+      existingVideoSidecar,
+      { city: 'Osaka' },
+      { metadataOnly: true },
+    );
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.city).toBe('Osaka');
+    // Still no CRS in the output (the existing sidecar already lacked it).
+    expect(merged).not.toContain('crs:HasSettings');
+  });
+
+  test('metadataOnly: false (default) uses the adjustment-carrying STUB_XMP for new sidecars', () => {
+    const merged = mergeMetadataIntoXmp('', { city: 'Paris' });
+    // Default path: STUB_XMP includes CRS HasSettings.
+    expect(merged).toContain('crs:HasSettings');
+  });
+});
