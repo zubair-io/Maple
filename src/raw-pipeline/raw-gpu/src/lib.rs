@@ -278,13 +278,12 @@ pub use live_session::LiveSession;
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
-pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass, SceneToneOptions};
+pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
 pub use sharpen::SharpenPass;
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,
     clarity_texture_encode, encode_simple, guided_filter_self_encode, luma_extract_encode,
-    plane_byte_len, plane_vec2_byte_len, pool_data_storage, ClarityTextureArgs, GuidedFilterArgs,
-    Plane,
+    plane_byte_len, plane_vec2_byte_len, pool_data_storage, Plane,
 };
 pub use split_tone::{apply_split_tone, SplitTonePass};
 pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};

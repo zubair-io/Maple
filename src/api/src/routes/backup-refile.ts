@@ -149,6 +149,20 @@ function isGeoBackupCandidate(doc: WithId<AssetDoc>): boolean {
 }
 
 /**
+ * True when relocating the asset would actually move it — i.e. its target geo
+ * dir differs from its current dir. Mirrors `moveBackupAsset`'s skip condition
+ * (`newDir === oldDir`, where `oldDir = primary.path`) so the offered count and
+ * the count would not include assets already filed in their canonical folder.
+ */
+function wouldRelocate(doc: WithId<AssetDoc>): boolean {
+  if (!isGeoBackupCandidate(doc)) return false;
+  const target = geoDir(doc);
+  if (!target) return false;
+  const primary = assetPrimaryFileInfo(doc);
+  return primary != null && primary.path !== target;
+}
+
+/**
  * Look up backup-origin asset docs for the given absolute paths.
  * Post-filters results by reconstructing each doc's absolute path from the
  * library map to prevent false matches on same-named files in other libraries.
@@ -223,12 +237,9 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
         return { error: `paths exceeds maximum of ${MAX_PATHS}` };
       }
 
-      // Resolve each path through the auth jail; silently drop unauthorized.
-      const absPaths: string[] = [];
-      for (const p of paths) {
-        const auth = await resolveAndAuthorizePath(p);
-        if (auth.ok) absPaths.push(auth.data);
-      }
+      // Resolve each path through the auth jail (in parallel); drop unauthorized.
+      const resolved = await Promise.all(paths.map((p) => resolveAndAuthorizePath(p)));
+      const absPaths = resolved.flatMap((r) => (r.ok ? [r.data] : []));
 
       let libs: ReadonlyMap<string, string>;
       try {
@@ -237,10 +248,19 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
         libs = new Map();
       }
 
-      const docs = await findGeoBackupDocs(absPaths, libs);
-      const count = docs.filter((d) => isGeoBackupCandidate(d)).length;
-
-      return { count };
+      // A DB hiccup must not break the editor — return count:0 so the offer
+      // simply doesn't surface, rather than 500-ing the panel.
+      try {
+        const docs = await findGeoBackupDocs(absPaths, libs);
+        const count = docs.filter(wouldRelocate).length;
+        return { count };
+      } catch (err: unknown) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'backup-refile: count failed',
+        );
+        return { count: 0 };
+      }
     },
     {
       body: RefileBodySchema,
@@ -265,12 +285,9 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
         return { error: `paths exceeds maximum of ${MAX_PATHS}` };
       }
 
-      // Resolve each path through the auth jail; silently drop unauthorized.
-      const absPaths: string[] = [];
-      for (const p of paths) {
-        const auth = await resolveAndAuthorizePath(p);
-        if (auth.ok) absPaths.push(auth.data);
-      }
+      // Resolve each path through the auth jail (in parallel); drop unauthorized.
+      const resolved = await Promise.all(paths.map((p) => resolveAndAuthorizePath(p)));
+      const absPaths = resolved.flatMap((r) => (r.ok ? [r.data] : []));
 
       // Load library roots once — shared between findGeoBackupDocs (for
       // precise path matching) and the move loop (for building libRoot).
@@ -325,7 +342,11 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
           // That stamp belongs to the bulk refile-backups migration only.
           const outcome = await moveBackupAsset(c, doc, libRoot, newDir);
           results.push({ path: representativePath, ok: true, outcome });
-          log.info({ _id: String(doc._id), outcome, newDir }, 'backup-refile: asset relocated');
+          const moved = outcome === 'moved';
+          log.info(
+            { _id: String(doc._id), outcome, newDir },
+            moved ? 'backup-refile: asset relocated' : 'backup-refile: no move needed',
+          );
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           log.warn({ _id: String(doc._id), err: msg }, 'backup-refile: move failed');
