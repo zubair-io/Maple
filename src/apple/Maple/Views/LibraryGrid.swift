@@ -57,12 +57,12 @@ struct LibraryGrid: View {
             },
             displayMode: displayMode,
             leadingCount: vm.subfolders.count,
-            leading: { i in
+            leading: { i, scale in
                 let reversed = Array(vm.subfolders.reversed())
                 guard i < reversed.count else { return nil }
                 let url = reversed[i]
                 return AnyView(
-                    LibraryFolderCell(url: url) { onNavigateFolder(url) }
+                    LibraryFolderCell(url: url, labelScale: scale) { onNavigateFolder(url) }
                 )
             },
             selection: vm.selectedID.map { Set([$0]) } ?? []
@@ -90,6 +90,9 @@ struct LibraryGrid: View {
 /// Square sub-folder tile for the phone Library grid.
 private struct LibraryFolderCell: View {
     let url: URL
+    /// Current grid render scale. The label is counter-scaled by 1/labelScale so
+    /// it stays a fixed size (Typography.body) while the folder box zooms (#1640).
+    let labelScale: CGFloat
     let onNavigate: () -> Void
 
     var body: some View {
@@ -109,6 +112,9 @@ private struct LibraryFolderCell: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .padding(6)
+                        // Counter the grid's scaleEffect so the label stays a
+                        // fixed size while the box zooms (#1640).
+                        .scaleEffect(1 / max(labelScale, 0.001), anchor: .bottomLeading)
                 }
                 .contentShape(Rectangle())
         }

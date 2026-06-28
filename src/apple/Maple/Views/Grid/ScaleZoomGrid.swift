@@ -14,7 +14,7 @@
 //       makeItem:     (Element) -> PhotoGridItem,
 //       onTap:        (Element) -> Void,
 //       leadingCount: Int,                   // leading slot count (folders)
-//       leading:      (Int) -> AnyView?      // leading cell view by slot index
+//       leading:      (Int, CGFloat) -> AnyView?  // (slot, renderScale) -> cell
 //   )
 // Optional: selection: Set<Element.ID>, multiSelectChecked: ((Element) -> Bool?)?,
 //           displayMode: GridDisplayMode, onAppearItem: ((Element) -> Void)?
@@ -39,8 +39,11 @@
 //   2 — accidental opens: taps handled at the container (sibling of pan/pinch),
 //       hit-tested; + lastGestureEnd time guard + scroll threshold 4pt
 //   3 — always open at .comfortable (3-wide) regardless of persisted value
-//   4 — content inset: full ignoresSafeArea() + topInset (from an outer reader)
-//       so the grid opens below the bars and scrolls under them
+//
+// #1640 follow-up: reactive open (onAppear + onChange(of: W)) so a W==0 layout
+// race can't leave it at 9-wide/top-left; single safe-area-respecting reader
+// (grid opens below the bars; Maple-tinted bg behind them — the fragile nested
+// scroll-under reader is removed); folder labels counter-scaled to a fixed size.
 
 import SwiftUI
 import MapleCore
@@ -64,9 +67,11 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
 
     /// Number of leading slots (folders) packed before the photo items.
     var leadingCount: Int = 0
-    /// View factory for leading slots; receives the slot index (0..<leadingCount).
+    /// View factory for leading slots; receives the slot index (0..<leadingCount)
+    /// and the current render scale, so a leading cell can counter-scale a label
+    /// to keep it at a fixed size while the box zooms (#1640).
     /// Return `nil` to leave a slot empty.
-    var leading: (Int) -> AnyView? = { _ in nil }
+    var leading: (Int, CGFloat) -> AnyView? = { _, _ in nil }
 
     /// Currently selected item IDs (single-select outline).
     var selection: Set<Element.ID> = []
@@ -138,17 +143,16 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     // MARK: Body
 
     var body: some View {
-        // Outer reader does NOT ignore the safe area, so it reports the REAL top
-        // inset (nav + status bar). Under the inner .ignoresSafeArea() that value
-        // reads 0, which is why the earlier content-inset attempt produced no
-        // padding. (#1570 Issue 4.)
-        GeometryReader { outer in
-            let topInset = outer.safeAreaInsets.top
-            GeometryReader { geo in
+        GeometryReader { geo in
             let W = geo.size.width
             let H = geo.size.height
             let cell = (W - gap * CGFloat(baseColumns - 1)) / CGFloat(baseColumns)
             let pitch = cell + gap
+            // The grid respects the safe area (opens below the nav/status bar);
+            // a Maple-tinted background fills behind the translucent bars. So the
+            // resting top is 0 (= safe-area top). The earlier nested-reader
+            // scroll-under was fragile and raced the open — removed (#1640).
+            let topInset: CGFloat = 0
 
             ZStack(alignment: .topLeading) {
                 if transitioning {
@@ -182,30 +186,32 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
             // guarded, so a finger-lift no longer opens an image (#1570 Issue 1/2).
             .simultaneousGesture(tapGesture(W: W, H: H, cell: cell, pitch: pitch,
                                             topInset: topInset))
-            // First layout: always open at .comfortable (3-wide) regardless of
-            // the persisted level — consistent, predictable open state (#1570 Issue 3).
-            .onAppear {
-                guard !didInit, W > 0 else { return }
-                didInit = true
-                // Always open at 3-wide (.comfortable), ignoring the persisted value.
-                let idx = indexFor(.comfortable)
-                levelIndex = idx
-                scale = levelScale(levels[idx], cell: cell, W: W)
-                // Issue 4: rest below the top bars at topInset (not 0).
-                offset = CGSize(width: 0, height: topInset)
-                level = .comfortable
-            }
+            // Reactive init: open at 3-wide (.comfortable) on the first VALID
+            // layout. .onAppear can fire with W==0 (loses the layout race) and
+            // only fires once; .onChange(of: W) catches width becoming valid, so
+            // the open is no longer intermittent (9-wide / top-left) — #1640.
+            .onAppear { openAtComfortable(W: W) }
+            .onChange(of: W) { _, newW in openAtComfortable(W: newW) }
             // iPhone-only: the zoom toolbar (+/- / ⌘±) is hidden on the phone, so
             // `level` only changes via our own write-backs. No external-change
             // observer/settle is needed — that was the M3 Mac/iPad path, removed
             // when scale-zoom was gated to iPhone (#1570).
-            }
-            // Inner grid fills the full screen (ignores safe area) so content
-            // scrolls UNDER the translucent bars; the outer reader's topInset is
-            // the rest-offset so it OPENS below them (#1570 Issue 4).
-            .ignoresSafeArea()
         }
-        .background(Color.black)
+        .background(MapleTokens.bg.ignoresSafeArea())
+    }
+
+    /// First valid layout: open at .comfortable (3-wide), resting at the safe-area
+    /// top. Width-guarded + idempotent so the layout race can't leave the grid at
+    /// the raw @State defaults (9-wide, top-left) — see #1640.
+    private func openAtComfortable(W: CGFloat) {
+        guard !didInit, W > 0 else { return }
+        didInit = true
+        let cell = (W - gap * CGFloat(baseColumns - 1)) / CGFloat(baseColumns)
+        let idx = indexFor(.comfortable)
+        levelIndex = idx
+        scale = levelScale(levels[idx], cell: cell, W: W)
+        offset = .zero
+        level = .comfortable
     }
 
     // MARK: - Grid layer (windowed: only visible rows realized)
@@ -230,7 +236,7 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
                     ForEach(0..<T, id: \.self) { c in
                         let g = r * T + c   // global slot index
                         if g < total {
-                            cell(globalSlot: g, cellSize: cellSize)
+                            cell(globalSlot: g, cellSize: cellSize, layerScale: layerScale)
                                 .offset(x: CGFloat(c) * pitch, y: CGFloat(r) * rowH)
                         }
                     }
@@ -246,10 +252,11 @@ struct ScaleZoomGrid<Element: Identifiable>: View {
     // MARK: - Cell dispatch
 
     @ViewBuilder
-    private func cell(globalSlot g: Int, cellSize: CGFloat) -> some View {
+    private func cell(globalSlot g: Int, cellSize: CGFloat, layerScale: CGFloat) -> some View {
         if g < leadingCount {
-            // Leading slot (folder / album cell).
-            if let view = leading(g) {
+            // Leading slot (folder / album cell). Pass the render scale so the
+            // cell can counter-scale its label to a fixed size (#1640).
+            if let view = leading(g, layerScale) {
                 view
                     .frame(width: cellSize, height: cellSize)
                     .clipped()
