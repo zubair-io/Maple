@@ -63,7 +63,7 @@ export const thumbRoutes = new Elysia().get(
     // requires ffmpeg or a native video decoder — a dependency not currently
     // bundled. The grid renders a video placeholder on 404. Apple clients get
     // a poster via AVAssetImageGenerator (shipped in #1642).
-    // Follow-up: #1643 (server-side video poster via platform ffmpeg or WASM).
+    // Follow-up: #1649 (server-side video poster via platform ffmpeg or WASM).
     if (isVideoFilename(filename)) {
       set.status = 404;
       return { error: 'No thumbnail for video assets' };
