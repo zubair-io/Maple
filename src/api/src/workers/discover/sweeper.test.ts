@@ -171,6 +171,31 @@ describe('visitDirectory', () => {
 
     rmSync(root, { recursive: true, force: true });
   });
+
+  it('emits created for a video file (.mov)', async () => {
+    if (!reachable) return;
+    const { visitDirectory } = await import('./sweeper.ts');
+    const frontier = await import('./frontier.repo.ts');
+
+    const root = mkdtempSync(join(tmpdir(), 'maple-sweep-video-'));
+    writeFileSync(join(root, 'clip.mov'), 'x');
+
+    const folderId = new ObjectId();
+    const events: WatchEvent[] = [];
+    await frontier.seedRoot(folderId, root, 1);
+    const dir = await frontier.claimNextDir(folderId, 1, 60_000);
+    await visitDirectory(dir!, root, {
+      handleEvent: async (e) => {
+        events.push(e);
+      },
+      folderId,
+    });
+
+    const kinds = events.map((e) => `${e.kind}:${e.absPath.split('/').pop()}`);
+    expect(kinds).toContain('created:clip.mov');
+
+    rmSync(root, { recursive: true, force: true });
+  });
 });
 
 describe('advanceSweep', () => {
