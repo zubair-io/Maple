@@ -54,6 +54,9 @@ struct LibraryGrid: View {
             .padding(2)
         }
         .accessibilityIdentifier("library-grid")
+        // Maple surface behind the grid (incl. behind the translucent bars) so the
+        // Library matches BrowseGrid / CloudSearchView — Copilot review on #1646.
+        .background(MapleTokens.bg.ignoresSafeArea())
     }
 
     // MARK: - Overlay derivation
