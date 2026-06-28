@@ -84,21 +84,26 @@ describe('FileProvider: sync all file types', () => {
   });
 
   // listDirContents is exercised directly (no route, no Mongo) since there
-  // are no images in the fixture.
-  test('listDirContents surfaces non-image files in `files`', async () => {
+  // are no still images in the fixture.
+  test('listDirContents surfaces video files in `images` and other non-image files in `files`', async () => {
     const res = await listDirContents(realTmpRoot);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const { data } = res;
 
-    expect(data.images).toHaveLength(0);
     expect(data.sidecars).toHaveLength(0);
     expect(data.dirs.map((d) => d.name)).toContain('sub');
 
+    // clip.mov is a video — surfaces in images with isVideo=true.
+    const videoEntry = data.images.find((i) => i.name === 'clip.mov');
+    expect(videoEntry).toBeDefined();
+    expect(videoEntry?.isVideo).toBe(true);
+    expect(videoEntry?.ext).toBe('mov');
+
+    // Non-video, non-image files land in files.
     const byName = new Map(data.files.map((f) => [f.name, f]));
-    expect([...byName.keys()].sort()).toEqual(['README', 'clip.mov', 'notes.txt']);
+    expect([...byName.keys()].sort()).toEqual(['README', 'notes.txt']);
     expect(byName.get('notes.txt')!.ext).toBe('txt');
-    expect(byName.get('clip.mov')!.ext).toBe('mov');
     expect(byName.get('README')!.ext).toBe('');
     for (const f of data.files) {
       expect(typeof f.path).toBe('string');

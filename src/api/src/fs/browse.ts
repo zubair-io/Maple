@@ -12,7 +12,6 @@ import type { OpResult } from './root.ts';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { isVideoFilename } from '../indexer/media-types.ts';
 import type { AssetExif, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -258,6 +257,9 @@ export const SHARP_EXTENSIONS = new Set<string>([
  * Kept in sync with the thumb endpoint's extension gate. */
 const IMAGE_EXTENSIONS = new Set<string>([...RAW_EXTENSIONS, ...SHARP_EXTENSIONS]);
 
+/** Video container extensions surfaced in the listing alongside images (lowercase, no dot). */
+const VIDEO_EXTENSIONS = new Set<string>(['mov', 'mp4', 'm4v', 'avi', 'mkv', 'webm', 'mts', 'm2ts', '3gp']);
+
 /**
  * Match a sidecar filename and return the filename of the primary it pairs to.
  *
@@ -307,6 +309,8 @@ export interface ImageChild extends DirChild {
    * hasn't been indexed yet (or the indexer hasn't run for this folder).
    */
   exif?: AssetExif | null;
+  /** True when the file is a video container (e.g. .mov, .mp4). */
+  isVideo?: true;
 }
 
 export interface SidecarChild {
@@ -470,10 +474,15 @@ export async function listDirContents(
       const dot = name.lastIndexOf('.');
       if (dot < 0) continue;
       const ext = name.slice(dot + 1).toLowerCase();
-      if (!IMAGE_EXTENSIONS.has(ext)) continue;
-      const base = name.slice(0, dot);
-      const candidate = real === '/' ? '/' + name : `${real}/${name}`;
-      allImageBases.set(base, candidate);
+      if (IMAGE_EXTENSIONS.has(ext)) {
+        const base = name.slice(0, dot);
+        const candidate = real === '/' ? '/' + name : `${real}/${name}`;
+        allImageBases.set(base, candidate);
+      } else if (VIDEO_EXTENSIONS.has(ext)) {
+        // Video sidecar convention: full-name key (clip.mov → clip.mov.xmp → base 'clip.mov')
+        const candidate = real === '/' ? '/' + name : `${real}/${name}`;
+        allImageBases.set(name, candidate);
+      }
     }
     if (allImageBases.size > 0) {
       try {
@@ -557,6 +566,15 @@ export async function listDirContents(
           mtime: st.mtime.toISOString(),
           ext,
         });
+      } else if (ext !== '' && VIDEO_EXTENSIONS.has(ext)) {
+        images.push({
+          name,
+          path: childReal,
+          size: st.size,
+          mtime: st.mtime.toISOString(),
+          ext,
+          isVideo: true,
+        });
       } else if (ext === 'xmp') {
         sidecarRaw.push({
           name,
@@ -565,8 +583,8 @@ export async function listDirContents(
           mtime: st.mtime.toISOString(),
         });
       } else {
-        // Every other regular file (video, documents, archives,
-        // extensionless) — stored + synced but never indexed.
+        // Every other regular file (documents, archives, extensionless) —
+        // stored + synced but never indexed.
         files.push({
           name,
           path: childReal,
@@ -638,23 +656,24 @@ export async function listDirContents(
   const imageBaseToAsset = new Map<string, string>(globalImageBaseToAsset);
   for (const img of images) {
     if (!img.id) continue;
-    const dot = img.name.lastIndexOf('.');
-    const base = dot >= 0 ? img.name.slice(0, dot) : img.name;
-    imageBaseToAsset.set(base, img.id);
+    if (img.isVideo) {
+      // Video: sidecar convention is full-name (clip.mov → clip.mov.xmp).
+      // canonicalBaseFromSidecarFilename('clip.mov.xmp') returns 'clip.mov',
+      // so key by full filename.
+      imageBaseToAsset.set(img.name, img.id);
+    } else {
+      const dot = img.name.lastIndexOf('.');
+      const base = dot >= 0 ? img.name.slice(0, dot) : img.name;
+      imageBaseToAsset.set(base, img.id);
+    }
   }
 
   const sidecars: SidecarChild[] = [];
   for (const cand of sidecarRaw) {
     const base = canonicalBaseFromSidecarFilename(cand.name);
     if (!base) continue;
-    // A video's full-name sidecar (`clip.mov.xmp`) yields a base that ends in a
-    // video extension (`clip.mov`). It belongs to the motion clip, which is not
-    // an indexed standalone asset, so it has no `asset_id` to surface here. Skip
-    // it explicitly — without this, a same-stem photo (`clip.heic`) could never
-    // match it (its key is the stem `clip`, not `clip.mov`), but the guard makes
-    // the intent unmistakable and forecloses a pathological `clip.mov.heic` image
-    // accidentally claiming it.
-    if (isVideoFilename(base)) continue;
+    // No longer skip video-named bases — video assets are now indexed and
+    // their sidecars (clip.mov.xmp → base 'clip.mov') must be paired.
     const assetID = imageBaseToAsset.get(base);
     if (!assetID) continue;
     sidecars.push({ ...cand, asset_id: assetID });
@@ -711,6 +730,8 @@ export async function listDirContents(
 export interface FastImageChild extends DirChild {
   size: number; // bytes
   ext: string; // lowercase, no dot
+  /** True when the file is a video container (e.g. .mov, .mp4). */
+  isVideo?: true;
 }
 
 export interface FastDirContents {
@@ -825,6 +846,15 @@ export async function listDirFast(
           size: st.size,
           mtime: st.mtime.toISOString(),
           ext,
+        });
+      } else if (VIDEO_EXTENSIONS.has(ext)) {
+        images.push({
+          name,
+          path: childReal,
+          size: st.size,
+          mtime: st.mtime.toISOString(),
+          ext,
+          isVideo: true,
         });
       }
     }

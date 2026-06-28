@@ -29,9 +29,10 @@ describe("GET /api/fs/dir", () => {
     await fs.writeFile(path.join(tmpRoot, "scan.PNG"), "x");
     await fs.writeFile(path.join(tmpRoot, "phone.heic"), "x");
 
-    // Non-image files (and dotfiles) that must be filtered out.
-    await fs.writeFile(path.join(tmpRoot, "notes.txt"), "x");
+    // Video file — surfaced in images with isVideo=true.
     await fs.writeFile(path.join(tmpRoot, "clip.mp4"), "x");
+    // Non-image, non-video files (and dotfiles) that must be filtered out.
+    await fs.writeFile(path.join(tmpRoot, "notes.txt"), "x");
     await fs.writeFile(path.join(tmpRoot, ".env"), "x");
 
     // Pin MAPLE_ROOTS to our tmp dir so the jail rejects everything else.
@@ -70,13 +71,14 @@ describe("GET /api/fs/dir", () => {
       "IMG_002.cr2",
       "IMG_003.NEF",
       "IMG_004.dng",
+      "clip.mp4",
       "phone.heic",
       "preview.jpg",
       "scan.PNG",
       "shot.JPEG",
     ]);
     const allowedExts = new Set([
-      "cr3", "cr2", "nef", "dng", "jpg", "jpeg", "png", "heic",
+      "cr3", "cr2", "nef", "dng", "jpg", "jpeg", "png", "heic", "mp4",
     ]);
     for (const img of json.images) {
       expect(typeof img.size).toBe("number");
@@ -87,9 +89,14 @@ describe("GET /api/fs/dir", () => {
       expect(img.ext).toBe(img.ext.toLowerCase());
       expect(allowedExts.has(img.ext)).toBe(true);
     }
+    // Video entries carry isVideo=true; still images do not.
+    const clipEntry = json.images.find((i: any) => i.name === "clip.mp4");
+    expect(clipEntry?.isVideo).toBe(true);
+    const photoEntry = json.images.find((i: any) => i.name === "IMG_004.dng");
+    expect(photoEntry?.isVideo).toBeUndefined();
   });
 
-  it("filters out non-image files (.txt, .mp4)", async () => {
+  it("filters out non-selectable files (.txt) but surfaces videos (.mp4) in images", async () => {
     const { fsRoutes } = await import("../src/routes/fs.ts");
     const res = await fsRoutes.handle(
       new Request(
@@ -98,8 +105,12 @@ describe("GET /api/fs/dir", () => {
     );
     const json = await res.json();
     const names = json.images.map((i: any) => i.name);
+    // Plain text files stay out of images.
     expect(names).not.toContain("notes.txt");
-    expect(names).not.toContain("clip.mp4");
+    // Video files are now surfaced in images with isVideo=true.
+    expect(names).toContain("clip.mp4");
+    const clipEntry = json.images.find((i: any) => i.name === "clip.mp4");
+    expect(clipEntry?.isVideo).toBe(true);
   });
 
   it("filters out dotfiles and dotdirs (including .maple/)", async () => {
