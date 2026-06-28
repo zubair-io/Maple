@@ -139,16 +139,23 @@ public struct CanvasMath: Sendable, Equatable {
     /// known, the normal branch takes over.
     public var refinedTargetSize: CGSize? {
         guard let fast = fastTargetSize else { return nil }
+        // Cap the refine to `headroom×` the viewport long edge. The fit-to-window
+        // display never needs more than the viewport (zoom to 100% routes through
+        // the fp16 tile path), but an uncapped `native × pixelScale` let the
+        // refine approach the full sensor at high zoom (or via the pre-decode
+        // fallback below) — a ~1.4 GB f32 buffer that, with the concurrent
+        // auto-profile develop, jetsam-killed iOS on a 100 MP RAW (#1637).
+        let headroom: CGFloat = 2.0
+        let cap = max(fast.width, fast.height) * headroom
         if nativeImageSize == .zero {
-            // Pre-decode fallback. Constrain to 8× fast to avoid a huge
-            // target being set while the scheduler waits for the first
-            // decode; once native is known the normal branch takes over.
-            let mult = min(max(1.0, pixelScale), 8.0)
+            // Pre-decode fallback. Constrain to `headroom×` fast (was 8×) so the
+            // first render can't request near-full res before native lands.
+            let mult = min(max(1.0, pixelScale), headroom)
             return CGSize(width: fast.width * mult, height: fast.height * mult)
         }
         let scale = min(max(pixelScale, 0), 1.0)
-        let w = max(nativeImageSize.width * scale, fast.width)
-        let h = max(nativeImageSize.height * scale, fast.height)
+        let w = min(max(nativeImageSize.width * scale, fast.width), cap)
+        let h = min(max(nativeImageSize.height * scale, fast.height), cap)
         return CGSize(width: w, height: h)
     }
 

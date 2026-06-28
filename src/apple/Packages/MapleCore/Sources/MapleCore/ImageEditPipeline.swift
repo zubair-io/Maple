@@ -54,6 +54,29 @@ public actor ImageEditPipeline {
     /// `decodeAndRender` nil-target guard, #785) never drift apart.
     nonisolated public static let fastPhaseFallbackLongEdge: Int = 1500
 
+    /// Resolution the live decode runs at for a render `phase`, given the
+    /// caller's requested display `targetSize` (#1637).
+    ///
+    /// A bounded target is honoured for BOTH phases so the decoded
+    /// scene-linear buffer — and the GPU-present texture it feeds — never
+    /// exceeds the display. Refine previously forced `nil` (full-res) even
+    /// when handed a bounded `refinedTargetSize`, so a 100 MP RAW allocated
+    /// the full-sensor demosaic (~1.4 GB) plus a full-res `vec4<f32>` GPU
+    /// texture (~1.6 GB) on cold open and jetsam-killed iOS. Only a `nil`
+    /// target on `.refine` — `renderFull()`'s explicit export-prep request —
+    /// still decodes full-res; `.fast` always caps (never full-res, #785).
+    nonisolated public static func decodeTarget(
+        phase: RenderPhase, targetSize: CGSize?
+    ) -> CGSize? {
+        if let targetSize {
+            let longEdge = max(targetSize.width, targetSize.height)
+            if longEdge.isFinite, longEdge >= 1 { return targetSize }
+        }
+        guard phase == .fast else { return nil }
+        let cap = CGFloat(fastPhaseFallbackLongEdge)
+        return CGSize(width: cap, height: cap)
+    }
+
     /// As-shot white balance derived from the RAW's metadata. Passed into
     /// `process(...)` so `CITemperatureAndTint`'s `neutral` reflects the
     /// camera's metered white point — the slider then behaves as a scene

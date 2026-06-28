@@ -127,6 +127,25 @@ fn develop_display_for_auto_fit(
     Ok(scene)
 }
 
+/// Sensor long edge (px) above which the standalone Auto-Profile fit develops
+/// only to the preview resolution instead of the full sensor (#1637). At and
+/// below this the fit stays full-res so its fitted curve is byte-unchanged —
+/// the memory win is only *needed*, and its small parity cost only *worth it*,
+/// on the very large RAWs (~50 MP+) that jetsam-kill iOS by holding a ~1.4 GB
+/// fit buffer concurrent with the render. ~8000 px ≈ 50 MP; it sits above every
+/// color-pipeline fixture except the 100 MP `test_0000` (12288 px).
+const AUTO_FIT_SIZED_SENSOR_LE: u32 = 8000;
+
+/// `max_long_edge` for the standalone fit develop: the preview resolution on a
+/// large sensor (memory-bounded), else `None` (full-res, parity-preserved).
+fn auto_fit_max_long_edge(raw: &RawImage, preview: &ExtractedPreview) -> Option<u32> {
+    if raw.width.max(raw.height) > AUTO_FIT_SIZED_SENSOR_LE {
+        Some(preview.image.width().max(preview.image.height()))
+    } else {
+        None
+    }
+}
+
 /// Extract the embedded preview (+ color space) for `raw_source` — ONE
 /// extraction shared by the curve fit, the residual fit, and the render
 /// path's will-it-fit probe (#1085 perf companion: pre-fix the cold Auto
@@ -184,7 +203,12 @@ pub fn fit_profile_curve_from_raw(
     }
     // Extract BEFORE the multi-second develop — no preview ⇒ no fit possible.
     let preview = extract_preview_for_fit(&raw_source)?;
-    let scene = develop_display_for_auto_fit(raw, model, quality, None).ok()?;
+    // #1637: on a very large sensor, develop the fit only to the preview's
+    // resolution (the JPEG it aligns against) — not the full sensor, a ~1.4 GB
+    // buffer that, concurrent with the render, jetsam-killed iOS. Smaller
+    // sensors keep the full-res fit (see `auto_fit_max_long_edge`).
+    let mle = auto_fit_max_long_edge(raw, &preview);
+    let scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
     let (w, h) = (scene.width as usize, scene.height as usize);
     let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
     let fitted = auto_profile::fit_display::fit_curve_from_preview_display(
@@ -268,7 +292,11 @@ pub fn fit_auto_profile_from_raw(
             // No embedded preview: nothing beyond the cache can be fit.
             None => (cached_curve, cached_lut),
             Some(preview) => {
-                let mut scene = develop_display_for_auto_fit(raw, model, quality, None).ok()?;
+                // #1637: size the fit develop to the preview on large sensors
+                // only (see the curve-only fit above + `auto_fit_max_long_edge`).
+                let mle = auto_fit_max_long_edge(raw, &preview);
+                let mut scene =
+                    develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
                 let (w, h) = (scene.width as usize, scene.height as usize);
                 let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
                 auto_profile::apply_pipeline::fit_auto_profile_artifacts(
