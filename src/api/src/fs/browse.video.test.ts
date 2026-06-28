@@ -27,16 +27,16 @@ describe('listDirFast — video files', () => {
 
       const result = await listDirFast(dir);
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      const { images } = result.data!;
 
-      const names = result.data.images.map((i) => i.name);
+      const names = images.map((i) => i.name);
       expect(names).toContain('clip.mov');
       expect(names).toContain('photo.dng');
 
-      const videoEntry = result.data.images.find((i) => i.name === 'clip.mov');
+      const videoEntry = images.find((i) => i.name === 'clip.mov');
       expect(videoEntry?.isVideo).toBe(true);
 
-      const photoEntry = result.data.images.find((i) => i.name === 'photo.dng');
+      const photoEntry = images.find((i) => i.name === 'photo.dng');
       expect(photoEntry?.isVideo).toBeUndefined();
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -51,9 +51,9 @@ describe('listDirFast — video files', () => {
 
       const result = await listDirFast(dir);
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      const { images } = result.data!;
 
-      const videoEntry = result.data.images.find((i) => i.name === 'video.mp4');
+      const videoEntry = images.find((i) => i.name === 'video.mp4');
       expect(videoEntry).toBeDefined();
       expect(videoEntry?.isVideo).toBe(true);
     } finally {
@@ -69,9 +69,9 @@ describe('listDirFast — video files', () => {
 
       const result = await listDirFast(dir);
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      const { images } = result.data!;
 
-      const names = result.data.images.map((i) => i.name);
+      const names = images.map((i) => i.name);
       expect(names).not.toContain('clip.mov.xmp');
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -88,16 +88,16 @@ describe('listDirContents — video files', () => {
 
       const result = await listDirContents(dir);
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      const { images, files } = result.data!;
 
-      const imageNames = result.data.images.map((i) => i.name);
+      const imageNames = images.map((i) => i.name);
       expect(imageNames).toContain('clip.mov');
 
-      const videoEntry = result.data.images.find((i) => i.name === 'clip.mov');
+      const videoEntry = images.find((i) => i.name === 'clip.mov');
       expect(videoEntry?.isVideo).toBe(true);
 
       // Must NOT be in the files bucket
-      const fileNames = result.data.files.map((f) => f.name);
+      const fileNames = files.map((f) => f.name);
       expect(fileNames).not.toContain('clip.mov');
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
