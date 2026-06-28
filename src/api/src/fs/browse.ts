@@ -258,7 +258,17 @@ export const SHARP_EXTENSIONS = new Set<string>([
 const IMAGE_EXTENSIONS = new Set<string>([...RAW_EXTENSIONS, ...SHARP_EXTENSIONS]);
 
 /** Video container extensions surfaced in the listing alongside images (lowercase, no dot). */
-const VIDEO_EXTENSIONS = new Set<string>(['mov', 'mp4', 'm4v', 'avi', 'mkv', 'webm', 'mts', 'm2ts', '3gp']);
+const VIDEO_EXTENSIONS = new Set<string>([
+  'mov',
+  'mp4',
+  'm4v',
+  'avi',
+  'mkv',
+  'webm',
+  'mts',
+  'm2ts',
+  '3gp',
+]);
 
 /**
  * Match a sidecar filename and return the filename of the primary it pairs to.

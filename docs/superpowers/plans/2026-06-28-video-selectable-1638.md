@@ -24,31 +24,33 @@ This plan is organised task-by-task.
 
 ## File Map
 
-| File | Action | Responsibility |
-|---|---|---|
-| `src/api/src/workers/discover/types.ts` | Modify | Add video extensions to `SUPPORTED_EXTS` |
-| `src/api/src/workers/discover/sweeper.test.ts` | Modify | Add test: video file emits `created` event |
-| `src/api/src/fs/browse.ts` | Modify | Surface video files in `listDirFast` and `listDirContents` `images` array with `isVideo: true`; also pair video sidecars to video assets |
-| `src/api/src/fs/browse.test.ts` | Create | Tests for video in `listDirFast` and `listDirContents` (if not present) |
-| `src/web/projects/maple-common/src/lib/addressing/library-source.ts` | Modify | Add `isVideo?: boolean` to `ImageEntry` |
-| `src/web/projects/maple-common/src/lib/api/filesystem-browse.service.ts` | Modify | Add `isVideo?: boolean` to `FsImageEntry` |
-| `src/web/projects/maple-common/src/lib/state/library-fetch.service.ts` | Modify | Forward `isVideo` to `Asset` model when building asset list |
-| `src/web/projects/maple-common/src/lib/models/asset.ts` | Modify (if needed) | Add `isVideo?: boolean` to `Asset` interface |
-| `src/apple/Packages/MapleCore/Sources/MapleCore/Sources/FilesystemSource.swift` | Modify | Add `SidecarPath.videoExtensions` to enumeration filter + add `VideoExtensions` enum |
-| `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift` | Modify | Add `XMPSerializer.serializeMetadataOnly(metadata:)` static method |
-| `src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift` | Modify | Use `serializeMetadataOnly` for video assets in `applyToAsset` |
-| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/BatchMetadataViewModelTests.swift` | Modify | Add tests: video asset apply writes `clip.mov.xmp` with no crs: block |
-| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPSerializationTests.swift` | Modify | Add test: `serializeMetadataOnly` produces no crs: attributes |
+| File                                                                                  | Action             | Responsibility                                                                                                                           |
+| ------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/api/src/workers/discover/types.ts`                                               | Modify             | Add video extensions to `SUPPORTED_EXTS`                                                                                                 |
+| `src/api/src/workers/discover/sweeper.test.ts`                                        | Modify             | Add test: video file emits `created` event                                                                                               |
+| `src/api/src/fs/browse.ts`                                                            | Modify             | Surface video files in `listDirFast` and `listDirContents` `images` array with `isVideo: true`; also pair video sidecars to video assets |
+| `src/api/src/fs/browse.test.ts`                                                       | Create             | Tests for video in `listDirFast` and `listDirContents` (if not present)                                                                  |
+| `src/web/projects/maple-common/src/lib/addressing/library-source.ts`                  | Modify             | Add `isVideo?: boolean` to `ImageEntry`                                                                                                  |
+| `src/web/projects/maple-common/src/lib/api/filesystem-browse.service.ts`              | Modify             | Add `isVideo?: boolean` to `FsImageEntry`                                                                                                |
+| `src/web/projects/maple-common/src/lib/state/library-fetch.service.ts`                | Modify             | Forward `isVideo` to `Asset` model when building asset list                                                                              |
+| `src/web/projects/maple-common/src/lib/models/asset.ts`                               | Modify (if needed) | Add `isVideo?: boolean` to `Asset` interface                                                                                             |
+| `src/apple/Packages/MapleCore/Sources/MapleCore/Sources/FilesystemSource.swift`       | Modify             | Add `SidecarPath.videoExtensions` to enumeration filter + add `VideoExtensions` enum                                                     |
+| `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift`               | Modify             | Add `XMPSerializer.serializeMetadataOnly(metadata:)` static method                                                                       |
+| `src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift`         | Modify             | Use `serializeMetadataOnly` for video assets in `applyToAsset`                                                                           |
+| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/BatchMetadataViewModelTests.swift` | Modify             | Add tests: video asset apply writes `clip.mov.xmp` with no crs: block                                                                    |
+| `src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPSerializationTests.swift`       | Modify             | Add test: `serializeMetadataOnly` produces no crs: attributes                                                                            |
 
 ---
 
 ## Task 1: API — Add video extensions to discover/sweeper allowlist
 
 **Files:**
+
 - Modify: `src/api/src/workers/discover/types.ts` (lines 37–59)
 - Modify: `src/api/src/workers/discover/sweeper.test.ts`
 
 **Interfaces:**
+
 - Produces: `SUPPORTED_EXTS` now includes `.mov`, `.mp4`, `.m4v`, `.avi`, `.mkv`, `.webm`, `.mts`, `.m2ts`, `.3gp` — any code that imports this set gains video support automatically (sweeper, handleEvent).
 
 - [ ] **Step 1: Write the failing test**
@@ -69,7 +71,9 @@ it('emits created for a video file (.mov)', async () => {
   await frontier.seedRoot(folderId, root, 1);
   const dir = await frontier.claimNextDir(folderId, 1, 60_000);
   await visitDirectory(dir!, root, {
-    handleEvent: async (e) => { events.push(e); },
+    handleEvent: async (e) => {
+      events.push(e);
+    },
     folderId,
   });
 
@@ -81,6 +85,7 @@ it('emits created for a video file (.mov)', async () => {
 ```
 
 Add imports at top of the test file if not already present:
+
 ```typescript
 import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
@@ -171,10 +176,12 @@ listed image/RAW extensions. Adding all VIDEO_EXTS makes the sweeper emit
 ## Task 2: API — Surface videos in `listDirFast` and `listDirContents`
 
 **Files:**
+
 - Modify: `src/api/src/fs/browse.ts`
 - Create: `src/api/src/fs/browse.video.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isVideoFilename` from `../indexer/media-types.ts` (already imported in browse.ts line 15)
 - Produces:
   - `FastImageChild` gains `isVideo?: boolean`
@@ -293,6 +300,7 @@ Expected: FAIL — videos are not in `images`, `isVideo` not present.
 In `src/api/src/fs/browse.ts`:
 
 **3a. Extend `FastImageChild`** (line ~711):
+
 ```typescript
 export interface FastImageChild extends DirChild {
   size: number; // bytes
@@ -303,6 +311,7 @@ export interface FastImageChild extends DirChild {
 ```
 
 **3b. Extend `ImageChild`** (line ~292):
+
 ```typescript
 export interface ImageChild extends DirChild {
   size: number; // bytes
@@ -315,34 +324,47 @@ export interface ImageChild extends DirChild {
 ```
 
 **3c. In `listDirFast` — add `VIDEO_EXTENSIONS` constant** (near line ~259 where `IMAGE_EXTENSIONS` is defined). Add after the `IMAGE_EXTENSIONS` constant:
+
 ```typescript
 /** Video container extensions surfaced in the listing alongside images (no dot). */
-const VIDEO_EXTENSIONS = new Set<string>(['mov', 'mp4', 'm4v', 'avi', 'mkv', 'webm', 'mts', 'm2ts', '3gp']);
+const VIDEO_EXTENSIONS = new Set<string>([
+  'mov',
+  'mp4',
+  'm4v',
+  'avi',
+  'mkv',
+  'webm',
+  'mts',
+  'm2ts',
+  '3gp',
+]);
 ```
 
 **3d. In `listDirFast` classification block** (line ~817–829), add a branch for video after `IMAGE_EXTENSIONS.has(ext)`:
+
 ```typescript
-      if (IMAGE_EXTENSIONS.has(ext)) {
-        images.push({
-          name,
-          path: childReal,
-          size: st.size,
-          mtime: st.mtime.toISOString(),
-          ext,
-        });
-      } else if (VIDEO_EXTENSIONS.has(ext)) {
-        images.push({
-          name,
-          path: childReal,
-          size: st.size,
-          mtime: st.mtime.toISOString(),
-          ext,
-          isVideo: true,
-        });
-      }
+if (IMAGE_EXTENSIONS.has(ext)) {
+  images.push({
+    name,
+    path: childReal,
+    size: st.size,
+    mtime: st.mtime.toISOString(),
+    ext,
+  });
+} else if (VIDEO_EXTENSIONS.has(ext)) {
+  images.push({
+    name,
+    path: childReal,
+    size: st.size,
+    mtime: st.mtime.toISOString(),
+    ext,
+    isVideo: true,
+  });
+}
 ```
 
 **3e. In `listDirContents` classification block** (line ~550–578), change the `else` branch (which currently puts videos in `files`) to check for videos:
+
 ```typescript
       } else if (st.isFile()) {
         const dot = name.lastIndexOf('.');
@@ -388,33 +410,35 @@ const VIDEO_EXTENSIONS = new Set<string>(['mov', 'mp4', 'm4v', 'avi', 'mkv', 'we
 **3g. In `listDirContents` — fix sidecar pairing for videos**. The existing sidecar-pairing loop (line ~647–661) currently skips video-named sidecar bases (`isVideoFilename(base) → continue`). Now that videos ARE indexed assets, we need to pair `clip.mov.xmp` sidecars to the `clip.mov` entry. Change the sidecar loop to pair video sidecars to video images:
 
 Replace the existing sidecar loop body (lines ~648–661):
-```typescript
-  // Build image-base-to-assetId map. For still images, key by stem (no ext).
-  // For video assets, key by full filename (because their sidecar uses full-name convention).
-  const imageBaseToAsset = new Map<string, string>(globalImageBaseToAsset);
-  for (const img of images) {
-    if (!img.id) continue;
-    if ((img as ImageChild).isVideo) {
-      // Video: key by full filename (e.g. "clip.mov") so clip.mov.xmp → clip.mov
-      imageBaseToAsset.set(img.name, img.id);
-    } else {
-      const dot = img.name.lastIndexOf('.');
-      const base = dot >= 0 ? img.name.slice(0, dot) : img.name;
-      imageBaseToAsset.set(base, img.id);
-    }
-  }
 
-  const sidecars: SidecarChild[] = [];
-  for (const cand of sidecarRaw) {
-    const base = canonicalBaseFromSidecarFilename(cand.name);
-    if (!base) continue;
-    const assetID = imageBaseToAsset.get(base);
-    if (!assetID) continue;
-    sidecars.push({ ...cand, asset_id: assetID });
+```typescript
+// Build image-base-to-assetId map. For still images, key by stem (no ext).
+// For video assets, key by full filename (because their sidecar uses full-name convention).
+const imageBaseToAsset = new Map<string, string>(globalImageBaseToAsset);
+for (const img of images) {
+  if (!img.id) continue;
+  if ((img as ImageChild).isVideo) {
+    // Video: key by full filename (e.g. "clip.mov") so clip.mov.xmp → clip.mov
+    imageBaseToAsset.set(img.name, img.id);
+  } else {
+    const dot = img.name.lastIndexOf('.');
+    const base = dot >= 0 ? img.name.slice(0, dot) : img.name;
+    imageBaseToAsset.set(base, img.id);
   }
+}
+
+const sidecars: SidecarChild[] = [];
+for (const cand of sidecarRaw) {
+  const base = canonicalBaseFromSidecarFilename(cand.name);
+  if (!base) continue;
+  const assetID = imageBaseToAsset.get(base);
+  if (!assetID) continue;
+  sidecars.push({ ...cand, asset_id: assetID });
+}
 ```
 
 Also update the global paged pre-walk (line ~467–508) to include video filenames in `allImageBases`:
+
 ```typescript
   if (pagedMode) {
     const allImageBases = new Map<string, string>(); // base → candidate abs_path
@@ -475,12 +499,14 @@ indexed video assets. VIDEO_EXTENSIONS constant mirrors SUPPORTED_EXTS.
 ## Task 3: Web — Forward `isVideo` from API to Angular state
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/addressing/library-source.ts`
 - Modify: `src/web/projects/maple-common/src/lib/api/filesystem-browse.service.ts`
 - Modify: `src/web/projects/maple-common/src/lib/models/asset.ts` (check if `isVideo` field is needed)
 - Modify: `src/web/projects/maple-common/src/lib/state/library-fetch.service.ts`
 
 **Interfaces:**
+
 - Consumes: `isVideo?: true` on `FastImageChild` (from API)
 - Produces: `isVideo?: boolean` on `ImageEntry`, `FsImageEntry`, and `Asset` — so the batch-metadata panel can detect which selected assets are videos and format the xmp/batch request path correctly (already handled by the route's `isVideoFilename` detection on the server side; client just needs the flag for any future UI differentiation)
 
@@ -489,6 +515,7 @@ Note: The `/api/xmp/batch` route already detects video paths from the file exten
 **Revised scope check:** The `batch-metadata-panel.component.ts` calls `BatchMetadataService.applyBatch(entries)` with `{path: asset.absPath, metadata: ...}` entries. The server receives the path, detects the extension, and applies `metadataOnly: true`. So the web side already works correctly for video assets IF the video is selectable (i.e., appears in `listing.images`).
 
 The minimum web change is:
+
 1. Add `isVideo?: boolean` to `FsImageEntry` (matches server's `FastImageChild`)
 2. Add `isVideo?: boolean` to `ImageEntry` (matches `FolderListing.images`)
 
@@ -529,6 +556,7 @@ export interface ImageEntry {
 - [ ] **Step 3: Check `Asset` model for `isVideo`**
 
 Read `src/web/projects/maple-common/src/lib/models/asset.ts`. If `Asset` already has `isVideo`, nothing to do. If not, add:
+
 ```typescript
 /** True when the asset is a video file. Batch-metadata path is unchanged
  *  (the server detects the extension); this field is for UI badges. */
@@ -540,22 +568,22 @@ isVideo?: boolean;
 In `src/web/projects/maple-common/src/lib/state/library-fetch.service.ts`, in the `_applyFolderListing` method (line ~693), add `isVideo` to the new asset:
 
 ```typescript
-    const newAssets: Asset[] = listing.images.map((img) => {
-      const id: AssetId = img.address;
-      return {
-        id,
-        filename: img.name,
-        folderId: sourceId,
-        rating: 0,
-        flag: 'unflagged' as const,
-        colorLabel: null,
-        thumbnailGradient: '',
-        aspectRatio: 3 / 2,
-        ...(img.width != null ? { width: img.width } : {}),
-        ...(img.height != null ? { height: img.height, aspectRatio: img.width! / img.height } : {}),
-        ...(img.isVideo ? { isVideo: true } : {}),
-      };
-    });
+const newAssets: Asset[] = listing.images.map((img) => {
+  const id: AssetId = img.address;
+  return {
+    id,
+    filename: img.name,
+    folderId: sourceId,
+    rating: 0,
+    flag: 'unflagged' as const,
+    colorLabel: null,
+    thumbnailGradient: '',
+    aspectRatio: 3 / 2,
+    ...(img.width != null ? { width: img.width } : {}),
+    ...(img.height != null ? { height: img.height, aspectRatio: img.width! / img.height } : {}),
+    ...(img.isVideo ? { isVideo: true } : {}),
+  };
+});
 ```
 
 - [ ] **Step 5: Run web build and tests**
@@ -599,9 +627,11 @@ applies metadataOnly writes without any extra client logic.
 ## Task 4: Apple — Enumerate video files in `FilesystemSource`
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/Sources/FilesystemSource.swift`
 
 **Interfaces:**
+
 - Consumes: `SidecarPath.videoExtensions` (already defined in `SidecarPath.swift`)
 - Produces: `FilesystemSource._index()` returns video URLs alongside image URLs; `FileAsset` now includes videos
 
@@ -678,12 +708,14 @@ FileAsset gains an isVideo computed property for grid badge support.
 ## Task 5: Apple — Add `XMPSerializer.serializeMetadataOnly` and use it for videos
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift`
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift`
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPSerializationTests.swift`
 - Modify: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/BatchMetadataViewModelTests.swift`
 
 **Interfaces:**
+
 - Produces: `XMPSerializer.serializeMetadataOnly(metadata: XmpMetadata) -> String` — emits XMP with metadata fields only, no `crs:` adjustment attributes. Mirrors the TypeScript `METADATA_ONLY_STUB_XMP` / `metadataOnly: true` path.
 - Produces: `BatchMetadataViewModel.applyToAsset` uses `serializeMetadataOnly` for video URLs and writes directly (no `XMPSidecarStore.update(model:culling:metadata:)` which would include a bogus adjustment block).
 
@@ -824,6 +856,7 @@ extension XMPSerializer {
 Note: Replace `attaBlock` with `attrsBlock` (typo above is intentional to mark the spot; fix in implementation). The private helpers `metadataAttrParts`, `metadataNestedBlocks`, `metadataNamespacePrefixes`, and `escapeXMLAttr` are already defined in `XMPSerialization+MetadataWrite.swift` — check they are `internal` not `private` (they need to be accessible from this extension). If they are `private`, change to `internal` (or `fileprivate` scoped to the file if they're in the same file as `XMPSerializer`).
 
 Check visibility of helpers in `XMPSerialization+MetadataWrite.swift`:
+
 ```bash
 grep -n "private\|internal\|static func metadataAttrParts\|static func metadataNestedBlocks\|static func metadataNamespacePrefixes" \
   /Users/riabuz/Projects/_Maple/.claude/worktrees/m6-video-index/src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+MetadataWrite.swift
@@ -965,6 +998,7 @@ so no bogus adjustment block is written to clip.mov.xmp.
 ## Task 6: Final gates — run all checks, file thumbnail follow-up, push + PR
 
 **Files:**
+
 - No code changes — gate verification and PR creation only.
 
 - [ ] **Step 1: Run all API gates**
@@ -1022,6 +1056,7 @@ grep -E "BUILD SUCCEEDED|BUILD FAILED|error:" /tmp/v-xcode.log | tail -5
 ```
 
 If BUILD FAILED with a link error about missing `maple_*` symbols → BLOCKED, rebuild xcframework first:
+
 ```bash
 cd /Users/riabuz/Projects/_Maple/.claude/worktrees/m6-video-index
 cargo build -p raw-ffi --features gpu,pano --target aarch64-apple-darwin > /tmp/v-cargo.log 2>&1
@@ -1055,6 +1090,7 @@ EOF
 ```
 
 After creating, add to the Files project board:
+
 ```bash
 gh issue edit <NEW_ISSUE_NUMBER> --add-project "Files"
 ```
@@ -1104,19 +1140,19 @@ EOF
 
 ### Spec coverage check
 
-| Requirement | Task |
-|---|---|
-| Videos indexed as assets via discover/sweeper | Task 1 |
-| Videos appear in browse/listDirFast (web) | Task 2 |
-| Videos have `asset_id` in `listDirContents` | Task 2 |
-| Video sidecars (`clip.mov.xmp`) paired correctly | Task 2 |
-| Web `isVideo` forwarded through to Asset | Task 3 |
-| Apple FilesystemSource enumerates videos | Task 4 |
-| Apple `applyToAsset` uses metadata-only serialize for video | Task 5 |
-| `serializeMetadataOnly` emits no `crs:` block | Task 5 |
-| Tests for new indexing and Apple metadata-only path | Tasks 1, 2, 5 |
-| Thumbnail follow-up filed | Task 6 |
-| All gates green | Task 6 |
+| Requirement                                                 | Task          |
+| ----------------------------------------------------------- | ------------- |
+| Videos indexed as assets via discover/sweeper               | Task 1        |
+| Videos appear in browse/listDirFast (web)                   | Task 2        |
+| Videos have `asset_id` in `listDirContents`                 | Task 2        |
+| Video sidecars (`clip.mov.xmp`) paired correctly            | Task 2        |
+| Web `isVideo` forwarded through to Asset                    | Task 3        |
+| Apple FilesystemSource enumerates videos                    | Task 4        |
+| Apple `applyToAsset` uses metadata-only serialize for video | Task 5        |
+| `serializeMetadataOnly` emits no `crs:` block               | Task 5        |
+| Tests for new indexing and Apple metadata-only path         | Tasks 1, 2, 5 |
+| Thumbnail follow-up filed                                   | Task 6        |
+| All gates green                                             | Task 6        |
 
 ### Placeholder scan
 

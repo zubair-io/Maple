@@ -62,6 +62,7 @@
         "src/enrichment/face-pool.test.ts",
         "src/ffi/raw_ffi.ts",
         "src/fs/browse.ts",
+        "src/fs/browse.video.test.ts",
         "src/fs/duplicates.test.ts",
         "src/fs/mirror-config.test.ts",
         "src/fs/mirrored.test.ts",
