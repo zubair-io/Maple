@@ -397,4 +397,86 @@ final class XMPMetadataTests: XCTestCase {
         XCTAssertLessThan(refIdx, cityIdx)
         XCTAssertLessThan(cityIdx, markedIdx)
     }
+
+    // MARK: - xmpRights:Marked nil/omit parity with TS (#1611)
+
+    /// An unknown `xmpRights:Marked` value must leave `copyrightStatus` nil,
+    /// not set it to `.unknown`. Mirrors TS `copyrightStatusFromMarked` which
+    /// returns `null` for unrecognised strings.
+    func testCopyrightStatusUnknownMarkedValueLeavesNil() {
+        let xml = """
+        <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description
+              xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/"
+              xmpRights:Marked="Unknown"/>
+          </rdf:RDF>
+        </x:xmpmeta>
+        <?xpacket end="w"?>
+        """
+        let parsed = XMPParser.parseMetadata(xml)
+        XCTAssertNil(parsed.copyrightStatus,
+            "Unknown xmpRights:Marked value must leave copyrightStatus nil, not .unknown")
+    }
+
+    /// Absent `xmpRights:Marked` must leave `copyrightStatus` nil.
+    func testCopyrightStatusAbsentMarkedLeavesNil() {
+        let xml = """
+        <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+              photoshop:City="Paris"/>
+          </rdf:RDF>
+        </x:xmpmeta>
+        <?xpacket end="w"?>
+        """
+        let parsed = XMPParser.parseMetadata(xml)
+        XCTAssertNil(parsed.copyrightStatus,
+            "Absent xmpRights:Marked must leave copyrightStatus nil")
+    }
+
+    // MARK: - Altitude parsing canonical-form restriction (#1611)
+
+    /// Non-canonical altitude forms (float or signed numerator/denominator)
+    /// must be rejected, matching the TS regex `^(\d+)\/(\d+)$`.
+    func testAltitudeFromXmpRejectsNonCanonicalForms() {
+        // Float numerator — the canonical encoder never emits this.
+        XCTAssertNil(altitudeFromXmp(value: "35.5/1", ref: "0"),
+            "Float numerator must be rejected")
+        // Float denominator.
+        XCTAssertNil(altitudeFromXmp(value: "35000/1.0", ref: "0"),
+            "Float denominator must be rejected")
+        // Signed numerator — sign is encoded in ref, not in the value.
+        XCTAssertNil(altitudeFromXmp(value: "-35000/1000", ref: "0"),
+            "Signed numerator must be rejected")
+    }
+
+    // MARK: - Builder refactor byte-identity (#1611)
+
+    /// With the native builder path, `serialize(model:culling:metadata:)` with
+    /// empty `XmpMetadata()` must produce output that is byte-identical to the
+    /// base `serialize(model:culling:)` call. Guards that the refactor did not
+    /// change any output.
+    func testBuilderRefactorEmptyMetadataByteIdentity() {
+        let models: [AdjustmentModel] = [.default, {
+            var m = AdjustmentModel()
+            m.exposure = 1.5
+            m.highlights = -30
+            return m
+        }()]
+        let cullings: [CullingState] = [
+            CullingState(),
+            CullingState(stars: 3, flag: .pick, keywords: ["mono", "city"]),
+        ]
+        for model in models {
+            for culling in cullings {
+                let base = XMPSerializer.serialize(model: model, culling: culling)
+                let withEmpty = XMPSerializer.serialize(model: model, culling: culling, metadata: XmpMetadata())
+                XCTAssertEqual(base, withEmpty,
+                    "Empty XmpMetadata must produce byte-identical output to base overload")
+            }
+        }
+    }
 }
