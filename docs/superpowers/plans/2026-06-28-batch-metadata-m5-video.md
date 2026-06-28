@@ -4,29 +4,68 @@ This plan is organised task-by-task. Each task has a clear scope, the files it t
 
 ## Background & decision log
 
-### Sidecar naming: `clip.xmp` (same-stem, not `clip.mov.xmp`)
+### Sidecar naming: FULL-NAME for videos (`clip.mov.xmp`), stem-swap for images (`clip.xmp`)
 
-The spec (§89, §267) prescribes `clip.mov → clip.xmp`. This matches how `xmpSidecarPath()` works for images (`clip.jpg → clip.xmp`) and is consistent with the `canonicalBaseFromSidecarFilename` contract in `browse.ts`. A theoretical collision between `clip.mov.xmp` and `clip.jpg.xmp` sidecars does not arise in practice — the scanner pairs by stem within a directory so `clip.xmp` attaches to whichever primary (image or movie) exists in that directory; if both exist, the sidecar attaches to the image (since images are indexed first). The spec explicitly notes this scheme and gating the sidecar writer on the scanner change prevents silent data loss.
+> **Revised after review.** An earlier draft of this plan chose same-stem
+> (`clip.mov → clip.xmp`). That is unsafe: it silently misattributes a video's
+> metadata to a co-named photo. The COMMON trigger is Apple Live Photos —
+> `IMG_1234.HEIC` + `IMG_1234.MOV` are two independent same-stem assets (Maple
+> has no companion-pairing in the schema for them). Under stem-swap both resolve
+> to `IMG_1234.xmp` and fight over one file; the browse layer pairs that `.xmp`
+> to the image only, so editing the video's metadata can never work whenever a
+> same-stem image exists. The fix is the industry-standard full-name convention.
 
-### Why `clip.xmp` over `clip.mov.xmp`
+- **Images** keep stem-swap: `IMG_1.ARW → IMG_1.xmp` (unchanged; existing photo
+  sidecars are NOT migrated).
+- **Videos** keep their extension: `clip.mov → clip.mov.xmp`.
 
-1. `xmpSidecarPath()` already produces `clip.xmp` for any file — no per-type branching needed.
-2. The TS XMP writers (`mergeMetadataIntoXmp`, `writeXmpAtomic`) are path-agnostic.
-3. The Swift `XMPSidecarStore` uses `deletingPathExtension().appendingPathExtension("xmp")` which also produces `clip.xmp`.
-4. The existing `sidecar-metadata-index` stage calls `xmpSidecarPath()` — reads `clip.xmp` correctly for video.
-5. The spec says `clip.xmp`. Deviating requires changing multiple callers.
+Because the two conventions produce different bases (`clip` vs `clip.mov`), a
+Live Photo's still and motion clip get their own separate sidecars and can never
+clobber each other.
 
-### What currently breaks for videos
+### Single source of truth
 
-`src/api/src/imports/scan.ts` line 159-163: the `pair()` function only indexes **images** by stem. A `clip.xmp` sidecar tries `byKey.get("${dir} clip")` but `clip.mov` was never indexed → orphan. On re-import all video sidecars would be silently lost.
+`xmpSidecarPath()` in `src/api/src/fs/xmp.ts` branches on `isVideoFilename()`
+(from `src/api/src/indexer/media-types.ts`) — videos return `rawAbsPath + '.xmp'`,
+everything else keeps the stem-swap. Most call sites (the `sidecar-metadata-index`
+stage, the `xmp-batch` route, conflict-copy helpers) inherit the fix automatically.
+`canonicalBaseFromSidecarFilename()` in `browse.ts` is the inverse: it strips only
+the trailing `.xmp`, so `clip.mov.xmp → clip.mov` (pairs to the video by full name)
+and `IMG_1.xmp → IMG_1` (pairs to the image by stem).
+
+### What currently breaks for videos (pre-M5)
+
+`src/api/src/imports/scan.ts` `pair()` only indexed **images**, so a video
+sidecar was orphaned on every import. And under stem-swap a video sidecar named
+`clip.xmp` would be attached to a same-stem photo — the misattribution above.
 
 ### The M5 pairing fix
 
-Change `pair()` to index movies by stem too (alongside images). Sidecars then attach to whichever primary (image or movie) exists for that stem. No change to `canonicalBaseFromSidecarFilename`.
+`pair()` (scan.ts) and `groupFiles()` (worker.ts) index every primary by the key
+its sidecar resolves to: images by stem, videos by full filename. With distinct
+keys there is no collision and no two-pass image-wins handling is needed. The
+browse pairing skips a sidecar whose base is itself a video name (it has no
+indexed standalone asset to surface an `asset_id` for).
 
-### Apple M4 video assessment
+### Apple
 
-`BatchMetadataViewModel.applyToAsset()` uses `asset.primaryURL` → `deletingPathExtension().appendingPathExtension("xmp")` which produces `clip.xmp` for any file type. There is no image-only guard in the view model or in `AppShell.openBatchMetadata()`. Videos with a `primaryURL` (file-system-backed assets from FilesystemSource / SMBSource) will work without any Swift code changes. Videos that are bytes-backed (PhotoKit, CloudSource) have `primaryURL = nil` and return early already — no sidecar write path exists for them, which is correct and unchanged. **Conclusion: Apple M4 panel already supports videos; no Swift changes needed.**
+Seven Swift sidecar-derivation sites all did
+`deletingPathExtension().appendingPathExtension("xmp")` (stem-swap for any type).
+They are now routed through one shared helper `SidecarPath.sidecarURL(for:)` in
+MapleCore, which mirrors `xmpSidecarPath()` — full-name for videos, stem-swap
+otherwise — so a clip edited on Web and on Apple targets the SAME `.xmp` file.
+
+### Selectability (out of scope for #1635 — follow-up filed)
+
+Standalone videos are NOT indexed as assets today (`SUPPORTED_EXTS` in
+`workers/discover/types.ts` excludes video extensions; the Apple
+`FilesystemSource._index()` filters to `SupportedImageExtensions`). So a
+standalone video cannot yet be SELECTED in either the web M2 panel or the Apple
+M4 panel — both operate on indexed assets. This round delivers the
+naming/pairing infrastructure (Live-Photo-safe, parity across API + Apple) and
+the path-based batch-write route already writes video sidecars correctly. Making
+standalone videos selectable requires indexing them as assets — a larger change
+tracked as follow-up #1638.
 
 ---
 

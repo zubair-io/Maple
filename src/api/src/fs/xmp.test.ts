@@ -9,7 +9,7 @@
 import { describe, test, expect } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import * as path from 'node:path';
-import { resolveThumbPathForAsset, cachePathForAsset } from './xmp.ts';
+import { resolveThumbPathForAsset, cachePathForAsset, xmpSidecarPath } from './xmp.ts';
 
 const LIB_ID = new ObjectId('1234567890abcdef12345678');
 const LIB_ROOT = '/srv/library';
@@ -41,6 +41,31 @@ function makeAsset(opts: {
     ],
   };
 }
+
+describe('xmpSidecarPath', () => {
+  test('RAW/image uses stem-swap: IMG_1.ARW → IMG_1.xmp', () => {
+    expect(xmpSidecarPath('/photos/IMG_1.ARW')).toBe('/photos/IMG_1.xmp');
+    expect(xmpSidecarPath('/photos/clip.heic')).toBe('/photos/clip.xmp');
+    expect(xmpSidecarPath('/photos/clip.jpg')).toBe('/photos/clip.xmp');
+  });
+
+  test('video keeps its extension (full-name): clip.mov → clip.mov.xmp (M5 — #1635)', () => {
+    expect(xmpSidecarPath('/photos/clip.mov')).toBe('/photos/clip.mov.xmp');
+    expect(xmpSidecarPath('/photos/clip.mp4')).toBe('/photos/clip.mp4.xmp');
+  });
+
+  test('video extension match is case-insensitive: IMG_1234.MOV → IMG_1234.MOV.xmp', () => {
+    expect(xmpSidecarPath('/photos/IMG_1234.MOV')).toBe('/photos/IMG_1234.MOV.xmp');
+  });
+
+  test('Live Photo: same-stem still + clip resolve to DIFFERENT sidecars', () => {
+    const still = xmpSidecarPath('/photos/IMG_1234.HEIC');
+    const clip = xmpSidecarPath('/photos/IMG_1234.MOV');
+    expect(still).toBe('/photos/IMG_1234.xmp');
+    expect(clip).toBe('/photos/IMG_1234.MOV.xmp');
+    expect(still).not.toBe(clip); // no clobber
+  });
+});
 
 describe('resolveThumbPathForAsset', () => {
   test('composes <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.jpg', () => {
