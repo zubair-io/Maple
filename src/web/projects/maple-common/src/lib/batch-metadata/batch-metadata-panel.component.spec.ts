@@ -1,330 +1,393 @@
-// batch-metadata-panel.component.spec.ts — unit tests for Batch Metadata panel
-// logic (#1606). Avoids Angular component instantiation (which requires JIT
-// compiler in plain vitest). Tests the pure logic that is not Angular-specific:
-//   - mixed-value computation (via the pure function in types)
-//   - geocode candidate selection logic (pure function extractable from class)
-//   - payload building logic (pure function)
+// batch-metadata-panel.component.spec.ts — core TestBed suite for
+// BatchMetadataPanelComponent (#1616): visibility, mixed-value display, Apply
+// button gating, payload building, phase transitions, touchedFieldLabels.
 //
-// Angular template / DI / lifecycle integration is covered by the build check
-// (tsc + angular compiler) and manual verification in the dev server.
+// Geocode pipeline and refile-offer flows live in the sibling file:
+//   batch-metadata-panel.geocode-refile.spec.ts
+//
+// Strategy: a thin HostComponent wraps the panel and drives it via
+// inputs/events; HTTP calls are flushed inline via HttpTestingController so
+// every code path that was previously tested through local helper copies now
+// runs through the real component methods.
 
-import { describe, it, expect } from 'vitest';
-import { computeMixedValues, MIXED } from './batch-metadata.types';
-import type {
-  AssetMetadataSnapshot,
-  BatchApplyMetadata,
-  GeocodeCandidate,
-  MixedValueMap,
-} from './batch-metadata.types';
+import { Component, signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+import { BatchMetadataPanelComponent } from './batch-metadata-panel.component';
+import type { AssetMetadataSnapshot } from './batch-metadata.types';
 
 // ---------------------------------------------------------------------------
-// Helpers extracted from the component's private logic, tested here as pure fns
+// Host wrapper
 // ---------------------------------------------------------------------------
 
-/** Mirrors BatchMetadataPanelComponent.onGeocodeSelect address→fields mapping. */
-function geocodeSelectToFields(candidate: GeocodeCandidate): {
-  lat: string;
-  lon: string;
-  city: string;
-  state: string;
-  country: string;
-  countryCode: string;
-} {
-  const addr = candidate.address;
-  return {
-    lat: String(candidate.lat),
-    lon: String(candidate.lon),
-    city: addr['city'] ?? addr['town'] ?? addr['village'] ?? '',
-    state: addr['state'] ?? addr['region'] ?? '',
-    country: addr['country'] ?? '',
-    countryCode: (addr['country_code'] ?? '').toUpperCase(),
-  };
-}
-
-/** Mirrors the keyword-splitting logic from _buildPayload. */
-function parseKeywords(raw: string): string[] {
-  return raw === ''
-    ? []
-    : raw
-        .split(',')
-        .map((k) => k.trim())
-        .filter(Boolean);
-}
-
-/**
- * Mirrors _buildPayload for a set of touched fields and values.
- * Only the touched fields appear in the output; untouched fields are absent.
- */
-function buildPayload(
-  paths: string[],
-  touched: Set<keyof MixedValueMap>,
-  values: Record<string, string>,
-): Array<{ path: string; metadata: BatchApplyMetadata }> {
-  const meta: BatchApplyMetadata = {};
-
-  if (touched.has('gpsLatitude')) {
-    const v = values['gpsLatitude'] ?? '';
-    meta.gpsLatitude = v === '' ? null : Number(v);
-  }
-  if (touched.has('gpsLongitude')) {
-    const v = values['gpsLongitude'] ?? '';
-    meta.gpsLongitude = v === '' ? null : Number(v);
-  }
-  if (touched.has('city')) {
-    const v = values['city'] ?? '';
-    meta.city = v === '' ? null : v;
-  }
-  if (touched.has('country')) {
-    const v = values['country'] ?? '';
-    meta.country = v === '' ? null : v;
-  }
-  if (touched.has('title')) {
-    const v = values['title'] ?? '';
-    meta.title = v === '' ? null : v;
-  }
-  if (touched.has('keywords')) {
-    meta.keywords = parseKeywords(values['keywords'] ?? '');
-  }
-
-  return paths.map((path) => ({ path, metadata: meta }));
+@Component({
+  standalone: true,
+  imports: [BatchMetadataPanelComponent],
+  template: `
+    <app-batch-metadata-panel
+      [visible]="visible()"
+      [assetSnapshots]="snapshots()"
+      (dismiss)="dismissed = true"
+    />
+  `,
+})
+class HostComponent {
+  readonly visible = signal(false);
+  readonly snapshots = signal<AssetMetadataSnapshot[]>([]);
+  dismissed = false;
 }
 
 // ---------------------------------------------------------------------------
-// Tests: mixed-value computation
+// Helpers
 // ---------------------------------------------------------------------------
 
-describe('BatchMetadataPanel — mixed-value placeholders', () => {
-  it('shows MIXED when a field differs across selected assets', () => {
-    const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris' } },
-      { path: '/b.dng', metadata: { city: 'Berlin' } },
-    ];
-    const mixed = computeMixedValues(snapshots);
-    expect(mixed.city).toBe(MIXED);
-  });
-
-  it('shows single value when all assets agree on a field', () => {
-    const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris' } },
-      { path: '/b.dng', metadata: { city: 'Paris' } },
-    ];
-    const mixed = computeMixedValues(snapshots);
-    expect(mixed.city).toBe('Paris');
-  });
-
-  it('shows undefined for a field absent on all assets', () => {
-    const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: {} },
-      { path: '/b.dng', metadata: {} },
-    ];
-    const mixed = computeMixedValues(snapshots);
-    expect(mixed.city).toBeUndefined();
-  });
-
-  it('shows MIXED when keywords differ', () => {
-    const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { keywords: ['travel'] } },
-      { path: '/b.dng', metadata: { keywords: ['landscape'] } },
-    ];
-    const mixed = computeMixedValues(snapshots);
-    expect(mixed.keywords).toBe(MIXED);
-  });
-
-  it('shows single value for keywords when arrays are identical', () => {
-    const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { keywords: ['travel', 'france'] } },
-      { path: '/b.dng', metadata: { keywords: ['travel', 'france'] } },
-    ];
-    const mixed = computeMixedValues(snapshots);
-    expect(mixed.keywords).toEqual(['travel', 'france']);
-  });
-});
+/** Retrieve the real component instance from inside the host fixture. */
+function getPanel(fixture: ReturnType<typeof TestBed.createComponent<HostComponent>>) {
+  const debugEl = fixture.debugElement.query(
+    (de) => de.componentInstance instanceof BatchMetadataPanelComponent,
+  );
+  return debugEl.componentInstance as BatchMetadataPanelComponent;
+}
 
 // ---------------------------------------------------------------------------
-// Tests: only touched fields appear in the submit payload
+// Shared setup
 // ---------------------------------------------------------------------------
 
-describe('BatchMetadataPanel — payload building (only touched fields)', () => {
-  it('empty touched set produces empty metadata in payload', () => {
-    const payload = buildPayload(['/a.dng'], new Set(), {});
-    expect(payload[0]!.metadata).toEqual({});
+describe('BatchMetadataPanelComponent', () => {
+  let fixture: ReturnType<typeof TestBed.createComponent<HostComponent>>;
+  let host: HostComponent;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    fixture = TestBed.createComponent(HostComponent);
+    host = fixture.componentInstance;
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
   });
 
-  it('only touched fields appear in payload', () => {
-    const touched = new Set<keyof MixedValueMap>(['city'] as Array<keyof MixedValueMap>);
-    const values = { city: 'Paris', country: 'France' }; // country NOT touched
-    const payload = buildPayload(['/a.dng'], touched, values);
-
-    expect(payload[0]!.metadata).toHaveProperty('city', 'Paris');
-    expect(payload[0]!.metadata).not.toHaveProperty('country');
+  afterEach(() => {
+    http.verify();
   });
 
-  it('empty string for a touched field emits null (explicit clear)', () => {
-    const touched = new Set<keyof MixedValueMap>(['city'] as Array<keyof MixedValueMap>);
-    const payload = buildPayload(['/a.dng'], touched, { city: '' });
-    expect(payload[0]!.metadata.city).toBeNull();
-  });
+  // ── Visibility ─────────────────────────────────────────────────────────────
 
-  it('produces one payload entry per asset path', () => {
-    const touched = new Set<keyof MixedValueMap>(['city'] as Array<keyof MixedValueMap>);
-    const paths = ['/a.dng', '/b.dng', '/c.dng'];
-    const payload = buildPayload(paths, touched, { city: 'Rome' });
+  describe('visibility', () => {
+    it('renders nothing when visible is false', () => {
+      const el = fixture.nativeElement as HTMLElement;
+      expect(el.querySelector('.bm-backdrop')).toBeNull();
+    });
 
-    expect(payload).toHaveLength(3);
-    expect(payload.map((p) => p.path)).toEqual(paths);
-    payload.forEach((entry) => {
-      expect(entry.metadata.city).toBe('Rome');
+    it('renders the panel when visible is true', () => {
+      host.visible.set(true);
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      expect(el.querySelector('.bm-backdrop')).not.toBeNull();
     });
   });
 
-  it('parses comma-separated keywords into an array', () => {
-    const touched = new Set<keyof MixedValueMap>(['keywords'] as Array<keyof MixedValueMap>);
-    const payload = buildPayload(['/a.dng'], touched, { keywords: 'travel, france, street' });
-    expect(payload[0]!.metadata.keywords).toEqual(['travel', 'france', 'street']);
+  // ── Asset count label ───────────────────────────────────────────────────────
+
+  describe('asset count display', () => {
+    it('shows the count of selected assets in the header', () => {
+      host.visible.set(true);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: {} },
+        { path: '/b.dng', metadata: {} },
+      ]);
+      fixture.detectChanges();
+      const countEl = (fixture.nativeElement as HTMLElement).querySelector('.bm-count');
+      expect(countEl?.textContent).toContain('2');
+    });
   });
 
-  it('empty keywords string produces an empty array (clears bag)', () => {
-    const touched = new Set<keyof MixedValueMap>(['keywords'] as Array<keyof MixedValueMap>);
-    const payload = buildPayload(['/a.dng'], touched, { keywords: '' });
-    expect(payload[0]!.metadata.keywords).toEqual([]);
-  });
-});
+  // ── Mixed-value display ─────────────────────────────────────────────────────
 
-// ---------------------------------------------------------------------------
-// Tests: refile-offer phase transition logic
-// These mirror the onConfirm() branching rules without instantiating the
-// Angular component (pure function extractions).
-// ---------------------------------------------------------------------------
+  describe('mixed-value display (via real component.mixed computed)', () => {
+    beforeEach(() => {
+      host.visible.set(true);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: { city: 'Paris' } },
+        { path: '/b.dng', metadata: { city: 'Berlin' } },
+      ]);
+      fixture.detectChanges();
+    });
 
-/** Returns true when GPS was touched — mirrors component logic. */
-function gpsWasTouched(touched: Set<string>): boolean {
-  return touched.has('gpsLatitude') || touched.has('gpsLongitude');
-}
+    it('adds is-mixed class to city input when values differ', () => {
+      const cityInput = (fixture.nativeElement as HTMLElement).querySelector(
+        '#bm-city',
+      ) as HTMLInputElement | null;
+      expect(cityInput).not.toBeNull();
+      expect(cityInput!.classList.contains('is-mixed')).toBe(true);
+    });
 
-type RefilePhaseOutcome = 'show-offer' | 'auto-dismiss';
+    it('sets placeholder to "(mixed)" when city values differ', () => {
+      const cityInput = (fixture.nativeElement as HTMLElement).querySelector(
+        '#bm-city',
+      ) as HTMLInputElement;
+      expect(cityInput.placeholder).toBe('(mixed)');
+    });
 
-/**
- * Mirrors the refile-offer decision: if GPS was touched and count > 0,
- * show the offer; otherwise auto-dismiss.
- */
-function refileOfferDecision(
-  touched: Set<string>,
-  count: number | null, // null = count fetch failed
-): RefilePhaseOutcome {
-  if (!gpsWasTouched(touched)) return 'auto-dismiss';
-  if (count === null || count === 0) return 'auto-dismiss';
-  return 'show-offer';
-}
-
-describe('BatchMetadataPanel — refile-offer phase transition', () => {
-  it('shows offer when GPS was touched and count > 0', () => {
-    const touched = new Set(['gpsLatitude', 'gpsLongitude']);
-    expect(refileOfferDecision(touched, 5)).toBe('show-offer');
-  });
-
-  it('auto-dismisses when GPS not touched even if count > 0', () => {
-    const touched = new Set(['city']);
-    expect(refileOfferDecision(touched, 5)).toBe('auto-dismiss');
+    it('does NOT add is-mixed when both assets agree on city', () => {
+      host.snapshots.set([
+        { path: '/a.dng', metadata: { city: 'Paris' } },
+        { path: '/b.dng', metadata: { city: 'Paris' } },
+      ]);
+      fixture.detectChanges();
+      const cityInput = (fixture.nativeElement as HTMLElement).querySelector(
+        '#bm-city',
+      ) as HTMLInputElement;
+      expect(cityInput.classList.contains('is-mixed')).toBe(false);
+    });
   });
 
-  it('auto-dismisses when GPS touched but count is 0', () => {
-    const touched = new Set(['gpsLatitude']);
-    expect(refileOfferDecision(touched, 0)).toBe('auto-dismiss');
+  // ── Apply button gating ─────────────────────────────────────────────────────
+
+  describe('Apply button gating', () => {
+    beforeEach(() => {
+      host.visible.set(true);
+      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      fixture.detectChanges();
+    });
+
+    it('Apply button is disabled when no fields are touched', () => {
+      const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
+      const applyBtn = Array.from(buttons).find((b) => b.textContent?.trim() === 'Apply…');
+      expect(applyBtn).not.toBeNull();
+      expect(applyBtn!.disabled).toBe(true);
+    });
+
+    it('Apply button becomes enabled after a field is edited via the real onFieldChange', () => {
+      const panel = getPanel(fixture);
+      panel.onFieldChange('city');
+      fixture.detectChanges();
+      const buttons = (fixture.nativeElement as HTMLElement).querySelectorAll('button');
+      const applyBtn = Array.from(buttons).find((b) => b.textContent?.trim() === 'Apply…');
+      expect(applyBtn!.disabled).toBe(false);
+    });
   });
 
-  it('auto-dismisses when count fetch failed (null)', () => {
-    const touched = new Set(['gpsLongitude']);
-    expect(refileOfferDecision(touched, null)).toBe('auto-dismiss');
+  // ── Payload — only-touched-fields (via real _buildPayload inside onConfirm) ──
+
+  describe('payload building — only touched fields reach the API', () => {
+    beforeEach(() => {
+      host.visible.set(true);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: {} },
+        { path: '/b.dng', metadata: {} },
+      ]);
+      fixture.detectChanges();
+    });
+
+    it('sends only the touched city field in the batchApply body', () => {
+      const panel = getPanel(fixture);
+      panel.cityVal.set('Rome');
+      panel.onFieldChange('city');
+      // country is set but NOT touched → must stay absent from payload.
+      panel.countryVal.set('Italy');
+
+      panel.onApply();
+      fixture.detectChanges();
+      panel.onConfirm();
+      fixture.detectChanges();
+
+      const call = http.expectOne('/api/xmp/batch');
+      expect(call.request.method).toBe('POST');
+      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+        call.request.body['entries'];
+
+      expect(entries[0]!.metadata['city']).toBe('Rome');
+      expect(Object.keys(entries[0]!.metadata)).not.toContain('country');
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.path)).toEqual(['/a.dng', '/b.dng']);
+
+      call.flush({
+        results: [
+          { path: '/a.dng', ok: true },
+          { path: '/b.dng', ok: true },
+        ],
+      });
+      http.expectNone('/api/backup/refile-count');
+    });
+
+    it('sends null for an explicitly cleared field', () => {
+      const panel = getPanel(fixture);
+      panel.cityVal.set('');
+      panel.onFieldChange('city');
+      panel.onApply();
+      fixture.detectChanges();
+      panel.onConfirm();
+      fixture.detectChanges();
+
+      const call = http.expectOne('/api/xmp/batch');
+      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+        call.request.body['entries'];
+      expect(entries[0]!.metadata['city']).toBeNull();
+      call.flush({
+        results: [
+          { path: '/a.dng', ok: true },
+          { path: '/b.dng', ok: true },
+        ],
+      });
+    });
+
+    it('splits comma-separated keywords into an array', () => {
+      const panel = getPanel(fixture);
+      panel.keywordsVal.set('travel, france, street');
+      panel.onFieldChange('keywords');
+      panel.onApply();
+      fixture.detectChanges();
+      panel.onConfirm();
+      fixture.detectChanges();
+
+      const call = http.expectOne('/api/xmp/batch');
+      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+        call.request.body['entries'];
+      expect(entries[0]!.metadata['keywords']).toEqual(['travel', 'france', 'street']);
+      call.flush({
+        results: [
+          { path: '/a.dng', ok: true },
+          { path: '/b.dng', ok: true },
+        ],
+      });
+    });
+
+    it('sends empty array for an empty keywords string (clears bag)', () => {
+      const panel = getPanel(fixture);
+      panel.keywordsVal.set('');
+      panel.onFieldChange('keywords');
+      panel.onApply();
+      fixture.detectChanges();
+      panel.onConfirm();
+      fixture.detectChanges();
+
+      const call = http.expectOne('/api/xmp/batch');
+      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+        call.request.body['entries'];
+      expect(entries[0]!.metadata['keywords']).toEqual([]);
+      call.flush({
+        results: [
+          { path: '/a.dng', ok: true },
+          { path: '/b.dng', ok: true },
+        ],
+      });
+    });
+
+    it('sends GPS fields as numbers, not strings', () => {
+      const panel = getPanel(fixture);
+      panel.gpsLatitudeVal.set('48.8566');
+      panel.onFieldChange('gpsLatitude');
+      panel.gpsLongitudeVal.set('2.3522');
+      panel.onFieldChange('gpsLongitude');
+      panel.onApply();
+      fixture.detectChanges();
+      panel.onConfirm();
+      fixture.detectChanges();
+
+      const call = http.expectOne('/api/xmp/batch');
+      const entry = (
+        call.request.body['entries'] as Array<{ metadata: Record<string, unknown> }>
+      )[0]!;
+      expect(typeof entry.metadata['gpsLatitude']).toBe('number');
+      expect(entry.metadata['gpsLatitude']).toBe(48.8566);
+      expect(typeof entry.metadata['gpsLongitude']).toBe('number');
+
+      call.flush({
+        results: [
+          { path: '/a.dng', ok: true },
+          { path: '/b.dng', ok: true },
+        ],
+      });
+      fixture.detectChanges();
+      http.expectOne('/api/backup/refile-count').flush({ count: 0 });
+    });
+
+    it('stays on confirm phase and surfaces per-asset errors on batchApply partial failure', () => {
+      const panel = getPanel(fixture);
+      panel.cityVal.set('Paris');
+      panel.onFieldChange('city');
+      panel.onApply();
+      fixture.detectChanges();
+      panel.onConfirm();
+      fixture.detectChanges();
+
+      http.expectOne('/api/xmp/batch').flush({
+        results: [
+          { path: '/a.dng', ok: true },
+          { path: '/b.dng', ok: false, error: 'permission denied' },
+        ],
+      });
+      fixture.detectChanges();
+
+      expect(panel.phase()).toBe('confirm');
+      expect(panel.applyErrors()).toHaveLength(1);
+      expect(panel.applyErrors()[0]!.error).toBe('permission denied');
+    });
   });
 
-  it('shows offer when only gpsLatitude was touched and count > 0', () => {
-    const touched = new Set(['gpsLatitude']);
-    expect(refileOfferDecision(touched, 1)).toBe('show-offer');
+  // ── Phase transitions ────────────────────────────────────────────────────────
+
+  describe('phase transitions', () => {
+    beforeEach(() => {
+      host.visible.set(true);
+      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      fixture.detectChanges();
+    });
+
+    it('onApply with no touched fields is a no-op (stays on form)', () => {
+      const panel = getPanel(fixture);
+      panel.onApply();
+      expect(panel.phase()).toBe('form');
+    });
+
+    it('onApply with touched fields transitions to confirm', () => {
+      const panel = getPanel(fixture);
+      panel.onFieldChange('city');
+      panel.onApply();
+      expect(panel.phase()).toBe('confirm');
+    });
+
+    it('onConfirmCancel returns to form and clears applyErrors', () => {
+      const panel = getPanel(fixture);
+      panel.applyErrors.set([{ path: '/a.dng', error: 'test' }]);
+      panel.phase.set('confirm');
+      panel.onConfirmCancel();
+      expect(panel.phase()).toBe('form');
+      expect(panel.applyErrors()).toHaveLength(0);
+    });
+
+    it('onReset clears touched set and resets field values', () => {
+      const panel = getPanel(fixture);
+      panel.cityVal.set('Paris');
+      panel.onFieldChange('city');
+      expect(panel.touched().size).toBeGreaterThan(0);
+      panel.onReset();
+      fixture.detectChanges();
+      expect(panel.touched().size).toBe(0);
+    });
   });
 
-  it('shows offer when only gpsLongitude was touched and count > 0', () => {
-    const touched = new Set(['gpsLongitude']);
-    expect(refileOfferDecision(touched, 1)).toBe('show-offer');
-  });
+  // ── touchedFieldLabels computed ─────────────────────────────────────────────
 
-  it('auto-dismisses when touched is empty', () => {
-    const touched = new Set<string>();
-    expect(refileOfferDecision(touched, 10)).toBe('auto-dismiss');
-  });
-});
+  describe('touchedFieldLabels computed', () => {
+    it('returns human-readable labels for touched fields', () => {
+      host.visible.set(true);
+      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      fixture.detectChanges();
 
-// ---------------------------------------------------------------------------
-// Tests: geocode candidate selection → field mapping
-// ---------------------------------------------------------------------------
+      const panel = getPanel(fixture);
+      panel.onFieldChange('city');
+      panel.onFieldChange('gpsLatitude');
+      fixture.detectChanges();
 
-describe('BatchMetadataPanel — geocode candidate selection', () => {
-  it('maps lat/lon and structured address fields from a candidate', () => {
-    const candidate: GeocodeCandidate = {
-      displayName: 'Paris, France',
-      lat: 48.8566,
-      lon: 2.3522,
-      address: {
-        city: 'Paris',
-        state: 'Île-de-France',
-        country: 'France',
-        country_code: 'fr',
-      },
-    };
-
-    const fields = geocodeSelectToFields(candidate);
-
-    expect(fields.lat).toBe('48.8566');
-    expect(fields.lon).toBe('2.3522');
-    expect(fields.city).toBe('Paris');
-    expect(fields.state).toBe('Île-de-France');
-    expect(fields.country).toBe('France');
-    expect(fields.countryCode).toBe('FR'); // uppercased
-  });
-
-  it('falls back to town when city is absent', () => {
-    const candidate: GeocodeCandidate = {
-      displayName: 'Some town, Country',
-      lat: 10,
-      lon: 20,
-      address: { town: 'Smalltown', country: 'Country', country_code: 'xx' },
-    };
-    const fields = geocodeSelectToFields(candidate);
-    expect(fields.city).toBe('Smalltown');
-  });
-
-  it('falls back to village when city and town are absent', () => {
-    const candidate: GeocodeCandidate = {
-      displayName: 'Village, Country',
-      lat: 5,
-      lon: 10,
-      address: { village: 'Tinyville', country_code: 'xx' },
-    };
-    const fields = geocodeSelectToFields(candidate);
-    expect(fields.city).toBe('Tinyville');
-  });
-
-  it('uppercases the country code', () => {
-    const candidate: GeocodeCandidate = {
-      displayName: 'Test',
-      lat: 0,
-      lon: 0,
-      address: { country_code: 'de' },
-    };
-    const fields = geocodeSelectToFields(candidate);
-    expect(fields.countryCode).toBe('DE');
-  });
-
-  it('returns empty strings for absent address components', () => {
-    const candidate: GeocodeCandidate = {
-      displayName: 'Unknown',
-      lat: 0,
-      lon: 0,
-      address: {},
-    };
-    const fields = geocodeSelectToFields(candidate);
-    expect(fields.city).toBe('');
-    expect(fields.state).toBe('');
-    expect(fields.country).toBe('');
-    expect(fields.countryCode).toBe('');
+      const labels = panel.touchedFieldLabels();
+      expect(labels).toContain('City');
+      expect(labels).toContain('GPS Latitude');
+    });
   });
 });
