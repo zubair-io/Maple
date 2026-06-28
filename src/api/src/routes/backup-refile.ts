@@ -286,8 +286,20 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
       }
 
       // Resolve each path through the auth jail (in parallel); drop unauthorized.
-      const resolved = await Promise.all(paths.map((p) => resolveAndAuthorizePath(p)));
-      const absPaths = resolved.flatMap((r) => (r.ok ? [r.data] : []));
+      // Keep an absolute-path → original-client-path map so per-asset results
+      // echo the exact string the client sent — basename alone collides across
+      // folders, and the resolved absolute path must not leak to the client.
+      const resolved = await Promise.all(
+        paths.map(async (p) => ({ p, auth: await resolveAndAuthorizePath(p) })),
+      );
+      const absPaths: string[] = [];
+      const absToClient = new Map<string, string>();
+      for (const { p, auth } of resolved) {
+        if (auth.ok) {
+          absPaths.push(auth.data);
+          if (!absToClient.has(auth.data)) absToClient.set(auth.data, p);
+        }
+      }
 
       // Load library roots once — shared between findGeoBackupDocs (for
       // precise path matching) and the move loop (for building libRoot).
@@ -310,13 +322,13 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
 
       for (const doc of docs) {
         const primary = assetPrimaryFileInfo(doc);
-        // Echo back the CLIENT's original path string (not the resolved absolute
-        // server path) so we don't leak backend FS layout and the frontend can
-        // map the result to the path it sent.
-        const representativePath =
-          primary != null
-            ? (paths.find((p) => nodePath.basename(p) === primary.filename) ?? paths[0] ?? '')
-            : (paths[0] ?? '');
+        const libRoot = primary ? libs.get(primary.library_id.toHexString()) : undefined;
+        // Reconstruct the doc's absolute path (unique per asset — same way
+        // findGeoBackupDocs matches) to recover the EXACT client path string;
+        // basename alone would mis-attribute same-named files in other folders.
+        const docAbsPath =
+          primary && libRoot ? nodePath.join(libRoot, primary.path, primary.filename) : '';
+        const representativePath = absToClient.get(docAbsPath) ?? paths[0] ?? '';
 
         if (!isGeoBackupCandidate(doc)) {
           // Not a geo-backup asset — silently skip (not an error).
@@ -328,7 +340,6 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
           continue;
         }
 
-        const libRoot = libs.get(primary!.library_id.toHexString());
         if (!libRoot) {
           log.warn({ _id: String(doc._id) }, 'backup-refile: no library root for asset — skipping');
           results.push({
