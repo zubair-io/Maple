@@ -392,26 +392,17 @@ extension EditSession {
                     }
                 }.value
             } else {
-                // Fast phase decodes downsampled to the viewport target so
-                // the full-res bitmap is never allocated; refine decodes
-                // full-resolution (`target: nil`) for the final render (#785).
-                //
-                // Guard the fast phase against a nil / degenerate target
-                // (e.g. the very first render before `previewSize` lands):
-                // a nil here would fall through to `sharedDecode`'s
-                // full-resolution branch and re-trigger the exact OOM this
-                // change fixes. Substitute the shared conservative
-                // fallback cap so the initial render stays downsampled.
-                // Refine must still pass `nil` for the full-res decode.
-                let decodeTarget: CGSize? = {
-                    guard phase == .fast else { return nil }
-                    if let targetSize {
-                        let longEdge = max(targetSize.width, targetSize.height)
-                        if longEdge.isFinite, longEdge >= 1 { return targetSize }
-                    }
-                    let fallback = CGFloat(ImageEditPipeline.fastPhaseFallbackLongEdge)
-                    return CGSize(width: fallback, height: fallback)
-                }()
+                // Both phases decode to their bounded display target so the
+                // full-res bitmap is never allocated (#785 fast phase, #1637
+                // refine). Refine used to decode full-resolution even when the
+                // scheduler handed it a capped `refinedTargetSize`, so a 100 MP
+                // RAW allocated the full-sensor demosaic + a full-res GPU
+                // texture and jetsam-killed iOS. `renderFull()` still passes a
+                // nil target → genuine full-res for export prep; `.fast` caps a
+                // nil/degenerate target rather than fall through to full-res.
+                let decodeTarget = ImageEditPipeline.decodeTarget(
+                    phase: phase, targetSize: targetSize
+                )
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
                     target: decodeTarget,
