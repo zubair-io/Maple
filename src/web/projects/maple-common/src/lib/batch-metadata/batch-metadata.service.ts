@@ -59,6 +59,23 @@ export class BatchMetadataService {
   }
 
   // ---------------------------------------------------------------------------
+  // Snapshots (full effective metadata for mixed-value computation)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * POST /api/metadata/snapshots — fetch full effective metadata for a list of
+   * asset paths so the panel can compute "(mixed)" across all 22 fields.
+   */
+  fetchSnapshots(paths: string[]): Observable<AssetMetadataSnapshot[]> {
+    type AssetSnapshotMetadata = AssetMetadataSnapshot['metadata'];
+    return this.http
+      .post<{
+        snapshots: Array<{ path: string; metadata: AssetSnapshotMetadata }>;
+      }>('/api/metadata/snapshots', { paths })
+      .pipe(map((r) => r.snapshots.map((s) => ({ path: s.path, metadata: s.metadata }))));
+  }
+
+  // ---------------------------------------------------------------------------
   // Refile (backup geo-organisation after a GPS apply)
   // ---------------------------------------------------------------------------
 
