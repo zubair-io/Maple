@@ -136,7 +136,7 @@ public actor ThumbnailLoader {
             // Short-circuits BEFORE CGImageSourceCreateThumbnailAtIndex so video
             // container bytes are never fed to ImageIO or libraw.
             if SidecarPath.isVideo(assetURL) {
-                guard let data = Self.posterJPEG(at: assetURL) else {
+                guard let data = await Self.posterJPEG(at: assetURL) else {
                     logger.warning("video poster extraction failed for \(assetURL.lastPathComponent, privacy: .public)")
                     return nil
                 }
@@ -343,16 +343,19 @@ public actor ThumbnailLoader {
 
     /// Extract a poster frame from a video file using AVFoundation (#1642).
     ///
-    /// Requests a frame at 1 second in; if the asset is shorter (or frame
-    /// generation fails at 1s), falls back to the first frame at time zero.
-    /// Returns JPEG bytes downscaled to `ThumbnailDiskCache.defaultThumbSize`
-    /// long edge at `ThumbnailDiskCache.jpegQuality`, or nil if AVFoundation
-    /// cannot read the file (unsupported codec, missing file, etc.).
+    /// Requests a frame at 1 second in; if the asset is shorter, the requested
+    /// time is clamped to the asset duration so the generator returns the last
+    /// available frame instead of failing. Returns JPEG bytes downscaled to
+    /// `ThumbnailDiskCache.defaultThumbSize` long edge at
+    /// `ThumbnailDiskCache.jpegQuality`, or nil if AVFoundation cannot read the
+    /// file (unsupported codec, missing file, etc.).
     ///
-    /// Always call from inside a `Task.detached(priority: .utility)` block —
-    /// `AVAssetImageGenerator.copyCGImage` performs synchronous I/O and must
-    /// not block the actor or the main thread.
-    private static func posterJPEG(at url: URL) -> Data? {
+    /// Uses the async `AVAssetImageGenerator.image(at:)` (iOS 16 / macOS 13+),
+    /// NOT the synchronous `copyCGImage` — the latter blocks the calling thread
+    /// while it decodes. Generating several posters at once (grid scroll) on the
+    /// synchronous API would block multiple cooperative-pool threads and starve
+    /// the pool. The async API suspends instead, freeing the thread for other work.
+    private static func posterJPEG(at url: URL) async -> Data? {
         let asset = AVAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         // Apply the track's preferred display transform so portrait clips
@@ -363,13 +366,17 @@ public actor ThumbnailLoader {
         let target = ThumbnailDiskCache.defaultThumbSize
         generator.maximumSize = CGSize(width: target.width * 2, height: target.height * 2)
 
-        // Prefer 1s in; fall back to the first frame if the clip is shorter or
-        // generation fails at 1s.
+        // Prefer 1s in. For clips shorter than 1s, clamp to the asset duration so
+        // the generator returns the final frame rather than failing the request.
         let oneSecond = CMTime(seconds: 1, preferredTimescale: 600)
-        let cgImage: CGImage? = (try? generator.copyCGImage(at: oneSecond, actualTime: nil))
-            ?? (try? generator.copyCGImage(at: .zero, actualTime: nil))
+        let requested: CMTime
+        if let duration = try? await asset.load(.duration), duration.isNumeric, duration < oneSecond {
+            requested = duration
+        } else {
+            requested = oneSecond
+        }
 
-        guard let cg = cgImage else { return nil }
+        guard let cg = try? await generator.image(at: requested).image else { return nil }
 
         // Encode via the same CIContext + JPEG helper as the image thumbnail path.
         let ci = CIImage(cgImage: cg)
