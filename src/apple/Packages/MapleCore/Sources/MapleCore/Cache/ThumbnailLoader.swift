@@ -28,6 +28,12 @@ public actor ThumbnailLoader {
     /// memory for no reason.
     private let ctx = CIContext()
 
+    /// Shared CIContext for the static encode paths (`posterJPEG`, etc.).
+    /// `CIContext` is heavyweight to allocate and thread-safe to share, so the
+    /// static encoders reuse this one instance instead of minting a new context
+    /// on every call (a video poster per grid cell on scroll, otherwise).
+    private static let posterCIContext = CIContext()
+
     /// Cap on concurrent thumbnail generations. The previous value (3) was
     /// tuned for the old Rust-develop thumbnail path (~350 ms each, CPU-
     /// bound). The new embedded-preview path via `CGImageSourceCreate
@@ -378,7 +384,7 @@ public actor ThumbnailLoader {
 
         guard let cg = try? await generator.image(at: requested).image else { return nil }
 
-        // Encode via the same CIContext + JPEG helper as the image thumbnail path.
+        // Encode via the shared CIContext + JPEG helper as the image thumbnail path.
         let ci = CIImage(cgImage: cg)
         let extent = ci.extent
         let longEdge = max(extent.width, extent.height)
@@ -387,6 +393,6 @@ public actor ThumbnailLoader {
                 scaleX: target.width / longEdge,
                 y: target.width / longEdge))
             : ci
-        return jpegData(from: scaled, ctx: CIContext())
+        return jpegData(from: scaled, ctx: posterCIContext)
     }
 }
