@@ -77,6 +77,25 @@ public actor ImageEditPipeline {
         return CGSize(width: cap, height: cap)
     }
 
+    /// Sensor long edge (px) at/below which the GPU-live render path is used;
+    /// above it the editor falls back to the CPU two-phase path (#1637).
+    ///
+    /// The GPU-live present holds wgpu storage buffers at display resolution
+    /// plus its own in-driver auto-profile fit, and the `GpuLiveDriver` +
+    /// fit artifacts persist across image switches. On the 100 MP reference
+    /// RAW that overhead — stacked on the CPU develop — crosses the iOS ~6 GB
+    /// per-process limit and jetsam-kills the app; a device A/B confirmed the
+    /// same open survives with GPU-live OFF. ~9000 px ≈ 60 MP: it keeps the
+    /// GPU path for 24–50 MP bodies and gates only the very large sensors.
+    nonisolated public static let gpuLiveMaxSensorLongEdge: Int = 9000
+
+    /// Whether the GPU-live path is allowed for a sensor of `longEdge` px.
+    /// `0` (size not yet seeded) is allowed — the present's own dims guards
+    /// still apply, and a missing size must not disable the fast path.
+    nonisolated public static func gpuLiveSupportsSensor(longEdge: CGFloat) -> Bool {
+        longEdge <= CGFloat(gpuLiveMaxSensorLongEdge)
+    }
+
     /// As-shot white balance derived from the RAW's metadata. Passed into
     /// `process(...)` so `CITemperatureAndTint`'s `neutral` reflects the
     /// camera's metered white point — the slider then behaves as a scene
