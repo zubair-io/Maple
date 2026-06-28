@@ -36,7 +36,7 @@ public actor FilesystemSource {
         public let id: UUID
         public let url: URL
         public var name: String { url.deletingPathExtension().lastPathComponent }
-        public var sidecarURL: URL { url.deletingPathExtension().appendingPathExtension("xmp") }
+        public var sidecarURL: URL { SidecarPath.sidecarURL(for: url) }
 
         public init(url: URL) {
             self.id = UUID()
@@ -228,7 +228,7 @@ extension FilesystemSource: ImageSource {
         guard let url = ref.url else {
             throw ImageSourceError.notFound(ref.id)
         }
-        let sidecarURL = url.deletingPathExtension().appendingPathExtension("xmp")
+        let sidecarURL = SidecarPath.sidecarURL(for: url)
         let scope = findScopedParent(for: url)
         let accessing = scope?.startAccessingSecurityScopedResource() ?? false
         defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }

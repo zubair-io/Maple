@@ -178,7 +178,7 @@ public final class BatchMetadataViewModel: Identifiable {
     /// main actor (otherwise every `readMetadata` would hop back and serialize).
     nonisolated private func readMetadata(for asset: AssetRef) async -> XmpMetadata? {
         guard let url = asset.primaryURL else { return XmpMetadata() }
-        let sidecarURL = url.deletingPathExtension().appendingPathExtension("xmp")
+        let sidecarURL = SidecarPath.sidecarURL(for: url)
         guard FileManager.default.fileExists(atPath: sidecarURL.path),
               let xml = try? String(contentsOf: sidecarURL, encoding: .utf8)
         else {
@@ -205,7 +205,7 @@ public final class BatchMetadataViewModel: Identifiable {
         }
 
         // Read the existing metadata from the sidecar XML on disk.
-        let sidecarURL = url.deletingPathExtension().appendingPathExtension("xmp")
+        let sidecarURL = SidecarPath.sidecarURL(for: url)
         let existingXml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
         var merged = XMPParser.parseMetadata(existingXml)
 

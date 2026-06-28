@@ -89,33 +89,35 @@ describe('groupFiles', () => {
     expect(g.sidecars.get(2)).toEqual([]);
   });
 
-  // M5 — #1635: video sidecars must pair to their movie.
-  test('pairs a sidecar to a movie primary (M5)', () => {
+  // M5 — #1635: a video's FULL-NAME sidecar pairs to its movie.
+  test('pairs a full-name sidecar to a movie primary (M5)', () => {
     const files: ImportFileEntry[] = [
-      mk('2024/06/clip.xmp', 'sidecar'),
+      mk('2024/06/clip.mov.xmp', 'sidecar'),
       mk('2024/06/clip.mov', 'movie'),
     ];
     const g = groupFiles(files);
     // clip.mov is the only primary.
     expect(g.primaries).toEqual([1]);
-    // clip.xmp (idx 0) attaches to clip.mov (idx 1).
+    // clip.mov.xmp (idx 0) attaches to clip.mov (idx 1).
     expect(g.sidecars.get(1)).toEqual([0]);
   });
 
-  test('image wins over movie when both share a stem and a sidecar exists (M5 collision)', () => {
-    // clip.jpg, clip.mov, clip.xmp — image appears first in the array
-    // (mirrors scan.ts where images are classified before movies in the walk).
+  test('Live Photo: same-stem image + movie each pair to their own sidecar (M5)', () => {
+    // clip.jpg + clip.xmp (photo, stem-swap), clip.mov + clip.mov.xmp (movie,
+    // full-name). Full-name video sidecars mean distinct keys — no collision.
     const files: ImportFileEntry[] = [
       mk('2024/06/clip.jpg', 'image'),
       mk('2024/06/clip.mov', 'movie'),
       mk('2024/06/clip.xmp', 'sidecar'),
+      mk('2024/06/clip.mov.xmp', 'sidecar'),
     ];
     const g = groupFiles(files);
     // Both image and movie are primaries.
-    expect(g.primaries.sort()).toEqual([0, 1]);
-    // Sidecar attaches to the image (index 0), not the movie (index 1).
+    expect(g.primaries.sort((a, b) => a - b)).toEqual([0, 1]);
+    // Photo's stem-swap sidecar (idx 2) attaches to the image (idx 0).
     expect(g.sidecars.get(0)).toEqual([2]);
-    expect(g.sidecars.get(1)).toEqual([]);
+    // Movie's full-name sidecar (idx 3) attaches to the movie (idx 1).
+    expect(g.sidecars.get(1)).toEqual([3]);
   });
 });
 

@@ -65,7 +65,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     public var scopeParentURL: URL?
 
     public var sidecarURL: URL? {
-        primaryURL.map { $0.deletingPathExtension().appendingPathExtension("xmp") }
+        primaryURL.map { SidecarPath.sidecarURL(for: $0) }
     }
 
     /// True iff this asset has a persistent XMP sidecar next to its primary
