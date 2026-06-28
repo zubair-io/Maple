@@ -37,6 +37,7 @@ public actor FilesystemSource {
         public let url: URL
         public var name: String { url.deletingPathExtension().lastPathComponent }
         public var sidecarURL: URL { SidecarPath.sidecarURL(for: url) }
+        public var isVideo: Bool { SidecarPath.isVideo(url) }
 
         public init(url: URL) {
             self.id = UUID()
@@ -281,15 +282,25 @@ public enum NonRawImageExtensions {
     ]
 }
 
+// MARK: - VideoExtensions
+
+public enum VideoExtensions {
+    /// Video container extensions (lowercase, no dot). Delegates to
+    /// `SidecarPath.videoExtensions` as the single source of truth.
+    public static let all: Set<String> = SidecarPath.videoExtensions
+}
+
 // MARK: - SupportedImageExtensions
 
 public enum SupportedImageExtensions {
-    /// Union of `RAWExtensions.all` + `NonRawImageExtensions.all` — what
-    /// the LISTING phase (folder enumeration, fileImporter content types,
-    /// drag-and-drop) accepts. The OPEN phase still branches on the
-    /// extension to dispatch to the right decoder; only the listing gate
-    /// uses this union.
-    public static let all: Set<String> = RAWExtensions.all.union(NonRawImageExtensions.all)
+    /// Union of `RAWExtensions.all` + `NonRawImageExtensions.all` +
+    /// `VideoExtensions.all` — what the LISTING phase (folder enumeration,
+    /// fileImporter content types, drag-and-drop) accepts. The OPEN phase
+    /// still branches on the extension to dispatch to the right decoder;
+    /// only the listing gate uses this union.
+    public static let all: Set<String> = RAWExtensions.all
+        .union(NonRawImageExtensions.all)
+        .union(VideoExtensions.all)
 }
 
 // MARK: - macOS folder picker helper
