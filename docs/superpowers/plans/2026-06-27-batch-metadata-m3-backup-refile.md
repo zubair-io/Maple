@@ -1,6 +1,6 @@
 # Batch Metadata M3 — Backup Re-file Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan is organised task-by-task; steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** After a batch GPS edit, offer the user an explicit opt-in to move any geo-organised backup/mirror copies of the edited assets into their new canonical folder.
 
