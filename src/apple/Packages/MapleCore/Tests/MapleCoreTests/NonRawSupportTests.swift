@@ -48,7 +48,7 @@ final class NonRawSupportTests: XCTestCase {
         XCTAssertTrue(union.contains("jpg"))
         XCTAssertTrue(union.contains("png"))
         // Should be exactly the union — no extras.
-        XCTAssertEqual(union, RAWExtensions.all.union(NonRawImageExtensions.all))
+        XCTAssertEqual(union, RAWExtensions.all.union(NonRawImageExtensions.all).union(VideoExtensions.all))
     }
 
     // MARK: AssetRef.isRaw — extension-based
