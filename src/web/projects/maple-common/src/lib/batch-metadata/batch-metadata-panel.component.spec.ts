@@ -361,14 +361,47 @@ describe('BatchMetadataPanelComponent', () => {
       expect(panel.applyErrors()).toHaveLength(0);
     });
 
-    it('onReset clears touched set and resets field values', () => {
+    it('onReset clears the touched set and resets field values to the common snapshot value', () => {
+      // Snapshot has a common city of "Rome". Toggle visibility off→on so the
+      // open-reset effect re-seeds the field signals from these snapshots.
+      host.visible.set(false);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: { city: 'Rome' } },
+        { path: '/b.dng', metadata: { city: 'Rome' } },
+      ]);
+      fixture.detectChanges();
+      host.visible.set(true);
+      fixture.detectChanges();
+
       const panel = getPanel(fixture);
+      // Open-reset effect seeded cityVal from the common value.
+      expect(panel.cityVal()).toBe('Rome');
+
+      // User overrides + touches the field.
       panel.cityVal.set('Paris');
       panel.onFieldChange('city');
       expect(panel.touched().size).toBeGreaterThan(0);
+
       panel.onReset();
       fixture.detectChanges();
+
+      // Touched set cleared AND the field value reverts to the common snapshot value.
       expect(panel.touched().size).toBe(0);
+      expect(panel.cityVal()).toBe('Rome');
+    });
+
+    it('onReset clears an overridden field back to empty when the snapshot has no common value', () => {
+      const panel = getPanel(fixture);
+      // Snapshot metadata is empty → seeded value is ''.
+      panel.cityVal.set('Paris');
+      panel.onFieldChange('city');
+      expect(panel.cityVal()).toBe('Paris');
+
+      panel.onReset();
+      fixture.detectChanges();
+
+      expect(panel.touched().size).toBe(0);
+      expect(panel.cityVal()).toBe('');
     });
   });
 
