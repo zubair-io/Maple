@@ -387,7 +387,14 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
 public struct XMPSerializer {
     private init() {}
 
-    public static func serialize(model: AdjustmentModel, culling: CullingState) -> String {
+    // MARK: - Internal builders (used by both serialize overloads)
+
+    /// Build the ordered adjustment + culling attribute list.
+    /// Values are already formatted for direct emission (numbers, rawValues,
+    /// "Red"/"Rejected" — all XML-safe without escaping).
+    /// Called from both `serialize(model:culling:)` and the metadata overload
+    /// so metadata attrs can be appended natively.
+    static func _buildAttrs(model: AdjustmentModel, culling: CullingState) -> [(String, String)] {
         var attrs: [(String, String)] = [
             ("crs:Temperature",          String(format: "%.0f", model.temperature)),
             ("crs:Tint",                 String(format: "%.0f", model.tint)),
@@ -429,9 +436,7 @@ public struct XMPSerializer {
         // produced before this PR remain byte-identical for users who never
         // touch the vignette / grain / split-tone tools. Defaults are:
         // vignetteAmount=0, vignetteFeather=50, grainAmount=0, grainSize=25,
-        // grainRoughness=50, all split-tone scalars=0. Appended to the shared
-        // `attrs` list so they land in both the self-closing and the
-        // keyword-bearing open/close `rdf:Description` forms below.
+        // grainRoughness=50, all split-tone scalars=0.
         if model.vignetteAmount != 0 {
             attrs.append(("crs:PostCropVignetteAmount", String(format: "%.0f", model.vignetteAmount)))
         }
@@ -515,25 +520,20 @@ public struct XMPSerializer {
                 attrs.append(("crs:CropAngle", fmtCrop(c.angle)))
             }
         }
+        return attrs
+    }
 
-        let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
-
-        // dc:subject — IPTC keyword bag (#632). Emitted as a nested
-        // `<dc:subject><rdf:Bag><rdf:li>…</rdf:Bag></dc:subject>` element
-        // when at least one keyword is present. An empty list omits the
-        // element entirely so the round-trip empty → no element → empty
-        // matches the read path's "no element" default.
-        let dcNamespace = culling.keywords.isEmpty
-            ? ""
-            : "\n      xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
-        let keywordsBlock: String
-        if culling.keywords.isEmpty {
-            keywordsBlock = ""
-        } else {
-            let liItems = culling.keywords
-                .map { "          <rdf:li>\(escapeXMLText($0))</rdf:li>" }
-                .joined(separator: "\n")
-            keywordsBlock = """
+    /// Build the dc:subject keywords block pieces.
+    /// Returns `(dcNs, block)` where `dcNs` is the namespace suffix string
+    /// (empty or `\n      xmlns:dc=…`) and `block` is the multi-line
+    /// `<dc:subject>…</dc:subject>` body (empty string when no keywords).
+    static func _buildKeywordsBlock(culling: CullingState) -> (dcNs: String, block: String) {
+        guard !culling.keywords.isEmpty else { return ("", "") }
+        let dcNs = "\n      xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
+        let liItems = culling.keywords
+            .map { "          <rdf:li>\(escapeXMLText($0))</rdf:li>" }
+            .joined(separator: "\n")
+        let block = """
 
               <dc:subject>
                 <rdf:Bag>
@@ -541,11 +541,18 @@ public struct XMPSerializer {
                 </rdf:Bag>
               </dc:subject>
             """
-        }
+        return (dcNs, block)
+    }
+
+    // MARK: - Public serializer
+
+    public static func serialize(model: AdjustmentModel, culling: CullingState) -> String {
+        let attrs = _buildAttrs(model: model, culling: culling)
+        let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
+        let (dcNamespace, keywordsBlock) = _buildKeywordsBlock(culling: culling)
 
         // Switch between self-closing and open/close `rdf:Description`
-        // forms based on whether there's nested content. The attribute
-        // list is identical in both branches; only the closer differs.
+        // forms based on whether there's nested content (keywords block).
         if keywordsBlock.isEmpty {
             return """
             <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>

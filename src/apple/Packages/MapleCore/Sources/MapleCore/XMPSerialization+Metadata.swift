@@ -133,13 +133,24 @@ public func altitudeToXmp(_ meters: Double) -> (value: String, ref: String) {
 }
 
 /// Decode an altitude rational + ref back to signed meters; `nil` if malformed.
+/// Accepts only the canonical `\d+/\d+` form (non-negative integers on both
+/// sides, no decimal point, no sign) — matching the TS `altitudeFromXmp`
+/// regex `^(\d+)\/(\d+)$`. The sign is encoded in `ref`: "0" = above sea
+/// level, "1" = below. `altitudeToXmp` always emits this canonical form.
 /// Mirrors `altitudeFromXmp` in `xmp-metadata.ts`.
 public func altitudeFromXmp(value: String, ref: String) -> Double? {
-    let parts = value.trimmingCharacters(in: .whitespaces).split(separator: "/", maxSplits: 1)
-    guard parts.count == 2,
-          let numerator = Double(parts[0]),
-          let denominator = Double(parts[1]),
-          denominator != 0
+    let pattern = try? NSRegularExpression(pattern: #"^(\d+)\/(\d+)$"#)
+    let trimmed = value.trimmingCharacters(in: .whitespaces)
+    guard let m = pattern?.firstMatch(
+        in: trimmed,
+        range: NSRange(trimmed.startIndex..., in: trimmed)
+    ) else { return nil }
+    guard
+        let numRange = Range(m.range(at: 1), in: trimmed),
+        let denRange = Range(m.range(at: 2), in: trimmed),
+        let numerator = Double(trimmed[numRange]),
+        let denominator = Double(trimmed[denRange]),
+        denominator != 0
     else { return nil }
     let meters = numerator / denominator
     return ref == "1" ? -meters : meters
@@ -425,7 +436,7 @@ final class _XMPMetadataDelegate: NSObject, XMLParserDelegate {
             switch trimmed {
             case "True":  metadata.copyrightStatus = .copyrighted
             case "False": metadata.copyrightStatus = .publicDomain
-            default:      metadata.copyrightStatus = .unknown
+            default:      break  // unknown string → leave nil, matching TS copyrightStatusFromMarked null
             }
         default:
             break
