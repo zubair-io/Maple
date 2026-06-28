@@ -164,11 +164,12 @@ final class CanvasMathTests: XCTestCase {
         XCTAssertEqual(canvas.refinedTargetSize, CGSize(width: 1000, height: 800))
     }
 
-    /// At pixel-perfect (1.0), refine targets full native size.
-    /// 4000×3000 ≥ 1000×800 (fast), so the max(...) takes native.
+    /// At pixel-perfect (1.0), refine targets full native size — when the
+    /// 2×-viewport headroom cap (#1637) doesn't bind. Viewport 2500×2000 →
+    /// cap 5000 ≥ native 4000, so the `max(...)` takes native.
     func testRefinedTargetSizeAt1x() {
         let canvas = CanvasMath(
-            viewportPx: CGSize(width: 1000, height: 800),
+            viewportPx: CGSize(width: 2500, height: 2000),
             nativeImageSize: CGSize(width: 4000, height: 3000),
             pixelScale: 1.0
         )
@@ -177,14 +178,32 @@ final class CanvasMathTests: XCTestCase {
 
     /// `pixelScale > 1` clamps to 1.0 in the refined target — the
     /// viewport's SwiftUI scale handles the upscale-past-native case
-    /// while the pipeline output stays at native resolution.
+    /// while the pipeline output stays at native resolution. Viewport
+    /// 2500×2000 keeps the 2×-viewport cap (#1637) at 5000 from binding so
+    /// this still isolates the clamp.
     func testRefinedTargetSizeClampsBeyondNative() {
         let canvas = CanvasMath(
-            viewportPx: CGSize(width: 1000, height: 800),
+            viewportPx: CGSize(width: 2500, height: 2000),
             nativeImageSize: CGSize(width: 4000, height: 3000),
             pixelScale: 2.5
         )
         XCTAssertEqual(canvas.refinedTargetSize, CGSize(width: 4000, height: 3000))
+    }
+
+    /// #1637: the refined target is capped to 2× the viewport long edge so
+    /// the full-frame refine decode — and the GPU-present buffer it feeds —
+    /// can't approach the sensor on a large RAW and jetsam-kill iOS. Deep
+    /// zoom past this routes through the per-tile path, not the full frame.
+    /// Viewport 1000×800 → cap 2000; native 4000×3000 at 1× clamps to it.
+    /// Only the long edge bounds memory (`develop_sized` takes a single
+    /// `max_long_edge`); the pipeline preserves aspect.
+    func testRefinedTargetSizeCapsToTwiceViewport() {
+        let canvas = CanvasMath(
+            viewportPx: CGSize(width: 1000, height: 800),
+            nativeImageSize: CGSize(width: 4000, height: 3000),
+            pixelScale: 1.0
+        )
+        XCTAssertEqual(canvas.refinedTargetSize, CGSize(width: 2000, height: 2000))
     }
 
     /// Pre-decode (nativeImageSize == .zero) fallback: refined target
