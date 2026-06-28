@@ -21,7 +21,8 @@
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
@@ -46,6 +47,16 @@ const thumbStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
+    // Video containers have no still frame to thumbnail. Without this guard the
+    // fall-through in `generateThumb` (`copyImageAsThumb`) copies the source
+    // bytes verbatim to `<maple_id>.jpg`, so `/api/thumb/...` would then serve
+    // 200 image/jpeg with raw .MOV/.MP4 bytes — a broken <img> in the grid.
+    // Skip terminally; the preview/describe/face stages carry the same guard.
+    const primary = assetPrimaryFileInfo(image as never);
+    if (primary && isVideoFilename(primary.filename)) {
+      return { skip: 'video-file' };
+    }
+
     // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
     // would otherwise yield an empty libs map, which would make
     // `assetAbsPath` return null and trip the no-resolvable-location skip

@@ -95,6 +95,19 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// fallback applies.
     public let explicitIsRaw: Bool?
 
+    /// True when this asset is a standalone video container (`.mov`, `.mp4`, …).
+    ///
+    /// Videos are selectable in Browse so their metadata can be edited to a
+    /// `clip.mov.xmp` sidecar (#1638), but they have NO still frame for the
+    /// render pipeline. Callers that open an asset for preview/render must
+    /// check this and no-op (or show a placeholder) — a video must never reach
+    /// the RAW decoder. URL-less refs (PhotoKit/SelfHosted) are never video:
+    /// those sources don't surface standalone clips through this path.
+    public var isVideo: Bool {
+        guard let primaryURL else { return false }
+        return SidecarPath.isVideo(primaryURL)
+    }
+
     /// True when the asset should route through the Rust RAW decode path
     /// (rawler → DCP → demosaic → scene-linear chain). False routes through
     /// the Apple non-RAW path (`CGImageSource` → embedded ICC → scene-linear
@@ -110,6 +123,13 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// `dng` is RAW even though ImageIO can also decode it — iPhone ProRAW
     /// deserves the full DCP / HSM / PTC pipeline.
     public var isRaw: Bool {
+        // Videos are never RAW — short-circuit BEFORE `explicitIsRaw` and the
+        // extension fallback so a clip can never route to the libraw decoder.
+        // A video has no still frame; the render/open path no-ops on `isVideo`
+        // (this guard is the last line of defense if a caller forgets to).
+        if isVideo {
+            return false
+        }
         if let explicitIsRaw {
             return explicitIsRaw
         }

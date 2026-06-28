@@ -24,6 +24,7 @@ import * as fs from 'node:fs/promises';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { child as childLogger } from '../log.ts';
@@ -88,6 +89,18 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     }
   } catch {
     // Thumb missing (or source vanished — that will fail downstream anyway).
+  }
+
+  // Video containers have no still frame — and the `copyImageAsThumb`
+  // fall-through below would copy the raw .MOV/.MP4 bytes to `<id>.jpg`, which
+  // the thumb route would then serve as 200 image/jpeg garbage. Bail before the
+  // copy. Stage/route callers already skip videos; this is defense in depth so
+  // no future caller can land video bytes in the thumb cache.
+  if (isVideoFilename(absPath)) {
+    _failed++;
+    log.warn({ absPath }, 'skipped: video has no still frame to thumbnail');
+    logTotals();
+    return;
   }
 
   let ok = false;

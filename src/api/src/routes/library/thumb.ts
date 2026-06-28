@@ -20,6 +20,7 @@ import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
 import {
   safeStat,
   safeReadBytes,
@@ -58,6 +59,16 @@ export const thumbRoutes = new Elysia().get(
       set.status = 400;
       return { error: 'Filename is required' };
     }
+    // Video containers have no still frame to thumbnail. Return a clean 404
+    // rather than attempting generation — `generateThumb` skips videos (no file
+    // written), so the read below would 404 anyway; short-circuiting here makes
+    // the contract explicit and avoids serving a 200 with garbage bytes. The
+    // grid renders a video placeholder for a 404, never a broken <img>.
+    if (isVideoFilename(filename)) {
+      set.status = 404;
+      return { error: 'No thumbnail for video assets' };
+    }
+
     const dirSegs = segments.slice(0, -1);
     const relDir = dirSegs.join('/');
     const fileRelPath = dirSegs.length > 0 ? `${relDir}/${filename}` : filename;
