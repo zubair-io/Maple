@@ -10,15 +10,14 @@ This plan is organised task-by-task.
 
 **Tech Stack:** TypeScript (Bun/Elysia API), Angular 21 signals (web), Swift/SwiftUI (Apple MapleCore), Bun test, XCTest.
 
-## Global Constraints
+## Constraints honored by this change
 
-- NEVER touch originals or backups — metadata writes go to `.xmp` sidecars only.
-- No `git add -A` / `git add .` — stage explicit paths only.
-- No real NUL bytes in source files.
-- Tests use isolated temp dirs / unique MAPLE_MONGO_DB per file (API) and real XMPSidecarStore + temp dirs (Apple).
-- Originals are never decoded for video assets — only metadata/sidecar paths are read/written.
-- The `sidecar-metadata-index` worker stage already supports video passthrough (M5). No changes required there.
-- Thumbnail follow-up for video poster frames must be filed as a tracked ticket on the Files board.
+- Originals and backups are never modified; metadata writes target `.xmp` sidecars only.
+- Source files contain no literal NUL bytes.
+- Tests run in isolated temp dirs (a unique MAPLE_MONGO_DB per file on the API side; real XMPSidecarStore + temp dirs on Apple).
+- Video assets are never decoded — only metadata/sidecar paths are read and written.
+- The `sidecar-metadata-index` worker stage already handles video passthrough (M5), so it is unchanged here.
+- Video poster-frame thumbnails are out of scope and tracked separately as #1642.
 
 ---
 
