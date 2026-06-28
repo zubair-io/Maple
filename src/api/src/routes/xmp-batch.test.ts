@@ -216,4 +216,67 @@ describe('POST /api/xmp/batch', () => {
     const parsed = parseXmpMetadata(xml);
     expect(parsed.keywords).toEqual(['travel', 'france']);
   });
+
+  // M5 — #1635: a video writes a metadata-only sidecar at the FULL-NAME path.
+  test('video: writes full-name sidecar (clip.mov.xmp) with no CRS adjustment attrs', async () => {
+    const videoFile = rawPath('clip.mov');
+    await fs.writeFile(videoFile, '');
+
+    const res = await post({
+      entries: [{ path: videoFile, metadata: { gpsLatitude: 37.7749, gpsLongitude: -122.4194 } }],
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results[0].ok).toBe(true);
+
+    // Sidecar lives at clip.mov.xmp, NOT clip.xmp.
+    const fullName = rawPath('clip.mov.xmp');
+    const xml = await fs.readFile(fullName, 'utf-8');
+    const parsed = parseXmpMetadata(xml);
+    expect(parsed.gpsLatitude).toBeCloseTo(37.7749, 3);
+    expect(parsed.gpsLongitude).toBeCloseTo(-122.4194, 3);
+    // Metadata-only stub: no Camera Raw Settings adjustment markers.
+    expect(xml).not.toContain('crs:HasSettings');
+    expect(xml).not.toContain('crs:Version');
+    // The stem-swap path must NOT have been created.
+    await expect(fs.access(rawPath('clip.xmp'))).rejects.toThrow();
+  });
+
+  // M5 — #1635: a Live Photo's still and clip never clobber each other.
+  test('Live Photo: editing the clip leaves the same-stem still sidecar untouched', async () => {
+    const stillFile = rawPath('IMG_1234.heic');
+    const stillSidecar = rawPath('IMG_1234.xmp');
+    const clipFile = rawPath('IMG_1234.mov');
+    await fs.writeFile(stillFile, '');
+    // Pre-existing photo sidecar carrying a pixel adjustment.
+    await fs.writeFile(
+      stillSidecar,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+   xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:Exposure2012="0.5"
+   crs:HasSettings="True">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`,
+    );
+    await fs.writeFile(clipFile, '');
+
+    const res = await post({
+      entries: [{ path: clipFile, metadata: { city: 'San Francisco' } }],
+    });
+    expect(res.status).toBe(200);
+
+    // The still's sidecar is byte-for-byte untouched.
+    const stillXml = await fs.readFile(stillSidecar, 'utf-8');
+    expect(stillXml).toContain('crs:Exposure2012="0.5"');
+    expect(parseXmpMetadata(stillXml).city).toBeUndefined();
+
+    // The clip got its OWN sidecar with the new metadata.
+    const clipXml = await fs.readFile(rawPath('IMG_1234.mov.xmp'), 'utf-8');
+    expect(parseXmpMetadata(clipXml).city).toBe('San Francisco');
+  });
 });
