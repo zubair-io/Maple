@@ -89,6 +89,11 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
+    // DefaultCrop coordinate divisor — tracks the demosaic output resolution so
+    // `crop_to_default` (below) maps sensor-crop coords onto the actual
+    // post-demosaic buffer. The Bayer arm overrides this to 2 when it drops to
+    // half-res demosaic for a small target (#1637).
+    let mut crop_divisor = effective_quality_divisor(quality, raw.cfa);
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             stage("sized_linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
@@ -113,15 +118,37 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
             stage("sized_hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
+            // #1637: when the requested long edge is at most half the sensor's,
+            // demosaic at HALF resolution (`half_res`, sensor/2) even for
+            // Full/Amaze. The full-res RGB buffer (~1.4 GB on a 100 MP sensor)
+            // is then never allocated — that buffer (held twice on a cold Auto
+            // open: render + auto-profile fit) is what jetsam-killed iOS on
+            // large RAWs. After the early downsample to `max_long_edge` the
+            // on-screen result is unchanged (half-sensor still exceeds the
+            // sub-half-sensor target). `crop_divisor` follows to 2 so the
+            // DefaultCrop coords still land on the (now half-res) buffer.
+            let sensor_le = mosaic.width.max(mosaic.height);
+            let demosaic_half =
+                quality != RenderQuality::Preview && max_long_edge.saturating_mul(2) <= sensor_le;
+            if demosaic_half {
+                crop_divisor = 2;
+            }
             // Interactive Bayer paths use cancellable kernels; see the
             // unsized variant for the AMaZE / HA rationale.
-            stage("sized_demosaic", || match quality {
-                RenderQuality::Preview => demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel),
-                #[cfg(feature = "high-quality-demosaic")]
-                RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
-                #[cfg(not(feature = "high-quality-demosaic"))]
-                RenderQuality::Full => demosaic::bilinear_cancellable(&mosaic, raw.cfa, cancel),
-                RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
+            stage("sized_demosaic", || {
+                if demosaic_half {
+                    return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
+                }
+                match quality {
+                    RenderQuality::Preview => {
+                        demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel)
+                    }
+                    #[cfg(feature = "high-quality-demosaic")]
+                    RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
+                    #[cfg(not(feature = "high-quality-demosaic"))]
+                    RenderQuality::Full => demosaic::bilinear_cancellable(&mosaic, raw.cfa, cancel),
+                    RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
+                }
             })
         }
     };
@@ -137,7 +164,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     // still over the long-edge cap. See ticket #375.
     if let Some(crop) = raw.crop_rect {
         if let Some(cropped) = stage("sized_crop_to_default", || {
-            crop_to_default(&camera_rgb, crop, effective_quality_divisor(quality, raw.cfa))
+            crop_to_default(&camera_rgb, crop, crop_divisor)
         }) {
             camera_rgb = cropped;
         }
