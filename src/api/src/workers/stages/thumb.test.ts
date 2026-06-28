@@ -108,6 +108,35 @@ describe('thumb handler — bitmap path', () => {
     expect(s.size).toBeGreaterThan(0);
   });
 
+  it("returns { skip: 'video-file' } for a .MOV and writes no thumb", async () => {
+    // A video container can land in a mixed-media library and (post-#1638) is
+    // a selectable asset. The handler must skip it rather than fall through to
+    // `copyImageAsThumb`, which would copy the raw .MOV bytes to `<id>.jpg` —
+    // the thumb route would then serve 200 image/jpeg with video bytes (broken
+    // <img> in the grid). Mirrors the preview stage's video guard.
+    const file = path.join(dir, 'IMG_3087.MOV');
+    await writeFile(file, Buffer.from('not really a video, just bytes'));
+
+    // Unique maple_id — the thumb cache path is keyed on it.
+    const doc = makeDoc(file, libraryId, dir, null, '9'.repeat(32));
+    const result = await thumbStage.handler(doc as never, {} as never);
+    expect((result as { skip: string }).skip).toBe('video-file');
+
+    // No thumb artefact was produced — assert the stat rejects with ENOENT
+    // specifically, so an unexpected error fails the test loudly instead of
+    // masquerading as "file absent".
+    const thumbPath = resolveThumbPathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+    );
+    expect(thumbPath).not.toBeNull();
+    const err = await stat(thumbPath as string).then(
+      () => null,
+      (e: NodeJS.ErrnoException) => e,
+    );
+    expect(err?.code).toBe('ENOENT');
+  });
+
   it('produces an upright thumb regardless of EXIF orientation tag', async () => {
     const file = path.join(dir, 'rotated.jpg');
     // Create a 16x8 JPEG tagged as orientation 6 (90° CW). After the orientation
