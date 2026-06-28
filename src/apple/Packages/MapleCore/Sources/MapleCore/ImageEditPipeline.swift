@@ -90,10 +90,17 @@ public actor ImageEditPipeline {
     nonisolated public static let gpuLiveMaxSensorLongEdge: Int = 9000
 
     /// Whether the GPU-live path is allowed for a sensor of `longEdge` px.
-    /// `0` (size not yet seeded) is allowed — the present's own dims guards
-    /// still apply, and a missing size must not disable the fast path.
+    ///
+    /// `0` (size not yet seeded) returns `false` — conservative. A
+    /// bytes-provider / PhotoKit asset seeds `nativeImageSize` ASYNchronously
+    /// (`seedNativeImageSizeFromMetadataAsync`), so it can still be `.zero`
+    /// when the cold-open refine presents; taking the GPU path then on a
+    /// possibly-huge RAW is exactly what OOM-killed a 100 MP library photo.
+    /// GPU-live resumes for that asset once the size seeds and proves ≤ the
+    /// threshold. URL-backed assets seed synchronously before the first
+    /// render, so they are unaffected (#1637).
     nonisolated public static func gpuLiveSupportsSensor(longEdge: CGFloat) -> Bool {
-        longEdge <= CGFloat(gpuLiveMaxSensorLongEdge)
+        longEdge > 0 && longEdge <= CGFloat(gpuLiveMaxSensorLongEdge)
     }
 
     /// As-shot white balance derived from the RAW's metadata. Passed into
