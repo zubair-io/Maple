@@ -197,6 +197,28 @@ final class BatchMetadataViewModelTests: XCTestCase {
                        "Altitude must round-trip to within 0.001 m")
     }
 
+    /// A genuine 0 m (sea-level) altitude must survive apply — it is a valid
+    /// reading, distinct from "altitude not set". This is the value the
+    /// verticalAccuracy>0 placemark path now applies instead of dropping.
+    func testApplyZeroAltitudeIsPreserved() async throws {
+        let (asset, store) = try await tempAsset()
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        vm.touchedMetadata.gpsLatitude  = 0.0
+        vm.touchedMetadata.gpsLongitude = 0.0
+        vm.touchedMetadata.gpsAltitude  = 0.0
+        try await vm.apply()
+
+        let xml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
+        let parsed = XMPParser.parseMetadata(xml)
+        XCTAssertNotNil(parsed.gpsAltitude, "0 m altitude must be written, not dropped")
+        XCTAssertEqual(parsed.gpsAltitude!, 0.0, accuracy: 0.001,
+                       "0 m sea-level altitude must round-trip")
+    }
+
     func testApplyAltitudeExplicitClear() async throws {
         var m = XmpMetadata()
         m.gpsLatitude = 10; m.gpsLongitude = 20; m.gpsAltitude = 500

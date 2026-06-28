@@ -87,8 +87,10 @@ struct BatchMetadataTextSection: View {
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: keywordsText) { _, v in
                     var seen = Set<String>()
+                    // Trim whitespace AND newlines, matching EditSession.setKeywords
+                    // and the XMP dc:subject parser.
                     let parsed = v.split(separator: ",")
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                         .filter { !$0.isEmpty && seen.insert($0).inserted }
                     // Outer .some marks the field as touched; inner value is the new list.
                     // Empty input = explicit clear (empty array replaces existing keywords).
