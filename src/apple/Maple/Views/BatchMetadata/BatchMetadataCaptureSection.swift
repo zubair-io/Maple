@@ -216,10 +216,12 @@ struct BatchMetadataCaptureSection: View {
         vm.touchedMetadata.gpsLongitude = lon
         latText = String(format: "%.6f", lat)
         lonText = String(format: "%.6f", lon)
-        // Apply altitude from CoreLocation when non-zero (CLLocation returns 0
-        // when elevation data is absent, so zero is treated as "not available").
-        let alt = loc.altitude
-        if alt != 0 {
+        // Apply altitude only when CoreLocation reports it as valid: a positive
+        // verticalAccuracy means the altitude is measured. (A zero/negative
+        // verticalAccuracy means altitude is invalid — don't confuse that with
+        // a genuine 0 m sea-level reading, which is valid and must be applied.)
+        if loc.verticalAccuracy > 0 {
+            let alt = loc.altitude
             vm.touchedMetadata.gpsAltitude = alt
             altText = String(format: "%.1f", alt)
         }

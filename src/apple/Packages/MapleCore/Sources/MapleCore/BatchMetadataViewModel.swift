@@ -95,7 +95,9 @@ public final class BatchMetadataViewModel: Identifiable {
     /// truly nil on all assets OR mixed.
     public private(set) var commonMetadata: XmpMetadata = XmpMetadata()
 
-    /// Common keywords when all assets agree; nil when mixed or when no asset has keywords.
+    /// The keyword set shared by every asset when they all agree: the agreed list
+    /// when non-empty, `[]` when all assets agree on no keywords, and `nil` only
+    /// when the selection is mixed (keywords differ across assets).
     public private(set) var commonKeywords: [String]? = nil
 
     /// The fields the user has explicitly touched in this editing session.
