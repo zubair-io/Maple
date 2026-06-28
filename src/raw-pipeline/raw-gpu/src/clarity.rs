@@ -249,10 +249,12 @@ impl Pass for ClarityPass {
             encoder,
             src,
             dst,
-            width,
-            height,
-            CLARITY_GUIDED_RADIUS,
-            self.clarity / 100.0,
+            spatial::ClarityTextureArgs {
+                width,
+                height,
+                r: CLARITY_GUIDED_RADIUS,
+                amount: self.clarity / 100.0,
+            },
         );
     }
 }
