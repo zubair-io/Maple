@@ -119,10 +119,12 @@ async function writeSidecar(xmpContent: string): Promise<ImageDoc> {
   return makeImage();
 }
 
-/** Write a video file + sidecar and return an ImageDoc pointing at the video. */
+/** Write a video file + its full-name sidecar (`clip.mov.xmp`) and return an
+ *  ImageDoc pointing at the video. Videos use the full-name convention so a
+ *  Live Photo's motion clip never clobbers the same-stem still's `.xmp`. */
 async function writeVideoSidecar(xmpContent: string): Promise<ImageDoc> {
   const videoFile = path.join(tmpDir, 'clip.mov');
-  const sidecarFile = path.join(tmpDir, 'clip.xmp');
+  const sidecarFile = path.join(tmpDir, 'clip.mov.xmp');
   await fs.writeFile(videoFile, '');
   await fs.writeFile(sidecarFile, xmpContent, 'utf-8');
   return makeImage({
