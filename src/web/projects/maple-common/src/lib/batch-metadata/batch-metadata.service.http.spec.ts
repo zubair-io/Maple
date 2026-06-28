@@ -10,6 +10,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { BatchMetadataService } from './batch-metadata.service';
 import type {
+  AssetMetadataSnapshot,
   BatchApplyEntry,
   RefileCountResult,
   RefileResult,
@@ -29,6 +30,32 @@ describe('BatchMetadataService HTTP wiring', () => {
   });
 
   afterEach(() => http.verify());
+
+  // ── fetchSnapshots ─────────────────────────────────────────────────────────
+
+  describe('fetchSnapshots', () => {
+    it('posts paths to /api/metadata/snapshots and maps response', () => {
+      const paths = ['/a.dng', '/b.dng'];
+      let result: AssetMetadataSnapshot[] | undefined;
+      svc.fetchSnapshots(paths).subscribe((r) => (result = r));
+
+      const req = http.expectOne('/api/metadata/snapshots');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ paths });
+
+      req.flush({
+        snapshots: [
+          { path: '/a.dng', metadata: { city: 'Paris', caption: 'Tower at dusk' } },
+          { path: '/b.dng', metadata: {} },
+        ],
+      });
+
+      expect(result).toEqual([
+        { path: '/a.dng', metadata: { city: 'Paris', caption: 'Tower at dusk' } },
+        { path: '/b.dng', metadata: {} },
+      ]);
+    });
+  });
 
   // ── batchApply ──────────────────────────────────────────────────────────────
 
