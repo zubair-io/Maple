@@ -704,6 +704,7 @@ export class LibraryFetch {
         // width/height from the listing when the server provides them.
         ...(img.width != null ? { width: img.width } : {}),
         ...(img.height != null ? { height: img.height, aspectRatio: img.width! / img.height } : {}),
+        ...(img.isVideo ? { isVideo: true as const } : {}),
       };
     });
 

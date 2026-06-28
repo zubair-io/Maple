@@ -25,6 +25,8 @@ export interface ImageEntry {
   width?: number;
   height?: number;
   capturedAt?: string;
+  /** True when the asset is a video container. Used for grid badge. */
+  isVideo?: boolean;
 }
 
 export interface FolderListing {

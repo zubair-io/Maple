@@ -46,6 +46,8 @@ export interface FsImageEntry extends FsDirEntry {
   size: number;
   /** Lowercase extension, no dot. */
   ext: string;
+  /** True when this entry is a video container (e.g. .mov, .mp4). */
+  isVideo?: boolean;
 }
 
 export interface FsDirListing {
