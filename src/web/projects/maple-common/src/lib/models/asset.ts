@@ -86,6 +86,10 @@ export interface Asset {
   /** Last-modified time (ISO 8601 string). */
   mtime?: string;
 
+  /** True when the asset is a video file. Batch-metadata path is unchanged
+   *  (server detects extension); this field is for UI badges. */
+  isVideo?: boolean;
+
   // IPTC
   title?: string;
   keywords?: string[];
