@@ -102,6 +102,17 @@ Instrumented the wgpu live chain on Metal (`raw-gpu` `measure_gpu_memory_at_dims
 - Keep the resolution cap as a cheap safety ceiling, not the primary fix; do NOT soften normal previews for it.
 - The `MemoryProbe` + `measure_gpu_memory_at_dims` are the standing tools for this.
 
+## 7c. ON-DEVICE measurement (2026-06-28, Artemis iPhone 17 Pro Max) — the fit develop is the lever
+
+`MemoryProbe` trace, 100 MP `test_0000.DNG`, GPU-live FORCED on (probe bypasses the gate):
+
+- **Peak footprint 4,815 MB; min headroom 1,329 MB — SURVIVED, no jetsam.** A single GPU open of the 100 MP fits under 6 GB.
+- GPU session dims **1320×880 (1.2 MP)** every frame — the live canvas is tiny in device terms. The §7b resolution cap (3072) NEVER binds → **drop it** (it would only soften previews).
+- The whole GPU path adds **~0.5 GB** (after-fit 4306 → gpu-open 4813), so the in-driver fit is already cheap (cache hit) → the **fit-dedup is NOT the lever** either.
+- The **auto-profile fit's CPU develop is a ~2.3 GB transient** (steady ~2.0 GB → peak 4.8 GB). THE lever.
+
+**Conclusion:** the OOM you hit in the wild is the ACCUMULATION case (library/PhotoKit's heavier bytes decode + second-image / slider transients stacking on the ~2.3 GB fit), not the single open. **Corrected fix:** shrink the fit's develop transient — develop the fit at a COARSE resolution (a tone curve needs only the distribution, not the 6144-px half-sensor demosaic). Drops the per-image peak ~1–1.8 GB → headroom to lift the gate and run the 100 MP on GPU. Drop the resolution cap and the fit-dedup; both are now disproven by measurement. Parity-gated (the fit feeds the Auto curve → validate `baseline_auto` ΔE on the Mac harness).
+
 ## 8. Sequencing & recommendation
 M0 ships now (crash fixed). **M1 is the next step** — it directly removes the proven GPU OOM and lets us lift the gate, restoring the 16 ms slider on large RAWs, with the smallest blast radius. M2 hardens the fit. M3/M4 are the broader architecture (enable ROI/zoom + a real export path + the WebGPU 8192 cap) and are larger, separable efforts. M5 is the safety net.
 
