@@ -67,12 +67,10 @@ impl Pass for TexturePass {
             encoder,
             src,
             dst,
-            spatial::ClarityTextureArgs {
-                width,
-                height,
-                r: TEXTURE_GUIDED_RADIUS,
-                amount: self.texture / 100.0,
-            },
+            width,
+            height,
+            TEXTURE_GUIDED_RADIUS,
+            self.texture / 100.0,
         );
     }
 }
