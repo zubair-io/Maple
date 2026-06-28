@@ -64,7 +64,9 @@ final class VideoThumbnailTests: XCTestCase {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
-        // Create and append a single black 64×64 pixel buffer at t=0.
+        // Create and append a single black 64×64 pixel buffer at t=0. The buffer
+        // memory is uninitialized after CVPixelBufferCreate, so zero it explicitly
+        // (0 in BGRA = opaque black) to produce a deterministic frame.
         var pixelBuffer: CVPixelBuffer?
         let attrs: CFDictionary = [
             kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
@@ -75,7 +77,18 @@ final class VideoThumbnailTests: XCTestCase {
             kCFAllocatorDefault, 64, 64, kCVPixelFormatType_32BGRA, attrs, &pixelBuffer
         ) == kCVReturnSuccess, let pb = pixelBuffer else { return false }
 
-        adaptor.append(pb, withPresentationTime: .zero)
+        CVPixelBufferLockBaseAddress(pb, [])
+        if let base = CVPixelBufferGetBaseAddress(pb) {
+            let rowBytes = CVPixelBufferGetBytesPerRow(pb)
+            let height = CVPixelBufferGetHeight(pb)
+            memset(base, 0, rowBytes * height)
+        }
+        CVPixelBufferUnlockBaseAddress(pb, [])
+
+        // A failed append silently produces an empty movie — assert it succeeds
+        // so the fixture build fails loudly instead.
+        XCTAssertTrue(adaptor.append(pb, withPresentationTime: .zero),
+                      "AVAssetWriterInputPixelBufferAdaptor.append should succeed")
         input.markAsFinished()
 
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
