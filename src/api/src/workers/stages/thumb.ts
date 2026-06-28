@@ -24,7 +24,13 @@ import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
+import {
+  defineStage,
+  runStage,
+  type ImageDoc,
+  type RunStageHandle,
+  type StageResult,
+} from '../run-stage.ts';
 
 const thumbStage = defineStage({
   name: 'thumb',
@@ -52,7 +58,7 @@ const thumbStage = defineStage({
     // bytes verbatim to `<maple_id>.jpg`, so `/api/thumb/...` would then serve
     // 200 image/jpeg with raw .MOV/.MP4 bytes — a broken <img> in the grid.
     // Skip terminally; the preview/describe/face stages carry the same guard.
-    const primary = assetPrimaryFileInfo(image as never);
+    const primary = assetPrimaryFileInfo(image as unknown as ImageDoc);
     if (primary && isVideoFilename(primary.filename)) {
       return { skip: 'video-file' };
     }
