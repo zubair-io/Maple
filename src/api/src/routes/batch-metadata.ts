@@ -1,9 +1,10 @@
 /**
- * Batch Metadata API plugin (M1) — aggregates the two batch-metadata routes
- * (`POST /api/xmp/batch`, `GET /api/geocode/search`) into a single Elysia
- * plugin. Mounted as one `.use()` in the app's authed subtree so it adds a
- * single link to that already-long chain (keeping TS's instantiation depth
- * under control) rather than two.
+ * Batch Metadata API plugin — aggregates the four batch-metadata routes
+ * (`POST /api/xmp/batch`, `GET /api/geocode/search`,
+ * `POST /api/backup/refile`, `POST /api/metadata/snapshots`) into a single
+ * Elysia plugin. Mounted as one `.use()` in the app's authed subtree so it
+ * adds a single link to that already-long chain, keeping TS's instantiation
+ * depth under control.
  */
 
 import { Elysia } from "elysia";
