@@ -86,8 +86,12 @@ extension EditSession {
         // 100 MP library photo can still read `.zero` here and must NOT take
         // the GPU path on spec (that OOM'd). GPU-live resumes once the size
         // seeds and proves small (see `gpuLiveSupportsSensor`).
+        // `MAPLE_MEM_PROBE` forces the GPU path on regardless of sensor size so
+        // the large-RAW GPU footprint can be MEASURED on device (#1647 M1); the
+        // production gate below otherwise routes large sensors to CPU.
         let sensorLongEdge = max(nativeImageSize.width, nativeImageSize.height)
-        guard ImageEditPipeline.gpuLiveSupportsSensor(longEdge: sensorLongEdge) else {
+        guard MemoryProbe.isEnabled
+            || ImageEditPipeline.gpuLiveSupportsSensor(longEdge: sensorLongEdge) else {
             editSessionLogger.notice(
                 "GPU-TRACE reject large-sensor gen=\(gen ?? 0) longEdge=\(sensorLongEdge, format: .fixed(precision: 0))")
             return false
@@ -123,6 +127,7 @@ extension EditSession {
             return false
         }
         editSessionLogger.notice("GPU-TRACE enter gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height) profile=\(String(describing: m.profile), privacy: .public)")
+        MemoryProbe.sample("gpu-enter dims=\(dims.width)x\(dims.height) sensor=\(Int(sensorLongEdge))")
 
         if !driver.isOpen(width: dims.width, height: dims.height) {
             editSessionLogger.notice("GPU-TRACE open begin gen=\(gen ?? 0)")
@@ -136,6 +141,7 @@ extension EditSession {
                     pixels: buf.pixels, width: buf.width, height: buf.height,
                     inputShape: inputShape)
                 editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0) inputShape=\(inputShape)")
+                MemoryProbe.sample("gpu-open dims=\(buf.width)x\(buf.height)")
             } catch {
                 editSessionLogger.error(
                     "GPU live open failed: \(error.localizedDescription, privacy: .public) — CPU fallback")
