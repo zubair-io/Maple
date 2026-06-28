@@ -10,7 +10,7 @@
 
 The API currently has no video frame extraction capability — `sharp` and `heic-convert` handle only still images, the `libraw_ffi` pool is RAW-only, and there is no ffmpeg/ffprobe dependency in `package.json`. The machine has `ffmpeg` installed at `/opt/homebrew/bin/ffmpeg`, but this is a Homebrew local installation that cannot be assumed present on self-hosted servers or in CI containers, and bundling it would add a heavy unconditional dependency for an optional quality-of-life feature.
 
-The right path for server-side video posters is a tracked follow-up that evaluates options (shelling out to a platform-ffmpeg if available, adding a native module, using a WASM video decoder). That is filed as ticket #1643 (follow-up). This plan implements Apple only; the web grid continues to show the existing placeholder on 404.
+The right path for server-side video posters is a tracked follow-up that evaluates options (shelling out to a platform-ffmpeg if available, adding a native module, using a WASM video decoder). That is filed as ticket #1649 (follow-up). This plan implements Apple only; the web grid continues to show the existing placeholder on 404.
 
 ## Global Constraints
 
