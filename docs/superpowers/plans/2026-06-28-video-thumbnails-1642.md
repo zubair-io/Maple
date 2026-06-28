@@ -26,24 +26,26 @@ The right path for server-side video posters is a tracked follow-up that evaluat
 
 ## File Map
 
-| Action | File |
-|--------|------|
-| Modify | `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader.swift` |
-| Create | `src/apple/Packages/MapleCore/Tests/MapleCoreTests/VideoThumbnailTests.swift` |
-| No change | `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailDiskCache.swift` |
-| No change | `src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift` |
+| Action    | File                                                                                  |
+| --------- | ------------------------------------------------------------------------------------- |
+| Modify    | `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader.swift`          |
+| Create    | `src/apple/Packages/MapleCore/Tests/MapleCoreTests/VideoThumbnailTests.swift`         |
+| No change | `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailDiskCache.swift`       |
+| No change | `src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift`                    |
 | No change | `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleSidecarPaths.swift` |
-| No change | `src/api/src/workers/stages/thumb.ts` (guard stays; no server poster) |
-| No change | `src/api/src/routes/library/thumb.ts` (video 404 stays) |
+| No change | `src/api/src/workers/stages/thumb.ts` (guard stays; no server poster)                 |
+| No change | `src/api/src/routes/library/thumb.ts` (video 404 stays)                               |
 
 ---
 
 ## Task 1: Test skeleton + verify test runner is clean
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/VideoThumbnailTests.swift`
 
 **Interfaces:**
+
 - Consumes: `ThumbnailLoader.shared.load(for:scopeParentURL:)` (existing `public func`)
 - Consumes: `ThumbnailDiskCache.shared.thumbnailData(for:)` (existing `public func`)
 - Produces: tests that compile against the CURRENT code (will FAIL or SKIP after Task 2 adds real poster logic)
@@ -221,9 +223,11 @@ git commit -m "test(video-thumb): add VideoThumbnailTests skeleton — RED (#164
 ## Task 2: Implement video poster in ThumbnailLoader
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader.swift`
 
 **Interfaces:**
+
 - Consumes: `SidecarPath.isVideo(_:)` → `Bool` (already imported via `SidecarPath`)
 - Consumes: `AVFoundation.AVAsset(url:)`, `AVFoundation.AVAssetImageGenerator`
 - Consumes: `MapleSidecarPaths.thumbURL(for:)` → `URL`
@@ -237,6 +241,7 @@ The implementation adds a `posterJPEG(at:)` private static method that uses `AVA
 In `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader.swift`, add the import after the existing `import os` line:
 
 Old block (lines 14–19):
+
 ```swift
 import Foundation
 import CoreImage
@@ -245,6 +250,7 @@ import os
 ```
 
 New block:
+
 ```swift
 import Foundation
 import AVFoundation
@@ -436,6 +442,7 @@ git commit -m "feat(apple/video-thumb): extract poster frame via AVAssetImageGen
 ## Task 3: File the API follow-up + add clarifying comment in the route
 
 **Files:**
+
 - Modify: `src/api/src/routes/library/thumb.ts` (add a comment only — no logic change)
 
 This step is deliberately minimal: the server-side 404 behavior is correct and intentional; we just document why and what the next step would be.
@@ -445,23 +452,23 @@ This step is deliberately minimal: the server-side 404 behavior is correct and i
 In `src/api/src/routes/library/thumb.ts`, find the video guard block (around line 66–70):
 
 ```typescript
-    if (isVideoFilename(filename)) {
-      set.status = 404;
-      return { error: 'No thumbnail for video assets' };
-    }
+if (isVideoFilename(filename)) {
+  set.status = 404;
+  return { error: 'No thumbnail for video assets' };
+}
 ```
 
 Replace it with:
 
 ```typescript
-    // Video containers have no server-side poster yet. Extracting a frame
-    // would require ffmpeg or a native video decoder — a dependency not
-    // currently bundled. The grid renders a video placeholder on 404.
-    // Follow-up: #1643 (server-side video poster via platform ffmpeg or WASM).
-    if (isVideoFilename(filename)) {
-      set.status = 404;
-      return { error: 'No thumbnail for video assets' };
-    }
+// Video containers have no server-side poster yet. Extracting a frame
+// would require ffmpeg or a native video decoder — a dependency not
+// currently bundled. The grid renders a video placeholder on 404.
+// Follow-up: #1643 (server-side video poster via platform ffmpeg or WASM).
+if (isVideoFilename(filename)) {
+  set.status = 404;
+  return { error: 'No thumbnail for video assets' };
+}
 ```
 
 - [ ] **Step 2: Verify bun test — no new failures**
@@ -615,6 +622,7 @@ EOF
 ## Self-Review Against Spec
 
 **Spec coverage check:**
+
 - Poster frame via `AVAssetImageGenerator` for video assets in Browse grid: covered by Task 2.
 - Same thumbnail cache/path the grid already uses: Task 2 uses `ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)` — identical to image path.
 - Representative early frame (~1s in, or first keyframe): `CMTime(seconds: 1, preferredTimescale: 600)` with 0s fallback in `posterJPEG(at:)`.
