@@ -55,8 +55,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let searchThumbClient: CloudThumbClient?
     let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
-    /// Grid zoom level threaded from AppShell (#1550).
-    @Binding var browseZoomLevel: GridZoomLevel
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
@@ -121,7 +119,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     searchThumbClient: searchThumbClient,
                     searchThumbCache: searchThumbCache,
                     browseDisplayMode: $browseDisplayMode,
-                    browseZoomLevel: $browseZoomLevel,
                     browseVM: browseVM,
                     sessions: $sessions,
                     toolbarContent: toolbarContent,
