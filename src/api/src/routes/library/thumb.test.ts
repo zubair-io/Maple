@@ -154,6 +154,47 @@ describe('GET /thumb/:slug/*', () => {
     expect(second.headers.get('ETag')).toBe(etag);
   });
 
+  test('returns 404 (never a 200 image) for an un-indexed video on disk', async () => {
+    if (!mongoReachable) return;
+    // Post-#1638 videos are selectable, so the grid will request thumbs for
+    // them. A video has no still frame: the route must 404 rather than fall
+    // through to generation (which would otherwise copy the raw .MOV bytes to
+    // a .jpg and serve 200 image/jpeg garbage → broken <img>).
+    const src = path.join(tmpDir, 'clip.mov');
+    await writeFile(src, 'fake-video-bytes');
+
+    const res = await app.handle(new Request('http://localhost/thumb/thumblib/clip.mov'));
+    expect(res.status).toBe(404);
+    // Critically: NOT a 200 image with video bytes.
+    expect(res.status).not.toBe(200);
+    expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+  });
+
+  test('returns 404 (never a 200 image) for an indexed video asset', async () => {
+    if (!mongoReachable) return;
+    const mapleId = new ObjectId().toHexString();
+    await db!.collection('assets').insertOne({
+      maple_id: mapleId,
+      fileinfo: [
+        {
+          library_id: libraryId,
+          path: '',
+          filename: 'indexed-clip.mp4',
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+      deleted_at: null,
+    } as never);
+    const src = path.join(tmpDir, 'indexed-clip.mp4');
+    await writeFile(src, 'fake-video-bytes-2');
+
+    const res = await app.handle(new Request('http://localhost/thumb/thumblib/indexed-clip.mp4'));
+    expect(res.status).toBe(404);
+    expect(res.status).not.toBe(200);
+    expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+  });
+
   test('returns 304 when ETag matches If-None-Match', async () => {
     if (!mongoReachable) return;
     const mapleId = new ObjectId().toHexString();
