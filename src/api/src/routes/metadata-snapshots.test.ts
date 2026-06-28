@@ -299,18 +299,15 @@ describe("POST /api/metadata/snapshots — validation", () => {
 
   test("returns metadata:{} for path not found in DB (unknown path, authorized)", async () => {
     // This path is inside MAPLE_ROOTS but no doc exists for it.
+    // The route must return 200 with empty metadata — missing-asset is not an
+    // error condition (mirrors the real-DB test at the bottom of this file).
     const unknownPath = rawPath("nonexistent-file.dng");
     const res = await post({ paths: [unknownPath] });
-    // The route may return 200 or 500 (if Mongo is completely unreachable in CI).
-    // Critical: if 200, metadata must be empty.
-    if (res.status === 200) {
-      const body = await res.json();
-      expect(body.snapshots).toHaveLength(1);
-      expect(body.snapshots[0].path).toBe(unknownPath);
-      expect(body.snapshots[0].metadata).toEqual({});
-    } else {
-      expect([200, 500]).toContain(res.status);
-    }
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.snapshots).toHaveLength(1);
+    expect(body.snapshots[0].path).toBe(unknownPath);
+    expect(body.snapshots[0].metadata).toEqual({});
   });
 
   test("preserves request order in response", async () => {
