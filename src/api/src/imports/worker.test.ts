@@ -88,6 +88,35 @@ describe('groupFiles', () => {
     expect(g.sidecars.get(1)).toEqual([0]);
     expect(g.sidecars.get(2)).toEqual([]);
   });
+
+  // M5 — #1635: video sidecars must pair to their movie.
+  test('pairs a sidecar to a movie primary (M5)', () => {
+    const files: ImportFileEntry[] = [
+      mk('2024/06/clip.xmp', 'sidecar'),
+      mk('2024/06/clip.mov', 'movie'),
+    ];
+    const g = groupFiles(files);
+    // clip.mov is the only primary.
+    expect(g.primaries).toEqual([1]);
+    // clip.xmp (idx 0) attaches to clip.mov (idx 1).
+    expect(g.sidecars.get(1)).toEqual([0]);
+  });
+
+  test('image wins over movie when both share a stem and a sidecar exists (M5 collision)', () => {
+    // clip.jpg, clip.mov, clip.xmp — image appears first in the array
+    // (mirrors scan.ts where images are classified before movies in the walk).
+    const files: ImportFileEntry[] = [
+      mk('2024/06/clip.jpg', 'image'),
+      mk('2024/06/clip.mov', 'movie'),
+      mk('2024/06/clip.xmp', 'sidecar'),
+    ];
+    const g = groupFiles(files);
+    // Both image and movie are primaries.
+    expect(g.primaries.sort()).toEqual([0, 1]);
+    // Sidecar attaches to the image (index 0), not the movie (index 1).
+    expect(g.sidecars.get(0)).toEqual([2]);
+    expect(g.sidecars.get(1)).toEqual([]);
+  });
 });
 
 function mk(dest: string, kind: ImportFileEntry['kind']): ImportFileEntry {

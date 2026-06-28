@@ -119,6 +119,23 @@ async function writeSidecar(xmpContent: string): Promise<ImageDoc> {
   return makeImage();
 }
 
+/** Write a video file + sidecar and return an ImageDoc pointing at the video. */
+async function writeVideoSidecar(xmpContent: string): Promise<ImageDoc> {
+  const videoFile = path.join(tmpDir, 'clip.mov');
+  const sidecarFile = path.join(tmpDir, 'clip.xmp');
+  await fs.writeFile(videoFile, '');
+  await fs.writeFile(sidecarFile, xmpContent, 'utf-8');
+  return makeImage({
+    fileinfo: [
+      {
+        path: '',
+        filename: 'clip.mov',
+        library_id: { toHexString: () => FAKE_LIB_ID } as unknown as ObjectId,
+      },
+    ],
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Skip paths
 // ---------------------------------------------------------------------------
@@ -254,6 +271,70 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
     const override = patch['metadata_override'] as Record<string, unknown>;
     expect(override['captured_year']).toBe(2025);
     expect(override['captured_month']).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Video passthrough (M5 — #1635)
+// ---------------------------------------------------------------------------
+
+describe('sidecarMetadataIndexHandler — video assets (M5)', () => {
+  test('video asset with metadata-only sidecar returns metadata_override patch', async () => {
+    // A metadata-only sidecar has no CRS/papp adjustment attrs — just metadata.
+    const xml = makeXmp('exif:GPSLatitude="37,46.4940N" exif:GPSLongitude="122,25.1640W"');
+    const image = await writeVideoSidecar(xml);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const override = (result.patch as Record<string, unknown>)['metadata_override'] as Record<
+      string,
+      unknown
+    >;
+    expect(override).toBeDefined();
+    expect(override['gps']).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number) });
+    expect((override['touched_fields'] as string[]).includes('gps')).toBe(true);
+  });
+
+  test('video asset with no sidecar returns { skip: no-sidecar }', async () => {
+    const videoFile = path.join(tmpDir, 'clip.mov');
+    await fs.writeFile(videoFile, '');
+    const image = makeImage({
+      fileinfo: [
+        {
+          path: '',
+          filename: 'clip.mov',
+          library_id: { toHexString: () => FAKE_LIB_ID } as unknown as ObjectId,
+        },
+      ],
+    });
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('skip', 'no-sidecar');
+  });
+
+  test('video asset with adjustment-only sidecar returns { skip: no-metadata }', async () => {
+    // Even if a tool writes CRS attrs to a video sidecar, the stage should skip gracefully.
+    const xml = makeXmp('crs:Exposure2012="0.5" crs:Contrast2012="0"');
+    const image = await writeVideoSidecar(xml);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('skip', 'no-metadata');
+  });
+
+  test('video asset sidecar with IPTC place text produces correct place_text patch', async () => {
+    const xml = makeXmp('photoshop:City="San Francisco" photoshop:Country="United States"');
+    const image = await writeVideoSidecar(xml);
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const override = (result.patch as Record<string, unknown>)['metadata_override'] as Record<
+      string,
+      unknown
+    >;
+    expect(override['place_text']).toMatchObject({
+      city: 'San Francisco',
+      country: 'United States',
+    });
   });
 });
 
