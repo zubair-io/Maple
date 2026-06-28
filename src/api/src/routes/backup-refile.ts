@@ -310,10 +310,12 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
 
       for (const doc of docs) {
         const primary = assetPrimaryFileInfo(doc);
-        // Pick a representative input path (best-effort; used only for the response label).
+        // Echo back the CLIENT's original path string (not the resolved absolute
+        // server path) so we don't leak backend FS layout and the frontend can
+        // map the result to the path it sent.
         const representativePath =
           primary != null
-            ? (absPaths.find((p) => nodePath.basename(p) === primary.filename) ?? paths[0] ?? '')
+            ? (paths.find((p) => nodePath.basename(p) === primary.filename) ?? paths[0] ?? '')
             : (paths[0] ?? '');
 
         if (!isGeoBackupCandidate(doc)) {
