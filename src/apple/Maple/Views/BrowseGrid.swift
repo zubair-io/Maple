@@ -7,27 +7,12 @@
 // ThumbnailProvider. The inline LazyVGrid / ForEach body + MergedCellView
 // are replaced; FolderCell / FolderCellButtonStyle / BrowseEmptyState /
 // ErrorBanner / keyboard shortcuts are kept unchanged.
-//
-// #1550 focal-anchoring: gridZoomPinchFocal wired; focal state (isPinching,
-// frozenFrames, leadingSpacerCount, contentWidth) owned here; the existing
-// selectedID scrollTo is gated off during the ~0.35s zoom settle so the two
-// scroll calls don't fight (landmine #3).
 
 import SwiftUI
 import MapleCore
 
 // MARK: - GridDisplayMode
 // Moved to Maple/Views/Grid/ThumbnailImage.swift (#1490 M0).
-
-// MARK: - ContentWidthPreferenceKey (focal anchoring helper)
-
-/// Surfaces the content width of a grid to the focal-zoom resolver.
-private struct ContentWidthPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
 
 // MARK: - BrowseGrid View
 
@@ -40,9 +25,6 @@ struct BrowseGrid: View {
     /// the toolbar toggle survives BrowseGrid view re-creation. Defaults to
     /// `.fill` when the parent doesn't pass a binding.
     var displayMode: Binding<GridDisplayMode>? = nil
-    /// Grid zoom level — drives ColumnStrategy.zoom (#1550). Optional so
-    /// previews can omit it; defaults to .comfortable when nil.
-    var zoomLevel: Binding<GridZoomLevel>? = nil
     /// Fired by the empty state's "Grant Access" button when
     /// `vm.photosAuthNeeded` is true. `nil` in previews / non-Photos flows.
     var onGrantPhotosAccess: (() -> Void)? = nil
@@ -75,22 +57,10 @@ struct BrowseGrid: View {
     /// Local fallback when no parent binding is supplied (e.g. previews).
     /// Real toolbar wiring lives on `AppShell`.
     @State private var localDisplayMode: GridDisplayMode = .fill
-    @State private var localZoomLevel: GridZoomLevel = .comfortable
 
     /// Resolved mode — parent binding wins; otherwise the local @State.
     private var resolvedDisplayMode: GridDisplayMode {
         displayMode?.wrappedValue ?? localDisplayMode
-    }
-
-    /// Resolved zoom level — parent binding wins; otherwise local @State.
-    private var resolvedZoomLevel: GridZoomLevel {
-        zoomLevel?.wrappedValue ?? localZoomLevel
-    }
-
-    /// Binding for the pinch modifier. Writes to parent or local depending
-    /// on whether a parent binding was supplied.
-    private var zoomLevelBinding: Binding<GridZoomLevel> {
-        zoomLevel ?? $localZoomLevel
     }
 
     /// True when the current folder has neither sub-folders nor images. The
@@ -108,24 +78,6 @@ struct BrowseGrid: View {
     /// per grid surface" guidance). `nil` until set / when no cloud infra — merged
     /// mode then falls back to `localProvider`.
     @State private var mergedProvider: ThumbnailProvider?
-
-    // MARK: - Focal-anchoring state (#1550)
-
-    /// True while a pinch gesture is active — enables frame publishing in PhotoGrid.
-    @State private var isPinching = false
-    /// UnitPoint of the pinch, frozen on first onChanged.
-    @State private var startAnchor: UnitPoint = .center
-    /// Frozen cell-frame snapshot, captured on first preference delivery while pinching.
-    @State private var frozenFrames: [AnyHashable: CGRect] = [:]
-    /// Leading spacer count injected into normalGrid's PhotoGrid.
-    @State private var leadingSpacerCount: Int = 0
-    /// Measured content width of the grid area.
-    @State private var contentWidth: CGFloat = 0
-    /// First-row column count derived from frozenFrames (nil = unmeasured).
-    @State private var measuredColumnCount: Int? = nil
-    /// True during the ~0.35s settle window after a focal zoom snap. While true
-    /// the selectedID onChange handler is suppressed so the two scrollTos don't fight.
-    @State private var isZoomSettling = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -152,27 +104,9 @@ struct BrowseGrid: View {
                         // the selection bar when it's shown.
                         .padding(.bottom, vm.isSelecting ? 60 : 0)
                     }
-                    // Coordinate space for cell-frame publishing.
-                    .coordinateSpace(.named("gridViewport"))
-                    // Collect frames on first delivery while pinching (landmine #2).
-                    .onPreferenceChange(CellFramePreferenceKey.self) { frames in
-                        guard isPinching, frozenFrames.isEmpty else { return }
-                        frozenFrames = frames
-                        measuredColumnCount = distinctFirstRowColumns(in: frames)
-                    }
-                    .gridZoomPinchFocal(
-                        level: zoomLevelBinding,
-                        isPinching: $isPinching,
-                        startAnchor: $startAnchor
-                    ) { anchor, snappedLevel in
-                        applyFocalZoom(proxy: proxy, anchor: anchor, snappedLevel: snappedLevel)
-                    }
                     .background(MapleTokens.bg)
                     .opacity(isEmpty ? 0 : 1)
                     .onChange(of: vm.selectedID) { _, newID in
-                        // Gate off during zoom settle so the focal scrollTo and this
-                        // selection scrollTo don't fight (landmine #3).
-                        guard !isZoomSettling else { return }
                         // Minimum scroll — bring the cell into view only when it's
                         // outside the viewport. `.center` re-centered every click,
                         // and the resulting mid-click layout shift made rapid taps
@@ -229,7 +163,7 @@ struct BrowseGrid: View {
     private var mergedGrid: some View {
         PhotoGrid(
             data: vm.mergedCells,
-            columns: .zoom(resolvedZoomLevel),
+            columns: .responsiveBySizeClass,
             provider: mergedProvider ?? localProvider,
             displayMode: resolvedDisplayMode,
             // Tap routing: the original BrowseGrid merged-mode ForEach had no
@@ -256,7 +190,7 @@ struct BrowseGrid: View {
     private var normalGrid: some View {
         PhotoGrid(
             data: vm.assets,
-            columns: .zoom(resolvedZoomLevel),
+            columns: .responsiveBySizeClass,
             provider: localProvider,
             displayMode: resolvedDisplayMode,
             selection: vm.isSelecting
@@ -266,8 +200,6 @@ struct BrowseGrid: View {
             multiSelectChecked: vm.isSelecting ? { asset in
                 vm.selectedIDs.contains(asset.id)
             } : nil,
-            leadingSpacerCount: leadingSpacerCount,
-            publishFrames: isPinching,
             onTap: { asset in
                 if vm.isSelecting {
                     // Multi-select mode: tap toggles check.
@@ -300,90 +232,10 @@ struct BrowseGrid: View {
                 }
             }
         )
-        // Measure the content width for the adaptive column-count formula.
-        // Use background GeometryReader (compatible with iOS 17 deployment target).
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: ContentWidthPreferenceKey.self,
-                    value: geo.size.width
-                )
-            }
-        )
-        .onPreferenceChange(ContentWidthPreferenceKey.self) { width in
-            contentWidth = width
-        }
         // ScrollViewReader uses the element's `.id` as the scrollTo anchor.
         // ForEach inside PhotoGrid tags each element by `element.id` (AssetRef.ID),
         // which is the same value `vm.selectedID` holds — so scrollTo works.
     }
-
-    // MARK: - Focal zoom application
-
-    private func applyFocalZoom(proxy: ScrollViewProxy, anchor: UnitPoint, snappedLevel: GridZoomLevel) {
-        let orderedIDs = vm.assets.map { $0.id }
-        // During multi-select folders are hidden (leading slot is empty); in
-        // normal mode they count toward the global slot offset.
-        let folderCount = vm.isSelecting ? 0 : vm.subfolders.count
-
-        let (focalID, spacers, focalYUnit) = resolveFocalZoom(
-            startAnchor: anchor,
-            frozenFrames: frozenFrames,
-            viewportSize: CGSize(width: contentWidth, height: viewportHeight()),
-            orderedIDs: orderedIDs,
-            leadingFolderCount: folderCount,
-            selectedID: vm.selectedID,
-            oldLevel: resolvedZoomLevel,
-            newLevel: snappedLevel,
-            contentWidth: contentWidth,
-            layout: layout,
-            measuredColumnCount: measuredColumnCount
-        )
-
-        // Mark settling so the selectedID onChange doesn't fire a competing scrollTo.
-        isZoomSettling = true
-
-        withAnimation(.smooth(duration: 0.30)) {
-            zoomLevelBinding.wrappedValue = snappedLevel
-            leadingSpacerCount = spacers
-        }
-
-        if let id = focalID {
-            let scrollAnchor = UnitPoint(x: 0.5, y: focalYUnit)
-            Task { @MainActor in
-                proxy.scrollTo(id, anchor: scrollAnchor)
-            }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.40) {
-            frozenFrames = [:]
-            measuredColumnCount = nil
-            isZoomSettling = false
-        }
-    }
-
-    // MARK: - Helpers
-
-    /// Returns the viewport height. BrowseGrid occupies the full available height,
-    /// so UIScreen / NSScreen gives a reasonable approximation for the hit-test.
-    private func viewportHeight() -> CGFloat {
-        #if canImport(UIKit)
-        return UIScreen.main.bounds.height
-        #else
-        return NSScreen.main?.frame.height ?? 800
-        #endif
-    }
-
-    /// Count distinct first-row x-origins from the frame snapshot.
-    private func distinctFirstRowColumns(in frames: [AnyHashable: CGRect]) -> Int? {
-        guard !frames.isEmpty else { return nil }
-        let minY = frames.values.min { $0.midY < $1.midY }?.midY ?? 0
-        let topFrames = frames.values.filter { abs($0.midY - minY) < $0.height }
-        let distinctX = Set(topFrames.map { ($0.minX * 0.5).rounded() })
-        return distinctX.isEmpty ? nil : distinctX.count
-    }
-
-    @Environment(\.mapleLayout) private var layout
 
     // MARK: - Overlay derivation
 
