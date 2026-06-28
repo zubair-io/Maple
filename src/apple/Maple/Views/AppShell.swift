@@ -174,11 +174,6 @@ struct AppShell: View {
     // toolbar button below).
     @State private var browseDisplayMode: GridDisplayMode = .fill
 
-    // Grid zoom level — persisted across launches via @AppStorage (#1550).
-    // GridZoomLevel: RawRepresentable (Int) so AppStorage stores the rawValue.
-    // Shared across Library / Browse / CloudTimeline; orthogonal to fill/fit.
-    @AppStorage("grid.zoomLevel") private var browseZoomLevel: GridZoomLevel = .comfortable
-
     #if os(iOS)
     /// Whether the Info detail-panel sheet is up on iPhone. The macOS /
     /// iPad shell shows DetailPanel as a right-hand column in Full-image
@@ -466,7 +461,6 @@ struct AppShell: View {
             searchThumbClient: searchThumbClient,
             searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
-            browseZoomLevel: $browseZoomLevel,
             browseVM: browseVM,
             sessions: $sessions,
             sidebar: { sharedSidebar },
@@ -646,7 +640,6 @@ struct AppShell: View {
             searchThumbClient: searchThumbClient,
             searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
-            browseZoomLevel: $browseZoomLevel,
             browseVM: browseVM,
             sessions: $sessions,
             phoneSearchServerKey: phoneSearchServerKey,
@@ -770,7 +763,6 @@ struct AppShell: View {
             isCloudLibrary: searchAvailable,
             cloudViewMode: currentCloudViewMode,
             browseDisplayMode: $browseDisplayMode,
-            browseZoomLevel: $browseZoomLevel,
             onBack: { mode = .browse },
             onToggleSidebar: {
                 withAnimation {

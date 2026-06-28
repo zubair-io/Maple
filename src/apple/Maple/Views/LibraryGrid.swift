@@ -1,18 +1,6 @@
 // LibraryGrid.swift — responsive-program S2 (#623). Responsive photo
 // grid for the Library tab.
 //
-// M2 (#1570): replaced PhotoGrid with ScaleZoomGrid. The scale-zoom
-// interaction is now the real grid on the iPhone Library surface.
-// Zoom level persists via @AppStorage("grid.zoomLevel") threaded from
-// AppShell as `zoomLevel: Binding<GridZoomLevel>`. Folders are packed
-// as leading cells (slots 0..<vm.subfolders.count) so they zoom and
-// scroll with the photos. The temporary ScaleZoomTest scaffold + focal-
-// anchoring wiring from #1550 are removed.
-//
-// Cell tap routes through `onOpenEditor` (same callback BrowseGrid
-// uses — the iPhone shell already pushes the Editor via
-// `.navigationDestination(for: AssetRef.self)`).
-//
 // Spec: docs/design/responsive-program/s2-library-grid.md.
 
 #if os(iOS)
@@ -29,8 +17,6 @@ struct LibraryGrid: View {
     let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Binding var displayMode: GridDisplayMode
-    /// Persisted zoom level — backed by @AppStorage in AppShell (#1570 M2).
-    @Binding var zoomLevel: GridZoomLevel
 
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
@@ -41,32 +27,32 @@ struct LibraryGrid: View {
     @State private var provider = ThumbnailProvider.local()
 
     var body: some View {
-        ScaleZoomGrid(
-            data: vm.assets,
-            level: $zoomLevel,
-            provider: provider,
-            makeItem: { asset in
-                PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
-            },
-            onTap: { asset in
-                vm.selectedID = asset.id
-                #if canImport(UIKit)
-                UISelectionFeedbackGenerator().selectionChanged()
-                #endif
-                onOpenEditor(asset)
-            },
-            displayMode: displayMode,
-            leadingCount: vm.subfolders.count,
-            leading: { i in
-                let reversed = Array(vm.subfolders.reversed())
-                guard i < reversed.count else { return nil }
-                let url = reversed[i]
-                return AnyView(
-                    LibraryFolderCell(url: url) { onNavigateFolder(url) }
-                )
-            },
-            selection: vm.selectedID.map { Set([$0]) } ?? []
-        )
+        ScrollView {
+            PhotoGrid(
+                data: vm.assets,
+                columns: .responsiveBySizeClass,
+                provider: provider,
+                displayMode: displayMode,
+                selection: vm.selectedID.map { Set([$0]) } ?? [],
+                onAppearItem: { asset in onPrimeSession(asset) },
+                onTap: { asset in
+                    vm.selectedID = asset.id
+                    #if canImport(UIKit)
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    #endif
+                    onOpenEditor(asset)
+                },
+                makeItem: { asset in
+                    PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
+                },
+                leading: {
+                    ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
+                        LibraryFolderCell(url: url) { onNavigateFolder(url) }
+                    }
+                }
+            )
+            .padding(2)
+        }
         .accessibilityIdentifier("library-grid")
     }
 
