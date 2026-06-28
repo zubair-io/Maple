@@ -142,6 +142,37 @@ final class BatchMetadataViewModelTests: XCTestCase {
         XCTAssertEqual(p2.headline, "H2", "per-asset untouched headline must survive")
     }
 
+    // MARK: - Video asset path (#1638)
+
+    func testApplyToVideoAssetWritesMetadataOnlySidecar() async throws {
+        // Create a temp .mov URL (extension is what matters — no real video content needed)
+        let videoURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mov")
+        // Write a placeholder so the file "exists" on disk (sidecar is written next to it)
+        try Data().write(to: videoURL)
+        defer {
+            try? FileManager.default.removeItem(at: videoURL)
+            try? FileManager.default.removeItem(at: SidecarPath.sidecarURL(for: videoURL))
+        }
+
+        let ref = AssetRef(url: videoURL)
+        let vm = BatchMetadataViewModel(assets: [ref], sessions: [:])
+        vm.touchedMetadata.city = "Tokyo"
+        try await vm.apply()
+
+        let sidecarURL = SidecarPath.sidecarURL(for: videoURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path),
+                      "clip.mov.xmp sidecar must be written")
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
+        XCTAssertTrue(xml.contains("Tokyo"), "city must appear in sidecar XML")
+        XCTAssertFalse(xml.contains("crs:Exposure"), "video sidecar must not contain crs:Exposure")
+        XCTAssertFalse(xml.contains("crs:WhiteBalance"), "video sidecar must not contain crs:WhiteBalance")
+        // Sidecar URL for a .mov must use full-name convention (.mov.xmp, not .xmp)
+        XCTAssertTrue(sidecarURL.lastPathComponent.hasSuffix(".mov.xmp"),
+                      "video sidecar must use full-name convention")
+    }
+
     // MARK: - Store preserves metadata on a model-only write
 
     func testModelOnlyWritePreservesExistingMetadata() async throws {

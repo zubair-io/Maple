@@ -400,6 +400,28 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertEqual(c2.flag, .pick)
     }
 
+    // MARK: - serializeMetadataOnly (#1638)
+
+    func testSerializeMetadataOnlyHasNoCrsAttributes() {
+        var meta = XmpMetadata()
+        meta.city = "Paris"
+        meta.copyrightNotice = "© 2026"
+        let xml = XMPSerializer.serializeMetadataOnly(metadata: meta)
+        XCTAssertFalse(xml.contains("crs:"), "metadata-only XMP must not contain crs: attributes")
+        XCTAssertTrue(xml.contains("Paris"), "metadata-only XMP must include city value")
+    }
+
+    func testSerializeMetadataOnlyRoundTrips() {
+        var meta = XmpMetadata()
+        meta.city = "Berlin"
+        meta.gpsLatitude = 52.5200
+        meta.gpsLongitude = 13.4050
+        let xml = XMPSerializer.serializeMetadataOnly(metadata: meta)
+        let parsed = XMPParser.parseMetadata(xml)
+        XCTAssertEqual(parsed.city, "Berlin")
+        XCTAssertNotNil(parsed.gpsLatitude)
+    }
+
     // MARK: - Helpers
 
     private func xmp(attrs: String) -> String {

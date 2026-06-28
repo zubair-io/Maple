@@ -189,33 +189,42 @@ public final class BatchMetadataViewModel: Identifiable {
 
     private func applyToAsset(_ asset: AssetRef) async throws {
         guard let url = asset.primaryURL else { return }
-        let store = XMPSidecarStore(rawURL: url)
 
-        // Prefer the live model+culling from an open EditSession to avoid
-        // overwriting uncommitted slider changes with stale sidecar values.
-        // Note: we still write via a fresh XMPSidecarStore because the session's
-        // internal store is private. A cross-store debounce race remains if the
-        // session flushes after us — acceptable in M4 scope; revisit when
-        // EditSession exposes an apply(metadata:) API.
+        let sidecarURL = SidecarPath.sidecarURL(for: url)
+        let existingXml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
+        var merged = XMPParser.parseMetadata(existingXml)
+        Self.applyTouched(touchedMetadata, into: &merged)
+
+        // Video assets have no AdjustmentModel — write a metadata-only sidecar
+        // so no bogus crs: block is emitted. Mirrors the API's metadataOnly path.
+        if SidecarPath.isVideo(url) {
+            let xml = XMPSerializer.serializeMetadataOnly(metadata: merged)
+            guard let data = xml.data(using: .utf8) else {
+                throw XMPStoreError.encodingError
+            }
+            let tmpURL = sidecarURL.deletingLastPathComponent()
+                .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
+            try data.write(to: tmpURL, options: .atomic)
+            _ = try FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmpURL)
+            return
+        }
+
+        // Image/RAW path: preserve model+culling from live session or disk.
+        let store = XMPSidecarStore(rawURL: url)
         let (model, culling): (AdjustmentModel, CullingState)
         if let session = sessions[asset.id] {
             (model, culling) = (session.model, session.culling)
         } else {
             (model, culling) = (try? await store.load()) ?? (.default, CullingState())
         }
+        await store.update(model: model, culling: culling, metadata: merged)
+        await store.flush()
+    }
 
-        // Read the existing metadata from the sidecar XML on disk.
-        let sidecarURL = SidecarPath.sidecarURL(for: url)
-        let existingXml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
-        var merged = XMPParser.parseMetadata(existingXml)
-
-        // Merge in only the touched fields.
-        let t = touchedMetadata
-        // GPS: Double?? — outer nil = untouched; .some(v) means set/clear.
+    private static func applyTouched(_ t: TouchedMetadata, into merged: inout XmpMetadata) {
         if let v = t.gpsLatitude   { merged.gpsLatitude   = v }
         if let v = t.gpsLongitude  { merged.gpsLongitude  = v }
         if let v = t.gpsAltitude   { merged.gpsAltitude   = v }
-        // String fields: nil = untouched, "" = explicit clear, else = new value.
         if let v = t.dateTimeOriginal { merged.dateTimeOriginal = v.isEmpty ? nil : v }
         if let v = t.timeZone         { merged.timeZone         = v.isEmpty ? nil : v }
         if let v = t.sublocation      { merged.sublocation      = v.isEmpty ? nil : v }
@@ -234,9 +243,6 @@ public final class BatchMetadataViewModel: Identifiable {
         if let v = t.usageTerms       { merged.usageTerms       = v.isEmpty ? nil : v }
         if let v = t.credit           { merged.credit           = v.isEmpty ? nil : v }
         if let v = t.source           { merged.source           = v.isEmpty ? nil : v }
-
-        await store.update(model: model, culling: culling, metadata: merged)
-        await store.flush()
     }
 
     /// Detect which fields are mixed (differ across assets) and compute the
