@@ -16,7 +16,7 @@ public enum MetadataFieldKey: String, CaseIterable {
     case gpsLatitude, gpsLongitude, gpsAltitude
     case dateTimeOriginal, timeZone
     case sublocation, city, state, country, countryCode
-    case title, caption, headline, instructions
+    case title, caption, headline, keywords, instructions
     case creator, creatorJobTitle, copyrightNotice, copyrightStatus
     case usageTerms, credit, source
 }
@@ -28,6 +28,7 @@ public enum MetadataFieldKey: String, CaseIterable {
 /// An empty `String?` value (i.e. `Optional("")`) means "explicitly cleared".
 ///
 /// GPS lat/lon/alt are `Double??`: outer nil = untouched; `.some(nil)` = clear.
+/// `keywords` is `[String]??`: outer nil = untouched; `.some([])` = explicit clear.
 public struct TouchedMetadata {
     public var gpsLatitude:  Optional<Optional<Double>> = nil
     public var gpsLongitude: Optional<Optional<Double>> = nil
@@ -42,6 +43,7 @@ public struct TouchedMetadata {
     public var title:            String? = nil
     public var caption:          String? = nil
     public var headline:         String? = nil
+    public var keywords:         Optional<Optional<[String]>> = nil
     public var instructions:     String? = nil
     public var creator:          String? = nil
     public var creatorJobTitle:  String? = nil
@@ -59,7 +61,8 @@ public struct TouchedMetadata {
         dateTimeOriginal != nil || timeZone != nil ||
         sublocation != nil || city != nil || state != nil ||
         country != nil || countryCode != nil ||
-        title != nil || caption != nil || headline != nil || instructions != nil ||
+        title != nil || caption != nil || headline != nil ||
+        keywords != nil || instructions != nil ||
         creator != nil || creatorJobTitle != nil || copyrightNotice != nil ||
         copyrightStatus != nil || usageTerms != nil || credit != nil || source != nil
     }
@@ -91,6 +94,9 @@ public final class BatchMetadataViewModel: Identifiable {
     /// Shared value for fields where all assets agree; nil fields are either
     /// truly nil on all assets OR mixed.
     public private(set) var commonMetadata: XmpMetadata = XmpMetadata()
+
+    /// Common keywords when all assets agree; nil when mixed or when no asset has keywords.
+    public private(set) var commonKeywords: [String]? = nil
 
     /// The fields the user has explicitly touched in this editing session.
     public var touchedMetadata: TouchedMetadata = TouchedMetadata()
@@ -126,23 +132,30 @@ public final class BatchMetadataViewModel: Identifiable {
         isLoading = true
         defer { isLoading = false }
 
-        let loadedMetadatas: [XmpMetadata] = await withTaskGroup(of: XmpMetadata?.self) { group in
+        // Read both XmpMetadata (IPTC/EXIF fields) and CullingState.keywords
+        // from each asset's sidecar in parallel.
+        let loadedPairs: [(XmpMetadata, [String])] = await withTaskGroup(
+            of: (XmpMetadata, [String]).self
+        ) { group in
             for asset in assets {
-                group.addTask {
-                    await self.readMetadata(for: asset)
-                }
+                group.addTask { await self.readMetadataAndKeywords(for: asset) }
             }
-            var results: [XmpMetadata] = []
-            for await result in group {
-                if let m = result { results.append(m) }
-            }
+            var results: [(XmpMetadata, [String])] = []
+            for await result in group { results.append(result) }
             return results
         }
 
-        guard !loadedMetadatas.isEmpty else { return }
+        guard !loadedPairs.isEmpty else { return }
 
-        let (common, mixed) = BatchMetadataViewModel.detectMixed(metadatas: loadedMetadatas)
+        let metadatas = loadedPairs.map(\.0)
+        let keywordSets = loadedPairs.map(\.1)
+
+        let (common, mixed) = BatchMetadataViewModel.detectMixed(
+            metadatas: metadatas,
+            keywordSets: keywordSets
+        )
         commonMetadata = common
+        commonKeywords = mixed.contains(.keywords) ? nil : keywordSets.first
         mixedFields = mixed
     }
 
@@ -171,20 +184,23 @@ public final class BatchMetadataViewModel: Identifiable {
 
     // MARK: - Private helpers
 
-    /// Read metadata from the asset's sidecar XML directly.
-    /// The sidecar is read from disk so the metadata block is preserved —
-    /// re-serializing with the 2-param `serialize(model:culling:)` would drop it.
-    /// `nonisolated` so the TaskGroup runs the synchronous disk reads off the
-    /// main actor (otherwise every `readMetadata` would hop back and serialize).
-    nonisolated private func readMetadata(for asset: AssetRef) async -> XmpMetadata? {
-        guard let url = asset.primaryURL else { return XmpMetadata() }
+    /// Read both the IPTC/EXIF metadata block and culling keywords from the
+    /// asset's sidecar.  `nonisolated` so the TaskGroup disk reads run off the
+    /// main actor without round-tripping back for each asset.
+    nonisolated private func readMetadataAndKeywords(
+        for asset: AssetRef
+    ) async -> (XmpMetadata, [String]) {
+        guard let url = asset.primaryURL else { return (XmpMetadata(), []) }
         let sidecarURL = SidecarPath.sidecarURL(for: url)
         guard FileManager.default.fileExists(atPath: sidecarURL.path),
               let xml = try? String(contentsOf: sidecarURL, encoding: .utf8)
         else {
-            return XmpMetadata()
+            return (XmpMetadata(), [])
         }
-        return XMPParser.parseMetadata(xml)
+        let meta = XMPParser.parseMetadata(xml)
+        // Parse culling to get keywords; ignore model (not needed for display).
+        let culling = (try? XMPParser.parse(xml))?.1 ?? CullingState()
+        return (meta, culling.keywords)
     }
 
     private func applyToAsset(_ asset: AssetRef) async throws {
@@ -197,6 +213,7 @@ public final class BatchMetadataViewModel: Identifiable {
 
         // Video assets have no AdjustmentModel — write a metadata-only sidecar
         // so no bogus crs: block is emitted. Mirrors the API's metadataOnly path.
+        // Keywords are skipped for video (M5 scope).
         if SidecarPath.isVideo(url) {
             let xml = XMPSerializer.serializeMetadataOnly(metadata: merged)
             guard let data = xml.data(using: .utf8) else {
@@ -211,11 +228,15 @@ public final class BatchMetadataViewModel: Identifiable {
 
         // Image/RAW path: preserve model+culling from live session or disk.
         let store = XMPSidecarStore(rawURL: url)
-        let (model, culling): (AdjustmentModel, CullingState)
+        var (model, culling): (AdjustmentModel, CullingState)
         if let session = sessions[asset.id] {
             (model, culling) = (session.model, session.culling)
         } else {
             (model, culling) = (try? await store.load()) ?? (.default, CullingState())
+        }
+        // Apply touched keywords into culling (dc:subject round-trip path).
+        if let kw = touchedMetadata.keywords {
+            culling.keywords = kw ?? []
         }
         await store.update(model: model, culling: culling, metadata: merged)
         await store.flush()
@@ -247,8 +268,11 @@ public final class BatchMetadataViewModel: Identifiable {
 
     /// Detect which fields are mixed (differ across assets) and compute the
     /// common value (set only when all assets agree on a non-nil value).
+    /// `keywordSets` is parallel to `metadatas` — the keywords from each asset's
+    /// culling state, read alongside the IPTC/EXIF block.
     private static func detectMixed(
-        metadatas: [XmpMetadata]
+        metadatas: [XmpMetadata],
+        keywordSets: [[String]]
     ) -> (common: XmpMetadata, mixed: Set<MetadataFieldKey>) {
         var common = XmpMetadata()
         var mixed  = Set<MetadataFieldKey>()
@@ -287,6 +311,14 @@ public final class BatchMetadataViewModel: Identifiable {
             }
         }
 
+        func checkKeywords() {
+            let first = keywordSets.first ?? []
+            if !keywordSets.allSatisfy({ $0 == first }) {
+                mixed.insert(.keywords)
+            }
+            // common keywords are stored in commonKeywords on the VM, not in XmpMetadata.
+        }
+
         checkDouble(\.gpsLatitude,  \.gpsLatitude,  .gpsLatitude)
         checkDouble(\.gpsLongitude, \.gpsLongitude, .gpsLongitude)
         checkDouble(\.gpsAltitude,  \.gpsAltitude,  .gpsAltitude)
@@ -300,6 +332,7 @@ public final class BatchMetadataViewModel: Identifiable {
         checkString(\.title,        \.title,        .title)
         checkString(\.caption,      \.caption,      .caption)
         checkString(\.headline,     \.headline,     .headline)
+        checkKeywords()
         checkString(\.instructions, \.instructions, .instructions)
         checkString(\.creator,      \.creator,      .creator)
         checkString(\.creatorJobTitle, \.creatorJobTitle, .creatorJobTitle)

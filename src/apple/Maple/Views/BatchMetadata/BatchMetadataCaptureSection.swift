@@ -23,9 +23,10 @@ struct BatchMetadataCaptureSection: View {
     @State private var geocodeError: String? = nil
     @State private var geocoder = CLGeocoder()
 
-    // Manual lat/lon text field buffers (parse to Double on change)
+    // Manual lat/lon/alt text field buffers (parse to Double on change)
     @State private var latText: String = ""
     @State private var lonText: String = ""
+    @State private var altText: String = ""
 
     // Date/time and timezone text field buffers
     @State private var dateTimeText: String = ""
@@ -114,6 +115,22 @@ struct BatchMetadataCaptureSection: View {
             }
             .padding(.horizontal, 16)
 
+            // Altitude field (manual entry, mirrors web "Altitude (meters)").
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Altitude (m)").font(.caption).foregroundStyle(.secondary)
+                TextField(altPlaceholder, text: $altText)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: altText) { _, v in
+                        if let d = Double(v) {
+                            vm.touchedMetadata.gpsAltitude = .some(d)
+                        } else if v.isEmpty {
+                            // Empty = untouched (not an explicit clear; use Clear GPS for that)
+                            vm.touchedMetadata.gpsAltitude = nil
+                        }
+                    }
+            }
+            .padding(.horizontal, 16)
+
             // Clear GPS button — shown whenever there is GPS to clear (existing,
             // mixed, or just-entered), so the user can remove coordinates without
             // first having to edit one. Clears lat/lon/alt atomically.
@@ -124,6 +141,7 @@ struct BatchMetadataCaptureSection: View {
                     vm.touchedMetadata.gpsAltitude  = .some(nil)
                     latText = ""
                     lonText = ""
+                    altText = ""
                     geocodeResults = []
                 }
                 .font(.subheadline)
@@ -198,6 +216,13 @@ struct BatchMetadataCaptureSection: View {
         vm.touchedMetadata.gpsLongitude = lon
         latText = String(format: "%.6f", lat)
         lonText = String(format: "%.6f", lon)
+        // Apply altitude from CoreLocation when non-zero (CLLocation returns 0
+        // when elevation data is absent, so zero is treated as "not available").
+        let alt = loc.altitude
+        if alt != 0 {
+            vm.touchedMetadata.gpsAltitude = alt
+            altText = String(format: "%.1f", alt)
+        }
         // Populate place-text fields from placemark when available
         if let city    = p.locality             { vm.touchedMetadata.city        = city    }
         if let state   = p.administrativeArea   { vm.touchedMetadata.state       = state   }
@@ -221,8 +246,11 @@ struct BatchMetadataCaptureSection: View {
     /// shared across the selection (common), or differing (mixed).
     private var hasGpsToClear: Bool {
         vm.touchedMetadata.gpsLatitude != nil || vm.touchedMetadata.gpsLongitude != nil
+            || vm.touchedMetadata.gpsAltitude != nil
             || vm.commonMetadata.gpsLatitude != nil || vm.commonMetadata.gpsLongitude != nil
+            || vm.commonMetadata.gpsAltitude != nil
             || vm.mixedFields.contains(.gpsLatitude) || vm.mixedFields.contains(.gpsLongitude)
+            || vm.mixedFields.contains(.gpsAltitude)
     }
 
     private func placemarkLabel(_ p: CLPlacemark) -> String {
@@ -239,6 +267,11 @@ struct BatchMetadataCaptureSection: View {
     private var lonPlaceholder: String {
         vm.mixedFields.contains(.gpsLongitude) ? "(mixed)" :
             vm.commonMetadata.gpsLongitude.map { String(format: "%.6f", $0) } ?? ""
+    }
+
+    private var altPlaceholder: String {
+        vm.mixedFields.contains(.gpsAltitude) ? "(mixed)" :
+            vm.commonMetadata.gpsAltitude.map { String(format: "%.1f", $0) } ?? ""
     }
 
     private var dateTimePlaceholder: String {
