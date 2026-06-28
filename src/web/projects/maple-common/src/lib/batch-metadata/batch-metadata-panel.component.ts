@@ -349,9 +349,15 @@ export class BatchMetadataPanelComponent implements OnDestroy {
         this.refileErrors.set(
           failures.map((f) => ({ path: f.path, error: f.error ?? 'Unknown error' })),
         );
-        // Show refile-offer again with any errors, then dismiss.
-        this.phase.set('refile-offer');
-        setTimeout(() => this.dismiss.emit(), failures.length > 0 ? 2000 : 800);
+        if (failures.length > 0) {
+          // Return to the offer view to surface which copies failed, then dismiss.
+          this.phase.set('refile-offer');
+          setTimeout(() => this.dismiss.emit(), 2000);
+        } else {
+          // Full success — go straight to done; don't re-flash the offer prompt.
+          this.phase.set('done');
+          setTimeout(() => this.dismiss.emit(), 800);
+        }
       },
       error: () => {
         // Refile failed — dismiss without retrying.
