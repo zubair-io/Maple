@@ -207,7 +207,19 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
             };
             let reference = raw_core_tone(&input, w, h, options);
             let mut local = input.clone();
-            apply_scene_tone_controls(&mut local, w as usize, h as usize, e, br, hl, s, wh, b);
+            apply_scene_tone_controls(
+                &mut local,
+                w as usize,
+                h as usize,
+                SceneToneOptions {
+                    exposure: e,
+                    brightness: br,
+                    highlights: hl,
+                    shadows: s,
+                    whites: wh,
+                    blacks: b,
+                },
+            );
             let max_diff = reference
                 .iter()
                 .zip(&local)
@@ -258,7 +270,19 @@ fn subthreshold_sliders_are_passthrough_on_gpu() {
 #[test]
 fn oracle_shadows_lift_deep_not_bright() {
     let mut buf = vec![0.02_f32, 0.02, 0.02, 1.0, 0.9, 0.9, 0.9, 1.0];
-    apply_scene_tone_controls(&mut buf, 2, 1, 0.0, 0.0, 0.0, 80.0, 0.0, 0.0);
+    apply_scene_tone_controls(
+        &mut buf,
+        2,
+        1,
+        SceneToneOptions {
+            exposure: 0.0,
+            brightness: 0.0,
+            highlights: 0.0,
+            shadows: 80.0,
+            whites: 0.0,
+            blacks: 0.0,
+        },
+    );
     assert!(buf[0] > 0.02, "deep shadow should lift, got {}", buf[0]);
     assert!(
         (buf[4] - 0.9).abs() < 1e-3,
@@ -278,7 +302,19 @@ fn oracle_brightness_lifts_midtone_pins_ends() {
         0.18, 0.18, 0.18, 1.0, // midtone — lifted
         5.0, 5.0, 5.0, 1.0, // scene-ref-max — pinned
     ];
-    apply_scene_tone_controls(&mut buf, 3, 1, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0);
+    apply_scene_tone_controls(
+        &mut buf,
+        3,
+        1,
+        SceneToneOptions {
+            exposure: 0.0,
+            brightness: 100.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+        },
+    );
     assert_eq!(
         buf[0], 0.03,
         "deep shadow must be bit-exact, got {}",
