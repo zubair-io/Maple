@@ -19,7 +19,7 @@ import * as nodePath from 'node:path';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+import { assetAbsPath } from '../indexer/images.repo.ts';
 import type { AssetDoc } from '../db/schema.ts';
 
 // ---------------------------------------------------------------------------
@@ -142,11 +142,12 @@ async function findAssetDocs(
   const result = new Map<string, Pick<AssetDoc, 'exif' | 'metadata_override' | 'fileinfo'>>();
 
   for (const doc of docs) {
-    const primary = assetPrimaryFileInfo(doc);
-    if (!primary) continue;
-    const root = libs.get(primary.library_id.toHexString());
-    if (!root) continue;
-    const absDocPath = nodePath.join(root, primary.path, primary.filename);
+    // Reconstruct the absolute path via the shared helper so path composition
+    // (POSIX-split of fileinfo.path, platform-correct join) stays consistent
+    // with the rest of the codebase. Returns null when the library is
+    // unregistered or the asset has no live fileinfo entry.
+    const absDocPath = assetAbsPath(doc, libs);
+    if (!absDocPath) continue;
     if (absPathSet.has(absDocPath) && !result.has(absDocPath)) {
       result.set(absDocPath, doc);
     }
