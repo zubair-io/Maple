@@ -152,7 +152,7 @@ const MetadataInputSchema = t.Object(
     credit: t.Optional(t.Nullable(t.String())),
     source: t.Optional(t.Nullable(t.String())),
     keywords: t.Optional(t.Array(t.String())),
-    rating: t.Optional(t.Nullable(t.Number())),
+    rating: t.Optional(t.Nullable(t.Integer({ minimum: 0, maximum: 5 }))),
     flag: t.Optional(
       t.Nullable(t.Union([t.Literal('pick'), t.Literal('reject'), t.Literal('unflagged')])),
     ),
