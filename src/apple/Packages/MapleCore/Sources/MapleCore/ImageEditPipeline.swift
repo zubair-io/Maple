@@ -57,22 +57,23 @@ public actor ImageEditPipeline {
     /// Resolution the live decode runs at for a render `phase`, given the
     /// caller's requested display `targetSize` (#1637).
     ///
-    /// A bounded target is honoured for BOTH phases so the decoded
-    /// scene-linear buffer — and the GPU-present texture it feeds — never
-    /// exceeds the display. Refine previously forced `nil` (full-res) even
-    /// when handed a bounded `refinedTargetSize`, so a 100 MP RAW allocated
-    /// the full-sensor demosaic (~1.4 GB) plus a full-res `vec4<f32>` GPU
-    /// texture (~1.6 GB) on cold open and jetsam-killed iOS. Only a `nil`
-    /// target on `.refine` — `renderFull()`'s explicit export-prep request —
-    /// still decodes full-res; `.fast` always caps (never full-res, #785).
+    /// A bounded target is honoured so the decoded scene-linear buffer never
+    /// exceeds the display. A nil/degenerate target — INCLUDING the cold-open
+    /// race where `CanvasMath.refinedTargetSize` is nil before the viewport
+    /// seeds and the scheduler reaches `decodeAndRender(.refine, nil)` — caps to
+    /// the fast fallback rather than full-res; full-res here allocated the
+    /// full-sensor demosaic + GPU texture and jetsam-killed iOS on a 100 MP RAW
+    /// (#1637). The live decode never needs full-res — export renders full-res
+    /// via the separate `renderActor.renderForExport` path. `phase` is retained
+    /// for call-site clarity; both phases cap identically today.
     nonisolated public static func decodeTarget(
         phase: RenderPhase, targetSize: CGSize?
     ) -> CGSize? {
+        _ = phase
         if let targetSize {
             let longEdge = max(targetSize.width, targetSize.height)
             if longEdge.isFinite, longEdge >= 1 { return targetSize }
         }
-        guard phase == .fast else { return nil }
         let cap = CGFloat(fastPhaseFallbackLongEdge)
         return CGSize(width: cap, height: cap)
     }

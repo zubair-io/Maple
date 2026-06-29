@@ -19,6 +19,10 @@
 
 import Foundation
 import os
+// `task_info` / `task_vm_info_data_t` / `mach_task_self_` / `TASK_VM_INFO` live in
+// the Darwin (Mach) module — import it explicitly rather than rely on Foundation
+// re-exporting it.
+import Darwin
 
 public enum MemoryProbe {
     /// `MAPLE_MEM_PROBE=1` at launch. Read once; never re-read on the render path.
