@@ -8,7 +8,7 @@
  */
 
 /** Copyright status tri-state (mirrors CopyrightStatus from xmp.types.ts). */
-export type CopyrightStatus = 'unknown' | 'copyrighted' | 'public-domain';
+export type CopyrightStatus = "unknown" | "copyrighted" | "public-domain";
 
 /**
  * Metadata fields the batch route accepts per asset.
@@ -40,4 +40,13 @@ export interface XmpMetadataInput {
   /** Resolved keyword list (after applying the keyword op).
    * The batch route writes this directly as dc:subject bag. */
   keywords?: string[];
+  /** Star rating 0–5. 0 means "no rating" / clear.
+   * Written as `xmp:Rating` attribute. */
+  rating?: number | null;
+  /** Pick/reject flag. 'unflagged' means "clear".
+   * Written as `papp:Flag` attribute. */
+  flag?: "pick" | "reject" | "unflagged" | null;
+  /** Color label. null means "clear".
+   * Written as `papp:ColorLabel` attribute. */
+  colorLabel?: "red" | "orange" | "yellow" | "green" | "blue" | null;
 }
