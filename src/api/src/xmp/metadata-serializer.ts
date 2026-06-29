@@ -175,8 +175,14 @@ function buildMetadataAttrParts(m: XmpMetadataInput): string[] {
   if (m.source) push('photoshop:Source', m.source);
   if (m.copyrightStatus === 'copyrighted') push('xmpRights:Marked', 'True');
   else if (m.copyrightStatus === 'public-domain') push('xmpRights:Marked', 'False');
-  // Culling
-  if (m.rating != null && m.rating > 0) push('xmp:Rating', String(Math.round(m.rating)));
+  // Culling. Rating is rounded and must land in the readable 1–5 range — a value
+  // outside 0–5 (e.g. from a non-route caller; the batch route already 422s
+  // these) is ignored rather than written as an attr the 1–5 parser can't read
+  // back. 0 means cleared, so it emits nothing.
+  if (m.rating != null) {
+    const rounded = Math.round(m.rating);
+    if (rounded >= 1 && rounded <= 5) push('xmp:Rating', String(rounded));
+  }
   if (m.flag && m.flag !== 'unflagged') push('papp:Flag', m.flag);
   if (m.colorLabel) push('papp:ColorLabel', m.colorLabel);
   return parts;
