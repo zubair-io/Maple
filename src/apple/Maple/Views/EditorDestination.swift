@@ -60,10 +60,20 @@ struct EditorDestination: View {
             // so this closure has no real await. (The stale comment + spurious
             // `await` here triggered Swift's "no async operations occur within
             // await" warning.)
+            // Keep ONLY the active asset's session resident. Each EditSession
+            // holds its GPU live buffers + decoded/developed cache — roughly one
+            // large RAW's worth — and the `sessions` dict (AppShell @State) is
+            // otherwise never pruned, so switching between two 100 MP images kept
+            // both resident and jetsam-killed iOS at the ~6 GB limit (#1660).
+            // Dropping the others here frees that memory BEFORE the new decode
+            // runs. The RAW handle (RawImageCache, single-entry) is already
+            // evicted on switch, so switching back re-decodes regardless.
             if let existing = sessions[asset.id] {
+                if sessions.count > 1 { sessions = [asset.id: existing] }
                 self.state = EditorState(session: existing)
                 return
             }
+            sessions = [:]
             let session = EditSession(asset: asset)
             sessions[asset.id] = session
             self.state = EditorState(session: session)
