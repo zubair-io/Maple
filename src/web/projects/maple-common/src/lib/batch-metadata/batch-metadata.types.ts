@@ -50,6 +50,9 @@ export interface MixedValueMap {
   usageTerms: MixedOr<string | null | undefined>;
   credit: MixedOr<string | null | undefined>;
   source: MixedOr<string | null | undefined>;
+  rating: MixedOr<number | undefined>;
+  flag: MixedOr<'pick' | 'reject' | 'unflagged' | undefined>;
+  colorLabel: MixedOr<'red' | 'orange' | 'yellow' | 'green' | 'blue' | null | undefined>;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +65,9 @@ export interface AssetMetadataSnapshot {
   path: string;
   metadata: Partial<XmpMetadata> & {
     keywords?: string[];
+    rating?: number;
+    flag?: 'pick' | 'reject' | 'unflagged';
+    colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
   };
 }
 
@@ -128,6 +134,9 @@ export function computeMixedValues(snapshots: AssetMetadataSnapshot[]): MixedVal
     usageTerms: scalar((s) => s.metadata.usageTerms),
     credit: scalar((s) => s.metadata.credit),
     source: scalar((s) => s.metadata.source),
+    rating: scalar((s) => s.metadata.rating),
+    flag: scalar((s) => s.metadata.flag),
+    colorLabel: scalar((s) => s.metadata.colorLabel),
   };
 }
 
@@ -155,6 +164,9 @@ function _emptyMixedMap(): MixedValueMap {
     usageTerms: undefined,
     credit: undefined,
     source: undefined,
+    rating: undefined,
+    flag: undefined,
+    colorLabel: undefined,
   };
 }
 
@@ -164,6 +176,9 @@ function _emptyMixedMap(): MixedValueMap {
 
 export type BatchApplyMetadata = Partial<XmpMetadata> & {
   keywords?: string[];
+  rating?: number | null;
+  flag?: 'pick' | 'reject' | 'unflagged' | null;
+  colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
 };
 
 export interface BatchApplyEntry {
