@@ -139,8 +139,9 @@ export async function sidecarMetadataIndexHandler(
   if (override.flag !== undefined) {
     patch["flag"] = override.flag === "pick" ? 1 : -1;
   }
-  if (override.color_label !== undefined)
+  if (override.color_label !== undefined) {
     patch["color_label"] = override.color_label;
+  }
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps
