@@ -23,10 +23,15 @@ final class DecodeTargetTests: XCTestCase {
         )
     }
 
-    /// `renderFull()` (export prep) passes nil → refine still decodes
-    /// full-resolution so export quality is unaffected.
-    func testRefineNilTargetStaysFullRes() {
-        XCTAssertNil(ImageEditPipeline.decodeTarget(phase: .refine, targetSize: nil))
+    /// A nil target on `.refine` — including the cold-open race before the
+    /// viewport seeds — caps to the fast fallback, NOT full-res (which would
+    /// re-introduce the large-RAW OOM). Export uses the separate full-res
+    /// `renderActor.renderForExport` path, so the live decode never needs nil.
+    func testRefineNilTargetCapsToFallback() {
+        XCTAssertEqual(
+            ImageEditPipeline.decodeTarget(phase: .refine, targetSize: nil),
+            CGSize(width: cap, height: cap)
+        )
     }
 
     /// Fast phase honours its viewport target unchanged.
