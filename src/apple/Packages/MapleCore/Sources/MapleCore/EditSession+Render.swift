@@ -286,12 +286,7 @@ extension EditSession {
         // session at the CROPPED dims and needs the un-upscaled canvas target —
         // the cropped buffer already IS the kept region. Capture it before the
         // CPU-path upscale shadows `targetSize` just below.
-        // #1647 M1: cap the GPU session resolution. The wgpu FramePool's planes
-        // scale with the session area, so a retina canvas (~3600–7200 px) is the
-        // footprint that OOMs a 100 MP open. The live preview is display-res and
-        // the final blit upscales to the drawable, so this is visually negligible
-        // while bounding GPU memory quadratically.
-        let gpuTargetSize = ImageEditPipeline.gpuPresentTargetSize(targetSize)
+        let gpuTargetSize = targetSize
         // When a crop is applied the chain still develops the FULL frame and
         // `CropImageStage` trims afterward. The incoming `targetSize` is sized
         // for the CROPPED extent (the canvas/zoom anchor to `effectiveImageSize`),
