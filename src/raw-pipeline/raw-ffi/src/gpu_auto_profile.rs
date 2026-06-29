@@ -25,6 +25,7 @@
 use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
+use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 use raw_core::pipeline::{fit_auto_profile_from_raw, RawInput, RenderQuality};
 use std::ffi::{c_char, CStr};
 
@@ -157,6 +158,9 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
+        // Compute the key BEFORE the read so a file replaced between read and stat
+        // can't cache T0-content under a T1-mtime key (TOCTOU stale-hit).
+        let cache_key = CacheKey::from_path(raw_path);
         let raw_bytes =
             match raw_core::pipeline::stage("ffi_gpu_auto_raw_read", || std::fs::read(raw_path)) {
                 Ok(b) => b,
@@ -166,15 +170,24 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
                 }
             };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_gpu_auto_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
-        };
+        // #1662: route through the SAME decoded-RawImage cache (#949) the
+        // scene-linear render FFI populated moments earlier under this path key,
+        // so the GPU-live Auto-Profile fit HITS instead of re-decoding the RAW a
+        // second time. The CPU fit (`maple_compute_auto_profile_lut`) already
+        // cached; the GPU fit was still on the uncached `decode_bytes` — the ~10s
+        // cold-open double-decode on large RAWs. Falls back to an uncached decode
+        // on an un-stattable path (key None), mirroring `decode_file_cached`.
+        let raw_img =
+            match raw_core::pipeline::stage("ffi_gpu_auto_decode", || match cache_key.as_ref() {
+                Some(k) => decode_bytes_cached(k, &raw_bytes, ext),
+                None => Ok(std::sync::Arc::new(decode_bytes(&raw_bytes, ext)?)),
+            }) {
+                Ok(r) => r,
+                Err(e) => {
+                    set_last_error(format!("decode: {}", e));
+                    return 7;
+                }
+            };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
         } else {
