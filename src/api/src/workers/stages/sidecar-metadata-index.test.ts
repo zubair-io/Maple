@@ -359,10 +359,11 @@ describe('culling projection', () => {
       makeXmp('xmp:Rating="4" xmlns:xmp="http://ns.adobe.com/xap/1.0/"'),
     );
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result.patch).toBeDefined();
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
     expect((patch['metadata_override'] as Record<string, unknown>)['rating']).toBe(4);
-    expect((patch as Record<string, unknown>)['rating']).toBe(4);
+    expect(patch['rating']).toBe(4);
   });
 
   test('flag=pick in sidecar is projected to metadata_override and top-level (flag=1)', async () => {
@@ -370,9 +371,11 @@ describe('culling projection', () => {
       makeXmp('papp:Flag="pick" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
     );
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
     expect((patch['metadata_override'] as Record<string, unknown>)['flag']).toBe('pick');
-    expect((patch as Record<string, unknown>)['flag']).toBe(1);
+    expect(patch['flag']).toBe(1);
   });
 
   test('flag=reject in sidecar is projected to metadata_override and top-level (flag=-1)', async () => {
@@ -380,9 +383,11 @@ describe('culling projection', () => {
       makeXmp('papp:Flag="reject" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
     );
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
     const patch = result.patch as Record<string, unknown>;
     expect((patch['metadata_override'] as Record<string, unknown>)['flag']).toBe('reject');
-    expect((patch as Record<string, unknown>)['flag']).toBe(-1);
+    expect(patch['flag']).toBe(-1);
   });
 });
 
