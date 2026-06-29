@@ -50,13 +50,21 @@ type XmpSnapshot = Partial<{
   credit: string;
   source: string;
   rating: number;
-  flag: "pick" | "reject" | "unflagged";
+  flag: "pick" | "reject";
   colorLabel: "red" | "orange" | "yellow" | "green" | "blue";
 }>;
 
 // ---------------------------------------------------------------------------
 // Pure mapping helper
 // ---------------------------------------------------------------------------
+
+const VALID_COLOR_LABELS = new Set([
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+]);
 
 /**
  * Map a doc's `metadata_override` + `exif` fields to the flat XmpSnapshot
@@ -127,23 +135,12 @@ export function overrideToXmpSnapshot(
   if (doc.flag === 1) snapshot.flag = "pick";
   else if (doc.flag === -1) snapshot.flag = "reject";
   // flag === 0 → absent (unflagged is the default, no need to surface it)
-  const VALID_COLOR_LABELS = new Set([
-    "red",
-    "orange",
-    "yellow",
-    "green",
-    "blue",
-  ]);
   if (
     typeof doc.color_label === "string" &&
     VALID_COLOR_LABELS.has(doc.color_label)
   ) {
     snapshot.colorLabel = doc.color_label as
-      | "red"
-      | "orange"
-      | "yellow"
-      | "green"
-      | "blue";
+      "red" | "orange" | "yellow" | "green" | "blue";
   }
 
   return snapshot;
