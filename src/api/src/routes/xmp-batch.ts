@@ -16,19 +16,19 @@
  * §"Where the ingest happens"
  */
 
-import { Elysia, t } from "elysia";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { resolveAndAuthorizePath } from "./xmp-path-auth.ts";
-import { xmpSidecarPath, writeXmpAtomic } from "../fs/xmp.ts";
-import { mergeMetadataIntoXmp } from "../xmp/metadata-serializer.ts";
-import { isVideoFilename } from "../indexer/media-types.ts";
-import type { XmpMetadataInput } from "../xmp/metadata-input.ts";
-import { coll } from "../indexer/images.repo.ts";
-import { SIDECAR_METADATA_INDEX_STAGE_NAME } from "../workers/stages/sidecar-metadata-index.ts";
-import { child as childLogger } from "../log.ts";
+import { Elysia, t } from 'elysia';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
+import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
+import { isVideoFilename } from '../indexer/media-types.ts';
+import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
+import { coll } from '../indexer/images.repo.ts';
+import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("routes/xmp-batch");
+const log = childLogger('routes/xmp-batch');
 
 // ---------------------------------------------------------------------------
 // Per-asset processing
@@ -57,15 +57,15 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
   const sidecarPath = xmpSidecarPath(absPath);
 
   // Read existing sidecar (or start with empty string → stub created by mergeMetadataIntoXmp).
-  let existingXml = "";
+  let existingXml = '';
   try {
-    existingXml = await fs.readFile(sidecarPath, "utf-8");
+    existingXml = await fs.readFile(sidecarPath, 'utf-8');
   } catch (err: unknown) {
     if (
       !err ||
-      typeof err !== "object" ||
-      !("code" in err) ||
-      (err as NodeJS.ErrnoException).code !== "ENOENT"
+      typeof err !== 'object' ||
+      !('code' in err) ||
+      (err as NodeJS.ErrnoException).code !== 'ENOENT'
     ) {
       const msg = err instanceof Error ? err.message : String(err);
       return { path: entry.path, ok: false, error: `XMP read failed: ${msg}` };
@@ -76,8 +76,7 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
   // Merge metadata into sidecar. For video assets with no existing sidecar,
   // use a metadata-only stub (no Camera Raw Settings attrs) so the sidecar
   // is not misinterpreted as containing pixel adjustments.
-  const metadataOnly =
-    existingXml.length === 0 && isVideoFilename(path.basename(absPath));
+  const metadataOnly = existingXml.length === 0 && isVideoFilename(path.basename(absPath));
   const merged = mergeMetadataIntoXmp(existingXml, entry.metadata, {
     metadataOnly,
   });
@@ -102,18 +101,14 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
  * we match on `filename` (via `$in`) as a cheap filter; a duplicate filename
  * across libraries marks both dirty — harmless (the stage is idempotent).
  */
-async function markSidecarMetadataIndexDirtyBatch(
-  absPaths: string[],
-): Promise<void> {
-  const filenames = [
-    ...new Set(absPaths.map((p) => path.basename(p)).filter(Boolean)),
-  ];
+async function markSidecarMetadataIndexDirtyBatch(absPaths: string[]): Promise<void> {
+  const filenames = [...new Set(absPaths.map((p) => path.basename(p)).filter(Boolean))];
   if (filenames.length === 0) return;
 
   const images = await coll();
   const stagePath = `stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`;
   await images.updateMany(
-    { "fileinfo.filename": { $in: filenames } },
+    { 'fileinfo.filename': { $in: filenames } },
     {
       $set: {
         [`${stagePath}.version`]: 0,
@@ -150,11 +145,7 @@ const MetadataInputSchema = t.Object(
     copyrightNotice: t.Optional(t.Nullable(t.String())),
     copyrightStatus: t.Optional(
       t.Nullable(
-        t.Union([
-          t.Literal("unknown"),
-          t.Literal("copyrighted"),
-          t.Literal("public-domain"),
-        ]),
+        t.Union([t.Literal('unknown'), t.Literal('copyrighted'), t.Literal('public-domain')]),
       ),
     ),
     usageTerms: t.Optional(t.Nullable(t.String())),
@@ -163,22 +154,16 @@ const MetadataInputSchema = t.Object(
     keywords: t.Optional(t.Array(t.String())),
     rating: t.Optional(t.Nullable(t.Number())),
     flag: t.Optional(
-      t.Nullable(
-        t.Union([
-          t.Literal("pick"),
-          t.Literal("reject"),
-          t.Literal("unflagged"),
-        ]),
-      ),
+      t.Nullable(t.Union([t.Literal('pick'), t.Literal('reject'), t.Literal('unflagged')])),
     ),
     colorLabel: t.Optional(
       t.Nullable(
         t.Union([
-          t.Literal("red"),
-          t.Literal("orange"),
-          t.Literal("yellow"),
-          t.Literal("green"),
-          t.Literal("blue"),
+          t.Literal('red'),
+          t.Literal('orange'),
+          t.Literal('yellow'),
+          t.Literal('green'),
+          t.Literal('blue'),
         ]),
       ),
     ),
@@ -196,16 +181,16 @@ const BatchBodySchema = t.Object({
 });
 
 export const xmpBatchRoutes = new Elysia().post(
-  "/api/xmp/batch",
+  '/api/xmp/batch',
   async ({ body, set }) => {
     const entries = body.entries;
     if (!Array.isArray(entries) || entries.length === 0) {
       set.status = 400;
-      return { error: "entries must be a non-empty array" };
+      return { error: 'entries must be a non-empty array' };
     }
     if (entries.length > 1000) {
       set.status = 400;
-      return { error: "entries exceeds maximum batch size of 1000" };
+      return { error: 'entries exceeds maximum batch size of 1000' };
     }
 
     // Process entries concurrently (capped to avoid overwhelming fs).
@@ -213,17 +198,13 @@ export const xmpBatchRoutes = new Elysia().post(
     const results: EntryResult[] = [];
     for (let i = 0; i < entries.length; i += CONCURRENCY) {
       const batch = entries.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        batch.map((e) => processEntry(e as BatchEntry)),
-      );
+      const batchResults = await Promise.all(batch.map((e) => processEntry(e as BatchEntry)));
       results.push(...batchResults);
     }
 
     // Mark sidecar-metadata-index dirty for all successful writes in ONE updateMany
     // (best-effort: a reconcile-trigger failure doesn't invalidate the writes).
-    const okPaths = results
-      .filter((r) => r.ok && r.absPath)
-      .map((r) => r.absPath as string);
+    const okPaths = results.filter((r) => r.ok && r.absPath).map((r) => r.absPath as string);
     if (okPaths.length > 0) {
       try {
         await markSidecarMetadataIndexDirtyBatch(okPaths);
@@ -231,7 +212,7 @@ export const xmpBatchRoutes = new Elysia().post(
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(
           { count: okPaths.length, err: msg },
-          "xmp-batch: failed to mark sidecar-metadata-index dirty",
+          'xmp-batch: failed to mark sidecar-metadata-index dirty',
         );
       }
     }
@@ -250,10 +231,10 @@ export const xmpBatchRoutes = new Elysia().post(
   {
     body: BatchBodySchema,
     detail: {
-      summary: "Bulk-write XMP metadata sidecars",
+      summary: 'Bulk-write XMP metadata sidecars',
       description:
-        "Write metadata fields to N asset sidecars in one request. Each entry is processed atomically (temp-file + rename). Partial failures are reported per-asset. Successful writes trigger the `sidecar-metadata-index` stage for each asset.",
-      tags: ["xmp"],
+        'Write metadata fields to N asset sidecars in one request. Each entry is processed atomically (temp-file + rename). Partial failures are reported per-asset. Successful writes trigger the `sidecar-metadata-index` stage for each asset.',
+      tags: ['xmp'],
     },
   },
 );
