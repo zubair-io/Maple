@@ -300,6 +300,26 @@ describe('POST /api/xmp/batch', () => {
       expect(sidecarContent).toContain('xmp:Rating="5"');
       expect(sidecarContent).toContain('photoshop:City="Tokyo"');
     });
+
+    test('rating out of the 0–5 integer range is rejected by schema (not mis-stored)', async () => {
+      const raw = rawPath('photo5.dng');
+      await fs.writeFile(raw, '');
+      // 7 is out of range; the 1–5 parser would otherwise silently drop it after
+      // the sidecar was already written, so the schema must reject it up front.
+      // Elysia returns 422 for body-schema violations (vs the route's own 400 for
+      // an empty/oversized entries array).
+      const res = await post({ entries: [{ path: raw, metadata: { rating: 7 } }] });
+      expect(res.status).toBe(422);
+      // No sidecar should have been written.
+      await expect(fs.access(raw.replace('.dng', '.xmp'))).rejects.toThrow();
+    });
+
+    test('non-integer rating is rejected by schema', async () => {
+      const raw = rawPath('photo6.dng');
+      await fs.writeFile(raw, '');
+      const res = await post({ entries: [{ path: raw, metadata: { rating: 2.5 } }] });
+      expect(res.status).toBe(422);
+    });
   });
 
   // M5 — #1635: a Live Photo's still and clip never clobber each other.

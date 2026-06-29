@@ -124,16 +124,16 @@ export async function sidecarMetadataIndexHandler(
     metadata_override: override,
   };
 
-  // Project culling fields to top-level ImageDoc fields so search/sort see them.
-  // These mirror the values the sidecar carries; they are written in the same
-  // $set as metadata_override (via the returned patch) so the DB update is atomic.
-  if (override.rating !== undefined) patch['rating'] = override.rating;
-  if (override.flag !== undefined) {
-    patch['flag'] = override.flag === 'pick' ? 1 : -1;
-  }
-  if (override.color_label !== undefined) {
-    patch['color_label'] = override.color_label;
-  }
+  // Project culling fields to top-level ImageDoc fields so search/sort, grid
+  // badges, and folder listings see them. The sidecar is the source of truth for
+  // culling, so we ALWAYS set these (never conditionally): an absent attr means
+  // the user cleared it, and we must overwrite any stale top-level value with the
+  // cleared default — matching the insert seed defaults (rating 0, flag 0,
+  // color_label ''). Written in the same $set as metadata_override so the DB
+  // update is atomic.
+  patch['rating'] = override.rating ?? 0;
+  patch['flag'] = override.flag === 'pick' ? 1 : override.flag === 'reject' ? -1 : 0;
+  patch['color_label'] = override.color_label ?? '';
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps

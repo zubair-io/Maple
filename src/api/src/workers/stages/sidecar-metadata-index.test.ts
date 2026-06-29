@@ -389,6 +389,31 @@ describe('culling projection', () => {
     expect((patch['metadata_override'] as Record<string, unknown>)['flag']).toBe('reject');
     expect(patch['flag']).toBe(-1);
   });
+
+  test('cleared culling overwrites stale top-level rating/flag with defaults', async () => {
+    // Asset previously had flag=pick (1) and rating=5; the sidecar now carries
+    // other metadata (a city) but NO culling attrs — the user cleared them. The
+    // sidecar is authoritative, so the projection must reset the stale top-level
+    // values to the insert defaults (rating 0, flag 0), not leave them in place.
+    const rawFile = path.join(tmpDir, 'test.dng');
+    const sidecarFile = path.join(tmpDir, 'test.xmp');
+    await fs.writeFile(rawFile, '');
+    await fs.writeFile(sidecarFile, makeXmp('photoshop:City="Berlin"'), 'utf-8');
+    const image = makeImage({ rating: 5, flag: 1 });
+
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const patch = result.patch as Record<string, unknown>;
+    // metadata_override carries only the present (non-culling) field…
+    const override = patch['metadata_override'] as Record<string, unknown>;
+    expect(override['rating']).toBeUndefined();
+    expect(override['flag']).toBeUndefined();
+    // …but the top-level projection resets the stale values to cleared defaults.
+    expect(patch['rating']).toBe(0);
+    expect(patch['flag']).toBe(0);
+    expect(patch['color_label']).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------
