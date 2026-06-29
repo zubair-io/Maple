@@ -291,3 +291,51 @@ fn fixture_fit_matches_cube_when_present() {
         "fixture two-pass vs cube max delta {max_delta} exceeds {DECOMPOSE_TOL}"
     );
 }
+
+/// FIXTURE-GATED (#1662): the GPU Auto-Profile fit must route its decode through
+/// the SHARED #949 decoded-`RawImage` cache — the same one the scene-linear
+/// render FFI populated moments earlier under the file's `(path, mtime)` key —
+/// instead of the uncached `decode_bytes`. Before the fix the GPU fit re-decoded
+/// the RAW from scratch on every cold open, which was the ~10s double-decode on
+/// large RAWs (the CPU fit `maple_compute_auto_profile_lut` already cached; the
+/// GPU fit did not).
+///
+/// Observable: after the fit runs, the file's key is present in the cache. Uses
+/// `test_0017` — no other raw-ffi test decodes it, so the key is pristine and is
+/// present iff THIS fit inserted it (no `clear_for_test`, so no interference with
+/// concurrent fixture tests). The decode runs BEFORE the Auto/Neutral tail
+/// decision, so an `rc` of 0 (tail) or 1 (no tail) both mean the decode executed.
+#[test]
+fn fixture_gpu_fit_routes_decode_through_shared_cache() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/raws/test_0017.dng");
+    if !path.exists() {
+        return; // skip-pass: no fixture (CI without RAWs)
+    }
+    let key = raw_core::decode_cache::CacheKey::from_path(&path)
+        .expect("a real fixture file is stattable");
+
+    let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+    let mut curve = [0f32; PROFILE_CURVE_FLAT_LEN];
+    let mut present = 0i32;
+    let mut lut = vec![0f32; 49 * 49 * 49 * 3];
+    let mut size = 0u32;
+    let rc = unsafe {
+        maple_gpu_fit_auto_profile(
+            cpath.as_ptr(),
+            std::ptr::null(),
+            0,
+            curve.as_mut_ptr(),
+            &mut present,
+            lut.as_mut_ptr(),
+            lut.len(),
+            &mut size,
+        )
+    };
+    assert!(rc == 0 || rc == 1, "fit ran (rc={rc})");
+    assert!(
+        raw_core::decode_cache::get(&key).is_some(),
+        "GPU fit must populate the shared decode cache (#1662) — it was calling \
+         the uncached decode_bytes, forcing a second full decode on cold open"
+    );
+}
