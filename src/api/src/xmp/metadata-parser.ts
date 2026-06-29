@@ -84,6 +84,14 @@ const MARKED_TO_COPYRIGHT: Record<string, "copyrighted" | "public-domain"> = {
   False: "public-domain",
 };
 
+const VALID_COLOR_LABELS = new Set([
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+]);
+
 /** Map `xmpRights:Marked` value to tri-state; `null` for absent/unrecognised. */
 function copyrightStatusFromMarked(
   marked: string | null,
@@ -264,13 +272,6 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
   const flagStr = str("papp:Flag");
   if (flagStr === "pick" || flagStr === "reject") result.flag = flagStr;
   const colorLabelStr = str("papp:ColorLabel");
-  const VALID_COLOR_LABELS = new Set([
-    "red",
-    "orange",
-    "yellow",
-    "green",
-    "blue",
-  ]);
   if (colorLabelStr !== undefined && VALID_COLOR_LABELS.has(colorLabelStr)) {
     result.colorLabel = colorLabelStr as
       "red" | "orange" | "yellow" | "green" | "blue";
@@ -347,6 +348,9 @@ export function xmpMetadataToOverridePatch(
   if (parsed.usageTerms !== undefined) patch.usage_terms = parsed.usageTerms;
   if (parsed.credit !== undefined) patch.credit = parsed.credit;
   if (parsed.source !== undefined) patch.source = parsed.source;
+  if (parsed.rating !== undefined) patch.rating = parsed.rating;
+  if (parsed.flag !== undefined) patch.flag = parsed.flag;
+  if (parsed.colorLabel !== undefined) patch.color_label = parsed.colorLabel;
 
   return patch;
 }
