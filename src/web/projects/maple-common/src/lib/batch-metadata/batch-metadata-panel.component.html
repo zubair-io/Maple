@@ -83,6 +83,75 @@
       <!-- Form state -->
       @if (phase() === 'form') {
         <div class="bm-body">
+          <!-- ── Section: Culling ───────────────────────────────────────── -->
+          <section class="bm-section">
+            <h3 class="bm-section-title">Culling</h3>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-rating">Rating (0–5 stars)</label>
+              <input
+                id="bm-rating"
+                type="number"
+                min="0"
+                max="5"
+                step="1"
+                class="bm-input"
+                [class.is-mixed]="mixed().rating === MIXED && !touched().has('rating')"
+                [placeholder]="mixed().rating === MIXED ? '(mixed)' : ''"
+                [value]="ratingVal()"
+                (input)="ratingVal.set($any($event.target).value); onFieldChange('rating')"
+              />
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-flag">Flag</label>
+              <select
+                id="bm-flag"
+                class="bm-select"
+                [value]="flagVal()"
+                (change)="flagVal.set($any($event.target).value); onFieldChange('flag')"
+              >
+                <option value="">
+                  @if (mixed().flag === MIXED) {
+                    (mixed)
+                  } @else {
+                    — leave unchanged —
+                  }
+                </option>
+                <option value="unflagged">Unflagged</option>
+                <option value="pick">Pick ✓</option>
+                <option value="reject">Reject ✗</option>
+              </select>
+            </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-colorlabel">Color Label</label>
+              <select
+                id="bm-colorlabel"
+                class="bm-select"
+                [value]="colorLabelVal()"
+                (change)="colorLabelVal.set($any($event.target).value); onFieldChange('colorLabel')"
+              >
+                <option value="">
+                  @if (mixed().colorLabel === MIXED) {
+                    (mixed)
+                  } @else {
+                    — leave unchanged —
+                  }
+                </option>
+                <option value="red">Red</option>
+                <option value="orange">Orange</option>
+                <option value="yellow">Yellow</option>
+                <option value="green">Green</option>
+                <option value="blue">Blue</option>
+                <option value="__clear__">None (clear)</option>
+              </select>
+              <span class="bm-hint"
+                >Selecting "None (clear)" removes the label from all selected photos.</span
+              >
+            </div>
+          </section>
+
           <!-- ── Section: Capture ───────────────────────────────────────── -->
           <section class="bm-section">
             <h3 class="bm-section-title">Capture</h3>
