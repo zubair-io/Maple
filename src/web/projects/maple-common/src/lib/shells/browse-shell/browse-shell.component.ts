@@ -6,12 +6,14 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
+  OnDestroy,
   OnInit,
   computed,
   effect,
   inject,
   signal,
 } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -35,6 +37,7 @@ import { LibraryPickerModalComponent } from '../../components/library-picker-mod
 import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
 import { PanoDialogComponent } from '../../pano/pano-dialog.component';
 import { BatchMetadataPanelComponent } from '../../batch-metadata/batch-metadata-panel.component';
+import { BatchMetadataService } from '../../batch-metadata/batch-metadata.service';
 import type { AssetMetadataSnapshot } from '../../batch-metadata/batch-metadata.types';
 
 @Component({
@@ -59,10 +62,11 @@ import type { AssetMetadataSnapshot } from '../../batch-metadata/batch-metadata.
   styleUrl: './browse-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class BrowseShellComponent implements OnInit {
+export class BrowseShellComponent implements OnInit, OnDestroy {
   state = inject(LibraryStateService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private readonly svc = inject(BatchMetadataService);
 
   /** True when the pano options dialog is open. */
   readonly panoDialogVisible = signal(false);
@@ -81,6 +85,8 @@ export class BrowseShellComponent implements OnInit {
 
   /** True when ≥1 asset is selected (enables "Edit Metadata…" button). */
   readonly canEditMetadata = computed(() => this.state.selectedCount() >= 1);
+
+  private fetchSnapshotsSub: Subscription | null = null;
 
   constructor() {
     // ── URL (slug:relPath) → selection ─────────────────────────────────────
@@ -143,31 +149,50 @@ export class BrowseShellComponent implements OnInit {
 
   // ── Batch metadata dialog ─────────────────────────────────────────────────
   onEditMetadata(): void {
-    // Snapshot the selection (asset paths + metadata) at click time.
     const selectedIds = this.state.selectedAssetIds();
     const assets = this.state.assetsInSelectedFolder().filter((a) => selectedIds.has(a.id));
-    const snapshots: AssetMetadataSnapshot[] = assets.flatMap((a) => {
-      const path = this.state.absPathFor(a.id) ?? a.absPath;
-      if (!path) return [];
-      return [
-        {
-          path,
-          metadata: {
-            gpsLatitude: a.gps?.lat,
-            gpsLongitude: a.gps?.lon,
-            city: a.city ?? undefined,
-            country: a.country ?? undefined,
-            title: a.title ?? undefined,
-            keywords: a.keywords,
-          },
-        },
-      ];
+    const paths: string[] = assets.flatMap((a) => {
+      const p = this.state.absPathFor(a.id) ?? a.absPath;
+      return p ? [p] : [];
     });
-    this.batchMetaAssetSnapshots.set(snapshots);
-    this.batchMetaDialogVisible.set(true);
+    if (paths.length === 0) return;
+
+    // Fetch the full effective metadata from the API so computeMixedValues can
+    // show "(mixed)" across all 22 fields, not just the thin asset view-model subset.
+    this.fetchSnapshotsSub?.unsubscribe();
+    this.fetchSnapshotsSub = this.svc.fetchSnapshots(paths).subscribe({
+      next: (snapshots) => {
+        this.batchMetaAssetSnapshots.set(snapshots);
+        this.batchMetaDialogVisible.set(true);
+      },
+      error: () => {
+        // API unavailable — fall back to the thin snapshot so the panel still opens.
+        const thinSnapshots: AssetMetadataSnapshot[] = assets.flatMap((a) => {
+          const p = this.state.absPathFor(a.id) ?? a.absPath;
+          if (!p) return [];
+          return [
+            {
+              path: p,
+              metadata: {
+                gpsLatitude: a.gps?.lat,
+                gpsLongitude: a.gps?.lon,
+                city: a.city ?? undefined,
+                country: a.country ?? undefined,
+                title: a.title ?? undefined,
+                keywords: a.keywords,
+              },
+            },
+          ];
+        });
+        this.batchMetaAssetSnapshots.set(thinSnapshots);
+        this.batchMetaDialogVisible.set(true);
+      },
+    });
   }
 
   onBatchMetaDismiss(): void {
+    this.fetchSnapshotsSub?.unsubscribe();
+    this.fetchSnapshotsSub = null;
     this.batchMetaDialogVisible.set(false);
     this.batchMetaAssetSnapshots.set([]);
   }
@@ -179,6 +204,10 @@ export class BrowseShellComponent implements OnInit {
     // sign-in redirect and returns 401. `loadFolderTree` also handles the
     // cold-start landing folder — see `_selectInitialFolder`.
     this.state.loadFolderTree();
+  }
+
+  ngOnDestroy(): void {
+    this.fetchSnapshotsSub?.unsubscribe();
   }
 
   onRetryLoad(): void {
