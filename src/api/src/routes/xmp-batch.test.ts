@@ -6,13 +6,21 @@
  * so we don't need a live Mongo for the core sidecar-write path.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import * as os from 'node:os';
-import { Elysia } from 'elysia';
-import { xmpBatchRoutes } from './xmp-batch.ts';
-import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
+import {
+  describe,
+  test,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  afterEach,
+} from "bun:test";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import * as os from "node:os";
+import { Elysia } from "elysia";
+import { xmpBatchRoutes } from "./xmp-batch.ts";
+import { parseXmpMetadata } from "../xmp/metadata-parser.ts";
 
 // Isolate the shared db-client singleton to a unique test DB and reset it
 // around this file, so markSidecarMetadataIndexDirty's Mongo touch neither writes
@@ -20,10 +28,10 @@ import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
 // (mirrors the convention in folder.test.ts / imports/repo.test.ts).
 process.env.MAPLE_MONGO_DB = `maple_test_xmp_batch_${process.pid}`;
 beforeAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
+  await (await import("../db/client.ts")).closeDb();
 });
 afterAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
+  await (await import("../db/client.ts")).closeDb();
 });
 
 // ---------------------------------------------------------------------------
@@ -43,7 +51,9 @@ beforeEach(async () => {
   // realpath the temp dir: on macOS os.tmpdir() is under /var → /private/var
   // symlink, and writeXmpAtomic realpaths before its root check, so an
   // un-realpath'd MAPLE_ROOTS would look "outside" the registered root.
-  tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xmp-batch-test-')));
+  tmpDir = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "xmp-batch-test-")),
+  );
   process.env.MAPLE_ROOTS = tmpDir;
 });
 
@@ -62,9 +72,9 @@ afterEach(async () => {
 
 async function post(body: unknown): Promise<Response> {
   return app.handle(
-    new Request('http://localhost/api/xmp/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    new Request("http://localhost/api/xmp/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
   );
@@ -78,30 +88,34 @@ function rawPath(filename: string): string {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('POST /api/xmp/batch', () => {
-  test('returns 400 for empty entries array', async () => {
+describe("POST /api/xmp/batch", () => {
+  test("returns 400 for empty entries array", async () => {
     const res = await post({ entries: [] });
     expect(res.status).toBe(400);
   });
 
-  test('returns 400 for entries exceeding limit', async () => {
+  test("returns 400 for entries exceeding limit", async () => {
     const entries = Array.from({ length: 1001 }, (_, i) => ({
       path: rawPath(`img${i}.dng`),
-      metadata: { city: 'Paris' },
+      metadata: { city: "Paris" },
     }));
     const res = await post({ entries });
     expect(res.status).toBe(400);
   });
 
-  test('writes sidecar for a new file with GPS', async () => {
-    const rawFile = rawPath('test.dng');
-    await fs.writeFile(rawFile, '');
+  test("writes sidecar for a new file with GPS", async () => {
+    const rawFile = rawPath("test.dng");
+    await fs.writeFile(rawFile, "");
 
     const res = await post({
       entries: [
         {
           path: rawFile,
-          metadata: { gpsLatitude: 48.8566, gpsLongitude: 2.3522, city: 'Paris' },
+          metadata: {
+            gpsLatitude: 48.8566,
+            gpsLongitude: 2.3522,
+            city: "Paris",
+          },
         },
       ],
     });
@@ -113,18 +127,18 @@ describe('POST /api/xmp/batch', () => {
     expect(body.results[0].ok).toBe(true);
 
     // Sidecar was written
-    const sidecarPath = rawPath('test.xmp');
-    const xml = await fs.readFile(sidecarPath, 'utf-8');
+    const sidecarPath = rawPath("test.xmp");
+    const xml = await fs.readFile(sidecarPath, "utf-8");
     const parsed = parseXmpMetadata(xml);
     expect(parsed.gpsLatitude).toBeCloseTo(48.8566, 3);
     expect(parsed.gpsLongitude).toBeCloseTo(2.3522, 3);
-    expect(parsed.city).toBe('Paris');
+    expect(parsed.city).toBe("Paris");
   });
 
-  test('merges metadata into existing sidecar without destroying adjustment fields', async () => {
-    const rawFile = rawPath('existing.dng');
-    const sidecarFile = rawPath('existing.xmp');
-    await fs.writeFile(rawFile, '');
+  test("merges metadata into existing sidecar without destroying adjustment fields", async () => {
+    const rawFile = rawPath("existing.dng");
+    const sidecarFile = rawPath("existing.xmp");
+    await fs.writeFile(rawFile, "");
     await fs.writeFile(
       sidecarFile,
       `<?xml version="1.0" encoding="UTF-8"?>
@@ -140,22 +154,24 @@ describe('POST /api/xmp/batch', () => {
     );
 
     const res = await post({
-      entries: [{ path: rawFile, metadata: { title: 'Summer Trip', city: 'Rome' } }],
+      entries: [
+        { path: rawFile, metadata: { title: "Summer Trip", city: "Rome" } },
+      ],
     });
 
     expect(res.status).toBe(200);
-    const sidecarXml = await fs.readFile(sidecarFile, 'utf-8');
+    const sidecarXml = await fs.readFile(sidecarFile, "utf-8");
     // Adjustment field preserved
     expect(sidecarXml).toContain('crs:Exposure2012="0.75"');
     // New metadata injected
     const parsed = parseXmpMetadata(sidecarXml);
-    expect(parsed.title).toBe('Summer Trip');
-    expect(parsed.city).toBe('Rome');
+    expect(parsed.title).toBe("Summer Trip");
+    expect(parsed.city).toBe("Rome");
   });
 
-  test('returns 403 for path outside library root', async () => {
+  test("returns 403 for path outside library root", async () => {
     const res = await post({
-      entries: [{ path: '/etc/passwd', metadata: { city: 'Paris' } }],
+      entries: [{ path: "/etc/passwd", metadata: { city: "Paris" } }],
     });
     // Either 207 with ok:false or 200 with ok:false for that entry
     const body = await res.json();
@@ -164,13 +180,13 @@ describe('POST /api/xmp/batch', () => {
     expect(result.error).toMatch(/not inside|cannot authorise/i);
   });
 
-  test('handles batch of multiple entries', async () => {
-    const files = ['a.dng', 'b.dng', 'c.dng'];
-    await Promise.all(files.map((f) => fs.writeFile(rawPath(f), '')));
+  test("handles batch of multiple entries", async () => {
+    const files = ["a.dng", "b.dng", "c.dng"];
+    await Promise.all(files.map((f) => fs.writeFile(rawPath(f), "")));
 
     const entries = files.map((f) => ({
       path: rawPath(f),
-      metadata: { city: 'London' },
+      metadata: { city: "London" },
     }));
 
     const res = await post({ entries });
@@ -180,19 +196,22 @@ describe('POST /api/xmp/batch', () => {
 
     // All sidecars written
     for (const f of files) {
-      const xml = await fs.readFile(rawPath(f.replace('.dng', '.xmp')), 'utf-8');
-      expect(parseXmpMetadata(xml).city).toBe('London');
+      const xml = await fs.readFile(
+        rawPath(f.replace(".dng", ".xmp")),
+        "utf-8",
+      );
+      expect(parseXmpMetadata(xml).city).toBe("London");
     }
   });
 
-  test('partial failure: bad path returns ok:false, good path returns ok:true', async () => {
-    const goodFile = rawPath('good.dng');
-    await fs.writeFile(goodFile, '');
+  test("partial failure: bad path returns ok:false, good path returns ok:true", async () => {
+    const goodFile = rawPath("good.dng");
+    await fs.writeFile(goodFile, "");
 
     const res = await post({
       entries: [
-        { path: '/outside/the/root/bad.dng', metadata: { city: 'Paris' } },
-        { path: goodFile, metadata: { city: 'London' } },
+        { path: "/outside/the/root/bad.dng", metadata: { city: "Paris" } },
+        { path: goodFile, metadata: { city: "London" } },
       ],
     });
 
@@ -203,27 +222,34 @@ describe('POST /api/xmp/batch', () => {
     expect(body.results[1].ok).toBe(true);
   });
 
-  test('writes keywords bag', async () => {
-    const rawFile = rawPath('keywords.dng');
-    await fs.writeFile(rawFile, '');
+  test("writes keywords bag", async () => {
+    const rawFile = rawPath("keywords.dng");
+    await fs.writeFile(rawFile, "");
 
     const res = await post({
-      entries: [{ path: rawFile, metadata: { keywords: ['travel', 'france'] } }],
+      entries: [
+        { path: rawFile, metadata: { keywords: ["travel", "france"] } },
+      ],
     });
 
     expect(res.status).toBe(200);
-    const xml = await fs.readFile(rawPath('keywords.xmp'), 'utf-8');
+    const xml = await fs.readFile(rawPath("keywords.xmp"), "utf-8");
     const parsed = parseXmpMetadata(xml);
-    expect(parsed.keywords).toEqual(['travel', 'france']);
+    expect(parsed.keywords).toEqual(["travel", "france"]);
   });
 
   // M5 — #1635: a video writes a metadata-only sidecar at the FULL-NAME path.
-  test('video: writes full-name sidecar (clip.mov.xmp) with no CRS adjustment attrs', async () => {
-    const videoFile = rawPath('clip.mov');
-    await fs.writeFile(videoFile, '');
+  test("video: writes full-name sidecar (clip.mov.xmp) with no CRS adjustment attrs", async () => {
+    const videoFile = rawPath("clip.mov");
+    await fs.writeFile(videoFile, "");
 
     const res = await post({
-      entries: [{ path: videoFile, metadata: { gpsLatitude: 37.7749, gpsLongitude: -122.4194 } }],
+      entries: [
+        {
+          path: videoFile,
+          metadata: { gpsLatitude: 37.7749, gpsLongitude: -122.4194 },
+        },
+      ],
     });
 
     expect(res.status).toBe(200);
@@ -231,24 +257,86 @@ describe('POST /api/xmp/batch', () => {
     expect(body.results[0].ok).toBe(true);
 
     // Sidecar lives at clip.mov.xmp, NOT clip.xmp.
-    const fullName = rawPath('clip.mov.xmp');
-    const xml = await fs.readFile(fullName, 'utf-8');
+    const fullName = rawPath("clip.mov.xmp");
+    const xml = await fs.readFile(fullName, "utf-8");
     const parsed = parseXmpMetadata(xml);
     expect(parsed.gpsLatitude).toBeCloseTo(37.7749, 3);
     expect(parsed.gpsLongitude).toBeCloseTo(-122.4194, 3);
     // Metadata-only stub: no Camera Raw Settings adjustment markers.
-    expect(xml).not.toContain('crs:HasSettings');
-    expect(xml).not.toContain('crs:Version');
+    expect(xml).not.toContain("crs:HasSettings");
+    expect(xml).not.toContain("crs:Version");
     // The stem-swap path must NOT have been created.
-    await expect(fs.access(rawPath('clip.xmp'))).rejects.toThrow();
+    await expect(fs.access(rawPath("clip.xmp"))).rejects.toThrow();
+  });
+
+  // #1614: culling fields — rating, flag, colorLabel
+  describe("culling fields", () => {
+    test("rating is written to the sidecar and round-trips", async () => {
+      const raw = rawPath("photo.dng");
+      await fs.writeFile(raw, "");
+      const res = await post({
+        entries: [{ path: raw, metadata: { rating: 3 } }],
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { results: Array<{ ok: boolean }> };
+      expect(body.results[0]!.ok).toBe(true);
+      const sidecarContent = await fs.readFile(
+        raw.replace(".dng", ".xmp"),
+        "utf-8",
+      );
+      expect(sidecarContent).toContain('xmp:Rating="3"');
+    });
+
+    test("flag=pick is written to the sidecar", async () => {
+      const raw = rawPath("photo2.dng");
+      await fs.writeFile(raw, "");
+      const res = await post({
+        entries: [{ path: raw, metadata: { flag: "pick" } }],
+      });
+      expect(res.status).toBe(200);
+      const sidecarContent = await fs.readFile(
+        raw.replace(".dng", ".xmp"),
+        "utf-8",
+      );
+      expect(sidecarContent).toContain('papp:Flag="pick"');
+    });
+
+    test("colorLabel=red is written to the sidecar", async () => {
+      const raw = rawPath("photo3.dng");
+      await fs.writeFile(raw, "");
+      const res = await post({
+        entries: [{ path: raw, metadata: { colorLabel: "red" } }],
+      });
+      expect(res.status).toBe(200);
+      const sidecarContent = await fs.readFile(
+        raw.replace(".dng", ".xmp"),
+        "utf-8",
+      );
+      expect(sidecarContent).toContain('papp:ColorLabel="red"');
+    });
+
+    test("culling fields coexist with metadata fields", async () => {
+      const raw = rawPath("photo4.dng");
+      await fs.writeFile(raw, "");
+      const res = await post({
+        entries: [{ path: raw, metadata: { rating: 5, city: "Tokyo" } }],
+      });
+      expect(res.status).toBe(200);
+      const sidecarContent = await fs.readFile(
+        raw.replace(".dng", ".xmp"),
+        "utf-8",
+      );
+      expect(sidecarContent).toContain('xmp:Rating="5"');
+      expect(sidecarContent).toContain('photoshop:City="Tokyo"');
+    });
   });
 
   // M5 — #1635: a Live Photo's still and clip never clobber each other.
-  test('Live Photo: editing the clip leaves the same-stem still sidecar untouched', async () => {
-    const stillFile = rawPath('IMG_1234.heic');
-    const stillSidecar = rawPath('IMG_1234.xmp');
-    const clipFile = rawPath('IMG_1234.mov');
-    await fs.writeFile(stillFile, '');
+  test("Live Photo: editing the clip leaves the same-stem still sidecar untouched", async () => {
+    const stillFile = rawPath("IMG_1234.heic");
+    const stillSidecar = rawPath("IMG_1234.xmp");
+    const clipFile = rawPath("IMG_1234.mov");
+    await fs.writeFile(stillFile, "");
     // Pre-existing photo sidecar carrying a pixel adjustment.
     await fs.writeFile(
       stillSidecar,
@@ -263,20 +351,20 @@ describe('POST /api/xmp/batch', () => {
  </rdf:RDF>
 </x:xmpmeta>`,
     );
-    await fs.writeFile(clipFile, '');
+    await fs.writeFile(clipFile, "");
 
     const res = await post({
-      entries: [{ path: clipFile, metadata: { city: 'San Francisco' } }],
+      entries: [{ path: clipFile, metadata: { city: "San Francisco" } }],
     });
     expect(res.status).toBe(200);
 
     // The still's sidecar is byte-for-byte untouched.
-    const stillXml = await fs.readFile(stillSidecar, 'utf-8');
+    const stillXml = await fs.readFile(stillSidecar, "utf-8");
     expect(stillXml).toContain('crs:Exposure2012="0.5"');
     expect(parseXmpMetadata(stillXml).city).toBeUndefined();
 
     // The clip got its OWN sidecar with the new metadata.
-    const clipXml = await fs.readFile(rawPath('IMG_1234.mov.xmp'), 'utf-8');
-    expect(parseXmpMetadata(clipXml).city).toBe('San Francisco');
+    const clipXml = await fs.readFile(rawPath("IMG_1234.mov.xmp"), "utf-8");
+    expect(parseXmpMetadata(clipXml).city).toBe("San Francisco");
   });
 });
