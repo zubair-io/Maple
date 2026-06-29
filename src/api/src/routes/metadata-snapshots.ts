@@ -14,13 +14,13 @@
  * feature).
  */
 
-import { Elysia, t } from 'elysia';
-import * as nodePath from 'node:path';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
-import { assetsCollection } from '../db/client.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
-import type { AssetDoc } from '../db/schema.ts';
+import { Elysia, t } from "elysia";
+import * as nodePath from "node:path";
+import { resolveAndAuthorizePath } from "./xmp-path-auth.ts";
+import { assetsCollection } from "../db/client.ts";
+import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
+import { assetAbsPath } from "../indexer/images.repo.ts";
+import type { AssetDoc } from "../db/schema.ts";
 
 // ---------------------------------------------------------------------------
 // XmpSnapshot type
@@ -45,10 +45,13 @@ type XmpSnapshot = Partial<{
   creator: string;
   creatorJobTitle: string;
   copyrightNotice: string;
-  copyrightStatus: 'unknown' | 'copyrighted' | 'public-domain';
+  copyrightStatus: "unknown" | "copyrighted" | "public-domain";
   usageTerms: string;
   credit: string;
   source: string;
+  rating: number;
+  flag: "pick" | "reject" | "unflagged";
+  colorLabel: "red" | "orange" | "yellow" | "green" | "blue";
 }>;
 
 // ---------------------------------------------------------------------------
@@ -62,7 +65,8 @@ type XmpSnapshot = Partial<{
  * array (even empty).
  */
 export function overrideToXmpSnapshot(
-  doc: Pick<AssetDoc, 'exif' | 'metadata_override'>,
+  doc: Pick<AssetDoc, "exif" | "metadata_override"> &
+    Partial<Pick<AssetDoc, "rating" | "flag" | "color_label">>,
 ): XmpSnapshot {
   const override = doc.metadata_override ?? undefined;
   const exif = doc.exif ?? undefined;
@@ -87,9 +91,12 @@ export function overrideToXmpSnapshot(
   // Place text — only from override (no exif equivalent)
   if (override?.place_text?.sublocation != null)
     snapshot.sublocation = override.place_text.sublocation;
-  if (override?.place_text?.city != null) snapshot.city = override.place_text.city;
-  if (override?.place_text?.state != null) snapshot.state = override.place_text.state;
-  if (override?.place_text?.country != null) snapshot.country = override.place_text.country;
+  if (override?.place_text?.city != null)
+    snapshot.city = override.place_text.city;
+  if (override?.place_text?.state != null)
+    snapshot.state = override.place_text.state;
+  if (override?.place_text?.country != null)
+    snapshot.country = override.place_text.country;
   if (override?.place_text?.country_code != null)
     snapshot.countryCode = override.place_text.country_code;
 
@@ -102,14 +109,42 @@ export function overrideToXmpSnapshot(
   if (override?.title != null) snapshot.title = override.title;
   if (override?.caption != null) snapshot.caption = override.caption;
   if (override?.headline != null) snapshot.headline = override.headline;
-  if (override?.instructions != null) snapshot.instructions = override.instructions;
+  if (override?.instructions != null)
+    snapshot.instructions = override.instructions;
   if (override?.creator != null) snapshot.creator = override.creator;
-  if (override?.creator_job_title != null) snapshot.creatorJobTitle = override.creator_job_title;
-  if (override?.copyright_notice != null) snapshot.copyrightNotice = override.copyright_notice;
-  if (override?.copyright_status != null) snapshot.copyrightStatus = override.copyright_status;
+  if (override?.creator_job_title != null)
+    snapshot.creatorJobTitle = override.creator_job_title;
+  if (override?.copyright_notice != null)
+    snapshot.copyrightNotice = override.copyright_notice;
+  if (override?.copyright_status != null)
+    snapshot.copyrightStatus = override.copyright_status;
   if (override?.usage_terms != null) snapshot.usageTerms = override.usage_terms;
   if (override?.credit != null) snapshot.credit = override.credit;
   if (override?.source != null) snapshot.source = override.source;
+
+  // Culling — from top-level doc fields (they mirror the sidecar values)
+  if (doc.rating != null && doc.rating > 0) snapshot.rating = doc.rating;
+  if (doc.flag === 1) snapshot.flag = "pick";
+  else if (doc.flag === -1) snapshot.flag = "reject";
+  // flag === 0 → absent (unflagged is the default, no need to surface it)
+  const VALID_COLOR_LABELS = new Set([
+    "red",
+    "orange",
+    "yellow",
+    "green",
+    "blue",
+  ]);
+  if (
+    typeof doc.color_label === "string" &&
+    VALID_COLOR_LABELS.has(doc.color_label)
+  ) {
+    snapshot.colorLabel = doc.color_label as
+      | "red"
+      | "orange"
+      | "yellow"
+      | "green"
+      | "blue";
+  }
 
   return snapshot;
 }
@@ -127,19 +162,54 @@ export function overrideToXmpSnapshot(
 async function findAssetDocs(
   absPaths: string[],
   libs: ReadonlyMap<string, string>,
-): Promise<Map<string, Pick<AssetDoc, 'exif' | 'metadata_override' | 'fileinfo'>>> {
+): Promise<
+  Map<
+    string,
+    Pick<
+      AssetDoc,
+      | "exif"
+      | "metadata_override"
+      | "fileinfo"
+      | "rating"
+      | "flag"
+      | "color_label"
+    >
+  >
+> {
   if (absPaths.length === 0) return new Map();
-  const filenames = [...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean))];
+  const filenames = [
+    ...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean)),
+  ];
   const c = await assetsCollection();
   const docs = await c
     .find(
-      { 'fileinfo.filename': { $in: filenames } },
-      { projection: { metadata_override: 1, exif: 1, fileinfo: 1 } },
+      { "fileinfo.filename": { $in: filenames } },
+      {
+        projection: {
+          metadata_override: 1,
+          exif: 1,
+          fileinfo: 1,
+          rating: 1,
+          flag: 1,
+          color_label: 1,
+        },
+      },
     )
     .toArray();
 
   const absPathSet = new Set(absPaths);
-  const result = new Map<string, Pick<AssetDoc, 'exif' | 'metadata_override' | 'fileinfo'>>();
+  const result = new Map<
+    string,
+    Pick<
+      AssetDoc,
+      | "exif"
+      | "metadata_override"
+      | "fileinfo"
+      | "rating"
+      | "flag"
+      | "color_label"
+    >
+  >();
 
   for (const doc of docs) {
     // Reconstruct the absolute path via the shared helper so path composition
@@ -163,15 +233,15 @@ async function findAssetDocs(
 const MAX_PATHS = 1000;
 
 export const metadataSnapshotsRoutes = new Elysia({
-  name: 'metadataSnapshots',
+  name: "metadataSnapshots",
 }).post(
-  '/api/metadata/snapshots',
+  "/api/metadata/snapshots",
   async ({ body, set }) => {
     const { paths } = body;
 
     if (!Array.isArray(paths) || paths.length === 0) {
       set.status = 400;
-      return { error: 'paths must be a non-empty array' };
+      return { error: "paths must be a non-empty array" };
     }
     if (paths.length > MAX_PATHS) {
       set.status = 400;
@@ -179,10 +249,14 @@ export const metadataSnapshotsRoutes = new Elysia({
     }
 
     // Authorize each path in parallel; drop unauthorized (return empty snapshot).
-    const authResults = await Promise.all(paths.map((p) => resolveAndAuthorizePath(p)));
+    const authResults = await Promise.all(
+      paths.map((p) => resolveAndAuthorizePath(p)),
+    );
 
     // Build a set of authorized absolute paths (preserving order via index).
-    const authorizedAbsPaths: Array<string | null> = authResults.map((r) => (r.ok ? r.data : null));
+    const authorizedAbsPaths: Array<string | null> = authResults.map((r) =>
+      r.ok ? r.data : null,
+    );
     const absPaths = authorizedAbsPaths.filter((p): p is string => p !== null);
 
     let libs: ReadonlyMap<string, string>;
@@ -192,7 +266,18 @@ export const metadataSnapshotsRoutes = new Elysia({
       libs = new Map();
     }
 
-    let docMap: Map<string, Pick<AssetDoc, 'exif' | 'metadata_override' | 'fileinfo'>>;
+    let docMap: Map<
+      string,
+      Pick<
+        AssetDoc,
+        | "exif"
+        | "metadata_override"
+        | "fileinfo"
+        | "rating"
+        | "flag"
+        | "color_label"
+      >
+    >;
     try {
       docMap = await findAssetDocs(absPaths, libs);
     } catch {
@@ -218,8 +303,9 @@ export const metadataSnapshotsRoutes = new Elysia({
       paths: t.Array(t.String()),
     }),
     detail: {
-      summary: 'Return effective XMP metadata snapshots for a batch of asset paths',
-      tags: ['metadata'],
+      summary:
+        "Return effective XMP metadata snapshots for a batch of asset paths",
+      tags: ["metadata"],
     },
   },
 );
