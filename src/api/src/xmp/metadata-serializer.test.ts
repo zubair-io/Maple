@@ -4,10 +4,10 @@
  * Tests round-trip via `mergeMetadataIntoXmp` → `parseXmpMetadata`.
  */
 
-import { describe, test, expect } from "bun:test";
-import { mergeMetadataIntoXmp } from "./metadata-serializer.ts";
-import { parseXmpMetadata } from "./metadata-parser.ts";
-import type { XmpMetadataInput } from "./metadata-input.ts";
+import { describe, test, expect } from 'bun:test';
+import { mergeMetadataIntoXmp } from './metadata-serializer.ts';
+import { parseXmpMetadata } from './metadata-parser.ts';
+import type { XmpMetadataInput } from './metadata-input.ts';
 
 // ---------------------------------------------------------------------------
 // Helper XMP stubs
@@ -41,8 +41,8 @@ const WITH_EXISTING_META = `<?xml version="1.0" encoding="UTF-8"?>
 // Round-trip tests
 // ---------------------------------------------------------------------------
 
-describe("mergeMetadataIntoXmp round-trip", () => {
-  test("GPS coordinates survive round-trip", () => {
+describe('mergeMetadataIntoXmp round-trip', () => {
+  test('GPS coordinates survive round-trip', () => {
     const meta: XmpMetadataInput = {
       gpsLatitude: 48.8566,
       gpsLongitude: 2.3522,
@@ -53,7 +53,7 @@ describe("mergeMetadataIntoXmp round-trip", () => {
     expect(parsed.gpsLongitude).toBeCloseTo(2.3522, 3);
   });
 
-  test("GPS with altitude survives round-trip", () => {
+  test('GPS with altitude survives round-trip', () => {
     const meta: XmpMetadataInput = {
       gpsLatitude: 48.8566,
       gpsLongitude: 2.3522,
@@ -64,84 +64,84 @@ describe("mergeMetadataIntoXmp round-trip", () => {
     expect(parsed.gpsAltitude).toBeCloseTo(35.5, 1);
   });
 
-  test("dateTimeOriginal and timeZone survive round-trip", () => {
+  test('dateTimeOriginal and timeZone survive round-trip', () => {
     const meta: XmpMetadataInput = {
-      dateTimeOriginal: "2026-06-26T18:40:00+02:00",
-      timeZone: "Europe/Paris",
+      dateTimeOriginal: '2026-06-26T18:40:00+02:00',
+      timeZone: 'Europe/Paris',
     };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.dateTimeOriginal).toBe("2026-06-26T18:40:00+02:00");
-    expect(parsed.timeZone).toBe("Europe/Paris");
+    expect(parsed.dateTimeOriginal).toBe('2026-06-26T18:40:00+02:00');
+    expect(parsed.timeZone).toBe('Europe/Paris');
   });
 
-  test("IPTC text attributes survive round-trip", () => {
+  test('IPTC text attributes survive round-trip', () => {
     const meta: XmpMetadataInput = {
-      sublocation: "Eiffel Tower",
-      city: "Paris",
-      state: "Île-de-France",
-      country: "France",
-      countryCode: "FR",
+      sublocation: 'Eiffel Tower',
+      city: 'Paris',
+      state: 'Île-de-France',
+      country: 'France',
+      countryCode: 'FR',
     };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.sublocation).toBe("Eiffel Tower");
-    expect(parsed.city).toBe("Paris");
-    expect(parsed.state).toBe("Île-de-France");
-    expect(parsed.country).toBe("France");
-    expect(parsed.countryCode).toBe("FR");
+    expect(parsed.sublocation).toBe('Eiffel Tower');
+    expect(parsed.city).toBe('Paris');
+    expect(parsed.state).toBe('Île-de-France');
+    expect(parsed.country).toBe('France');
+    expect(parsed.countryCode).toBe('FR');
   });
 
-  test("title lang-alt block survives round-trip", () => {
-    const meta: XmpMetadataInput = { title: "My Vacation" };
+  test('title lang-alt block survives round-trip', () => {
+    const meta: XmpMetadataInput = { title: 'My Vacation' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.title).toBe("My Vacation");
+    expect(parsed.title).toBe('My Vacation');
   });
 
-  test("creator seq block survives round-trip", () => {
-    const meta: XmpMetadataInput = { creator: "Zubair Lawrence" };
+  test('creator seq block survives round-trip', () => {
+    const meta: XmpMetadataInput = { creator: 'Zubair Lawrence' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.creator).toBe("Zubair Lawrence");
+    expect(parsed.creator).toBe('Zubair Lawrence');
   });
 
-  test("caption (dc:description) survives round-trip", () => {
-    const meta: XmpMetadataInput = { caption: "A lovely photo" };
+  test('caption (dc:description) survives round-trip', () => {
+    const meta: XmpMetadataInput = { caption: 'A lovely photo' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.caption).toBe("A lovely photo");
+    expect(parsed.caption).toBe('A lovely photo');
   });
 
-  test("copyrightNotice lang-alt survives round-trip", () => {
-    const meta: XmpMetadataInput = { copyrightNotice: "© 2026 Z. Lawrence" };
+  test('copyrightNotice lang-alt survives round-trip', () => {
+    const meta: XmpMetadataInput = { copyrightNotice: '© 2026 Z. Lawrence' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.copyrightNotice).toBe("© 2026 Z. Lawrence");
+    expect(parsed.copyrightNotice).toBe('© 2026 Z. Lawrence');
   });
 
-  test("copyrightStatus = copyrighted survives round-trip", () => {
-    const meta: XmpMetadataInput = { copyrightStatus: "copyrighted" };
+  test('copyrightStatus = copyrighted survives round-trip', () => {
+    const meta: XmpMetadataInput = { copyrightStatus: 'copyrighted' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.copyrightStatus).toBe("copyrighted");
+    expect(parsed.copyrightStatus).toBe('copyrighted');
   });
 
-  test("keywords bag survives round-trip", () => {
-    const meta: XmpMetadataInput = { keywords: ["travel", "france", "paris"] };
+  test('keywords bag survives round-trip', () => {
+    const meta: XmpMetadataInput = { keywords: ['travel', 'france', 'paris'] };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.keywords).toEqual(["travel", "france", "paris"]);
+    expect(parsed.keywords).toEqual(['travel', 'france', 'paris']);
   });
 
-  test("XML entity characters in values survive round-trip", () => {
+  test('XML entity characters in values survive round-trip', () => {
     const meta: XmpMetadataInput = {
-      title: "R&D <Notes>",
+      title: 'R&D <Notes>',
       city: '"Paris"',
     };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.title).toBe("R&D <Notes>");
+    expect(parsed.title).toBe('R&D <Notes>');
     expect(parsed.city).toBe('"Paris"');
   });
 });
@@ -150,15 +150,15 @@ describe("mergeMetadataIntoXmp round-trip", () => {
 // Merge / override behaviour
 // ---------------------------------------------------------------------------
 
-describe("mergeMetadataIntoXmp — merge behaviour", () => {
-  test("existing adjustment fields are preserved", () => {
-    const meta: XmpMetadataInput = { city: "Paris" };
+describe('mergeMetadataIntoXmp — merge behaviour', () => {
+  test('existing adjustment fields are preserved', () => {
+    const meta: XmpMetadataInput = { city: 'Paris' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     // crs:Exposure2012 should still be present
     expect(merged).toContain('crs:Exposure2012="0.5"');
   });
 
-  test("existing GPS is replaced by new GPS", () => {
+  test('existing GPS is replaced by new GPS', () => {
     const meta: XmpMetadataInput = {
       gpsLatitude: 48.8566,
       gpsLongitude: 2.3522,
@@ -171,18 +171,18 @@ describe("mergeMetadataIntoXmp — merge behaviour", () => {
     expect(merged).not.toContain('GPSLatitude="40,');
   });
 
-  test("existing city is replaced by new city", () => {
-    const meta: XmpMetadataInput = { city: "Paris" };
+  test('existing city is replaced by new city', () => {
+    const meta: XmpMetadataInput = { city: 'Paris' };
     const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, meta);
     expect(merged).not.toContain('City="New York"');
     expect(merged).toContain('City="Paris"');
   });
 
-  test("stub created when xml is empty", () => {
-    const meta: XmpMetadataInput = { city: "Paris" };
-    const merged = mergeMetadataIntoXmp("", meta);
+  test('stub created when xml is empty', () => {
+    const meta: XmpMetadataInput = { city: 'Paris' };
+    const merged = mergeMetadataIntoXmp('', meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.city).toBe("Paris");
+    expect(parsed.city).toBe('Paris');
   });
 });
 
@@ -190,8 +190,8 @@ describe("mergeMetadataIntoXmp — merge behaviour", () => {
 // Namespace injection
 // ---------------------------------------------------------------------------
 
-describe("mergeMetadataIntoXmp — namespace declarations", () => {
-  test("adds exif namespace when GPS added to sidecar without it", () => {
+describe('mergeMetadataIntoXmp — namespace declarations', () => {
+  test('adds exif namespace when GPS added to sidecar without it', () => {
     const noExifXmp = `<?xml version="1.0"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -203,10 +203,10 @@ describe("mergeMetadataIntoXmp — namespace declarations", () => {
       gpsLatitude: 48.8566,
       gpsLongitude: 2.3522,
     });
-    expect(merged).toContain("xmlns:exif=");
+    expect(merged).toContain('xmlns:exif=');
   });
 
-  test("does not duplicate existing namespace declarations", () => {
+  test('does not duplicate existing namespace declarations', () => {
     const meta: XmpMetadataInput = {
       gpsLatitude: 48.8566,
       gpsLongitude: 2.3522,
@@ -222,39 +222,39 @@ describe("mergeMetadataIntoXmp — namespace declarations", () => {
 // Partial-edit preservation (regression for #1600 data-loss bug)
 // ---------------------------------------------------------------------------
 
-describe("mergeMetadataIntoXmp — partial edits preserve untouched fields", () => {
-  test("editing only city preserves existing GPS", () => {
+describe('mergeMetadataIntoXmp — partial edits preserve untouched fields', () => {
+  test('editing only city preserves existing GPS', () => {
     // WITH_EXISTING_META has GPS + photoshop:City="New York".
-    const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, { city: "Rome" });
+    const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, { city: 'Rome' });
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.city).toBe("Rome"); // updated
+    expect(parsed.city).toBe('Rome'); // updated
     expect(parsed.gpsLatitude).toBeCloseTo(40.7128, 3); // untouched, preserved
     expect(parsed.gpsLongitude).toBeCloseTo(-74.006, 3);
   });
 
-  test("editing only GPS preserves existing city", () => {
+  test('editing only GPS preserves existing city', () => {
     const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, {
       gpsLatitude: 48.8566,
       gpsLongitude: 2.3522,
     });
     const parsed = parseXmpMetadata(merged);
     expect(parsed.gpsLatitude).toBeCloseTo(48.8566, 3); // updated
-    expect(parsed.city).toBe("New York"); // untouched, preserved
+    expect(parsed.city).toBe('New York'); // untouched, preserved
   });
 
-  test("editing one nested field preserves an existing nested field", () => {
+  test('editing one nested field preserves an existing nested field', () => {
     // Seed a sidecar with both a title and a creator, then edit only the title.
     const seeded = mergeMetadataIntoXmp(EMPTY_XMP, {
-      title: "Old Title",
-      creator: "Ansel Adams",
+      title: 'Old Title',
+      creator: 'Ansel Adams',
     });
-    const merged = mergeMetadataIntoXmp(seeded, { title: "New Title" });
+    const merged = mergeMetadataIntoXmp(seeded, { title: 'New Title' });
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.title).toBe("New Title"); // updated
-    expect(parsed.creator).toBe("Ansel Adams"); // untouched, preserved
+    expect(parsed.title).toBe('New Title'); // updated
+    expect(parsed.creator).toBe('Ansel Adams'); // untouched, preserved
   });
 
-  test("explicit null clears only that field, leaving others intact", () => {
+  test('explicit null clears only that field, leaving others intact', () => {
     const merged = mergeMetadataIntoXmp(WITH_EXISTING_META, { city: null });
     const parsed = parseXmpMetadata(merged);
     expect(parsed.city).toBeUndefined(); // cleared
@@ -266,64 +266,64 @@ describe("mergeMetadataIntoXmp — partial edits preserve untouched fields", () 
 // metadataOnly option — video sidecar (M5, #1635)
 // ---------------------------------------------------------------------------
 
-describe("mergeMetadataIntoXmp with metadataOnly: true", () => {
-  test("creates a sidecar with no Camera Raw Settings attributes for a new video sidecar", () => {
+describe('mergeMetadataIntoXmp with metadataOnly: true', () => {
+  test('creates a sidecar with no Camera Raw Settings attributes for a new video sidecar', () => {
     const meta: XmpMetadataInput = {
       gpsLatitude: 37.7749,
       gpsLongitude: -122.4194,
     };
-    const merged = mergeMetadataIntoXmp("", meta, { metadataOnly: true });
+    const merged = mergeMetadataIntoXmp('', meta, { metadataOnly: true });
     // No CRS namespace declaration.
-    expect(merged).not.toContain("camera-raw-settings");
-    expect(merged).not.toContain("crs:Version");
-    expect(merged).not.toContain("crs:HasSettings");
+    expect(merged).not.toContain('camera-raw-settings');
+    expect(merged).not.toContain('crs:Version');
+    expect(merged).not.toContain('crs:HasSettings');
     // Metadata fields are present.
-    expect(merged).toContain("exif:GPSLatitude");
-    expect(merged).toContain("exif:GPSLongitude");
+    expect(merged).toContain('exif:GPSLatitude');
+    expect(merged).toContain('exif:GPSLongitude');
   });
 
-  test("metadata-only sidecar round-trips through parseXmpMetadata", () => {
+  test('metadata-only sidecar round-trips through parseXmpMetadata', () => {
     const meta: XmpMetadataInput = {
       gpsLatitude: 51.5074,
       gpsLongitude: -0.1278,
-      city: "London",
-      country: "United Kingdom",
-      creator: "Jane Doe",
-      copyrightNotice: "© 2026 Jane Doe",
+      city: 'London',
+      country: 'United Kingdom',
+      creator: 'Jane Doe',
+      copyrightNotice: '© 2026 Jane Doe',
     };
-    const merged = mergeMetadataIntoXmp("", meta, { metadataOnly: true });
+    const merged = mergeMetadataIntoXmp('', meta, { metadataOnly: true });
     const parsed = parseXmpMetadata(merged);
     expect(parsed.gpsLatitude).toBeCloseTo(51.5074, 3);
     expect(parsed.gpsLongitude).toBeCloseTo(-0.1278, 3);
-    expect(parsed.city).toBe("London");
-    expect(parsed.country).toBe("United Kingdom");
-    expect(parsed.creator).toBe("Jane Doe");
-    expect(parsed.copyrightNotice).toBe("© 2026 Jane Doe");
+    expect(parsed.city).toBe('London');
+    expect(parsed.country).toBe('United Kingdom');
+    expect(parsed.creator).toBe('Jane Doe');
+    expect(parsed.copyrightNotice).toBe('© 2026 Jane Doe');
   });
 
-  test("metadataOnly: true is ignored when existingXml is non-empty (existing sidecar preserved)", () => {
+  test('metadataOnly: true is ignored when existingXml is non-empty (existing sidecar preserved)', () => {
     // Even for video, if a sidecar already exists we preserve it rather than
     // swapping in a new stub.
     const existingVideoSidecar = mergeMetadataIntoXmp(
-      "",
-      { city: "Tokyo" },
+      '',
+      { city: 'Tokyo' },
       { metadataOnly: true },
     );
     const merged = mergeMetadataIntoXmp(
       existingVideoSidecar,
-      { city: "Osaka" },
+      { city: 'Osaka' },
       { metadataOnly: true },
     );
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.city).toBe("Osaka");
+    expect(parsed.city).toBe('Osaka');
     // Still no CRS in the output (the existing sidecar already lacked it).
-    expect(merged).not.toContain("crs:HasSettings");
+    expect(merged).not.toContain('crs:HasSettings');
   });
 
-  test("metadataOnly: false (default) uses the adjustment-carrying STUB_XMP for new sidecars", () => {
-    const merged = mergeMetadataIntoXmp("", { city: "Paris" });
+  test('metadataOnly: false (default) uses the adjustment-carrying STUB_XMP for new sidecars', () => {
+    const merged = mergeMetadataIntoXmp('', { city: 'Paris' });
     // Default path: STUB_XMP includes CRS HasSettings.
-    expect(merged).toContain("crs:HasSettings");
+    expect(merged).toContain('crs:HasSettings');
   });
 });
 
@@ -331,15 +331,15 @@ describe("mergeMetadataIntoXmp with metadataOnly: true", () => {
 // Culling round-trip
 // ---------------------------------------------------------------------------
 
-describe("culling round-trip", () => {
-  test("rating survives round-trip", () => {
+describe('culling round-trip', () => {
+  test('rating survives round-trip', () => {
     const meta: XmpMetadataInput = { rating: 4 };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
     expect(parsed.rating).toBe(4);
   });
 
-  test("rating 0 is treated as clear (removes existing rating)", () => {
+  test('rating 0 is treated as clear (removes existing rating)', () => {
     const withRating = mergeMetadataIntoXmp(EMPTY_XMP, {
       rating: 5,
     } as XmpMetadataInput);
@@ -350,34 +350,34 @@ describe("culling round-trip", () => {
     expect(parsed.rating).toBeUndefined();
   });
 
-  test("flag=pick survives round-trip", () => {
-    const meta: XmpMetadataInput = { flag: "pick" };
+  test('flag=pick survives round-trip', () => {
+    const meta: XmpMetadataInput = { flag: 'pick' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.flag).toBe("pick");
+    expect(parsed.flag).toBe('pick');
   });
 
-  test("flag=unflagged clears existing flag", () => {
+  test('flag=unflagged clears existing flag', () => {
     const withFlag = mergeMetadataIntoXmp(EMPTY_XMP, {
-      flag: "pick",
+      flag: 'pick',
     } as XmpMetadataInput);
     const cleared = mergeMetadataIntoXmp(withFlag, {
-      flag: "unflagged",
+      flag: 'unflagged',
     } as XmpMetadataInput);
     const parsed = parseXmpMetadata(cleared);
     expect(parsed.flag).toBeUndefined();
   });
 
-  test("colorLabel=red survives round-trip", () => {
-    const meta: XmpMetadataInput = { colorLabel: "red" };
+  test('colorLabel=red survives round-trip', () => {
+    const meta: XmpMetadataInput = { colorLabel: 'red' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
     const parsed = parseXmpMetadata(merged);
-    expect(parsed.colorLabel).toBe("red");
+    expect(parsed.colorLabel).toBe('red');
   });
 
-  test("colorLabel=null clears existing color label", () => {
+  test('colorLabel=null clears existing color label', () => {
     const withLabel = mergeMetadataIntoXmp(EMPTY_XMP, {
-      colorLabel: "green",
+      colorLabel: 'green',
     } as XmpMetadataInput);
     const cleared = mergeMetadataIntoXmp(withLabel, {
       colorLabel: null,
@@ -386,28 +386,28 @@ describe("culling round-trip", () => {
     expect(parsed.colorLabel).toBeUndefined();
   });
 
-  test("culling fields do not disturb existing IPTC metadata", () => {
+  test('culling fields do not disturb existing IPTC metadata', () => {
     const withCity = mergeMetadataIntoXmp(EMPTY_XMP, {
-      city: "Paris",
+      city: 'Paris',
     } as XmpMetadataInput);
     const withCulling = mergeMetadataIntoXmp(withCity, {
       rating: 3,
     } as XmpMetadataInput);
     const parsed = parseXmpMetadata(withCulling);
-    expect(parsed.city).toBe("Paris");
+    expect(parsed.city).toBe('Paris');
     expect(parsed.rating).toBe(3);
   });
 
-  test("existing papp:Flag in sidecar is preserved when flag not in input", () => {
+  test('existing papp:Flag in sidecar is preserved when flag not in input', () => {
     const withFlag = mergeMetadataIntoXmp(EMPTY_XMP, {
-      flag: "reject",
+      flag: 'reject',
     } as XmpMetadataInput);
     // Apply city change without touching flag
     const withCity = mergeMetadataIntoXmp(withFlag, {
-      city: "Berlin",
+      city: 'Berlin',
     } as XmpMetadataInput);
     const parsed = parseXmpMetadata(withCity);
-    expect(parsed.flag).toBe("reject");
-    expect(parsed.city).toBe("Berlin");
+    expect(parsed.flag).toBe('reject');
+    expect(parsed.city).toBe('Berlin');
   });
 });
