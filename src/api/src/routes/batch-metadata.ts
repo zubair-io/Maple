@@ -7,13 +7,13 @@
  * depth under control.
  */
 
-import { Elysia } from "elysia";
-import { xmpBatchRoutes } from "./xmp-batch.ts";
-import { geocodeSearchRoutes } from "./geocode-search.ts";
-import { backupRefileRoutes } from "./backup-refile.ts";
-import { metadataSnapshotsRoutes } from "./metadata-snapshots.ts";
+import { Elysia } from 'elysia';
+import { xmpBatchRoutes } from './xmp-batch.ts';
+import { geocodeSearchRoutes } from './geocode-search.ts';
+import { backupRefileRoutes } from './backup-refile.ts';
+import { metadataSnapshotsRoutes } from './metadata-snapshots.ts';
 
-export const batchMetadataRoutes = new Elysia({ name: "batchMetadata" })
+export const batchMetadataRoutes = new Elysia({ name: 'batchMetadata' })
   .use(xmpBatchRoutes)
   .use(geocodeSearchRoutes)
   .use(backupRefileRoutes)
