@@ -11,9 +11,16 @@ import CoreGraphics
 @testable import MapleCore
 
 final class GpuLiveMemoryGateTests: XCTestCase {
-    /// The 100 MP reference sensor (12288 px) must fall back to CPU.
-    func test100MPSensorFallsBackToCPU() {
-        XCTAssertFalse(ImageEditPipeline.gpuLiveSupportsSensor(longEdge: 12288))
+    /// The 100 MP reference sensor (12288 px) now KEEPS the GPU path — an
+    /// on-device trace showed a single open peaks at 4.8 GB and survives, so the
+    /// gate was raised to 13000 px (#1647 M3).
+    func test100MPSensorUsesGPU() {
+        XCTAssertTrue(ImageEditPipeline.gpuLiveSupportsSensor(longEdge: 12288))
+    }
+
+    /// A sensor beyond the validated 100 MP class still falls back to CPU.
+    func testBeyond100MPClassFallsBackToCPU() {
+        XCTAssertFalse(ImageEditPipeline.gpuLiveSupportsSensor(longEdge: 14000))
     }
 
     /// A 45 MP sensor (≈8192 px) keeps the GPU path (it fits the budget).
