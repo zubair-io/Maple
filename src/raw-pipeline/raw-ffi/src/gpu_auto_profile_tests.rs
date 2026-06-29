@@ -320,21 +320,37 @@ fn fixture_gpu_fit_routes_decode_through_shared_cache() {
     let mut present = 0i32;
     let mut lut = vec![0f32; 49 * 49 * 49 * 3];
     let mut size = 0u32;
-    let rc = unsafe {
-        maple_gpu_fit_auto_profile(
-            cpath.as_ptr(),
-            std::ptr::null(),
-            0,
-            curve.as_mut_ptr(),
-            &mut present,
-            lut.as_mut_ptr(),
-            lut.len(),
-            &mut size,
-        )
-    };
-    assert!(rc == 0 || rc == 1, "fit ran (rc={rc})");
+
+    // The decode cache is a process-wide singleton with CAPACITY = 1, so under
+    // Cargo's default parallel test execution a concurrent decode in another
+    // test could evict our just-inserted entry in the window between the fit
+    // returning and the check (Copilot #1663). Re-run a few times and require
+    // the key present on AT LEAST ONE iteration: the old uncached fit NEVER
+    // inserts (every iteration absent → fail), while the fixed fit inserts on
+    // every call, so an eviction would have to win the race on every iteration.
+    // In practice the fixed path is present on the first iteration.
+    let mut populated = false;
+    for _ in 0..5 {
+        let rc = unsafe {
+            maple_gpu_fit_auto_profile(
+                cpath.as_ptr(),
+                std::ptr::null(),
+                0,
+                curve.as_mut_ptr(),
+                &mut present,
+                lut.as_mut_ptr(),
+                lut.len(),
+                &mut size,
+            )
+        };
+        assert!(rc == 0 || rc == 1, "fit ran (rc={rc})");
+        if raw_core::decode_cache::get(&key).is_some() {
+            populated = true;
+            break;
+        }
+    }
     assert!(
-        raw_core::decode_cache::get(&key).is_some(),
+        populated,
         "GPU fit must populate the shared decode cache (#1662) — it was calling \
          the uncached decode_bytes, forcing a second full decode on cold open"
     );
