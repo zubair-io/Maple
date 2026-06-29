@@ -367,25 +367,9 @@ describe("sidecarMetadataIndexHandler — video assets (M5)", () => {
 
 describe("culling projection", () => {
   test("rating in sidecar is projected to metadata_override and top-level", async () => {
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "smi-cull-"));
-    const libId = "aabb1122aabb1122aabb1122";
-    setLibraryRootsForTests(new Map([[libId, tmp]]));
-    const rawPath = path.join(tmp, "test.dng");
-    await fs.writeFile(rawPath, "");
-    const xmpPath = path.join(tmp, "test.xmp");
-    await fs.writeFile(
-      xmpPath,
+    const image = await writeSidecar(
       makeXmp('xmp:Rating="4" xmlns:xmp="http://ns.adobe.com/xap/1.0/"'),
     );
-    const image = makeImage({
-      fileinfo: [
-        {
-          path: "",
-          filename: "test.dng",
-          library_id: { toHexString: () => libId } as unknown as ObjectId,
-        },
-      ],
-    });
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result.patch).toBeDefined();
     const patch = result.patch as Record<string, unknown>;
@@ -396,33 +380,31 @@ describe("culling projection", () => {
   });
 
   test("flag=pick in sidecar is projected to metadata_override and top-level (flag=1)", async () => {
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "smi-flag-"));
-    const libId = "bbcc2233bbcc2233bbcc2233";
-    setLibraryRootsForTests(new Map([[libId, tmp]]));
-    const rawPath = path.join(tmp, "test.dng");
-    await fs.writeFile(rawPath, "");
-    const xmpPath = path.join(tmp, "test.xmp");
-    await fs.writeFile(
-      xmpPath,
+    const image = await writeSidecar(
       makeXmp(
         'papp:Flag="pick" xmlns:papp="http://ns.justmaple.app/photo/1.0/"',
       ),
     );
-    const image = makeImage({
-      fileinfo: [
-        {
-          path: "",
-          filename: "test.dng",
-          library_id: { toHexString: () => libId } as unknown as ObjectId,
-        },
-      ],
-    });
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     const patch = result.patch as Record<string, unknown>;
     expect(
       (patch["metadata_override"] as Record<string, unknown>)["flag"],
     ).toBe("pick");
     expect((patch as Record<string, unknown>)["flag"]).toBe(1);
+  });
+
+  test("flag=reject in sidecar is projected to metadata_override and top-level (flag=-1)", async () => {
+    const image = await writeSidecar(
+      makeXmp(
+        'papp:Flag="reject" xmlns:papp="http://ns.justmaple.app/photo/1.0/"',
+      ),
+    );
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    const patch = result.patch as Record<string, unknown>;
+    expect(
+      (patch["metadata_override"] as Record<string, unknown>)["flag"],
+    ).toBe("reject");
+    expect((patch as Record<string, unknown>)["flag"]).toBe(-1);
   });
 });
 
