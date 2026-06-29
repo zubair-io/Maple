@@ -104,34 +104,6 @@ public actor ImageEditPipeline {
         longEdge > 0 && longEdge <= CGFloat(gpuLiveMaxSensorLongEdge)
     }
 
-    /// Long-edge cap (px) for the GPU-live SESSION resolution (#1647 M1).
-    ///
-    /// The wgpu live chain's `FramePool` allocates its ping-pong + spatial-scratch
-    /// f32 planes at the session dims (16 B/px each), so GPU memory scales with the
-    /// session AREA. A retina canvas (an iPhone 17 Pro Max fit-view is ~3600–7200
-    /// px in device pixels) makes those planes hundreds of MB each — the footprint
-    /// that, stacked on the CPU develop, OOMs a 100 MP open. The live preview is
-    /// display-res regardless, and on a retina panel a slightly-below-native
-    /// session upscaled to the drawable is visually negligible, so capping the
-    /// session long edge bounds GPU memory quadratically. Starting value; tuned
-    /// against on-device `os_proc_available_memory()` measurement.
-    nonisolated public static let gpuPresentMaxLongEdge: Int = 3072
-
-    /// The GPU-live session/readback target for a requested display `targetSize`,
-    /// capped to `gpuPresentMaxLongEdge` (aspect preserved). Bounds the wgpu
-    /// FramePool planes; the final blit upscales to the drawable. Returns the
-    /// input unchanged when within the cap (small sensors / non-retina displays
-    /// keep full resolution) or nil (no viewport yet — the present's dims guard
-    /// applies). #1647 M1.
-    nonisolated public static func gpuPresentTargetSize(_ targetSize: CGSize?) -> CGSize? {
-        guard let targetSize else { return nil }
-        let longEdge = max(targetSize.width, targetSize.height)
-        let cap = CGFloat(gpuPresentMaxLongEdge)
-        guard longEdge > cap, longEdge > 0 else { return targetSize }
-        let k = cap / longEdge
-        return CGSize(width: targetSize.width * k, height: targetSize.height * k)
-    }
-
     /// As-shot white balance derived from the RAW's metadata. Passed into
     /// `process(...)` so `CITemperatureAndTint`'s `neutral` reflects the
     /// camera's metered white point — the slider then behaves as a scene
