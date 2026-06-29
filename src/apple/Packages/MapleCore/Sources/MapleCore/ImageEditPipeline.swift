@@ -78,16 +78,17 @@ public actor ImageEditPipeline {
     }
 
     /// Sensor long edge (px) at/below which the GPU-live render path is used;
-    /// above it the editor falls back to the CPU two-phase path (#1637).
+    /// above it the editor falls back to the CPU two-phase path (#1637 / #1647).
     ///
-    /// The GPU-live present holds wgpu storage buffers at display resolution
-    /// plus its own in-driver auto-profile fit, and the `GpuLiveDriver` +
-    /// fit artifacts persist across image switches. On the 100 MP reference
-    /// RAW that overhead — stacked on the CPU develop — crosses the iOS ~6 GB
-    /// per-process limit and jetsam-kills the app; a device A/B confirmed the
-    /// same open survives with GPU-live OFF. ~9000 px ≈ 60 MP: it keeps the
-    /// GPU path for 24–50 MP bodies and gates only the very large sensors.
-    nonisolated public static let gpuLiveMaxSensorLongEdge: Int = 9000
+    /// An on-device `MemoryProbe` trace (Artemis, GPU forced on) showed a single
+    /// 100 MP `test_0000.DNG` open peaks at **4.8 GB and survives** (1.3 GB
+    /// headroom) — the GPU chain is only ~0.5 GB at the 1.2 MP live dims, and the
+    /// M0 fit-sizing already bounds the auto-profile develop. The original gate
+    /// (9000 px) was over-conservative for that case. Raised to 13000 px (≈ the
+    /// 100 MP class: DJI/Hasselblad ~12288, GFX ~11648) so those bodies keep the
+    /// 16 ms GPU slider; sensors beyond the validated range still fall back to
+    /// CPU. #1647 M3.
+    nonisolated public static let gpuLiveMaxSensorLongEdge: Int = 13000
 
     /// Whether the GPU-live path is allowed for a sensor of `longEdge` px.
     ///
