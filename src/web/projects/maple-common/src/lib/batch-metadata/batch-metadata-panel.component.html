@@ -99,7 +99,7 @@
                 [class.is-mixed]="mixed().rating === MIXED && !touched().has('rating')"
                 [placeholder]="mixed().rating === MIXED ? '(mixed)' : ''"
                 [value]="ratingVal()"
-                (input)="ratingVal.set($any($event.target).value); onFieldChange('rating')"
+                (input)="onRatingInput($any($event.target).value)"
               />
             </div>
 
@@ -109,7 +109,7 @@
                 id="bm-flag"
                 class="bm-select"
                 [value]="flagVal()"
-                (change)="flagVal.set($any($event.target).value); onFieldChange('flag')"
+                (change)="onFlagChange($any($event.target).value)"
               >
                 <option value="">
                   @if (mixed().flag === MIXED) {
@@ -118,9 +118,9 @@
                     — leave unchanged —
                   }
                 </option>
-                <option value="unflagged">Unflagged</option>
                 <option value="pick">Pick ✓</option>
                 <option value="reject">Reject ✗</option>
+                <option value="__clear__">Clear (Unflagged)</option>
               </select>
             </div>
 
@@ -130,7 +130,7 @@
                 id="bm-colorlabel"
                 class="bm-select"
                 [value]="colorLabelVal()"
-                (change)="colorLabelVal.set($any($event.target).value); onFieldChange('colorLabel')"
+                (change)="onColorLabelChange($any($event.target).value)"
               >
                 <option value="">
                   @if (mixed().colorLabel === MIXED) {

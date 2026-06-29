@@ -350,6 +350,20 @@ describe('culling round-trip', () => {
     expect(parsed.rating).toBeUndefined();
   });
 
+  test('out-of-range rating is ignored, never written as an unreadable attr', () => {
+    // Defense-in-depth: the batch route 422s out-of-range ratings, but a
+    // non-route caller could pass one. The serializer must never write a value
+    // the 1–5 parser can't read back. (A touched out-of-range rating, like any
+    // touched culling field, first strips the prior attr in the merge; the clamp
+    // then declines to re-add the bad value, so the result carries no rating.)
+    const merged = mergeMetadataIntoXmp(EMPTY_XMP, { rating: 7 } as XmpMetadataInput);
+    expect(merged).not.toContain('xmp:Rating="7"');
+    expect(parseXmpMetadata(merged).rating).toBeUndefined();
+    // A larger out-of-range value is also ignored.
+    const big = mergeMetadataIntoXmp(EMPTY_XMP, { rating: 12 } as XmpMetadataInput);
+    expect(parseXmpMetadata(big).rating).toBeUndefined();
+  });
+
   test('flag=pick survives round-trip', () => {
     const meta: XmpMetadataInput = { flag: 'pick' };
     const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
