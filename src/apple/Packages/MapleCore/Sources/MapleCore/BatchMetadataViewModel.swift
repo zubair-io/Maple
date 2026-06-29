@@ -264,9 +264,11 @@ public final class BatchMetadataViewModel: Identifiable {
         if let kw = touchedMetadata.keywords {
             culling.keywords = kw ?? []
         }
-        // Apply touched culling fields (stars + flag).
+        // Apply touched culling fields (stars + flag). Stars is clamped to the
+        // documented 0...5 range so a bad caller can't write an out-of-range
+        // rating into the sidecar.
         if let stars = touchedMetadata.stars {
-            culling.stars = stars
+            culling.stars = min(max(stars, 0), 5)
         }
         if let flag = touchedMetadata.flag {
             culling.flag = flag

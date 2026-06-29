@@ -321,6 +321,24 @@ final class BatchMetadataViewModelTests: XCTestCase {
         XCTAssertEqual(parsedCulling.stars, 4, "Touched rating must be written to sidecar")
     }
 
+    func testTouchedRatingClampedToValidRange() async throws {
+        // CullingState.stars is documented 0...5; an out-of-range touched value
+        // must be clamped before it reaches the sidecar, not written verbatim.
+        let culling = CullingState(stars: 0, flag: .none, keywords: [])
+        let (asset, store) = try await tempAsset(culling: culling)
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        vm.touchedMetadata.stars = 9
+        try await vm.apply()
+
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
+        let (_, parsedCulling) = try XMPParser.parse(xml)
+        XCTAssertEqual(parsedCulling.stars, 5, "Out-of-range rating must clamp to 5")
+    }
+
     func testTouchedFlagApplied() async throws {
         let culling = CullingState(stars: 0, flag: .none, keywords: [])
         let (asset, store) = try await tempAsset(culling: culling)

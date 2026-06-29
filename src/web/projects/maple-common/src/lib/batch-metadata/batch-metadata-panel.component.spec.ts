@@ -4,6 +4,8 @@
 //
 // Geocode pipeline and refile-offer flows live in the sibling file:
 //   batch-metadata-panel.geocode-refile.spec.ts
+// Culling-section behaviour (rating/flag/colorLabel) lives in:
+//   batch-metadata-panel.culling.spec.ts
 //
 // Strategy: a thin HostComponent wraps the panel and drives it via
 // inputs/events; HTTP calls are flushed inline via HttpTestingController so
@@ -461,66 +463,6 @@ describe('BatchMetadataPanelComponent', () => {
       ) as HTMLInputElement | null;
       expect(copyrightInput).not.toBeNull();
       expect(copyrightInput!.classList.contains('is-mixed')).toBe(true);
-    });
-  });
-
-  // ── Culling section ──────────────────────────────────────────────────────────
-
-  describe('culling section', () => {
-    it('renders the Culling section when panel is open', async () => {
-      host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: { rating: 3 } }]);
-      fixture.detectChanges();
-      const el = fixture.nativeElement as HTMLElement;
-      expect(el.querySelector('.bm-section-title')?.textContent).toContain('Culling');
-    });
-
-    it('shows (mixed) placeholder for rating when values differ', () => {
-      host.visible.set(true);
-      host.snapshots.set([
-        { path: '/a.dng', metadata: { rating: 2 } },
-        { path: '/b.dng', metadata: { rating: 4 } },
-      ]);
-      fixture.detectChanges();
-      const el = fixture.nativeElement as HTMLElement;
-      const ratingInput = el.querySelector<HTMLInputElement>('#bm-rating');
-      expect(ratingInput?.placeholder).toBe('(mixed)');
-    });
-
-    it('includes rating in the payload when touched', async () => {
-      host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
-      fixture.detectChanges();
-      const panel = getPanel(fixture);
-      panel.ratingVal.set('4');
-      panel.onFieldChange('rating');
-      fixture.detectChanges();
-      panel.onApply();
-      fixture.detectChanges();
-      panel.onConfirm();
-      fixture.detectChanges();
-      const req = http.expectOne('/api/xmp/batch');
-      const body = req.request.body as { entries: Array<{ metadata: { rating: number } }> };
-      expect(body.entries[0]!.metadata.rating).toBe(4);
-      req.flush({ results: [{ path: '/a.dng', ok: true }] });
-    });
-
-    it('includes flag=pick in the payload when touched', async () => {
-      host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
-      fixture.detectChanges();
-      const panel = getPanel(fixture);
-      panel.flagVal.set('pick');
-      panel.onFieldChange('flag');
-      fixture.detectChanges();
-      panel.onApply();
-      fixture.detectChanges();
-      panel.onConfirm();
-      fixture.detectChanges();
-      const req = http.expectOne('/api/xmp/batch');
-      const body = req.request.body as { entries: Array<{ metadata: { flag: string } }> };
-      expect(body.entries[0]!.metadata.flag).toBe('pick');
-      req.flush({ results: [{ path: '/a.dng', ok: true }] });
     });
   });
 

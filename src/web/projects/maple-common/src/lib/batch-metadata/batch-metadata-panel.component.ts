@@ -116,7 +116,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly creditVal = signal<string>('');
   readonly sourceVal = signal<string>('');
   readonly ratingVal = signal<string>('');
-  readonly flagVal = signal<'pick' | 'reject' | 'unflagged' | ''>('');
+  readonly flagVal = signal<'pick' | 'reject' | 'unflagged' | '__clear__' | ''>('');
   readonly colorLabelVal = signal<
     'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | ''
   >('');
@@ -221,6 +221,45 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       next.add(field);
       return next;
     });
+  }
+
+  /** Set a field's touched bit. Used by the culling controls where the
+   *  "— leave unchanged —" option must un-touch (a true no-op) rather than mark
+   *  the field touched-and-cleared. */
+  private _setTouched(field: keyof MixedValueMap, touched: boolean): void {
+    this.touched.update((s) => {
+      if (touched === s.has(field)) return s;
+      const next = new Set(s);
+      if (touched) next.add(field);
+      else next.delete(field);
+      return next;
+    });
+  }
+
+  /** Rating input handler. Empty or non-(integer-0–5) input leaves rating
+   *  UNTOUCHED so a transient NaN can't JSON-stringify to null and silently
+   *  clear the rating; only a finite 0–5 integer is touched (0 = clear). */
+  onRatingInput(raw: string): void {
+    this.ratingVal.set(raw);
+    const trimmed = raw.trim();
+    const n = Number(trimmed);
+    this._setTouched('rating', trimmed !== '' && Number.isInteger(n) && n >= 0 && n <= 5);
+  }
+
+  /** Flag select handler. '' = leave unchanged (no-op); `__clear__` = explicit
+   *  clear (maps to `unflagged` in the payload); a real value is sent as-is. */
+  onFlagChange(raw: string): void {
+    this.flagVal.set(raw as 'pick' | 'reject' | 'unflagged' | '__clear__' | '');
+    this._setTouched('flag', raw !== '');
+  }
+
+  /** Color-label select handler. '' = leave unchanged (no-op); `__clear__` =
+   *  explicit clear (sends null); a color is sent as-is. */
+  onColorLabelChange(raw: string): void {
+    this.colorLabelVal.set(
+      raw as 'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | '',
+    );
+    this._setTouched('colorLabel', raw !== '');
   }
 
   onReset(): void {
@@ -481,19 +520,22 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       meta.source = v === '' ? null : v;
     }
     if (t.has('rating')) {
-      const v = this.ratingVal().trim();
-      meta.rating = v === '' ? null : Number(v);
+      // The rating handler only marks this touched for a finite 0–5 integer, so
+      // Number() is safe here (no NaN→null surprise).
+      meta.rating = Number(this.ratingVal().trim());
     }
     if (t.has('flag')) {
+      // Touched only via a non-empty option. The explicit-clear sentinel maps to
+      // 'unflagged'; '' (leave unchanged) can never reach here.
       const v = this.flagVal();
-      meta.flag = v === '' ? null : (v as 'pick' | 'reject' | 'unflagged');
+      meta.flag = v === '__clear__' ? 'unflagged' : (v as 'pick' | 'reject' | 'unflagged');
     }
     if (t.has('colorLabel')) {
+      // Touched only via a non-empty option. The explicit-clear sentinel sends
+      // null; '' (leave unchanged) can never reach here.
       const v = this.colorLabelVal();
       meta.colorLabel =
-        v === '' || v === '__clear__'
-          ? null
-          : (v as 'red' | 'orange' | 'yellow' | 'green' | 'blue');
+        v === '__clear__' ? null : (v as 'red' | 'orange' | 'yellow' | 'green' | 'blue');
     }
 
     return this.assetSnapshots().map((snap) => ({ path: snap.path, metadata: meta }));
