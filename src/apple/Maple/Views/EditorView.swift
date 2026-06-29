@@ -175,6 +175,33 @@ struct EditorView: View {
             .ignoresSafeArea(edges: .bottom)
             .opacity(chromeOpacity)
             .allowsHitTesting(isRegular || chromeVisible)
+
+            // ── LAYER 6 : cold-open loading bar ───────────────────────────
+            // Pinned to the top edge and does NOT recede with the chrome (no
+            // chromeOpacity) so the in-flight full-res render of a big RAW
+            // stays legible — the instant embedded preview otherwise looks
+            // "done" with no sign the real image is still resolving. Same
+            // visibility contract as FullImageView: shows from open until the
+            // full-quality frame publishes (`isResolvingFirstFrame`, cleared
+            // only once `!isFullQualityDecoding` on both CPU and GPU paths). #1658
+            if EditSession.shouldShowLoadingIndicator(
+                isResolvingFirstFrame: state.session.isResolvingFirstFrame,
+                isRendering: state.session.isRendering,
+                hasOnscreenFrame: EditSession.canvasHasFrame(
+                    gpuActive: useGpuCanvas,
+                    gpuFramePresented: state.session.gpuFramePresented,
+                    hasRenderedPreview: state.session.renderedPreview != nil
+                )
+            ) {
+                VStack {
+                    IndeterminateLoadingBar()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 6)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .allowsHitTesting(false)
+            }
         }
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("editor-view")
