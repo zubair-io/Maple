@@ -405,6 +405,65 @@ describe('BatchMetadataPanelComponent', () => {
     });
   });
 
+  // ── Mixed-value display — fields not in thin asset snapshot ────────────────
+
+  describe('mixed-value display — fields not in thin asset snapshot', () => {
+    it('adds is-mixed class to caption input when values differ', () => {
+      host.visible.set(true);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: { caption: 'A morning shot' } },
+        { path: '/b.dng', metadata: { caption: 'Evening light' } },
+      ]);
+      fixture.detectChanges();
+      const captionInput = (fixture.nativeElement as HTMLElement).querySelector(
+        '#bm-caption',
+      ) as HTMLTextAreaElement | null;
+      expect(captionInput).not.toBeNull();
+      expect(captionInput!.classList.contains('is-mixed')).toBe(true);
+    });
+
+    it('sets placeholder to "(mixed)" on caption when values differ', () => {
+      host.visible.set(true);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: { caption: 'A morning shot' } },
+        { path: '/b.dng', metadata: { caption: 'Evening light' } },
+      ]);
+      fixture.detectChanges();
+      const captionInput = (fixture.nativeElement as HTMLElement).querySelector(
+        '#bm-caption',
+      ) as HTMLTextAreaElement;
+      expect(captionInput.placeholder).toBe('(mixed)');
+    });
+
+    it('adds is-mixed class to creator input when values differ', () => {
+      host.visible.set(true);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: { creator: 'Alice' } },
+        { path: '/b.dng', metadata: { creator: 'Bob' } },
+      ]);
+      fixture.detectChanges();
+      const creatorInput = (fixture.nativeElement as HTMLElement).querySelector(
+        '#bm-creator',
+      ) as HTMLInputElement | null;
+      expect(creatorInput).not.toBeNull();
+      expect(creatorInput!.classList.contains('is-mixed')).toBe(true);
+    });
+
+    it('adds is-mixed class to copyright notice input when values differ', () => {
+      host.visible.set(true);
+      host.snapshots.set([
+        { path: '/a.dng', metadata: { copyrightNotice: '© Alice 2024' } },
+        { path: '/b.dng', metadata: { copyrightNotice: '© Bob 2025' } },
+      ]);
+      fixture.detectChanges();
+      const copyrightInput = (fixture.nativeElement as HTMLElement).querySelector(
+        '#bm-copyright',
+      ) as HTMLInputElement | null;
+      expect(copyrightInput).not.toBeNull();
+      expect(copyrightInput!.classList.contains('is-mixed')).toBe(true);
+    });
+  });
+
   // ── touchedFieldLabels computed ─────────────────────────────────────────────
 
   describe('touchedFieldLabels computed', () => {
