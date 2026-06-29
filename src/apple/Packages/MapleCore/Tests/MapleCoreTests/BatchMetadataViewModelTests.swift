@@ -303,6 +303,131 @@ final class BatchMetadataViewModelTests: XCTestCase {
                      "commonKeywords must be nil when keywords are mixed")
     }
 
+    // MARK: - Culling: rating + flag (#1614)
+
+    func testTouchedRatingApplied() async throws {
+        let culling = CullingState(stars: 0, flag: .none, keywords: [])
+        let (asset, store) = try await tempAsset(culling: culling)
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        vm.touchedMetadata.stars = 4
+        try await vm.apply()
+
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
+        let (_, parsedCulling) = try XMPParser.parse(xml)
+        XCTAssertEqual(parsedCulling.stars, 4, "Touched rating must be written to sidecar")
+    }
+
+    func testTouchedFlagApplied() async throws {
+        let culling = CullingState(stars: 0, flag: .none, keywords: [])
+        let (asset, store) = try await tempAsset(culling: culling)
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        vm.touchedMetadata.flag = .pick
+        try await vm.apply()
+
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
+        let (_, parsedCulling) = try XMPParser.parse(xml)
+        XCTAssertEqual(parsedCulling.flag, .pick, "Touched flag must be written to sidecar")
+    }
+
+    func testRatingMixedDetected() async throws {
+        let c1 = CullingState(stars: 3, flag: .none, keywords: [])
+        let c2 = CullingState(stars: 5, flag: .none, keywords: [])
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertTrue(vm.mixedFields.contains(.rating),
+                      "Rating should be mixed when assets differ")
+        XCTAssertNil(vm.commonStars, "commonStars must be nil when rating is mixed")
+    }
+
+    func testRatingAgreedCommon() async throws {
+        let c1 = CullingState(stars: 3, flag: .pick, keywords: [])
+        let c2 = CullingState(stars: 3, flag: .reject, keywords: [])
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertFalse(vm.mixedFields.contains(.rating),
+                       "Rating should not be mixed when both assets agree on 3")
+        XCTAssertEqual(vm.commonStars, 3, "commonStars should be 3 when both agree")
+    }
+
+    func testRatingAllZeroIsNilCommon() async throws {
+        let c1 = CullingState(stars: 0, flag: .none, keywords: [])
+        let c2 = CullingState(stars: 0, flag: .none, keywords: [])
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertFalse(vm.mixedFields.contains(.rating),
+                       "Rating should not be mixed when both assets agree on 0 stars")
+        XCTAssertNil(vm.commonStars,
+                     "commonStars is nil when all assets have 0 stars (no rating set)")
+    }
+
+    func testFlagMixedDetected() async throws {
+        let c1 = CullingState(stars: 0, flag: .pick, keywords: [])
+        let c2 = CullingState(stars: 0, flag: .reject, keywords: [])
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertTrue(vm.mixedFields.contains(.flag),
+                      "Flag should be mixed when assets differ")
+        XCTAssertNil(vm.commonFlag, "commonFlag must be nil when flag is mixed")
+    }
+
+    func testFlagAgreedCommon() async throws {
+        let c1 = CullingState(stars: 0, flag: .pick, keywords: [])
+        let c2 = CullingState(stars: 0, flag: .pick, keywords: [])
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertFalse(vm.mixedFields.contains(.flag),
+                       "Flag should not be mixed when both assets agree")
+        XCTAssertEqual(vm.commonFlag, .pick, "commonFlag should be .pick when both agree")
+    }
+
+    func testFlagAllNoneIsCommon() async throws {
+        let c1 = CullingState(stars: 0, flag: .none, keywords: [])
+        let c2 = CullingState(stars: 0, flag: .none, keywords: [])
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertFalse(vm.mixedFields.contains(.flag),
+                       "Flag should not be mixed when all assets agree on .none")
+        // commonFlag is CullFlag.none (not Optional.none / nil) when all assets uniformly
+        // have no flag. Use XCTAssertNotNil + explicit comparison to avoid the Swift
+        // ambiguity between CullFlag.none and Optional<CullFlag>.none (nil).
+        XCTAssertNotNil(vm.commonFlag,
+                        "commonFlag must not be nil when all assets agree on .none")
+        XCTAssertEqual(vm.commonFlag, CullFlag.none,
+                       "commonFlag should be CullFlag.none when all assets agree on no flag")
+    }
+
     // MARK: - Store preserves metadata on a model-only write
 
     func testModelOnlyWritePreservesExistingMetadata() async throws {

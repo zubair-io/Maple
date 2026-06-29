@@ -19,6 +19,8 @@ public enum MetadataFieldKey: String, CaseIterable {
     case title, caption, headline, keywords, instructions
     case creator, creatorJobTitle, copyrightNotice, copyrightStatus
     case usageTerms, credit, source
+    case rating   // Maps to CullingState.stars
+    case flag     // Maps to CullingState.flag
 }
 
 // MARK: - TouchedMetadata
@@ -52,6 +54,10 @@ public struct TouchedMetadata {
     public var usageTerms:       String? = nil
     public var credit:           String? = nil
     public var source:           String? = nil
+    /// Star rating to apply. nil = untouched; 0 = explicitly clear (no stars).
+    public var stars: Int? = nil
+    /// Pick/reject flag. nil = untouched.
+    public var flag: CullFlag? = nil
 
     public init() {}
 
@@ -64,7 +70,8 @@ public struct TouchedMetadata {
         title != nil || caption != nil || headline != nil ||
         keywords != nil || instructions != nil ||
         creator != nil || creatorJobTitle != nil || copyrightNotice != nil ||
-        copyrightStatus != nil || usageTerms != nil || credit != nil || source != nil
+        copyrightStatus != nil || usageTerms != nil || credit != nil || source != nil ||
+        stars != nil || flag != nil
     }
 }
 
@@ -100,6 +107,14 @@ public final class BatchMetadataViewModel: Identifiable {
     /// when the selection is mixed (keywords differ across assets).
     public private(set) var commonKeywords: [String]? = nil
 
+    /// The star rating shared by all assets when they agree; nil when mixed OR
+    /// when all assets have 0 stars (no rating explicitly set).
+    public private(set) var commonStars: Int? = nil
+
+    /// The flag shared by all assets when they agree (even `.none`); nil only
+    /// when the selection is mixed (flags differ across assets).
+    public private(set) var commonFlag: CullFlag? = nil
+
     /// The fields the user has explicitly touched in this editing session.
     public var touchedMetadata: TouchedMetadata = TouchedMetadata()
 
@@ -134,30 +149,39 @@ public final class BatchMetadataViewModel: Identifiable {
         isLoading = true
         defer { isLoading = false }
 
-        // Read both XmpMetadata (IPTC/EXIF fields) and CullingState.keywords
-        // from each asset's sidecar in parallel.
-        let loadedPairs: [(XmpMetadata, [String])] = await withTaskGroup(
-            of: (XmpMetadata, [String]).self
+        // Read XmpMetadata (IPTC/EXIF fields), keywords, and CullingState from
+        // each asset's sidecar in parallel.
+        let loadedTriples: [(XmpMetadata, [String], CullingState)] = await withTaskGroup(
+            of: (XmpMetadata, [String], CullingState).self
         ) { group in
             for asset in assets {
                 group.addTask { await self.readMetadataAndKeywords(for: asset) }
             }
-            var results: [(XmpMetadata, [String])] = []
+            var results: [(XmpMetadata, [String], CullingState)] = []
             for await result in group { results.append(result) }
             return results
         }
 
-        guard !loadedPairs.isEmpty else { return }
+        guard !loadedTriples.isEmpty else { return }
 
-        let metadatas = loadedPairs.map(\.0)
-        let keywordSets = loadedPairs.map(\.1)
+        let metadatas   = loadedTriples.map(\.0)
+        let keywordSets = loadedTriples.map(\.1)
+        let cullingSets = loadedTriples.map(\.2)
 
         let (common, mixed) = BatchMetadataViewModel.detectMixed(
             metadatas: metadatas,
-            keywordSets: keywordSets
+            keywordSets: keywordSets,
+            cullingSets: cullingSets
         )
         commonMetadata = common
         commonKeywords = mixed.contains(.keywords) ? nil : keywordSets.first
+
+        let firstStars = cullingSets.first?.stars ?? 0
+        commonStars = mixed.contains(.rating) ? nil : (firstStars > 0 ? firstStars : nil)
+
+        let firstFlag = cullingSets.first?.flag ?? .none
+        commonFlag = mixed.contains(.flag) ? nil : firstFlag
+
         mixedFields = mixed
     }
 
@@ -186,23 +210,23 @@ public final class BatchMetadataViewModel: Identifiable {
 
     // MARK: - Private helpers
 
-    /// Read both the IPTC/EXIF metadata block and culling keywords from the
-    /// asset's sidecar.  `nonisolated` so the TaskGroup disk reads run off the
-    /// main actor without round-tripping back for each asset.
+    /// Read the IPTC/EXIF metadata block and full CullingState (keywords, stars,
+    /// flag) from the asset's sidecar.  `nonisolated` so the TaskGroup disk reads
+    /// run off the main actor without round-tripping back for each asset.
     nonisolated private func readMetadataAndKeywords(
         for asset: AssetRef
-    ) async -> (XmpMetadata, [String]) {
-        guard let url = asset.primaryURL else { return (XmpMetadata(), []) }
+    ) async -> (XmpMetadata, [String], CullingState) {
+        guard let url = asset.primaryURL else { return (XmpMetadata(), [], CullingState()) }
         let sidecarURL = SidecarPath.sidecarURL(for: url)
         guard FileManager.default.fileExists(atPath: sidecarURL.path),
               let xml = try? String(contentsOf: sidecarURL, encoding: .utf8)
         else {
-            return (XmpMetadata(), [])
+            return (XmpMetadata(), [], CullingState())
         }
         let meta = XMPParser.parseMetadata(xml)
-        // Parse culling to get keywords; ignore model (not needed for display).
+        // Parse culling for keywords, stars, and flag.
         let culling = (try? XMPParser.parse(xml))?.1 ?? CullingState()
-        return (meta, culling.keywords)
+        return (meta, culling.keywords, culling)
     }
 
     private func applyToAsset(_ asset: AssetRef) async throws {
@@ -240,6 +264,13 @@ public final class BatchMetadataViewModel: Identifiable {
         if let kw = touchedMetadata.keywords {
             culling.keywords = kw ?? []
         }
+        // Apply touched culling fields (stars + flag).
+        if let stars = touchedMetadata.stars {
+            culling.stars = stars
+        }
+        if let flag = touchedMetadata.flag {
+            culling.flag = flag
+        }
         await store.update(model: model, culling: culling, metadata: merged)
         await store.flush()
     }
@@ -272,9 +303,11 @@ public final class BatchMetadataViewModel: Identifiable {
     /// common value (set only when all assets agree on a non-nil value).
     /// `keywordSets` is parallel to `metadatas` — the keywords from each asset's
     /// culling state, read alongside the IPTC/EXIF block.
+    /// `cullingSets` carries the full CullingState for rating/flag detection.
     private static func detectMixed(
         metadatas: [XmpMetadata],
-        keywordSets: [[String]]
+        keywordSets: [[String]],
+        cullingSets: [CullingState]
     ) -> (common: XmpMetadata, mixed: Set<MetadataFieldKey>) {
         var common = XmpMetadata()
         var mixed  = Set<MetadataFieldKey>()
@@ -343,6 +376,18 @@ public final class BatchMetadataViewModel: Identifiable {
         checkString(\.usageTerms,   \.usageTerms,   .usageTerms)
         checkString(\.credit,       \.credit,       .credit)
         checkString(\.source,       \.source,       .source)
+
+        // Rating (stars)
+        let firstStars = cullingSets.first?.stars ?? 0
+        if !cullingSets.allSatisfy({ $0.stars == firstStars }) {
+            mixed.insert(.rating)
+        }
+
+        // Flag
+        let firstFlag = cullingSets.first?.flag ?? .none
+        if !cullingSets.allSatisfy({ $0.flag == firstFlag }) {
+            mixed.insert(.flag)
+        }
 
         return (common, mixed)
     }
