@@ -63,6 +63,9 @@ const FIELD_LABELS: Partial<Record<keyof MixedValueMap, string>> = {
   usageTerms: 'Usage Terms',
   credit: 'Credit',
   source: 'Source',
+  rating: 'Rating',
+  flag: 'Flag',
+  colorLabel: 'Color Label',
 };
 
 @Component({
@@ -112,6 +115,11 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly usageTermsVal = signal<string>('');
   readonly creditVal = signal<string>('');
   readonly sourceVal = signal<string>('');
+  readonly ratingVal = signal<string>('');
+  readonly flagVal = signal<'pick' | 'reject' | 'unflagged' | ''>('');
+  readonly colorLabelVal = signal<
+    'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | ''
+  >('');
 
   // ── Per-field touched flags ────────────────────────────────────────────────
   readonly touched = signal<Set<keyof MixedValueMap>>(new Set());
@@ -472,6 +480,21 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       const v = this.sourceVal().trim();
       meta.source = v === '' ? null : v;
     }
+    if (t.has('rating')) {
+      const v = this.ratingVal().trim();
+      meta.rating = v === '' ? null : Number(v);
+    }
+    if (t.has('flag')) {
+      const v = this.flagVal();
+      meta.flag = v === '' ? null : (v as 'pick' | 'reject' | 'unflagged');
+    }
+    if (t.has('colorLabel')) {
+      const v = this.colorLabelVal();
+      meta.colorLabel =
+        v === '' || v === '__clear__'
+          ? null
+          : (v as 'red' | 'orange' | 'yellow' | 'green' | 'blue');
+    }
 
     return this.assetSnapshots().map((snap) => ({ path: snap.path, metadata: meta }));
   }
@@ -517,5 +540,14 @@ export class BatchMetadataPanelComponent implements OnDestroy {
     this.usageTermsVal.set(str(m.usageTerms));
     this.creditVal.set(str(m.credit));
     this.sourceVal.set(str(m.source));
+    this.ratingVal.set(m.rating === MIXED || m.rating == null ? '' : String(m.rating));
+    this.flagVal.set(
+      m.flag === MIXED || m.flag == null ? '' : (m.flag as 'pick' | 'reject' | 'unflagged'),
+    );
+    this.colorLabelVal.set(
+      m.colorLabel === MIXED || m.colorLabel == null
+        ? ''
+        : (m.colorLabel as 'red' | 'orange' | 'yellow' | 'green' | 'blue'),
+    );
   }
 }
