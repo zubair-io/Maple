@@ -138,12 +138,48 @@ const AUTO_FIT_SIZED_SENSOR_LE: u32 = 8000;
 
 /// `max_long_edge` for the standalone fit develop: the preview resolution on a
 /// large sensor (memory-bounded), else `None` (full-res, parity-preserved).
+/// Proxy long edge the standalone fit develops at on a large sensor (#1647 M2).
+/// The fit needs only the JOINT tone distribution of (developed RAW, embedded
+/// JPEG), not spatial detail — a ~1.5 MP proxy gives sub-0.1 % quantile error
+/// (darktable computes its scopes/auto-exposure on an equivalently small
+/// preview pipe). Developing at the often-large embedded-preview resolution
+/// held a ~1 GB developed buffer through the fit — the dominant slice of the
+/// ~2.3 GB transient that stacks toward the iOS per-process limit. The embedded
+/// JPEG is downsampled to match (`downsample_preview_for_fit`) so the fit pairs
+/// two small buffers and keeps the source ≥ target footprint binning intact.
+const AUTO_FIT_PROXY_LE: u32 = 1536;
+
 fn auto_fit_max_long_edge(raw: &RawImage, preview: &ExtractedPreview) -> Option<u32> {
     if raw.width.max(raw.height) > AUTO_FIT_SIZED_SENSOR_LE {
-        Some(preview.image.width().max(preview.image.height()))
+        let preview_le = preview.image.width().max(preview.image.height());
+        Some(preview_le.min(AUTO_FIT_PROXY_LE))
     } else {
         None
     }
+}
+
+/// Downsample the embedded JPEG to `max_long_edge` (the fit's develop target)
+/// so the curve/residual fit pairs a SMALL (developed-RAW, JPEG) couple — the
+/// develop is sized to the same edge, so the source still bins ≥ the target
+/// (#1647 M2). No-op for `None` (small-sensor full-res fit) or already-small
+/// previews. A tone curve is invariant under representative downsampling, so
+/// this does not move the fitted curve materially (gated on `baseline_auto` ΔE).
+fn downsample_preview_for_fit(
+    mut preview: ExtractedPreview,
+    max_long_edge: Option<u32>,
+) -> ExtractedPreview {
+    let Some(mle) = max_long_edge else { return preview };
+    let le = preview.image.width().max(preview.image.height());
+    if le <= mle {
+        return preview;
+    }
+    let scale = f64::from(mle) / f64::from(le);
+    let nw = ((f64::from(preview.image.width()) * scale).round() as u32).max(1);
+    let nh = ((f64::from(preview.image.height()) * scale).round() as u32).max(1);
+    preview.image = preview
+        .image
+        .resize_exact(nw, nh, image::imageops::FilterType::Triangle);
+    preview
 }
 
 /// Extract the embedded preview (+ color space) for `raw_source` — ONE
@@ -208,6 +244,9 @@ pub fn fit_profile_curve_from_raw(
     // buffer that, concurrent with the render, jetsam-killed iOS. Smaller
     // sensors keep the full-res fit (see `auto_fit_max_long_edge`).
     let mle = auto_fit_max_long_edge(raw, &preview);
+    // #1647 M2: shrink the JPEG to the fit's proxy resolution so the pair the
+    // curve fits over is ~1.5 MP, not the full embedded preview.
+    let preview = downsample_preview_for_fit(preview, mle);
     let scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
     let (w, h) = (scene.width as usize, scene.height as usize);
     let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
@@ -295,6 +334,9 @@ pub fn fit_auto_profile_from_raw(
                 // #1637: size the fit develop to the preview on large sensors
                 // only (see the curve-only fit above + `auto_fit_max_long_edge`).
                 let mle = auto_fit_max_long_edge(raw, &preview);
+                // #1647 M2: shrink the JPEG to the proxy so the curve+residual
+                // fit over a ~1.5 MP pair, not the full embedded preview.
+                let preview = downsample_preview_for_fit(preview, mle);
                 let mut scene =
                     develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
                 let (w, h) = (scene.width as usize, scene.height as usize);
