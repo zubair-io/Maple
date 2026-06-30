@@ -9,7 +9,12 @@ import { describe, it, expect, beforeAll } from 'bun:test';
 import { mkdtemp, symlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { parseAddressPath, resolveAddress } from './address';
+import {
+  parseAddressPath,
+  parseAddressString,
+  resolveAddress,
+  resolveAddressString,
+} from './address';
 
 import { ObjectId } from 'mongodb';
 
@@ -33,6 +38,60 @@ beforeAll(async () => {
     libraryId: TEST_LIB_ID,
     root: tmpRoot,
     label: 'Test Library',
+  });
+});
+
+describe('parseAddressString', () => {
+  it('parses a slug:relPath address string', () => {
+    expect(parseAddressString('photos:2026/France/IMG_0001.dng')).toEqual({
+      slug: 'photos',
+      relPath: '2026/France/IMG_0001.dng',
+    });
+  });
+
+  it('parses a slug: address string with empty relPath (library root)', () => {
+    expect(parseAddressString('photos:')).toEqual({ slug: 'photos', relPath: '' });
+  });
+
+  it('throws status 400 for malformed address with no colon', () => {
+    expect(() => parseAddressString('nocolon')).toThrow();
+    try {
+      parseAddressString('nocolon');
+    } catch (e) {
+      expect((e as { status: number }).status).toBe(400);
+    }
+  });
+
+  it('throws status 400 for empty slug (colon at position 0)', () => {
+    expect(() => parseAddressString(':relPath')).toThrow();
+    try {
+      parseAddressString(':relPath');
+    } catch (e) {
+      expect((e as { status: number }).status).toBe(400);
+    }
+  });
+});
+
+describe('resolveAddressString', () => {
+  it('resolves a valid slug:relPath address string', async () => {
+    const r = await resolveAddressString(`${TEST_SLUG}:2026/France/0002`);
+    expect(r.absPath).toBe(path.join(tmpRoot, '2026', 'France', '0002'));
+    expect(r.libraryRoot).toBe(tmpRoot);
+  });
+
+  it('resolves a slug: address string with empty relPath to the library root', async () => {
+    const r = await resolveAddressString(`${TEST_SLUG}:`);
+    expect(r.absPath).toBe(tmpRoot);
+  });
+
+  it('rejects an unknown slug with status 404', async () => {
+    await expect(resolveAddressString('no-such-slug:photo.dng')).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('rejects a malformed address (no colon) with status 400', async () => {
+    await expect(resolveAddressString('nocolon')).rejects.toMatchObject({ status: 400 });
   });
 });
 

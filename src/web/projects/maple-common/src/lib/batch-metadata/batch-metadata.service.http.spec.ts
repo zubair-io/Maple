@@ -2,6 +2,8 @@
 // Verifies every service method hits the correct URL, HTTP method, request body, and
 // response mapping.  Uses Angular TestBed + HttpTestingController.
 //
+// The service now sends { addresses } (slug:relPath strings) instead of { paths }.
+//
 // CI gate: bun x ng test Maple-common
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -34,25 +36,25 @@ describe('BatchMetadataService HTTP wiring', () => {
   // ── fetchSnapshots ─────────────────────────────────────────────────────────
 
   describe('fetchSnapshots', () => {
-    it('posts paths to /api/metadata/snapshots and maps response', () => {
-      const paths = ['/a.dng', '/b.dng'];
+    it('posts addresses to /api/metadata/snapshots and maps response', () => {
+      const addresses = ['photos:a.dng', 'photos:b.dng'];
       let result: AssetMetadataSnapshot[] | undefined;
-      svc.fetchSnapshots(paths).subscribe((r) => (result = r));
+      svc.fetchSnapshots(addresses).subscribe((r) => (result = r));
 
       const req = http.expectOne('/api/metadata/snapshots');
       expect(req.request.method).toBe('POST');
-      expect(req.request.body).toEqual({ paths });
+      expect(req.request.body).toEqual({ addresses });
 
       req.flush({
         snapshots: [
-          { path: '/a.dng', metadata: { city: 'Paris', caption: 'Tower at dusk' } },
-          { path: '/b.dng', metadata: {} },
+          { address: 'photos:a.dng', metadata: { city: 'Paris', caption: 'Tower at dusk' } },
+          { address: 'photos:b.dng', metadata: {} },
         ],
       });
 
       expect(result).toEqual([
-        { path: '/a.dng', metadata: { city: 'Paris', caption: 'Tower at dusk' } },
-        { path: '/b.dng', metadata: {} },
+        { address: 'photos:a.dng', metadata: { city: 'Paris', caption: 'Tower at dusk' } },
+        { address: 'photos:b.dng', metadata: {} },
       ]);
     });
   });
@@ -61,8 +63,8 @@ describe('BatchMetadataService HTTP wiring', () => {
 
   it('batchApply POSTs to /api/xmp/batch with { entries } body', () => {
     const entries: BatchApplyEntry[] = [
-      { path: '/photos/a.jpg', metadata: { city: 'Paris' } },
-      { path: '/photos/b.jpg', metadata: { city: 'Paris' } },
+      { address: 'photos:a.jpg', metadata: { city: 'Paris' } },
+      { address: 'photos:b.jpg', metadata: { city: 'Paris' } },
     ];
     let ok: boolean | undefined;
     svc.batchApply(entries).subscribe((r) => (ok = r.results.every((x) => x.ok)));
@@ -73,26 +75,26 @@ describe('BatchMetadataService HTTP wiring', () => {
 
     call.flush({
       results: [
-        { path: '/photos/a.jpg', ok: true },
-        { path: '/photos/b.jpg', ok: true },
+        { address: 'photos:a.jpg', ok: true },
+        { address: 'photos:b.jpg', ok: true },
       ],
     });
     expect(ok).toBe(true);
   });
 
   it('batchApply propagates per-asset errors in the result', () => {
-    const entries: BatchApplyEntry[] = [{ path: '/photos/c.jpg', metadata: {} }];
-    let errorPath: string | undefined;
+    const entries: BatchApplyEntry[] = [{ address: 'photos:c.jpg', metadata: {} }];
+    let errorAddress: string | undefined;
 
     svc.batchApply(entries).subscribe((r) => {
       const failed = r.results.find((x) => !x.ok);
-      errorPath = failed?.path;
+      errorAddress = failed?.address;
     });
 
     http.expectOne('/api/xmp/batch').flush({
-      results: [{ path: '/photos/c.jpg', ok: false, error: 'permission denied' }],
+      results: [{ address: 'photos:c.jpg', ok: false, error: 'permission denied' }],
     });
-    expect(errorPath).toBe('/photos/c.jpg');
+    expect(errorAddress).toBe('photos:c.jpg');
   });
 
   // ── geocodeSearch ──────────────────────────────────────────────────────────
@@ -130,50 +132,50 @@ describe('BatchMetadataService HTTP wiring', () => {
 
   // ── refileCount ────────────────────────────────────────────────────────────
 
-  it('refileCount POSTs to /api/backup/refile-count with { paths } body and returns count', () => {
-    const paths = ['/photos/a.jpg', '/photos/b.jpg'];
+  it('refileCount POSTs to /api/backup/refile-count with { addresses } body and returns count', () => {
+    const addresses = ['photos:a.jpg', 'photos:b.jpg'];
     let result: RefileCountResult | undefined;
-    svc.refileCount(paths).subscribe((r) => (result = r));
+    svc.refileCount(addresses).subscribe((r) => (result = r));
 
     const call = http.expectOne('/api/backup/refile-count');
     expect(call.request.method).toBe('POST');
-    expect(call.request.body).toEqual({ paths });
+    expect(call.request.body).toEqual({ addresses });
     call.flush({ count: 2 });
     expect(result).toEqual({ count: 2 });
   });
 
   it('refileCount returns count of 0 when no assets qualify', () => {
     let count: number | undefined;
-    svc.refileCount(['/photos/a.jpg']).subscribe((r) => (count = r.count));
+    svc.refileCount(['photos:a.jpg']).subscribe((r) => (count = r.count));
     http.expectOne('/api/backup/refile-count').flush({ count: 0 });
     expect(count).toBe(0);
   });
 
   // ── refile ─────────────────────────────────────────────────────────────────
 
-  it('refile POSTs to /api/backup/refile with { paths } body and returns full RefileResult', () => {
-    const paths = ['/photos/a.jpg'];
+  it('refile POSTs to /api/backup/refile with { addresses } body and returns full RefileResult', () => {
+    const addresses = ['photos:a.jpg'];
     let result: RefileResult | undefined;
-    svc.refile(paths).subscribe((r) => (result = r));
+    svc.refile(addresses).subscribe((r) => (result = r));
 
     const call = http.expectOne('/api/backup/refile');
     expect(call.request.method).toBe('POST');
-    expect(call.request.body).toEqual({ paths });
-    call.flush({ results: [{ path: '/photos/a.jpg', ok: true, outcome: 'moved' }] });
+    expect(call.request.body).toEqual({ addresses });
+    call.flush({ results: [{ address: 'photos:a.jpg', ok: true, outcome: 'moved' }] });
 
     expect(result?.results).toHaveLength(1);
-    expect(result?.results[0]!.path).toBe('/photos/a.jpg');
+    expect(result?.results[0]!.address).toBe('photos:a.jpg');
     expect(result?.results[0]!.ok).toBe(true);
     expect(result?.results[0]!.outcome).toBe('moved');
   });
 
   it('refile propagates per-asset errors in the RefileResult', () => {
     let result: RefileResult | undefined;
-    svc.refile(['/photos/b.jpg']).subscribe((r) => (result = r));
+    svc.refile(['photos:b.jpg']).subscribe((r) => (result = r));
 
     http
       .expectOne('/api/backup/refile')
-      .flush({ results: [{ path: '/photos/b.jpg', ok: false, error: 'permission denied' }] });
+      .flush({ results: [{ address: 'photos:b.jpg', ok: false, error: 'permission denied' }] });
 
     expect(result?.results[0]!.ok).toBe(false);
     expect(result?.results[0]!.error).toBe('permission denied');

@@ -16,7 +16,7 @@
 
 import { Elysia, t } from 'elysia';
 import * as nodePath from 'node:path';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { resolveAddressString } from '../library/address.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
@@ -192,30 +192,36 @@ async function findAssetDocs(
 // Route
 // ---------------------------------------------------------------------------
 
-const MAX_PATHS = 1000;
+const MAX_ADDRESSES = 1000;
 
 export const metadataSnapshotsRoutes = new Elysia({
   name: 'metadataSnapshots',
 }).post(
   '/api/metadata/snapshots',
   async ({ body, set }) => {
-    const { paths } = body;
+    const { addresses } = body;
 
-    if (!Array.isArray(paths) || paths.length === 0) {
+    if (!Array.isArray(addresses) || addresses.length === 0) {
       set.status = 400;
-      return { error: 'paths must be a non-empty array' };
+      return { error: 'addresses must be a non-empty array' };
     }
-    if (paths.length > MAX_PATHS) {
+    if (addresses.length > MAX_ADDRESSES) {
       set.status = 400;
-      return { error: `paths exceeds maximum of ${MAX_PATHS}` };
+      return { error: `addresses exceeds maximum of ${MAX_ADDRESSES}` };
     }
 
-    // Authorize each path in parallel; drop unauthorized (return empty snapshot).
-    const authResults = await Promise.all(paths.map((p) => resolveAndAuthorizePath(p)));
-
-    // Build a set of authorized absolute paths (preserving order via index).
-    const authorizedAbsPaths: Array<string | null> = authResults.map((r) => (r.ok ? r.data : null));
-    const absPaths = authorizedAbsPaths.filter((p): p is string => p !== null);
+    // Resolve each address in parallel; failed resolution returns null (empty snapshot).
+    const resolvedAbsPaths: Array<string | null> = await Promise.all(
+      addresses.map(async (addr) => {
+        try {
+          const r = await resolveAddressString(addr);
+          return r.absPath;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const absPaths = resolvedAbsPaths.filter((p): p is string => p !== null);
 
     let libs: ReadonlyMap<string, string>;
     try {
@@ -231,29 +237,29 @@ export const metadataSnapshotsRoutes = new Elysia({
     try {
       docMap = await findAssetDocs(absPaths, libs);
     } catch {
-      // DB unreachable → return empty snapshots for all paths (safe default)
+      // DB unreachable → return empty snapshots for all addresses (safe default)
       docMap = new Map();
     }
 
-    // Build response in request-path order.
-    const snapshots = paths.map((originalPath, i) => {
-      const absPath = authorizedAbsPaths[i];
-      // Failed auth or no abs path → empty metadata.
-      if (!absPath) return { path: originalPath, metadata: {} };
+    // Build response in request-address order.
+    const snapshots = addresses.map((addr, i) => {
+      const absPath = resolvedAbsPaths[i];
+      // Failed resolution → empty metadata.
+      if (!absPath) return { address: addr, metadata: {} };
       const doc = docMap.get(absPath);
       // Not found in DB → empty metadata.
-      if (!doc) return { path: originalPath, metadata: {} };
-      return { path: originalPath, metadata: overrideToXmpSnapshot(doc) };
+      if (!doc) return { address: addr, metadata: {} };
+      return { address: addr, metadata: overrideToXmpSnapshot(doc) };
     });
 
     return { snapshots };
   },
   {
     body: t.Object({
-      paths: t.Array(t.String()),
+      addresses: t.Array(t.String()),
     }),
     detail: {
-      summary: 'Return effective XMP metadata snapshots for a batch of asset paths',
+      summary: 'Return effective XMP metadata snapshots for a batch of asset addresses',
       tags: ['metadata'],
     },
   },
