@@ -18,7 +18,7 @@ export class BatchMetadataConfirmDialogComponent {
   /** True while the HTTP request is in-flight. */
   readonly applying = input<boolean>(false);
   /** Per-asset failures reported after a partial-success response. */
-  readonly errors = input<Array<{ path: string; error: string }>>([]);
+  readonly errors = input<Array<{ address: string; error: string }>>([]);
 
   readonly confirm = output<void>();
   readonly cancel = output<void>();

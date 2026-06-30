@@ -17,9 +17,9 @@
         {{ assetCount() - errors().length }} of {{ assetCount() }} succeeded. Failures:
       </p>
       <ul class="bm-error-list">
-        @for (e of errors(); track e.path) {
+        @for (e of errors(); track e.address) {
           <li class="bm-error-item">
-            <span class="bm-error-path">{{ e.path }}</span>
+            <span class="bm-error-path">{{ e.address }}</span>
             <span class="bm-error-msg">{{ e.error }}</span>
           </li>
         }

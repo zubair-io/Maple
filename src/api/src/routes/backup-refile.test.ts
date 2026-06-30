@@ -6,6 +6,9 @@
  * Full end-to-end (Mongo + FS) is covered in manual / CI harness; these tests
  * confirm wiring, input validation, and happy-path shape without requiring a
  * live Mongo instance.
+ *
+ * The endpoints now accept { addresses } (slug:relPath strings) instead of
+ * { paths }.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -150,26 +153,26 @@ describe('geoSegmentsFromOverride', () => {
 
 describe('POST /api/backup/refile-count', () => {
   test('route is registered (not 404)', async () => {
-    const res = await postCount({ paths: ['/some/photo.jpg'] });
+    const res = await postCount({ addresses: ['some-slug:photo.jpg'] });
     expect(res.status).not.toBe(404);
   });
 
-  test('returns 400 for empty paths array', async () => {
-    const res = await postCount({ paths: [] });
+  test('returns 400 for empty addresses array', async () => {
+    const res = await postCount({ addresses: [] });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/non-empty/i);
   });
 
-  test('returns 400 for paths exceeding limit', async () => {
-    const paths = Array.from({ length: 1001 }, (_, i) => `/photos/img${i}.jpg`);
-    const res = await postCount({ paths });
+  test('returns 400 for addresses exceeding limit', async () => {
+    const addresses = Array.from({ length: 1001 }, (_, i) => `slug:img${i}.jpg`);
+    const res = await postCount({ addresses });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/maximum/i);
   });
 
-  test('returns 4xx for missing paths field', async () => {
+  test('returns 4xx for missing addresses field', async () => {
     const res = await postCount({});
     // Elysia schema validation returns 422; our manual check returns 400.
     // Either is an error response.
@@ -177,25 +180,18 @@ describe('POST /api/backup/refile-count', () => {
     expect(res.status).toBeLessThan(500);
   });
 
-  test('returns count:0 when no DB docs match (empty-ish DB)', async () => {
-    // The DB may be unreachable in unit-test environments; assetsCollection()
-    // throws. The route catches Mongo errors and returns count:0 (safe default).
-    // When MAPLE_ROOTS is unset every path fails auth → 0 docs resolved → count 0.
-    const savedRoots = process.env.MAPLE_ROOTS;
-    process.env.MAPLE_ROOTS = '/nonexistent-maple-root-12345';
-    try {
-      const res = await postCount({
-        paths: ['/nonexistent-maple-root-12345/photo.jpg'],
-      });
-      // Either resolves count:0 or propagates a Mongo error as 500.
-      // The critical check: route exists and responds.
-      expect([200, 500]).toContain(res.status);
-    } finally {
-      if (savedRoots !== undefined) {
-        process.env.MAPLE_ROOTS = savedRoots;
-      } else {
-        delete process.env.MAPLE_ROOTS;
-      }
+  test('returns count:0 when no DB docs match (empty-ish DB or unknown slug)', async () => {
+    // Unknown slug → resolveAddressString throws 404 → address is dropped → count 0.
+    // The DB may also be unreachable; the route catches Mongo errors and returns count:0.
+    const res = await postCount({
+      addresses: ['no-such-slug:photo.jpg'],
+    });
+    // Either resolves count:0 or propagates a Mongo error as 500.
+    // The critical check: route exists and responds.
+    expect([200, 500]).toContain(res.status);
+    if (res.status === 200) {
+      const body = await res.json();
+      expect(body.count).toBe(0);
     }
   });
 });
@@ -206,54 +202,44 @@ describe('POST /api/backup/refile-count', () => {
 
 describe('POST /api/backup/refile', () => {
   test('route is registered (not 404)', async () => {
-    const res = await postRefile({ paths: ['/some/photo.jpg'] });
+    const res = await postRefile({ addresses: ['some-slug:photo.jpg'] });
     expect(res.status).not.toBe(404);
   });
 
-  test('returns 400 for empty paths array', async () => {
-    const res = await postRefile({ paths: [] });
+  test('returns 400 for empty addresses array', async () => {
+    const res = await postRefile({ addresses: [] });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/non-empty/i);
   });
 
-  test('returns 400 for paths exceeding limit', async () => {
-    const paths = Array.from({ length: 1001 }, (_, i) => `/photos/img${i}.jpg`);
-    const res = await postRefile({ paths });
+  test('returns 400 for addresses exceeding limit', async () => {
+    const addresses = Array.from({ length: 1001 }, (_, i) => `slug:img${i}.jpg`);
+    const res = await postRefile({ addresses });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/maximum/i);
   });
 
-  test('returns 4xx for missing paths field', async () => {
+  test('returns 4xx for missing addresses field', async () => {
     const res = await postRefile({});
     // Elysia schema validation returns 422; our manual check returns 400.
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
   });
 
-  test('returns results array for valid input (auth-jail filters all paths)', async () => {
-    // When all paths are outside library roots the auth jail drops them → 0 docs
-    // resolved → empty results. Shape check only.
-    const savedRoots = process.env.MAPLE_ROOTS;
-    process.env.MAPLE_ROOTS = '/nonexistent-maple-root-99999';
-    try {
-      const res = await postRefile({
-        paths: ['/nonexistent-maple-root-99999/photo.jpg'],
-      });
-      // Either succeeds with { results: [] } or 500 if Mongo unreachable.
-      if (res.status === 200) {
-        const body = await res.json();
-        expect(Array.isArray(body.results)).toBe(true);
-      } else {
-        expect([200, 500]).toContain(res.status);
-      }
-    } finally {
-      if (savedRoots !== undefined) {
-        process.env.MAPLE_ROOTS = savedRoots;
-      } else {
-        delete process.env.MAPLE_ROOTS;
-      }
+  test('returns results array for valid input (unknown slug filters all addresses)', async () => {
+    // When all addresses have unknown slugs, resolveAddressString throws →
+    // 0 docs resolved → empty results. Shape check only.
+    const res = await postRefile({
+      addresses: ['no-such-slug:photo.jpg'],
+    });
+    // Either succeeds with { results: [] } or 500 if Mongo unreachable.
+    if (res.status === 200) {
+      const body = await res.json();
+      expect(Array.isArray(body.results)).toBe(true);
+    } else {
+      expect([200, 500]).toContain(res.status);
     }
   });
 });

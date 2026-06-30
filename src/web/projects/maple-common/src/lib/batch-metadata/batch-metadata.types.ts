@@ -61,8 +61,8 @@ export interface MixedValueMap {
 
 /** Metadata for a single asset, snapshotted at the moment the panel opens. */
 export interface AssetMetadataSnapshot {
-  /** Absolute on-disk path — used as the key for the batch write payload. */
-  path: string;
+  /** Asset address (slug:relPath) — used as the key for the batch write payload. */
+  address: string;
   metadata: Partial<XmpMetadata> & {
     keywords?: string[];
     rating?: number;
@@ -182,12 +182,12 @@ export type BatchApplyMetadata = Partial<XmpMetadata> & {
 };
 
 export interface BatchApplyEntry {
-  path: string;
+  address: string;
   metadata: BatchApplyMetadata;
 }
 
 export interface BatchApplyResult {
-  results: Array<{ path: string; ok: boolean; error?: string }>;
+  results: Array<{ address: string; ok: boolean; error?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +201,7 @@ export interface RefileCountResult {
 
 /** One per-asset outcome from POST /api/backup/refile */
 export interface RefileItemResult {
-  path: string;
+  address: string;
   ok: boolean;
   outcome?: string;
   error?: string;
