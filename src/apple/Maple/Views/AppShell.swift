@@ -286,10 +286,24 @@ struct AppShell: View {
     /// filmstrip equivalent.
     @MainActor
     func pruneInactiveSessions() {
-        guard isImageOpen, let id = browseVM.selectedID, let active = sessions[id],
-              sessions.count > 1
-        else { return }
-        sessions = [id: active]
+        guard isImageOpen, let id = browseVM.selectedID else { return }
+        if let active = sessions[id] {
+            // Active session already resident — drop every other one. The
+            // `count > 1` guard avoids a spurious @State rewrite (and shell
+            // re-render) when it's already the only entry.
+            if sessions.count > 1 { sessions = [id: active] }
+        } else {
+            // The active asset's session isn't resident yet. Today every
+            // in-editor switch routes through `openEditor`, which instantiates
+            // the session BEFORE mutating `selectedID`, so this branch is a
+            // guard against a future path that flips `selectedID` first: free
+            // every prior session so the old large RAW's buffers are gone
+            // before the new decode runs, rather than early-returning and
+            // leaving them resident while the next image loads (#1660). The
+            // active session is then (re)created by `openEditor`. Mirrors
+            // EditorDestination's `sessions = [:]` pruning (#1661 review).
+            sessions = [:]
+        }
     }
 
     var body: some View {
