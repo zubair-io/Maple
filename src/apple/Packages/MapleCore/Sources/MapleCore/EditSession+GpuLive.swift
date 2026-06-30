@@ -201,6 +201,13 @@ extension EditSession {
             editSessionLogger.notice(
                 "loading indicator HIDDEN — first full-quality frame presented (GPU live, gen=\(gen ?? 0))"
             )
+            // #1665: populate the rendered-preview disk cache from THIS exact frame
+            // so the next cold open paints instantly. The GPU present skips the CPU
+            // `renderedPreview` publish + `persistCurrentPreviewToCache`, so without
+            // this large RAWs never write a preview and every reopen re-decodes.
+            // One-shot (this branch fires once per cold open); the readback + encode
+            // run off the MainActor and never block a present or a slider tick.
+            Task { await persistGpuFrameToPreviewCache() }
         }
         editSessionLogger.debug(
             "GPU live presented gen=\(gen ?? 0) \(dims.width)x\(dims.height)")
