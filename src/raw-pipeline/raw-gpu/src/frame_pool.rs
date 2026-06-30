@@ -58,6 +58,15 @@ use std::rc::Rc;
 struct DispatchEntry {
     bind_group: Rc<wgpu::BindGroup>,
     uniform: Rc<wgpu::Buffer>,
+    /// Identity of the pipeline this bind group was built for — `&ComputePipeline`
+    /// pointer (the context owns each pipeline in a `OnceCell`, so its address is
+    /// stable for the cache's lifetime, and distinct pipelines occupy distinct
+    /// fields ⇒ distinct addresses). The bind group is built from the pipeline's
+    /// AUTO layout (`get_bind_group_layout(0)`), which wgpu treats as EXCLUSIVE to
+    /// that pipeline: binding it under a different pipeline is a validation error.
+    /// So a cache hit at a cursor whose entry was built for a different pipeline
+    /// must NOT be reused — see [`pool_dispatch`]'s identity guard.
+    pipeline_id: usize,
     /// Storage buffers the bind group references (src/dst are NOT here — they're
     /// the session's persistent ping-pong pair, passed fresh each call but with
     /// stable identity per signature; the per-image DATA buffers ARE here, so
@@ -213,8 +222,12 @@ pub(crate) struct DispatchResources {
 /// tick while the buffer object + bind group are reused.
 pub(crate) fn pool_dispatch(
     ctx: &GpuContext,
+    pipeline: &wgpu::ComputePipeline,
     make: impl FnOnce(&wgpu::Device) -> DispatchResources,
 ) -> PooledDispatch {
+    // Identity of the pipeline this dispatch will bind under — used to reject a
+    // cache hit whose entry was built for a DIFFERENT pipeline (see below).
+    let pipeline_id = std::ptr::from_ref(pipeline) as usize;
     let mut pool = ctx.frame_pool.borrow_mut();
     if !pool.frame_active {
         // Outside a pooled window: plain alloc (no caching).
@@ -231,13 +244,23 @@ pub(crate) fn pool_dispatch(
     {
         let bucket = pool.buckets.get(&sig).expect("bucket created in begin_frame");
         if let Some(entry) = bucket.dispatches.get(cursor) {
-            return PooledDispatch {
-                bind_group: Rc::clone(&entry.bind_group),
-                uniform: Rc::clone(&entry.uniform),
-            };
+            // Reuse ONLY when the cached entry was built for THIS pipeline. A bind
+            // group derived from a pipeline's auto layout is EXCLUSIVE to that
+            // pipeline, so if the dispatch sequence ever shifts under a stable
+            // signature (a signature-completeness gap) and this cursor now binds a
+            // different pipeline, returning the cached bind group is a wgpu
+            // validation error that freezes the live canvas (#1667). On a
+            // mismatch, fall through and rebuild for the correct pipeline — a
+            // bounded extra allocation, never a hard failure.
+            if entry.pipeline_id == pipeline_id {
+                return PooledDispatch {
+                    bind_group: Rc::clone(&entry.bind_group),
+                    uniform: Rc::clone(&entry.uniform),
+                };
+            }
         }
     }
-    // Miss: build everything, count the two creates, cache it.
+    // Miss (or pipeline mismatch): build everything, count the two creates, cache it.
     let res = make(&ctx.device);
     pool.alloc_count.set(pool.alloc_count.get() + 2);
     let bind_group = Rc::new(res.bind_group);
@@ -245,12 +268,25 @@ pub(crate) fn pool_dispatch(
     let entry = DispatchEntry {
         bind_group: Rc::clone(&bind_group),
         uniform: Rc::clone(&uniform),
+        pipeline_id,
         _data: res.data,
     };
     let bucket = pool.buckets.get_mut(&sig).expect("bucket created in begin_frame");
-    // The cursor always lands at the end within a fresh signature (dispatches are
-    // produced in order, first render fills the Vec sequentially).
-    debug_assert_eq!(cursor, bucket.dispatches.len(), "dispatch cursor must append");
-    bucket.dispatches.push(entry);
+    // A fresh cursor appends (the first render fills the Vec in dispatch order); a
+    // pipeline-mismatch rebuild REPLACES the stale entry at an existing cursor.
+    // Either way the Vec stays dispatch-indexed.
+    debug_assert!(
+        cursor <= bucket.dispatches.len(),
+        "dispatch cursor past the append point"
+    );
+    if cursor < bucket.dispatches.len() {
+        bucket.dispatches[cursor] = entry;
+    } else {
+        bucket.dispatches.push(entry);
+    }
     PooledDispatch { bind_group, uniform }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "frame_pool_tests.rs"]
+mod frame_pool_tests;

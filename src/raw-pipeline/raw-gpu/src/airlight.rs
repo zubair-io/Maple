@@ -189,7 +189,7 @@ fn encode_reduce_single_wg(
     let pipeline = ctx.airlight_reduce_pipeline();
     let layout = pipeline.get_bind_group_layout(0);
 
-    let pooled = pool_dispatch(ctx, |device| {
+    let pooled = pool_dispatch(ctx, pipeline, |device| {
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
             size: params_len,
