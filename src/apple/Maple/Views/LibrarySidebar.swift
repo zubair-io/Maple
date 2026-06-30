@@ -324,10 +324,16 @@ struct LibrarySidebar: View {
                     session: sessionFor(url),
                     onSignIn: { onSignInCloudServer(url) }
                 )
-                .task {
-                    if cloudFoldersByServer[url] == nil {
-                        cloudFoldersByServer[url] = await onLoadCloudFolders(url)
-                    }
+                // Keyed on the server's signed-in state so the load RE-RUNS when
+                // auth flips — most importantly false→true after the user signs
+                // in. The old identity-only `.task` ran once and cached whatever
+                // it got; a signed-out load returns [], which is non-nil, so the
+                // empty list stuck around forever and the folder tree never
+                // appeared after sign-in. On the signed-out tick
+                // `loadCloudFoldersFor` short-circuits to a cached/empty list, so
+                // re-running it is cheap and never fires a tokenless request.
+                .task(id: sessionFor(url).isSignedIn) {
+                    cloudFoldersByServer[url] = await onLoadCloudFolders(url)
                 }
             }
             // Drop folder caches for servers that have been removed from

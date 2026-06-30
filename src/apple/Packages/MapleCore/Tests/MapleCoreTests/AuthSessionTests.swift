@@ -254,6 +254,90 @@ final class AuthSessionTests: XCTestCase {
     XCTAssertNil(try loadTokensOrSkip())
   }
 
+  // MARK: - forced sign-out (HTTP layer: live request 401 → refresh rejected)
+
+  /// The desync bug: a live API request 401s and its token refresh is
+  /// rejected (refresh token expired/revoked). The HTTP layer must drive the
+  /// observable AuthSession to signed-out — not just clear the Keychain.
+  /// Clearing only the Keychain (the old `onSignOut` behavior) left
+  /// `isSignedIn` stuck true, so the very next request fired with no bearer
+  /// ("missing bearer") and the sidebar never offered a way back in.
+  func testHandleAuthExpired_clearsCredentialsAndFlipsSignedIn() async throws {
+    try saveTokensOrSkip(tokens)
+    AuthUserCache.save(cachedUser, server: server)
+    let s = makeSession()
+    XCTAssertTrue(s.isSignedIn, "precondition: a session with Keychain tokens is signed in")
+
+    await s.handleAuthExpired()
+
+    XCTAssertFalse(s.isSignedIn, "a rejected refresh must flip the observable session to signed-out")
+    XCTAssertFalse(s.hasCredentials)
+    XCTAssertNil(s.user)
+    XCTAssertNil(try loadTokensOrSkip(), "forced sign-out must clear the Keychain")
+    XCTAssertNil(AuthUserCache.load(server: server))
+  }
+
+  /// Entitlement-free coverage of the core flip: seeds the signed-in state
+  /// via the preview constructor (no Keychain), so it actually RUNS on dev
+  /// machines that lack the keychain entitlement — where the token-seeded
+  /// tests above skip. `clearLocalCredentials` is test-safe here:
+  /// `TokenStore.clear` of an absent entry is a no-op, and the File Provider
+  /// token mirror early-returns when no domain is configured for the server.
+  func testHandleAuthExpired_flipsPreviewSignedInToSignedOut() async {
+    let s = AuthSession.preview(state: .signedInOwner, server: server)
+    XCTAssertTrue(s.isSignedIn, "precondition: preview owner session is signed in")
+    await s.handleAuthExpired()
+    XCTAssertFalse(s.isSignedIn, "handleAuthExpired must flip isSignedIn to false")
+    XCTAssertFalse(s.hasCredentials)
+    XCTAssertNil(s.user)
+  }
+
+  /// Unlike `signOut()`, a forced expiry must NOT POST to `/api/auth/logout`
+  /// — the tokens are already dead, so there's nothing to revoke server-side
+  /// and a network round-trip would only delay clearing the UI state.
+  func testHandleAuthExpired_doesNotCallServerLogout() async throws {
+    try saveTokensOrSkip(tokens)
+    AuthUserCache.save(cachedUser, server: server)
+    var sawLogout = false
+    StubURLProtocol.responder = { req in
+      if req.url?.path == "/api/auth/logout" { sawLogout = true }
+      return .http(status: 200, body: Data("{}".utf8))
+    }
+    let s = makeSession()
+    await s.handleAuthExpired()
+    XCTAssertFalse(sawLogout, "forced expiry must not hit the logout endpoint")
+    XCTAssertFalse(s.isSignedIn)
+  }
+
+  /// End-to-end of the desync, wired the way `AppShell.makeAuthenticatedHTTPClient`
+  /// wires it: route the client's `onSignOut` into `handleAuthExpired`. A request
+  /// whose access token is dead AND whose refresh is rejected must leave the
+  /// session signed-out (so no follow-up request fires tokenless).
+  func testHTTPClientRefreshRejected_drivesSessionSignedOut() async throws {
+    try saveTokensOrSkip(tokens)
+    AuthUserCache.save(cachedUser, server: server)
+    let s = makeSession()
+    StubURLProtocol.responder = { _ in .http(status: 401, body: Data()) }
+
+    let signedOut = expectation(description: "session forced signed-out")
+    let testServer = server
+    let http = AuthenticatedHTTPClient(
+      server: testServer,
+      urlSession: TestURLSession.make(),
+      tokensProvider: { try? TokenStore.load(server: testServer) },
+      onTokensRefreshed: { try? TokenStore.save($0, server: testServer) },
+      onSignOut: {
+        Task { @MainActor in
+          await s.handleAuthExpired()
+          signedOut.fulfill()
+        }
+      }
+    )
+    _ = try? await http.data(for: URLRequest(url: testServer.appending(path: "/api/folders")))
+    await fulfillment(of: [signedOut], timeout: 2)
+    XCTAssertFalse(s.isSignedIn, "after a rejected refresh the session must be signed-out")
+  }
+
   // MARK: - signOut
 
   func testSignOut_clearsTokensCacheAndUser() async throws {
