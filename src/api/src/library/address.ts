@@ -39,6 +39,29 @@ export function parseAddressPath(slug: string, restSegments: string[]): AddressP
 }
 
 /**
+ * Parse an address string of the form `"slug:relPath"` into its components.
+ *
+ * Throws `{ status: 400 }` when the string is malformed (no colon, or empty slug).
+ */
+export function parseAddressString(addr: string): AddressPath {
+  const i = addr.indexOf(':');
+  if (i === -1 || i === 0) {
+    throw Object.assign(new Error('malformed address'), { status: 400 });
+  }
+  return { slug: addr.slice(0, i), relPath: addr.slice(i + 1) };
+}
+
+/**
+ * Resolve an address string of the form `"slug:relPath"` to an on-disk absolute
+ * path inside the library jail. Convenience wrapper around parseAddressString +
+ * resolveAddress. Always returns a Promise (parse errors become rejections).
+ */
+export async function resolveAddressString(addr: string): Promise<ResolvedAddress> {
+  const { slug, relPath } = parseAddressString(addr);
+  return resolveAddress(slug, relPath);
+}
+
+/**
  * Resolve a (slug, relPath) pair to an on-disk absolute path inside the
  * library jail.
  *
