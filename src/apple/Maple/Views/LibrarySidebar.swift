@@ -302,6 +302,12 @@ struct LibrarySidebar: View {
     private var cloudServersSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(registry.servers, id: \.self) { url in
+                // Resolve once and reuse for both the rendered `session:` and the
+                // `.task(id:)` below. The default resolver isn't cached, so two
+                // `sessionFor(url)` calls could hand back different AuthSession
+                // instances and the task's id would track a different object than
+                // the UI renders.
+                let session = sessionFor(url)
                 CloudServerSection(
                     serverURL: url,
                     folders: cloudFoldersByServer[url] ?? [],
@@ -321,7 +327,7 @@ struct LibrarySidebar: View {
                     onRename: { newName in
                         registry.setDisplayName(newName, for: url)
                     },
-                    session: sessionFor(url),
+                    session: session,
                     onSignIn: { onSignInCloudServer(url) }
                 )
                 // Keyed on the server's signed-in state so the load RE-RUNS when
@@ -332,7 +338,7 @@ struct LibrarySidebar: View {
                 // appeared after sign-in. On the signed-out tick
                 // `loadCloudFoldersFor` short-circuits to a cached/empty list, so
                 // re-running it is cheap and never fires a tokenless request.
-                .task(id: sessionFor(url).isSignedIn) {
+                .task(id: session.isSignedIn) {
                     cloudFoldersByServer[url] = await onLoadCloudFolders(url)
                 }
             }
