@@ -275,6 +275,23 @@ struct AppShell: View {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
 
+    /// Pane-shell (iPad/Mac) memory guard: keep only the active editor's session
+    /// resident. Each EditSession holds GPU live buffers + a decoded cache —
+    /// roughly one large RAW's worth — and the `open*` actions cache every opened
+    /// asset in `sessions` without ever pruning, so switching between two 100 MP
+    /// RAWs held both resident and jetsam-killed iOS at the per-process limit
+    /// (#1660). Called when an editor opens and when the active asset changes;
+    /// no-op while browsing (so the folder pre-create priming survives the grid).
+    /// The iPhone shell prunes in `EditorDestination` — this is its pane-shell +
+    /// filmstrip equivalent.
+    @MainActor
+    func pruneInactiveSessions() {
+        guard isImageOpen, let id = browseVM.selectedID, let active = sessions[id],
+              sessions.count > 1
+        else { return }
+        sessions = [id: active]
+    }
+
     var body: some View {
         Group {
             // Shell selection goes through `MapleShellKind.current`
@@ -535,10 +552,23 @@ struct AppShell: View {
         // returns on dismiss; ⌘\ and the Info button reopen them mid-session.
         .onChange(of: mode) { _, newMode in
             let imageOpen = (newMode == .editing || newMode == .fullImage)
+            // Entering an editor on the pane shell (iPad/Mac): drop every other
+            // cached session so only the active asset's GPU + decoded buffers stay
+            // resident. The open* actions cache every opened asset in `sessions`
+            // and never prune, so two large RAWs held at once jetsam-killed iOS
+            // (#1660). Covers the "select in grid, then open" path (selectedID
+            // changed while browsing, so the watcher below didn't fire).
+            if imageOpen { pruneInactiveSessions() }
             withAnimation(.easeInOut(duration: 0.2)) {
                 columnVisibility = imageOpen ? .detailOnly : .all
                 if newMode == .editing { editorDetailVisible = false }
             }
+        }
+        // Filmstrip sibling switch (iPad/Mac) changes the active asset WITHOUT a
+        // mode change — prune here too so the previous sibling's heavy resources
+        // free before the new one renders.
+        .onChange(of: browseVM.selectedID) { _, _ in
+            pruneInactiveSessions()
         }
     }
 
