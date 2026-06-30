@@ -2,18 +2,20 @@
  * Integration tests for POST /api/metadata/snapshots.
  *
  * Two tiers:
- *   1. Validation-only tests — no Mongo needed (mirrors backup-refile.test.ts
- *      pattern). Covers 400 responses, auth jail, and empty-metadata for
- *      unknown paths.
+ *   1. Validation-only tests — no Mongo needed. Covers 400 responses and
+ *      empty-metadata for unknown addresses.
  *   2. Real-Mongo tests — insert fixtures into a unique test DB and assert the
- *      full field mapping. These skip gracefully when Mongo is unreachable
- *      (mirrors assets-list.test.ts pattern).
+ *      full field mapping. These skip gracefully when Mongo is unreachable.
+ *
+ * The endpoint now accepts { addresses } (slug:relPath strings) instead of
+ * { paths }. Tests register a test slug in the in-memory libraries cache via
+ * setLibraryBySlugForTests, mirroring the pattern in address.test.ts.
  *
  * Pure unit tests for `overrideToXmpSnapshot` live in the sibling
  * metadata-snapshots.unit.test.ts (no Mongo / no I/O).
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -52,19 +54,28 @@ afterAll(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Temp dir for MAPLE_ROOTS
+// Test slug + temp dir
 // ---------------------------------------------------------------------------
 
+const TEST_SLUG = 'meta-snap-test';
+const TEST_LIB_ID = new ObjectId();
+
 let tmpDir: string;
-const originalMapleRoots = process.env.MAPLE_ROOTS;
 
 beforeEach(async () => {
   tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'meta-snap-test-')));
-  process.env.MAPLE_ROOTS = tmpDir;
+
+  const { setLibraryBySlugForTests } = await import('../indexer/libraries.cache.ts');
+  setLibraryBySlugForTests(TEST_SLUG, {
+    libraryId: TEST_LIB_ID,
+    root: tmpDir,
+    label: 'Meta Snap Test Library',
+  });
 });
 
-// Note: we intentionally do NOT tear down tmpDir per-test — DB-backed tests
-// use a stable root that must persist for the full test run.
+afterEach(async () => {
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
 
 // ---------------------------------------------------------------------------
 // Test app
@@ -82,8 +93,9 @@ async function post(body: unknown): Promise<Response> {
   );
 }
 
-function rawPath(filename: string): string {
-  return path.join(tmpDir, filename);
+/** Build an address string for a filename relative to the test library root. */
+function addr(relPath: string): string {
+  return `${TEST_SLUG}:${relPath}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,61 +103,58 @@ function rawPath(filename: string): string {
 // ---------------------------------------------------------------------------
 
 describe('POST /api/metadata/snapshots — validation', () => {
-  test('returns 400 for empty paths array', async () => {
-    const res = await post({ paths: [] });
+  test('returns 400 for empty addresses array', async () => {
+    const res = await post({ addresses: [] });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/non-empty/i);
   });
 
-  test('returns 400 for paths exceeding 1000', async () => {
-    const paths = Array.from({ length: 1001 }, (_, i) => `/some/root/img${i}.dng`);
-    const res = await post({ paths });
+  test('returns 400 for addresses exceeding 1000', async () => {
+    const addresses = Array.from({ length: 1001 }, (_, i) => addr(`img${i}.dng`));
+    const res = await post({ addresses });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/maximum/i);
   });
 
-  test('returns 4xx for missing paths field', async () => {
+  test('returns 4xx for missing addresses field', async () => {
     const res = await post({});
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
   });
 
   test('route is registered (not 404)', async () => {
-    const res = await post({ paths: [rawPath('photo.dng')] });
+    const res = await post({ addresses: [addr('photo.dng')] });
     expect(res.status).not.toBe(404);
   });
 
-  test('returns metadata:{} for path that fails auth (outside MAPLE_ROOTS)', async () => {
-    const res = await post({ paths: ['/etc/passwd'] });
+  test('returns metadata:{} for address with unknown slug', async () => {
+    const res = await post({ addresses: ['no-such-slug:photo.dng'] });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.snapshots).toHaveLength(1);
-    expect(body.snapshots[0].path).toBe('/etc/passwd');
+    expect(body.snapshots[0].address).toBe('no-such-slug:photo.dng');
     expect(body.snapshots[0].metadata).toEqual({});
   });
 
-  test('returns metadata:{} for path not found in DB (unknown path, authorized)', async () => {
-    // This path is inside MAPLE_ROOTS but no doc exists for it.
-    // The route must return 200 with empty metadata — missing-asset is not an
-    // error condition (mirrors the real-DB test at the bottom of this file).
-    const unknownPath = rawPath('nonexistent-file.dng');
-    const res = await post({ paths: [unknownPath] });
+  test('returns metadata:{} for address not found in DB (unknown file, authorized)', async () => {
+    // Address resolves to a path inside the library but no DB doc exists.
+    const unknownAddr = addr('nonexistent-file.dng');
+    const res = await post({ addresses: [unknownAddr] });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.snapshots).toHaveLength(1);
-    expect(body.snapshots[0].path).toBe(unknownPath);
+    expect(body.snapshots[0].address).toBe(unknownAddr);
     expect(body.snapshots[0].metadata).toEqual({});
   });
 
   test('preserves request order in response', async () => {
-    // All unauthorized — auth failure returns empty snapshots in order.
-    const paths = ['/a/photo1.dng', '/b/photo2.dng', '/c/photo3.dng'];
-    const res = await post({ paths });
+    const addresses = [addr('photo1.dng'), addr('photo2.dng'), addr('photo3.dng')];
+    const res = await post({ addresses });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.snapshots.map((s: { path: string }) => s.path)).toEqual(paths);
+    expect(body.snapshots.map((s: { address: string }) => s.address)).toEqual(addresses);
   });
 });
 
@@ -167,31 +176,30 @@ describe('POST /api/metadata/snapshots — real DB', () => {
 
     // Use the current tmpDir as the library root.
     testRoot = tmpDir;
-    process.env.MAPLE_ROOTS = testRoot;
 
-    // Invalidate the library-roots cache so the route picks up the new folder.
-    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
-    invalidateLibraryRoots();
-
+    // Insert the folder doc BEFORE invalidating the cache so the next
+    // loadLibraryRoots() call (inside the route) reads from the DB and
+    // picks up both the byId entry (for findAssetDocs) and the bySlug
+    // entry (for resolveAddressString). Using setLibraryBySlugForTests
+    // here would set byId to an empty Map and break findAssetDocs.
     folderId = new ObjectId();
     await db.collection('folders').insertOne({
       _id: folderId,
       path: testRoot,
-      slug: `test-${folderId.toHexString()}`,
+      slug: TEST_SLUG,
       label: 'Test Library',
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
+
+    // Invalidate the library-roots cache so the route loads the new folder
+    // from the DB (populating both byId and bySlug in one read).
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
   });
 
   afterAll(async () => {
-    // Restore original MAPLE_ROOTS.
-    if (originalMapleRoots !== undefined) {
-      process.env.MAPLE_ROOTS = originalMapleRoots;
-    } else {
-      delete process.env.MAPLE_ROOTS;
-    }
     // Invalidate library cache after cleanup.
     if (mongoReachable) {
       try {
@@ -249,11 +257,12 @@ describe('POST /api/metadata/snapshots — real DB', () => {
       },
     } as never);
 
-    const absPath = path.join(testRoot, filename);
-    const res = await post({ paths: [absPath] });
+    const assetAddr = addr(filename);
+    const res = await post({ addresses: [assetAddr] });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.snapshots).toHaveLength(1);
+    expect(body.snapshots[0].address).toBe(assetAddr);
     const snap = body.snapshots[0].metadata;
     expect(snap.gpsLatitude).toBeCloseTo(48.8566, 4);
     expect(snap.gpsLongitude).toBeCloseTo(2.3522, 4);
@@ -292,8 +301,7 @@ describe('POST /api/metadata/snapshots — real DB', () => {
       },
     } as never);
 
-    const absPath = path.join(testRoot, filename);
-    const res = await post({ paths: [absPath] });
+    const res = await post({ addresses: [addr(filename)] });
     expect(res.status).toBe(200);
     const body = await res.json();
     const snap = body.snapshots[0].metadata;
@@ -323,15 +331,14 @@ describe('POST /api/metadata/snapshots — real DB', () => {
       },
     } as never);
 
-    const absPath = path.join(testRoot, filename);
-    const res = await post({ paths: [absPath] });
+    const res = await post({ addresses: [addr(filename)] });
     expect(res.status).toBe(200);
     const body = await res.json();
     const snap = body.snapshots[0].metadata;
     expect(snap.dateTimeOriginal).toBe('2023-09-01T08:30:00Z');
   });
 
-  test('returns snapshots in request-path order (not DB result order)', async () => {
+  test('returns snapshots in request-address order (not DB result order)', async () => {
     if (skipIfNoMongo()) return;
 
     const filenames = ['order-c.dng', 'order-a.dng', 'order-b.dng'];
@@ -353,18 +360,18 @@ describe('POST /api/metadata/snapshots — real DB', () => {
     }
 
     // Request them in an order different from insertion order.
-    const requestPaths = filenames.map((f) => path.join(testRoot, f));
-    const res = await post({ paths: requestPaths });
+    const requestAddresses = filenames.map((f) => addr(f));
+    const res = await post({ addresses: requestAddresses });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.snapshots.map((s: { path: string }) => s.path)).toEqual(requestPaths);
+    expect(body.snapshots.map((s: { address: string }) => s.address)).toEqual(requestAddresses);
   });
 
-  test('returns metadata:{} for a path not in the DB', async () => {
+  test('returns metadata:{} for an address not in the DB', async () => {
     if (skipIfNoMongo()) return;
 
-    const absPath = path.join(testRoot, 'does-not-exist.dng');
-    const res = await post({ paths: [absPath] });
+    const assetAddr = addr('does-not-exist.dng');
+    const res = await post({ addresses: [assetAddr] });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.snapshots[0].metadata).toEqual({});
@@ -375,7 +382,7 @@ describe('POST /api/metadata/snapshots — real DB', () => {
 
     const filename = 'ambiguous.dng';
 
-    // First asset: in MAPLE_ROOTS (tmpDir). This one should match.
+    // First asset: in the test library slug. This one should match.
     await db!.collection('assets').insertOne({
       fileinfo: [{ path: '', filename, library_id: folderId, deleted_at: null }],
       size: 1,
@@ -391,7 +398,7 @@ describe('POST /api/metadata/snapshots — real DB', () => {
       },
     } as never);
 
-    // Second asset: in a DIFFERENT library root not in MAPLE_ROOTS.
+    // Second asset: in a DIFFERENT library root not registered under TEST_SLUG.
     const otherFolderId = new ObjectId();
     await db!.collection('folders').insertOne({
       _id: otherFolderId,
@@ -417,13 +424,15 @@ describe('POST /api/metadata/snapshots — real DB', () => {
       },
     } as never);
 
-    // Invalidate cache so both folders are loaded.
+    // Invalidate cache so both folders are loaded from DB on the next request.
+    // The folder doc has slug: TEST_SLUG so loadCache() will populate bySlug
+    // as well — no need to call setLibraryBySlugForTests here.
     const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
     invalidateLibraryRoots();
 
-    // Request the path inside MAPLE_ROOTS only.
-    const absPath = path.join(testRoot, filename);
-    const res = await post({ paths: [absPath] });
+    // Request only the address inside the test slug.
+    const assetAddr = addr(filename);
+    const res = await post({ addresses: [assetAddr] });
     expect(res.status).toBe(200);
     const body = await res.json();
     const snap = body.snapshots[0].metadata;

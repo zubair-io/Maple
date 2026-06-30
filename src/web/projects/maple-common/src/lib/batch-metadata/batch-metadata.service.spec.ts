@@ -20,8 +20,8 @@ describe('computeMixedValues', () => {
 
   it('returns single value when all snapshots agree on a string field', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris' } },
-      { path: '/b.dng', metadata: { city: 'Paris' } },
+      { address: 'photos:a.dng', metadata: { city: 'Paris' } },
+      { address: 'photos:b.dng', metadata: { city: 'Paris' } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.city).toBe('Paris');
@@ -29,8 +29,8 @@ describe('computeMixedValues', () => {
 
   it('returns MIXED when string field values differ', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris' } },
-      { path: '/b.dng', metadata: { city: 'Berlin' } },
+      { address: 'photos:a.dng', metadata: { city: 'Paris' } },
+      { address: 'photos:b.dng', metadata: { city: 'Berlin' } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.city).toBe(MIXED);
@@ -38,8 +38,8 @@ describe('computeMixedValues', () => {
 
   it('returns undefined (not MIXED) when all snapshots lack the field', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: {} },
-      { path: '/b.dng', metadata: {} },
+      { address: 'photos:a.dng', metadata: {} },
+      { address: 'photos:b.dng', metadata: {} },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.city).toBeUndefined();
@@ -47,8 +47,8 @@ describe('computeMixedValues', () => {
 
   it('returns MIXED when one snapshot has a value and another is undefined', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris' } },
-      { path: '/b.dng', metadata: {} },
+      { address: 'photos:a.dng', metadata: { city: 'Paris' } },
+      { address: 'photos:b.dng', metadata: {} },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.city).toBe(MIXED);
@@ -56,8 +56,8 @@ describe('computeMixedValues', () => {
 
   it('returns single value for keywords when all snapshots match (array equality)', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { keywords: ['travel', 'france'] } },
-      { path: '/b.dng', metadata: { keywords: ['travel', 'france'] } },
+      { address: 'photos:a.dng', metadata: { keywords: ['travel', 'france'] } },
+      { address: 'photos:b.dng', metadata: { keywords: ['travel', 'france'] } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.keywords).toEqual(['travel', 'france']);
@@ -65,8 +65,8 @@ describe('computeMixedValues', () => {
 
   it('returns MIXED for keywords when they differ', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { keywords: ['travel'] } },
-      { path: '/b.dng', metadata: { keywords: ['landscape'] } },
+      { address: 'photos:a.dng', metadata: { keywords: ['travel'] } },
+      { address: 'photos:b.dng', metadata: { keywords: ['landscape'] } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.keywords).toBe(MIXED);
@@ -75,7 +75,7 @@ describe('computeMixedValues', () => {
   it('handles a single snapshot by returning its values directly', () => {
     const snapshots: AssetMetadataSnapshot[] = [
       {
-        path: '/a.dng',
+        address: 'photos:a.dng',
         metadata: {
           gpsLatitude: 48.8566,
           gpsLongitude: 2.3522,
@@ -93,8 +93,8 @@ describe('computeMixedValues', () => {
 
   it('returns MIXED only for differing fields; uniform fields stay their value', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { city: 'Paris', country: 'France' } },
-      { path: '/b.dng', metadata: { city: 'Berlin', country: 'France' } },
+      { address: 'photos:a.dng', metadata: { city: 'Paris', country: 'France' } },
+      { address: 'photos:b.dng', metadata: { city: 'Berlin', country: 'France' } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.city).toBe(MIXED);
@@ -103,8 +103,8 @@ describe('computeMixedValues', () => {
 
   it('handles null metadata values correctly (null is a valid "set" state)', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { gpsLatitude: null } },
-      { path: '/b.dng', metadata: { gpsLatitude: null } },
+      { address: 'photos:a.dng', metadata: { gpsLatitude: null } },
+      { address: 'photos:b.dng', metadata: { gpsLatitude: null } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.gpsLatitude).toBeNull();
@@ -112,8 +112,8 @@ describe('computeMixedValues', () => {
 
   it('returns MIXED when one snapshot has null and another has a value', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { gpsLatitude: null } },
-      { path: '/b.dng', metadata: { gpsLatitude: 48.8566 } },
+      { address: 'photos:a.dng', metadata: { gpsLatitude: null } },
+      { address: 'photos:b.dng', metadata: { gpsLatitude: 48.8566 } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.gpsLatitude).toBe(MIXED);
@@ -121,8 +121,8 @@ describe('computeMixedValues', () => {
 
   it('handles tri-state copyrightStatus correctly', () => {
     const snapshots: AssetMetadataSnapshot[] = [
-      { path: '/a.dng', metadata: { copyrightStatus: 'copyrighted' } },
-      { path: '/b.dng', metadata: { copyrightStatus: 'public-domain' } },
+      { address: 'photos:a.dng', metadata: { copyrightStatus: 'copyrighted' } },
+      { address: 'photos:b.dng', metadata: { copyrightStatus: 'public-domain' } },
     ];
     const result = computeMixedValues(snapshots);
     expect(result.copyrightStatus).toBe(MIXED);

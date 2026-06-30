@@ -151,39 +151,30 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
   onEditMetadata(): void {
     const selectedIds = this.state.selectedAssetIds();
     const assets = this.state.assetsInSelectedFolder().filter((a) => selectedIds.has(a.id));
-    const paths: string[] = assets.flatMap((a) => {
-      const p = this.state.absPathFor(a.id) ?? a.absPath;
-      return p ? [p] : [];
-    });
-    if (paths.length === 0) return;
+    const addresses = assets.map((a) => a.id);
+    if (addresses.length === 0) return;
 
     // Fetch the full effective metadata from the API so computeMixedValues can
     // show "(mixed)" across all 22 fields, not just the thin asset view-model subset.
     this.fetchSnapshotsSub?.unsubscribe();
-    this.fetchSnapshotsSub = this.svc.fetchSnapshots(paths).subscribe({
+    this.fetchSnapshotsSub = this.svc.fetchSnapshots(addresses).subscribe({
       next: (snapshots) => {
         this.batchMetaAssetSnapshots.set(snapshots);
         this.batchMetaDialogVisible.set(true);
       },
       error: () => {
         // API unavailable — fall back to the thin snapshot so the panel still opens.
-        const thinSnapshots: AssetMetadataSnapshot[] = assets.flatMap((a) => {
-          const p = this.state.absPathFor(a.id) ?? a.absPath;
-          if (!p) return [];
-          return [
-            {
-              path: p,
-              metadata: {
-                gpsLatitude: a.gps?.lat,
-                gpsLongitude: a.gps?.lon,
-                city: a.city ?? undefined,
-                country: a.country ?? undefined,
-                title: a.title ?? undefined,
-                keywords: a.keywords,
-              },
-            },
-          ];
-        });
+        const thinSnapshots: AssetMetadataSnapshot[] = assets.map((a) => ({
+          address: a.id,
+          metadata: {
+            gpsLatitude: a.gps?.lat,
+            gpsLongitude: a.gps?.lon,
+            city: a.city ?? undefined,
+            country: a.country ?? undefined,
+            title: a.title ?? undefined,
+            keywords: a.keywords,
+          },
+        }));
         this.batchMetaAssetSnapshots.set(thinSnapshots);
         this.batchMetaDialogVisible.set(true);
       },

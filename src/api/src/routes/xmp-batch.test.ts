@@ -4,12 +4,17 @@
  * Uses a real temp directory for sidecar files. MongoDB calls from
  * markSidecarMetadataIndexDirty are allowed to fail (they're best-effort),
  * so we don't need a live Mongo for the core sidecar-write path.
+ *
+ * The endpoint now accepts { address } (slug:relPath) instead of { path }.
+ * Tests register a test slug in the in-memory libraries cache via
+ * setLibraryBySlugForTests, mirroring the pattern in address.test.ts.
  */
 
 import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { ObjectId } from 'mongodb';
 import { Elysia } from 'elysia';
 import { xmpBatchRoutes } from './xmp-batch.ts';
 import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
@@ -33,8 +38,11 @@ afterAll(async () => {
 const app = new Elysia().use(xmpBatchRoutes);
 
 // ---------------------------------------------------------------------------
-// Temp dir setup
+// Temp dir + slug setup
 // ---------------------------------------------------------------------------
+
+const TEST_SLUG = 'xmp-batch-test';
+const TEST_LIB_ID = new ObjectId();
 
 let tmpDir: string;
 const originalMapleRoots = process.env.MAPLE_ROOTS;
@@ -44,15 +52,31 @@ beforeEach(async () => {
   // symlink, and writeXmpAtomic realpaths before its root check, so an
   // un-realpath'd MAPLE_ROOTS would look "outside" the registered root.
   tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xmp-batch-test-')));
+
+  // Jail the write path so safeWriteAllowed passes when other test files set
+  // a narrow MAPLE_ROOTS concurrently (bun runs test files in parallel).
   process.env.MAPLE_ROOTS = tmpDir;
+
+  // Register the temp dir as a library slug in the in-memory cache so
+  // resolveAddressString can look up the slug:relPath address scheme.
+  const { setLibraryBySlugForTests } = await import('../indexer/libraries.cache.ts');
+  setLibraryBySlugForTests(TEST_SLUG, {
+    libraryId: TEST_LIB_ID,
+    root: tmpDir,
+    label: 'XMP Batch Test Library',
+  });
 });
 
 afterEach(async () => {
+  // Restore MAPLE_ROOTS to avoid leaking the jail into sibling test files.
   if (originalMapleRoots !== undefined) {
     process.env.MAPLE_ROOTS = originalMapleRoots;
   } else {
     delete process.env.MAPLE_ROOTS;
   }
+  // Clear the slug from the in-memory cache so it doesn't leak into sibling tests.
+  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+  invalidateLibraryRoots();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -70,6 +94,12 @@ async function post(body: unknown): Promise<Response> {
   );
 }
 
+/** Build an address string for a filename relative to the test library root. */
+function addr(relPath: string): string {
+  return `${TEST_SLUG}:${relPath}`;
+}
+
+/** Absolute path helper for reading/writing sidecar files directly in tests. */
 function rawPath(filename: string): string {
   return path.join(tmpDir, filename);
 }
@@ -86,7 +116,7 @@ describe('POST /api/xmp/batch', () => {
 
   test('returns 400 for entries exceeding limit', async () => {
     const entries = Array.from({ length: 1001 }, (_, i) => ({
-      path: rawPath(`img${i}.dng`),
+      address: addr(`img${i}.dng`),
       metadata: { city: 'Paris' },
     }));
     const res = await post({ entries });
@@ -94,13 +124,13 @@ describe('POST /api/xmp/batch', () => {
   });
 
   test('writes sidecar for a new file with GPS', async () => {
-    const rawFile = rawPath('test.dng');
-    await fs.writeFile(rawFile, '');
+    const filename = 'test.dng';
+    await fs.writeFile(rawPath(filename), '');
 
     const res = await post({
       entries: [
         {
-          path: rawFile,
+          address: addr(filename),
           metadata: {
             gpsLatitude: 48.8566,
             gpsLongitude: 2.3522,
@@ -115,6 +145,7 @@ describe('POST /api/xmp/batch', () => {
     const body = await res.json();
     expect(body.results).toHaveLength(1);
     expect(body.results[0].ok).toBe(true);
+    expect(body.results[0].address).toBe(addr(filename));
 
     // Sidecar was written
     const sidecarPath = rawPath('test.xmp');
@@ -126,9 +157,9 @@ describe('POST /api/xmp/batch', () => {
   });
 
   test('merges metadata into existing sidecar without destroying adjustment fields', async () => {
-    const rawFile = rawPath('existing.dng');
+    const filename = 'existing.dng';
     const sidecarFile = rawPath('existing.xmp');
-    await fs.writeFile(rawFile, '');
+    await fs.writeFile(rawPath(filename), '');
     await fs.writeFile(
       sidecarFile,
       `<?xml version="1.0" encoding="UTF-8"?>
@@ -144,7 +175,7 @@ describe('POST /api/xmp/batch', () => {
     );
 
     const res = await post({
-      entries: [{ path: rawFile, metadata: { title: 'Summer Trip', city: 'Rome' } }],
+      entries: [{ address: addr(filename), metadata: { title: 'Summer Trip', city: 'Rome' } }],
     });
 
     expect(res.status).toBe(200);
@@ -157,15 +188,14 @@ describe('POST /api/xmp/batch', () => {
     expect(parsed.city).toBe('Rome');
   });
 
-  test('returns 403 for path outside library root', async () => {
+  test('returns error for address with unknown slug', async () => {
     const res = await post({
-      entries: [{ path: '/etc/passwd', metadata: { city: 'Paris' } }],
+      entries: [{ address: 'unknown-slug:photo.dng', metadata: { city: 'Paris' } }],
     });
-    // Either 207 with ok:false or 200 with ok:false for that entry
+    // Either 207 with ok:false
     const body = await res.json();
     const result = body.results[0];
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/not inside|cannot authorise/i);
   });
 
   test('handles batch of multiple entries', async () => {
@@ -173,7 +203,7 @@ describe('POST /api/xmp/batch', () => {
     await Promise.all(files.map((f) => fs.writeFile(rawPath(f), '')));
 
     const entries = files.map((f) => ({
-      path: rawPath(f),
+      address: addr(f),
       metadata: { city: 'London' },
     }));
 
@@ -189,14 +219,14 @@ describe('POST /api/xmp/batch', () => {
     }
   });
 
-  test('partial failure: bad path returns ok:false, good path returns ok:true', async () => {
-    const goodFile = rawPath('good.dng');
-    await fs.writeFile(goodFile, '');
+  test('partial failure: bad address returns ok:false, good address returns ok:true', async () => {
+    const goodFile = 'good.dng';
+    await fs.writeFile(rawPath(goodFile), '');
 
     const res = await post({
       entries: [
-        { path: '/outside/the/root/bad.dng', metadata: { city: 'Paris' } },
-        { path: goodFile, metadata: { city: 'London' } },
+        { address: 'no-such-slug:bad.dng', metadata: { city: 'Paris' } },
+        { address: addr(goodFile), metadata: { city: 'London' } },
       ],
     });
 
@@ -208,11 +238,11 @@ describe('POST /api/xmp/batch', () => {
   });
 
   test('writes keywords bag', async () => {
-    const rawFile = rawPath('keywords.dng');
-    await fs.writeFile(rawFile, '');
+    const filename = 'keywords.dng';
+    await fs.writeFile(rawPath(filename), '');
 
     const res = await post({
-      entries: [{ path: rawFile, metadata: { keywords: ['travel', 'france'] } }],
+      entries: [{ address: addr(filename), metadata: { keywords: ['travel', 'france'] } }],
     });
 
     expect(res.status).toBe(200);
@@ -223,13 +253,13 @@ describe('POST /api/xmp/batch', () => {
 
   // M5 — #1635: a video writes a metadata-only sidecar at the FULL-NAME path.
   test('video: writes full-name sidecar (clip.mov.xmp) with no CRS adjustment attrs', async () => {
-    const videoFile = rawPath('clip.mov');
-    await fs.writeFile(videoFile, '');
+    const filename = 'clip.mov';
+    await fs.writeFile(rawPath(filename), '');
 
     const res = await post({
       entries: [
         {
-          path: videoFile,
+          address: addr(filename),
           metadata: { gpsLatitude: 37.7749, gpsLongitude: -122.4194 },
         },
       ],
@@ -255,69 +285,71 @@ describe('POST /api/xmp/batch', () => {
   // #1614: culling fields — rating, flag, colorLabel
   describe('culling fields', () => {
     test('rating is written to the sidecar and round-trips', async () => {
-      const raw = rawPath('photo.dng');
-      await fs.writeFile(raw, '');
+      const filename = 'photo.dng';
+      await fs.writeFile(rawPath(filename), '');
       const res = await post({
-        entries: [{ path: raw, metadata: { rating: 3 } }],
+        entries: [{ address: addr(filename), metadata: { rating: 3 } }],
       });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { results: Array<{ ok: boolean }> };
       expect(body.results[0]!.ok).toBe(true);
-      const sidecarContent = await fs.readFile(raw.replace('.dng', '.xmp'), 'utf-8');
+      const sidecarContent = await fs.readFile(rawPath('photo.xmp'), 'utf-8');
       expect(sidecarContent).toContain('xmp:Rating="3"');
     });
 
     test('flag=pick is written to the sidecar', async () => {
-      const raw = rawPath('photo2.dng');
-      await fs.writeFile(raw, '');
+      const filename = 'photo2.dng';
+      await fs.writeFile(rawPath(filename), '');
       const res = await post({
-        entries: [{ path: raw, metadata: { flag: 'pick' } }],
+        entries: [{ address: addr(filename), metadata: { flag: 'pick' } }],
       });
       expect(res.status).toBe(200);
-      const sidecarContent = await fs.readFile(raw.replace('.dng', '.xmp'), 'utf-8');
+      const sidecarContent = await fs.readFile(rawPath('photo2.xmp'), 'utf-8');
       expect(sidecarContent).toContain('papp:Flag="pick"');
     });
 
     test('colorLabel=red is written to the sidecar', async () => {
-      const raw = rawPath('photo3.dng');
-      await fs.writeFile(raw, '');
+      const filename = 'photo3.dng';
+      await fs.writeFile(rawPath(filename), '');
       const res = await post({
-        entries: [{ path: raw, metadata: { colorLabel: 'red' } }],
+        entries: [{ address: addr(filename), metadata: { colorLabel: 'red' } }],
       });
       expect(res.status).toBe(200);
-      const sidecarContent = await fs.readFile(raw.replace('.dng', '.xmp'), 'utf-8');
+      const sidecarContent = await fs.readFile(rawPath('photo3.xmp'), 'utf-8');
       expect(sidecarContent).toContain('papp:ColorLabel="red"');
     });
 
     test('culling fields coexist with metadata fields', async () => {
-      const raw = rawPath('photo4.dng');
-      await fs.writeFile(raw, '');
+      const filename = 'photo4.dng';
+      await fs.writeFile(rawPath(filename), '');
       const res = await post({
-        entries: [{ path: raw, metadata: { rating: 5, city: 'Tokyo' } }],
+        entries: [{ address: addr(filename), metadata: { rating: 5, city: 'Tokyo' } }],
       });
       expect(res.status).toBe(200);
-      const sidecarContent = await fs.readFile(raw.replace('.dng', '.xmp'), 'utf-8');
+      const sidecarContent = await fs.readFile(rawPath('photo4.xmp'), 'utf-8');
       expect(sidecarContent).toContain('xmp:Rating="5"');
       expect(sidecarContent).toContain('photoshop:City="Tokyo"');
     });
 
     test('rating out of the 0–5 integer range is rejected by schema (not mis-stored)', async () => {
-      const raw = rawPath('photo5.dng');
-      await fs.writeFile(raw, '');
+      const filename = 'photo5.dng';
+      await fs.writeFile(rawPath(filename), '');
       // 7 is out of range; the 1–5 parser would otherwise silently drop it after
       // the sidecar was already written, so the schema must reject it up front.
       // Elysia returns 422 for body-schema violations (vs the route's own 400 for
       // an empty/oversized entries array).
-      const res = await post({ entries: [{ path: raw, metadata: { rating: 7 } }] });
+      const res = await post({ entries: [{ address: addr(filename), metadata: { rating: 7 } }] });
       expect(res.status).toBe(422);
       // No sidecar should have been written.
-      await expect(fs.access(raw.replace('.dng', '.xmp'))).rejects.toThrow();
+      await expect(fs.access(rawPath('photo5.xmp'))).rejects.toThrow();
     });
 
     test('non-integer rating is rejected by schema', async () => {
-      const raw = rawPath('photo6.dng');
-      await fs.writeFile(raw, '');
-      const res = await post({ entries: [{ path: raw, metadata: { rating: 2.5 } }] });
+      const filename = 'photo6.dng';
+      await fs.writeFile(rawPath(filename), '');
+      const res = await post({
+        entries: [{ address: addr(filename), metadata: { rating: 2.5 } }],
+      });
       expect(res.status).toBe(422);
     });
   });
@@ -326,7 +358,7 @@ describe('POST /api/xmp/batch', () => {
   test('Live Photo: editing the clip leaves the same-stem still sidecar untouched', async () => {
     const stillFile = rawPath('IMG_1234.heic');
     const stillSidecar = rawPath('IMG_1234.xmp');
-    const clipFile = rawPath('IMG_1234.mov');
+    const clipFilename = 'IMG_1234.mov';
     await fs.writeFile(stillFile, '');
     // Pre-existing photo sidecar carrying a pixel adjustment.
     await fs.writeFile(
@@ -342,10 +374,10 @@ describe('POST /api/xmp/batch', () => {
  </rdf:RDF>
 </x:xmpmeta>`,
     );
-    await fs.writeFile(clipFile, '');
+    await fs.writeFile(rawPath(clipFilename), '');
 
     const res = await post({
-      entries: [{ path: clipFile, metadata: { city: 'San Francisco' } }],
+      entries: [{ address: addr(clipFilename), metadata: { city: 'San Francisco' } }],
     });
     expect(res.status).toBe(200);
 

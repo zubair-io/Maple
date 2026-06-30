@@ -1,9 +1,9 @@
 /**
  * POST /api/xmp/batch — bulk sidecar write + sidecar-metadata-index dirty-mark.
  *
- * Accepts N `{ path, metadata }` entries. For each:
- *   1. Validates path is under a registered library root (same jail as the
- *      single-file route).
+ * Accepts N `{ address, metadata }` entries where address is a slug:relPath
+ * string. For each:
+ *   1. Resolves the address to an absolute path inside the library jail.
  *   2. Reads existing sidecar (creates a stub when none exists).
  *   3. Merges the metadata fields into the sidecar via `mergeMetadataIntoXmp`.
  *   4. Writes the merged sidecar atomically (temp-file + rename).
@@ -19,7 +19,7 @@
 import { Elysia, t } from 'elysia';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { resolveAddressString } from '../library/address.ts';
 import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
@@ -35,12 +35,12 @@ const log = childLogger('routes/xmp-batch');
 // ---------------------------------------------------------------------------
 
 interface BatchEntry {
-  path: string;
+  address: string;
   metadata: XmpMetadataInput;
 }
 
 interface EntryResult {
-  path: string;
+  address: string;
   ok: boolean;
   error?: string;
   /** Resolved absolute path, set on success — collected for one batched dirty-mark. */
@@ -48,12 +48,14 @@ interface EntryResult {
 }
 
 async function processEntry(entry: BatchEntry): Promise<EntryResult> {
-  const auth = await resolveAndAuthorizePath(entry.path);
-  if (!auth.ok) {
-    return { path: entry.path, ok: false, error: auth.error };
+  let absPath: string;
+  try {
+    const resolved = await resolveAddressString(entry.address);
+    absPath = resolved.absPath;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { address: entry.address, ok: false, error: msg };
   }
-
-  const absPath = auth.data;
   const sidecarPath = xmpSidecarPath(absPath);
 
   // Read existing sidecar (or start with empty string → stub created by mergeMetadataIntoXmp).
@@ -68,7 +70,7 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
       (err as NodeJS.ErrnoException).code !== 'ENOENT'
     ) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { path: entry.path, ok: false, error: `XMP read failed: ${msg}` };
+      return { address: entry.address, ok: false, error: `XMP read failed: ${msg}` };
     }
     // ENOENT is expected — start from empty (serializer will create stub).
   }
@@ -84,12 +86,12 @@ async function processEntry(entry: BatchEntry): Promise<EntryResult> {
   // Write atomically.
   const writeResult = await writeXmpAtomic(absPath, merged);
   if (!writeResult.ok) {
-    return { path: entry.path, ok: false, error: writeResult.error };
+    return { address: entry.address, ok: false, error: writeResult.error };
   }
 
   // The sidecar-metadata-index dirty-mark is batched into a single updateMany after
   // the whole request completes (see the route handler) — never per-entry.
-  return { path: entry.path, ok: true, absPath };
+  return { address: entry.address, ok: true, absPath };
 }
 
 /**
@@ -172,7 +174,7 @@ const MetadataInputSchema = t.Object(
 );
 
 const BatchEntrySchema = t.Object({
-  path: t.String(),
+  address: t.String(),
   metadata: MetadataInputSchema,
 });
 
@@ -222,7 +224,7 @@ export const xmpBatchRoutes = new Elysia().post(
     // Strip the internal absPath from the response.
     return {
       results: results.map((r) => ({
-        path: r.path,
+        address: r.address,
         ok: r.ok,
         ...(r.error ? { error: r.error } : {}),
       })),

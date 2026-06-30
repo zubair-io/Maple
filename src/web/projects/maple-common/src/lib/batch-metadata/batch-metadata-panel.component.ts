@@ -130,14 +130,14 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly geocodeLoading = signal<boolean>(false);
 
   // ── Apply errors ──────────────────────────────────────────────────────────
-  readonly applyErrors = signal<Array<{ path: string; error: string }>>([]);
+  readonly applyErrors = signal<Array<{ address: string; error: string }>>([]);
   readonly errorMessage = signal<string>('');
 
   // ── Refile offer state ────────────────────────────────────────────────────
   /** Number of assets that would be relocated. Set after batchApply succeeds. */
   readonly refileCount = signal<number>(0);
   /** Errors from the refile operation, if any. */
-  readonly refileErrors = signal<Array<{ path: string; error: string }>>([]);
+  readonly refileErrors = signal<Array<{ address: string; error: string }>>([]);
 
   // ── Computed helpers ──────────────────────────────────────────────────────
 
@@ -324,7 +324,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
         const failures = result.results.filter((r) => !r.ok);
         if (failures.length > 0) {
           this.applyErrors.set(
-            failures.map((f) => ({ path: f.path, error: f.error ?? 'Unknown error' })),
+            failures.map((f) => ({ address: f.address, error: f.error ?? 'Unknown error' })),
           );
           // Stay on confirm phase showing errors.
           this.phase.set('confirm');
@@ -341,9 +341,9 @@ export class BatchMetadataPanelComponent implements OnDestroy {
         }
 
         // GPS was touched — ask the API how many backups would be relocated.
-        const paths = this.assetSnapshots().map((s) => s.path);
+        const addresses = this.assetSnapshots().map((s) => s.address);
         this.refileSub?.unsubscribe();
-        this.refileSub = this.svc.refileCount(paths).subscribe({
+        this.refileSub = this.svc.refileCount(addresses).subscribe({
           next: ({ count }) => {
             if (count > 0) {
               this.refileCount.set(count);
@@ -388,13 +388,13 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   /** User clicked "Move" — trigger the actual refile. */
   onRefileAccept(): void {
     this.phase.set('refile-applying');
-    const paths = this.assetSnapshots().map((s) => s.path);
+    const addresses = this.assetSnapshots().map((s) => s.address);
     this.refileSub?.unsubscribe();
-    this.refileSub = this.svc.refile(paths).subscribe({
+    this.refileSub = this.svc.refile(addresses).subscribe({
       next: (result) => {
         const failures = result.results.filter((r) => !r.ok);
         this.refileErrors.set(
-          failures.map((f) => ({ path: f.path, error: f.error ?? 'Unknown error' })),
+          failures.map((f) => ({ address: f.address, error: f.error ?? 'Unknown error' })),
         );
         if (failures.length > 0) {
           // Return to the offer view to surface which copies failed, then dismiss.
@@ -538,7 +538,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
         v === '__clear__' ? null : (v as 'red' | 'orange' | 'yellow' | 'green' | 'blue');
     }
 
-    return this.assetSnapshots().map((snap) => ({ path: snap.path, metadata: meta }));
+    return this.assetSnapshots().map((snap) => ({ address: snap.address, metadata: meta }));
   }
 
   /** Reset all field signals to their mixed/original values. */
