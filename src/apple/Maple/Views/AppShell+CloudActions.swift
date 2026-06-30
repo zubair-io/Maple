@@ -26,12 +26,25 @@ private let cloudHTTPLogger = Logger(subsystem: "app.justmaple.aperture", catego
 extension AppShell {
     @MainActor
     func makeAuthenticatedHTTPClient(server: URL) -> AuthenticatedHTTPClient {
-        AuthenticatedHTTPClient(
+        // Bind the session resolver locally so the escaping onSignOut closure
+        // captures a Sendable value, not the whole AppShell view.
+        let resolveSession = sessionFor
+        return AuthenticatedHTTPClient(
             server: server,
             urlSession: .shared,
             tokensProvider: { try? TokenStore.load(server: server) },
             onTokensRefreshed: { try? TokenStore.save($0, server: server) },
-            onSignOut: { TokenStore.clear(server: server) }
+            // A request 401'd and its refresh was rejected — the refresh token
+            // is dead. Drive the OBSERVABLE AuthSession to signed-out (which
+            // also clears the Keychain) rather than clearing the Keychain alone.
+            // The old clear-only behavior left `session.isSignedIn` stuck true,
+            // so the next request passed the cold-start guards and fired with no
+            // bearer → the server's "missing bearer" 401, and the sidebar never
+            // surfaced a way back in. handleAuthExpired flips the state, so the
+            // sidebar shows "Sign in" and stops dispatching tokenless requests.
+            onSignOut: {
+                Task { @MainActor in await resolveSession(server).handleAuthExpired() }
+            }
         )
     }
 
