@@ -64,15 +64,15 @@ export class BatchMetadataService {
 
   /**
    * POST /api/metadata/snapshots — fetch full effective metadata for a list of
-   * asset paths so the panel can compute "(mixed)" across all 22 fields.
+   * asset addresses (slug:relPath) so the panel can compute "(mixed)" across all 22 fields.
    */
-  fetchSnapshots(paths: string[]): Observable<AssetMetadataSnapshot[]> {
+  fetchSnapshots(addresses: string[]): Observable<AssetMetadataSnapshot[]> {
     type AssetSnapshotMetadata = AssetMetadataSnapshot['metadata'];
     return this.http
       .post<{
-        snapshots: Array<{ path: string; metadata: AssetSnapshotMetadata }>;
-      }>('/api/metadata/snapshots', { paths })
-      .pipe(map((r) => r.snapshots.map((s) => ({ path: s.path, metadata: s.metadata }))));
+        snapshots: Array<{ address: string; metadata: AssetSnapshotMetadata }>;
+      }>('/api/metadata/snapshots', { addresses })
+      .pipe(map((r) => r.snapshots.map((s) => ({ address: s.address, metadata: s.metadata }))));
   }
 
   // ---------------------------------------------------------------------------
@@ -80,20 +80,20 @@ export class BatchMetadataService {
   // ---------------------------------------------------------------------------
 
   /**
-   * POST /api/backup/refile-count — count how many of the given asset paths
+   * POST /api/backup/refile-count — count how many of the given asset addresses
    * have a geo-backup copy that would be relocated by the new coordinates.
    * Returns `{ count: number }`.
    */
-  refileCount(paths: string[]): Observable<RefileCountResult> {
-    return this.http.post<RefileCountResult>('/api/backup/refile-count', { paths });
+  refileCount(addresses: string[]): Observable<RefileCountResult> {
+    return this.http.post<RefileCountResult>('/api/backup/refile-count', { addresses });
   }
 
   /**
-   * POST /api/backup/refile — relocate geo-backup copies for the given paths.
+   * POST /api/backup/refile — relocate geo-backup copies for the given addresses.
    * Partial failures are reported per-asset; successes are not rolled back.
    * Returns `{ results: [...] }`.
    */
-  refile(paths: string[]): Observable<RefileResult> {
-    return this.http.post<RefileResult>('/api/backup/refile', { paths });
+  refile(addresses: string[]): Observable<RefileResult> {
+    return this.http.post<RefileResult>('/api/backup/refile', { addresses });
   }
 }

@@ -11,6 +11,8 @@
 // inputs/events; HTTP calls are flushed inline via HttpTestingController so
 // every code path that was previously tested through local helper copies now
 // runs through the real component methods.
+//
+// Snapshots now use `address` (slug:relPath) instead of `path`.
 
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -99,8 +101,8 @@ describe('BatchMetadataPanelComponent', () => {
     it('shows the count of selected assets in the header', () => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: {} },
-        { path: '/b.dng', metadata: {} },
+        { address: 'photos:a.dng', metadata: {} },
+        { address: 'photos:b.dng', metadata: {} },
       ]);
       fixture.detectChanges();
       const countEl = (fixture.nativeElement as HTMLElement).querySelector('.bm-count');
@@ -114,8 +116,8 @@ describe('BatchMetadataPanelComponent', () => {
     beforeEach(() => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: { city: 'Paris' } },
-        { path: '/b.dng', metadata: { city: 'Berlin' } },
+        { address: 'photos:a.dng', metadata: { city: 'Paris' } },
+        { address: 'photos:b.dng', metadata: { city: 'Berlin' } },
       ]);
       fixture.detectChanges();
     });
@@ -137,8 +139,8 @@ describe('BatchMetadataPanelComponent', () => {
 
     it('does NOT add is-mixed when both assets agree on city', () => {
       host.snapshots.set([
-        { path: '/a.dng', metadata: { city: 'Paris' } },
-        { path: '/b.dng', metadata: { city: 'Paris' } },
+        { address: 'photos:a.dng', metadata: { city: 'Paris' } },
+        { address: 'photos:b.dng', metadata: { city: 'Paris' } },
       ]);
       fixture.detectChanges();
       const cityInput = (fixture.nativeElement as HTMLElement).querySelector(
@@ -153,7 +155,7 @@ describe('BatchMetadataPanelComponent', () => {
   describe('Apply button gating', () => {
     beforeEach(() => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
     });
 
@@ -180,8 +182,8 @@ describe('BatchMetadataPanelComponent', () => {
     beforeEach(() => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: {} },
-        { path: '/b.dng', metadata: {} },
+        { address: 'photos:a.dng', metadata: {} },
+        { address: 'photos:b.dng', metadata: {} },
       ]);
       fixture.detectChanges();
     });
@@ -200,18 +202,18 @@ describe('BatchMetadataPanelComponent', () => {
 
       const call = http.expectOne('/api/xmp/batch');
       expect(call.request.method).toBe('POST');
-      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+      const entries: Array<{ address: string; metadata: Record<string, unknown> }> =
         call.request.body['entries'];
 
       expect(entries[0]!.metadata['city']).toBe('Rome');
       expect(Object.keys(entries[0]!.metadata)).not.toContain('country');
       expect(entries).toHaveLength(2);
-      expect(entries.map((e) => e.path)).toEqual(['/a.dng', '/b.dng']);
+      expect(entries.map((e) => e.address)).toEqual(['photos:a.dng', 'photos:b.dng']);
 
       call.flush({
         results: [
-          { path: '/a.dng', ok: true },
-          { path: '/b.dng', ok: true },
+          { address: 'photos:a.dng', ok: true },
+          { address: 'photos:b.dng', ok: true },
         ],
       });
       http.expectNone('/api/backup/refile-count');
@@ -227,13 +229,13 @@ describe('BatchMetadataPanelComponent', () => {
       fixture.detectChanges();
 
       const call = http.expectOne('/api/xmp/batch');
-      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+      const entries: Array<{ address: string; metadata: Record<string, unknown> }> =
         call.request.body['entries'];
       expect(entries[0]!.metadata['city']).toBeNull();
       call.flush({
         results: [
-          { path: '/a.dng', ok: true },
-          { path: '/b.dng', ok: true },
+          { address: 'photos:a.dng', ok: true },
+          { address: 'photos:b.dng', ok: true },
         ],
       });
     });
@@ -248,13 +250,13 @@ describe('BatchMetadataPanelComponent', () => {
       fixture.detectChanges();
 
       const call = http.expectOne('/api/xmp/batch');
-      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+      const entries: Array<{ address: string; metadata: Record<string, unknown> }> =
         call.request.body['entries'];
       expect(entries[0]!.metadata['keywords']).toEqual(['travel', 'france', 'street']);
       call.flush({
         results: [
-          { path: '/a.dng', ok: true },
-          { path: '/b.dng', ok: true },
+          { address: 'photos:a.dng', ok: true },
+          { address: 'photos:b.dng', ok: true },
         ],
       });
     });
@@ -269,13 +271,13 @@ describe('BatchMetadataPanelComponent', () => {
       fixture.detectChanges();
 
       const call = http.expectOne('/api/xmp/batch');
-      const entries: Array<{ path: string; metadata: Record<string, unknown> }> =
+      const entries: Array<{ address: string; metadata: Record<string, unknown> }> =
         call.request.body['entries'];
       expect(entries[0]!.metadata['keywords']).toEqual([]);
       call.flush({
         results: [
-          { path: '/a.dng', ok: true },
-          { path: '/b.dng', ok: true },
+          { address: 'photos:a.dng', ok: true },
+          { address: 'photos:b.dng', ok: true },
         ],
       });
     });
@@ -301,8 +303,8 @@ describe('BatchMetadataPanelComponent', () => {
 
       call.flush({
         results: [
-          { path: '/a.dng', ok: true },
-          { path: '/b.dng', ok: true },
+          { address: 'photos:a.dng', ok: true },
+          { address: 'photos:b.dng', ok: true },
         ],
       });
       fixture.detectChanges();
@@ -320,8 +322,8 @@ describe('BatchMetadataPanelComponent', () => {
 
       http.expectOne('/api/xmp/batch').flush({
         results: [
-          { path: '/a.dng', ok: true },
-          { path: '/b.dng', ok: false, error: 'permission denied' },
+          { address: 'photos:a.dng', ok: true },
+          { address: 'photos:b.dng', ok: false, error: 'permission denied' },
         ],
       });
       fixture.detectChanges();
@@ -337,7 +339,7 @@ describe('BatchMetadataPanelComponent', () => {
   describe('phase transitions', () => {
     beforeEach(() => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
     });
 
@@ -356,7 +358,7 @@ describe('BatchMetadataPanelComponent', () => {
 
     it('onConfirmCancel returns to form and clears applyErrors', () => {
       const panel = getPanel(fixture);
-      panel.applyErrors.set([{ path: '/a.dng', error: 'test' }]);
+      panel.applyErrors.set([{ address: 'photos:a.dng', error: 'test' }]);
       panel.phase.set('confirm');
       panel.onConfirmCancel();
       expect(panel.phase()).toBe('form');
@@ -368,8 +370,8 @@ describe('BatchMetadataPanelComponent', () => {
       // open-reset effect re-seeds the field signals from these snapshots.
       host.visible.set(false);
       host.snapshots.set([
-        { path: '/a.dng', metadata: { city: 'Rome' } },
-        { path: '/b.dng', metadata: { city: 'Rome' } },
+        { address: 'photos:a.dng', metadata: { city: 'Rome' } },
+        { address: 'photos:b.dng', metadata: { city: 'Rome' } },
       ]);
       fixture.detectChanges();
       host.visible.set(true);
@@ -413,8 +415,8 @@ describe('BatchMetadataPanelComponent', () => {
     it('adds is-mixed class to caption input when values differ', () => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: { caption: 'A morning shot' } },
-        { path: '/b.dng', metadata: { caption: 'Evening light' } },
+        { address: 'photos:a.dng', metadata: { caption: 'A morning shot' } },
+        { address: 'photos:b.dng', metadata: { caption: 'Evening light' } },
       ]);
       fixture.detectChanges();
       const captionInput = (fixture.nativeElement as HTMLElement).querySelector(
@@ -427,8 +429,8 @@ describe('BatchMetadataPanelComponent', () => {
     it('sets placeholder to "(mixed)" on caption when values differ', () => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: { caption: 'A morning shot' } },
-        { path: '/b.dng', metadata: { caption: 'Evening light' } },
+        { address: 'photos:a.dng', metadata: { caption: 'A morning shot' } },
+        { address: 'photos:b.dng', metadata: { caption: 'Evening light' } },
       ]);
       fixture.detectChanges();
       const captionInput = (fixture.nativeElement as HTMLElement).querySelector(
@@ -440,8 +442,8 @@ describe('BatchMetadataPanelComponent', () => {
     it('adds is-mixed class to creator input when values differ', () => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: { creator: 'Alice' } },
-        { path: '/b.dng', metadata: { creator: 'Bob' } },
+        { address: 'photos:a.dng', metadata: { creator: 'Alice' } },
+        { address: 'photos:b.dng', metadata: { creator: 'Bob' } },
       ]);
       fixture.detectChanges();
       const creatorInput = (fixture.nativeElement as HTMLElement).querySelector(
@@ -454,8 +456,8 @@ describe('BatchMetadataPanelComponent', () => {
     it('adds is-mixed class to copyright notice input when values differ', () => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: { copyrightNotice: '© Alice 2024' } },
-        { path: '/b.dng', metadata: { copyrightNotice: '© Bob 2025' } },
+        { address: 'photos:a.dng', metadata: { copyrightNotice: '© Alice 2024' } },
+        { address: 'photos:b.dng', metadata: { copyrightNotice: '© Bob 2025' } },
       ]);
       fixture.detectChanges();
       const copyrightInput = (fixture.nativeElement as HTMLElement).querySelector(
@@ -471,7 +473,7 @@ describe('BatchMetadataPanelComponent', () => {
   describe('touchedFieldLabels computed', () => {
     it('returns human-readable labels for touched fields', () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
 
       const panel = getPanel(fixture);

@@ -8,6 +8,8 @@
 // Uses vitest fake timers for the 300ms debounce (same pattern as
 // search.component.spec.ts — Angular's fakeAsync is not available without
 // zone-testing, which @angular/build:unit-test does not bundle).
+//
+// Snapshots now use `address` (slug:relPath) instead of `path`.
 
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -72,7 +74,7 @@ describe('BatchMetadataPanelComponent — onGeocodeSelect', () => {
     http = TestBed.inject(HttpTestingController);
     const h = fixture.componentInstance;
     h.visible.set(true);
-    h.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+    h.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
     fixture.detectChanges();
   });
 
@@ -173,7 +175,7 @@ describe('BatchMetadataPanelComponent — geocode search pipeline', () => {
     http = TestBed.inject(HttpTestingController);
     const h = fixture.componentInstance;
     h.visible.set(true);
-    h.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+    h.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
     fixture.detectChanges();
   });
 
@@ -257,8 +259,8 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
     http = TestBed.inject(HttpTestingController);
     host.visible.set(true);
     host.snapshots.set([
-      { path: '/a.dng', metadata: {} },
-      { path: '/b.dng', metadata: {} },
+      { address: 'photos:a.dng', metadata: {} },
+      { address: 'photos:b.dng', metadata: {} },
     ]);
     fixture.detectChanges();
   });
@@ -278,14 +280,14 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
 
     http.expectOne('/api/xmp/batch').flush({
       results: [
-        { path: '/a.dng', ok: true },
-        { path: '/b.dng', ok: true },
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: true },
       ],
     });
     fixture.detectChanges();
 
     const countCall = http.expectOne('/api/backup/refile-count');
-    expect(countCall.request.body).toEqual({ paths: ['/a.dng', '/b.dng'] });
+    expect(countCall.request.body).toEqual({ addresses: ['photos:a.dng', 'photos:b.dng'] });
     countCall.flush({ count: 3 });
     fixture.detectChanges();
 
@@ -304,8 +306,8 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
 
     http.expectOne('/api/xmp/batch').flush({
       results: [
-        { path: '/a.dng', ok: true },
-        { path: '/b.dng', ok: true },
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: true },
       ],
     });
     fixture.detectChanges();
@@ -326,8 +328,8 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
 
     http.expectOne('/api/xmp/batch').flush({
       results: [
-        { path: '/a.dng', ok: true },
-        { path: '/b.dng', ok: true },
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: true },
       ],
     });
     fixture.detectChanges();
@@ -347,8 +349,8 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
 
     http.expectOne('/api/xmp/batch').flush({
       results: [
-        { path: '/a.dng', ok: true },
-        { path: '/b.dng', ok: true },
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: true },
       ],
     });
     fixture.detectChanges();
@@ -379,7 +381,7 @@ describe('BatchMetadataPanelComponent — refile accept/skip and panel control',
     host = fixture.componentInstance;
     http = TestBed.inject(HttpTestingController);
     host.visible.set(true);
-    host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+    host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
     fixture.detectChanges();
   });
 
@@ -402,8 +404,8 @@ describe('BatchMetadataPanelComponent — refile accept/skip and panel control',
 
     const call = http.expectOne('/api/backup/refile');
     expect(call.request.method).toBe('POST');
-    expect(call.request.body).toEqual({ paths: ['/a.dng'] });
-    call.flush({ results: [{ path: '/a.dng', ok: true, outcome: 'moved' }] });
+    expect(call.request.body).toEqual({ addresses: ['photos:a.dng'] });
+    call.flush({ results: [{ address: 'photos:a.dng', ok: true, outcome: 'moved' }] });
     fixture.detectChanges();
 
     expect(panel.phase()).toBe('done');
@@ -419,7 +421,7 @@ describe('BatchMetadataPanelComponent — refile accept/skip and panel control',
 
     http
       .expectOne('/api/backup/refile')
-      .flush({ results: [{ path: '/a.dng', ok: false, error: 'no backup found' }] });
+      .flush({ results: [{ address: 'photos:a.dng', ok: false, error: 'no backup found' }] });
     fixture.detectChanges();
 
     expect(panel.phase()).toBe('refile-offer');

@@ -20,7 +20,7 @@
 
 import { Elysia, t } from 'elysia';
 import * as nodePath from 'node:path';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { resolveAddressString } from '../library/address.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
@@ -214,7 +214,7 @@ async function findGeoBackupDocs(
 // ---------------------------------------------------------------------------
 
 const RefileBodySchema = t.Object({
-  paths: t.Array(t.String()),
+  addresses: t.Array(t.String()),
 });
 
 // ---------------------------------------------------------------------------
@@ -227,19 +227,28 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
   .post(
     '/api/backup/refile-count',
     async ({ body, set }) => {
-      const { paths } = body;
-      if (!Array.isArray(paths) || paths.length === 0) {
+      const { addresses } = body;
+      if (!Array.isArray(addresses) || addresses.length === 0) {
         set.status = 400;
-        return { error: 'paths must be a non-empty array' };
+        return { error: 'addresses must be a non-empty array' };
       }
-      if (paths.length > MAX_PATHS) {
+      if (addresses.length > MAX_PATHS) {
         set.status = 400;
-        return { error: `paths exceeds maximum of ${MAX_PATHS}` };
+        return { error: `addresses exceeds maximum of ${MAX_PATHS}` };
       }
 
-      // Resolve each path through the auth jail (in parallel); drop unauthorized.
-      const resolved = await Promise.all(paths.map((p) => resolveAndAuthorizePath(p)));
-      const absPaths = resolved.flatMap((r) => (r.ok ? [r.data] : []));
+      // Resolve each address through the library jail (in parallel); drop failures.
+      const resolved = await Promise.all(
+        addresses.map(async (addr) => {
+          try {
+            const r = await resolveAddressString(addr);
+            return r.absPath;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const absPaths = resolved.filter((p): p is string => p !== null);
 
       let libs: ReadonlyMap<string, string>;
       try {
@@ -275,29 +284,35 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
   .post(
     '/api/backup/refile',
     async ({ body, set }) => {
-      const { paths } = body;
-      if (!Array.isArray(paths) || paths.length === 0) {
+      const { addresses } = body;
+      if (!Array.isArray(addresses) || addresses.length === 0) {
         set.status = 400;
-        return { error: 'paths must be a non-empty array' };
+        return { error: 'addresses must be a non-empty array' };
       }
-      if (paths.length > MAX_PATHS) {
+      if (addresses.length > MAX_PATHS) {
         set.status = 400;
-        return { error: `paths exceeds maximum of ${MAX_PATHS}` };
+        return { error: `addresses exceeds maximum of ${MAX_PATHS}` };
       }
 
-      // Resolve each path through the auth jail (in parallel); drop unauthorized.
-      // Keep an absolute-path → original-client-path map so per-asset results
-      // echo the exact string the client sent — basename alone collides across
-      // folders, and the resolved absolute path must not leak to the client.
+      // Resolve each address through the library jail (in parallel); drop failures.
+      // Keep an absolute-path → original-client-address map so per-asset results
+      // echo the exact address string the client sent.
       const resolved = await Promise.all(
-        paths.map(async (p) => ({ p, auth: await resolveAndAuthorizePath(p) })),
+        addresses.map(async (addr) => {
+          try {
+            const r = await resolveAddressString(addr);
+            return { addr, absPath: r.absPath };
+          } catch {
+            return { addr, absPath: null };
+          }
+        }),
       );
       const absPaths: string[] = [];
       const absToClient = new Map<string, string>();
-      for (const { p, auth } of resolved) {
-        if (auth.ok) {
-          absPaths.push(auth.data);
-          if (!absToClient.has(auth.data)) absToClient.set(auth.data, p);
+      for (const { addr, absPath } of resolved) {
+        if (absPath !== null) {
+          absPaths.push(absPath);
+          if (!absToClient.has(absPath)) absToClient.set(absPath, addr);
         }
       }
 
@@ -314,7 +329,7 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
 
       const c = await assetsCollection();
       const results: Array<{
-        path: string;
+        address: string;
         ok: boolean;
         outcome?: string;
         error?: string;
@@ -324,11 +339,11 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
         const primary = assetPrimaryFileInfo(doc);
         const libRoot = primary ? libs.get(primary.library_id.toHexString()) : undefined;
         // Reconstruct the doc's absolute path (unique per asset — same way
-        // findGeoBackupDocs matches) to recover the EXACT client path string;
+        // findGeoBackupDocs matches) to recover the EXACT client address string;
         // basename alone would mis-attribute same-named files in other folders.
         const docAbsPath =
           primary && libRoot ? nodePath.join(libRoot, primary.path, primary.filename) : '';
-        const representativePath = absToClient.get(docAbsPath) ?? paths[0] ?? '';
+        const representativeAddress = absToClient.get(docAbsPath) ?? addresses[0] ?? '';
 
         if (!isGeoBackupCandidate(doc)) {
           // Not a geo-backup asset — silently skip (not an error).
@@ -343,7 +358,7 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
         if (!libRoot) {
           log.warn({ _id: String(doc._id) }, 'backup-refile: no library root for asset — skipping');
           results.push({
-            path: representativePath,
+            address: representativeAddress,
             ok: false,
             error: 'library root not found',
           });
@@ -354,7 +369,7 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
           // moveBackupAsset called WITHOUT extraSet — do NOT stamp backup_layout_version.
           // That stamp belongs to the bulk refile-backups migration only.
           const outcome = await moveBackupAsset(c, doc, libRoot, newDir);
-          results.push({ path: representativePath, ok: true, outcome });
+          results.push({ address: representativeAddress, ok: true, outcome });
           const moved = outcome === 'moved';
           log.info(
             { _id: String(doc._id), outcome, newDir },
@@ -363,7 +378,7 @@ export const backupRefileRoutes = new Elysia({ name: 'backupRefile' })
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           log.warn({ _id: String(doc._id), err: msg }, 'backup-refile: move failed');
-          results.push({ path: representativePath, ok: false, error: msg });
+          results.push({ address: representativeAddress, ok: false, error: msg });
         }
       }
 

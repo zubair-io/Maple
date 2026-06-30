@@ -62,7 +62,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
   describe('culling section', () => {
     it('renders the Culling section when panel is open', async () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: { rating: 3 } }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: { rating: 3 } }]);
       fixture.detectChanges();
       const el = fixture.nativeElement as HTMLElement;
       expect(el.querySelector('.bm-section-title')?.textContent).toContain('Culling');
@@ -71,8 +71,8 @@ describe('BatchMetadataPanelComponent — culling', () => {
     it('shows (mixed) placeholder for rating when values differ', () => {
       host.visible.set(true);
       host.snapshots.set([
-        { path: '/a.dng', metadata: { rating: 2 } },
-        { path: '/b.dng', metadata: { rating: 4 } },
+        { address: 'photos:a.dng', metadata: { rating: 2 } },
+        { address: 'photos:b.dng', metadata: { rating: 4 } },
       ]);
       fixture.detectChanges();
       const el = fixture.nativeElement as HTMLElement;
@@ -82,7 +82,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
 
     it('includes rating in the payload when touched (via real onRatingInput)', async () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onRatingInput('4');
@@ -94,12 +94,12 @@ describe('BatchMetadataPanelComponent — culling', () => {
       const req = http.expectOne('/api/xmp/batch');
       const body = req.request.body as { entries: Array<{ metadata: { rating: number } }> };
       expect(body.entries[0]!.metadata.rating).toBe(4);
-      req.flush({ results: [{ path: '/a.dng', ok: true }] });
+      req.flush({ results: [{ address: 'photos:a.dng', ok: true }] });
     });
 
     it('rating 0 is a valid clear (touched, sent as 0)', () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: { rating: 3 } }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: { rating: 3 } }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onRatingInput('0');
@@ -109,7 +109,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
 
     it('empty rating input does NOT touch the field (no NaN→null clear)', () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: { rating: 3 } }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: { rating: 3 } }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       // Type then clear the input back to empty (a common transient state).
@@ -121,7 +121,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
 
     it('out-of-range / non-integer rating does NOT touch the field', () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onRatingInput('7');
@@ -134,7 +134,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
 
     it('includes flag=pick in the payload when touched (via real onFlagChange)', async () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onFlagChange('pick');
@@ -146,12 +146,12 @@ describe('BatchMetadataPanelComponent — culling', () => {
       const req = http.expectOne('/api/xmp/batch');
       const body = req.request.body as { entries: Array<{ metadata: { flag: string } }> };
       expect(body.entries[0]!.metadata.flag).toBe('pick');
-      req.flush({ results: [{ path: '/a.dng', ok: true }] });
+      req.flush({ results: [{ address: 'photos:a.dng', ok: true }] });
     });
 
     it('flag "leave unchanged" is a no-op (not touched)', () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       // Touch then return to the leave-unchanged option.
@@ -163,7 +163,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
 
     it('flag explicit-clear maps to unflagged (touched)', async () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onFlagChange('__clear__');
@@ -176,12 +176,12 @@ describe('BatchMetadataPanelComponent — culling', () => {
       const req = http.expectOne('/api/xmp/batch');
       const body = req.request.body as { entries: Array<{ metadata: { flag: string } }> };
       expect(body.entries[0]!.metadata.flag).toBe('unflagged');
-      req.flush({ results: [{ path: '/a.dng', ok: true }] });
+      req.flush({ results: [{ address: 'photos:a.dng', ok: true }] });
     });
 
     it('colorLabel "leave unchanged" is a no-op (not touched)', () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onColorLabelChange('red');
@@ -192,7 +192,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
 
     it('colorLabel explicit-clear sends null (touched)', async () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onColorLabelChange('__clear__');
@@ -207,12 +207,12 @@ describe('BatchMetadataPanelComponent — culling', () => {
         entries: Array<{ metadata: { colorLabel: string | null } }>;
       };
       expect(body.entries[0]!.metadata.colorLabel).toBeNull();
-      req.flush({ results: [{ path: '/a.dng', ok: true }] });
+      req.flush({ results: [{ address: 'photos:a.dng', ok: true }] });
     });
 
     it('colorLabel value is sent as-is (touched)', async () => {
       host.visible.set(true);
-      host.snapshots.set([{ path: '/a.dng', metadata: {} }]);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
       fixture.detectChanges();
       const panel = getPanel(fixture);
       panel.onColorLabelChange('green');
@@ -226,7 +226,7 @@ describe('BatchMetadataPanelComponent — culling', () => {
         entries: Array<{ metadata: { colorLabel: string | null } }>;
       };
       expect(body.entries[0]!.metadata.colorLabel).toBe('green');
-      req.flush({ results: [{ path: '/a.dng', ok: true }] });
+      req.flush({ results: [{ address: 'photos:a.dng', ok: true }] });
     });
   });
 });
