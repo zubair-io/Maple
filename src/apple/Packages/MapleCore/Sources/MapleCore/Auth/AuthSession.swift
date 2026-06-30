@@ -131,6 +131,28 @@ public final class AuthSession {
     await clearLocalCredentials()
   }
 
+  /// Forced local sign-out driven by the HTTP layer when a *live* request's
+  /// token refresh is rejected (the refresh token is expired/revoked) or a
+  /// request 401s with no tokens left to refresh. Clears the Keychain
+  /// credentials and flips `isSignedIn` to false so the sidebar surfaces its
+  /// "Sign in" affordance and the cold-start guards stop firing tokenless
+  /// requests.
+  ///
+  /// This is the load-bearing reconciliation point: `AuthenticatedHTTPClient`
+  /// previously cleared only the Keychain on a rejected refresh, leaving this
+  /// observable session stuck at `isSignedIn == true`. The next request then
+  /// passed the `guard session.isSignedIn` checks and went out with no bearer
+  /// (`tokensProvider()` now returns nil) → the server's "missing bearer" 401.
+  /// Routing the client's `onSignOut` here keeps the HTTP token lifecycle and
+  /// the observable auth state as one source of truth — the Apple analogue of
+  /// the web `AuthService`'s 401→clear path.
+  ///
+  /// Unlike `signOut()`, this does NOT POST to `/api/auth/logout`: the tokens
+  /// are already dead, so there is nothing to revoke server-side.
+  public func handleAuthExpired() async {
+    await clearLocalCredentials()
+  }
+
   public func setSignedIn(user: AuthUser, tokens: AuthTokens) throws {
     try TokenStore.save(tokens, server: server)
     AuthUserCache.save(user, server: server)
