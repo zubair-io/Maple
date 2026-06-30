@@ -172,7 +172,7 @@ pub fn encode_simple(
     // Get-or-create the pooled uniform + bind group. `make` runs ONLY on a cache
     // miss (so a hit allocates nothing); it builds the uniform + the bind group
     // referencing it + the passed storage buffers.
-    let pooled = pool_dispatch(ctx, |device| {
+    let pooled = pool_dispatch(ctx, pipeline, |device| {
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
             size: params_len,
