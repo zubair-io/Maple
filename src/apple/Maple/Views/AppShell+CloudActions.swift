@@ -26,9 +26,10 @@ private let cloudHTTPLogger = Logger(subsystem: "app.justmaple.aperture", catego
 extension AppShell {
     @MainActor
     func makeAuthenticatedHTTPClient(server: URL) -> AuthenticatedHTTPClient {
-        // Bind the session resolver locally so the escaping onSignOut closure
-        // captures a Sendable value, not the whole AppShell view.
-        let resolveSession = sessionFor
+        // Resolve the per-server session up front and capture the instance
+        // (a @MainActor, Sendable class) — not `self`, not the resolver — so
+        // the escaping onSignOut closure can't drag the AppShell view in.
+        let session = sessionFor(server)
         return AuthenticatedHTTPClient(
             server: server,
             urlSession: .shared,
@@ -43,7 +44,7 @@ extension AppShell {
             // surfaced a way back in. handleAuthExpired flips the state, so the
             // sidebar shows "Sign in" and stops dispatching tokenless requests.
             onSignOut: {
-                Task { @MainActor in await resolveSession(server).handleAuthExpired() }
+                Task { @MainActor in await session.handleAuthExpired() }
             }
         )
     }
