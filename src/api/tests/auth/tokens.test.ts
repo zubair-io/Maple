@@ -26,7 +26,13 @@ describe('tokens', () => {
   it('rejects a tampered access token', async () => {
     const jwt = await signAccessToken({ sub: 'u1', email: 'a@b.c', role: 'owner' }, SECRET);
     const [h, p, s] = jwt.split('.');
-    const bad = `${h}.${p}.${s.slice(0, -2)}xx`;
+    // Flip the first signature char (a full 6-bit base64url position) to a
+    // guaranteed-different one so the decoded bytes always change. The previous
+    // `${s.slice(0, -2)}xx` tamper hit the final char, which carries only 4
+    // significant bits, so ~1/512 signings it decoded unchanged and the
+    // "tamper" was a no-op (flaky). See #1674.
+    const flipped = s[0] === 'A' ? 'B' : 'A';
+    const bad = `${h}.${p}.${flipped}${s.slice(1)}`;
     await expect(verifyAccessToken(bad, SECRET)).rejects.toThrow();
   });
 
