@@ -40,13 +40,15 @@ final class GpuPreviewPersistTests: XCTestCase {
         }
         let ctx = CIContext(options: [.workingColorSpace: NSNull()])
         var out = [UInt8](repeating: 0, count: 4)
-        ctx.render(
-            ci, toBitmap: &out, rowBytes: 4, bounds: ci.extent,
-            format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!
-        )
-        XCTAssertEqual(Int(out[0]), 10, accuracy: 2, "R preserved")
-        XCTAssertEqual(Int(out[1]), 200, accuracy: 2, "G preserved")
-        XCTAssertEqual(Int(out[2]), 60, accuracy: 2, "B preserved")
-        XCTAssertEqual(Int(out[3]), 255, accuracy: 1, "alpha opaque")
+        out.withUnsafeMutableBytes { ptr in
+            ctx.render(
+                ci, toBitmap: ptr.baseAddress!, rowBytes: 4, bounds: ci.extent,
+                format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!
+            )
+        }
+        XCTAssertEqual(Double(out[0]), 10, accuracy: 2, "R preserved")
+        XCTAssertEqual(Double(out[1]), 200, accuracy: 2, "G preserved")
+        XCTAssertEqual(Double(out[2]), 60, accuracy: 2, "B preserved")
+        XCTAssertEqual(Double(out[3]), 255, accuracy: 1, "alpha opaque")
     }
 }
