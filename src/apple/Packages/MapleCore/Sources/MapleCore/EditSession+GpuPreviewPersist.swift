@@ -36,20 +36,17 @@ extension EditSession {
         let coldOpenModel = model
         let screenWidth = Int(max(previewSize.width, 1))
         guard let frame = await driver.renderCurrentFrameBytes(model: coldOpenModel) else { return }
-        // Expand + JPEG-encode + store OFF the MainActor (the readback already
-        // hopped to the session actor; keep the editor's actor free).
-        await Self.storeGpuFrame(
-            frame.bytes, width: frame.width, height: frame.height,
-            url: url, screenWidth: screenWidth)
-    }
-
-    /// Build the CIImage and store it — `nonisolated` so the RGBA expansion + JPEG
-    /// encode run on the cooperative pool, not the MainActor editor.
-    nonisolated private static func storeGpuFrame(
-        _ bytes: [UInt8], width: Int, height: Int, url: URL, screenWidth: Int
-    ) async {
-        guard let image = ciImageFromGpuRgb(bytes, width: width, height: height) else { return }
-        await RenderedPreviewCache.shared.storePreview(image, for: url, screenWidth: screenWidth)
+        // Build + JPEG-encode + store on a DETACHED utility task so the per-pixel
+        // RGBA expansion + encode never touch the MainActor editor — matching
+        // `persistCurrentPreviewToCache`'s detach (the synchronous prefix of an
+        // awaited callee could otherwise run on this actor). All captures are
+        // Sendable (the readback bytes, the URL, the width). (Copilot #1670)
+        Task.detached(priority: .utility) {
+            guard let image = Self.ciImageFromGpuRgb(
+                frame.bytes, width: frame.width, height: frame.height
+            ) else { return }
+            await RenderedPreviewCache.shared.storePreview(image, for: url, screenWidth: screenWidth)
+        }
     }
 
     /// Wrap the GPU chain's `width·height·3` u8 RGB readback (the canonical
