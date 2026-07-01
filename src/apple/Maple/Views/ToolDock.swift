@@ -41,14 +41,12 @@ struct ToolDock: View {
                 SpecialDockButton(
                     state: state,
                     tool: .crop,
-                    isEnabled: true,
                     onPresetsTap: onPresetsTap
                 )
                 // Presets — real Tool case; tapping also fires the presets sheet.
                 SpecialDockButton(
                     state: state,
                     tool: .presets,
-                    isEnabled: true,
                     onPresetsTap: onPresetsTap
                 )
 
@@ -157,7 +155,6 @@ private struct GroupDockButton: View {
 private struct SpecialDockButton: View {
     @Bindable var state: EditorState
     let tool: Tool
-    let isEnabled: Bool
     var onPresetsTap: () -> Void = {}
 
     private var isSelected: Bool { state.armedTool == tool }

@@ -106,8 +106,9 @@ private struct RegularCardHeader: View {
     }
 
     /// Resets all wired tools in the armed group to their canonical defaults.
-    /// Each tool arms then resets so the undo ring records one boundary per
-    /// reset action (matches the spec "reset armed tool" contract).
+    /// Commits ONCE up front so the whole group reset is a single undo boundary,
+    /// then batch-applies each tool's default WITHOUT arming it — arming per
+    /// tool would spawn extra crop-session transitions and undo entries.
     private func resetActiveGroup() {
         let tools = Tool.tools(in: state.armedGroup)
             .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }

@@ -382,6 +382,9 @@ private struct SpecialToolButton: View {
         .disabled(!isEnabled)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // Disabled placeholders (Mask/Heal) add no navigable value — keep them
+        // out of the a11y tree, matching ToolDock/MobileControlBar (Copilot #1680).
+        .accessibilityHidden(!isEnabled)
         .opacity(isEnabled ? 1 : 0.40)
     }
 }
