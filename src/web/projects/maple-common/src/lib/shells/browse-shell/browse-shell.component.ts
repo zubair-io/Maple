@@ -186,6 +186,18 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
     this.fetchSnapshotsSub = null;
     this.batchMetaDialogVisible.set(false);
     this.batchMetaAssetSnapshots.set([]);
+    if (this.state.backend === 'self-hosted') {
+      this.state.loadFolderTree();
+      const currentId = this.state.selectedSourceId();
+      if (currentId && currentId.includes(':')) {
+        try {
+          const addr = parseAddress(currentId);
+          this.state.openSelfHostedSubfolder(addr.relPath, currentId);
+        } catch {
+          // ignore
+        }
+      }
+    }
   }
 
   ngOnInit(): void {
