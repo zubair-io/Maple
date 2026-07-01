@@ -39,8 +39,61 @@ pub(crate) fn apply_pixel(rgb: [f32; 3], amount: f32) -> [f32; 3] {
     let low_chroma_factor = 1.0 - (chroma / 0.3).min(1.0);
     let chroma_boost = low_chroma_factor * amount * (1.0 - skin_mask * 0.6);
     let scale = 1.0 + chroma_boost;
-    let new_lab = [l, a * scale, b * scale];
-    oklab_to_rec2020(new_lab)
+
+    let c_target = chroma * scale;
+    let a_hat = a / chroma;
+    let b_hat = b / chroma;
+
+    // For desaturation or when we're shrinking chroma below the input
+    if scale <= 1.0 {
+        return oklab_to_rec2020([l, a_hat * c_target, b_hat * c_target]);
+    }
+
+    // Fast path: scaled target stays in gamut
+    let lab_target = [l, a_hat * c_target, b_hat * c_target];
+    let rgb_target = oklab_to_rec2020(lab_target);
+    if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -1e-5 {
+        return rgb_target;
+    }
+
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    let c_floor = chroma;
+    let c_out = soft_compress(c_target, c_hull).max(c_floor);
+    oklab_to_rec2020([l, a_hat * c_out, b_hat * c_out])
+}
+
+const GAMUT_KNEE_FRACTION: f32 = 0.8;
+const GAMUT_BISECT_ITERS: usize = 12;
+
+#[inline]
+fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
+    let c_thresh = GAMUT_KNEE_FRACTION * c_hull;
+    if c_target <= c_thresh {
+        return c_target;
+    }
+    let d = c_target - c_thresh;
+    let d_max = c_hull - c_thresh;
+    if d_max <= 0.0 {
+        return c_hull;
+    }
+    c_thresh + d_max * (d / (d + d_max))
+}
+
+#[inline]
+fn bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
+    let mut lo = 0.0f32;
+    let mut hi = c_high;
+    for _ in 0..GAMUT_BISECT_ITERS {
+        let mid = 0.5 * (lo + hi);
+        let rgb = oklab_to_rec2020([l, a_hat * mid, b_hat * mid]);
+        let min_c = rgb[0].min(rgb[1]).min(rgb[2]);
+        if min_c >= -1e-5 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 #[cfg(test)]

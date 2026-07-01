@@ -56,6 +56,38 @@ fn oklab_to_rec2020(lab: vec3<f32>) -> vec3<f32> {
     return mul_srgb_to_rec2020(srgb);
 }
 
+const GAMUT_KNEE_FRACTION: f32 = 0.8;
+const GAMUT_BISECT_ITERS: i32 = 12;
+
+fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
+    let c_thresh = GAMUT_KNEE_FRACTION * c_hull;
+    if (c_target <= c_thresh) {
+        return c_target;
+    }
+    let d = c_target - c_thresh;
+    let d_max = c_hull - c_thresh;
+    if (d_max <= 0.0) {
+        return c_hull;
+    }
+    return c_thresh + d_max * (d / (d + d_max));
+}
+
+fn bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
+    var lo: f32 = 0.0;
+    var hi: f32 = c_high;
+    for (var iter: i32 = 0; iter < GAMUT_BISECT_ITERS; iter = iter + 1) {
+        let mid = 0.5 * (lo + hi);
+        let rgb = oklab_to_rec2020(vec3<f32>(l, a_hat * mid, b_hat * mid));
+        let min_c = min(rgb.r, min(rgb.g, rgb.b));
+        if (min_c >= -1e-5) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
     let i = gid.y * ng.x * 64u + gid.x;
@@ -91,7 +123,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let chroma_boost = low_chroma_factor * params.amount * (1.0 - skin_mask * 0.6);
     let scale = 1.0 + chroma_boost;
 
-    let new_lab = vec3<f32>(l, a * scale, b * scale);
-    let out_rgb = oklab_to_rec2020(new_lab);
+    let c_target = chroma * scale;
+    let a_hat = a / chroma;
+    let b_hat = b / chroma;
+
+    var out_rgb: vec3<f32>;
+    if (scale <= 1.0) {
+        out_rgb = oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
+    } else {
+        let lab_target = vec3<f32>(l, a_hat * c_target, b_hat * c_target);
+        let rgb_target = oklab_to_rec2020(lab_target);
+        if (min(rgb_target.r, min(rgb_target.g, rgb_target.b)) >= -1e-5) {
+            out_rgb = rgb_target;
+        } else {
+            let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+            let c_floor = chroma;
+            let c_out = max(soft_compress(c_target, c_hull), c_floor);
+            out_rgb = oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));
+        }
+    }
     output_buf[i] = vec4<f32>(out_rgb, px.a);
 }

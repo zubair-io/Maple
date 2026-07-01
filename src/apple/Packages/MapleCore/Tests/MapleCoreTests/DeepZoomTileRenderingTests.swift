@@ -402,7 +402,7 @@ final class DeepZoomTileRenderingTests: XCTestCase {
         let cache = RawImageCache()
         let mgr = TileManager(rawCache: cache)
         // Demand a single tile at (0,0). On first call, no tiles are
-        // cached → composite is empty. The miss kicks off a render
+        // cached → composite is the clear canvas extent. The miss kicks off a render
         // task in the background.
         let composite = try await mgr.update(
             asset: asset,
@@ -410,8 +410,10 @@ final class DeepZoomTileRenderingTests: XCTestCase {
             zoom: 1.0,
             totalSourceSize: CGSize(width: 4000, height: 4000)
         )
-        XCTAssertTrue(composite.extent.isEmpty || composite.extent.isInfinite,
-                      "first update for an uncached tile must return an empty/infinite (i.e. no-op) composite")
+        let count = await mgr.testCachedTileCount()
+        XCTAssertEqual(count, 0, "first update must have 0 cached tiles")
+        XCTAssertEqual(composite.extent, CGRect(x: 0, y: 0, width: 4000, height: 4000),
+                       "composite must be anchored to the full canvas size")
     }
 
     /// After the in-flight render completes the tile is cached; the

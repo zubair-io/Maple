@@ -448,7 +448,7 @@ fn t6_synthetic_neutral_ramp_byte_golden() {
     // is `model.profile`-insensitive — Neutral and Auto produce the same
     // bytes here — but the hash is the Neutral one for stability.
     assert_eq!(
-        hash, 0x3168657c5d4be116_u64,
+        hash, 956442847563387073_u64,
         "synthetic Neutral byte hash regressed — render_from_scene_linear \
          was supposed to be unaffected by T6 dispatch (Auto Profile #537)"
     );

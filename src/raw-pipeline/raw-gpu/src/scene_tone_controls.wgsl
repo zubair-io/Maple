@@ -127,7 +127,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
             p = p * factor;
         } else {
             let delta = b_add_pos * w;
-            p = p + vec3<f32>(delta, delta, delta);
+            let y_in = luma(p);
+            if (y_in > 1e-6) {
+                let y_out = y_in + delta;
+                let scale = y_out / y_in;
+                p = p * scale;
+            } else {
+                p = p + vec3<f32>(delta, delta, delta);
+            }
         }
     }
 

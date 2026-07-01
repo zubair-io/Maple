@@ -98,6 +98,7 @@ export interface RenderSessionRequest {
   id: number;
   type: 'render-session';
   xmp?: string;
+  params?: Float32Array;
 }
 
 /** Tear down the open session (asset switch / component destroy). */
