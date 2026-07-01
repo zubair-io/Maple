@@ -35,15 +35,15 @@
         <div class="bm-body bm-center">
           @if (refileErrors().length > 0) {
             <p class="bm-error-msg">
-              {{ refileErrors().length }} photo(s) could not be moved. The metadata was still
-              applied successfully.
+              {{ refileErrors().length }} {{ refileErrors().length === 1 ? 'photo' : 'photos' }}
+              could not be moved. The metadata was still applied successfully.
             </p>
           } @else if (refileApplying()) {
             <p class="bm-hint">Moving photos into location folders…</p>
           } @else {
             <p>
-              Move {{ refileCount() }} {{ refileCount() === 1 ? 'photo' : 'photo(s)' }} into their
-              location folders?
+              Move {{ refileCount() }} {{ refileCount() === 1 ? 'photo' : 'photos' }} into
+              {{ refileCount() === 1 ? 'its location folder' : 'their location folders' }}?
             </p>
             <p class="bm-hint">
               Files will be placed under <code>year/state/city</code> inside their library. The move
