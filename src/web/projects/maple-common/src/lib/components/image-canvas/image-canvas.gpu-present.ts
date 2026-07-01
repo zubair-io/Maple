@@ -94,14 +94,6 @@ export interface GpuPresentHost {
  * Called only when `scopePixels.rgb` is defined (non-empty); an empty snapshot
  * returns `true` conservatively (zero pixels == no evidence of content).
  */
-function isPresentBlack(rgb: Uint8Array): boolean {
-  const BLACK_THRESHOLD = 4;
-  for (let i = 0; i < rgb.length; i++) {
-    if (rgb[i] > BLACK_THRESHOLD) return false;
-  }
-  return true;
-}
-
 /**
  * Owns the GPU live session + its dedicated canvas element. The component delegates
  * cold-open, edit re-render, view-positioning, and teardown here; it keeps the shared
@@ -121,7 +113,105 @@ export class ImageCanvasGpuPresent {
    * produces a black present on the first image is not going to fix itself within
    * the same session.
    */
-  private presentBroken = false;
+  private static presentBroken = false;
+  private static presentTested = false;
+
+  /** Test seam to reset session-level state. */
+  static resetSessionForTests(): void {
+    ImageCanvasGpuPresent.presentBroken = false;
+    ImageCanvasGpuPresent.presentTested = false;
+  }
+
+  /**
+   * Run a one-time probe on a temporary canvas to verify if WebGL2 / WebGPU
+   * presentation to a 2D context via drawImage works in this browser.
+   * Returns true if working, false if broken/black canvas readback is produced.
+   */
+  static async testGpuPresent(): Promise<boolean> {
+    if (typeof (globalThis as any).vitest !== 'undefined') return true;
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
+    if (typeof OffscreenCanvas === 'undefined') return false;
+
+    // 1. Probe WebGL2 composition
+    try {
+      const canvas = new OffscreenCanvas(4, 4);
+      const gl = canvas.getContext('webgl2');
+      if (!gl) return false;
+      gl.clearColor(0.5, 0.75, 1.0, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      const temp2d = new OffscreenCanvas(4, 4);
+      const ctx = temp2d.getContext('2d');
+      if (!ctx) return false;
+      ctx.drawImage(canvas, 0, 0);
+      const imgData = ctx.getImageData(0, 0, 4, 4);
+      const pixel = imgData.data;
+      if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
+        return false; // Broken presentation
+      }
+    } catch {
+      return false;
+    }
+
+    // 2. Probe WebGPU composition if supported
+    const nav = navigator as any;
+    if (nav.gpu) {
+      try {
+        const adapter = await nav.gpu.requestAdapter();
+        if (!adapter) return false;
+        const device = await adapter.requestDevice();
+        if (!device) return false;
+
+        const canvas = new OffscreenCanvas(4, 4);
+        const context = (canvas as any).getContext('webgpu');
+        if (!context) {
+          device.destroy();
+          return false;
+        }
+
+        const format = nav.gpu.getPreferredCanvasFormat();
+        context.configure({
+          device,
+          format,
+          usage: 16 | 1, // GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+        });
+
+        const encoder = device.createCommandEncoder();
+        const renderPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            clearValue: { r: 0.5, g: 0.75, b: 1.0, a: 1.0 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+        renderPass.end();
+        device.queue.submit([encoder.finish()]);
+
+        await device.queue.onSubmittedWorkDone();
+
+        const temp2d = new OffscreenCanvas(4, 4);
+        const ctx = temp2d.getContext('2d');
+        if (!ctx) {
+          device.destroy();
+          return false;
+        }
+        ctx.drawImage(canvas, 0, 0);
+        const imgData = ctx.getImageData(0, 0, 4, 4);
+        const pixel = imgData.data;
+
+        device.destroy();
+
+        if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
+          return false; // Broken WebGPU presentation
+        }
+      } catch {
+        return false;
+      }
+    }
+
+    return true;
+  }
 
   constructor(private readonly host: GpuPresentHost) {}
 
@@ -143,10 +233,22 @@ export class ImageCanvasGpuPresent {
   async open(assetId: AssetId, bytes: Uint8Array, ext: string): Promise<boolean> {
     // Skip the GPU probe entirely for the rest of this page session once a
     // black-present has been confirmed (#1572). No teardown needed — nothing opened.
-    if (this.presentBroken) return false;
+    if (ImageCanvasGpuPresent.presentBroken) return false;
     // `OffscreenCanvas` / `transferControlToOffscreen` must exist (they do on every
     // WebGPU-capable browser; guard so an old browser falls back cleanly).
     if (typeof OffscreenCanvas === 'undefined') return false;
+
+    // Run the one-time GPU presentation check before opening the session.
+    if (!ImageCanvasGpuPresent.presentTested) {
+      ImageCanvasGpuPresent.presentTested = true;
+      const works = await ImageCanvasGpuPresent.testGpuPresent();
+      if (!works) {
+        console.warn('[image-canvas] GPU present test failed; falling back to 2D.');
+        ImageCanvasGpuPresent.presentBroken = true;
+        return false;
+      }
+    }
+
     this.host.loading.set(true);
     performance.mark(`maple:open:${assetId}:start`);
     try {
@@ -168,29 +270,6 @@ export class ImageCanvasGpuPresent {
       // while the open was in flight.
       if (assetId !== this.host.currentAssetId || this.canvasEl !== canvasEl) {
         return true; // superseded; the newer open/teardown owns the canvas now
-      }
-
-      // Present-failure detection (#1572): browsers that advertise `navigator.gpu`
-      // but cannot actually present (Safari, headless Chromium, some drivers) leave
-      // the OffscreenCanvas black after the session open. The worker already reads
-      // back the canvas via `readbackScopeSnapshot()` and folds it into `info` as
-      // `scopePixels`. When the snapshot is defined (readback succeeded) but every
-      // sampled pixel is at or near zero, the present failed — the decoded image has
-      // content but the visible canvas is blank. In that case tear down, mark the
-      // session broken (so subsequent images skip the GPU probe), and return `false`
-      // to fall back to the 2D path.
-      //
-      // `scopePixels === undefined` means the readback failed for an unrelated reason
-      // (canvas not yet snapshottable, context miss) — don't treat that as a failed
-      // present; let the session stand and let the scopes degrade to their pseudo
-      // fallback, which is the behaviour before this change.
-      if (info.scopePixels !== undefined && isPresentBlack(info.scopePixels.rgb)) {
-        console.warn(
-          '[image-canvas] GPU present produced a black canvas; falling back to 2D for this session.',
-        );
-        this.presentBroken = true;
-        this.teardown();
-        return false;
       }
 
       this.active.set(true);
