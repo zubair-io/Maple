@@ -316,9 +316,16 @@ pub fn apply_scene_tone_controls(
                     px[2] *= factor;
                 } else {
                     let delta = b_add_pos * w;
-                    px[0] += delta;
-                    px[1] += delta;
-                    px[2] += delta;
+                    if y_old > 1e-6 {
+                        let scale = (y_old + delta) / y_old;
+                        px[0] *= scale;
+                        px[1] *= scale;
+                        px[2] *= scale;
+                    } else {
+                        px[0] += delta;
+                        px[1] += delta;
+                        px[2] += delta;
+                    }
                 }
             }
         }

@@ -63,23 +63,38 @@ fn lut_sample(rgb: vec3<f32>, n: u32) -> vec3<f32> {
     let g1 = g0 + 1u;
     let b1 = b0 + 1u;
 
+    let fx = f[0];
+    let fy = f[1];
+    let fz = f[2];
+
+    let c000 = lut_node(r0, g0, b0, n);
+    let c100 = lut_node(r1, g0, b0, n);
+    let c010 = lut_node(r0, g1, b0, n);
+    let c110 = lut_node(r1, g1, b0, n);
+    let c001 = lut_node(r0, g0, b1, n);
+    let c101 = lut_node(r1, g0, b1, n);
+    let c011 = lut_node(r0, g1, b1, n);
+    let c111 = lut_node(r1, g1, b1, n);
+
     var out = vec3<f32>(0.0, 0.0, 0.0);
     for (var c: i32 = 0; c < 3; c = c + 1) {
-        let c000 = lut_node(r0, g0, b0, n)[c];
-        let c100 = lut_node(r1, g0, b0, n)[c];
-        let c010 = lut_node(r0, g1, b0, n)[c];
-        let c110 = lut_node(r1, g1, b0, n)[c];
-        let c001 = lut_node(r0, g0, b1, n)[c];
-        let c101 = lut_node(r1, g0, b1, n)[c];
-        let c011 = lut_node(r0, g1, b1, n)[c];
-        let c111 = lut_node(r1, g1, b1, n)[c];
-        let c00 = c000 * (1.0 - f[0]) + c100 * f[0];
-        let c10 = c010 * (1.0 - f[0]) + c110 * f[0];
-        let c01 = c001 * (1.0 - f[0]) + c101 * f[0];
-        let c11 = c011 * (1.0 - f[0]) + c111 * f[0];
-        let c0 = c00 * (1.0 - f[1]) + c10 * f[1];
-        let c1 = c01 * (1.0 - f[1]) + c11 * f[1];
-        out[c] = c0 * (1.0 - f[2]) + c1 * f[2];
+        if (fx >= fy) {
+            if (fy >= fz) {
+                out[c] = c000[c] * (1.0 - fx) + c100[c] * (fx - fy) + c110[c] * (fy - fz) + c111[c] * fz;
+            } else if (fx >= fz) {
+                out[c] = c000[c] * (1.0 - fx) + c100[c] * (fx - fz) + c101[c] * (fz - fy) + c111[c] * fy;
+            } else {
+                out[c] = c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy;
+            }
+        } else {
+            if (fx >= fz) {
+                out[c] = c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz;
+            } else if (fy >= fz) {
+                out[c] = c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx;
+            } else {
+                out[c] = c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx;
+            }
+        }
     }
     return out;
 }

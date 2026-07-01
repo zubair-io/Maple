@@ -204,7 +204,6 @@ pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
 ///
 /// Per `.archived-plans/plans/2026-04-27-clipping-and-artifacts.md`
 /// Phase 4 (negative-channel handling after DCP).
-#[inline]
 fn soft_floor(p: [f32; 3]) -> [f32; 3] {
     let min = p[0].min(p[1]).min(p[2]);
     if min >= 0.0 {
@@ -345,7 +344,12 @@ fn compute_as_shot_cct(
     m_warm: Matrix3, cct_warm: f32,
 ) -> f32 {
     let mut cct = (cct_cold + cct_warm) * 0.5; // initial guess
-    for _ in 0..3 {
+    let mut prev_cct = 0.0;
+    for _ in 0..15 {
+        if (cct - prev_cct).abs() < 1.0 {
+            break;
+        }
+        prev_cct = cct;
         let cm = interpolate_cm(m_cold, cct_cold, m_warm, cct_warm, cct);
         let cm_inv = match cm.inverse() {
             Some(inv) => inv,

@@ -149,7 +149,13 @@ pub(super) fn eval_curve_scene_linear(curve: &PreparedCurve, v: f32) -> f32 {
         }
         return v;
     }
-    let x = (v / REF_MAX).clamp(0.0, 1.0);
+    let x_raw = v / REF_MAX;
+    let x = if x_raw < 0.98 {
+        x_raw
+    } else {
+        0.98 + 0.02 * ((x_raw - 0.98) / 0.02).tanh()
+    };
+    let x = x.clamp(0.0, 1.0);
     let y_authoring = eval_monotonic_cubic(curve, x);
     y_authoring * REF_MAX
 }

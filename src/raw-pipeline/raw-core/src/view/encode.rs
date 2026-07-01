@@ -5,7 +5,7 @@ use crate::{
         oklab_gamut::compress_to_unit_cube_oklab,
     },
     image::{ColorSpace, Image},
-    view::dither::bayer_offset_lsb,
+    view::dither::blue_noise_offset_lsb,
 };
 use rayon::prelude::*;
 
@@ -187,7 +187,7 @@ pub fn dither_and_quantize(img: &mut Image) -> Vec<u8> {
             // after dithering (no chroma noise).
             let x = (i % w) as u32;
             let y = (i / w) as u32;
-            let off = bayer_offset_lsb(x, y);
+            let off = blue_noise_offset_lsb(x, y);
             for (j, &c) in p.iter().enumerate() {
                 dst[j] = (c * 255.0 + off + 0.5).clamp(0.0, 255.0) as u8;
             }

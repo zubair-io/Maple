@@ -426,65 +426,37 @@ fn blacks_negative_preserves_hue_on_saturated_deep_shadow() {
 }
 
 #[test]
-fn blacks_positive_additive_lift_equal_delta() {
-    // Lift branch (blacks > 0) is additive: delta is the same for
-    // all three channels. When every channel is non-zero AND the
-    // delta is small relative to the channel value, ratios are
-    // approximately preserved. This test pins that "small-perturbation"
-    // regime explicitly.
-    //
-    // Input [0.06, 0.05, 0.04] at blacks=+25:
-    //   Y ≈ 0.0520, smoothstep(0, 0.2, Y) ≈ 0.168, w ≈ 0.832
-    //   delta = (25/400) * 0.832 ≈ 0.052
-    // Hue drift is therefore real but small here. We assert that
-    // ratios shift by **less than 25%** — i.e. confirm the
-    // additive-lift direction without claiming strict hue
-    // preservation.
+fn blacks_positive_proportional_lift_preserves_ratios() {
+    // Lift branch (blacks > 0) is proportional: it scales channels based on luma remapping
+    // to preserve chromaticity ratios exactly.
     let mut img = fresh_img([0.06, 0.05, 0.04]);
     let mut m = model_default();
     m.blacks = 25.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    // Each channel must lift by the same amount (additive shift).
-    let d_rg = (p[0] - 0.06) - (p[1] - 0.05);
-    let d_rb = (p[0] - 0.06) - (p[2] - 0.04);
-    assert!(d_rg.abs() < 1e-5, "blacks+25 delta(R) != delta(G): {}", d_rg);
-    assert!(d_rb.abs() < 1e-5, "blacks+25 delta(R) != delta(B): {}", d_rb);
+    // Ratios must be exactly preserved: p[0]/0.06 == p[1]/0.05 == p[2]/0.04
+    let r0 = p[0] / 0.06;
+    let r1 = p[1] / 0.05;
+    let r2 = p[2] / 0.04;
+    assert!((r0 - r1).abs() < 1e-5, "ratio R/G changed: {} vs {}", r0, r1);
+    assert!((r0 - r2).abs() < 1e-5, "ratio R/B changed: {} vs {}", r0, r2);
     // Direction.
     assert!(p[0] > 0.06, "blacks+25 should lift, got {}", p[0]);
 }
 
 #[test]
-fn blacks_positive_lift_is_additive_not_multiplicative_by_design() {
-    // The positive branch is documented to shift hue on a pixel where
-    // one channel sits at exactly zero (zero → positive delta).
-    // This is intentional — matches legacy positive-blacks semantics
-    // so zero pixels lift to a positive value. A future refactor that
-    // changes the lift to multiplicative would silently change a
-    // visible behaviour; this test pins the asymmetry.
-    //
-    // Input [0.0, 0.05, 0.10] at blacks=+100: Y ≈ 0.040, w ≈ 0.81,
-    // delta = (100/400) * 0.81 ≈ 0.203. Output [~0.203, ~0.253, ~0.303].
-    // The "no channel at zero" R:G ratio was undefined (div by 0) and
-    // the post-lift output is no longer chromatically zero in R.
+fn blacks_positive_lift_preserves_chromaticity_for_non_zero_luma() {
+    // With R initially at 0.0, and Y_in > 1e-6 (since G and B are non-zero),
+    // proportional luma scaling will scale R by y_out / y_in, meaning R remains exactly 0.0.
     let mut img = fresh_img([0.0, 0.05, 0.10]);
     let mut m = model_default();
     m.blacks = 100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    // R was 0, now must be > 0 — the documented "zero lifts to positive"
-    // semantic. If R stays at 0 the lift is no longer additive.
-    // Use a small epsilon (not a tuned magnitude) so this test isn't
-    // sensitive to future tweaks of the smoothstep thresholds/coefficients
-    // — the semantic being pinned is "zero becomes positive", not a
-    // specific lift amount.
-    assert!(p[0] > 1e-6, "blacks+100 must lift zero R to a positive value, got {}", p[0]);
-    // And the additive-shift contract: same delta on every channel.
-    let dr = p[0] - 0.0;
-    let dg = p[1] - 0.05;
-    let db = p[2] - 0.10;
-    assert!((dr - dg).abs() < 1e-5, "additive shift broken on G: dr={} dg={}", dr, dg);
-    assert!((dr - db).abs() < 1e-5, "additive shift broken on B: dr={} db={}", dr, db);
+    assert!(p[0] == 0.0, "R was 0 and should remain 0 under proportional scaling, got {}", p[0]);
+    let r1 = p[1] / 0.05;
+    let r2 = p[2] / 0.10;
+    assert!((r1 - r2).abs() < 1e-5, "ratio G/B changed: {} vs {}", r1, r2);
 }
 
 #[test]

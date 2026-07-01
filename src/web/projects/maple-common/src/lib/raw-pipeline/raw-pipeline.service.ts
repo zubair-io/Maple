@@ -489,7 +489,7 @@ export class RawPipelineService implements OnDestroy {
    * frame (#1045). Rejects if no session is open or on a GPU error. The worker
    * serializes these against each other + the open.
    */
-  renderLiveSession(xmp?: string): Promise<RenderedLiveSession> {
+  renderLiveSession(xmp?: string, params?: Float32Array): Promise<RenderedLiveSession> {
     let worker: Worker;
     try {
       worker = this.ensureWorker();
@@ -497,10 +497,14 @@ export class RawPipelineService implements OnDestroy {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
     const id = this.nextId++;
-    const request: RenderSessionRequest = { id, type: 'render-session', xmp };
+    const request: RenderSessionRequest = { id, type: 'render-session', xmp, params };
     return new Promise<RenderedLiveSession>((resolve, reject) => {
       this.pending.set(id, { kind: 'render-session', resolve, reject });
-      worker.postMessage(request);
+      if (params) {
+        worker.postMessage(request, [params.buffer]);
+      } else {
+        worker.postMessage(request);
+      }
     });
   }
 

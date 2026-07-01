@@ -377,9 +377,17 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
                     p[2] *= factor;
                 } else {
                     let delta = b_add_pos * w;
-                    p[0] += delta;
-                    p[1] += delta;
-                    p[2] += delta;
+                    if y_old > 1e-6 {
+                        let y_new = y_old + delta;
+                        let scale = y_new / y_old;
+                        p[0] *= scale;
+                        p[1] *= scale;
+                        p[2] *= scale;
+                    } else {
+                        p[0] += delta;
+                        p[1] += delta;
+                        p[2] += delta;
+                    }
                 }
             }
         }
