@@ -6,8 +6,8 @@
  * whole-tree state, no per-asset "seen" write).
  */
 import path from 'node:path';
-import { promises as fs } from 'node:fs';
-import { ObjectId } from 'mongodb';
+import { promises as fs, type Dirent } from 'node:fs';
+import type { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
@@ -31,7 +31,7 @@ export async function visitDirectory(
   deps: ReconcileDeps,
 ): Promise<void> {
   const { folderId } = deps;
-  let entries: import('node:fs').Dirent[];
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(dir.dir_path, { withFileTypes: true });
   } catch {

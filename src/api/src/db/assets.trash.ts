@@ -15,7 +15,8 @@
  */
 
 import * as path from 'node:path';
-import { ObjectId, type Db, type UpdateResult, type DeleteResult, type Collection } from 'mongodb';
+import type { ObjectId } from 'mongodb';
+import { type Db, type UpdateResult, type DeleteResult, type Collection } from 'mongodb';
 import { assetsCollection } from './client.ts';
 import { type AssetDoc } from './schema.ts';
 
