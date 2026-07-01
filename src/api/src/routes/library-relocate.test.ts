@@ -178,13 +178,13 @@ describe('POST /api/library/relocate-count', () => {
 
   test('returns count:0 when no DB docs match (unknown slug)', async () => {
     const res = await postCount({ addresses: ['no-such-slug:photo.jpg'] });
-    // Unknown slug → resolveAddressString throws → address dropped → count 0.
-    // DB may also be unreachable; route catches Mongo errors and returns count:0.
-    expect([200, 500]).toContain(res.status);
-    if (res.status === 200) {
-      const body = await res.json();
-      expect(body.count).toBe(0);
-    }
+    // Unknown slug → resolveAddressString throws → address dropped → absPaths empty.
+    // The handler wraps every DB touch in try/catch and returns count:0 (200) so a
+    // Mongo hiccup can never 500 the editor — assert that contract strictly, so a
+    // regression that starts surfacing 500s is caught.
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.count).toBe(0);
   });
 });
 
