@@ -30,8 +30,8 @@ pub(crate) fn apply_pixel(rgb: [f32; 3], amount: f32) -> [f32; 3] {
     let lab = rec2020_to_oklab(rgb);
     let (l, a, b) = (lab[0], lab[1], lab[2]);
     let chroma = (a * a + b * b).sqrt();
-    if chroma < 1e-6 {
-        // Near-neutral pixel — nothing meaningful to scale.
+    if chroma < 1e-6 || chroma.is_nan() {
+        // Near-neutral pixel or NaN — nothing meaningful to scale.
         return rgb;
     }
     let hue_deg = b.atan2(a) * 180.0 / std::f32::consts::PI; // [-180, 180]
