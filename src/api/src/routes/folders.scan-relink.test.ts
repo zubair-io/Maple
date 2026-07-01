@@ -18,7 +18,8 @@
  */
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import type { MongoClient } from 'mongodb';
+import { ObjectId, type Db } from 'mongodb';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { tryConnect } from '../workers/discover/_test-helpers.ts';

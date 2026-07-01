@@ -11,7 +11,8 @@
  */
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { MongoClient, type Db } from 'mongodb';
+import type { MongoClient } from 'mongodb';
+import { type Db } from 'mongodb';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { tryConnect } from './_test-helpers.ts';

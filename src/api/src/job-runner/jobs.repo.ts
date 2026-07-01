@@ -8,7 +8,8 @@
  * operations and can't drift on field names.
  */
 
-import { ObjectId, type WithId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
+import { type WithId } from 'mongodb';
 import { jobsCollection } from '../db/client.ts';
 import type { JobDoc, JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 

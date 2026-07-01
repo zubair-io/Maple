@@ -18,7 +18,7 @@
  * decoded RGB plane) never leave this process.
  */
 
-import { OnnxFaceDetector, ThumbDecodeError } from './face-detector.ts';
+import { OnnxFaceDetector, ThumbDecodeError, type DetectedFace } from './face-detector.ts';
 import { loadFaceModels, type FaceModelsConfig } from './face-models.ts';
 import type { FaceWorkerRequest, FaceWorkerResponse } from './face-pool-protocol.ts';
 import { installChildHardening } from '../runtime/child-process-worker.ts';
@@ -86,11 +86,7 @@ async function runDetect(id: number, jpegBytes: Uint8Array): Promise<void> {
   }
 }
 
-async function runEmbed(
-  id: number,
-  jpegBytes: Uint8Array,
-  detection: import('./face-detector.ts').DetectedFace,
-): Promise<void> {
+async function runEmbed(id: number, jpegBytes: Uint8Array, detection: DetectedFace): Promise<void> {
   try {
     const embedding = await detector.embedFace(jpegBytes, detection);
     post({ type: 'embed', id, ok: true, embedding });
