@@ -83,6 +83,21 @@ fn in_unit_box(rgb: vec3<f32>) -> bool {
         && rgb.z >= eps_lo && rgb.z <= eps_hi;
 }
 
+fn clamp_unit_scrub_non_finite(v: f32) -> f32 {
+    if (v < 3.4e38 && v > -3.4e38) {
+        return clamp(v, 0.0, 1.0);
+    }
+    return 0.0;
+}
+
+fn clamp_unit_scrub_non_finite_vec3(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        clamp_unit_scrub_non_finite(v.x),
+        clamp_unit_scrub_non_finite(v.y),
+        clamp_unit_scrub_non_finite(v.z)
+    );
+}
+
 // Largest in-gamut chroma scale at constant L and hue (bracket + 24-iter
 // bisection). Mirrors raw_core::color::oklab_gamut::hull_scale.
 fn hull_scale_srgb(l: f32, a: f32, b: f32) -> f32 {
@@ -134,7 +149,7 @@ fn compress_to_unit_cube(rgb: vec3<f32>) -> vec3<f32> {
     let b = lab.z;
     let c_in = sqrt(a * a + b * b);
     if (c_in <= chroma_floor) {
-        return clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+        return clamp_unit_scrub_non_finite_vec3(rgb);
     }
     // Knee probe: below the knee -> untouched (byte-identity + skip bisection).
     if (in_unit_box(oklab_to_srgb_linear(vec3<f32>(l, a / threshold, b / threshold)))) {
@@ -144,8 +159,7 @@ fn compress_to_unit_cube(rgb: vec3<f32>) -> vec3<f32> {
     let hull = c_in * s_hull;
     if (!(hull == hull) || hull > 3.4e38 || hull <= chroma_floor) {
         // Degenerate (extreme L / non-finite) — hard projection fallback.
-        return clamp(oklab_to_srgb_linear(vec3<f32>(l, a * max(s_hull, 0.0), b * max(s_hull, 0.0))),
-                     vec3<f32>(0.0), vec3<f32>(1.0));
+        return clamp_unit_scrub_non_finite_vec3(oklab_to_srgb_linear(vec3<f32>(l, a * max(s_hull, 0.0), b * max(s_hull, 0.0))));
     }
     let knee = threshold * hull;
     var c_out: f32;
@@ -156,7 +170,7 @@ fn compress_to_unit_cube(rgb: vec3<f32>) -> vec3<f32> {
         c_out = knee + (hull - knee) * (x / (1.0 + x));
     }
     let s = c_out / c_in;
-    return clamp(oklab_to_srgb_linear(vec3<f32>(l, a * s, b * s)), vec3<f32>(0.0), vec3<f32>(1.0));
+    return clamp_unit_scrub_non_finite_vec3(oklab_to_srgb_linear(vec3<f32>(l, a * s, b * s)));
 }
 
 // Note: mul_rec2020_to_srgb and mul_srgb_to_p3 are provided by the generated
