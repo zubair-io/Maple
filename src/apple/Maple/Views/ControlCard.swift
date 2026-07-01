@@ -1,10 +1,16 @@
 // ControlCard.swift — Pro Editor Canvas-first (A2, #1555).
 //
-// Frosted-glass bottom card for the canvas-first editor: the living-slider
-// grid for the active group (or the crop toolbar while Crop is armed), the
-// sub-param chip row + color accessory when applicable, and the group tabs
-// underneath.  Replaces the old bottom VStack (DragBar + ToolPillRow +
-// GroupTabsView) from the vertical editor.
+// Frosted-glass bottom card for the canvas-first editor variant A (.compact):
+// the living-slider grid for the active group (or the crop toolbar while Crop
+// is armed), the sub-param chip row + color accessory when applicable, and the
+// group selector.
+//
+// Layout branches on size class:
+//   • Regular (macOS / iPad): the ToolDock already shows GROUP buttons on the
+//     right, so GroupChipsRow is NOT shown here.  Instead, a one-line strip
+//     with the active group name + reset-group button heads the card.
+//   • Compact (iPhone): ToolDock is hidden; GroupChipsRow stays at the top of
+//     the card as the sole group-switching affordance.
 
 import SwiftUI
 import MapleCore
@@ -13,12 +19,22 @@ struct ControlCard: View {
     @Bindable var state: EditorState
     var onPresetsTap: () -> Void = {}
 
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+
+    private var isRegular: Bool { hSizeClass == .regular }
+
     var body: some View {
         VStack(spacing: 10) {
-            // Group selector — accent-red pills at the TOP of the card.
-            GroupChipsRow(state: state)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
+            // Header row: group title + reset on regular; group chips on compact.
+            if isRegular {
+                RegularCardHeader(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+            } else {
+                GroupChipsRow(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+            }
 
             // Crop toolbar replaces the sliders while Crop is armed.
             if state.armedTool == .crop {
@@ -54,12 +70,65 @@ struct ControlCard: View {
     }
 }
 
+// MARK: - RegularCardHeader
+
+/// Shown on regular size class (macOS / iPad) instead of `GroupChipsRow` —
+/// the dock already handles group switching, so the card header shows ONLY
+/// the active group name and a reset-group affordance.
+private struct RegularCardHeader: View {
+    @Bindable var state: EditorState
+
+    var body: some View {
+        HStack {
+            Text(state.armedGroup.displayName.uppercased())
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(ProTokens.text)
+                .animation(.none, value: state.armedGroup)
+
+            Spacer(minLength: 0)
+
+            Button {
+                resetActiveGroup()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10, weight: .regular))
+                    Text("Reset")
+                        .font(.system(size: 10, weight: .regular))
+                }
+                .foregroundStyle(ProTokens.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Reset \(state.armedGroup.displayName) adjustments")
+            .accessibilityIdentifier("editor-card-reset-group")
+        }
+    }
+
+    /// Resets all wired tools in the armed group to their canonical defaults.
+    /// Each tool arms then resets so the undo ring records one boundary per
+    /// reset action (matches the spec "reset armed tool" contract).
+    private func resetActiveGroup() {
+        let tools = Tool.tools(in: state.armedGroup)
+            .filter { $0.isWired && ToolValueMapping.displayRange(for: $0) != nil }
+        guard !tools.isEmpty else { return }
+        state.commit()
+        for tool in tools {
+            ToolValueMapping.apply(
+                ToolValueMapping.defaultDisplayValue(for: tool),
+                to: &state.session.model,
+                tool: tool
+            )
+        }
+    }
+}
+
 // MARK: - GroupChipsRow
 
 /// Group selector rendered as accent-red rounded pills (active = accent fill
 /// + accent border + accent label), left-aligned at the top of the control
-/// card.  Mirrors the web `.group-chip` treatment; replaces the underline
-/// `GroupTabsView` segmented row used by the old vertical editor.
+/// card.  Shown on compact (iPhone) only — on regular the ToolDock handles
+/// group switching and this row is suppressed (see ControlCard.body).
 private struct GroupChipsRow: View {
     @Bindable var state: EditorState
 
