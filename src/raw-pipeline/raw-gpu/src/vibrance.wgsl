@@ -112,7 +112,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // true neutral that skipped this branch could produce `scale = NaN` and a
     // NaN output pixel. Every Oklab fan-out stage (saturation especially) needs
     // the same near-neutral guard for the same reason — keep it.
-    if (chroma < 1e-6) {
+    if (!(chroma >= 1e-6) || chroma > 3.4e38) {
         output_buf[i] = px;
         return;
     }
