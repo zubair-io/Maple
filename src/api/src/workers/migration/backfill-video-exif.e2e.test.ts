@@ -9,7 +9,7 @@ import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type Collection } from 'mongodb';
 import { backfillVideoExif, VIDEO_META_VERSION } from './backfill-video-exif.ts';
 
 // ── minimal QuickTime box builders ─────────────────────────────────────────
@@ -87,7 +87,7 @@ describe('backfill-video-exif end-to-end', () => {
     movBytes: Buffer;
     rel: string;
     filename: string;
-  }): Promise<{ id: ObjectId; assets: import('mongodb').Collection }> {
+  }): Promise<{ id: ObjectId; assets: Collection }> {
     const { getDb } = await import('../../db/client.ts');
     const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
     const db = await getDb();

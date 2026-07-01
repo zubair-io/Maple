@@ -10,7 +10,7 @@
  * No `any`. snake_case Mongo fields. Logging via the shared child logger.
  */
 
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetFaceDoc } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
