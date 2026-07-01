@@ -48,20 +48,31 @@ def main() -> int:
         return 1
     print(f"[{label}] grid bbox in screenshot px: {bbox}  size={(bbox[2]-bbox[0], bbox[3]-bbox[1])}", file=sys.stderr)
 
+    import os
+    import tempfile
+
     # Crop from the ORIGINAL (profile-bearing) image so ICC survives.
     crop = full.crop(bbox)
-    crop_path = f"/tmp/maple_crop_{label}.png"
-    crop.save(crop_path)  # PNG keeps the embedded ICC from the screenshot
+    with tempfile.NamedTemporaryFile(suffix=f"_{label}.png", delete=False) as tmp:
+        crop_path = tmp.name
 
-    # Delegate to the validated measurement tool (color-manages via ICC).
-    here = sys.path[0] or "."
-    out = subprocess.run(
-        ["python3", f"{here}/measure_color_target.py", crop_path, meta_path],
-        capture_output=True, text=True,
-    )
-    sys.stderr.write(out.stderr)
-    print(out.stdout.strip())
-    return out.returncode
+    try:
+        crop.save(crop_path)  # PNG keeps the embedded ICC from the screenshot
+
+        # Delegate to the validated measurement tool (color-manages via ICC).
+        here = sys.path[0] or "."
+        out = subprocess.run(
+            ["python3", f"{here}/measure_color_target.py", crop_path, meta_path],
+            capture_output=True, text=True,
+        )
+        sys.stderr.write(out.stderr)
+        print(out.stdout.strip())
+        return out.returncode
+    finally:
+        try:
+            os.remove(crop_path)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
