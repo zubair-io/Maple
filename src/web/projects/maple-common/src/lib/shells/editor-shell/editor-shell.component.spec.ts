@@ -112,7 +112,7 @@ describe('EditorShellComponent.applyRouteAddress', () => {
     expect(selectAsset).toHaveBeenCalledWith('library:2026/a.jpg');
     // slug:relPath HAS a real, addressable parent — open it so the filmstrip fills.
     expect(openSelfHostedSubfolder).toHaveBeenCalledWith(
-      '/srv/lib/2026',
+      '2026',
       'library:2026',
       'library:2026/a.jpg',
     );

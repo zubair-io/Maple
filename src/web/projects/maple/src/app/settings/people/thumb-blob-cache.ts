@@ -99,8 +99,11 @@ export class ThumbBlobCache {
       const [slug, ...rest] = address.split(':');
       const relPath = rest.join(':');
       promise = this.librarySource
-        .thumbUrl({ slug: slug!, relPath })
-        .then((url) => ({ url, owned: false }));
+        .thumbBlob({ slug: slug!, relPath })
+        .then((blob) => {
+          if (!blob) throw new Error('empty thumb blob');
+          return { url: URL.createObjectURL(blob), owned: true };
+        });
     } else if (absPath) {
       // Legacy path: fetch via /api/fs/thumb + bearer token, cache as blob.
       // Match the size /browse asks for (512) so the same absPath key
