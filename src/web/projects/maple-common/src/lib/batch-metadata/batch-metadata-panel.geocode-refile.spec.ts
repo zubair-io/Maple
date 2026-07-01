@@ -245,7 +245,7 @@ describe('BatchMetadataPanelComponent — geocode search pipeline', () => {
 // Refile-offer phase transition (via real onConfirm branching)
 // ---------------------------------------------------------------------------
 
-describe('BatchMetadataPanelComponent — refile-offer phase', () => {
+describe('BatchMetadataPanelComponent — relocate-offer phase', () => {
   let fixture: ReturnType<typeof TestBed.createComponent<HostComponent>>;
   let host: HostComponent;
   let http: HttpTestingController;
@@ -267,7 +267,7 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
 
   afterEach(() => http.verify());
 
-  it('shows refile-offer when GPS was touched and refileCount > 0', () => {
+  it('shows refile-offer when GPS was touched and relocateCount > 0', () => {
     const panel = getPanel(fixture);
     panel.gpsLatitudeVal.set('48.8566');
     panel.onFieldChange('gpsLatitude');
@@ -286,7 +286,7 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
     });
     fixture.detectChanges();
 
-    const countCall = http.expectOne('/api/backup/refile-count');
+    const countCall = http.expectOne('/api/library/relocate-count');
     expect(countCall.request.body).toEqual({ addresses: ['photos:a.dng', 'photos:b.dng'] });
     countCall.flush({ count: 3 });
     fixture.detectChanges();
@@ -295,29 +295,7 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
     expect(panel.refileCount()).toBe(3);
   });
 
-  it('goes to done when GPS touched but refileCount is 0', () => {
-    const panel = getPanel(fixture);
-    panel.gpsLatitudeVal.set('48.8566');
-    panel.onFieldChange('gpsLatitude');
-    panel.onApply();
-    fixture.detectChanges();
-    panel.onConfirm();
-    fixture.detectChanges();
-
-    http.expectOne('/api/xmp/batch').flush({
-      results: [
-        { address: 'photos:a.dng', ok: true },
-        { address: 'photos:b.dng', ok: true },
-      ],
-    });
-    fixture.detectChanges();
-    http.expectOne('/api/backup/refile-count').flush({ count: 0 });
-    fixture.detectChanges();
-
-    expect(panel.phase()).toBe('done');
-  });
-
-  it('auto-dismisses without refile offer when GPS was NOT touched', () => {
+  it('shows refile-offer when city (place-text field) was touched and relocateCount > 0', () => {
     const panel = getPanel(fixture);
     panel.cityVal.set('Paris');
     panel.onFieldChange('city');
@@ -334,11 +312,83 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
     });
     fixture.detectChanges();
 
-    http.expectNone('/api/backup/refile-count');
+    // city is a location field — relocate-count IS called
+    const countCall = http.expectOne('/api/library/relocate-count');
+    countCall.flush({ count: 2 });
+    fixture.detectChanges();
+
+    expect(panel.phase()).toBe('refile-offer');
+    expect(panel.refileCount()).toBe(2);
+  });
+
+  it('shows refile-offer when country was touched and relocateCount > 0', () => {
+    const panel = getPanel(fixture);
+    panel.countryVal.set('France');
+    panel.onFieldChange('country');
+    panel.onApply();
+    fixture.detectChanges();
+    panel.onConfirm();
+    fixture.detectChanges();
+
+    http.expectOne('/api/xmp/batch').flush({
+      results: [
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: true },
+      ],
+    });
+    fixture.detectChanges();
+
+    http.expectOne('/api/library/relocate-count').flush({ count: 1 });
+    fixture.detectChanges();
+
+    expect(panel.phase()).toBe('refile-offer');
+  });
+
+  it('goes to done when location touched but relocateCount is 0', () => {
+    const panel = getPanel(fixture);
+    panel.gpsLatitudeVal.set('48.8566');
+    panel.onFieldChange('gpsLatitude');
+    panel.onApply();
+    fixture.detectChanges();
+    panel.onConfirm();
+    fixture.detectChanges();
+
+    http.expectOne('/api/xmp/batch').flush({
+      results: [
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: true },
+      ],
+    });
+    fixture.detectChanges();
+    http.expectOne('/api/library/relocate-count').flush({ count: 0 });
+    fixture.detectChanges();
+
     expect(panel.phase()).toBe('done');
   });
 
-  it('auto-dismisses when refileCount fetch fails', () => {
+  it('auto-dismisses without relocate offer when no location field was touched', () => {
+    const panel = getPanel(fixture);
+    // Only a non-location field (title) — should NOT trigger relocate-count
+    panel.titleVal.set('My Title');
+    panel.onFieldChange('title');
+    panel.onApply();
+    fixture.detectChanges();
+    panel.onConfirm();
+    fixture.detectChanges();
+
+    http.expectOne('/api/xmp/batch').flush({
+      results: [
+        { address: 'photos:a.dng', ok: true },
+        { address: 'photos:b.dng', ok: true },
+      ],
+    });
+    fixture.detectChanges();
+
+    http.expectNone('/api/library/relocate-count');
+    expect(panel.phase()).toBe('done');
+  });
+
+  it('auto-dismisses when relocateCount fetch fails', () => {
     const panel = getPanel(fixture);
     panel.gpsLongitudeVal.set('2.3522');
     panel.onFieldChange('gpsLongitude');
@@ -356,7 +406,7 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
     fixture.detectChanges();
 
     http
-      .expectOne('/api/backup/refile-count')
+      .expectOne('/api/library/relocate-count')
       .flush('error', { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
@@ -365,10 +415,10 @@ describe('BatchMetadataPanelComponent — refile-offer phase', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Refile accept / skip + panel control
+// Relocate accept / skip + panel control
 // ---------------------------------------------------------------------------
 
-describe('BatchMetadataPanelComponent — refile accept/skip and panel control', () => {
+describe('BatchMetadataPanelComponent — relocate accept/skip and panel control', () => {
   let fixture: ReturnType<typeof TestBed.createComponent<HostComponent>>;
   let host: HostComponent;
   let http: HttpTestingController;
@@ -394,7 +444,7 @@ describe('BatchMetadataPanelComponent — refile accept/skip and panel control',
     expect(host.dismissed).toBe(true);
   });
 
-  it('onRefileAccept POSTs to /api/backup/refile and goes to done on full success', () => {
+  it('onRefileAccept POSTs to /api/library/relocate and goes to done on full success', () => {
     const panel = getPanel(fixture);
     panel.phase.set('refile-offer');
     fixture.detectChanges();
@@ -402,7 +452,7 @@ describe('BatchMetadataPanelComponent — refile accept/skip and panel control',
     panel.onRefileAccept();
     fixture.detectChanges();
 
-    const call = http.expectOne('/api/backup/refile');
+    const call = http.expectOne('/api/library/relocate');
     expect(call.request.method).toBe('POST');
     expect(call.request.body).toEqual({ addresses: ['photos:a.dng'] });
     call.flush({ results: [{ address: 'photos:a.dng', ok: true, outcome: 'moved' }] });
@@ -411,7 +461,7 @@ describe('BatchMetadataPanelComponent — refile accept/skip and panel control',
     expect(panel.phase()).toBe('done');
   });
 
-  it('surfaces refile errors and returns to refile-offer on partial failure', () => {
+  it('surfaces relocate errors and returns to refile-offer on partial failure', () => {
     const panel = getPanel(fixture);
     panel.phase.set('refile-offer');
     fixture.detectChanges();
@@ -419,14 +469,14 @@ describe('BatchMetadataPanelComponent — refile accept/skip and panel control',
     panel.onRefileAccept();
     fixture.detectChanges();
 
-    http
-      .expectOne('/api/backup/refile')
-      .flush({ results: [{ address: 'photos:a.dng', ok: false, error: 'no backup found' }] });
+    http.expectOne('/api/library/relocate').flush({
+      results: [{ address: 'photos:a.dng', ok: false, error: 'library root not found' }],
+    });
     fixture.detectChanges();
 
     expect(panel.phase()).toBe('refile-offer');
     expect(panel.refileErrors()).toHaveLength(1);
-    expect(panel.refileErrors()[0]!.error).toBe('no backup found');
+    expect(panel.refileErrors()[0]!.error).toBe('library root not found');
   });
 
   it('onClose emits dismiss', () => {

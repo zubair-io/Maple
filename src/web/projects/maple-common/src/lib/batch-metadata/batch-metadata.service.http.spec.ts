@@ -130,35 +130,35 @@ describe('BatchMetadataService HTTP wiring', () => {
     expect(result).toEqual([]);
   });
 
-  // ── refileCount ────────────────────────────────────────────────────────────
+  // ── relocateCount ──────────────────────────────────────────────────────────
 
-  it('refileCount POSTs to /api/backup/refile-count with { addresses } body and returns count', () => {
+  it('relocateCount POSTs to /api/library/relocate-count with { addresses } body and returns count', () => {
     const addresses = ['photos:a.jpg', 'photos:b.jpg'];
     let result: RefileCountResult | undefined;
-    svc.refileCount(addresses).subscribe((r) => (result = r));
+    svc.relocateCount(addresses).subscribe((r) => (result = r));
 
-    const call = http.expectOne('/api/backup/refile-count');
+    const call = http.expectOne('/api/library/relocate-count');
     expect(call.request.method).toBe('POST');
     expect(call.request.body).toEqual({ addresses });
     call.flush({ count: 2 });
     expect(result).toEqual({ count: 2 });
   });
 
-  it('refileCount returns count of 0 when no assets qualify', () => {
+  it('relocateCount returns count of 0 when no assets qualify', () => {
     let count: number | undefined;
-    svc.refileCount(['photos:a.jpg']).subscribe((r) => (count = r.count));
-    http.expectOne('/api/backup/refile-count').flush({ count: 0 });
+    svc.relocateCount(['photos:a.jpg']).subscribe((r) => (count = r.count));
+    http.expectOne('/api/library/relocate-count').flush({ count: 0 });
     expect(count).toBe(0);
   });
 
-  // ── refile ─────────────────────────────────────────────────────────────────
+  // ── relocate ───────────────────────────────────────────────────────────────
 
-  it('refile POSTs to /api/backup/refile with { addresses } body and returns full RefileResult', () => {
+  it('relocate POSTs to /api/library/relocate with { addresses } body and returns full RefileResult', () => {
     const addresses = ['photos:a.jpg'];
     let result: RefileResult | undefined;
-    svc.refile(addresses).subscribe((r) => (result = r));
+    svc.relocate(addresses).subscribe((r) => (result = r));
 
-    const call = http.expectOne('/api/backup/refile');
+    const call = http.expectOne('/api/library/relocate');
     expect(call.request.method).toBe('POST');
     expect(call.request.body).toEqual({ addresses });
     call.flush({ results: [{ address: 'photos:a.jpg', ok: true, outcome: 'moved' }] });
@@ -169,15 +169,15 @@ describe('BatchMetadataService HTTP wiring', () => {
     expect(result?.results[0]!.outcome).toBe('moved');
   });
 
-  it('refile propagates per-asset errors in the RefileResult', () => {
+  it('relocate propagates per-asset errors in the RefileResult', () => {
     let result: RefileResult | undefined;
-    svc.refile(['photos:b.jpg']).subscribe((r) => (result = r));
+    svc.relocate(['photos:b.jpg']).subscribe((r) => (result = r));
 
-    http
-      .expectOne('/api/backup/refile')
-      .flush({ results: [{ address: 'photos:b.jpg', ok: false, error: 'permission denied' }] });
+    http.expectOne('/api/library/relocate').flush({
+      results: [{ address: 'photos:b.jpg', ok: false, error: 'library root not found' }],
+    });
 
     expect(result?.results[0]!.ok).toBe(false);
-    expect(result?.results[0]!.error).toBe('permission denied');
+    expect(result?.results[0]!.error).toBe('library root not found');
   });
 });
