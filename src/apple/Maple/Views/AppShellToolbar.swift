@@ -52,8 +52,6 @@ struct AppShellToolbar: ToolbarContent {
     @Binding var browseDisplayMode: GridDisplayMode
     /// Tapped when the user hits the Back chevron in Full-image mode.
     let onBack: () -> Void
-    /// Desktop only — toggles the sources sidebar column (the "Library" button).
-    let onToggleSidebar: () -> Void
     /// Desktop only — opens the cloud search view (the "Search" button).
     let onOpenSearch: () -> Void
     /// Switch the current cloud library between Timeline and Folder view.
@@ -109,12 +107,21 @@ struct AppShellToolbar: ToolbarContent {
             }
         }
         // Multi-select toggle (M1, #1236) — Browse mode only, not in edit /
-        // full-image. Shows "Select" when idle, "Done" when active. Only
+        // full-image. Shows a checkbox icon ("Select") when idle, "Done" when
+        // active. The checkbox glyph (checkmark.square) matches the Material
+        // select_check_box semantics requested in the design spec. Only
         // rendered when the parent provides the `onToggleSelect` closure.
         if !isFullImage && !isEditing, let onToggleSelect {
             ToolbarItem(placement: .primaryAction) {
-                Button(isSelecting ? "Done" : "Select") {
+                Button {
                     onToggleSelect()
+                } label: {
+                    if isSelecting {
+                        Text("Done")
+                    } else {
+                        Image(systemName: "checkmark.square")
+                            .foregroundStyle(MapleTokens.textMuted)
+                    }
                 }
                 .accessibilityLabel(isSelecting
                     ? "Exit selection mode"
@@ -162,17 +169,11 @@ struct AppShellToolbar: ToolbarContent {
         // Trailing primary nav — desktop (Mac / iPad) only. iPhone gets these
         // three as the bottom tab bar (Library / Search / Settings), so the
         // compact shell renders nothing here. Mirrors the iOS footer. #692.
+        // Note: the sidebar-toggle button (sidebar.left / "Library") has been
+        // removed from this group — sidebar visibility is controlled via the
+        // NavigationSplitView's built-in toggle and the ⌘\ shortcut.
         if !isCompact {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    onToggleSidebar()
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .foregroundStyle(MapleTokens.textMuted)
-                }
-                .accessibilityLabel("Library")
-                .accessibilityIdentifier("library-toggle")
-
                 // Omit the search button entirely off-cloud — disabled is
                 // confusing on a source that has no /api/search endpoint.
                 if searchAvailable {
