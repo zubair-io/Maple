@@ -26,27 +26,30 @@
  * Spec: docs/superpowers/specs/2026-06-30-organize-by-location-design.md
  */
 
-import { Elysia, t } from 'elysia';
-import * as nodePath from 'node:path';
-import { resolveAddressString } from '../library/address.ts';
-import { assetsCollection } from '../db/client.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
-import { isVideoFilename } from '../indexer/media-types.ts';
-import { backupLocationSegments } from '../backup/location-segments.ts';
-import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
-import { moveBackupAsset } from '../workers/migration/move-backup-asset.ts';
-import { child as childLogger } from '../log.ts';
-import type { AssetDoc, MetadataOverride } from '../db/schema.ts';
-import type { Collection, WithId } from 'mongodb';
+import { Elysia, t } from "elysia";
+import * as nodePath from "node:path";
+import { resolveAddressString } from "../library/address.ts";
+import { assetsCollection } from "../db/client.ts";
+import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
+import { assetPrimaryFileInfo } from "../indexer/images.repo.ts";
+import { isVideoFilename } from "../indexer/media-types.ts";
+import { backupLocationSegments } from "../backup/location-segments.ts";
+import {
+  sanitizeLocationSegments,
+  SCREENSHOT_DIR_SEGMENT,
+} from "../backup/path-formatter.ts";
+import { moveBackupAsset } from "../workers/migration/move-backup-asset.ts";
+import { child as childLogger } from "../log.ts";
+import type { AssetDoc, MetadataOverride } from "../db/schema.ts";
+import type { Collection, WithId } from "mongodb";
 import {
   sidecarMetadataIndexHandler,
   SIDECAR_METADATA_INDEX_VERSION,
   SIDECAR_METADATA_INDEX_STAGE_NAME,
-} from '../workers/stages/sidecar-metadata-index.ts';
-import type { ImageDoc } from '../workers/run-stage.ts';
+} from "../workers/stages/sidecar-metadata-index.ts";
+import type { ImageDoc } from "../workers/run-stage.ts";
 
-const log = childLogger('routes/library-relocate');
+const log = childLogger("routes/library-relocate");
 
 const MAX_ADDRESSES = 1000;
 
@@ -58,17 +61,20 @@ const MAX_ADDRESSES = 1000;
  * Prefer the 4-digit year already in the relative path prefix; fall back to
  * the DB captured_year. Returns null when neither is available.
  */
-function yearForDir(currentPath: string, capturedYear: number | null | undefined): string | null {
-  const seg0 = currentPath.split('/')[0] ?? '';
+function yearForDir(
+  currentPath: string,
+  capturedYear: number | null | undefined,
+): string | null {
+  const seg0 = currentPath.split("/")[0] ?? "";
   if (/^\d{4}$/.test(seg0)) return seg0;
   if (capturedYear != null && Number.isFinite(capturedYear)) {
-    return String(Math.trunc(capturedYear)).padStart(4, '0');
+    return String(Math.trunc(capturedYear)).padStart(4, "0");
   }
   return null;
 }
 
 /** ISO 3166-1 alpha-2 code for the United States (lowercased, as stored). */
-const USA_COUNTRY_CODE = 'us';
+const USA_COUNTRY_CODE = "us";
 
 /** Trim and null out empty/whitespace strings. */
 function nonEmpty(value: string | null | undefined): string | null {
@@ -83,7 +89,7 @@ const CIVIC_PREFIX = /^(?:City|Town|Village)\s+of\s+/i;
 /** Strip a leading "City of " / "Town of " / "Village of " civic prefix. */
 function stripCivicPrefix(name: string | null): string | null {
   if (name == null) return null;
-  const stripped = name.replace(CIVIC_PREFIX, '').trim();
+  const stripped = name.replace(CIVIC_PREFIX, "").trim();
   return stripped.length > 0 ? stripped : name;
 }
 
@@ -94,11 +100,13 @@ function stripCivicPrefix(name: string | null): string | null {
  *
  * Returns `[]` when `place_text` is absent or has no usable country/state.
  */
-export function geoSegmentsFromOverride(override: MetadataOverride | null | undefined): string[] {
+export function geoSegmentsFromOverride(
+  override: MetadataOverride | null | undefined,
+): string[] {
   const pt = override?.place_text;
   if (!pt) return [];
 
-  const countryCode = (nonEmpty(pt.country_code) ?? '').toLowerCase();
+  const countryCode = (nonEmpty(pt.country_code) ?? "").toLowerCase();
   const isUSA = countryCode === USA_COUNTRY_CODE;
   const state = nonEmpty(pt.state);
   const country = nonEmpty(pt.country);
@@ -111,7 +119,9 @@ export function geoSegmentsFromOverride(override: MetadataOverride | null | unde
   const locality = stripCivicPrefix(rawCity);
   // NYC rename scoped to NY state in the USA (matches backupLocationSegments).
   const city =
-    locality === 'New York' && isUSA && state === 'New York' ? 'New York City' : locality;
+    locality === "New York" && isUSA && state === "New York"
+      ? "New York City"
+      : locality;
 
   return city ? [top, city] : [top];
 }
@@ -145,7 +155,7 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
 
   if (segs.length === 0) return null;
   const year = yearForDir(primary.path, doc.exif?.captured_year ?? null);
-  return year ? `${year}/${segs.join('/')}` : null;
+  return year ? `${year}/${segs.join("/")}` : null;
 }
 
 /**
@@ -164,7 +174,9 @@ function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
   if (doc.is_screenshot) return true;
   const overrideSegs = geoSegmentsFromOverride(doc.metadata_override);
   if (overrideSegs.length > 0) return true;
-  const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
+  const segs = sanitizeLocationSegments(
+    backupLocationSegments(doc.place ?? null),
+  );
   return segs.length > 0;
 }
 
@@ -190,11 +202,13 @@ async function findGeoDocs(
   libs: ReadonlyMap<string, string>,
 ): Promise<WithId<AssetDoc>[]> {
   if (absPaths.length === 0) return [];
-  const filenames = [...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean))];
+  const filenames = [
+    ...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean)),
+  ];
   const c = await assetsCollection();
   const docs = await c
     .find(
-      { 'fileinfo.filename': { $in: filenames } },
+      { "fileinfo.filename": { $in: filenames } },
       {
         projection: {
           _id: 1,
@@ -202,9 +216,9 @@ async function findGeoDocs(
           maple_id: 1,
           apple_rendered_path: 1,
           place: 1,
-          'exif.captured_year': 1,
+          "exif.captured_year": 1,
           is_screenshot: 1,
-          'metadata_override.place_text': 1,
+          "metadata_override.place_text": 1,
           stages: 1,
         },
       },
@@ -225,7 +239,9 @@ async function findGeoDocs(
 
   // Reconcile sidecar metadata on the fly for any dirty docs
   const dirtyDocs = matchedDocs.filter(
-    (doc) => doc.stages?.[SIDECAR_METADATA_INDEX_STAGE_NAME]?.version !== SIDECAR_METADATA_INDEX_VERSION
+    (doc) =>
+      doc.stages?.[SIDECAR_METADATA_INDEX_STAGE_NAME]?.version !==
+      SIDECAR_METADATA_INDEX_VERSION,
   );
 
   if (dirtyDocs.length > 0) {
@@ -236,7 +252,7 @@ async function findGeoDocs(
 
     const bulkOps: any[] = [];
     const setDeep = (obj: any, path: string, value: any): void => {
-      const parts = path.split('.');
+      const parts = path.split(".");
       let current = obj;
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i];
@@ -254,10 +270,13 @@ async function findGeoDocs(
         if (!fullDoc) return;
 
         try {
-          const result = await sidecarMetadataIndexHandler(fullDoc as unknown as ImageDoc, {
-            log,
-            signal: new AbortController().signal,
-          });
+          const result = await sidecarMetadataIndexHandler(
+            fullDoc as unknown as ImageDoc,
+            {
+              log,
+              signal: new AbortController().signal,
+            },
+          );
 
           const stageState = {
             version: SIDECAR_METADATA_INDEX_VERSION,
@@ -270,7 +289,7 @@ async function findGeoDocs(
           matchedDoc.stages = matchedDoc.stages || {};
           matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = stageState;
 
-          if ('patch' in result && result.patch) {
+          if ("patch" in result && result.patch) {
             bulkOps.push({
               updateOne: {
                 filter: { _id: matchedDoc._id },
@@ -285,7 +304,7 @@ async function findGeoDocs(
             for (const [key, value] of Object.entries(result.patch)) {
               setDeep(matchedDoc, key, value);
             }
-          } else if ('skip' in result) {
+          } else if ("skip" in result) {
             const skipState = {
               ...stageState,
               last_error: `skip: ${result.skip}`,
@@ -316,11 +335,14 @@ async function findGeoDocs(
           }
         } catch (err: unknown) {
           log.warn(
-            { _id: String(matchedDoc._id), err: err instanceof Error ? err.message : String(err) },
-            'library-relocate: failed to reconcile sidecar metadata on the fly',
+            {
+              _id: String(matchedDoc._id),
+              err: err instanceof Error ? err.message : String(err),
+            },
+            "library-relocate: failed to reconcile sidecar metadata on the fly",
           );
         }
-      })
+      }),
     );
 
     if (bulkOps.length > 0) {
@@ -339,10 +361,13 @@ async function findGeoDocs(
  */
 async function didRename(
   coll: Collection<AssetDoc>,
-  id: WithId<AssetDoc>['_id'],
+  id: WithId<AssetDoc>["_id"],
   originalFilename: string,
 ): Promise<boolean> {
-  const fresh = await coll.findOne({ _id: id }, { projection: { fileinfo: 1 } });
+  const fresh = await coll.findOne(
+    { _id: id },
+    { projection: { fileinfo: 1 } },
+  );
   if (!fresh) return false;
   const primary = assetPrimaryFileInfo(fresh);
   return primary != null && primary.filename !== originalFilename;
@@ -360,16 +385,16 @@ const RelocateBodySchema = t.Object({
 // Routes
 // ---------------------------------------------------------------------------
 
-export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
+export const libraryRelocateRoutes = new Elysia({ name: "libraryRelocate" })
 
   // ── Count ───────────────────────────────────────────────────────────────
   .post(
-    '/api/library/relocate-count',
+    "/api/library/relocate-count",
     async ({ body, set }) => {
       const { addresses } = body;
       if (!Array.isArray(addresses) || addresses.length === 0) {
         set.status = 400;
-        return { error: 'addresses must be a non-empty array' };
+        return { error: "addresses must be a non-empty array" };
       }
       if (addresses.length > MAX_ADDRESSES) {
         set.status = 400;
@@ -405,7 +430,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       } catch (err: unknown) {
         log.warn(
           { err: err instanceof Error ? err.message : String(err) },
-          'library-relocate: count failed',
+          "library-relocate: count failed",
         );
         return { count: 0 };
       }
@@ -413,20 +438,21 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
     {
       body: RelocateBodySchema,
       detail: {
-        summary: 'Count assets that would be relocated into their location folder',
-        tags: ['library'],
+        summary:
+          "Count assets that would be relocated into their location folder",
+        tags: ["library"],
       },
     },
   )
 
   // ── Relocate ─────────────────────────────────────────────────────────────
   .post(
-    '/api/library/relocate',
+    "/api/library/relocate",
     async ({ body, set }) => {
       const { addresses } = body;
       if (!Array.isArray(addresses) || addresses.length === 0) {
         set.status = 400;
-        return { error: 'addresses must be a non-empty array' };
+        return { error: "addresses must be a non-empty array" };
       }
       if (addresses.length > MAX_ADDRESSES) {
         set.status = 400;
@@ -477,14 +503,18 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
 
       for (const doc of docs) {
         const primary = assetPrimaryFileInfo(doc);
-        const libRoot = primary ? libs.get(primary.library_id.toHexString()) : undefined;
+        const libRoot = primary
+          ? libs.get(primary.library_id.toHexString())
+          : undefined;
         // Reconstruct the doc's absolute path (unique per asset — same way
         // findGeoDocs matches) to recover the EXACT client address string.
         // Fall back to '' rather than addresses[0]: on a miss (e.g. no libRoot,
         // so docAbsPath is '') a wrong-asset attribution would be worse than none.
         const docAbsPath =
-          primary && libRoot ? nodePath.join(libRoot, primary.path, primary.filename) : '';
-        const representativeAddress = absToClient.get(docAbsPath) ?? '';
+          primary && libRoot
+            ? nodePath.join(libRoot, primary.path, primary.filename)
+            : "";
+        const representativeAddress = absToClient.get(docAbsPath) ?? "";
 
         if (!isGeoCandidate(doc)) {
           // No resolvable geo location — silently skip.
@@ -499,12 +529,12 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
         if (!libRoot) {
           log.warn(
             { _id: String(doc._id) },
-            'library-relocate: no library root for asset — skipping',
+            "library-relocate: no library root for asset — skipping",
           );
           results.push({
             address: representativeAddress,
             ok: false,
-            error: 'library root not found',
+            error: "library root not found",
           });
           continue;
         }
@@ -518,20 +548,32 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
           // report a collision auto-rename, so re-read the repointed fileinfo and
           // compare the new filename to the one we started with.
           const renamed =
-            outcome === 'moved' && originalFilename != null
+            outcome === "moved" && originalFilename != null
               ? await didRename(c, doc._id, originalFilename)
               : false;
-          results.push({ address: representativeAddress, ok: true, outcome, renamed });
+          results.push({
+            address: representativeAddress,
+            ok: true,
+            outcome,
+            renamed,
+          });
           log.info(
             { _id: String(doc._id), outcome, newDir, renamed },
-            outcome === 'moved'
-              ? 'library-relocate: asset relocated'
-              : 'library-relocate: no move needed',
+            outcome === "moved"
+              ? "library-relocate: asset relocated"
+              : "library-relocate: no move needed",
           );
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          log.warn({ _id: String(doc._id), err: msg }, 'library-relocate: move failed');
-          results.push({ address: representativeAddress, ok: false, error: msg });
+          log.warn(
+            { _id: String(doc._id), err: msg },
+            "library-relocate: move failed",
+          );
+          results.push({
+            address: representativeAddress,
+            ok: false,
+            error: msg,
+          });
         }
       }
 
@@ -542,8 +584,9 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
     {
       body: RelocateBodySchema,
       detail: {
-        summary: 'Relocate assets into their canonical location folder (year/state/city)',
-        tags: ['library'],
+        summary:
+          "Relocate assets into their canonical location folder (year/state/city)",
+        tags: ["library"],
       },
     },
   );
