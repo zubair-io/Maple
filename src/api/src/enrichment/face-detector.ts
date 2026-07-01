@@ -59,6 +59,7 @@ import {
   type OnnxTensorConstructor,
   type OnnxTensorLike,
 } from './face-models.ts';
+import type * as FacePoolMod from './face-pool.ts';
 
 const log = childLogger('enrichment:face-detector');
 
@@ -165,7 +166,7 @@ let defaultDetector: FaceDetector | null = null;
 export function defaultFaceDetector(): FaceDetector {
   if (!defaultDetector) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { PooledFaceDetector } = require('./face-pool.ts') as typeof import('./face-pool.ts');
+    const { PooledFaceDetector } = require('./face-pool.ts') as typeof FacePoolMod;
     defaultDetector = new PooledFaceDetector();
   }
   return defaultDetector;

@@ -23,6 +23,7 @@
 // Mirror-aware drop-in: backup-layout relocations (copy/unlink/rmdir of
 // originals + sidecars) replicate to the library's backup root(s).
 import * as fs from '../../fs/mirrored.ts';
+import type { Dirent } from 'node:fs';
 import * as path from 'node:path';
 import { filesIdentical } from '../../backup/fs-util.ts';
 import { pickFreePath } from '../../fs/trash.ts';
@@ -265,7 +266,7 @@ async function removeOldDirIfEmpty(oldDirAbs: string, libRoot: string): Promise<
 
 /** True when a directory tree contains no regular files (only sub-dirs). */
 async function dirHasNoFiles(dir: string): Promise<boolean> {
-  let entries: import('node:fs').Dirent[];
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {

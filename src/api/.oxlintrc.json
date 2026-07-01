@@ -37,7 +37,16 @@
     "oxc/no-accumulating-spread": "error",
     "typescript/ban-ts-comment": "error",
     "promise/no-multiple-resolved": "error",
-    "promise/catch-or-return": "error"
+    "promise/catch-or-return": "error",
+    "typescript/consistent-type-imports": "error",
+    "eslint/eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
+    "typescript/no-explicit-any": "warn"
   },
   "overrides": [
     {

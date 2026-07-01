@@ -7,7 +7,7 @@
  * from `people-search-reindex.ts` so the repoint / mark logic stays in exactly one place.
  */
 
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { peopleCollection } from '../db/client.ts';
 import type { PersonWithId } from '../db/schema.ts';
 import { mergeInto } from './people.repo.ts';

@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { MongoClient, ObjectId, type Collection, type Db } from 'mongodb';
 
 const TEST_DB = `maple_test_llc_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -293,11 +293,7 @@ describe('live_location_count maintenance: restore (clear tombstone)', () => {
 // Parity helper — re-assert after every mutation below
 // ---------------------------------------------------------------------------
 
-async function assertParityAndCount(
-  coll: import('mongodb').Collection,
-  id: import('mongodb').ObjectId,
-  expectedCount: number,
-) {
+async function assertParityAndCount(coll: Collection, id: ObjectId, expectedCount: number) {
   const { liveAwareDuplicatePredicate } = await import('../indexer/images.repo.ts');
   const doc = (await coll.findOne({ _id: id })) as Record<string, unknown> | null;
   expect(doc!.live_location_count).toBe(expectedCount);

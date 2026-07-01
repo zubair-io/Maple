@@ -17,6 +17,7 @@ import { stageRegistry } from '../registry.ts';
 import { runMigrationTickOnce } from '../migration.ts';
 import { relocateBackupScreenshot, BACKUP_LAYOUT_VERSION } from './refile-backups.ts';
 import type { Place } from '../../db/schema.ts';
+import type { getDb as GetDbFn } from '../../db/client.ts';
 
 const MIGRATION_ID = 'refile-backups';
 
@@ -41,9 +42,7 @@ function place(p: {
 
 // ── Mongo-gated end-to-end ──────────────────────────────────────────────────
 
-async function connectOrSkip(
-  label: string,
-): Promise<Awaited<ReturnType<typeof import('../../db/client.ts').getDb>> | null> {
+async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof GetDbFn>> | null> {
   try {
     const { getDb } = await import('../../db/client.ts');
     return await getDb();

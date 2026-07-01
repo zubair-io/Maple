@@ -24,7 +24,7 @@ import { meilisearchClient, type MeilisearchClient } from '../../enrichment/meil
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { peopleCollection } from '../../db/client.ts';
-import type { AssetFaceDoc, PersonDoc } from '../../db/schema.ts';
+import type { AssetFaceDoc, PersonDoc, VisionDoc } from '../../db/schema.ts';
 
 /** Auto-generated cluster names ("Person 1", "Person 12", …). These are
  * placeholders, not real identities — folding them into the index would
@@ -99,7 +99,7 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
   const vision =
     (
       image as unknown as {
-        vision?: import('../../db/schema.ts').VisionDoc | null;
+        vision?: VisionDoc | null;
       }
     ).vision ?? null;
 

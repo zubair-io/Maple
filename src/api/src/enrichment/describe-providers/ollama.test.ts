@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { OllamaProvider } from './ollama.ts';
-import { RemoteError } from './index.ts';
+import type { RemoteError } from './index.ts';
 
 interface MockResponse {
   status?: number;

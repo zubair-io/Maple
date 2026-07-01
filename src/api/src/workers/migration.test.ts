@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import { stageRegistry } from './registry.ts';
 import { startMigration, MIGRATION_WORKER_NAME, runMigrationTickOnce } from './migration.ts';
 import { computeEnabledTransition, defaultMigrationState } from './migration-config.repo.ts';
+import type { getDb as GetDbFn } from '../db/client.ts';
 
 describe('startMigration — registration & control', () => {
   beforeEach(() => stageRegistry._resetForTests());
@@ -83,7 +84,7 @@ describe('migration end-to-end (restructure)', () => {
   });
 
   it('moves a backup-origin asset out of the MM-DD folder and repoints fileinfo', async () => {
-    let getDb: typeof import('../db/client.ts').getDb;
+    let getDb: typeof GetDbFn;
     try {
       ({ getDb } = await import('../db/client.ts'));
       await getDb();
@@ -150,7 +151,7 @@ describe('migration end-to-end (restructure)', () => {
   });
 
   it('collision: two same-name assets from different day-folders → one renamed, both fileinfo correct, no loss', async () => {
-    let getDb: typeof import('../db/client.ts').getDb;
+    let getDb: typeof GetDbFn;
     try {
       ({ getDb } = await import('../db/client.ts'));
       await getDb();
@@ -222,7 +223,7 @@ describe('migration end-to-end (restructure)', () => {
 
 describe('pruneUnknownMigrationStates', () => {
   it('drops persisted state for ids no longer in the registry, keeps the rest', async () => {
-    let getDb: typeof import('../db/client.ts').getDb;
+    let getDb: typeof GetDbFn;
     try {
       ({ getDb } = await import('../db/client.ts'));
       await getDb();

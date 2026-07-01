@@ -4,7 +4,8 @@
  * (findOneAndUpdate) so only one sweeper visits a given dir; a lease lets a
  * crashed sweeper's dir be retaken.
  */
-import { ObjectId, type WithId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
+import { type WithId } from 'mongodb';
 import { discoverFrontierCollection } from '../../db/client.ts';
 import type { DiscoverFrontierDoc } from '../../db/schema.ts';
 

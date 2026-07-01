@@ -31,13 +31,13 @@ async function tryConnect(): Promise<MongoClient | null> {
 
 function makeDoc(
   absPath: string,
-  libraryId: import('mongodb').ObjectId,
+  libraryId: ObjectId,
   libraryRoot: string,
   mapleIdOverride?: string,
 ) {
   const relDir = path.relative(libraryRoot, path.dirname(absPath));
   return {
-    _id: '000000000000000000000004' as unknown as import('mongodb').ObjectId,
+    _id: '000000000000000000000004' as unknown as ObjectId,
     fileinfo: [
       {
         path: relDir === '.' || relDir === '' ? '' : relDir.split(path.sep).join('/'),
@@ -75,7 +75,7 @@ function makeDoc(
 
 describe('preview handler — bitmap path', () => {
   let dir: string;
-  let libraryId: import('mongodb').ObjectId;
+  let libraryId: ObjectId;
   beforeAll(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'preview-stage-'));
     libraryId = new ObjectId();

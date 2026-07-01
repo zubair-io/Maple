@@ -7,7 +7,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type Collection, type Document } from 'mongodb';
 // Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
 // library's backup root(s). `rename` is directory-aware for folder moves.
 import { readdir, open, rename, stat, unlink, mkdir, utimes, realpath } from '../fs/mirrored.ts';
@@ -428,9 +428,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     }
 
     const assets = await assetsCollection();
-    const updateResult = await (
-      assets as unknown as import('mongodb').Collection<import('mongodb').Document>
-    ).updateMany({ 'fileinfo.library_id': id }, { $set: stageResetFields });
+    const updateResult = await (assets as unknown as Collection<Document>).updateMany(
+      { 'fileinfo.library_id': id },
+      { $set: stageResetFields },
+    );
 
     // Re-walk the filesystem so a moved/new file is re-discovered and relinked
     // (handleEvent dedups by maple_id/sha1_head, appends a live fileinfo, and

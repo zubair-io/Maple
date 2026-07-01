@@ -35,6 +35,7 @@ import {
   defaultFaceDetector,
   setDefaultFaceDetectorForTests,
   type DetectedFace,
+  type FaceDetector,
 } from './face-detector.ts';
 import {
   PooledFaceDetector,
@@ -259,7 +260,7 @@ describe('defaultFaceDetector', () => {
   });
 
   it('honours a test override (stages stub on the main thread, no worker)', () => {
-    const stub: import('./face-detector.ts').FaceDetector = {
+    const stub: FaceDetector = {
       detectFaces: async () => [],
       embedFace: async () => new Float32Array(),
     };

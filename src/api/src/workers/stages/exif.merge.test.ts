@@ -12,7 +12,8 @@
  * Skips gracefully when Mongo is unreachable.
  */
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { ObjectId, MongoClient, type Db } from 'mongodb';
+import type { MongoClient } from 'mongodb';
+import { ObjectId, type Db } from 'mongodb';
 import { tryConnect } from '../discover/_test-helpers.ts';
 
 const TEST_DB = `maple_test_exif_merge_${process.pid}`;

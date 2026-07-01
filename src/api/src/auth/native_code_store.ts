@@ -6,7 +6,7 @@
 // challenge + opaque state; the native app redeems it (with the verifier) for
 // freshly-minted, device-scoped tokens. A raw refresh token therefore never
 // rides in a redirect URL.
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { randomBytes } from 'node:crypto';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { nativeAuthCodesCollection } from '../db/client.ts';

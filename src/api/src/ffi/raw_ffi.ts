@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { child as childLogger } from '../log.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
+import type * as BunFfi from 'bun:ffi';
 
 const log = childLogger('raw-ffi');
 
@@ -121,7 +122,7 @@ function loadFfi(): RawFfi | null {
   }
 
   try {
-    const { dlopen, FFIType, ptr, toBuffer } = require('bun:ffi') as typeof import('bun:ffi');
+    const { dlopen, FFIType, ptr, toBuffer } = require('bun:ffi') as typeof BunFfi;
 
     const lib = dlopen(libPath, {
       maple_histogram_file: {

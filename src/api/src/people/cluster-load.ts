@@ -29,7 +29,8 @@
  * on the main thread — those are cheap Mongo round-trips, not O(N·D) CPU.
  */
 
-import { type Filter, ObjectId, type AnyBulkWriteOperation } from 'mongodb';
+import type { ObjectId } from 'mongodb';
+import { type Filter, type AnyBulkWriteOperation } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { Bbox, PersonDoc } from '../db/schema.ts';
 import {
