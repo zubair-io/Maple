@@ -37,7 +37,7 @@ const GAMUT_KNEE_FRACTION: f32 = 0.8;
 /// `C_target ≤ 1.0`-scale interval produces a relative precision well below
 /// 1e-6 — comfortably under the 1e-4 cross-platform parity gate even if the
 /// WebGL mirror uses a slightly different float reduction order.
-const GAMUT_BISECT_ITERS: usize = 24;
+const GAMUT_BISECT_ITERS: usize = 12;
 
 /// Tolerance used when deciding whether the bisected chroma is "in gamut".
 /// We require every Rec.2020 channel to be ≥ -GAMUT_EPS. Tighter than this

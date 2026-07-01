@@ -179,6 +179,18 @@ impl LiveSession {
         self.image.dims()
     }
 
+    /// Update the resident image pixels directly without reallocating buffers or invalidating context cache.
+    pub fn update_image(&mut self, ctx: &GpuContext, pixels: &[f32]) {
+        let expected = (self.image.width as usize) * (self.image.height as usize) * 4;
+        assert_eq!(
+            pixels.len(),
+            expected,
+            "LiveSession::update_image: pixel buffer len {} != width*height*4",
+            pixels.len()
+        );
+        ctx.queue.write_buffer(&self.image.buffer, 0, bytemuck::cast_slice(pixels));
+    }
+
     /// Cumulative pool allocation count (the honest zero-alloc hook): the number
     /// of actual `create_buffer` / `create_bind_group` calls the pool has made
     /// (misses). Snapshot it across a same-signature re-render — the delta must be

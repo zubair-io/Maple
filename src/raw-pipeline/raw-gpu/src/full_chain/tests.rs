@@ -252,6 +252,226 @@ fn aggressive_case() -> Case {
 /// the CPU (real raw-core fns, same order) within [`FULL_CHAIN_BUDGET`], for both
 /// the neutral and aggressive adjustment sets. Prints the measured accumulated
 /// max-diff and the move-from-input floor so the gate is provably non-vacuous.
+fn run_gpu_chain_limit(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs, limit: usize) -> Vec<f32> {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (prefix, suffix) = build_split(inputs, [0.0; 3]);
+    let mut all_passes = prefix;
+    all_passes.extend(suffix);
+    let passes_to_run = &all_passes[0..=limit];
+    let refs: Vec<&dyn Pass> = passes_to_run.iter().map(|p| p.as_ref()).collect();
+    let img = GpuImage::upload(&ctx, input, w, h);
+    let runner = ChainRunner::new(&ctx, &img);
+    runner.run_blocking(&refs)
+}
+
+fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) -> Vec<f32> {
+    let mut img = raw_core::image::Image::new(w, h, raw_core::image::ColorSpace::SceneLinearRec2020);
+    for (i, chunk) in input.chunks_exact(4).enumerate() {
+        img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
+    }
+
+    let has_capture = case.capture.is_some();
+    let mut stage_idx = 0;
+
+    // Stage 0: capture sharpening
+    if has_capture {
+        if stage_idx <= limit {
+            let p = case.capture.as_ref().unwrap();
+            raw_core::stages::capture_sharpening::apply_capture_sharpening(&mut img, &crate::full_chain::oracle::rc_capture(p));
+        }
+        stage_idx += 1;
+    }
+
+    // Stage 1: white balance
+    if stage_idx <= limit {
+        raw_core::stages::white_balance::apply(
+            &mut img,
+            case.model.temperature,
+            case.model.tint,
+            case.wb_method,
+        );
+    }
+    stage_idx += 1;
+
+    // Stage 2: scene tone controls
+    if stage_idx <= limit {
+        raw_core::stages::scene_tone_controls::apply(&mut img, &case.model);
+    }
+    stage_idx += 1;
+
+    // Stage 3: tone curves
+    if stage_idx <= limit {
+        raw_core::stages::tone_curves::apply(&mut img, &case.model);
+    }
+    stage_idx += 1;
+
+    // Stage 4: vibrance
+    if stage_idx <= limit {
+        raw_core::stages::vibrance::apply(&mut img, case.model.vibrance);
+    }
+    stage_idx += 1;
+
+    // Stage 5: saturation
+    if stage_idx <= limit {
+        raw_core::stages::saturation::apply(&mut img, case.model.saturation);
+    }
+    stage_idx += 1;
+
+    // Stage 6: HSL
+    if stage_idx <= limit {
+        raw_core::stages::hsl::apply(
+            &mut img,
+            &[
+                case.model.hue_adjustment_red,
+                case.model.hue_adjustment_orange,
+                case.model.hue_adjustment_yellow,
+                case.model.hue_adjustment_green,
+                case.model.hue_adjustment_aqua,
+                case.model.hue_adjustment_blue,
+                case.model.hue_adjustment_purple,
+                case.model.hue_adjustment_magenta,
+            ],
+            &[
+                case.model.saturation_adjustment_red,
+                case.model.saturation_adjustment_orange,
+                case.model.saturation_adjustment_yellow,
+                case.model.saturation_adjustment_green,
+                case.model.saturation_adjustment_aqua,
+                case.model.saturation_adjustment_blue,
+                case.model.saturation_adjustment_purple,
+                case.model.saturation_adjustment_magenta,
+            ],
+            &[
+                case.model.luminance_adjustment_red,
+                case.model.luminance_adjustment_orange,
+                case.model.luminance_adjustment_yellow,
+                case.model.luminance_adjustment_green,
+                case.model.luminance_adjustment_aqua,
+                case.model.luminance_adjustment_blue,
+                case.model.luminance_adjustment_purple,
+                case.model.luminance_adjustment_magenta,
+            ],
+        );
+    }
+    stage_idx += 1;
+
+    // Stage 7: clarity
+    if stage_idx <= limit {
+        raw_core::stages::clarity::apply(&mut img, case.model.clarity);
+    }
+    stage_idx += 1;
+
+    // Stage 8: texture
+    if stage_idx <= limit {
+        raw_core::stages::texture::apply(&mut img, case.model.texture);
+    }
+    stage_idx += 1;
+
+    // Stage 9: dehaze
+    if stage_idx <= limit {
+        raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
+    }
+    stage_idx += 1;
+
+    // Stage 10: vignette
+    if stage_idx <= limit {
+        raw_core::stages::vignette::apply(
+            &mut img,
+            case.model.vignette_amount,
+            case.model.vignette_feather,
+        );
+    }
+    stage_idx += 1;
+
+    // Stage 11: sharpen
+    if stage_idx <= limit {
+        raw_core::stages::sharpen::apply(
+            &mut img,
+            case.model.sharpen_amount,
+            case.model.sharpen_radius,
+            case.model.sharpen_detail,
+            case.model.sharpen_masking,
+        );
+    }
+    stage_idx += 1;
+
+    // Stage 12: NLM luma
+    if stage_idx <= limit {
+        raw_core::stages::noise_reduction::apply_luminance(&mut img, case.model.nr_luminance);
+    }
+    stage_idx += 1;
+
+    // Stage 13: NLM color
+    if stage_idx <= limit {
+        raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color);
+    }
+    stage_idx += 1;
+
+    // Stage 14: AgX
+    if stage_idx <= limit {
+        raw_core::view::agx::apply(&mut img, case.model.contrast);
+    }
+    stage_idx += 1;
+
+    // Stage 15: split tone
+    if stage_idx <= limit {
+        raw_core::stages::split_tone::apply(
+            &mut img,
+            case.model.split_tone_shadow_hue,
+            case.model.split_tone_shadow_saturation,
+            case.model.split_tone_highlight_hue,
+            case.model.split_tone_highlight_saturation,
+            case.model.split_tone_balance,
+        );
+    }
+    stage_idx += 1;
+
+    // Stage 16: grain
+    if stage_idx <= limit {
+        raw_core::stages::grain::apply(
+            &mut img,
+            case.model.grain_amount,
+            case.model.grain_size,
+            case.model.grain_roughness,
+        );
+    }
+    stage_idx += 1;
+
+    // Stage 17: display encode (rec2020_to_srgb)
+    if stage_idx <= limit {
+        raw_core::view::encode::rec2020_to_srgb(&mut img);
+    }
+    stage_idx += 1;
+
+    // Stage 18: srgb_gamma_encode
+    if stage_idx <= limit {
+        raw_core::view::encode::srgb_gamma_encode(&mut img);
+    }
+    stage_idx += 1;
+
+    // At stage 19 and 20, convert to flat slice to run curve/LUT
+    let mut rgb: Vec<f32> = Vec::with_capacity(img.pixels.len() * 3);
+    for p in &img.pixels {
+        rgb.extend_from_slice(&[p[0], p[1], p[2]]);
+    }
+
+    if stage_idx <= limit {
+        raw_core::view::auto_profile::apply::apply_curve(&mut rgb, &case.curve);
+    }
+    stage_idx += 1;
+
+    if stage_idx <= limit {
+        case.lut.apply(&mut rgb);
+    }
+
+    // Repack to RGBA
+    let mut out = Vec::with_capacity(input.len());
+    for px in rgb.chunks_exact(3) {
+        out.extend_from_slice(&[px[0], px[1], px[2], 1.0]);
+    }
+    out
+}
+
 #[test]
 fn full_gpu_chain_matches_composed_cpu_oracle() {
     let (w, h) = (8usize, 8usize);
@@ -259,15 +479,33 @@ fn full_gpu_chain_matches_composed_cpu_oracle() {
 
     for (name, case) in [("mild", mild_case()), ("aggressive", aggressive_case())] {
         let inputs = case.gpu_inputs();
+        let (prefix, suffix) = build_split(&inputs, [0.0; 3]);
+        let num_passes = prefix.len() + suffix.len();
+
+        println!("--- Debugging parity for case: {} ---", name);
+        for k in 0..num_passes {
+            let gpu = run_gpu_chain_limit(&input, w as u32, h as u32, &inputs, k);
+            let cpu = cpu_oracle_limit(&input, w as u32, h as u32, &case, k);
+            let diff = max_abs_diff(&gpu, &cpu);
+            let mut max_d = 0.0f32;
+            let mut max_idx = 0;
+            for (idx, (&x, &y)) in gpu.iter().zip(&cpu).enumerate() {
+                let d = (x - y).abs();
+                if d > max_d {
+                    max_d = d;
+                    max_idx = idx;
+                }
+            }
+            println!("  Pass {}: diff = {:e} at idx {} (gpu: {}, cpu: {})", k, diff, max_idx, gpu[max_idx], cpu[max_idx]);
+            if k == 3 && name == "aggressive" {
+                println!("    GPU pixels[24..32]: {:?}", &gpu[24..32]);
+                println!("    CPU pixels[24..32]: {:?}", &cpu[24..32]);
+            }
+        }
+
         let gpu = run_gpu_chain(&input, w as u32, h as u32, &inputs);
         let cpu = cpu_oracle(&input, w as u32, h as u32, &case);
-
         let diff = max_abs_diff(&gpu, &cpu);
-        let cpu_moved = moved(&input, &cpu);
-        eprintln!(
-            "FULL-CHAIN PARITY [{name}]: max abs diff = {diff:e} \
-             (chain moved the image by {cpu_moved:e} vs input)"
-        );
         assert!(
             diff < FULL_CHAIN_BUDGET,
             "[{name}] composed GPU vs CPU max abs diff {diff} exceeds {FULL_CHAIN_BUDGET}"

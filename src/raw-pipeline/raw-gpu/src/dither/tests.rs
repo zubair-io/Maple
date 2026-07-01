@@ -138,31 +138,29 @@ fn run_gpu_dither(ctx: &GpuContext, input: &[f32], w: u32, h: u32) -> Vec<u8> {
     unpack_rgb_u8(&packed)
 }
 
-/// The inlined Bayer matrix (CPU oracle + WGSL) must equal
-/// `raw_core::view::dither::BAYER_8X8` element-for-element — so neither copy can
+/// The inlined blue noise matrix (CPU oracle + WGSL) must equal
+/// `raw_core::view::dither::BLUE_NOISE_64X64` element-for-element — so neither copy can
 /// drift from the canonical golden matrix.
 #[test]
-fn inlined_bayer_matches_raw_core() {
-    for y in 0..8usize {
-        for x in 0..8usize {
-            let mine = BAYER_8X8_FLAT[y * 8 + x];
-            let theirs = raw_core::view::dither::BAYER_8X8[y][x] as u32;
-            assert_eq!(
-                mine, theirs,
-                "Bayer cell ({x},{y}) drifted: inlined {mine} != raw-core {theirs}"
-            );
-        }
+fn inlined_blue_noise_matches_raw_core() {
+    for i in 0..4096 {
+        let mine = BLUE_NOISE_64X64[i];
+        let theirs = raw_core::view::dither::BLUE_NOISE_64X64[i];
+        assert_eq!(
+            mine, theirs,
+            "Blue noise cell {i} drifted: inlined {mine} != raw-core {theirs}"
+        );
     }
 }
 
 /// THE PARITY GATE (the ticket's contract): the WGSL dither kernel matches
 /// `raw_core::view::encode::dither_and_quantize` — the actual Rust stage, via the
 /// test-only raw-core dev-dep — BYTE-EXACT, over the structured fixture (round-
-/// half boundary, clamp ends, the full Bayer tile, a neutral column).
+/// half boundary, clamp ends, the full blue noise tile, a neutral column).
 #[test]
 fn wgsl_dither_matches_raw_core_byte_exact() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
-    let (w, h) = (8u32, 8u32);
+    let (w, h) = (64u32, 64u32);
     let input = dither_fixture(w as usize, h as usize);
 
     let reference = raw_core_dither(&input, w as usize, h as usize);

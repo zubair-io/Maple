@@ -136,9 +136,9 @@ public final class GpuLiveDriver {
     /// A2 artifacts the chain's curve/LUT passes reapply every tick). No-op after
     /// the first call per open, or when `model.profile != .auto`.
     public func fitAutoProfileIfNeeded(rawPath: String, model: AdjustmentModel, quality: PipelineRenderer.Quality) async {
-        guard !autoProfileFitDone, let s = session else { return }
-        autoProfileFitDone = true
-        if model.profile == .auto {
+        guard let s = session else { return }
+        if model.profile == .auto && !autoProfileFitDone {
+            autoProfileFitDone = true
             await s.fitAutoProfile(rawPath: rawPath, quality: quality)
         }
     }

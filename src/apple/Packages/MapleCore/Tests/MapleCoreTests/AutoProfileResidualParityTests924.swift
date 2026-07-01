@@ -122,6 +122,8 @@ extension AutoProfileCanvasParityTests {
         return neutralFloorBandBiasBudget
     }
 
+
+
     func testAutoProfileMatchesCPUFullAuto() async throws {
         // DNG fixtures whose embedded preview rawler extracts NATIVELY. The
         // Apple app can't shell out to exiftool (sandbox; absent on iOS), so the

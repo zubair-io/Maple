@@ -147,13 +147,14 @@ extension EditSession {
                     "GPU live open failed: \(error.localizedDescription, privacy: .public) — CPU fallback")
                 return false
             }
-            // Auto Profile fit: RAW + Auto only. Non-RAW assets have no rawPath to
-            // fit from; their view chain runs through the identity profile artifacts
-            // (`params.rs` defaults to the identity curve + 2³ LUT) (#1331).
-            if asset.isRaw, m.profile == .auto, let url = assetURL {
-                await driver.fitAutoProfileIfNeeded(
-                    rawPath: url.path, model: m, quality: .preview)
-            }
+        }
+
+        // Auto Profile fit: RAW + Auto only. Non-RAW assets have no rawPath to
+        // fit from; their view chain runs through the identity profile artifacts
+        // (`params.rs` defaults to the identity curve + 2³ LUT) (#1331).
+        if asset.isRaw, m.profile == .auto, let url = assetURL {
+            await driver.fitAutoProfileIfNeeded(
+                rawPath: url.path, model: m, quality: .preview)
         }
 
         // Generation gate: drop a superseded present before issuing it (the CPU

@@ -120,6 +120,12 @@ fn eval_monotonic_cubic(slot: u32, n: u32, x: f32) -> f32 {
     return h00 * yi + h10 * dx * ti + h01 * yi1 + h11 * dx * ti1;
 }
 
+fn my_tanh(x: f32) -> f32 {
+    let clamped_x = clamp(x, -20.0, 20.0);
+    let e2x = exp(2.0 * clamped_x);
+    return (e2x - 1.0) / (e2x + 1.0);
+}
+
 // Evaluate a prepared curve at scene-linear v. Mirrors `eval_curve_scene_linear`:
 // authoring [0, 1] maps to scene [0, REF_MAX]; degenerate-length paths preserved
 // (len 0 -> v pass-through; len 1 -> constant knots[0].y * REF_MAX).
@@ -131,7 +137,12 @@ fn eval_curve_scene_linear(slot: u32, v: f32) -> f32 {
         }
         return v; // empty curve = identity / pass-through
     }
-    let x = clamp(v / REF_MAX, 0.0, 1.0);
+    let x_raw = v / REF_MAX;
+    var x = x_raw;
+    if (x_raw >= 0.98) {
+        x = 0.98 + 0.02 * my_tanh((x_raw - 0.98) / 0.02);
+    }
+    x = clamp(x, 0.0, 1.0);
     let y_authoring = eval_monotonic_cubic(slot, n, x);
     return y_authoring * REF_MAX;
 }
