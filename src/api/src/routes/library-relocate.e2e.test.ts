@@ -394,6 +394,10 @@ describe('library-relocate end-to-end', () => {
       expect(doc?.stages?.['sidecar-metadata-index']?.version).toBe(1);
     } finally {
       await assets.deleteOne({ _id });
+      if (dir) {
+        await fs.rm(dir, { recursive: true, force: true });
+        dir = null;
+      }
     }
   });
 });

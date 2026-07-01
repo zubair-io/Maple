@@ -241,91 +241,101 @@ async function findGeoDocs(
       let current = obj;
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i];
+        if (part === '__proto__' || part === 'constructor' || part === 'prototype') {
+          return; // Prevent prototype pollution
+        }
         if (!(part in current) || current[part] == null) {
           current[part] = {};
         }
         current = current[part];
       }
-      current[parts[parts.length - 1]] = value;
+      const lastPart = parts[parts.length - 1];
+      if (lastPart !== '__proto__' && lastPart !== 'constructor' && lastPart !== 'prototype') {
+        current[lastPart] = value;
+      }
     };
 
-    await Promise.all(
-      dirtyDocs.map(async (matchedDoc) => {
-        const fullDoc = fullDocMap.get(matchedDoc._id.toHexString());
-        if (!fullDoc) return;
+    const CONCURRENCY_LIMIT = 4;
+    for (let i = 0; i < dirtyDocs.length; i += CONCURRENCY_LIMIT) {
+      const chunk = dirtyDocs.slice(i, i + CONCURRENCY_LIMIT);
+      await Promise.all(
+        chunk.map(async (matchedDoc) => {
+          const fullDoc = fullDocMap.get(matchedDoc._id.toHexString());
+          if (!fullDoc) return;
 
-        try {
-          const result = await sidecarMetadataIndexHandler(fullDoc as unknown as ImageDoc, {
-            log,
-            signal: new AbortController().signal,
-          });
-
-          const stageState = {
-            version: SIDECAR_METADATA_INDEX_VERSION,
-            attempts: 0,
-            last_error: null,
-            processed_at: new Date(),
-            dead: false,
-          };
-
-          matchedDoc.stages = matchedDoc.stages || {};
-          matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = stageState;
-
-          if ('patch' in result && result.patch) {
-            bulkOps.push({
-              updateOne: {
-                filter: { _id: matchedDoc._id },
-                update: {
-                  $set: {
-                    [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
-                    ...result.patch,
-                  },
-                },
-              },
+          try {
+            const result = await sidecarMetadataIndexHandler(fullDoc as ImageDoc, {
+              log,
+              signal: new AbortController().signal,
             });
-            for (const [key, value] of Object.entries(result.patch)) {
-              setDeep(matchedDoc, key, value);
-            }
-          } else if ('skip' in result) {
-            const skipState = {
-              ...stageState,
-              last_error: `skip: ${result.skip}`,
+
+            const stageState = {
+              version: SIDECAR_METADATA_INDEX_VERSION,
+              attempts: 0,
+              last_error: null,
+              processed_at: new Date(),
+              dead: false,
             };
-            matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = skipState;
-            bulkOps.push({
-              updateOne: {
-                filter: { _id: matchedDoc._id },
-                update: {
-                  $set: {
-                    [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: skipState,
+
+            matchedDoc.stages = matchedDoc.stages || {};
+            matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = stageState;
+
+            if ('patch' in result && result.patch) {
+              bulkOps.push({
+                updateOne: {
+                  filter: { _id: matchedDoc._id },
+                  update: {
+                    $set: {
+                      [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
+                      ...result.patch,
+                    },
                   },
                 },
-              },
-            });
-          } else {
-            // Success but no patch or empty patch. Mark completed to prevent infinite loops.
-            bulkOps.push({
-              updateOne: {
-                filter: { _id: matchedDoc._id },
-                update: {
-                  $set: {
-                    [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
+              });
+              for (const [key, value] of Object.entries(result.patch)) {
+                setDeep(matchedDoc, key, value);
+              }
+            } else if ('skip' in result) {
+              const skipState = {
+                ...stageState,
+                last_error: `skip: ${result.skip}`,
+              };
+              matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = skipState;
+              bulkOps.push({
+                updateOne: {
+                  filter: { _id: matchedDoc._id },
+                  update: {
+                    $set: {
+                      [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: skipState,
+                    },
                   },
                 },
+              });
+            } else {
+              // Success but no patch or empty patch. Mark completed to prevent infinite loops.
+              bulkOps.push({
+                updateOne: {
+                  filter: { _id: matchedDoc._id },
+                  update: {
+                    $set: {
+                      [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
+                    },
+                  },
+                },
+              });
+            }
+          } catch (err: unknown) {
+            log.warn(
+              {
+                _id: String(matchedDoc._id),
+                err: err instanceof Error ? err.message : String(err),
               },
-            });
+              'library-relocate: failed to reconcile sidecar metadata on the fly',
+            );
           }
-        } catch (err: unknown) {
-          log.warn(
-            {
-              _id: String(matchedDoc._id),
-              err: err instanceof Error ? err.message : String(err),
-            },
-            'library-relocate: failed to reconcile sidecar metadata on the fly',
-          );
-        }
-      }),
-    );
+        }),
+      );
+    }
 
     if (bulkOps.length > 0) {
       await c.bulkWrite(bulkOps);
