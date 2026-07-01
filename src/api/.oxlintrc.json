@@ -104,6 +104,7 @@
         "src/routes/fs.ts",
         "src/routes/imports.test.ts",
         "src/routes/imports.ts",
+        "src/routes/library-relocate.e2e.test.ts",
         "src/routes/library/folder.test.ts",
         "src/routes/library/folder.ts",
         "src/routes/library/image.test.ts",

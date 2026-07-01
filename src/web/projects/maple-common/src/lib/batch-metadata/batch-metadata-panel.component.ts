@@ -39,6 +39,12 @@ type PanelPhase =
   | 'refile-offer'
   | 'refile-applying';
 
+/** Fields that determine a photo's location folder — touching any of these
+ *  after an apply triggers the relocate offer. */
+const LOCATION_FIELDS = new Set<keyof MixedValueMap>([
+  'gpsLatitude', 'gpsLongitude', 'city', 'state', 'country', 'countryCode', 'sublocation',
+]); // prettier-ignore
+
 /** Human-readable labels for each metadata field (used in confirm summary). */
 const FIELD_LABELS: Partial<Record<keyof MixedValueMap, string>> = {
   gpsLatitude: 'GPS Latitude',
@@ -87,8 +93,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   // ── Phase ─────────────────────────────────────────────────────────────────
   readonly phase = signal<PanelPhase>('form');
-
-  // ── Mixed-value map (recomputed when snapshots change) ────────────────────
+  // Mixed-value map, recomputed when snapshots change.
   readonly mixed = computed(() => this.svc.computeMixedValues(this.assetSnapshots()));
 
   // ── Per-field value signals ────────────────────────────────────────────────
@@ -140,7 +145,6 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly refileErrors = signal<Array<{ address: string; error: string }>>([]);
 
   // ── Computed helpers ──────────────────────────────────────────────────────
-
   readonly assetCount = computed(() => this.assetSnapshots().length);
 
   /** Human-readable list of touched field labels for the confirm step. */
@@ -161,7 +165,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   readonly refileApplying = computed(() => this.phase() === 'refile-applying');
 
-  // ── MIXED sentinel exposed to the template ─────────────────────────────────
+  // MIXED sentinel exposed to the template.
   readonly MIXED = MIXED;
 
   // ── Subscriptions ─────────────────────────────────────────────────────────
@@ -326,21 +330,12 @@ export class BatchMetadataPanelComponent implements OnDestroy {
           this.applyErrors.set(
             failures.map((f) => ({ address: f.address, error: f.error ?? 'Unknown error' })),
           );
-          // Stay on confirm phase showing errors.
-          this.phase.set('confirm');
+          this.phase.set('confirm'); // stay on confirm, showing errors
           return;
         }
 
         // Apply succeeded — offer relocate if any location field was touched.
-        const loc = this.touched();
-        const locationTouched =
-          loc.has('gpsLatitude') ||
-          loc.has('gpsLongitude') ||
-          loc.has('city') ||
-          loc.has('state') ||
-          loc.has('country') ||
-          loc.has('countryCode') ||
-          loc.has('sublocation');
+        const locationTouched = [...this.touched()].some((f) => LOCATION_FIELDS.has(f));
 
         if (!locationTouched) {
           this.phase.set('done');

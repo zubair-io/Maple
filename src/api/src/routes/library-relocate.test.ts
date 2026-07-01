@@ -2,8 +2,8 @@
  * Integration tests for POST /api/library/relocate-count and
  * POST /api/library/relocate (#1671).
  *
- * Mirrors the pattern in backup-refile.test.ts: unique MAPLE_MONGO_DB per
- * file, closeDb() in afterAll, route-existence checks (status ≠ 404).
+ * Mirrors the xmp-batch.test.ts pattern: unique MAPLE_MONGO_DB per file,
+ * closeDb() in afterAll, route-existence checks (status ≠ 404).
  *
  * Full end-to-end (Mongo + FS) is covered in manual / CI harness; these tests
  * confirm wiring, input validation, and the generalised-predicate shape
