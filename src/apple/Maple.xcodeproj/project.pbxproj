@@ -18,10 +18,10 @@
 		A1F0000100000000000000A1 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1F0000200000000000000A1 /* MapleCore */; };
 		A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		B8FE7E2DDA6B10D25A18085C /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
-		CF1A2B3D4E5F6A7B8C9D0E1F /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		BF306371601D933BE6ECCBEF /* FileProvider.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E471E86FF6276852A3960D14 /* FileProvider.framework */; };
 		C0D28215847FC19B22E663BC /* MapleFileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EC6472D425AC44A1388478EF /* MapleFileProvider.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 443236A672080511BD1FC170 /* MapleQuickLook.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CF1A2B3D4E5F6A7B8C9D0E1F /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E3DD948B2FB50EB9009392B4 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948A2FB50EB9009392B4 /* MapleCore */; };
 		E3DD948E2FB51A67009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948D2FB51A67009392B4 /* MapleBackup */; };
@@ -1009,11 +1009,7 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers on your local network to access RAW files.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Maple can save edited photos back to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
-				INFOPLIST_KEY_UIAppFonts = (
-					"Lato-Regular.ttf",
-					"Lato-Bold.ttf",
-					"Merriweather-Bold.ttf",
-				);
+				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = NO;
@@ -1088,11 +1084,7 @@
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers on your local network to access RAW files.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Maple can save edited photos back to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
-				INFOPLIST_KEY_UIAppFonts = (
-					"Lato-Regular.ttf",
-					"Lato-Bold.ttf",
-					"Merriweather-Bold.ttf",
-				);
+				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = NO;
