@@ -194,8 +194,8 @@ pub fn apply_vibrance(buf: &mut [f32], vibrance: f32) {
         let lab = rec2020_to_oklab(rgb);
         let (l, a, b) = (lab[0], lab[1], lab[2]);
         let chroma = (a * a + b * b).sqrt();
-        if chroma < 1e-6 {
-            continue; // near-neutral: nothing to scale
+        if chroma < 1e-6 || chroma.is_nan() {
+            continue; // near-neutral or NaN: nothing to scale
         }
         let hue_deg = b.atan2(a) * 180.0 / std::f32::consts::PI;
         let skin_mask = smoothstep(15.0, 22.0, hue_deg) * (1.0 - smoothstep(35.0, 42.0, hue_deg));
