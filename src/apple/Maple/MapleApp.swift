@@ -104,8 +104,15 @@ struct MapleApp: App {
             }
         }
         #if os(macOS)
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        // Full-bleed editor (#4 follow-up): a HIDDEN title bar keeps the macOS
+        // traffic-light controls floating over the content, so the editor can
+        // hide its toolbar (`.toolbar(.hidden, for: .windowToolbar)` in
+        // EditorView) and run edge-to-edge WITHOUT losing the window controls.
+        // With the previous `.titleBar` + `.unified` toolbar, hiding the toolbar
+        // collapsed the unified title bar and took the traffic lights with it
+        // (black strip). Browse still renders its toolbar via AppShellToolbar.
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1280, height: 800)
         #endif
 
@@ -297,12 +304,25 @@ struct SettingsView: View {
 
 private struct GeneralSettingsTab: View {
     @AppStorage(AmazeFlag.defaultsKey) private var useAmaze: Bool = false
+    // Control-panel layout variant for the Pro Editor canvas-first shell.
+    // Bound to the same @AppStorage key EditorView reads so toggling here
+    // flips the editor layout immediately.
+    @AppStorage("proControlVariant") private var controlVariant: String = ControlVariant.compact.rawValue
 
     var body: some View {
         Form {
             LabeledContent("Version") {
                 Text(MapleCore.version())
                     .foregroundStyle(.secondary)
+            }
+            Section("Editor") {
+                Picker("Control layout", selection: $controlVariant) {
+                    Text("Card").tag(ControlVariant.compact.rawValue)
+                    Text("Panel").tag(ControlVariant.panel.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Pro Editor control panel layout")
+                .accessibilityIdentifier("general.settings.proControlVariant")
             }
             Section("Experimental") {
                 Toggle(isOn: $useAmaze) {

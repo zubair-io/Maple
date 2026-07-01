@@ -573,7 +573,12 @@ struct AppShell: View {
             // (#1660). Covers the "select in grid, then open" path (selectedID
             // changed while browsing, so the watcher below didn't fire).
             if imageOpen { pruneInactiveSessions() }
-            withAnimation(.easeInOut(duration: 0.2)) {
+            // The animated sidebar/inspector collapse read as janky on image
+            // open/close — snap the column swap instantly, with animations
+            // explicitly disabled so no ambient transaction re-animates it.
+            var noAnim = Transaction()
+            noAnim.disablesAnimations = true
+            withTransaction(noAnim) {
                 columnVisibility = imageOpen ? .detailOnly : .all
                 if newMode == .editing { editorDetailVisible = false }
             }
@@ -808,11 +813,6 @@ struct AppShell: View {
             cloudViewMode: currentCloudViewMode,
             browseDisplayMode: $browseDisplayMode,
             onBack: { mode = .browse },
-            onToggleSidebar: {
-                withAnimation {
-                    columnVisibility = (columnVisibility == .detailOnly ? .all : .detailOnly)
-                }
-            },
             onOpenSearch: { toggleSearch() },
             onSetCloudViewMode: { setCloudViewMode($0) },
             onExport: { showExport = true },
