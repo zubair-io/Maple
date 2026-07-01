@@ -189,8 +189,8 @@ describe('buildClaimQuery', () => {
   });
 
   it('excludes in-flight _ids', () => {
-    const id1 = 'id1' as unknown as import('mongodb').ObjectId;
-    const id2 = 'id2' as unknown as import('mongodb').ObjectId;
+    const id1 = 'id1' as unknown as ObjectId;
+    const id2 = 'id2' as unknown as ObjectId;
     const inFlight = new Set([id1, id2]);
     const q = buildClaimQuery(
       'thumb',

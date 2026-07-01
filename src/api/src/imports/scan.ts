@@ -16,6 +16,7 @@
  */
 
 import fs from 'node:fs/promises';
+import type { Dirent, Stats } from 'node:fs';
 import path from 'node:path';
 import { SUPPORTED_EXTS } from '../workers/discover/types.ts';
 import { canonicalBaseFromSidecarFilename } from '../fs/browse.ts';
@@ -97,7 +98,7 @@ async function walk(root: string): Promise<{
 
   while (stack.length > 0) {
     const dir = stack.pop() as string;
-    let entries: import('node:fs').Dirent[];
+    let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
@@ -122,7 +123,7 @@ async function walk(root: string): Promise<{
       if (!ent.isFile()) continue;
       const kind = classify(ent.name);
       if (!kind) continue;
-      let st: import('node:fs').Stats;
+      let st: Stats;
       try {
         st = await fs.stat(abs);
       } catch {

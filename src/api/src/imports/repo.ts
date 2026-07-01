@@ -7,7 +7,8 @@
  * names and can't drift.
  */
 
-import { ObjectId, type WithId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
+import { type WithId } from 'mongodb';
 import { importsCollection, importFilesCollection, assetsCollection } from '../db/client.ts';
 import { isSafeLabel } from './dest.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
