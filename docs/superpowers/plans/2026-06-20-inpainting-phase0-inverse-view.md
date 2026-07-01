@@ -1,6 +1,5 @@
 # Local Inpainting — Phase 0: Inverse View-Transform + Grade Round-Trip Spike
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build, in raw-core with zero ML/Swift/UI, the inverse of the live grade + AgX view tail and prove via a headless round-trip harness that a synthetic patch composited at the pre-user-grade seam re-grades coherently under exposure/WB pushes (ΔE2000 stratified by tonal zone). This is the go/no-go gate for the whole feature (design doc §6).
 
