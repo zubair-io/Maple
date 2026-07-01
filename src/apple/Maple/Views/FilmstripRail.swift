@@ -74,24 +74,29 @@ struct FilmstripRail: View {
     private var filmstripPanel: some View {
         // No header — the only collapse affordance is the edge tab (below).
         VStack(spacing: 8) {
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: thumbSpacing) {
-                    ForEach(assets, id: \.id) { asset in
-                        FilmstripRailCell(
-                            asset: asset,
-                            isActive: asset.id == activeID,
-                            width: thumbWidth,
-                            height: thumbHeight,
-                            source: source,
-                            onSelect: onSelect
-                        )
+            // Only mount the thumb scroll while expanded — a collapsed rail is
+            // slid off-screen, so keeping the cells alive would pointlessly
+            // `onAppear`/load thumbnails while hidden (Copilot #1680).
+            if !collapsed {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: thumbSpacing) {
+                        ForEach(assets, id: \.id) { asset in
+                            FilmstripRailCell(
+                                asset: asset,
+                                isActive: asset.id == activeID,
+                                width: thumbWidth,
+                                height: thumbHeight,
+                                source: source,
+                                onSelect: onSelect
+                            )
+                        }
                     }
+                    .padding(.bottom, 2)
                 }
-                .padding(.bottom, 2)
+                // Content-height up to the cap: the scroll area hugs the
+                // thumbnails when there are few, scrolls when there are many.
+                .frame(height: min(contentHeight, scrollCap))
             }
-            // Content-height up to the cap: the scroll area hugs the
-            // thumbnails when there are few, scrolls when there are many.
-            .frame(height: min(contentHeight, scrollCap))
         }
         .padding(8)
         .frame(width: railWidth)
