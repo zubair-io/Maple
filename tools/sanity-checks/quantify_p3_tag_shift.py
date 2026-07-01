@@ -34,7 +34,8 @@ def lab_as(space, v01):
 
 
 def main() -> int:
-    meta = json.load(open(sys.argv[1]))
+    with open(sys.argv[1], 'r', encoding='utf-8') as f:
+        meta = json.load(f)
     rows = []
     for p in meta["patches"]:
         v01 = np.array(p["srgb"], dtype=np.float64) / 255.0
