@@ -224,74 +224,108 @@ async function findGeoDocs(
   });
 
   // Reconcile sidecar metadata on the fly for any dirty docs
-  const bulkOps: any[] = [];
-  for (const doc of matchedDocs) {
-    const version = doc.stages?.[SIDECAR_METADATA_INDEX_STAGE_NAME]?.version;
-    if (version !== SIDECAR_METADATA_INDEX_VERSION) {
-      try {
-        const result = await sidecarMetadataIndexHandler(doc as unknown as ImageDoc, {
-          log,
-          signal: new AbortController().signal,
-        });
-        const stageState = {
-          version: SIDECAR_METADATA_INDEX_VERSION,
-          attempts: 0,
-          last_error: null,
-          processed_at: new Date(),
-          dead: false,
-        };
-        doc.stages = doc.stages || {};
-        doc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = stageState;
+  const dirtyDocs = matchedDocs.filter(
+    (doc) => doc.stages?.[SIDECAR_METADATA_INDEX_STAGE_NAME]?.version !== SIDECAR_METADATA_INDEX_VERSION
+  );
 
-        if ('patch' in result && result.patch) {
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: doc._id },
-              update: {
-                $set: {
-                  [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
-                  ...result.patch,
-                },
-              },
-            },
-          });
-          for (const [key, value] of Object.entries(result.patch)) {
-            if (key.startsWith('metadata_override.')) {
-              const subKey = key.slice('metadata_override.'.length);
-              doc.metadata_override = doc.metadata_override || {};
-              (doc.metadata_override as any)[subKey] = value;
-            } else {
-              (doc as any)[key] = value;
-            }
-          }
-        } else if ('skip' in result) {
-          const skipState = {
-            ...stageState,
-            last_error: `skip: ${result.skip}`,
-          };
-          doc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = skipState;
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: doc._id },
-              update: {
-                $set: {
-                  [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: skipState,
-                },
-              },
-            },
-          });
+  if (dirtyDocs.length > 0) {
+    const dirtyIds = dirtyDocs.map((d) => d._id);
+    // Fetch full documents to avoid partial projection issues in the handler
+    const fullDocs = await c.find({ _id: { $in: dirtyIds } }).toArray();
+    const fullDocMap = new Map(fullDocs.map((d) => [d._id.toHexString(), d]));
+
+    const bulkOps: any[] = [];
+    const setDeep = (obj: any, path: string, value: any): void => {
+      const parts = path.split('.');
+      let current = obj;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (!(part in current) || current[part] == null) {
+          current[part] = {};
         }
-      } catch (err: unknown) {
-        log.warn(
-          { _id: String(doc._id), err: err instanceof Error ? err.message : String(err) },
-          'library-relocate: failed to reconcile sidecar metadata on the fly',
-        );
+        current = current[part];
       }
-    }
-  }
+      current[parts[parts.length - 1]] = value;
+    };
 
-  if (bulkOps.length > 0) {
-    await c.bulkWrite(bulkOps);
+    await Promise.all(
+      dirtyDocs.map(async (matchedDoc) => {
+        const fullDoc = fullDocMap.get(matchedDoc._id.toHexString());
+        if (!fullDoc) return;
+
+        try {
+          const result = await sidecarMetadataIndexHandler(fullDoc as unknown as ImageDoc, {
+            log,
+            signal: new AbortController().signal,
+          });
+
+          const stageState = {
+            version: SIDECAR_METADATA_INDEX_VERSION,
+            attempts: 0,
+            last_error: null,
+            processed_at: new Date(),
+            dead: false,
+          };
+
+          matchedDoc.stages = matchedDoc.stages || {};
+          matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = stageState;
+
+          if ('patch' in result && result.patch) {
+            bulkOps.push({
+              updateOne: {
+                filter: { _id: matchedDoc._id },
+                update: {
+                  $set: {
+                    [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
+                    ...result.patch,
+                  },
+                },
+              },
+            });
+            for (const [key, value] of Object.entries(result.patch)) {
+              setDeep(matchedDoc, key, value);
+            }
+          } else if ('skip' in result) {
+            const skipState = {
+              ...stageState,
+              last_error: `skip: ${result.skip}`,
+            };
+            matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = skipState;
+            bulkOps.push({
+              updateOne: {
+                filter: { _id: matchedDoc._id },
+                update: {
+                  $set: {
+                    [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: skipState,
+                  },
+                },
+              },
+            });
+          } else {
+            // Success but no patch or empty patch. Mark completed to prevent infinite loops.
+            bulkOps.push({
+              updateOne: {
+                filter: { _id: matchedDoc._id },
+                update: {
+                  $set: {
+                    [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
+                  },
+                },
+              },
+            });
+          }
+        } catch (err: unknown) {
+          log.warn(
+            { _id: String(matchedDoc._id), err: err instanceof Error ? err.message : String(err) },
+            'library-relocate: failed to reconcile sidecar metadata on the fly',
+          );
+        }
+      })
+    );
+
+    if (bulkOps.length > 0) {
+      await c.bulkWrite(bulkOps);
+    }
   }
 
   return matchedDocs;
