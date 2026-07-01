@@ -1,20 +1,11 @@
 // ImageCanvasGpuPresent — per-session present-failure detection (#1572).
 //
 // Tests three behaviours introduced in #1572:
-//   (a) A successful GPU present (non-black scope snapshot) keeps `active` true
-//       and returns `true` from `open()`.
-//   (b) A black scope snapshot (GPU session opened but canvas stayed blank)
-//       tears down the session and makes `open()` return `false`, falling
-//       back to the 2D path.
-//   (c) After a black present, every subsequent call to `open()` returns
-//       `false` immediately without attempting another GPU session — the
-//       session-level `presentBroken` flag prevents re-detection on every image.
-//
-// The OffscreenCanvas / transferControlToOffscreen APIs are stubbed so the
-// tests run in jsdom (no real WebGPU). The pipeline calls are mocked directly
-// on the host object; this spec tests ONLY the present-detection logic in
-// `ImageCanvasGpuPresent`, not the worker plumbing (covered by
-// `raw-pipeline.gpu-flag.spec.ts`).
+//   (a) A successful GPU present test keeps `active` true and returns `true` from `open()`.
+//   (b) A failed GPU present test makes `open()` return `false` immediately.
+//   (c) After a failed probe, every subsequent call to `open()` returns `false` immediately
+//       without attempting another GPU session — the session-level static `presentBroken`
+//       flag prevents re-detection on every image.
 
 import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -38,27 +29,27 @@ class OffscreenCanvasStub {
   }
 }
 
-let transferCalledOn: HTMLCanvasElement | null = null;
+let originalOffscreenCanvas: any;
+let originalTransferControl: any;
 
 function patchDom(): void {
+  originalOffscreenCanvas = (globalThis as any).OffscreenCanvas;
+  originalTransferControl = HTMLCanvasElement.prototype.transferControlToOffscreen;
+
   Object.defineProperty(globalThis, 'OffscreenCanvas', {
     value: OffscreenCanvasStub,
     writable: true,
     configurable: true,
   });
   HTMLCanvasElement.prototype.transferControlToOffscreen = function () {
-    transferCalledOn = this;
     return new OffscreenCanvasStub(0, 0) as unknown as OffscreenCanvas;
   };
 }
 
 function unpatchDom(): void {
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-  delete (HTMLCanvasElement.prototype as { transferControlToOffscreen?: unknown })
-    .transferControlToOffscreen;
-  // Restore OffscreenCanvas to its jsdom state (undefined).
+  HTMLCanvasElement.prototype.transferControlToOffscreen = originalTransferControl;
   Object.defineProperty(globalThis, 'OffscreenCanvas', {
-    value: undefined,
+    value: originalOffscreenCanvas,
     writable: true,
     configurable: true,
   });
@@ -66,21 +57,7 @@ function unpatchDom(): void {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeRgb(fill: number, length = 48): Uint8Array {
-  return new Uint8Array(length).fill(fill);
-}
-
-function makeScopePixels(fill: number): DecodedImage {
-  return {
-    width: 4,
-    height: 4,
-    rgb: makeRgb(fill, 4 * 4 * 3),
-    asShotTemperature: 5500,
-    asShotTint: 0,
-  };
-}
-
-function makeOpenedSession(scopePixels?: DecodedImage): OpenedLiveSession {
+function makeOpenedSession(): OpenedLiveSession {
   return {
     width: 800,
     height: 600,
@@ -89,7 +66,7 @@ function makeOpenedSession(scopePixels?: DecodedImage): OpenedLiveSession {
     asShotTemperature: 5500,
     asShotTint: 0,
     colorSpace: 'display-p3',
-    scopePixels,
+    scopePixels: undefined,
   };
 }
 
@@ -148,97 +125,54 @@ function makeHost(openLiveSessionImpl: () => Promise<OpenedLiveSession>): GpuPre
 describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
   beforeEach(() => {
     patchDom();
-    transferCalledOn = null;
+    ImageCanvasGpuPresent.resetSessionForTests();
   });
 
   afterEach(() => {
     unpatchDom();
+    vi.restoreAllMocks();
   });
 
-  it('(a) non-black scopePixels → open() returns true and active stays set', async () => {
-    // scopePixels.rgb has non-zero values → present succeeded.
-    const host = makeHost(() => Promise.resolve(makeOpenedSession(makeScopePixels(0x80))));
+  it('(a) successful GPU present test -> open() returns true and active stays set', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const gpuPresent = new ImageCanvasGpuPresent(host);
+    const spy = vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
 
     const result = await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
 
     expect(result).toBe(true);
     expect(gpuPresent.active()).toBe(true);
-    // The pipeline was called exactly once.
+    expect(spy).toHaveBeenCalledTimes(1);
     expect((host.pipeline.openLiveSession as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
 
-  it('(b) all-black scopePixels → open() returns false, active stays false, session torn down', async () => {
-    // scopePixels.rgb is all zeros → present failed (canvas stayed black).
-    const host = makeHost(() => Promise.resolve(makeOpenedSession(makeScopePixels(0x00))));
+  it('(b) failed GPU present test -> open() returns false and active stays false', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const gpuPresent = new ImageCanvasGpuPresent(host);
+    const spy = vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(false);
 
     const result = await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
 
     expect(result).toBe(false);
     expect(gpuPresent.active()).toBe(false);
-    // The session teardown must have been requested.
-    expect(
-      (host.pipeline.closeLiveSession as ReturnType<typeof vi.fn>).mock.calls.length,
-    ).toBeGreaterThanOrEqual(1);
+    expect(spy).toHaveBeenCalledTimes(1);
+    // The session open must not have been requested.
+    expect(host.pipeline.openLiveSession).not.toHaveBeenCalled();
   });
 
-  it('(b) near-black (≤4) scopePixels → also treated as failed present', async () => {
-    // Threshold is 4 — all channels at 4 or below → black present.
-    const host = makeHost(() => Promise.resolve(makeOpenedSession(makeScopePixels(4))));
+  it('(c) after a failed probe, subsequent open() returns false immediately without calling testGpuPresent again', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const gpuPresent = new ImageCanvasGpuPresent(host);
+    const spy = vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(false);
 
-    const result = await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
-
-    expect(result).toBe(false);
-  });
-
-  it('(b) barely above threshold (5) → treated as successful present', async () => {
-    // A channel value of 5 crosses the threshold — present is real.
-    const host = makeHost(() => Promise.resolve(makeOpenedSession(makeScopePixels(5))));
-    const gpuPresent = new ImageCanvasGpuPresent(host);
-
-    const result = await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
-
-    expect(result).toBe(true);
-    expect(gpuPresent.active()).toBe(true);
-  });
-
-  it('(b) scopePixels undefined → unknown readback; session is NOT torn down as black-present', async () => {
-    // Worker couldn't read back the canvas (context miss, etc.). Don't penalise
-    // the GPU path for an unrelated readback failure.
-    const host = makeHost(() => Promise.resolve(makeOpenedSession(undefined)));
-    const gpuPresent = new ImageCanvasGpuPresent(host);
-
-    const result = await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
-
-    // Present is accepted — no black-present teardown.
-    expect(result).toBe(true);
-    expect(gpuPresent.active()).toBe(true);
-  });
-
-  it('(c) after a black present, subsequent open() returns false immediately without opening a session', async () => {
-    let callCount = 0;
-    const host = makeHost(() => {
-      callCount++;
-      return Promise.resolve(makeOpenedSession(makeScopePixels(0x00)));
-    });
-    const gpuPresent = new ImageCanvasGpuPresent(host);
-
-    // First open: black present → marks presentBroken.
+    // First open: fails -> marks presentBroken.
     const first = await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
     expect(first).toBe(false);
-    expect(callCount).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(1);
 
-    // Second open (different asset): must return false immediately, no new session.
+    // Second open: must return false immediately, without testing again.
     const second = await gpuPresent.open('asset-2', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
     expect(second).toBe(false);
-    // openLiveSession must NOT have been called again.
-    expect(callCount).toBe(1);
-
-    // Third open: same — still short-circuits.
-    const third = await gpuPresent.open('asset-3', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
-    expect(third).toBe(false);
-    expect(callCount).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
