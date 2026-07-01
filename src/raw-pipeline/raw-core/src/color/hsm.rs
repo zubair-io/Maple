@@ -143,12 +143,12 @@ pub fn lerp_tables(cold: &HsmTable, warm: &HsmTable, t: f32) -> Option<HsmTable>
 /// keeps the out-of-gamut wide-gamut tail intact.
 pub fn apply(img: &mut Image, table: &HsmTable) {
     img.pixels.par_iter_mut().for_each(|p| {
-        // 0. Spec-mandated negative-component bypass.
-        if p[0] < 0.0 || p[1] < 0.0 || p[2] < 0.0 {
-            return;
-        }
+        // 0. Perform a soft lift for negative components instead of an abrupt bypass
+        let min_original = p[0].min(p[1]).min(p[2]);
+        let lift = if min_original < 0.0 { -min_original } else { 0.0 };
+        let mut rgb = [p[0] + lift, p[1] + lift, p[2] + lift];
+
         // 1. Pre-encode if sRGB (operates on each channel independently).
-        let mut rgb = *p;
         if matches!(table.encoding, HsmEncoding::Srgb) {
             rgb[0] = linear_to_srgb_one(rgb[0]);
             rgb[1] = linear_to_srgb_one(rgb[1]);
@@ -158,6 +158,13 @@ pub fn apply(img: &mut Image, table: &HsmTable) {
         let (h, s, v) = rgb_to_hsv(rgb);
         // 3. Lookup (hueDelta, satScale, valScale) via trilinear interp.
         let (hd, ss, vs) = lookup(table, h, s, v);
+        
+        // Achromatic singularity blend: smoothly fade shifts to identity near zero saturation.
+        // This prevents wild hue swings from introducing step discontinuities in brightness.
+        let w_chroma = (s / 0.01).clamp(0.0, 1.0);
+        let hd = hd * w_chroma;
+        let ss = 1.0 + (ss - 1.0) * w_chroma;
+        let vs = 1.0 + (vs - 1.0) * w_chroma;
         // 4. Apply.
         let mut new_h = h + hd;
         // Wrap mod 360.
@@ -172,7 +179,13 @@ pub fn apply(img: &mut Image, table: &HsmTable) {
             out[1] = srgb_to_linear_one(out[1]);
             out[2] = srgb_to_linear_one(out[2]);
         }
-        *p = out;
+        
+        // 7. Restore original negative offset to preserve original out-of-gamut coordinate
+        if lift > 0.0 {
+            *p = [out[0] - lift, out[1] - lift, out[2] - lift];
+        } else {
+            *p = out;
+        }
     });
 }
 
@@ -196,8 +209,10 @@ pub fn rgb_to_hsv(rgb: [f32; 3]) -> (f32, f32, f32) {
     let min = r.min(g).min(b);
     let delta = max - min;
     let v = max;
+    
     let s = if max > 0.0 { delta / max } else { 0.0 };
-    let h = if delta < 1e-9 {
+    
+    let h = if s <= 0.0 || delta < 1e-9 {
         0.0
     } else if (max - r).abs() < 1e-9 {
         60.0 * ((g - b) / delta).rem_euclid(6.0)
@@ -289,8 +304,7 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
         (v0, v1, v_frac)
     };
 
-    // Eight-corner trilinear interp on (hueDelta, satScale, valScale)
-    // independently. hueDelta wraps shortest-arc on the H interp.
+    // Eight-corner entries.
     let c000 = table.entry(h0 as usize, s0 as usize, v0 as usize);
     let c100 = table.entry(h1 as usize, s0 as usize, v0 as usize);
     let c010 = table.entry(h0 as usize, s1 as usize, v0 as usize);
@@ -300,52 +314,56 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
     let c011 = table.entry(h0 as usize, s1 as usize, v1 as usize);
     let c111 = table.entry(h1 as usize, s1 as usize, v1 as usize);
 
-    // Per-channel lerp helpers. hueDelta is angular; sat/val are scalar.
-    let lerp_hue = |a: f32, b: f32, t: f32| -> f32 {
-        let mut diff = b - a;
+    // Unwrap hue coordinates relative to c000[0] so standard linear combination preserves shortest-arc.
+    let unwrap_hue = |val: f32, ref_val: f32| -> f32 {
+        let mut diff = val - ref_val;
         if diff > 180.0 { diff -= 360.0; }
         if diff < -180.0 { diff += 360.0; }
-        a + t * diff
+        ref_val + diff
     };
-    let lerp = |a: f32, b: f32, t: f32| a + t * (b - a);
 
-    // Trilinear over h then s then v.
-    let h00 = [
-        lerp_hue(c000[0], c100[0], h_frac),
-        lerp(c000[1], c100[1], h_frac),
-        lerp(c000[2], c100[2], h_frac),
-    ];
-    let h10 = [
-        lerp_hue(c010[0], c110[0], h_frac),
-        lerp(c010[1], c110[1], h_frac),
-        lerp(c010[2], c110[2], h_frac),
-    ];
-    let h01 = [
-        lerp_hue(c001[0], c101[0], h_frac),
-        lerp(c001[1], c101[1], h_frac),
-        lerp(c001[2], c101[2], h_frac),
-    ];
-    let h11 = [
-        lerp_hue(c011[0], c111[0], h_frac),
-        lerp(c011[1], c111[1], h_frac),
-        lerp(c011[2], c111[2], h_frac),
-    ];
-    let s0_ = [
-        lerp_hue(h00[0], h10[0], s_frac),
-        lerp(h00[1], h10[1], s_frac),
-        lerp(h00[2], h10[2], s_frac),
-    ];
-    let s1_ = [
-        lerp_hue(h01[0], h11[0], s_frac),
-        lerp(h01[1], h11[1], s_frac),
-        lerp(h01[2], h11[2], s_frac),
-    ];
-    let out = [
-        lerp_hue(s0_[0], s1_[0], v_frac),
-        lerp(s0_[1], s1_[1], v_frac),
-        lerp(s0_[2], s1_[2], v_frac),
-    ];
-    (out[0], out[1], out[2])
+    let h000_u = c000[0];
+    let h100_u = unwrap_hue(c100[0], h000_u);
+    let h010_u = unwrap_hue(c010[0], h000_u);
+    let h110_u = unwrap_hue(c110[0], h000_u);
+    let h001_u = unwrap_hue(c001[0], h000_u);
+    let h101_u = unwrap_hue(c101[0], h000_u);
+    let h011_u = unwrap_hue(c011[0], h000_u);
+    let h111_u = unwrap_hue(c111[0], h000_u);
+
+    let fx = h_frac;
+    let fy = s_frac;
+    let fz = v_frac;
+
+    let mut out = [0.0f32; 3];
+    for c in 0..3 {
+        let (val000, val100, val010, val110, val001, val101, val011, val111) = if c == 0 {
+            (h000_u, h100_u, h010_u, h110_u, h001_u, h101_u, h011_u, h111_u)
+        } else {
+            (c000[c], c100[c], c010[c], c110[c], c001[c], c101[c], c011[c], c111[c])
+        };
+
+        out[c] = if fx >= fy {
+            if fy >= fz {
+                val000 * (1.0 - fx) + val100 * (fx - fy) + val110 * (fy - fz) + val111 * fz
+            } else if fx >= fz {
+                val000 * (1.0 - fx) + val100 * (fx - fz) + val101 * (fz - fy) + val111 * fy
+            } else {
+                val000 * (1.0 - fz) + val001 * (fz - fx) + val101 * (fx - fy) + val111 * fy
+            }
+        } else {
+            if fx >= fz {
+                val000 * (1.0 - fy) + val010 * (fy - fx) + val110 * (fx - fz) + val111 * fz
+            } else if fy >= fz {
+                val000 * (1.0 - fy) + val010 * (fy - fz) + val011 * (fz - fx) + val111 * fx
+            } else {
+                val000 * (1.0 - fz) + val001 * (fz - fy) + val011 * (fy - fx) + val111 * fx
+            }
+        };
+    }
+
+    let final_hue = out[0].rem_euclid(360.0);
+    (final_hue, out[1], out[2])
 }
 
 #[cfg(test)]

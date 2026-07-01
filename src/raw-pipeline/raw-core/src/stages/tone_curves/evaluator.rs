@@ -148,7 +148,14 @@ pub(super) fn eval_curve_scene_linear(curve: &PreparedCurve, v: f32) -> f32 {
         return v;
     }
     // Map scene v → authoring x in [0, 1].
-    let x = (v / REF_MAX).clamp(0.0, 1.0);
+    // Instead of a hard clamp, apply a C1-continuous tanh soft-knee above 0.98 (3.92 scene-linear).
+    let x_raw = v / REF_MAX;
+    let x = if x_raw < 0.98 {
+        x_raw
+    } else {
+        0.98 + 0.02 * ((x_raw - 0.98) / 0.02).tanh()
+    };
+    let x = x.clamp(0.0, 1.0);
     let y_authoring = eval_monotonic_cubic(curve, x);
     // Map authoring y → scene linear.
     y_authoring * REF_MAX
@@ -287,15 +294,15 @@ mod tests {
     }
 
     #[test]
-    fn ref_max_caps_scene_values_above_two_stops() {
-        // A scene value above REF_MAX maps to the last knot's y in scene
-        // space — no clip, just a flat tail. Tested with the identity
-        // curve so the math is exact: 8.0 in, last_knot.y * REF_MAX out
-        // = 1.0 * 4.0 = 4.0.
+    fn ref_max_soft_knee_above_98_percent() {
+        // A scene value above 3.92 (98% of REF_MAX) undergoes smooth soft-knee compression
+        // instead of hard flat clipping. Under the identity curve, 8.0 maps to
+        // ~4.0 (approaching 4.0 asymptotically).
         let knots = [(0.0_f32, 0.0_f32), (1.0, 1.0)];
         let prepared = prepared_from(&knots);
         let v = eval_curve_scene_linear(&prepared, 8.0);
-        assert!((v - REF_MAX).abs() < 1e-5, "got {}", v);
+        assert!((v - 4.0).abs() < 1e-3, "got {}", v);
+        assert!(v <= REF_MAX);
     }
 
     #[test]

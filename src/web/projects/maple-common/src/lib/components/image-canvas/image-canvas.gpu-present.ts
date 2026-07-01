@@ -191,9 +191,9 @@ export class ImageCanvasGpuPresent {
    * last-writer-wins present (the next render repaints), matching the 2D path's "drop
    * the stale result" intent.
    */
-  async render(xmp: string, generation: number): Promise<boolean> {
+  async render(xmp: string, generation: number, params?: Float32Array): Promise<boolean> {
     try {
-      const result = await this.host.pipeline.renderLiveSession(xmp);
+      const result = await this.host.pipeline.renderLiveSession(xmp, params);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.

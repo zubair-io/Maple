@@ -267,10 +267,44 @@ impl WebLiveSession {
                     self.width, self.height
                 )));
             }
-            self.session =
-                LiveSession::new(&self.ctx, &rgba, w, h).map_err(|e| JsError::new(&e))?;
+            self.session.update_image(&self.ctx, &rgba);
             self.prefix_model = prefix_model;
         }
+
+        self.present_for_model(&model)
+            .await
+            .map_err(|e| JsError::new(&e))
+    }
+
+    /// Re-render the live canvas with a flat parameters array (avoiding XML parsing on hot path).
+    #[wasm_bindgen]
+    pub async fn render_with_params(&mut self, params: &[f32]) -> Result<String, JsError> {
+        if params.len() < 19 {
+            return Err(JsError::new("render_with_params: params slice too short (expected at least 19 elements)"));
+        }
+
+        // We clone the prefix model to preserve the base (such as auto exposure, local adjustments, crop, etc.)
+        let mut model = self.prefix_model.clone();
+
+        model.exposure = params[0];
+        model.brightness = params[1];
+        model.contrast = params[2];
+        model.highlights = params[3];
+        model.shadows = params[4];
+        model.whites = params[5];
+        model.blacks = params[6];
+        model.vibrance = params[7];
+        model.saturation = params[8];
+        model.temperature = params[9];
+        model.tint = params[10];
+        model.clarity = params[11];
+        model.texture = params[12];
+        model.dehaze = params[13];
+        model.vignette_amount = params[14];
+        model.vignette_feather = params[15];
+        model.grain_amount = params[16];
+        model.grain_size = params[17];
+        model.grain_roughness = params[18];
 
         self.present_for_model(&model)
             .await

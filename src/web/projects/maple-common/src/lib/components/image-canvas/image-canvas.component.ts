@@ -521,9 +521,34 @@ export class ImageCanvasComponent
     if (!bytes) return;
 
     if (this.gpuPresent.active()) {
+      const a = this.state.focusedAsset();
+      let params: Float32Array | undefined = undefined;
+      if (a) {
+        const model = this.state.adjustmentFor(a.id)();
+        params = new Float32Array(19);
+        params[0] = model.exposure;
+        params[1] = model.brightness;
+        params[2] = model.contrast;
+        params[3] = model.highlights;
+        params[4] = model.shadows;
+        params[5] = model.whites;
+        params[6] = model.blacks;
+        params[7] = model.vibrance;
+        params[8] = model.saturation;
+        params[9] = model.temperature;
+        params[10] = model.tint;
+        params[11] = model.clarity;
+        params[12] = model.texture;
+        params[13] = model.dehaze;
+        params[14] = model.vignetteAmount;
+        params[15] = model.vignetteFeather;
+        params[16] = model.grainAmount;
+        params[17] = model.grainSize;
+        params[18] = model.grainRoughness;
+      }
       // The helper presents to the OffscreenCanvas + stale-guards on `generation`,
       // returning whether to record the result (see its `render()` doc).
-      const accepted = await this.gpuPresent.render(xmp, generation);
+      const accepted = await this.gpuPresent.render(xmp, generation, params);
       if (accepted) this.lastRenderedXmp = xmp;
       return;
     }

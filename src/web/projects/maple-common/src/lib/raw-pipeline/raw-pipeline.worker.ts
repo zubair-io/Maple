@@ -543,7 +543,12 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
     }
     try {
       performance.mark(`maple:session-render:${req.id}:start`);
-      const colorSpace = await liveSession.render(req.xmp ?? null);
+      let colorSpace: string;
+      if (req.params) {
+        colorSpace = await liveSession.render_with_params(req.params);
+      } else {
+        colorSpace = await liveSession.render(req.xmp ?? null);
+      }
       performance.mark(`maple:session-render:${req.id}:end`);
       performance.measure(
         'maple:session-render',
