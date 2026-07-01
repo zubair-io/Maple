@@ -33,7 +33,10 @@ describe('tokens', () => {
     // "tamper" was a no-op (flaky). See #1674.
     const flipped = s[0] === 'A' ? 'B' : 'A';
     const bad = `${h}.${p}.${flipped}${s.slice(1)}`;
-    await expect(verifyAccessToken(bad, SECRET)).rejects.toThrow();
+    // Assert the SIGNATURE failure specifically (matching the sibling
+    // wrong-secret test) so a future regression can't make this pass for an
+    // unrelated reason — e.g. a malformed token/claims error.
+    await expect(verifyAccessToken(bad, SECRET)).rejects.toThrow(/signature/i);
   });
 
   it('rejects a token signed with a different secret', async () => {
