@@ -76,24 +76,25 @@ export class BatchMetadataService {
   }
 
   // ---------------------------------------------------------------------------
-  // Refile (backup geo-organisation after a GPS apply)
+  // Relocate (move primary file into year/state/city folder after a location apply)
   // ---------------------------------------------------------------------------
 
   /**
-   * POST /api/backup/refile-count — count how many of the given asset addresses
-   * have a geo-backup copy that would be relocated by the new coordinates.
+   * POST /api/library/relocate-count — count how many of the given asset
+   * addresses would be relocated into their geo folder by the new location.
    * Returns `{ count: number }`.
    */
-  refileCount(addresses: string[]): Observable<RefileCountResult> {
-    return this.http.post<RefileCountResult>('/api/backup/refile-count', { addresses });
+  relocateCount(addresses: string[]): Observable<RefileCountResult> {
+    return this.http.post<RefileCountResult>('/api/library/relocate-count', { addresses });
   }
 
   /**
-   * POST /api/backup/refile — relocate geo-backup copies for the given addresses.
+   * POST /api/library/relocate — relocate the primary file (+ .xmp sidecar)
+   * for the given addresses into their canonical location folder.
    * Partial failures are reported per-asset; successes are not rolled back.
    * Returns `{ results: [...] }`.
    */
-  refile(addresses: string[]): Observable<RefileResult> {
-    return this.http.post<RefileResult>('/api/backup/refile', { addresses });
+  relocate(addresses: string[]): Observable<RefileResult> {
+    return this.http.post<RefileResult>('/api/library/relocate', { addresses });
   }
 }

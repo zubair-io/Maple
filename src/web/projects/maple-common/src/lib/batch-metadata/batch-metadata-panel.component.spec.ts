@@ -216,7 +216,9 @@ describe('BatchMetadataPanelComponent', () => {
           { address: 'photos:b.dng', ok: true },
         ],
       });
-      http.expectNone('/api/backup/refile-count');
+      // city is a location field — relocate-count IS called (count:0 so no offer shown).
+      fixture.detectChanges();
+      http.expectOne('/api/library/relocate-count').flush({ count: 0 });
     });
 
     it('sends null for an explicitly cleared field', () => {
@@ -238,6 +240,9 @@ describe('BatchMetadataPanelComponent', () => {
           { address: 'photos:b.dng', ok: true },
         ],
       });
+      // city is a location field — relocate-count is called (count:0 so no offer).
+      fixture.detectChanges();
+      http.expectOne('/api/library/relocate-count').flush({ count: 0 });
     });
 
     it('splits comma-separated keywords into an array', () => {
@@ -308,7 +313,7 @@ describe('BatchMetadataPanelComponent', () => {
         ],
       });
       fixture.detectChanges();
-      http.expectOne('/api/backup/refile-count').flush({ count: 0 });
+      http.expectOne('/api/library/relocate-count').flush({ count: 0 });
     });
 
     it('stays on confirm phase and surfaces per-asset errors on batchApply partial failure', () => {

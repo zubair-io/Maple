@@ -4,7 +4,7 @@
 // These run under bare vitest (no Angular DI) because computeMixedValues is a
 // standalone pure function — no TestBed needed.
 //
-// HTTP wiring (batchApply, geocodeSearch, refileCount, refile) is covered by
+// HTTP wiring (batchApply, geocodeSearch, relocateCount, relocate) is covered by
 // batch-metadata.service.http.spec.ts using Angular TestBed + HttpTestingController.
 
 import { describe, it, expect } from 'vitest';
