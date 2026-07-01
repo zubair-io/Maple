@@ -324,4 +324,76 @@ describe('library-relocate end-to-end', () => {
       await assets.deleteOne({ _id });
     }
   });
+
+  it('synchronously reconciles override from sidecar on-the-fly when stage version is dirty (relocate-count)', async () => {
+    const db = await connectOrSkip('on-the-fly reconcile');
+    if (!db) return;
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-reconcile-'));
+    await seedLibrary(libId, dir);
+
+    const oldRel = '2024/Loose';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_4.dng'), 'pixels');
+
+    // Create a valid XMP sidecar on disk with geo information
+    const xmpContent = `<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+   xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
+   xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"
+   photoshop:City="Berkeley"
+   photoshop:State="California"
+   photoshop:Country="United States"
+   Iptc4xmpCore:CountryCode="US">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`;
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_4.xmp'), xmpContent);
+
+    const _id = new ObjectId();
+    // Insert asset with stages version set to 0 (dirty) and NO metadata_override place_text
+    await assets.insertOne({
+      _id,
+      maple_id: 'relocate-reconcile-id',
+      fileinfo: [
+        {
+          path: oldRel,
+          filename: 'IMG_4.dng',
+          library_id: libId,
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+      // No metadata_override at all, mimicking state immediately after batchApply
+      exif: { captured_year: 2024 },
+      stages: {
+        'sidecar-metadata-index': { version: 0, attempts: 0, dead: false },
+      },
+    } as never);
+
+    try {
+      // Prior to relocate-count, doc in DB has no metadata_override.place_text.
+      // Calling relocate-count should:
+      //   1. Notice version !== 1.
+      //   2. Run sidecarMetadataIndexHandler.
+      //   3. Update the doc in the DB with metadata_override.place_text.
+      //   4. Correctly count this asset as wouldRelocate (since target is California/Berkeley and current is Loose).
+      const res = await postCount([`${SLUG}:${oldRel}/IMG_4.dng`]);
+      expect(res.status).toBe(200);
+      const countBody = (await res.json()) as { count: number };
+      expect(countBody.count).toBe(1);
+
+      // Verify DB was updated
+      const doc = (await assets.findOne({ _id })) as any;
+      expect(doc?.metadata_override?.place_text?.city).toBe('Berkeley');
+      expect(doc?.metadata_override?.place_text?.state).toBe('California');
+      expect(doc?.stages?.['sidecar-metadata-index']?.version).toBe(1);
+    } finally {
+      await assets.deleteOne({ _id });
+    }
+  });
 });

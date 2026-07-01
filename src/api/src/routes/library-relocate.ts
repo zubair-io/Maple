@@ -39,6 +39,12 @@ import { moveBackupAsset } from '../workers/migration/move-backup-asset.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc, MetadataOverride } from '../db/schema.ts';
 import type { Collection, WithId } from 'mongodb';
+import {
+  sidecarMetadataIndexHandler,
+  SIDECAR_METADATA_INDEX_VERSION,
+  SIDECAR_METADATA_INDEX_STAGE_NAME,
+} from '../workers/stages/sidecar-metadata-index.ts';
+import type { ImageDoc } from '../workers/run-stage.ts';
 
 const log = childLogger('routes/library-relocate');
 
@@ -199,6 +205,7 @@ async function findGeoDocs(
           'exif.captured_year': 1,
           is_screenshot: 1,
           'metadata_override.place_text': 1,
+          stages: 1,
         },
       },
     )
@@ -207,7 +214,7 @@ async function findGeoDocs(
   // Reconstruct each doc's absolute path and intersect with the authorized set
   // so same-named files in unrelated libraries cannot be moved accidentally.
   const absPathSet = new Set(absPaths);
-  return docs.filter((doc) => {
+  const matchedDocs = docs.filter((doc) => {
     const primary = assetPrimaryFileInfo(doc);
     if (!primary) return false;
     const root = libs.get(primary.library_id.toHexString());
@@ -215,6 +222,57 @@ async function findGeoDocs(
     const absDocPath = nodePath.join(root, primary.path, primary.filename);
     return absPathSet.has(absDocPath);
   });
+
+  // Reconcile sidecar metadata on the fly for any dirty docs
+  for (const doc of matchedDocs) {
+    const version = doc.stages?.[SIDECAR_METADATA_INDEX_STAGE_NAME]?.version;
+    if (version !== SIDECAR_METADATA_INDEX_VERSION) {
+      try {
+        const result = await sidecarMetadataIndexHandler(doc as unknown as ImageDoc, {
+          log,
+          signal: new AbortController().signal,
+        });
+        const stageState = {
+          version: SIDECAR_METADATA_INDEX_VERSION,
+          attempts: 0,
+          last_error: null,
+          processed_at: new Date(),
+          dead: false,
+        };
+        if ('patch' in result && result.patch) {
+          await c.updateOne(
+            { _id: doc._id },
+            {
+              $set: {
+                [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
+                ...result.patch,
+              },
+            },
+          );
+          Object.assign(doc, result.patch);
+        } else if ('skip' in result) {
+          await c.updateOne(
+            { _id: doc._id },
+            {
+              $set: {
+                [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: {
+                  ...stageState,
+                  last_error: `skip: ${result.skip}`,
+                },
+              },
+            },
+          );
+        }
+      } catch (err: unknown) {
+        log.warn(
+          { _id: String(doc._id), err: err instanceof Error ? err.message : String(err) },
+          'library-relocate: failed to reconcile sidecar metadata on the fly',
+        );
+      }
+    }
+  }
+
+  return matchedDocs;
 }
 
 /**
