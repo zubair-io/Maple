@@ -331,19 +331,26 @@ export class BatchMetadataPanelComponent implements OnDestroy {
           return;
         }
 
-        // Apply succeeded. Check whether we should offer a refile.
-        const gpsTouched = this.touched().has('gpsLatitude') || this.touched().has('gpsLongitude');
+        // Apply succeeded — offer relocate if any location field was touched.
+        const loc = this.touched();
+        const locationTouched =
+          loc.has('gpsLatitude') ||
+          loc.has('gpsLongitude') ||
+          loc.has('city') ||
+          loc.has('state') ||
+          loc.has('country') ||
+          loc.has('countryCode') ||
+          loc.has('sublocation');
 
-        if (!gpsTouched) {
+        if (!locationTouched) {
           this.phase.set('done');
           setTimeout(() => this.dismiss.emit(), 800);
           return;
         }
 
-        // GPS was touched — ask the API how many backups would be relocated.
         const addresses = this.assetSnapshots().map((s) => s.address);
         this.refileSub?.unsubscribe();
-        this.refileSub = this.svc.refileCount(addresses).subscribe({
+        this.refileSub = this.svc.relocateCount(addresses).subscribe({
           next: ({ count }) => {
             if (count > 0) {
               this.refileCount.set(count);
@@ -385,12 +392,12 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   // ── Refile-offer handlers ─────────────────────────────────────────────────
 
-  /** User clicked "Move" — trigger the actual refile. */
+  /** User clicked "Move" — trigger the actual relocate. */
   onRefileAccept(): void {
     this.phase.set('refile-applying');
     const addresses = this.assetSnapshots().map((s) => s.address);
     this.refileSub?.unsubscribe();
-    this.refileSub = this.svc.refile(addresses).subscribe({
+    this.refileSub = this.svc.relocate(addresses).subscribe({
       next: (result) => {
         const failures = result.results.filter((r) => !r.ok);
         this.refileErrors.set(

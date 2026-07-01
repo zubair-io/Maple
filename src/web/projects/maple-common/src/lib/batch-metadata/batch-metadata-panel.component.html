@@ -30,24 +30,24 @@
         </div>
       }
 
-      <!-- Refile offer state -->
+      <!-- Relocate offer state -->
       @if (refileOfferVisible()) {
         <div class="bm-body bm-center">
           @if (refileErrors().length > 0) {
             <p class="bm-error-msg">
-              {{ refileErrors().length }} backup(s) could not be moved. The metadata was still
+              {{ refileErrors().length }} photo(s) could not be moved. The metadata was still
               applied successfully.
             </p>
           } @else if (refileApplying()) {
-            <p class="bm-hint">Moving backup copies…</p>
+            <p class="bm-hint">Moving photos into location folders…</p>
           } @else {
             <p>
-              {{ refileCount() }} backup {{ refileCount() === 1 ? 'copy' : 'copies' }} can be
-              relocated to match the new GPS coordinates.
+              Move {{ refileCount() }} {{ refileCount() === 1 ? 'photo' : 'photo(s)' }} into their
+              location folders?
             </p>
             <p class="bm-hint">
-              This moves the backup file(s) into the geo-organised folder for the new location. The
-              original is never modified.
+              Files will be placed under <code>year/state/city</code> inside their library. The move
+              is crash-safe and the file bytes are never altered.
             </p>
           }
           <div class="bm-footer">
