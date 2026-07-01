@@ -158,7 +158,6 @@ export class LibraryCache {
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
-  private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
 
   /**
    * LRU cache: at most 1 GB of RAW bytes resident in memory.
