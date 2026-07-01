@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { Elysia } from 'elysia';
 import { libraryRelocateRoutes } from './library-relocate.ts';
+import type { getDb } from '../db/client.ts';
 
 // Unique test DB so a stray run never touches the real `maple` DB.
 process.env.MAPLE_MONGO_DB = `maple_test_library_relocate_e2e_${process.pid}`;
@@ -31,7 +32,7 @@ const SLUG = 'photos';
 
 async function connectOrSkip(
   label: string,
-): Promise<Awaited<ReturnType<typeof import('../db/client.ts').getDb>> | null> {
+): Promise<Awaited<ReturnType<typeof getDb>> | null> {
   try {
     const { getDb } = await import('../db/client.ts');
     return await getDb();

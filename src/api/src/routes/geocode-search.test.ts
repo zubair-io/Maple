@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
-import { NominatimClient } from '../enrichment/nominatim-client.ts';
+import type { NominatimClient } from '../enrichment/nominatim-client.ts';
 import { setGeocodeSearchClientForTests } from './geocode-search.ts';
 import type { NominatimSearchResult } from '../enrichment/nominatim-client.ts';
 

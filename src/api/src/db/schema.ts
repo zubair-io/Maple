@@ -401,7 +401,7 @@ export interface AssetDoc {
     /** Always "temporal-neighbor" for v1. */
     source: 'temporal-neighbor';
     /** _id of the donor asset whose GPS was borrowed. */
-    donor_id: import('mongodb').ObjectId;
+    donor_id: ObjectId;
     /** Absolute time difference in milliseconds between the video and the donor. */
     donor_delta_ms: number;
     /** ISO timestamp when the backfill was applied. */
