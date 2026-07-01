@@ -1,5 +1,5 @@
 // src/api/src/auth/webauthn.ts
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { randomBytes } from 'node:crypto';
 import {
   generateRegistrationOptions,

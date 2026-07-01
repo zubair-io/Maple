@@ -4,7 +4,7 @@
  * Handles caching, DB state fetching, and status assembly for the /status endpoint.
  */
 
-import { type Collection, type Filter } from 'mongodb';
+import { type Collection, type Document, type Filter } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
@@ -131,8 +131,6 @@ export async function fetchStatusDbState(
   const deadByStage = new Map<string, number>();
   let damagedTotal = 0;
   let assets: Collection<Document> | null = null;
-  type Document = import('mongodb').Document;
-
   try {
     const db = await getDb();
     assets = db.collection<Document>('assets') as Collection<Document>;
