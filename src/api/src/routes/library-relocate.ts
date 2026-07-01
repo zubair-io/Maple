@@ -32,19 +32,20 @@ import { resolveAddressString } from '../library/address.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+import { isVideoFilename } from '../indexer/media-types.ts';
 import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
 import { moveBackupAsset } from '../workers/migration/move-backup-asset.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc, MetadataOverride } from '../db/schema.ts';
-import type { WithId } from 'mongodb';
+import type { Collection, WithId } from 'mongodb';
 
 const log = childLogger('routes/library-relocate');
 
 const MAX_ADDRESSES = 1000;
 
 // ---------------------------------------------------------------------------
-// Helpers (shared with the old backup-refile.ts for geo dir computation)
+// Helpers (geo dir computation)
 // ---------------------------------------------------------------------------
 
 /**
@@ -81,10 +82,9 @@ function stripCivicPrefix(name: string | null): string | null {
 }
 
 /**
- * Compute location segments directly from `metadata_override.place_text`.
- * Mirrors `geoSegmentsFromOverride` in backup-refile.ts — reads from the IPTC
- * override fields so the relocate uses the user's just-set geo selection rather
- * than the stale Nominatim-geocoded `doc.place`.
+ * Compute location segments directly from `metadata_override.place_text` —
+ * reads from the IPTC override fields so the relocate uses the user's just-set
+ * geo selection rather than the stale Nominatim-geocoded `doc.place`.
  *
  * Returns `[]` when `place_text` is absent or has no usable country/state.
  */
@@ -150,6 +150,10 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
 function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
   const primary = assetPrimaryFileInfo(doc);
   if (!primary) return false;
+  // Videos are excluded until the full-name sidecar convention (clip.mov.xmp) is
+  // handled by listPairedSidecars/planAndPlace — otherwise relocating a video
+  // would strand its .mov.xmp sidecar in the old folder. Tracked by #1678.
+  if (isVideoFilename(primary.filename)) return false;
   // Screenshot is always a candidate (it has a canonical dir).
   if (doc.is_screenshot) return true;
   const overrideSegs = geoSegmentsFromOverride(doc.metadata_override);
@@ -160,8 +164,7 @@ function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
 
 /**
  * True when relocating the asset would actually move it — i.e. its target geo
- * dir differs from its current dir. Same as the old `wouldRelocate` in
- * backup-refile.ts but using the generalised `isGeoCandidate`.
+ * dir differs from its current dir.
  */
 function wouldRelocate(doc: WithId<AssetDoc>): boolean {
   if (!isGeoCandidate(doc)) return false;
@@ -212,6 +215,23 @@ async function findGeoDocs(
     const absDocPath = nodePath.join(root, primary.path, primary.filename);
     return absPathSet.has(absDocPath);
   });
+}
+
+/**
+ * After a `moved` outcome, re-read the asset's repointed primary fileinfo and
+ * report whether a collision auto-rename occurred — i.e. its new filename
+ * differs from the one we started with. `moveBackupAsset` itself can't tell a
+ * plain move from a rename, so we compare here rather than guess.
+ */
+async function didRename(
+  coll: Collection<AssetDoc>,
+  id: WithId<AssetDoc>['_id'],
+  originalFilename: string,
+): Promise<boolean> {
+  const fresh = await coll.findOne({ _id: id }, { projection: { fileinfo: 1 } });
+  if (!fresh) return false;
+  const primary = assetPrimaryFileInfo(fresh);
+  return primary != null && primary.filename !== originalFilename;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,9 +366,11 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
         const libRoot = primary ? libs.get(primary.library_id.toHexString()) : undefined;
         // Reconstruct the doc's absolute path (unique per asset — same way
         // findGeoDocs matches) to recover the EXACT client address string.
+        // Fall back to '' rather than addresses[0]: on a miss (e.g. no libRoot,
+        // so docAbsPath is '') a wrong-asset attribution would be worse than none.
         const docAbsPath =
           primary && libRoot ? nodePath.join(libRoot, primary.path, primary.filename) : '';
-        const representativeAddress = absToClient.get(docAbsPath) ?? addresses[0] ?? '';
+        const representativeAddress = absToClient.get(docAbsPath) ?? '';
 
         if (!isGeoCandidate(doc)) {
           // No resolvable geo location — silently skip.
@@ -376,15 +398,18 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
         try {
           // moveBackupAsset called WITHOUT extraSet — do NOT stamp backup_layout_version.
           // The sidecar is included automatically via listPairedSidecars in planAndPlace.
+          const originalFilename = primary?.filename;
           const outcome = await moveBackupAsset(c, doc, libRoot, newDir);
-          results.push({
-            address: representativeAddress,
-            ok: true,
-            outcome,
-            renamed: outcome === 'moved',
-          });
+          // `renamed` is only meaningful for an actual move. moveBackupAsset can't
+          // report a collision auto-rename, so re-read the repointed fileinfo and
+          // compare the new filename to the one we started with.
+          const renamed =
+            outcome === 'moved' && originalFilename != null
+              ? await didRename(c, doc._id, originalFilename)
+              : false;
+          results.push({ address: representativeAddress, ok: true, outcome, renamed });
           log.info(
-            { _id: String(doc._id), outcome, newDir },
+            { _id: String(doc._id), outcome, newDir, renamed },
             outcome === 'moved'
               ? 'library-relocate: asset relocated'
               : 'library-relocate: no move needed',
