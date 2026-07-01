@@ -224,6 +224,7 @@ async function findGeoDocs(
   });
 
   // Reconcile sidecar metadata on the fly for any dirty docs
+  const bulkOps: any[] = [];
   for (const doc of matchedDocs) {
     const version = doc.stages?.[SIDECAR_METADATA_INDEX_STAGE_NAME]?.version;
     if (version !== SIDECAR_METADATA_INDEX_VERSION) {
@@ -239,29 +240,46 @@ async function findGeoDocs(
           processed_at: new Date(),
           dead: false,
         };
+        doc.stages = doc.stages || {};
+        doc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = stageState;
+
         if ('patch' in result && result.patch) {
-          await c.updateOne(
-            { _id: doc._id },
-            {
-              $set: {
-                [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
-                ...result.patch,
-              },
-            },
-          );
-          Object.assign(doc, result.patch);
-        } else if ('skip' in result) {
-          await c.updateOne(
-            { _id: doc._id },
-            {
-              $set: {
-                [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: {
-                  ...stageState,
-                  last_error: `skip: ${result.skip}`,
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: doc._id },
+              update: {
+                $set: {
+                  [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
+                  ...result.patch,
                 },
               },
             },
-          );
+          });
+          for (const [key, value] of Object.entries(result.patch)) {
+            if (key.startsWith('metadata_override.')) {
+              const subKey = key.slice('metadata_override.'.length);
+              doc.metadata_override = doc.metadata_override || {};
+              (doc.metadata_override as any)[subKey] = value;
+            } else {
+              (doc as any)[key] = value;
+            }
+          }
+        } else if ('skip' in result) {
+          const skipState = {
+            ...stageState,
+            last_error: `skip: ${result.skip}`,
+          };
+          doc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = skipState;
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: doc._id },
+              update: {
+                $set: {
+                  [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: skipState,
+                },
+              },
+            },
+          });
         }
       } catch (err: unknown) {
         log.warn(
@@ -270,6 +288,10 @@ async function findGeoDocs(
         );
       }
     }
+  }
+
+  if (bulkOps.length > 0) {
+    await c.bulkWrite(bulkOps);
   }
 
   return matchedDocs;
