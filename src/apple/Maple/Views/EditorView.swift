@@ -16,6 +16,14 @@
 // │         [GROUP TABS ── living-slider grid]                     │  ← bottom card (glass)
 // └─────────────────────────────────────────────────────────────────┘
 //
+// Control-panel variants (TEMPORARY — for design exploration):
+//   .compact (.default) — ToolDock (group-switcher) on the right + ControlCard at the bottom.
+//   .panel              — StackedAdjustmentsPanel replaces the dock + card.
+// The variant is selected via `ControlVariantToggle` (a small segmented
+// control placed top-trailing below the pill) and persisted with @AppStorage.
+// Both the toggle and the branching in this file are clearly marked TEMPORARY
+// and must be removed before the design review concludes.
+//
 // All existing canvas logic (CanvasZoomHost, GPU/CPU leaf, crop overlay,
 // ValueChipOverlay, wheel nudge, zoom toolbar) is preserved unchanged.
 // EditorHeader, DragBar, and ToolPillRow are kept as files (their previews
@@ -65,6 +73,17 @@ struct EditorView: View {
     @State private var hudVisible = false
     @State private var hudHideTask: Task<Void, Never>?
 
+    // ── TEMPORARY: control-panel variant (exploration only) ──────────────────
+    // Persisted with @AppStorage so the choice survives app restarts during
+    // design review.  Default is `.compact` (the existing A2 layout).
+    // REMOVE this property + the branching it drives before shipping.
+    @AppStorage("proControlVariant") private var controlVariant: String = ControlVariant.compact.rawValue
+
+    private var activeVariant: ControlVariant {
+        ControlVariant(rawValue: controlVariant) ?? .compact
+    }
+    // ── END TEMPORARY ─────────────────────────────────────────────────────────
+
     private var isRegular: Bool { hSizeClass == .regular }
 
     var body: some View {
@@ -102,52 +121,118 @@ struct EditorView: View {
                 .allowsHitTesting(isRegular || chromeVisible)
             }
 
-            // ── LAYER 3 : right tool dock (regular only) ──────────────────
-            // Vertically centered with its own max-height cap (set inside
-            // ToolDock).  `alignment: .trailing` = right edge + vertical center.
-            if isRegular {
-                ToolDock(state: state, onPresetsTap: { presetsOpen = true })
-                    #if os(macOS)
-                    .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
-                        PresetsPanel(
-                            state: state,
-                            store: presetStore,
-                            onApplied: { presetsOpen = false }
-                        )
-                        .frame(width: 340, height: 460)
-                        .background(MapleTokens.surface)
-                    }
-                    #endif
+            // ── LAYER 3 : right tool dock / panel (branched by variant) ────
+            //
+            // .compact — ToolDock (group-switcher) on the trailing edge.
+            //            Regular only; hidden on compact (phone).
+            // .panel   — StackedAdjustmentsPanel on the trailing edge (regular)
+            //            or as a bottom panel (compact).  Dock hidden.
+            //
+            // TEMPORARY: the variant branch below is exploration scaffolding —
+            // remove when the design review concludes.
+            switch activeVariant {
+            case .compact:
+                // Variant A: group-switcher dock (regular only, matches original A2).
+                if isRegular {
+                    ToolDock(state: state, onPresetsTap: { presetsOpen = true })
+                        #if os(macOS)
+                        .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
+                            PresetsPanel(
+                                state: state,
+                                store: presetStore,
+                                onApplied: { presetsOpen = false }
+                            )
+                            .frame(width: 340, height: 460)
+                            .background(MapleTokens.surface)
+                        }
+                        #endif
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                        .padding(.trailing, 12)
+                        .ignoresSafeArea(edges: .bottom)
+                        .opacity(chromeOpacity)
+                        .allowsHitTesting(isRegular || chromeVisible)
+                }
+
+            case .panel:
+                // Variant B: stacked panel — on regular it anchors to the
+                // trailing edge (the panel itself is right-anchored inside
+                // StackedAdjustmentsPanel on regular); on compact it sits at
+                // the bottom.
+                StackedAdjustmentsPanel(
+                    state: state,
+                    onPresetsTap: { presetsOpen = true }
+                )
+                #if os(macOS)
+                .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
+                    PresetsPanel(
+                        state: state,
+                        store: presetStore,
+                        onApplied: { presetsOpen = false }
+                    )
+                    .frame(width: 340, height: 460)
+                    .background(MapleTokens.surface)
+                }
+                #endif
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isRegular ? .trailing : .bottom)
+                .ignoresSafeArea(edges: .bottom)
+                .opacity(chromeOpacity)
+                .allowsHitTesting(isRegular || chromeVisible)
+            }
+
+            // ── LAYER 3b : flyout slider panel (variant A / regular only) ──
+            // The right-side single-group slider panel that sits just left of
+            // the ToolDock — together they form the "Flyout — dock + slider
+            // panel" Card layout.  Regular only; on compact (iPhone) the bottom
+            // ControlCard (layer 5) is used instead.
+            // TEMPORARY: control-variant exploration — remove with the rest.
+            if activeVariant == .compact && isRegular {
+                FlyoutSliderPanel(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .padding(.trailing, 12)
+                    .padding(.trailing, 88) // 12 dock pad + 64 dock width + 12 gap
                     .ignoresSafeArea(edges: .bottom)
                     .opacity(chromeOpacity)
                     .allowsHitTesting(isRegular || chromeVisible)
             }
 
             // ── LAYER 4 : top pill header ─────────────────────────────────
-            VStack {
-                PillHeader(
-                    state: state,
-                    onBack: onDismiss,
-                    onShare: onShare,
-                    onInfo: onInfo,
-                    showBeforeAfter: state.isDirty
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            //
+            // Pill is centered horizontally so it floats symmetrically above
+            // the canvas.  The ControlVariantToggle (exploration control) has
+            // moved to Settings → General so it no longer clutters the canvas
+            // chrome.
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer(minLength: 0)
+                    PillHeader(
+                        state: state,
+                        onBack: onDismiss,
+                        onShare: onShare,
+                        onInfo: onInfo,
+                        showBeforeAfter: state.isDirty
+                    )
+                    Spacer(minLength: 0)
+                }
                 Spacer()
             }
+            .padding(.top, 8)
             .frame(maxWidth: .infinity)
             .ignoresSafeArea(edges: .bottom)
             .opacity(chromeOpacity)
             .allowsHitTesting(isRegular || chromeVisible)
 
-            // ── LAYER 5 : bottom control card ─────────────────────────────
-            GeometryReader { geo in
+            // ── LAYER 5 : bottom control bar (variant A / compact only) ───────
+            //
+            // Hidden when the panel variant is active — StackedAdjustmentsPanel
+            // (layer 3) provides all slider controls.
+            // Regular replaces this with FlyoutSliderPanel (layer 3b);
+            // MobileControlBar is shown only on compact (iPhone).
+            // MobileControlBar replaces ControlCard here; ControlCard.swift
+            // is retained as a file (its preview / tests remain valid) but is
+            // no longer mounted in this layout.
+            if activeVariant == .compact && !isRegular {
                 VStack {
                     Spacer()
-                    ControlCard(
+                    MobileControlBar(
                         state: state,
                         onPresetsTap: { presetsOpen = true }
                     )
@@ -160,21 +245,12 @@ struct EditorView: View {
                         )
                     }
                     #endif
-                    // Contained width on regular (iPad/Mac) so the card centers
-                    // between the filmstrip rail (~122pt left) and the tool dock
-                    // (~76pt right). Clamped so it can't underlap either column
-                    // on a narrow regular window. The `max(320, …)` floor keeps
-                    // the value non-negative before `geo` settles — without it,
-                    // `geo.size.width - 300` is < 0 during the first layout pass
-                    // and SwiftUI logs "Invalid frame dimension (negative …)".
-                    .frame(maxWidth: isRegular ? min(860, max(320, geo.size.width - 300)) : .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea(edges: .bottom)
+                .opacity(chromeOpacity)
+                .allowsHitTesting(isRegular || chromeVisible)
             }
-            .frame(maxWidth: .infinity)
-            .ignoresSafeArea(edges: .bottom)
-            .opacity(chromeOpacity)
-            .allowsHitTesting(isRegular || chromeVisible)
 
             // ── LAYER 6 : cold-open loading bar ───────────────────────────
             // Pinned to the top edge and does NOT recede with the chrome (no
@@ -203,6 +279,12 @@ struct EditorView: View {
                 .allowsHitTesting(false)
             }
         }
+        // Full-bleed editor (#4 follow-up): on regular size class (Mac/iPad)
+        // pull the content into the top safe-area inset left over from the
+        // (now-hidden) title bar/toolbar so the canvas + pill reach the very
+        // top edge instead of leaving an empty black strip. Compact (iPhone)
+        // keeps its top inset so the pill clears the notch/status bar.
+        .ignoresSafeArea(edges: isRegular ? .top : [])
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("editor-view")
         // Kick the render once this view is the active editor for the
@@ -214,7 +296,11 @@ struct EditorView: View {
             scheduleRecede()
         }
         #if os(macOS)
-        .toolbar { editorZoomToolbar }
+        // Hide the macOS window toolbar in editor mode so the canvas is
+        // full-bleed; zoom controls have moved into the pill header.
+        // The toolbar reappears automatically when the editor is dismissed
+        // (EditorView leaves the view hierarchy and its modifier disappears).
+        .toolbar(.hidden, for: .windowToolbar)
         #endif
         .onChange(of: state.armedTool) { _, _ in bumpChrome(); flashHUD() }
         .onChange(of: state.armedGroup) { _, _ in bumpChrome() }
@@ -224,6 +310,32 @@ struct EditorView: View {
         .onDisappear {
             recedeTask?.cancel()
             hudHideTask?.cancel()
+        }
+        // ── Arrow-key group cycling (regular / iPad & Mac only) ────────────
+        // Down = next group (Detail → Light wraps), Up = previous.
+        // `.focusable(isRegular)` makes the ZStack a key-event target when
+        // no child slider has focus.  A focused LivingSlider consuming
+        // `.handled` on its own arrow keys takes priority (innermost first).
+        // CAVEAT TO VERIFY: on macOS focus may not land here after clicking
+        // away from a slider — if so, add `.focusScope` or make the canvas
+        // `.focusable()` as the default target.  On iPadOS this modifier is
+        // load-bearing for hardware-keyboard delivery; confirm on device.
+        .focusable(isRegular)
+        .onKeyPress(.downArrow) {
+            guard isRegular else { return .ignored }
+            let all = ToolGroup.allCases
+            let current = state.armedGroup
+            let next = all[(all.firstIndex(of: current)! + 1) % all.count]
+            withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: next) }
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            guard isRegular else { return .ignored }
+            let all = ToolGroup.allCases
+            let current = state.armedGroup
+            let prev = all[(all.firstIndex(of: current)! + all.count - 1) % all.count]
+            withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: prev) }
+            return .handled
         }
     }
 
@@ -305,21 +417,8 @@ struct EditorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MapleTokens.bg)
-        // Render-path badge (bottom-trailing) — mirrors the zoom % badge
-        // (bottom-leading, CanvasZoomHost) with the same pill style; surfaces
-        // whether the canvas is on the wgpu live path (GPU) or the CPU
-        // fallback (`gpuFramePresented` latches the first GPU present).
-        .overlay(alignment: .bottomTrailing) {
-            Text(state.session.gpuFramePresented ? "GPU" : "CPU")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
-                .padding(8)
-                .allowsHitTesting(false)
-                .accessibilityIdentifier("editor-render-path-badge")
-        }
+        // Render-path badge and zoom % have moved to PillHeader — the
+        // bottom-trailing GPU/CPU overlay is no longer rendered here.
         // Compact chrome recede: any tap on the canvas restores chrome.
         .contentShape(Rectangle())
         .onTapGesture {
@@ -434,34 +533,6 @@ struct EditorView: View {
         }
     }
 
-    // MARK: - Zoom toolbar (macOS)
-
-    #if os(macOS)
-    @ToolbarContentBuilder
-    private var editorZoomToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            Button("Fit", systemImage: "arrow.down.right.and.arrow.up.left") {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    state.zoom.resetToFit()
-                }
-            }
-            .keyboardShortcut("0", modifiers: .command)
-            .help("Fit (⌘0)")
-            .accessibilityLabel("Zoom to fit")
-            .accessibilityIdentifier("editor-zoom-fit")
-
-            Button("100%", systemImage: "1.circle") {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    state.zoom.zoomToScale(1.0)
-                }
-            }
-            .keyboardShortcut("1", modifiers: .command)
-            .help("Actual size (⌘1)")
-            .accessibilityLabel("Zoom to 100 percent")
-            .accessibilityIdentifier("editor-zoom-100")
-        }
-    }
-    #endif
 }
 
 // MARK: - Preview
