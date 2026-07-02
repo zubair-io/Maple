@@ -543,22 +543,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             CropRect::clamped(x, y, w, h, width, height)
         });
 
-    let md = decoder
-        .as_ref()
-        .and_then(|dec| dec.raw_metadata(&source, &params).ok());
+    let md = decoder.as_ref().and_then(|dec| dec.raw_metadata(&source, &params).ok());
     let aperture = md.as_ref().and_then(|m| m.exif.fnumber).map(|r| {
-        if r.d == 0 {
-            0.0
-        } else {
-            r.n as f32 / r.d as f32
-        }
+        if r.d == 0 { 0.0 } else { r.n as f32 / r.d as f32 }
     });
     let focal_length = md.as_ref().and_then(|m| m.exif.focal_length).map(|r| {
-        if r.d == 0 {
-            0.0
-        } else {
-            r.n as f32 / r.d as f32
-        }
+        if r.d == 0 { 0.0 } else { r.n as f32 / r.d as f32 }
     });
 
     let opcode_list3 = crate::pipeline::pano::opcodes::read_opcode_list3(bytes, ext, width, height);
