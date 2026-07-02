@@ -90,17 +90,19 @@ const LUMA_FLOOR: f32 = 1e-6;
 /// in `stages::texture`. They share the `blur::guided_filter` primitive.
 pub fn apply(img: &mut Image, clarity: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if clarity.abs() < 1e-3 { return; }
+    if clarity.abs() < 1e-3 {
+        return;
+    }
     let amount = clarity / 100.0;
 
     let w = img.width as usize;
     let h = img.height as usize;
 
     // Build the luma plane.
-    let luma_plane: Vec<f32> = img.pixels.iter()
-        .map(|p| LUMA_REC2020[0] * p[0]
-              + LUMA_REC2020[1] * p[1]
-              + LUMA_REC2020[2] * p[2])
+    let luma_plane: Vec<f32> = img
+        .pixels
+        .iter()
+        .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
     // Edge-preserving base (low-frequency, no cross-edge bleed).
     let base = guided_filter(
@@ -188,7 +190,9 @@ mod tests {
     #[test]
     fn preserves_scene_headroom() {
         let mut img = Image::new(10, 10, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [5.0, 3.0, 1.5]; }
+        for p in &mut img.pixels {
+            *p = [5.0, 3.0, 1.5];
+        }
         apply(&mut img, 100.0);
         for p in &img.pixels {
             for &c in p {
@@ -215,14 +219,20 @@ mod tests {
         // Pixels at the step retain or amplify contrast — the
         // brighter side stays ≥ original brightness, the darker
         // side stays ≤ original darkness, modulo f32 noise.
-        let dark_i  = (h / 2) * w + (w / 2 - 1);
+        let dark_i = (h / 2) * w + (w / 2 - 1);
         let bright_i = (h / 2) * w + (w / 2);
-        assert!(img.pixels[dark_i][0] <= before[dark_i][0] + 1e-3,
+        assert!(
+            img.pixels[dark_i][0] <= before[dark_i][0] + 1e-3,
             "dark side at edge brightened: {} > {}",
-            img.pixels[dark_i][0], before[dark_i][0]);
-        assert!(img.pixels[bright_i][0] >= before[bright_i][0] - 1e-3,
+            img.pixels[dark_i][0],
+            before[dark_i][0]
+        );
+        assert!(
+            img.pixels[bright_i][0] >= before[bright_i][0] - 1e-3,
             "bright side at edge darkened: {} < {}",
-            img.pixels[bright_i][0], before[bright_i][0]);
+            img.pixels[bright_i][0],
+            before[bright_i][0]
+        );
     }
 
     /// Regression for Ticket 11 Bug B. Build a coloured edge — half
@@ -251,17 +261,33 @@ mod tests {
         let r_g_ref = 1.5;
         let r_b_ref = 2.0;
         for (i, p) in img.pixels.iter().enumerate() {
-            assert!(p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
-                "pixel {} not finite: {:?}", i, p);
+            assert!(
+                p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
+                "pixel {} not finite: {:?}",
+                i,
+                p
+            );
             // Ratio preserved within a tight tolerance — the only deviation
             // possible is f32 round-off and the LUMA_FLOOR floor (which only
             // kicks in for pure-black pixels, not here).
             let ratio_rg = p[0] / p[1];
             let ratio_rb = p[0] / p[2];
-            assert!((ratio_rg - r_g_ref).abs() < 1e-3,
-                "pixel {}: R/G ratio {} drifted from {} (RGB={:?})", i, ratio_rg, r_g_ref, p);
-            assert!((ratio_rb - r_b_ref).abs() < 1e-3,
-                "pixel {}: R/B ratio {} drifted from {} (RGB={:?})", i, ratio_rb, r_b_ref, p);
+            assert!(
+                (ratio_rg - r_g_ref).abs() < 1e-3,
+                "pixel {}: R/G ratio {} drifted from {} (RGB={:?})",
+                i,
+                ratio_rg,
+                r_g_ref,
+                p
+            );
+            assert!(
+                (ratio_rb - r_b_ref).abs() < 1e-3,
+                "pixel {}: R/B ratio {} drifted from {} (RGB={:?})",
+                i,
+                ratio_rb,
+                r_b_ref,
+                p
+            );
         }
     }
 
@@ -387,8 +413,7 @@ mod tests {
         let b = 0.0f32;
         let g = (5e-7 - LUMA_REC2020[0] * r - LUMA_REC2020[2] * b) / LUMA_REC2020[1];
         let sub_floor = [r, g, b];
-        let sub_floor_luma =
-            LUMA_REC2020[0] * r + LUMA_REC2020[1] * g + LUMA_REC2020[2] * b;
+        let sub_floor_luma = LUMA_REC2020[0] * r + LUMA_REC2020[1] * g + LUMA_REC2020[2] * b;
         assert!(
             sub_floor_luma > 0.0 && sub_floor_luma <= LUMA_FLOOR,
             "fixture bug: luma {} not in (0, LUMA_FLOOR]",
@@ -398,7 +423,11 @@ mod tests {
         let neg_luma_y = LUMA_REC2020[0] * neg_luma[0]
             + LUMA_REC2020[1] * neg_luma[1]
             + LUMA_REC2020[2] * neg_luma[2];
-        assert!(neg_luma_y < 0.0, "fixture bug: luma {} not negative", neg_luma_y);
+        assert!(
+            neg_luma_y < 0.0,
+            "fixture bug: luma {} not negative",
+            neg_luma_y
+        );
 
         let i_sub = 4 * w + 10;
         let i_neg = 4 * w + 30;
@@ -435,7 +464,9 @@ mod tests {
     #[test]
     fn handles_pure_black_pixels() {
         let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.0, 0.0, 0.0]; }
+        for p in &mut img.pixels {
+            *p = [0.0, 0.0, 0.0];
+        }
         // Plant a single bright pixel so the blur is non-flat.
         img.pixels[10 * 20 + 10] = [0.5, 0.5, 0.5];
         apply(&mut img, 100.0);
@@ -477,14 +508,22 @@ mod tests {
         let mut max_overshoot = 0.0f32;
         for dx in 1..=5 {
             let x = (cx + radius + dx as f32).round() as usize;
-            if x >= w { break; }
+            if x >= w {
+                break;
+            }
             let v = img.pixels[row * w + x][0];
             let over = (v - bg).max(0.0);
-            if over > max_overshoot { max_overshoot = over; }
+            if over > max_overshoot {
+                max_overshoot = over;
+            }
         }
         // 2 % of background is the same target the synthetic detector uses.
-        assert!(max_overshoot / bg < 0.02,
+        assert!(
+            max_overshoot / bg < 0.02,
             "halo overshoot {:.4} / bg {:.4} = {:.2}% exceeds 2%",
-            max_overshoot, bg, 100.0 * max_overshoot / bg);
+            max_overshoot,
+            bg,
+            100.0 * max_overshoot / bg
+        );
     }
 }

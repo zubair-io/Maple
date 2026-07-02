@@ -114,14 +114,20 @@ fn chroma_params(amount: f32) -> NlmParams {
 /// `par_iter`; the NLM kernel itself is internally parallel across
 /// its row-update / sqdiff sweeps (see [`crate::stages::nlm`]).
 #[inline]
-pub fn apply_luminance(img: &mut Image, amount: f32) {
-    apply_luminance_cancellable(img, amount, CancelToken::never());
+pub fn apply_luminance(img: &mut Image, amount: f32, noise_profile: Option<&[f32]>, iso: u32) {
+    apply_luminance_cancellable(img, amount, CancelToken::never(), noise_profile, iso);
 }
 
 /// Cancellable variant of [`apply_luminance`]. Forwards `cancel` into the
 /// NLM kernel so the between-shifts check can unwind a long luma pass. With
 /// a never-cancel token the result is bit-identical to [`apply_luminance`].
-pub fn apply_luminance_cancellable(img: &mut Image, amount: f32, cancel: CancelToken<'_>) {
+pub fn apply_luminance_cancellable(
+    img: &mut Image,
+    amount: f32,
+    cancel: CancelToken<'_>,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 {
         return;
@@ -142,7 +148,17 @@ pub fn apply_luminance_cancellable(img: &mut Image, amount: f32, cancel: CancelT
     let l_plane: Vec<f32> = oklab.par_iter().map(|p| p[0]).collect();
 
     // Denoise.
-    let denoised_l = denoise_plane_cancellable(&l_plane, w, h, params, cancel);
+    let denoised_l = denoise_plane_cancellable(
+        &l_plane,
+        w,
+        h,
+        params,
+        cancel,
+        &l_plane,
+        noise_profile,
+        iso,
+        false,
+    );
 
     // Writeback L, convert back to Rec.2020.
     img.pixels
@@ -158,8 +174,8 @@ pub fn apply_luminance_cancellable(img: &mut Image, amount: f32, cancel: CancelT
 /// L untouched. Uses a wider search window than luma (chroma noise
 /// is lower-frequency).
 #[inline]
-pub fn apply_color(img: &mut Image, amount: f32) {
-    apply_color_cancellable(img, amount, CancelToken::never());
+pub fn apply_color(img: &mut Image, amount: f32, noise_profile: Option<&[f32]>, iso: u32) {
+    apply_color_cancellable(img, amount, CancelToken::never(), noise_profile, iso);
 }
 
 /// Cancellable variant of [`apply_color`]. Both chroma NLM passes observe
@@ -167,7 +183,13 @@ pub fn apply_color(img: &mut Image, amount: f32) {
 /// `nr_color`), so the in-kernel check here is what actually interrupts the
 /// freeze. With a never-cancel token the result is bit-identical to
 /// [`apply_color`].
-pub fn apply_color_cancellable(img: &mut Image, amount: f32, cancel: CancelToken<'_>) {
+pub fn apply_color_cancellable(
+    img: &mut Image,
+    amount: f32,
+    cancel: CancelToken<'_>,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 {
         return;
@@ -183,6 +205,7 @@ pub fn apply_color_cancellable(img: &mut Image, amount: f32, cancel: CancelToken
         .zip(img.pixels.par_iter())
         .for_each(|(dst, src)| *dst = rec2020_to_oklab(*src));
 
+    let l_plane: Vec<f32> = oklab.par_iter().map(|p| p[0]).collect();
     let a_plane: Vec<f32> = oklab.par_iter().map(|p| p[1]).collect();
     let b_plane: Vec<f32> = oklab.par_iter().map(|p| p[2]).collect();
 
@@ -191,8 +214,32 @@ pub fn apply_color_cancellable(img: &mut Image, amount: f32, cancel: CancelToken
     // outer split still helps on 8+-core machines. Both share the same
     // cancel token (a `Copy` borrow), so a host cancel unwinds both.
     let (denoised_a, denoised_b) = rayon::join(
-        || denoise_plane_cancellable(&a_plane, w, h, params, cancel),
-        || denoise_plane_cancellable(&b_plane, w, h, params, cancel),
+        || {
+            denoise_plane_cancellable(
+                &a_plane,
+                w,
+                h,
+                params,
+                cancel,
+                &l_plane,
+                noise_profile,
+                iso,
+                true,
+            )
+        },
+        || {
+            denoise_plane_cancellable(
+                &b_plane,
+                w,
+                h,
+                params,
+                cancel,
+                &l_plane,
+                noise_profile,
+                iso,
+                true,
+            )
+        },
     );
 
     img.pixels
@@ -216,7 +263,7 @@ mod tests {
             *p = [0.3, 0.5, 0.7];
         }
         let before = img.pixels.clone();
-        apply_luminance(&mut img, 0.0);
+        apply_luminance(&mut img, 0.0, None, 100);
         assert_eq!(img.pixels, before);
     }
 
@@ -227,7 +274,7 @@ mod tests {
             *p = [0.3, 0.5, 0.7];
         }
         let before = img.pixels.clone();
-        apply_color(&mut img, 0.0);
+        apply_color(&mut img, 0.0, None, 100);
         assert_eq!(img.pixels, before);
     }
 
@@ -242,7 +289,7 @@ mod tests {
                 [0.3, 0.1, 0.1]
             };
         }
-        apply_luminance(&mut img, 100.0);
+        apply_luminance(&mut img, 100.0, None, 100);
         // After NR the alternation should be smoothed; the red tint
         // should persist on average.
         for p in &img.pixels {
@@ -263,7 +310,7 @@ mod tests {
         for p in &mut img.pixels {
             *p = [5.0, 3.0, 1.5];
         }
-        apply_luminance(&mut img, 100.0);
+        apply_luminance(&mut img, 100.0, None, 100);
         for p in &img.pixels {
             for &c in p {
                 assert!(c.is_finite());
@@ -313,7 +360,7 @@ mod tests {
         }
 
         let input_pixels = img.pixels.clone();
-        apply_luminance(&mut img, 50.0);
+        apply_luminance(&mut img, 50.0, None, 100);
         let output_pixels = img.pixels.clone();
 
         // --- Flat-region noise stdev (left half, away from the edge). ---
@@ -400,9 +447,9 @@ mod tests {
             *p = [v, v, v];
         }
         // Warm-up: first run includes thread-pool spin-up.
-        apply_luminance(&mut img.clone(), 50.0);
+        apply_luminance(&mut img.clone(), 50.0, None, 100);
         let start = std::time::Instant::now();
-        apply_luminance(&mut img, 50.0);
+        apply_luminance(&mut img, 50.0, None, 100);
         let elapsed = start.elapsed();
         eprintln!(
             "perf_luminance_2mp: 1920x1080 nr_luminance=50 in {:?}",

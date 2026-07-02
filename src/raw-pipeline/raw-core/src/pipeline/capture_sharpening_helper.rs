@@ -35,9 +35,7 @@ const MAX_SIGMA_PX: f32 = 8.0;
 pub(super) fn capture_sharpening_params_from_model(
     model: &AdjustmentModel,
 ) -> Option<capture_sharpening::CaptureSharpeningParams> {
-    if !model.capture_sharpening_amount.is_finite()
-        || !model.capture_sharpening_sigma.is_finite()
-    {
+    if !model.capture_sharpening_amount.is_finite() || !model.capture_sharpening_sigma.is_finite() {
         return None;
     }
     if model.capture_sharpening_amount <= 0.0 {

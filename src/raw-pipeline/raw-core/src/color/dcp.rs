@@ -2,7 +2,8 @@ use crate::{
     color::{
         hsm::{self, HsmTable},
         illuminant::Illuminant,
-        matrices::{M_PRO_TO_XYZ_D50, XYZ_D50, bradford_adapt, m_pro_to_rec2020},
+        matrices::{bradford_adapt, m_pro_to_rec2020, M_PRO_TO_XYZ_D50, XYZ_D50},
+        profile_tone_curve::ProfileToneCurve,
     },
     image::{ColorSpace, Image, RawImage},
     math::Matrix3,
@@ -19,7 +20,7 @@ pub use crate::color::illuminant::Illuminant as DcpIlluminant;
 /// `dng_color_spec.cpp:444-446` for the SDK contract — FM does NOT take
 /// XYZ as input; it takes the already-WB-divided camera RGB and outputs
 /// XYZ chromatically adapted to D50.
-/// No HueSatMap, no ProfileLookTable. Those land in a later slice per the roadmap.
+/// Extended DCP profile support (including 3D LookTable and ToneCurve) per issue #1691.
 #[derive(Clone, Debug)]
 pub struct DcpProfile {
     /// The calibration illuminant tag — retained for debugging / profile
@@ -77,6 +78,10 @@ pub struct DcpProfile {
     /// the gamut conversion to Rec.2020 — the same point in the chain
     /// the DNG SDK reference uses (`dng_color_spec.cpp`).
     pub hsm: Option<HsmTable>,
+    /// DNG ProfileLookTable (3D HSV-indexed lookup table) for camera profile look.
+    pub look_table: Option<HsmTable>,
+    /// Custom ProfileToneCurve.
+    pub tone_curve: Option<ProfileToneCurve>,
 }
 
 impl DcpProfile {
@@ -91,7 +96,9 @@ impl DcpProfile {
         // via the same derivation profile_for uses: inv(cm) * [1,1,1],
         // normalized to Y=1.
         let scene_white_xyz = normalize_to_y1(
-            cm.inverse().unwrap_or(Matrix3::IDENTITY).mul_vec([1.0, 1.0, 1.0])
+            cm.inverse()
+                .unwrap_or(Matrix3::IDENTITY)
+                .mul_vec([1.0, 1.0, 1.0]),
         );
         Self {
             illuminant: Illuminant::D65,
@@ -106,6 +113,8 @@ impl DcpProfile {
             // No HSM available from a bare embedded CM; profile_for fills
             // this in for real DNGs that ship the tags.
             hsm: None,
+            look_table: None,
+            tone_curve: None,
         }
     }
 }
@@ -205,18 +214,24 @@ pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
 /// Per `.archived-plans/plans/2026-04-27-clipping-and-artifacts.md`
 /// Phase 4 (negative-channel handling after DCP).
 fn soft_floor(p: [f32; 3]) -> [f32; 3] {
-    let min = p[0].min(p[1]).min(p[2]);
-    if min >= 0.0 {
+    let min_val = p[0].min(p[1]).min(p[2]);
+    if min_val >= 0.0 {
         return p;
     }
-    let lift = -min;
-    [p[0] + lift, p[1] + lift, p[2] + lift]
+    if !p[0].is_finite() || !p[1].is_finite() || !p[2].is_finite() {
+        return [0.0, 0.0, 0.0];
+    }
+    let avg = ((p[0] + p[1] + p[2]) / 3.0).max(0.0);
+    let denom = min_val - avg;
+    let sat_factor = if denom.abs() > 1e-6 { -avg / denom } else { 1.0 };
+    [
+        avg + sat_factor * (p[0] - avg),
+        avg + sat_factor * (p[1] - avg),
+        avg + sat_factor * (p[2] - avg),
+    ]
 }
 
-fn apply_with_post_pro(
-    camera: &Image,
-    profile: &DcpProfile,
-) -> crate::Result<Image> {
+fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 
     // Camera RGB → ProPhoto D50.
@@ -245,10 +260,12 @@ fn apply_with_post_pro(
     //     comment block; that path leaves WB baked through gamma decode).
     //     In both cases we invert CM, Bradford-adapt from the scene white
     //     to D50, then inverse-ProPhoto to enter ProPhoto D50.
-    let inv_pro = M_PRO_TO_XYZ_D50.inverse().expect("ProPhoto matrix is invertible");
-    let cam_to_pro = match (profile.forward_matrix, profile.wb_already_baked) {
-        (Some(fm), true) => inv_pro.mul_mat(&fm),
-        _ => {
+    let inv_pro = M_PRO_TO_XYZ_D50
+        .inverse()
+        .expect("ProPhoto matrix is invertible");
+    let cam_to_pro = match profile.forward_matrix {
+        Some(fm) => inv_pro.mul_mat(&fm),
+        None => {
             // Non-FM path: invert CM here (lazily — the FM path doesn't
             // need it and skipping the inversion saves a 3x3 matrix inverse
             // per image). CM is XYZ→camera per the DNG spec; we want the
@@ -261,34 +278,37 @@ fn apply_with_post_pro(
         }
     };
 
-    if profile.hsm.is_some() {
-        // Slow path: project to ProPhoto D50, run HSM (metameric correction
-        // only — see `apply_colorimetry` docstring), then project to
-        // Rec.2020 D65. The intermediate `Image` is tagged
-        // `CameraNativeLinearRgb` only because we don't have a
-        // `ProPhotoLinearD50` color-space variant — `hsm::apply` doesn't
-        // enforce a tag, only the data layout.
-        //
-        // Under #425 (colorimetry-only), PLT and PTC no longer run here.
-        // They were the Adobe aesthetic layers and were dropped because
-        // they were tuned to sit under Adobe's tone mapping rather than
-        // AgX, producing compound hue errors. HSM stays because the
-        // bundled profile set uses it for off-axis (metameric) color
-        // correction the linear CM can't express.
-        let mut pro = Image::new(camera.width, camera.height, ColorSpace::CameraNativeLinearRgb);
+    if profile.hsm.is_some() || profile.look_table.is_some() || profile.tone_curve.is_some() {
+        // Slow path: project to ProPhoto D50, run HSM (metameric correction),
+        // LookTable (aesthetic look), and ToneCurve, then project to Rec.2020 D65.
+        let mut pro = Image::new(
+            camera.width,
+            camera.height,
+            ColorSpace::CameraNativeLinearRgb,
+        );
         pro.pixels
             .par_iter_mut()
             .zip(camera.pixels.par_iter())
-            .for_each(|(o, p)| { *o = cam_to_pro.mul_vec(*p); });
+            .for_each(|(o, p)| {
+                *o = cam_to_pro.mul_vec(*p);
+            });
         if let Some(table) = profile.hsm.as_ref() {
             hsm::apply(&mut pro, table);
+        }
+        if let Some(table) = profile.look_table.as_ref() {
+            apply_look_table(&mut pro, table);
+        }
+        if let Some(curve) = profile.tone_curve.as_ref() {
+            crate::color::profile_tone_curve::apply(&mut pro, curve);
         }
         let exit = m_pro_to_rec2020();
         let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
         out.pixels
             .par_iter_mut()
             .zip(pro.pixels.par_iter())
-            .for_each(|(o, p)| { *o = soft_floor(exit.mul_vec(*p)); });
+            .for_each(|(o, p)| {
+                *o = soft_floor(exit.mul_vec(*p));
+            });
         return Ok(out);
     }
 
@@ -299,7 +319,9 @@ fn apply_with_post_pro(
     out.pixels
         .par_iter_mut()
         .zip(camera.pixels.par_iter())
-        .for_each(|(o, p)| { *o = soft_floor(m.mul_vec(*p)); });
+        .for_each(|(o, p)| {
+            *o = soft_floor(m.mul_vec(*p));
+        });
     Ok(out)
 }
 
@@ -307,11 +329,7 @@ fn apply_with_post_pro(
 
 /// Build a color-temperature-specific profile by interpolating between two
 /// illuminants' calibration matrices. Reciprocal-CCT lerp per spec § 3.4.
-fn interpolate_cm(
-    m1: Matrix3, cct1: f32,
-    m2: Matrix3, cct2: f32,
-    cct_target: f32,
-) -> Matrix3 {
+fn interpolate_cm(m1: Matrix3, cct1: f32, m2: Matrix3, cct2: f32, cct_target: f32) -> Matrix3 {
     if (cct1 - cct2).abs() < 1.0 {
         return m1; // degenerate — same illuminants
     }
@@ -340,8 +358,10 @@ fn interpolate_cm(
 ///   - repeat
 fn compute_as_shot_cct(
     wb_neutral: [f32; 3],
-    m_cold: Matrix3, cct_cold: f32,
-    m_warm: Matrix3, cct_warm: f32,
+    m_cold: Matrix3,
+    cct_cold: f32,
+    m_warm: Matrix3,
+    cct_warm: f32,
 ) -> f32 {
     let mut cct = (cct_cold + cct_warm) * 0.5; // initial guess
     let mut prev_cct = 0.0;
@@ -357,7 +377,9 @@ fn compute_as_shot_cct(
         };
         let xyz = cm_inv.mul_vec(wb_neutral);
         let sum = xyz[0] + xyz[1] + xyz[2];
-        if sum < 1e-6 { return cct; }
+        if sum < 1e-6 {
+            return cct;
+        }
         let x = xyz[0] / sum;
         let y = xyz[1] / sum;
         // McCamy's formula for CCT from xy.
@@ -388,14 +410,18 @@ fn compute_as_shot_cct(
 /// from `as_shot_cct`. When only one is present, it's used as-is. When
 /// neither is present, the resulting profile carries `hsm = None`.
 pub fn interpolated_profile(
-    m_cold: Matrix3, illum_cold: Illuminant,
-    m_warm: Matrix3, illum_warm: Illuminant,
+    m_cold: Matrix3,
+    illum_cold: Illuminant,
+    m_warm: Matrix3,
+    illum_warm: Illuminant,
     wb_neutral: [f32; 3],
     wb_already_baked: bool,
     hsm_cold: Option<&HsmTable>,
     hsm_warm: Option<&HsmTable>,
     fm_cold: Option<Matrix3>,
     fm_warm: Option<Matrix3>,
+    look_table: Option<HsmTable>,
+    tone_curve: Option<ProfileToneCurve>,
 ) -> DcpProfile {
     let cct_cold = illum_cold.cct();
     let cct_warm = illum_warm.cct();
@@ -406,9 +432,9 @@ pub fn interpolated_profile(
     // present, result is None and DCP falls back to Bradford CA.
     let forward_matrix = match (fm_cold, fm_warm) {
         (Some(fc), Some(fw)) => Some(interpolate_cm(fc, cct_cold, fw, cct_warm, as_shot_cct)),
-        (Some(fc), None)     => Some(fc),
-        (None, Some(fw))     => Some(fw),
-        (None, None)         => None,
+        (Some(fc), None) => Some(fc),
+        (None, Some(fw)) => Some(fw),
+        (None, None) => None,
     };
     // Historical no-pre-gain branch: this path is exercised when WB pre-gain
     // was skipped upstream (currently only the 8-bit lossy LinearRaw
@@ -421,8 +447,13 @@ pub fn interpolated_profile(
     // `inv(CM_interp) * AsShotNeutral`, normalized to Y=1. For LinearRaw
     // sources (wb_already_baked = true) the converter pre-applied WB, so a
     // neutral patch enters inv(CM) as (1, 1, 1) instead.
-    let neutral_for_white = if wb_already_baked { [1.0, 1.0, 1.0] } else { wb_neutral };
-    let scene_white_xyz = cm.inverse()
+    let neutral_for_white = if wb_already_baked {
+        [1.0, 1.0, 1.0]
+    } else {
+        wb_neutral
+    };
+    let scene_white_xyz = cm
+        .inverse()
         .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
         .unwrap_or(crate::color::matrices::XYZ_D65);
     let hsm = lerp_hsm_for_cct(hsm_cold, hsm_warm, cct_cold, cct_warm, as_shot_cct);
@@ -438,6 +469,8 @@ pub fn interpolated_profile(
         scene_white_xyz,
         wb_already_baked,
         hsm,
+        look_table,
+        tone_curve,
     }
 }
 
@@ -452,7 +485,8 @@ pub fn interpolated_profile(
 fn lerp_hsm_for_cct(
     hsm_cold: Option<&HsmTable>,
     hsm_warm: Option<&HsmTable>,
-    cct_cold: f32, cct_warm: f32,
+    cct_cold: f32,
+    cct_warm: f32,
     cct_target: f32,
 ) -> Option<HsmTable> {
     match (hsm_cold, hsm_warm) {
@@ -707,6 +741,8 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             scene_white_xyz: crate::color::matrices::XYZ_D65,
             wb_already_baked,
             hsm: None,
+            look_table: raw.plt.clone(),
+            tone_curve: raw.profile_tone_curve.clone(),
         },
         ProfileSource::RawlerFallback,
     ))
@@ -768,7 +804,11 @@ fn profile_from_embedded(
     if entries.is_empty() {
         return None;
     }
-    entries.sort_by(|a, b| a.0.cct().partial_cmp(&b.0.cct()).unwrap_or(std::cmp::Ordering::Equal));
+    entries.sort_by(|a, b| {
+        a.0.cct()
+            .partial_cmp(&b.0.cct())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     if entries.len() >= 2 && entries[0].0 != entries[1].0 {
         let (il_cold, m_cold) = entries[0];
@@ -783,12 +823,18 @@ fn profile_from_embedded(
         let hsm_cold = raw.hsm_data.get(&il_cold);
         let hsm_warm = raw.hsm_data.get(&il_warm);
         let profile = interpolated_profile(
-            m_cold, il_cold,
-            m_warm, il_warm,
+            m_cold,
+            il_cold,
+            m_warm,
+            il_warm,
             raw.as_shot_neutral,
             wb_already_baked,
-            hsm_cold, hsm_warm,
-            fm_cold, fm_warm,
+            hsm_cold,
+            hsm_warm,
+            fm_cold,
+            fm_warm,
+            raw.plt.clone(),
+            raw.profile_tone_curve.clone(),
         );
         let illuminant = profile.illuminant;
         return Some((profile, illuminant));
@@ -815,7 +861,16 @@ fn profile_from_embedded(
             })
             .map(|(_, table)| table.clone())
     });
-    let profile = single_illuminant_profile(cm, illum, fm, hsm, raw.as_shot_neutral, wb_already_baked);
+    let profile = single_illuminant_profile(
+        cm,
+        illum,
+        fm,
+        hsm,
+        raw.as_shot_neutral,
+        wb_already_baked,
+        raw.plt.clone(),
+        raw.profile_tone_curve.clone(),
+    );
     Some((profile, illum))
 }
 
@@ -848,10 +903,7 @@ fn profile_from_embedded_full(
     raw: &RawImage,
     wb_already_baked: bool,
 ) -> Option<(DcpProfile, Illuminant)> {
-    if raw.color_matrices.is_empty()
-        || raw.forward_matrices.is_empty()
-        || raw.hsm_data.is_empty()
-    {
+    if raw.color_matrices.is_empty() || raw.forward_matrices.is_empty() || raw.hsm_data.is_empty() {
         return None;
     }
     let (profile, illuminant) = profile_from_embedded(raw, wb_already_baked)?;
@@ -922,6 +974,8 @@ pub(crate) fn single_illuminant_profile(
     hsm: Option<HsmTable>,
     as_shot_neutral: [f32; 3],
     wb_already_baked: bool,
+    look_table: Option<HsmTable>,
+    tone_curve: Option<ProfileToneCurve>,
 ) -> DcpProfile {
     let neutral_for_white: [f32; 3] = if wb_already_baked {
         [1.0, 1.0, 1.0]
@@ -941,6 +995,8 @@ pub(crate) fn single_illuminant_profile(
         scene_white_xyz,
         wb_already_baked,
         hsm,
+        look_table,
+        tone_curve,
     }
 }
 
@@ -1003,9 +1059,11 @@ mod tests {
 
     fn make_raw(cms: std::collections::HashMap<Illuminant, Matrix3>) -> RawImage {
         RawImage {
-            width: 1, height: 1,
+            width: 1,
+            height: 1,
             cfa: crate::image::CfaPattern::Rggb,
-            black_level: [0; 4], white_level: 1,
+            black_level: [0; 4],
+            white_level: 1,
             raw_data: vec![0],
             as_shot_neutral: [1.0, 1.0, 1.0],
             as_shot_cct: None,
@@ -1021,6 +1079,8 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         }
     }
 
@@ -1048,12 +1108,14 @@ mod tests {
             [1, 1, 1],
             vec![10.0, 1.0, 1.0],
             crate::color::hsm::HsmEncoding::Linear,
-        ).expect("valid 1x1x1 HSM");
+        )
+        .expect("valid 1x1x1 HSM");
         let warm_table = crate::color::hsm::HsmTable::new(
             [1, 1, 1],
             vec![-20.0, 1.0, 1.0],
             crate::color::hsm::HsmEncoding::Linear,
-        ).expect("valid 1x1x1 HSM");
+        )
+        .expect("valid 1x1x1 HSM");
 
         // Plausible-shape CMs (don't matter for the HSM check, only that
         // both are non-identity so they survive `is_approx_identity`).
@@ -1081,9 +1143,11 @@ mod tests {
         hsm_data.insert(Illuminant::D65, warm_table.clone());
 
         let raw = RawImage {
-            width: 1, height: 1,
+            width: 1,
+            height: 1,
             cfa: crate::image::CfaPattern::Rggb,
-            black_level: [0; 4], white_level: 1,
+            black_level: [0; 4],
+            white_level: 1,
             raw_data: vec![0],
             as_shot_neutral: [1.0, 1.0, 1.0],
             as_shot_cct: None,
@@ -1099,12 +1163,14 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         };
 
         // Drive the embedded path directly so we don't depend on bundle
         // hits for fixture cameras.
-        let (profile, _illum) = profile_from_embedded(&raw, true)
-            .expect("two CMs + two HSMs should produce a profile");
+        let (profile, _illum) =
+            profile_from_embedded(&raw, true).expect("two CMs + two HSMs should produce a profile");
 
         // The interpolated profile's `hsm` is a lerp of cold + warm. For
         // any reciprocal-CCT `t ∈ [0,1]`, the result's hueDelta sits
@@ -1148,9 +1214,13 @@ mod tests {
             scene_white_xyz: crate::color::matrices::XYZ_D65,
             wb_already_baked: false,
             hsm: None,
+            look_table: None,
+            tone_curve: None,
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
-        for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
+        for p in &mut img.pixels {
+            *p = [0.18, 0.18, 0.18];
+        }
         let out = apply(&img, &profile).expect("identity CM is invertible");
         assert_eq!(out.space, ColorSpace::SceneLinearRec2020);
         // All four pixels should match one another.
@@ -1170,9 +1240,9 @@ mod tests {
     #[test]
     fn pipeline_produces_rec2020_output() {
         let profile = DcpProfile::from_embedded_cm(Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ])); // plausible-shape camera matrix
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         img.pixels[0] = [0.5, 0.5, 0.5];
@@ -1196,10 +1266,14 @@ mod tests {
     #[test]
     fn profile_for_with_no_matrix_returns_rawler_fallback_non_identity() {
         let raw = make_raw(std::collections::HashMap::new());
-        let (profile, source) = profile_for_with_source(&raw).expect("rawler fallback should succeed");
+        let (profile, source) =
+            profile_for_with_source(&raw).expect("rawler fallback should succeed");
         assert_eq!(source, ProfileSource::RawlerFallback);
-        assert_ne!(profile.color_matrix, Matrix3::IDENTITY,
-            "RawlerFallback must NOT be identity — that's exactly what #424 forbade");
+        assert_ne!(
+            profile.color_matrix,
+            Matrix3::IDENTITY,
+            "RawlerFallback must NOT be identity — that's exactly what #424 forbade"
+        );
         // The fallback CM is `M_XYZ_D65_TO_REC2020` per the DNG XYZ→camera
         // convention — a hypothetical Rec.2020-primaries sensor at D65.
         // Under `apply`, a neutral camera reading projects to neutral in
@@ -1207,9 +1281,12 @@ mod tests {
         let expected = crate::color::matrices::M_XYZ_D65_TO_REC2020;
         for i in 0..3 {
             for j in 0..3 {
-                assert!((profile.color_matrix.0[i][j] - expected.0[i][j]).abs() < 1e-6,
+                assert!(
+                    (profile.color_matrix.0[i][j] - expected.0[i][j]).abs() < 1e-6,
                     "RawlerFallback CM mismatch at [{i}][{j}]: got {} expected {}",
-                    profile.color_matrix.0[i][j], expected.0[i][j]);
+                    profile.color_matrix.0[i][j],
+                    expected.0[i][j]
+                );
             }
         }
         assert_eq!(profile.illuminant, Illuminant::D65);
@@ -1230,8 +1307,12 @@ mod tests {
         let raw = make_raw(cms);
         let (profile, source) = profile_for_with_source(&raw)
             .expect("identity-CM raw should fall through to RawlerFallback, not error");
-        assert_eq!(source, ProfileSource::RawlerFallback,
-            "identity embedded CM must skip to RawlerFallback, got {:?}", source);
+        assert_eq!(
+            source,
+            ProfileSource::RawlerFallback,
+            "identity embedded CM must skip to RawlerFallback, got {:?}",
+            source
+        );
         // Whatever the fallback uses, it must not be identity.
         assert_ne!(profile.color_matrix, Matrix3::IDENTITY);
     }
@@ -1249,16 +1330,24 @@ mod tests {
         // matrices below). Pre-#424 this synthetic raw resolved to identity
         // Fallback; under #424/#460 it surfaces as EmbeddedCmOnly.
         let embedded_cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         let mut cms = std::collections::HashMap::new();
         cms.insert(Illuminant::D65, embedded_cm);
         let raw = make_raw(cms);
         let (profile, source) = profile_for_with_source(&raw).expect("embedded should succeed");
-        assert!(matches!(source, ProfileSource::EmbeddedCmOnly { illuminant: Illuminant::D65 }),
-            "expected EmbeddedCmOnly {{ D65 }}, got {:?}", source);
+        assert!(
+            matches!(
+                source,
+                ProfileSource::EmbeddedCmOnly {
+                    illuminant: Illuminant::D65
+                }
+            ),
+            "expected EmbeddedCmOnly {{ D65 }}, got {:?}",
+            source
+        );
         // The CM surfaces verbatim — no identity substitution.
         assert_eq!(profile.color_matrix, embedded_cm);
     }
@@ -1270,20 +1359,21 @@ mod tests {
     #[test]
     fn synthetic_raw_with_dual_embedded_cms_interpolates() {
         let cm_a = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         let cm_d = Matrix3([
-            [ 0.5000, -0.0500, -0.1100],
-            [-0.3500,  1.3100,  0.1900],
-            [-0.0300,  0.2100,  0.6200],
+            [0.5000, -0.0500, -0.1100],
+            [-0.3500, 1.3100, 0.1900],
+            [-0.0300, 0.2100, 0.6200],
         ]);
         let mut cms = std::collections::HashMap::new();
         cms.insert(Illuminant::StdA, cm_a);
         cms.insert(Illuminant::D65, cm_d);
         let raw = make_raw(cms);
-        let (profile, source) = profile_for_with_source(&raw).expect("dual embedded should succeed");
+        let (profile, source) =
+            profile_for_with_source(&raw).expect("dual embedded should succeed");
         // Neutral as-shot-neutral [1, 1, 1] → scene CCT near D65; the
         // returned illuminant should be the D65 side, and the
         // interpolated CM is between the two endpoints (i.e. NOT identity
@@ -1292,7 +1382,8 @@ mod tests {
             ProfileSource::EmbeddedCmOnly { illuminant } => {
                 assert!(
                     matches!(illuminant, Illuminant::D65 | Illuminant::StdA),
-                    "expected closer-CCT illuminant; got {:?}", illuminant
+                    "expected closer-CCT illuminant; got {:?}",
+                    illuminant
                 );
             }
             other => panic!("expected EmbeddedCmOnly, got {:?}", other),
@@ -1315,9 +1406,9 @@ mod tests {
     #[test]
     fn embedded_fallback_renders_more_neutral_than_identity_fallback() {
         let embedded_cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
 
         // Render with the embedded profile.
@@ -1335,6 +1426,8 @@ mod tests {
             scene_white_xyz: crate::color::matrices::XYZ_D65,
             wb_already_baked: prof_embedded.wb_already_baked,
             hsm: None,
+            look_table: None,
+            tone_curve: None,
         };
 
         // Run a neutral 0.18 mid-gray camera-RGB patch through both.
@@ -1351,10 +1444,13 @@ mod tests {
         let chroma_embedded = chroma(out_embedded);
         let chroma_identity = chroma(out_identity);
 
-        assert!(chroma_embedded < chroma_identity,
+        assert!(
+            chroma_embedded < chroma_identity,
             "embedded path should be more neutral than identity: embedded chroma = {:.4}, \
              identity chroma = {:.4}",
-            chroma_embedded, chroma_identity);
+            chroma_embedded,
+            chroma_identity
+        );
     }
 
     // ── New dual-illuminant tests ─────────────────────────────────────────────
@@ -1406,27 +1502,25 @@ mod tests {
     #[test]
     fn neutral_patch_at_scene_illuminant_renders_approximately_neutral() {
         let cm_a = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         let cm_d = Matrix3([
-            [ 0.5000, -0.0500, -0.1100],
-            [-0.3500,  1.3100,  0.1900],
-            [-0.0300,  0.2100,  0.6200],
+            [0.5000, -0.0500, -0.1100],
+            [-0.3500, 1.3100, 0.1900],
+            [-0.0300, 0.2100, 0.6200],
         ]);
 
         // Scene at 4500K: Hernández-Andrés polynomial → (x, y) → XYZ (Y=1).
         let cct = 4500.0f32;
-        let x = 0.244_063
-              + 99.11 / cct
-              + 2_967_800.0 / (cct * cct)
-              - 4_607_000_000.0 / (cct * cct * cct);
+        let x = 0.244_063 + 99.11 / cct + 2_967_800.0 / (cct * cct)
+            - 4_607_000_000.0 / (cct * cct * cct);
         let y = -3.0 * x * x + 2.870 * x - 0.275;
         let xyz_scene: crate::math::Vec3 = [x / y, 1.0, (1.0 - x - y) / y];
 
         // Simulate the camera reading of a neutral patch at 4500K.
-        let t = (1.0/cct - 1.0/2856.0) / (1.0/6504.0 - 1.0/2856.0);
+        let t = (1.0 / cct - 1.0 / 2856.0) / (1.0 / 6504.0 - 1.0 / 2856.0);
         let cm_interp = {
             let a = &cm_a.0;
             let b = &cm_d.0;
@@ -1444,12 +1538,18 @@ mod tests {
         // `interpolated_profile`. wb_already_baked = true matches the
         // production Bayer post-pre-gain contract.
         let profile = interpolated_profile(
-            cm_a, Illuminant::StdA,
-            cm_d, Illuminant::D65,
+            cm_a,
+            Illuminant::StdA,
+            cm_d,
+            Illuminant::D65,
             as_shot_neutral,
             /* wb_already_baked */ true,
-            None, None,
-            None, None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         );
         assert!(profile.wb_already_baked);
 
@@ -1460,9 +1560,15 @@ mod tests {
 
         let rg = (p[0] - p[1]).abs();
         let bg = (p[2] - p[1]).abs();
-        assert!(rg < 0.005 && bg < 0.005,
+        assert!(
+            rg < 0.005 && bg < 0.005,
             "not neutral: RGB = ({:.4}, {:.4}, {:.4}), |R-G|={:.4}, |B-G|={:.4}",
-            p[0], p[1], p[2], rg, bg);
+            p[0],
+            p[1],
+            p[2],
+            rg,
+            bg
+        );
     }
 
     /// `wb_already_baked` derivation is a property of `cfa` +
@@ -1487,9 +1593,11 @@ mod tests {
         // 16-bit LinearRgb (white_level > 255): pipeline.rs pre-gains,
         // so wb_already_baked = true.
         let raw_linear = RawImage {
-            width: 1, height: 1,
+            width: 1,
+            height: 1,
             cfa: crate::image::CfaPattern::LinearRgb,
-            black_level: [0; 4], white_level: 65535,
+            black_level: [0; 4],
+            white_level: 65535,
             raw_data: vec![0; 3],
             as_shot_neutral: warm_wb,
             as_shot_cct: None,
@@ -1505,12 +1613,16 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         };
         let (prof_linear, src_linear) = profile_for_with_source(&raw_linear).unwrap();
         // No embedded matrices on this synthetic raw → RawlerFallback.
         assert_eq!(src_linear, ProfileSource::RawlerFallback);
-        assert!(prof_linear.wb_already_baked,
-            "16-bit LinearRgb must get wb_already_baked=true after Phase 1.2");
+        assert!(
+            prof_linear.wb_already_baked,
+            "16-bit LinearRgb must get wb_already_baked=true after Phase 1.2"
+        );
 
         let mut raw_bayer = raw_linear.clone();
         raw_bayer.cfa = crate::image::CfaPattern::Rggb;
@@ -1522,8 +1634,10 @@ mod tests {
         let mut raw_lossy = raw_linear.clone();
         raw_lossy.white_level = 255;
         let (prof_lossy, _) = profile_for_with_source(&raw_lossy).unwrap();
-        assert!(!prof_lossy.wb_already_baked,
-            "8-bit lossy LinearRgb must keep wb_already_baked=false");
+        assert!(
+            !prof_lossy.wb_already_baked,
+            "8-bit lossy LinearRgb must keep wb_already_baked=false"
+        );
     }
 
     /// `interpolated_profile` produces a CM between the two endpoints
@@ -1536,12 +1650,18 @@ mod tests {
         let m_cold = Matrix3::IDENTITY;
         let m_warm = Matrix3([[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]]);
         let profile = interpolated_profile(
-            m_cold, Illuminant::StdA,
-            m_warm, Illuminant::D65,
+            m_cold,
+            Illuminant::StdA,
+            m_warm,
+            Illuminant::D65,
             /* as_shot_neutral */ [1.0, 1.0, 1.0],
             /* wb_already_baked */ false,
-            None, None,
-            None, None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         );
         // Neutral (1,1,1) → scene CCT lands near D65 → interpolated CM
         // sits between identity (StdA) and 2*identity (D65).
@@ -1557,9 +1677,9 @@ mod tests {
     #[test]
     fn apply_no_hsm_matches_fast_path() {
         let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         let profile = DcpProfile::from_embedded_cm(cm);
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
@@ -1571,9 +1691,14 @@ mod tests {
         let out_b = apply_colorimetry(&img, &profile).unwrap();
         for i in 0..4 {
             for c in 0..3 {
-                assert!((out_a.pixels[i][c] - out_b.pixels[i][c]).abs() < 1e-5,
+                assert!(
+                    (out_a.pixels[i][c] - out_b.pixels[i][c]).abs() < 1e-5,
                     "alias vs new entry drifted at pixel {} channel {}: apply={} colorimetry={}",
-                    i, c, out_a.pixels[i][c], out_b.pixels[i][c]);
+                    i,
+                    c,
+                    out_a.pixels[i][c],
+                    out_b.pixels[i][c]
+                );
             }
         }
     }
@@ -1585,28 +1710,32 @@ mod tests {
     #[test]
     fn apply_with_identity_hsm_is_no_op() {
         let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         // Build identity HSM table, attach to profile.
         let dims = [4u32, 2, 2];
         let n = (dims[0] * dims[1] * dims[2]) as usize;
         let mut data = Vec::with_capacity(n * 3);
-        for _ in 0..n { data.extend_from_slice(&[0.0, 1.0, 1.0]); }
-        let hsm_table = crate::color::hsm::HsmTable::new(dims, data, crate::color::hsm::HsmEncoding::Linear).unwrap();
+        for _ in 0..n {
+            data.extend_from_slice(&[0.0, 1.0, 1.0]);
+        }
+        let hsm_table =
+            crate::color::hsm::HsmTable::new(dims, data, crate::color::hsm::HsmEncoding::Linear)
+                .unwrap();
         let mut profile = DcpProfile::from_embedded_cm(cm);
-        let baseline = apply(&img_with_pixels(&[
-            [0.5, 0.4, 0.6],
-            [0.18, 0.18, 0.18],
-            [0.9, 0.1, 0.05],
-        ]), &profile).unwrap();
+        let baseline = apply(
+            &img_with_pixels(&[[0.5, 0.4, 0.6], [0.18, 0.18, 0.18], [0.9, 0.1, 0.05]]),
+            &profile,
+        )
+        .unwrap();
         profile.hsm = Some(hsm_table);
-        let with_id_hsm = apply(&img_with_pixels(&[
-            [0.5, 0.4, 0.6],
-            [0.18, 0.18, 0.18],
-            [0.9, 0.1, 0.05],
-        ]), &profile).unwrap();
+        let with_id_hsm = apply(
+            &img_with_pixels(&[[0.5, 0.4, 0.6], [0.18, 0.18, 0.18], [0.9, 0.1, 0.05]]),
+            &profile,
+        )
+        .unwrap();
         // The HSV→RGB roundtrip on highly-saturated pixels can drift up to
         // ~0.02 in scene-linear units due to floating-point rem_euclid /
         // sextant boundaries — accept that for an "is this approximately a
@@ -1615,9 +1744,14 @@ mod tests {
         // unmodified components.
         for i in 0..3 {
             for c in 0..3 {
-                assert!((baseline.pixels[i][c] - with_id_hsm.pixels[i][c]).abs() < 0.02,
+                assert!(
+                    (baseline.pixels[i][c] - with_id_hsm.pixels[i][c]).abs() < 0.02,
                     "identity HSM mutated pixel {} channel {}: no-HSM={} HSM={}",
-                    i, c, baseline.pixels[i][c], with_id_hsm.pixels[i][c]);
+                    i,
+                    c,
+                    baseline.pixels[i][c],
+                    with_id_hsm.pixels[i][c]
+                );
             }
         }
     }
@@ -1645,23 +1779,22 @@ mod tests {
     #[test]
     fn apply_colorimetry_is_deterministic() {
         let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         let profile = DcpProfile::from_embedded_cm(cm);
-        let img = img_with_pixels(&[
-            [0.6, 0.3, 0.2],
-            [0.18, 0.18, 0.18],
-            [0.05, 0.2, 0.7],
-        ]);
+        let img = img_with_pixels(&[[0.6, 0.3, 0.2], [0.18, 0.18, 0.18], [0.05, 0.2, 0.7]]);
         let a = apply_colorimetry(&img, &profile).unwrap();
         let b = apply_colorimetry(&img, &profile).unwrap();
         for i in 0..a.pixels.len() {
             for c in 0..3 {
-                assert_eq!(a.pixels[i][c], b.pixels[i][c],
+                assert_eq!(
+                    a.pixels[i][c], b.pixels[i][c],
                     "apply_colorimetry must be deterministic per-pixel \
-                     (pixel {} channel {})", i, c);
+                     (pixel {} channel {})",
+                    i, c
+                );
             }
         }
     }
@@ -1678,25 +1811,45 @@ mod tests {
         let dims = [2u32, 2, 1];
         let n = (dims[0] * dims[1] * dims[2]) as usize;
         let mut h1_data = Vec::with_capacity(n * 3);
-        for _ in 0..n { h1_data.extend_from_slice(&[30.0, 1.0, 1.0]); }
+        for _ in 0..n {
+            h1_data.extend_from_slice(&[30.0, 1.0, 1.0]);
+        }
         let mut h2_data = Vec::with_capacity(n * 3);
-        for _ in 0..n { h2_data.extend_from_slice(&[90.0, 1.0, 1.0]); }
-        let h1 = crate::color::hsm::HsmTable::new(dims, h1_data, crate::color::hsm::HsmEncoding::Linear).unwrap();
-        let h2 = crate::color::hsm::HsmTable::new(dims, h2_data, crate::color::hsm::HsmEncoding::Linear).unwrap();
+        for _ in 0..n {
+            h2_data.extend_from_slice(&[90.0, 1.0, 1.0]);
+        }
+        let h1 =
+            crate::color::hsm::HsmTable::new(dims, h1_data, crate::color::hsm::HsmEncoding::Linear)
+                .unwrap();
+        let h2 =
+            crate::color::hsm::HsmTable::new(dims, h2_data, crate::color::hsm::HsmEncoding::Linear)
+                .unwrap();
 
         let profile = interpolated_profile(
-            m_a, Illuminant::StdA,
-            m_d, Illuminant::D65,
+            m_a,
+            Illuminant::StdA,
+            m_d,
+            Illuminant::D65,
             /* as_shot_neutral */ [1.5, 1.0, 1.7],
             /* wb_already_baked */ false,
-            Some(&h1), Some(&h2),
-            None, None,
+            Some(&h1),
+            Some(&h2),
+            None,
+            None,
+            None,
+            None,
         );
-        let resolved_hsm = profile.hsm.as_ref().expect("dual-HSM path resolves to a table");
+        let resolved_hsm = profile
+            .hsm
+            .as_ref()
+            .expect("dual-HSM path resolves to a table");
         // Lerped hueDelta lies in [30, 90].
         let hd = resolved_hsm.data[0];
-        assert!(hd >= 30.0 - 0.5 && hd <= 90.0 + 0.5,
-            "lerped hueDelta = {} not in expected [30, 90] range", hd);
+        assert!(
+            hd >= 30.0 - 0.5 && hd <= 90.0 + 0.5,
+            "lerped hueDelta = {} not in expected [30, 90] range",
+            hd
+        );
     }
 
     /// Tiny helper to construct a 1xN Image of CameraNativeLinearRgb.
@@ -1721,24 +1874,23 @@ mod tests {
 
     #[test]
     fn soft_floor_lifts_negative_uniformly_preserving_hue() {
-        // Mild negative B (the test_0006/test_0007 case): all channels
-        // get lifted by |min| = 0.021, hue (channel ratios after lift)
-        // is the same as before lift modulo the additive shift.
+        // Mild negative B (the test_0006/test_0007 case): desaturate toward average
+        // so that the smallest is exactly 0. Hue and average are preserved.
         let p = soft_floor([0.181, 0.192, -0.021]);
-        assert!((p[0] - 0.202).abs() < 1e-5, "R = {}", p[0]);
-        assert!((p[1] - 0.213).abs() < 1e-5, "G = {}", p[1]);
-        assert!((p[2] - 0.0  ).abs() < 1e-5, "B = {}", p[2]);
+        assert!((p[0] - 0.171335).abs() < 1e-5, "R = {}", p[0]);
+        assert!((p[1] - 0.180665).abs() < 1e-5, "G = {}", p[1]);
+        assert!((p[2] - 0.0).abs() < 1e-5, "B = {}", p[2]);
         // The smallest channel is at exactly 0 after lifting, by construction.
         assert!(p[0].min(p[1]).min(p[2]) >= -1e-6);
     }
 
     #[test]
     fn soft_floor_extreme_negative_lifts_correctly() {
-        // Heavily out-of-gamut input: lift by the largest negative.
+        // Heavily out-of-gamut input: desaturate to average (which keeps minimum at 0).
         let p = soft_floor([-0.5, 0.5, 0.5]);
         assert!((p[0] - 0.0).abs() < 1e-6);
-        assert!((p[1] - 1.0).abs() < 1e-6);
-        assert!((p[2] - 1.0).abs() < 1e-6);
+        assert!((p[1] - 0.25).abs() < 1e-6);
+        assert!((p[2] - 0.25).abs() < 1e-6);
     }
 
     /// Canonical #424 regression test: test_0004 (Hasselblad H5D-40 .fff)
@@ -1781,13 +1933,16 @@ mod tests {
         // dispatcher falls through to `RawlerFallback`.
         let (profile, source) = profile_for_with_source(&raw).expect("profile_for");
         assert_eq!(
-            source, ProfileSource::RawlerFallback,
+            source,
+            ProfileSource::RawlerFallback,
             "test_0004 (.fff with no DNG CM tags) must resolve to RawlerFallback, \
-             got {:?}", source
+             got {:?}",
+            source
         );
         // Crucially: NEVER identity. This is the #424 contract.
         assert_ne!(
-            profile.color_matrix, Matrix3::IDENTITY,
+            profile.color_matrix,
+            Matrix3::IDENTITY,
             "test_0004 must not carry an identity ColorMatrix — that's \
              exactly the catastrophic pre-#424 case the ticket targets."
         );
@@ -1807,9 +1962,11 @@ mod tests {
         hsm_data: std::collections::HashMap<Illuminant, crate::color::hsm::HsmTable>,
     ) -> RawImage {
         RawImage {
-            width: 1, height: 1,
+            width: 1,
+            height: 1,
             cfa: crate::image::CfaPattern::Rggb,
-            black_level: [0; 4], white_level: 1,
+            black_level: [0; 4],
+            white_level: 1,
             raw_data: vec![0],
             as_shot_neutral: [1.0, 1.0, 1.0],
             as_shot_cct: None,
@@ -1825,6 +1982,8 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         }
     }
 
@@ -1839,24 +1998,25 @@ mod tests {
     fn embedded_full_beats_bundle() {
         // Plausible-shape CM.
         let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         // Plausible-shape FM (camera→XYZ-D50). Doesn't need to be the
         // actual vendor FM — we just need it non-empty for the tier-1
         // gate.
         let fm = Matrix3([
-            [ 0.5151,  0.1234,  0.0457],
-            [ 0.2412,  0.7320,  0.0268],
-            [ 0.0148,  0.0975,  0.7129],
+            [0.5151, 0.1234, 0.0457],
+            [0.2412, 0.7320, 0.0268],
+            [0.0148, 0.0975, 0.7129],
         ]);
         // Tiny HSM table; only its presence matters for the tier gate.
         let hsm = crate::color::hsm::HsmTable::new(
             [1, 1, 1],
             vec![0.0, 1.0, 1.0],
             crate::color::hsm::HsmEncoding::Linear,
-        ).expect("valid 1x1x1 identity HSM");
+        )
+        .expect("valid 1x1x1 identity HSM");
 
         let mut cms = std::collections::HashMap::new();
         cms.insert(Illuminant::D65, cm);
@@ -1876,10 +2036,14 @@ mod tests {
              bundle still covers."
         );
 
-        let (_profile, source) = profile_for_with_source(&raw)
-            .expect("resolver should succeed");
+        let (_profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
         assert!(
-            matches!(source, ProfileSource::EmbeddedFull { illuminant: Illuminant::D65 }),
+            matches!(
+                source,
+                ProfileSource::EmbeddedFull {
+                    illuminant: Illuminant::D65
+                }
+            ),
             "CM + FM + HSM in a DNG with a bundled body must resolve to \
              EmbeddedFull, got {:?} — this is the new behavior under #460, \
              where the embedded triad beats the bundle.",
@@ -1895,9 +2059,9 @@ mod tests {
     #[test]
     fn embedded_cm_only_loses_to_bundle() {
         let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         let mut cms = std::collections::HashMap::new();
         cms.insert(Illuminant::D65, cm);
@@ -1913,10 +2077,10 @@ mod tests {
             "test prerequisite: 'Canon EOS 5D Mark IV' must be bundled."
         );
 
-        let (_profile, source) = profile_for_with_source(&raw)
-            .expect("resolver should succeed");
+        let (_profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
         assert_eq!(
-            source, ProfileSource::BundleConfident,
+            source,
+            ProfileSource::BundleConfident,
             "CM-only (no HSM) DNG with a bundled body must resolve to \
              BundleConfident — embedded partial profile loses to the \
              externally-calibrated bundle entry. Got {:?}",
@@ -1943,12 +2107,14 @@ mod tests {
         let (profile, source) = profile_for_with_source(&raw)
             .expect("resolver should succeed even for uncovered bodies");
         assert_eq!(
-            source, ProfileSource::RawlerFallback,
+            source,
+            ProfileSource::RawlerFallback,
             "no DCP + no bundle must resolve to RawlerFallback, got {:?}",
             source
         );
         assert_ne!(
-            profile.color_matrix, Matrix3::IDENTITY,
+            profile.color_matrix,
+            Matrix3::IDENTITY,
             "RawlerFallback CM must NEVER be identity — that violates \
              ticket #424's invariant carried forward into #460."
         );
@@ -1980,32 +2146,34 @@ mod tests {
             [1, 1, 1],
             vec![30.0, 1.0, 1.0],
             crate::color::hsm::HsmEncoding::Linear,
-        ).expect("valid 1x1x1 HSM");
+        )
+        .expect("valid 1x1x1 HSM");
         let warm_hsm = crate::color::hsm::HsmTable::new(
             [1, 1, 1],
             vec![-60.0, 1.0, 1.0],
             crate::color::hsm::HsmEncoding::Linear,
-        ).expect("valid 1x1x1 HSM");
+        )
+        .expect("valid 1x1x1 HSM");
 
         let cm_stda = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         let cm_d65 = Matrix3([
-            [ 0.5000, -0.0500, -0.1100],
-            [-0.3500,  1.3100,  0.1900],
-            [-0.0300,  0.2100,  0.6200],
+            [0.5000, -0.0500, -0.1100],
+            [-0.3500, 1.3100, 0.1900],
+            [-0.0300, 0.2100, 0.6200],
         ]);
         let fm_stda = Matrix3([
-            [ 0.4124, 0.3576, 0.1805],
-            [ 0.2126, 0.7152, 0.0722],
-            [ 0.0193, 0.1192, 0.9505],
+            [0.4124, 0.3576, 0.1805],
+            [0.2126, 0.7152, 0.0722],
+            [0.0193, 0.1192, 0.9505],
         ]);
         let fm_d65 = Matrix3([
-            [ 0.5000, 0.3000, 0.2000],
-            [ 0.2500, 0.6500, 0.1000],
-            [ 0.0200, 0.1500, 0.9000],
+            [0.5000, 0.3000, 0.2000],
+            [0.2500, 0.6500, 0.1000],
+            [0.0200, 0.1500, 0.9000],
         ]);
 
         let mut cms = std::collections::HashMap::new();
@@ -2021,15 +2189,9 @@ mod tests {
         // Use a UCM that does NOT hit the bundle so we test the
         // EmbeddedFull-vs-no-bundle path cleanly (the
         // `embedded_full_beats_bundle` test covers the bundle-hit case).
-        let raw = make_raw_with_ucm(
-            "Hypothetical Uncovered Body",
-            cms,
-            fms,
-            hsm_map,
-        );
+        let raw = make_raw_with_ucm("Hypothetical Uncovered Body", cms, fms, hsm_map);
 
-        let (profile, source) = profile_for_with_source(&raw)
-            .expect("resolver should succeed");
+        let (profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
         assert!(
             matches!(source, ProfileSource::EmbeddedFull { .. }),
             "CM + FM + HSM must resolve to EmbeddedFull, got {:?}",
@@ -2052,7 +2214,10 @@ mod tests {
         let inv_target = 1.0 / profile.scene_cct;
         let t = ((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0);
         let expected_hue_delta = (1.0 - t) * 30.0 + t * (-60.0);
-        let hsm = profile.hsm.as_ref().expect("EmbeddedFull must carry an HSM table");
+        let hsm = profile
+            .hsm
+            .as_ref()
+            .expect("EmbeddedFull must carry an HSM table");
         let hue_delta = hsm.data[0];
         assert!(
             (hue_delta - expected_hue_delta).abs() < 1e-3,
@@ -2077,21 +2242,22 @@ mod tests {
     #[test]
     fn embedded_full_falls_through_on_fm_illuminant_mismatch() {
         let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         // FM keyed to an illuminant that doesn't match the CM's key.
         let fm = Matrix3([
-            [ 0.5151,  0.1234,  0.0457],
-            [ 0.2412,  0.7320,  0.0268],
-            [ 0.0148,  0.0975,  0.7129],
+            [0.5151, 0.1234, 0.0457],
+            [0.2412, 0.7320, 0.0268],
+            [0.0148, 0.0975, 0.7129],
         ]);
         let hsm = crate::color::hsm::HsmTable::new(
             [1, 1, 1],
             vec![0.0, 1.0, 1.0],
             crate::color::hsm::HsmEncoding::Linear,
-        ).expect("valid 1x1x1 identity HSM");
+        )
+        .expect("valid 1x1x1 identity HSM");
 
         let mut cms = std::collections::HashMap::new();
         cms.insert(Illuminant::D65, cm);
@@ -2110,8 +2276,7 @@ mod tests {
             "test prerequisite: 'Hypothetical Uncovered Body' must NOT be bundled"
         );
 
-        let (profile, source) = profile_for_with_source(&raw)
-            .expect("resolver should succeed");
+        let (profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
         assert!(
             !matches!(source, ProfileSource::EmbeddedFull { .. }),
             "FM key mismatch (non-empty FM map but no FM for the CM's \
@@ -2142,9 +2307,9 @@ mod tests {
     #[test]
     fn embedded_cm_only_clears_hsm_even_when_raw_carries_one() {
         let cm = Matrix3([
-            [ 0.6722, -0.0635, -0.0963],
-            [-0.4287,  1.2460,  0.2028],
-            [-0.0908,  0.2162,  0.5668],
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
         ]);
         // Populated HSM map but empty FM map — disqualifies EmbeddedFull
         // (which gates on non-empty FM), so the resolver routes through
@@ -2153,7 +2318,8 @@ mod tests {
             [1, 1, 1],
             vec![15.0, 1.0, 1.0],
             crate::color::hsm::HsmEncoding::Linear,
-        ).expect("valid 1x1x1 HSM");
+        )
+        .expect("valid 1x1x1 HSM");
 
         let mut cms = std::collections::HashMap::new();
         cms.insert(Illuminant::D65, cm);
@@ -2173,8 +2339,7 @@ mod tests {
             "test prerequisite: 'Hypothetical Uncovered Body' must NOT be bundled"
         );
 
-        let (profile, source) = profile_for_with_source(&raw)
-            .expect("resolver should succeed");
+        let (profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
         assert!(
             matches!(source, ProfileSource::EmbeddedCmOnly { .. }),
             "CM + HSM without FM (and no bundle) must resolve to \
@@ -2189,4 +2354,272 @@ mod tests {
             profile.hsm
         );
     }
+
+    #[test]
+    fn test_apply_look_table_shifts() {
+        let mut table_data = Vec::new();
+        for _ in 0..8 {
+            table_data.extend_from_slice(&[15.0, 1.1, 1.05]);
+        }
+        let table = HsmTable::new(
+            [2, 2, 2],
+            table_data,
+            crate::color::hsm::HsmEncoding::Linear,
+        )
+        .unwrap();
+
+        let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
+        img.pixels[0] = [0.8, 0.4, 0.2];
+
+        let (h_orig, s_orig, v_orig) = rgb_to_hsv([0.8, 0.4, 0.2]);
+
+        apply_look_table(&mut img, &table);
+
+        let p_new = img.pixels[0];
+        let (h_new, s_new, v_new) = rgb_to_hsv(p_new);
+
+        let expected_h = (h_orig + 15.0).rem_euclid(360.0);
+        let expected_s = (s_orig * 1.1).clamp(0.0, 1.0);
+        let expected_v = v_orig * 1.05;
+
+        assert!((h_new - expected_h).abs() < 1.0e-3);
+        assert!((s_new - expected_s).abs() < 1.0e-3);
+        assert!((v_new - expected_v).abs() < 1.0e-3);
+    }
+}
+
+/// Apply the look table shifts using 3D tetrahedral interpolation in ProPhoto D50 space.
+/// Same cylindrical HSV shifts as HSM.
+pub fn apply_look_table(img: &mut Image, table: &HsmTable) {
+    img.pixels.par_iter_mut().for_each(|p| {
+        // Soft lift for negative components
+        let min_original = p[0].min(p[1]).min(p[2]);
+        let lift = if min_original < 0.0 {
+            -min_original
+        } else {
+            0.0
+        };
+        let mut rgb = [p[0] + lift, p[1] + lift, p[2] + lift];
+
+        // Pre-encode if sRGB (operates on each channel independently)
+        if matches!(table.encoding, crate::color::hsm::HsmEncoding::Srgb) {
+            rgb[0] = linear_to_srgb_one(rgb[0]);
+            rgb[1] = linear_to_srgb_one(rgb[1]);
+            rgb[2] = linear_to_srgb_one(rgb[2]);
+        }
+
+        // RGB -> HSV
+        let (h, s, v) = rgb_to_hsv(rgb);
+
+        // Lookup (hueDelta, satScale, valScale) via 3D tetrahedral interpolation
+        let (hd, ss, vs) = lookup_tetrahedral(table, h, s, v);
+
+        // Achromatic singularity blend: smoothly fade shifts to identity near zero saturation.
+        let w_chroma = (s / 0.01).clamp(0.0, 1.0);
+        let hd = hd * w_chroma;
+        let ss = 1.0 + (ss - 1.0) * w_chroma;
+        let vs = 1.0 + (vs - 1.0) * w_chroma;
+
+        // Apply shifts
+        let mut new_h = h + hd;
+        new_h = new_h.rem_euclid(360.0);
+        let new_s = (s * ss).clamp(0.0, 1.0);
+        let new_v = (v * vs).max(0.0);
+
+        // HSV -> RGB
+        let mut out = hsv_to_rgb(new_h, new_s, new_v);
+
+        // Post-decode if sRGB
+        if matches!(table.encoding, crate::color::hsm::HsmEncoding::Srgb) {
+            out[0] = srgb_to_linear_one(out[0]);
+            out[1] = srgb_to_linear_one(out[1]);
+            out[2] = srgb_to_linear_one(out[2]);
+        }
+
+        // Restore original negative offset
+        if lift > 0.0 {
+            *p = [out[0] - lift, out[1] - lift, out[2] - lift];
+        } else {
+            *p = out;
+        }
+    });
+}
+
+#[inline]
+fn linear_to_srgb_one(v: f32) -> f32 {
+    let v = v.max(0.0);
+    if v <= 0.003_130_8 {
+        12.92 * v
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+#[inline]
+fn srgb_to_linear_one(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+#[inline]
+fn rgb_to_hsv(rgb: [f32; 3]) -> (f32, f32, f32) {
+    let r = rgb[0];
+    let g = rgb[1];
+    let b = rgb[2];
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let v = max;
+
+    let s = if max > 0.0 { delta / max } else { 0.0 };
+
+    let h = if s <= 0.0 || delta < 1e-9 {
+        0.0
+    } else if (max - r).abs() < 1e-9 {
+        60.0 * ((g - b) / delta).rem_euclid(6.0)
+    } else if (max - g).abs() < 1e-9 {
+        60.0 * (((b - r) / delta) + 2.0)
+    } else {
+        60.0 * (((r - g) / delta) + 4.0)
+    };
+    let h = if h < 0.0 {
+        h + 360.0
+    } else if h >= 360.0 {
+        h - 360.0
+    } else {
+        h
+    };
+    (h, s, v)
+}
+
+#[inline]
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
+    if s <= 0.0 {
+        return [v, v, v];
+    }
+    let h = h.rem_euclid(360.0);
+    let c = v * s;
+    let h6 = h / 60.0;
+    let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
+    let (r1, g1, b1) = if h6 < 1.0 {
+        (c, x, 0.0)
+    } else if h6 < 2.0 {
+        (x, c, 0.0)
+    } else if h6 < 3.0 {
+        (0.0, c, x)
+    } else if h6 < 4.0 {
+        (0.0, x, c)
+    } else if h6 < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    let m = v - c;
+    [r1 + m, g1 + m, b1 + m]
+}
+
+fn lookup_tetrahedral(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
+    let hd = table.dims[0] as i32;
+    let sd = table.dims[1] as i32;
+    let vd = table.dims[2] as i32;
+
+    let h_pos = (hue / 360.0) * hd as f32;
+    let h_lo = h_pos.floor() as i32;
+    let h_frac = h_pos - h_lo as f32;
+    let h0 = h_lo.rem_euclid(hd);
+    let h1 = (h_lo + 1).rem_euclid(hd);
+
+    let s_pos = sat.clamp(0.0, 1.0) * (sd - 1) as f32;
+    let s_lo = s_pos.floor() as i32;
+    let s_frac = s_pos - s_lo as f32;
+    let s0 = s_lo.clamp(0, sd - 1);
+    let s1 = (s_lo + 1).clamp(0, sd - 1);
+
+    let (v0, v1, v_frac) = if vd <= 1 {
+        (0, 0, 0.0)
+    } else {
+        let v_pos = val.clamp(0.0, 1.0) * (vd - 1) as f32;
+        let v_lo = v_pos.floor() as i32;
+        let v_frac = v_pos - v_lo as f32;
+        let v0 = v_lo.clamp(0, vd - 1);
+        let v1 = (v_lo + 1).clamp(0, vd - 1);
+        (v0, v1, v_frac)
+    };
+
+    let entry = |h: i32, s: i32, v: i32| -> [f32; 3] {
+        let sat_d = table.dims[1] as usize;
+        let val_d = table.dims[2] as usize;
+        let i = (((h as usize) * sat_d + (s as usize)) * val_d + (v as usize)) * 3;
+        [table.data[i], table.data[i + 1], table.data[i + 2]]
+    };
+
+    let c000 = entry(h0, s0, v0);
+    let c100 = entry(h1, s0, v0);
+    let c010 = entry(h0, s1, v0);
+    let c110 = entry(h1, s1, v0);
+    let c001 = entry(h0, s0, v1);
+    let c101 = entry(h1, s0, v1);
+    let c011 = entry(h0, s1, v1);
+    let c111 = entry(h1, s1, v1);
+
+    let unwrap_hue = |val: f32, ref_val: f32| -> f32 {
+        let mut diff = val - ref_val;
+        if diff > 180.0 {
+            diff -= 360.0;
+        }
+        if diff < -180.0 {
+            diff += 360.0;
+        }
+        ref_val + diff
+    };
+
+    let h000_u = c000[0];
+    let h100_u = unwrap_hue(c100[0], h000_u);
+    let h010_u = unwrap_hue(c010[0], h000_u);
+    let h110_u = unwrap_hue(c110[0], h000_u);
+    let h001_u = unwrap_hue(c001[0], h000_u);
+    let h101_u = unwrap_hue(c101[0], h000_u);
+    let h011_u = unwrap_hue(c011[0], h000_u);
+    let h111_u = unwrap_hue(c111[0], h000_u);
+
+    let fx = h_frac;
+    let fy = s_frac;
+    let fz = v_frac;
+
+    let mut out = [0.0f32; 3];
+    for c in 0..3 {
+        let (val000, val100, val010, val110, val001, val101, val011, val111) = if c == 0 {
+            (
+                h000_u, h100_u, h010_u, h110_u, h001_u, h101_u, h011_u, h111_u,
+            )
+        } else {
+            (
+                c000[c], c100[c], c010[c], c110[c], c001[c], c101[c], c011[c], c111[c],
+            )
+        };
+
+        out[c] = if fx >= fy {
+            if fy >= fz {
+                val000 * (1.0 - fx) + val100 * (fx - fy) + val110 * (fy - fz) + val111 * fz
+            } else if fx >= fz {
+                val000 * (1.0 - fx) + val100 * (fx - fz) + val101 * (fz - fy) + val111 * fy
+            } else {
+                val000 * (1.0 - fz) + val001 * (fz - fx) + val101 * (fx - fy) + val111 * fy
+            }
+        } else {
+            if fx >= fz {
+                val000 * (1.0 - fy) + val010 * (fy - fx) + val110 * (fx - fz) + val111 * fz
+            } else if fy >= fz {
+                val000 * (1.0 - fy) + val010 * (fy - fz) + val011 * (fz - fx) + val111 * fx
+            } else {
+                val000 * (1.0 - fz) + val001 * (fz - fy) + val011 * (fy - fx) + val111 * fx
+            }
+        };
+    }
+
+    let final_hue = out[0].rem_euclid(360.0);
+    (final_hue, out[1], out[2])
 }

@@ -53,7 +53,12 @@ pub(super) fn band_index(luma: f32) -> Option<usize> {
 /// that the box downscale maps into it. Uses the SAME integer span mapping as
 /// the gate's reference resample (`(o·crop)/out` .. `((o+1)·crop)/out`, each
 /// span at least 1px). Indexed `[oy*out_w + ox]`.
-pub(super) fn footprint_sizes(crop_w: usize, crop_h: usize, out_w: usize, out_h: usize) -> Vec<u32> {
+pub(super) fn footprint_sizes(
+    crop_w: usize,
+    crop_h: usize,
+    out_w: usize,
+    out_h: usize,
+) -> Vec<u32> {
     let mut row_w = vec![0u32; out_w];
     for (ox, w) in row_w.iter_mut().enumerate() {
         let x0 = (ox * crop_w) / out_w;
@@ -150,9 +155,15 @@ pub(super) fn build_design_matrices(
                         let r_lin = super::apply::srgb_gamma_decode(r_val);
                         let g_lin = super::apply::srgb_gamma_decode(g_val);
                         let b_lin = super::apply::srgb_gamma_decode(b_val);
-                        let r_adapt = adapt_srgb.0[0][0] * r_lin + adapt_srgb.0[0][1] * g_lin + adapt_srgb.0[0][2] * b_lin;
-                        let g_adapt = adapt_srgb.0[1][0] * r_lin + adapt_srgb.0[1][1] * g_lin + adapt_srgb.0[1][2] * b_lin;
-                        let b_adapt = adapt_srgb.0[2][0] * r_lin + adapt_srgb.0[2][1] * g_lin + adapt_srgb.0[2][2] * b_lin;
+                        let r_adapt = adapt_srgb.0[0][0] * r_lin
+                            + adapt_srgb.0[0][1] * g_lin
+                            + adapt_srgb.0[0][2] * b_lin;
+                        let g_adapt = adapt_srgb.0[1][0] * r_lin
+                            + adapt_srgb.0[1][1] * g_lin
+                            + adapt_srgb.0[1][2] * b_lin;
+                        let b_adapt = adapt_srgb.0[2][0] * r_lin
+                            + adapt_srgb.0[2][1] * g_lin
+                            + adapt_srgb.0[2][2] * b_lin;
                         r_val = crate::view::encode::srgb_gamma(r_adapt);
                         g_val = crate::view::encode::srgb_gamma(g_adapt);
                         b_val = crate::view::encode::srgb_gamma(b_adapt);
@@ -321,9 +332,15 @@ fn pava_project(out: &mut [f32; ANCHORS], min_slope: f32) {
         value: f32,
         weight: f32,
     }
-    let mut blocks = [Block { value: 0.0, weight: 0.0 }; ANCHORS];
+    let mut blocks = [Block {
+        value: 0.0,
+        weight: 0.0,
+    }; ANCHORS];
     for i in 0..ANCHORS {
-        blocks[i] = Block { value: y[i], weight: 1.0 };
+        blocks[i] = Block {
+            value: y[i],
+            weight: 1.0,
+        };
     }
     let mut len = ANCHORS;
 
@@ -510,7 +527,9 @@ mod solver_tests {
     fn band_mean(design_row: &[f32; ANCHORS], curve: &ChannelCurve) -> f32 {
         // The design row weights anchor OUTPUTS directly; `curve.anchors[a].1`
         // is `out[a]`. Re-derive the output vector from the curve.
-        (0..ANCHORS).map(|a| design_row[a] * curve.anchors[a].1).sum()
+        (0..ANCHORS)
+            .map(|a| design_row[a] * curve.anchors[a].1)
+            .sum()
     }
 
     fn counts(all: usize) -> [usize; LUMA_BANDS.len()] {
@@ -579,7 +598,10 @@ mod solver_tests {
         assert!(up.iter().all(|&f| f == 1), "upscale footprints must be 1");
         // Downscale 4×4 crop → 2×2 out: every footprint is 2×2 = 4.
         let down = footprint_sizes(4, 4, 2, 2);
-        assert!(down.iter().all(|&f| f == 4), "downscale footprints must be 4");
+        assert!(
+            down.iter().all(|&f| f == 4),
+            "downscale footprints must be 4"
+        );
     }
 
     /// `band_index` replicates the gate's edge handling: half-open earlier

@@ -34,8 +34,8 @@ use crate::{
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, vignette, white_balance,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        vignette, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -194,7 +194,9 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         crate::image::CfaPattern::LinearRgb => {
             // LinearRaw DNG: data is already 3-channel RGB. Skip the
             // mosaic path entirely. See ticket #07.
-            stage("linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
+            stage("linearraw_decode", || {
+                linearize::linearraw_to_camera_rgb(raw)
+            })?
         }
         crate::image::CfaPattern::XTrans(_) => {
             // Fuji X-Trans (6×6 CFA): the Bayer kernels above are all
@@ -262,7 +264,11 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // full sensor, which is also what ACR does for them. See ticket #375.
     if let Some(crop) = raw.crop_rect {
         if let Some(cropped) = stage("crop_to_default", || {
-            crop_to_default(&camera_rgb, crop, effective_quality_divisor(quality, raw.cfa))
+            crop_to_default(
+                &camera_rgb,
+                crop,
+                effective_quality_divisor(quality, raw.cfa),
+            )
         }) {
             camera_rgb = cropped;
         }
@@ -301,8 +307,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // step and DCP must derive scene_white_xyz from `inv(CM) · AsShotNeutral`
     // as the empirical (legacy) path. See linearize::linearraw_to_camera_rgb
     // and dcp::profile_for for the matching wb_already_baked decision.
-    let skip_pre_gain = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb)
-        && raw.white_level <= 255;
+    let skip_pre_gain =
+        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
     if !skip_pre_gain {
         stage("white_balance::apply_pre_gain", || {
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
@@ -312,8 +318,14 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // post-pre-gain, identity (1,1,1) when pre-gain was skipped (8-bit lossy
     // LinearRaw) — without the identity branch the detector misses R/B clips
     // and trips incorrectly on G.
-    let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
-    stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
+    let hr_neutral = if skip_pre_gain {
+        [1.0; 3]
+    } else {
+        raw.as_shot_neutral
+    };
+    stage("highlight_recovery", || {
+        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral)
+    });
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
     // dcp::apply_colorimetry runs CM/FM (chromatic adaptation) and HSM
@@ -329,9 +341,9 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // express. `raw.plt` and `raw.profile_tone_curve` remain on RawImage
     // for now but are dead data in the develop chain; cleanup is a
     // separate follow-up.
-    let mut scene = stage("dcp::apply", || dcp::apply_colorimetry(
-        &camera_rgb, &profile,
-    ))?;
+    let mut scene = stage("dcp::apply", || {
+        dcp::apply_colorimetry(&camera_rgb, &profile)
+    })?;
     dump_after("03_dcp_apply", &scene);
     // Ticket #471: opt-in `OklabChromaReduction` highlight recovery runs in
     // scene-linear Rec.2020 D65 where Oklab is well-defined. No-op for the
@@ -408,9 +420,13 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // no-op.
     stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
-    stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
+    stage("white_balance", || {
+        white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method)
+    });
     dump_after("06_white_balance", &scene);
-    stage("scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    stage("scene_tone_controls", || {
+        scene_tone_controls::apply(&mut scene, model)
+    });
     dump_after("07_scene_tone_controls", &scene);
     // User-authored tone curves (parametric + per-channel) — see stages/tone_curves.rs.
     // Identity short-circuits on default model so this is a no-op for non-curve fixtures.
@@ -418,31 +434,47 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     dump_after("07b_tone_curves", &scene);
     stage("vibrance", || vibrance::apply(&mut scene, model.vibrance));
     dump_after("08_vibrance", &scene);
-    stage("saturation", || saturation::apply(&mut scene, model.saturation));
+    stage("saturation", || {
+        saturation::apply(&mut scene, model.saturation)
+    });
     dump_after("09_saturation", &scene);
     // HSL 8-band (#1112, tone/zoom design § 10.4) — scene-linear Oklab,
     // after saturation, before clarity. Identity short-circuit on all-default.
-    stage("hsl", || hsl::apply(
-        &mut scene,
-        &[
-            model.hue_adjustment_red, model.hue_adjustment_orange,
-            model.hue_adjustment_yellow, model.hue_adjustment_green,
-            model.hue_adjustment_aqua, model.hue_adjustment_blue,
-            model.hue_adjustment_purple, model.hue_adjustment_magenta,
-        ],
-        &[
-            model.saturation_adjustment_red, model.saturation_adjustment_orange,
-            model.saturation_adjustment_yellow, model.saturation_adjustment_green,
-            model.saturation_adjustment_aqua, model.saturation_adjustment_blue,
-            model.saturation_adjustment_purple, model.saturation_adjustment_magenta,
-        ],
-        &[
-            model.luminance_adjustment_red, model.luminance_adjustment_orange,
-            model.luminance_adjustment_yellow, model.luminance_adjustment_green,
-            model.luminance_adjustment_aqua, model.luminance_adjustment_blue,
-            model.luminance_adjustment_purple, model.luminance_adjustment_magenta,
-        ],
-    ));
+    stage("hsl", || {
+        hsl::apply(
+            &mut scene,
+            &[
+                model.hue_adjustment_red,
+                model.hue_adjustment_orange,
+                model.hue_adjustment_yellow,
+                model.hue_adjustment_green,
+                model.hue_adjustment_aqua,
+                model.hue_adjustment_blue,
+                model.hue_adjustment_purple,
+                model.hue_adjustment_magenta,
+            ],
+            &[
+                model.saturation_adjustment_red,
+                model.saturation_adjustment_orange,
+                model.saturation_adjustment_yellow,
+                model.saturation_adjustment_green,
+                model.saturation_adjustment_aqua,
+                model.saturation_adjustment_blue,
+                model.saturation_adjustment_purple,
+                model.saturation_adjustment_magenta,
+            ],
+            &[
+                model.luminance_adjustment_red,
+                model.luminance_adjustment_orange,
+                model.luminance_adjustment_yellow,
+                model.luminance_adjustment_green,
+                model.luminance_adjustment_aqua,
+                model.luminance_adjustment_blue,
+                model.luminance_adjustment_purple,
+                model.luminance_adjustment_magenta,
+            ],
+        )
+    });
     dump_after("09b_hsl", &scene);
     stage("clarity", || clarity::apply(&mut scene, model.clarity));
     dump_after("10_clarity", &scene);
@@ -466,12 +498,29 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
     });
     dump_after("12c_vignette", &scene);
-    stage("sharpen", || sharpen::apply_cancellable(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking, cancel));
+    stage("sharpen", || {
+        sharpen::apply_cancellable(
+            &mut scene,
+            model.sharpen_amount,
+            model.sharpen_radius,
+            model.sharpen_detail,
+            model.sharpen_masking,
+            cancel,
+        )
+    });
     dump_after("13_sharpen", &scene);
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    stage("nr_luminance", || noise_reduction::apply_luminance_cancellable(&mut scene, model.nr_luminance, cancel));
+    stage("nr_luminance", || {
+        noise_reduction::apply_luminance_cancellable(
+            &mut scene,
+            model.nr_luminance,
+            cancel,
+            raw.noise_profile.as_deref(),
+            raw.iso,
+        )
+    });
     dump_after("14_nr_luminance", &scene);
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
@@ -480,7 +529,15 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // in-kernel between-shifts check is what actually interrupts the freeze,
     // and this post-stage check turns a partial-then-cancelled pass into a
     // clean Err so the half-denoised buffer is never packed into a result.
-    stage("nr_color", || noise_reduction::apply_color_cancellable(&mut scene, model.nr_color, cancel));
+    stage("nr_color", || {
+        noise_reduction::apply_color_cancellable(
+            &mut scene,
+            model.nr_color,
+            cancel,
+            raw.noise_profile.as_deref(),
+            raw.iso,
+        )
+    });
     dump_after("15_nr_color", &scene);
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);

@@ -62,10 +62,7 @@ const RATIO_FLOOR: f32 = 1e-6;
 /// so the output equals `sigmoid(n) * 1 = sigmoid(n)` exactly — neutral
 /// grey-axis preservation is identical to the per-channel form.
 #[inline]
-pub fn norm_sigmoid_ratio<F: Fn(f32) -> f32>(
-    inset_rgb: [f32; 3],
-    sigmoid_fn: F,
-) -> [f32; 3] {
+pub fn norm_sigmoid_ratio<F: Fn(f32) -> f32>(inset_rgb: [f32; 3], sigmoid_fn: F) -> [f32; 3] {
     let r = inset_rgb[0];
     let g = inset_rgb[1];
     let b = inset_rgb[2];
@@ -98,7 +95,9 @@ pub fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
 mod tests {
     use super::*;
 
-    fn identity(x: f32) -> f32 { x }
+    fn identity(x: f32) -> f32 {
+        x
+    }
 
     #[test]
     fn ratio_preserves_neutral_axis() {
@@ -108,7 +107,8 @@ mod tests {
             assert!(
                 (out[0] - out[1]).abs() < 1e-6 && (out[1] - out[2]).abs() < 1e-6,
                 "neutral {} → non-neutral {:?}",
-                v, out
+                v,
+                out
             );
         }
     }
@@ -125,13 +125,17 @@ mod tests {
         let out_rg_ratio = out[1] / out[0];
         assert!(
             (in_rg_ratio - out_rg_ratio).abs() < 1e-5,
-            "hue drift: in R:G = {}, out R:G = {}", in_rg_ratio, out_rg_ratio
+            "hue drift: in R:G = {}, out R:G = {}",
+            in_rg_ratio,
+            out_rg_ratio
         );
         let in_rb_ratio = inset[2] / inset[0];
         let out_rb_ratio = out[2] / out[0];
         assert!(
             (in_rb_ratio - out_rb_ratio).abs() < 1e-5,
-            "hue drift: in R:B = {}, out R:B = {}", in_rb_ratio, out_rb_ratio
+            "hue drift: in R:B = {}, out R:B = {}",
+            in_rb_ratio,
+            out_rb_ratio
         );
     }
 
@@ -151,7 +155,13 @@ mod tests {
         let p = [0.18, 0.18, 0.18];
         let out = oklab_gamut_compress(p);
         for i in 0..3 {
-            assert!((out[i] - p[i]).abs() < 1e-5, "drift {}: {} → {}", i, p[i], out[i]);
+            assert!(
+                (out[i] - p[i]).abs() < 1e-5,
+                "drift {}: {} → {}",
+                i,
+                p[i],
+                out[i]
+            );
         }
     }
 
@@ -164,7 +174,9 @@ mod tests {
         for i in 0..3 {
             assert!(
                 out[i] >= 0.0 && out[i] <= 1.0,
-                "channel {} out of gamut: {}", i, out[i]
+                "channel {} out of gamut: {}",
+                i,
+                out[i]
             );
         }
     }
@@ -203,7 +215,8 @@ mod tests {
         let out = oklab_gamut_compress(p);
         assert!(
             out[0] > out[1] && out[0] > out[2],
-            "hue lost — R should still dominate: {:?}", out
+            "hue lost — R should still dominate: {:?}",
+            out
         );
     }
 }

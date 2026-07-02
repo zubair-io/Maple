@@ -38,20 +38,58 @@ pub struct ColorToken {
 /// generated files keep this ordering for reviewability.
 pub const COLOR_TOKENS: &[ColorToken] = &[
     // --- Surfaces ---
-    ColorToken { name: "bg",            value: "#1c1917", doc: "Window / app background." },
-    ColorToken { name: "surface",       value: "#262524", doc: "Default panel surface." },
-    ColorToken { name: "surface_alt",   value: "#2e2c2a", doc: "Alternate / nested panel surface." },
-    ColorToken { name: "surface_hover", value: "#3a3836", doc: "Hover state for surface elements." },
-    ColorToken { name: "sidebar",       value: "#292524", doc: "Sidebar / tree column background." },
-    ColorToken { name: "input_bg",      value: "#1c1917", doc: "Text-input fill (matches window bg)." },
-    ColorToken { name: "image_canvas",  value: "#141210", doc: "Image-canvas backdrop behind the loupe." },
-
+    ColorToken {
+        name: "bg",
+        value: "#1c1917",
+        doc: "Window / app background.",
+    },
+    ColorToken {
+        name: "surface",
+        value: "#262524",
+        doc: "Default panel surface.",
+    },
+    ColorToken {
+        name: "surface_alt",
+        value: "#2e2c2a",
+        doc: "Alternate / nested panel surface.",
+    },
+    ColorToken {
+        name: "surface_hover",
+        value: "#3a3836",
+        doc: "Hover state for surface elements.",
+    },
+    ColorToken {
+        name: "sidebar",
+        value: "#292524",
+        doc: "Sidebar / tree column background.",
+    },
+    ColorToken {
+        name: "input_bg",
+        value: "#1c1917",
+        doc: "Text-input fill (matches window bg).",
+    },
+    ColorToken {
+        name: "image_canvas",
+        value: "#141210",
+        doc: "Image-canvas backdrop behind the loupe.",
+    },
     // --- Text ---
-    ColorToken { name: "text_main",     value: "#e7e5e4", doc: "Primary text color." },
-    ColorToken { name: "text_muted",    value: "#a8a29e", doc: "Secondary / metadata text color." },
-
+    ColorToken {
+        name: "text_main",
+        value: "#e7e5e4",
+        doc: "Primary text color.",
+    },
+    ColorToken {
+        name: "text_muted",
+        value: "#a8a29e",
+        doc: "Secondary / metadata text color.",
+    },
     // --- Borders ---
-    ColorToken { name: "border",        value: "#44403c", doc: "Default border / divider." },
+    ColorToken {
+        name: "border",
+        value: "#44403c",
+        doc: "Default border / divider.",
+    },
     ColorToken {
         name: "border_hi",
         value: "#5a5552",
@@ -59,11 +97,17 @@ pub const COLOR_TOKENS: &[ColorToken] = &[
               Responsive-program S0a (#581). One tier up from `border` \
               to preserve contrast headroom.",
     },
-
     // --- Accent ---
-    ColorToken { name: "primary",       value: "#c4493a", doc: "Brand primary (selection, primary action)." },
-    ColorToken { name: "primary_dim",   value: "#422016", doc: "Dimmed primary (hover-of-selected, badge fill)." },
-
+    ColorToken {
+        name: "primary",
+        value: "#c4493a",
+        doc: "Brand primary (selection, primary action).",
+    },
+    ColorToken {
+        name: "primary_dim",
+        value: "#422016",
+        doc: "Dimmed primary (hover-of-selected, badge fill).",
+    },
     // --- Semantic signals ---
     ColorToken {
         name: "warn",
@@ -71,21 +115,47 @@ pub const COLOR_TOKENS: &[ColorToken] = &[
         doc: "Low-confidence signals (e.g. person detection chips). \
               Tailwind amber-400. Responsive-program S0a (#581).",
     },
-
     // --- Overlays (rgba) ---
     // CSS literal `0.1` (not `0.10`) — prettier normalizes the longer form
     // and we want emitted files to round-trip through `prettier --check`.
-    ColorToken { name: "bg_hover",      value: "rgba(255, 255, 255, 0.06)", doc: "Hover overlay (white at 6% opacity)." },
-    ColorToken { name: "bg_active",     value: "rgba(255, 255, 255, 0.1)",  doc: "Active / pressed overlay (white at 10% opacity)." },
-
+    ColorToken {
+        name: "bg_hover",
+        value: "rgba(255, 255, 255, 0.06)",
+        doc: "Hover overlay (white at 6% opacity).",
+    },
+    ColorToken {
+        name: "bg_active",
+        value: "rgba(255, 255, 255, 0.1)",
+        doc: "Active / pressed overlay (white at 10% opacity).",
+    },
     // --- Semantic banner tints ---
-    ColorToken { name: "success_bg",    value: "rgba(34, 197, 94, 0.15)",   doc: "Success banner fill." },
-    ColorToken { name: "success_text",  value: "#4ade80",                   doc: "Success banner text." },
-    ColorToken { name: "error_bg",      value: "rgba(239, 68, 68, 0.15)",   doc: "Error banner fill." },
-    ColorToken { name: "error_text",    value: "#f87171",                   doc: "Error banner text." },
+    ColorToken {
+        name: "success_bg",
+        value: "rgba(34, 197, 94, 0.15)",
+        doc: "Success banner fill.",
+    },
+    ColorToken {
+        name: "success_text",
+        value: "#4ade80",
+        doc: "Success banner text.",
+    },
+    ColorToken {
+        name: "error_bg",
+        value: "rgba(239, 68, 68, 0.15)",
+        doc: "Error banner fill.",
+    },
+    ColorToken {
+        name: "error_text",
+        value: "#f87171",
+        doc: "Error banner text.",
+    },
     // Lowercase hex — prettier normalizes to lowercase, and we want emitted
     // files to round-trip through `prettier --check`.
-    ColorToken { name: "star",          value: "#ef9f27",                   doc: "Star-rating glyph color." },
+    ColorToken {
+        name: "star",
+        value: "#ef9f27",
+        doc: "Star-rating glyph color.",
+    },
 ];
 
 // -------------------------------------------------------------------------

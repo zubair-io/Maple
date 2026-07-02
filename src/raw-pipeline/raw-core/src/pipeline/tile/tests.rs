@@ -32,6 +32,8 @@ fn fake_raw(w: u32, h: u32) -> RawImage {
         profile_tone_curve: None,
         profile_gain_table_map: None,
         crop_rect: None,
+        iso: 100,
+        noise_profile: None,
     }
 }
 
@@ -41,15 +43,28 @@ fn fake_raw(w: u32, h: u32) -> RawImage {
 #[test]
 fn render_scene_linear_tile_rejects_active_dehaze() {
     let raw = fake_raw(2048, 2048);
-    let model = AdjustmentModel { dehaze: 50.0, ..Default::default() };
+    let model = AdjustmentModel {
+        dehaze: 50.0,
+        ..Default::default()
+    };
     let r = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 1024, 1024, 512, 512, 512, 512,
+        &raw,
+        &model,
+        1024,
+        1024,
+        512,
+        512,
+        512,
+        512,
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error when dehaze != 0");
     let msg = format!("{}", r.unwrap_err());
-    assert!(msg.contains("dehaze"),
-        "error must mention dehaze, got: {}", msg);
+    assert!(
+        msg.contains("dehaze"),
+        "error must mention dehaze, got: {}",
+        msg
+    );
 }
 
 /// Tile entry rejects `model.vignette_amount != 0` with a "vignette"
@@ -59,15 +74,28 @@ fn render_scene_linear_tile_rejects_active_dehaze() {
 #[test]
 fn render_scene_linear_tile_rejects_active_vignette() {
     let raw = fake_raw(2048, 2048);
-    let model = AdjustmentModel { vignette_amount: -40.0, ..Default::default() };
+    let model = AdjustmentModel {
+        vignette_amount: -40.0,
+        ..Default::default()
+    };
     let r = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 1024, 1024, 512, 512, 512, 512,
+        &raw,
+        &model,
+        1024,
+        1024,
+        512,
+        512,
+        512,
+        512,
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error when vignette_amount != 0");
     let msg = format!("{}", r.unwrap_err());
-    assert!(msg.contains("vignette"),
-        "error must mention vignette, got: {}", msg);
+    assert!(
+        msg.contains("vignette"),
+        "error must mention vignette, got: {}",
+        msg
+    );
 }
 
 /// Tile entry rejects `model.deep_denoise != 0` with a "deep denoise"
@@ -79,15 +107,28 @@ fn render_scene_linear_tile_rejects_active_vignette() {
 #[test]
 fn render_scene_linear_tile_rejects_active_deep_denoise() {
     let raw = fake_raw(2048, 2048);
-    let model = AdjustmentModel { deep_denoise: 50.0, ..Default::default() };
+    let model = AdjustmentModel {
+        deep_denoise: 50.0,
+        ..Default::default()
+    };
     let r = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 1024, 1024, 512, 512, 512, 512,
+        &raw,
+        &model,
+        1024,
+        1024,
+        512,
+        512,
+        512,
+        512,
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error when deep_denoise != 0");
     let msg = format!("{}", r.unwrap_err());
-    assert!(msg.contains("deep denoise"),
-        "error must mention deep denoise, got: {}", msg);
+    assert!(
+        msg.contains("deep denoise"),
+        "error must mention deep denoise, got: {}",
+        msg
+    );
 }
 
 /// Tile entry rejects a model carrying a non-identity local adjustment
@@ -104,20 +145,36 @@ fn render_scene_linear_tile_rejects_active_local_adjustments() {
     let layer = LocalAdjustment::linear(
         Point2::new(0.0, 0.0),
         Point2::new(1.0, 1.0),
-        PartialAdjustments { exposure: Some(1.0), ..Default::default() },
+        PartialAdjustments {
+            exposure: Some(1.0),
+            ..Default::default()
+        },
     );
     let model = AdjustmentModel {
         local_adjustments: vec![layer],
         ..Default::default()
     };
     let r = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 1024, 1024, 512, 512, 512, 512,
+        &raw,
+        &model,
+        1024,
+        1024,
+        512,
+        512,
+        512,
+        512,
         RenderQuality::Full,
     );
-    assert!(r.is_err(), "tile path must error when a local adjustment is active");
+    assert!(
+        r.is_err(),
+        "tile path must error when a local adjustment is active"
+    );
     let msg = format!("{}", r.unwrap_err());
-    assert!(msg.contains("local adjustments"),
-        "error must mention local adjustments, got: {}", msg);
+    assert!(
+        msg.contains("local adjustments"),
+        "error must mention local adjustments, got: {}",
+        msg
+    );
 
     // An all-identity layer (every `PartialAdjustments` field `None`) is
     // skipped by `local_adjustments::apply`, so the gate must NOT trip —
@@ -135,13 +192,23 @@ fn render_scene_linear_tile_rejects_active_local_adjustments() {
         ..Default::default()
     };
     let r_identity = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model_identity, 1024, 1024, 512, 512, 512, 512,
+        &raw,
+        &model_identity,
+        1024,
+        1024,
+        512,
+        512,
+        512,
+        512,
         RenderQuality::Full,
     );
     if let Err(e) = r_identity {
         let msg = format!("{}", e);
-        assert!(!msg.contains("local adjustments"),
-            "identity layer must not trip the local-adjustments gate: {}", msg);
+        assert!(
+            !msg.contains("local adjustments"),
+            "identity layer must not trip the local-adjustments gate: {}",
+            msg
+        );
     }
 }
 
@@ -160,13 +227,26 @@ fn render_scene_linear_tile_rejects_active_capture_sharpening() {
         ..Default::default()
     };
     let r = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 1024, 1024, 512, 512, 512, 512,
+        &raw,
+        &model,
+        1024,
+        1024,
+        512,
+        512,
+        512,
+        512,
         RenderQuality::Full,
     );
-    assert!(r.is_err(), "tile path must error when capture sharpening is active");
+    assert!(
+        r.is_err(),
+        "tile path must error when capture sharpening is active"
+    );
     let msg = format!("{}", r.unwrap_err());
-    assert!(msg.contains("capture sharpening"),
-        "error must mention capture sharpening, got: {}", msg);
+    assert!(
+        msg.contains("capture sharpening"),
+        "error must mention capture sharpening, got: {}",
+        msg
+    );
 }
 
 /// Tile entry rejects mismatched-aspect requests. The trim →
@@ -182,39 +262,69 @@ fn render_scene_linear_tile_rejects_mismatched_aspect() {
     let model = AdjustmentModel::default();
     // src 512×512 (1:1), out 512×256 (2:1) — strict mismatch.
     let r = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 0, 0, 512, 512, 512, 256,
+        &raw,
+        &model,
+        0,
+        0,
+        512,
+        512,
+        512,
+        256,
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error on mismatched aspect");
     let msg = format!("{}", r.unwrap_err());
-    assert!(msg.contains("matching aspect"),
-        "error must mention matching aspect, got: {}", msg);
+    assert!(
+        msg.contains("matching aspect"),
+        "error must mention matching aspect, got: {}",
+        msg
+    );
 
     // src 1024×512 (2:1), out 256×128 (2:1) — matches; should NOT
     // error on the aspect check. (May still error elsewhere because
     // `fake_raw` has no DCP profile, so just confirm the message is
     // not the aspect one.)
     let r_ok_aspect = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 0, 0, 1024, 512, 256, 128,
+        &raw,
+        &model,
+        0,
+        0,
+        1024,
+        512,
+        256,
+        128,
         RenderQuality::Full,
     );
     if let Err(e) = r_ok_aspect {
         let msg = format!("{}", e);
-        assert!(!msg.contains("matching aspect"),
-            "matching-aspect request must not trip the aspect guard: {}", msg);
+        assert!(
+            !msg.contains("matching aspect"),
+            "matching-aspect request must not trip the aspect guard: {}",
+            msg
+        );
     }
 
     // Equal cross-product within the integer-rounding tolerance
     // (one row/column of `src_w.max(src_h)`) — should pass.
     // src 513×512, out 257×256: cross diff = |513*256 - 512*257| = 256 <= 513.
     let r_tol = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 0, 0, 513, 512, 257, 256,
+        &raw,
+        &model,
+        0,
+        0,
+        513,
+        512,
+        257,
+        256,
         RenderQuality::Full,
     );
     if let Err(e) = r_tol {
         let msg = format!("{}", e);
-        assert!(!msg.contains("matching aspect"),
-            "near-aspect within tolerance must not trip guard: {}", msg);
+        assert!(
+            !msg.contains("matching aspect"),
+            "near-aspect within tolerance must not trip guard: {}",
+            msg
+        );
     }
 }
 
@@ -225,16 +335,33 @@ fn render_scene_linear_tile_rejects_upscale() {
     let raw = fake_raw(2048, 2048);
     let model = AdjustmentModel::default();
     let r_w = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 0, 0, 512, 512, 1024, 512,
+        &raw,
+        &model,
+        0,
+        0,
+        512,
+        512,
+        1024,
+        512,
         RenderQuality::Full,
     );
     assert!(r_w.is_err(), "out_w > src_w must error");
     let msg = format!("{}", r_w.unwrap_err());
-    assert!(msg.contains("upscale") || msg.contains("downscale"),
-        "error must mention up/downscale, got: {}", msg);
+    assert!(
+        msg.contains("upscale") || msg.contains("downscale"),
+        "error must mention up/downscale, got: {}",
+        msg
+    );
 
     let r_h = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 0, 0, 512, 512, 512, 1024,
+        &raw,
+        &model,
+        0,
+        0,
+        512,
+        512,
+        512,
+        1024,
         RenderQuality::Full,
     );
     assert!(r_h.is_err(), "out_h > src_h must error");
@@ -256,17 +383,28 @@ fn render_scene_linear_tile_returns_oriented_fp16_rgba_at_target_size() {
     let (src_x, src_y, src_w, src_h) = (1024u32, 1024u32, 512u32, 512u32);
     let (out_w, out_h) = (512u32, 512u32);
     let (w, h, fp16) = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, src_x, src_y, src_w, src_h, out_w, out_h,
+        &raw,
+        &model,
+        src_x,
+        src_y,
+        src_w,
+        src_h,
+        out_w,
+        out_h,
         RenderQuality::Full,
-    ).expect("tile render");
+    )
+    .expect("tile render");
     assert_eq!(w, out_w, "tile width");
     assert_eq!(h, out_h, "tile height");
     assert_eq!(fp16.len() as u32, 4 * w * h);
     let alpha_ok = fp16.chunks_exact(4).filter(|c| c[3] == 0x3c00).count();
     assert_eq!(alpha_ok, (w * h) as usize, "all alpha lanes = 1.0");
     let nonzero = fp16.iter().filter(|&&v| v != 0 && v != 0x3c00).count();
-    assert!(nonzero > (fp16.len() / 10),
-        "tile mostly zero: {} non-zero non-alpha lanes", nonzero);
+    assert!(
+        nonzero > (fp16.len() / 10),
+        "tile mostly zero: {} non-zero non-alpha lanes",
+        nonzero
+    );
 }
 
 /// Tile entry rounds source coordinates down to even multiples of 2
@@ -282,13 +420,29 @@ fn render_scene_linear_tile_rounds_source_coords_to_even() {
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
     let (w_odd, h_odd, _) = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 1025, 1025, 512, 512, 256, 256,
+        &raw,
+        &model,
+        1025,
+        1025,
+        512,
+        512,
+        256,
+        256,
         RenderQuality::Full,
-    ).expect("odd coords tile");
+    )
+    .expect("odd coords tile");
     let (w_even, h_even, _) = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, 1024, 1024, 512, 512, 256, 256,
+        &raw,
+        &model,
+        1024,
+        1024,
+        512,
+        512,
+        256,
+        256,
         RenderQuality::Full,
-    ).expect("even coords tile");
+    )
+    .expect("even coords tile");
     assert_eq!((w_odd, h_odd), (256, 256));
     assert_eq!((w_even, h_even), (256, 256));
 }
@@ -331,12 +485,19 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
     let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
-    assert!(raw.crop_rect.is_none(),
-        "fixture grew a DefaultCrop — update this test's coordinate mapping");
-    assert!(raw.profile_gain_table_map.is_none(),
-        "fixture grew a ProfileGainTableMap — update this test's stage set");
-    assert_eq!(raw.orientation, crate::image::ExifOrientation::Normal,
-        "fixture orientation changed — update this test's coordinate mapping");
+    assert!(
+        raw.crop_rect.is_none(),
+        "fixture grew a DefaultCrop — update this test's coordinate mapping"
+    );
+    assert!(
+        raw.profile_gain_table_map.is_none(),
+        "fixture grew a ProfileGainTableMap — update this test's stage set"
+    );
+    assert_eq!(
+        raw.orientation,
+        crate::image::ExifOrientation::Normal,
+        "fixture orientation changed — update this test's coordinate mapping"
+    );
 
     let model = AdjustmentModel {
         auto_exposure: crate::xmp::AutoExposureMode::Off,
@@ -344,7 +505,11 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
         nr_color: 0.0,
         parametric_shadows: 30.0,
         tone_curve_luma: ToneCurve::new(vec![
-            (0.0, 0.0), (0.25, 0.18), (0.5, 0.62), (0.75, 0.85), (1.0, 1.0),
+            (0.0, 0.0),
+            (0.25, 0.18),
+            (0.5, 0.62),
+            (0.75, 0.85),
+            (1.0, 1.0),
         ]),
         ..AdjustmentModel::default()
     };
@@ -353,27 +518,39 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
     // gate would pass trivially if `tone_curves` were dropped from BOTH
     // chains.
     {
-        let mut probe = crate::image::Image::new(
-            2, 1, crate::image::ColorSpace::SceneLinearRec2020,
-        );
+        let mut probe =
+            crate::image::Image::new(2, 1, crate::image::ColorSpace::SceneLinearRec2020);
         probe.pixels[0] = [0.18, 0.18, 0.18];
         probe.pixels[1] = [1.0, 1.0, 1.0];
         let before = probe.pixels.clone();
         crate::stages::tone_curves::apply(&mut probe, &model);
-        assert_ne!(probe.pixels, before,
-            "test model's tone curve must be non-identity");
+        assert_ne!(
+            probe.pixels, before,
+            "test model's tone curve must be non-identity"
+        );
     }
 
     let (src_x, src_y, side) = (1024u32, 1024u32, 512u32);
     let (tw, th, tile_fp16) = render_scene_linear_tile_from_raw_with_quality(
-        &raw, &model, src_x, src_y, side, side, side, side,
+        &raw,
+        &model,
+        src_x,
+        src_y,
+        side,
+        side,
+        side,
+        side,
         RenderQuality::Full,
-    ).expect("tile render");
+    )
+    .expect("tile render");
     assert_eq!((tw, th), (side, side), "tile output dims");
 
     let full = crate::pipeline::develop_scene_linear_from_raw_with_quality(
-        &raw, &model, RenderQuality::Full,
-    ).expect("full develop");
+        &raw,
+        &model,
+        RenderQuality::Full,
+    )
+    .expect("full develop");
 
     // Compare every tile lane against the same full-chain pixel after
     // fp16 packing (the tile output format). Bit-exact is the contract —
@@ -392,17 +569,23 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
                 if expect != got {
                     diff_lanes += 1;
                     let dist = (expect as i32 - got as i32).unsigned_abs();
-                    if dist > max_bit_dist { max_bit_dist = dist; }
+                    if dist > max_bit_dist {
+                        max_bit_dist = dist;
+                    }
                 }
             }
         }
     }
     eprintln!(
         "tile-vs-full tone-curve parity: {} differing lanes of {}, max fp16 bit distance {}",
-        diff_lanes, (side * side * 3), max_bit_dist,
+        diff_lanes,
+        (side * side * 3),
+        max_bit_dist,
     );
-    assert_eq!(diff_lanes, 0,
+    assert_eq!(
+        diff_lanes, 0,
         "tile diverges from full chain with a non-default tone curve: \
          {} lanes differ (max fp16 bit distance {})",
-        diff_lanes, max_bit_dist);
+        diff_lanes, max_bit_dist
+    );
 }

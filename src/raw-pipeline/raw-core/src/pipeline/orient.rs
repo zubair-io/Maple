@@ -14,7 +14,10 @@
 /// instead of u8 RGB. We reproduce the per-orientation source mapping
 /// instead of going through u8 because the new path never quantizes.
 pub(crate) fn apply_orientation_f32_rgba(
-    rgba: &[f32], w: u32, h: u32, orient: crate::image::ExifOrientation,
+    rgba: &[f32],
+    w: u32,
+    h: u32,
+    orient: crate::image::ExifOrientation,
 ) -> (u32, u32, Vec<f32>) {
     use crate::image::ExifOrientation;
     let (sw, sh) = (w as usize, h as usize);
@@ -28,18 +31,18 @@ pub(crate) fn apply_orientation_f32_rgba(
     for yp in 0..dh {
         for xp in 0..dw {
             let (sx, sy) = match orient {
-                ExifOrientation::Normal          => (xp, yp),
-                ExifOrientation::HorizontalFlip  => (sw - 1 - xp, yp),
-                ExifOrientation::Rotate180       => (sw - 1 - xp, sh - 1 - yp),
-                ExifOrientation::VerticalFlip    => (xp, sh - 1 - yp),
-                ExifOrientation::Transpose       => (yp, xp),
-                ExifOrientation::Rotate90        => (yp, sh - 1 - xp),
-                ExifOrientation::Transverse      => (sw - 1 - yp, sh - 1 - xp),
-                ExifOrientation::Rotate270       => (sw - 1 - yp, xp),
+                ExifOrientation::Normal => (xp, yp),
+                ExifOrientation::HorizontalFlip => (sw - 1 - xp, yp),
+                ExifOrientation::Rotate180 => (sw - 1 - xp, sh - 1 - yp),
+                ExifOrientation::VerticalFlip => (xp, sh - 1 - yp),
+                ExifOrientation::Transpose => (yp, xp),
+                ExifOrientation::Rotate90 => (yp, sh - 1 - xp),
+                ExifOrientation::Transverse => (sw - 1 - yp, sh - 1 - xp),
+                ExifOrientation::Rotate270 => (sw - 1 - yp, xp),
             };
             let si = (sy * sw + sx) * 4;
             let di = (yp * dw + xp) * 4;
-            out[di]     = rgba[si];
+            out[di] = rgba[si];
             out[di + 1] = rgba[si + 1];
             out[di + 2] = rgba[si + 2];
             out[di + 3] = rgba[si + 3];

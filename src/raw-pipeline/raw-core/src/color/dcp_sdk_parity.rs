@@ -61,7 +61,11 @@ fn fm_test_profile(cm: Matrix3, fm: Matrix3) -> DcpProfile {
     // in via inv(CM) · (1,1,1) when wb_already_baked, so mirror that.
     let inv = cm.inverse().expect("CM invertible in this test");
     let xyz = inv.mul_vec([1.0, 1.0, 1.0]);
-    let s = if xyz[1].abs() > 1e-8 { 1.0 / xyz[1] } else { 1.0 };
+    let s = if xyz[1].abs() > 1e-8 {
+        1.0 / xyz[1]
+    } else {
+        1.0
+    };
     DcpProfile {
         illuminant: Illuminant::D65,
         color_matrix: cm,
@@ -70,6 +74,8 @@ fn fm_test_profile(cm: Matrix3, fm: Matrix3) -> DcpProfile {
         scene_white_xyz: [xyz[0] * s, 1.0, xyz[2] * s],
         wb_already_baked: true,
         hsm: None,
+        look_table: None,
+        tone_curve: None,
     }
 }
 
@@ -94,17 +100,17 @@ fn fm_path_maps_neutral_to_neutral() {
     // well-conditioned and decidedly non-diagonal so `inv(CM) · (1,1,1)`
     // lands far enough off the neutral axis to surface the bug clearly.
     let cm = Matrix3([
-        [ 0.6722, -0.0635, -0.0963],
-        [-0.4287,  1.2460,  0.2028],
-        [-0.0908,  0.2162,  0.5668],
+        [0.6722, -0.0635, -0.0963],
+        [-0.4287, 1.2460, 0.2028],
+        [-0.0908, 0.2162, 0.5668],
     ]);
     // FM whose column sums equal D50 XYZ. Equivalently:
     // FM · (1, 1, 1) == XYZ_D50.
     let d = XYZ_D50;
     let fm = Matrix3([
-        [d[0] / 3.0 + 0.05, d[0] / 3.0,         d[0] / 3.0 - 0.05],
-        [d[1] / 3.0,         d[1] / 3.0 + 0.04, d[1] / 3.0 - 0.04],
-        [d[2] / 3.0 - 0.03, d[2] / 3.0,         d[2] / 3.0 + 0.03],
+        [d[0] / 3.0 + 0.05, d[0] / 3.0, d[0] / 3.0 - 0.05],
+        [d[1] / 3.0, d[1] / 3.0 + 0.04, d[1] / 3.0 - 0.04],
+        [d[2] / 3.0 - 0.03, d[2] / 3.0, d[2] / 3.0 + 0.03],
     ]);
     // Sanity: confirm FM column sums == D50 within float epsilon.
     let probe = fm.mul_vec([1.0, 1.0, 1.0]);
@@ -126,13 +132,19 @@ fn fm_path_maps_neutral_to_neutral() {
     // precision — well below the ~0.27 pre-fix drift the bug produced.
     let rg = (p[0] - p[1]).abs();
     let bg = (p[2] - p[1]).abs();
-    assert!(rg < 5e-4 && bg < 5e-4,
+    assert!(
+        rg < 5e-4 && bg < 5e-4,
         "FM-path neutral patch not neutral in Rec.2020: \
          RGB = ({:.6}, {:.6}, {:.6}), |R-G|={:.6}, |B-G|={:.6}. \
          Pre-fix bug composes FM × inv(CM), which double-rotates the \
          already-white-balanced buffer. SDK contract: FM input is \
          white-balanced camera RGB, output is XYZ-D50 (dng_color_spec.cpp:444-446).",
-        p[0], p[1], p[2], rg, bg);
+        p[0],
+        p[1],
+        p[2],
+        rg,
+        bg
+    );
 }
 
 // `ptc_plt_order_matches_sdk` lived here pre-#425. Deleted with the PTC/PLT

@@ -78,7 +78,11 @@ impl HsmTable {
         if data.len() != expected || dims[0] == 0 || dims[1] == 0 || dims[2] == 0 {
             return None;
         }
-        Some(Self { dims, data, encoding })
+        Some(Self {
+            dims,
+            data,
+            encoding,
+        })
     }
 
     /// Fetch the (hueDelta, satScale, valScale) at lattice index `(h, s, v)`.
@@ -114,11 +118,19 @@ pub fn lerp_tables(cold: &HsmTable, warm: &HsmTable, t: f32) -> Option<HsmTable>
         let v = if i % 3 == 0 {
             // hueDelta channel — circular shortest-arc lerp
             let mut diff = b - a;
-            if diff > 180.0 { diff -= 360.0; }
-            if diff < -180.0 { diff += 360.0; }
+            if diff > 180.0 {
+                diff -= 360.0;
+            }
+            if diff < -180.0 {
+                diff += 360.0;
+            }
             let mut out = a + t * diff;
-            if out > 360.0 { out -= 360.0; }
-            if out < -360.0 { out += 360.0; }
+            if out > 360.0 {
+                out -= 360.0;
+            }
+            if out < -360.0 {
+                out += 360.0;
+            }
             out
         } else {
             (1.0 - t) * a + t * b
@@ -145,7 +157,11 @@ pub fn apply(img: &mut Image, table: &HsmTable) {
     img.pixels.par_iter_mut().for_each(|p| {
         // 0. Perform a soft lift for negative components instead of an abrupt bypass
         let min_original = p[0].min(p[1]).min(p[2]);
-        let lift = if min_original < 0.0 { -min_original } else { 0.0 };
+        let lift = if min_original < 0.0 {
+            -min_original
+        } else {
+            0.0
+        };
         let mut rgb = [p[0] + lift, p[1] + lift, p[2] + lift];
 
         // 1. Pre-encode if sRGB (operates on each channel independently).
@@ -158,7 +174,7 @@ pub fn apply(img: &mut Image, table: &HsmTable) {
         let (h, s, v) = rgb_to_hsv(rgb);
         // 3. Lookup (hueDelta, satScale, valScale) via trilinear interp.
         let (hd, ss, vs) = lookup(table, h, s, v);
-        
+
         // Achromatic singularity blend: smoothly fade shifts to identity near zero saturation.
         // This prevents wild hue swings from introducing step discontinuities in brightness.
         let w_chroma = (s / 0.01).clamp(0.0, 1.0);
@@ -179,7 +195,7 @@ pub fn apply(img: &mut Image, table: &HsmTable) {
             out[1] = srgb_to_linear_one(out[1]);
             out[2] = srgb_to_linear_one(out[2]);
         }
-        
+
         // 7. Restore original negative offset to preserve original out-of-gamut coordinate
         if lift > 0.0 {
             *p = [out[0] - lift, out[1] - lift, out[2] - lift];
@@ -209,9 +225,9 @@ pub fn rgb_to_hsv(rgb: [f32; 3]) -> (f32, f32, f32) {
     let min = r.min(g).min(b);
     let delta = max - min;
     let v = max;
-    
+
     let s = if max > 0.0 { delta / max } else { 0.0 };
-    
+
     let h = if s <= 0.0 || delta < 1e-9 {
         0.0
     } else if (max - r).abs() < 1e-9 {
@@ -221,7 +237,13 @@ pub fn rgb_to_hsv(rgb: [f32; 3]) -> (f32, f32, f32) {
     } else {
         60.0 * (((r - g) / delta) + 4.0)
     };
-    let h = if h < 0.0 { h + 360.0 } else if h >= 360.0 { h - 360.0 } else { h };
+    let h = if h < 0.0 {
+        h + 360.0
+    } else if h >= 360.0 {
+        h - 360.0
+    } else {
+        h
+    };
     (h, s, v)
 }
 
@@ -235,12 +257,19 @@ pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
     let c = v * s;
     let h6 = h / 60.0;
     let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
-    let (r1, g1, b1) = if h6 < 1.0 { (c, x, 0.0) }
-        else if h6 < 2.0 { (x, c, 0.0) }
-        else if h6 < 3.0 { (0.0, c, x) }
-        else if h6 < 4.0 { (0.0, x, c) }
-        else if h6 < 5.0 { (x, 0.0, c) }
-        else { (c, 0.0, x) };
+    let (r1, g1, b1) = if h6 < 1.0 {
+        (c, x, 0.0)
+    } else if h6 < 2.0 {
+        (x, c, 0.0)
+    } else if h6 < 3.0 {
+        (0.0, c, x)
+    } else if h6 < 4.0 {
+        (0.0, x, c)
+    } else if h6 < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
     let m = v - c;
     [r1 + m, g1 + m, b1 + m]
 }
@@ -317,8 +346,12 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
     // Unwrap hue coordinates relative to c000[0] so standard linear combination preserves shortest-arc.
     let unwrap_hue = |val: f32, ref_val: f32| -> f32 {
         let mut diff = val - ref_val;
-        if diff > 180.0 { diff -= 360.0; }
-        if diff < -180.0 { diff += 360.0; }
+        if diff > 180.0 {
+            diff -= 360.0;
+        }
+        if diff < -180.0 {
+            diff += 360.0;
+        }
         ref_val + diff
     };
 
@@ -338,9 +371,13 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
     let mut out = [0.0f32; 3];
     for c in 0..3 {
         let (val000, val100, val010, val110, val001, val101, val011, val111) = if c == 0 {
-            (h000_u, h100_u, h010_u, h110_u, h001_u, h101_u, h011_u, h111_u)
+            (
+                h000_u, h100_u, h010_u, h110_u, h001_u, h101_u, h011_u, h111_u,
+            )
         } else {
-            (c000[c], c100[c], c010[c], c110[c], c001[c], c101[c], c011[c], c111[c])
+            (
+                c000[c], c100[c], c010[c], c110[c], c001[c], c101[c], c011[c], c111[c],
+            )
         };
 
         out[c] = if fx >= fy {
@@ -407,7 +444,11 @@ mod tests {
     #[test]
     fn rgb_to_hsv_neutral() {
         let (h, s, v) = rgb_to_hsv([0.5, 0.5, 0.5]);
-        assert!(approx(s, 0.0, 1e-6), "neutral has zero saturation; got s={}", s);
+        assert!(
+            approx(s, 0.0, 1e-6),
+            "neutral has zero saturation; got s={}",
+            s
+        );
         assert!(approx(v, 0.5, 1e-6));
         let _ = h; // hue is undefined when s == 0
     }
@@ -424,8 +465,12 @@ mod tests {
         for &rgb in cases {
             let (h, s, v) = rgb_to_hsv(rgb);
             let back = hsv_to_rgb(h, s, v);
-            assert!(approx_rgb(back, rgb, 1e-4),
-                "round trip fail for {:?}: got {:?}", rgb, back);
+            assert!(
+                approx_rgb(back, rgb, 1e-4),
+                "round trip fail for {:?}: got {:?}",
+                rgb,
+                back
+            );
         }
     }
 
@@ -448,13 +493,21 @@ mod tests {
         let table = identity_table([2, 2, 2], HsmEncoding::Linear);
         let mut img = Image::new(4, 4, ColorSpace::SceneLinearRec2020);
         for (i, p) in img.pixels.iter_mut().enumerate() {
-            *p = [(i as f32) * 0.05, 0.5 - (i as f32) * 0.02, 0.3 + (i as f32) * 0.01];
+            *p = [
+                (i as f32) * 0.05,
+                0.5 - (i as f32) * 0.02,
+                0.3 + (i as f32) * 0.01,
+            ];
         }
         let before = img.pixels.clone();
         apply(&mut img, &table);
         for (b, a) in before.iter().zip(img.pixels.iter()) {
-            assert!(approx_rgb(*b, *a, 1e-4),
-                "identity table mutated pixel: before={:?} after={:?}", b, a);
+            assert!(
+                approx_rgb(*b, *a, 1e-4),
+                "identity table mutated pixel: before={:?} after={:?}",
+                b,
+                a
+            );
         }
     }
 
@@ -470,8 +523,12 @@ mod tests {
         let before = img.pixels.clone();
         apply(&mut img, &table);
         for (b, a) in before.iter().zip(img.pixels.iter()) {
-            assert!(approx_rgb(*b, *a, 1e-3),
-                "identity mutated: before={:?} after={:?}", b, a);
+            assert!(
+                approx_rgb(*b, *a, 1e-3),
+                "identity mutated: before={:?} after={:?}",
+                b,
+                a
+            );
         }
     }
 
@@ -484,7 +541,9 @@ mod tests {
         let n = 2 * 2 * 2;
         let mut data = Vec::with_capacity(n * 3);
         for _ in 0..n {
-            data.push(90.0); data.push(1.0); data.push(1.0);
+            data.push(90.0);
+            data.push(1.0);
+            data.push(1.0);
         }
         let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
@@ -503,7 +562,9 @@ mod tests {
         let n = 2 * 2 * 2;
         let mut data = Vec::with_capacity(n * 3);
         for _ in 0..n {
-            data.push(0.0); data.push(0.5); data.push(1.0);
+            data.push(0.0);
+            data.push(0.5);
+            data.push(1.0);
         }
         let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
@@ -511,8 +572,13 @@ mod tests {
         let (_, s_in, _) = rgb_to_hsv(img.pixels[0]);
         apply(&mut img, &table);
         let (_, s_out, _) = rgb_to_hsv(img.pixels[0]);
-        assert!(approx(s_out, s_in * 0.5, 1e-3),
-            "expected sat halved from {} to {}, got {}", s_in, s_in * 0.5, s_out);
+        assert!(
+            approx(s_out, s_in * 0.5, 1e-3),
+            "expected sat halved from {} to {}, got {}",
+            s_in,
+            s_in * 0.5,
+            s_out
+        );
     }
 
     #[test]
@@ -521,15 +587,20 @@ mod tests {
         let n = 2 * 2 * 2;
         let mut data = Vec::with_capacity(n * 3);
         for _ in 0..n {
-            data.push(0.0); data.push(1.0); data.push(2.0);
+            data.push(0.0);
+            data.push(1.0);
+            data.push(2.0);
         }
         let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [0.4, 0.1, 0.1];
         apply(&mut img, &table);
         // V was 0.4, sat-preserved → expected RGB (0.8, 0.2, 0.2).
-        assert!(approx_rgb(img.pixels[0], [0.8, 0.2, 0.2], 1e-3),
-            "expected (0.8, 0.2, 0.2), got {:?}", img.pixels[0]);
+        assert!(
+            approx_rgb(img.pixels[0], [0.8, 0.2, 0.2], 1e-3),
+            "expected (0.8, 0.2, 0.2), got {:?}",
+            img.pixels[0]
+        );
     }
 
     // ── Trilinear interp halfway between identity & 2x ──────────────────────
@@ -568,8 +639,11 @@ mod tests {
         apply(&mut img, &table);
         let (_, s_out, _) = rgb_to_hsv(img.pixels[0]);
         // Scale at sat=0.5 lerps lattice scales 1.0 and 0.0 → 0.5. New sat = 0.5 * 0.5 = 0.25.
-        assert!(approx(s_out, 0.25, 1e-3),
-            "expected sat 0.25 after lerped sat scale, got {}", s_out);
+        assert!(
+            approx(s_out, 0.25, 1e-3),
+            "expected sat 0.25 after lerped sat scale, got {}",
+            s_out
+        );
     }
 
     // ── Hue dimension wraps circularly ──────────────────────────────────────
@@ -612,7 +686,11 @@ mod tests {
         apply(&mut img, &table);
         let (h, _, _) = rgb_to_hsv(img.pixels[0]);
         // Shortest-arc lerp at midpoint of (350°, 10°) = 0°. 90° + 0° = 90°.
-        assert!(approx(h, 90.0, 0.5), "expected hue ≈90° (no shift via short arc), got {}", h);
+        assert!(
+            approx(h, 90.0, 0.5),
+            "expected hue ≈90° (no shift via short arc), got {}",
+            h
+        );
     }
 
     // ── Two-table reciprocal-CCT lerp ──────────────────────────────────────
@@ -622,7 +700,9 @@ mod tests {
         let cold = identity_table([2, 2, 2], HsmEncoding::Linear);
         let mut warm_data = cold.data.clone();
         for i in 0..warm_data.len() {
-            if i % 3 == 1 { warm_data[i] = 2.0; } // warm has 2x sat scale
+            if i % 3 == 1 {
+                warm_data[i] = 2.0;
+            } // warm has 2x sat scale
         }
         let warm = HsmTable::new([2, 2, 2], warm_data, HsmEncoding::Linear).unwrap();
         let merged = lerp_tables(&cold, &warm, 0.0).unwrap();
@@ -636,7 +716,9 @@ mod tests {
         let cold = identity_table([2, 2, 2], HsmEncoding::Linear);
         let mut warm_data = cold.data.clone();
         for i in 0..warm_data.len() {
-            if i % 3 == 1 { warm_data[i] = 2.0; }
+            if i % 3 == 1 {
+                warm_data[i] = 2.0;
+            }
         }
         let warm = HsmTable::new([2, 2, 2], warm_data.clone(), HsmEncoding::Linear).unwrap();
         let merged = lerp_tables(&cold, &warm, 1.0).unwrap();
@@ -650,15 +732,21 @@ mod tests {
         let cold = identity_table([2, 2, 2], HsmEncoding::Linear);
         let mut warm_data = cold.data.clone();
         for i in 0..warm_data.len() {
-            if i % 3 == 2 { warm_data[i] = 3.0; } // warm valScale = 3
+            if i % 3 == 2 {
+                warm_data[i] = 3.0;
+            } // warm valScale = 3
         }
         let warm = HsmTable::new([2, 2, 2], warm_data, HsmEncoding::Linear).unwrap();
         let merged = lerp_tables(&cold, &warm, 0.5).unwrap();
         // ValScale at midpoint = 0.5 * 1 + 0.5 * 3 = 2.
         for i in 0..merged.data.len() {
             if i % 3 == 2 {
-                assert!((merged.data[i] - 2.0).abs() < 1e-6,
-                    "valScale at idx {} = {}, expected 2.0", i, merged.data[i]);
+                assert!(
+                    (merged.data[i] - 2.0).abs() < 1e-6,
+                    "valScale at idx {} = {}, expected 2.0",
+                    i,
+                    merged.data[i]
+                );
             }
         }
     }

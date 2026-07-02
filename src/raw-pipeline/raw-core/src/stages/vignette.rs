@@ -166,7 +166,12 @@ mod tests {
     /// and the gain is exactly 1.0.
     #[test]
     fn center_is_bit_exact_identity() {
-        for &(amount, feather) in &[(-100.0_f32, 0.0_f32), (100.0, 0.0), (-50.0, 100.0), (73.0, 100.0)] {
+        for &(amount, feather) in &[
+            (-100.0_f32, 0.0_f32),
+            (100.0, 0.0),
+            (-50.0, 100.0),
+            (73.0, 100.0),
+        ] {
             let mut img = grey_image(17, 13, 0.42);
             apply(&mut img, amount, feather);
             // centre pixel of a 17×13 buffer is (8, 6): nx = ny = 0 ⇒ r = 0.
@@ -209,8 +214,14 @@ mod tests {
         let mut light = grey_image(32, 32, 0.3);
         apply(&mut dark, -60.0, 50.0);
         apply(&mut light, 60.0, 50.0);
-        assert!(dark.pixels[0][0] < 0.3, "negative amount must darken corners");
-        assert!(light.pixels[0][0] > 0.3, "positive amount must lighten corners");
+        assert!(
+            dark.pixels[0][0] < 0.3,
+            "negative amount must darken corners"
+        );
+        assert!(
+            light.pixels[0][0] > 0.3,
+            "positive amount must lighten corners"
+        );
     }
 
     /// Wider feather pulls the transition INWARD: at a mid radius the
@@ -271,7 +282,13 @@ mod tests {
         let corner = img.pixels[0];
         let ratio_rg = corner[0] / corner[1];
         let ratio_rb = corner[0] / corner[2];
-        assert!((ratio_rg - 2.0).abs() < 1e-5, "R/G ratio drifted: {ratio_rg}");
-        assert!((ratio_rb - 6.0).abs() < 1e-5, "R/B ratio drifted: {ratio_rb}");
+        assert!(
+            (ratio_rg - 2.0).abs() < 1e-5,
+            "R/G ratio drifted: {ratio_rg}"
+        );
+        assert!(
+            (ratio_rb - 6.0).abs() < 1e-5,
+            "R/B ratio drifted: {ratio_rb}"
+        );
     }
 }

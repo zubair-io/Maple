@@ -194,7 +194,10 @@ mod tests {
         let gx = groups.min(65535);
         let gy = groups.div_ceil(gx);
         assert!(groups > 65535, "buffer must exceed the 65535-group 1-D cap");
-        assert!(gy > 1, "dispatch must tile into 2-D (gy>1), got gy={gy}, gx={gx}");
+        assert!(
+            gy > 1,
+            "dispatch must tile into 2-D (gy>1), got gy={gy}, gx={gx}"
+        );
 
         let input = test_buffer(pixel_count);
         let ev = 0.5_f32;
@@ -209,9 +212,16 @@ mod tests {
             .zip(&gpu)
             .enumerate()
             .map(|(idx, (a, b))| ((a - b).abs(), idx))
-            .fold((0.0_f32, 0usize), |(m, mi), (d, idx)| {
-                if d > m { (d, idx) } else { (m, mi) }
-            });
+            .fold(
+                (0.0_f32, 0usize),
+                |(m, mi), (d, idx)| {
+                    if d > m {
+                        (d, idx)
+                    } else {
+                        (m, mi)
+                    }
+                },
+            );
         eprintln!(
             ">CAP PARITY ev={ev} pixels={pixel_count} gx={gx} gy={gy}: \
              max abs diff = {max_diff:e} at flat idx {worst_idx} (px {})",

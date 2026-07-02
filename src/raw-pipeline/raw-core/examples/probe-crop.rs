@@ -15,9 +15,8 @@ use std::path::Path;
 fn main() {
     for arg in std::env::args().skip(1) {
         let path = Path::new(&arg);
-        let bytes = std::fs::read(path).unwrap_or_else(|e| {
-            panic!("read {}: {}", path.display(), e)
-        });
+        let bytes =
+            std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
         // Lowercase: rawler's format detection uses the extension on the
         // hint path; some decoders disambiguate by case-folded suffix.
         let ext = path
@@ -25,13 +24,17 @@ fn main() {
             .and_then(|e| e.to_str())
             .map(|s| s.to_ascii_lowercase())
             .unwrap_or_else(|| "dng".to_string());
-        let source = RawSource::new_from_slice(&bytes)
-            .with_path(Path::new(&format!("rawfile.{}", ext)));
+        let source =
+            RawSource::new_from_slice(&bytes).with_path(Path::new(&format!("rawfile.{}", ext)));
         let params = RawDecodeParams::default();
         let raw = match rawler::decode(&source, &params) {
             Ok(r) => r,
             Err(e) => {
-                println!("\n=== {} ===\n  rawler decode FAILED: {:?}", path.display(), e);
+                println!(
+                    "\n=== {} ===\n  rawler decode FAILED: {:?}",
+                    path.display(),
+                    e
+                );
                 continue;
             }
         };
@@ -70,7 +73,10 @@ fn main() {
         println!("  rawler active_area  : {:?}", raw.active_area);
         println!("  rawler crop_area    : {:?}", raw.crop_area);
         println!("  rawler orientation  : {:?}", raw.orientation);
-        println!("  exif orientation    : {:?}  ifd tag={:?}", exif_orient, orient_tag);
+        println!(
+            "  exif orientation    : {:?}  ifd tag={:?}",
+            exif_orient, orient_tag
+        );
         println!("  DNG ActiveArea       : {:?}", aa);
         println!("  DNG DefaultCropOrigin: {:?}", dco);
         println!("  DNG DefaultCropSize  : {:?}", dcs);

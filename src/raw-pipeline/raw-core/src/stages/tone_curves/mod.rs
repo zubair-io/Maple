@@ -37,9 +37,7 @@
 
 mod evaluator;
 
-use evaluator::{
-    eval_curve_scene_linear, prepare_curve, prepare_curve_from_slice, PreparedCurve,
-};
+use evaluator::{eval_curve_scene_linear, prepare_curve, prepare_curve_from_slice, PreparedCurve};
 
 use crate::{
     image::{ColorSpace, Image},
@@ -337,7 +335,6 @@ fn eval_ratio_preserving(
         p[2] *= scale;
     }
 }
-
 
 #[cfg(test)]
 mod tests;
