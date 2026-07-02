@@ -561,18 +561,8 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
 }
 
 /**
- * Soft-hide a person. Sets `hidden: true` on the row and DOES NOT touch any
- * faces or delete the row. The person drops out of the normal `/api/people`
- * listing (see `listPeople`) and shows up on the Hidden page instead, where
- * `unhidePerson` can restore it.
- *
- * Critically, a hidden person stays a clustering seed (the seed queries in
- * `clustering-job.ts` filter on `merged_into: null` only — NOT `hidden`), so
- * newly-detected faces that match this person keep flowing into it and it
- * STAYS hidden, rather than reforming as a fresh visible "Person N". That is
- * the entire point of soft-hide over the old hard delete.
- *
- * Idempotent — hiding an already-hidden person is a no-op write.
+ * Soft-hide a person. Sets `hidden: true` on the row (idempotent).
+ * Keeps it as a clustering seed so faces continue to group into it.
  */
 export async function hidePerson(id: ObjectId): Promise<void> {
   await (
