@@ -430,36 +430,45 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // no-op.
     stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
-    // ACR anchoring (#1729): when `crs:WhiteBalance="Custom"` is set in the
-    // XMP sidecar but only one of `crs:Temperature` / `crs:Tint` appears,
-    // ACR renders the absent component at the image's as-shot value rather
-    // than at the slider neutral (6500 K / 0). The `temperature_seen` and
-    // `tint_seen` flags record which components were explicitly authored.
+    // ACR anchoring (#1729 / round-trip fix): when `crs:WhiteBalance="Custom"`
+    // is set in the XMP sidecar but only one of `crs:Temperature` / `crs:Tint`
+    // appears, resolve the absent component as follows:
     //
-    // Crucially, anchoring to as-shot only fires when at least one component
-    // was explicitly set (i.e. a Custom WB is active). When NEITHER flag is
-    // set (no XMP sidecar, or a non-Custom WB preset) the develop model
-    // carries 6500 K / 0 in its fields and the `white_balance::apply`
-    // short-circuit fires — this is the correct behaviour because
-    // `apply_pre_gain` already bakes the as-shot neutral into the image.
-    // Substituting as-shot CCT here would double-apply the white-balance.
+    //   temperature_seen=true              → use explicit crs:Temperature
+    //   temperature_seen=false, tint_seen  → tint-only Custom WB: anchor to 6500 K
+    //   neither seen                       → preset (e.g. Tungsten) or no XMP:
+    //                                        use model.temperature as-is
+    //
+    // The 6500 K anchor for the tint-only case (not raw.as_shot_cct) is the
+    // correct choice. After `apply_pre_gain` + DCP the scene is in scene-linear
+    // Rec.2020 D65: the camera's AsShotNeutral was divided out (pre-gain) and
+    // the DCP ForwardMatrix mapped (1,1,1) camera neutral → D65 white. In that
+    // post-DCP D65-normalised space `white_balance::apply(6500, 0)` is the
+    // *identity* — "as-shot" ≡ 6500 K from the WB slider's perspective.
+    //
+    // Using `raw.as_shot_cct` instead (the physical illuminant CCT, e.g. 5500 K
+    // for a tungsten shot) is a double-correction: pre-gain + DCP already
+    // neutralised the 5500 K cast; applying another 5500-K WB correction on top
+    // shifts the image away from as-shot rather than keeping it there.  The
+    // round-trip invariant is: Custom+Tint=0+no-Temperature must reproduce
+    // as-shot exactly (channel ratios ≈ 1.000).
+    //
+    // The neither-seen fall-through returns `model.temperature` (6500 for "As
+    // Shot" / no XMP → identity short-circuit, or 2850 for Tungsten preset,
+    // etc.) — named WB presets are converted to a numeric temperature by the XMP
+    // parser without setting `temperature_seen`, so they must reach this branch.
     let effective_temperature = if model.temperature_seen {
         model.temperature
     } else if model.tint_seen {
-        // Tint-only Custom WB: anchor the missing temperature to as-shot.
-        raw.as_shot_cct
-            .unwrap_or_else(|| white_balance::estimate_cct_from_neutral(raw.as_shot_neutral))
+        // Tint-only Custom WB: anchor absent temperature to 6500 K (D65).
+        6500.0
     } else {
-        // No Custom WB authored (no XMP or non-Custom preset): keep 6500 K
-        // so the short-circuit in `white_balance::apply` fires and the WB
-        // stage is a no-op (as-shot is already baked by `apply_pre_gain`).
+        // No Custom WB authored, or a named WB preset (Tungsten, Daylight, …):
+        // use model.temperature which the XMP parser already set from the preset.
         model.temperature
     };
-    // As-shot tint: AsShotNeutral encodes CCT-axis information well, but tint
-    // (perpendicular-to-locus) is poorly constrained by a single neutral vector.
-    // ACR/rawpy use 0 as the as-shot tint when no DNG AsShotWhiteXY is present,
-    // so we mirror that: absent tint → 0.0. When neither flag is set, model.tint
-    // is already 0.0 (default), so the result is the same either way.
+    // As-shot tint: absent tint → 0. When neither flag is set, model.tint is
+    // already 0 (default), so this is a no-op for the neither-seen case.
     let effective_tint = if model.tint_seen { model.tint } else { 0.0 };
     stage("white_balance", || {
         white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
