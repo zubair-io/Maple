@@ -188,6 +188,23 @@ enum Cmd {
         #[arg(long)]
         params: Option<PathBuf>,
     },
+    /// Fit a structured ACR-match model (tonescale + hue/chroma field) from
+    /// a dense sweep chart rendered by Adobe Camera Raw.
+    ///
+    /// Requires `--features test-support`. Pass the spec JSON produced by
+    /// `SyntheticSweepChart::spec_to_json()` and the corresponding 8-bit sRGB
+    /// ACR-rendered PNG. Writes the model JSON to `--out`.
+    FitAcr {
+        /// Path to the sweep chart spec JSON.
+        #[arg(long)]
+        spec: PathBuf,
+        /// Path to the ACR-rendered PNG (8-bit sRGB, same dimensions as the DNG).
+        #[arg(long)]
+        acr: PathBuf,
+        /// Output model JSON path.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Repack a v1 (inline) DCP `profiles.bin` into the v3 split layout
     /// (dedup HSM pool + per-entry zlib + offset directory; #829 / PR #831).
     /// Prints dedup stats + the pool byte size.
@@ -285,6 +302,9 @@ fn main() -> ExitCode {
             height,
             params.as_deref(),
         )),
+        Cmd::FitAcr { spec, acr, out } => {
+            run_or_exit(commands::fit_acr::run(&spec, &acr, &out))
+        }
         Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(commands::transcode_dcp::run(
             &src,
             &out,

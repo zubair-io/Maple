@@ -9,7 +9,9 @@
 //! Spec: .archived-plans/specs/2026-07-02-acr-color-calibration-design.md
 
 use crate::color::matrices::M_XYZ_D65_TO_REC2020;
-use crate::color::oklab::{oklab_to_srgb_linear, srgb_linear_to_oklab};
+use crate::color::oklab::oklab_to_srgb_linear;
+#[cfg(test)]
+use crate::color::oklab::srgb_linear_to_oklab;
 use crate::test_support::synth_dng::{
     matrix_to_srationals, vec3_to_rationals, write_u16_le, write_u32_le, Ifd,
 };
