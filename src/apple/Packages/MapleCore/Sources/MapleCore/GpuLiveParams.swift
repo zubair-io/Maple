@@ -80,6 +80,11 @@ extension PipelineRenderer {
         //     because `wb_cat16_matrix(6500, 0)` is not exact identity and
         //     composing with its inverse would silently shift the legacy
         //     output. (Copilot review on #1262.) #1240 follow-up.
+        // --- render-shaping profile (#1722) --- profile_id lives at the
+        // struct TAIL (append-only ABI); 0 = AgX (Auto/Neutral view path),
+        // 2 = AcrMatch baked-LUT transform.
+        p.profile_id = model.profile == .acrMatch ? 2 : 0
+
         p.temperature = Float(model.temperature)
         p.tint = Float(model.tint)
         p.decoded_temperature = Float(asShotCCT ?? 0.0)
