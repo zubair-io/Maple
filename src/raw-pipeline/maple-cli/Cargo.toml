@@ -20,14 +20,14 @@ fixtures = []
 # operator surface for `test_pano_pipeline.sh`'s candidate gates.
 pano = ["dep:maple-pano", "maple-pano/ml"]
 # Enables the `fit-acr` subcommand (requires raw-core's `test-support` feature).
-test-support = ["raw-core/test-support"]
+test-support = ["raw-core/test-support", "dep:png"]
 
 [dependencies]
 raw-core = { path = "../raw-core" }
 maple-pano = { path = "../maple-pano", optional = true }
 bytemuck.workspace = true
 clap.workspace = true
-png.workspace = true
+png = { workspace = true, optional = true }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
