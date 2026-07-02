@@ -10,14 +10,20 @@
 //!       --example synth-chart
 //!
 //! Run:
+//!   # Rec.2020 chart (test_0018, default):
 //!   cargo run --release -p raw-core --features test-support \
 //!       --example synth-chart -- --out /tmp/chart.dng
-//!   # larger patches for comfortable on-screen inspection:
-//!   ...                       -- --patch-size 128 --guard 16 --out /tmp/chart.dng
+//!
+//!   # Camera-encoded chart (test_0019, Canon 5D IV DCP):
+//!   cargo run --release -p raw-core --features test-support \
+//!       --example synth-chart -- --encoding camera --out /tmp/chart_camera.dng
+//!
+//!   # Larger patches for comfortable on-screen inspection:
+//!   cargo run ... -- --patch-size 128 --guard 16 --out /tmp/chart.dng
 
 use clap::Parser;
 use raw_core::image::CfaPattern;
-use raw_core::test_support::synth_chart::SyntheticColorChart;
+use raw_core::test_support::synth_chart::{ChartEncoding, SyntheticColorChart};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -32,6 +38,10 @@ struct Args {
     /// CFA pattern: rggb | bggr | grbg | gbrg.
     #[arg(long, default_value = "rggb")]
     cfa: String,
+    /// Raw value encoding: rec2020 (default, camera space = Rec.2020) or
+    /// camera (Canon EOS 5D Mark IV DCP, for test_0019).
+    #[arg(long, default_value = "rec2020")]
+    encoding: String,
     /// Output DNG path.
     #[arg(long)]
     out: PathBuf,
@@ -46,10 +56,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "gbrg" => CfaPattern::Gbrg,
         other => return Err(format!("unknown cfa '{}': use rggb|bggr|grbg|gbrg", other).into()),
     };
+    let encoding = match args.encoding.to_lowercase().as_str() {
+        "rec2020" => ChartEncoding::Rec2020,
+        "camera" => ChartEncoding::Camera,
+        other => {
+            return Err(format!("unknown encoding '{}': use rec2020|camera", other).into())
+        }
+    };
     let chart = SyntheticColorChart {
         patch_size: args.patch_size,
         guard: args.guard,
         cfa,
+        encoding,
         ..Default::default()
     };
     chart.write_to(&args.out)?;

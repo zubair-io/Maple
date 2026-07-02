@@ -3,6 +3,7 @@
 //! the feature is opt-in and only enabled by Cargo when running tests
 //! or the `synth-grey` example.
 
+pub mod canon_dcp;
 pub mod colorchecker;
 pub mod fixtures;
 pub mod hasselblad_dcp;
