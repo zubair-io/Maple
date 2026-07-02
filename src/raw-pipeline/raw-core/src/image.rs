@@ -270,6 +270,10 @@ pub struct RawImage {
     pub noise_profile: Option<Vec<f32>>,
     /// DNG OpcodeList3 corrections parsed at decode time.
     pub opcode_list3: Option<(crate::pipeline::pano::opcodes::OpcodeList3, crate::pipeline::pano::opcodes::ActiveAreaRect)>,
+    /// Lens aperture (f-number) extracted from EXIF.
+    pub aperture: Option<f32>,
+    /// Focal length in mm extracted from EXIF.
+    pub focal_length: Option<f32>,
 }
 
 /// DNG camera-recommended render rectangle in raw-sensor coordinates.
