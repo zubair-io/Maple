@@ -253,6 +253,16 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         return Err(Error::Cancelled);
     }
 
+
+    // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
+    // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
+    if let Some((list, aa)) = raw.opcode_list3.as_ref() {
+        stage("opcode_list3", || {
+            crate::pipeline::pano::opcode_apply::apply_opcode_list3(&mut camera_rgb, list, *aa);
+        });
+        dump_after("00a_opcode_list3", &camera_rgb);
+    }
+
     // DNG § 6.3 DefaultCrop — restrict the buffer to the camera-recommended
     // render rectangle BEFORE any color stage runs. The crop drops the
     // optical-black border (covered by ActiveArea) plus the few-px demosaic-

@@ -268,6 +268,8 @@ pub struct RawImage {
     pub crop_rect: Option<CropRect>,
     pub iso: u32,
     pub noise_profile: Option<Vec<f32>>,
+    /// DNG OpcodeList3 corrections parsed at decode time.
+    pub opcode_list3: Option<(crate::pipeline::pano::opcodes::OpcodeList3, crate::pipeline::pano::opcodes::ActiveAreaRect)>,
 }
 
 /// DNG camera-recommended render rectangle in raw-sensor coordinates.
