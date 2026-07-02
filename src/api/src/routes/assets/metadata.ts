@@ -11,7 +11,7 @@
  * Mongo access lives in `src/db/assets.repo.ts`.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { stat } from 'node:fs/promises';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { safeReadFile } from '../../fs/root.ts';
