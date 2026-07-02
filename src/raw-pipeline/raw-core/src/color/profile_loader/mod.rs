@@ -296,7 +296,7 @@ pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfi
                 hsm_warm,
                 profile.fm1,
                 profile.fm2,
-                raw.plt.clone(),
+                None, // PLT wiring to DNG source deferred (#1691 Phase 2)
                 None, // PTC is suppressed for BundleConfident
             ));
         }
@@ -333,7 +333,7 @@ pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfi
         single_hsm,
         raw.as_shot_neutral,
         wb_already_baked,
-        raw.plt.clone(),
+        None, // PLT wiring to DNG source deferred (#1691 Phase 2)
         None, // PTC is suppressed for BundleConfident
     ))
 }
