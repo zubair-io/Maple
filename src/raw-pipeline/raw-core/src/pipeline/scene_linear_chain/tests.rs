@@ -31,6 +31,8 @@ fn apply_scene_linear_chain_default_model_yields_agx_only() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .expect("apply_scene_linear_chain default-model");
     assert_eq!(out.len(), input.len());
@@ -72,6 +74,8 @@ fn apply_scene_linear_chain_skip_agx_preserves_scene_linear() {
         0.0,
         true,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .expect("apply_scene_linear_chain skip_agx");
     let r = f16_bits_to_f32(out[0]);
@@ -98,6 +102,8 @@ fn apply_scene_linear_chain_rejects_size_mismatch() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     );
     assert!(r.is_err(), "size mismatch must error");
 }
@@ -123,6 +129,8 @@ fn apply_scene_linear_chain_rgba_length_overflow_errors() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     );
     match r {
         Err(crate::error::Error::Pipeline(msg)) => {
@@ -161,6 +169,8 @@ fn apply_scene_linear_chain_f32_skip_agx_is_identity_on_default_model() {
         0.0,
         true,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .expect("apply_scene_linear_chain_f32 skip_agx default-model");
     assert_eq!(out.len(), input.len());
@@ -197,6 +207,8 @@ fn apply_scene_linear_chain_f32_default_model_yields_agx_only() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .expect("apply_scene_linear_chain_f32 default-model");
     assert!(out[0] > 0.0 && out[0] < 1.0, "R out of [0,1]: {}", out[0]);
@@ -229,6 +241,8 @@ fn apply_scene_linear_chain_f32_rejects_size_mismatch() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     );
     assert!(r.is_err(), "size mismatch must error");
 }
@@ -271,6 +285,8 @@ fn apply_scene_linear_chain_scrubs_non_finite_at_pack_endcap() {
         0.0,
         true,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .expect("apply_scene_linear_chain NaN injection");
     for (i, &bits) in out.iter().enumerate() {
@@ -331,6 +347,8 @@ fn apply_scene_linear_chain_f32_scrubs_non_finite_at_pack_endcap() {
         0.0,
         true,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .expect("apply_scene_linear_chain_f32 NaN injection");
     assert!(
@@ -366,6 +384,8 @@ fn apply_scene_linear_chain_f32_rgba_length_overflow_errors() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     );
     match r {
         Err(crate::error::Error::Pipeline(msg)) => {
@@ -399,6 +419,8 @@ fn with_patches_empty_matches_plain_entry_f32() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .unwrap();
     let with = apply_scene_linear_chain_f32_with_patches(
@@ -410,6 +432,8 @@ fn with_patches_empty_matches_plain_entry_f32() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
         &[],
     )
     .unwrap();
@@ -448,6 +472,8 @@ fn with_patches_equals_manual_composite_then_chain_f32() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
         std::slice::from_ref(&patch),
     )
     .unwrap();
@@ -472,6 +498,8 @@ fn with_patches_equals_manual_composite_then_chain_f32() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .unwrap();
     assert_eq!(
@@ -487,6 +515,8 @@ fn with_patches_equals_manual_composite_then_chain_f32() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .unwrap();
     assert_ne!(
@@ -515,6 +545,8 @@ fn with_patches_empty_matches_plain_entry_fp16() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
     )
     .unwrap();
     let with = apply_scene_linear_chain_with_patches(
@@ -526,6 +558,8 @@ fn with_patches_empty_matches_plain_entry_fp16() {
         0.0,
         false,
         TargetPrimaries::Srgb,
+        None,
+        100,
         &[],
     )
     .unwrap();
