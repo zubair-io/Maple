@@ -6,23 +6,34 @@
 //! this exercises CHROMA through the full decode → demosaic → WB → DCP →
 //! scene-linear path, so it can pin the color path and chroma sliders.
 //!
-//! Develop gain: with the chart's identity `ColorMatrix1` and `AsShotNeutral`,
-//! the developed scene-linear is the known target scaled by a single global
-//! exposure gain G ≈ 1.191 (the same untested gain the grey card carries — its
-//! tests only check neutrality/flatness, never absolute level). The invariants
-//! here are therefore GAIN-INVARIANT: we self-calibrate G by least squares and
-//! assert every patch matches `want * G`, i.e. the chart reproduces the known
-//! colors with no hue/chroma distortion. Measured residual after self-calibration
-//! is abs 1e-5 / 0.017 % rel — the tolerances below leave generous headroom and
-//! ratchet downward as the chain tightens.
+//! Two chart variants tested here:
+//!   - **Rec.2020 chart** (test_0018, `ChartEncoding::Rec2020`): `ColorMatrix1
+//!     = M_XYZ_D65_TO_REC2020` declares camera = Rec.2020. Resolves via
+//!     `EmbeddedCmOnly`; patches develop at their Rec.2020 targets within a
+//!     global exposure gain.
+//!   - **Camera chart** (test_0019, `ChartEncoding::Camera`): same 24 targets,
+//!     re-encoded through Canon EOS 5D Mark IV matrices; resolves via
+//!     `EmbeddedCmOnly` with embedded Canon CM/FM; patches round-trip to
+//!     targets within a looser tolerance (DCP CM/FM rounding).
 //!
-//! See spec .archived-plans/specs/2026-04-29-grey-card-dcp-coverage-design.md.
+//! Develop gain: with the chart's corrected `ColorMatrix1 = M_XYZ_D65_TO_REC2020`
+//! and `AsShotNeutral = [1,1,1]`, the developed scene-linear is the known target
+//! scaled by a single global exposure gain G (the DCP color chain preserves
+//! hue/chroma up to G). The invariants are GAIN-INVARIANT: we self-calibrate G
+//! by least squares and assert every patch matches `want * G` — i.e. no hue or
+//! chroma distortion.
+//!
+//! See spec .archived-plans/specs/2026-04-29-grey-card-dcp-coverage-design.md
+//! and .archived-plans/specs/2026-07-02-acr-color-calibration-design.md.
+//!
+//! Refs: #1711 (Phase 1 trustworthy fixtures)
 
 #![cfg(feature = "test-support")]
 
+use raw_core::color::dcp::ProfileSource;
 use raw_core::image::Image;
 use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
-use raw_core::test_support::synth_chart::SyntheticColorChart;
+use raw_core::test_support::synth_chart::{camera_patch_unclipped, ChartEncoding, SyntheticColorChart};
 use raw_core::xmp::AdjustmentModel;
 
 /// Self-calibrated chroma residual: abs |got - G*want|. Observed worst 1e-5.
@@ -189,3 +200,195 @@ fn chart_saturation_slider_moves_color_not_neutrals() {
         );
     }
 }
+
+// ── Phase 1 (#1711): trustworthy fixtures ────────────────────────────────────
+
+/// The corrected Rec.2020 chart (test_0018) must resolve to `EmbeddedCmOnly`,
+/// not `RawlerFallback`. This was broken before #1711: the identity CM was
+/// filtered by `is_approx_identity`, leaving `color_matrices` empty after
+/// decode, which caused `profile_from_embedded_cm_only` to return `None` and
+/// the resolver to fall through to `RawlerFallback`. With the corrected
+/// `ColorMatrix1 = M_XYZ_D65_TO_REC2020` (non-identity), the embedded CM
+/// passes the filter and the chart resolves via its own embedded CM.
+///
+/// Refs: #1711.
+#[test]
+fn rec2020_chart_resolves_to_embedded_cm_only_not_fallback() {
+    use raw_core::color::dcp::profile_for_with_source;
+
+    let chart = SyntheticColorChart::default(); // Rec2020 encoding
+    let bytes = chart.write_to_bytes();
+    let raw =
+        raw_core::decode::decode_bytes(&bytes, "dng").expect("Rec.2020 chart must decode");
+
+    // Verify color_matrices is populated (not filtered away as identity).
+    assert!(
+        !raw.color_matrices.is_empty(),
+        "Rec.2020 chart embedded CM was rejected as identity — \
+         ColorMatrix1 must be M_XYZ_D65_TO_REC2020, not identity"
+    );
+
+    // Profile resolver must NOT fall back to RawlerFallback.
+    let (_, source) =
+        profile_for_with_source(&raw).expect("profile resolve must not error");
+    assert!(
+        matches!(source, ProfileSource::EmbeddedCmOnly { .. }),
+        "Rec.2020 chart must resolve to EmbeddedCmOnly, got {:?}",
+        source
+    );
+}
+
+/// Patch means of the corrected Rec.2020 chart (test_0018) must match their
+/// scene-linear Rec.2020 targets within a self-calibrated global gain G.
+/// This supersedes `chart_chroma_fidelity_scene_linear`, which previously
+/// relied on the identity-CM coincidence — both ACR and Maple happened to
+/// treat identity-CM Rec.2020 values approximately correctly (Maple via the
+/// RawlerFallback Rec.2020 proxy; ACR by misinterpreting them as XYZ).
+/// Now the chart is correctly tagged and both pipelines agree on the
+/// interpretation.
+///
+/// Tolerance is the same as `chart_chroma_fidelity_scene_linear` (EPS_CHROMA
+/// = 1e-3). The previous gain range check also applies: G must stay within
+/// [1.0, 1.4).
+///
+/// Refs: #1711.
+#[test]
+fn rec2020_chart_patch_means_match_targets_within_gain() {
+    let (chart, scene) = develop(&AdjustmentModel::default());
+    let g = lsq_gain(&chart, &scene);
+
+    assert!(
+        (1.0..1.4).contains(&g),
+        "rec2020 chart: develop gain G={g} outside sane range [1.0, 1.4)"
+    );
+
+    for row in 0..4 {
+        for col in 0..6 {
+            let got = chart.read_patch_mean(&scene, col, row);
+            let want = chart.patches[row][col];
+            for c in 0..3 {
+                let resid = (got[c] - g * want[c]).abs();
+                assert!(
+                    resid <= EPS_CHROMA,
+                    "rec2020 chart patch ({col},{row}) chan {c}: \
+                     |got {:.6} - G*want {:.6}| = {resid:.6} > {EPS_CHROMA} (G={g:.4})",
+                    got[c],
+                    g * want[c],
+                );
+            }
+        }
+    }
+}
+
+/// The camera-encoded chart (test_0019) must also resolve to `EmbeddedCmOnly`
+/// — not `BundleConfident` (its UCM "Maple Synthetic Chart DCP" has no bundle
+/// entry) and not `RawlerFallback` (it ships real Canon CM1+CM2 matrices).
+///
+/// Refs: #1711.
+#[test]
+fn camera_chart_resolves_to_embedded_cm_only() {
+    use raw_core::color::dcp::profile_for_with_source;
+
+    let chart = SyntheticColorChart {
+        encoding: ChartEncoding::Camera,
+        ..Default::default()
+    };
+    let bytes = chart.write_to_bytes();
+    let raw =
+        raw_core::decode::decode_bytes(&bytes, "dng").expect("camera chart must decode");
+
+    // Both StdA and D65 CMs must be present (dual-illuminant Canon profile).
+    assert_eq!(
+        raw.color_matrices.len(),
+        2,
+        "camera chart must carry both StdA and D65 CMs, got {}",
+        raw.color_matrices.len()
+    );
+
+    let (_, source) =
+        profile_for_with_source(&raw).expect("camera chart profile resolve must not error");
+    assert!(
+        matches!(source, ProfileSource::EmbeddedCmOnly { .. }),
+        "camera chart must resolve to EmbeddedCmOnly, got {:?} — \
+         UCM must not collide with bundle and CMs must pass identity filter",
+        source
+    );
+}
+
+/// Camera chart (test_0019) round-trips the 24 patch targets through the full
+/// Canon DCP chain. Tolerance is looser than the Rec.2020 chart to absorb
+/// rational-quantisation rounding on the embedded CM/FM tags.
+///
+/// Only patches where all three camera raw channels are non-negative (unclipped)
+/// are included in the gain calibration and residual check. Highly saturated
+/// patches (orange, red, yellow) produce negative camera blue or red channels
+/// when inverted through the Canon FM — those values clip to 0 in the DNG and
+/// cannot be round-tripped. `camera_patch_unclipped` identifies and skips them.
+///
+/// Success criterion: every unclipped patch mean is within EPS_CAMERA of
+/// `G * target` where G is the self-calibrated global gain over unclipped patches.
+///
+/// Refs: #1711.
+#[test]
+fn camera_chart_round_trips_to_rec2020_targets() {
+    // Looser tolerance: rational tag quantisation (1e-6 scale) introduces
+    // per-patch residuals up to ~1.4e-2 on the unclipped patches.
+    const EPS_CAMERA: f32 = 0.02;
+
+    let chart = SyntheticColorChart {
+        encoding: ChartEncoding::Camera,
+        ..Default::default()
+    };
+    let bytes = chart.write_to_bytes();
+    let raw =
+        raw_core::decode::decode_bytes(&bytes, "dng").expect("camera chart must decode");
+    let scene = develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &AdjustmentModel::default(),
+        RenderQuality::Full,
+    )
+    .expect("camera chart develop must succeed");
+
+    // Gain calibrated over unclipped patches only.
+    let (mut num, mut den) = (0.0f64, 0.0f64);
+    for row in 0..4 {
+        for col in 0..6 {
+            let want = chart.patches[row][col];
+            if !camera_patch_unclipped(want) {
+                continue;
+            }
+            let got = chart.read_patch_mean(&scene, col, row);
+            for c in 0..3 {
+                num += (got[c] * want[c]) as f64;
+                den += (want[c] * want[c]) as f64;
+            }
+        }
+    }
+    let g = (num / den) as f32;
+
+    assert!(
+        (0.8..1.6).contains(&g),
+        "camera chart: develop gain G={g} outside sane range [0.8, 1.6)"
+    );
+
+    for row in 0..4 {
+        for col in 0..6 {
+            let want = chart.patches[row][col];
+            if !camera_patch_unclipped(want) {
+                continue;
+            }
+            let got = chart.read_patch_mean(&scene, col, row);
+            for c in 0..3 {
+                let resid = (got[c] - g * want[c]).abs();
+                assert!(
+                    resid <= EPS_CAMERA,
+                    "camera chart patch ({col},{row}) chan {c}: \
+                     |got {:.6} - G*want {:.6}| = {resid:.6} > {EPS_CAMERA} (G={g:.4})",
+                    got[c],
+                    g * want[c],
+                );
+            }
+        }
+    }
+}
+
