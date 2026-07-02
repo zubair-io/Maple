@@ -129,6 +129,33 @@ impl AcrModel {
     ///
     /// Hand-parsed — no serde dep (keeps the always-compiled crate serde-free).
     pub fn from_json(json: &str) -> Result<Self, String> {
+        // The needle-based extraction below assumes compact `"key":value`
+        // JSON. Normalise first: strip whitespace outside string literals so
+        // any formatting (compact, prettier, hand-edited) parses identically.
+        let json: String = {
+            let mut out = String::with_capacity(json.len());
+            let mut in_str = false;
+            let mut escaped = false;
+            for c in json.chars() {
+                if in_str {
+                    out.push(c);
+                    if escaped {
+                        escaped = false;
+                    } else if c == '\\' {
+                        escaped = true;
+                    } else if c == '"' {
+                        in_str = false;
+                    }
+                } else if c == '"' {
+                    in_str = true;
+                    out.push(c);
+                } else if !c.is_whitespace() {
+                    out.push(c);
+                }
+            }
+            out
+        };
+        let json = json.as_str();
         // Extract floats from a `[f1,f2,...]` array literal.
         fn parse_float_array(json: &str, key: &str) -> Result<Vec<f32>, String> {
             let needle = format!("\"{key}\":[");

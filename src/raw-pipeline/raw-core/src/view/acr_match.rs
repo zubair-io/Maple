@@ -195,6 +195,20 @@ mod tests {
 
     /// Round-trip: to_json → from_json → to_json produces identical bytes.
     #[test]
+    fn model_parses_prettier_formatted_json() {
+        // The committed artifact is prettier-formatted (format gate); the
+        // minimal reader must accept any whitespace outside strings.
+        let pretty = ACR_MATCH_MODEL_JSON
+            .replace(":[", ": [")
+            .replace(",\"", ", \"")
+            .replace("{", "{\n  ");
+        let a = AcrModel::from_json(ACR_MATCH_MODEL_JSON).expect("compact parses");
+        let b = AcrModel::from_json(&pretty).expect("pretty parses");
+        assert_eq!(a.tonescale.values, b.tonescale.values);
+        assert_eq!(a.field.delta_h_deg, b.field.delta_h_deg);
+    }
+
+    #[test]
     fn model_json_round_trip() {
         let m = model();
         let json1 = m.to_json();
