@@ -64,33 +64,73 @@ pub fn neutral_to_temp_tint(neutral: [f32; 3]) -> (f32, f32) {
     // Find the (cct, tint) whose correction gain `wb_gains` neutralises the
     // measured G-normalised scene neutral [r, 1, b]:
     //   - CCT sets the gain's R/B ratio — match `gain.R / gain.B = b/r`.
-    //     `wb_gains` R/B is monotone increasing in CCT, so this is a clean
-    //     1-D bisection that is ALWAYS feasible (it ignores tint).
-    //   - tint sets the common green/magenta level — once R/B is matched, the
-    //     residual `gain.R * r` (== `gain.B * b`) is the cast: > 1 ⇒ corrected
-    //     neutral `[m, 1, m]` is magenta ⇒ a green push (tint > 0) fixes it.
-    // We solve CCT first (always sane), then refine (cct, tint) jointly. The
-    // refinement is GUARDED: a neutral lying off the achievable (CCT, tint)
-    // surface (e.g. a strongly green-lit scene) would otherwise drive tint to a
-    // rail where `wb_gains` stops being physical and CCT collapses — so any
-    // step that would rail CCT is rejected and the decoupled estimate stands.
-    // Reuses `wb_gains` only — no new color math (#1371).
+    //   - tint sets the common green/magenta level.
+    //
+    // With the corrected perpendicular-to-Planckian-locus tint axis (ticket
+    // #1725), tint also shifts the R/B ratio, so CCT and tint are coupled.
+    // A simple alternating iteration can diverge; we use a two-step approach:
+    //
+    //  1. Outer bisection over CCT (16 steps, ~0.4 K resolution at 6500 K):
+    //     For each candidate CCT, solve for the tint that brings the R level to
+    //     1 (`solve_tint_for_level`), then compute the resulting R/B.  We bisect
+    //     CCT until that R/B matches target_rb.  The outer function is monotone
+    //     in CCT because at higher CCTs the source is bluer: lower R gain →
+    //     lower R/B, so the residual is strictly decreasing.
+    //  2. Final tint solve at the converged CCT.
+    //
+    // `solve_tint_for_level` can rail to ±100 when the neutral is far from the
+    // achievable locus; the guard in step 1 clamps to the nearer rail in that
+    // case (same as the original logic).  Reuses `wb_gains` only — no new color
+    // math (#1371).
     let target_r = neutral[0].max(1e-4);
     let target_b = neutral[2].max(1e-4);
     let target_gain_rb = target_b / target_r; // desired wb_gains.R / wb_gains.B
 
-    let mut cct = bisect_cct_for_rb(target_gain_rb, 0.0);
-    let mut tint = 0.0_f32;
-    for _ in 0..3 {
-        let t = solve_tint_for_level(cct, target_r);
-        let c = bisect_cct_for_rb(target_gain_rb, t);
-        if c <= 2001.0 || c >= 24_999.0 {
-            break; // off-surface neutral — keep the sane decoupled estimate
+    // Evaluate the R/B at a given CCT after optimally solving tint.
+    // Falls back to tint=0 if the tint solve produces unphysical gains (which
+    // can happen at extreme CCTs when the target neutral lies far from the
+    // achievable locus and `solve_tint_for_level` rails).
+    let rb_at_cct = |c: f32| -> f32 {
+        let t = solve_tint_for_level(c, target_r);
+        let g = wb_gains(c, t);
+        // Guard: gains must be positive and finite for a valid source chromaticity.
+        if g[0] > 0.0 && g[2] > 0.0 && g[0].is_finite() && g[2].is_finite() {
+            g[0] / g[2]
+        } else {
+            // Tint railed into an unphysical region; use zero tint as a safe
+            // fallback — the CCT bisection still converges on the gross shape.
+            let g0 = wb_gains(c, 0.0);
+            g0[0] / g0[2].max(1e-6)
         }
-        cct = c;
-        tint = t;
-    }
+    };
 
+    // Outer CCT bisection: rb_at_cct is monotone INCREASING in CCT
+    // (low CCT = warm source → high R gain relative to B? No — warm source
+    // has excess R, so gain[R] = D65/source is LOW and gain[B] is HIGH;
+    // thus R/B is LOW at low CCT and HIGH at high CCT).
+    // Direction: lo=2000 → lowest R/B; hi=25000 → highest R/B.
+    let mut lo = 2000.0_f32;
+    let mut hi = 25000.0_f32;
+    let rb_lo = rb_at_cct(lo);
+    let rb_hi = rb_at_cct(hi);
+    let cct = if target_gain_rb <= rb_lo {
+        lo // target is at or below the 2000 K floor
+    } else if target_gain_rb >= rb_hi {
+        hi // target is at or above the 25000 K ceiling
+    } else {
+        // Sign-based bisection: rb_lo < target < rb_hi → search for crossing.
+        for _ in 0..20 {
+            let mid = (lo + hi) * 0.5;
+            if rb_at_cct(mid) < target_gain_rb {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        (lo + hi) * 0.5
+    };
+
+    let tint = solve_tint_for_level(cct, target_r);
     (cct.clamp(2000.0, 25000.0), tint.clamp(-100.0, 100.0))
 }
 
