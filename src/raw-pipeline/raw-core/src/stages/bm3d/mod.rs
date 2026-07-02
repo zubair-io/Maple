@@ -162,8 +162,18 @@ pub fn apply_cancellable(
         .par_iter()
         .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
-    let c1: Vec<f32> = img.pixels.par_iter().zip(y.par_iter()).map(|(p, &yy)| p[0] - yy).collect();
-    let c2: Vec<f32> = img.pixels.par_iter().zip(y.par_iter()).map(|(p, &yy)| p[2] - yy).collect();
+    let c1: Vec<f32> = img
+        .pixels
+        .par_iter()
+        .zip(y.par_iter())
+        .map(|(p, &yy)| p[0] - yy)
+        .collect();
+    let c2: Vec<f32> = img
+        .pixels
+        .par_iter()
+        .zip(y.par_iter())
+        .map(|(p, &yy)| p[2] - yy)
+        .collect();
 
     // Median-luma anchor on a subsampled grid — deterministic, robust.
     let mut sample: Vec<f32> = y.iter().step_by(8).copied().collect();
@@ -171,7 +181,11 @@ pub fn apply_cancellable(
     let anchor = sample[sample.len() / 2] + ANCHOR_PEDESTAL;
 
     let sigma_y = SIGMA_K * s * anchor;
-    let sigmas = [sigma_y, CHROMA_SIGMA_RATIO * sigma_y, CHROMA_SIGMA_RATIO * sigma_y];
+    let sigmas = [
+        sigma_y,
+        CHROMA_SIGMA_RATIO * sigma_y,
+        CHROMA_SIGMA_RATIO * sigma_y,
+    ];
     let tau_sq = T_MATCH_SQ * sigma_y * sigma_y;
 
     let noisy = [y, c1, c2];
@@ -179,7 +193,15 @@ pub fn apply_cancellable(
 
     // Pass 1 — hard threshold → basic estimate.
     let Some(basic) = run_pass(
-        &noisy, w, h, sigmas, tau_sq, PassKind::Hard, "pass 1/2", progress, &cancelled,
+        &noisy,
+        w,
+        h,
+        sigmas,
+        tau_sq,
+        PassKind::Hard,
+        "pass 1/2",
+        progress,
+        &cancelled,
     ) else {
         return; // cancelled — leave img untouched
     };

@@ -3,7 +3,7 @@ use std::path::Path;
 fn main() {
     let path_str = std::env::args().nth(1).expect("usage: detect-cs <RAW>");
     let path = Path::new(&path_str);
-    
+
     // Derive the decoder extension hint from the path so any RAW format
     // works (CR2/CR3/ARW/RAF/NEF/DNG/…). Falls back to "DNG" if the path
     // has no extension.
@@ -15,10 +15,10 @@ fn main() {
 
     let bytes = std::fs::read(path).unwrap();
     let raw_image = raw_core::decode::decode_bytes(&bytes, &ext).unwrap();
-    
+
     println!("camera_make: {:?}", raw_image.camera_make);
     println!("camera_model: {:?}", raw_image.camera_model);
-    
+
     let (profile, source) = raw_core::color::dcp::profile_for_with_source(&raw_image).unwrap();
     println!("profile source: {:?}", source);
     println!("profile illuminant: {:?}", profile.illuminant);

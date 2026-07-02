@@ -25,7 +25,10 @@ fn defaults_unchanged_for_existing_scalars() {
     assert_eq!(m.sharpen_detail, 25.0);
     assert_eq!(m.sharpen_masking, 0.0);
     assert_eq!(m.nr_color, 25.0);
-    assert_eq!(m.highlight_recovery, HighlightRecoveryMode::ChromaticAdaptation);
+    assert_eq!(
+        m.highlight_recovery,
+        HighlightRecoveryMode::ChromaticAdaptation
+    );
 }
 
 #[test]

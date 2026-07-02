@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "bggr" => CfaPattern::Bggr,
         "grbg" => CfaPattern::Grbg,
         "gbrg" => CfaPattern::Gbrg,
-        other  => return Err(format!("unknown cfa '{}': use rggb|bggr|grbg|gbrg", other).into()),
+        other => return Err(format!("unknown cfa '{}': use rggb|bggr|grbg|gbrg", other).into()),
     };
     let dng = SyntheticGreyDng {
         linear_value: args.value,
@@ -51,6 +51,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
     dng.write_to(&args.out)?;
-    eprintln!("wrote {} ({}x{}, L={})", args.out.display(), args.width, args.height, args.value);
+    eprintln!(
+        "wrote {} ({}x{}, L={})",
+        args.out.display(),
+        args.width,
+        args.height,
+        args.value
+    );
     Ok(())
 }

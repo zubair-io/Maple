@@ -33,10 +33,12 @@ fn assert_predicted_scene_linear(
     configure: impl FnOnce(&mut AdjustmentModel),
     predict: impl Fn(f32) -> f32,
 ) {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
 
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
@@ -47,9 +49,16 @@ fn assert_predicted_scene_linear(
     let expected = predict(linear_value);
     for (i, p) in img.pixels.iter().enumerate() {
         for c in 0..3 {
-            assert!((p[c] - expected).abs() <= EPS_SCENE_LINEAR,
+            assert!(
+                (p[c] - expected).abs() <= EPS_SCENE_LINEAR,
                 "pixel {} chan {} = {} (predicted {}, |Δ| > {}) at L = {}",
-                i, c, p[c], expected, EPS_SCENE_LINEAR, linear_value);
+                i,
+                c,
+                p[c],
+                expected,
+                EPS_SCENE_LINEAR,
+                linear_value
+            );
         }
     }
 }
@@ -63,32 +72,46 @@ fn assert_predicted_scene_linear(
 /// anchor gain — a uniform scalar across all three channels — never
 /// affects it. Keeping the helpers aligned on the same starting model
 /// avoids subtle divergence between the two predicates.
-fn assert_neutral_display(
-    linear_value: f32,
-    configure: impl FnOnce(&mut AdjustmentModel),
-) {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+fn assert_neutral_display(linear_value: f32, configure: impl FnOnce(&mut AdjustmentModel)) {
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
 
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     configure(&mut model);
-    let (w, h, rgb) = render_from_raw(&raw, &model)
-        .expect("full pipeline render must succeed");
+    let (w, h, rgb) = render_from_raw(&raw, &model).expect("full pipeline render must succeed");
 
     let n = (w * h) as usize;
     for i in 0..n {
-        let r = rgb[i*3]     as i32;
-        let g = rgb[i*3 + 1] as i32;
-        let b = rgb[i*3 + 2] as i32;
-        assert!((r - g).abs() <= EPS_DISPLAY_LSB,
+        let r = rgb[i * 3] as i32;
+        let g = rgb[i * 3 + 1] as i32;
+        let b = rgb[i * 3 + 2] as i32;
+        assert!(
+            (r - g).abs() <= EPS_DISPLAY_LSB,
             "pixel {} |R-G|={} > {} (R={} G={} B={}) at L={}",
-            i, (r-g).abs(), EPS_DISPLAY_LSB, r, g, b, linear_value);
-        assert!((r - b).abs() <= EPS_DISPLAY_LSB,
+            i,
+            (r - g).abs(),
+            EPS_DISPLAY_LSB,
+            r,
+            g,
+            b,
+            linear_value
+        );
+        assert!(
+            (r - b).abs() <= EPS_DISPLAY_LSB,
             "pixel {} |R-B|={} > {} (R={} G={} B={}) at L={}",
-            i, (r-b).abs(), EPS_DISPLAY_LSB, r, g, b, linear_value);
+            i,
+            (r - b).abs(),
+            EPS_DISPLAY_LSB,
+            r,
+            g,
+            b,
+            linear_value
+        );
     }
 }
 
@@ -169,7 +192,11 @@ fn brightness_plus50_predicts() {
 #[test]
 fn brightness_minus50_predicts() {
     for L in [0.05, 0.18, 0.50] {
-        assert_predicted_scene_linear(L, |m| m.brightness = -50.0, |s| predict_brightness(s, -50.0));
+        assert_predicted_scene_linear(
+            L,
+            |m| m.brightness = -50.0,
+            |s| predict_brightness(s, -50.0),
+        );
         assert_neutral_display(L, |m| m.brightness = -50.0);
     }
 }
@@ -226,7 +253,11 @@ fn blacks_minus50_predicts() {
 fn saturation_no_op_on_neutral() {
     for L in [0.05, 0.18, 0.50] {
         assert_predicted_scene_linear(L, |m| m.saturation = 50.0, |s| predict_saturation(s, 50.0));
-        assert_predicted_scene_linear(L, |m| m.saturation = -50.0, |s| predict_saturation(s, -50.0));
+        assert_predicted_scene_linear(
+            L,
+            |m| m.saturation = -50.0,
+            |s| predict_saturation(s, -50.0),
+        );
         assert_neutral_display(L, |m| m.saturation = 50.0);
     }
 }
@@ -249,22 +280,43 @@ fn scene_linear_pixel(configure: impl FnOnce(&mut AdjustmentModel)) -> [f32; 3] 
     let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
     let mut model = AdjustmentModel::default();
     configure(&mut model);
-    let img = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap();
+    let img =
+        develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap();
     img.pixels[32 * 64 + 32]
 }
 
 #[test]
 fn temp_warmer_makes_r_gt_b() {
     let p = scene_linear_pixel(|m| m.temperature = 7500.0);
-    assert!(p[0] > p[2], "temp+1000K should warm: R={} should exceed B={}", p[0], p[2]);
-    assert!(p[0] > p[1], "temp+1000K should warm: R={} should exceed G={}", p[0], p[1]);
+    assert!(
+        p[0] > p[2],
+        "temp+1000K should warm: R={} should exceed B={}",
+        p[0],
+        p[2]
+    );
+    assert!(
+        p[0] > p[1],
+        "temp+1000K should warm: R={} should exceed G={}",
+        p[0],
+        p[1]
+    );
 }
 
 #[test]
 fn temp_cooler_makes_b_gt_r() {
     let p = scene_linear_pixel(|m| m.temperature = 5500.0);
-    assert!(p[2] > p[0], "temp-1000K should cool: B={} should exceed R={}", p[2], p[0]);
-    assert!(p[2] > p[1], "temp-1000K should cool: B={} should exceed G={}", p[2], p[1]);
+    assert!(
+        p[2] > p[0],
+        "temp-1000K should cool: B={} should exceed R={}",
+        p[2],
+        p[0]
+    );
+    assert!(
+        p[2] > p[1],
+        "temp-1000K should cool: B={} should exceed G={}",
+        p[2],
+        p[1]
+    );
 }
 
 #[test]
@@ -278,9 +330,13 @@ fn temp_symmetric() {
     let warm_delta = (warm[0] - warm[2]).abs();
     let cool_delta = (cool[0] - cool[2]).abs();
     let ratio = warm_delta / cool_delta;
-    assert!(ratio > 0.3 && ratio < 3.0,
+    assert!(
+        ratio > 0.3 && ratio < 3.0,
         "WB +/-1000K asymmetry: warm |R-B|={}, cool |R-B|={}, ratio={}",
-        warm_delta, cool_delta, ratio);
+        warm_delta,
+        cool_delta,
+        ratio
+    );
 }
 
 /// Tint follows the reference-renderer convention: tint>0 = magenta (R+B grows vs 2G),
@@ -295,12 +351,15 @@ fn tint_plus_pushes_magenta() {
     let default_p = scene_linear_pixel(|_| {});
     let p = scene_linear_pixel(|m| m.tint = 50.0);
     let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
-    let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
-    assert!(tinted_diff > default_diff,
+    let tinted_diff = (p[0] + p[2]) - 2.0 * p[1];
+    assert!(
+        tinted_diff > default_diff,
         "tint+50 should grow R+B vs 2G (reference-renderer convention: magenta): \
          default {} → tinted {}. If this fails, Maple's tint sign is \
          inverted vs the reference renderer — investigate, do not flip the assertion.",
-        default_diff, tinted_diff);
+        default_diff,
+        tinted_diff
+    );
 }
 
 #[test]
@@ -308,12 +367,15 @@ fn tint_minus_pushes_green() {
     let default_p = scene_linear_pixel(|_| {});
     let p = scene_linear_pixel(|m| m.tint = -50.0);
     let default_diff = (default_p[0] + default_p[2]) - 2.0 * default_p[1];
-    let tinted_diff  = (p[0]         + p[2])         - 2.0 * p[1];
-    assert!(tinted_diff < default_diff,
+    let tinted_diff = (p[0] + p[2]) - 2.0 * p[1];
+    assert!(
+        tinted_diff < default_diff,
         "tint-50 should shrink R+B vs 2G (reference-renderer convention: green): \
          default {} → tinted {}. If this fails, Maple's tint sign is \
          inverted vs the reference renderer — investigate, do not flip the assertion.",
-        default_diff, tinted_diff);
+        default_diff,
+        tinted_diff
+    );
 }
 
 /// Decode-time chroma pre-filter (#1104, tone/zoom design spec § 3.1).
@@ -385,53 +447,81 @@ fn dump_scene_linear_deltas() {
         configure: impl FnOnce(&mut AdjustmentModel),
         predict: impl Fn(f32) -> f32,
     ) -> f32 {
-        let dng = SyntheticGreyDng { linear_value: L, ..Default::default() };
+        let dng = SyntheticGreyDng {
+            linear_value: L,
+            ..Default::default()
+        };
         let bytes = dng.write_to_bytes();
         let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
         let mut model = AdjustmentModel::default();
         configure(&mut model);
-        let img = develop_scene_linear_from_raw_with_quality(
-            &raw, &model, RenderQuality::Full).unwrap();
+        let img =
+            develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap();
         let expected = predict(L);
         let mut worst = 0.0f32;
         for p in &img.pixels {
             for c in 0..3 {
                 let d = (p[c] - expected).abs();
-                if d > worst { worst = d; }
+                if d > worst {
+                    worst = d;
+                }
             }
         }
         worst
     }
     fn dump(label: &str, delta: f32, predicted: f32) {
-        let rel = if predicted.abs() > 1e-9 { delta / predicted.abs() } else { f32::NAN };
-        println!("{:32} |Δ|={:.3e}  (predicted={:.4}, rel={:.3e})", label, delta, predicted, rel);
+        let rel = if predicted.abs() > 1e-9 {
+            delta / predicted.abs()
+        } else {
+            f32::NAN
+        };
+        println!(
+            "{:32} |Δ|={:.3e}  (predicted={:.4}, rel={:.3e})",
+            label, delta, predicted, rel
+        );
     }
     for L in [0.0, 0.05, 0.18, 0.50] {
         let pl = format!("L={}", L);
-        dump(&format!("{}/exposure +1",   pl),
-             worst_delta(L, |m| m.exposure = 1.0, |s| predict_exposure(s, 1.0)),
-             predict_exposure(L, 1.0));
-        dump(&format!("{}/exposure -1",   pl),
-             worst_delta(L, |m| m.exposure = -1.0, |s| predict_exposure(s, -1.0)),
-             predict_exposure(L, -1.0));
-        dump(&format!("{}/brightness +50", pl),
-             worst_delta(L, |m| m.brightness = 50.0, |s| predict_brightness(s, 50.0)),
-             predict_brightness(L, 50.0));
-        dump(&format!("{}/shadows +50",   pl),
-             worst_delta(L, |m| m.shadows = 50.0, |s| predict_shadows(s, 50.0)),
-             predict_shadows(L, 50.0));
-        dump(&format!("{}/whites +50",    pl),
-             worst_delta(L, |m| m.whites = 50.0, |s| predict_whites(s, 50.0)),
-             predict_whites(L, 50.0));
-        dump(&format!("{}/blacks +50",    pl),
-             worst_delta(L, |m| m.blacks = 50.0, |s| predict_blacks(s, 50.0)),
-             predict_blacks(L, 50.0));
-        dump(&format!("{}/saturation +50",pl),
-             worst_delta(L, |m| m.saturation = 50.0, |s| predict_saturation(s, 50.0)),
-             predict_saturation(L, 50.0));
-        dump(&format!("{}/vibrance +50",  pl),
-             worst_delta(L, |m| m.vibrance = 50.0, |s| predict_vibrance(s, 50.0)),
-             predict_vibrance(L, 50.0));
+        dump(
+            &format!("{}/exposure +1", pl),
+            worst_delta(L, |m| m.exposure = 1.0, |s| predict_exposure(s, 1.0)),
+            predict_exposure(L, 1.0),
+        );
+        dump(
+            &format!("{}/exposure -1", pl),
+            worst_delta(L, |m| m.exposure = -1.0, |s| predict_exposure(s, -1.0)),
+            predict_exposure(L, -1.0),
+        );
+        dump(
+            &format!("{}/brightness +50", pl),
+            worst_delta(L, |m| m.brightness = 50.0, |s| predict_brightness(s, 50.0)),
+            predict_brightness(L, 50.0),
+        );
+        dump(
+            &format!("{}/shadows +50", pl),
+            worst_delta(L, |m| m.shadows = 50.0, |s| predict_shadows(s, 50.0)),
+            predict_shadows(L, 50.0),
+        );
+        dump(
+            &format!("{}/whites +50", pl),
+            worst_delta(L, |m| m.whites = 50.0, |s| predict_whites(s, 50.0)),
+            predict_whites(L, 50.0),
+        );
+        dump(
+            &format!("{}/blacks +50", pl),
+            worst_delta(L, |m| m.blacks = 50.0, |s| predict_blacks(s, 50.0)),
+            predict_blacks(L, 50.0),
+        );
+        dump(
+            &format!("{}/saturation +50", pl),
+            worst_delta(L, |m| m.saturation = 50.0, |s| predict_saturation(s, 50.0)),
+            predict_saturation(L, 50.0),
+        );
+        dump(
+            &format!("{}/vibrance +50", pl),
+            worst_delta(L, |m| m.vibrance = 50.0, |s| predict_vibrance(s, 50.0)),
+            predict_vibrance(L, 50.0),
+        );
     }
 }
 
@@ -453,19 +543,19 @@ fn dump_display_means() {
         configure(&mut model);
         let (w, h, rgb) = render_from_raw(&raw, &model).unwrap();
         let n = (w * h) as usize;
-        let mr: u32 = (0..n).map(|i| rgb[i*3]     as u32).sum();
-        let mg: u32 = (0..n).map(|i| rgb[i*3 + 1] as u32).sum();
-        let mb: u32 = (0..n).map(|i| rgb[i*3 + 2] as u32).sum();
+        let mr: u32 = (0..n).map(|i| rgb[i * 3] as u32).sum();
+        let mg: u32 = (0..n).map(|i| rgb[i * 3 + 1] as u32).sum();
+        let mb: u32 = (0..n).map(|i| rgb[i * 3 + 2] as u32).sum();
         let nu = n as u32;
         let avg = |s: u32| (s + nu / 2) / nu;
         println!("{:24} R={} G={} B={}", label, avg(mr), avg(mg), avg(mb));
     }
-    mean("default",          |_| {});
-    mean("exposure +1",      |m| m.exposure = 1.0);
-    mean("exposure -1",      |m| m.exposure = -1.0);
-    mean("shadows +50",      |m| m.shadows = 50.0);
-    mean("whites -50",       |m| m.whites = -50.0);
-    mean("contrast +50",     |m| m.contrast = 50.0);
+    mean("default", |_| {});
+    mean("exposure +1", |m| m.exposure = 1.0);
+    mean("exposure -1", |m| m.exposure = -1.0);
+    mean("shadows +50", |m| m.shadows = 50.0);
+    mean("whites -50", |m| m.whites = -50.0);
+    mean("contrast +50", |m| m.contrast = 50.0);
 }
 
 /// Highlights compresses values above 1.0. Drive scene past the knee via
@@ -532,4 +622,3 @@ fn shadows_engages_at_mid_grey() {
         assert_neutral_display(0.18, |m| m.shadows = s);
     }
 }
-

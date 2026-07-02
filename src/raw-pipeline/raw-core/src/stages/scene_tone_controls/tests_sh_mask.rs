@@ -60,13 +60,34 @@ fn highlights_no_pole_around_minus_50() {
     }
     // No blowup: neighbors stay within 10× of each other (the legacy code
     // jumped from ~167× scale to identity to sign-flipped across this range).
-    assert!(a / b < 10.0 && b / a < 10.0, "jump between -49.9 ({}) and -50 ({})", a, b);
-    assert!(b / c < 10.0 && c / b < 10.0, "jump between -50 ({}) and -50.1 ({})", b, c);
+    assert!(
+        a / b < 10.0 && b / a < 10.0,
+        "jump between -49.9 ({}) and -50 ({})",
+        a,
+        b
+    );
+    assert!(
+        b / c < 10.0 && c / b < 10.0,
+        "jump between -50 ({}) and -50.1 ({})",
+        b,
+        c
+    );
     // Monotonic: more-negative h brightens more.
-    assert!(c > b && b > a, "not monotonic across -50: {} / {} / {}", a, b, c);
+    assert!(
+        c > b && b > a,
+        "not monotonic across -50: {} / {} / {}",
+        a,
+        b,
+        c
+    );
     // Pin the closed form at the old pole itself.
     let expect_b = (1.0 + 0.5 * 2.0) * (0.7_f32 * 0.5).exp2();
-    assert!((b - expect_b).abs() < 1e-4, "h=-50 expected {}, got {}", expect_b, b);
+    assert!(
+        (b - expect_b).abs() < 1e-4,
+        "h=-50 expected {}, got {}",
+        expect_b,
+        b
+    );
 }
 
 #[test]
@@ -76,11 +97,21 @@ fn highlights_minus_100_expands_per_formula() {
     // expansion stays Y-coupled (not a uniform image-wide factor).
     let out3 = highlights_output(3.0, -100.0);
     let expect3 = 7.0 * (0.7_f32).exp2();
-    assert!((out3 - expect3).abs() < 1e-3, "Y=3 h=-100 expected {}, got {}", expect3, out3);
+    assert!(
+        (out3 - expect3).abs() < 1e-3,
+        "Y=3 h=-100 expected {}, got {}",
+        expect3,
+        out3
+    );
     assert!(out3 > 0.0, "RGB must stay positive, got {}", out3);
     let out15 = highlights_output(1.5, -100.0);
     let expect15 = (1.0 + 0.5 * 3.0) * (0.7_f32).exp2();
-    assert!((out15 - expect15).abs() < 1e-3, "Y=1.5 h=-100 expected {}, got {}", expect15, out15);
+    assert!(
+        (out15 - expect15).abs() < 1e-3,
+        "Y=1.5 h=-100 expected {}, got {}",
+        expect15,
+        out15
+    );
     assert!(
         ((out3 / 3.0) - (out15 / 1.5)).abs() > 0.1,
         "expansion scale must depend on Y: {} vs {}",
@@ -100,9 +131,21 @@ fn highlights_monotonic_across_full_slider_range() {
     let mut prev: Option<(f32, f32)> = None;
     for &h in sweep {
         let out = highlights_output(2.0, h);
-        assert!(out.is_finite() && out > 0.0, "h={} produced non-finite/non-positive {}", h, out);
+        assert!(
+            out.is_finite() && out > 0.0,
+            "h={} produced non-finite/non-positive {}",
+            h,
+            out
+        );
         if let Some((ph, pv)) = prev {
-            assert!(out < pv, "output must strictly decrease in h: h={} → {}, h={} → {}", ph, pv, h, out);
+            assert!(
+                out < pv,
+                "output must strictly decrease in h: h={} → {}, h={} → {}",
+                ph,
+                pv,
+                h,
+                out
+            );
         }
         prev = Some((h, out));
     }
@@ -122,12 +165,32 @@ fn highlights_negative_preserves_hue_above_knee() {
         let p = img.pixels[0];
         let ratio_rg = p[0] / p[1];
         let ratio_rb = p[0] / p[2];
-        assert!((ratio_rg - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.001, "h={} R:G drift {}", h, ratio_rg);
-        assert!((ratio_rb - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.001, "h={} R:B drift {}", h, ratio_rb);
+        assert!(
+            (ratio_rg - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.001,
+            "h={} R:G drift {}",
+            h,
+            ratio_rg
+        );
+        assert!(
+            (ratio_rb - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.001,
+            "h={} R:B drift {}",
+            h,
+            ratio_rb
+        );
         // Direction: negative h brightens above the knee.
-        assert!(p[0] > 2.0, "h={} should expand R above 2.0, got {}", h, p[0]);
+        assert!(
+            p[0] > 2.0,
+            "h={} should expand R above 2.0, got {}",
+            h,
+            p[0]
+        );
         for &c in &p {
-            assert!(c.is_finite() && c > 0.0, "h={} non-finite/non-positive {}", h, c);
+            assert!(
+                c.is_finite() && c > 0.0,
+                "h={} non-finite/non-positive {}",
+                h,
+                c
+            );
         }
     }
 }
@@ -215,7 +278,11 @@ fn mask_strong_edge_falls_back_per_pixel() {
     // Far from the edge both regimes agree with the closed form.
     let i_dark_far = (h / 2) * w + 4;
     let dark_mult = img.pixels[i_dark_far][0] / 0.01;
-    assert!(dark_mult > 2.0, "deep-shadow side must be strongly lifted, got {}", dark_mult);
+    assert!(
+        dark_mult > 2.0,
+        "deep-shadow side must be strongly lifted, got {}",
+        dark_mult
+    );
 }
 
 /// Uniform field: the blur degenerates (Yb == Y), the mix collapses to the
@@ -223,7 +290,13 @@ fn mask_strong_edge_falls_back_per_pixel() {
 /// the grey-card contract that keeps `test_grey_adjustments.sh` valid.
 #[test]
 fn mask_uniform_field_matches_closed_form() {
-    for &(s, hgt) in &[(100.0_f32, 0.0_f32), (-60.0, 0.0), (0.0, 70.0), (0.0, -70.0), (40.0, -30.0)] {
+    for &(s, hgt) in &[
+        (100.0_f32, 0.0_f32),
+        (-60.0, 0.0),
+        (0.0, 70.0),
+        (0.0, -70.0),
+        (40.0, -30.0),
+    ] {
         let w = 16usize;
         let hpx = 16usize;
         let mut img = Image::new(w as u32, hpx as u32, ColorSpace::SceneLinearRec2020);
@@ -241,7 +314,11 @@ fn mask_uniform_field_matches_closed_form() {
                 assert!(
                     (p[c] - first[c]).abs() < 1e-6,
                     "s={} h={}: flat field broke at {}: {} vs {}",
-                    s, hgt, i, p[c], first[c]
+                    s,
+                    hgt,
+                    i,
+                    p[c],
+                    first[c]
                 );
             }
         }
@@ -264,7 +341,10 @@ fn mask_uniform_field_matches_closed_form() {
         assert!(
             (first[0] - expected).abs() < 1e-5,
             "s={} h={}: expected {}, got {}",
-            s, hgt, expected, first[0]
+            s,
+            hgt,
+            expected,
+            first[0]
         );
     }
 }
@@ -280,7 +360,10 @@ fn mask_radius_follows_long_edge_convention() {
     assert_eq!(sh_mask_blur_radius(2000), 45);
     // Scales linearly with the long edge (12288-px 100 MP frame → ~276).
     assert_eq!(sh_mask_blur_radius(4000), 90);
-    assert_eq!(sh_mask_blur_radius(12288), (3.0_f32 * 15.0 * 12288.0 / 2000.0).round() as usize);
+    assert_eq!(
+        sh_mask_blur_radius(12288),
+        (3.0_f32 * 15.0 * 12288.0 / 2000.0).round() as usize
+    );
     // Tiny inputs never reach radius 0 (the blur primitive treats 0 as
     // identity, which would silently disable the regional mask).
     assert_eq!(sh_mask_blur_radius(1), 1);

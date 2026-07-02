@@ -104,11 +104,7 @@ pub fn find_group(
     }
     // Deterministic order: distance, then scan position as a total
     // tie-break (f32 distances can tie exactly on synthetic content).
-    cands.sort_unstable_by(|a, b| {
-        a.0.total_cmp(&b.0)
-            .then(a.2.cmp(&b.2))
-            .then(a.1.cmp(&b.1))
-    });
+    cands.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.2.cmp(&b.2)).then(a.1.cmp(&b.1)));
     cands.truncate(GROUP_MAX - 1);
 
     let mut group: Vec<(usize, usize)> = Vec::with_capacity(GROUP_MAX);
@@ -132,14 +128,21 @@ mod tests {
     fn ref_coords_cover_every_pixel() {
         for extent in [BLOCK, 17, 64, 100, 1003] {
             let coords = ref_coords(extent);
-            assert_eq!(*coords.last().unwrap(), extent - BLOCK, "last patch flush to edge");
+            assert_eq!(
+                *coords.last().unwrap(),
+                extent - BLOCK,
+                "last patch flush to edge"
+            );
             let mut covered = vec![false; extent];
             for &c in &coords {
                 for i in c..c + BLOCK {
                     covered[i] = true;
                 }
             }
-            assert!(covered.iter().all(|&c| c), "extent {extent} not fully covered");
+            assert!(
+                covered.iter().all(|&c| c),
+                "extent {extent} not fully covered"
+            );
         }
     }
 

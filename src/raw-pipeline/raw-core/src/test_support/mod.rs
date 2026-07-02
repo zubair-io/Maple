@@ -3,10 +3,10 @@
 //! the feature is opt-in and only enabled by Cargo when running tests
 //! or the `synth-grey` example.
 
+pub mod colorchecker;
 pub mod fixtures;
-pub mod synth_dng;
+pub mod hasselblad_dcp;
 pub mod predictions;
 pub mod predictions_display;
-pub mod hasselblad_dcp;
-pub mod colorchecker;
 pub mod synth_chart;
+pub mod synth_dng;

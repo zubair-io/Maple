@@ -51,7 +51,13 @@ fn off_is_bit_identical_skip() {
 fn uniform_field_is_bit_exact_identity_when_on() {
     // The grey-card gate: `v > 2v + 0.02` and `v < 0.25v` are impossible
     // on a uniform field, so nothing is flagged and nothing is rewritten.
-    for cfa in [CfaPattern::Rggb, CfaPattern::Bggr, CfaPattern::Grbg, CfaPattern::Gbrg, CfaPattern::XTrans(XTRANS)] {
+    for cfa in [
+        CfaPattern::Rggb,
+        CfaPattern::Bggr,
+        CfaPattern::Grbg,
+        CfaPattern::Gbrg,
+        CfaPattern::XTrans(XTRANS),
+    ] {
         for &v in &[0.0f32, 0.001, 0.18, 1.0] {
             let mut img = uniform_mosaic(13, 13, v, cfa);
             let before = img.pixels.clone();
@@ -67,7 +73,11 @@ fn hot_pixel_is_replaced_with_neighborhood_median() {
         let mut img = uniform_mosaic(12, 12, 0.2, cfa);
         set_site(&mut img, 6, 6, cfa, 0.95); // 0.95 > 2·0.2 + 0.02
         apply(&mut img, cfa, HotPixelSuppressionMode::On);
-        assert_eq!(site(&img, 6, 6, cfa), 0.2, "hot site must take the median ({cfa:?})");
+        assert_eq!(
+            site(&img, 6, 6, cfa),
+            0.2,
+            "hot site must take the median ({cfa:?})"
+        );
         // And nothing else moved.
         for y in 0..12 {
             for x in 0..12 {
@@ -86,7 +96,11 @@ fn dead_pixel_is_replaced() {
     let mut img = uniform_mosaic(12, 12, 0.4, cfa);
     set_site(&mut img, 5, 7, cfa, 0.01); // 0.01 < 0.25·0.4
     apply(&mut img, cfa, HotPixelSuppressionMode::On);
-    assert_eq!(site(&img, 5, 7, cfa), 0.4, "stuck-low site must take the median");
+    assert_eq!(
+        site(&img, 5, 7, cfa),
+        0.4,
+        "stuck-low site must take the median"
+    );
 }
 
 #[test]
@@ -145,7 +159,11 @@ fn xtrans_hot_pixel_is_replaced() {
     let mut img = uniform_mosaic(18, 18, 0.25, cfa);
     set_site(&mut img, 9, 9, cfa, 1.0); // > 2·0.25 + 0.02
     apply(&mut img, cfa, HotPixelSuppressionMode::On);
-    assert_eq!(site(&img, 9, 9, cfa), 0.25, "X-Trans hot site must take the median");
+    assert_eq!(
+        site(&img, 9, 9, cfa),
+        0.25,
+        "X-Trans hot site must take the median"
+    );
 }
 
 #[test]
@@ -154,7 +172,12 @@ fn every_phase_has_at_least_eight_same_color_neighbors() {
     // G (green occupies every (x+y)-odd site, so all 12 parity-preserving
     // offsets in the window hit green); X-Trans 7×7: ≥ 8 for every one of
     // the 36 phases. This pins the window-radius choice.
-    for cfa in [CfaPattern::Rggb, CfaPattern::Bggr, CfaPattern::Grbg, CfaPattern::Gbrg] {
+    for cfa in [
+        CfaPattern::Rggb,
+        CfaPattern::Bggr,
+        CfaPattern::Grbg,
+        CfaPattern::Gbrg,
+    ] {
         let (period, _, table) = same_color_offsets(cfa);
         assert_eq!(period, 2);
         for cy in 0..2u32 {
@@ -171,7 +194,11 @@ fn every_phase_has_at_least_eight_same_color_neighbors() {
     }
     let (_, _, table) = same_color_offsets(CfaPattern::XTrans(XTRANS));
     for (cell, offs) in table.iter().enumerate() {
-        assert!(offs.len() >= 8, "X-Trans phase {cell} has only {}", offs.len());
+        assert!(
+            offs.len() >= 8,
+            "X-Trans phase {cell} has only {}",
+            offs.len()
+        );
     }
 }
 
@@ -183,7 +210,11 @@ fn corner_sites_with_clipped_window_are_safe() {
     let mut img = uniform_mosaic(6, 6, 0.3, cfa);
     set_site(&mut img, 0, 0, cfa, 1.0); // hot corner
     apply(&mut img, cfa, HotPixelSuppressionMode::On);
-    assert_eq!(site(&img, 0, 0, cfa), 0.3, "hot corner must still be replaced");
+    assert_eq!(
+        site(&img, 0, 0, cfa),
+        0.3,
+        "hot corner must still be replaced"
+    );
 }
 
 #[test]
@@ -211,7 +242,11 @@ fn deterministic_across_thread_counts() {
         pool.install(|| apply(&mut img, cfa, HotPixelSuppressionMode::On));
         img.pixels
     };
-    assert_eq!(run(1), run(8), "output must be byte-identical across thread counts");
+    assert_eq!(
+        run(1),
+        run(8),
+        "output must be byte-identical across thread counts"
+    );
 }
 
 #[test]

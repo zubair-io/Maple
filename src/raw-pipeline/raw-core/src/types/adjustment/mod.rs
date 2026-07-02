@@ -211,7 +211,6 @@ impl Default for WbMethod {
     }
 }
 
-
 // HotPixelSuppressionMode split into its own submodule to stay under the
 // 600-LOC hard budget (#1181).
 mod hot_pixel_suppression;
@@ -247,19 +246,19 @@ pub struct AdjustmentModel {
     /// proper chromatic adaptation in CAT16 LMS cone space; legacy
     /// `DiagonalRec2020` keeps the pre-#431 von-Kries diagonal gains.
     pub wb_method: WbMethod,
-    pub exposure: f32,    // -4..+4 EV, default 0
+    pub exposure: f32, // -4..+4 EV, default 0
     /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
     /// spec § 4.1). Applied inside `scene_tone_controls` after exposure,
     /// before highlights/shadows/whites/blacks. Weight is exactly 0 at
     /// Y ≤ 0.05 and Y ≥ 4.0, so the histogram ends stay pinned. XMP key is
     /// `papp:Brightness` — NOT `crs:Brightness`, which is ACR PV2010 with
     /// different semantics (default +50, removed in PV2012).
-    pub brightness: f32,  // -100..100, default 0
-    pub contrast: f32,    // -100..100, default 0 (routed to AgX slope per spec § 3.6a)
-    pub highlights: f32,  // -100..100, default 0
-    pub shadows: f32,     // -100..100, default 0
-    pub whites: f32,      // -100..100, default 0
-    pub blacks: f32,      // -100..100, default 0
+    pub brightness: f32, // -100..100, default 0
+    pub contrast: f32, // -100..100, default 0 (routed to AgX slope per spec § 3.6a)
+    pub highlights: f32, // -100..100, default 0
+    pub shadows: f32,  // -100..100, default 0
+    pub whites: f32,   // -100..100, default 0
+    pub blacks: f32,   // -100..100, default 0
 
     // Parametric tone curve — PV2012-style four-region sliders. Distinct
     // from `highlights/shadows/whites/blacks` above (those are scene
@@ -272,10 +271,10 @@ pub struct AdjustmentModel {
     pub parametric_darks: f32,      // -100..100, default 0
     pub parametric_shadows: f32,    // -100..100, default 0
 
-    pub vibrance: f32,    // -100..100, default 0 (spec § 3.7)
-    pub saturation: f32,  // -100..100, default 0
-    pub clarity: f32,     // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
-    pub texture: f32,     // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
+    pub vibrance: f32,                  // -100..100, default 0 (spec § 3.7)
+    pub saturation: f32,                // -100..100, default 0
+    pub clarity: f32,                   // -100..100, default 0 (unsharp radius 40 per spec § 3.8)
+    pub texture: f32,                   // -100..100, default 0 (unsharp radius 3 per spec § 3.8)
     pub sharpen_amount: f32, // 0..150, default 40 (reference-renderer import default; spec § 3.10; 0 = stage skipped, 100 = full RL, >100 overdrive)
     pub sharpen_radius: f32, // 0.5..3.0, default 1.0 (reference-renderer import default; PSF Gaussian sigma)
     pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
@@ -308,9 +307,9 @@ pub struct AdjustmentModel {
                 integer radius to float Gaussian sigma in PR #452"
     )]
     pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (kept as a deprecated alias; see field doc)
-    pub nr_luminance: f32,   // 0..100, default 0 (spec § 3.11)
-    pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
-    pub dehaze: f32,         // -100..100, default 0
+    pub nr_luminance: f32, // 0..100, default 0 (spec § 3.11)
+    pub nr_color: f32,     // 0..100, default 25 (default = the reference renderer's default)
+    pub dehaze: f32,       // -100..100, default 0
 
     // S5 effects fields (ticket #643 model/UI). Defaults are chosen so an
     // absent-attribute sidecar (or a freshly-created model) produces
@@ -321,25 +320,25 @@ pub struct AdjustmentModel {
     // Vignette (#1109, tone/zoom design § 10.1): scene-linear radial EV
     // gain, `stages::vignette`. Drag-bar drives `vignette_amount`;
     // `vignette_feather` maps onto the mask transition width.
-    pub vignette_amount: f32,        // -100..100, default 0 (negative = darken corners)
-    pub vignette_feather: f32,       // 0..100, default 50 (transition softness)
+    pub vignette_amount: f32, // -100..100, default 0 (negative = darken corners)
+    pub vignette_feather: f32, // 0..100, default 50 (transition softness)
 
     // Grain (#1110, tone/zoom design § 10.2): display-linear deterministic
     // film grain, `stages::grain`. Drag-bar drives `grain_amount`; size +
     // roughness ride the sub-param row.
-    pub grain_amount: f32,           // 0..100, default 0
-    pub grain_size: f32,             // 0..100, default 25
-    pub grain_roughness: f32,        // 0..100, default 50
+    pub grain_amount: f32,    // 0..100, default 0
+    pub grain_size: f32,      // 0..100, default 25
+    pub grain_roughness: f32, // 0..100, default 50
 
     // Split toning (#1111, tone/zoom design § 10.3): display-linear Oklab
     // a/b tint, `stages::split_tone`. Drag-bar drives `split_tone_balance`
     // (the crossover); the four hue/sat scalars ride the sub-param row.
     // Hue is in degrees (Lightroom convention); saturation is `[0, 100]`.
-    pub split_tone_shadow_hue: f32,         // 0..360, default 0
-    pub split_tone_shadow_saturation: f32,  // 0..100, default 0
-    pub split_tone_highlight_hue: f32,      // 0..360, default 0
+    pub split_tone_shadow_hue: f32,           // 0..360, default 0
+    pub split_tone_shadow_saturation: f32,    // 0..100, default 0
+    pub split_tone_highlight_hue: f32,        // 0..360, default 0
     pub split_tone_highlight_saturation: f32, // 0..100, default 0
-    pub split_tone_balance: f32,            // -100..100, default 0
+    pub split_tone_balance: f32,              // -100..100, default 0
 
     // HSL 8-band hue/saturation/luminance (#1112, tone/zoom design § 10.4).
     // 24 ACR `crs:` fields: 8 hue adjustments, 8 saturation adjustments,
@@ -351,14 +350,14 @@ pub struct AdjustmentModel {
     //           `crs:LuminanceAdjustmentRed` … `crs:LuminanceAdjustmentMagenta`.
     // Band order: Red(0), Orange(1), Yellow(2), Green(3),
     //             Aqua(4), Blue(5), Purple(6), Magenta(7).
-    pub hue_adjustment_red: f32,        // -100..100, default 0
-    pub hue_adjustment_orange: f32,     // -100..100, default 0
-    pub hue_adjustment_yellow: f32,     // -100..100, default 0
-    pub hue_adjustment_green: f32,      // -100..100, default 0
-    pub hue_adjustment_aqua: f32,       // -100..100, default 0
-    pub hue_adjustment_blue: f32,       // -100..100, default 0
-    pub hue_adjustment_purple: f32,     // -100..100, default 0
-    pub hue_adjustment_magenta: f32,    // -100..100, default 0
+    pub hue_adjustment_red: f32,            // -100..100, default 0
+    pub hue_adjustment_orange: f32,         // -100..100, default 0
+    pub hue_adjustment_yellow: f32,         // -100..100, default 0
+    pub hue_adjustment_green: f32,          // -100..100, default 0
+    pub hue_adjustment_aqua: f32,           // -100..100, default 0
+    pub hue_adjustment_blue: f32,           // -100..100, default 0
+    pub hue_adjustment_purple: f32,         // -100..100, default 0
+    pub hue_adjustment_magenta: f32,        // -100..100, default 0
     pub saturation_adjustment_red: f32,     // -100..100, default 0
     pub saturation_adjustment_orange: f32,  // -100..100, default 0
     pub saturation_adjustment_yellow: f32,  // -100..100, default 0

@@ -69,7 +69,11 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
     let w = mosaic.width as i32;
     let h = mosaic.height as i32;
     let w_us = mosaic.width as usize;
-    let mut out = Image::new(mosaic.width, mosaic.height, ColorSpace::CameraNativeLinearRgb);
+    let mut out = Image::new(
+        mosaic.width,
+        mosaic.height,
+        ColorSpace::CameraNativeLinearRgb,
+    );
 
     // Mirror border reads: return (mirrored_x, mirrored_y) so callers
     // can pull the CFA color at the *physically present* sample, not
@@ -77,8 +81,20 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
     // CFA lookup would pick up a channel that the mirrored pixel
     // doesn't actually carry, surfacing as zeros at the corners.
     let mirror = |x: i32, y: i32| -> (i32, i32) {
-        let mx = if x < 0 { -x } else if x >= w { 2 * (w - 1) - x } else { x };
-        let my = if y < 0 { -y } else if y >= h { 2 * (h - 1) - y } else { y };
+        let mx = if x < 0 {
+            -x
+        } else if x >= w {
+            2 * (w - 1) - x
+        } else {
+            x
+        };
+        let my = if y < 0 {
+            -y
+        } else if y >= h {
+            2 * (h - 1) - y
+        } else {
+            y
+        };
         (mx, my)
     };
 
@@ -98,7 +114,9 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
                 // blur an exact sample with neighbours.
                 for dy in -1..=1i32 {
                     for dx in -1..=1i32 {
-                        if dx == 0 && dy == 0 { continue; }
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
                         let (nx, ny) = mirror(x + dx, y + dy);
                         let c = xtrans_color(&pat, nx, ny);
                         sums[c] += mosaic.pixels[(ny as usize) * w_us + (nx as usize)][c];
@@ -113,10 +131,13 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
                     if c != cself && counts[c] == 0 {
                         for dy in -2..=2i32 {
                             for dx in -2..=2i32 {
-                                if dx.abs() <= 1 && dy.abs() <= 1 { continue; }
+                                if dx.abs() <= 1 && dy.abs() <= 1 {
+                                    continue;
+                                }
                                 let (nx, ny) = mirror(x + dx, y + dy);
                                 if xtrans_color(&pat, nx, ny) == c {
-                                    sums[c] += mosaic.pixels[(ny as usize) * w_us + (nx as usize)][c];
+                                    sums[c] +=
+                                        mosaic.pixels[(ny as usize) * w_us + (nx as usize)][c];
                                     counts[c] += 1;
                                 }
                             }
@@ -125,7 +146,11 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
                 }
                 let mut rgb = [0.0_f32; 3];
                 for c in 0..3 {
-                    rgb[c] = if counts[c] > 0 { sums[c] / counts[c] as f32 } else { 0.0 };
+                    rgb[c] = if counts[c] > 0 {
+                        sums[c] / counts[c] as f32
+                    } else {
+                        0.0
+                    };
                 }
                 // Center-channel: preserve the measured sample exactly.
                 rgb[cself] = mosaic.pixels[y_idx * w_us + x_idx][cself];
@@ -219,12 +244,14 @@ pub fn markesteijn(mosaic: &Image, cfa: CfaPattern) -> Image {
     // Because the X-Trans tile is 6×6, *every* non-G cell has at least
     // one G neighbour in every cardinal direction within 1-2 pixels, so
     // the directional pick is always well-defined.
-    let mut green: Vec<f32> = (0..h_us * w_us).map(|i| {
-        // Bayer's bilinear seed for the green plane outside the
-        // interior loop ranges. Avoids a separate border init pass.
-        let p = out.pixels[i];
-        p[1]
-    }).collect();
+    let mut green: Vec<f32> = (0..h_us * w_us)
+        .map(|i| {
+            // Bayer's bilinear seed for the green plane outside the
+            // interior loop ranges. Avoids a separate border init pass.
+            let p = out.pixels[i];
+            p[1]
+        })
+        .collect();
 
     let mut interior_g = vec![0.0_f32; w_us * h_us];
     // First parallel pass: compute interior G estimates without writing
@@ -234,10 +261,14 @@ pub fn markesteijn(mosaic: &Image, cfa: CfaPattern) -> Image {
         .enumerate()
         .for_each(|(y_idx, row)| {
             let y = y_idx as i32;
-            if y < 2 || y >= h - 2 { return; }
+            if y < 2 || y >= h - 2 {
+                return;
+            }
             for (x_idx, slot) in row.iter_mut().enumerate() {
                 let x = x_idx as i32;
-                if x < 2 || x >= w - 2 { continue; }
+                if x < 2 || x >= w - 2 {
+                    continue;
+                }
                 if is_green[y_idx * w_us + x_idx] == 1 {
                     // Already green at this site — keep the seed (we'll
                     // overwrite `green` later, but only for non-G sites
@@ -262,10 +293,19 @@ pub fn markesteijn(mosaic: &Image, cfa: CfaPattern) -> Image {
                 // tie-break only matters on visually-uniform patches where
                 // every estimator agrees anyway.
                 let dir: u8 = {
-                    let mut g = h_grad; let mut d = 0u8;
-                    if v_grad < g { g = v_grad; d = 1; }
-                    if d1_grad < g { g = d1_grad; d = 2; }
-                    if d2_grad < g { d = 3; }
+                    let mut g = h_grad;
+                    let mut d = 0u8;
+                    if v_grad < g {
+                        g = v_grad;
+                        d = 1;
+                    }
+                    if d1_grad < g {
+                        g = d1_grad;
+                        d = 2;
+                    }
+                    if d2_grad < g {
+                        d = 3;
+                    }
                     d
                 };
                 // Interpolate G as the average of the two G samples on
@@ -350,7 +390,9 @@ pub fn markesteijn(mosaic: &Image, cfa: CfaPattern) -> Image {
                         }
                     }
                 }
-                rgb[target] = if cnt > 0 { g + sum / cnt as f32 } else {
+                rgb[target] = if cnt > 0 {
+                    g + sum / cnt as f32
+                } else {
                     // Should never happen on a valid 6×6 X-Trans tile;
                     // fall back to the bilinear seed defensively.
                     out.pixels[i][target]
@@ -383,8 +425,13 @@ pub fn markesteijn(mosaic: &Image, cfa: CfaPattern) -> Image {
 /// recovers the high-frequency detail this leaves on the table.
 #[inline(always)]
 fn directional_green(
-    pat: &[u8; 36], flat: &[f32], w_us: usize,
-    x: i32, y: i32, dx: i32, dy: i32,
+    pat: &[u8; 36],
+    flat: &[f32],
+    w_us: usize,
+    x: i32,
+    y: i32,
+    dx: i32,
+    dy: i32,
 ) -> f32 {
     let w = w_us as i32;
     let h = (flat.len() / w_us) as i32;

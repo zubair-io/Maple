@@ -5,7 +5,9 @@
 use std::path::Path;
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: inspect-camera <path/to.raw>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: inspect-camera <path/to.raw>");
     let raw = raw_core::decode::decode(Path::new(&path)).expect("decode failed");
     println!("file:              {}", path);
     println!("camera_make:       {:?}", raw.camera_make);
@@ -14,7 +16,10 @@ fn main() {
     let key = raw_core::color::profile_loader::camera_key_for(&raw);
     let bundled = raw_core::color::profile_loader::lookup_profile(&raw);
     println!("camera_key:        {:?}", key);
-    println!("bundled_profile:   {}", if bundled.is_some() {"HIT"} else {"MISS"});
+    println!(
+        "bundled_profile:   {}",
+        if bundled.is_some() { "HIT" } else { "MISS" }
+    );
     if let Some(p) = bundled {
         println!("  illum1/2: {:?}/{:?}", p.illum1, p.illum2);
         println!("  cm1: {:?}", p.cm1.map(|m| m.0));

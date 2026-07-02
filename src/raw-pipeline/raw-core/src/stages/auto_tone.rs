@@ -209,9 +209,8 @@ fn build_luma_histogram(image: &Image) -> [u32; HIST_BINS] {
 fn build_luma_histogram_rgba(rgba: &[f32]) -> [u32; HIST_BINS] {
     let mut bins = [0u32; HIST_BINS];
     for chunk in rgba.chunks_exact(4) {
-        let y = LUMA_REC2020[0] * chunk[0]
-            + LUMA_REC2020[1] * chunk[1]
-            + LUMA_REC2020[2] * chunk[2];
+        let y =
+            LUMA_REC2020[0] * chunk[0] + LUMA_REC2020[1] * chunk[1] + LUMA_REC2020[2] * chunk[2];
         if !y.is_finite() {
             continue;
         }

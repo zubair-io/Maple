@@ -1,8 +1,8 @@
 #![cfg(test)]
 
-use super::*;
 use super::super::develop_sized::develop_scene_linear_sized_from_raw_with_quality;
 use super::super::downsample::downsample_image_area;
+use super::*;
 
 /// `effective_quality_divisor` must return 1 for every CFA path
 /// whose post-demosaic buffer is full-resolution at Preview
@@ -97,18 +97,22 @@ fn render_dims_match_crop_rect_per_fixture() {
             .map(|s| s.to_ascii_lowercase())
             .unwrap_or_default();
         let raw = crate::decode::decode_bytes(&bytes, &ext).expect("decode");
-        let (w, h, _) = crate::pipeline::render_from_raw_with_quality(
-            &raw, &model, RenderQuality::Full,
-        ).expect("render");
+        let (w, h, _) =
+            crate::pipeline::render_from_raw_with_quality(&raw, &model, RenderQuality::Full)
+                .expect("render");
         assert_eq!(
             (w, h),
             (*ew, *eh),
             "{} ({}): expected {}×{}, got {}×{}",
-            name, note, ew, eh, w, h
+            name,
+            note,
+            ew,
+            eh,
+            w,
+            h
         );
     }
 }
-
 
 /// M3 commutativity gate: render test_0017.dng via the original
 /// late-downsample path (full-res develop, then
@@ -140,24 +144,34 @@ fn early_vs_late_downsample_within_fp16_tolerance() {
     // Disable sharpening for this commutativity gate: USM sharpening's
     // non-commutativity with downsampling is well-known and is not what
     // this test is measuring.
-    let model = AdjustmentModel { sharpen_amount: 0.0, ..AdjustmentModel::default() };
+    let model = AdjustmentModel {
+        sharpen_amount: 0.0,
+        ..AdjustmentModel::default()
+    };
     let max_long_edge: u32 = 1500;
 
     // Late-downsample: full-res develop, then downsample.
-    let mut late = develop_scene_linear_from_raw_with_quality(
-        &raw, &model, RenderQuality::Preview,
-    ).expect("late develop");
+    let mut late = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Preview)
+        .expect("late develop");
     downsample_image_area(&mut late, max_long_edge);
 
     // Early-downsample: new helper runs downsample post-demosaic.
     let early = develop_scene_linear_sized_from_raw_with_quality(
-        &raw, &model, RenderQuality::Preview, max_long_edge,
-    ).expect("early develop");
+        &raw,
+        &model,
+        RenderQuality::Preview,
+        max_long_edge,
+    )
+    .expect("early develop");
 
     // Sizes must match — both end at <= max_long_edge on the long edge.
     assert_eq!(early.width, late.width, "width mismatch");
     assert_eq!(early.height, late.height, "height mismatch");
-    assert_eq!(early.pixels.len(), late.pixels.len(), "pixel count mismatch");
+    assert_eq!(
+        early.pixels.len(),
+        late.pixels.len(),
+        "pixel count mismatch"
+    );
 
     let n = early.pixels.len();
     let mut sum_dr = 0.0f64;
@@ -173,9 +187,15 @@ fn early_vs_late_downsample_within_fp16_tolerance() {
         sum_dr += dr as f64;
         sum_dg += dg as f64;
         sum_db += db as f64;
-        if dr > max_dr { max_dr = dr; }
-        if dg > max_dg { max_dg = dg; }
-        if db > max_db { max_db = db; }
+        if dr > max_dr {
+            max_dr = dr;
+        }
+        if dg > max_dg {
+            max_dg = dg;
+        }
+        if db > max_db {
+            max_db = db;
+        }
     }
     let mean_dr = (sum_dr / n as f64) as f32;
     let mean_dg = (sum_dg / n as f64) as f32;
@@ -218,12 +238,10 @@ fn amaze_resolves_finer_detail_than_hamilton_adams() {
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
 
-    let ha = develop_scene_linear_from_raw_with_quality(
-        &raw, &model, RenderQuality::Full,
-    ).expect("HA develop");
-    let amz = develop_scene_linear_from_raw_with_quality(
-        &raw, &model, RenderQuality::Amaze,
-    ).expect("AMaZE develop");
+    let ha = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
+        .expect("HA develop");
+    let amz = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Amaze)
+        .expect("AMaZE develop");
     assert_eq!((ha.width, ha.height), (amz.width, amz.height));
 
     let w = ha.width as usize;
@@ -237,10 +255,14 @@ fn amaze_resolves_finer_detail_than_hamilton_adams() {
     let m_ha = mean_g(&ha);
     let m_amz = mean_g(&amz);
     let mean_drift = ((m_amz - m_ha) / m_ha).abs();
-    assert!(mean_drift < 0.05,
+    assert!(
+        mean_drift < 0.05,
         "AMaZE shifted overall green mean by {:.3}% (HA mean = {:.4}, AMaZE = {:.4}); \
          expected ≤ 5%",
-        mean_drift * 100.0, m_ha, m_amz);
+        mean_drift * 100.0,
+        m_ha,
+        m_amz
+    );
 
     // High-frequency energy via the L1 gradient magnitude on the green
     // channel. We skip a 4-pixel border so AMaZE's edge-fallback
@@ -264,9 +286,16 @@ fn amaze_resolves_finer_detail_than_hamilton_adams() {
     };
     let hf_ha = hf_energy(&ha);
     let hf_amz = hf_energy(&amz);
-    eprintln!("amaze vs hamilton-adams: mean_g HA={:.4} AMaZE={:.4} (drift={:.3}%); \
+    eprintln!(
+        "amaze vs hamilton-adams: mean_g HA={:.4} AMaZE={:.4} (drift={:.3}%); \
                HF energy HA={:.0} AMaZE={:.0} (ratio={:.3}×)",
-        m_ha, m_amz, mean_drift * 100.0, hf_ha, hf_amz, hf_amz / hf_ha);
+        m_ha,
+        m_amz,
+        mean_drift * 100.0,
+        hf_ha,
+        hf_amz,
+        hf_amz / hf_ha
+    );
 
     // AMaZE's HF energy must be at least as high as HA's. The 0.99
     // floor (1% slack) absorbs tiny per-pixel noise differences from
@@ -274,9 +303,12 @@ fn amaze_resolves_finer_detail_than_hamilton_adams() {
     // very-slightly suppress one HA-only zipper. The expected
     // direction is hf_amz > hf_ha; in practice the ratio sits well
     // above 1.0 on natural fixtures.
-    assert!(hf_amz / hf_ha >= 0.99,
+    assert!(
+        hf_amz / hf_ha >= 0.99,
         "AMaZE HF energy {:.0} below HA HF energy {:.0} (ratio {:.3} < 0.99) — \
          AMaZE should preserve at least as much green-channel detail as HA",
-        hf_amz, hf_ha, hf_amz / hf_ha);
+        hf_amz,
+        hf_ha,
+        hf_amz / hf_ha
+    );
 }
-

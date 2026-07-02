@@ -17,8 +17,13 @@
 /// compute the inner-image-relative crop after the development chain runs
 /// on the padded buffer.
 pub(super) fn pad_and_clamp_mosaic_rect(
-    src_x: u32, src_y: u32, src_w: u32, src_h: u32,
-    pad: u32, mosaic_w: u32, mosaic_h: u32,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    pad: u32,
+    mosaic_w: u32,
+    mosaic_h: u32,
 ) -> ((u32, u32, u32, u32), (u32, u32)) {
     let pre_x = src_x.saturating_sub(pad);
     let pre_y = src_y.saturating_sub(pad);
@@ -42,7 +47,8 @@ pub(super) fn pad_and_clamp_mosaic_rect(
 /// because `(x, y)` are guaranteed even (see `pad_and_clamp_mosaic_rect`).
 #[allow(dead_code)] // kept for diagnostic / future use; the live tile path linearises directly to the crop
 fn crop_mosaic_to_padded_rect(
-    mosaic: &crate::image::Image, rect: (u32, u32, u32, u32),
+    mosaic: &crate::image::Image,
+    rect: (u32, u32, u32, u32),
 ) -> crate::image::Image {
     use crate::image::ColorSpace;
     let (cx, cy, cw, ch) = rect;
@@ -64,8 +70,10 @@ fn crop_mosaic_to_padded_rect(
 /// Note: this runs in fp32 RGB, AFTER `nr_color` and BEFORE downsampling.
 pub(super) fn trim_image_to_inner(
     img: &crate::image::Image,
-    left_pad: u32, top_pad: u32,
-    inner_w: u32, inner_h: u32,
+    left_pad: u32,
+    top_pad: u32,
+    inner_w: u32,
+    inner_h: u32,
 ) -> crate::image::Image {
     let space = img.space;
     let mut out = crate::image::Image::new(inner_w, inner_h, space);
@@ -81,17 +89,16 @@ pub(super) fn trim_image_to_inner(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::TILE_OVERLAP_PX;
+    use super::*;
 
     /// `pad_and_clamp_mosaic_rect` rounds the start corners DOWN to even
     /// multiples (Bayer-phase preservation for `demosaic::half_res`).
     #[test]
     fn pad_and_clamp_mosaic_rect_rounds_start_to_even() {
         // Odd start coords with plenty of room — pad pulls back to even.
-        let ((x, y, _w, _h), (lp, tp)) = pad_and_clamp_mosaic_rect(
-            1025, 1025, 512, 512, 35, 8000, 8000,
-        );
+        let ((x, y, _w, _h), (lp, tp)) =
+            pad_and_clamp_mosaic_rect(1025, 1025, 512, 512, 35, 8000, 8000);
         assert_eq!(x & 1, 0, "x must be even, got {}", x);
         assert_eq!(y & 1, 0, "y must be even, got {}", y);
         // 1025 - 35 = 990, already even → x = 990. left_pad = 1025 - 990 = 35.
@@ -102,9 +109,8 @@ mod tests {
 
         // Even start coords with plenty of room — pad lands on even
         // already, no further snap.
-        let ((x2, y2, _w2, _h2), (lp2, tp2)) = pad_and_clamp_mosaic_rect(
-            1024, 1024, 512, 512, 35, 8000, 8000,
-        );
+        let ((x2, y2, _w2, _h2), (lp2, tp2)) =
+            pad_and_clamp_mosaic_rect(1024, 1024, 512, 512, 35, 8000, 8000);
         // 1024 - 35 = 989, snap down to 988. left_pad = 1024 - 988 = 36.
         assert_eq!(x2 & 1, 0);
         assert_eq!(y2 & 1, 0);
@@ -121,9 +127,7 @@ mod tests {
     fn pad_and_clamp_mosaic_rect_clamps_to_image_bounds() {
         // Top-left corner: src starts at (0, 0). Pre-pad goes to (-35, -35)
         // saturating to 0. Even-snap leaves (0, 0). left_pad = top_pad = 0.
-        let ((x, y, w, h), (lp, tp)) = pad_and_clamp_mosaic_rect(
-            0, 0, 512, 512, 35, 4000, 4000,
-        );
+        let ((x, y, w, h), (lp, tp)) = pad_and_clamp_mosaic_rect(0, 0, 512, 512, 35, 4000, 4000);
         assert_eq!(x, 0);
         assert_eq!(y, 0);
         assert_eq!(lp, 0, "left_pad must be 0 at left edge");
@@ -137,18 +141,32 @@ mod tests {
         let mosaic_w = 4000u32;
         let mosaic_h = 4000u32;
         let ((x2, y2, w2, h2), _) = pad_and_clamp_mosaic_rect(
-            mosaic_w - 512, mosaic_h - 512, 512, 512, 35, mosaic_w, mosaic_h,
+            mosaic_w - 512,
+            mosaic_h - 512,
+            512,
+            512,
+            35,
+            mosaic_w,
+            mosaic_h,
         );
-        assert!(x2 + w2 <= mosaic_w, "x+w overshoots mosaic width: {}+{} > {}",
-            x2, w2, mosaic_w);
-        assert!(y2 + h2 <= mosaic_h, "y+h overshoots mosaic height: {}+{} > {}",
-            y2, h2, mosaic_h);
+        assert!(
+            x2 + w2 <= mosaic_w,
+            "x+w overshoots mosaic width: {}+{} > {}",
+            x2,
+            w2,
+            mosaic_w
+        );
+        assert!(
+            y2 + h2 <= mosaic_h,
+            "y+h overshoots mosaic height: {}+{} > {}",
+            y2,
+            h2,
+            mosaic_h
+        );
 
         // Tile larger than image: src_w > mosaic_w. Result still inside
         // bounds (no overshoot), even-aligned, non-zero size.
-        let ((x3, y3, w3, h3), _) = pad_and_clamp_mosaic_rect(
-            0, 0, 10000, 10000, 35, 1024, 1024,
-        );
+        let ((x3, y3, w3, h3), _) = pad_and_clamp_mosaic_rect(0, 0, 10000, 10000, 35, 1024, 1024);
         assert_eq!(x3, 0);
         assert_eq!(y3, 0);
         assert!(x3 + w3 <= 1024);
@@ -170,9 +188,8 @@ mod tests {
         let mosaic_h = 8000u32;
         let (src_x, src_y, src_w, src_h) = (1024u32, 1024u32, 512u32, 512u32);
         let pad = TILE_OVERLAP_PX;
-        let ((x, y, w, h), (lp, tp)) = pad_and_clamp_mosaic_rect(
-            src_x, src_y, src_w, src_h, pad, mosaic_w, mosaic_h,
-        );
+        let ((x, y, w, h), (lp, tp)) =
+            pad_and_clamp_mosaic_rect(src_x, src_y, src_w, src_h, pad, mosaic_w, mosaic_h);
         // Inner src rect is at (lp, tp) inside the cropped mosaic.
         // The padded crop must extend at least `pad` pixels on every side
         // of the inner rect (this is the geometric invariant — when not
@@ -181,10 +198,18 @@ mod tests {
         assert!(tp >= pad, "top overlap {} < pad {}", tp, pad);
         let right_overlap = w.saturating_sub(lp + src_w);
         let bottom_overlap = h.saturating_sub(tp + src_h);
-        assert!(right_overlap >= pad,
-            "right overlap {} < pad {}", right_overlap, pad);
-        assert!(bottom_overlap >= pad,
-            "bottom overlap {} < pad {}", bottom_overlap, pad);
+        assert!(
+            right_overlap >= pad,
+            "right overlap {} < pad {}",
+            right_overlap,
+            pad
+        );
+        assert!(
+            bottom_overlap >= pad,
+            "bottom overlap {} < pad {}",
+            bottom_overlap,
+            pad
+        );
         // Padded crop sits inside the mosaic — does not overshoot.
         assert!(x + w <= mosaic_w, "padded crop overshoots width");
         assert!(y + h <= mosaic_h, "padded crop overshoots height");
@@ -194,7 +219,11 @@ mod tests {
         // at module scope pins `TILE_OVERLAP_PX` to this value; check
         // the runtime relation here too.
         let clarity_reach = crate::stages::clarity::CLARITY_GUIDED_REACH_PX;
-        assert!((pad as usize) >= clarity_reach,
-            "TILE_OVERLAP_PX {} must cover clarity tail {}", pad, clarity_reach);
+        assert!(
+            (pad as usize) >= clarity_reach,
+            "TILE_OVERLAP_PX {} must cover clarity tail {}",
+            pad,
+            clarity_reach
+        );
     }
 }

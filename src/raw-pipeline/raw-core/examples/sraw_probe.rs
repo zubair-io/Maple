@@ -21,8 +21,7 @@ fn main() {
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
     let hint = format!("rawfile.{}", ext);
-    let source =
-        RawSource::new_from_slice(&bytes).with_path(std::path::Path::new(&hint));
+    let source = RawSource::new_from_slice(&bytes).with_path(std::path::Path::new(&hint));
     let params = RawDecodeParams::default();
     let raw = rawler::decode(&source, &params).expect("decode");
     println!("photometric: {:?}", raw.photometric);
@@ -45,7 +44,11 @@ fn main() {
             let off_c = (cy * raw.width + cx) * 3;
             println!(
                 "center pixel ({},{}): R={} G={} B={}",
-                cx, cy, data[off_c], data[off_c + 1], data[off_c + 2]
+                cx,
+                cy,
+                data[off_c],
+                data[off_c + 1],
+                data[off_c + 2]
             );
             let half = 50usize;
             let mut sum = [0u64; 3];
@@ -91,9 +94,7 @@ fn main() {
                     "AsShotNeutral derived from wb_coeffs (G/R, G/B): ({:.4}, {:.4})",
                     asn_r, asn_b
                 );
-                println!(
-                    "→ if buffer is pre-WB'd, ratios should be ≈ (1.0, 1.0)"
-                );
+                println!("→ if buffer is pre-WB'd, ratios should be ≈ (1.0, 1.0)");
                 println!(
                     "→ if buffer is raw camera-RGB, ratios should be ≈ ({:.4}, {:.4}) (AsShotNeutral)",
                     asn_r, asn_b
