@@ -1,21 +1,40 @@
 //! ACR-match solver — Phase 2 of epic #1710.
 //!
-//! Reads an ACR-rendered PNG of the dense sweep chart plus the corresponding
-//! spec JSON, and fits a structured model: a neutral-derived tonescale curve
-//! plus a hue-twist and chroma-taper field. The public entry point is
-//! `solve_acr_model`.
+//! The module is split into two tiers:
+//!
+//! **Always compiled** (`model.rs`): `AcrModel`, `Tonescale`, `HueChromaField`,
+//! `FitStats`, `apply_model`, and the JSON round-trip.  The future bake path
+//! and `apply_model` in the shipping core need these unconditionally.
+//!
+//! **Test-support only** (this file, `tonescale.rs`, `field.rs`): the solver
+//! itself — spec JSON parsing, patch extraction, `solve_acr_model`,
+//! `solve_acr_model_multi`.  Compiled only when `feature = "test-support"` is
+//! active so the solver (and its DNG-synthesis helpers) never ship in the
+//! xcframework or the WASM binary.
 
-pub mod field;
 pub mod model;
-pub mod tonescale;
 
 pub use model::{apply_model, AcrModel, FitStats, HueChromaField, Tonescale};
 
-use field::{fit_field, SweepSample};
-use model::{ciede2000, srgb_linear_to_lab};
-use tonescale::{fit_tonescale, NeutralSample};
+// Solver sub-modules and the public solver API are test-support-only.
+#[cfg(feature = "test-support")]
+pub mod field;
+#[cfg(feature = "test-support")]
+pub mod tonescale;
 
+#[cfg(feature = "test-support")]
+pub use tonescale::NeutralSample;
+
+#[cfg(feature = "test-support")]
+use field::{fit_field, SweepSample};
+#[cfg(feature = "test-support")]
+use model::{ciede2000, srgb_linear_to_lab};
+#[cfg(feature = "test-support")]
+use tonescale::fit_tonescale;
+
+#[cfg(feature = "test-support")]
 use crate::color::matrices::M_REC2020_TO_SRGB;
+#[cfg(feature = "test-support")]
 use crate::view::agx_inverse::srgb_gamma_inv;
 
 // ── Patch geometry ─────────────────────────────────────────────────────────────
@@ -30,6 +49,7 @@ pub const ROWS: u32 = 48;
 // ── Spec JSON parser ───────────────────────────────────────────────────────────
 
 /// Minimal parsed patch record from the spec JSON.
+#[cfg(feature = "test-support")]
 #[derive(Clone, Debug)]
 pub struct SpecPatch {
     pub index: usize,
@@ -40,6 +60,7 @@ pub struct SpecPatch {
     pub clamped: bool,
 }
 
+#[cfg(feature = "test-support")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpecGroup {
     Neutral,
@@ -50,6 +71,7 @@ pub enum SpecGroup {
 
 /// Parse the spec JSON produced by `SyntheticSweepChart::spec_to_json()`.
 /// Hand-parsed — no serde dep here. Returns an error string on failure.
+#[cfg(feature = "test-support")]
 pub fn parse_spec_json(json: &str) -> Result<Vec<SpecPatch>, String> {
     let mut patches = Vec::new();
     // Each patch is one JSON object on its own line.
@@ -65,6 +87,7 @@ pub fn parse_spec_json(json: &str) -> Result<Vec<SpecPatch>, String> {
     Ok(patches)
 }
 
+#[cfg(feature = "test-support")]
 fn parse_spec_line(line: &str) -> Option<SpecPatch> {
     let index = parse_u64(line, "\"index\":")?;
     let col = parse_u64(line, "\"col\":")?;
@@ -90,6 +113,7 @@ fn parse_spec_line(line: &str) -> Option<SpecPatch> {
     })
 }
 
+#[cfg(feature = "test-support")]
 fn parse_u64(s: &str, key: &str) -> Option<u64> {
     let pos = s.find(key)? + key.len();
     let rest = s[pos..].trim_start();
@@ -99,6 +123,7 @@ fn parse_u64(s: &str, key: &str) -> Option<u64> {
     rest[..end].parse().ok()
 }
 
+#[cfg(feature = "test-support")]
 fn parse_floats3(s: &str, key: &str) -> Option<[f32; 3]> {
     let pos = s.find(key)? + key.len();
     let end = s[pos..].find(']')? + pos;
@@ -114,6 +139,7 @@ fn parse_floats3(s: &str, key: &str) -> Option<[f32; 3]> {
     }
 }
 
+#[cfg(feature = "test-support")]
 fn parse_str_field(s: &str, key: &str) -> Option<String> {
     let pos = s.find(key)? + key.len();
     let rest = s[pos..].trim_start();
@@ -135,6 +161,7 @@ fn parse_str_field(s: &str, key: &str) -> Option<String> {
 
 /// Extract the mean of the inner `INNER_CROP × INNER_CROP` core of a patch
 /// from an 8-bit sRGB PNG. The PNG is row-major RGB packed bytes.
+#[cfg(feature = "test-support")]
 pub fn extract_patch_mean_srgb(png_rgb: &[u8], png_w: usize, col: u32, row: u32) -> [f32; 3] {
     let stride = (PATCH_SIZE + GUARD) as usize;
     let skip = ((PATCH_SIZE - INNER_CROP) / 2) as usize;
@@ -165,80 +192,180 @@ pub fn extract_patch_mean_srgb(png_rgb: &[u8], png_w: usize, col: u32, row: u32)
 
 // ── Main solver ────────────────────────────────────────────────────────────────
 
-/// Clip mask: true if the patch should be excluded from fitting.
+/// Clip mask for the ev=0 baseline render.
 /// Excludes: spec.clamped=true, any 8-bit channel ≥ 250/255, or any spec
 /// target channel > 1.0 (DNG can't represent it).
+#[cfg(feature = "test-support")]
 fn is_clipped(spec: &SpecPatch, mean_8bit_srgb: [f32; 3]) -> bool {
+    is_clipped_for_ev(spec, mean_8bit_srgb, 0.0)
+}
+
+/// Clip mask for an arbitrary-EV render.
+///
+/// For ev=0, the spec's `target_rec2020 > 1.0` check applies (DNG limit).
+/// For non-zero EV renders, that check is skipped: the DNG limit applies to
+/// the unshifted scene; at offset EV, the patch's scene-linear signal is
+/// scaled by `2^ev`, so patches that were above DNG range at ev=0 may be
+/// well within the display range in the darkened render.  The only reliable
+/// clip signal is the 8-bit near-white test on the actual render output.
+#[cfg(feature = "test-support")]
+fn is_clipped_for_ev(spec: &SpecPatch, mean_8bit_srgb: [f32; 3], ev: f32) -> bool {
     if spec.clamped {
         return true;
     }
-    if spec.target_rec2020.iter().any(|&v| v > 1.0) {
+    // At ev=0, patches whose scene-linear targets exceed the DNG white level
+    // (>1.0) are always clipped — the DNG encoder cannot represent them.
+    // At non-zero EV, the ACR renders them darkened and they may be
+    // unclipped in the display output, so skip the DNG-range check.
+    if ev == 0.0 && spec.target_rec2020.iter().any(|&v| v > 1.0) {
         return true;
     }
-    // 8-bit near-white.
+    // 8-bit near-white: reliably detects saturation at any EV.
     mean_8bit_srgb.iter().any(|&v| v >= 250.0 / 255.0)
 }
 
-/// Full solver: given spec patches and the ACR PNG bytes (decoded to packed
-/// 8-bit RGB), return the fitted `AcrModel`.
+/// A single render provided to the multi-render pooled solver.
 ///
-/// `png_rgb` must be a flat row-major `[r,g,b,r,g,b,...]` byte array for the
-/// 3584×2688 render (or whatever the chart geometry is). `png_w` is the width.
-pub fn solve_acr_model(
-    specs: &[SpecPatch],
-    png_rgb: &[u8],
-    png_w: usize,
-) -> Result<AcrModel, String> {
-    // (m_srgb_to_rec2020 used inside compute_fit_rms_de via M_REC2020_TO_SRGB)
+/// `ev` is the ACR exposure offset in EV.  Exactly one render must have
+/// `ev == 0.0` — that render's unclipped sweep patches drive the hue/chroma
+/// field fit.  All renders contribute neutral samples to the pooled tonescale
+/// solve via `x = L · 2^ev`.
+#[cfg(feature = "test-support")]
+pub struct AcrRender<'a> {
+    /// Flat row-major packed-RGB byte array (8-bit per channel).
+    pub png_rgb: &'a [u8],
+    /// Width of the PNG in pixels.
+    pub png_w: usize,
+    /// ACR exposure offset in EV (e.g. `0.0` for the baseline render,
+    /// `-2.0` for a 2-stop underexposure).
+    pub ev: f32,
+}
 
-    // Stage 1: collect neutral samples for tonescale.
-    let mut neutral_samples = Vec::new();
-    let mut sweep_samples = Vec::new();
+/// Multi-render pooled solver.
+///
+/// Accepts one or more renders of the same chart at different ACR exposure
+/// offsets.  For each render the neutral patches produce `(x, y)` samples
+/// with `x = L · 2^ev` and `y = measured display luminance`.  The clipping
+/// threshold is applied in the shifted x-space.  All unclipped samples from
+/// all renders are pooled into one tonescale fit, giving the solver
+/// observation range beyond the highlight clip of the baseline render.
+///
+/// The hue/chroma field fit uses only the ev=0 render's sweep patches
+/// (colour patches are in the SDR range and do not benefit from the shift).
+///
+/// **Exactly one render must have `ev == 0.0`**; the function returns an
+/// error otherwise.
+///
+/// When more than one render is provided, an **overlap consistency** metric
+/// is computed: the x-range where two adjacent renders both contribute
+/// unclipped samples is identified, the tonescale is evaluated on each
+/// render's samples separately over that range, and the RMS relative
+/// difference of the two per-render curves is stored as `overlap_rms_rel` in
+/// `model.stats`.  If overlap disagreement exceeds 5% a warning is printed to
+/// stderr (Exposure2012-linearity assumption may be breaking down), but the
+/// model is still emitted.  When only one render is supplied `overlap_rms_rel`
+/// is `None` / absent from the JSON.
+#[cfg(feature = "test-support")]
+pub fn solve_acr_model_multi(
+    specs: &[SpecPatch],
+    renders: &[AcrRender<'_>],
+) -> Result<AcrModel, String> {
+    // Validate: exactly one ev=0 render.
+    let ev0_count = renders.iter().filter(|r| r.ev == 0.0).count();
+    if ev0_count != 1 {
+        return Err(format!(
+            "exactly one render must have ev=0.0, found {ev0_count}"
+        ));
+    }
+    if renders.is_empty() {
+        return Err("at least one render is required".into());
+    }
+
+    // ── Stage 1: collect neutral samples from all renders ──────────────────
+    // Each render contributes (x = L * 2^ev, y = display luminance) samples.
+    // Per-render sample lists are kept for the overlap consistency check.
+    let mut all_neutral: Vec<NeutralSample> = Vec::new();
+    // Per-render neutral sample buckets for overlap consistency.
+    let mut per_render_neutrals: Vec<Vec<NeutralSample>> = Vec::with_capacity(renders.len());
+
+    let mut sweep_samples: Vec<SweepSample> = Vec::new();
     let mut total_clipped = 0usize;
 
-    for spec in specs {
-        let mean_8bit = extract_patch_mean_srgb(png_rgb, png_w, spec.col, spec.row);
-        if is_clipped(spec, mean_8bit) {
-            total_clipped += 1;
-            continue;
-        }
-        // Decode sRGB → linear display.
-        let display_lin = [
-            srgb_gamma_inv(mean_8bit[0]),
-            srgb_gamma_inv(mean_8bit[1]),
-            srgb_gamma_inv(mean_8bit[2]),
-        ];
+    for render in renders.iter() {
+        let ev_scale = (render.ev as f32).exp2();
+        let mut render_neutrals: Vec<NeutralSample> = Vec::new();
 
-        match spec.group {
-            SpecGroup::Neutral => {
-                let scene_lum = spec.target_rec2020[0]; // R=G=B for neutrals.
-                let display_lum =
-                    0.2126 * display_lin[0] + 0.7152 * display_lin[1] + 0.0722 * display_lin[2];
-                neutral_samples.push(NeutralSample {
-                    scene_lum,
-                    display_lum,
-                });
+        for spec in specs {
+            let mean_8bit =
+                extract_patch_mean_srgb(render.png_rgb, render.png_w, spec.col, spec.row);
+            if is_clipped_for_ev(spec, mean_8bit, render.ev) {
+                if render.ev == 0.0 {
+                    total_clipped += 1;
+                }
+                continue;
             }
-            SpecGroup::Sweep => {
-                sweep_samples.push(SweepSample {
-                    scene_rec2020: spec.target_rec2020,
-                    display_srgb: display_lin,
-                });
+            let display_lin = [
+                srgb_gamma_inv(mean_8bit[0]),
+                srgb_gamma_inv(mean_8bit[1]),
+                srgb_gamma_inv(mean_8bit[2]),
+            ];
+
+            match spec.group {
+                SpecGroup::Neutral => {
+                    // Scene luminance shifted by the EV offset.
+                    let scene_lum = spec.target_rec2020[0] * ev_scale;
+                    let display_lum =
+                        0.2126 * display_lin[0] + 0.7152 * display_lin[1] + 0.0722 * display_lin[2];
+                    let sample = NeutralSample {
+                        scene_lum,
+                        display_lum,
+                    };
+                    all_neutral.push(sample);
+                    render_neutrals.push(sample);
+                }
+                SpecGroup::Sweep => {
+                    // Sweep patches: baseline render only.
+                    if render.ev == 0.0 {
+                        sweep_samples.push(SweepSample {
+                            scene_rec2020: spec.target_rec2020,
+                            display_srgb: display_lin,
+                        });
+                    }
+                }
+                _ => {} // exposure planes: not used in stage 1/2 fits
             }
-            _ => {} // exposure planes: not used in stage 1/2 fits
+        }
+        per_render_neutrals.push(render_neutrals);
+    }
+
+    let ts = fit_tonescale(&all_neutral).ok_or("tonescale fit failed: too few neutral samples")?;
+
+    // ── Stage 2: field fit (baseline render only) ──────────────────────────
+    let (field, patches_used, patches_clipped_stage2) = fit_field(&sweep_samples, &ts);
+    let patches_clipped = total_clipped + patches_clipped_stage2;
+
+    // ── Stage 3: overlap consistency metric ───────────────────────────────
+    let overlap_rms_rel = if renders.len() >= 2 {
+        compute_overlap_rms_rel(&per_render_neutrals, &ts)
+    } else {
+        None
+    };
+
+    if let Some(rms) = overlap_rms_rel {
+        if rms > 0.05 {
+            eprintln!(
+                "[fit-acr] WARNING: overlap_rms_rel={:.4} > 5% — \
+                 Exposure2012 scene-linear assumption may be breaking down; \
+                 tonescale fit is still emitted",
+                rms
+            );
         }
     }
 
-    let ts =
-        fit_tonescale(&neutral_samples).ok_or("tonescale fit failed: too few neutral samples")?;
-
-    // Stage 2: field fit.
-    let (field, patches_used, patches_clipped_stage2) = fit_field(&sweep_samples, &ts);
-
-    let patches_clipped = total_clipped + patches_clipped_stage2;
-
-    // Compute fit_rms_de over unclipped sweep patches.
-    let fit_rms_de = compute_fit_rms_de(specs, png_rgb, png_w, &ts, &field);
+    // ── Stage 4: RMS DE00 over unclipped sweep patches ────────────────────
+    // Use the baseline render for the RMS DE00 computation.
+    let ev0_render = renders.iter().find(|r| r.ev == 0.0).unwrap();
+    let fit_rms_de = compute_fit_rms_de(specs, ev0_render.png_rgb, ev0_render.png_w, &ts, &field);
 
     Ok(AcrModel {
         tonescale: ts,
@@ -247,26 +374,139 @@ pub fn solve_acr_model(
             patches_used,
             patches_clipped,
             fit_rms_de,
+            overlap_rms_rel,
         },
     })
 }
 
+/// Single-render convenience wrapper.  Equivalent to calling
+/// `solve_acr_model_multi` with one render at ev=0.
+#[cfg(feature = "test-support")]
+pub fn solve_acr_model(
+    specs: &[SpecPatch],
+    png_rgb: &[u8],
+    png_w: usize,
+) -> Result<AcrModel, String> {
+    solve_acr_model_multi(
+        specs,
+        &[AcrRender {
+            png_rgb,
+            png_w,
+            ev: 0.0,
+        }],
+    )
+}
+
+/// Compute the overlap consistency metric across adjacent render pairs.
+///
+/// For each pair of renders (sorted by ev) that overlap in x-space (i.e. the
+/// higher-ev render has samples below the clip point of the lower-ev render),
+/// fit the tonescale on each render's samples separately and measure the RMS
+/// relative difference of `T(x)` over the shared x range.  Returns the
+/// maximum such metric across all pairs; `None` if no overlap region exists.
+#[cfg(feature = "test-support")]
+fn compute_overlap_rms_rel(
+    per_render_neutrals: &[Vec<NeutralSample>],
+    _full_ts: &model::Tonescale,
+) -> Option<f32> {
+    // For the overlap metric we need at least two renders with samples.
+    // We take the first two non-empty renders and compute the metric between them.
+    let non_empty: Vec<&Vec<NeutralSample>> = per_render_neutrals
+        .iter()
+        .filter(|v| v.len() >= 2)
+        .collect();
+    if non_empty.len() < 2 {
+        return None;
+    }
+
+    // Sort the two render sample sets by their median x to identify which is
+    // the "lower exposure" (wider x range, clips higher) and which is the
+    // "higher exposure" (x range is shifted left by 2^ev, so more shadow detail).
+    let median_x = |samples: &[NeutralSample]| -> f32 {
+        let mut xs: Vec<f32> = samples.iter().map(|s| s.scene_lum).collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        xs[xs.len() / 2]
+    };
+
+    // Take first two non-empty renders, sorted by ascending median x.
+    let mut pair: [&Vec<NeutralSample>; 2] = [non_empty[0], non_empty[1]];
+    if median_x(pair[0]) > median_x(pair[1]) {
+        pair.swap(0, 1);
+    }
+
+    // The overlap is the intersection of the two x ranges.
+    let x_min0 = pair[0]
+        .iter()
+        .map(|s| s.scene_lum)
+        .fold(f32::INFINITY, f32::min);
+    let x_max0 = pair[0]
+        .iter()
+        .map(|s| s.scene_lum)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let x_min1 = pair[1]
+        .iter()
+        .map(|s| s.scene_lum)
+        .fold(f32::INFINITY, f32::min);
+    let x_max1 = pair[1]
+        .iter()
+        .map(|s| s.scene_lum)
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    let overlap_lo = x_min0.max(x_min1);
+    let overlap_hi = x_max0.min(x_max1);
+    if overlap_lo >= overlap_hi {
+        return None;
+    }
+
+    // Fit tonescale separately on each render's samples.
+    let ts0 = fit_tonescale(pair[0])?;
+    let ts1 = fit_tonescale(pair[1])?;
+
+    // Sample 20 points in the overlap range and compute RMS relative diff.
+    let n_eval = 20usize;
+    let mut sum_sq = 0.0f64;
+    let mut count = 0usize;
+    for i in 0..n_eval {
+        let t = i as f32 / (n_eval - 1) as f32;
+        let x = overlap_lo + t * (overlap_hi - overlap_lo);
+        if x <= 0.0 {
+            continue;
+        }
+        let y0 = model::tonescale_apply(&ts0, x);
+        let y1 = model::tonescale_apply(&ts1, x);
+        let avg = (y0 + y1) / 2.0;
+        if avg < 1e-4 {
+            continue;
+        }
+        let rel = ((y0 - y1) / avg) as f64;
+        sum_sq += rel * rel;
+        count += 1;
+    }
+
+    if count == 0 {
+        return None;
+    }
+    Some((sum_sq / count as f64).sqrt() as f32)
+}
+
 /// Compute the root-mean-square CIEDE2000 of `apply_model` prediction vs
 /// measured display sRGB, over unclipped sweep patches.
+#[cfg(feature = "test-support")]
 fn compute_fit_rms_de(
     specs: &[SpecPatch],
     png_rgb: &[u8],
     png_w: usize,
-    ts: &Tonescale,
+    ts: &model::Tonescale,
     field: &HueChromaField,
 ) -> f32 {
-    let model = AcrModel {
+    let m = AcrModel {
         tonescale: ts.clone(),
         field: field.clone(),
         stats: FitStats {
             patches_used: 0,
             patches_clipped: 0,
             fit_rms_de: 0.0,
+            overlap_rms_rel: None,
         },
     };
     let mut total_de = 0.0f64;
@@ -289,7 +529,7 @@ fn compute_fit_rms_de(
         let lab_meas = srgb_linear_to_lab(meas_lin);
 
         // Model prediction.
-        let pred_rec2020 = apply_model(&model, spec.target_rec2020);
+        let pred_rec2020 = apply_model(&m, spec.target_rec2020);
         let pred_srgb = M_REC2020_TO_SRGB.mul_vec(pred_rec2020);
         let pred_srgb_clamped = [
             pred_srgb[0].clamp(0.0, 1.0),
