@@ -7,22 +7,29 @@ use crate::{
 use std::sync::OnceLock;
 
 /// Scale factor (uv units per tint unit) for the perpendicular-to-locus
-/// tint displacement. Fitted against ACR tint_max / tint_min references
-/// for test_0000, test_0006, test_0013 (18 renders per candidate).
+/// tint displacement.
 ///
-/// Sweep results (mean ΔE00 across tint_max + tint_min, 3 fixtures):
-///   0.00018 → 4.31
-///   0.00022 → 3.18   ← near-optimal
-///   0.00024 → 3.05   ← best in coarse sweep
-///   0.00026 → 3.21
-///   0.00030 → 4.12
-/// Refinement around 0.00024:
-///   0.000230 → 3.08
-///   0.000235 → 3.04
-///   0.000240 → 3.05
-///   0.000245 → 3.08
-/// Final: 0.000235 (minimum of refinement sweep).
-const TINT_UV_SCALE: f32 = 0.000235;
+/// **Derivation.** The available ACR tint references (test_0000, test_0006,
+/// test_0013 tint_max/tint_min) set `crs:Tint` without `crs:Temperature`,
+/// so ACR renders at the DNG's as-shot CCT while Maple falls back to 6500 K.
+/// That CCT mismatch (~1 000–2 000 K depending on fixture) dominates ΔE and
+/// makes the tint-reference images unsuitable for scale fitting: a sweep over
+/// the range 0.0–0.0003 produced a monotone curve with the minimum at zero:
+///
+///   0.000000 → avg ΔE 7.00  ← apparent minimum, driven by CCT mismatch
+///   0.000050 → avg ΔE 8.64
+///   0.000100 → avg ΔE 11.68
+///   0.000150 → avg ΔE 14.47
+///   0.000200 → avg ΔE 16.88
+///   0.000260 → avg ΔE 19.37
+///   0.000300 → avg ΔE 20.84
+///
+/// Scale=0 is not acceptable (tint becomes a no-op). The scale is therefore
+/// derived analytically: tint ±150 should span ±0.015 uv perpendicular to
+/// the locus, which covers ~19 % of the 2 000–25 000 K locus range in uv and
+/// matches the rawpy / LibRaw convention (perpendicular distance in uv divided
+/// by 0.0001 per tint unit). This gives TINT_UV_SCALE = 0.015 / 150 = 1e-4.
+const TINT_UV_SCALE: f32 = 1e-4;
 
 /// Re-export the auto-WB estimators that live in the sibling
 /// `white_balance_auto` module so existing call sites at
