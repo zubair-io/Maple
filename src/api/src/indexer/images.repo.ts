@@ -5,7 +5,7 @@
  */
 
 import * as path from 'node:path';
-import type { Collection, ObjectId, UpdateResult } from 'mongodb';
+import { ObjectId, type Collection, type UpdateResult } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
@@ -354,7 +354,9 @@ export function assetAbsPath(
   if (!primary) return null;
 
   const libraryIdStr =
-    typeof primary.library_id === 'string' ? primary.library_id : primary.library_id.toHexString();
+    typeof primary.library_id === 'string'
+      ? new ObjectId(primary.library_id).toHexString()
+      : primary.library_id.toHexString();
   const root = libraries.get(libraryIdStr);
   if (!root) return null;
   const segments = primary.path === '' ? [] : primary.path.split('/');

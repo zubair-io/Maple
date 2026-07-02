@@ -178,7 +178,10 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
 
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result).not.toEqual({ skip: 'no-path' });
-    expect((result as any).patch?.metadata_override?.place_text?.city).toBe('Berkeley');
+    expect('patch' in result).toBe(true);
+    if ('patch' in result) {
+      expect(result.patch.metadata_override?.place_text?.city).toBe('Berkeley');
+    }
   });
 
   test('does not skip when only missing entries exist', async () => {
@@ -192,7 +195,10 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
 
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result).not.toEqual({ skip: 'no-path' });
-    expect((result as any).patch?.metadata_override?.place_text?.city).toBe('Berkeley');
+    expect('patch' in result).toBe(true);
+    if ('patch' in result) {
+      expect(result.patch.metadata_override?.place_text?.city).toBe('Berkeley');
+    }
   });
 });
 
