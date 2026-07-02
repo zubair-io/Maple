@@ -269,10 +269,7 @@ pub struct RawImage {
     pub iso: u32,
     pub noise_profile: Option<Vec<f32>>,
     /// DNG OpcodeList3 corrections parsed at decode time.
-    pub opcode_list3: Option<(
-        crate::pipeline::pano::opcodes::OpcodeList3,
-        crate::pipeline::pano::opcodes::ActiveAreaRect,
-    )>,
+    pub opcode_list3: Option<(crate::pipeline::pano::opcodes::OpcodeList3, crate::pipeline::pano::opcodes::ActiveAreaRect)>,
     /// Lens aperture (f-number) extracted from EXIF.
     pub aperture: Option<f32>,
     /// Focal length in mm extracted from EXIF.
