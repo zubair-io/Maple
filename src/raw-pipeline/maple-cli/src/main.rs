@@ -9,7 +9,7 @@
 mod commands;
 
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use commands::types::{DemosaicChoice, OutputFormat, ProfileChoice, SyntheticKind};
@@ -189,18 +189,28 @@ enum Cmd {
         params: Option<PathBuf>,
     },
     /// Fit a structured ACR-match model (tonescale + hue/chroma field) from
-    /// a dense sweep chart rendered by Adobe Camera Raw.
+    /// one or more ACR renders of a dense sweep chart at different exposure
+    /// offsets.
     ///
-    /// Requires `--features test-support`. Pass the spec JSON produced by
-    /// `SyntheticSweepChart::spec_to_json()` and the corresponding 8-bit sRGB
-    /// ACR-rendered PNG. Writes the model JSON to `--out`.
+    /// Requires `--features test-support`.  Pass the spec JSON produced by
+    /// `SyntheticSweepChart::spec_to_json()` and one or more 8-bit sRGB
+    /// ACR-rendered PNGs via `--render <path>@<ev>`.  Exactly one render must
+    /// have ev=0 (the baseline).  Multiple renders allow the solver to observe
+    /// ACR's highlight shoulder above the baseline clip point.
+    ///
+    /// `--acr <path>` is a backward-compatible alias for `--render <path>@0`.
     FitAcr {
         /// Path to the sweep chart spec JSON.
         #[arg(long)]
         spec: PathBuf,
-        /// Path to the ACR-rendered PNG (8-bit sRGB, same dimensions as the DNG).
+        /// ACR-rendered PNG at a given exposure offset: `<path>@<ev>`.
+        /// Repeatable; exactly one must have ev=0.
+        /// Example: `--render baseline.png@0 --render dark.png@-2`
+        #[arg(long = "render", value_name = "PATH@EV")]
+        render: Vec<String>,
+        /// Alias for `--render <path>@0` (backward compat).
         #[arg(long)]
-        acr: PathBuf,
+        acr: Option<PathBuf>,
         /// Output model JSON path.
         #[arg(long)]
         out: PathBuf,
@@ -302,8 +312,41 @@ fn main() -> ExitCode {
             height,
             params.as_deref(),
         )),
-        Cmd::FitAcr { spec, acr, out } => {
-            run_or_exit(commands::fit_acr::run(&spec, &acr, &out))
+        Cmd::FitAcr {
+            spec,
+            render,
+            acr,
+            out,
+        } => {
+            run_or_exit((|| -> Result<i32, Box<dyn std::error::Error>> {
+                // Parse `--render <path>@<ev>` entries.
+                let mut entries: Vec<(PathBuf, f32)> = render
+                    .iter()
+                    .map(|s| {
+                        let (path_str, ev_str) = s
+                            .rsplit_once('@')
+                            .ok_or_else(|| format!("--render value must be <path>@<ev>: {s}"))?;
+                        let ev = ev_str
+                            .parse::<f32>()
+                            .map_err(|e| format!("invalid EV in --render {s}: {e}"))?;
+                        Ok((PathBuf::from(path_str), ev))
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+                    .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+                // `--acr <path>` is an alias for `--render <path>@0`.
+                if let Some(acr_path) = acr {
+                    entries.push((acr_path, 0.0));
+                }
+                if entries.is_empty() {
+                    return Err(
+                        "fit-acr: at least one --render <path>@<ev> or --acr <path> is required"
+                            .into(),
+                    );
+                }
+                let refs: Vec<(&Path, f32)> =
+                    entries.iter().map(|(p, ev)| (p.as_path(), *ev)).collect();
+                commands::fit_acr::run(&spec, &refs, &out)
+            })())
         }
         Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(commands::transcode_dcp::run(
             &src,

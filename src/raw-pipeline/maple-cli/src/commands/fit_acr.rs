@@ -2,22 +2,31 @@
 //! chart rendered by Adobe Camera Raw.
 //!
 //! Reads:
-//!   --spec  <path>  Spec JSON produced by `SyntheticSweepChart::spec_to_json()`
-//!   --acr   <path>  ACR-rendered PNG of the same chart (8-bit sRGB)
-//!   --out   <path>  Model JSON output path
+//!   --spec          <path>       Spec JSON from `SyntheticSweepChart::spec_to_json()`
+//!   --render        <path>@<ev>  ACR-rendered PNG at ACR exposure offset <ev> EV.
+//!                                Repeatable; exactly one render must have ev=0.
+//!   --acr           <path>       Alias for `--render <path>@0` (backward compat).
+//!   --out           <path>       Model JSON output path
 //!
 //! Prints fit stats to stderr; writes model JSON to --out; exits 0 on success.
 //! Exits 1 on any failure (missing files, parse errors, solver failures).
 //!
 //! This command deliberately does not pull in the PNG decode stack — it reads
 //! the PNG via the `png` crate (already in the workspace dep tree) so it has
-//! no dependency on the raw pipeline at all. The solver lives in
-//! `raw_core::view::acr_fit` and is `#[cfg(feature = "test-support")]`-gated.
+//! no dependency on the raw pipeline at all.  The solver lives in
+//! `raw_core::view::acr_fit` and is `#[cfg(feature = "test-support")]`-gated;
+//! `model.rs` types and `apply_model` compile unconditionally.
+//!
+//! Feature gate: `test-support`.
 
 use std::path::Path;
 
 #[cfg(not(feature = "test-support"))]
-pub fn run(_spec: &Path, _acr_png: &Path, _out: &Path) -> Result<i32, Box<dyn std::error::Error>> {
+pub fn run(
+    _spec: &Path,
+    _renders: &[(&Path, f32)],
+    _out: &Path,
+) -> Result<i32, Box<dyn std::error::Error>> {
     Err(
         "fit-acr requires the `test-support` cargo feature (cargo run --features test-support)"
             .into(),
@@ -25,9 +34,13 @@ pub fn run(_spec: &Path, _acr_png: &Path, _out: &Path) -> Result<i32, Box<dyn st
 }
 
 #[cfg(feature = "test-support")]
-pub fn run(spec: &Path, acr_png: &Path, out: &Path) -> Result<i32, Box<dyn std::error::Error>> {
+pub fn run(
+    spec: &Path,
+    renders: &[(&Path, f32)],
+    out: &Path,
+) -> Result<i32, Box<dyn std::error::Error>> {
     use raw_core::view::acr_fit::{
-        parse_spec_json, solve_acr_model, COLS, GUARD, PATCH_SIZE, ROWS,
+        parse_spec_json, solve_acr_model_multi, AcrRender, COLS, GUARD, PATCH_SIZE, ROWS,
     };
 
     // Read spec JSON.
@@ -40,32 +53,54 @@ pub fn run(spec: &Path, acr_png: &Path, out: &Path) -> Result<i32, Box<dyn std::
         spec.display()
     );
 
-    // Decode the ACR PNG to 8-bit RGB.
-    let (png_rgb, png_w, png_h) = decode_png_rgb8(acr_png)?;
-    eprintln!(
-        "[fit-acr] loaded ACR PNG {}×{} from {}",
-        png_w,
-        png_h,
-        acr_png.display()
-    );
-
-    // Sanity check dimensions.
+    // Decode all renders.
     let expected_w = (COLS * (PATCH_SIZE + GUARD)) as usize;
     let expected_h = (ROWS * (PATCH_SIZE + GUARD)) as usize;
-    if png_w != expected_w || png_h != expected_h {
-        return Err(format!(
-            "ACR PNG size {png_w}×{png_h} does not match expected {expected_w}×{expected_h}"
-        )
-        .into());
+
+    let mut decoded: Vec<(Vec<u8>, usize, f32)> = Vec::with_capacity(renders.len());
+    for (path, ev) in renders {
+        let (png_rgb, png_w, png_h) = decode_png_rgb8(path)?;
+        eprintln!(
+            "[fit-acr] loaded render {}×{} ev={:+.2} from {}",
+            png_w,
+            png_h,
+            ev,
+            path.display()
+        );
+        if png_w != expected_w || png_h != expected_h {
+            return Err(format!(
+                "render PNG {} size {png_w}×{png_h} does not match expected {expected_w}×{expected_h}",
+                path.display()
+            )
+            .into());
+        }
+        decoded.push((png_rgb, png_w, *ev));
     }
+
+    // Build AcrRender slice.
+    let acr_renders: Vec<AcrRender<'_>> = decoded
+        .iter()
+        .map(|(rgb, w, ev)| AcrRender {
+            png_rgb: rgb,
+            png_w: *w,
+            ev: *ev,
+        })
+        .collect();
 
     // Run the solver.
     let model =
-        solve_acr_model(&specs, &png_rgb, png_w).map_err(|e| format!("solver error: {e}"))?;
+        solve_acr_model_multi(&specs, &acr_renders).map_err(|e| format!("solver error: {e}"))?;
 
     eprintln!(
-        "[fit-acr] fit complete — patches_used={} patches_clipped={} fit_rms_de={:.4}",
-        model.stats.patches_used, model.stats.patches_clipped, model.stats.fit_rms_de
+        "[fit-acr] fit complete — patches_used={} patches_clipped={} fit_rms_de={:.4}{}",
+        model.stats.patches_used,
+        model.stats.patches_clipped,
+        model.stats.fit_rms_de,
+        model
+            .stats
+            .overlap_rms_rel
+            .map(|v| format!(" overlap_rms_rel={v:.4}"))
+            .unwrap_or_default(),
     );
 
     // Write model JSON.

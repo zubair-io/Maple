@@ -62,6 +62,11 @@ pub struct FitStats {
     pub patches_clipped: usize,
     /// RMS CIEDE2000 of model prediction vs measured over unclipped sweep patches.
     pub fit_rms_de: f32,
+    /// RMS relative difference between per-render tonescale fits over the
+    /// overlap x-range (only present when ≥ 2 renders were supplied).
+    /// Values > 0.05 indicate that the Exposure2012-linearity assumption
+    /// is breaking down.
+    pub overlap_rms_rel: Option<f32>,
 }
 
 // ── JSON serialisation ────────────────────────────────────────────────────────
@@ -97,13 +102,17 @@ impl AcrModel {
             .map(|x| format!("{x:.4}"))
             .collect::<Vec<_>>()
             .join(",");
+        let overlap_field = match self.stats.overlap_rms_rel {
+            Some(v) => format!(",\"overlap_rms_rel\":{v:.6}"),
+            None => String::new(),
+        };
         format!(
             "{{\
              \"tonescale\":{{\"knots_log2\":[{knots}],\"values\":[{vals}]}},\
              \"field\":{{\"hue_bins\":{hb},\"chroma_bins\":{cb},\"luma_bins\":{lb},\
              \"delta_h_deg\":[{dh}],\"sat_scale\":[{ss}]}},\
              \"stats\":{{\"patches_used\":{pu},\"patches_clipped\":{pc},\
-             \"fit_rms_de\":{rms:.4}}}\
+             \"fit_rms_de\":{rms:.4}{overlap_field}}}\
              }}",
             hb = self.field.hue_bins,
             cb = self.field.chroma_bins,
