@@ -32,7 +32,6 @@ import { assetPrimaryFileInfo, liveFileInfoElemMatch } from '../../indexer/image
 import { backupLocationSegments } from '../../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../../backup/path-formatter.ts';
 import { child as childLogger } from '../../log.ts';
-import { restructureDir } from './restructure-path.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 import { SourceMissingError } from './restructure-fs.ts';
 import { moveBackupAsset, type MoveOutcome } from './move-backup-asset.ts';
@@ -122,15 +121,8 @@ export function computeCanonicalDir(doc: {
   const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
   if (segs.length > 0) return `${year}/${segs.join('/')}`;
 
-  // No usable location → mirror `formatBackupPath`'s `<year>/<MM>` when the capture
-  // month is known (this is what normalises junk no-geo folders like `2026/2595`).
-  const month = monthFor(doc.exif?.captured_month);
-  if (month) return `${year}/${month}`;
-
-  // No location and no month: flatten a recognised old `<year>/<loc>/<MM-DD>` (or
-  // `<year>/<MM>/<DD>`) day-folder; otherwise leave the (undated) asset in place
-  // rather than invent a month it might mis-file under.
-  return restructureDir(oldDir) ?? oldDir;
+  // No usable location → mirror `formatBackupPath`'s `<year>/Misc`
+  return `${year}/Misc`;
 }
 
 /** Selects backup-origin assets not yet refiled into the current layout. No `place`

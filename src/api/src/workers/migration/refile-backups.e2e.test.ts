@@ -288,8 +288,8 @@ describe('refile-backups end-to-end', () => {
     try {
       await runTick();
       const doc = (await assets.findOne({ _id })) as { fileinfo?: { path: string }[] } | null;
-      expect(doc?.fileinfo?.[0].path).toBe('2024/Tokyo');
-      expect(await fs.readFile(path.join(dir, '2024/Tokyo/IMG_E2E.HEIC'), 'utf8')).toBe('pixels');
+      expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
+      expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.HEIC'), 'utf8')).toBe('pixels');
       await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
     } finally {
       await assets.deleteOne({ _id });

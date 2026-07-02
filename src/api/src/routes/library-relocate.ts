@@ -160,9 +160,13 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
     return sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
   })();
 
-  if (segs.length === 0) return null;
   const year = yearForDir(primary.path, doc.exif?.captured_year ?? null);
-  return year ? `${year}/${segs.join('/')}` : null;
+  if (!year) return null;
+
+  if (segs.length === 0) {
+    return `${year}/Misc`;
+  }
+  return `${year}/${segs.join('/')}`;
 }
 
 /**
@@ -177,12 +181,7 @@ function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
   // handled by listPairedSidecars/planAndPlace — otherwise relocating a video
   // would strand its .mov.xmp sidecar in the old folder. Tracked by #1678.
   if (isVideoFilename(primary.filename)) return false;
-  // Screenshot is always a candidate (it has a canonical dir).
-  if (doc.is_screenshot) return true;
-  const overrideSegs = geoSegmentsFromOverride(doc.metadata_override);
-  if (overrideSegs.length > 0) return true;
-  const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
-  return segs.length > 0;
+  return true;
 }
 
 /**

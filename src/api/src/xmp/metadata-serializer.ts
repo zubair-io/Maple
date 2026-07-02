@@ -121,6 +121,7 @@ const FIELD_TO_ATTR_KEYS = {
   rating: ['xmp:Rating'],
   flag: ['papp:Flag'],
   colorLabel: ['papp:ColorLabel'],
+  isScreenshot: ['papp:IsScreenshot'],
 } satisfies Partial<Record<keyof XmpMetadataInput, readonly string[]>>;
 
 /** Map each input field to the managed nested element tag it owns. */
@@ -185,6 +186,9 @@ function buildMetadataAttrParts(m: XmpMetadataInput): string[] {
   }
   if (m.flag && m.flag !== 'unflagged') push('papp:Flag', m.flag);
   if (m.colorLabel) push('papp:ColorLabel', m.colorLabel);
+  if (m.isScreenshot !== undefined && m.isScreenshot !== null) {
+    push('papp:IsScreenshot', String(m.isScreenshot));
+  }
   return parts;
 }
 
@@ -226,7 +230,7 @@ function requiredNamespacePrefixes(m: XmpMetadataInput): Set<string> {
   if (m.keywords && m.keywords.length > 0) used.add('dc');
   if (m.timeZone) used.add('papp');
   if (m.rating != null && m.rating > 0) used.add('xmp');
-  if ((m.flag && m.flag !== 'unflagged') || m.colorLabel) used.add('papp');
+  if ((m.flag && m.flag !== 'unflagged') || m.colorLabel || (m.isScreenshot !== undefined && m.isScreenshot !== null)) used.add('papp');
   return used;
 }
 

@@ -112,11 +112,11 @@ describe('backup-ingest screenshot routing', () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.target_rel_path).toBe('2024/03/IMG_2024.HEIC');
+    expect(body.target_rel_path).toBe('2024/Misc/IMG_2024.HEIC');
 
     const a = await assetsCollection();
     const doc = await a.findOne({ maple_id: 'screenshot-2' });
-    expect(doc?.fileinfo?.[0].path).toBe('2024/03');
+    expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
     expect(doc?.is_screenshot).toBe(false);
   });
 });

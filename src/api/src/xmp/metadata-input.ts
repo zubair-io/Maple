@@ -49,4 +49,7 @@ export interface XmpMetadataInput {
   /** Color label. null means "clear".
    * Written as `papp:ColorLabel` attribute. */
   colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+  /** Custom screenshot flag. null means "clear".
+   * Written as `papp:IsScreenshot` attribute. */
+  isScreenshot?: boolean | null;
 }
