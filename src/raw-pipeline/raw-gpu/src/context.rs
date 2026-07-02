@@ -98,6 +98,15 @@ pub struct GpuContext {
     /// Oklab correction path). Built on first use via
     /// [`GpuContext::auto_profile_curve_pipeline`].
     pub(crate) auto_profile_curve_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled AcrMatch view-transform compute pipeline (`acr_match.wgsl`).
+    /// A selectable profile pipeline (#1722, epic #1710 slice 2): samples the
+    /// baked 33³ scene-linear 3D LUT (acr_match_lut.bin) using the AgX log2
+    /// shaper + trilinear interpolation. Pure lookup (no Oklab / matrices), so
+    /// the kernel compiles standalone with no generated-header concat — like
+    /// `residual_lut.wgsl`. Uses a 4-binding layout (params uniform + src/dst
+    /// storage + the baked-LUT storage buffer). Built on first use via
+    /// [`GpuContext::acr_match_pipeline`].
+    pub(crate) acr_match_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled AgX view-transform compute pipeline (`agx.wgsl` + the
     /// generated color matrices + the generated AgX coeffs). A P2
     /// view-transform stage (#990): inset -> log encode -> ratio-preserving
@@ -342,6 +351,7 @@ impl GpuContext {
             srgb_gamma_pipeline: OnceCell::new(),
             saturation_pipeline: OnceCell::new(),
             auto_profile_curve_pipeline: OnceCell::new(),
+            acr_match_pipeline: OnceCell::new(),
             agx_pipeline: OnceCell::new(),
             residual_lut_pipeline: OnceCell::new(),
             tone_curves_pipeline: OnceCell::new(),
