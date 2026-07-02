@@ -164,6 +164,72 @@ describe('library-relocate end-to-end', () => {
     }
   });
 
+  it('relocates a photo even if it is flagged missing_since, and clears the missing_since flag in the DB', async () => {
+    const db = await connectOrSkip('photo missing_since relocate');
+    if (!db) return;
+    const assets = db.collection('assets');
+    const libId = new ObjectId();
+
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-missing-'));
+    await seedLibrary(libId, dir);
+
+    const oldRel = '2024/Loose';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_missing.dng'), 'missing_bytes');
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_missing.xmp'), 'edits');
+
+    const _id = new ObjectId();
+    await assets.insertOne({
+      _id,
+      maple_id: 'relocate-missing-id',
+      fileinfo: [
+        {
+          path: oldRel,
+          filename: 'IMG_missing.dng',
+          library_id: libId,
+          deleted_at: null,
+          missing_since: '2026-06-30T00:00:00.000Z', // marked missing
+        },
+      ],
+      metadata_override: usPlaceText(),
+      exif: { captured_year: 2024 },
+      stages: { thumb: { version: 1 }, preview: { version: 1 } },
+    } as never);
+
+    try {
+      // 1. Verify relocate-count counts it correctly (it returns 1, not 0)
+      const countRes = await postCount([`${SLUG}:${oldRel}/IMG_missing.dng`]);
+      expect(countRes.status).toBe(200);
+      const countBody = await countRes.json();
+      expect(countBody.count).toBe(1);
+
+      // 2. Perform relocate
+      const res = await postRelocate([`${SLUG}:${oldRel}/IMG_missing.dng`]);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        results: Array<{ ok: boolean; outcome?: string; renamed?: boolean }>;
+      };
+      expect(body.results).toHaveLength(1);
+      expect(body.results[0]!.ok).toBe(true);
+      expect(body.results[0]!.outcome).toBe('moved');
+
+      const newRel = '2024/California/Berkeley';
+      // File + sidecar both landed at the new dir
+      expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.dng'), 'utf8')).toBe('missing_bytes');
+      expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.xmp'), 'utf8')).toBe('edits');
+
+      // DB repointed and missing_since is cleared (null)
+      const doc = (await assets.findOne({ _id })) as {
+        fileinfo?: { path: string; filename: string; missing_since?: string | null }[];
+      } | null;
+      expect(doc?.fileinfo?.[0].path).toBe(newRel);
+      expect(doc?.fileinfo?.[0].filename).toBe('IMG_missing.dng');
+      expect(doc?.fileinfo?.[0].missing_since).toBeNull();
+    } finally {
+      await assets.deleteOne({ _id });
+    }
+  });
+
   it('auto-renames file + sidecar on collision (.N suffix), leaves the pre-existing occupant untouched', async () => {
     const db = await connectOrSkip('collision auto-rename');
     if (!db) return;
