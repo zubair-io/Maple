@@ -266,4 +266,3 @@ fn negative_pixels_stay_bounded() {
         }
     }
 }
-

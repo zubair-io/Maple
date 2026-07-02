@@ -9,19 +9,24 @@
 /// Render-shaping profile applied at the view-transform stage (Auto
 /// Profile Phase 1, ticket #536). `Auto` (default) fits a per-image curve
 /// from the embedded JPEG preview at render time; `Neutral` runs the AgX
-/// scene-referred view transform. See the design spec at
+/// scene-referred view transform; `AcrMatch` runs the fitted ACR-match model
+/// (#1722, epic #1710 slice 2). See the design spec at
 /// `docs/superpowers/specs/2026-05-26-auto-profile-and-auto-setting-design.md`.
 ///
-/// XMP wire: serialized as `papp:Profile="Auto"|"Neutral"` (and only when
-/// non-default — `Auto` is omitted by the serializer). Pre-#536 sidecars
-/// carrying `papp:Look="Default"|"Neutral"` migrate transparently through
-/// the parser: `Default` → `Auto`, `Neutral` → `Neutral`. When both
+/// XMP wire: serialized as `papp:Profile="Auto"|"Neutral"|"AcrMatch"` (and
+/// only when non-default — `Auto` is omitted by the serializer). Pre-#536
+/// sidecars carrying `papp:Look="Default"|"Neutral"` migrate transparently
+/// through the parser: `Default` → `Auto`, `Neutral` → `Neutral`. When both
 /// attributes are present on the same element, `papp:Profile` wins
 /// regardless of document order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
     Auto,
     Neutral,
+    /// Fitted ACR-match view transform (#1722). Selectable but NOT the
+    /// default — the default flip happens in a later commit once the
+    /// full-range model (−2EV highlight-shoulder) is refitted.
+    AcrMatch,
 }
 
 impl Default for Profile {

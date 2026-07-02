@@ -253,7 +253,6 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         return Err(Error::Cancelled);
     }
 
-
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
     if let Some((list, aa)) = raw.opcode_list3.as_ref() {

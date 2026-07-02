@@ -1,6 +1,6 @@
 use crate::error::Result;
-use crate::pipeline::fp16::{f16_bits_to_f32, f32_to_f16_bits};
 use crate::image::{ColorSpace, Image};
+use crate::pipeline::fp16::{f16_bits_to_f32, f32_to_f16_bits};
 
 /// Composite synthetic-raw `patches` into an f32 RGBA scene-linear buffer at the
 /// pre-user-grade seam, returning a new f32 RGBA buffer (alpha = 1.0).
