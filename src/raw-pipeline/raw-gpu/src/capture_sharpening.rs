@@ -145,6 +145,18 @@ pub(crate) struct GaussParams {
     pub(crate) axis: u32,
 }
 
+/// `repr(C)` uniform for `ratio_step`: count + noise_floor for dampened RL.
+/// Mirrors raw-core's dampening: when `noise_floor > 0`, the update ratio is
+/// suppressed in low-signal regions via `1 + (ratio-1) * b²/(b² + noise²)`.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct RatioParams {
+    count: u32,
+    noise_floor: f32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
 /// `repr(C)` uniform for `apply_scale`: count + strength + the clamped highlight
 /// threshold (`highlight_threshold.min(0.999)`, computed CPU-side).
 #[repr(C)]
@@ -371,12 +383,22 @@ impl Pass for CaptureSharpeningPass {
                 width,
                 height,
             });
-            // b. ratio = clamp(original / max(blur_est, 1e-6), 0, 100).
+            // b. Dampened RL ratio: mirrors raw-core's per-pixel dampen step.
+            //    ratio[i] = 1 + (raw_ratio-1) * b²/(b² + noise²)
+            //    where raw_ratio = clamp(original[i] / max(blur_est[i], 1e-6), 0, 100).
+            //    When noise_floor <= 0 the kernel falls through to the classic undampened
+            //    clamp (noise2 = 0.0 in WGSL, so dampen = b2/(b2+0) = 1 when b > 0).
+            let ratio_params = RatioParams {
+                count,
+                noise_floor: self.params.noise_floor,
+                _pad0: 0,
+                _pad1: 0,
+            };
             dispatch(DispatchArgs {
                 ctx,
                 encoder,
                 pipeline: ctx.cs_ratio_pipeline(),
-                params_bytes: bytemuck::bytes_of(&cnt),
+                params_bytes: bytemuck::bytes_of(&ratio_params),
                 buffers: &[&original, &blur_est, &ratio],
                 count,
                 label: "cs-ratio",

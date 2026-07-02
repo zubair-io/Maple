@@ -109,8 +109,26 @@ fn gaussian_blur(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_wor
     g_out[i] = acc;
 }
 
-// ── ratio_step: ratio = clamp(original / max(blur_est, 1e-6), 0, 100) ──────────
-@group(0) @binding(0) var<uniform> r_params: CountParams;
+// ── ratio_step: dampened Richardson–Lucy ratio ────────────────────────────────
+//
+// Mirrors raw-core's dampened RL step (capture_sharpening.rs ~227-232):
+//   raw_ratio = clamp(original / max(blur_est, 1e-6), 0, 100)
+//   noise2    = noise_floor * noise_floor
+//   b2        = blur_est * blur_est
+//   dampen    = b2 / (b2 + noise2)          (→ 1.0 when noise_floor == 0)
+//   ratio     = 1 + (raw_ratio - 1) * dampen
+//
+// When noise_floor <= 0 (noise2 == 0), the ratio collapses to raw_ratio (dampen
+// = b2/b2 = 1 for any b > 0; at b == 0 the denom guard already fires). This
+// matches raw-core's `if noise2 > 0 { dampened } else { raw_ratio }` branch.
+struct RatioParams {
+    count: u32,
+    noise_floor: f32,
+    _pad0: u32,
+    _pad1: u32,
+};
+
+@group(0) @binding(0) var<uniform> r_params: RatioParams;
 @group(0) @binding(1) var<storage, read> r_original: array<f32>;
 @group(0) @binding(2) var<storage, read> r_blur_est: array<f32>;
 @group(0) @binding(3) var<storage, read_write> r_ratio: array<f32>;
@@ -121,8 +139,22 @@ fn ratio_step(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgr
     if (i >= r_params.count) {
         return;
     }
-    let denom = max(r_blur_est[i], 1e-6);
-    r_ratio[i] = clamp(r_original[i] / denom, 0.0, 100.0);
+    let b = r_blur_est[i];
+    let denom = max(b, 1e-6);
+    let raw_ratio = clamp(r_original[i] / denom, 0.0, 100.0);
+    let noise2 = r_params.noise_floor * r_params.noise_floor;
+    // Mirror raw-core's `if noise2 > 0.0 { dampened } else { raw_ratio }`.
+    // When noise2 == 0 we skip the branch to avoid the b2/(b2+0)=NaN edge case
+    // at b == 0, and return raw_ratio exactly as the undampened path does.
+    var result: f32;
+    if (noise2 > 0.0) {
+        let b2 = b * b;
+        let dampen = b2 / (b2 + noise2);
+        result = 1.0 + (raw_ratio - 1.0) * dampen;
+    } else {
+        result = raw_ratio;
+    }
+    r_ratio[i] = result;
 }
 
 // ── multiply_step: estimate *= blur_ratio (in place) ──────────────────────────
