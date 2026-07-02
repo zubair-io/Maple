@@ -225,13 +225,23 @@ public actor ImageEditPipeline {
     /// `profileOverride: .neutral` here to keep auto-exposure in the
     /// decode. Rendering the Auto buffer without the cube comes out too
     /// dark by roughly the AE anchor gain (typically 2–3×).
+    /// Decoded scene-linear data including the pixel buffer and the per-camera
+    /// noise profile + ISO needed by the adaptive NR stage. The noise profile
+    /// and ISO survive the decode→render hand-off via `DecodedSnapshot` so the
+    /// live-preview chain has the real per-image values rather than zeros.
+    public struct SceneLinearDecodeResult: Sendable {
+        public let image: CIImage
+        public let noiseProfile: [Float]?
+        public let iso: UInt32
+    }
+
     nonisolated public func decodeSceneLinear(
         asset: AssetRef,
         quality: PipelineRenderer.Quality = .preview,
         xmpPath: URL? = nil,
         profileOverride: Profile? = nil,
         cancel: CancelFlag? = nil
-    ) async -> CIImage? {
+    ) async -> SceneLinearDecodeResult? {
         let imageData: MapleSceneLinearImageData
         do {
             if let url = asset.primaryURL {
@@ -270,7 +280,7 @@ public actor ImageEditPipeline {
         let w = imageData.width, h = imageData.height
         let bytesPerRow = w * imageData.bytesPerPixel
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        return mapleStage("decode CIImage build") {
+        let ciImage = mapleStage("decode CIImage build") {
             CIImage(
                 bitmapData: imageData.pixels,
                 bytesPerRow: bytesPerRow,
@@ -279,6 +289,11 @@ public actor ImageEditPipeline {
                 colorSpace: space
             )
         }
+        return SceneLinearDecodeResult(
+            image: ciImage,
+            noiseProfile: imageData.noiseProfile,
+            iso: imageData.iso
+        )
     }
 
     // MARK: Decode (scene-linear sized — Plan 1 v2 viewport-sized FFI)
@@ -295,7 +310,7 @@ public actor ImageEditPipeline {
         xmpPath: URL? = nil,
         profileOverride: Profile? = nil,
         cancel: CancelFlag? = nil
-    ) async -> CIImage? {
+    ) async -> SceneLinearDecodeResult? {
         // Per ticket 06 § Product Requirements 2, the long edge of the
         // requested target is the cap; pixel-accurate sizing happens in
         // Rust. Conservative fallback if `targetSize` is degenerate
@@ -353,7 +368,7 @@ public actor ImageEditPipeline {
         let w = imageData.width, h = imageData.height
         let bytesPerRow = w * imageData.bytesPerPixel
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        return mapleStage("decode CIImage build") {
+        let ciImage = mapleStage("decode CIImage build") {
             CIImage(
                 bitmapData: imageData.pixels,
                 bytesPerRow: bytesPerRow,
@@ -362,6 +377,11 @@ public actor ImageEditPipeline {
                 colorSpace: space
             )
         }
+        return SceneLinearDecodeResult(
+            image: ciImage,
+            noiseProfile: imageData.noiseProfile,
+            iso: imageData.iso
+        )
     }
 
     // MARK: Decode (non-RAW path — ImageIO + Core Image)
@@ -967,7 +987,9 @@ public actor ImageEditPipeline {
         asShot: AsShotWB? = nil,
         decodedAtModel: AdjustmentModel? = nil,
         profileLUT: CIFilter? = nil,
-        assetID: UUID? = nil
+        assetID: UUID? = nil,
+        noiseProfile: [Float]? = nil,
+        iso: UInt32 = 0
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
@@ -1020,7 +1042,9 @@ public actor ImageEditPipeline {
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
             skipAgX: false,
-            assetID: assetID
+            assetID: assetID,
+            noiseProfile: noiseProfile,
+            iso: iso
         )
 
         // sharpen + nr_color stay on the Apple GPU path (Metal compute
