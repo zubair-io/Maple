@@ -6,8 +6,7 @@ final class PathFormatterTests: XCTestCase {
         ISO8601DateFormatter().date(from: iso)!
     }
 
-    // Geo layout: USA → year/State/City/file; elsewhere → year/Country/City/file;
-    // no location → year/MM/file (month kept as the grouping level).
+    // no location → year/Misc/file.
     func testUSALocation() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
@@ -35,7 +34,7 @@ final class PathFormatterTests: XCTestCase {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
                                      location: nil, filename: "IMG_0420.HEIC"),
-            "2024/03/IMG_0420.HEIC")
+            "2024/Misc/IMG_0420.HEIC")
     }
 
     // Screenshot is filed under <year>/Screenshot, taking precedence over both
@@ -62,14 +61,14 @@ final class PathFormatterTests: XCTestCase {
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
                                      location: nil, filename: "IMG.heic",
                                      isScreenshot: false),
-            "2024/03/IMG.heic")
+            "2024/Misc/IMG.heic")
     }
 
     func testEmptyListTreatedAsNoLocation() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
                                      location: [], filename: "IMG.heic"),
-            "2024/03/IMG.heic")
+            "2024/Misc/IMG.heic")
     }
 
     func testSegmentSlashEscaped() throws {
@@ -101,14 +100,14 @@ final class PathFormatterTests: XCTestCase {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
                                      location: ["", "  "], filename: "IMG.heic"),
-            "2024/03/IMG.heic")
+            "2024/Misc/IMG.heic")
     }
 
     func testDotDotSegmentDropped() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
                                      location: [".."], filename: "IMG.heic"),
-            "2024/03/IMG.heic")
+            "2024/Misc/IMG.heic")
     }
 
     func testLeadingDotSegmentDropped() throws {
