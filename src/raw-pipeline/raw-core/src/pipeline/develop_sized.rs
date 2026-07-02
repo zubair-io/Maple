@@ -284,16 +284,15 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         auto_exposure::apply(&mut scene, model)
     });
     dump_after("05_auto_exposure", &scene);
-    // ACR anchoring (#1729): when Custom WB is active but only one component
-    // was authored, anchor the absent component to as-shot. Anchoring only
-    // fires when at least one flag is set — both-false means no Custom WB,
-    // so we keep 6500 K / 0 (short-circuit no-op; as-shot already baked by
-    // `apply_pre_gain`). Mirrors the identical block in `develop/mod.rs`.
+    // ACR anchoring (#1729 / round-trip fix): mirrors the identical block in
+    // `develop/mod.rs` — see that file for the full derivation. Short summary:
+    // tint-only Custom WB anchors the absent temperature to 6500 K (D65), not
+    // `raw.as_shot_cct`; named presets (Tungsten, Daylight, …) fall through to
+    // `model.temperature` which the XMP parser already populated.
     let effective_temperature = if model.temperature_seen {
         model.temperature
     } else if model.tint_seen {
-        raw.as_shot_cct
-            .unwrap_or_else(|| white_balance::estimate_cct_from_neutral(raw.as_shot_neutral))
+        6500.0
     } else {
         model.temperature
     };
