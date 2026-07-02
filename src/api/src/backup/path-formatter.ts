@@ -34,9 +34,9 @@
  * with no path separators, no `..` segments, and no leading dot. */
 export function isSafeFilename(name: string): boolean {
   if (!name || name.length === 0 || name.length > 255) return false;
-  if (name.includes('/') || name.includes('\\')) return false;
-  if (name === '.' || name === '..') return false;
-  if (name.startsWith('.')) return false;
+  if (name.includes("/") || name.includes("\\")) return false;
+  if (name === "." || name === "..") return false;
+  if (name.startsWith(".")) return false;
   return true;
 }
 
@@ -51,15 +51,18 @@ export function isSafeFilename(name: string): boolean {
  * tokens (`.`, `..`, or a leading dot — which would create a hidden folder).
  * Surviving segments keep their order.
  */
-export function sanitizeLocationSegments(location: readonly string[] | null | undefined): string[] {
+export function sanitizeLocationSegments(
+  location: readonly string[] | null | undefined,
+): string[] {
   if (!location) return [];
   const out: string[] = [];
   for (const raw of location) {
     if (raw == null) continue;
     const trimmed = raw.trim();
     if (trimmed.length === 0) continue;
-    const escaped = trimmed.replaceAll('/', '_').replaceAll('\\', '_');
-    if (escaped === '.' || escaped === '..' || escaped.startsWith('.')) continue;
+    const escaped = trimmed.replaceAll("/", "_").replaceAll("\\", "_");
+    if (escaped === "." || escaped === ".." || escaped.startsWith("."))
+      continue;
     out.push(escaped);
   }
   return out;
@@ -71,7 +74,7 @@ export function sanitizeLocationSegments(location: readonly string[] | null | un
  * sanitising. Shared with the screenshot migration so a freshly-ingested
  * screenshot and a migrated one land in byte-identical folders.
  */
-export const SCREENSHOT_DIR_SEGMENT = 'Screenshot';
+export const SCREENSHOT_DIR_SEGMENT = "Screenshot";
 
 export function formatBackupPath(args: {
   captureDate: Date;
@@ -85,12 +88,13 @@ export function formatBackupPath(args: {
     throw new Error(`unsafe filename: ${args.filename}`);
   }
 
-  const y = args.captureDate.getUTCFullYear().toString().padStart(4, '0');
+  const y = args.captureDate.getUTCFullYear().toString().padStart(4, "0");
 
   // Screenshot wins over location and date — a UI capture isn't a place photo.
-  if (args.isScreenshot) return `${y}/${SCREENSHOT_DIR_SEGMENT}/${args.filename}`;
+  if (args.isScreenshot)
+    return `${y}/${SCREENSHOT_DIR_SEGMENT}/${args.filename}`;
 
   const segs = sanitizeLocationSegments(args.location);
-  if (segs.length > 0) return `${y}/${segs.join('/')}/${args.filename}`;
+  if (segs.length > 0) return `${y}/${segs.join("/")}/${args.filename}`;
   return `${y}/Misc/${args.filename}`;
 }
