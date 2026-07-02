@@ -214,21 +214,12 @@ pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
 /// Per `.archived-plans/plans/2026-04-27-clipping-and-artifacts.md`
 /// Phase 4 (negative-channel handling after DCP).
 fn soft_floor(p: [f32; 3]) -> [f32; 3] {
-    let min_val = p[0].min(p[1]).min(p[2]);
-    if min_val >= 0.0 {
+    let min = p[0].min(p[1]).min(p[2]);
+    if min >= 0.0 {
         return p;
     }
-    if !p[0].is_finite() || !p[1].is_finite() || !p[2].is_finite() {
-        return [0.0, 0.0, 0.0];
-    }
-    let avg = ((p[0] + p[1] + p[2]) / 3.0).max(0.0);
-    let denom = min_val - avg;
-    let sat_factor = if denom.abs() > 1e-6 { -avg / denom } else { 1.0 };
-    [
-        avg + sat_factor * (p[0] - avg),
-        avg + sat_factor * (p[1] - avg),
-        avg + sat_factor * (p[2] - avg),
-    ]
+    let lift = -min;
+    [p[0] + lift, p[1] + lift, p[2] + lift]
 }
 
 fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
@@ -1899,23 +1890,24 @@ mod tests {
 
     #[test]
     fn soft_floor_lifts_negative_uniformly_preserving_hue() {
-        // Mild negative B (the test_0006/test_0007 case): desaturate toward average
-        // so that the smallest is exactly 0. Hue and average are preserved.
+        // Mild negative B (the test_0006/test_0007 case): all channels
+        // get lifted by |min| = 0.021, hue (channel ratios after lift)
+        // is the same as before lift modulo the additive shift.
         let p = soft_floor([0.181, 0.192, -0.021]);
-        assert!((p[0] - 0.171335).abs() < 1e-5, "R = {}", p[0]);
-        assert!((p[1] - 0.180665).abs() < 1e-5, "G = {}", p[1]);
-        assert!((p[2] - 0.0).abs() < 1e-5, "B = {}", p[2]);
+        assert!((p[0] - 0.202).abs() < 1e-5, "R = {}", p[0]);
+        assert!((p[1] - 0.213).abs() < 1e-5, "G = {}", p[1]);
+        assert!((p[2] - 0.0  ).abs() < 1e-5, "B = {}", p[2]);
         // The smallest channel is at exactly 0 after lifting, by construction.
         assert!(p[0].min(p[1]).min(p[2]) >= -1e-6);
     }
 
     #[test]
     fn soft_floor_extreme_negative_lifts_correctly() {
-        // Heavily out-of-gamut input: desaturate to average (which keeps minimum at 0).
+        // Heavily out-of-gamut input: lift by the largest negative.
         let p = soft_floor([-0.5, 0.5, 0.5]);
         assert!((p[0] - 0.0).abs() < 1e-6);
-        assert!((p[1] - 0.25).abs() < 1e-6);
-        assert!((p[2] - 0.25).abs() < 1e-6);
+        assert!((p[1] - 1.0).abs() < 1e-6);
+        assert!((p[2] - 1.0).abs() < 1e-6);
     }
 
     /// Canonical #424 regression test: test_0004 (Hasselblad H5D-40 .fff)
