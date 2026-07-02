@@ -32,7 +32,6 @@ import { assetPrimaryFileInfo, liveFileInfoElemMatch } from '../../indexer/image
 import { backupLocationSegments } from '../../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../../backup/path-formatter.ts';
 import { child as childLogger } from '../../log.ts';
-import { restructureDir } from './restructure-path.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 import { SourceMissingError } from './restructure-fs.ts';
 import { moveBackupAsset, type MoveOutcome } from './move-backup-asset.ts';
@@ -42,11 +41,10 @@ const log = childLogger('migration:refile');
 /** Layout generation stamped on a refiled asset — the worker's done-marker, NOT a
  * correctness oracle. See `AssetDoc.backup_layout_version`.
  *
- * v4 (#1525): the no-location branch now mirrors `formatBackupPath`'s `<year>/<MM>`
- * (it previously left undated/junk-folder files in place), so the bump re-sweeps
- * the library once to normalise e.g. `2026/2595` → `2026/05`. Only mis-filed
- * assets actually move; the rest no-op and re-stamp. */
-export const BACKUP_LAYOUT_VERSION = 4;
+ * v5: the no-location branch now falls back to `<year>/Misc`, so the bump re-sweeps
+ * the library to relocate placeless assets into their canonical fallback folder.
+ * Only mis-filed assets actually move; the rest no-op and re-stamp. */
+export const BACKUP_LAYOUT_VERSION = 5;
 
 /** Matches the screenshot destination layout (`<year>/Screenshot`) exactly — the
  * "already filed" gate inside `relocateBackupScreenshot`. */
@@ -68,22 +66,6 @@ function yearFor(oldDir: string, capturedYear: number | null | undefined): strin
   return null;
 }
 
-/** Zero-padded `MM` for the no-location `<year>/<MM>` layout, or `null` when the
- * capture month is unknown (then we don't invent a month-folder — see the
- * no-location branch). Exported for the video-exif backfill, which only resets the
- * refile marker when a usable month exists. */
-export function monthFor(capturedMonth: number | null | undefined): string | null {
-  if (
-    capturedMonth != null &&
-    Number.isInteger(capturedMonth) &&
-    capturedMonth >= 1 &&
-    capturedMonth <= 12
-  ) {
-    return String(capturedMonth).padStart(2, '0');
-  }
-  return null;
-}
-
 /**
  * The canonical directory a backup asset's canonical live entry
  * (`assetPrimaryFileInfo` — the first live `fileinfo`, i.e. neither `deleted_at`
@@ -94,9 +76,7 @@ export function monthFor(capturedMonth: number | null | undefined): string | nul
  *
  *   1. screenshot (`is_screenshot`)         → `<year>/Screenshot`  (wins over location)
  *   2. resolved location (`place` segments) → `<year>/<seg>/<seg>`
- *   3. no location, capture month known     → `<year>/<MM>`  (mirrors formatBackupPath)
- *   4. no location, no month                → flatten a recognised old day-folder,
- *      else leave the asset where it is (we never invent a month-folder).
+ *   3. no location                          → `<year>/Misc`
  *
  * Pure (no DB / fs) and exhaustively unit-tested. Mirrors `formatBackupPath` so a
  * migrated file matches a fresh ingest of the same asset.
@@ -122,15 +102,8 @@ export function computeCanonicalDir(doc: {
   const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
   if (segs.length > 0) return `${year}/${segs.join('/')}`;
 
-  // No usable location → mirror `formatBackupPath`'s `<year>/<MM>` when the capture
-  // month is known (this is what normalises junk no-geo folders like `2026/2595`).
-  const month = monthFor(doc.exif?.captured_month);
-  if (month) return `${year}/${month}`;
-
-  // No location and no month: flatten a recognised old `<year>/<loc>/<MM-DD>` (or
-  // `<year>/<MM>/<DD>`) day-folder; otherwise leave the (undated) asset in place
-  // rather than invent a month it might mis-file under.
-  return restructureDir(oldDir) ?? oldDir;
+  // No usable location → mirror `formatBackupPath`'s `<year>/Misc`
+  return `${year}/Misc`;
 }
 
 /** Selects backup-origin assets not yet refiled into the current layout. No `place`
