@@ -311,6 +311,7 @@ fn set_field(
             m.profile = match value {
                 v if v.eq_ignore_ascii_case("Auto") => Profile::Auto,
                 v if v.eq_ignore_ascii_case("Neutral") => Profile::Neutral,
+                v if v.eq_ignore_ascii_case("AcrMatch") => Profile::AcrMatch,
                 other => return Err(Error::Xmp(format!("unknown Profile: {}", other))),
             };
         }
@@ -404,6 +405,7 @@ pub fn serialize(model: &AdjustmentModel) -> String {
         let v = match model.profile {
             Profile::Auto => "Auto",
             Profile::Neutral => "Neutral",
+            Profile::AcrMatch => "AcrMatch",
         };
         out.push_str(&format!(r#" papp:Profile="{v}""#));
     }

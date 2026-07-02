@@ -69,7 +69,7 @@ pub struct FitStats {
     pub overlap_rms_rel: Option<f32>,
 }
 
-// ── JSON serialisation ────────────────────────────────────────────────────────
+// ── JSON round-trip ───────────────────────────────────────────────────────────
 
 impl AcrModel {
     /// Serialise to a compact JSON string.
@@ -121,6 +121,111 @@ impl AcrModel {
             pc = self.stats.patches_clipped,
             rms = self.stats.fit_rms_de,
         )
+    }
+
+    /// Deserialise from a JSON string produced by `to_json()` or the
+    /// `maple-cli fit-acr` command. Unknown top-level keys (e.g. `_meta`) are
+    /// silently ignored. Returns an error string on parse failure.
+    ///
+    /// Hand-parsed — no serde dep (keeps the always-compiled crate serde-free).
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        // Extract floats from a `[f1,f2,...]` array literal.
+        fn parse_float_array(json: &str, key: &str) -> Result<Vec<f32>, String> {
+            let needle = format!("\"{key}\":[");
+            let pos = json
+                .find(&needle)
+                .ok_or_else(|| format!("key {key} not found"))?;
+            let start = pos + needle.len();
+            let end = json[start..]
+                .find(']')
+                .ok_or_else(|| format!("closing ] for {key}"))?;
+            json[start..start + end]
+                .split(',')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    s.trim()
+                        .parse::<f32>()
+                        .map_err(|e| format!("float parse error in {key}: {e}"))
+                })
+                .collect()
+        }
+        fn parse_usize(json: &str, key: &str) -> Result<usize, String> {
+            let needle = format!("\"{key}\":");
+            let pos = json
+                .find(&needle)
+                .ok_or_else(|| format!("key {key} not found"))?;
+            let rest = json[pos + needle.len()..].trim_start();
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(rest.len());
+            rest[..end]
+                .parse()
+                .map_err(|e| format!("usize parse {key}: {e}"))
+        }
+        fn parse_f32(json: &str, key: &str) -> Result<f32, String> {
+            let needle = format!("\"{key}\":");
+            let pos = json
+                .find(&needle)
+                .ok_or_else(|| format!("key {key} not found"))?;
+            let rest = json[pos + needle.len()..].trim_start();
+            let end = rest
+                .find(|c: char| c == ',' || c == '}')
+                .unwrap_or(rest.len());
+            rest[..end]
+                .parse()
+                .map_err(|e| format!("f32 parse {key}: {e}"))
+        }
+
+        let knots_log2 = parse_float_array(json, "knots_log2")?;
+        let values = parse_float_array(json, "values")?;
+        let hue_bins = parse_usize(json, "hue_bins")?;
+        let chroma_bins = parse_usize(json, "chroma_bins")?;
+        let luma_bins = parse_usize(json, "luma_bins")?;
+        let delta_h_deg = parse_float_array(json, "delta_h_deg")?;
+        let sat_scale = parse_float_array(json, "sat_scale")?;
+        let patches_used = parse_usize(json, "patches_used")?;
+        let patches_clipped = parse_usize(json, "patches_clipped")?;
+        let fit_rms_de = parse_f32(json, "fit_rms_de")?;
+
+        // Optional field.
+        let overlap_rms_rel = if json.contains("\"overlap_rms_rel\":") {
+            parse_f32(json, "overlap_rms_rel").ok()
+        } else {
+            None
+        };
+
+        let expected_field = hue_bins * chroma_bins * luma_bins;
+        if delta_h_deg.len() != expected_field {
+            return Err(format!(
+                "delta_h_deg length {} ≠ expected {}",
+                delta_h_deg.len(),
+                expected_field
+            ));
+        }
+        if sat_scale.len() != expected_field {
+            return Err(format!(
+                "sat_scale length {} ≠ expected {}",
+                sat_scale.len(),
+                expected_field
+            ));
+        }
+
+        Ok(AcrModel {
+            tonescale: Tonescale { knots_log2, values },
+            field: HueChromaField {
+                hue_bins,
+                chroma_bins,
+                luma_bins,
+                delta_h_deg,
+                sat_scale,
+            },
+            stats: FitStats {
+                patches_used,
+                patches_clipped,
+                fit_rms_de,
+                overlap_rms_rel,
+            },
+        })
     }
 }
 

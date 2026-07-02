@@ -511,13 +511,14 @@ pub fn apply_scene_linear_chain_f32(
     Ok(out)
 }
 
-
 /// Patch-compositing wrappers ([`apply_scene_linear_chain_with_patches`],
 /// [`apply_scene_linear_chain_f32_with_patches`]) live in a sibling
 /// submodule for the file-size budget; re-exported so public paths are
 /// unchanged.
 mod patches;
-pub use patches::{apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches};
+pub use patches::{
+    apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
+};
 
 /// Canonical display encode (#877). Split into a sibling submodule for the
 /// file-size budget; re-exported here so the public path
