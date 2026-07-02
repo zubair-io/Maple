@@ -48,8 +48,11 @@ use std::path::Path;
 use image::DynamicImage;
 
 use crate::image::ExifOrientation;
+use crate::color::matrices::bradford_adapt;
+use crate::color::oklab::srgb_linear_to_oklab;
+use crate::math::Matrix3;
 
-use super::curve::{ProfileCurve, IDENTITY_MATRIX};
+use super::curve::ProfileCurve;
 use super::preview;
 use super::solve::{self, LUMA_BANDS};
 
@@ -222,6 +225,19 @@ pub fn fit_curve_from_preview_display(
     }
     let footprint = solve::footprint_sizes(crop_w, crop_h, target_w_px, target_h_px);
 
+    // Estimate chromatic adaptation matrix adapt_srgb:
+    let adapt_srgb = estimate_chromatic_adaptation(
+        source_rgb,
+        source_w,
+        crop_x_start,
+        crop_y_start,
+        crop_w,
+        crop_h,
+        &target,
+        target_w_px,
+        target_h_px,
+    );
+
     // Build the EXACT eval-then-box per-channel design matrices. The gate
     // computes `candidate_j = (1/|F_j|) Σ_{p∈F_j} eval(curve, src_p)`, then the
     // band mean `B_b = (1/N_b) Σ_{j∈b} candidate_j`. Since `eval` is piecewise-
@@ -240,6 +256,7 @@ pub fn fit_curve_from_preview_display(
         &band_of,
         &band_counts,
         &footprint,
+        adapt_srgb,
     );
     let band_target = solve::band_targets(&target, &band_of, &band_counts);
 
@@ -253,10 +270,8 @@ pub fn fit_curve_from_preview_display(
         r,
         g,
         b,
-        // AgX owns chroma/hue/cross-channel coupling; the display-space
-        // residual is a pure per-channel tone delta. Oklab corrections are
-        // INVALID in gamma-encoded sRGB-primary space, so they stay zero.
-        matrix: IDENTITY_MATRIX,
+        // Apply the pre-fit chromatic adaptation matrix on the display path
+        matrix: adapt_srgb.0,
         chroma_boost: 1.0,
         chroma_offset: [0.0, 0.0],
         lightness_offset: 0.0,
@@ -319,4 +334,112 @@ fn is_degenerate_histogram(rgb: &[f32]) -> bool {
     }
     let max_count = *hist.iter().max().unwrap();
     max_count as f32 / n as f32 > 0.99
+}
+
+#[inline]
+pub fn srgb_gamma_decode(y: f32) -> f32 {
+    if y <= 0.04045 {
+        y / 12.92
+    } else {
+        ((y + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+pub const M_SRGB_TO_XYZ_D65: Matrix3 = Matrix3([
+    [0.4124564, 0.3575761, 0.1804375],
+    [0.2126729, 0.7151522, 0.0721750],
+    [0.0193339, 0.1191920, 0.9503041],
+]);
+
+pub const M_XYZ_D65_TO_SRGB: Matrix3 = Matrix3([
+    [ 3.2404542, -1.5371385, -0.4985314],
+    [-0.9692660,  1.8760108,  0.0415560],
+    [ 0.0556434, -0.2040259,  1.0572252],
+]);
+
+/// Estimate the Bradford chromatic adaptation matrix between the source display buffer
+/// and the target JPEG preview based on near-neutral pixels in the cropped region.
+pub fn estimate_chromatic_adaptation(
+    source_rgb: &[f32],
+    source_w: usize,
+    crop_x0: usize,
+    crop_y0: usize,
+    crop_w: usize,
+    crop_h: usize,
+    target_rgb: &[f32],
+    target_w: usize,
+    target_h: usize,
+) -> Matrix3 {
+    let mut sum_src = [0.0f32; 3];
+    let mut sum_tgt = [0.0f32; 3];
+    let mut count = 0usize;
+
+    // Sample pixels in target JPEG space
+    let n = target_rgb.len() / 3;
+    let step = (n / 10000).max(1); // sample up to 10k pixels
+
+    for j in (0..n).step_by(step) {
+        let ox = j % target_w;
+        let oy = j / target_w;
+
+        // Skip border pixels to avoid transition edges / letterboxes
+        let border_w = (target_w as f64 * 0.1).round() as usize;
+        let border_h = (target_h as f64 * 0.1).round() as usize;
+        if ox < border_w || ox >= target_w - border_w || oy < border_h || oy >= target_h - border_h {
+            continue;
+        }
+
+        let tgt_lin = [
+            srgb_gamma_decode(target_rgb[j * 3]),
+            srgb_gamma_decode(target_rgb[j * 3 + 1]),
+            srgb_gamma_decode(target_rgb[j * 3 + 2]),
+        ];
+        let lab = srgb_linear_to_oklab(tgt_lin);
+        let chroma = (lab[1] * lab[1] + lab[2] * lab[2]).sqrt();
+        if chroma < 0.02 {
+            let sy = (oy * crop_h) / target_h;
+            let sx = (ox * crop_w) / target_w;
+            let srow = (crop_y0 + sy) * source_w + crop_x0;
+            let si = (srow + sx) * 3;
+            if si + 2 >= source_rgb.len() {
+                continue;
+            }
+
+            let src_lin = [
+                srgb_gamma_decode(source_rgb[si]),
+                srgb_gamma_decode(source_rgb[si + 1]),
+                srgb_gamma_decode(source_rgb[si + 2]),
+            ];
+
+            sum_src[0] += src_lin[0];
+            sum_src[1] += src_lin[1];
+            sum_src[2] += src_lin[2];
+            sum_tgt[0] += tgt_lin[0];
+            sum_tgt[1] += tgt_lin[1];
+            sum_tgt[2] += tgt_lin[2];
+            count += 1;
+        }
+    }
+
+    if count >= 100 {
+        let count_f = count as f32;
+        let mean_src = [
+            (sum_src[0] / count_f).max(1e-4),
+            (sum_src[1] / count_f).max(1e-4),
+            (sum_src[2] / count_f).max(1e-4),
+        ];
+        let mean_tgt = [
+            (sum_tgt[0] / count_f).max(1e-4),
+            (sum_tgt[1] / count_f).max(1e-4),
+            (sum_tgt[2] / count_f).max(1e-4),
+        ];
+
+        let src_xyz = M_SRGB_TO_XYZ_D65.mul_vec(mean_src);
+        let tgt_xyz = M_SRGB_TO_XYZ_D65.mul_vec(mean_tgt);
+
+        let adapt_xyz = bradford_adapt(src_xyz, tgt_xyz);
+        M_XYZ_D65_TO_SRGB.mul_mat(&adapt_xyz).mul_mat(&M_SRGB_TO_XYZ_D65)
+    } else {
+        Matrix3::IDENTITY
+    }
 }

@@ -91,6 +91,25 @@ const M2_LMS_TO_LAB: Mat3 = [
 ];
 
 #[inline]
+fn srgb_gamma_decode(y: f32) -> f32 {
+    if y <= 0.04045 {
+        y / 12.92
+    } else {
+        ((y + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+#[inline]
+fn srgb_gamma(x: f32) -> f32 {
+    let cl = x.clamp(0.0, 1.0);
+    if cl <= 0.0031308 {
+        cl * 12.92
+    } else {
+        1.055 * cl.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+#[inline]
 fn mul3(m: &Mat3, v: [f32; 3]) -> [f32; 3] {
     [
         m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
@@ -222,19 +241,21 @@ pub fn apply_auto_profile_curve(buf: &mut [f32], flat: &[f32]) {
         let r0 = compress_input(px[0]);
         let g0 = compress_input(px[1]);
         let b0 = compress_input(px[2]);
-        let r1 = eval_channel(flat, 0, r0);
-        let g1 = eval_channel(flat, ANCHORS * 2, g0);
-        let b1 = eval_channel(flat, ANCHORS * 4, b0);
-        let (mut r2, mut g2, mut b2) = if identity {
-            (r1, g1, b1)
+        let (r1, g1, b1) = if identity {
+            (r0, g0, b0)
         } else {
             let m = OFF_MATRIX;
-            (
-                flat[m] * r1 + flat[m + 1] * g1 + flat[m + 2] * b1,
-                flat[m + 3] * r1 + flat[m + 4] * g1 + flat[m + 5] * b1,
-                flat[m + 6] * r1 + flat[m + 7] * g1 + flat[m + 8] * b1,
-            )
+            let r_lin = srgb_gamma_decode(r0);
+            let g_lin = srgb_gamma_decode(g0);
+            let b_lin = srgb_gamma_decode(b0);
+            let r_adapt = flat[m] * r_lin + flat[m + 1] * g_lin + flat[m + 2] * b_lin;
+            let g_adapt = flat[m + 3] * r_lin + flat[m + 4] * g_lin + flat[m + 5] * b_lin;
+            let b_adapt = flat[m + 6] * r_lin + flat[m + 7] * g_lin + flat[m + 8] * b_lin;
+            (srgb_gamma(r_adapt), srgb_gamma(g_adapt), srgb_gamma(b_adapt))
         };
+        let mut r2 = eval_channel(flat, 0, r1);
+        let mut g2 = eval_channel(flat, ANCHORS * 2, g1);
+        let mut b2 = eval_channel(flat, ANCHORS * 4, b1);
         if apply_chroma {
             let lab = rec2020_to_oklab([r2, g2, b2]);
             // Bin by Rec.709 luma on the post-curve+matrix RGB (matches fit-time

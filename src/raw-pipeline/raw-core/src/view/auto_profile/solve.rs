@@ -104,6 +104,7 @@ pub(super) fn build_design_matrices(
     band_of: &[usize],
     band_counts: &[usize; LUMA_BANDS.len()],
     footprint: &[u32],
+    adapt_srgb: crate::math::Matrix3,
 ) -> [[[f32; ANCHORS]; LUMA_BANDS.len()]; 3] {
     let nb = LUMA_BANDS.len();
     let mut m = [[[0.0f64; ANCHORS]; LUMA_BANDS.len()]; 3];
@@ -142,8 +143,23 @@ pub(super) fn build_design_matrices(
                 let srow = (crop_y0 + sy) * src_stride_px + crop_x0;
                 for sx in sx0..sx1 {
                     let idx = (srow + sx) * 3;
+                    let mut r_val = src[idx].clamp(0.0, 1.0);
+                    let mut g_val = src[idx + 1].clamp(0.0, 1.0);
+                    let mut b_val = src[idx + 2].clamp(0.0, 1.0);
+                    if adapt_srgb != crate::math::Matrix3::IDENTITY {
+                        let r_lin = super::apply::srgb_gamma_decode(r_val);
+                        let g_lin = super::apply::srgb_gamma_decode(g_val);
+                        let b_lin = super::apply::srgb_gamma_decode(b_val);
+                        let r_adapt = adapt_srgb.0[0][0] * r_lin + adapt_srgb.0[0][1] * g_lin + adapt_srgb.0[0][2] * b_lin;
+                        let g_adapt = adapt_srgb.0[1][0] * r_lin + adapt_srgb.0[1][1] * g_lin + adapt_srgb.0[1][2] * b_lin;
+                        let b_adapt = adapt_srgb.0[2][0] * r_lin + adapt_srgb.0[2][1] * g_lin + adapt_srgb.0[2][2] * b_lin;
+                        r_val = crate::view::encode::srgb_gamma(r_adapt);
+                        g_val = crate::view::encode::srgb_gamma(g_adapt);
+                        b_val = crate::view::encode::srgb_gamma(b_adapt);
+                    }
+                    let rgb = [r_val, g_val, b_val];
                     for lane in 0..3 {
-                        let v = src[idx + lane].clamp(0.0, 1.0);
+                        let v = rgb[lane];
                         let scaled = v * (ANCHORS - 1) as f32;
                         let lo = (scaled.floor() as usize).min(ANCHORS - 2);
                         let frac = (scaled - lo as f32) as f64;
