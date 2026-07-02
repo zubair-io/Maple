@@ -77,6 +77,16 @@ public struct MapleSceneLinearImageData: Sendable {
     public let bytesPerPixel: Int
     /// Packed RGBA bytes; `pixels.count == bytesPerPixel * width * height`.
     public let pixels: Data
+    /// Per-camera noise profile from `RawImage::noise_profile` (PR #1709
+    /// review fix). `nil` when the source DNG carries no NoiseLevelFunction
+    /// tag; the per-tick chain falls back to the ISO-only estimate in that
+    /// case. Forwarded to `MapleAdjustmentParams.noise_profile_ptr/len` so
+    /// `maple_apply_scene_linear_chain_f32` can use it for adaptive NR.
+    public let noiseProfile: [Float]?
+    /// ISO speed from `RawImage::iso` (PR #1709 review fix). 0 when not
+    /// available (the Rust chain substitutes 100 on its side). Forwarded to
+    /// `MapleAdjustmentParams.iso`.
+    public let iso: UInt32
 
     public var pixelCount: Int { width * height }
 }
@@ -448,7 +458,8 @@ public struct PipelineRenderer: Sendable {
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0
+            bytes_per_pixel: 0, width: 0, height: 0,
+            noise_profile_data: nil, noise_profile_len: 0, iso: 0
         )
         let rawPath = String(cString: rawCStr)
         let lastSlash = rawPath.lastIndex(of: "/").map { rawPath.index(after: $0) } ?? rawPath.startIndex
@@ -487,12 +498,19 @@ public struct PipelineRenderer: Sendable {
             }
         }
         pipelineLog.notice("← Rust FFI maple_render_file_scene_linear_f32 OK: \(buf.width)x\(buf.height) center scene-linear RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))")
+        // Extract noise profile before defer frees the buffer (PR #1709 fix).
+        let noiseProfile: [Float]? = {
+            guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
+            return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
+        }()
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
             channels: Int(buf.channels),
             bytesPerPixel: Int(buf.bytes_per_pixel),
-            pixels: data
+            pixels: data,
+            noiseProfile: noiseProfile,
+            iso: buf.iso
         )
     }
 
@@ -506,7 +524,8 @@ public struct PipelineRenderer: Sendable {
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0
+            bytes_per_pixel: 0, width: 0, height: 0,
+            noise_profile_data: nil, noise_profile_len: 0, iso: 0
         )
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
             maple_render_bytes_scene_linear_f32(ptr, UInt(len), hintPtr.baseAddress,
@@ -526,12 +545,19 @@ public struct PipelineRenderer: Sendable {
         let data = mapleStage("decode result copy") {
             Data(bytes: bufPtr, count: Int(buf.len_bytes))
         }
+        // Extract noise profile before defer frees the buffer (PR #1709 fix).
+        let noiseProfile: [Float]? = {
+            guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
+            return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
+        }()
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
             channels: Int(buf.channels),
             bytesPerPixel: Int(buf.bytes_per_pixel),
-            pixels: data
+            pixels: data,
+            noiseProfile: noiseProfile,
+            iso: buf.iso
         )
     }
 
@@ -546,7 +572,8 @@ public struct PipelineRenderer: Sendable {
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0
+            bytes_per_pixel: 0, width: 0, height: 0,
+            noise_profile_data: nil, noise_profile_len: 0, iso: 0
         )
         let rc = maple_render_file_scene_linear_sized_f32(
             rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
@@ -565,12 +592,19 @@ public struct PipelineRenderer: Sendable {
         let data = mapleStage("decode result copy") {
             Data(bytes: ptr, count: Int(buf.len_bytes))
         }
+        // Extract noise profile before defer frees the buffer (PR #1709 fix).
+        let noiseProfile: [Float]? = {
+            guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
+            return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
+        }()
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
             channels: Int(buf.channels),
             bytesPerPixel: Int(buf.bytes_per_pixel),
-            pixels: data
+            pixels: data,
+            noiseProfile: noiseProfile,
+            iso: buf.iso
         )
     }
 
@@ -585,7 +619,8 @@ public struct PipelineRenderer: Sendable {
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0
+            bytes_per_pixel: 0, width: 0, height: 0,
+            noise_profile_data: nil, noise_profile_len: 0, iso: 0
         )
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
             maple_render_bytes_scene_linear_sized_f32(
@@ -607,12 +642,19 @@ public struct PipelineRenderer: Sendable {
         let data = mapleStage("decode result copy") {
             Data(bytes: bufPtr, count: Int(buf.len_bytes))
         }
+        // Extract noise profile before defer frees the buffer (PR #1709 fix).
+        let noiseProfile: [Float]? = {
+            guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
+            return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
+        }()
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
             channels: Int(buf.channels),
             bytesPerPixel: Int(buf.bytes_per_pixel),
-            pixels: data
+            pixels: data,
+            noiseProfile: noiseProfile,
+            iso: buf.iso
         )
     }
 
@@ -724,12 +766,15 @@ public struct PipelineRenderer: Sendable {
         let data = mapleStage("decode result copy") {
             Data(bytes: ptr, count: Int(buf.len_bytes))
         }
+        // fp16 tile path — MapleSceneLinearBuffer carries no noise profile.
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
             channels: Int(buf.channels),
             bytesPerPixel: Int(buf.bytes_per_pixel),
-            pixels: data
+            pixels: data,
+            noiseProfile: nil,
+            iso: 0
         )
     }
 
@@ -867,12 +912,15 @@ public struct PipelineRenderer: Sendable {
         let data = mapleStage("decode result copy") {
             Data(bytes: ptr, count: Int(buf.len_bytes))
         }
+        // fp16 tile path — MapleSceneLinearBuffer carries no noise profile.
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
             channels: Int(buf.channels),
             bytesPerPixel: Int(buf.bytes_per_pixel),
-            pixels: data
+            pixels: data,
+            noiseProfile: nil,
+            iso: 0
         )
     }
 
@@ -910,12 +958,15 @@ public struct PipelineRenderer: Sendable {
         let data = mapleStage("decode result copy") {
             Data(bytes: bufPtr, count: Int(buf.len_bytes))
         }
+        // fp16 tile path — MapleSceneLinearBuffer carries no noise profile.
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
             channels: Int(buf.channels),
             bytesPerPixel: Int(buf.bytes_per_pixel),
-            pixels: data
+            pixels: data,
+            noiseProfile: nil,
+            iso: 0
         )
     }
 }
@@ -933,7 +984,8 @@ extension PipelineRenderer {
         from model: AdjustmentModel,
         decodedTemperature: Double = 6500.0,
         decodedTint: Double = 0.0,
-        skipAgX: Bool = false
+        skipAgX: Bool = false,
+        iso: UInt32 = 0
     ) -> MapleAdjustmentParams {
         // Diagnostic for the magenta-cast investigation: log every value the
         // Apple shell hands to the Rust slider chain. If temperature or tint
@@ -1025,6 +1077,15 @@ extension PipelineRenderer {
         // 0 = PostDcpRec2020Fp16 (RAW path) — both RAW and non-RAW callers leave it 0
         // here because the non-RAW CPU path already handles WB via `decodedTemperature`.
         params.input_shape = 0
+        // Noise profile (PR #1709 review finding): noise_profile_ptr / noise_profile_len
+        // carry a pointer into a caller-owned [Float] buffer and MUST NOT outlive that
+        // buffer. They are left zero here (null / 0) so `MapleAdjustmentParams` is safe
+        // to copy and store. The actual pointer is set on the local `var p` copy inside
+        // `applySceneLinearChain` via `withUnsafeBufferPointer`, scoped to the FFI call.
+        params.noise_profile_ptr = nil
+        params.noise_profile_len = 0
+        // ISO speed (PR #1709): 0 = unknown; Rust side maps 0 → 100 as a safe default.
+        params.iso = iso
         return params
     }
 
@@ -1060,7 +1121,8 @@ extension PipelineRenderer {
         inputBytes: Data,
         width: Int,
         height: Int,
-        params: MapleAdjustmentParams
+        params: MapleAdjustmentParams,
+        noiseProfile: [Float]? = nil
     ) throws -> Data {
         let lanes = width * height * 4
         let expectedBytes = lanes * MemoryLayout<Float>.size
@@ -1071,16 +1133,25 @@ extension PipelineRenderer {
             )
         }
         var output = Data(count: expectedBytes)
-        let rc = output.withUnsafeMutableBytes { outBuf -> Int32 in
-            let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
-            return inputBytes.withUnsafeBytes { inBuf -> Int32 in
-                let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
-                var p = params
-                return maple_apply_scene_linear_chain_f32(
-                    inPtr, UInt32(width), UInt32(height),
-                    &p,
-                    outPtr
-                )
+        // `noiseProfile` must outlive the FFI call. Pin it via
+        // `withUnsafeBufferPointer` so the closure captures the live pointer;
+        // the outer closure chain keeps `noiseProfile` alive for the duration.
+        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
+            var p = params
+            if let npBuf {
+                p.noise_profile_ptr = npBuf.baseAddress
+                p.noise_profile_len = UInt32(npBuf.count)
+            }
+            return try output.withUnsafeMutableBytes { outBuf -> Int32 in
+                let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
+                return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+                    let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
+                    return maple_apply_scene_linear_chain_f32(
+                        inPtr, UInt32(width), UInt32(height),
+                        &p,
+                        outPtr
+                    )
+                }
             }
         }
         guard rc == 0 else {
@@ -1088,6 +1159,16 @@ extension PipelineRenderer {
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
         }
         return output
+    }
+
+    /// Helper: invoke `body` with an `UnsafeBufferPointer<T>?` scoped to
+    /// the lifetime of `array`. Passes `nil` when `array` is nil.
+    private static func withOptionalUnsafeBufferPointer<T, R>(
+        _ array: [T]?,
+        body: (UnsafeBufferPointer<T>?) throws -> R
+    ) rethrows -> R {
+        guard let array else { return try body(nil) }
+        return try array.withUnsafeBufferPointer { try body($0) }
     }
 
     /// Apply raw-core's canonical display **encode** to a post-AgX

@@ -139,7 +139,11 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
                     return 8;
                 }
             };
-        write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);
+        write_scene_linear_buf_f32(
+            out_ptr, w, h, f32_rgba,
+            raw_img.noise_profile.as_deref(),
+            raw_img.iso,
+        );
         0
     })
 }
@@ -225,7 +229,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
                     return 8;
                 }
             };
-        write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);
+        write_scene_linear_buf_f32(
+            out_ptr, w, h, f32_rgba,
+            raw_img.noise_profile.as_deref(),
+            raw_img.iso,
+        );
         0
     })
 }
@@ -320,7 +328,11 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             Err(CoreError::Cancelled) => return RC_CANCELLED,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
-        write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);
+        write_scene_linear_buf_f32(
+            out_ptr, w, h, f32_rgba,
+            raw_img.noise_profile.as_deref(),
+            raw_img.iso,
+        );
         0
     })
 }
@@ -407,7 +419,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             Err(CoreError::Cancelled) => return RC_CANCELLED,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
-        write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);
+        write_scene_linear_buf_f32(
+            out_ptr, w, h, f32_rgba,
+            raw_img.noise_profile.as_deref(),
+            raw_img.iso,
+        );
         0
     })
 }
@@ -436,7 +452,19 @@ fn decode_file_cached(
 
 /// f32 counterpart to [`write_scene_linear_buf`]. Boxes the `Vec<f32>` and
 /// hands the raw parts to the caller in a [`MapleSceneLinearBufferF32`].
-pub(crate) fn write_scene_linear_buf_f32(out_ptr: usize, w: u32, h: u32, f32_rgba: Vec<f32>) {
+///
+/// `noise_profile` is the optional per-camera noise profile from
+/// `RawImage::noise_profile`, and `iso` is `RawImage::iso`. Both are forwarded
+/// into the buffer so the per-tick FFI chain (`maple_apply_scene_linear_chain_f32`)
+/// can use them for profile-aware NR (PR #1709 review fix).
+pub(crate) fn write_scene_linear_buf_f32(
+    out_ptr: usize,
+    w: u32,
+    h: u32,
+    f32_rgba: Vec<f32>,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+) {
     let (f32_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack_f32", || {
         let mut boxed = f32_rgba.into_boxed_slice();
         let p = boxed.as_mut_ptr();
@@ -444,6 +472,17 @@ pub(crate) fn write_scene_linear_buf_f32(out_ptr: usize, w: u32, h: u32, f32_rgb
         std::mem::forget(boxed);
         (p, n, n * std::mem::size_of::<f32>())
     });
+    // Box the noise profile if present so it's heap-owned and can be freed
+    // by `maple_free_scene_linear_buffer_f32`.
+    let (np_ptr, np_len) = if let Some(profile) = noise_profile {
+        let mut boxed = profile.to_vec().into_boxed_slice();
+        let p = boxed.as_mut_ptr();
+        let n = boxed.len();
+        std::mem::forget(boxed);
+        (p, n as u32)
+    } else {
+        (std::ptr::null_mut(), 0u32)
+    };
     unsafe {
         *(out_ptr as *mut MapleSceneLinearBufferF32) = MapleSceneLinearBufferF32 {
             f32_rgba: f32_ptr,
@@ -452,6 +491,9 @@ pub(crate) fn write_scene_linear_buf_f32(out_ptr: usize, w: u32, h: u32, f32_rgb
             bytes_per_pixel: 16,
             width: w,
             height: h,
+            noise_profile_data: np_ptr,
+            noise_profile_len: np_len,
+            iso,
         };
     }
 }

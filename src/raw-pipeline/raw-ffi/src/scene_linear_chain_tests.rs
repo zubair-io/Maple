@@ -73,6 +73,11 @@ fn default_params() -> MapleAdjustmentParams {
         target_primaries: 0,
         // RAW shape — the full chain including WB (pre-#1331 default, value 0).
         input_shape: 0,
+        // No noise profile (PR #1709 fix — new tail fields; null + 0 = None,
+        // which maps to the pre-fix ISO-only fallback behaviour).
+        noise_profile_ptr: std::ptr::null(),
+        noise_profile_len: 0,
+        iso: 100,
     }
 }
 

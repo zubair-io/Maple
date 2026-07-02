@@ -636,7 +636,9 @@ public actor ImageEditPipeline {
         decodedTemperature: Double,
         decodedTint: Double,
         skipAgX: Bool,
-        assetID: UUID? = nil
+        assetID: UUID? = nil,
+        noiseProfile: [Float]? = nil,
+        iso: UInt32 = 0
     ) -> CIImage {
         let extent = scaled.extent
         let w = Int(extent.width.rounded())
@@ -696,13 +698,15 @@ public actor ImageEditPipeline {
             from: model,
             decodedTemperature: decodedTemperature,
             decodedTint: decodedTint,
-            skipAgX: skipAgX
+            skipAgX: skipAgX,
+            iso: iso
         )
         let outputBytes: Data
         do {
             outputBytes = try mapleStage("apply scene-linear chain") {
                 try PipelineRenderer.applySceneLinearChain(
-                    inputBytes: inputBytes, width: w, height: h, params: params
+                    inputBytes: inputBytes, width: w, height: h, params: params,
+                    noiseProfile: noiseProfile
                 )
             }
         } catch {
