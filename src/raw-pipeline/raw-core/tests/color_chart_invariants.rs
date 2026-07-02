@@ -33,7 +33,9 @@
 use raw_core::color::dcp::ProfileSource;
 use raw_core::image::Image;
 use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
-use raw_core::test_support::synth_chart::{camera_patch_unclipped, ChartEncoding, SyntheticColorChart};
+use raw_core::test_support::synth_chart::{
+    camera_patch_unclipped, ChartEncoding, SyntheticColorChart,
+};
 use raw_core::xmp::AdjustmentModel;
 
 /// Self-calibrated chroma residual: abs |got - G*want|. Observed worst 1e-5.
@@ -67,38 +69,6 @@ fn lsq_gain(chart: &SyntheticColorChart, scene: &Image) -> f32 {
         }
     }
     (num / den) as f32
-}
-
-/// Core invariant: every one of the 24 known colors survives the full RAW
-/// pipeline up to a single global exposure gain — no hue or chroma distortion.
-#[test]
-fn chart_chroma_fidelity_scene_linear() {
-    let (chart, scene) = develop(&AdjustmentModel::default());
-    let g = lsq_gain(&chart, &scene);
-
-    // Sanity-bound the gain so a gross exposure regression (e.g. a doubling)
-    // still trips this test. The gain itself is not a tight contract — the
-    // per-patch chroma match below is the real gate.
-    assert!(
-        (1.0..1.4).contains(&g),
-        "develop gain G={g} outside sane exposure range [1.0, 1.4)"
-    );
-
-    for row in 0..4 {
-        for col in 0..6 {
-            let got = chart.read_patch_mean(&scene, col, row);
-            let want = chart.patches[row][col];
-            for c in 0..3 {
-                let resid = (got[c] - g * want[c]).abs();
-                assert!(
-                    resid <= EPS_CHROMA,
-                    "patch ({col},{row}) chan {c}: |got {} - G*want {}| = {resid} > {EPS_CHROMA} (G={g})",
-                    got[c],
-                    g * want[c],
-                );
-            }
-        }
-    }
 }
 
 /// Neutral row (row 3 in `colorchecker.rs`) must develop neutral (R==G==B) —
@@ -218,8 +188,7 @@ fn rec2020_chart_resolves_to_embedded_cm_only_not_fallback() {
 
     let chart = SyntheticColorChart::default(); // Rec2020 encoding
     let bytes = chart.write_to_bytes();
-    let raw =
-        raw_core::decode::decode_bytes(&bytes, "dng").expect("Rec.2020 chart must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("Rec.2020 chart must decode");
 
     // Verify color_matrices is populated (not filtered away as identity).
     assert!(
@@ -229,8 +198,7 @@ fn rec2020_chart_resolves_to_embedded_cm_only_not_fallback() {
     );
 
     // Profile resolver must NOT fall back to RawlerFallback.
-    let (_, source) =
-        profile_for_with_source(&raw).expect("profile resolve must not error");
+    let (_, source) = profile_for_with_source(&raw).expect("profile resolve must not error");
     assert!(
         matches!(source, ProfileSource::EmbeddedCmOnly { .. }),
         "Rec.2020 chart must resolve to EmbeddedCmOnly, got {:?}",
@@ -240,16 +208,12 @@ fn rec2020_chart_resolves_to_embedded_cm_only_not_fallback() {
 
 /// Patch means of the corrected Rec.2020 chart (test_0018) must match their
 /// scene-linear Rec.2020 targets within a self-calibrated global gain G.
-/// This supersedes `chart_chroma_fidelity_scene_linear`, which previously
-/// relied on the identity-CM coincidence — both ACR and Maple happened to
-/// treat identity-CM Rec.2020 values approximately correctly (Maple via the
-/// RawlerFallback Rec.2020 proxy; ACR by misinterpreting them as XYZ).
-/// Now the chart is correctly tagged and both pipelines agree on the
-/// interpretation.
-///
-/// Tolerance is the same as `chart_chroma_fidelity_scene_linear` (EPS_CHROMA
-/// = 1e-3). The previous gain range check also applies: G must stay within
-/// [1.0, 1.4).
+/// This replaces the pre-#1711 `chart_chroma_fidelity_scene_linear`, which
+/// asserted the same invariant but relied on the identity-CM coincidence
+/// (Maple's RawlerFallback treated the values as Rec.2020 while ACR
+/// misread them as XYZ). The chart is now correctly tagged, so this is the
+/// single chroma-fidelity gate: per-patch |got − G·want| ≤ EPS_CHROMA
+/// (1e-3), with the global gain G bounded to [1.0, 1.4).
 ///
 /// Refs: #1711.
 #[test]
@@ -294,8 +258,7 @@ fn camera_chart_resolves_to_embedded_cm_only() {
         ..Default::default()
     };
     let bytes = chart.write_to_bytes();
-    let raw =
-        raw_core::decode::decode_bytes(&bytes, "dng").expect("camera chart must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("camera chart must decode");
 
     // Both StdA and D65 CMs must be present (dual-illuminant Canon profile).
     assert_eq!(
@@ -340,8 +303,7 @@ fn camera_chart_round_trips_to_rec2020_targets() {
         ..Default::default()
     };
     let bytes = chart.write_to_bytes();
-    let raw =
-        raw_core::decode::decode_bytes(&bytes, "dng").expect("camera chart must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("camera chart must decode");
     let scene = develop_scene_linear_from_raw_with_quality(
         &raw,
         &AdjustmentModel::default(),
@@ -391,4 +353,3 @@ fn camera_chart_round_trips_to_rec2020_targets() {
         }
     }
 }
-
