@@ -241,6 +241,7 @@ fn aggressive_case() -> Case {
             iterations: 2,
             highlight_threshold: 0.9,
             strength: 1.0,
+            noise_floor: 3e-4,
         }),
         curve: nonidentity_curve(),
         lut: nonidentity_lut(9),

@@ -68,6 +68,11 @@ pub struct CaptureSharpeningParams {
     pub highlight_threshold: f32,
     /// Strength multiplier. 1.0 = full effect; 0.0 = off (bit-identical no-op).
     pub strength: f32,
+    /// Noise floor for dampened Richardson–Lucy. The RL update ratio is suppressed
+    /// when the blurred estimate falls below this value, preventing noise
+    /// amplification in dark regions. Setting to 0.0 disables dampening (classic RL).
+    /// Default: 3e-4 (tuned for 14-bit linear scene data). Mirrors raw-core's field.
+    pub noise_floor: f32,
 }
 
 impl Default for CaptureSharpeningParams {
@@ -78,6 +83,7 @@ impl Default for CaptureSharpeningParams {
             iterations: 2,
             highlight_threshold: 0.99,
             strength: 1.0,
+            noise_floor: 3e-4,
         }
     }
 }
