@@ -38,6 +38,11 @@ const TAG_ANALOG_BALANCE: u16 = 50727;
 const TAG_AS_SHOT_NEUTRAL: u16 = 50728;
 const TAG_BASELINE_EXPOSURE: u16 = 50730;
 const TAG_CALIBRATION_ILLUMINANT_1: u16 = 50778;
+
+/// DNG `CalibrationIlluminant` EXIF LightSource code for D65 (DNG 1.4
+/// spec §4, TIFF/EP LightSource). The camera-encoding path uses the named
+/// codes from `canon_dcp` instead.
+const CALIBRATION_ILLUMINANT_D65: u16 = 21;
 const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
 const TAG_FORWARD_MATRIX_1: u16 = 50964;
 const TAG_FORWARD_MATRIX_2: u16 = 50965;
@@ -195,8 +200,7 @@ impl SyntheticColorChart {
         // CM1 = M_XYZ_D65_TO_REC2020 (XYZ D65 → camera, camera = Rec.2020).
         let cm1: [[f32; 3]; 3] = M_XYZ_D65_TO_REC2020.0;
         ifd.add_srationals(TAG_COLOR_MATRIX_1, matrix_to_srationals(cm1));
-        // CalibrationIlluminant1 = D65 (21).
-        ifd.add_short(TAG_CALIBRATION_ILLUMINANT_1, 21);
+        ifd.add_short(TAG_CALIBRATION_ILLUMINANT_1, CALIBRATION_ILLUMINANT_D65);
         // AsShotNeutral = [1, 1, 1] — equal-energy neutral.
         ifd.add_rationals(TAG_AS_SHOT_NEUTRAL, vec3_to_rationals([1.0, 1.0, 1.0]));
     }
