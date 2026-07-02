@@ -559,6 +559,8 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         target_primaries: 0,
         // Web test always uses the RAW / full chain.
         input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
+        // AgX (default) — no profile selection in this test (#1722).
+        profile_id: 0,
     };
     let cancel = CancelToken::new();
 
