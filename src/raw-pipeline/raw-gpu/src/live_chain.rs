@@ -50,13 +50,14 @@
 //!   transform to become a display image. `dither` (P4b terminal) is appended by
 //!   the live session, not here (this builder is f32-RGBA, like `build_split`).
 
+use crate::acr_match_pass::AcrMatchPass;
 use crate::agx::AgxPass;
 use crate::auto_profile_curve::AutoProfileCurvePass;
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
-use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
+use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape, PROFILE_ID_ACR_MATCH};
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
@@ -319,10 +320,16 @@ pub fn build_live_split(
     // `skipAgX: true`); mirror it here so the GPU-live and CPU paths agree. The
     // rest of the tail (`display_encode` → `srgb_gamma` → …) still runs: the
     // non-RAW buffer is linear Rec.2020 and must be encoded to display sRGB. #1513
+    // View tail: AgX (default) or AcrMatch (#1722) depending on the profile.
+    // Non-RAW shapes (display-referred) skip the tone-map entirely (#1513).
     if is_raw_shape {
-        suffix.push(Box::new(AgxPass {
-            contrast: inputs.contrast,
-        }));
+        if inputs.profile_id == PROFILE_ID_ACR_MATCH {
+            suffix.push(Box::new(AcrMatchPass));
+        } else {
+            suffix.push(Box::new(AgxPass {
+                contrast: inputs.contrast,
+            }));
+        }
     }
     // Split toning (#1111) — display-linear, post-AgX; GATED on the two
     // saturations (zero saturations are a true no-op regardless of hues /
