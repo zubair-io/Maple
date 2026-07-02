@@ -24,14 +24,14 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { parseXmpMetadata, xmpMetadataToOverridePatch } from '../../xmp/metadata-parser.ts';
 import { parseYearMonth } from '../../metadata/override-resolver.ts';
-import type { MetadataOverride } from '../../db/schema.ts';
+import type { MetadataOverride, FileInfo } from '../../db/schema.ts';
 import { coll } from '../../indexer/images.repo.ts';
 
 export const SIDECAR_METADATA_INDEX_VERSION = 1;
@@ -59,14 +59,27 @@ function gpsChanged(
 // Stage handler
 // ---------------------------------------------------------------------------
 
+function assetActiveFileInfo(asset: { fileinfo?: FileInfo[] | null }): FileInfo | null {
+  const list = asset.fileinfo;
+  if (!list || list.length === 0) return null;
+  for (const entry of list) {
+    if (!entry.deleted_at) return entry;
+  }
+  return null;
+}
+
 export async function sidecarMetadataIndexHandler(
   image: ImageDoc,
   ctx: StageContext,
 ): Promise<StageResult> {
   // 1. Resolve absolute path.
   const libraries = await loadLibraryRoots();
-  const absPath = assetAbsPath(image, libraries);
-  if (!absPath) return { skip: 'no-path' };
+  const primary = assetActiveFileInfo(image);
+  if (!primary) return { skip: 'no-path' };
+  const root = libraries.get(primary.library_id.toHexString());
+  if (!root) return { skip: 'no-path' };
+  const segments = primary.path === '' ? [] : primary.path.split('/');
+  const absPath = path.join(root, ...segments, primary.filename);
 
   // 2. Read sidecar.
   const sidecarPath = xmpSidecarPath(absPath);
