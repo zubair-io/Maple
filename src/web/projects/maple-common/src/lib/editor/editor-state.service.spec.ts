@@ -546,10 +546,10 @@ describe('EditorStateService', () => {
 
       let resolvePatch!: (p: AutoAdjustPatch) => void;
       pipeline.computeAutoAdjustments.mockImplementation(
-         () =>
-           new Promise<AutoAdjustPatch>((r) => {
-             resolvePatch = r;
-           }),
+        () =>
+          new Promise<AutoAdjustPatch>((r) => {
+            resolvePatch = r;
+          }),
       );
 
       const p = svc.applyAuto(ID);
