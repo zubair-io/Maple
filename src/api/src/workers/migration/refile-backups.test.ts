@@ -187,39 +187,39 @@ describe('computeCanonicalDir — screenshot (subsumes computeScreenshotDir)', (
 });
 
 describe('computeCanonicalDir — no location (subsumes restructureDir flatten)', () => {
-  test('old <year>/<loc>/<MM-DD> day-folder → year/Misc', () => {
-    expect(computeCanonicalDir({ fileinfo: [fi('2024/Tokyo/03-15')] })).toBe('2024/Misc');
+  test('old <year>/<loc>/<MM-DD> day-folder → flattened year/loc', () => {
+    expect(computeCanonicalDir({ fileinfo: [fi('2024/Tokyo/03-15')] })).toBe('2024/Tokyo');
   });
 
-  test('old <year>/<MM>/<DD> day-folder → year/Misc', () => {
-    expect(computeCanonicalDir({ fileinfo: [fi('2019/05/12')] })).toBe('2019/Misc');
+  test('old <year>/<MM>/<DD> day-folder → flattened year/MM', () => {
+    expect(computeCanonicalDir({ fileinfo: [fi('2019/05/12')] })).toBe('2019/05');
   });
 
-  test('stub place (no usable segments) → year/Misc', () => {
-    expect(computeCanonicalDir({ fileinfo: [fi('2024/05')], place: place({}) })).toBe('2024/Misc');
+  test('stub place (no usable segments) → left in place', () => {
+    expect(computeCanonicalDir({ fileinfo: [fi('2024/05')], place: place({}) })).toBe('2024/05');
   });
 
-  test('already-flat new-layout dir with no place → year/Misc', () => {
-    expect(computeCanonicalDir({ fileinfo: [fi('2024/Tokyo')] })).toBe('2024/Misc');
+  test('already-flat new-layout dir with no place → left in place', () => {
+    expect(computeCanonicalDir({ fileinfo: [fi('2024/Tokyo')] })).toBe('2024/Tokyo');
   });
 
-  test('no location, capture month known → <year>/Misc (normalizes a junk folder)', () => {
+  test('no location, capture month known → <year>/<MM> (normalizes a junk folder)', () => {
     expect(
       computeCanonicalDir({
         fileinfo: [fi('2026/2595')],
         exif: { captured_year: 2026, captured_month: 5 },
       }),
-    ).toBe('2026/Misc');
+    ).toBe('2026/05');
   });
 
-  test('stub place but capture month known → <year>/Misc (drops the stale loc)', () => {
+  test('stub place but capture month known → <year>/<MM> (drops the stale loc)', () => {
     expect(
       computeCanonicalDir({
         fileinfo: [fi('2024/Tokyo/03-15')],
         place: place({}),
         exif: { captured_year: 2024, captured_month: 7 },
       }),
-    ).toBe('2024/Misc');
+    ).toBe('2024/07');
   });
 });
 
