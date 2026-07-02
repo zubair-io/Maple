@@ -1,4 +1,4 @@
-//! Integration tests for the fit-acr solver (#1720).
+//! Integration tests for the single-render fit-acr solver (#1720).
 //!
 //! Exercises `solve_acr_model` against an analytic fake renderer:
 //!
@@ -14,6 +14,8 @@
 //!   - tonescale within 1% of analytic S-curve at each knot
 //!   - mean hue twist within 0.5 degrees of 6 across all sweep patches
 //!   - end-to-end DE00 mean <= 0.5, max <= 2.0
+//!
+//! Multi-render pooled tonescale tests (#1722) are in `fit_acr_multirender.rs`.
 
 #[cfg(feature = "test-support")]
 mod solver_tests {
@@ -56,9 +58,8 @@ mod solver_tests {
     /// Returns gamma-encoded sRGB in [0,1], matching what an 8-bit PNG stores.
     fn fake_render_8bit(scene_rec2020: [f32; 3]) -> [f32; 3] {
         // Tonescale: luminance-preserving.
-        let l_scene = 0.2627 * scene_rec2020[0]
-            + 0.6780 * scene_rec2020[1]
-            + 0.0593 * scene_rec2020[2];
+        let l_scene =
+            0.2627 * scene_rec2020[0] + 0.6780 * scene_rec2020[1] + 0.0593 * scene_rec2020[2];
         if l_scene <= 0.0 {
             return [0.0; 3];
         }
@@ -140,7 +141,12 @@ mod solver_tests {
         }
 
         let spec_json = chart.spec_to_json();
-        TestState { chart, png_rgb: png, png_w: w, spec_json }
+        TestState {
+            chart,
+            png_rgb: png,
+            png_w: w,
+            spec_json,
+        }
     }
 
     static STATE: OnceLock<TestState> = OnceLock::new();
@@ -218,8 +224,7 @@ mod solver_tests {
             // Model prediction hue.
             let pred_rec2020 = apply_model(&model, spec.target_rec2020);
             let lab_pred = rec2020_to_oklab(pred_rec2020);
-            let c_pred =
-                (lab_pred[1] * lab_pred[1] + lab_pred[2] * lab_pred[2]).sqrt();
+            let c_pred = (lab_pred[1] * lab_pred[1] + lab_pred[2] * lab_pred[2]).sqrt();
             if c_pred < 1e-4 {
                 continue;
             }
@@ -319,14 +324,8 @@ mod solver_tests {
         // Budgets account for 8-bit quantisation error and the finite lattice
         // resolution (24 hue x 6 chroma x 8 luma).  These are the same
         // constraints real ACR-rendered PNGs impose.
-        assert!(
-            mean_de <= 2.0,
-            "mean DE00 {mean_de:.4} exceeds 2.0 (n={n})"
-        );
-        assert!(
-            max_de <= 8.0,
-            "max DE00 {max_de:.4} exceeds 8.0 (n={n})"
-        );
+        assert!(mean_de <= 2.0, "mean DE00 {mean_de:.4} exceeds 2.0 (n={n})");
+        assert!(max_de <= 8.0, "max DE00 {max_de:.4} exceeds 8.0 (n={n})");
     }
 
     #[test]
