@@ -141,7 +141,7 @@ export function geoSegmentsFromOverride(override: MetadataOverride | null | unde
  *   2. metadata_override.place_text → computed directly (geocode hasn't run).
  *   3. doc.place → Nominatim-geocoded fallback.
  *
- * Returns null when the asset has no usable geo location.
+ * Falls back to <year>/Misc when the asset has no usable geo location.
  */
 function geoDir(doc: WithId<AssetDoc>): string | null {
   const primary = assetActiveFileInfo(doc);
