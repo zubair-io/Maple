@@ -36,11 +36,7 @@ pub(crate) fn compile_with_matrices(
 /// The module rounds pixels through Oklab, so it concats the generated color
 /// matrices (like `compile_with_matrices`); `entry` selects which `@compute` fn
 /// the pipeline targets, since all five NLM kernels share one source file.
-pub(crate) fn compile_nr(
-    device: &wgpu::Device,
-    label: &str,
-    entry: &str,
-) -> wgpu::ComputePipeline {
+pub(crate) fn compile_nr(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputePipeline {
     let source = format!(
         "{}\n{}",
         include_str!("generated/color_matrices.wgsl"),
@@ -53,11 +49,7 @@ pub(crate) fn compile_nr(
 /// #991). The module is luma-only (no Oklab), so it needs NO generated-matrix
 /// concat — it compiles standalone; `entry` selects which `@compute` fn the
 /// pipeline targets, since all five capture-sharpening kernels share one source.
-pub(crate) fn compile_cs(
-    device: &wgpu::Device,
-    label: &str,
-    entry: &str,
-) -> wgpu::ComputePipeline {
+pub(crate) fn compile_cs(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputePipeline {
     compile_source_entry(
         device,
         label,

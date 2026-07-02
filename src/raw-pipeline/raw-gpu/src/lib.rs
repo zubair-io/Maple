@@ -186,6 +186,7 @@
 //! behind the `gpu` feature of `raw-core` / `raw-wasm`, so it is **absent from
 //! their default dependency trees** — default builds never compile wgpu.
 
+mod acr_match_pass;
 mod agx;
 mod airlight;
 mod auto_profile_curve;
@@ -253,6 +254,7 @@ mod vibrance;
 mod vignette;
 mod white_balance;
 
+pub use acr_match_pass::{apply_acr_match, AcrMatchPass};
 pub use agx::{apply_agx, AgxPass};
 pub use airlight::{encode_airlight, AIRLIGHT_BINS};
 pub use auto_profile_curve::{
@@ -268,6 +270,7 @@ pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rg
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use full_chain::{
     build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape,
+    PROFILE_ID_ACR_MATCH,
 };
 pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
