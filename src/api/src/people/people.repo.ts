@@ -575,31 +575,28 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
  * Idempotent — hiding an already-hidden person is a no-op write.
  */
 export async function hidePerson(id: ObjectId): Promise<void> {
-  const coll = await peopleCollection();
-  await coll.updateOne({ _id: id }, { $set: { hidden: true, updated_at: nowIso() } });
+  await (
+    await peopleCollection()
+  ).updateOne({ _id: id }, { $set: { hidden: true, updated_at: nowIso() } });
   log.info({ id: id.toHexString() }, 'hid person');
 }
 
 /**
- * Restore a hidden person — clears the `hidden` flag so it reappears in the
- * normal listing. Idempotent on an already-visible person.
+ * Restore a hidden person — clears the `hidden` flag.
  */
 export async function unhidePerson(id: ObjectId): Promise<void> {
-  const coll = await peopleCollection();
-  await coll.updateOne({ _id: id }, { $set: { hidden: false, updated_at: nowIso() } });
+  await (
+    await peopleCollection()
+  ).updateOne({ _id: id }, { $set: { hidden: false, updated_at: nowIso() } });
   log.info({ id: id.toHexString() }, 'unhid person');
 }
 
 /**
- * Returns the asset's `faces[]` array (typed). Helper used by the clustering
- * job + tests; not exported to routes directly. Unused export removed for
- * lint cleanliness.
+ * Returns the asset's `faces[]` array. Helper used by the clustering job + tests.
  */
 export async function readFaces(assetId: ObjectId): Promise<AssetFaceDoc[]> {
-  const assets = await assetsCollection();
-  const doc = (await assets.findOne(
-    { _id: assetId },
-    { projection: { faces: 1 } },
-  )) as WithId<AssetDoc> | null;
+  const doc = await (
+    await assetsCollection()
+  ).findOne({ _id: assetId }, { projection: { faces: 1 } });
   return (doc?.faces ?? []) as AssetFaceDoc[];
 }
