@@ -491,6 +491,11 @@ pub fn render_from_scene_linear_with_chain(
 #[cfg(test)]
 mod tests;
 
+// T6 Auto Profile dispatch tests live in their own sibling file so both
+// `tests.rs` and this file stay under the 600-LOC hard budget.
+#[cfg(test)]
+mod tests_dispatch;
+
 // Auto-Profile Path/Bytes render-parity test (#867) lives in its own sibling
 // file so both it and `tests.rs` stay under the 600-LOC budget (#482).
 #[cfg(test)]

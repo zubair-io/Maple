@@ -395,4 +395,6 @@ mod tests;
 #[cfg(test)]
 mod tests_brightness;
 #[cfg(test)]
+mod tests_hue;
+#[cfg(test)]
 mod tests_sh_mask;

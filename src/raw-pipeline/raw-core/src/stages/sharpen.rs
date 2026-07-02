@@ -234,3 +234,9 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 #[cfg(test)]
 #[path = "sharpen/tests.rs"]
 mod tests;
+
+// Fringing + radius tests split further into `sharpen/tests_fringing.rs`
+// (600-LOC budget).
+#[cfg(test)]
+#[path = "sharpen/tests_fringing.rs"]
+mod tests_fringing;

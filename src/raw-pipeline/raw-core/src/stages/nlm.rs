@@ -580,3 +580,8 @@ fn process_shift(
 #[cfg(test)]
 #[path = "nlm_tests.rs"]
 mod tests;
+
+// Box-sum kernel proofs split further into `nlm_tests_box.rs` (600-LOC budget).
+#[cfg(test)]
+#[path = "nlm_tests_box.rs"]
+mod tests_box;
