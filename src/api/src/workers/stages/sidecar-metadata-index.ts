@@ -24,7 +24,6 @@
  */
 
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
