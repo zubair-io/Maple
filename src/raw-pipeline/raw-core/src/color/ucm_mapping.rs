@@ -117,6 +117,7 @@ mod tests {
             crop_rect: None,
             iso: 100,
             noise_profile: None,
+            opcode_list3: None,
         }
     }
 
