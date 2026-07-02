@@ -19,7 +19,7 @@ Maple ignores the embedded matrix — `dcp::profile_for` logs a generic D65→Re
 fallback — and by coincidence that fallback matches the generator's intent. The colored
 patches consequently carry a ΔC of up to −49 that has nothing to do with either
 pipeline's look. Only the six neutral patches carry a clean signal today: ACR's tone
-rendering is 12–20 L* brighter than Maple's AgX at equal input.
+rendering is 12–20 L\* brighter than Maple's AgX at equal input.
 
 ## Goal
 
@@ -69,7 +69,7 @@ the transform.
 
 With the baseline transform matched, each preset case isolates one operator, and each
 operator's response is fitted to ACR's: exposure (a linear multiply, expected to already
-match), temperature/tint and the wb_* presets against a proper illuminant model,
+match), temperature/tint and the wb\_\* presets against a proper illuminant model,
 the parametric tone family (contrast, highlights, shadows, whites, blacks), then
 saturation and vibrance. This extends the closed-form predictor machinery in
 `test_grey_adjustments.sh` from grey ramps to colored patches. Budgets ratchet per case
