@@ -133,13 +133,10 @@ export async function sidecarMetadataIndexHandler(
   patch['rating'] = override.rating ?? 0;
   patch['flag'] = override.flag === 'pick' ? 1 : override.flag === 'reject' ? -1 : 0;
   patch['color_label'] = override.color_label ?? '';
-  if (override.is_screenshot !== undefined) {
-    if (override.is_screenshot !== null) {
-      patch['is_screenshot'] = override.is_screenshot;
-    } else {
-      patch['is_screenshot'] = image.vision?.is_screenshot ?? false;
-    }
-  }
+  patch['is_screenshot'] =
+    override.is_screenshot !== undefined && override.is_screenshot !== null
+      ? override.is_screenshot
+      : (image.vision?.is_screenshot ?? false);
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps
