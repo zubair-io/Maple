@@ -581,17 +581,12 @@ impl Default for AdjustmentModel {
             tone_curve_green: ToneCurve::default(),
             tone_curve_blue: ToneCurve::default(),
             // Per-#1104: decode-time chroma pre-filter ships default-off.
-            // The shipped default is re-evaluated by the § 3.1 calibration
-            // sweep ({0, 25, 50} across the fixture matrix) — flipping it
-            // is a separate decision with its own budgets.json ratchet.
             chroma_prefilter: 0.0,
-            // Per-#1106: off until a harness sweep shows enabling is free
-            // on clean fixtures (spec § 10.6).
+            // Per-#1106: off until a harness sweep shows enabling is free.
             hot_pixel_suppression: HotPixelSuppressionMode::Off,
             // Per-#1105: heavy opt-in stage, always default-off.
             deep_denoise: 0.0,
-            // Per-#277: geometry stage defaults to full-frame identity so the
-            // parity harness stays a no-op for all existing fixtures.
+            // Per-#277: geometry stage defaults to full-frame identity.
             crop: Crop::IDENTITY,
         }
     }
