@@ -1,3 +1,4 @@
+pub mod acr_fit;
 pub mod agx;
 pub mod agx_inverse;
 pub mod auto_profile;
