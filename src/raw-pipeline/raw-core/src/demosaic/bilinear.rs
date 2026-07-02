@@ -25,7 +25,11 @@ pub fn bilinear_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
     let w = mosaic.width as i32;
     let h = mosaic.height as i32;
     let w_usize = mosaic.width as usize;
-    let mut out = Image::new(mosaic.width, mosaic.height, ColorSpace::CameraNativeLinearRgb);
+    let mut out = Image::new(
+        mosaic.width,
+        mosaic.height,
+        ColorSpace::CameraNativeLinearRgb,
+    );
 
     // Zero-dim input: return the empty image rather than reaching
     // `par_chunks_mut(0)`, which panics ("chunk_size must not be zero").
@@ -37,8 +41,20 @@ pub fn bilinear_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
 
     let sample = |x: i32, y: i32, channel: usize| -> f32 {
         // Mirror-reflect borders.
-        let mx = if x < 0 { -x } else if x >= w { 2*(w-1) - x } else { x };
-        let my = if y < 0 { -y } else if y >= h { 2*(h-1) - y } else { y };
+        let mx = if x < 0 {
+            -x
+        } else if x >= w {
+            2 * (w - 1) - x
+        } else {
+            x
+        };
+        let my = if y < 0 {
+            -y
+        } else if y >= h {
+            2 * (h - 1) - y
+        } else {
+            y
+        };
         mosaic.pixels[(my as usize) * w_usize + (mx as usize)][channel]
     };
 
@@ -63,21 +79,27 @@ pub fn bilinear_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
                     0 | 2 => {
                         // R or B known; interpolate G as 4-neighbor average and
                         // the opposite chroma as 4-diagonal average.
-                        rgb[1] = (sample(x-1, y, 1) + sample(x+1, y, 1)
-                               +  sample(x, y-1, 1) + sample(x, y+1, 1)) * 0.25;
+                        rgb[1] = (sample(x - 1, y, 1)
+                            + sample(x + 1, y, 1)
+                            + sample(x, y - 1, 1)
+                            + sample(x, y + 1, 1))
+                            * 0.25;
                         let other = if color == 0 { 2 } else { 0 };
-                        rgb[other] = (sample(x-1, y-1, other) + sample(x+1, y-1, other)
-                                   +  sample(x-1, y+1, other) + sample(x+1, y+1, other)) * 0.25;
+                        rgb[other] = (sample(x - 1, y - 1, other)
+                            + sample(x + 1, y - 1, other)
+                            + sample(x - 1, y + 1, other)
+                            + sample(x + 1, y + 1, other))
+                            * 0.25;
                     }
                     1 => {
                         // G known; determine horizontal vs vertical neighbors for R and B.
                         // In any Bayer pattern, at a G position one axis is R and the other is B.
                         let horiz = cfa.color_at(x as u32 + 1, y as u32) as usize;
-                        let vert  = cfa.color_at(x as u32, y as u32 + 1) as usize;
+                        let vert = cfa.color_at(x as u32, y as u32 + 1) as usize;
                         // horiz channel is average of horizontal neighbors; vert channel
                         // is average of vertical neighbors.
-                        rgb[horiz] = (sample(x-1, y, horiz) + sample(x+1, y, horiz)) * 0.5;
-                        rgb[vert]  = (sample(x, y-1, vert)  + sample(x, y+1, vert))  * 0.5;
+                        rgb[horiz] = (sample(x - 1, y, horiz) + sample(x + 1, y, horiz)) * 0.5;
+                        rgb[vert] = (sample(x, y - 1, vert) + sample(x, y + 1, vert)) * 0.5;
                     }
                     _ => unreachable!(),
                 }
@@ -98,7 +120,12 @@ mod tests {
         for y in 0..4u32 {
             for x in 0..4u32 {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => r, 1 => g, 2 => b, _ => 0.0 };
+                let v = match c {
+                    0 => r,
+                    1 => g,
+                    2 => b,
+                    _ => 0.0,
+                };
                 img.pixels[(y * 4 + x) as usize][c] = v;
             }
         }
@@ -142,7 +169,12 @@ mod tests {
         for y in 0..4u32 {
             for x in 0..4u32 {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => 0.7, 1 => 0.5, 2 => 0.3, _ => 0.0 };
+                let v = match c {
+                    0 => 0.7,
+                    1 => 0.5,
+                    2 => 0.3,
+                    _ => 0.0,
+                };
                 mosaic.pixels[(y * 4 + x) as usize][c] = v;
             }
         }
@@ -162,7 +194,7 @@ mod tests {
         // top-left position (0,0) on RGGB is R; set it high.
         mosaic.pixels[0][0] = 1.0;
         let out = bilinear(&mosaic, CfaPattern::Rggb);
-        assert!(out.pixels[0][0] > 0.9);       // R survived
+        assert!(out.pixels[0][0] > 0.9); // R survived
         assert!(out.pixels[0][1].is_finite()); // no NaN
         assert!(out.pixels[0][2].is_finite());
     }

@@ -28,7 +28,11 @@ fn gaussian_kernel_sums_to_one() {
         );
         // Window size matches ceil(3*sigma).max(1) → length 2*half+1.
         let expected_half = (3.0 * sigma).ceil().max(1.0) as usize;
-        assert_eq!(k.len(), 2 * expected_half + 1, "kernel size for sigma={sigma}");
+        assert_eq!(
+            k.len(),
+            2 * expected_half + 1,
+            "kernel size for sigma={sigma}"
+        );
         // Symmetry: k[i] == k[len-1-i].
         for i in 0..k.len() / 2 {
             assert!(
@@ -126,7 +130,10 @@ fn disabled_at_nonfinite_sigma() {
                 ..Default::default()
             },
         );
-        assert_eq!(img.pixels, before, "non-finite/negative sigma {sigma} must be a no-op");
+        assert_eq!(
+            img.pixels, before,
+            "non-finite/negative sigma {sigma} must be a no-op"
+        );
     }
 }
 
@@ -174,7 +181,10 @@ fn gaussian_kernel_1d_clamps_huge_sigma() {
             "kernel for sigma={sigma} sums to {sum}, expected 1.0"
         );
         for &v in &k {
-            assert!(v.is_finite(), "kernel for sigma={sigma} has non-finite weight");
+            assert!(
+                v.is_finite(),
+                "kernel for sigma={sigma} has non-finite weight"
+            );
         }
     }
 }
@@ -366,4 +376,3 @@ fn larger_sigma_blurs_more_than_smaller_sigma() {
         large[10 * 21 + 11]
     );
 }
-

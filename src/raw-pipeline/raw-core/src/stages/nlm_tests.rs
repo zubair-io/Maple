@@ -129,7 +129,17 @@ fn preset_cancel_returns_input_unchanged_before_any_shift() {
     // Pre-set cancel ⇒ bails on the first (dx, dy) iteration ⇒ returns
     // the EXACT input (bit-for-bit), proving no shift ran.
     let flag = AtomicBool::new(true);
-    let cancelled = denoise_plane_cancellable(&plane, w, h, params, CancelToken::new(&flag));
+    let cancelled = denoise_plane_cancellable(
+        &plane,
+        w,
+        h,
+        params,
+        CancelToken::new(&flag),
+        &plane,
+        None,
+        100,
+        false,
+    );
     assert_eq!(
         cancelled, plane,
         "pre-set cancel must return the untouched input — the in-kernel \
@@ -139,7 +149,17 @@ fn preset_cancel_returns_input_unchanged_before_any_shift() {
     // Never-cancel ⇒ the kernel runs and actually denoises (stdev drops),
     // so the cancelled passthrough above is meaningful, not a no-op stage.
     let flag2 = AtomicBool::new(false);
-    let ran = denoise_plane_cancellable(&plane, w, h, params, CancelToken::new(&flag2));
+    let ran = denoise_plane_cancellable(
+        &plane,
+        w,
+        h,
+        params,
+        CancelToken::new(&flag2),
+        &plane,
+        None,
+        100,
+        false,
+    );
     assert!(
         stdev(&ran) < stdev(&plane) * 0.5,
         "never-cancel run should denoise (stdev in={} out={})",
@@ -149,7 +169,10 @@ fn preset_cancel_returns_input_unchanged_before_any_shift() {
     // And the never-cancel cancellable path equals the plain entry
     // (bit-identical), locking the never-cancel default as a no-op.
     let plain = denoise_plane(&plane, w, h, params);
-    assert_eq!(ran, plain, "never-cancel must be bit-identical to denoise_plane");
+    assert_eq!(
+        ran, plain,
+        "never-cancel must be bit-identical to denoise_plane"
+    );
     // Flag never observed as set on the never path.
     assert!(!flag2.load(Ordering::Relaxed));
 }
@@ -314,11 +337,16 @@ fn box_sum_has_no_far_offset_cancellation_and_caps_weights_at_one() {
     // scratch (#1195), so only sqdiff + the three accumulators are passed.
     let h_param = 0.02f32;
     let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
-    let inv_norm = 1.0 / (h_param * h_param * patch_area);
+    let _inv_norm = 1.0 / (h_param * h_param * patch_area);
     let mut sqdiff = vec![0.0f32; n];
     let mut acc = vec![0.0f32; n];
     let mut wsum = vec![0.0f32; n];
     let mut max_w = vec![0.0f32; n];
+    let test_params = NlmParams {
+        h: h_param,
+        search_radius: 5,
+        patch_radius: p,
+    };
     process_shift(
         &plane,
         w,
@@ -326,7 +354,10 @@ fn box_sum_has_no_far_offset_cancellation_and_caps_weights_at_one() {
         p,
         dx,
         dy,
-        inv_norm,
+        test_params,
+        &[],
+        &[],
+        false,
         &mut sqdiff,
         &mut acc,
         &mut wsum,
@@ -473,7 +504,10 @@ fn border_strip_passes_through_unchanged() {
                 assert!(
                     (out[i] - plane[i]).abs() < 1e-6,
                     "border-strip pixel ({},{}) was modified: in={}, out={}",
-                    x, y, plane[i], out[i],
+                    x,
+                    y,
+                    plane[i],
+                    out[i],
                 );
             }
         }

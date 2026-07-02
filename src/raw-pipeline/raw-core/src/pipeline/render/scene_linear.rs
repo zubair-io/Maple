@@ -101,7 +101,8 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable(
     quality: RenderQuality,
     cancel: CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    let scene = develop_scene_linear_from_raw_with_quality_cancellable(raw, model, quality, cancel)?;
+    let scene =
+        develop_scene_linear_from_raw_with_quality_cancellable(raw, model, quality, cancel)?;
     let (w0, h0) = (scene.width, scene.height);
     let rgba_f32 = stage("pack_rgba_f32", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
@@ -139,9 +140,8 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
     // on the viewport-sized buffer. The post-pipeline
     // `downsample_image_area` call this function used to make is now
     // inside the helper.
-    let scene = develop_scene_linear_sized_from_raw_with_quality(
-        raw, model, quality, max_long_edge,
-    )?;
+    let scene =
+        develop_scene_linear_sized_from_raw_with_quality(raw, model, quality, max_long_edge)?;
     let (w0, h0) = (scene.width, scene.height);
     let rgba_f32 = stage("pack_rgba_f32_sized", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
@@ -196,7 +196,11 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
     cancel: CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
     let scene = develop_scene_linear_sized_from_raw_with_quality_cancellable(
-        raw, model, quality, max_long_edge, cancel,
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        cancel,
     )?;
     let (w0, h0) = (scene.width, scene.height);
     let rgba_f32 = stage("pack_rgba_f32_sized", || {

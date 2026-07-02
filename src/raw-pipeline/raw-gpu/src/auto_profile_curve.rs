@@ -202,16 +202,30 @@ fn matrix_is_identity(flat: &[f32]) -> bool {
 /// predicate (apply.rs) verbatim — the `> 1e-4` thresholds on chroma_boost,
 /// chroma_offset, lightness_offset, and the two band LUTs.
 fn should_apply_chroma(flat: &[f32]) -> bool {
+    let sig_r = flat[OFF_LIGHTNESS_OFFSET];
+    let sig_g = flat[OFF_CHROMA_OFFSET];
+    let sig_b = flat[OFF_CHROMA_OFFSET + 1];
+    let has_base_curve = sig_r >= 0.1 && sig_g >= 0.1 && sig_b >= 0.1;
+
     let chroma_boost = flat[OFF_CHROMA_BOOST];
-    let chroma_off = [flat[OFF_CHROMA_OFFSET], flat[OFF_CHROMA_OFFSET + 1]];
-    let l_off = flat[OFF_LIGHTNESS_OFFSET];
     let l_band = &flat[OFF_L_BAND..OFF_L_BAND + 5];
     let ab_band = &flat[OFF_AB_BAND..OFF_AB_BAND + 10];
     let any_l_band = l_band.iter().any(|v| v.abs() > 1e-4);
     let any_ab_band = ab_band.iter().any(|v| v.abs() > 1e-4);
+
+    let (chroma_off_r, chroma_off_g, l_off) = if has_base_curve {
+        (0.0, 0.0, 0.0)
+    } else {
+        (
+            flat[OFF_CHROMA_OFFSET],
+            flat[OFF_CHROMA_OFFSET + 1],
+            flat[OFF_LIGHTNESS_OFFSET],
+        )
+    };
+
     (chroma_boost - 1.0).abs() > 1e-4
-        || chroma_off[0].abs() > 1e-4
-        || chroma_off[1].abs() > 1e-4
+        || chroma_off_r.abs() > 1e-4
+        || chroma_off_g.abs() > 1e-4
         || l_off.abs() > 1e-4
         || any_l_band
         || any_ab_band
@@ -234,13 +248,40 @@ pub fn apply_auto_profile_curve(buf: &mut [f32], flat: &[f32]) {
     let identity = matrix_is_identity(flat);
     let apply_chroma = should_apply_chroma(flat);
     let chroma_boost = flat[OFF_CHROMA_BOOST];
-    let chroma_off = [flat[OFF_CHROMA_OFFSET], flat[OFF_CHROMA_OFFSET + 1]];
-    let l_off = flat[OFF_LIGHTNESS_OFFSET];
+
+    let sig_r = flat[OFF_LIGHTNESS_OFFSET];
+    let sig_g = flat[OFF_CHROMA_OFFSET];
+    let sig_b = flat[OFF_CHROMA_OFFSET + 1];
+    let has_base_curve = sig_r >= 0.1 && sig_g >= 0.1 && sig_b >= 0.1;
+
+    let (chroma_off, l_off) = if has_base_curve {
+        ([0.0, 0.0], 0.0)
+    } else {
+        (
+            [flat[OFF_CHROMA_OFFSET], flat[OFF_CHROMA_OFFSET + 1]],
+            flat[OFF_LIGHTNESS_OFFSET],
+        )
+    };
 
     for px in buf.chunks_exact_mut(4) {
-        let r0 = compress_input(px[0]);
-        let g0 = compress_input(px[1]);
-        let b0 = compress_input(px[2]);
+        let r0 = if has_base_curve {
+            let r_lin = srgb_gamma_decode(px[0]);
+            srgb_gamma(r_lin / (r_lin + sig_r))
+        } else {
+            compress_input(px[0])
+        };
+        let g0 = if has_base_curve {
+            let g_lin = srgb_gamma_decode(px[1]);
+            srgb_gamma(g_lin / (g_lin + sig_g))
+        } else {
+            compress_input(px[1])
+        };
+        let b0 = if has_base_curve {
+            let b_lin = srgb_gamma_decode(px[2]);
+            srgb_gamma(b_lin / (b_lin + sig_b))
+        } else {
+            compress_input(px[2])
+        };
         let (r1, g1, b1) = if identity {
             (r0, g0, b0)
         } else {
@@ -251,7 +292,11 @@ pub fn apply_auto_profile_curve(buf: &mut [f32], flat: &[f32]) {
             let r_adapt = flat[m] * r_lin + flat[m + 1] * g_lin + flat[m + 2] * b_lin;
             let g_adapt = flat[m + 3] * r_lin + flat[m + 4] * g_lin + flat[m + 5] * b_lin;
             let b_adapt = flat[m + 6] * r_lin + flat[m + 7] * g_lin + flat[m + 8] * b_lin;
-            (srgb_gamma(r_adapt), srgb_gamma(g_adapt), srgb_gamma(b_adapt))
+            (
+                srgb_gamma(r_adapt),
+                srgb_gamma(g_adapt),
+                srgb_gamma(b_adapt),
+            )
         };
         let mut r2 = eval_channel(flat, 0, r1);
         let mut g2 = eval_channel(flat, ANCHORS * 2, g1);

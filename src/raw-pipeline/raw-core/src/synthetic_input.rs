@@ -186,7 +186,11 @@ pub fn saturated_neutral_edge(
     );
     assert!(height >= 1, "saturated_neutral_edge: height must be >= 1");
     let unit = primary.rgb_unit();
-    let sat_rgb = [unit[0] * saturated, unit[1] * saturated, unit[2] * saturated];
+    let sat_rgb = [
+        unit[0] * saturated,
+        unit[1] * saturated,
+        unit[2] * saturated,
+    ];
     let neu_rgb = [neutral, neutral, neutral];
     let w = width as usize;
     let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
@@ -313,7 +317,14 @@ mod tests {
         for y in 0..4 {
             for x in 0..8 {
                 let p = img.pixels[y * 16 + x];
-                assert_eq!(p, [0.5, 0.5, 0.5], "left pixel ({},{}) drifted: {:?}", x, y, p);
+                assert_eq!(
+                    p,
+                    [0.5, 0.5, 0.5],
+                    "left pixel ({},{}) drifted: {:?}",
+                    x,
+                    y,
+                    p
+                );
             }
         }
     }

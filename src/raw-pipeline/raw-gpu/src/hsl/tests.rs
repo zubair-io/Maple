@@ -28,7 +28,9 @@ fn scene_buffer() -> Vec<f32> {
     ]
 }
 
-fn zero_bands() -> [f32; NUM_BANDS] { [0.0; NUM_BANDS] }
+fn zero_bands() -> [f32; NUM_BANDS] {
+    [0.0; NUM_BANDS]
+}
 
 /// Run `raw_core::stages::hsl::apply` (the reference implementation).
 fn raw_core_hsl(
@@ -62,26 +64,78 @@ fn wgsl_hsl_matches_raw_core_stage_within_1e_4() {
     // Test cases: (hue_band_idx, hue_val, sat_band_idx, sat_val, lum_band_idx, lum_val)
     let cases: Vec<([f32; NUM_BANDS], [f32; NUM_BANDS], [f32; NUM_BANDS])> = vec![
         // Hue rotation on Red band only
-        ({let mut h = zero_bands(); h[0] = 50.0; h}, zero_bands(), zero_bands()),
+        (
+            {
+                let mut h = zero_bands();
+                h[0] = 50.0;
+                h
+            },
+            zero_bands(),
+            zero_bands(),
+        ),
         // Sat boost on all bands
         (zero_bands(), [100.0; NUM_BANDS], zero_bands()),
         // Sat cut on Orange band
-        (zero_bands(), {let mut s = zero_bands(); s[1] = -50.0; s}, zero_bands()),
+        (
+            zero_bands(),
+            {
+                let mut s = zero_bands();
+                s[1] = -50.0;
+                s
+            },
+            zero_bands(),
+        ),
         // Lum on Green band
-        (zero_bands(), zero_bands(), {let mut l = zero_bands(); l[3] = 40.0; l}),
+        (zero_bands(), zero_bands(), {
+            let mut l = zero_bands();
+            l[3] = 40.0;
+            l
+        }),
         // Combined: hue + sat + lum on different bands
         (
-            {let mut h = zero_bands(); h[0] = -50.0; h},
-            {let mut s = zero_bands(); s[4] = 60.0; s},
-            {let mut l = zero_bands(); l[2] = -40.0; l},
+            {
+                let mut h = zero_bands();
+                h[0] = -50.0;
+                h
+            },
+            {
+                let mut s = zero_bands();
+                s[4] = 60.0;
+                s
+            },
+            {
+                let mut l = zero_bands();
+                l[2] = -40.0;
+                l
+            },
         ),
         // Engaged-sweep evidence cases (spec requirement):
         // orange hue -50
-        ({let mut h = zero_bands(); h[1] = -50.0; h}, zero_bands(), zero_bands()),
+        (
+            {
+                let mut h = zero_bands();
+                h[1] = -50.0;
+                h
+            },
+            zero_bands(),
+            zero_bands(),
+        ),
         // blue sat +60
-        (zero_bands(), {let mut s = zero_bands(); s[5] = 60.0; s}, zero_bands()),
+        (
+            zero_bands(),
+            {
+                let mut s = zero_bands();
+                s[5] = 60.0;
+                s
+            },
+            zero_bands(),
+        ),
         // green lum -40
-        (zero_bands(), zero_bands(), {let mut l = zero_bands(); l[3] = -40.0; l}),
+        (zero_bands(), zero_bands(), {
+            let mut l = zero_bands();
+            l[3] = -40.0;
+            l
+        }),
     ];
 
     for (hue, sat, lum) in &cases {
@@ -117,7 +171,8 @@ fn wgsl_hsl_matches_raw_core_stage_within_1e_4() {
 fn local_oracle_matches_raw_core_stage_within_1e_6() {
     let input = scene_buffer();
     let mut sat = zero_bands();
-    sat[0] = 100.0; sat[4] = -50.0;
+    sat[0] = 100.0;
+    sat[4] = -50.0;
     let mut hue = zero_bands();
     hue[1] = 30.0;
     let mut lum = zero_bands();
@@ -144,9 +199,7 @@ fn gpu_hsl_neutral_is_bit_exact() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     // All-neutral buffer
     let input: Vec<f32> = vec![
-        0.18, 0.18, 0.18, 1.0,
-        0.01, 0.01, 0.01, 1.0,
-        0.50, 0.50, 0.50, 1.0,
+        0.18, 0.18, 0.18, 1.0, 0.01, 0.01, 0.01, 1.0, 0.50, 0.50, 0.50, 1.0,
     ];
     let count = (input.len() / 4) as u32;
     let img = GpuImage::upload(&ctx, &input, count, 1);

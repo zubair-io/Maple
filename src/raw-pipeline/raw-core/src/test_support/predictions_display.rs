@@ -27,7 +27,9 @@ pub fn predict_vignette(
     amount: f32,
     feather: f32,
 ) -> f32 {
-    if amount.abs() < 1e-3 { return scene; }
+    if amount.abs() < 1e-3 {
+        return scene;
+    }
     let (e0, e1, ev) = crate::stages::vignette::vignette_mask_params(amount, feather);
     scene * crate::stages::vignette::vignette_gain(x, y, (w, h), e0, e1, ev)
 }
@@ -54,9 +56,10 @@ pub fn predict_grain(
     size: f32,
     roughness: f32,
 ) -> f32 {
-    if amount.abs() < 1e-3 { return display_value; }
-    let (k, inv_pitch, rho) =
-        crate::stages::grain::grain_params(amount, size, roughness, w.max(h));
+    if amount.abs() < 1e-3 {
+        return display_value;
+    }
+    let (k, inv_pitch, rho) = crate::stages::grain::grain_params(amount, size, roughness, w.max(h));
     let n = crate::stages::grain::grain_noise(x, y, inv_pitch, rho);
     let wl = (4.0 * display_value * (1.0 - display_value)).clamp(0.0, 1.0);
     display_value + k * wl * n
@@ -199,7 +202,10 @@ mod tests {
                 lab_after[2] - lab_before[2],
                 predicted[1]
             );
-            assert!((lab_after[0] - lab_before[0]).abs() < 1e-5, "L must be invariant");
+            assert!(
+                (lab_after[0] - lab_before[0]).abs() < 1e-5,
+                "L must be invariant"
+            );
         }
     }
 }

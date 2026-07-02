@@ -21,8 +21,8 @@ use crate::{
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, vignette, white_balance,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        vignette, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -95,9 +95,9 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     // half-res demosaic for a small target (#1637).
     let mut crop_divisor = effective_quality_divisor(quality, raw.cfa);
     let mut camera_rgb = match raw.cfa {
-        crate::image::CfaPattern::LinearRgb => {
-            stage("sized_linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
-        }
+        crate::image::CfaPattern::LinearRgb => stage("sized_linearraw_decode", || {
+            linearize::linearraw_to_camera_rgb(raw)
+        })?,
         crate::image::CfaPattern::XTrans(_) => {
             // X-Trans dispatch — see `develop.rs` for the rationale.
             let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
@@ -194,24 +194,30 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     dump_after("01_baseline_exposure", &camera_rgb);
 
     // WB pre-gain (mirrors the unsized variant — see comment there).
-    let skip_pre_gain = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb)
-        && raw.white_level <= 255;
+    let skip_pre_gain =
+        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
     if !skip_pre_gain {
         stage("sized_white_balance::apply_pre_gain", || {
             white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
         });
     }
     // See unsized variant (ticket #325, skip_pre_gain identity branch).
-    let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
-    stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
+    let hr_neutral = if skip_pre_gain {
+        [1.0; 3]
+    } else {
+        raw.as_shot_neutral
+    };
+    stage("sized_highlight_recovery", || {
+        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral)
+    });
     dump_after("02_highlight_recovery", &camera_rgb);
     let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
     // Colorimetry-only DCP per #425 — see `pipeline::develop` for the
     // rationale. PLT and PTC no longer run; HSM still does (metameric
     // correction).
-    let mut scene = stage("sized_dcp_apply", || dcp::apply_colorimetry(
-        &camera_rgb, &profile,
-    ))?;
+    let mut scene = stage("sized_dcp_apply", || {
+        dcp::apply_colorimetry(&camera_rgb, &profile)
+    })?;
     dump_after("03_dcp_apply", &scene);
     // Ticket #471: post-DCP Oklab chroma-reduction highlight recovery. See
     // `super::develop` for the rationale; no-op unless the user opts in via
@@ -254,21 +260,37 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         }
     }
     dump_after("04b_capture_sharpening", &scene);
-    stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, model));
+    stage("sized_auto_exposure", || {
+        auto_exposure::apply(&mut scene, model)
+    });
     dump_after("05_auto_exposure", &scene);
-    stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
+    stage("sized_white_balance", || {
+        white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method)
+    });
     dump_after("06_white_balance", &scene);
-    stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    stage("sized_scene_tone_controls", || {
+        scene_tone_controls::apply(&mut scene, model)
+    });
     dump_after("07_scene_tone_controls", &scene);
-    stage("sized_tone_curves", || tone_curves::apply(&mut scene, model));
+    stage("sized_tone_curves", || {
+        tone_curves::apply(&mut scene, model)
+    });
     dump_after("07b_tone_curves", &scene);
-    stage("sized_vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    stage("sized_vibrance", || {
+        vibrance::apply(&mut scene, model.vibrance)
+    });
     dump_after("08_vibrance", &scene);
-    stage("sized_saturation", || saturation::apply(&mut scene, model.saturation));
+    stage("sized_saturation", || {
+        saturation::apply(&mut scene, model.saturation)
+    });
     dump_after("09_saturation", &scene);
-    stage("sized_clarity", || clarity::apply(&mut scene, model.clarity));
+    stage("sized_clarity", || {
+        clarity::apply(&mut scene, model.clarity)
+    });
     dump_after("10_clarity", &scene);
-    stage("sized_texture", || texture::apply(&mut scene, model.texture));
+    stage("sized_texture", || {
+        texture::apply(&mut scene, model.texture)
+    });
     dump_after("11_texture", &scene);
     stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
@@ -283,17 +305,42 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
     });
     dump_after("12c_vignette", &scene);
-    stage("sized_sharpen", || sharpen::apply_cancellable(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking, cancel));
+    stage("sized_sharpen", || {
+        sharpen::apply_cancellable(
+            &mut scene,
+            model.sharpen_amount,
+            model.sharpen_radius,
+            model.sharpen_detail,
+            model.sharpen_masking,
+            cancel,
+        )
+    });
     dump_after("13_sharpen", &scene);
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    stage("sized_nr_luminance", || noise_reduction::apply_luminance_cancellable(&mut scene, model.nr_luminance, cancel));
+    stage("sized_nr_luminance", || {
+        noise_reduction::apply_luminance_cancellable(
+            &mut scene,
+            model.nr_luminance,
+            cancel,
+            raw.noise_profile.as_deref(),
+            raw.iso,
+        )
+    });
     dump_after("14_nr_luminance", &scene);
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    stage("sized_nr_color", || noise_reduction::apply_color_cancellable(&mut scene, model.nr_color, cancel));
+    stage("sized_nr_color", || {
+        noise_reduction::apply_color_cancellable(
+            &mut scene,
+            model.nr_color,
+            cancel,
+            raw.noise_profile.as_deref(),
+            raw.iso,
+        )
+    });
     dump_after("15_nr_color", &scene);
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);

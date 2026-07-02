@@ -55,7 +55,12 @@ fn brightness_positive_lifts_midtones() {
     apply(&mut img, &m);
     let p = img.pixels[0];
     let expected = 0.18 * (0.7_f32 * 0.71825).exp2();
-    assert!((p[0] - expected).abs() < 1e-4, "expected {}, got {}", expected, p[0]);
+    assert!(
+        (p[0] - expected).abs() < 1e-4,
+        "expected {}, got {}",
+        expected,
+        p[0]
+    );
     assert!(p[0] > 0.18, "brightness+100 must lift a midtone");
 }
 
@@ -65,7 +70,10 @@ fn brightness_negative_darkens_midtones() {
     let mut m = model_default();
     m.brightness = -100.0;
     apply(&mut img, &m);
-    assert!(img.pixels[0][0] < 0.18, "brightness-100 must darken a midtone");
+    assert!(
+        img.pixels[0][0] < 0.18,
+        "brightness-100 must darken a midtone"
+    );
 }
 
 #[test]
@@ -100,9 +108,9 @@ fn brightness_preserves_hue_on_saturated_midtone() {
     // Uniform scalar multiply → R:G:B ratios survive. Same matrix as the
     // #433 hue tests for shadows/whites/highlights.
     let cases: &[[f32; 3]] = &[
-        [0.40, 0.20, 0.10],  // warm midtone
-        [0.10, 0.20, 0.40],  // cool midtone
-        [0.30, 0.30, 0.06],  // yellow midtone
+        [0.40, 0.20, 0.10], // warm midtone
+        [0.10, 0.20, 0.40], // cool midtone
+        [0.30, 0.30, 0.06], // yellow midtone
     ];
     for &slider in &[100.0_f32, -100.0] {
         for &input in cases {
@@ -114,10 +122,22 @@ fn brightness_preserves_hue_on_saturated_midtone() {
             let s_r = p[0] / input[0];
             let s_g = p[1] / input[1];
             let s_b = p[2] / input[2];
-            assert!((s_r - s_g).abs() / s_r < 0.001,
-                "brightness={} hue drift on {:?}: scale R={} G={}", slider, input, s_r, s_g);
-            assert!((s_r - s_b).abs() / s_r < 0.001,
-                "brightness={} hue drift on {:?}: scale R={} B={}", slider, input, s_r, s_b);
+            assert!(
+                (s_r - s_g).abs() / s_r < 0.001,
+                "brightness={} hue drift on {:?}: scale R={} G={}",
+                slider,
+                input,
+                s_r,
+                s_g
+            );
+            assert!(
+                (s_r - s_b).abs() / s_r < 0.001,
+                "brightness={} hue drift on {:?}: scale R={} B={}",
+                slider,
+                input,
+                s_r,
+                s_b
+            );
         }
     }
 }
@@ -136,8 +156,13 @@ fn brightness_monotone_across_band() {
         let mut img = fresh_img([y, y, y]);
         apply(&mut img, &m);
         let out = img.pixels[0][0];
-        assert!(out >= prev_out - 1e-6,
-            "brightness output non-monotone at Y={}: {} < {}", y, out, prev_out);
+        assert!(
+            out >= prev_out - 1e-6,
+            "brightness output non-monotone at Y={}: {} < {}",
+            y,
+            out,
+            prev_out
+        );
         prev_out = out;
     }
 }
@@ -155,6 +180,10 @@ fn brightness_composes_after_exposure() {
     let p = img.pixels[0];
     // Expected: brightness applied at post-exposure Y = 0.18 (w = 0.71825).
     let expected = 0.18 * (0.7_f32 * 0.71825).exp2();
-    assert!((p[0] - expected).abs() < 1e-4,
-        "brightness must see post-exposure luma: expected {}, got {}", expected, p[0]);
+    assert!(
+        (p[0] - expected).abs() < 1e-4,
+        "brightness must see post-exposure luma: expected {}, got {}",
+        expected,
+        p[0]
+    );
 }

@@ -110,11 +110,7 @@ pub struct ProfileCurve {
     pub ab_band_offsets: [[f32; 2]; 5],
 }
 
-pub const IDENTITY_MATRIX: [[f32; 3]; 3] = [
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0],
-];
+pub const IDENTITY_MATRIX: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 impl ProfileCurve {
     pub fn identity() -> Self {

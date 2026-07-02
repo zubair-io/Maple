@@ -77,43 +77,57 @@ pub fn decode_raw(bytes: &[u8], ext: &str) -> Result<RawImage> {
 /// orientation + baseline exposure). Cheap compared to a full RAW decode.
 pub fn read_exif(bytes: &[u8], ext: &str) -> Result<Exif> {
     let hint_path = format!("rawfile.{}", ext);
-    let source = RawSource::new_from_slice(bytes)
-        .with_path(std::path::Path::new(&hint_path));
+    let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new(&hint_path));
     let params = RawDecodeParams::default();
     let decoder = rawler::get_decoder(&source).map_err(|e| Error::Decode {
         path: std::path::PathBuf::from(&hint_path),
         reason: e.to_string(),
     })?;
-    let md = decoder.raw_metadata(&source, &params).map_err(|e| Error::Decode {
-        path: std::path::PathBuf::from(&hint_path),
-        reason: e.to_string(),
-    })?;
+    let md = decoder
+        .raw_metadata(&source, &params)
+        .map_err(|e| Error::Decode {
+            path: std::path::PathBuf::from(&hint_path),
+            reason: e.to_string(),
+        })?;
     let exif = &md.exif;
 
     // Rawler's Rational is (n, d). Convert to f32 on extract.
     let rat_f32 = |r: &Rational| -> f32 {
-        if r.d == 0 { 0.0 } else { r.n as f32 / r.d as f32 }
+        if r.d == 0 {
+            0.0
+        } else {
+            r.n as f32 / r.d as f32
+        }
     };
     let srat_f32 = |r: &SRational| -> f32 {
-        if r.d == 0 { 0.0 } else { r.n as f32 / r.d as f32 }
+        if r.d == 0 {
+            0.0
+        } else {
+            r.n as f32 / r.d as f32
+        }
     };
 
-    let iso = exif.iso_speed_ratings.map(|v| v as u32)
-        .or(exif.iso_speed);
+    let iso = exif.iso_speed_ratings.map(|v| v as u32).or(exif.iso_speed);
 
     // ExposureTime is the canonical shutter-seconds tag. Fallback to
     // ShutterSpeedValue (APEX units: 2^-val = seconds) if absent.
-    let shutter_s = exif.exposure_time.as_ref().map(rat_f32)
-        .or_else(|| exif.shutter_speed_value.as_ref()
-            .map(|s| 2.0_f32.powf(-srat_f32(s))));
+    let shutter_s = exif.exposure_time.as_ref().map(rat_f32).or_else(|| {
+        exif.shutter_speed_value
+            .as_ref()
+            .map(|s| 2.0_f32.powf(-srat_f32(s)))
+    });
 
-    let aperture = exif.fnumber.as_ref().map(rat_f32)
-        .or_else(|| exif.aperture_value.as_ref()
-            .map(|a| 2.0_f32.powf(rat_f32(a) * 0.5)));
+    let aperture = exif.fnumber.as_ref().map(rat_f32).or_else(|| {
+        exif.aperture_value
+            .as_ref()
+            .map(|a| 2.0_f32.powf(rat_f32(a) * 0.5))
+    });
 
     let focal_mm = exif.focal_length.as_ref().map(rat_f32);
 
-    let captured_at = exif.date_time_original.clone()
+    let captured_at = exif
+        .date_time_original
+        .clone()
         .or_else(|| exif.create_date.clone())
         .or_else(|| exif.modify_date.clone());
 
@@ -121,19 +135,43 @@ pub fn read_exif(bytes: &[u8], ext: &str) -> Result<Exif> {
         // rawler's ExifGPS stores lat/lon as [deg, min, sec] rationals with
         // N/S + E/W refs. Convert to decimal degrees.
         let to_decimal = |dms: &[Rational; 3], neg: bool| -> f64 {
-            let d = if dms[0].d == 0 { 0.0 } else { dms[0].n as f64 / dms[0].d as f64 };
-            let m = if dms[1].d == 0 { 0.0 } else { dms[1].n as f64 / dms[1].d as f64 };
-            let s = if dms[2].d == 0 { 0.0 } else { dms[2].n as f64 / dms[2].d as f64 };
+            let d = if dms[0].d == 0 {
+                0.0
+            } else {
+                dms[0].n as f64 / dms[0].d as f64
+            };
+            let m = if dms[1].d == 0 {
+                0.0
+            } else {
+                dms[1].n as f64 / dms[1].d as f64
+            };
+            let s = if dms[2].d == 0 {
+                0.0
+            } else {
+                dms[2].n as f64 / dms[2].d as f64
+            };
             let decimal = d + m / 60.0 + s / 3600.0;
-            if neg { -decimal } else { decimal }
+            if neg {
+                -decimal
+            } else {
+                decimal
+            }
         };
-        match (g.gps_latitude, g.gps_latitude_ref.as_deref(),
-               g.gps_longitude, g.gps_longitude_ref.as_deref()) {
+        match (
+            g.gps_latitude,
+            g.gps_latitude_ref.as_deref(),
+            g.gps_longitude,
+            g.gps_longitude_ref.as_deref(),
+        ) {
             (Some(lat), Some(lat_ref), Some(lon), Some(lon_ref)) => {
                 let lat_deg = to_decimal(&lat, lat_ref.eq_ignore_ascii_case("S"));
                 let lon_deg = to_decimal(&lon, lon_ref.eq_ignore_ascii_case("W"));
                 let altitude_m = g.gps_altitude.as_ref().map(rat_f32);
-                Some(ExifGps { lat_deg, lon_deg, altitude_m })
+                Some(ExifGps {
+                    lat_deg,
+                    lon_deg,
+                    altitude_m,
+                })
             }
             _ => None,
         }
@@ -152,7 +190,8 @@ pub fn read_exif(bytes: &[u8], ext: &str) -> Result<Exif> {
         focal_mm,
         captured_at,
         gps,
-        orientation: exif.orientation
+        orientation: exif
+            .orientation
             .map(ExifOrientation::from_u16)
             .unwrap_or_default(),
     })
@@ -190,8 +229,11 @@ mod tests {
         let path = require_raw("test_0002.dng");
         let bytes = std::fs::read(&path).unwrap();
         let exif = read_exif(&bytes, "dng").expect("read_exif");
-        assert!(exif.camera_make.is_some() || exif.camera_model.is_some(),
-            "expected camera metadata, got {:?}", exif);
+        assert!(
+            exif.camera_make.is_some() || exif.camera_model.is_some(),
+            "expected camera metadata, got {:?}",
+            exif
+        );
     }
 
     #[test]
@@ -203,7 +245,10 @@ mod tests {
     // ─── maple_id (derived from the parsed Exif) ───────────────────────
 
     fn exif_with_capture(ts: &str) -> Exif {
-        Exif { captured_at: Some(ts.into()), ..Default::default() }
+        Exif {
+            captured_at: Some(ts.into()),
+            ..Default::default()
+        }
     }
 
     #[test]

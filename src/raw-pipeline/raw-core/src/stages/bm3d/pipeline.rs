@@ -241,7 +241,11 @@ pub fn run_pass(
                         }
                     }
                 }
-                RefOut { positions, filtered, weights }
+                RefOut {
+                    positions,
+                    filtered,
+                    weights,
+                }
             })
             .collect();
 

@@ -89,7 +89,10 @@ fn parse_ignores_batch_metadata_fields() {
     // All other fields must remain at their defaults — the metadata attrs/nodes
     // must be silently ignored, not corrupt or reject the parse.
     let d = AdjustmentModel::default();
-    assert_eq!(m.temperature, d.temperature, "temperature must stay default");
+    assert_eq!(
+        m.temperature, d.temperature,
+        "temperature must stay default"
+    );
     assert_eq!(m.contrast, d.contrast, "contrast must stay default");
     assert_eq!(m.highlights, d.highlights, "highlights must stay default");
     assert_eq!(m.crop.is_identity(), true, "crop must stay identity");
@@ -122,5 +125,8 @@ fn full_default_serialize_parse_round_trips() {
         </x:xmpmeta>"#
     );
     let parsed = parse(&xml).expect("full-default sidecar must parse without error");
-    assert_eq!(parsed, d, "parsing the serialized full-default must recover the default model");
+    assert_eq!(
+        parsed, d,
+        "parsing the serialized full-default must recover the default model"
+    );
 }

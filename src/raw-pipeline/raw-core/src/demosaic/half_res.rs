@@ -57,7 +57,11 @@ pub fn half_res_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
     let in_h = mosaic.height as usize;
     let out_w = in_w / 2;
     let out_h = in_h / 2;
-    let mut out = Image::new(out_w as u32, out_h as u32, ColorSpace::CameraNativeLinearRgb);
+    let mut out = Image::new(
+        out_w as u32,
+        out_h as u32,
+        ColorSpace::CameraNativeLinearRgb,
+    );
 
     // Degenerate input (< 2 px on an axis) halves to a zero dimension, and
     // `par_chunks_mut(0)` below panics ("chunk_size must not be zero").
@@ -96,12 +100,16 @@ pub fn half_res_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
                 let y0 = (2 * y as i32) - 1;
                 for dy in 0..4i32 {
                     let py = y0 + dy;
-                    if py < 0 || (py as usize) >= in_h { continue; }
+                    if py < 0 || (py as usize) >= in_h {
+                        continue;
+                    }
                     let py_us = py as usize;
                     let row_off = py_us * in_w;
                     for dx in 0..4i32 {
                         let px = x0 + dx;
-                        if px < 0 || (px as usize) >= in_w { continue; }
+                        if px < 0 || (px as usize) >= in_w {
+                            continue;
+                        }
                         let px_us = px as usize;
                         let c = cfa.color_at(px as u32, py as u32) as usize;
                         // `mosaic.pixels[i][c]` is the only channel populated
@@ -114,7 +122,11 @@ pub fn half_res_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
 
                 let mut rgb = [0.0f32; 3];
                 for c in 0..3 {
-                    rgb[c] = if count[c] > 0 { sum[c] / count[c] as f32 } else { 0.0 };
+                    rgb[c] = if count[c] > 0 {
+                        sum[c] / count[c] as f32
+                    } else {
+                        0.0
+                    };
                 }
                 *out_px = rgb;
             }
@@ -132,7 +144,12 @@ mod tests {
         for y in 0..h {
             for x in 0..w {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => r, 1 => g, 2 => b, _ => 0.0 };
+                let v = match c {
+                    0 => r,
+                    1 => g,
+                    2 => b,
+                    _ => 0.0,
+                };
                 img.pixels[(y * w + x) as usize][c] = v;
             }
         }
@@ -166,7 +183,12 @@ mod tests {
         for y in 0..4u32 {
             for x in 0..4u32 {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => 0.8, 1 => 0.4, 2 => 0.2, _ => 0.0 };
+                let v = match c {
+                    0 => 0.8,
+                    1 => 0.4,
+                    2 => 0.2,
+                    _ => 0.0,
+                };
                 img.pixels[(y * 4 + x) as usize][c] = v;
             }
         }
@@ -229,7 +251,12 @@ mod tests {
         for y in 0..h {
             for x in 0..w {
                 let c = cfa.color_at(x, y) as usize;
-                let true_v = match c { 0 => true_r, 1 => true_g, 2 => true_b, _ => 0.0 };
+                let true_v = match c {
+                    0 => true_r,
+                    1 => true_g,
+                    2 => true_b,
+                    _ => 0.0,
+                };
                 // ±10% deterministic jitter. 32-pixel period — guaranteed
                 // to wash out at any reasonable averaging window.
                 let seed = (x.wrapping_mul(2654435761) ^ y.wrapping_mul(40503)) % 2000;
@@ -246,7 +273,9 @@ mod tests {
         let mean = {
             let mut s = [0.0f32; 3];
             for p in &out.pixels {
-                s[0] += p[0]; s[1] += p[1]; s[2] += p[2];
+                s[0] += p[0];
+                s[1] += p[1];
+                s[2] += p[2];
             }
             [s[0] / n, s[1] / n, s[2] / n]
         };
@@ -260,9 +289,24 @@ mod tests {
             [s[0] / n, s[1] / n, s[2] / n]
         };
         // Mean must still equal the true patch colour.
-        assert!((mean[0] - true_r).abs() < 0.02, "R mean drifted: {} vs {}", mean[0], true_r);
-        assert!((mean[1] - true_g).abs() < 0.02, "G mean drifted: {} vs {}", mean[1], true_g);
-        assert!((mean[2] - true_b).abs() < 0.02, "B mean drifted: {} vs {}", mean[2], true_b);
+        assert!(
+            (mean[0] - true_r).abs() < 0.02,
+            "R mean drifted: {} vs {}",
+            mean[0],
+            true_r
+        );
+        assert!(
+            (mean[1] - true_g).abs() < 0.02,
+            "G mean drifted: {} vs {}",
+            mean[1],
+            true_g
+        );
+        assert!(
+            (mean[2] - true_b).abs() < 0.02,
+            "B mean drifted: {} vs {}",
+            mean[2],
+            true_b
+        );
         // The unsmoothed input has per-channel variance ≈ ((0.1*v)^2)/3 for
         // a uniform jitter. For R = 0.8 ± 0.08 the variance is ~0.0021. After
         // averaging 4 R-samples per output pixel the variance drops by 4×
@@ -272,12 +316,23 @@ mod tests {
         let smoothed_var_budget_r = 1.0e-3;
         let smoothed_var_budget_g = 5.0e-4; // tighter: 8 G samples averaged
         let smoothed_var_budget_b = 1.0e-3;
-        assert!(var[0] < smoothed_var_budget_r,
+        assert!(
+            var[0] < smoothed_var_budget_r,
             "R variance {} not smoothed (budget {}) — half-res must average over neighboring quads",
-            var[0], smoothed_var_budget_r);
-        assert!(var[1] < smoothed_var_budget_g,
-            "G variance {} not smoothed (budget {})", var[1], smoothed_var_budget_g);
-        assert!(var[2] < smoothed_var_budget_b,
-            "B variance {} not smoothed (budget {})", var[2], smoothed_var_budget_b);
+            var[0],
+            smoothed_var_budget_r
+        );
+        assert!(
+            var[1] < smoothed_var_budget_g,
+            "G variance {} not smoothed (budget {})",
+            var[1],
+            smoothed_var_budget_g
+        );
+        assert!(
+            var[2] < smoothed_var_budget_b,
+            "B variance {} not smoothed (budget {})",
+            var[2],
+            smoothed_var_budget_b
+        );
     }
 }

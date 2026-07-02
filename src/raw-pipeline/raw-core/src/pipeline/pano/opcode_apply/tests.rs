@@ -1,4 +1,3 @@
-
 use super::super::opcodes::WarpPlaneParams;
 use super::*;
 use crate::image::ColorSpace;

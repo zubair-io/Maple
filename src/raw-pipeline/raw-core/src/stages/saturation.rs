@@ -19,7 +19,9 @@ use crate::{
 /// never increases chroma and skips the gamut check.
 pub fn apply(img: &mut Image, saturation: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if saturation.abs() < 1e-3 { return; }
+    if saturation.abs() < 1e-3 {
+        return;
+    }
     let scale = 1.0 + saturation / 100.0;
 
     for p in &mut img.pixels {
@@ -160,14 +162,18 @@ mod tests {
     /// accounting for the [-180, 180] wrap.
     fn hue_delta_deg(a: f32, b: f32) -> f32 {
         let mut d = (a - b).abs();
-        if d > 180.0 { d = 360.0 - d; }
+        if d > 180.0 {
+            d = 360.0 - d;
+        }
         d
     }
 
     #[test]
     fn identity_at_zero() {
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.4, 0.3, 0.5]; }
+        for p in &mut img.pixels {
+            *p = [0.4, 0.3, 0.5];
+        }
         let before = img.pixels.clone();
         apply(&mut img, 0.0);
         for (a, b) in img.pixels.iter().zip(before.iter()) {
@@ -206,8 +212,11 @@ mod tests {
         apply(&mut img, 100.0);
         let after = rec2020_to_oklab(img.pixels[0]);
         let after_chroma = (after[1] * after[1] + after[2] * after[2]).sqrt();
-        assert!((after_chroma / before_chroma - 2.0).abs() < 1e-3,
-            "chroma ratio {} should be ~2.0", after_chroma / before_chroma);
+        assert!(
+            (after_chroma / before_chroma - 2.0).abs() < 1e-3,
+            "chroma ratio {} should be ~2.0",
+            after_chroma / before_chroma
+        );
     }
 
     #[test]
@@ -230,11 +239,11 @@ mod tests {
         // Highly-saturated primaries-ish colors. Pre-gamut-clip, +100
         // routinely produced channels in the -0.05 .. -0.15 range here.
         let cases: [[f32; 3]; 5] = [
-            [0.9,  0.05, 0.05], // near-Rec.2020 red
-            [0.05, 0.9,  0.05], // near-Rec.2020 green
-            [0.05, 0.05, 0.9],  // near-Rec.2020 blue
-            [0.7,  0.7,  0.05], // saturated yellow
-            [4.0,  0.5,  0.5],  // HDR-headroom saturated red
+            [0.9, 0.05, 0.05], // near-Rec.2020 red
+            [0.05, 0.9, 0.05], // near-Rec.2020 green
+            [0.05, 0.05, 0.9], // near-Rec.2020 blue
+            [0.7, 0.7, 0.05],  // saturated yellow
+            [4.0, 0.5, 0.5],   // HDR-headroom saturated red
         ];
         for rgb in cases {
             let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
@@ -242,9 +251,14 @@ mod tests {
             apply(&mut img, 100.0);
             let p = img.pixels[0];
             let min = p[0].min(p[1]).min(p[2]);
-            assert!(min >= -GAMUT_EPS,
+            assert!(
+                min >= -GAMUT_EPS,
                 "input {:?} → output {:?} has min channel {} < -{}",
-                rgb, p, min, GAMUT_EPS);
+                rgb,
+                p,
+                min,
+                GAMUT_EPS
+            );
             for c in p {
                 assert!(c.is_finite(), "non-finite channel in {:?}", p);
             }
@@ -258,11 +272,11 @@ mod tests {
     #[test]
     fn plus_100_preserves_hue_within_two_degrees() {
         let cases: [[f32; 3]; 5] = [
-            [0.9,  0.05, 0.05],
-            [0.05, 0.9,  0.05],
+            [0.9, 0.05, 0.05],
+            [0.05, 0.9, 0.05],
             [0.05, 0.05, 0.9],
-            [0.7,  0.7,  0.05],
-            [4.0,  0.5,  0.5],
+            [0.7, 0.7, 0.05],
+            [4.0, 0.5, 0.5],
         ];
         for rgb in cases {
             let h_in = hue_deg(rgb);
@@ -271,9 +285,15 @@ mod tests {
             apply(&mut img, 100.0);
             let h_out = hue_deg(img.pixels[0]);
             let d = hue_delta_deg(h_in, h_out);
-            assert!(d < 2.0,
+            assert!(
+                d < 2.0,
                 "input {:?} hue {} → output {:?} hue {} drifted by {}°",
-                rgb, h_in, img.pixels[0], h_out, d);
+                rgb,
+                h_in,
+                img.pixels[0],
+                h_out,
+                d
+            );
         }
     }
 
@@ -284,10 +304,10 @@ mod tests {
     #[test]
     fn plus_100_never_decreases_chroma_on_in_gamut_inputs() {
         let cases: [[f32; 3]; 4] = [
-            [0.9,  0.05, 0.05],
-            [0.05, 0.9,  0.05],
+            [0.9, 0.05, 0.05],
+            [0.05, 0.9, 0.05],
             [0.05, 0.05, 0.9],
-            [0.7,  0.7,  0.05],
+            [0.7, 0.7, 0.05],
         ];
         for rgb in cases {
             let before = rec2020_to_oklab(rgb);
@@ -297,9 +317,14 @@ mod tests {
             apply(&mut img, 100.0);
             let after = rec2020_to_oklab(img.pixels[0]);
             let c_after = (after[1] * after[1] + after[2] * after[2]).sqrt();
-            assert!(c_after >= c_before - 1e-4,
+            assert!(
+                c_after >= c_before - 1e-4,
                 "+saturation reduced chroma: {:?} c={} → {:?} c={}",
-                rgb, c_before, img.pixels[0], c_after);
+                rgb,
+                c_before,
+                img.pixels[0],
+                c_after
+            );
         }
     }
 
@@ -322,8 +347,11 @@ mod tests {
         // GAMUT_EPS slack one side, and tighter on the other since `lo`
         // was the in-gamut tracker).
         assert!(min_c >= -GAMUT_EPS, "bisect overshot: min = {}", min_c);
-        assert!(min_c.abs() < 1e-3,
-            "bisect didn't reach the hull: min = {} (expected near 0)", min_c);
+        assert!(
+            min_c.abs() < 1e-3,
+            "bisect didn't reach the hull: min = {} (expected near 0)",
+            min_c
+        );
     }
 
     /// Soft-compress is identity below the knee and continuous through it.
@@ -339,8 +367,11 @@ mod tests {
         assert!((soft_compress(c_thresh, c_hull) - c_thresh).abs() < 1e-7);
         let eps = 1e-4;
         let slope = (soft_compress(c_thresh + eps, c_hull) - c_thresh) / eps;
-        assert!(slope > 0.99 && slope <= 1.0001,
-            "soft_compress slope at knee = {}, expected ~1", slope);
+        assert!(
+            slope > 0.99 && slope <= 1.0001,
+            "soft_compress slope at knee = {}, expected ~1",
+            slope
+        );
     }
 
     /// Diagnostic-only: prints the pre/post-gamut-clip (min, max) channels at
@@ -353,11 +384,11 @@ mod tests {
     #[ignore = "diagnostic-only; prints a table for the PR body, not a CI gate"]
     fn print_gamut_clip_before_after() {
         let cases: [[f32; 3]; 5] = [
-            [0.9,  0.05, 0.05],
-            [0.05, 0.9,  0.05],
+            [0.9, 0.05, 0.05],
+            [0.05, 0.9, 0.05],
             [0.05, 0.05, 0.9],
-            [0.7,  0.7,  0.05],
-            [4.0,  0.5,  0.5],
+            [0.7, 0.7, 0.05],
+            [4.0, 0.5, 0.5],
         ];
         eprintln!(
             "{:<24} | {:^21} | {:^21}",
@@ -372,9 +403,8 @@ mod tests {
             // gamut check). Mirror the pre-#269 math exactly.
             let lab = rec2020_to_oklab(rgb);
             let scale = 2.0;
-            let old = crate::color::oklab::oklab_to_rec2020(
-                [lab[0], lab[1] * scale, lab[2] * scale],
-            );
+            let old =
+                crate::color::oklab::oklab_to_rec2020([lab[0], lab[1] * scale, lab[2] * scale]);
             let old_min = old[0].min(old[1]).min(old[2]);
             let old_max = old[0].max(old[1]).max(old[2]);
 
@@ -397,10 +427,20 @@ mod tests {
         let c_hull = 1.0;
         for &c_target in &[1.0, 1.5, 2.0, 10.0, 100.0] {
             let out = soft_compress(c_target, c_hull);
-            assert!(out <= c_hull + 1e-6,
-                "soft_compress({}, {}) = {} > c_hull", c_target, c_hull, out);
-            assert!(out > GAMUT_KNEE_FRACTION * c_hull,
-                "soft_compress({}, {}) = {} below knee", c_target, c_hull, out);
+            assert!(
+                out <= c_hull + 1e-6,
+                "soft_compress({}, {}) = {} > c_hull",
+                c_target,
+                c_hull,
+                out
+            );
+            assert!(
+                out > GAMUT_KNEE_FRACTION * c_hull,
+                "soft_compress({}, {}) = {} below knee",
+                c_target,
+                c_hull,
+                out
+            );
         }
         // Very large c_target → essentially c_hull.
         assert!((soft_compress(1e6, c_hull) - c_hull).abs() < 1e-3);

@@ -143,7 +143,9 @@ pub fn apply_capture_sharpening_cancellable(
 
     let w = image.width as usize;
     let h = image.height as usize;
-    if w == 0 || h == 0 { return Ok(()); }
+    if w == 0 || h == 0 {
+        return Ok(());
+    }
     let n = w * h;
 
     // Extract luminance. Per-pixel independent → parallel over rows. The dot
