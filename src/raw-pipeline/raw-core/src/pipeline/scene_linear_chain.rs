@@ -76,6 +76,17 @@ use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
 /// At 2 MP viewport size, every stage in this chain runs in <2 ms with
 /// the exception of dehaze (which short-circuits to a no-op when
 /// `model.dehaze == 0`, the default). Whole-chain target: <10 ms.
+///
+/// `noise_profile` is the per-camera noise profile from the decoded `RawImage`
+/// (typically two coefficients per channel in the DNG NoiseLevelFunction model).
+/// `None` disables the profile-aware path and falls back to the ISO-based
+/// estimate (the pre-#1709 behaviour). When present, passed through to
+/// `noise_reduction::apply_luminance` for scene-noise-adaptive NR.
+///
+/// `iso` is the ISO speed at which the image was captured (`RawImage::iso`),
+/// used by `noise_reduction::apply_luminance` together with `noise_profile` to
+/// derive the per-channel sigma. Pass `100` when noise profile data is not
+/// available (the hardcoded fallback that was in place before this fix).
 pub fn apply_scene_linear_chain(
     in_fp16_rgba: &[u16],
     width: u32,
@@ -85,6 +96,8 @@ pub fn apply_scene_linear_chain(
     decoded_tint: f32,
     skip_agx: bool,
     target_primaries: TargetPrimaries,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
 ) -> Result<Vec<u16>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
@@ -226,7 +239,7 @@ pub fn apply_scene_linear_chain(
     });
     // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
     stage("ffi_chain_nr_luminance", || {
-        noise_reduction::apply_luminance(&mut img, model.nr_luminance, None, 100)
+        noise_reduction::apply_luminance(&mut img, model.nr_luminance, noise_profile, iso)
     });
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {
@@ -311,6 +324,9 @@ pub fn apply_scene_linear_chain(
 /// `target_primaries` follows the same convention as the fp16 sibling:
 /// `Srgb` (0) leaves the output in `DisplayLinearRec2020` (bit-identical
 /// to pre-#1337); `P3` (1) applies `rec2020_to_display` inside the chain.
+///
+/// `noise_profile` and `iso` — see [`apply_scene_linear_chain`]; identical
+/// semantics for the f32 entry.
 pub fn apply_scene_linear_chain_f32(
     in_f32_rgba: &[f32],
     width: u32,
@@ -320,6 +336,8 @@ pub fn apply_scene_linear_chain_f32(
     decoded_tint: f32,
     skip_agx: bool,
     target_primaries: TargetPrimaries,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
 ) -> Result<Vec<f32>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
@@ -443,7 +461,7 @@ pub fn apply_scene_linear_chain_f32(
     });
     // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
     stage("ffi_chain_nr_luminance", || {
-        noise_reduction::apply_luminance(&mut img, model.nr_luminance, None, 100)
+        noise_reduction::apply_luminance(&mut img, model.nr_luminance, noise_profile, iso)
     });
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {
@@ -509,6 +527,8 @@ pub fn apply_scene_linear_chain_with_patches(
     decoded_tint: f32,
     skip_agx: bool,
     target_primaries: TargetPrimaries,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
     patches: &[crate::types::InpaintPatch],
 ) -> Result<Vec<u16>> {
     if patches.is_empty() {
@@ -521,6 +541,8 @@ pub fn apply_scene_linear_chain_with_patches(
             decoded_tint,
             skip_agx,
             target_primaries,
+            noise_profile,
+            iso,
         );
     }
     let composited = composite_into_fp16(in_fp16_rgba, width, height, patches)?;
@@ -533,6 +555,8 @@ pub fn apply_scene_linear_chain_with_patches(
         decoded_tint,
         skip_agx,
         target_primaries,
+        noise_profile,
+        iso,
     )
 }
 
@@ -547,6 +571,8 @@ pub fn apply_scene_linear_chain_f32_with_patches(
     decoded_tint: f32,
     skip_agx: bool,
     target_primaries: TargetPrimaries,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
     patches: &[crate::types::InpaintPatch],
 ) -> Result<Vec<f32>> {
     if patches.is_empty() {
@@ -559,6 +585,8 @@ pub fn apply_scene_linear_chain_f32_with_patches(
             decoded_tint,
             skip_agx,
             target_primaries,
+            noise_profile,
+            iso,
         );
     }
     let composited = composite_into_f32(in_f32_rgba, width, height, patches)?;
@@ -571,6 +599,8 @@ pub fn apply_scene_linear_chain_f32_with_patches(
         decoded_tint,
         skip_agx,
         target_primaries,
+        noise_profile,
+        iso,
     )
 }
 

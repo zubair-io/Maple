@@ -154,6 +154,18 @@ pub struct MapleSceneLinearBufferF32 {
     pub bytes_per_pixel: u32,
     pub width: u32,
     pub height: u32,
+    /// Per-camera noise profile from `RawImage::noise_profile` (PR #1709
+    /// review finding). Null when the source DNG carries no NoiseLevelFunction
+    /// tag — the per-tick chain then falls back to the ISO-only estimate.
+    /// Free via `maple_free_scene_linear_buffer_f32` — do NOT free separately.
+    /// `noise_profile_len` f32 values, heap-allocated and owned by this struct.
+    pub noise_profile_data: *mut f32,
+    /// Number of f32 values at `noise_profile_data`. 0 when `noise_profile_data`
+    /// is null.
+    pub noise_profile_len: u32,
+    /// ISO speed at capture from `RawImage::iso`. 0 when the source DNG did not
+    /// carry an ISO tag (the chain substitutes 100 on the Rust side).
+    pub iso: u32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -165,6 +177,9 @@ impl MapleSceneLinearBufferF32 {
             bytes_per_pixel: 0,
             width: 0,
             height: 0,
+            noise_profile_data: std::ptr::null_mut(),
+            noise_profile_len: 0,
+            iso: 0,
         }
     }
 }
@@ -181,6 +196,12 @@ pub unsafe extern "C" fn maple_free_scene_linear_buffer_f32(
     if !b.f32_rgba.is_null() {
         let len_lanes = b.len_bytes / std::mem::size_of::<f32>();
         let slice = std::slice::from_raw_parts_mut(b.f32_rgba, len_lanes);
+        drop(Box::from_raw(slice as *mut [f32]));
+    }
+    // Free the noise profile if it was populated.
+    if !b.noise_profile_data.is_null() {
+        let slice =
+            std::slice::from_raw_parts_mut(b.noise_profile_data, b.noise_profile_len as usize);
         drop(Box::from_raw(slice as *mut [f32]));
     }
     *b = MapleSceneLinearBufferF32::empty();
