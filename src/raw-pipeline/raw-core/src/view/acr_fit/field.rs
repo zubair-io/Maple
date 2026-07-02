@@ -11,7 +11,7 @@
 //! neighbour-smoothing sweep for continuity).
 
 use super::model::{HueChromaField, Tonescale, CHROMA_BINS, FIELD_N, HUE_BINS, LUMA_BINS};
-use crate::color::oklab::{oklab_to_srgb_linear, rec2020_to_oklab};
+use crate::color::oklab::rec2020_to_oklab;
 
 /// A sweep-patch observation for the field fit.
 pub struct SweepSample {
@@ -24,10 +24,7 @@ pub struct SweepSample {
 /// Fit the hue/chroma residual field from unclipped sweep samples.
 ///
 /// Returns `(field, patches_used, patches_clipped)`.
-pub fn fit_field(
-    samples: &[SweepSample],
-    ts: &Tonescale,
-) -> (HueChromaField, usize, usize) {
+pub fn fit_field(samples: &[SweepSample], ts: &Tonescale) -> (HueChromaField, usize, usize) {
     use crate::color::matrices::M_REC2020_TO_SRGB;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
@@ -41,9 +38,8 @@ pub fn fit_field(
 
     for s in samples {
         // Luminance-preserving tonescale prediction.
-        let l_scene = 0.2627 * s.scene_rec2020[0]
-            + 0.6780 * s.scene_rec2020[1]
-            + 0.0593 * s.scene_rec2020[2];
+        let l_scene =
+            0.2627 * s.scene_rec2020[0] + 0.6780 * s.scene_rec2020[1] + 0.0593 * s.scene_rec2020[2];
         if l_scene <= 0.0 {
             patches_clipped += 1;
             continue;
@@ -92,7 +88,6 @@ pub fn fit_field(
         ss_sum[idx] += sat_scale as f64;
         counts[idx] += 1;
         patches_used += 1;
-        let _ = (oklab_to_srgb_linear, m_srgb_to_rec2020); // suppress warnings
     }
 
     // Convert sums to means; fill empty cells with 0 / 1 defaults.
@@ -125,7 +120,13 @@ pub fn fit_field(
 fn angle_diff_deg(meas: f32, pred: f32) -> f32 {
     let d = meas - pred;
     // Wrap to (-180, 180].
-    if d > 180.0 { d - 360.0 } else if d <= -180.0 { d + 360.0 } else { d }
+    if d > 180.0 {
+        d - 360.0
+    } else if d <= -180.0 {
+        d + 360.0
+    } else {
+        d
+    }
 }
 
 /// One pass of 6-face neighbour averaging in the [luma][chroma][hue] lattice.
@@ -146,11 +147,14 @@ fn smooth_field(data: &mut Vec<f32>) {
                 let li_m = li.saturating_sub(1);
                 let li_p = (li + 1).min(LUMA_BINS - 1);
                 let nb_hue = (orig[li * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi_m]
-                    + orig[li * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi_p]) / 2.0;
+                    + orig[li * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi_p])
+                    / 2.0;
                 let nb_chr = (orig[li * CHROMA_BINS * HUE_BINS + ci_m * HUE_BINS + hi]
-                    + orig[li * CHROMA_BINS * HUE_BINS + ci_p * HUE_BINS + hi]) / 2.0;
+                    + orig[li * CHROMA_BINS * HUE_BINS + ci_p * HUE_BINS + hi])
+                    / 2.0;
                 let nb_lum = (orig[li_m * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi]
-                    + orig[li_p * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi]) / 2.0;
+                    + orig[li_p * CHROMA_BINS * HUE_BINS + ci * HUE_BINS + hi])
+                    / 2.0;
                 // Blend: 50% self + 50% average of neighbours.
                 data[idx] = 0.5 * v + (nb_hue + nb_chr + nb_lum) / 6.0;
             }
@@ -183,7 +187,10 @@ mod tests {
         let mut data = vec![3.5f32; FIELD_N];
         smooth_field(&mut data);
         for (i, &v) in data.iter().enumerate() {
-            assert!((v - 3.5).abs() < 1e-4, "smoothed uniform value changed at {i}");
+            assert!(
+                (v - 3.5).abs() < 1e-4,
+                "smoothed uniform value changed at {i}"
+            );
         }
     }
 }

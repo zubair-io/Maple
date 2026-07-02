@@ -2,14 +2,16 @@
 //!
 //! Takes the neutral ramp patches (spec `PatchGroup::Neutral`), extracts their
 //! measured display-linear luminance from the ACR PNG, pairs them with the
-//! scene-linear spec targets, and fits a PCHIP-style monotone piecewise-cubic
-//! mapping on log2(L) with `TONESCALE_KNOTS` (9) knots.
+//! scene-linear spec targets, and fits a monotone piecewise-linear mapping
+//! on log2(L) with `TONESCALE_KNOTS` (9) knots.
 //!
-//! The curve is evaluated by linear interpolation between knots; the PCHIP
-//! property (monotone by construction) is enforced by computing slopes with
-//! the Fritsch-Carlson algorithm and using them only to detect and flatten
-//! non-monotone regions — the evaluation itself stays linear so the output
-//! model is simple to export and consume.
+//! Algorithm: samples are aggregated into per-knot bins by nearest log2(L)
+//! bin (mean per bin), empty bins are filled by linear interpolation from
+//! their neighbours, and a final clamp-up pass enforces monotonicity
+//! (`v[i] = max(v[i], v[i-1])`). Evaluation is linear interpolation between
+//! knots, flat-extrapolated beyond the ends, so the exported model stays
+//! trivial to consume. A smoother PCHIP-style cubic can replace this under
+//! #1722 if knot-level linearity shows up in the baked LUT.
 
 use super::model::{Tonescale, TONESCALE_KNOTS};
 
@@ -43,8 +45,7 @@ pub fn fit_tonescale(samples: &[NeutralSample]) -> Option<Tonescale> {
     let knot_log2 = knot_positions_log2();
 
     // Bin samples by log2(scene_lum) proximity to each knot.
-    let bin_width = (knot_log2[TONESCALE_KNOTS - 1] - knot_log2[0])
-        / (TONESCALE_KNOTS - 1) as f32;
+    let bin_width = (knot_log2[TONESCALE_KNOTS - 1] - knot_log2[0]) / (TONESCALE_KNOTS - 1) as f32;
     let mut sums = [0.0f64; TONESCALE_KNOTS];
     let mut counts = [0u32; TONESCALE_KNOTS];
 
@@ -134,7 +135,10 @@ mod tests {
     fn knot_positions_span_neutral_ramp() {
         let kp = knot_positions_log2();
         assert!((kp[0] - 0.001f32.log2()).abs() < 1e-5, "first knot");
-        assert!((kp[TONESCALE_KNOTS - 1] - 4.0f32.log2()).abs() < 1e-5, "last knot");
+        assert!(
+            (kp[TONESCALE_KNOTS - 1] - 4.0f32.log2()).abs() < 1e-5,
+            "last knot"
+        );
         // Monotone increasing.
         for i in 0..TONESCALE_KNOTS - 1 {
             assert!(kp[i + 1] > kp[i], "not monotone at {i}");
@@ -154,10 +158,12 @@ mod tests {
         let samples: Vec<NeutralSample> = (0..32)
             .map(|i| {
                 let t = i as f32 / 31.0;
-                let log2_l = 0.001f32.log2()
-                    + t * (4.0f32.log2() - 0.001f32.log2());
+                let log2_l = 0.001f32.log2() + t * (4.0f32.log2() - 0.001f32.log2());
                 let l = log2_l.exp2();
-                NeutralSample { scene_lum: l, display_lum: l }
+                NeutralSample {
+                    scene_lum: l,
+                    display_lum: l,
+                }
             })
             .collect();
         let ts = fit_tonescale(&samples).expect("must fit");
@@ -188,7 +194,10 @@ mod tests {
                 let l = log2_l.exp2();
                 // Display is a simple tone curve.
                 let display = if l < 1.0 { l.powf(0.5) * 0.8 } else { 0.8 };
-                NeutralSample { scene_lum: l, display_lum: display }
+                NeutralSample {
+                    scene_lum: l,
+                    display_lum: display,
+                }
             })
             .collect();
         let ts = fit_tonescale(&samples).expect("must fit");
@@ -211,7 +220,10 @@ mod tests {
         for (i, &v) in vals.iter().enumerate() {
             assert!(!v.is_nan(), "NaN at {i}");
             let expected = i as f32 / 4.0;
-            assert!((v - expected).abs() < 0.01, "val[{i}] = {v} expected {expected}");
+            assert!(
+                (v - expected).abs() < 0.01,
+                "val[{i}] = {v} expected {expected}"
+            );
         }
     }
 }

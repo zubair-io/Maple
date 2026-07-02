@@ -60,7 +60,7 @@ pub struct HueChromaField {
 pub struct FitStats {
     pub patches_used: usize,
     pub patches_clipped: usize,
-    /// Mean CIEDE2000 of model prediction vs measured over unclipped sweep patches.
+    /// RMS CIEDE2000 of model prediction vs measured over unclipped sweep patches.
     pub fit_rms_de: f32,
 }
 
@@ -152,8 +152,20 @@ pub fn apply_model(model: &AcrModel, scene: [f32; 3]) -> [f32; 3] {
     let chroma_frac = (chroma / 0.30).clamp(0.0, 1.0) * (model.field.chroma_bins as f32 - 1.0);
     let luma_frac = okl.clamp(0.0, 1.0) * (model.field.luma_bins as f32 - 1.0);
 
-    let dh = trilinear_sample(&model.field.delta_h_deg, &model.field, hue_frac, chroma_frac, luma_frac);
-    let ss = trilinear_sample(&model.field.sat_scale, &model.field, hue_frac, chroma_frac, luma_frac);
+    let dh = trilinear_sample(
+        &model.field.delta_h_deg,
+        &model.field,
+        hue_frac,
+        chroma_frac,
+        luma_frac,
+    );
+    let ss = trilinear_sample(
+        &model.field.sat_scale,
+        &model.field,
+        hue_frac,
+        chroma_frac,
+        luma_frac,
+    );
 
     // Apply hue twist and chroma scale.
     let hue_new = hue + dh.to_radians();
@@ -281,8 +293,16 @@ pub fn ciede2000(lab1: [f32; 3], lab2: [f32; 3]) -> f32 {
     let c1p = (a1p * a1p + b1 * b1).sqrt();
     let c2p = (a2p * a2p + b2 * b2).sqrt();
 
-    let h1p = if b1 == 0.0 && a1p == 0.0 { 0.0 } else { b1.atan2(a1p).rem_euclid(2.0 * PI).to_degrees() };
-    let h2p = if b2 == 0.0 && a2p == 0.0 { 0.0 } else { b2.atan2(a2p).rem_euclid(2.0 * PI).to_degrees() };
+    let h1p = if b1 == 0.0 && a1p == 0.0 {
+        0.0
+    } else {
+        b1.atan2(a1p).rem_euclid(2.0 * PI).to_degrees()
+    };
+    let h2p = if b2 == 0.0 && a2p == 0.0 {
+        0.0
+    } else {
+        b2.atan2(a2p).rem_euclid(2.0 * PI).to_degrees()
+    };
 
     let dl = l2 - l1;
     let dc = c2p - c1p;
@@ -309,8 +329,7 @@ pub fn ciede2000(lab1: [f32; 3], lab2: [f32; 3]) -> f32 {
         (h1p + h2p - 360.0) / 2.0
     };
 
-    let t = 1.0
-        - 0.17 * ((avg_hp - 30.0).to_radians()).cos()
+    let t = 1.0 - 0.17 * ((avg_hp - 30.0).to_radians()).cos()
         + 0.24 * (2.0 * avg_hp.to_radians()).cos()
         + 0.32 * (3.0 * avg_hp.to_radians() + 6.0f32.to_radians()).cos()
         - 0.20 * (4.0 * avg_hp.to_radians() - 63.0f32.to_radians()).cos();

@@ -58,8 +58,8 @@ pub fn parse_spec_json(json: &str) -> Result<Vec<SpecPatch>, String> {
         if !line.starts_with('{') {
             continue;
         }
-        let patch = parse_spec_line(line)
-            .ok_or_else(|| format!("failed to parse spec line: {line}"))?;
+        let patch =
+            parse_spec_line(line).ok_or_else(|| format!("failed to parse spec line: {line}"))?;
         patches.push(patch);
     }
     Ok(patches)
@@ -93,7 +93,9 @@ fn parse_spec_line(line: &str) -> Option<SpecPatch> {
 fn parse_u64(s: &str, key: &str) -> Option<u64> {
     let pos = s.find(key)? + key.len();
     let rest = s[pos..].trim_start();
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 
@@ -122,7 +124,9 @@ fn parse_str_field(s: &str, key: &str) -> Option<String> {
         Some(inner[..end].to_string())
     } else {
         // bare token: true, false, or number.
-        let end = rest.find(|c: char| c == ',' || c == '}').unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| c == ',' || c == '}')
+            .unwrap_or(rest.len());
         Some(rest[..end].trim().to_string())
     }
 }
@@ -131,12 +135,7 @@ fn parse_str_field(s: &str, key: &str) -> Option<String> {
 
 /// Extract the mean of the inner `INNER_CROP × INNER_CROP` core of a patch
 /// from an 8-bit sRGB PNG. The PNG is row-major RGB packed bytes.
-pub fn extract_patch_mean_srgb(
-    png_rgb: &[u8],
-    png_w: usize,
-    col: u32,
-    row: u32,
-) -> [f32; 3] {
+pub fn extract_patch_mean_srgb(png_rgb: &[u8], png_w: usize, col: u32, row: u32) -> [f32; 3] {
     let stride = (PATCH_SIZE + GUARD) as usize;
     let skip = ((PATCH_SIZE - INNER_CROP) / 2) as usize;
     let x0 = col as usize * stride + skip;
@@ -213,9 +212,8 @@ pub fn solve_acr_model(
         match spec.group {
             SpecGroup::Neutral => {
                 let scene_lum = spec.target_rec2020[0]; // R=G=B for neutrals.
-                let display_lum = 0.2126 * display_lin[0]
-                    + 0.7152 * display_lin[1]
-                    + 0.0722 * display_lin[2];
+                let display_lum =
+                    0.2126 * display_lin[0] + 0.7152 * display_lin[1] + 0.0722 * display_lin[2];
                 neutral_samples.push(NeutralSample {
                     scene_lum,
                     display_lum,
@@ -231,12 +229,11 @@ pub fn solve_acr_model(
         }
     }
 
-    let ts = fit_tonescale(&neutral_samples)
-        .ok_or("tonescale fit failed: too few neutral samples")?;
+    let ts =
+        fit_tonescale(&neutral_samples).ok_or("tonescale fit failed: too few neutral samples")?;
 
     // Stage 2: field fit.
-    let (field, patches_used, patches_clipped_stage2) =
-        fit_field(&sweep_samples, &ts);
+    let (field, patches_used, patches_clipped_stage2) = fit_field(&sweep_samples, &ts);
 
     let patches_clipped = total_clipped + patches_clipped_stage2;
 
@@ -254,8 +251,8 @@ pub fn solve_acr_model(
     })
 }
 
-/// Compute mean CIEDE2000 of `apply_model` prediction vs measured display sRGB,
-/// over unclipped sweep patches.
+/// Compute the root-mean-square CIEDE2000 of `apply_model` prediction vs
+/// measured display sRGB, over unclipped sweep patches.
 fn compute_fit_rms_de(
     specs: &[SpecPatch],
     png_rgb: &[u8],
@@ -294,13 +291,21 @@ fn compute_fit_rms_de(
         // Model prediction.
         let pred_rec2020 = apply_model(&model, spec.target_rec2020);
         let pred_srgb = M_REC2020_TO_SRGB.mul_vec(pred_rec2020);
-        let pred_srgb_clamped = [pred_srgb[0].clamp(0.0, 1.0), pred_srgb[1].clamp(0.0, 1.0), pred_srgb[2].clamp(0.0, 1.0)];
+        let pred_srgb_clamped = [
+            pred_srgb[0].clamp(0.0, 1.0),
+            pred_srgb[1].clamp(0.0, 1.0),
+            pred_srgb[2].clamp(0.0, 1.0),
+        ];
         let lab_pred = srgb_linear_to_lab(pred_srgb_clamped);
 
         let de = ciede2000(lab_meas, lab_pred);
-        total_de += de as f64;
+        total_de += (de as f64) * (de as f64);
         n += 1;
     }
 
-    if n == 0 { 0.0 } else { (total_de / n as f64) as f32 }
+    if n == 0 {
+        0.0
+    } else {
+        (total_de / n as f64).sqrt() as f32
+    }
 }

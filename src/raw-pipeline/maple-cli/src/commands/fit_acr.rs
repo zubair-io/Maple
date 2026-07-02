@@ -26,7 +26,9 @@ pub fn run(_spec: &Path, _acr_png: &Path, _out: &Path) -> Result<i32, Box<dyn st
 
 #[cfg(feature = "test-support")]
 pub fn run(spec: &Path, acr_png: &Path, out: &Path) -> Result<i32, Box<dyn std::error::Error>> {
-    use raw_core::view::acr_fit::{parse_spec_json, solve_acr_model, COLS, ROWS};
+    use raw_core::view::acr_fit::{
+        parse_spec_json, solve_acr_model, COLS, GUARD, PATCH_SIZE, ROWS,
+    };
 
     // Read spec JSON.
     let spec_json = std::fs::read_to_string(spec)
@@ -48,8 +50,8 @@ pub fn run(spec: &Path, acr_png: &Path, out: &Path) -> Result<i32, Box<dyn std::
     );
 
     // Sanity check dimensions.
-    let expected_w = (COLS * (48 + 8)) as usize; // PATCH_SIZE + GUARD = 56
-    let expected_h = (ROWS * (48 + 8)) as usize;
+    let expected_w = (COLS * (PATCH_SIZE + GUARD)) as usize;
+    let expected_h = (ROWS * (PATCH_SIZE + GUARD)) as usize;
     if png_w != expected_w || png_h != expected_h {
         return Err(format!(
             "ACR PNG size {png_w}×{png_h} does not match expected {expected_w}×{expected_h}"
