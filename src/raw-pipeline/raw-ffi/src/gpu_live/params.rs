@@ -111,6 +111,10 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             iterations: p.capture_sharpening_iterations,
             highlight_threshold: p.capture_sharpening_highlight_threshold,
             strength: p.capture_sharpening_strength,
+            // noise_floor is not yet exposed in MapleAdjustmentParams; use the
+            // same default (3e-4) that raw-core's CaptureSharpeningParams::default()
+            // applies, so the GPU path matches the CPU reference.
+            noise_floor: raw_gpu::CaptureSharpeningParams::default().noise_floor,
         })
     } else {
         None

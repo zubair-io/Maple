@@ -131,6 +131,17 @@ public actor RenderActor {
 
     var decodedAtModel: AdjustmentModel?
 
+    /// Per-camera NoiseLevelFunction profile captured at decode time (PR #1709
+    /// review fix 4). `nil` when the DNG carries no NoiseLevelFunction tag; the
+    /// adaptive NR stage falls back to the ISO-only estimate in that case.
+    /// Stored alongside the decoded image so `processSceneLinear` can forward
+    /// it to `maple_apply_scene_linear_chain_f32` without re-decoding.
+    var decodedNoiseProfile: [Float]? = nil
+
+    /// ISO speed captured at decode time (PR #1709 review fix 4). 0 when not
+    /// available; the Rust chain substitutes 100 on its side.
+    var decodedISO: UInt32 = 0
+
     /// Profile the cached `decodedImage` was developed for (#871). The
     /// decode buffer is now profile-dependent: `Profile::Auto` develops
     /// `auto_exposure` Off (so it byte-matches the buffer the Auto curve
@@ -149,7 +160,9 @@ public actor RenderActor {
     /// final render. Seeded preview / embedded-JPEG buffers are NOT full.
     var decodedIsFull: Bool = false
 
-    var decodeTask: Task<CIImage?, Never>?
+    /// (image, noiseProfile, iso) — noiseProfile/iso forwarded to the NR stage
+    /// (PR #1709 review fix 4). Non-RAW decodes yield (image, nil, 0).
+    var decodeTask: Task<(CIImage, [Float]?, UInt32)?, Never>?
     var decodeTaskAssetID: AssetRef.ID?
     /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
     /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
@@ -233,6 +246,13 @@ public actor RenderActor {
         /// live profile and treats a mismatch as a miss so a profile toggle
         /// re-decodes the (profile-dependent, AE-Off-for-Auto) buffer.
         public let profile: Profile?
+        /// Per-camera noise profile from the RAW decode (PR #1709 review fix 4).
+        /// `nil` when the DNG carries no NoiseLevelFunction tag or the buffer
+        /// was seeded from a display-encoded preview.
+        public let noiseProfile: [Float]?
+        /// ISO speed from the RAW decode (PR #1709 review fix 4). 0 for seeded
+        /// / non-RAW buffers; the Rust chain substitutes 100 on its side.
+        public let iso: UInt32
     }
 
     // MARK: - Scheduler state (slice 3)
@@ -300,7 +320,7 @@ public actor RenderActor {
             return url
         }()
         try Task.checkCancellation()
-        guard let decoded = await pipeline.decodeSceneLinear(
+        guard let decodeResult = await pipeline.decodeSceneLinear(
             asset: asset, quality: .preview, xmpPath: sidecar,
             profileOverride: asset.isRaw ? model.profile : nil
         ) else {
@@ -308,12 +328,14 @@ public actor RenderActor {
         }
         try Task.checkCancellation()
         return pipeline.processSceneLinear(
-            decoded: decoded,
+            decoded: decodeResult.image,
             model: model,
             targetSize: nil,
             asShot: nil,
             decodedAtModel: nil,
-            assetID: asset.id
+            assetID: asset.id,
+            noiseProfile: decodeResult.noiseProfile,
+            iso: decodeResult.iso
         )
     }
 
@@ -346,20 +368,24 @@ public actor RenderActor {
             else { return nil }
             return url
         }()
-        guard let decoded = await pipeline.decodeSceneLinear(
+        guard let exportDecodeResult = await pipeline.decodeSceneLinear(
             asset: asset, quality: AmazeFlag.isEnabled ? .amaze : .full, xmpPath: sidecar,
             profileOverride: asset.isRaw ? m.profile : nil
         ) else {
             throw RenderError.pipelineFailed
         }
         let exportDecodedAtModel = EditSession.parseSidecarModel(for: asset)
+        let exportNoiseProfile = exportDecodeResult.noiseProfile
+        let exportISO = exportDecodeResult.iso
         return await Task.detached(priority: .userInitiated) {
             pipeline.processSceneLinear(
-                decoded: decoded,
+                decoded: exportDecodeResult.image,
                 model: m,
                 targetSize: nil,
                 asShot: asShot,
-                decodedAtModel: exportDecodedAtModel
+                decodedAtModel: exportDecodedAtModel,
+                noiseProfile: exportNoiseProfile,
+                iso: exportISO
             )
         }.value
     }
