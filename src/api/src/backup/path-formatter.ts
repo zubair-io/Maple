@@ -87,12 +87,11 @@ export function formatBackupPath(args: {
   }
 
   const y = args.captureDate.getUTCFullYear().toString().padStart(4, '0');
-  const m = (args.captureDate.getUTCMonth() + 1).toString().padStart(2, '0');
 
   // Screenshot wins over location and date — a UI capture isn't a place photo.
   if (args.isScreenshot) return `${y}/${SCREENSHOT_DIR_SEGMENT}/${args.filename}`;
 
   const segs = sanitizeLocationSegments(args.location);
   if (segs.length > 0) return `${y}/${segs.join('/')}/${args.filename}`;
-  return `${y}/${m}/${args.filename}`;
+  return `${y}/Misc/${args.filename}`;
 }

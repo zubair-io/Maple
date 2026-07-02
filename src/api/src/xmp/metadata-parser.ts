@@ -52,6 +52,7 @@ export interface XmpMetadataResult {
   flag?: 'pick' | 'reject';
   /** Color label string. */
   colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue';
+  isScreenshot?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +268,9 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
   if (colorLabelStr !== undefined && VALID_COLOR_LABELS.has(colorLabelStr)) {
     result.colorLabel = colorLabelStr as 'red' | 'orange' | 'yellow' | 'green' | 'blue';
   }
+  const isScrStr = str('papp:IsScreenshot');
+  if (isScrStr === 'true') result.isScreenshot = true;
+  else if (isScrStr === 'false') result.isScreenshot = false;
 
   // Strip undefined keys so consumers can use `key in result` cleanly.
   for (const k of Object.keys(result) as (keyof XmpMetadataResult)[]) {
@@ -333,6 +337,7 @@ export function xmpMetadataToOverridePatch(
   if (parsed.rating !== undefined) patch.rating = parsed.rating;
   if (parsed.flag !== undefined) patch.flag = parsed.flag;
   if (parsed.colorLabel !== undefined) patch.color_label = parsed.colorLabel;
+  if (parsed.isScreenshot !== undefined) patch.is_screenshot = parsed.isScreenshot;
 
   return patch;
 }
