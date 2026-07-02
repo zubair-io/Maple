@@ -84,6 +84,7 @@ fn raw_core_capture(buf: &[f32], w: u32, h: u32, params: CaptureSharpeningParams
         iterations: params.iterations,
         highlight_threshold: params.highlight_threshold,
         strength: params.strength,
+        noise_floor: params.noise_floor,
     };
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
