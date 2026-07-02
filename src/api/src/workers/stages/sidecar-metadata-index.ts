@@ -62,6 +62,11 @@ function gpsChanged(
 function assetActiveFileInfo(asset: { fileinfo?: FileInfo[] | null }): FileInfo | null {
   const list = asset.fileinfo;
   if (!list || list.length === 0) return null;
+  // First pass: look for a fully live entry (neither deleted nor missing)
+  for (const entry of list) {
+    if (!entry.deleted_at && !entry.missing_since) return entry;
+  }
+  // Second pass fallback: look for any active entry (not deleted, even if missing)
   for (const entry of list) {
     if (!entry.deleted_at) return entry;
   }

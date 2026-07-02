@@ -158,14 +158,23 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
     expect(result).toHaveProperty('skip', 'no-metadata');
   });
 
-  test('does not skip a missing-flagged file (ignores missing_since)', async () => {
+  test('does not skip a missing-flagged file (ignores missing_since, prefers live entry)', async () => {
+    // writeSidecar creates test.dng and test.xmp under tmpDir, and returns an ImageDoc
+    // with fileinfo pointing to test.dng (primary).
     const image = await writeSidecar(
       makeXmp(
         'photoshop:City="Berkeley" photoshop:State="California" photoshop:Country="United States"',
       ),
     );
-    // Mark the fileinfo as missing
-    image.fileinfo![0].missing_since = '2026-06-30T00:00:00.000Z' as any;
+
+    // Add a second entry to fileinfo which is flagged as missing and points to a non-existent file.
+    // Place it FIRST in the array to test that the locator bypasses it in favor of the live one.
+    image.fileinfo!.unshift({
+      path: '',
+      filename: 'nonexistent.dng',
+      library_id: image.fileinfo![0].library_id,
+      missing_since: '2026-06-30T00:00:00.000Z',
+    });
 
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result).not.toEqual({ skip: 'no-path' });
