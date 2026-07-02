@@ -170,9 +170,9 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
 }
 
 /**
- * True when the asset has a resolvable geo location — regardless of whether it
- * has backup copies. This is the generalised predicate replacing the old
- * `isGeoBackupCandidate` which required `phasset_links`.
+ * True when the asset is a candidate for relocation (under geo or Misc folders)
+ * — regardless of whether it has backup copies. This is the generalised predicate
+ * replacing the old `isGeoBackupCandidate` which required `phasset_links`.
  */
 function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
   const primary = assetActiveFileInfo(doc);
