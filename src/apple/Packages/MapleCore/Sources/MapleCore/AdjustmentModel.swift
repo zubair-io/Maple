@@ -125,8 +125,9 @@ public enum Look: String, Codable, Sendable, Hashable {
 /// Default is `.auto` — new sidecars omit `papp:Profile` and existing
 /// sidecars without the attribute land on `.auto`.
 public enum Profile: String, Codable, Sendable, Hashable, CaseIterable {
-    case auto    = "Auto"
-    case neutral = "Neutral"
+    case auto     = "Auto"
+    case neutral  = "Neutral"
+    case acrMatch = "AcrMatch"
 }
 
 // MARK: - HotPixelSuppressionMode
