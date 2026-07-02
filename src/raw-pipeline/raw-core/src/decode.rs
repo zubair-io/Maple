@@ -543,6 +543,8 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             CropRect::clamped(x, y, w, h, width, height)
         });
 
+    let opcode_list3 = crate::pipeline::pano::opcodes::read_opcode_list3(bytes, ext, width, height);
+
     // Assemble first with a placeholder BE, then resolve the bundled-profile
     // contribution against the fully-populated RawImage (§ 1b compose chain).
     // `lookup_profile` gates on `raw.plt`, `raw.color_matrices`, and the
@@ -571,6 +573,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         crop_rect,
         iso,
         noise_profile,
+        opcode_list3,
     };
     let be_from_bundle = if be_override.is_none() {
         crate::color::profile_loader::lookup_profile(&image)
