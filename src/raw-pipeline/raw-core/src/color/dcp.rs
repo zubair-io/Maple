@@ -278,9 +278,18 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
         }
     };
 
-    if profile.hsm.is_some() || profile.look_table.is_some() || profile.tone_curve.is_some() {
-        // Slow path: project to ProPhoto D50, run HSM (metameric correction),
-        // LookTable (aesthetic look), and ToneCurve, then project to Rec.2020 D65.
+    if profile.hsm.is_some() || profile.look_table.is_some() {
+        // Slow path: project to ProPhoto D50, run HSM (metameric correction)
+        // and LookTable (aesthetic look), then project to Rec.2020 D65.
+        //
+        // NOTE: ProfileToneCurve (PTC) is intentionally NOT applied here.
+        // Under ticket #425 (part of #416), PTC is a no-op in the colorimetry-
+        // only DCP path on ALL profile sources. PTC was calibrated to sit under
+        // Adobe's tone mapping; Maple's view transform is AgX, so applying PTC
+        // on top of AgX produces compound hue errors. AgX supplies the canonical
+        // tone mapping. See the `apply_colorimetry` doc-comment for the full
+        // rationale and `grey_dcp_phase1::profile_tone_curve_is_noop_under_colorimetry_only`
+        // for the test that pins this contract.
         let mut pro = Image::new(
             camera.width,
             camera.height,
@@ -297,9 +306,6 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
         }
         if let Some(table) = profile.look_table.as_ref() {
             apply_look_table(&mut pro, table);
-        }
-        if let Some(curve) = profile.tone_curve.as_ref() {
-            crate::color::profile_tone_curve::apply(&mut pro, curve);
         }
         let exit = m_pro_to_rec2020();
         let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
