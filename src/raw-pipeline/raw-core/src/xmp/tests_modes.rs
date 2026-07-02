@@ -558,38 +558,20 @@ fn papp_profile_wins_over_legacy_papp_look() {
 /// serializer omits the attribute at the default so pre-#1106 sidecars
 /// stay byte-identical. Non-default round-trips serialize → parse.
 #[test]
-fn parse_hot_pixel_suppression_on() {
-    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
-        papp:HotPixelSuppression="On"/></x>"#;
-    let m = parse(xml).unwrap();
+fn parse_hot_pixel_suppression_modes() {
+    let m = parse(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:HotPixelSuppression="On"/></x>"#).unwrap();
     assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::On);
-}
 
-#[test]
-fn parse_hot_pixel_suppression_off_explicit_and_lowercase() {
-    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
-        papp:HotPixelSuppression="off"/></x>"#;
-    let m = parse(xml).unwrap();
+    let m = parse(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:HotPixelSuppression="off"/></x>"#).unwrap();
     assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::Off);
-    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
-        papp:HotPixelSuppression="on"/></x>"#;
-    let m = parse(xml).unwrap();
+
+    let m = parse(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:HotPixelSuppression="on"/></x>"#).unwrap();
     assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::On);
-}
 
-#[test]
-fn parse_hot_pixel_suppression_absent_defaults_to_off() {
-    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
-        crs:Exposure2012="1.0"/></x>"#;
-    let m = parse(xml).unwrap();
+    let m = parse(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x" crs:Exposure2012="1.0"/></x>"#).unwrap();
     assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::Off);
-}
 
-#[test]
-fn parse_hot_pixel_suppression_invalid_is_error() {
-    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
-        papp:HotPixelSuppression="Maybe"/></x>"#;
-    assert!(parse(xml).is_err());
+    assert!(parse(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:HotPixelSuppression="Maybe"/></x>"#).is_err());
 }
 
 #[test]

@@ -32,7 +32,7 @@
 import type { Collection, WithId } from 'mongodb';
 import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { child as childLogger } from '../../log.ts';
-import { assetPrimaryFileInfo, updateLiveLocationCount } from '../../indexer/images.repo.ts';
+import { updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
 
 /**

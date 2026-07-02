@@ -30,9 +30,7 @@ const app = new Elysia().use(libraryRelocateRoutes);
 
 const SLUG = 'photos';
 
-async function connectOrSkip(
-  label: string,
-): Promise<Awaited<ReturnType<typeof getDb>> | null> {
+async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof getDb>> | null> {
   try {
     const { getDb } = await import('../db/client.ts');
     return await getDb();
@@ -216,7 +214,9 @@ describe('library-relocate end-to-end', () => {
 
       const newRel = '2024/California/Berkeley';
       // File + sidecar both landed at the new dir
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.dng'), 'utf8')).toBe('missing_bytes');
+      expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.dng'), 'utf8')).toBe(
+        'missing_bytes',
+      );
       expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.xmp'), 'utf8')).toBe('edits');
 
       // DB repointed and missing_since is cleared (null)
