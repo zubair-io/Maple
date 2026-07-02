@@ -430,8 +430,39 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // no-op.
     stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
+    // ACR anchoring (#1729): when `crs:WhiteBalance="Custom"` is set in the
+    // XMP sidecar but only one of `crs:Temperature` / `crs:Tint` appears,
+    // ACR renders the absent component at the image's as-shot value rather
+    // than at the slider neutral (6500 K / 0). The `temperature_seen` and
+    // `tint_seen` flags record which components were explicitly authored.
+    //
+    // Crucially, anchoring to as-shot only fires when at least one component
+    // was explicitly set (i.e. a Custom WB is active). When NEITHER flag is
+    // set (no XMP sidecar, or a non-Custom WB preset) the develop model
+    // carries 6500 K / 0 in its fields and the `white_balance::apply`
+    // short-circuit fires — this is the correct behaviour because
+    // `apply_pre_gain` already bakes the as-shot neutral into the image.
+    // Substituting as-shot CCT here would double-apply the white-balance.
+    let effective_temperature = if model.temperature_seen {
+        model.temperature
+    } else if model.tint_seen {
+        // Tint-only Custom WB: anchor the missing temperature to as-shot.
+        raw.as_shot_cct
+            .unwrap_or_else(|| white_balance::estimate_cct_from_neutral(raw.as_shot_neutral))
+    } else {
+        // No Custom WB authored (no XMP or non-Custom preset): keep 6500 K
+        // so the short-circuit in `white_balance::apply` fires and the WB
+        // stage is a no-op (as-shot is already baked by `apply_pre_gain`).
+        model.temperature
+    };
+    // As-shot tint: AsShotNeutral encodes CCT-axis information well, but tint
+    // (perpendicular-to-locus) is poorly constrained by a single neutral vector.
+    // ACR/rawpy use 0 as the as-shot tint when no DNG AsShotWhiteXY is present,
+    // so we mirror that: absent tint → 0.0. When neither flag is set, model.tint
+    // is already 0.0 (default), so the result is the same either way.
+    let effective_tint = if model.tint_seen { model.tint } else { 0.0 };
     stage("white_balance", || {
-        white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method)
+        white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
     });
     dump_after("06_white_balance", &scene);
     stage("scene_tone_controls", || {

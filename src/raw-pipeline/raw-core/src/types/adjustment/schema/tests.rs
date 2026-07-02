@@ -24,6 +24,8 @@ fn schema_matches_struct() {
     let AdjustmentModel {
         temperature,
         tint,
+        temperature_seen,
+        tint_seen,
         wb_method,
         exposure,
         brightness,
@@ -191,6 +193,8 @@ fn schema_matches_struct() {
     let _ = (
         temperature,
         tint,
+        temperature_seen,
+        tint_seen,
         wb_method,
         exposure,
         brightness,
@@ -282,6 +286,14 @@ fn schema_matches_struct() {
         crop.is_identity(),
         "AdjustmentModel::default().crop must be identity"
     );
+    assert!(
+        !temperature_seen,
+        "AdjustmentModel::default().temperature_seen must be false"
+    );
+    assert!(
+        !tint_seen,
+        "AdjustmentModel::default().tint_seen must be false"
+    );
 }
 
 /// Schema-exemption allow-list. Fields appearing here are the ones
@@ -294,10 +306,18 @@ fn schema_matches_struct() {
 fn schema_exemption_allowlist() {
     // `crop` added in #277: nested `Crop` struct, not a codegen scalar.
     // `inpaint_removals` added in #1486: Vec<Removal> structured payload.
-    const ALLOWED: &[&str] = &["local_adjustments", "inpaint_removals", "crop"];
+    // `temperature_seen` / `tint_seen` added in #1729: internal parse-state
+    // booleans, not user-facing slider values.
+    const ALLOWED: &[&str] = &[
+        "local_adjustments",
+        "inpaint_removals",
+        "crop",
+        "temperature_seen",
+        "tint_seen",
+    ];
     assert_eq!(
         ALLOWED.len(),
-        3,
+        5,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
     );
@@ -315,6 +335,16 @@ fn schema_exemption_allowlist() {
         ALLOWED.contains(&"crop"),
         "crop must remain on the schema-exemption allow-list \
          (nested Crop struct, not a codegen-eligible scalar/enum)"
+    );
+    assert!(
+        ALLOWED.contains(&"temperature_seen"),
+        "temperature_seen must remain on the schema-exemption allow-list \
+         (internal parse-state bool for #1729 WB anchoring, not a slider value)"
+    );
+    assert!(
+        ALLOWED.contains(&"tint_seen"),
+        "tint_seen must remain on the schema-exemption allow-list \
+         (internal parse-state bool for #1729 WB anchoring, not a slider value)"
     );
 }
 

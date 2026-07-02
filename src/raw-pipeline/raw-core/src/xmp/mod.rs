@@ -112,8 +112,14 @@ fn set_field(
         })
     };
     match key {
-        "crs:Temperature" => m.temperature = v()?,
-        "crs:Tint" => m.tint = v()?,
+        "crs:Temperature" => {
+            m.temperature = v()?;
+            m.temperature_seen = true;
+        }
+        "crs:Tint" => {
+            m.tint = v()?;
+            m.tint_seen = true;
+        }
         "crs:Exposure2012" => m.exposure = v()?,
         // Brightness midtone-band gain (#1102, tone/zoom design § 4.1).
         // Maple-proprietary `papp:` key — deliberately NOT `crs:Brightness`,

@@ -17,11 +17,19 @@ use crate::AdjustmentModel;
 /// Off, and the three non-zero display defaults (sharpen 40, nr_color 25)
 /// zeroed. Everything else in `AdjustmentModel::default()` already
 /// short-circuits at its default value.
+///
+/// `temperature_seen` and `tint_seen` are set to `true` so the WB stage
+/// resolves to 6500 K / 0 tint and short-circuits to a no-op (#1729). Without
+/// them the anchoring logic would resolve to as-shot CCT, which is non-identity
+/// for the synthetic DNG (as-shot = 5500 K), breaking the bit-pin against the
+/// pano path (which intentionally omits user WB entirely).
 fn display_stages_zeroed() -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
         sharpen_amount: 0.0,
         nr_color: 0.0,
+        temperature_seen: true,
+        tint_seen: true,
         ..AdjustmentModel::default()
     }
 }
