@@ -227,6 +227,10 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             2 => InputShape::SrgbGammaEncoded8,
             _ => InputShape::PostDcpRec2020Fp16,
         },
+        // Marshal the profile_id discriminant (#1722). Unknown values default
+        // to 0 (Auto / AgX) — the safe conservative fallback that matches the
+        // pre-#1722 behaviour. A stale host (zero-initialised struct) reads 0.
+        profile_id: p.profile_id,
     }
 }
 

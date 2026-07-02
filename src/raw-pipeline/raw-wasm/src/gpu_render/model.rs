@@ -224,5 +224,11 @@ pub(super) fn build_full_chain_inputs(
         target_primaries: 0,
         // Web always decodes RAW and routes through the full chain.
         input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
+        // Map the model's Profile discriminant (#1722): AcrMatch → 2, everything
+        // else (Auto/Neutral/unknown) → 0 (AgX) for conservative fallback.
+        profile_id: match model.profile {
+            raw_core::types::adjustment::Profile::AcrMatch => raw_gpu::PROFILE_ID_ACR_MATCH,
+            _ => 0,
+        },
     }
 }
