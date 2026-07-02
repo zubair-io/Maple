@@ -53,11 +53,7 @@ const CHROMA_FLOOR: f32 = 1e-5;
 ///   stay distinct — no plateau) and **bounded by the hull** (stays in gamut).
 ///   Hue is preserved by construction (uniform `a, b` scaling at constant `L`).
 #[inline]
-pub fn compress_to_unit_cube_oklab<F, G>(
-    rgb: [f32; 3],
-    to_oklab: F,
-    from_oklab: G,
-) -> [f32; 3]
+pub fn compress_to_unit_cube_oklab<F, G>(rgb: [f32; 3], to_oklab: F, from_oklab: G) -> [f32; 3]
 where
     F: Fn([f32; 3]) -> [f32; 3],
     G: Fn([f32; 3]) -> [f32; 3],
@@ -339,8 +335,7 @@ mod tests {
             [0.5, 0.45, 0.4],
         ];
         for p in cases {
-            let out =
-                compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
+            let out = compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
             assert_eq!(out[0].to_bits(), p[0].to_bits(), "R drift on {:?}", p);
             assert_eq!(out[1].to_bits(), p[1].to_bits(), "G drift on {:?}", p);
             assert_eq!(out[2].to_bits(), p[2].to_bits(), "B drift on {:?}", p);
@@ -361,8 +356,7 @@ mod tests {
         for p in cases {
             // Precondition: input is genuinely in-gamut.
             assert!(p.iter().all(|&v| (0.0..=1.0).contains(&v)), "setup {:?}", p);
-            let out =
-                compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
+            let out = compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
             let lab_in = srgb_linear_to_oklab(p);
             let lab_out = srgb_linear_to_oklab(out);
             // Chroma reduced (the soft-knee pulled it toward the hull from
@@ -375,7 +369,11 @@ mod tests {
                 chroma(lab_out)
             );
             // Still in gamut.
-            assert!(out.iter().all(|&v| (0.0..=1.0).contains(&v)), "out of gamut {:?}", out);
+            assert!(
+                out.iter().all(|&v| (0.0..=1.0).contains(&v)),
+                "out of gamut {:?}",
+                out
+            );
             // Hue preserved (<2°) — uniform (a, b) scaling.
             let h_in = lab_in[2].atan2(lab_in[1]).to_degrees();
             let h_out = lab_out[2].atan2(lab_out[1]).to_degrees();
@@ -412,8 +410,7 @@ mod tests {
             let c_in = c_max * (i as f32) / ((N - 1) as f32);
             let lin = oklab_to_srgb_linear([l, c_in * cos_h, c_in * sin_h]);
             let oog = !lin.iter().all(|&v| (-1e-5..=1.0 + 1e-5).contains(&v));
-            let out =
-                compress_to_unit_cube_oklab(lin, srgb_linear_to_oklab, oklab_to_srgb_linear);
+            let out = compress_to_unit_cube_oklab(lin, srgb_linear_to_oklab, oklab_to_srgb_linear);
             out_chroma.push(chroma(srgb_linear_to_oklab(out)));
             if oog {
                 oog_idx.push(i);
@@ -490,15 +487,14 @@ mod tests {
         // exact to fp precision — the 2° budget absorbs any sign-flip
         // edge cases from the matrix round-trip.
         let cases = [
-            [1.4f32, -0.2, -0.1],   // red-dominant
-            [-0.1, 1.3, -0.05],     // green-dominant
-            [-0.05, -0.1, 1.5],     // blue-dominant
-            [1.2, -0.05, 1.1],      // magenta (R+B)
+            [1.4f32, -0.2, -0.1], // red-dominant
+            [-0.1, 1.3, -0.05],   // green-dominant
+            [-0.05, -0.1, 1.5],   // blue-dominant
+            [1.2, -0.05, 1.1],    // magenta (R+B)
         ];
         for p in cases {
             let lab_in = srgb_linear_to_oklab(p);
-            let out =
-                compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
+            let out = compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
             let lab_out = srgb_linear_to_oklab(out);
             let h_in = lab_in[2].atan2(lab_in[1]).to_degrees();
             let h_out = lab_out[2].atan2(lab_out[1]).to_degrees();
@@ -543,8 +539,7 @@ mod tests {
             [0.2, 0.2, f32::NEG_INFINITY],
         ];
         for p in cases {
-            let out =
-                compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
+            let out = compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
             for (i, c) in out.iter().enumerate() {
                 assert!(
                     c.is_finite() && (0.0..=1.0).contains(c),

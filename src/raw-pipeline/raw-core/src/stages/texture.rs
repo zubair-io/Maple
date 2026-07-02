@@ -52,16 +52,18 @@ const LUMA_FLOOR: f32 = 1e-6;
 /// .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
 pub fn apply(img: &mut Image, texture: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if texture.abs() < 1e-3 { return; }
+    if texture.abs() < 1e-3 {
+        return;
+    }
     let amount = texture / 100.0;
 
     let w = img.width as usize;
     let h = img.height as usize;
 
-    let luma_plane: Vec<f32> = img.pixels.iter()
-        .map(|p| LUMA_REC2020[0] * p[0]
-              + LUMA_REC2020[1] * p[1]
-              + LUMA_REC2020[2] * p[2])
+    let luma_plane: Vec<f32> = img
+        .pixels
+        .iter()
+        .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
     let base = guided_filter(
         &luma_plane,
@@ -106,7 +108,9 @@ mod tests {
     /// regression. Not called by production code.
     fn apply_broken_per_channel(img: &mut Image, texture: f32) {
         img.assert_space(ColorSpace::SceneLinearRec2020);
-        if texture.abs() < 1e-3 { return; }
+        if texture.abs() < 1e-3 {
+            return;
+        }
         let amount = texture / 100.0;
         let w = img.width as usize;
         let h = img.height as usize;
@@ -150,12 +154,18 @@ mod tests {
     #[test]
     fn flat_input_stays_flat() {
         let mut img = Image::new(10, 10, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.5, 0.5, 0.5]; }
+        for p in &mut img.pixels {
+            *p = [0.5, 0.5, 0.5];
+        }
         apply(&mut img, 100.0);
         for p in &img.pixels {
             for c in 0..3 {
-                assert!((p[c] - 0.5).abs() < 1e-4,
-                    "channel {} drifted off the flat 0.5: {}", c, p[c]);
+                assert!(
+                    (p[c] - 0.5).abs() < 1e-4,
+                    "channel {} drifted off the flat 0.5: {}",
+                    c,
+                    p[c]
+                );
             }
         }
     }
@@ -167,20 +177,36 @@ mod tests {
     fn enhances_edges() {
         let mut img = Image::new(10, 1, ColorSpace::SceneLinearRec2020);
         for (i, p) in img.pixels.iter_mut().enumerate() {
-            *p = if i < 5 { [0.3, 0.3, 0.3] } else { [0.7, 0.7, 0.7] };
+            *p = if i < 5 {
+                [0.3, 0.3, 0.3]
+            } else {
+                [0.7, 0.7, 0.7]
+            };
         }
         let before = img.pixels.clone();
         apply(&mut img, 100.0);
         // Darker side stays ≤ before; brighter side stays ≥ before
         // (modulo a tiny f32 round-off allowance).
-        assert!(img.pixels[4][0] <= before[4][0] + 0.01,
-            "dark side at edge: {} vs before {}", img.pixels[4][0], before[4][0]);
-        assert!(img.pixels[5][0] >= before[5][0] - 0.01,
-            "bright side at edge: {} vs before {}", img.pixels[5][0], before[5][0]);
+        assert!(
+            img.pixels[4][0] <= before[4][0] + 0.01,
+            "dark side at edge: {} vs before {}",
+            img.pixels[4][0],
+            before[4][0]
+        );
+        assert!(
+            img.pixels[5][0] >= before[5][0] - 0.01,
+            "bright side at edge: {} vs before {}",
+            img.pixels[5][0],
+            before[5][0]
+        );
         // Every pixel stays neutral.
         for (i, p) in img.pixels.iter().enumerate() {
-            assert!((p[0] - p[1]).abs() < 1e-3 && (p[1] - p[2]).abs() < 1e-3,
-                "pixel {} no longer neutral: {:?}", i, p);
+            assert!(
+                (p[0] - p[1]).abs() < 1e-3 && (p[1] - p[2]).abs() < 1e-3,
+                "pixel {} no longer neutral: {:?}",
+                i,
+                p
+            );
         }
     }
 
@@ -206,14 +232,30 @@ mod tests {
         let r_g_ref = 1.5;
         let r_b_ref = 2.0;
         for (i, p) in img.pixels.iter().enumerate() {
-            assert!(p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
-                "pixel {} not finite: {:?}", i, p);
+            assert!(
+                p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
+                "pixel {} not finite: {:?}",
+                i,
+                p
+            );
             let ratio_rg = p[0] / p[1];
             let ratio_rb = p[0] / p[2];
-            assert!((ratio_rg - r_g_ref).abs() < 1e-3,
-                "pixel {}: R/G ratio {} drifted from {} (RGB={:?})", i, ratio_rg, r_g_ref, p);
-            assert!((ratio_rb - r_b_ref).abs() < 1e-3,
-                "pixel {}: R/B ratio {} drifted from {} (RGB={:?})", i, ratio_rb, r_b_ref, p);
+            assert!(
+                (ratio_rg - r_g_ref).abs() < 1e-3,
+                "pixel {}: R/G ratio {} drifted from {} (RGB={:?})",
+                i,
+                ratio_rg,
+                r_g_ref,
+                p
+            );
+            assert!(
+                (ratio_rb - r_b_ref).abs() < 1e-3,
+                "pixel {}: R/B ratio {} drifted from {} (RGB={:?})",
+                i,
+                ratio_rb,
+                r_b_ref,
+                p
+            );
         }
     }
 
@@ -254,21 +296,41 @@ mod tests {
         }
         apply(&mut img, 100.0);
         for (i, p) in img.pixels.iter().enumerate() {
-            assert!(p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
-                "pixel {} not finite: {:?}", i, p);
+            assert!(
+                p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
+                "pixel {} not finite: {:?}",
+                i,
+                p
+            );
             if i < w / 2 {
                 // Red-side: G and B must remain at zero — a per-channel
                 // unsharp would pull them off zero at the edge.
-                assert!(p[1].abs() < SAT_EDGE_RED_SIDE_TOL,
-                    "red-side pixel {}: G drifted off zero: {:?}", i, p);
-                assert!(p[2].abs() < SAT_EDGE_RED_SIDE_TOL,
-                    "red-side pixel {}: B drifted off zero: {:?}", i, p);
+                assert!(
+                    p[1].abs() < SAT_EDGE_RED_SIDE_TOL,
+                    "red-side pixel {}: G drifted off zero: {:?}",
+                    i,
+                    p
+                );
+                assert!(
+                    p[2].abs() < SAT_EDGE_RED_SIDE_TOL,
+                    "red-side pixel {}: B drifted off zero: {:?}",
+                    i,
+                    p
+                );
             } else {
                 // Grey-side: R == G == B (within f32 round-off).
-                assert!((p[0] - p[1]).abs() < SAT_EDGE_GREY_SIDE_TOL,
-                    "grey-side pixel {}: R-G drifted: {:?}", i, p);
-                assert!((p[1] - p[2]).abs() < SAT_EDGE_GREY_SIDE_TOL,
-                    "grey-side pixel {}: G-B drifted: {:?}", i, p);
+                assert!(
+                    (p[0] - p[1]).abs() < SAT_EDGE_GREY_SIDE_TOL,
+                    "grey-side pixel {}: R-G drifted: {:?}",
+                    i,
+                    p
+                );
+                assert!(
+                    (p[1] - p[2]).abs() < SAT_EDGE_GREY_SIDE_TOL,
+                    "grey-side pixel {}: G-B drifted: {:?}",
+                    i,
+                    p
+                );
             }
         }
     }
@@ -314,9 +376,7 @@ mod tests {
         let mut grey_lost_neutrality = false;
         for (i, p) in img.pixels.iter().enumerate() {
             if i < w / 2 {
-                if p[1].abs() >= SAT_EDGE_RED_SIDE_TOL
-                    || p[2].abs() >= SAT_EDGE_RED_SIDE_TOL
-                {
+                if p[1].abs() >= SAT_EDGE_RED_SIDE_TOL || p[2].abs() >= SAT_EDGE_RED_SIDE_TOL {
                     red_zero_leaked = true;
                 }
             } else {
@@ -334,7 +394,8 @@ mod tests {
              (red {:.0e}, grey {:.0e}) — \
              preserves_chromaticity_across_a_saturated_edge would not \
              bite on a regression. Pixels: {:?}",
-            SAT_EDGE_RED_SIDE_TOL, SAT_EDGE_GREY_SIDE_TOL,
+            SAT_EDGE_RED_SIDE_TOL,
+            SAT_EDGE_GREY_SIDE_TOL,
             img.pixels,
         );
     }
@@ -342,7 +403,9 @@ mod tests {
     #[test]
     fn handles_pure_black_pixels() {
         let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.0, 0.0, 0.0]; }
+        for p in &mut img.pixels {
+            *p = [0.0, 0.0, 0.0];
+        }
         img.pixels[10 * 20 + 10] = [0.5, 0.5, 0.5];
         apply(&mut img, 100.0);
         for (i, p) in img.pixels.iter().enumerate() {
@@ -372,8 +435,7 @@ mod tests {
         let b = 0.0f32;
         let g = (5e-7 - LUMA_REC2020[0] * r - LUMA_REC2020[2] * b) / LUMA_REC2020[1];
         let sub_floor = [r, g, b];
-        let sub_floor_luma =
-            LUMA_REC2020[0] * r + LUMA_REC2020[1] * g + LUMA_REC2020[2] * b;
+        let sub_floor_luma = LUMA_REC2020[0] * r + LUMA_REC2020[1] * g + LUMA_REC2020[2] * b;
         assert!(
             sub_floor_luma > 0.0 && sub_floor_luma <= LUMA_FLOOR,
             "fixture bug: luma {} not in (0, LUMA_FLOOR]",
@@ -435,13 +497,21 @@ mod tests {
         let mut max_overshoot = 0.0f32;
         for dx in 1..=5 {
             let x = (cx + radius + dx as f32).round() as usize;
-            if x >= w { break; }
+            if x >= w {
+                break;
+            }
             let v = img.pixels[row * w + x][0];
             let over = (v - bg).max(0.0);
-            if over > max_overshoot { max_overshoot = over; }
+            if over > max_overshoot {
+                max_overshoot = over;
+            }
         }
-        assert!(max_overshoot / bg < 0.02,
+        assert!(
+            max_overshoot / bg < 0.02,
             "halo overshoot {:.4} / bg {:.4} = {:.2}% exceeds 2%",
-            max_overshoot, bg, 100.0 * max_overshoot / bg);
+            max_overshoot,
+            bg,
+            100.0 * max_overshoot / bg
+        );
     }
 }

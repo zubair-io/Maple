@@ -1,7 +1,7 @@
-pub mod matrices;
-pub mod illuminant;
 pub mod dcp;
 pub mod hsm;
+pub mod illuminant;
+pub mod matrices;
 pub mod oklab;
 pub mod oklab_gamut;
 pub mod profile_gain_table_map;

@@ -19,8 +19,8 @@
 //! derivation reads neither the wall clock nor any RNG. Calling [`maple_id`]
 //! twice on identical inputs returns identical output, on any platform.
 
-use crate::error::{Error, Result};
 use crate::api::Exif;
+use crate::error::{Error, Result};
 
 use blake3::Hasher as Blake3Hasher;
 use sha1::{Digest, Sha1};
@@ -215,8 +215,8 @@ mod tests {
     #[test]
     fn hex_roundtrip() {
         let id = MapleId([
-            0x01, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78,
-            0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44,
+            0x01, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22,
+            0x33, 0x44,
         ]);
         let hex = id.to_hex();
         assert_eq!(hex, "01abcdef123456789abcdef011223344");

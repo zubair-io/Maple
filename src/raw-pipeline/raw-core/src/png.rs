@@ -8,7 +8,9 @@ pub fn encode(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
         return Err(Error::Png(format!(
-            "expected {} bytes, got {}", expected_len, rgb.len()
+            "expected {} bytes, got {}",
+            expected_len,
+            rgb.len()
         )));
     }
     let mut out: Vec<u8> = Vec::with_capacity(expected_len / 4);
@@ -18,8 +20,12 @@ pub fn encode(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
         encoder.set_depth(png::BitDepth::Eight);
         encoder.set_compression(png::Compression::Default);
         encoder.set_source_srgb(png::SrgbRenderingIntent::Perceptual);
-        let mut writer = encoder.write_header().map_err(|e| Error::Png(e.to_string()))?;
-        writer.write_image_data(rgb).map_err(|e| Error::Png(e.to_string()))?;
+        let mut writer = encoder
+            .write_header()
+            .map_err(|e| Error::Png(e.to_string()))?;
+        writer
+            .write_image_data(rgb)
+            .map_err(|e| Error::Png(e.to_string()))?;
     }
     Ok(out)
 }
@@ -30,7 +36,7 @@ mod tests {
 
     #[test]
     fn encode_tiny_png_round_trip() {
-        let rgb: Vec<u8> = vec![255, 0, 0,  0, 255, 0,  0, 0, 255,  255, 255, 255];
+        let rgb: Vec<u8> = vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255];
         let bytes = encode(2, 2, &rgb).unwrap();
         let decoder = png::Decoder::new(bytes.as_slice());
         let mut reader = decoder.read_info().unwrap();
@@ -47,7 +53,7 @@ mod tests {
     fn wrong_length_errors() {
         let err = encode(2, 2, &[0u8; 10]).unwrap_err();
         match err {
-            Error::Png(_) => {},
+            Error::Png(_) => {}
             _ => panic!("expected Error::Png"),
         }
     }

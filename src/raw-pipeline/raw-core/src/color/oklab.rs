@@ -28,9 +28,9 @@ pub const M1_SRGB_TO_LMS: Matrix3 = Matrix3([
 /// `pub` for the same reason as [`M1_SRGB_TO_LMS`] — the codegen WGSL
 /// emitter (#990) single-sources the Oklab matrices from these consts.
 pub const M2_LMS_TO_LAB: Matrix3 = Matrix3([
-    [ 0.210_454_26,  0.793_617_79, -0.004_072_05],
-    [ 1.977_998_50, -2.428_592_21,  0.450_593_71],
-    [ 0.025_904_04,  0.782_771_77, -0.808_675_77],
+    [0.210_454_26, 0.793_617_79, -0.004_072_05],
+    [1.977_998_50, -2.428_592_21, 0.450_593_71],
+    [0.025_904_04, 0.782_771_77, -0.808_675_77],
 ]);
 
 /// Cached inverses of the three forward matrices. Each inverse is a pure
@@ -47,7 +47,9 @@ fn oklab_inverse_matrices() -> &'static (Matrix3, Matrix3, Matrix3) {
         (
             M2_LMS_TO_LAB.inverse().expect("M2 is invertible"),
             M1_SRGB_TO_LMS.inverse().expect("M1 is invertible"),
-            M_REC2020_TO_SRGB.inverse().expect("M_REC2020_TO_SRGB is invertible"),
+            M_REC2020_TO_SRGB
+                .inverse()
+                .expect("M_REC2020_TO_SRGB is invertible"),
         )
     })
 }
@@ -118,7 +120,12 @@ mod tests {
         let rgb = [0.18, 0.18, 0.18];
         let lab = rec2020_to_oklab(rgb);
         let back = oklab_to_rec2020(lab);
-        assert!(approx(rgb, back, 1e-4), "round trip drifted: {:?} -> {:?}", rgb, back);
+        assert!(
+            approx(rgb, back, 1e-4),
+            "round trip drifted: {:?} -> {:?}",
+            rgb,
+            back
+        );
     }
 
     #[test]
@@ -126,7 +133,12 @@ mod tests {
         let rgb = [0.8, 0.1, 0.1];
         let lab = rec2020_to_oklab(rgb);
         let back = oklab_to_rec2020(lab);
-        assert!(approx(rgb, back, 1e-4), "round trip drifted: {:?} -> {:?}", rgb, back);
+        assert!(
+            approx(rgb, back, 1e-4),
+            "round trip drifted: {:?} -> {:?}",
+            rgb,
+            back
+        );
     }
 
     #[test]
@@ -135,7 +147,12 @@ mod tests {
         let rgb = [5.0, 3.0, 1.5];
         let lab = rec2020_to_oklab(rgb);
         let back = oklab_to_rec2020(lab);
-        assert!(approx(rgb, back, 1e-3), "round trip drifted: {:?} -> {:?}", rgb, back);
+        assert!(
+            approx(rgb, back, 1e-3),
+            "round trip drifted: {:?} -> {:?}",
+            rgb,
+            back
+        );
     }
 
     #[test]
@@ -161,7 +178,12 @@ mod tests {
         let rgb = [0.18, 0.18, 0.18];
         let lab = srgb_linear_to_oklab(rgb);
         let back = oklab_to_srgb_linear(lab);
-        assert!(approx(rgb, back, 1e-5), "srgb-linear round trip drifted: {:?} -> {:?}", rgb, back);
+        assert!(
+            approx(rgb, back, 1e-5),
+            "srgb-linear round trip drifted: {:?} -> {:?}",
+            rgb,
+            back
+        );
     }
 
     #[test]
@@ -169,7 +191,12 @@ mod tests {
         let rgb = [0.9, 0.05, 0.05];
         let lab = srgb_linear_to_oklab(rgb);
         let back = oklab_to_srgb_linear(lab);
-        assert!(approx(rgb, back, 1e-4), "srgb-linear round trip drifted: {:?} -> {:?}", rgb, back);
+        assert!(
+            approx(rgb, back, 1e-4),
+            "srgb-linear round trip drifted: {:?} -> {:?}",
+            rgb,
+            back
+        );
     }
 
     #[test]
@@ -183,8 +210,16 @@ mod tests {
             let rgb = [v, v, v];
             let lab = srgb_linear_to_oklab(rgb);
             let back = oklab_to_srgb_linear(lab);
-            assert!((back[0] - back[1]).abs() < 1e-5, "neutral drift on G: {:?}", back);
-            assert!((back[1] - back[2]).abs() < 1e-5, "neutral drift on B: {:?}", back);
+            assert!(
+                (back[0] - back[1]).abs() < 1e-5,
+                "neutral drift on G: {:?}",
+                back
+            );
+            assert!(
+                (back[1] - back[2]).abs() < 1e-5,
+                "neutral drift on B: {:?}",
+                back
+            );
         }
     }
 
@@ -203,11 +238,22 @@ mod tests {
     #[test]
     fn cached_inverses_match_matrix3_inverse_bit_exact() {
         let (m2_inv, m1_inv, m_srgb_to_rec2020) = oklab_inverse_matrices();
-        assert_eq!(*m2_inv, M2_LMS_TO_LAB.inverse().expect("M2 invertible"),
-            "cached M2⁻¹ drifted from Matrix3::inverse(M2)");
-        assert_eq!(*m1_inv, M1_SRGB_TO_LMS.inverse().expect("M1 invertible"),
-            "cached M1⁻¹ drifted from Matrix3::inverse(M1)");
-        assert_eq!(*m_srgb_to_rec2020, M_REC2020_TO_SRGB.inverse().expect("M_REC2020_TO_SRGB invertible"),
-            "cached M_REC2020_TO_SRGB⁻¹ drifted from Matrix3::inverse(…)");
+        assert_eq!(
+            *m2_inv,
+            M2_LMS_TO_LAB.inverse().expect("M2 invertible"),
+            "cached M2⁻¹ drifted from Matrix3::inverse(M2)"
+        );
+        assert_eq!(
+            *m1_inv,
+            M1_SRGB_TO_LMS.inverse().expect("M1 invertible"),
+            "cached M1⁻¹ drifted from Matrix3::inverse(M1)"
+        );
+        assert_eq!(
+            *m_srgb_to_rec2020,
+            M_REC2020_TO_SRGB
+                .inverse()
+                .expect("M_REC2020_TO_SRGB invertible"),
+            "cached M_REC2020_TO_SRGB⁻¹ drifted from Matrix3::inverse(…)"
+        );
     }
 }

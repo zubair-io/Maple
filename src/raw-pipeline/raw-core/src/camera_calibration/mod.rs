@@ -130,16 +130,11 @@ impl Linearization {
 /// per-ISO bucket via [`Linearization::black_for_iso`] /
 /// [`Linearization::white_for_iso`]. This function itself does not filter
 /// by ISO — it returns the full body entry.
-pub fn lookup_linearization(
-    make: &str,
-    model: &str,
-    _iso: u32,
-) -> Option<&'static Linearization> {
+pub fn lookup_linearization(make: &str, model: &str, _iso: u32) -> Option<&'static Linearization> {
     let make_n = make.trim().to_ascii_lowercase();
     let model_n = model.trim().to_ascii_lowercase();
     for entry in camconst_ranges::CAMCONST_ENTRIES {
-        if entry.make.to_ascii_lowercase() == make_n
-            && entry.model.to_ascii_lowercase() == model_n
+        if entry.make.to_ascii_lowercase() == make_n && entry.model.to_ascii_lowercase() == model_n
         {
             return Some(&entry.data);
         }
@@ -181,8 +176,14 @@ mod tests {
         let lin = Linearization {
             black: &[],
             white: &[
-                IsoBucket { iso_range: (100, 200), value: WhiteLevels::Single(15000) },
-                IsoBucket { iso_range: (100, 400), value: WhiteLevels::Single(14000) },
+                IsoBucket {
+                    iso_range: (100, 200),
+                    value: WhiteLevels::Single(15000),
+                },
+                IsoBucket {
+                    iso_range: (100, 400),
+                    value: WhiteLevels::Single(14000),
+                },
             ],
         };
         // First-match wins for overlapping ranges.

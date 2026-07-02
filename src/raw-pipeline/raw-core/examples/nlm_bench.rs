@@ -184,7 +184,13 @@ fn main() {
             time_case("TICK chroma(2MP)", tick.0, tick.1, CHROMA, runs);
             // refine: fewer runs (each is ~1-2s)
             let refine_runs = runs.min(5);
-            time_case("REFINE luma  (100MP)", refine.0, refine.1, LUMA, refine_runs);
+            time_case(
+                "REFINE luma  (100MP)",
+                refine.0,
+                refine.1,
+                LUMA,
+                refine_runs,
+            );
             time_case(
                 "REFINE chroma(100MP)",
                 refine.0,

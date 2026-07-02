@@ -56,13 +56,25 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
     use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
     let m = &curve.matrix;
     let identity = m == &IDENTITY_MATRIX;
+
+    let sig_r = curve.lightness_offset;
+    let sig_g = curve.chroma_offset[0];
+    let sig_b = curve.chroma_offset[1];
+    let has_base_curve = sig_r >= 0.1 && sig_g >= 0.1 && sig_b >= 0.1;
+
     let chroma_boost = curve.chroma_boost;
-    let chroma_off = curve.chroma_offset;
-    let l_off = curve.lightness_offset;
+    let (chroma_off, l_off) = if has_base_curve {
+        ([0.0, 0.0], 0.0)
+    } else {
+        (curve.chroma_offset, curve.lightness_offset)
+    };
+
     let l_band = curve.lightness_band_offsets;
     let ab_band = curve.ab_band_offsets;
     let any_l_band = l_band.iter().any(|v| v.abs() > 1e-4);
-    let any_ab_band = ab_band.iter().any(|v| v[0].abs() > 1e-4 || v[1].abs() > 1e-4);
+    let any_ab_band = ab_band
+        .iter()
+        .any(|v| v[0].abs() > 1e-4 || v[1].abs() > 1e-4);
     let apply_chroma = (chroma_boost - 1.0).abs() > 1e-4
         || chroma_off[0].abs() > 1e-4
         || chroma_off[1].abs() > 1e-4
@@ -70,9 +82,24 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
         || any_l_band
         || any_ab_band;
     for chunk in rgb.chunks_exact_mut(3) {
-        let r0 = compress_input(chunk[0]);
-        let g0 = compress_input(chunk[1]);
-        let b0 = compress_input(chunk[2]);
+        let r0 = if has_base_curve {
+            let r_lin = srgb_gamma_decode(chunk[0]);
+            srgb_gamma(r_lin / (r_lin + sig_r))
+        } else {
+            compress_input(chunk[0])
+        };
+        let g0 = if has_base_curve {
+            let g_lin = srgb_gamma_decode(chunk[1]);
+            srgb_gamma(g_lin / (g_lin + sig_g))
+        } else {
+            compress_input(chunk[1])
+        };
+        let b0 = if has_base_curve {
+            let b_lin = srgb_gamma_decode(chunk[2]);
+            srgb_gamma(b_lin / (b_lin + sig_b))
+        } else {
+            compress_input(chunk[2])
+        };
         let (r1, g1, b1) = if identity {
             (r0, g0, b0)
         } else {
@@ -83,7 +110,11 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
             let r_adapt = m[0][0] * r_lin + m[0][1] * g_lin + m[0][2] * b_lin;
             let g_adapt = m[1][0] * r_lin + m[1][1] * g_lin + m[1][2] * b_lin;
             let b_adapt = m[2][0] * r_lin + m[2][1] * g_lin + m[2][2] * b_lin;
-            (srgb_gamma(r_adapt), srgb_gamma(g_adapt), srgb_gamma(b_adapt))
+            (
+                srgb_gamma(r_adapt),
+                srgb_gamma(g_adapt),
+                srgb_gamma(b_adapt),
+            )
         };
         let mut r2 = curve::eval_channel(&curve.r, r1);
         let mut g2 = curve::eval_channel(&curve.g, g1);

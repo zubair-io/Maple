@@ -24,7 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("as_shot_neutral: {:?}", raw.as_shot_neutral);
     println!("camera: {} {}", raw.camera_make, raw.camera_model);
     println!("orientation: {:?}", raw.orientation);
-    println!("calibration illuminants: {:?}", raw.color_matrices.keys().collect::<Vec<_>>());
+    println!(
+        "calibration illuminants: {:?}",
+        raw.color_matrices.keys().collect::<Vec<_>>()
+    );
     println!("baseline_exposure: {:+.3} EV", raw.baseline_exposure);
 
     // Run linearize → demosaic → BaselineExposure → DCP.
@@ -33,7 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if raw.baseline_exposure.abs() > 1e-4 {
         let be = raw.baseline_exposure.exp2();
         for p in &mut camera_rgb.pixels {
-            p[0] *= be; p[1] *= be; p[2] *= be;
+            p[0] *= be;
+            p[1] *= be;
+            p[2] *= be;
         }
     }
     let profile = dcp::profile_for(&raw)?;
@@ -67,16 +72,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "scene-linear Rec.2020 mean: R={:.4}, G={:.4}, B={:.4}, luma={:.4}",
-        r_sum / n, g_sum / n, b_sum / n, luma_sum / n
+        r_sum / n,
+        g_sum / n,
+        b_sum / n,
+        luma_sum / n
     );
     println!("scene-linear Rec.2020 min: {:?}", mins);
     println!("scene-linear Rec.2020 max: {:?}", maxs);
     println!("luma histogram (bins 0.05 wide, last bin = saturate ≥0.45):");
     for (i, count) in hist.iter().enumerate() {
         let pct = (*count as f64) / n * 100.0;
-        let bar: String = std::iter::repeat('▇').take((pct as usize).min(40)).collect();
-        println!("  [{:.2}-{:.2}]: {:5.1}% {}",
-            (i as f32) * 0.05, ((i + 1) as f32) * 0.05, pct, bar);
+        let bar: String = std::iter::repeat('▇')
+            .take((pct as usize).min(40))
+            .collect();
+        println!(
+            "  [{:.2}-{:.2}]: {:5.1}% {}",
+            (i as f32) * 0.05,
+            ((i + 1) as f32) * 0.05,
+            pct,
+            bar
+        );
     }
 
     Ok(())

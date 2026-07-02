@@ -393,7 +393,10 @@ mod tests {
             // monotonicity above + `soft_compress_invariants_across_hue_and_lightness`.
             let span = chromas[N - 1] - chromas[0];
             eprintln!("full view-tail {label} slider ramp: out-chroma span = {span:.4}");
-            assert!(span > 0.005, "{label} saturation slider was a near no-op (span {span})");
+            assert!(
+                span > 0.005,
+                "{label} saturation slider was a near no-op (span {span})"
+            );
         }
     }
 

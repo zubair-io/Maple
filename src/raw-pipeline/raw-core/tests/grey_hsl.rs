@@ -34,10 +34,12 @@ fn assert_predicted_scene_linear_identity(
     linear_value: f32,
     configure: impl FnOnce(&mut AdjustmentModel),
 ) {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
 
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
@@ -51,7 +53,12 @@ fn assert_predicted_scene_linear_identity(
             assert!(
                 (p[c] - expected).abs() <= EPS_SCENE_LINEAR,
                 "pixel {} chan {} = {} (predicted {}, |Δ| > {}) at L = {}",
-                i, c, p[c], expected, EPS_SCENE_LINEAR, linear_value
+                i,
+                c,
+                p[c],
+                expected,
+                EPS_SCENE_LINEAR,
+                linear_value
             );
         }
     }
@@ -59,20 +66,18 @@ fn assert_predicted_scene_linear_identity(
 
 /// Synthesise + render through the full production pipeline (incl. AgX),
 /// assert per-pixel R=G=B in u8 within EPS_DISPLAY_LSB.
-fn assert_neutral_display(
-    linear_value: f32,
-    configure: impl FnOnce(&mut AdjustmentModel),
-) {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+fn assert_neutral_display(linear_value: f32, configure: impl FnOnce(&mut AdjustmentModel)) {
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
 
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     configure(&mut model);
-    let (w, h, rgb) = render_from_raw(&raw, &model)
-        .expect("full pipeline render must succeed");
+    let (w, h, rgb) = render_from_raw(&raw, &model).expect("full pipeline render must succeed");
 
     let n = (w * h) as usize;
     for i in 0..n {
@@ -82,12 +87,24 @@ fn assert_neutral_display(
         assert!(
             (r - g).abs() <= EPS_DISPLAY_LSB,
             "pixel {} |R-G|={} > {} (R={} G={} B={}) at L={}",
-            i, (r - g).abs(), EPS_DISPLAY_LSB, r, g, b, linear_value
+            i,
+            (r - g).abs(),
+            EPS_DISPLAY_LSB,
+            r,
+            g,
+            b,
+            linear_value
         );
         assert!(
             (r - b).abs() <= EPS_DISPLAY_LSB,
             "pixel {} |R-B|={} > {} (R={} G={} B={}) at L={}",
-            i, (r - b).abs(), EPS_DISPLAY_LSB, r, g, b, linear_value
+            i,
+            (r - b).abs(),
+            EPS_DISPLAY_LSB,
+            r,
+            g,
+            b,
+            linear_value
         );
     }
 }

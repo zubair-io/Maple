@@ -15,8 +15,9 @@ impl GpuContext {
     /// call. The auto bind-group layout (`layout: None`) is shared by every
     /// `ExposurePass` bind group via `pipeline.get_bind_group_layout(0)`.
     pub fn exposure_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.exposure_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "exposure", include_str!("exposure.wgsl")))
+        self.exposure_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "exposure", include_str!("exposure.wgsl"))
+        })
     }
 
     /// The cached vibrance compute pipeline (epic #925 P2 / #990).
@@ -30,8 +31,9 @@ impl GpuContext {
     /// codegen-drift CI gate instead). This concat-at-compile pattern is what
     /// every Oklab/matrix fan-out stage reuses.
     pub fn vibrance_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.vibrance_pipeline
-            .get_or_init(|| compile_with_matrices(&self.device, "vibrance", include_str!("vibrance.wgsl")))
+        self.vibrance_pipeline.get_or_init(|| {
+            compile_with_matrices(&self.device, "vibrance", include_str!("vibrance.wgsl"))
+        })
     }
 
     /// The cached white-balance compute pipeline (epic #925 P2 / #990).
@@ -42,7 +44,11 @@ impl GpuContext {
     /// gains). So `white_balance.wgsl` compiles standalone, like `exposure.wgsl`.
     pub fn white_balance_pipeline(&self) -> &wgpu::ComputePipeline {
         self.white_balance_pipeline.get_or_init(|| {
-            compile_standalone(&self.device, "white-balance", include_str!("white_balance.wgsl"))
+            compile_standalone(
+                &self.device,
+                "white-balance",
+                include_str!("white_balance.wgsl"),
+            )
         })
     }
 
@@ -69,8 +75,9 @@ impl GpuContext {
     /// in the params uniform) — no Oklab, so the kernel compiles standalone
     /// like exposure / scene_tone_controls.
     pub fn vignette_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.vignette_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "vignette", include_str!("vignette.wgsl")))
+        self.vignette_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "vignette", include_str!("vignette.wgsl"))
+        })
     }
 
     /// The cached film-grain compute pipeline (#1110, tone/zoom design § 10.2).
@@ -91,8 +98,9 @@ impl GpuContext {
     /// module is prepended (`compile_with_matrices`) — same concat pattern as
     /// vibrance / saturation. A pure point op; 2 storage buffers.
     pub fn split_tone_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.split_tone_pipeline
-            .get_or_init(|| compile_with_matrices(&self.device, "split-tone", include_str!("split_tone.wgsl")))
+        self.split_tone_pipeline.get_or_init(|| {
+            compile_with_matrices(&self.device, "split-tone", include_str!("split_tone.wgsl"))
+        })
     }
 
     /// The cached 8-band HSL compute pipeline (#1112, tone/zoom design § 10.4).
@@ -113,7 +121,11 @@ impl GpuContext {
     /// [`crate::spatial::box_blur_encode`]. Compiles standalone.
     pub fn scene_tone_sh_pipeline(&self) -> &wgpu::ComputePipeline {
         self.scene_tone_sh_pipeline.get_or_init(|| {
-            compile_standalone(&self.device, "scene-tone-sh", include_str!("scene_tone_sh.wgsl"))
+            compile_standalone(
+                &self.device,
+                "scene-tone-sh",
+                include_str!("scene_tone_sh.wgsl"),
+            )
         })
     }
 
@@ -126,7 +138,11 @@ impl GpuContext {
     /// (WGSL has no `#include`).
     pub fn display_encode_pipeline(&self) -> &wgpu::ComputePipeline {
         self.display_encode_pipeline.get_or_init(|| {
-            compile_with_matrices(&self.device, "display-encode", include_str!("display_encode.wgsl"))
+            compile_with_matrices(
+                &self.device,
+                "display-encode",
+                include_str!("display_encode.wgsl"),
+            )
         })
     }
 
@@ -136,8 +152,9 @@ impl GpuContext {
     /// like exposure / scene_tone_controls, the kernel compiles standalone with
     /// no generated-color-matrix concat.
     pub fn srgb_gamma_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.srgb_gamma_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "srgb-gamma", include_str!("srgb_gamma.wgsl")))
+        self.srgb_gamma_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "srgb-gamma", include_str!("srgb_gamma.wgsl"))
+        })
     }
 
     /// The cached saturation compute pipeline (epic #925 P2 / #990).
@@ -149,8 +166,9 @@ impl GpuContext {
     /// (WGSL has no `#include`). The gamut constants are inlined in the kernel,
     /// not codegen'd.
     pub fn saturation_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.saturation_pipeline
-            .get_or_init(|| compile_with_matrices(&self.device, "saturation", include_str!("saturation.wgsl")))
+        self.saturation_pipeline.get_or_init(|| {
+            compile_with_matrices(&self.device, "saturation", include_str!("saturation.wgsl"))
+        })
     }
 
     /// The cached Auto Profile curve compute pipeline (epic #925 P2 / #990).
@@ -201,8 +219,13 @@ impl GpuContext {
     /// per-pass buffers (storage + uniform); `layout: None` derives the 4-binding
     /// layout from the WGSL bindings.
     pub fn residual_lut_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.residual_lut_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "residual-lut", include_str!("residual_lut.wgsl")))
+        self.residual_lut_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "residual-lut",
+                include_str!("residual_lut.wgsl"),
+            )
+        })
     }
 
     /// The cached tone-curves compute pipeline (epic #925 P2 / #990).
@@ -213,8 +236,13 @@ impl GpuContext {
     /// curve slots + the branch flags ride per-pass buffers (storage + uniform);
     /// `layout: None` derives the 4-binding layout from the WGSL bindings.
     pub fn tone_curves_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.tone_curves_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "tone-curves", include_str!("tone_curves.wgsl")))
+        self.tone_curves_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "tone-curves",
+                include_str!("tone_curves.wgsl"),
+            )
+        })
     }
 
     /// The cached separable box-blur compute pipeline (epic #925 P2 wave 3b /
@@ -223,8 +251,9 @@ impl GpuContext {
     /// shrinking-window border policy as `raw_core::stages::blur::box_blur_channel`.
     /// Standalone kernel (no generated-matrix concat), like `exposure.wgsl`.
     pub fn box_blur_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.box_blur_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "box-blur", include_str!("box_blur.wgsl")))
+        self.box_blur_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "box-blur", include_str!("box_blur.wgsl"))
+        })
     }
 
     /// The cached guided-filter luma-extract pipeline (epic #925 P2 wave 3b /
@@ -232,16 +261,22 @@ impl GpuContext {
     /// the self-guided base/detail decomposition. Standalone kernel (the Rec.2020
     /// luma weights are inlined, like `tone_curves.wgsl`).
     pub fn guided_luma_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.guided_luma_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "guided-luma", include_str!("guided_luma.wgsl")))
+        self.guided_luma_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "guided-luma",
+                include_str!("guided_luma.wgsl"),
+            )
+        })
     }
 
     /// The cached guided-filter coefficient pipeline (epic #925 P2 wave 3b /
     /// #990). `guided_ab.wgsl`: the self-guided `a`/`b` derivation from the
     /// box-blurred (mean_i, mean_ii) planes. Standalone kernel.
     pub fn guided_ab_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.guided_ab_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "guided-ab", include_str!("guided_ab.wgsl")))
+        self.guided_ab_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "guided-ab", include_str!("guided_ab.wgsl"))
+        })
     }
 
     /// The cached guided-filter combine pipeline (epic #925 P2 wave 3b / #990).
@@ -249,8 +284,13 @@ impl GpuContext {
     /// the original RGBA AND three derived planes at once — the MULTI-INPUT spatial
     /// pass pattern dehaze + P3 reuse. Standalone kernel.
     pub fn guided_combine_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.guided_combine_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "guided-combine", include_str!("guided_combine.wgsl")))
+        self.guided_combine_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "guided-combine",
+                include_str!("guided_combine.wgsl"),
+            )
+        })
     }
 
     /// The cached dehaze min-filter pipeline (epic #925 P2 wave 3b / #990).
@@ -258,40 +298,61 @@ impl GpuContext {
     /// (mode 0) and the transmission map (mode 1), with clamp-to-edge borders.
     /// Standalone kernel.
     pub fn dehaze_min_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.dehaze_min_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "dehaze-min", include_str!("dehaze_min.wgsl")))
+        self.dehaze_min_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "dehaze-min", include_str!("dehaze_min.wgsl"))
+        })
     }
 
     /// The cached dehaze guided-products pipeline (epic #925 P2 wave 3b / #990).
     /// `dehaze_products.wgsl`: packs the GENERAL guided filter's four pre-blur
     /// quantities into two vec2 planes. Standalone kernel.
     pub fn dehaze_products_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.dehaze_products_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "dehaze-products", include_str!("dehaze_products.wgsl")))
+        self.dehaze_products_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "dehaze-products",
+                include_str!("dehaze_products.wgsl"),
+            )
+        })
     }
 
     /// The cached vec2 box-blur pipeline (epic #925 P2 wave 3b / #990).
     /// `box_blur_vec2.wgsl`: the vec2 sibling of `box_blur.wgsl`, same border
     /// policy, blurring dehaze's packed mean-planes. Standalone kernel.
     pub fn box_blur_vec2_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.box_blur_vec2_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "box-blur-vec2", include_str!("box_blur_vec2.wgsl")))
+        self.box_blur_vec2_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "box-blur-vec2",
+                include_str!("box_blur_vec2.wgsl"),
+            )
+        })
     }
 
     /// The cached dehaze guided-coefficient pipeline (epic #925 P2 wave 3b /
     /// #990). `dehaze_guided_ab.wgsl`: the GENERAL (guide != p) a/b derivation
     /// from the packed blurred means. Standalone kernel.
     pub fn dehaze_guided_ab_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.dehaze_guided_ab_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "dehaze-guided-ab", include_str!("dehaze_guided_ab.wgsl")))
+        self.dehaze_guided_ab_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "dehaze-guided-ab",
+                include_str!("dehaze_guided_ab.wgsl"),
+            )
+        })
     }
 
     /// The cached dehaze sky-mask pipeline (epic #925 P2 wave 3b / #990).
     /// `dehaze_sky_mask.wgsl`: the raw smoothstep sky mask (issue #272) over the
     /// dark channel. Standalone kernel.
     pub fn dehaze_sky_mask_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.dehaze_sky_mask_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "dehaze-sky-mask", include_str!("dehaze_sky_mask.wgsl")))
+        self.dehaze_sky_mask_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "dehaze-sky-mask",
+                include_str!("dehaze_sky_mask.wgsl"),
+            )
+        })
     }
 
     /// The cached dehaze recovery pipeline (epic #925 P2 wave 3b / #990).
@@ -299,8 +360,13 @@ impl GpuContext {
     /// t_refined, `J=(I-A)/t_eff+A`, sky-mask blend). The airlight rides a SECOND
     /// uniform binding (#1033), so storage stays at 4. Standalone kernel.
     pub fn dehaze_recover_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.dehaze_recover_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "dehaze-recover", include_str!("dehaze_recover.wgsl")))
+        self.dehaze_recover_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "dehaze-recover",
+                include_str!("dehaze_recover.wgsl"),
+            )
+        })
     }
 
     /// The cached on-GPU airlight histogram pipeline (epic #925 P4b / #1033).
@@ -308,8 +374,13 @@ impl GpuContext {
     /// the C5b reduction that computes the dehaze atmospheric light A on-device
     /// (replacing the C5a GPU→CPU readback). Standalone kernel.
     pub fn airlight_hist_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.airlight_hist_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "airlight-hist", include_str!("airlight_hist.wgsl")))
+        self.airlight_hist_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "airlight-hist",
+                include_str!("airlight_hist.wgsl"),
+            )
+        })
     }
 
     /// The cached on-GPU airlight reduce pipeline (epic #925 P4b / #1033).
@@ -317,8 +388,13 @@ impl GpuContext {
     /// over the brightest top-0.1% dark-channel pixels → the airlight vec4 — stage
     /// 2 of the C5b reduction. Dispatched as ONE workgroup. Standalone kernel.
     pub fn airlight_reduce_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.airlight_reduce_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "airlight-reduce", include_str!("airlight_reduce.wgsl")))
+        self.airlight_reduce_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "airlight-reduce",
+                include_str!("airlight_reduce.wgsl"),
+            )
+        })
     }
 
     // ── Noise-reduction (NLM) pipelines (epic #925 P3 wave 1 / #991) ──────────
@@ -372,22 +448,37 @@ impl GpuContext {
 
     /// `sharpen_luma`: RGBA → BT.2020 luma plane. 2 storage.
     pub fn sharpen_luma_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.sharpen_luma_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "sharpen-luma", include_str!("sharpen_luma.wgsl")))
+        self.sharpen_luma_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "sharpen-luma",
+                include_str!("sharpen_luma.wgsl"),
+            )
+        })
     }
 
     /// `sharpen_usm`: per-pixel luma USM scale (shadow guard + clamp) → the
     /// full-strength sharpened RGBA. 4 storage.
     pub fn sharpen_usm_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.sharpen_usm_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "sharpen-usm", include_str!("sharpen_usm.wgsl")))
+        self.sharpen_usm_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "sharpen-usm",
+                include_str!("sharpen_usm.wgsl"),
+            )
+        })
     }
 
     /// `sharpen_mix`: the edge-aware amount/masking blend (central-difference luma
     /// gradient). 4 storage.
     pub fn sharpen_mix_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.sharpen_mix_pipeline
-            .get_or_init(|| compile_standalone(&self.device, "sharpen-mix", include_str!("sharpen_mix.wgsl")))
+        self.sharpen_mix_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "sharpen-mix",
+                include_str!("sharpen_mix.wgsl"),
+            )
+        })
     }
 
     // ── Capture-sharpening (Richardson–Lucy) pipelines (#925 P3 wave 2 / #991) ─
@@ -452,8 +543,16 @@ fn compile_standalone(device: &wgpu::Device, label: &str, source: &str) -> wgpu:
 /// Compile a WGSL kernel that calls the generated Oklab / color-matrix helpers,
 /// by prepending `generated/color_matrices.wgsl` (WGSL has no `#include`). The
 /// concat-at-compile pattern every Oklab / matrix fan-out stage shares.
-fn compile_with_matrices(device: &wgpu::Device, label: &str, kernel: &str) -> wgpu::ComputePipeline {
-    let source = format!("{}\n{}", include_str!("generated/color_matrices.wgsl"), kernel);
+fn compile_with_matrices(
+    device: &wgpu::Device,
+    label: &str,
+    kernel: &str,
+) -> wgpu::ComputePipeline {
+    let source = format!(
+        "{}\n{}",
+        include_str!("generated/color_matrices.wgsl"),
+        kernel
+    );
     compile_source(device, label, &source)
 }
 
@@ -475,7 +574,12 @@ fn compile_nr(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputeP
 /// concat — it compiles standalone; `entry` selects which `@compute` fn the
 /// pipeline targets, since all five capture-sharpening kernels share one source.
 fn compile_cs(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputePipeline {
-    compile_source_entry(device, label, include_str!("capture_sharpening.wgsl"), entry)
+    compile_source_entry(
+        device,
+        label,
+        include_str!("capture_sharpening.wgsl"),
+        entry,
+    )
 }
 
 /// The shared module-create + pipeline-create boilerplate behind every accessor,

@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
-use image::{ImageBuffer, Rgb};
 use image::codecs::jpeg::JpegEncoder;
+use image::{ImageBuffer, Rgb};
 
 /// Encode a sRGB 8-bit JPEG into an in-memory buffer.
 ///
@@ -15,14 +15,18 @@ pub fn encode(width: u32, height: u32, rgb: &[u8], quality: u8) -> Result<Vec<u8
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
         return Err(Error::Png(format!(
-            "expected {} bytes, got {}", expected_len, rgb.len()
+            "expected {} bytes, got {}",
+            expected_len,
+            rgb.len()
         )));
     }
     let buf = ImageBuffer::<Rgb<u8>, _>::from_raw(width, height, rgb.to_vec())
         .ok_or_else(|| Error::Png("failed to build ImageBuffer".into()))?;
     let mut out: Vec<u8> = Vec::with_capacity(expected_len / 4);
     let mut encoder = JpegEncoder::new_with_quality(&mut out, quality);
-    encoder.encode_image(&buf).map_err(|e| Error::Png(e.to_string()))?;
+    encoder
+        .encode_image(&buf)
+        .map_err(|e| Error::Png(e.to_string()))?;
     Ok(out)
 }
 
@@ -32,7 +36,7 @@ mod tests {
 
     #[test]
     fn encode_tiny_jpeg_returns_non_empty_buffer() {
-        let rgb: Vec<u8> = vec![255, 0, 0,  0, 255, 0,  0, 0, 255,  255, 255, 255];
+        let rgb: Vec<u8> = vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255];
         let bytes = encode(2, 2, &rgb, 92).unwrap();
         assert!(bytes.len() > 0);
         // JPEG SOI marker.

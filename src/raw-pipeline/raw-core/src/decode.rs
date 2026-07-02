@@ -45,7 +45,8 @@ pub fn decode(path: &std::path::Path) -> Result<RawImage> {
         path: path.to_path_buf(),
         source: e,
     })?;
-    let ext = path.extension()
+    let ext = path
+        .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
@@ -66,8 +67,7 @@ pub fn decode(path: &std::path::Path) -> Result<RawImage> {
 pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // Attach a synthetic filename so rawler can use the extension as a hint.
     let hint_path = format!("rawfile.{}", ext);
-    let source = RawSource::new_from_slice(bytes)
-        .with_path(std::path::Path::new(&hint_path));
+    let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new(&hint_path));
 
     // Foveon X3F: rawler 0.7 ships an X3F decoder stub that returns
     // "X3F decoding not implemented yet" from its compressed-image
@@ -81,7 +81,8 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     if ext.eq_ignore_ascii_case("x3f") {
         return Err(Error::UnsupportedFormat(
             "Sigma Foveon (.X3F) decoding is not supported — the embedded \
-             rawler decoder is a stub. Tracked under #417.".into()
+             rawler decoder is a stub. Tracked under #417."
+                .into(),
         ));
     }
 
@@ -95,7 +96,8 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         let msg = e.to_string();
         if msg.contains("X3F decoding not implemented") {
             Error::UnsupportedFormat(format!(
-                "Sigma Foveon (.X3F) decoding is not supported: {}", msg
+                "Sigma Foveon (.X3F) decoding is not supported: {}",
+                msg
             ))
         } else {
             Error::Decode {
@@ -115,7 +117,8 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // The same decoder is also queried below for the Root IFD so we can
     // read BaselineExposure (§ 1b). Reusing the decoder avoids re-parsing.
     let decoder = rawler::get_decoder(&source).ok();
-    let orientation = decoder.as_ref()
+    let orientation = decoder
+        .as_ref()
         .and_then(|dec| dec.raw_metadata(&source, &params).ok())
         .and_then(|md| md.exif.orientation)
         .map(ExifOrientation::from_u16)
@@ -131,14 +134,27 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // Both are EV units. Rawler ignores both on decode (only copies them
     // in the DNG writer path — decoders/dng.rs:175 and 186), so we read
     // them directly from the Root IFD.
-    let root_ifd = decoder.as_ref()
+    let root_ifd = decoder
+        .as_ref()
         .and_then(|dec| dec.ifd(WellKnownIFD::Root).ok().flatten());
-    let baseline_tag = root_ifd.as_ref()
-        .and_then(|ifd| ifd.get_entry(DngTag::BaselineExposure)
-            .map(|e| e.value.force_f32(0)));
-    let offset_tag = root_ifd.as_ref()
-        .and_then(|ifd| ifd.get_entry(DngTag::BaselineExposureOffset)
-            .map(|e| e.value.force_f32(0)));
+    let noise_profile = root_ifd
+        .as_ref()
+        .and_then(|ifd| read_floats(ifd, DngTag::NoiseProfile))
+        .or_else(|| {
+            decoder
+                .as_ref()
+                .and_then(|dec| dec.ifd(WellKnownIFD::Raw).ok().flatten())
+                .as_ref()
+                .and_then(|ifd| read_floats(ifd, DngTag::NoiseProfile))
+        });
+    let baseline_tag = root_ifd.as_ref().and_then(|ifd| {
+        ifd.get_entry(DngTag::BaselineExposure)
+            .map(|e| e.value.force_f32(0))
+    });
+    let offset_tag = root_ifd.as_ref().and_then(|ifd| {
+        ifd.get_entry(DngTag::BaselineExposureOffset)
+            .map(|e| e.value.force_f32(0))
+    });
     // BaselineExposure resolution (compose chain):
     //
     //   MAPLE_BE_OVERRIDE (env, dev-only) → absolute override
@@ -167,9 +183,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
 
     // ── 2. CFA pattern ────────────────────────────────────────────────────
     let cfa = match &raw.photometric {
-        RawPhotometricInterpretation::Cfa(cfg) => {
-            map_cfa_pattern_with_pattern(&cfg.cfa)?
-        }
+        RawPhotometricInterpretation::Cfa(cfg) => map_cfa_pattern_with_pattern(&cfg.cfa)?,
         RawPhotometricInterpretation::LinearRaw => {
             // DNG PhotometricInterpretation = LinearRaw (34892): the file
             // already carries demosaiced, white-balanced 3-channel RGB.
@@ -180,7 +194,9 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             CfaPattern::LinearRgb
         }
         RawPhotometricInterpretation::BlackIsZero => {
-            return Err(Error::UnsupportedCfa("BlackIsZero (monochrome)".to_string()));
+            return Err(Error::UnsupportedCfa(
+                "BlackIsZero (monochrome)".to_string(),
+            ));
         }
     };
 
@@ -229,19 +245,16 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     let mut white_level = wl.iter().cloned().fold(f32::NEG_INFINITY, f32::max).round() as u32;
 
     // ── 4a. RawTherapee camconst.json override ────────────────────────────
-    // When our static table has a per-body entry, replace rawler's black/
-    // white with RT's (more precise, per-ISO) values. ISO comes from the
-    // same raw_metadata pass used above for orientation; falls back to 100
-    // if missing. Data-only override — no math is changed.
-    {
-        let iso: u32 = decoder.as_ref()
-            .and_then(|dec| dec.raw_metadata(&source, &params).ok())
-            .and_then(|md| md.exif.iso_speed_ratings.map(|v| v as u32))
-            .unwrap_or(100);
+    let iso: u32 = decoder
+        .as_ref()
+        .and_then(|dec| dec.raw_metadata(&source, &params).ok())
+        .and_then(|md| md.exif.iso_speed_ratings.map(|v| v as u32))
+        .unwrap_or(100);
 
-        if let Some(lin) = crate::camera_calibration::lookup_linearization(
-            &raw.clean_make, &raw.clean_model, iso,
-        ) {
+    {
+        if let Some(lin) =
+            crate::camera_calibration::lookup_linearization(&raw.clean_make, &raw.clean_model, iso)
+        {
             if let Some(bl_bucket) = lin.black_for_iso(iso) {
                 black_level = bl_bucket.as_bayer_array();
             }
@@ -296,8 +309,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // — requires the reading, not the multipliers. Invert rawler's
     // values back to reading-space here, once, and flag NaN inputs.
     let wb = raw.wb_coeffs;
-    let as_shot_neutral = if wb[0].is_nan() || wb[1].is_nan() || wb[2].is_nan()
-        || wb[0] == 0.0 || wb[1] == 0.0 || wb[2] == 0.0
+    let as_shot_neutral = if wb[0].is_nan()
+        || wb[1].is_nan()
+        || wb[2].is_nan()
+        || wb[0] == 0.0
+        || wb[1] == 0.0
+        || wb[2] == 0.0
     {
         // rawler signals "no WB" with NaN; fall back to unity (matches a
         // D65-like sensor calibration).
@@ -398,22 +415,29 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         let mut map = HashMap::new();
         if let Some(ifd) = root_ifd.as_ref() {
             // Helper: read a 9-float matrix at a tag and pair with an illuminant tag.
-            let read_fm = |fm_tag: DngTag, illum_tag: DngTag| -> Option<(CoreIlluminant, Matrix3)> {
-                let floats = read_floats(ifd.as_ref(), fm_tag)?;
-                if floats.len() < 9 { return None; }
-                let m = Matrix3([
-                    [floats[0], floats[1], floats[2]],
-                    [floats[3], floats[4], floats[5]],
-                    [floats[6], floats[7], floats[8]],
-                ]);
-                let illum_code = ifd.as_ref().get_entry(illum_tag)?.value.force_u16(0);
-                let illum = exif_illuminant_to_core(illum_code);
-                Some((illum, m))
-            };
-            if let Some((illum, m)) = read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1) {
+            let read_fm =
+                |fm_tag: DngTag, illum_tag: DngTag| -> Option<(CoreIlluminant, Matrix3)> {
+                    let floats = read_floats(ifd.as_ref(), fm_tag)?;
+                    if floats.len() < 9 {
+                        return None;
+                    }
+                    let m = Matrix3([
+                        [floats[0], floats[1], floats[2]],
+                        [floats[3], floats[4], floats[5]],
+                        [floats[6], floats[7], floats[8]],
+                    ]);
+                    let illum_code = ifd.as_ref().get_entry(illum_tag)?.value.force_u16(0);
+                    let illum = exif_illuminant_to_core(illum_code);
+                    Some((illum, m))
+                };
+            if let Some((illum, m)) =
+                read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1)
+            {
                 map.insert(illum, m);
             }
-            if let Some((illum, m)) = read_fm(DngTag::ForwardMatrix2, DngTag::CalibrationIlluminant2) {
+            if let Some((illum, m)) =
+                read_fm(DngTag::ForwardMatrix2, DngTag::CalibrationIlluminant2)
+            {
                 map.insert(illum, m);
             }
         }
@@ -467,10 +491,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                 rawler::formats::tiff::Value::Byte(v) => v.as_slice(),
                 _ => return None,
             };
-            crate::color::profile_gain_table_map::ProfileGainTableMap::from_bytes(
-                bytes,
-                endian_le,
-            )
+            crate::color::profile_gain_table_map::ProfileGainTableMap::from_bytes(bytes, endian_le)
         })
     });
 
@@ -490,12 +511,18 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // test_0016 (X3F that rawler can't decode) hit the None path. The
     // pipeline treats None as "no crop" — full-sensor render, matches
     // ACR's behaviour on these fixtures.
-    let crop_rect: Option<CropRect> = raw.crop_area
-        .and_then(|r| CropRect::clamped(
-            r.p.x as u32, r.p.y as u32,
-            r.d.w as u32, r.d.h as u32,
-            width, height,
-        ))
+    let crop_rect: Option<CropRect> = raw
+        .crop_area
+        .and_then(|r| {
+            CropRect::clamped(
+                r.p.x as u32,
+                r.p.y as u32,
+                r.d.w as u32,
+                r.d.h as u32,
+                width,
+                height,
+            )
+        })
         .or_else(|| {
             // Fallback: read DNG tags directly. Rawler already does this
             // for DNG sources (`get_crop` in decoders/dng.rs), so this
@@ -506,7 +533,9 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             let ifd = root_ifd.as_ref()?;
             let origin = ifd.get_entry(DngTag::DefaultCropOrigin)?;
             let size = ifd.get_entry(DngTag::DefaultCropSize)?;
-            if origin.value.count() < 2 || size.value.count() < 2 { return None; }
+            if origin.value.count() < 2 || size.value.count() < 2 {
+                return None;
+            }
             let x = origin.value.force_f32(0).round() as u32;
             let y = origin.value.force_f32(1).round() as u32;
             let w = size.value.force_f32(0).round() as u32;
@@ -540,6 +569,8 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         profile_tone_curve,
         profile_gain_table_map,
         crop_rect,
+        iso,
+        noise_profile,
     };
     let be_from_bundle = if be_override.is_none() {
         crate::color::profile_loader::lookup_profile(&image)
@@ -602,7 +633,9 @@ fn read_hsm_plt(
     // DCP path look the right table up by `il_cold`/`il_warm` rather than
     // assuming `hsm_data1` is the cold side (which fails when the file's
     // illuminant ordering is reversed).
-    let read_hsm = |hsm_tag: DngTag, illum_tag: DngTag| -> Option<(CoreIlluminant, crate::color::hsm::HsmTable)> {
+    let read_hsm = |hsm_tag: DngTag,
+                    illum_tag: DngTag|
+     -> Option<(CoreIlluminant, crate::color::hsm::HsmTable)> {
         let dims = hsm_dims?;
         let data = read_floats(ifd, hsm_tag)?;
         let table = crate::color::hsm::HsmTable::new(dims, data, hsm_enc)?;
@@ -610,10 +643,16 @@ fn read_hsm_plt(
         let illum = exif_illuminant_to_core(illum_code);
         Some((illum, table))
     };
-    if let Some((illum, table)) = read_hsm(DngTag::ProfileHueSatMapData1, DngTag::CalibrationIlluminant1) {
+    if let Some((illum, table)) = read_hsm(
+        DngTag::ProfileHueSatMapData1,
+        DngTag::CalibrationIlluminant1,
+    ) {
         hsm_map.insert(illum, table);
     }
-    if let Some((illum, table)) = read_hsm(DngTag::ProfileHueSatMapData2, DngTag::CalibrationIlluminant2) {
+    if let Some((illum, table)) = read_hsm(
+        DngTag::ProfileHueSatMapData2,
+        DngTag::CalibrationIlluminant2,
+    ) {
         // First-write-wins matches color_matrices semantics: if both HSMs
         // map to the same CoreIlluminant variant (shouldn't happen in
         // practice — DNGs ship distinct illuminants), keep illuminant 1's.
@@ -632,11 +671,15 @@ fn read_hsm_plt(
 /// Read a 3-tuple LONG dims tag. Returns `None` if absent or malformed.
 fn read_dims(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> Option<[u32; 3]> {
     let entry = ifd.get_entry(tag)?;
-    if entry.value.count() < 3 { return None; }
+    if entry.value.count() < 3 {
+        return None;
+    }
     let h = entry.value.force_u32(0);
     let s = entry.value.force_u32(1);
     let v = entry.value.force_u32(2);
-    if h == 0 || s == 0 || v == 0 { return None; }
+    if h == 0 || s == 0 || v == 0 {
+        return None;
+    }
     Some([h, s, v])
 }
 
@@ -646,7 +689,9 @@ fn read_dims(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> Option<[u32; 3]> 
 fn read_floats(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> Option<Vec<f32>> {
     let entry = ifd.get_entry(tag)?;
     let n = entry.value.count();
-    if n == 0 { return None; }
+    if n == 0 {
+        return None;
+    }
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
         out.push(entry.value.force_f32(i));
@@ -721,7 +766,7 @@ fn exif_illuminant_to_core(code: u16) -> CoreIlluminant {
         21 => CoreIlluminant::D65,
         22 => CoreIlluminant::D55,
         23 => CoreIlluminant::D50,
-        _  => CoreIlluminant::D65,
+        _ => CoreIlluminant::D65,
     }
 }
 
@@ -788,7 +833,8 @@ mod tests {
     /// I/O is the shell's responsibility (spec §02).
     fn decode_path(path: &std::path::Path) -> Result<RawImage> {
         let bytes = std::fs::read(path).map_err(|e| Error::Io {
-            path: path.to_path_buf(), source: e,
+            path: path.to_path_buf(),
+            source: e,
         })?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         decode_bytes(&bytes, ext)
@@ -805,7 +851,11 @@ mod tests {
     fn decode_rejects_degenerate_dimensions() {
         use crate::test_support::synth_dng::SyntheticGreyDng;
         for (w, h) in [(8u32, 0u32), (1, 8), (8, 1)] {
-            let dng = SyntheticGreyDng { width: w, height: h, ..Default::default() };
+            let dng = SyntheticGreyDng {
+                width: w,
+                height: h,
+                ..Default::default()
+            };
             let bytes = dng.write_to_bytes();
             let err = match decode_bytes(&bytes, "dng") {
                 Err(e) => e,
@@ -817,7 +867,10 @@ mod tests {
             match err {
                 Error::Decode { reason, .. } => assert!(
                     reason.contains("invalid sensor dimensions"),
-                    "unexpected decode-error reason for {}×{}: {}", w, h, reason
+                    "unexpected decode-error reason for {}×{}: {}",
+                    w,
+                    h,
+                    reason
                 ),
                 other => panic!("expected Error::Decode for {}×{}, got {:?}", w, h, other),
             }
@@ -831,7 +884,11 @@ mod tests {
         // zero/one-px matrix is pinned against rawler upgrades — if a
         // future rawler starts log-and-continuing on this path too, this
         // case falls through to the same `width < 2` guard as the rest.
-        let dng = SyntheticGreyDng { width: 0, height: 8, ..Default::default() };
+        let dng = SyntheticGreyDng {
+            width: 0,
+            height: 8,
+            ..Default::default()
+        };
         assert!(
             decode_bytes(&dng.write_to_bytes(), "dng").is_err(),
             "a 0×8 DNG must fail decode with an error"
@@ -845,7 +902,10 @@ mod tests {
         let raw = decode_path(&path).expect("decode DNG");
         assert!(raw.width >= 1024, "suspiciously narrow: {}", raw.width);
         assert!(raw.height >= 1024, "suspiciously short: {}", raw.height);
-        assert_eq!(raw.raw_data.len(), (raw.width as usize) * (raw.height as usize));
+        assert_eq!(
+            raw.raw_data.len(),
+            (raw.width as usize) * (raw.height as usize)
+        );
         assert!(raw.white_level > 0);
         assert!(matches!(
             raw.cfa,
@@ -885,8 +945,11 @@ mod tests {
     fn decode_test_0000_reads_baseline_exposure() {
         let path = require_raw("test_0000.DNG");
         let raw = decode_path(&path).expect("decode Hasselblad DNG");
-        assert!((raw.baseline_exposure - 1.01).abs() < 0.01,
-            "expected BaselineExposure ≈ 1.01 EV, got {:.4}", raw.baseline_exposure);
+        assert!(
+            (raw.baseline_exposure - 1.01).abs() < 0.01,
+            "expected BaselineExposure ≈ 1.01 EV, got {:.4}",
+            raw.baseline_exposure
+        );
     }
 
     /// Regression test for #370 — the bundled-DCP `baseline_exposure_offset`
@@ -917,7 +980,6 @@ mod tests {
         assert_eq!(compose_baseline_exposure(0.0, 0.0, None), 0.0);
     }
 
-
     /// Regression test for fix #4 (EXIF orientation): test_0003.CR2 was shot
     /// in portrait, so its EXIF orientation tag must be a non-Normal value.
     #[test]
@@ -925,9 +987,12 @@ mod tests {
     fn decode_test_0003_reports_exif_orientation() {
         let path = require_raw("test_0003.CR2");
         let raw = decode_path(&path).expect("decode CR2");
-        assert_ne!(raw.orientation, ExifOrientation::Normal,
+        assert_ne!(
+            raw.orientation,
+            ExifOrientation::Normal,
             "expected a non-Normal EXIF orientation for portrait CR2; got {:?}",
-            raw.orientation);
+            raw.orientation
+        );
     }
 
     /// Verify decode_bytes works on Canon CR2 format via extension hint.
@@ -965,14 +1030,22 @@ mod tests {
         let raw = decode_path(&path).expect("decode Hasselblad DNG");
         assert_eq!(raw.hsm_data.len(), 2, "test_0000 ships both HSM tables");
         for (illum, table) in &raw.hsm_data {
-            assert_eq!(table.dims, [36, 10, 1], "{:?} expected DNG-typical [36,10,1]", illum);
+            assert_eq!(
+                table.dims,
+                [36, 10, 1],
+                "{:?} expected DNG-typical [36,10,1]",
+                illum
+            );
             assert_eq!(table.data.len(), 36 * 10 * 1 * 3);
         }
         // Both calibration illuminants must be represented (test_0000 ships
         // StdA + D65 per spec convention; either order is acceptable, but
         // the two illuminants must differ).
-        assert_eq!(raw.hsm_data.keys().count(), 2,
-            "two distinct illuminants required for dual-HSM lerp");
+        assert_eq!(
+            raw.hsm_data.keys().count(),
+            2,
+            "two distinct illuminants required for dual-HSM lerp"
+        );
         // No PLT in this fixture.
         assert!(raw.plt.is_none(), "test_0000 has no PLT");
     }
@@ -1001,7 +1074,10 @@ mod tests {
         assert!(raw.hsm_data.is_empty(), "CR2 should not carry HSM");
         assert!(raw.plt.is_none(), "CR2 should not carry PLT");
         assert!(raw.profile_tone_curve.is_none(), "CR2 should not carry PTC");
-        assert!(raw.profile_gain_table_map.is_none(), "CR2 should not carry PGTM");
+        assert!(
+            raw.profile_gain_table_map.is_none(),
+            "CR2 should not carry PGTM"
+        );
     }
 
     /// Regression test for ProfileToneCurve reading on the iPhone 12 Pro
@@ -1013,10 +1089,16 @@ mod tests {
     fn decode_test_0013_reads_profile_tone_curve() {
         let path = require_raw("test_0013.DNG");
         let raw = decode_path(&path).expect("decode iPhone DNG");
-        let curve = raw.profile_tone_curve.as_ref()
+        let curve = raw
+            .profile_tone_curve
+            .as_ref()
             .expect("test_0013 ships a ProfileToneCurve");
-        assert_eq!(curve.points.len(), 257,
-            "expected 257-pair Apple PTC, got {}", curve.points.len());
+        assert_eq!(
+            curve.points.len(),
+            257,
+            "expected 257-pair Apple PTC, got {}",
+            curve.points.len()
+        );
         // First pair should be (0.0, 0.0) per spec — curves typically start
         // at the origin. Last pair input close to 1.0.
         assert!((curve.points[0].0 - 0.0).abs() < 1e-3);
@@ -1039,9 +1121,11 @@ mod tests {
         let raw = decode_path(&path).expect("decode iPhone DNG");
         // Apple's PGTM has MapPlanes=257 (a DNG 1.7 extension); strict
         // parser yields None to avoid mis-applying it.
-        assert!(raw.profile_gain_table_map.is_none(),
+        assert!(
+            raw.profile_gain_table_map.is_none(),
             "Apple iPhone PGTM uses non-canonical MapPlanes=257; \
-             strict parser must skip rather than corrupt");
+             strict parser must skip rather than corrupt"
+        );
     }
 
     /// Regression test for #417: Fuji RAF decodes to `CfaPattern::XTrans`
@@ -1064,13 +1148,21 @@ mod tests {
             counts[c as usize] += 1;
         }
         // X-Trans canonical per-tile distribution.
-        assert_eq!(counts, [8, 20, 8],
+        assert_eq!(
+            counts,
+            [8, 20, 8],
             "expected [R=8, G=20, B=8], got {:?} (pattern: {:?})",
-            counts, pattern);
+            counts,
+            pattern
+        );
         assert_eq!(raw.camera_make.to_lowercase(), "fujifilm");
         // RAF dimensions should be plausible (X-T3 is 6240×4160 raw).
-        assert!(raw.width >= 4000 && raw.height >= 4000,
-                "RAF dimensions look wrong: {}x{}", raw.width, raw.height);
+        assert!(
+            raw.width >= 4000 && raw.height >= 4000,
+            "RAF dimensions look wrong: {}x{}",
+            raw.width,
+            raw.height
+        );
     }
 
     /// Regression test for #417: Foveon X3F surfaces as the structured
@@ -1083,9 +1175,11 @@ mod tests {
         let err = decode_path(&path).expect_err("X3F decoding must error");
         match err {
             Error::UnsupportedFormat(msg) => {
-                assert!(msg.to_lowercase().contains("foveon")
-                        || msg.to_lowercase().contains("x3f"),
-                    "expected Foveon/X3F mention, got: {}", msg);
+                assert!(
+                    msg.to_lowercase().contains("foveon") || msg.to_lowercase().contains("x3f"),
+                    "expected Foveon/X3F mention, got: {}",
+                    msg
+                );
             }
             other => panic!("expected Error::UnsupportedFormat, got {:?}", other),
         }
@@ -1121,9 +1215,15 @@ mod tests {
     fn decode_test_0006_linearraw_uses_linearrgb_cfa() {
         let path = require_raw("test_0006.DNG");
         let raw = decode_path(&path).expect("decode LinearRaw DNG");
-        assert_eq!(raw.cfa, CfaPattern::LinearRgb,
-            "test_0006 is a LinearRaw DNG; cfa must be LinearRgb");
-        assert_eq!(raw.raw_data.len(), 3 * raw.width as usize * raw.height as usize,
-            "LinearRaw raw_data must be interleaved RGB (3 × w × h)");
+        assert_eq!(
+            raw.cfa,
+            CfaPattern::LinearRgb,
+            "test_0006 is a LinearRaw DNG; cfa must be LinearRgb"
+        );
+        assert_eq!(
+            raw.raw_data.len(),
+            3 * raw.width as usize * raw.height as usize,
+            "LinearRaw raw_data must be interleaved RGB (3 × w × h)"
+        );
     }
 }

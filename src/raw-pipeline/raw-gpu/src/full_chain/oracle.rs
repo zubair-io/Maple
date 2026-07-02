@@ -292,8 +292,13 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
         case.model.sharpen_detail,
         case.model.sharpen_masking,
     );
-    raw_core::stages::noise_reduction::apply_luminance(&mut img, case.model.nr_luminance);
-    raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color);
+    raw_core::stages::noise_reduction::apply_luminance(
+        &mut img,
+        case.model.nr_luminance,
+        None,
+        100,
+    );
+    raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color, None, 100);
 
     // --- view tail (agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT,
     //     matching the GPU suffix AND raw-core's render tail exactly). ALWAYS

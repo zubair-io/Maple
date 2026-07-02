@@ -76,8 +76,8 @@ pub fn compute_auto_adjustments_from_bytes(
     ext: &str,
     xmp: Option<String>,
 ) -> Result<AutoAdjustments, JsError> {
-    let raw_img = raw_core::decode::decode_bytes(raw, ext)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let raw_img =
+        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     // Parse model (default on fresh open).
     let model = match xmp {

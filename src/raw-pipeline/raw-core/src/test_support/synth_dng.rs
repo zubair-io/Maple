@@ -6,40 +6,40 @@ use std::io;
 use std::path::Path;
 
 // DNG-specific TIFF tag IDs. Subset of what raw-core's decoder reads.
-const TAG_NEW_SUBFILE_TYPE:        u16 = 254;
-const TAG_IMAGE_WIDTH:             u16 = 256;
-const TAG_IMAGE_LENGTH:            u16 = 257;
-const TAG_BITS_PER_SAMPLE:         u16 = 258;
-const TAG_COMPRESSION:             u16 = 259;
-const TAG_PHOTOMETRIC:             u16 = 262;
-const TAG_STRIP_OFFSETS:           u16 = 273;
-const TAG_SAMPLES_PER_PIXEL:       u16 = 277;
-const TAG_ROWS_PER_STRIP:          u16 = 278;
-const TAG_STRIP_BYTE_COUNTS:       u16 = 279;
-const TAG_PLANAR_CONFIG:           u16 = 284;
-const TAG_CFA_REPEAT_PATTERN_DIM:  u16 = 33421;
-const TAG_CFA_PATTERN:             u16 = 33422;
-const TAG_DNG_VERSION:             u16 = 50706;
-const TAG_DNG_BACKWARD_VERSION:    u16 = 50707;
-const TAG_UNIQUE_CAMERA_MODEL:     u16 = 50708;
-const TAG_BLACK_LEVEL:             u16 = 50714;
-const TAG_WHITE_LEVEL:             u16 = 50717;
-const TAG_COLOR_MATRIX_1:          u16 = 50721;
-const TAG_CAMERA_CALIBRATION_1:    u16 = 50723;
-const TAG_ANALOG_BALANCE:          u16 = 50727;
-const TAG_AS_SHOT_NEUTRAL:         u16 = 50728;
-const TAG_BASELINE_EXPOSURE:       u16 = 50730;
-const TAG_CALIBRATION_ILLUMINANT_1:u16 = 50778;
-const TAG_COLOR_MATRIX_2:           u16 = 50722;
-const TAG_FORWARD_MATRIX_1:         u16 = 50964;
-const TAG_FORWARD_MATRIX_2:         u16 = 50965;
-const TAG_PROFILE_TONE_CURVE:       u16 = 50940;
+const TAG_NEW_SUBFILE_TYPE: u16 = 254;
+const TAG_IMAGE_WIDTH: u16 = 256;
+const TAG_IMAGE_LENGTH: u16 = 257;
+const TAG_BITS_PER_SAMPLE: u16 = 258;
+const TAG_COMPRESSION: u16 = 259;
+const TAG_PHOTOMETRIC: u16 = 262;
+const TAG_STRIP_OFFSETS: u16 = 273;
+const TAG_SAMPLES_PER_PIXEL: u16 = 277;
+const TAG_ROWS_PER_STRIP: u16 = 278;
+const TAG_STRIP_BYTE_COUNTS: u16 = 279;
+const TAG_PLANAR_CONFIG: u16 = 284;
+const TAG_CFA_REPEAT_PATTERN_DIM: u16 = 33421;
+const TAG_CFA_PATTERN: u16 = 33422;
+const TAG_DNG_VERSION: u16 = 50706;
+const TAG_DNG_BACKWARD_VERSION: u16 = 50707;
+const TAG_UNIQUE_CAMERA_MODEL: u16 = 50708;
+const TAG_BLACK_LEVEL: u16 = 50714;
+const TAG_WHITE_LEVEL: u16 = 50717;
+const TAG_COLOR_MATRIX_1: u16 = 50721;
+const TAG_CAMERA_CALIBRATION_1: u16 = 50723;
+const TAG_ANALOG_BALANCE: u16 = 50727;
+const TAG_AS_SHOT_NEUTRAL: u16 = 50728;
+const TAG_BASELINE_EXPOSURE: u16 = 50730;
+const TAG_CALIBRATION_ILLUMINANT_1: u16 = 50778;
+const TAG_COLOR_MATRIX_2: u16 = 50722;
+const TAG_FORWARD_MATRIX_1: u16 = 50964;
+const TAG_FORWARD_MATRIX_2: u16 = 50965;
+const TAG_PROFILE_TONE_CURVE: u16 = 50940;
 const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
 // DNG LinearizationTable, spec § "Linearization Table". Tag 50712 / 0xC618.
 // Per-value LUT: encoded sensor codes → linear codes. SHORT-typed, up to
 // `1 << BitsPerSample` entries. Rawler applies it inside the integer decode
 // path (rawler/src/decoders/mod.rs:641-642) before `raw_data` reaches us.
-const TAG_LINEARIZATION_TABLE:      u16 = 50712;
+const TAG_LINEARIZATION_TABLE: u16 = 50712;
 
 // CFA-photometric value
 const PHOTOMETRIC_CFA: u16 = 32803;
@@ -134,11 +134,11 @@ impl SyntheticGreyDng {
     /// Slight contrast lift in the midtones, monotonic.
     pub fn with_simple_tone_curve(mut self) -> Self {
         self.profile_tone_curve = Some(vec![
-            (0.0,  0.0),
+            (0.0, 0.0),
             (0.18, 0.15),
-            (0.5,  0.55),
+            (0.5, 0.55),
             (0.82, 0.9),
-            (1.0,  1.0),
+            (1.0, 1.0),
         ]);
         self
     }
@@ -167,13 +167,12 @@ impl SyntheticGreyDng {
 
         // Second pass: real IFD with correct strip offset.
         let real_ifd = self.build_ifd0(strip_offset);
-        let mut buf: Vec<u8> = Vec::with_capacity(
-            (header_size as usize) + (ifd_size as usize) + strip_byte_count,
-        );
+        let mut buf: Vec<u8> =
+            Vec::with_capacity((header_size as usize) + (ifd_size as usize) + strip_byte_count);
 
         // Header
-        buf.extend_from_slice(b"II");                  // little-endian
-        write_u16_le(&mut buf, 0x002A);                // TIFF magic
+        buf.extend_from_slice(b"II"); // little-endian
+        write_u16_le(&mut buf, 0x002A); // TIFF magic
         write_u32_le(&mut buf, ifd0_offset);
 
         // IFD0 directory + overflow
@@ -194,22 +193,22 @@ impl SyntheticGreyDng {
         ifd.add_long(TAG_IMAGE_WIDTH, self.width);
         ifd.add_long(TAG_IMAGE_LENGTH, self.height);
         ifd.add_short(TAG_BITS_PER_SAMPLE, 16);
-        ifd.add_short(TAG_COMPRESSION, 1);            // uncompressed
+        ifd.add_short(TAG_COMPRESSION, 1); // uncompressed
         ifd.add_short(TAG_PHOTOMETRIC, PHOTOMETRIC_CFA);
         ifd.add_long(TAG_STRIP_OFFSETS, strip_offset);
         ifd.add_short(TAG_SAMPLES_PER_PIXEL, 1);
         ifd.add_long(TAG_ROWS_PER_STRIP, self.height);
         ifd.add_long(TAG_STRIP_BYTE_COUNTS, strip_byte_count);
-        ifd.add_short(TAG_PLANAR_CONFIG, 1);          // chunky
+        ifd.add_short(TAG_PLANAR_CONFIG, 1); // chunky
 
         // CFA: 2x2 pattern, RGGB bytes
         ifd.add_shorts(TAG_CFA_REPEAT_PATTERN_DIM, vec![2, 2]);
         ifd.add_bytes(TAG_CFA_PATTERN, self.cfa_pattern_bytes());
 
         // DNG identity
-        ifd.add_bytes(TAG_DNG_VERSION,           vec![1, 4, 0, 0]);
-        ifd.add_bytes(TAG_DNG_BACKWARD_VERSION,  vec![1, 0, 0, 0]);
-        ifd.add_ascii(TAG_UNIQUE_CAMERA_MODEL,   "Maple Synthetic");
+        ifd.add_bytes(TAG_DNG_VERSION, vec![1, 4, 0, 0]);
+        ifd.add_bytes(TAG_DNG_BACKWARD_VERSION, vec![1, 0, 0, 0]);
+        ifd.add_ascii(TAG_UNIQUE_CAMERA_MODEL, "Maple Synthetic");
 
         // Linearisation
         ifd.add_short(TAG_BLACK_LEVEL, 0);
@@ -224,10 +223,20 @@ impl SyntheticGreyDng {
         ifd.add_srationals(TAG_COLOR_MATRIX_1, matrix_to_srationals(cm1));
 
         // CameraCalibration1 stays identity always.
-        ifd.add_srationals(TAG_CAMERA_CALIBRATION_1,
-            vec![(1, 1), (0, 1), (0, 1),
-                 (0, 1), (1, 1), (0, 1),
-                 (0, 1), (0, 1), (1, 1)]);
+        ifd.add_srationals(
+            TAG_CAMERA_CALIBRATION_1,
+            vec![
+                (1, 1),
+                (0, 1),
+                (0, 1),
+                (0, 1),
+                (1, 1),
+                (0, 1),
+                (0, 1),
+                (0, 1),
+                (1, 1),
+            ],
+        );
 
         ifd.add_rationals(TAG_ANALOG_BALANCE, vec![(1, 1), (1, 1), (1, 1)]);
 
@@ -236,7 +245,8 @@ impl SyntheticGreyDng {
 
         ifd.add_srationals(TAG_BASELINE_EXPOSURE, vec![(0, 1)]);
 
-        let illum1 = self.calibration_illuminant_1_override
+        let illum1 = self
+            .calibration_illuminant_1_override
             .unwrap_or(CALIBRATION_ILLUMINANT_D65);
         ifd.add_short(TAG_CALIBRATION_ILLUMINANT_1, illum1);
 
@@ -261,7 +271,8 @@ impl SyntheticGreyDng {
                 bytes.extend_from_slice(&x.to_le_bytes());
                 bytes.extend_from_slice(&y.to_le_bytes());
             }
-            ifd.entries.push(IfdEntry::Floats(TAG_PROFILE_TONE_CURVE, bytes));
+            ifd.entries
+                .push(IfdEntry::Floats(TAG_PROFILE_TONE_CURVE, bytes));
         }
 
         if let Some(table) = &self.linearization_table {
@@ -282,9 +293,7 @@ impl SyntheticGreyDng {
         let (raw_r, raw_g, raw_b) = if let Some(v) = self.encoded_value_override {
             (v, v, v)
         } else {
-            compute_raw_values(
-                self.linear_value, self.as_shot_neutral_array(), 0, 65535,
-            )
+            compute_raw_values(self.linear_value, self.as_shot_neutral_array(), 0, 65535)
         };
         let n = (self.width as usize) * (self.height as usize);
         let mut buf = Vec::with_capacity(n * 2);
@@ -312,10 +321,12 @@ impl SyntheticGreyDng {
             CfaPattern::Gbrg => vec![1, 2, 0, 1],
             CfaPattern::LinearRgb => panic!(
                 "SyntheticGreyDng with CfaPattern::LinearRgb is unsupported \
-                 — synthesise a Bayer pattern (Rggb/Bggr/Grbg/Gbrg) instead"),
+                 — synthesise a Bayer pattern (Rggb/Bggr/Grbg/Gbrg) instead"
+            ),
             CfaPattern::XTrans(_) => panic!(
                 "SyntheticGreyDng with CfaPattern::XTrans is unsupported \
-                 (the synthetic-DNG writer emits a 2×2 Bayer CFAPattern tag)"),
+                 (the synthetic-DNG writer emits a 2×2 Bayer CFAPattern tag)"
+            ),
         }
     }
 
@@ -360,52 +371,52 @@ pub(crate) fn vec3_to_rationals(v: [f32; 3]) -> Vec<(u32, u32)> {
 
 #[derive(Clone)]
 pub(crate) enum IfdEntry {
-    Short(u16, u16),                       // tag, value (single)
-    Shorts(u16, Vec<u16>),                 // tag, values
-    Long(u16, u32),                        // tag, value (single)
-    Bytes(u16, Vec<u8>),                   // tag, values (count = len)
-    Ascii(u16, String),                    // tag, NUL-terminated ASCII
-    Rationals(u16, Vec<(u32, u32)>),       // tag, num/den pairs
-    SRationals(u16, Vec<(i32, i32)>),      // tag, signed num/den
-    Floats(u16, Vec<u8>),                  // tag, raw bytes of f32 LE values (count = len/4)
+    Short(u16, u16),                  // tag, value (single)
+    Shorts(u16, Vec<u16>),            // tag, values
+    Long(u16, u32),                   // tag, value (single)
+    Bytes(u16, Vec<u8>),              // tag, values (count = len)
+    Ascii(u16, String),               // tag, NUL-terminated ASCII
+    Rationals(u16, Vec<(u32, u32)>),  // tag, num/den pairs
+    SRationals(u16, Vec<(i32, i32)>), // tag, signed num/den
+    Floats(u16, Vec<u8>),             // tag, raw bytes of f32 LE values (count = len/4)
 }
 
 impl IfdEntry {
     fn tag(&self) -> u16 {
         match self {
-            Self::Short(t, _)      => *t,
-            Self::Shorts(t, _)     => *t,
-            Self::Long(t, _)       => *t,
-            Self::Bytes(t, _)      => *t,
-            Self::Ascii(t, _)      => *t,
-            Self::Rationals(t, _)  => *t,
+            Self::Short(t, _) => *t,
+            Self::Shorts(t, _) => *t,
+            Self::Long(t, _) => *t,
+            Self::Bytes(t, _) => *t,
+            Self::Ascii(t, _) => *t,
+            Self::Rationals(t, _) => *t,
             Self::SRationals(t, _) => *t,
-            Self::Floats(t, _)     => *t,
+            Self::Floats(t, _) => *t,
         }
     }
 
     fn type_id(&self) -> u16 {
         match self {
             Self::Short(_, _) | Self::Shorts(_, _) => TYPE_SHORT,
-            Self::Long(_, _)                       => TYPE_LONG,
-            Self::Bytes(_, _)                      => TYPE_BYTE,
-            Self::Ascii(_, _)                      => TYPE_ASCII,
-            Self::Rationals(_, _)                  => TYPE_RATIONAL,
-            Self::SRationals(_, _)                 => TYPE_SRATIONAL,
-            Self::Floats(_, _)                     => TYPE_FLOAT,
+            Self::Long(_, _) => TYPE_LONG,
+            Self::Bytes(_, _) => TYPE_BYTE,
+            Self::Ascii(_, _) => TYPE_ASCII,
+            Self::Rationals(_, _) => TYPE_RATIONAL,
+            Self::SRationals(_, _) => TYPE_SRATIONAL,
+            Self::Floats(_, _) => TYPE_FLOAT,
         }
     }
 
     fn count(&self) -> u32 {
         match self {
-            Self::Short(_, _)        => 1,
-            Self::Shorts(_, v)       => v.len() as u32,
-            Self::Long(_, _)         => 1,
-            Self::Bytes(_, v)        => v.len() as u32,
-            Self::Ascii(_, s)        => s.len() as u32 + 1, // includes NUL
-            Self::Rationals(_, v)    => v.len() as u32,
-            Self::SRationals(_, v)   => v.len() as u32,
-            Self::Floats(_, v)       => (v.len() / 4) as u32,
+            Self::Short(_, _) => 1,
+            Self::Shorts(_, v) => v.len() as u32,
+            Self::Long(_, _) => 1,
+            Self::Bytes(_, v) => v.len() as u32,
+            Self::Ascii(_, s) => s.len() as u32 + 1, // includes NUL
+            Self::Rationals(_, v) => v.len() as u32,
+            Self::SRationals(_, v) => v.len() as u32,
+            Self::Floats(_, v) => (v.len() / 4) as u32,
         }
     }
 
@@ -417,7 +428,9 @@ impl IfdEntry {
         match self {
             Self::Short(_, v) => write_u16_le(&mut buf, *v),
             Self::Shorts(_, v) => {
-                for &x in v { write_u16_le(&mut buf, x); }
+                for &x in v {
+                    write_u16_le(&mut buf, x);
+                }
             }
             Self::Long(_, v) => write_u32_le(&mut buf, *v),
             Self::Bytes(_, v) => buf.extend_from_slice(v),
@@ -426,10 +439,14 @@ impl IfdEntry {
                 buf.push(0); // NUL
             }
             Self::Rationals(_, v) => {
-                for (n, d) in v { write_rational(&mut buf, *n, *d); }
+                for (n, d) in v {
+                    write_rational(&mut buf, *n, *d);
+                }
             }
             Self::SRationals(_, v) => {
-                for (n, d) in v { write_srational(&mut buf, *n, *d); }
+                for (n, d) in v {
+                    write_srational(&mut buf, *n, *d);
+                }
             }
             Self::Floats(_, v) => buf.extend_from_slice(v),
         }
@@ -442,15 +459,33 @@ pub(crate) struct Ifd {
 }
 
 impl Ifd {
-    pub(crate) fn new() -> Self { Self { entries: Vec::new() } }
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
 
-    pub(crate) fn add_short(&mut self, tag: u16, value: u16)         { self.entries.push(IfdEntry::Short(tag, value)); }
-    pub(crate) fn add_shorts(&mut self, tag: u16, values: Vec<u16>)  { self.entries.push(IfdEntry::Shorts(tag, values)); }
-    pub(crate) fn add_long(&mut self, tag: u16, value: u32)          { self.entries.push(IfdEntry::Long(tag, value)); }
-    pub(crate) fn add_bytes(&mut self, tag: u16, values: Vec<u8>)    { self.entries.push(IfdEntry::Bytes(tag, values)); }
-    pub(crate) fn add_ascii(&mut self, tag: u16, s: &str)            { self.entries.push(IfdEntry::Ascii(tag, s.to_string())); }
-    pub(crate) fn add_rationals(&mut self, tag: u16, v: Vec<(u32, u32)>)  { self.entries.push(IfdEntry::Rationals(tag, v)); }
-    pub(crate) fn add_srationals(&mut self, tag: u16, v: Vec<(i32, i32)>) { self.entries.push(IfdEntry::SRationals(tag, v)); }
+    pub(crate) fn add_short(&mut self, tag: u16, value: u16) {
+        self.entries.push(IfdEntry::Short(tag, value));
+    }
+    pub(crate) fn add_shorts(&mut self, tag: u16, values: Vec<u16>) {
+        self.entries.push(IfdEntry::Shorts(tag, values));
+    }
+    pub(crate) fn add_long(&mut self, tag: u16, value: u32) {
+        self.entries.push(IfdEntry::Long(tag, value));
+    }
+    pub(crate) fn add_bytes(&mut self, tag: u16, values: Vec<u8>) {
+        self.entries.push(IfdEntry::Bytes(tag, values));
+    }
+    pub(crate) fn add_ascii(&mut self, tag: u16, s: &str) {
+        self.entries.push(IfdEntry::Ascii(tag, s.to_string()));
+    }
+    pub(crate) fn add_rationals(&mut self, tag: u16, v: Vec<(u32, u32)>) {
+        self.entries.push(IfdEntry::Rationals(tag, v));
+    }
+    pub(crate) fn add_srationals(&mut self, tag: u16, v: Vec<(i32, i32)>) {
+        self.entries.push(IfdEntry::SRationals(tag, v));
+    }
 
     /// Serialise: sort entries by tag, then write
     ///   [u16 count][12-byte entry × N][u32 next=0][overflow bytes...]
@@ -634,11 +669,11 @@ mod tests {
         // Count
         assert_eq!(&buf[0..2], &[2, 0]);
         // First entry: tag 256 (0x0100), type 3, count 1, value 64
-        assert_eq!(&buf[2..4],  &[0x00, 0x01]);   // tag
-        assert_eq!(&buf[4..6],  &[3, 0]);          // type = SHORT
-        assert_eq!(&buf[6..10], &[1, 0, 0, 0]);    // count = 1
-        assert_eq!(&buf[10..14], &[64, 0, 0, 0]);  // value = 64 (padded)
-        // Next-IFD offset = 0
+        assert_eq!(&buf[2..4], &[0x00, 0x01]); // tag
+        assert_eq!(&buf[4..6], &[3, 0]); // type = SHORT
+        assert_eq!(&buf[6..10], &[1, 0, 0, 0]); // count = 1
+        assert_eq!(&buf[10..14], &[64, 0, 0, 0]); // value = 64 (padded)
+                                                  // Next-IFD offset = 0
         assert_eq!(&buf[26..30], &[0, 0, 0, 0]);
     }
 
@@ -681,8 +716,12 @@ mod tests {
         // Pixel buffer = width * height * 2 bytes (16-bit). Total file
         // size must include header (8) + IFD + overflow + pixels.
         let pixel_bytes = 32 * 32 * 2;
-        assert!(bytes.len() >= 8 + pixel_bytes,
-            "file size {} too small for {} pixel bytes", bytes.len(), pixel_bytes);
+        assert!(
+            bytes.len() >= 8 + pixel_bytes,
+            "file size {} too small for {} pixel bytes",
+            bytes.len(),
+            pixel_bytes
+        );
     }
 
     #[test]
@@ -692,8 +731,7 @@ mod tests {
         let dng = SyntheticGreyDng::default();
         let bytes = dng.write_to_bytes();
 
-        let raw = decode_bytes(&bytes, "dng")
-            .expect("synthetic DNG must decode via raw-core");
+        let raw = decode_bytes(&bytes, "dng").expect("synthetic DNG must decode via raw-core");
 
         assert_eq!(raw.width, 64);
         assert_eq!(raw.height, 64);
@@ -701,8 +739,11 @@ mod tests {
         assert_eq!(raw.white_level, 65535);
         // black_level is per-CFA-position; all four should be 0 since we
         // wrote a single BlackLevel = 0.
-        assert!(raw.black_level.iter().all(|&b| b == 0),
-            "expected black_level all zero, got {:?}", raw.black_level);
+        assert!(
+            raw.black_level.iter().all(|&b| b == 0),
+            "expected black_level all zero, got {:?}",
+            raw.black_level
+        );
         // AsShotNeutral round-trips (small float tolerance for rational div).
         assert!((raw.as_shot_neutral[0] - 0.5).abs() < 1e-3);
         assert!((raw.as_shot_neutral[1] - 1.0).abs() < 1e-3);
@@ -710,9 +751,9 @@ mod tests {
         // Raw pixel buffer length matches w * h.
         assert_eq!(raw.raw_data.len(), (64 * 64) as usize);
         // Spot-check one R, G, B sample. RGGB at (0,0)=R, (1,0)=G, (1,1)=B.
-        assert_eq!(raw.raw_data[0],         5898);   // (0,0) R
-        assert_eq!(raw.raw_data[1],         11796);  // (1,0) G
-        assert_eq!(raw.raw_data[64 + 1],    5898);   // (1,1) B
+        assert_eq!(raw.raw_data[0], 5898); // (0,0) R
+        assert_eq!(raw.raw_data[1], 11796); // (1,0) G
+        assert_eq!(raw.raw_data[64 + 1], 5898); // (1,1) B
     }
 
     #[test]
@@ -722,26 +763,38 @@ mod tests {
             .with_hasselblad_dcp()
             .with_simple_tone_curve();
         let bytes = dng.write_to_bytes();
-        let raw = decode_bytes(&bytes, "dng")
-            .expect("Hasselblad-DCP synthetic must decode");
+        let raw = decode_bytes(&bytes, "dng").expect("Hasselblad-DCP synthetic must decode");
 
         // Two color matrices populated (StdA + D65).
-        assert_eq!(raw.color_matrices.len(), 2,
-            "expected 2 illuminants, got {}", raw.color_matrices.len());
+        assert_eq!(
+            raw.color_matrices.len(),
+            2,
+            "expected 2 illuminants, got {}",
+            raw.color_matrices.len()
+        );
 
         // AsShotNeutral picked up the Hasselblad override.
         let asn = raw.as_shot_neutral;
-        assert!((asn[0] - crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[0]).abs() < 1e-3,
+        assert!(
+            (asn[0] - crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[0]).abs() < 1e-3,
             "as_shot_neutral[0] = {} (expected ~{})",
-            asn[0], crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[0]);
+            asn[0],
+            crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[0]
+        );
         assert!((asn[1] - crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[1]).abs() < 1e-3);
         assert!((asn[2] - crate::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL[2]).abs() < 1e-3);
 
         // ProfileToneCurve emitted by `with_simple_tone_curve()` round-trips.
-        let curve = raw.profile_tone_curve.as_ref()
+        let curve = raw
+            .profile_tone_curve
+            .as_ref()
             .expect("ProfileToneCurve must round-trip when emitted");
-        assert_eq!(curve.points.len(), 5,
-            "expected 5 control points, got {}", curve.points.len());
+        assert_eq!(
+            curve.points.len(),
+            5,
+            "expected 5 control points, got {}",
+            curve.points.len()
+        );
     }
 
     /// Regression test for #418 — DNG `LinearizationTable` (tag 50712) is
@@ -770,7 +823,9 @@ mod tests {
         // `LookupTable::new_with_bits(points, bits=16)` pads to `1 << 16`
         // by repeating the last entry, so any code ≥ table.len() maps to
         // `table[last]`. Our ENCODED=100 is well inside the table.
-        let table: Vec<u16> = (0..256u32).map(|i| (i as u16).saturating_mul(SCALE)).collect();
+        let table: Vec<u16> = (0..256u32)
+            .map(|i| (i as u16).saturating_mul(SCALE))
+            .collect();
 
         let dng = SyntheticGreyDng {
             width: 8,
@@ -780,8 +835,8 @@ mod tests {
             ..Default::default()
         };
         let bytes = dng.write_to_bytes();
-        let raw = decode_bytes(&bytes, "dng")
-            .expect("synthetic DNG with LinearizationTable must decode");
+        let raw =
+            decode_bytes(&bytes, "dng").expect("synthetic DNG with LinearizationTable must decode");
 
         // Expected linearised value, plus rawler's dither tolerance.
         // `LookupTable::dither` does:
@@ -801,7 +856,10 @@ mod tests {
                 v.abs_diff(expected) <= tol,
                 "pixel {}: raw_data = {} not within ±{} of expected {} \
                  (LinearizationTable not applied by rawler decode?)",
-                k, v, tol, expected
+                k,
+                v,
+                tol,
+                expected
             );
         }
 
@@ -817,9 +875,11 @@ mod tests {
         let raw_no_lut = decode_bytes(&bytes_no_lut, "dng")
             .expect("synthetic DNG without LinearizationTable must decode");
         for (k, &v) in raw_no_lut.raw_data.iter().enumerate() {
-            assert_eq!(v, ENCODED,
+            assert_eq!(
+                v, ENCODED,
                 "pixel {}: without LUT, raw_data must equal encoded code {}, got {}",
-                k, ENCODED, v);
+                k, ENCODED, v
+            );
         }
     }
 }

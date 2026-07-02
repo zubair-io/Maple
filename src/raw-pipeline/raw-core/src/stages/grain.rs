@@ -248,8 +248,7 @@ mod tests {
         let v = 0.5f32;
         let mut img = grey_display(w, h, v);
         apply(&mut img, 100.0, 25.0, 50.0);
-        let mean: f64 = img.pixels.iter().map(|p| p[1] as f64).sum::<f64>()
-            / (w as f64 * h as f64);
+        let mean: f64 = img.pixels.iter().map(|p| p[1] as f64).sum::<f64>() / (w as f64 * h as f64);
         assert!(
             (mean - v as f64).abs() < 1e-3,
             "grain must be mean-preserving: mean {mean} vs {v}"
@@ -284,7 +283,10 @@ mod tests {
             (std_out - std_field).abs() < 1e-6,
             "measured std {std_out} != field std {std_field}"
         );
-        assert!(std_out > 1e-3, "grain at amount 80 must produce visible deviation");
+        assert!(
+            std_out > 1e-3,
+            "grain at amount 80 must produce visible deviation"
+        );
     }
 
     /// Luminance weighting fades grain in deep blacks and near white:

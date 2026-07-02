@@ -53,14 +53,27 @@ pub fn sensor_linearize(raw: &RawImage) -> Image {
 /// correct color-at-position assignments.
 pub fn sensor_linearize_region(
     raw: &RawImage,
-    rect_x: u32, rect_y: u32, rect_w: u32, rect_h: u32,
+    rect_x: u32,
+    rect_y: u32,
+    rect_w: u32,
+    rect_h: u32,
 ) -> Image {
-    debug_assert_ne!(raw.cfa, CfaPattern::LinearRgb,
+    debug_assert_ne!(
+        raw.cfa,
+        CfaPattern::LinearRgb,
         "sensor_linearize must not be called on LinearRgb data; \
-         use linearraw_to_camera_rgb instead. See ticket #07.");
-    debug_assert!(rect_x + rect_w <= raw.width && rect_y + rect_h <= raw.height,
+         use linearraw_to_camera_rgb instead. See ticket #07."
+    );
+    debug_assert!(
+        rect_x + rect_w <= raw.width && rect_y + rect_h <= raw.height,
         "rect ({},{},{},{}) out of bounds for sensor ({},{})",
-        rect_x, rect_y, rect_w, rect_h, raw.width, raw.height);
+        rect_x,
+        rect_y,
+        rect_w,
+        rect_h,
+        raw.width,
+        raw.height
+    );
 
     let sensor_w = raw.width as usize;
     let rw = rect_w as usize;
@@ -142,7 +155,10 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
             path: std::path::PathBuf::from("<linearraw>"),
             reason: format!(
                 "LinearRaw raw_data length {} != 3 × {} × {} = {} (expected interleaved RGB)",
-                raw.raw_data.len(), w, h, expected
+                raw.raw_data.len(),
+                w,
+                h,
+                expected
             ),
         });
     }
@@ -167,7 +183,7 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
     img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
         let off = idx * 3;
-        let r_norm = ((raw.raw_data[off    ] as f32 - bl_r) / denom_r).clamp(0.0, 1.0);
+        let r_norm = ((raw.raw_data[off] as f32 - bl_r) / denom_r).clamp(0.0, 1.0);
         let g_norm = ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0);
         let b_norm = ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0);
         let (r, g, b) = if lossy_8bit {
@@ -218,6 +234,8 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         }
     }
 
@@ -295,16 +313,14 @@ mod tests {
     fn linearraw_to_camera_rgb_lays_data_channel_major() {
         let raw_data: Vec<u16> = vec![
             // px 0: R=100  G=200  B=300
-            100, 200, 300,
-            // px 1: R=400  G=500  B=600
-            400, 500, 600,
-            // px 2: R=700  G=800  B=900
-            700, 800, 900,
-            // px 3: R=1000 G=1100 B=1200
+            100, 200, 300, // px 1: R=400  G=500  B=600
+            400, 500, 600, // px 2: R=700  G=800  B=900
+            700, 800, 900, // px 3: R=1000 G=1100 B=1200
             1000, 1100, 1200,
         ];
         let raw = RawImage {
-            width: 2, height: 2,
+            width: 2,
+            height: 2,
             cfa: CfaPattern::LinearRgb,
             black_level: [0, 0, 0, 0],
             white_level: 1500,
@@ -323,6 +339,8 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         assert_eq!(img.width, 2);
@@ -340,8 +358,14 @@ mod tests {
             for c in 0..3 {
                 let got = img.pixels[k][c];
                 let want = exp[k][c];
-                assert!((got - want).abs() < 1e-5,
-                    "pixel {} channel {}: got {}, want {}", k, c, got, want);
+                assert!(
+                    (got - want).abs() < 1e-5,
+                    "pixel {} channel {}: got {}, want {}",
+                    k,
+                    c,
+                    got,
+                    want
+                );
             }
         }
     }
@@ -373,7 +397,8 @@ mod tests {
             (k as f32 * asn[2]).round() as u16,
         ];
         let raw = RawImage {
-            width: 1, height: 1,
+            width: 1,
+            height: 1,
             cfa: CfaPattern::LinearRgb,
             black_level: [0, 0, 0, 0],
             // > 255 so we hit the high-bit-depth branch (not the lossy_8bit gamma path).
@@ -393,6 +418,8 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         let p = img.pixels[0];
@@ -404,17 +431,32 @@ mod tests {
             raw_data[2] as f32 / denom,
         ];
         for c in 0..3 {
-            assert!((p[c] - expected[c]).abs() < 1e-3,
+            assert!(
+                (p[c] - expected[c]).abs() < 1e-3,
                 "channel {}: got {}, want {} (raw[{}]={} / white={})",
-                c, p[c], expected[c], c, raw_data[c], raw.white_level);
+                c,
+                p[c],
+                expected[c],
+                c,
+                raw_data[c],
+                raw.white_level
+            );
         }
         // R/G ratio of output should be ≈ asn_r (camera-RGB), NOT 1.0.
         let rg = p[0] / p[1];
         let bg = p[2] / p[1];
-        assert!((rg - asn[0]).abs() < 1e-2,
-            "R/G = {} should be ≈ asn_r = {} (camera-RGB passthrough)", rg, asn[0]);
-        assert!((bg - asn[2]).abs() < 1e-2,
-            "B/G = {} should be ≈ asn_b = {} (camera-RGB passthrough)", bg, asn[2]);
+        assert!(
+            (rg - asn[0]).abs() < 1e-2,
+            "R/G = {} should be ≈ asn_r = {} (camera-RGB passthrough)",
+            rg,
+            asn[0]
+        );
+        assert!(
+            (bg - asn[2]).abs() < 1e-2,
+            "B/G = {} should be ≈ asn_b = {} (camera-RGB passthrough)",
+            bg,
+            asn[2]
+        );
     }
 
     /// Regression test for ticket #07: `linearraw_to_camera_rgb` rejects
@@ -422,7 +464,8 @@ mod tests {
     #[test]
     fn linearraw_to_camera_rgb_rejects_wrong_buffer_length() {
         let raw = RawImage {
-            width: 4, height: 4,
+            width: 4,
+            height: 4,
             cfa: CfaPattern::LinearRgb,
             black_level: [0, 0, 0, 0],
             white_level: 1023,
@@ -442,12 +485,17 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         };
         let err = linearraw_to_camera_rgb(&raw).unwrap_err();
         match err {
             crate::Error::Decode { reason, .. } => {
-                assert!(reason.contains("LinearRaw raw_data length"),
-                    "unexpected error message: {}", reason);
+                assert!(
+                    reason.contains("LinearRaw raw_data length"),
+                    "unexpected error message: {}",
+                    reason
+                );
             }
             other => panic!("expected Error::Decode, got {:?}", other),
         }

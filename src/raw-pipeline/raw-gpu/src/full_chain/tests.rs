@@ -160,7 +160,7 @@ fn mild_case() -> Case {
         saturation: 5.0, // past the |saturation| < 1e-3 short-circuit
         clarity: 8.0,    // self-copy-through at 0, but engaged so it's tested
         texture: 6.0,
-        dehaze: 10.0, // non-zero so dehaze runs (airlight engaged)
+        dehaze: 10.0,           // non-zero so dehaze runs (airlight engaged)
         vignette_amount: -10.0, // past the |amount| < 1e-3 short-circuit (#1109)
         vignette_feather: 50.0,
         grain_amount: 15.0, // engaged display-tail grain (#1110)
@@ -252,7 +252,13 @@ fn aggressive_case() -> Case {
 /// the CPU (real raw-core fns, same order) within [`FULL_CHAIN_BUDGET`], for both
 /// the neutral and aggressive adjustment sets. Prints the measured accumulated
 /// max-diff and the move-from-input floor so the gate is provably non-vacuous.
-fn run_gpu_chain_limit(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs, limit: usize) -> Vec<f32> {
+fn run_gpu_chain_limit(
+    input: &[f32],
+    w: u32,
+    h: u32,
+    inputs: &FullChainInputs,
+    limit: usize,
+) -> Vec<f32> {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (prefix, suffix) = build_split(inputs, [0.0; 3]);
     let mut all_passes = prefix;
@@ -265,7 +271,8 @@ fn run_gpu_chain_limit(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs, 
 }
 
 fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) -> Vec<f32> {
-    let mut img = raw_core::image::Image::new(w, h, raw_core::image::ColorSpace::SceneLinearRec2020);
+    let mut img =
+        raw_core::image::Image::new(w, h, raw_core::image::ColorSpace::SceneLinearRec2020);
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
@@ -277,7 +284,10 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
     if has_capture {
         if stage_idx <= limit {
             let p = case.capture.as_ref().unwrap();
-            raw_core::stages::capture_sharpening::apply_capture_sharpening(&mut img, &crate::full_chain::oracle::rc_capture(p));
+            raw_core::stages::capture_sharpening::apply_capture_sharpening(
+                &mut img,
+                &crate::full_chain::oracle::rc_capture(p),
+            );
         }
         stage_idx += 1;
     }
@@ -397,13 +407,18 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
 
     // Stage 12: NLM luma
     if stage_idx <= limit {
-        raw_core::stages::noise_reduction::apply_luminance(&mut img, case.model.nr_luminance);
+        raw_core::stages::noise_reduction::apply_luminance(
+            &mut img,
+            case.model.nr_luminance,
+            None,
+            100,
+        );
     }
     stage_idx += 1;
 
     // Stage 13: NLM color
     if stage_idx <= limit {
-        raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color);
+        raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color, None, 100);
     }
     stage_idx += 1;
 
@@ -496,7 +511,10 @@ fn full_gpu_chain_matches_composed_cpu_oracle() {
                     max_idx = idx;
                 }
             }
-            println!("  Pass {}: diff = {:e} at idx {} (gpu: {}, cpu: {})", k, diff, max_idx, gpu[max_idx], cpu[max_idx]);
+            println!(
+                "  Pass {}: diff = {:e} at idx {} (gpu: {}, cpu: {})",
+                k, diff, max_idx, gpu[max_idx], cpu[max_idx]
+            );
             if k == 3 && name == "aggressive" {
                 println!("    GPU pixels[24..32]: {:?}", &gpu[24..32]);
                 println!("    CPU pixels[24..32]: {:?}", &cpu[24..32]);

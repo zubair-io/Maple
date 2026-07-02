@@ -16,7 +16,10 @@ struct Lcg(u64);
 impl Lcg {
     fn next_f32(&mut self) -> f32 {
         // Numerical Recipes LCG; top 24 bits → [0, 1).
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((self.0 >> 40) as f32) / (1u64 << 24) as f32
     }
     /// Zero-mean uniform noise in [-a, a].
@@ -78,7 +81,10 @@ fn strength_zero_is_bit_identical_skip() {
     let mut img = chroma_noisy_img(16, 16);
     let before = img.pixels.clone();
     apply(&mut img, 0.0);
-    assert_eq!(img.pixels, before, "strength 0 must be a bit-identical skip");
+    assert_eq!(
+        img.pixels, before,
+        "strength 0 must be a bit-identical skip"
+    );
 }
 
 #[test]
@@ -129,7 +135,10 @@ fn luma_passes_through_untouched() {
         assert!(
             dy <= tol,
             "pixel {}: |ΔY| = {} exceeds {} (Y before {})",
-            i, dy, tol, y_before[i]
+            i,
+            dy,
+            tol,
+            y_before[i]
         );
     }
 }
@@ -150,7 +159,9 @@ fn chroma_magnitude_never_increases() {
         assert!(
             mf <= m0 * (1.0 + 1e-5) + 1e-9,
             "pixel {}: filtered chroma magnitude {} exceeds original {}",
-            i, mf, m0
+            i,
+            mf,
+            m0
         );
     }
 }
@@ -172,7 +183,9 @@ fn chroma_noise_energy_shrinks_and_is_monotone_in_strength() {
         assert!(
             e < prev,
             "chroma energy must shrink monotonically: strength {} gave {} (prev {})",
-            s, e, prev
+            s,
+            e,
+            prev
         );
         prev = e;
     }
@@ -180,7 +193,8 @@ fn chroma_noise_energy_shrinks_and_is_monotone_in_strength() {
     assert!(
         prev < 0.5 * e0,
         "strength 100 should remove >50% of pure chroma-noise energy: {} vs {}",
-        prev, e0
+        prev,
+        e0
     );
 }
 
@@ -227,7 +241,8 @@ fn luma_edge_stops_chroma_diffusion() {
     assert!(
         edge_shift < 0.25 * flat_shift,
         "luma edge must suppress chroma mixing: edge shift {} vs equal-luma shift {}",
-        edge_shift, flat_shift
+        edge_shift,
+        flat_shift
     );
 }
 
@@ -261,5 +276,8 @@ fn deterministic_across_thread_counts() {
     };
     let one = run(1);
     let many = run(8);
-    assert_eq!(one, many, "output must be byte-identical across thread counts");
+    assert_eq!(
+        one, many,
+        "output must be byte-identical across thread counts"
+    );
 }

@@ -289,7 +289,10 @@ mod tests {
         bytes[4..8].copy_from_slice(&8_u32.to_be_bytes()); // H
         bytes[40..44].copy_from_slice(&257_u32.to_be_bytes()); // bogus planes
         let map = ProfileGainTableMap::from_bytes(&bytes, false);
-        assert!(map.is_none(), "MapPlanes=257 must be rejected as non-canonical");
+        assert!(
+            map.is_none(),
+            "MapPlanes=257 must be rejected as non-canonical"
+        );
     }
 
     #[test]
