@@ -112,6 +112,61 @@ fn unknown_wb_preset_leaves_defaults() {
     assert_eq!(m.tint, 0.0);
 }
 
+/// (#1729) — explicit `crs:Temperature` sets `temperature_seen`; absent does not.
+#[test]
+fn temperature_seen_set_when_explicit() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:WhiteBalance="Custom" crs:Temperature="5500" crs:Tint="20"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!(m.temperature_seen, "temperature_seen must be true when crs:Temperature is present");
+    assert!(m.tint_seen, "tint_seen must be true when crs:Tint is present");
+}
+
+/// (#1729) — tint-only Custom XMP: temperature_seen=false, tint_seen=true.
+#[test]
+fn tint_only_custom_wb_temperature_seen_false() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:WhiteBalance="Custom" crs:Tint="150"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!(!m.temperature_seen, "temperature_seen must be false when crs:Temperature is absent");
+    assert!(m.tint_seen, "tint_seen must be true when crs:Tint is present");
+    // The model's temperature field still holds the default (6500); the
+    // develop pipeline resolves it to as-shot at render time.
+    assert_eq!(m.temperature, 6500.0);
+    assert_eq!(m.tint, 150.0);
+}
+
+/// (#1729) — temperature-only Custom XMP: temperature_seen=true, tint_seen=false.
+#[test]
+fn temperature_only_custom_wb_tint_seen_false() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:WhiteBalance="Custom" crs:Temperature="4500"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!(m.temperature_seen, "temperature_seen must be true when crs:Temperature is present");
+    assert!(!m.tint_seen, "tint_seen must be false when crs:Tint is absent");
+    assert_eq!(m.temperature, 4500.0);
+    assert_eq!(m.tint, 0.0);
+}
+
+/// (#1729) — "As Shot" XMP: both seen-flags false (as-shot is resolved at
+/// render time from the decode product, not from the XMP).
+#[test]
+fn as_shot_wb_both_seen_flags_false() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:WhiteBalance="As Shot"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert!(!m.temperature_seen, "temperature_seen must be false for As Shot");
+    assert!(!m.tint_seen, "tint_seen must be false for As Shot");
+}
+
+/// (#1729) — default model: both seen-flags false.
+#[test]
+fn default_model_seen_flags_false() {
+    let m = AdjustmentModel::default();
+    assert!(!m.temperature_seen);
+    assert!(!m.tint_seen);
+}
+
 #[test]
 fn unknown_fields_are_ignored() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"

@@ -197,6 +197,17 @@ impl Default for ToneCurveMode {
 ///   at extreme WB. Tint sign was inverted vs the reference renderer
 ///   (tint+ = green) — preserved as-is to keep pre-#431 outputs
 ///   bit-identical when this mode is selected explicitly.
+///
+/// **Anchoring (#1729).** ACR's semantics for `crs:WhiteBalance="Custom"` with
+/// only one of `crs:Temperature` / `crs:Tint` set: the absent component
+/// stays at the image's as-shot value (the camera's AsShotNeutral-derived
+/// CCT / tint), NOT at the slider's neutral default (6500 K / 0). The
+/// `temperature_seen` / `tint_seen` flags below signal which components were
+/// explicitly written in the XMP sidecar so the develop pipeline can
+/// substitute the as-shot value for absent ones. Both flags default to
+/// `false`; the XMP parser sets them on parse; the `AdjustmentModel::default()`
+/// (no sidecar) path keeps them false so the develop pipeline leaves WB at
+/// the caller-supplied as-shot values in that case too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WbMethod {
     /// CAT16 cone-space chromatic adaptation (default).
@@ -242,6 +253,18 @@ pub use crop::Crop;
 pub struct AdjustmentModel {
     pub temperature: f32, // 2000..12000, default 6500
     pub tint: f32,        // -100..100, default 0
+    /// True when `crs:Temperature` was explicitly present in the parsed XMP
+    /// sidecar. False for the default model (no sidecar) and for sidecars that
+    /// carry `crs:WhiteBalance="Custom"` with only `crs:Tint` set (tint-only
+    /// adjustments). The develop pipeline uses this to substitute the image's
+    /// as-shot CCT when the temperature component was not explicitly authored.
+    /// Not part of the codegen schema — internal parse-state flag. (#1729)
+    pub temperature_seen: bool,
+    /// True when `crs:Tint` was explicitly present in the parsed XMP sidecar.
+    /// Analogous to `temperature_seen` for the tint component. The develop
+    /// pipeline substitutes the as-shot tint (0.0 — we do not attempt to invert
+    /// the camera's AsShotNeutral tint component) when false. (#1729)
+    pub tint_seen: bool,
     /// User white-balance method (ticket #431). Default `Cat16` performs
     /// proper chromatic adaptation in CAT16 LMS cone space; legacy
     /// `DiagonalRec2020` keeps the pre-#431 von-Kries diagonal gains.
@@ -489,6 +512,8 @@ impl Default for AdjustmentModel {
         Self {
             temperature: 6500.0,
             tint: 0.0,
+            temperature_seen: false,
+            tint_seen: false,
             wb_method: WbMethod::Cat16,
             exposure: 0.0,
             brightness: 0.0,
