@@ -223,20 +223,8 @@ mod tests {
         assert!((p00.maple[2] - 0.6).abs() < 1e-6, "blue {}", p00.maple[2]);
 
         // sRGB preview decodes via byte/255 passthrough.
-        assert!(
-            (p00.jpeg[0] - 10.0 / 255.0).abs() < 1e-6,
-            "jpeg red {}",
-            p00.jpeg[0]
-        );
-        assert!(
-            (p00.jpeg[1] - 20.0 / 255.0).abs() < 1e-6,
-            "jpeg green {}",
-            p00.jpeg[1]
-        );
-        assert!(
-            (p00.jpeg[2] - 30.0 / 255.0).abs() < 1e-6,
-            "jpeg blue {}",
-            p00.jpeg[2]
-        );
+        assert!((p00.jpeg[0] - 10.0 / 255.0).abs() < 1e-6, "jpeg red {}", p00.jpeg[0]);
+        assert!((p00.jpeg[1] - 20.0 / 255.0).abs() < 1e-6, "jpeg green {}", p00.jpeg[1]);
+        assert!((p00.jpeg[2] - 30.0 / 255.0).abs() < 1e-6, "jpeg blue {}", p00.jpeg[2]);
     }
 }
