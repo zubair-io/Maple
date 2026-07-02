@@ -7,7 +7,7 @@
 // Layout:
 //   Screenshot:       <year>/Screenshot/<filename>   (takes precedence)
 //   With location:    <year>/<seg1>/<seg2>/…/<filename>
-//   Without location: <year>/<MM>/<filename>
+//   Without location: <year>/Misc/<filename>
 //
 // A screenshot is filed under a single <year>/Screenshot folder regardless of
 // GPS — the server decides this from the asset's filename heuristic at ingest;
@@ -20,7 +20,7 @@
 // Each segment is sanitised independently: trimmed, `/` and `\` replaced with
 // `_` (so one segment can't add a directory level), and dropped if empty or a
 // path-traversal token (`.`, `..`, or a leading dot). When no usable segment
-// survives, the path falls back to the date-only `<year>/<MM>` layout.
+// survives, the path falls back to the `<year>/Misc` layout.
 //
 // Filename is validated: rejects empty, `.`, `..`, leading dot, any `/` or
 // `\`, and >255 chars. Throws PathFormatterError.unsafeFilename otherwise.
@@ -87,9 +87,8 @@ public enum PathFormatter {
 
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(secondsFromGMT: 0)!
-        let comps = cal.dateComponents([.year, .month], from: captureDate)
+        let comps = cal.dateComponents([.year], from: captureDate)
         let y = String(format: "%04d", comps.year ?? 0)
-        let m = String(format: "%02d", comps.month ?? 0)
 
         // Screenshot wins over location and date — a UI capture isn't a place photo.
         if isScreenshot {
@@ -100,6 +99,6 @@ public enum PathFormatter {
         if !segs.isEmpty {
             return "\(y)/\(segs.joined(separator: "/"))/\(filename)"
         }
-        return "\(y)/\(m)/\(filename)"
+        return "\(y)/Misc/\(filename)"
     }
 }
