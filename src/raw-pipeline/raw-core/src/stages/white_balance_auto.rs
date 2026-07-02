@@ -134,33 +134,6 @@ pub fn neutral_to_temp_tint(neutral: [f32; 3]) -> (f32, f32) {
     (cct.clamp(2000.0, 25000.0), tint.clamp(-100.0, 100.0))
 }
 
-/// Bisect CCT in `[2000, 25000]` K so that `wb_gains(cct, tint).R / .B`
-/// equals `target_rb`. `wb_gains` R/B is monotone increasing in CCT; targets
-/// outside the boundary range clamp to the nearer rail.
-fn bisect_cct_for_rb(target_rb: f32, tint: f32) -> f32 {
-    let rb = |t: f32| {
-        let g = wb_gains(t, tint);
-        g[0] / g[2].max(1e-6)
-    };
-    let mut lo = 2000.0_f32;
-    let mut hi = 25000.0_f32;
-    if target_rb <= rb(lo) {
-        return lo;
-    }
-    if target_rb >= rb(hi) {
-        return hi;
-    }
-    for _ in 0..16 {
-        let mid = (lo + hi) * 0.5;
-        if rb(mid) < target_rb {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    (lo + hi) * 0.5
-}
-
 /// Solve tint in `[-100, 100]` so the corrected R level
 /// `wb_gains(cct, tint).R * target_r` equals 1 (no residual green/magenta
 /// cast). `wb_gains` can become unphysical (non-positive R gain) at extreme
