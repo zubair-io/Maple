@@ -35,6 +35,18 @@ import { child as childLogger } from '../../log.ts';
 import { assetPrimaryFileInfo, updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
 
+/**
+ * Return the primary active file info for an asset (ignoring missing_since).
+ */
+function assetActiveFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
+  const list = asset.fileinfo;
+  if (!list || list.length === 0) return null;
+  for (const entry of list) {
+    if (!entry.deleted_at) return entry;
+  }
+  return null;
+}
+
 const log = childLogger('migration:move');
 
 /** Cache-writing stages keyed on the asset's path. Reset to v0 after a move so
@@ -59,6 +71,7 @@ function buildRepointSet(args: {
   const set: Record<string, unknown> = {
     'fileinfo.$.path': args.newPath,
     'fileinfo.$.filename': args.newFilename,
+    'fileinfo.$.missing_since': null,
     apple_rendered_path: args.newRenderedRel,
   };
   for (const stage of CACHE_STAGES) {
@@ -84,7 +97,6 @@ function liveEntryElemMatch(primary: FileInfo): Record<string, unknown> {
       path: primary.path,
       filename: primary.filename,
       deleted_at: null,
-      missing_since: null,
     },
   };
 }
@@ -140,7 +152,7 @@ export async function moveBackupAsset(
   // Canonical entry = first LIVE fileinfo, not blindly `fileinfo[0]` (which may be
   // a delete-then-readd tombstone). `assetPrimaryFileInfo` already filters to live,
   // so no separate `deleted_at` guard is needed (#1519).
-  const primary = assetPrimaryFileInfo(doc);
+  const primary = assetActiveFileInfo(doc);
   if (!primary) return 'skipped';
   const oldDir = primary.path;
 
