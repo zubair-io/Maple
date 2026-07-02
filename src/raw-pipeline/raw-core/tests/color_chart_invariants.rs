@@ -313,12 +313,14 @@ fn camera_chart_round_trips_to_rec2020_targets() {
 
     // Gain calibrated over unclipped patches only.
     let (mut num, mut den) = (0.0f64, 0.0f64);
+    let mut used_patches = 0u32;
     for row in 0..4 {
         for col in 0..6 {
             let want = chart.patches[row][col];
             if !camera_patch_unclipped(want) {
                 continue;
             }
+            used_patches += 1;
             let got = chart.read_patch_mean(&scene, col, row);
             for c in 0..3 {
                 num += (got[c] * want[c]) as f64;
@@ -326,6 +328,11 @@ fn camera_chart_round_trips_to_rec2020_targets() {
             }
         }
     }
+    assert!(
+        used_patches > 0 && den > 0.0,
+        "camera chart: every patch clipped — the calibration set is empty, \
+         so gain G is undefined (chart/target change broke camera_patch_unclipped?)"
+    );
     let g = (num / den) as f32;
 
     assert!(
