@@ -748,7 +748,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             scene_white_xyz: crate::color::matrices::XYZ_D65,
             wb_already_baked,
             hsm: None,
-            look_table: raw.plt.clone(),
+            look_table: None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             tone_curve: raw.profile_tone_curve.clone(),
         },
         ProfileSource::RawlerFallback,
@@ -840,7 +840,7 @@ fn profile_from_embedded(
             hsm_warm,
             fm_cold,
             fm_warm,
-            raw.plt.clone(),
+            None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             raw.profile_tone_curve.clone(),
         );
         let illuminant = profile.illuminant;
@@ -875,7 +875,7 @@ fn profile_from_embedded(
         hsm,
         raw.as_shot_neutral,
         wb_already_baked,
-        raw.plt.clone(),
+        None, // PLT wiring to DNG source deferred (#1691 Phase 2)
         raw.profile_tone_curve.clone(),
     );
     Some((profile, illum))
