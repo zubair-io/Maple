@@ -17,27 +17,21 @@
 use std::path::Path;
 
 #[cfg(not(feature = "test-support"))]
-pub fn run(
-    _spec: &Path,
-    _acr_png: &Path,
-    _out: &Path,
-) -> Result<i32, Box<dyn std::error::Error>> {
-    Err("fit-acr requires the `test-support` cargo feature (cargo run --features test-support)".into())
+pub fn run(_spec: &Path, _acr_png: &Path, _out: &Path) -> Result<i32, Box<dyn std::error::Error>> {
+    Err(
+        "fit-acr requires the `test-support` cargo feature (cargo run --features test-support)"
+            .into(),
+    )
 }
 
 #[cfg(feature = "test-support")]
-pub fn run(
-    spec: &Path,
-    acr_png: &Path,
-    out: &Path,
-) -> Result<i32, Box<dyn std::error::Error>> {
+pub fn run(spec: &Path, acr_png: &Path, out: &Path) -> Result<i32, Box<dyn std::error::Error>> {
     use raw_core::view::acr_fit::{parse_spec_json, solve_acr_model, COLS, ROWS};
 
     // Read spec JSON.
     let spec_json = std::fs::read_to_string(spec)
         .map_err(|e| format!("cannot read spec file {}: {e}", spec.display()))?;
-    let specs = parse_spec_json(&spec_json)
-        .map_err(|e| format!("spec parse error: {e}"))?;
+    let specs = parse_spec_json(&spec_json).map_err(|e| format!("spec parse error: {e}"))?;
     eprintln!(
         "[fit-acr] loaded {} patches from {}",
         specs.len(),
@@ -64,14 +58,12 @@ pub fn run(
     }
 
     // Run the solver.
-    let model = solve_acr_model(&specs, &png_rgb, png_w)
-        .map_err(|e| format!("solver error: {e}"))?;
+    let model =
+        solve_acr_model(&specs, &png_rgb, png_w).map_err(|e| format!("solver error: {e}"))?;
 
     eprintln!(
         "[fit-acr] fit complete — patches_used={} patches_clipped={} fit_rms_de={:.4}",
-        model.stats.patches_used,
-        model.stats.patches_clipped,
-        model.stats.fit_rms_de
+        model.stats.patches_used, model.stats.patches_clipped, model.stats.fit_rms_de
     );
 
     // Write model JSON.
@@ -86,9 +78,7 @@ pub fn run(
 /// Decode a PNG file to a flat packed-8-bit-RGB byte array.
 /// Returns `(bytes, width, height)`.
 #[cfg(feature = "test-support")]
-fn decode_png_rgb8(
-    path: &Path,
-) -> Result<(Vec<u8>, usize, usize), Box<dyn std::error::Error>> {
+fn decode_png_rgb8(path: &Path) -> Result<(Vec<u8>, usize, usize), Box<dyn std::error::Error>> {
     let f = std::fs::File::open(path)
         .map_err(|e| format!("cannot open PNG {}: {e}", path.display()))?;
     let dec = png::Decoder::new(f);
@@ -102,6 +92,18 @@ fn decode_png_rgb8(
 
     let w = info.width as usize;
     let h = info.height as usize;
+
+    // The flat 3-byte stride below is only valid for 8-bit channels; a
+    // 16-bit PNG would silently interleave high/low bytes of different
+    // pixels and corrupt the fit, so reject it outright.
+    if info.bit_depth != png::BitDepth::Eight {
+        return Err(format!(
+            "unsupported PNG bit depth {:?}; fit-acr requires an 8-bit render \
+             (re-export the ACR reference as 8-bit)",
+            info.bit_depth
+        )
+        .into());
+    }
 
     // Normalise to packed RGB if needed.
     let rgb = match info.color_type {
@@ -124,4 +126,30 @@ fn decode_png_rgb8(
         }
     };
     Ok((rgb, w, h))
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sixteen_bit_png_is_rejected_not_misread() {
+        let path = std::env::temp_dir().join("fit_acr_16bit_reject.png");
+        let file = std::fs::File::create(&path).expect("create temp png");
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(file), 2, 2);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Sixteen);
+        let mut writer = enc.write_header().expect("write header");
+        writer
+            .write_image_data(&[0u8; 2 * 2 * 3 * 2])
+            .expect("write 16-bit data");
+        drop(writer);
+
+        let err = decode_png_rgb8(&path).expect_err("16-bit PNG must be rejected");
+        assert!(
+            err.to_string().contains("bit depth"),
+            "error should name the bit depth: {err}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
 }
