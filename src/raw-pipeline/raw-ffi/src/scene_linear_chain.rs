@@ -139,6 +139,23 @@ pub struct MapleAdjustmentParams {
     /// Appended at the struct tail AFTER `target_primaries`; a stale host leaves
     /// it 0 = RAW.
     pub input_shape: u32,
+    /// Per-camera noise profile from the decoded `RawImage` (PR #1709 review
+    /// finding). When non-null and `noise_profile_len > 0`, the Rust NR stage
+    /// uses the profile for scene-noise-adaptive sigma estimation instead of
+    /// the ISO-only fallback. A stale host that never sets this field leaves
+    /// the pointer NULL and len 0, which the Rust side maps to `None`
+    /// (identical to the pre-fix behaviour). Appended at the struct tail
+    /// AFTER `input_shape` per the offset-stable ABI convention.
+    ///
+    /// The pointed-to data must remain valid for the duration of the FFI call.
+    /// The Rust side does NOT free this pointer.
+    pub noise_profile_ptr: *const f32,
+    /// Number of f32 elements pointed to by `noise_profile_ptr`. 0 when no
+    /// profile is available (treated identically to a null pointer).
+    pub noise_profile_len: u32,
+    /// ISO speed at capture from `RawImage::iso`. 0 is treated as 100 on the
+    /// Rust side (the pre-fix hardcoded fallback). A stale host leaves this 0.
+    pub iso: u32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -276,6 +293,24 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     // matches the GPU-path convention (`Look::from` / `WbMethod` pattern).
     let primaries = raw_core::view::encode::TargetPrimaries::from_u32(p.target_primaries);
 
+    // Decode the optional noise profile. `noise_profile_len == 0` or a null
+    // pointer means "no profile" — pass `None` to the Rust chain so it falls
+    // back to the ISO-based estimate (the pre-#1709 behaviour). When the host
+    // provides a valid pointer + non-zero length, reconstruct a slice and
+    // pass it through. The slice lifetime is bounded by this FFI call (the
+    // host-owned buffer outlives the function call).
+    let noise_profile_slice: Option<&[f32]> =
+        if p.noise_profile_ptr.is_null() || p.noise_profile_len == 0 {
+            None
+        } else {
+            // SAFETY: the caller guarantees the pointer is valid and aligned
+            // for `noise_profile_len` f32 values for the duration of this call.
+            Some(unsafe {
+                std::slice::from_raw_parts(p.noise_profile_ptr, p.noise_profile_len as usize)
+            })
+        };
+    let iso = if p.iso == 0 { 100 } else { p.iso };
+
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
         in_slice,
         width,
@@ -285,6 +320,8 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
         decoded_tint,
         p.skip_agx != 0,
         primaries,
+        noise_profile_slice,
+        iso,
     ) {
         Ok(v) => v,
         Err(e) => {
@@ -430,6 +467,18 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     // Map the `target_primaries` u32 tag (#1337) — same convention as the fp16 entry.
     let primaries = raw_core::view::encode::TargetPrimaries::from_u32(p.target_primaries);
 
+    // Same noise-profile decode as the fp16 entry above.
+    let noise_profile_slice_f32: Option<&[f32]> =
+        if p.noise_profile_ptr.is_null() || p.noise_profile_len == 0 {
+            None
+        } else {
+            // SAFETY: same contract as the fp16 entry.
+            Some(unsafe {
+                std::slice::from_raw_parts(p.noise_profile_ptr, p.noise_profile_len as usize)
+            })
+        };
+    let iso_f32 = if p.iso == 0 { 100 } else { p.iso };
+
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
         in_slice,
         width,
@@ -439,6 +488,8 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
         decoded_tint,
         p.skip_agx != 0,
         primaries,
+        noise_profile_slice_f32,
+        iso_f32,
     ) {
         Ok(v) => v,
         Err(e) => {
