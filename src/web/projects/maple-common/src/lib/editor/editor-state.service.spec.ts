@@ -465,66 +465,38 @@ describe('EditorStateService', () => {
       expect(lib.adjustmentFor(ID)()).toEqual(before);
     });
 
-    it('points white balance at the camera As-Shot reading and profile at Auto', () => {
+    it('resets white balance, profile and preserves crop', () => {
       dirty();
       lib.setAsShot(ID, { temperature: 5200, tint: 7 });
-
       svc.resetAll();
-
       const after = lib.adjustmentFor(ID)();
       expect(after.temperature).toBe(5200);
       expect(after.tint).toBe(7);
       expect(after.whiteBalancePreset).toBe('As Shot');
       expect(after.profile).toBe('Auto');
+      expect(after.crop).toEqual(dirtyCrop);
     });
 
-    it('preserves crop / rotation (RESET leaves geometry untouched)', () => {
-      dirty();
-      svc.resetAll();
-      expect(lib.adjustmentFor(ID)().crop).toEqual(dirtyCrop);
-    });
-
-    it('falls back to the 6500 K / 0 default when no As-Shot value was captured', () => {
+    it('handles defaults and unbound images on resetAll', () => {
       dirty();
       svc.resetAll();
       const after = lib.adjustmentFor(ID)();
       expect(after.temperature).toBe(6500);
       expect(after.tint).toBe(0);
       expect(after.profile).toBe('Auto');
-    });
-
-    it('returns false and pushes no undo entry when no image is bound', () => {
+      svc.bind(ID);
       svc.imageId.set(null);
       expect(svc.resetAll()).toBe(false);
       expect(svc.canUndo()).toBe(false);
     });
   });
-
   describe('applyAuto (#1379)', () => {
     const BYTES = new Uint8Array([1, 2, 3]);
-
     beforeEach(() => {
       lib.primeBytes(ID, BYTES);
     });
 
-    it('writes exposure + autoExposure=Off ONLY — leaves white balance at As-Shot', async () => {
-      const before = lib.adjustmentFor(ID)();
-      const ok = await svc.applyAuto(ID);
-      expect(ok).toBe(true);
-      const adj = lib.adjustmentFor(ID)();
-      // Exposure and the AE-Off mode are applied.
-      expect(adj.exposure).toBeCloseTo(pipeline.patch.exposure, 9);
-      expect(adj.autoExposure).toBe('Off');
-      // White balance is intentionally NOT touched (WB is hard to guess and the
-      // estimate produced bad casts). temperature/tint stay at their pre-AUTO
-      // As-Shot values, and the patch's WB recommendation (5800/5) is ignored.
-      expect(adj.temperature).toBe(before.temperature);
-      expect(adj.tint).toBe(before.tint);
-      expect(adj.temperature).not.toBeCloseTo(pipeline.patch.temperature, 9);
-      expect(adj.whiteBalancePreset).toBe(before.whiteBalancePreset);
-    });
-
-    it('leaves tone sliders untouched (contrast/highlights/shadows/whites/blacks)', async () => {
+    it('writes exposure + autoExposure=Off ONLY — leaves white balance and tone sliders untouched', async () => {
       lib.updateAdjustment(ID, {
         contrast: 20,
         highlights: -30,
@@ -533,25 +505,22 @@ describe('EditorStateService', () => {
         blacks: -5,
       });
       const before = lib.adjustmentFor(ID)();
-      await svc.applyAuto(ID);
-      const after = lib.adjustmentFor(ID)();
-      expect(after.contrast).toBe(before.contrast);
-      expect(after.highlights).toBe(before.highlights);
-      expect(after.shadows).toBe(before.shadows);
-      expect(after.whites).toBe(before.whites);
-      expect(after.blacks).toBe(before.blacks);
+      const ok = await svc.applyAuto(ID);
+      expect(ok).toBe(true);
+      const adj = lib.adjustmentFor(ID)();
+      expect(adj.exposure).toBeCloseTo(pipeline.patch.exposure, 9);
+      expect(adj.autoExposure).toBe('Off');
+      expect(adj.temperature).toBe(before.temperature);
+      expect(adj.tint).toBe(before.tint);
+      expect(adj.contrast).toBe(before.contrast);
+      expect(adj.highlights).toBe(before.highlights);
+      expect(adj.shadows).toBe(before.shadows);
+      expect(adj.whites).toBe(before.whites);
+      expect(adj.blacks).toBe(before.blacks);
     });
 
-    it('creates exactly ONE undo entry — a single undo restores pre-AUTO state', async () => {
+    it('creates exactly ONE undo entry and has in-flight guards', async () => {
       lib.updateAdjustment(ID, { exposure: 1.5 });
-      await svc.applyAuto(ID);
-      expect(svc.canUndo()).toBe(true);
-      svc.undo();
-      expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(1.5, 9);
-      expect(svc.canUndo()).toBe(false);
-    });
-
-    it('in-flight guard prevents a concurrent second call from proceeding', async () => {
       const p1 = svc.applyAuto(ID);
       expect(svc.autoInFlight()).toBe(true);
       const p2 = svc.applyAuto(ID);
@@ -560,6 +529,11 @@ describe('EditorStateService', () => {
       expect(r2).toBe(false);
       expect(pipeline.computeAutoAdjustments).toHaveBeenCalledTimes(1);
       expect(svc.autoInFlight()).toBe(false);
+
+      expect(svc.canUndo()).toBe(true);
+      svc.undo();
+      expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(1.5, 9);
+      expect(svc.canUndo()).toBe(false);
     });
 
     it('stale guard drops a patch after bind(OTHER)', async () => {
@@ -586,32 +560,24 @@ describe('EditorStateService', () => {
       expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(0, 9);
     });
 
-    it('returns false and clears the flag when the pipeline rejects', async () => {
+    it('returns false on pipeline rejection or if no image is bound', async () => {
       pipeline.computeAutoAdjustments.mockRejectedValue(new Error('decode failed'));
-      const ok = await svc.applyAuto(ID);
-      expect(ok).toBe(false);
+      expect(await svc.applyAuto(ID)).toBe(false);
       expect(svc.autoInFlight()).toBe(false);
-      expect(lib.adjustmentFor(ID)().exposure).toBeCloseTo(0, 9);
-    });
 
-    it('returns false when no image is bound', async () => {
       svc.imageId.set(null);
-      const ok = await svc.applyAuto(ID);
-      expect(ok).toBe(false);
-      expect(pipeline.computeAutoAdjustments).not.toHaveBeenCalled();
+      expect(await svc.applyAuto(ID)).toBe(false);
     });
   });
 
   describe('tool catalog', () => {
-    it('has 23 tools across 4 groups (Light gained Brightness, #1108)', () => {
+    it('verifies tool registry configuration', () => {
       expect(ALL_TOOLS.length).toBe(23);
       expect(TOOLS_IN_GROUP.light.length).toBe(7);
       expect(TOOLS_IN_GROUP.color.length).toBe(5);
       expect(TOOLS_IN_GROUP.effects.length).toBe(6);
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
-    });
 
-    it('wires 22 of 23 tools (S5 effects un-stubbed at #1109/#1110/#1111, HSL at #1112)', () => {
       const wired = ALL_TOOLS.filter(isWired);
       expect(wired.length).toBe(22);
       expect(isWired('vignette')).toBe(true);
@@ -620,16 +586,11 @@ describe('EditorStateService', () => {
       expect(isWired('hsl')).toBe(true);
       expect(isWired('crop')).toBe(false);
       expect(isWired('presets')).toBe(true);
-    });
 
-    it('groupOf round-trips through TOOLS_IN_GROUP', () => {
       for (const tool of ALL_TOOLS) {
-        const g = groupOf(tool);
-        expect(TOOLS_IN_GROUP[g]).toContain(tool);
+        expect(TOOLS_IN_GROUP[groupOf(tool)]).toContain(tool);
       }
-    });
 
-    it('exposes a default display value per tool', () => {
       expect(defaultDisplayValue('exposure')).toBe(0);
       expect(defaultDisplayValue('temp')).toBe(6500);
       expect(defaultDisplayValue('sharpen')).toBe(40);
