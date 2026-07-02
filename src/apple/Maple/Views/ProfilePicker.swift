@@ -1,4 +1,4 @@
-// ProfilePicker.swift — two-segment Auto/Neutral picker for AdjustmentModel.profile.
+// ProfilePicker.swift — segmented Auto/Neutral/Match picker for AdjustmentModel.profile.
 //
 // `.segmented` style so both choices are visible at rest — a menu picker
 // would hide Auto behind a tap. Lives in its own file so DetailPanel.swift
@@ -16,6 +16,8 @@ struct ProfilePicker: View {
                 .accessibilityLabel("Auto profile")
             Text("Neutral").tag(Profile.neutral)
                 .accessibilityLabel("Neutral profile")
+            Text("Match").tag(Profile.acrMatch)
+                .accessibilityLabel("Match profile")
         }
         .labelsHidden()
         .pickerStyle(.segmented)
