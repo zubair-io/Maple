@@ -24,19 +24,25 @@
  * Spec: docs/superpowers/specs/2026-06-18-refile-backups-migration.md.
  */
 
-import type { Filter, ObjectId } from 'mongodb';
-import type { AssetDoc, FileInfo, Place, AssetExif } from '../../db/schema.ts';
-import { assetsCollection } from '../../db/client.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { assetPrimaryFileInfo, liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
-import { backupLocationSegments } from '../../backup/location-segments.ts';
-import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../../backup/path-formatter.ts';
-import { child as childLogger } from '../../log.ts';
-import type { Migration, MigrationBatchResult } from './types.ts';
-import { SourceMissingError } from './restructure-fs.ts';
-import { moveBackupAsset, type MoveOutcome } from './move-backup-asset.ts';
+import type { Filter, ObjectId } from "mongodb";
+import type { AssetDoc, FileInfo, Place, AssetExif } from "../../db/schema.ts";
+import { assetsCollection } from "../../db/client.ts";
+import { loadLibraryRoots } from "../../indexer/libraries.cache.ts";
+import {
+  assetPrimaryFileInfo,
+  liveFileInfoElemMatch,
+} from "../../indexer/images.repo.ts";
+import { backupLocationSegments } from "../../backup/location-segments.ts";
+import {
+  sanitizeLocationSegments,
+  SCREENSHOT_DIR_SEGMENT,
+} from "../../backup/path-formatter.ts";
+import { child as childLogger } from "../../log.ts";
+import type { Migration, MigrationBatchResult } from "./types.ts";
+import { SourceMissingError } from "./restructure-fs.ts";
+import { moveBackupAsset, type MoveOutcome } from "./move-backup-asset.ts";
 
-const log = childLogger('migration:refile');
+const log = childLogger("migration:refile");
 
 /** Layout generation stamped on a refiled asset — the worker's done-marker, NOT a
  * correctness oracle. See `AssetDoc.backup_layout_version`.
@@ -57,11 +63,14 @@ const DATED_BACKUP_DIR_RE = /^\d{4}\//;
 /** Year prefix for the canonical path. Prefer the year the file already lives under
  * (the leading path segment) so an asset is never moved across year folders; fall
  * back to the EXIF capture year only when the path lacks a 4-digit lead. */
-function yearFor(oldDir: string, capturedYear: number | null | undefined): string | null {
-  const seg0 = oldDir.split('/')[0] ?? '';
+function yearFor(
+  oldDir: string,
+  capturedYear: number | null | undefined,
+): string | null {
+  const seg0 = oldDir.split("/")[0] ?? "";
   if (/^\d{4}$/.test(seg0)) return seg0;
   if (capturedYear != null && Number.isFinite(capturedYear)) {
-    return String(Math.trunc(capturedYear)).padStart(4, '0');
+    return String(Math.trunc(capturedYear)).padStart(4, "0");
   }
   return null;
 }
@@ -86,11 +95,13 @@ export function computeCanonicalDir(doc: {
   place?: Place | null;
   is_screenshot?: boolean;
   exif?: {
-    captured_year?: AssetExif['captured_year'];
-    captured_month?: AssetExif['captured_month'];
+    captured_year?: AssetExif["captured_year"];
+    captured_month?: AssetExif["captured_month"];
   } | null;
 }): string | null {
-  const primary = doc.fileinfo ? assetPrimaryFileInfo({ fileinfo: doc.fileinfo }) : null;
+  const primary = doc.fileinfo
+    ? assetPrimaryFileInfo({ fileinfo: doc.fileinfo })
+    : null;
   const oldDir = primary?.path;
   if (oldDir == null) return null;
   const year = yearFor(oldDir, doc.exif?.captured_year);
@@ -99,8 +110,10 @@ export function computeCanonicalDir(doc: {
   // A UI capture isn't a "place" photo — screenshot wins over location and date.
   if (doc.is_screenshot) return `${year}/${SCREENSHOT_DIR_SEGMENT}`;
 
-  const segs = sanitizeLocationSegments(backupLocationSegments(doc.place ?? null));
-  if (segs.length > 0) return `${year}/${segs.join('/')}`;
+  const segs = sanitizeLocationSegments(
+    backupLocationSegments(doc.place ?? null),
+  );
+  if (segs.length > 0) return `${year}/${segs.join("/")}`;
 
   // No usable location → mirror `formatBackupPath`'s `<year>/Misc`
   return `${year}/Misc`;
@@ -122,20 +135,20 @@ export function computeCanonicalDir(doc: {
  * batch (#1519). */
 function candidateFilter(): Filter<AssetDoc> {
   return {
-    'phasset_links.0': { $exists: true },
+    "phasset_links.0": { $exists: true },
     ...liveFileInfoElemMatch(),
     backup_layout_version: { $ne: BACKUP_LAYOUT_VERSION },
   } as Filter<AssetDoc>;
 }
 
 export const refileBackups: Migration = {
-  id: 'refile-backups',
-  title: 'Refile backups into canonical folders',
+  id: "refile-backups",
+  title: "Refile backups into canonical folders",
   description:
-    'One-time cleanup: re-file every mobile-backup photo into the folder a fresh ' +
-    'ingest would use today — year/Country (or State) with a town/city or place ' +
-    'subfolder, year/Screenshot for screenshots, year/month otherwise. Moves only ' +
-    'mis-filed assets; copy-verify-delete, never overwrites; idempotent.',
+    "One-time cleanup: re-file every mobile-backup photo into the folder a fresh " +
+    "ingest would use today — year/Country (or State) with a town/city or place " +
+    "subfolder, year/Screenshot for screenshots, year/month otherwise. Moves only " +
+    "mis-filed assets; copy-verify-delete, never overwrites; idempotent.",
 
   async countRemaining(): Promise<number> {
     const coll = await assetsCollection();
@@ -160,8 +173,8 @@ export const refileBackups: Migration = {
           apple_rendered_path: 1,
           place: 1,
           is_screenshot: 1,
-          'exif.captured_year': 1,
-          'exif.captured_month': 1,
+          "exif.captured_year": 1,
+          "exif.captured_month": 1,
         },
       })
       .limit(batchSize)
@@ -206,7 +219,7 @@ export const refileBackups: Migration = {
         );
         log.warn(
           { _id: String(doc._id), maple_id: doc.maple_id, path: primary?.path },
-          'refile: could not determine year — stamped, left in place',
+          "refile: could not determine year — stamped, left in place",
         );
         processed++;
         continue;
@@ -219,13 +232,18 @@ export const refileBackups: Migration = {
         // 'moved' (relocated + stamped) and 'noop' (already in place, stamped) both
         // reduce the remaining count. 'skipped' is a concurrent-change revert —
         // left UNstamped for a later tick to re-attempt.
-        if (result === 'moved') {
+        if (result === "moved") {
           log.info(
-            { _id: String(doc._id), maple_id: doc.maple_id, from: primary?.path, to: newDir },
-            'refile: moved',
+            {
+              _id: String(doc._id),
+              maple_id: doc.maple_id,
+              from: primary?.path,
+              to: newDir,
+            },
+            "refile: moved",
           );
         }
-        if (result === 'moved' || result === 'noop') processed++;
+        if (result === "moved" || result === "noop") processed++;
       } catch (err) {
         if (err instanceof SourceMissingError) {
           // The source original is gone from disk — nothing to move. Stamp it so
@@ -238,8 +256,13 @@ export const refileBackups: Migration = {
             { $set: { backup_layout_version: BACKUP_LAYOUT_VERSION } },
           );
           log.warn(
-            { _id: String(doc._id), maple_id: doc.maple_id, from: primary?.path, err: err.message },
-            'refile: source missing — stamped, left for the reaper',
+            {
+              _id: String(doc._id),
+              maple_id: doc.maple_id,
+              from: primary?.path,
+              err: err.message,
+            },
+            "refile: source missing — stamped, left for the reaper",
           );
           processed++;
           continue;
@@ -253,14 +276,14 @@ export const refileBackups: Migration = {
             to: newDir,
             err: err instanceof Error ? err.message : err,
           },
-          'refile: asset move failed — left in place for retry',
+          "refile: asset move failed — left in place for retry",
         );
       }
     }
     if (skippedNoRoot > 0) {
       log.warn(
         { skippedNoRoot, batchSize: docs.length, processed },
-        'refile: assets skipped — library root unresolved (offline mount?); will retry next tick',
+        "refile: assets skipped — library root unresolved (offline mount?); will retry next tick",
       );
     }
     return { processed, errors };
@@ -287,7 +310,7 @@ export const refileBackups: Migration = {
  */
 export async function relocateBackupScreenshot(
   assetId: ObjectId,
-): Promise<MoveOutcome | 'not-applicable'> {
+): Promise<MoveOutcome | "not-applicable"> {
   const coll = await assetsCollection();
   const doc = await coll.findOne(
     { _id: assetId },
@@ -298,26 +321,30 @@ export async function relocateBackupScreenshot(
         maple_id: 1,
         apple_rendered_path: 1,
         phasset_links: 1,
-        'exif.captured_year': 1,
+        "exif.captured_year": 1,
       },
     },
   );
-  if (!doc) return 'not-applicable';
+  if (!doc) return "not-applicable";
   // Backup-origin only — the <year>/Screenshot layout is the PhotoKit-backup
   // contract; a folder-scanned library is laid out by the user, untouched.
-  if (!doc.phasset_links || doc.phasset_links.length === 0) return 'not-applicable';
+  if (!doc.phasset_links || doc.phasset_links.length === 0)
+    return "not-applicable";
   const primary = assetPrimaryFileInfo(doc);
-  if (!primary) return 'not-applicable';
+  if (!primary) return "not-applicable";
   // A dated backup folder, not already filed under <year>/Screenshot.
-  if (!DATED_BACKUP_DIR_RE.test(primary.path) || SCREENSHOT_DIR_RE.test(primary.path)) {
-    return 'not-applicable';
+  if (
+    !DATED_BACKUP_DIR_RE.test(primary.path) ||
+    SCREENSHOT_DIR_RE.test(primary.path)
+  ) {
+    return "not-applicable";
   }
   const year = yearFor(primary.path, doc.exif?.captured_year);
-  if (!year) return 'not-applicable';
+  if (!year) return "not-applicable";
   const newDir = `${year}/${SCREENSHOT_DIR_SEGMENT}`;
-  if (newDir === primary.path) return 'not-applicable';
+  if (newDir === primary.path) return "not-applicable";
   const libs = await loadLibraryRoots();
   const root = libs.get(primary.library_id.toHexString());
-  if (!root) return 'not-applicable';
+  if (!root) return "not-applicable";
   return moveBackupAsset(coll, doc, root, newDir);
 }

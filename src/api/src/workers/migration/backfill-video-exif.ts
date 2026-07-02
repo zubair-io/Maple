@@ -19,20 +19,20 @@
  * re-run after the reader learns to extract more.
  */
 
-import type { Filter } from 'mongodb';
-import type { AssetDoc, FileInfo } from '../../db/schema.ts';
-import { assetsCollection } from '../../db/client.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { assetAbsPath, isLiveFileInfo } from '../../indexer/images.repo.ts';
-import { isVideoFilename, VIDEO_EXTS } from '../../indexer/media-types.ts';
-import { readExif } from '../../indexer/exif.ts';
-import { child as childLogger } from '../../log.ts';
+import type { Filter } from "mongodb";
+import type { AssetDoc, FileInfo } from "../../db/schema.ts";
+import { assetsCollection } from "../../db/client.ts";
+import { loadLibraryRoots } from "../../indexer/libraries.cache.ts";
+import { assetAbsPath, isLiveFileInfo } from "../../indexer/images.repo.ts";
+import { isVideoFilename, VIDEO_EXTS } from "../../indexer/media-types.ts";
+import { readExif } from "../../indexer/exif.ts";
+import { child as childLogger } from "../../log.ts";
 
-import type { Migration, MigrationBatchResult } from './types.ts';
+import type { Migration, MigrationBatchResult } from "./types.ts";
 
-const log = childLogger('migration:video-exif');
+const log = childLogger("migration:video-exif");
 
-const MIGRATION_ID = 'backfill-video-exif';
+const MIGRATION_ID = "backfill-video-exif";
 
 /** Bump to re-sweep all videos (e.g. after the moov reader learns a new tag). */
 export const VIDEO_META_VERSION = 1;
@@ -43,14 +43,14 @@ const REFILE_RESET_VERSION = 0;
 
 /** Filename regex of known video extensions, for the Mongo selector. */
 const VIDEO_FILENAME_RE = new RegExp(
-  `\\.(${[...VIDEO_EXTS].map((e) => e.slice(1)).join('|')})$`,
-  'i',
+  `\\.(${[...VIDEO_EXTS].map((e) => e.slice(1)).join("|")})$`,
+  "i",
 );
 
 /** Backup-origin assets with a live VIDEO entry not yet backfilled. */
 function candidateFilter(): Filter<AssetDoc> {
   return {
-    'phasset_links.0': { $exists: true },
+    "phasset_links.0": { $exists: true },
     fileinfo: {
       $elemMatch: {
         filename: { $regex: VIDEO_FILENAME_RE },
@@ -64,11 +64,11 @@ function candidateFilter(): Filter<AssetDoc> {
 
 export const backfillVideoExif: Migration = {
   id: MIGRATION_ID,
-  title: 'Backfill video metadata (date + GPS)',
+  title: "Backfill video metadata (date + GPS)",
   description:
-    'Reads capture date + GPS from existing backup videos (QuickTime/MP4 moov atoms) ' +
-    'that the EXIF stage skipped, then re-files them: GPS → geocode → location folder; ' +
-    'no GPS → year/month. One-time; idempotent per video.',
+    "Reads capture date + GPS from existing backup videos (QuickTime/MP4 moov atoms) " +
+    "that the EXIF stage skipped, then re-files them: GPS → geocode → location folder; " +
+    "no GPS → year/month. One-time; idempotent per video.",
 
   async countRemaining(): Promise<number> {
     const coll = await assetsCollection();
@@ -85,7 +85,9 @@ export const backfillVideoExif: Migration = {
     }
 
     const docs = await coll
-      .find(candidateFilter(), { projection: { _id: 1, fileinfo: 1, maple_id: 1 } })
+      .find(candidateFilter(), {
+        projection: { _id: 1, fileinfo: 1, maple_id: 1 },
+      })
       .limit(batchSize)
       .toArray();
 
@@ -124,7 +126,7 @@ export const backfillVideoExif: Migration = {
         exif = await readExif(absPath);
       } catch (err) {
         const code = (err as NodeJS.ErrnoException | undefined)?.code;
-        if (code === 'ENOENT') {
+        if (code === "ENOENT") {
           // Source gone — nothing to read; stamp so it doesn't clog.
           await coll.updateOne(
             { _id: doc._id },
@@ -141,17 +143,19 @@ export const backfillVideoExif: Migration = {
             maple_id: doc.maple_id,
             err: err instanceof Error ? err.message : err,
           },
-          'video-exif: read failed — left for retry',
+          "video-exif: read failed — left for retry",
         );
         continue;
       }
 
-      const set: Record<string, unknown> = { video_meta_version: VIDEO_META_VERSION };
+      const set: Record<string, unknown> = {
+        video_meta_version: VIDEO_META_VERSION,
+      };
       if (exif) {
         set.exif = exif;
         if (exif.gps) {
           // Re-geocode → place → (geocode hook) reset blv → refile under location.
-          set['stages.geocode.version'] = 0;
+          set["stages.geocode.version"] = 0;
         } else if (exif.captured_year != null) {
           // Dated but no GPS → make it a refile candidate for the <year>/Misc path.
           set.backup_layout_version = REFILE_RESET_VERSION;
@@ -166,7 +170,7 @@ export const backfillVideoExif: Migration = {
             dated: !!exif.captured_at,
             gps: !!exif.gps,
           },
-          'video-exif: backfilled',
+          "video-exif: backfilled",
         );
       }
       processed++;
@@ -175,7 +179,7 @@ export const backfillVideoExif: Migration = {
     if (skippedNoRoot > 0) {
       log.warn(
         { skippedNoRoot, batchSize: docs.length, processed },
-        'video-exif: assets skipped — library root unresolved (offline mount?)',
+        "video-exif: assets skipped — library root unresolved (offline mount?)",
       );
     }
     return { processed, errors };
