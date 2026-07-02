@@ -32,6 +32,24 @@ import { resolveAddressString } from '../library/address.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+
+type FileInfo = NonNullable<AssetDoc['fileinfo']>[number];
+
+/**
+ * Return the primary active file info for an asset. Crucially, this does NOT
+ * filter out entries with `missing_since` set (unlike assetPrimaryFileInfo),
+ * because a missing-tagged file resolved on disk by the client is still eligible
+ * for relocation (relocation will move the file and clear its missing tag).
+ * Only filters out entries with `deleted_at` set.
+ */
+function assetActiveFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
+  const list = asset.fileinfo;
+  if (!list || list.length === 0) return null;
+  for (const entry of list) {
+    if (!entry.deleted_at) return entry;
+  }
+  return null;
+}
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
@@ -127,7 +145,7 @@ export function geoSegmentsFromOverride(override: MetadataOverride | null | unde
  * Returns null when the asset has no usable geo location.
  */
 function geoDir(doc: WithId<AssetDoc>): string | null {
-  const primary = assetPrimaryFileInfo(doc);
+  const primary = assetActiveFileInfo(doc);
   if (!primary) return null;
 
   // Screenshot wins over location.
@@ -154,7 +172,7 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
  * `isGeoBackupCandidate` which required `phasset_links`.
  */
 function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
-  const primary = assetPrimaryFileInfo(doc);
+  const primary = assetActiveFileInfo(doc);
   if (!primary) return false;
   // Videos are excluded until the full-name sidecar convention (clip.mov.xmp) is
   // handled by listPairedSidecars/planAndPlace — otherwise relocating a video
@@ -176,7 +194,7 @@ function wouldRelocate(doc: WithId<AssetDoc>): boolean {
   if (!isGeoCandidate(doc)) return false;
   const target = geoDir(doc);
   if (!target) return false;
-  const primary = assetPrimaryFileInfo(doc);
+  const primary = assetActiveFileInfo(doc);
   return primary != null && primary.path !== target;
 }
 
@@ -215,7 +233,7 @@ async function findGeoDocs(
   // so same-named files in unrelated libraries cannot be moved accidentally.
   const absPathSet = new Set(absPaths);
   const matchedDocs = docs.filter((doc) => {
-    const primary = assetPrimaryFileInfo(doc);
+    const primary = assetActiveFileInfo(doc);
     if (!primary) return false;
     const root = libs.get(primary.library_id.toHexString());
     if (!root) return false;
@@ -358,7 +376,7 @@ async function didRename(
 ): Promise<boolean> {
   const fresh = await coll.findOne({ _id: id }, { projection: { fileinfo: 1 } });
   if (!fresh) return false;
-  const primary = assetPrimaryFileInfo(fresh);
+  const primary = assetActiveFileInfo(fresh);
   return primary != null && primary.filename !== originalFilename;
 }
 
@@ -490,7 +508,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       }> = [];
 
       for (const doc of docs) {
-        const primary = assetPrimaryFileInfo(doc);
+        const primary = assetActiveFileInfo(doc);
         const libRoot = primary ? libs.get(primary.library_id.toHexString()) : undefined;
         // Reconstruct the doc's absolute path (unique per asset — same way
         // findGeoDocs matches) to recover the EXACT client address string.
