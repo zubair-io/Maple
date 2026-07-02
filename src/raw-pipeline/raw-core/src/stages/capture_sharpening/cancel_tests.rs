@@ -48,12 +48,21 @@ fn apply_capture_sharpening_serial_reference(image: &mut Image, params: &Capture
     }
 
     let mut estimate = original.clone();
+    let noise2 = params.noise_floor * params.noise_floor;
     for _ in 0..params.iterations {
         let blur_est = gaussian_blur_plane_sigma(&estimate, w, h, params.sigma);
         let mut ratio = vec![0.0_f32; n];
         for (i, r) in ratio.iter_mut().enumerate() {
             let denom = blur_est[i].max(1e-6);
-            *r = (original[i] / denom).clamp(0.0, 100.0);
+            let raw_ratio = (original[i] / denom).clamp(0.0, 100.0);
+            *r = if noise2 > 0.0 {
+                let b = blur_est[i];
+                let b2 = b * b;
+                let dampen = b2 / (b2 + noise2);
+                1.0 + (raw_ratio - 1.0) * dampen
+            } else {
+                raw_ratio
+            };
         }
         let blur_ratio = gaussian_blur_plane_sigma(&ratio, w, h, params.sigma);
         for (e, &b) in estimate.iter_mut().zip(blur_ratio.iter()) {

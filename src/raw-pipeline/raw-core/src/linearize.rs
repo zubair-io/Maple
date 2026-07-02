@@ -237,6 +237,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         }
     }
 
@@ -343,6 +345,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         assert_eq!(img.width, 2);
@@ -423,6 +427,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         let p = img.pixels[0];
@@ -491,6 +497,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         };
         let err = linearraw_to_camera_rgb(&raw).unwrap_err();
         match err {
