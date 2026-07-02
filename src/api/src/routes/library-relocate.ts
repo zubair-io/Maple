@@ -31,7 +31,6 @@ import * as nodePath from 'node:path';
 import { resolveAddressString } from '../library/address.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 
 type FileInfo = NonNullable<AssetDoc['fileinfo']>[number];
 
