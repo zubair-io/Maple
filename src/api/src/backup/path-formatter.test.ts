@@ -39,19 +39,19 @@ describe('formatBackupPath', () => {
     ).toBe('2024/Nevada/IMG.heic');
   });
 
-  test('no location → year/MM/filename (fallback)', () => {
+  test('no location → year/Misc/filename (fallback)', () => {
     expect(
       formatBackupPath({
         captureDate: capture,
         location: null,
         filename: 'IMG_0420.HEIC',
       }),
-    ).toBe('2024/03/IMG_0420.HEIC');
+    ).toBe('2024/Misc/IMG_0420.HEIC');
   });
 
-  test('empty segment list → year/MM/filename (fallback)', () => {
+  test('empty segment list → year/Misc/filename (fallback)', () => {
     expect(formatBackupPath({ captureDate: capture, location: [], filename: 'IMG.heic' })).toBe(
-      '2024/03/IMG.heic',
+      '2024/Misc/IMG.heic',
     );
   });
 
@@ -75,10 +75,10 @@ describe('formatBackupPath', () => {
     ).toBe('2024/Japan/Kyoto/IMG.heic');
   });
 
-  test('all-empty segments fall back to year/MM', () => {
+  test('all-empty segments fall back to year/Misc', () => {
     expect(
       formatBackupPath({ captureDate: capture, location: ['', '  '], filename: 'IMG.heic' }),
-    ).toBe('2024/03/IMG.heic');
+    ).toBe('2024/Misc/IMG.heic');
   });
 
   test('screenshot → year/Screenshot/filename', () => {
@@ -113,7 +113,7 @@ describe('formatBackupPath', () => {
         filename: 'IMG.heic',
         isScreenshot: false,
       }),
-    ).toBe('2024/03/IMG.heic');
+    ).toBe('2024/Misc/IMG.heic');
   });
 
   test('screenshot still rejects an unsafe filename', () => {
@@ -206,9 +206,9 @@ describe('formatBackupPath — filename safety', () => {
   });
 
   test("'..'-only location segment → fallback to no-GPS shape", () => {
-    // After sanitisation the only segment is dropped → empty → date fallback.
+    // After sanitisation the only segment is dropped → empty → Misc fallback.
     expect(formatBackupPath({ captureDate: capture, location: ['..'], filename: 'IMG.heic' })).toBe(
-      '2024/03/IMG.heic',
+      '2024/Misc/IMG.heic',
     );
   });
 });

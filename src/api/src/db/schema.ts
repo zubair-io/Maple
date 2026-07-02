@@ -1280,6 +1280,8 @@ export interface MetadataOverride {
    */
   captured_year?: number;
   captured_month?: number;
+  /** Custom screenshot flag. null means "clear". */
+  is_screenshot?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
