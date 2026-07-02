@@ -140,7 +140,10 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
                 }
             };
         write_scene_linear_buf_f32(
-            out_ptr, w, h, f32_rgba,
+            out_ptr,
+            w,
+            h,
+            f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
         );
@@ -230,7 +233,10 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
                 }
             };
         write_scene_linear_buf_f32(
-            out_ptr, w, h, f32_rgba,
+            out_ptr,
+            w,
+            h,
+            f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
         );
@@ -329,7 +335,10 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf_f32(
-            out_ptr, w, h, f32_rgba,
+            out_ptr,
+            w,
+            h,
+            f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
         );
@@ -420,7 +429,10 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf_f32(
-            out_ptr, w, h, f32_rgba,
+            out_ptr,
+            w,
+            h,
+            f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
         );
