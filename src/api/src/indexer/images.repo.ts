@@ -329,10 +329,33 @@ export function assetLibraryPath(
 export function assetAbsPath(
   asset: Pick<AssetDoc, 'fileinfo'>,
   libraries: ReadonlyMap<string, string>,
+  options?: { allowMissing?: boolean },
 ): string | null {
-  const primary = assetPrimaryFileInfo(asset);
+  const list = asset.fileinfo;
+  if (!list || list.length === 0) return null;
+
+  let primary: FileInfo | null = null;
+  // First pass: look for a fully live entry (neither deleted nor missing)
+  for (const entry of list) {
+    if (!entry.deleted_at && !entry.missing_since) {
+      primary = entry;
+      break;
+    }
+  }
+  // Fallback if allowMissing is true: look for any active entry (not deleted, even if missing)
+  if (!primary && options?.allowMissing) {
+    for (const entry of list) {
+      if (!entry.deleted_at) {
+        primary = entry;
+        break;
+      }
+    }
+  }
   if (!primary) return null;
-  const root = libraries.get(primary.library_id.toHexString());
+
+  const libraryIdStr =
+    typeof primary.library_id === 'string' ? primary.library_id : primary.library_id.toHexString();
+  const root = libraries.get(libraryIdStr);
   if (!root) return null;
   const segments = primary.path === '' ? [] : primary.path.split('/');
   return path.join(root, ...segments, primary.filename);
