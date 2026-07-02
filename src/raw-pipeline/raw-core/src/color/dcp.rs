@@ -1082,6 +1082,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         }
     }
 
@@ -1167,6 +1169,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         };
 
         // Drive the embedded path directly so we don't depend on bundle
@@ -1618,6 +1622,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         };
         let (prof_linear, src_linear) = profile_for_with_source(&raw_linear).unwrap();
         // No embedded matrices on this synthetic raw → RawlerFallback.
@@ -1988,6 +1994,8 @@ mod tests {
             iso: 100,
             noise_profile: None,
             opcode_list3: None,
+            aperture: None,
+            focal_length: None,
         }
     }
 
