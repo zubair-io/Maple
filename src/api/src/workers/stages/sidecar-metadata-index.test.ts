@@ -180,6 +180,20 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
     expect(result).not.toEqual({ skip: 'no-path' });
     expect((result as any).patch?.metadata_override?.place_text?.city).toBe('Berkeley');
   });
+
+  test('does not skip when only missing entries exist', async () => {
+    const image = await writeSidecar(
+      makeXmp(
+        'photoshop:City="Berkeley" photoshop:State="California" photoshop:Country="United States"',
+      ),
+    );
+    // Mark the only entry as missing
+    image.fileinfo![0].missing_since = '2026-06-30T00:00:00.000Z';
+
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).not.toEqual({ skip: 'no-path' });
+    expect((result as any).patch?.metadata_override?.place_text?.city).toBe('Berkeley');
+  });
 });
 
 // ---------------------------------------------------------------------------
