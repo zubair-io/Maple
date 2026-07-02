@@ -102,6 +102,21 @@ fn oklab_to_rec2020(lab: vec3<f32>) -> vec3<f32> {
     return mul_srgb_to_rec2020(srgb);
 }
 
+fn srgb_gamma_decode(y: f32) -> f32 {
+    if (y <= 0.04045) {
+        return y / 12.92;
+    }
+    return pow((y + 0.055) / 1.055, 2.4);
+}
+
+fn srgb_gamma(x: f32) -> f32 {
+    let cl = clamp(x, 0.0, 1.0);
+    if (cl <= 0.0031308) {
+        return cl * 12.92;
+    }
+    return 1.055 * pow(cl, 1.0 / 2.4) - 0.055;
+}
+
 // Soft-knee compression: identity for x ≤ KNEE=0.95, smooth roll-off to
 // asymptote 1.0 above. Mirrors raw_core::view::auto_profile::apply::compress_input
 // verbatim (negatives clamp to 0 first). Inert in [0, 0.95] display space; only
@@ -143,26 +158,26 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let g0 = compress_input(px.g);
     let b0 = compress_input(px.b);
 
-    // Per-channel curve. R anchors start at 0, G at 64 (32×2), B at 128.
-    let r1 = eval_channel(0u, r0);
-    let g1 = eval_channel(ANCHORS * 2u, g0);
-    let b1 = eval_channel(ANCHORS * 4u, b0);
-
-    // Optional cross-channel 3×3 matrix (row-major), applied AFTER the curves.
-    // Skipped when identity (the #550 production case). Identity matmul is itself
-    // bit-exact, so the branch only mirrors Rust's structure.
-    var r2 = r1;
-    var g2 = g1;
-    var b2 = b1;
+    var r1 = r0;
+    var g1 = g0;
+    var b1 = b0;
     if (params.identity == 0u) {
         let m0 = vec3<f32>(curve[OFF_MATRIX + 0u], curve[OFF_MATRIX + 1u], curve[OFF_MATRIX + 2u]);
         let m1 = vec3<f32>(curve[OFF_MATRIX + 3u], curve[OFF_MATRIX + 4u], curve[OFF_MATRIX + 5u]);
         let m2 = vec3<f32>(curve[OFF_MATRIX + 6u], curve[OFF_MATRIX + 7u], curve[OFF_MATRIX + 8u]);
-        let v = vec3<f32>(r1, g1, b1);
-        r2 = dot(m0, v);
-        g2 = dot(m1, v);
-        b2 = dot(m2, v);
+        let r_lin = srgb_gamma_decode(r0);
+        let g_lin = srgb_gamma_decode(g0);
+        let b_lin = srgb_gamma_decode(b0);
+        let v = vec3<f32>(r_lin, g_lin, b_lin);
+        r1 = srgb_gamma(dot(m0, v));
+        g1 = srgb_gamma(dot(m1, v));
+        b1 = srgb_gamma(dot(m2, v));
     }
+
+    // Per-channel curve. R anchors start at 0, G at 64 (32×2), B at 128.
+    var r2 = eval_channel(0u, r1);
+    var g2 = eval_channel(ANCHORS * 2u, g1);
+    var b2 = eval_channel(ANCHORS * 4u, b1);
 
     // Optional Oklab correction block. CRITICAL: skipped entirely (NOT a no-op
     // round-trip) when apply_chroma is false — an always-on round-trip drifts
