@@ -363,7 +363,7 @@ fn interpolate_cm(m1: Matrix3, cct1: f32, m2: Matrix3, cct2: f32, cct_target: f3
 ///   - XYZ = inv(CM) * wb_neutral
 ///   - xy → CCT via McCamy's formula
 ///   - repeat
-fn compute_as_shot_cct(
+pub(crate) fn compute_as_shot_cct(
     wb_neutral: [f32; 3],
     m_cold: Matrix3,
     cct_cold: f32,
@@ -1896,7 +1896,7 @@ mod tests {
         let p = soft_floor([0.181, 0.192, -0.021]);
         assert!((p[0] - 0.202).abs() < 1e-5, "R = {}", p[0]);
         assert!((p[1] - 0.213).abs() < 1e-5, "G = {}", p[1]);
-        assert!((p[2] - 0.0  ).abs() < 1e-5, "B = {}", p[2]);
+        assert!((p[2] - 0.0).abs() < 1e-5, "B = {}", p[2]);
         // The smallest channel is at exactly 0 after lifting, by construction.
         assert!(p[0].min(p[1]).min(p[2]) >= -1e-6);
     }
@@ -2463,10 +2463,8 @@ mod tests {
         let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
         img.pixels[0] = [0.5, 0.48, 0.52];
 
-        let out_wb_false =
-            apply(&img, &profile_wb_false).expect("wb_false + FM: should succeed");
-        let out_wb_true =
-            apply(&img, &profile_wb_true).expect("wb_true + FM: should succeed");
+        let out_wb_false = apply(&img, &profile_wb_false).expect("wb_false + FM: should succeed");
+        let out_wb_true = apply(&img, &profile_wb_true).expect("wb_true + FM: should succeed");
         let out_no_fm = apply(&img, &profile_no_fm).expect("no FM: should succeed");
 
         // wb_already_baked=false must produce the same result as no-FM (Bradford)
@@ -2481,8 +2479,7 @@ mod tests {
             // FM path and Bradford path must differ — guards against a
             // degenerate case where the matrices happen to produce the same
             // output.
-            let fm_vs_bradford_diff =
-                (out_wb_true.pixels[0][ch] - out_no_fm.pixels[0][ch]).abs();
+            let fm_vs_bradford_diff = (out_wb_true.pixels[0][ch] - out_no_fm.pixels[0][ch]).abs();
             assert!(
                 fm_vs_bradford_diff > 1e-3,
                 "ch={ch}: FM path ({}) and Bradford path ({}) must differ \

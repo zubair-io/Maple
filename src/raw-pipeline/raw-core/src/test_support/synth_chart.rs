@@ -286,9 +286,10 @@ impl SyntheticColorChart {
                 //   →  raw_u16 = clamp(raw_camera_ch * 65535, 0, 65535)
                 //
                 // FM_interp is the reciprocal-CCT-interpolated FM at the
-                // AsShotNeutral CCT. We compute the inverse transform once per
-                // pixel here — the chart is small (≤ ~6k pixels) so the cost
-                // is negligible. Caching per-patch would be an over-engineering.
+                // AsShotNeutral CCT. The chart is ~475k pixels at the default
+                // 128px/16px geometry, so the invariant rec2020→camera matrix
+                // is composed once (OnceLock in `camera_wb_from_rec2020`) and
+                // each pixel pays a single matrix-vector multiply.
                 let raw_f = camera_raw_from_rec2020(target_rec2020, chan);
                 raw_f.round().clamp(0.0, u16::MAX as f32) as u16
             }
@@ -377,19 +378,24 @@ impl SyntheticColorChart {
 fn camera_wb_from_rec2020(target_rec2020: [f32; 3]) -> [f32; 3] {
     use crate::color::matrices::M_PRO_TO_XYZ_D50;
 
-    let asn = canon_dcp::AS_SHOT_NEUTRAL;
-    let fm_interp = interpolated_canon_fm(asn);
-
-    let m_pro_to_rec2020 = crate::color::matrices::m_pro_to_rec2020();
-    let inv_pro_to_rec2020 = m_pro_to_rec2020
-        .inverse()
-        .expect("m_pro_to_rec2020 is invertible");
-    let prophoto = inv_pro_to_rec2020.mul_vec(target_rec2020);
-    let xyz_d50 = M_PRO_TO_XYZ_D50.mul_vec(prophoto);
-    let inv_fm = fm_interp
-        .inverse()
-        .expect("interpolated FM must be invertible");
-    inv_fm.mul_vec(xyz_d50)
+    // The full inverse chain depends only on the Canon constants and the
+    // fixed AsShotNeutral, so compose it once: rec2020→camera-wb is a single
+    // constant matrix (inv(FM_interp) · M_PRO_TO_XYZ_D50 · inv(pro→rec2020)).
+    static REC2020_TO_WB_CAMERA: std::sync::OnceLock<Matrix3> = std::sync::OnceLock::new();
+    let m = REC2020_TO_WB_CAMERA.get_or_init(|| {
+        let asn = canon_dcp::AS_SHOT_NEUTRAL;
+        let fm_interp = interpolated_canon_fm(asn);
+        let inv_pro_to_rec2020 = crate::color::matrices::m_pro_to_rec2020()
+            .inverse()
+            .expect("m_pro_to_rec2020 is invertible");
+        let inv_fm = fm_interp
+            .inverse()
+            .expect("interpolated FM must be invertible");
+        inv_fm
+            .mul_mat(&M_PRO_TO_XYZ_D50)
+            .mul_mat(&inv_pro_to_rec2020)
+    });
+    m.mul_vec(target_rec2020)
 }
 
 /// Returns `true` if all three camera raw channels for `target` are non-negative
@@ -421,7 +427,7 @@ fn interpolated_canon_fm(asn: [f32; 3]) -> Matrix3 {
     let cct2 = Illuminant::D65.cct(); // ~6504 K
 
     // Reciprocal-CCT interpolation parameter t from AsShotNeutral CCT.
-    let as_shot_cct = compute_as_shot_cct_canon(asn, cm1, cct1, cm2, cct2);
+    let as_shot_cct = crate::color::dcp::compute_as_shot_cct(asn, cm1, cct1, cm2, cct2);
     let inv_t1 = 1.0 / cct1;
     let inv_t2 = 1.0 / cct2;
     let inv_target = 1.0 / as_shot_cct;
@@ -431,50 +437,6 @@ fn interpolated_canon_fm(asn: [f32; 3]) -> Matrix3 {
     Matrix3(std::array::from_fn(|i| {
         std::array::from_fn(|j| (1.0 - t) * fm1.0[i][j] + t * fm2.0[i][j])
     }))
-}
-
-/// McCamy CCT estimate from XYZ chromaticities.  Mirrors `dcp.rs`'s
-/// `compute_as_shot_cct` — duplicated here to avoid an intra-crate
-/// visibility issue.  The math is identical; any fix there must be
-/// propagated here too.
-fn compute_as_shot_cct_canon(
-    wb_neutral: [f32; 3],
-    m_cold: Matrix3,
-    cct_cold: f32,
-    m_warm: Matrix3,
-    cct_warm: f32,
-) -> f32 {
-    let mut cct = (cct_cold + cct_warm) * 0.5;
-    let mut prev = 0.0_f32;
-    for _ in 0..15 {
-        if (cct - prev).abs() < 1.0 {
-            break;
-        }
-        prev = cct;
-        // Interpolate CM at current CCT estimate.
-        let inv_t1 = 1.0 / cct_cold;
-        let inv_t2 = 1.0 / cct_warm;
-        let inv_target = 1.0 / cct;
-        let t = ((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0);
-        let cm = Matrix3(std::array::from_fn(|i| {
-            std::array::from_fn(|j| (1.0 - t) * m_cold.0[i][j] + t * m_warm.0[i][j])
-        }));
-        let cm_inv = match cm.inverse() {
-            Some(inv) => inv,
-            None => break,
-        };
-        let xyz = cm_inv.mul_vec(wb_neutral);
-        let sum = xyz[0] + xyz[1] + xyz[2];
-        if sum < 1e-6 {
-            break;
-        }
-        let x = xyz[0] / sum;
-        let y = xyz[1] / sum;
-        let n = (x - 0.3320) / (0.1858 - y);
-        cct = (437.0 * n.powi(3) + 3601.0 * n.powi(2) + 6861.0 * n + 5517.0)
-            .clamp(2000.0, 15000.0);
-    }
-    cct
 }
 
 #[cfg(test)]
@@ -542,4 +504,3 @@ mod tests {
         );
     }
 }
-
