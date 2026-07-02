@@ -469,35 +469,37 @@ fn hot_pixel_suppression_engaged_is_identity_on_grey() {
     }
 }
 
-/// (#1729) ACR anchoring: when tint is explicitly set but temperature is not
-/// (`temperature_seen=false, tint_seen=true`), the develop pipeline should
-/// resolve the missing temperature to the image's as-shot CCT rather than
-/// 6500 K. For the synthetic DNG whose `as_shot_neutral = [0.5, 1.0, 0.5]`
-/// maps to ~5500 K, this is observably different from 6500 K.
+/// (#1729 / round-trip fix) ACR anchoring: when tint is explicitly set but
+/// temperature is not (`temperature_seen=false, tint_seen=true`), the develop
+/// pipeline resolves the missing temperature to 6500 K (D65 — the identity in
+/// the post-DCP scene-linear space).
 ///
-/// We assert that the tint-only render (as-shot-anchored CCT ≈ 5500 K)
-/// differs from the 6500 K / same-tint render: the R-channel is lower for
-/// the as-shot render (5500 K is cooler → cooler WB from that source → lower
-/// R gain), so `r_as_shot < r_6500k`.
+/// Rationale: after `apply_pre_gain` + DCP the image is in scene-linear
+/// Rec.2020 D65. In that space `white_balance::apply(6500, 0)` is the
+/// identity, so "as-shot" ≡ 6500 K. The raw file's `as_shot_cct` is the
+/// PHYSICAL shooting-illuminant CCT; using it as the anchor double-applies the
+/// CCT correction that DCP already baked in and breaks the round-trip
+/// (Custom+Tint=0+no-Temperature must reproduce as-shot exactly).
+///
+/// We assert that the tint-only render (temperature_seen=false, tint_seen=true)
+/// is bit-identical to the explicit 6500 K + same-tint render.
 #[test]
-fn tint_only_anchors_to_as_shot_cct() {
-    // As-shot-anchored render: temperature_seen=false, tint_seen=true.
-    // The base model in `scene_linear_pixel` pins both seen-flags to true,
-    // so we must reset temperature_seen back to false in the configure fn.
+fn tint_only_anchors_to_d65_not_as_shot_cct() {
     let dng = raw_core::test_support::synth_dng::SyntheticGreyDng::default();
     let bytes = dng.write_to_bytes();
     let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG decode");
 
-    let mut model_as_shot = raw_core::xmp::AdjustmentModel::default();
-    model_as_shot.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
-    model_as_shot.tint = 50.0;
-    model_as_shot.tint_seen = true;
-    // temperature_seen = false → pipeline resolves to as-shot CCT (~5500 K).
-    let img_as_shot =
-        develop_scene_linear_from_raw_with_quality(&raw, &model_as_shot, RenderQuality::Full)
+    // Tint-only render: temperature_seen=false, tint_seen=true.
+    let mut model_tint_only = raw_core::xmp::AdjustmentModel::default();
+    model_tint_only.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
+    model_tint_only.tint = 50.0;
+    model_tint_only.tint_seen = true;
+    // temperature_seen = false → pipeline anchors to 6500 K (D65 identity).
+    let img_tint_only =
+        develop_scene_linear_from_raw_with_quality(&raw, &model_tint_only, RenderQuality::Full)
             .expect("scene-linear render");
 
-    // 6500 K render with same tint: temperature_seen=true, tint_seen=true.
+    // Explicit 6500 K + same tint: temperature_seen=true, tint_seen=true.
     let mut model_6500 = raw_core::xmp::AdjustmentModel::default();
     model_6500.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     model_6500.temperature = 6500.0;
@@ -508,22 +510,14 @@ fn tint_only_anchors_to_as_shot_cct() {
         develop_scene_linear_from_raw_with_quality(&raw, &model_6500, RenderQuality::Full)
             .expect("scene-linear render");
 
-    // The two renders must differ: as-shot anchoring resolves ~5500 K (cooler
-    // than 6500 K), which shifts R down relative to the 6500 K render.
-    let r_as_shot = img_as_shot.pixels[0][0];
-    let r_6500 = img_6500.pixels[0][0];
-    assert!(
-        (r_as_shot - r_6500).abs() > 1e-3,
-        "as-shot-anchored render (CCT~5500K) should differ from 6500K render by >1e-3; \
-         got r_as_shot={r_as_shot:.6}, r_6500={r_6500:.6}"
-    );
-    // As-shot (5500 K source) → D65 adaptation gives more R gain from a cooler
-    // source (less R in cooler light), so the WB correction boosts R less for a
-    // 5500 K source than for 6500 K (since 5500 K source white is less red-heavy
-    // than 6500 K source white). Net: r_as_shot < r_6500 for a warm-shifted tint.
-    // (The exact direction can be verified empirically; the invariant we enforce
-    // is that the values differ, not a specific direction, to avoid brittleness
-    // if the CCT estimate shifts.)
+    // The two renders must be identical: absent temperature anchors to 6500 K.
+    for (i, (a, b)) in img_tint_only.pixels.iter().zip(img_6500.pixels.iter()).enumerate() {
+        assert_eq!(
+            a, b,
+            "pixel {i}: tint-only render differs from explicit-6500K render \
+             (tint_only={a:?}, 6500={b:?}); absent temperature must anchor to 6500 K (D65)"
+        );
+    }
 }
 
 // The display-domain gates (AgX-internal contrast direction + the vignette /
