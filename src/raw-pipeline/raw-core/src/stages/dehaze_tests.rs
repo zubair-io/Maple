@@ -195,13 +195,7 @@ fn build_sky_haze_scene(w: usize, h: usize) -> Image {
 
 /// Maximum per-channel relative change between `before` and `after` over
 /// the row range `[y0, y1)`.
-fn max_rel_change(
-    before: &[[f32; 3]],
-    after: &[[f32; 3]],
-    w: usize,
-    y0: usize,
-    y1: usize,
-) -> f32 {
+fn max_rel_change(before: &[[f32; 3]], after: &[[f32; 3]], w: usize, y0: usize, y1: usize) -> f32 {
     let mut max_rel = 0.0f32;
     for y in y0..y1 {
         for x in 0..w {
