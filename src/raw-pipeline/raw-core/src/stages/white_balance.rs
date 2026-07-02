@@ -10,25 +10,33 @@ use std::sync::OnceLock;
 /// tint displacement.
 ///
 /// **Derivation.** The available ACR tint references (test_0000, test_0006,
-/// test_0013 tint_max/tint_min) set `crs:Tint` without `crs:Temperature`,
-/// so ACR renders at the DNG's as-shot CCT while Maple falls back to 6500 K.
-/// That CCT mismatch (~1 000–2 000 K depending on fixture) dominates ΔE and
-/// makes the tint-reference images unsuitable for scale fitting: a sweep over
-/// the range 0.0–0.0003 produced a monotone curve with the minimum at zero:
+/// test_0013 tint_max/tint_min) set `crs:Tint` without `crs:Temperature`, so
+/// ACR renders at the DNG's as-shot CCT. With the #1729 anchoring fix, Maple
+/// now correctly uses as-shot CCT for tint-only XMPs. However, empirical
+/// investigation reveals that ACR's tint_max and tint_min renders are
+/// effectively IDENTICAL (≤1 LSB difference at 8-bit per channel) for all
+/// three tint fixtures — these references carry no usable tint-scale signal.
+/// A sweep over 0.5e-4 to 3e-4 is therefore still monotone-increasing in ΔE
+/// (any non-zero tint moves Maple away from the identical tint_max/tint_min
+/// references, which differ from the baseline only in their CCT processing):
 ///
-///   0.000000 → avg ΔE 7.00  ← apparent minimum, driven by CCT mismatch
-///   0.000050 → avg ΔE 8.64
-///   0.000100 → avg ΔE 11.68
-///   0.000150 → avg ΔE 14.47
-///   0.000200 → avg ΔE 16.88
-///   0.000260 → avg ΔE 19.37
-///   0.000300 → avg ΔE 20.84
+///   5.00e-05 → avg ΔE 11.48  ← monotone minimum, tint effect invisible
+///   8.00e-05 → avg ΔE 13.11
+///   1.00e-04 → avg ΔE 14.24  ← analytically derived value (retained)
+///   1.20e-04 → avg ΔE 15.34
+///   2.00e-04 → avg ΔE 19.28
+///   3.00e-04 → avg ΔE 23.50
 ///
 /// Scale=0 is not acceptable (tint becomes a no-op). The scale is therefore
-/// derived analytically: tint ±150 should span ±0.015 uv perpendicular to
-/// the locus, which covers ~19 % of the 2 000–25 000 K locus range in uv and
-/// matches the rawpy / LibRaw convention (perpendicular distance in uv divided
-/// by 0.0001 per tint unit). This gives TINT_UV_SCALE = 0.015 / 150 = 1e-4.
+/// kept at the analytically derived value: tint ±150 should span ±0.015 uv
+/// perpendicular to the locus, which covers ~19 % of the 2 000–25 000 K locus
+/// range in uv and matches the rawpy / LibRaw convention (perpendicular
+/// distance in uv divided by 0.0001 per tint unit).
+/// TINT_UV_SCALE = 0.015 / 150 = 1e-4.
+///
+/// To re-fit empirically: generate tint references where both temperature AND
+/// tint are set in the XMP, so the tint effect is genuinely different from the
+/// baseline. Track in #1725.
 const TINT_UV_SCALE: f32 = 1e-4;
 
 /// Re-export the auto-WB estimators that live in the sibling
