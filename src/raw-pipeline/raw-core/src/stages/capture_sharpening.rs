@@ -46,6 +46,11 @@ pub struct CaptureSharpeningParams {
     pub highlight_threshold: f32,
     /// Strength multiplier. 1.0 = full effect; 0.0 = off (bit-identical no-op).
     pub strength: f32,
+    /// Noise floor for dampened Richardson–Lucy. The RL update ratio is
+    /// suppressed when the blurred estimate falls below this value, preventing
+    /// noise amplification in dark regions. Setting to 0.0 disables dampening
+    /// (classic RL). Default: 3e-4 (tuned for 14-bit linear scene data).
+    pub noise_floor: f32,
 }
 
 impl Default for CaptureSharpeningParams {
@@ -55,8 +60,46 @@ impl Default for CaptureSharpeningParams {
             iterations: 2,
             highlight_threshold: 0.99,
             strength: 1.0,
+            noise_floor: 3e-4,
         }
     }
+}
+
+/// Estimate the diffraction-limited PSF sigma from EXIF lens metadata.
+///
+/// The Airy disk first-zero radius (in sensor-plane µm) is:
+///   r_airy ≈ 1.22 · λ · N
+/// where λ = 550 nm (mid-visible) and N = f-number. The PSF sigma in
+/// *pixels* is roughly r_airy / pixel_pitch, scaled by an empirical
+/// factor (0.42 ≈ σ/r_first_zero for a Gaussian approximation of Airy).
+///
+/// `pixel_pitch_um` is derived from `sensor_width_px` and physical sensor
+/// width (available in EXIF as `FocalPlaneXResolution` or estimated from
+/// crop factor). When unavailable, callers can use a reasonable default
+/// (e.g. 3.76 µm for APS-C, 5.9 µm for full-frame 24 MP).
+///
+/// Returns `None` if the inputs are non-positive / non-finite.
+pub fn estimate_diffraction_sigma(
+    f_number: f32,
+    pixel_pitch_um: f32,
+) -> Option<f32> {
+    if !f_number.is_finite() || f_number <= 0.0
+        || !pixel_pitch_um.is_finite() || pixel_pitch_um <= 0.0
+    {
+        return None;
+    }
+    // λ = 0.55 µm (550 nm, green midpoint)
+    let lambda_um = 0.55_f32;
+    // Airy first-zero radius in µm
+    let r_airy_um = 1.22 * lambda_um * f_number;
+    // Gaussian sigma approximation of the Airy PSF
+    let sigma_um = 0.42 * r_airy_um;
+    // Convert to pixels
+    let sigma_px = sigma_um / pixel_pitch_um;
+    if sigma_px > MAX_GAUSSIAN_SIGMA_PX || sigma_px <= 0.0 {
+        return None;
+    }
+    Some(sigma_px)
 }
 
 /// Rec 709 luminance weights. Close enough to Rec.2020 for the tiny
@@ -169,12 +212,27 @@ pub fn apply_capture_sharpening_cancellable(
         }
         let blur_est = gaussian_blur_plane_sigma(&estimate, w, h, params.sigma);
 
-        // ratio[i] = clamp(original[i] / max(blur_est[i], 1e-6), 0, 100).
-        // Output depends only on element `i` → parallel over rows.
+        // Dampened Richardson–Lucy ratio: suppress the update in regions
+        // where the blurred estimate is near the noise floor, preventing
+        // the classic RL noise-amplification failure mode in shadows.
+        //
+        // ratio[i] = dampen(original[i] / max(blur_est[i], ε), blur_est[i])
+        // where dampen(r, b) = 1 + (r - 1) · b² / (b² + noise²)
+        //
+        // When noise_floor ≤ 0 this reduces to the undampened ratio.
+        let noise2 = params.noise_floor * params.noise_floor;
         let mut ratio = vec![0.0_f32; n];
         if cancellable_plane_zip_rows(&mut ratio, w, &original, &blur_est, cancel, |&o, &b| {
             let denom = b.max(1e-6);
-            (o / denom).clamp(0.0, 100.0)
+            let raw_ratio = (o / denom).clamp(0.0, 100.0);
+            if noise2 > 0.0 {
+                // Dampened: suppress deviations from 1 in low-signal regions
+                let b2 = b * b;
+                let dampen = b2 / (b2 + noise2);
+                1.0 + (raw_ratio - 1.0) * dampen
+            } else {
+                raw_ratio
+            }
         }) {
             return Err(Error::Cancelled);
         }
