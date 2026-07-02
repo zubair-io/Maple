@@ -72,10 +72,7 @@ impl CacheKey {
         let canonical = std::fs::canonicalize(path).ok()?;
         let meta = std::fs::metadata(&canonical).ok()?;
         let mtime = meta.modified().ok()?;
-        Some(CacheKey::Path {
-            path: canonical,
-            mtime,
-        })
+        Some(CacheKey::Path { path: canonical, mtime })
     }
 
     /// Build a [`CacheKey::Bytes`] from in-memory RAW bytes. Uses a 64-bit
@@ -98,14 +95,8 @@ impl CacheKey {
         let digest = hasher.finalize();
         let bytes_out = digest.as_bytes();
         let hash = u64::from_le_bytes([
-            bytes_out[0],
-            bytes_out[1],
-            bytes_out[2],
-            bytes_out[3],
-            bytes_out[4],
-            bytes_out[5],
-            bytes_out[6],
-            bytes_out[7],
+            bytes_out[0], bytes_out[1], bytes_out[2], bytes_out[3],
+            bytes_out[4], bytes_out[5], bytes_out[6], bytes_out[7],
         ]);
         CacheKey::Bytes { hash }
     }
@@ -215,9 +206,7 @@ pub fn get_lut(key: &CacheKey) -> Option<ColorLut> {
 /// [`CAPACITY`]; replaces in place + bumps to MRU when `key` already
 /// present. Mirrors [`insert`].
 pub fn insert_lut(key: CacheKey, lut: ColorLut) {
-    let Ok(mut guard) = lut_cell().lock() else {
-        return;
-    };
+    let Ok(mut guard) = lut_cell().lock() else { return };
     if guard.map.contains_key(&key) {
         guard.map.insert(key.clone(), lut);
         if let Some(pos) = guard.order.iter().position(|k| k == &key) {
@@ -356,14 +345,8 @@ mod tests {
         let _ = get(&CacheKey::Bytes { hash: 0 });
         // Insert one more — the new LRU should be hash=1, not hash=0.
         insert(CacheKey::Bytes { hash: 999 }, dummy_curve(999.0));
-        assert!(
-            get(&CacheKey::Bytes { hash: 0 }).is_some(),
-            "hash=0 was promoted, should survive"
-        );
-        assert!(
-            get(&CacheKey::Bytes { hash: 1 }).is_none(),
-            "hash=1 was LRU, should be evicted"
-        );
+        assert!(get(&CacheKey::Bytes { hash: 0 }).is_some(), "hash=0 was promoted, should survive");
+        assert!(get(&CacheKey::Bytes { hash: 1 }).is_none(), "hash=1 was LRU, should be evicted");
     }
 
     #[test]
