@@ -194,6 +194,7 @@ mod chain;
 mod clarity;
 mod context;
 mod context_pipelines;
+mod context_pipelines_helpers;
 mod dehaze;
 mod display_encode;
 mod dither;
