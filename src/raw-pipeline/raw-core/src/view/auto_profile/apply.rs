@@ -4,6 +4,16 @@
 //! budget. Pure functions; no I/O.
 
 use super::curve::{self, ProfileCurve, IDENTITY_MATRIX};
+use crate::view::encode::srgb_gamma;
+
+#[inline]
+pub fn srgb_gamma_decode(y: f32) -> f32 {
+    if y <= 0.04045 {
+        y / 12.92
+    } else {
+        ((y + 0.055) / 1.055).powf(2.4)
+    }
+}
 
 /// Soft-knee compression: identity for `x ≤ KNEE`, smooth roll-off
 /// to asymptote 1.0 above. The knee at 0.95 keeps midtones bit-
@@ -63,18 +73,21 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
         let r0 = compress_input(chunk[0]);
         let g0 = compress_input(chunk[1]);
         let b0 = compress_input(chunk[2]);
-        let r1 = curve::eval_channel(&curve.r, r0);
-        let g1 = curve::eval_channel(&curve.g, g0);
-        let b1 = curve::eval_channel(&curve.b, b0);
-        let (mut r2, mut g2, mut b2) = if identity {
-            (r1, g1, b1)
+        let (r1, g1, b1) = if identity {
+            (r0, g0, b0)
         } else {
-            (
-                m[0][0] * r1 + m[0][1] * g1 + m[0][2] * b1,
-                m[1][0] * r1 + m[1][1] * g1 + m[1][2] * b1,
-                m[2][0] * r1 + m[2][1] * g1 + m[2][2] * b1,
-            )
+            // Apply matrix in display-linear space BEFORE curves
+            let r_lin = srgb_gamma_decode(r0);
+            let g_lin = srgb_gamma_decode(g0);
+            let b_lin = srgb_gamma_decode(b0);
+            let r_adapt = m[0][0] * r_lin + m[0][1] * g_lin + m[0][2] * b_lin;
+            let g_adapt = m[1][0] * r_lin + m[1][1] * g_lin + m[1][2] * b_lin;
+            let b_adapt = m[2][0] * r_lin + m[2][1] * g_lin + m[2][2] * b_lin;
+            (srgb_gamma(r_adapt), srgb_gamma(g_adapt), srgb_gamma(b_adapt))
         };
+        let mut r2 = curve::eval_channel(&curve.r, r1);
+        let mut g2 = curve::eval_channel(&curve.g, g1);
+        let mut b2 = curve::eval_channel(&curve.b, b1);
         if apply_chroma {
             // Oklab: scale chroma around neutral, then offset (a, b)
             // to correct residual hue cast (test_0010 yellow-green).
