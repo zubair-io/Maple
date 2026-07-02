@@ -51,12 +51,8 @@ pub const FORWARD_MATRIX_2: [[f32; 3]; 3] = [
     [0.1484, 0.0025, 0.6742],
 ];
 
-/// Daylight AsShotNeutral for Canon EOS 5D Mark IV under ~5500 K sunlight.
-/// Derived from the D65 ColorMatrix: a neutral scene patch at D65 satisfies
-/// `inv(CM2) * [1,1,1]_xyz ≈ AsShotNeutral`, G-normalized. Approximated from
-/// typical daylight Canon 5D IV field captures (~5500 K, clear sky).
-/// The exact value does not need to match a specific real capture; it just
-/// needs to be in the plausible range so the DCP CCT interpolation resolves
-/// near 5500 K. Using [0.47, 1.0, 0.65] (Canon daylight rough mean from
-/// public EXIF databases).
+/// Daylight AsShotNeutral for the synthetic Canon 5D Mark IV chart.
+/// Test-fixture metadata, not a measured capture: a plausible G-normalized
+/// daylight neutral chosen so the DCP reciprocal-CCT interpolation resolves
+/// near ~5500 K, exercising a realistic mix of both illuminant matrices.
 pub const AS_SHOT_NEUTRAL: [f32; 3] = [0.470, 1.000, 0.650];
