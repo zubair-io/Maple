@@ -7,7 +7,7 @@
  * Layout:
  *   Screenshot:       <year>/Screenshot/<filename>   (takes precedence)
  *   With location:    <year>/<seg1>/<seg2>/…/<filename>
- *   Without location: <year>/<MM>/<filename>
+ *   Without location: <year>/Misc/<filename>
  *
  * A screenshot is filed under a single `<year>/Screenshot` folder regardless of
  * its GPS — a phone/app UI capture isn't a "place" photo, so the location and
@@ -23,8 +23,7 @@
  * Each segment is sanitised independently: trimmed, `/` and `\` replaced with
  * `_` (so one segment can't introduce an extra directory level), and dropped
  * entirely if it is empty or a path-traversal token (`.`, `..`, or a leading
- * dot). When no usable segment survives, the path falls back to the date-only
- * `<year>/<MM>` layout.
+ * dot). When no usable segment survives, the path falls back to the `<year>/Misc` layout.
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9;
  * docs/superpowers/specs/2026-05-31-backup-layout-and-migration-worker.md;
