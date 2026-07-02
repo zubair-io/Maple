@@ -46,7 +46,7 @@ extension AutoProfileCanvasParityTests {
         func meanLuma(profileOverride: Profile) async throws -> Double {
             guard let ci = await pipeline.decodeSceneLinear(
                 asset: asset, quality: .full, xmpPath: nil, profileOverride: profileOverride
-            ) else { throw XCTSkip("decodeSceneLinear nil") }
+            ).map(\.image) else { throw XCTSkip("decodeSceneLinear nil") }
             // Materialise the scene-linear (pre-AgX, Rec.2020) decode to f32
             // and average the green channel — AE is a scalar scene-linear
             // gain, so its presence shows directly as a higher mean here.

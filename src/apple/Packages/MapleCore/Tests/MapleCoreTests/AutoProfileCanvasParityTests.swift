@@ -187,9 +187,10 @@ final class AutoProfileCanvasParityTests: XCTestCase {
         // exactly what the live `sharedDecode` does. Without this the FFI
         // falls back to the default model (profile=Auto), forcing AE-Off for
         // BOTH renders and darkening the Neutral candidate.
-        guard let decoded = await pipeline.decodeSceneLinear(
+        guard let decodeResult = await pipeline.decodeSceneLinear(
             asset: asset, quality: .full, xmpPath: nil, profileOverride: profile
         ) else { throw XCTSkip("decodeSceneLinear nil for \(rawURL.lastPathComponent)") }
+        let decoded = decodeResult.image
 
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let raw = ImageMetadataReader.readAsShotWB(from: rawURL) else { return nil }

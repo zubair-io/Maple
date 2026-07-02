@@ -95,7 +95,7 @@ extension SceneLinearPipelineTests {
         let asset = AssetRef(url: fixturePath)
         let pipeline = ImageEditPipeline()
         let target = CGSize(width: 800, height: 600)
-        guard let ci = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target) else {
+        guard let ci = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target).map(\.image) else {
             return XCTFail("decodeSceneLinearSized returned nil")
         }
         let w = ci.extent.width, h = ci.extent.height
@@ -121,10 +121,10 @@ extension SceneLinearPipelineTests {
         let pipeline = ImageEditPipeline()
         guard let sized = await pipeline.decodeSceneLinearSized(
             asset: asset, targetSize: CGSize(width: 100_000, height: 100_000)
-        ) else { return XCTFail("nil sized") }
+        ).map(\.image) else { return XCTFail("nil sized") }
         guard let unsized = await pipeline.decodeSceneLinear(
             asset: asset, quality: .preview
-        ) else { return XCTFail("nil unsized") }
+        ).map(\.image) else { return XCTFail("nil unsized") }
         XCTAssertEqual(sized.extent.width, unsized.extent.width, accuracy: 0.01)
         XCTAssertEqual(sized.extent.height, unsized.extent.height, accuracy: 0.01)
     }

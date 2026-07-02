@@ -235,7 +235,7 @@ final class AppleRenderHarnessTests: XCTestCase {
         let pipeline = ImageEditPipeline()
         let asset = AssetRef(url: rawURL)
 
-        guard let decoded = await pipeline.decodeSceneLinear(
+        guard let decodeResult = await pipeline.decodeSceneLinear(
             asset: asset,
             quality: .preview,                  // matches the editor's slider path
             xmpPath: xmpURL
@@ -244,6 +244,7 @@ final class AppleRenderHarnessTests: XCTestCase {
                           userInfo: [NSLocalizedDescriptionKey:
                                      "decodeSceneLinear returned nil for \(rawURL.path)"])
         }
+        let decoded = decodeResult.image
 
         // Live app uses `EditSession.parseSidecarModel` to feed
         // `decodedAtModel`; replicate that here so the WB kernel applies

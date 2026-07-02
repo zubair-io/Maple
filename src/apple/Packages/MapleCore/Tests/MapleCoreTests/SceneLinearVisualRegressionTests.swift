@@ -114,10 +114,11 @@ final class SceneLinearVisualRegressionTests: XCTestCase {
         let pipeline = ImageEditPipeline()
         let asset = AssetRef(url: fixture)
 
-        guard let decoded = await pipeline.decodeSceneLinear(asset: asset) else {
+        guard let decodeResult = await pipeline.decodeSceneLinear(asset: asset) else {
             XCTFail("decodeSceneLinear returned nil for \(fixture.path)")
             return
         }
+        let decoded = decodeResult.image
 
         // Apply the Auto Profile tail exactly like production (#1174).
         // The default model is `profile: .auto`, so the FFI decode above

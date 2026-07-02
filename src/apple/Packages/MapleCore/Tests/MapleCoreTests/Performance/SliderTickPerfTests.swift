@@ -147,7 +147,7 @@ final class SliderTickPerfTests: XCTestCase {
             asset: asset,
             quality: .preview,
             xmpPath: nil
-        ) else {
+        ).map(\.image) else {
             throw XCTSkip(
                 "decodeSceneLinear returned nil for \(fixtureURL.lastPathComponent) " +
                 "(likely an unsupported RAW format in this build of rawler)."

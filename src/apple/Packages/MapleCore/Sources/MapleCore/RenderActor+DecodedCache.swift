@@ -72,7 +72,7 @@ extension RenderActor {
             // or flip a cancel flag here — same-asset slider ticks during a cold
             // open share this one decode and its flag; nobody cancels until a
             // genuinely different decode supersedes it (the replace path below).
-            guard let decoded = await existing.value else { return nil }
+            guard let (decoded, _, _) = await existing.value else { return nil }
             if decodedAtModel == nil {
                 decodedAtModel = EditSession.parseSidecarModel(for: asset)
             }
@@ -103,7 +103,7 @@ extension RenderActor {
         // cancelAll can flip it to abandon this decode.
         let cancelFlag = CancelFlag()
         decodeCancelFlag = cancelFlag
-        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
+        let task: Task<(CIImage, [Float]?, UInt32)?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
             var dispatchAsset = asset
             var dispatchIsRaw = extensionIsRaw
             if needsSniff, let provider = asset.bytesProvider {
@@ -147,12 +147,14 @@ extension RenderActor {
             if !dispatchIsRaw {
                 // Fast phase passes a viewport `target` so ImageIO decodes
                 // a downsampled thumbnail; refine passes `nil` for the
-                // full-res decode (#785).
-                return await mapleStageAsync("ImageIO non-RAW decode") {
+                // full-res decode (#785). Non-RAW has no noise profile.
+                let nonRawImage = await mapleStageAsync("ImageIO non-RAW decode") {
                     await pipeline.decodeSceneLinearNonRaw(
                         asset: dispatchAsset, targetSize: decodeTarget
                     )
                 }
+                guard let nonRawImage else { return nil }
+                return (nonRawImage, nil, 0)
             }
             let asset = dispatchAsset
             let sidecar: URL? = {
@@ -169,14 +171,14 @@ extension RenderActor {
             // Refine / export (`decodeTarget == nil`) keep the unsized
             // full-resolution decode.
             if let decodeTarget {
-                let decoded = await mapleStageAsync("rust FFI scene-linear sized decode") {
+                let sizedResult = await mapleStageAsync("rust FFI scene-linear sized decode") {
                     await pipeline.decodeSceneLinearSized(
                         asset: asset, targetSize: decodeTarget, xmpPath: sidecar,
                         profileOverride: decodeProfile, cancel: cancelFlag
                     )
                 }
-                guard let decoded else { return nil }
-                return decoded
+                guard let sizedResult else { return nil }
+                return (sizedResult.image, sizedResult.noiseProfile, sizedResult.iso)
             }
             // #940 — refine pass (full-resolution): use AMaZE when AmazeFlag
             // is enabled, otherwise bilinear Full (the production default).
@@ -185,24 +187,24 @@ extension RenderActor {
             // (wantsFull == true, decodeTarget == nil) lands here, so the
             // AMaZE path never fires on a per-slider-tick fast decode.
             let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
-            let decoded = await mapleStageAsync("rust FFI scene-linear decode") {
+            let refineResult = await mapleStageAsync("rust FFI scene-linear decode") {
                 await pipeline.decodeSceneLinear(
                     asset: asset, quality: refineQuality, xmpPath: sidecar,
                     profileOverride: decodeProfile, cancel: cancelFlag
                 )
             }
-            guard let decoded else { return nil }
-            return decoded
+            guard let refineResult else { return nil }
+            return (refineResult.image, refineResult.noiseProfile, refineResult.iso)
         }
         decodeTask = task
         decodeTaskAssetID = asset.id
         decodeTaskIsFull = wantsFull
         decodeTaskProfile = decodeProfile
 
-        let decoded = await task.value
+        let decodeResult = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
 
-        guard let decoded else {
+        guard let (decoded, decodeNoiseProfile, decodeISO) = decodeResult else {
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil
                 decodeTaskAssetID = nil
@@ -253,6 +255,13 @@ extension RenderActor {
             decodedSidecarMtime = currentMtime
             decodedIsFull = wantsFull
             decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
+            // PR #1709 review fix 4: store noise profile + ISO alongside the
+            // decoded buffer so processSceneLinear can forward them to the NR
+            // stage without a re-decode. Written only on the same shouldWrite
+            // path as the image itself — a fast decode that doesn't clobber a
+            // fresh full cache also doesn't update the noise profile/ISO.
+            decodedNoiseProfile = decodeNoiseProfile
+            decodedISO = decodeISO
         }
         if decodeTaskAssetID == asset.id {
             decodeTask = nil
@@ -324,6 +333,8 @@ extension RenderActor {
         refineDecodeTasks.removeAll()
         decodedAtModel = nil
         decodedProfile = nil
+        decodedNoiseProfile = nil
+        decodedISO = 0
     }
 
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
@@ -361,7 +372,9 @@ extension RenderActor {
             rawResolution: decodedRawResolution,
             isFresh: isFresh,
             isFull: decodedIsFull,
-            profile: decodedProfile
+            profile: decodedProfile,
+            noiseProfile: decodedNoiseProfile,
+            iso: decodedISO
         )
     }
 

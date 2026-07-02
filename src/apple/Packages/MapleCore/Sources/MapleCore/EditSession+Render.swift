@@ -193,7 +193,9 @@ extension EditSession {
                 visibleRect: visible,
                 gen: gen,
                 cached: snapshot.image!,
-                cachedDecodedAtModel: snapshot.decodedAtModel
+                cachedDecodedAtModel: snapshot.decodedAtModel,
+                cachedNoiseProfile: snapshot.noiseProfile,
+                cachedISO: snapshot.iso
             )
             return
         }
@@ -206,7 +208,9 @@ extension EditSession {
         visibleRect: CGRect,
         gen: UInt64,
         cached: CIImage,
-        cachedDecodedAtModel: AdjustmentModel?
+        cachedDecodedAtModel: AdjustmentModel?,
+        cachedNoiseProfile: [Float]? = nil,
+        cachedISO: UInt32 = 0
     ) async {
         let assetID = asset.id
         let canvasSize = nativeImageSize
@@ -246,7 +250,9 @@ extension EditSession {
                     decoded: cached, model: m, targetSize: nil,
                     asShot: asShot, decodedAtModel: cachedDecodedAtModel,
                     profileLUT: profileLUT,
-                    assetID: assetID
+                    assetID: assetID,
+                    noiseProfile: cachedNoiseProfile,
+                    iso: cachedISO
                 )
                 let cropped = chain.cropped(to: visibleRect)
                 guard let cg = pipeline.materializeRegion(cropped, rect: visibleRect)
@@ -353,6 +359,8 @@ extension EditSession {
         let cacheFresh = (cached != nil) && snapshot.isFresh && cacheSufficient
             && profileMatches
         let cachedDecodedAtModel = snapshot.decodedAtModel
+        let cachedNoiseProfile = snapshot.noiseProfile
+        let cachedISO = snapshot.iso
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
@@ -418,7 +426,9 @@ extension EditSession {
                             decoded: cached, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: cachedDecodedAtModel,
                             profileLUT: profileLUT,
-                            assetID: assetID
+                            assetID: assetID,
+                            noiseProfile: cachedNoiseProfile,
+                            iso: cachedISO
                         )
                     }
                 }.value
@@ -463,6 +473,8 @@ extension EditSession {
                 }
                 let freshSnapshot = await renderActor.snapshot(forAsset: asset)
                 let freshDecodedAtModel = freshSnapshot.decodedAtModel
+                let freshNoiseProfile = freshSnapshot.noiseProfile
+                let freshISO = freshSnapshot.iso
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
@@ -475,7 +487,9 @@ extension EditSession {
                             decoded: decoded, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: freshDecodedAtModel,
                             profileLUT: profileLUT,
-                            assetID: assetID
+                            assetID: assetID,
+                            noiseProfile: freshNoiseProfile,
+                            iso: freshISO
                         )
                     }
                 }.value
