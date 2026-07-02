@@ -156,7 +156,11 @@ fn compress_to_unit_cube(rgb: [f32; 3]) -> [f32; 3] {
     let (l, a, b) = (lab[0], lab[1], lab[2]);
     let c_in = (a * a + b * b).sqrt();
     if c_in <= CHROMA_FLOOR {
-        return [rgb[0].clamp(0.0, 1.0), rgb[1].clamp(0.0, 1.0), rgb[2].clamp(0.0, 1.0)];
+        return [
+            rgb[0].clamp(0.0, 1.0),
+            rgb[1].clamp(0.0, 1.0),
+            rgb[2].clamp(0.0, 1.0),
+        ];
     }
     let scale_chroma = |s: f32| oklab_to_srgb_linear([l, a * s, b * s]);
     if in_unit_box(scale_chroma(1.0 / COMPRESS_THRESHOLD)) {
@@ -166,7 +170,11 @@ fn compress_to_unit_cube(rgb: [f32; 3]) -> [f32; 3] {
     let hull = c_in * s_hull;
     if !hull.is_finite() || hull <= CHROMA_FLOOR {
         let out = scale_chroma(s_hull.max(0.0));
-        return [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)];
+        return [
+            out[0].clamp(0.0, 1.0),
+            out[1].clamp(0.0, 1.0),
+            out[2].clamp(0.0, 1.0),
+        ];
     }
     let knee = COMPRESS_THRESHOLD * hull;
     let c_out = if c_in <= knee {
@@ -176,7 +184,11 @@ fn compress_to_unit_cube(rgb: [f32; 3]) -> [f32; 3] {
         knee + (hull - knee) * (x / (1.0 + x))
     };
     let out = scale_chroma(c_out / c_in);
-    [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)]
+    [
+        out[0].clamp(0.0, 1.0),
+        out[1].clamp(0.0, 1.0),
+        out[2].clamp(0.0, 1.0),
+    ]
 }
 
 /// Largest in-gamut chroma scale (bracket + 24-iter bisection). Mirrors
@@ -351,7 +363,9 @@ mod tests {
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&DisplayEncodePass { target_primaries: 0 }]);
+        let gpu = runner.run_blocking(&[&DisplayEncodePass {
+            target_primaries: 0,
+        }]);
 
         let max_diff = reference
             .iter()
@@ -444,7 +458,9 @@ mod tests {
         let input = vec![1.0_f32, 0.0, 0.0, 1.0]; // pure Rec.2020 red
         let img = GpuImage::upload(&ctx, &input, 1, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&DisplayEncodePass { target_primaries: 0 }]);
+        let gpu = runner.run_blocking(&[&DisplayEncodePass {
+            target_primaries: 0,
+        }]);
         for (c, &v) in gpu[..3].iter().enumerate() {
             assert!(
                 (0.0..=1.0).contains(&v),

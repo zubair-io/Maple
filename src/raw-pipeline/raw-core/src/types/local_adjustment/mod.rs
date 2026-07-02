@@ -153,11 +153,7 @@ impl LocalAdjustment {
     }
 
     /// Construct a radial-mask layer.
-    pub fn radial(
-        center: Point2,
-        radii: Point2,
-        adjustments: PartialAdjustments,
-    ) -> Self {
+    pub fn radial(center: Point2, radii: Point2, adjustments: PartialAdjustments) -> Self {
         Self {
             mask: Mask::Radial {
                 center,
@@ -197,7 +193,11 @@ mod tests {
         };
         let la = LocalAdjustment::linear(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0), p);
         match la.mask {
-            Mask::Linear { start, end, feather } => {
+            Mask::Linear {
+                start,
+                end,
+                feather,
+            } => {
                 assert_eq!(start, Point2::new(0.0, 0.0));
                 assert_eq!(end, Point2::new(1.0, 0.0));
                 assert!((feather - 0.5).abs() < 1e-6);
@@ -213,11 +213,7 @@ mod tests {
             exposure: Some(-1.0),
             ..Default::default()
         };
-        let la = LocalAdjustment::radial(
-            Point2::new(0.5, 0.5),
-            Point2::new(0.2, 0.1),
-            p,
-        );
+        let la = LocalAdjustment::radial(Point2::new(0.5, 0.5), Point2::new(0.2, 0.1), p);
         match la.mask {
             Mask::Radial {
                 center,

@@ -17,7 +17,10 @@ use super::{
 use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
-    stages::{clarity, crop, dehaze, grain, noise_reduction, saturation, sharpen, split_tone, texture, vibrance, vignette},
+    stages::{
+        clarity, crop, dehaze, grain, noise_reduction, saturation, sharpen, split_tone, texture,
+        vibrance, vignette,
+    },
     types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode},
     xmp::AdjustmentModel,
@@ -138,8 +141,7 @@ fn render_display_from_raw(
     // `MAPLE_DISABLE_AUTO_PROFILE` — when set, the entire Auto Profile system
     // (cache lookup, preview extraction, will-fit probe) is bypassed. Any stale
     // cached value is intentionally ignored so disabled mode cannot leak through.
-    let auto_profile_disabled =
-        std::env::var_os("MAPLE_DISABLE_AUTO_PROFILE").is_some();
+    let auto_profile_disabled = std::env::var_os("MAPLE_DISABLE_AUTO_PROFILE").is_some();
     let auto_cache_key = if !auto_profile_disabled && model.profile == Profile::Auto {
         match &raw_source {
             Some(RawInput::Path(p)) => auto_profile::cache::CacheKey::from_path(p),
@@ -155,21 +157,20 @@ fn render_display_from_raw(
         .as_ref()
         .and_then(auto_profile::cache::get_lut);
     let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
-    let preview =
-        if !auto_profile_disabled
-            && model.profile == Profile::Auto
-            && (cached_curve.is_none() || cached_lut.is_none())
-        {
-            match &raw_source {
-                Some(RawInput::Path(p)) => auto_profile::preview::extract_for_fit(p),
-                Some(RawInput::Bytes { bytes, ext }) => {
-                    auto_profile::preview::extract_for_fit_from_bytes(bytes, ext)
-                }
-                None => None,
+    let preview = if !auto_profile_disabled
+        && model.profile == Profile::Auto
+        && (cached_curve.is_none() || cached_lut.is_none())
+    {
+        match &raw_source {
+            Some(RawInput::Path(p)) => auto_profile::preview::extract_for_fit(p),
+            Some(RawInput::Bytes { bytes, ext }) => {
+                auto_profile::preview::extract_for_fit_from_bytes(bytes, ext)
             }
-        } else {
-            None
-        };
+            None => None,
+        }
+    } else {
+        None
+    };
     let auto_will_fit = cached_curve.is_some() || cached_lut.is_some() || preview.is_some();
     // Profile::Auto pins auto-exposure OFF because the Auto Profile tail owns the
     // scene→JPEG brightness mapping: the #550 curve is fit against the AE-Off
@@ -235,7 +236,12 @@ fn render_display_from_raw(
     // exposure. Identity short-circuit at amount 0 keeps the baseline
     // bit-identical.
     stage("grain", || {
-        grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)
+        grain::apply(
+            &mut scene,
+            model.grain_amount,
+            model.grain_size,
+            model.grain_roughness,
+        )
     });
     dump_after("16b_grain", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
@@ -244,7 +250,9 @@ fn render_display_from_raw(
     // "srgb_linear", not "post_srgb_encode" which would have implied a
     // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
-    stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    stage("srgb_gamma_encode", || {
+        encode::srgb_gamma_encode(&mut scene)
+    });
     // Auto Profile (#537/#913) — the per-image color tail toward the embedded
     // JPEG, in f32 sRGB-encoded display space: the #550 per-channel curve, then a
     // residual 3D LUT fit on the curved buffer. The fit samples the PINNED
@@ -281,7 +289,9 @@ fn render_display_from_raw(
     });
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
-    let (w, h, bytes) = stage("apply_orientation", || apply_orientation(&bytes, scene.width, scene.height, raw.orientation));
+    let (w, h, bytes) = stage("apply_orientation", || {
+        apply_orientation(&bytes, scene.width, scene.height, raw.orientation)
+    });
     // Crop / straighten (spec § 3.12, ticket #277): operates on the
     // display-oriented u8 RGB buffer. Skip the allocation entirely when the
     // crop is identity — invalid rects are also treated as identity.
@@ -343,13 +353,22 @@ pub fn render_from_scene_linear(
     dump_after("16a_split_tone", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
-        grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)
+        grain::apply(
+            &mut scene,
+            model.grain_amount,
+            model.grain_size,
+            model.grain_roughness,
+        )
     });
     dump_after("16b_grain", &scene);
-    stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    stage("synth_rec2020_to_srgb", || {
+        encode::rec2020_to_srgb(&mut scene)
+    });
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    stage("synth_srgb_gamma_encode", || {
+        encode::srgb_gamma_encode(&mut scene)
+    });
     // No per-pixel Look pass — #443 retired the static Look LUT (see
     // `render_from_raw_with_quality`); Auto Profile owns view-shaping.
     let bytes = stage("synth_dither_and_quantize", || {
@@ -385,13 +404,21 @@ pub fn render_from_scene_linear_with_chain(
     // doc-comment. The detectors that consume this trace target slider
     // artefacts (clarity / dehaze / sharpen halos, NR banding); the WB
     // and tone-control stages are tested elsewhere on real RAWs.
-    stage("synth_vibrance", || vibrance::apply(&mut scene, model.vibrance));
+    stage("synth_vibrance", || {
+        vibrance::apply(&mut scene, model.vibrance)
+    });
     dump_after("08_vibrance", &scene);
-    stage("synth_saturation", || saturation::apply(&mut scene, model.saturation));
+    stage("synth_saturation", || {
+        saturation::apply(&mut scene, model.saturation)
+    });
     dump_after("09_saturation", &scene);
-    stage("synth_clarity", || clarity::apply(&mut scene, model.clarity));
+    stage("synth_clarity", || {
+        clarity::apply(&mut scene, model.clarity)
+    });
     dump_after("10_clarity", &scene);
-    stage("synth_texture", || texture::apply(&mut scene, model.texture));
+    stage("synth_texture", || {
+        texture::apply(&mut scene, model.texture)
+    });
     dump_after("11_texture", &scene);
     stage("synth_dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
@@ -411,9 +438,13 @@ pub fn render_from_scene_linear_with_chain(
         )
     });
     dump_after("13_sharpen", &scene);
-    stage("synth_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    stage("synth_nr_luminance", || {
+        noise_reduction::apply_luminance(&mut scene, model.nr_luminance, None, 100)
+    });
     dump_after("14_nr_luminance", &scene);
-    stage("synth_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    stage("synth_nr_color", || {
+        noise_reduction::apply_color(&mut scene, model.nr_color, None, 100)
+    });
     dump_after("15_nr_color", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
@@ -431,13 +462,22 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("16a_split_tone", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
-        grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)
+        grain::apply(
+            &mut scene,
+            model.grain_amount,
+            model.grain_size,
+            model.grain_roughness,
+        )
     });
     dump_after("16b_grain", &scene);
-    stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    stage("synth_rec2020_to_srgb", || {
+        encode::rec2020_to_srgb(&mut scene)
+    });
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    stage("synth_srgb_gamma_encode", || {
+        encode::srgb_gamma_encode(&mut scene)
+    });
     // No per-pixel Look pass — #443 retired the static Look LUT (see
     // `render_from_raw_with_quality`); Auto Profile owns view-shaping.
     let bytes = stage("synth_dither_and_quantize", || {

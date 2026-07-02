@@ -62,8 +62,7 @@ pub fn parse_index(idx: &[u8]) -> ProfileIndex {
 /// inflated. Returns `None` on inflate failure or a dims/length mismatch.
 pub fn inflate_pool_entry(entry_bytes: &[u8], dir: &PoolDirEntry) -> Option<HsmTable> {
     let raw = miniz_oxide::inflate::decompress_to_vec_zlib(entry_bytes).ok()?;
-    let expected_f32 =
-        (dir.dims[0] as usize) * (dir.dims[1] as usize) * (dir.dims[2] as usize) * 3;
+    let expected_f32 = (dir.dims[0] as usize) * (dir.dims[1] as usize) * (dir.dims[2] as usize) * 3;
     if raw.len() != expected_f32 * 4 {
         return None;
     }
@@ -77,11 +76,7 @@ pub fn inflate_pool_entry(entry_bytes: &[u8], dir: &PoolDirEntry) -> Option<HsmT
 /// Resolve a single pool entry from the full pool region, slicing at the
 /// directory range then inflating. Convenience wrapper over
 /// [`inflate_pool_entry`] for the embedded (whole-pool-resident) path.
-pub fn resolve_from_pool(
-    pool_region: &[u8],
-    index: u32,
-    dir: &[PoolDirEntry],
-) -> Option<HsmTable> {
+pub fn resolve_from_pool(pool_region: &[u8], index: u32, dir: &[PoolDirEntry]) -> Option<HsmTable> {
     let entry = dir.get(index as usize)?;
     let start = entry.offset as usize;
     let end = start.checked_add(entry.compressed_len as usize)?;
@@ -107,7 +102,12 @@ impl<'a> V3Reader<'a> {
         }
         let num_profiles = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
         let pool_count = u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]);
-        Some(Self { buf, pos: 16, num_profiles, pool_count })
+        Some(Self {
+            buf,
+            pos: 16,
+            num_profiles,
+            pool_count,
+        })
     }
 
     #[inline]
@@ -167,7 +167,12 @@ impl<'a> V3Reader<'a> {
                 1 => HsmEncoding::Srgb,
                 _ => HsmEncoding::Linear,
             };
-            dir.push(PoolDirEntry { offset, compressed_len, dims: [h, s, v], encoding });
+            dir.push(PoolDirEntry {
+                offset,
+                compressed_len,
+                dims: [h, s, v],
+                encoding,
+            });
         }
         Some(dir)
     }
@@ -183,18 +188,50 @@ impl<'a> V3Reader<'a> {
         let illum2_code = self.read_u16()?;
         let _reserved = self.read_u16()?;
 
-        let cm1 = if flags & 0x01 != 0 { Some(self.read_matrix()?) } else { None };
-        let cm2 = if flags & 0x02 != 0 { Some(self.read_matrix()?) } else { None };
-        let fm1 = if flags & 0x04 != 0 { Some(self.read_matrix()?) } else { None };
-        let fm2 = if flags & 0x08 != 0 { Some(self.read_matrix()?) } else { None };
+        let cm1 = if flags & 0x01 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
+        let cm2 = if flags & 0x02 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
+        let fm1 = if flags & 0x04 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
+        let fm2 = if flags & 0x08 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
 
-        let hsm1_pool_index = if flags & 0x10 != 0 { Some(self.read_u32()?) } else { None };
-        let hsm2_pool_index = if flags & 0x20 != 0 { Some(self.read_u32()?) } else { None };
+        let hsm1_pool_index = if flags & 0x10 != 0 {
+            Some(self.read_u32()?)
+        } else {
+            None
+        };
+        let hsm2_pool_index = if flags & 0x20 != 0 {
+            Some(self.read_u32()?)
+        } else {
+            None
+        };
 
         let baseline_exposure_offset = self.read_f32()?;
 
-        let illum1 = if illum1_code != 0 { Some(exif_illuminant_to_core(illum1_code)) } else { None };
-        let illum2 = if illum2_code != 0 { Some(exif_illuminant_to_core(illum2_code)) } else { None };
+        let illum1 = if illum1_code != 0 {
+            Some(exif_illuminant_to_core(illum1_code))
+        } else {
+            None
+        };
+        let illum2 = if illum2_code != 0 {
+            Some(exif_illuminant_to_core(illum2_code))
+        } else {
+            None
+        };
 
         Some(IndexRecord {
             unique_camera_model,

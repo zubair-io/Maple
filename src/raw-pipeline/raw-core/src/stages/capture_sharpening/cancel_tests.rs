@@ -98,7 +98,11 @@ fn structured_image(w: u32, h: u32) -> Image {
         // trips the shadow guard and a near-white patch that trips the
         // highlight fade.
         let base = 0.05 + 0.9 * (0.5 * fx + 0.5 * fy);
-        let stepped = if (x / 7 + y / 5) % 2 == 0 { base } else { base * 0.6 + 0.15 };
+        let stepped = if (x / 7 + y / 5) % 2 == 0 {
+            base
+        } else {
+            base * 0.6 + 0.15
+        };
         let v = if x < 3 && y < 3 {
             0.0 // shadow guard
         } else if x >= w - 3 && y < 3 {
@@ -110,7 +114,6 @@ fn structured_image(w: u32, h: u32) -> Image {
         [v, (v * 0.92 + 0.03).min(1.2), (v * 1.07 - 0.01).max(0.0)]
     })
 }
-
 
 #[test]
 fn parallel_matches_serial_reference_byte_identical() {
@@ -125,7 +128,8 @@ fn parallel_matches_serial_reference_byte_identical() {
         apply_capture_sharpening_serial_reference(&mut serial, &params);
 
         assert_eq!(
-            parallel.pixels, serial.pixels,
+            parallel.pixels,
+            serial.pixels,
             "parallel output diverged from serial reference at {w}x{h} \
              (rayon threads = {})",
             rayon::current_num_threads()
@@ -140,9 +144,24 @@ fn parallel_matches_serial_reference_byte_identical() {
 #[test]
 fn parallel_matches_serial_reference_high_strength() {
     for params in [
-        CaptureSharpeningParams { strength: 1.5, iterations: 3, sigma: 2.0, ..Default::default() },
-        CaptureSharpeningParams { strength: 0.75, iterations: 4, sigma: 0.5, ..Default::default() },
-        CaptureSharpeningParams { strength: 1.0, iterations: 2, sigma: 8.0, ..Default::default() },
+        CaptureSharpeningParams {
+            strength: 1.5,
+            iterations: 3,
+            sigma: 2.0,
+            ..Default::default()
+        },
+        CaptureSharpeningParams {
+            strength: 0.75,
+            iterations: 4,
+            sigma: 0.5,
+            ..Default::default()
+        },
+        CaptureSharpeningParams {
+            strength: 1.0,
+            iterations: 2,
+            sigma: 8.0,
+            ..Default::default()
+        },
     ] {
         let mut parallel = structured_image(101, 67);
         let mut serial = parallel.clone();
@@ -161,13 +180,19 @@ fn parallel_matches_serial_reference_high_strength() {
 /// math. Returns `Ok(())` (it never bails).
 #[test]
 fn never_cancel_is_bit_identical() {
-    let params = CaptureSharpeningParams { strength: 1.2, iterations: 3, sigma: 1.5, ..Default::default() };
+    let params = CaptureSharpeningParams {
+        strength: 1.2,
+        iterations: 3,
+        sigma: 1.5,
+        ..Default::default()
+    };
 
     let mut via_cancellable = structured_image(96, 72);
     let mut via_wrapper = via_cancellable.clone();
     let mut via_serial = via_cancellable.clone();
 
-    let r = apply_capture_sharpening_cancellable(&mut via_cancellable, &params, CancelToken::never());
+    let r =
+        apply_capture_sharpening_cancellable(&mut via_cancellable, &params, CancelToken::never());
     assert!(r.is_ok(), "never-cancel must return Ok, got {r:?}");
 
     apply_capture_sharpening(&mut via_wrapper, &params);
@@ -197,17 +222,20 @@ fn cancellation_before_first_iteration_returns_err_and_leaves_input() {
     let mut img = structured_image(256, 256);
     let before = img.pixels.clone();
 
-    let r = apply_capture_sharpening_cancellable(
-        &mut img,
-        &CaptureSharpeningParams::default(),
-        token,
-    );
+    let r =
+        apply_capture_sharpening_cancellable(&mut img, &CaptureSharpeningParams::default(), token);
 
-    assert!(matches!(r, Err(Error::Cancelled)), "expected Err(Cancelled), got {r:?}");
+    assert!(
+        matches!(r, Err(Error::Cancelled)),
+        "expected Err(Cancelled), got {r:?}"
+    );
     // The luminance sweep is the first thing that runs and it checks the
     // token at the top of every row; with the flag already set every row
     // bails, so no pixel is touched.
-    assert_eq!(img.pixels, before, "pre-set cancel must leave the input untouched");
+    assert_eq!(
+        img.pixels, before,
+        "pre-set cancel must leave the input untouched"
+    );
 }
 
 /// Cancellation requested mid-flight (between the first and second RL
@@ -222,7 +250,10 @@ fn cancellation_before_first_iteration_returns_err_and_leaves_input() {
 /// check gates every iteration, not just the first.
 #[test]
 fn cancellation_gates_every_iteration() {
-    let params_one = CaptureSharpeningParams { iterations: 1, ..Default::default() };
+    let params_one = CaptureSharpeningParams {
+        iterations: 1,
+        ..Default::default()
+    };
 
     let mut img = structured_image(128, 96);
     // First pass runs fully (never-cancel) — establishes that the stage
@@ -232,14 +263,20 @@ fn cancellation_gates_every_iteration() {
         apply_capture_sharpening(&mut b, &params_one);
         b.pixels
     };
-    assert_ne!(baseline, img.pixels, "stage must mutate the buffer when it runs");
+    assert_ne!(
+        baseline, img.pixels,
+        "stage must mutate the buffer when it runs"
+    );
 
     // Now request cancellation up front: the between-iterations / per-row
     // checks fire immediately and the call bails with Err, leaving the
     // (unrun) input untouched.
     let flag = AtomicBool::new(true);
     let r = apply_capture_sharpening_cancellable(&mut img, &params_one, CancelToken::new(&flag));
-    assert!(matches!(r, Err(Error::Cancelled)), "expected Err(Cancelled), got {r:?}");
+    assert!(
+        matches!(r, Err(Error::Cancelled)),
+        "expected Err(Cancelled), got {r:?}"
+    );
 }
 
 /// Cancellation with a pre-set flag: the flag is set to `true` before the
@@ -256,7 +293,11 @@ fn cancellation_from_preset_flag_returns_err() {
     flag.store(true, Ordering::Relaxed);
 
     let mut img = structured_image(384, 384);
-    let params = CaptureSharpeningParams { iterations: 4, sigma: 2.0, ..Default::default() };
+    let params = CaptureSharpeningParams {
+        iterations: 4,
+        sigma: 2.0,
+        ..Default::default()
+    };
     let r = apply_capture_sharpening_cancellable(&mut img, &params, token);
     assert!(
         matches!(r, Err(Error::Cancelled)),

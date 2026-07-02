@@ -103,7 +103,9 @@ mod tests {
     #[test]
     fn identity_at_zero() {
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.2, 0.4]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.2, 0.4];
+        }
         let before = img.pixels.clone();
         apply(&mut img, 0.0);
         for (a, b) in img.pixels.iter().zip(before.iter()) {
@@ -127,29 +129,36 @@ mod tests {
     #[test]
     fn positive_vibrance_increases_low_chroma_more_than_high() {
         // Two pixels with same hue; low-chroma should gain more proportionally.
-        let low_chroma_rgb = [0.35, 0.30, 0.30];   // slightly red
-        let high_chroma_rgb = [0.80, 0.10, 0.10];   // very red
+        let low_chroma_rgb = [0.35, 0.30, 0.30]; // slightly red
+        let high_chroma_rgb = [0.80, 0.10, 0.10]; // very red
 
         let mut img = Image::new(2, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = low_chroma_rgb;
         img.pixels[1] = high_chroma_rgb;
 
         let before_low = crate::color::oklab::rec2020_to_oklab(low_chroma_rgb);
-        let before_low_chroma = (before_low[1] * before_low[1] + before_low[2] * before_low[2]).sqrt();
+        let before_low_chroma =
+            (before_low[1] * before_low[1] + before_low[2] * before_low[2]).sqrt();
         let before_high = crate::color::oklab::rec2020_to_oklab(high_chroma_rgb);
-        let before_high_chroma = (before_high[1] * before_high[1] + before_high[2] * before_high[2]).sqrt();
+        let before_high_chroma =
+            (before_high[1] * before_high[1] + before_high[2] * before_high[2]).sqrt();
 
         apply(&mut img, 100.0);
 
         let after_low = crate::color::oklab::rec2020_to_oklab(img.pixels[0]);
         let after_low_chroma = (after_low[1] * after_low[1] + after_low[2] * after_low[2]).sqrt();
         let after_high = crate::color::oklab::rec2020_to_oklab(img.pixels[1]);
-        let after_high_chroma = (after_high[1] * after_high[1] + after_high[2] * after_high[2]).sqrt();
+        let after_high_chroma =
+            (after_high[1] * after_high[1] + after_high[2] * after_high[2]).sqrt();
 
         let low_ratio = after_low_chroma / before_low_chroma;
         let high_ratio = after_high_chroma / before_high_chroma;
-        assert!(low_ratio > high_ratio,
-            "low-chroma ratio {} should exceed high-chroma ratio {}", low_ratio, high_ratio);
+        assert!(
+            low_ratio > high_ratio,
+            "low-chroma ratio {} should exceed high-chroma ratio {}",
+            low_ratio,
+            high_ratio
+        );
     }
 
     #[test]

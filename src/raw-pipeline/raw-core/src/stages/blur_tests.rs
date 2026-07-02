@@ -11,7 +11,9 @@ use super::*;
 #[test]
 fn blur_of_constant_is_constant() {
     let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = [0.3, 0.5, 0.7]; }
+    for p in &mut img.pixels {
+        *p = [0.3, 0.5, 0.7];
+    }
     let blurred = gaussian_blur_rgb(&img, 5);
     for p in &blurred.pixels {
         assert!((p[0] - 0.3).abs() < 1e-5);
@@ -24,7 +26,9 @@ fn blur_of_constant_is_constant() {
 fn blur_smooths_a_delta() {
     // Single bright pixel should diffuse across the blur radius.
     let mut img = Image::new(21, 21, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = [0.0; 3]; }
+    for p in &mut img.pixels {
+        *p = [0.0; 3];
+    }
     img.pixels[10 * 21 + 10] = [1.0, 1.0, 1.0];
     let blurred = gaussian_blur_rgb(&img, 3);
     // Center should be much less than 1 (energy spread out).
@@ -59,9 +63,13 @@ fn blur_asymmetric_horizontal_stripe_preserves_axis() {
     let w = 40;
     let h = 10;
     let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = [0.0; 3]; }
+    for p in &mut img.pixels {
+        *p = [0.0; 3];
+    }
     // Stripe at row 5, all columns.
-    for x in 0..w { img.pixels[5 * w + x] = [1.0, 0.0, 0.0]; }
+    for x in 0..w {
+        img.pixels[5 * w + x] = [1.0, 0.0, 0.0];
+    }
 
     let blurred = gaussian_blur_rgb(&img, 3);
 
@@ -69,20 +77,34 @@ fn blur_asymmetric_horizontal_stripe_preserves_axis() {
     // stripe was uniform horizontally). Check this by picking two
     // arbitrary columns on row 4 and asserting they agree.
     for row in 0..h {
-        let left  = blurred.pixels[row * w + 3][0];
+        let left = blurred.pixels[row * w + 3][0];
         let right = blurred.pixels[row * w + (w - 3)][0];
-        assert!((left - right).abs() < 1e-5,
+        assert!(
+            (left - right).abs() < 1e-5,
             "row {}: left={}, right={} (horizontal profile should be uniform)",
-            row, left, right);
+            row,
+            left,
+            right
+        );
     }
 
     // Row 5 (the stripe) must have the max response; rows 0 and h-1
     // must have less. This locks the vertical axis of the sweep.
-    let stripe  = blurred.pixels[5 * w][0];
+    let stripe = blurred.pixels[5 * w][0];
     let top_row = blurred.pixels[0 * w][0];
     let bot_row = blurred.pixels[(h - 1) * w][0];
-    assert!(stripe > top_row, "stripe row not brightest: stripe={}, top={}", stripe, top_row);
-    assert!(stripe > bot_row, "stripe row not brightest: stripe={}, bot={}", stripe, bot_row);
+    assert!(
+        stripe > top_row,
+        "stripe row not brightest: stripe={}, top={}",
+        stripe,
+        top_row
+    );
+    assert!(
+        stripe > bot_row,
+        "stripe row not brightest: stripe={}, bot={}",
+        stripe,
+        bot_row
+    );
 }
 
 #[test]
@@ -112,18 +134,30 @@ fn self_guided_preserves_sharp_edge() {
     let out = guided_filter(&p, &p, w, h, GuidedOptions { r: 4, eps: 1e-4 });
     // Far from the edge, output equals input.
     for y in 0..h {
-        assert!((out[y * w + 1] - 0.2).abs() < 1e-3,
-            "left side drifted at row {}: {}", y, out[y * w + 1]);
-        assert!((out[y * w + (w - 2)] - 0.8).abs() < 1e-3,
-            "right side drifted at row {}: {}", y, out[y * w + (w - 2)]);
+        assert!(
+            (out[y * w + 1] - 0.2).abs() < 1e-3,
+            "left side drifted at row {}: {}",
+            y,
+            out[y * w + 1]
+        );
+        assert!(
+            (out[y * w + (w - 2)] - 0.8).abs() < 1e-3,
+            "right side drifted at row {}: {}",
+            y,
+            out[y * w + (w - 2)]
+        );
     }
     // Edge transition: the two pixels straddling the step retain
     // most of the contrast (≥ 0.5 of the original 0.6 gap), which
     // a Gaussian at radius 4 would not.
-    let edge_left  = out[3 * w + (w / 2 - 1)];
+    let edge_left = out[3 * w + (w / 2 - 1)];
     let edge_right = out[3 * w + (w / 2)];
-    assert!(edge_right - edge_left > 0.3,
-        "edge contrast collapsed: {} -> {}", edge_left, edge_right);
+    assert!(
+        edge_right - edge_left > 0.3,
+        "edge contrast collapsed: {} -> {}",
+        edge_left,
+        edge_right
+    );
 }
 
 /// #1088 — the negative-variance clamp's regime: scene-linear luma
@@ -173,8 +207,11 @@ fn self_guided_local_mean_does_not_overshoot() {
     }
     let out = guided_filter(&p, &p, w, h, GuidedOptions { r: 3, eps: 1e-3 });
     for &v in &out {
-        assert!(v >= 0.2 - 1e-3 && v <= 0.8 + 1e-3,
-            "guided output out of input range: {}", v);
+        assert!(
+            v >= 0.2 - 1e-3 && v <= 0.8 + 1e-3,
+            "guided output out of input range: {}",
+            v
+        );
     }
 }
 
@@ -276,7 +313,11 @@ fn guided_filter_arena_matches_owning_box_blur_clarity_radius() {
                 arena[i].to_bits(),
                 reference[i].to_bits(),
                 "radius=20 size={}x{} index {} differs: arena={} reference={}",
-                w, h, i, arena[i], reference[i]
+                w,
+                h,
+                i,
+                arena[i],
+                reference[i]
             );
         }
     }
@@ -293,7 +334,11 @@ fn guided_filter_arena_matches_owning_box_blur_texture_radius() {
                 arena[i].to_bits(),
                 reference[i].to_bits(),
                 "radius=2 size={}x{} index {} differs: arena={} reference={}",
-                w, h, i, arena[i], reference[i]
+                w,
+                h,
+                i,
+                arena[i],
+                reference[i]
             );
         }
     }
@@ -315,7 +360,9 @@ fn guided_filter_arena_matches_owning_box_blur_cross_guided_bright() {
             arena[i].to_bits(),
             reference[i].to_bits(),
             "cross-guided index {} differs: arena={} reference={}",
-            i, arena[i], reference[i]
+            i,
+            arena[i],
+            reference[i]
         );
     }
 }
@@ -339,7 +386,10 @@ fn box_blur_into_matches_owning_box_blur_channel() {
                 dst[i].to_bits(),
                 owning[i].to_bits(),
                 "r={} index {} differs: into={} owning={}",
-                r, i, dst[i], owning[i]
+                r,
+                i,
+                dst[i],
+                owning[i]
             );
         }
     }

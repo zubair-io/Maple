@@ -194,9 +194,8 @@ pub fn apply_tone_curves(buf: &mut [f32], inputs: &ToneCurveInputs) {
                     }
                 }
                 CurveMode::RatioPreserving => {
-                    let y_in = LUMA_REC2020[0] * p[0]
-                        + LUMA_REC2020[1] * p[1]
-                        + LUMA_REC2020[2] * p[2];
+                    let y_in =
+                        LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
                     if y_in > 0.0 {
                         let r_prime = eval_curve_scene_linear(red, y_in);
                         let g_prime = eval_curve_scene_linear(green, y_in);

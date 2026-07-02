@@ -280,7 +280,9 @@ impl WebLiveSession {
     #[wasm_bindgen]
     pub async fn render_with_params(&mut self, params: &[f32]) -> Result<String, JsError> {
         if params.len() < 19 {
-            return Err(JsError::new("render_with_params: params slice too short (expected at least 19 elements)"));
+            return Err(JsError::new(
+                "render_with_params: params slice too short (expected at least 19 elements)",
+            ));
         }
 
         // We clone the prefix model to preserve the base (such as auto exposure, local adjustments, crop, etc.)

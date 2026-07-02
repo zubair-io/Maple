@@ -188,7 +188,8 @@ impl LiveSession {
             "LiveSession::update_image: pixel buffer len {} != width*height*4",
             pixels.len()
         );
-        ctx.queue.write_buffer(&self.image.buffer, 0, bytemuck::cast_slice(pixels));
+        ctx.queue
+            .write_buffer(&self.image.buffer, 0, bytemuck::cast_slice(pixels));
     }
 
     /// Cumulative pool allocation count (the honest zero-alloc hook): the number

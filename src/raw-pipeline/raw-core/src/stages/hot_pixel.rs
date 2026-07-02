@@ -58,7 +58,11 @@ const K_DEAD: f32 = 0.25;
 /// (period 2) uses radius 2; X-Trans (period 6) uses radius 3 so every
 /// phase still sees ≥ 8 same-color neighbors.
 fn same_color_offsets(cfa: CfaPattern) -> (usize, i32, Vec<Vec<(i32, i32)>>) {
-    let (period, radius) = if cfa.is_xtrans() { (6usize, 3i32) } else { (2usize, 2i32) };
+    let (period, radius) = if cfa.is_xtrans() {
+        (6usize, 3i32)
+    } else {
+        (2usize, 2i32)
+    };
     let mut table = Vec::with_capacity(period * period);
     for cy in 0..period {
         for cx in 0..period {

@@ -266,6 +266,8 @@ pub struct RawImage {
     /// the pipeline renders the full sensor (matches ACR's fallback). See
     /// [`CropRect`] and the apply step in `pipeline::develop`.
     pub crop_rect: Option<CropRect>,
+    pub iso: u32,
+    pub noise_profile: Option<Vec<f32>>,
 }
 
 /// DNG camera-recommended render rectangle in raw-sensor coordinates.

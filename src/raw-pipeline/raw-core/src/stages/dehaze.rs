@@ -15,7 +15,9 @@ fn dark_channel(img: &Image) -> Vec<f32> {
                     let uy = (y + dy).clamp(0, h - 1) as usize;
                     let p = img.pixels[uy * (w as usize) + ux];
                     let local_min = p[0].min(p[1]).min(p[2]);
-                    if local_min < m { m = local_min; }
+                    if local_min < m {
+                        m = local_min;
+                    }
                 }
             }
             out[(y * w + x) as usize] = m;
@@ -30,11 +32,17 @@ fn atmospheric_light(img: &Image, dc: &[f32]) -> [f32; 3] {
     let n = dc.len();
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_unstable_by(|&a, &b| dc[b].partial_cmp(&dc[a]).unwrap_or(std::cmp::Ordering::Equal));
+    idx.sort_unstable_by(|&a, &b| {
+        dc[b]
+            .partial_cmp(&dc[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut sum = [0.0f32; 3];
     for &i in &idx[..top_n] {
         let p = img.pixels[i];
-        sum[0] += p[0]; sum[1] += p[1]; sum[2] += p[2];
+        sum[0] += p[0];
+        sum[1] += p[1];
+        sum[2] += p[2];
     }
     let k = top_n as f32;
     [sum[0] / k, sum[1] / k, sum[2] / k]
@@ -58,7 +66,9 @@ fn transmission(img: &Image, a: [f32; 3]) -> Vec<f32> {
                     let scaled_min = (p[0] / a[0].max(1e-6))
                         .min(p[1] / a[1].max(1e-6))
                         .min(p[2] / a[2].max(1e-6));
-                    if scaled_min < m { m = scaled_min; }
+                    if scaled_min < m {
+                        m = scaled_min;
+                    }
                 }
             }
             out[(y * w + x) as usize] = 1.0 - OMEGA * m;
@@ -80,8 +90,14 @@ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
         let mut count = right0 + 1;
         out_row[0] = acc / count as f32;
         for x in 1..w {
-            if x + r < w { acc += row[x + r]; count += 1; }
-            if x > r     { acc -= row[x - r - 1]; count -= 1; }
+            if x + r < w {
+                acc += row[x + r];
+                count += 1;
+            }
+            if x > r {
+                acc -= row[x - r - 1];
+                count -= 1;
+            }
             out_row[x] = acc / count as f32;
         }
         tmp[y * w..(y + 1) * w].copy_from_slice(&out_row);
@@ -95,11 +111,19 @@ fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
         let mut count = bot0 + 1;
         out_col[0] = acc / count as f32;
         for y in 1..h {
-            if y + r < h { acc += tmp[(y + r) * w + x]; count += 1; }
-            if y > r     { acc -= tmp[(y - r - 1) * w + x]; count -= 1; }
+            if y + r < h {
+                acc += tmp[(y + r) * w + x];
+                count += 1;
+            }
+            if y > r {
+                acc -= tmp[(y - r - 1) * w + x];
+                count -= 1;
+            }
             out_col[y] = acc / count as f32;
         }
-        for y in 0..h { out[y * w + x] = out_col[y]; }
+        for y in 0..h {
+            out[y * w + x] = out_col[y];
+        }
     }
     out
 }
@@ -122,16 +146,25 @@ fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, opts: GuidedOptio
     let ip: Vec<f32> = guide.iter().zip(p.iter()).map(|(&a, &b)| a * b).collect();
     let mean_ip = box_blur(&ip, w, h, opts.r);
 
-    let cov_ip: Vec<f32> = mean_ip.iter().zip(mean_i.iter().zip(mean_p.iter()))
-        .map(|(&mip, (&mi, &mp))| mip - mi * mp).collect();
+    let cov_ip: Vec<f32> = mean_ip
+        .iter()
+        .zip(mean_i.iter().zip(mean_p.iter()))
+        .map(|(&mip, (&mi, &mp))| mip - mi * mp)
+        .collect();
 
     let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
     let mean_ii = box_blur(&ii, w, h, opts.r);
-    let var_i: Vec<f32> = mean_ii.iter().zip(mean_i.iter())
-        .map(|(&mii, &mi)| mii - mi * mi).collect();
+    let var_i: Vec<f32> = mean_ii
+        .iter()
+        .zip(mean_i.iter())
+        .map(|(&mii, &mi)| mii - mi * mi)
+        .collect();
 
-    let a: Vec<f32> = cov_ip.iter().zip(var_i.iter())
-        .map(|(&cip, &vi)| cip / (vi + opts.eps)).collect();
+    let a: Vec<f32> = cov_ip
+        .iter()
+        .zip(var_i.iter())
+        .map(|(&cip, &vi)| cip / (vi + opts.eps))
+        .collect();
     let b: Vec<f32> = (0..n).map(|i| mean_p[i] - a[i] * mean_i[i]).collect();
 
     let mean_a = box_blur(&a, w, h, opts.r);
@@ -181,7 +214,8 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 /// Build a per-pixel "sky" mask in [0, 1] from the dark channel. Then
 /// box-blur it lightly to soften pixel-noise in the transition band.
 fn sky_mask(dc: &[f32], w: usize, h: usize) -> Vec<f32> {
-    let raw: Vec<f32> = dc.iter()
+    let raw: Vec<f32> = dc
+        .iter()
         .map(|&v| smoothstep(SKY_MASK_LOW, SKY_MASK_HIGH, v))
         .collect();
     box_blur(&raw, w, h, SKY_MASK_BLUR_RADIUS)
@@ -200,7 +234,9 @@ fn sky_mask(dc: &[f32], w: usize, h: usize) -> Vec<f32> {
 /// `SKY_MASK_HIGH` above for the threshold and feathering rationale.
 pub fn apply(img: &mut Image, dehaze: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if dehaze.abs() < 1e-3 { return; }
+    if dehaze.abs() < 1e-3 {
+        return;
+    }
     let w = img.width as usize;
     let h = img.height as usize;
 
@@ -210,9 +246,11 @@ pub fn apply(img: &mut Image, dehaze: f32) {
 
     // Build a single-channel "guide" from scene-linear luminance.
     // Rec.2020 weights per spec § 3.6.
-    let guide: Vec<f32> = img.pixels.iter().map(|p| {
-        0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
-    }).collect();
+    let guide: Vec<f32> = img
+        .pixels
+        .iter()
+        .map(|p| 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2])
+        .collect();
     let t_refined = guided_filter(&guide, &t_raw, w, h, GuidedOptions { r: 60, eps: 1e-3 });
 
     // Sky / no-dark-pixel mask: keep DCP where it works, suppress where it
@@ -225,13 +263,7 @@ pub fn apply(img: &mut Image, dehaze: f32) {
 /// Recovery loop split out for testability. `apply` calls this with the real
 /// sky mask; tests can call it with a zero-mask buffer to verify the mask is
 /// load-bearing (without it, the sky-preservation property fails).
-fn recover_with_mask(
-    img: &mut Image,
-    dehaze: f32,
-    t_refined: &[f32],
-    a: [f32; 3],
-    mask: &[f32],
-) {
+fn recover_with_mask(img: &mut Image, dehaze: f32, t_refined: &[f32], a: [f32; 3], mask: &[f32]) {
     let t0 = 0.1f32;
     let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
     for (i, p) in img.pixels.iter_mut().enumerate() {
@@ -266,15 +298,19 @@ fn recover_with_mask(
 #[cfg(test)]
 fn apply_with_mask_override(img: &mut Image, dehaze: f32, mask_override: &[f32]) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if dehaze.abs() < 1e-3 { return; }
+    if dehaze.abs() < 1e-3 {
+        return;
+    }
     let w = img.width as usize;
     let h = img.height as usize;
     let dc = dark_channel(img);
     let a = atmospheric_light(img, &dc);
     let t_raw = transmission(img, a);
-    let guide: Vec<f32> = img.pixels.iter().map(|p| {
-        0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2]
-    }).collect();
+    let guide: Vec<f32> = img
+        .pixels
+        .iter()
+        .map(|p| 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2])
+        .collect();
     let t_refined = guided_filter(&guide, &t_raw, w, h, GuidedOptions { r: 60, eps: 1e-3 });
     assert_eq!(mask_override.len(), (w * h));
     recover_with_mask(img, dehaze, &t_refined, a, mask_override);
@@ -287,7 +323,9 @@ mod tests {
     #[test]
     fn dark_channel_of_uniform_is_min_channel() {
         let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.5, 0.3, 0.8]; }
+        for p in &mut img.pixels {
+            *p = [0.5, 0.3, 0.8];
+        }
         let dc = dark_channel(&img);
         assert!(dc.iter().all(|v| (*v - 0.3).abs() < 1e-5));
     }
@@ -295,7 +333,9 @@ mod tests {
     #[test]
     fn dark_channel_single_dark_pixel_spreads_across_neighborhood() {
         let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.9, 0.9, 0.9]; }
+        for p in &mut img.pixels {
+            *p = [0.9, 0.9, 0.9];
+        }
         img.pixels[10 * 20 + 10] = [0.1, 0.1, 0.1];
         let dc = dark_channel(&img);
         // All pixels within radius 7 of (10,10) should see the dark pixel.
@@ -308,10 +348,14 @@ mod tests {
     #[test]
     fn atmospheric_light_picks_brightest_region() {
         let mut img = Image::new(100, 100, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
-        for y in 0..10 { for x in 0..10 {
-            img.pixels[y * 100 + x] = [0.95, 0.94, 0.93];
-        }}
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
+        for y in 0..10 {
+            for x in 0..10 {
+                img.pixels[y * 100 + x] = [0.95, 0.94, 0.93];
+            }
+        }
         let dc = dark_channel(&img);
         let a = atmospheric_light(&img, &dc);
         assert!(a[0] > 0.7, "A[R] = {}", a[0]);
@@ -322,7 +366,9 @@ mod tests {
     #[test]
     fn transmission_is_high_for_bright_clear_regions() {
         let mut img = Image::new(30, 30, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [1.0, 1.0, 1.0]; }
+        for p in &mut img.pixels {
+            *p = [1.0, 1.0, 1.0];
+        }
         let a = [1.0, 1.0, 1.0];
         let t = transmission(&img, a);
         // t = 1 - 0.95 * 1 = 0.05 for pure-white image with A=(1,1,1).
@@ -346,23 +392,30 @@ mod tests {
 
     #[test]
     fn guided_filter_preserves_smooth_transmission() {
-        let w = 30; let h = 30;
+        let w = 30;
+        let h = 30;
         let mut p = vec![0.0f32; w * h];
-        for y in 0..h { for x in 0..w {
-            p[y * w + x] = 0.3 + 0.4 * (x as f32) / (w as f32);
-        }}
+        for y in 0..h {
+            for x in 0..w {
+                p[y * w + x] = 0.3 + 0.4 * (x as f32) / (w as f32);
+            }
+        }
         let guide = p.clone();
         let out = guided_filter(&guide, &p, w, h, GuidedOptions { r: 8, eps: 1e-3 });
-        for y in 10..20 { for x in 10..20 {
-            let diff = (out[y * w + x] - p[y * w + x]).abs();
-            assert!(diff < 0.05, "diff {} at ({},{})", diff, x, y);
-        }}
+        for y in 10..20 {
+            for x in 10..20 {
+                let diff = (out[y * w + x] - p[y * w + x]).abs();
+                assert!(diff < 0.05, "diff {} at ({},{})", diff, x, y);
+            }
+        }
     }
 
     #[test]
     fn dehaze_zero_is_identity() {
         let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.4, 0.5, 0.6]; }
+        for p in &mut img.pixels {
+            *p = [0.4, 0.5, 0.6];
+        }
         let before = img.pixels.clone();
         apply(&mut img, 0.0);
         for (a, b) in img.pixels.iter().zip(before.iter()) {
@@ -376,19 +429,33 @@ mod tests {
         // Sky pixel: dc ~ 0.85 → mask 1.
         // Transition is smooth.
         let dc = vec![0.30f32, 0.45, 0.50, 0.55, 0.85];
-        let raw: Vec<f32> = dc.iter()
+        let raw: Vec<f32> = dc
+            .iter()
             .map(|&v| smoothstep(SKY_MASK_LOW, SKY_MASK_HIGH, v))
             .collect();
         assert!(raw[0] < 1e-5, "haze sample should be 0, got {}", raw[0]);
-        assert!(raw[4] > 1.0 - 1e-5, "sky sample should be 1, got {}", raw[4]);
+        assert!(
+            raw[4] > 1.0 - 1e-5,
+            "sky sample should be 1, got {}",
+            raw[4]
+        );
         // Monotonically non-decreasing.
         for i in 1..raw.len() {
-            assert!(raw[i] >= raw[i - 1] - 1e-6,
-                "smoothstep not monotone at {}: {} -> {}", i, raw[i - 1], raw[i]);
+            assert!(
+                raw[i] >= raw[i - 1] - 1e-6,
+                "smoothstep not monotone at {}: {} -> {}",
+                i,
+                raw[i - 1],
+                raw[i]
+            );
         }
         // Mid-band (0.50, the arithmetic midpoint of SKY_MASK_LOW..SKY_MASK_HIGH)
         // is around 0.5.
-        assert!((raw[2] - 0.5).abs() < 0.1, "midpoint near 0.5, got {}", raw[2]);
+        assert!(
+            (raw[2] - 0.5).abs() < 0.1,
+            "midpoint near 0.5, got {}",
+            raw[2]
+        );
     }
 
     #[test]
@@ -445,7 +512,13 @@ mod tests {
 
     /// Maximum per-channel relative change between `before` and `after` over
     /// the row range `[y0, y1)`.
-    fn max_rel_change(before: &[[f32; 3]], after: &[[f32; 3]], w: usize, y0: usize, y1: usize) -> f32 {
+    fn max_rel_change(
+        before: &[[f32; 3]],
+        after: &[[f32; 3]],
+        w: usize,
+        y0: usize,
+        y1: usize,
+    ) -> f32 {
         let mut max_rel = 0.0f32;
         for y in y0..y1 {
             for x in 0..w {
@@ -453,7 +526,9 @@ mod tests {
                 let a = after[y * w + x];
                 for c in 0..3 {
                     let rel = (a[c] - b[c]).abs() / b[c].max(1e-6);
-                    if rel > max_rel { max_rel = rel; }
+                    if rel > max_rel {
+                        max_rel = rel;
+                    }
                 }
             }
         }
@@ -486,17 +561,26 @@ mod tests {
                 let a = img.pixels[y * w + x];
                 for c in 0..3 {
                     let rel = (a[c] - b[c]).abs() / b[c].max(1e-6);
-                    assert!(rel < 0.05,
+                    assert!(
+                        rel < 0.05,
                         "sky pixel ({}, {}) ch{} moved {:.3} → {:.3} (rel {:.3})",
-                        x, y, c, b[c], a[c], rel);
+                        x,
+                        y,
+                        c,
+                        b[c],
+                        a[c],
+                        rel
+                    );
                 }
             }
         }
         // Hazy half: at least one strong-feature pixel must change substantially.
         let haze_max_rel = max_rel_change(&before, &img.pixels, w, h / 2, h);
-        assert!(haze_max_rel > 0.10,
+        assert!(
+            haze_max_rel > 0.10,
             "expected dehaze to substantially modify the hazy half, got max rel {:.3}",
-            haze_max_rel);
+            haze_max_rel
+        );
     }
 
     /// Companion to `dehaze_preserves_sky_attacks_haze`: prove the sky mask is
@@ -523,11 +607,13 @@ mod tests {
         // leave headroom and make the contrast unambiguous.
         let pure_sky_rows = h / 4;
         let sky_max_rel = max_rel_change(&before, &img.pixels, w, 0, pure_sky_rows);
-        assert!(sky_max_rel > 0.20,
+        assert!(
+            sky_max_rel > 0.20,
             "without the sky mask the sky should move substantially, got max rel {:.3} \
              (if this fires, the masked sky-preservation test is no longer load-bearing \
              evidence that the mask works)",
-            sky_max_rel);
+            sky_max_rel
+        );
     }
 
     #[test]
@@ -535,10 +621,14 @@ mod tests {
         // A flat hazy field with a slightly darker region should remain finite
         // and within reasonable bounds after dehaze.
         let mut img = Image::new(30, 30, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.5, 0.5, 0.5]; }
-        for y in 10..20 { for x in 10..20 {
-            img.pixels[y * 30 + x] = [0.35, 0.35, 0.35];
-        }}
+        for p in &mut img.pixels {
+            *p = [0.5, 0.5, 0.5];
+        }
+        for y in 10..20 {
+            for x in 10..20 {
+                img.pixels[y * 30 + x] = [0.35, 0.35, 0.35];
+            }
+        }
         apply(&mut img, 100.0);
         assert!(img.pixels.iter().all(|p| p.iter().all(|v| v.is_finite())));
         let after = img.pixels[10 * 30 + 10][0];

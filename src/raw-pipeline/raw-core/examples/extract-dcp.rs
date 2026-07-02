@@ -9,7 +9,9 @@ use raw_core::decode::decode_bytes;
 use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let path = env::args().nth(1).ok_or("usage: extract-dcp <path-to-dng>")?;
+    let path = env::args()
+        .nth(1)
+        .ok_or("usage: extract-dcp <path-to-dng>")?;
     let bytes = std::fs::read(&path)?;
     let raw = decode_bytes(&bytes, "dng")?;
 
@@ -24,7 +26,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for row in 0..3 {
             print!("    [");
             for col in 0..3 {
-                if col > 0 { print!(", "); }
+                if col > 0 {
+                    print!(", ");
+                }
                 print!("{:.6}", mat.0[row][col]);
             }
             println!("],");
@@ -32,7 +36,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("];");
         println!();
     }
-    println!("pub const AS_SHOT_NEUTRAL: [f32; 3] = [{:.6}, {:.6}, {:.6}];",
-        raw.as_shot_neutral[0], raw.as_shot_neutral[1], raw.as_shot_neutral[2]);
+    println!(
+        "pub const AS_SHOT_NEUTRAL: [f32; 3] = [{:.6}, {:.6}, {:.6}];",
+        raw.as_shot_neutral[0], raw.as_shot_neutral[1], raw.as_shot_neutral[2]
+    );
     Ok(())
 }

@@ -34,19 +34,17 @@ pub fn dump_image(name: &str, image: &Image, dir: &Path) {
     if image.pixels.len() != width * height {
         eprintln!(
             "[stage-dump] {name}: pixel count {} != {}*{} = {}; skipping",
-            image.pixels.len(), width, height, width * height
+            image.pixels.len(),
+            width,
+            height,
+            width * height
         );
         return;
     }
-    let result = write_rgb_file(
-        &path,
-        width,
-        height,
-        |x, y| {
-            let p = image.pixels[y * width + x];
-            (p[0], p[1], p[2])
-        },
-    );
+    let result = write_rgb_file(&path, width, height, |x, y| {
+        let p = image.pixels[y * width + x];
+        (p[0], p[1], p[2])
+    });
     if let Err(e) = result {
         eprintln!("[stage-dump] {name}: {e}");
     }
@@ -78,7 +76,9 @@ mod tests {
         // We store only (r, g, b) since we wrote RGB.
         let image = read_first_rgba_layer_from_file(
             path,
-            |resolution, _channels| vec![(0.0_f32, 0.0_f32, 0.0_f32); resolution.x() * resolution.y()],
+            |resolution, _channels| {
+                vec![(0.0_f32, 0.0_f32, 0.0_f32); resolution.x() * resolution.y()]
+            },
             |buffer, pos, (r, g, b, _a): (f32, f32, f32, f32)| {
                 buffer[pos.y() * 2 + pos.x()] = (r, g, b);
             },

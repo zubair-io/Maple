@@ -30,32 +30,46 @@ const EPS_DISPLAY_LSB: i32 = 2;
 /// helper keeps it test-local (per the
 /// `scene_tone_controls/tests_brightness.rs` precedent) instead of
 /// introducing a shared include module.
-fn assert_neutral_display(
-    linear_value: f32,
-    configure: impl FnOnce(&mut AdjustmentModel),
-) {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+fn assert_neutral_display(linear_value: f32, configure: impl FnOnce(&mut AdjustmentModel)) {
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
 
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     configure(&mut model);
-    let (w, h, rgb) = render_from_raw(&raw, &model)
-        .expect("full pipeline render must succeed");
+    let (w, h, rgb) = render_from_raw(&raw, &model).expect("full pipeline render must succeed");
 
     let n = (w * h) as usize;
     for i in 0..n {
-        let r = rgb[i*3]     as i32;
-        let g = rgb[i*3 + 1] as i32;
-        let b = rgb[i*3 + 2] as i32;
-        assert!((r - g).abs() <= EPS_DISPLAY_LSB,
+        let r = rgb[i * 3] as i32;
+        let g = rgb[i * 3 + 1] as i32;
+        let b = rgb[i * 3 + 2] as i32;
+        assert!(
+            (r - g).abs() <= EPS_DISPLAY_LSB,
             "pixel {} |R-G|={} > {} (R={} G={} B={}) at L={}",
-            i, (r-g).abs(), EPS_DISPLAY_LSB, r, g, b, linear_value);
-        assert!((r - b).abs() <= EPS_DISPLAY_LSB,
+            i,
+            (r - g).abs(),
+            EPS_DISPLAY_LSB,
+            r,
+            g,
+            b,
+            linear_value
+        );
+        assert!(
+            (r - b).abs() <= EPS_DISPLAY_LSB,
             "pixel {} |R-B|={} > {} (R={} G={} B={}) at L={}",
-            i, (r-b).abs(), EPS_DISPLAY_LSB, r, g, b, linear_value);
+            i,
+            (r - b).abs(),
+            EPS_DISPLAY_LSB,
+            r,
+            g,
+            b,
+            linear_value
+        );
     }
 }
 
@@ -70,7 +84,10 @@ fn contrast_plus_creates_s_curve() {
     // meaningless. We pin the test against the absolute scene-linear
     // input by setting `auto_exposure = Off`.
     fn render_mean(L: f32, configure: impl FnOnce(&mut AdjustmentModel)) -> u8 {
-        let dng = SyntheticGreyDng { linear_value: L, ..Default::default() };
+        let dng = SyntheticGreyDng {
+            linear_value: L,
+            ..Default::default()
+        };
         let bytes = dng.write_to_bytes();
         let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
         let mut model = AdjustmentModel::default();
@@ -78,17 +95,25 @@ fn contrast_plus_creates_s_curve() {
         configure(&mut model);
         let (w, h, rgb) = render_from_raw(&raw, &model).unwrap();
         let n = (w * h) as usize;
-        let s: u32 = (0..n).map(|i| rgb[i*3] as u32).sum();
+        let s: u32 = (0..n).map(|i| rgb[i * 3] as u32).sum();
         ((s + n as u32 / 2) / n as u32) as u8
     }
-    let above_default  = render_mean(0.50, |_| {});
+    let above_default = render_mean(0.50, |_| {});
     let above_contrast = render_mean(0.50, |m| m.contrast = 50.0);
-    let below_default  = render_mean(0.05, |_| {});
+    let below_default = render_mean(0.05, |_| {});
     let below_contrast = render_mean(0.05, |m| m.contrast = 50.0);
-    assert!(above_contrast > above_default,
-        "contrast+50 at L=0.50 should brighten: {} → {}", above_default, above_contrast);
-    assert!(below_contrast < below_default,
-        "contrast+50 at L=0.05 should darken: {} → {}", below_default, below_contrast);
+    assert!(
+        above_contrast > above_default,
+        "contrast+50 at L=0.50 should brighten: {} → {}",
+        above_default,
+        above_contrast
+    );
+    assert!(
+        below_contrast < below_default,
+        "contrast+50 at L=0.05 should darken: {} → {}",
+        below_default,
+        below_contrast
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -110,10 +135,12 @@ fn develop_grey_with_vignette(
     amount: f32,
     feather: f32,
 ) -> raw_core::image::Image {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     model.sharpen_amount = 0.0;
@@ -155,14 +182,18 @@ fn vignette_corners_match_predictor_formula() {
         let (w, h) = (img.width, img.height);
         // Corners + edge midpoints + an in-band diagonal sample.
         let samples = [
-            (0u32, 0u32), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
-            (w / 2, 0), (0, h / 2), (w / 8, h / 8),
+            (0u32, 0u32),
+            (w - 1, 0),
+            (0, h - 1),
+            (w - 1, h - 1),
+            (w / 2, 0),
+            (0, h / 2),
+            (w / 8, h / 8),
         ];
         for (x, y) in samples {
             let i = (y * w + x) as usize;
             for c in 0..3 {
-                let predicted =
-                    predict_vignette(base.pixels[i][c], x, y, w, h, amount, feather);
+                let predicted = predict_vignette(base.pixels[i][c], x, y, w, h, amount, feather);
                 assert!(
                     (img.pixels[i][c] - predicted).abs() <= EPS_SCENE_LINEAR,
                     "vignette({amount}, {feather}) at ({x},{y}) chan {c}: got {}, \
@@ -210,7 +241,10 @@ fn vignette_preserves_neutrality_display() {
 fn vignette_zero_amount_is_bit_identical() {
     let base = develop_grey_with_vignette(0.18, 0.0, 50.0);
     let img = develop_grey_with_vignette(0.18, 0.0, 95.0);
-    assert_eq!(base.pixels, img.pixels, "feather without amount must be a no-op");
+    assert_eq!(
+        base.pixels, img.pixels,
+        "feather without amount must be a no-op"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -226,10 +260,12 @@ fn vignette_zero_amount_is_bit_identical() {
 /// Render the synthetic grey card through the FULL display pipeline with
 /// grain set; returns (w, h, u8 RGB).
 fn render_grey_with_grain(linear_value: f32, amount: f32, size: f32) -> (u32, u32, Vec<u8>) {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     model.grain_amount = amount;
@@ -254,11 +290,7 @@ fn grain_preserves_mean_display() {
         "grain must preserve the mean: base {mean_base}, grained {mean_grained}"
     );
     // Non-vacuous: the grain actually moved pixels.
-    let moved = base
-        .iter()
-        .zip(&grained)
-        .filter(|(a, b)| a != b)
-        .count();
+    let moved = base.iter().zip(&grained).filter(|(a, b)| a != b).count();
     assert!(
         moved > (w * h) as usize / 4,
         "grain at amount 70 must visibly perturb the card ({moved} bytes moved)"
@@ -302,10 +334,12 @@ fn render_grey_with_split_tone(
     linear_value: f32,
     configure: impl FnOnce(&mut AdjustmentModel),
 ) -> (u32, u32, Vec<u8>) {
-    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let dng = SyntheticGreyDng {
+        linear_value,
+        ..Default::default()
+    };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
     let mut model = AdjustmentModel::default();
     model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     configure(&mut model);
@@ -322,7 +356,10 @@ fn split_tone_zero_saturation_is_bit_identical() {
         m.split_tone_highlight_hue = 40.0;
         m.split_tone_balance = 60.0;
     });
-    assert_eq!(base, hued, "hues/balance without saturation must be a no-op");
+    assert_eq!(
+        base, hued,
+        "hues/balance without saturation must be a no-op"
+    );
 }
 
 /// (b) An engaged warm-shadow tint moves a DARK grey card toward red

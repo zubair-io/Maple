@@ -75,8 +75,11 @@ fn parse_dehaze_max() {
 fn parse_wb_daylight_uses_preset() {
     let xml = load_fixture("test_0002/xmp/wb_daylight.xmp");
     let m = parse(&xml).unwrap();
-    assert!((m.temperature - 5500.0).abs() < 1.0,
-        "expected 5500K from Daylight preset, got {}", m.temperature);
+    assert!(
+        (m.temperature - 5500.0).abs() < 1.0,
+        "expected 5500K from Daylight preset, got {}",
+        m.temperature
+    );
 }
 
 #[test]
@@ -84,8 +87,11 @@ fn parse_wb_daylight_uses_preset() {
 fn parse_wb_tungsten_uses_preset() {
     let xml = load_fixture("test_0002/xmp/wb_tungsten.xmp");
     let m = parse(&xml).unwrap();
-    assert!((m.temperature - 2850.0).abs() < 1.0,
-        "expected 2850K from Tungsten preset, got {}", m.temperature);
+    assert!(
+        (m.temperature - 2850.0).abs() < 1.0,
+        "expected 2850K from Tungsten preset, got {}",
+        m.temperature
+    );
 }
 
 #[test]
@@ -235,7 +241,10 @@ fn crs_brightness_pv2010_is_ignored() {
           </rdf:RDF>
         </x:xmpmeta>"#;
     let m = parse(xml).unwrap();
-    assert_eq!(m.brightness, 0.0, "crs:Brightness (PV2010) must not map onto papp brightness");
+    assert_eq!(
+        m.brightness, 0.0,
+        "crs:Brightness (PV2010) must not map onto papp brightness"
+    );
 }
 
 /// Absent `papp:Brightness` leaves the default (0 — stage no-op), and the
@@ -245,12 +254,18 @@ fn crs_brightness_pv2010_is_ignored() {
 #[test]
 fn brightness_serialize_roundtrip_and_default_omission() {
     let mut m = AdjustmentModel::default();
-    assert!(!serialize(&m).contains("papp:Brightness"),
-        "default brightness must not be serialized");
+    assert!(
+        !serialize(&m).contains("papp:Brightness"),
+        "default brightness must not be serialized"
+    );
 
     m.brightness = 42.0;
     let frag = serialize(&m);
-    assert!(frag.contains(r#"papp:Brightness="42""#), "got fragment: {}", frag);
+    assert!(
+        frag.contains(r#"papp:Brightness="42""#),
+        "got fragment: {}",
+        frag
+    );
 
     let xml = format!(
         r#"<?xml version="1.0"?>
@@ -290,12 +305,18 @@ fn parse_chroma_prefilter() {
 #[test]
 fn chroma_prefilter_serialize_roundtrip_and_default_omission() {
     let mut m = AdjustmentModel::default();
-    assert!(!serialize(&m).contains("papp:ChromaPrefilter"),
-        "default chroma_prefilter must not be serialized");
+    assert!(
+        !serialize(&m).contains("papp:ChromaPrefilter"),
+        "default chroma_prefilter must not be serialized"
+    );
 
     m.chroma_prefilter = 35.0;
     let frag = serialize(&m);
-    assert!(frag.contains(r#"papp:ChromaPrefilter="35""#), "got fragment: {}", frag);
+    assert!(
+        frag.contains(r#"papp:ChromaPrefilter="35""#),
+        "got fragment: {}",
+        frag
+    );
 
     let xml = format!(
         r#"<?xml version="1.0"?>
@@ -326,11 +347,17 @@ fn deep_denoise_parse_serialize_roundtrip_and_default_omission() {
     assert_eq!(m.deep_denoise, 70.0);
 
     let mut m = AdjustmentModel::default();
-    assert!(!serialize(&m).contains("papp:DeepDenoise"),
-        "default deep_denoise must not be serialized");
+    assert!(
+        !serialize(&m).contains("papp:DeepDenoise"),
+        "default deep_denoise must not be serialized"
+    );
     m.deep_denoise = 70.0;
     let frag = serialize(&m);
-    assert!(frag.contains(r#"papp:DeepDenoise="70""#), "got fragment: {}", frag);
+    assert!(
+        frag.contains(r#"papp:DeepDenoise="70""#),
+        "got fragment: {}",
+        frag
+    );
     let xml = format!(
         r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"{frag}/></x>"#
     );
@@ -434,9 +461,15 @@ fn parse_no_s5_attrs_leaves_defaults() {
     assert_eq!(m.grain_size, d.grain_size);
     assert_eq!(m.grain_roughness, d.grain_roughness);
     assert_eq!(m.split_tone_shadow_hue, d.split_tone_shadow_hue);
-    assert_eq!(m.split_tone_shadow_saturation, d.split_tone_shadow_saturation);
+    assert_eq!(
+        m.split_tone_shadow_saturation,
+        d.split_tone_shadow_saturation
+    );
     assert_eq!(m.split_tone_highlight_hue, d.split_tone_highlight_hue);
-    assert_eq!(m.split_tone_highlight_saturation, d.split_tone_highlight_saturation);
+    assert_eq!(
+        m.split_tone_highlight_saturation,
+        d.split_tone_highlight_saturation
+    );
     assert_eq!(m.split_tone_balance, d.split_tone_balance);
 }
 
@@ -532,4 +565,3 @@ fn parse_crop_constrain_to_warp_is_silently_accepted() {
         crs:CropConstrainToWarp="0"/></x>"#;
     assert!(parse(xml).is_ok());
 }
-

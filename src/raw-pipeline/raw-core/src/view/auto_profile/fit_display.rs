@@ -47,9 +47,9 @@ use std::path::Path;
 
 use image::DynamicImage;
 
-use crate::image::ExifOrientation;
 use crate::color::matrices::bradford_adapt;
 use crate::color::oklab::srgb_linear_to_oklab;
+use crate::image::ExifOrientation;
 use crate::math::Matrix3;
 
 use super::curve::ProfileCurve;
@@ -164,7 +164,7 @@ pub fn fit_curve_from_preview_display(
     // buffer without a 1.2 GB clone; rotated/flipped fixtures allocate the
     // re-oriented copy. The fit is a cold-path (cached after the first tick),
     // but the Normal clone was pure waste against the no-render-loop-alloc rule.
-    let (source_w, source_h, oriented) =
+    let (source_w, source_h, mut oriented) =
         orient_rgb_f32_to_display(sensor_rgb, sensor_w, sensor_h, orientation);
     let source_rgb: &[f32] = &oriented;
 
@@ -238,6 +238,111 @@ pub fn fit_curve_from_preview_display(
         target_h_px,
     );
 
+    // Solve for the parameters of the base curve that maps the scene-linear HDR range to the SDR target range.
+    let mut sum_x = [0.0f64; 3];
+    let mut sum_y = [0.0f64; 3];
+    let mut sum_xy = [0.0f64; 3];
+    let mut sum_y2 = [0.0f64; 3];
+
+    for oy in 0..target_h_px {
+        let sy0 = (oy * crop_h) / target_h_px;
+        let mut sy1 = ((oy + 1) * crop_h) / target_h_px;
+        if sy1 <= sy0 {
+            sy1 = sy0 + 1;
+        }
+        let jrow = oy * target_w_px;
+        for ox in 0..target_w_px {
+            let j = jrow + ox;
+            let b = band_of[j];
+            if b == usize::MAX {
+                continue;
+            }
+            let sx0 = (ox * crop_w) / target_w_px;
+            let mut sx1 = ((ox + 1) * crop_w) / target_w_px;
+            if sx1 <= sx0 {
+                sx1 = sx0 + 1;
+            }
+
+            let t_r = srgb_gamma_decode(target[j * 3]);
+            let t_g = srgb_gamma_decode(target[j * 3 + 1]);
+            let t_b = srgb_gamma_decode(target[j * 3 + 2]);
+
+            // Skip dark or clipped target pixels to avoid division issues/noise
+            if t_r < 0.001 || t_g < 0.001 || t_b < 0.001 {
+                continue;
+            }
+            if t_r > 0.98 || t_g > 0.98 || t_b > 0.98 {
+                continue;
+            }
+
+            // Average source pixels in the footprint
+            let mut fp_sum_r = 0.0;
+            let mut fp_sum_g = 0.0;
+            let mut fp_sum_b = 0.0;
+            let mut fp_count = 0;
+
+            for sy in sy0..sy1 {
+                let srow = (crop_y_start + sy) * source_w + crop_x_start;
+                for sx in sx0..sx1 {
+                    let idx = (srow + sx) * 3;
+                    fp_sum_r += srgb_gamma_decode(source_rgb[idx]);
+                    fp_sum_g += srgb_gamma_decode(source_rgb[idx + 1]);
+                    fp_sum_b += srgb_gamma_decode(source_rgb[idx + 2]);
+                    fp_count += 1;
+                }
+            }
+
+            if fp_count > 0 {
+                let fp_count_f = fp_count as f32;
+                let s_r = (fp_sum_r / fp_count_f) as f64;
+                let s_g = (fp_sum_g / fp_count_f) as f64;
+                let s_b = (fp_sum_b / fp_count_f) as f64;
+
+                let t_r_f = t_r as f64;
+                let t_g_f = t_g as f64;
+                let t_b_f = t_b as f64;
+
+                sum_x[0] += s_r;
+                sum_y[0] += t_r_f;
+                sum_xy[0] += s_r * t_r_f * (1.0 - t_r_f);
+                sum_y2[0] += t_r_f * t_r_f;
+                sum_x[1] += s_g;
+                sum_y[1] += t_g_f;
+                sum_xy[1] += s_g * t_g_f * (1.0 - t_g_f);
+                sum_y2[1] += t_g_f * t_g_f;
+                sum_x[2] += s_b;
+                sum_y[2] += t_b_f;
+                sum_xy[2] += s_b * t_b_f * (1.0 - t_b_f);
+                sum_y2[2] += t_b_f * t_b_f;
+            }
+        }
+    }
+
+    let mut sig = [1.0f32; 3];
+    for c in 0..3 {
+        if sum_y2[c] > 1e-5 {
+            let val = (sum_xy[c] / sum_y2[c]) as f32;
+            sig[c] = val.clamp(0.1, 10.0);
+        }
+    }
+
+    let sig_r = sig[0];
+    let sig_g = sig[1];
+    let sig_b = sig[2];
+
+    // Apply the base curve to oriented source pixels in-place
+    let oriented_mut = oriented.to_mut();
+    for chunk in oriented_mut.chunks_exact_mut(3) {
+        let r_lin = srgb_gamma_decode(chunk[0]);
+        let g_lin = srgb_gamma_decode(chunk[1]);
+        let b_lin = srgb_gamma_decode(chunk[2]);
+
+        chunk[0] = crate::view::encode::srgb_gamma(r_lin / (r_lin + sig_r));
+        chunk[1] = crate::view::encode::srgb_gamma(g_lin / (g_lin + sig_g));
+        chunk[2] = crate::view::encode::srgb_gamma(b_lin / (b_lin + sig_b));
+    }
+    let source_rgb: &[f32] = oriented_mut;
+
     // Build the EXACT eval-then-box per-channel design matrices. The gate
     // computes `candidate_j = (1/|F_j|) Σ_{p∈F_j} eval(curve, src_p)`, then the
     // band mean `B_b = (1/N_b) Σ_{j∈b} candidate_j`. Since `eval` is piecewise-
@@ -273,8 +378,8 @@ pub fn fit_curve_from_preview_display(
         // Apply the pre-fit chromatic adaptation matrix on the display path
         matrix: adapt_srgb.0,
         chroma_boost: 1.0,
-        chroma_offset: [0.0, 0.0],
-        lightness_offset: 0.0,
+        chroma_offset: [sig_g, sig_b],
+        lightness_offset: sig_r,
         lightness_band_offsets: [0.0; 5],
         ab_band_offsets: [[0.0, 0.0]; 5],
     })
@@ -352,9 +457,9 @@ pub const M_SRGB_TO_XYZ_D65: Matrix3 = Matrix3([
 ]);
 
 pub const M_XYZ_D65_TO_SRGB: Matrix3 = Matrix3([
-    [ 3.2404542, -1.5371385, -0.4985314],
-    [-0.9692660,  1.8760108,  0.0415560],
-    [ 0.0556434, -0.2040259,  1.0572252],
+    [3.2404542, -1.5371385, -0.4985314],
+    [-0.9692660, 1.8760108, 0.0415560],
+    [0.0556434, -0.2040259, 1.0572252],
 ]);
 
 /// Estimate the Bradford chromatic adaptation matrix between the source display buffer
@@ -385,7 +490,8 @@ pub fn estimate_chromatic_adaptation(
         // Skip border pixels to avoid transition edges / letterboxes
         let border_w = (target_w as f64 * 0.1).round() as usize;
         let border_h = (target_h as f64 * 0.1).round() as usize;
-        if ox < border_w || ox >= target_w - border_w || oy < border_h || oy >= target_h - border_h {
+        if ox < border_w || ox >= target_w - border_w || oy < border_h || oy >= target_h - border_h
+        {
             continue;
         }
 
@@ -438,7 +544,9 @@ pub fn estimate_chromatic_adaptation(
         let tgt_xyz = M_SRGB_TO_XYZ_D65.mul_vec(mean_tgt);
 
         let adapt_xyz = bradford_adapt(src_xyz, tgt_xyz);
-        M_XYZ_D65_TO_SRGB.mul_mat(&adapt_xyz).mul_mat(&M_SRGB_TO_XYZ_D65)
+        M_XYZ_D65_TO_SRGB
+            .mul_mat(&adapt_xyz)
+            .mul_mat(&M_SRGB_TO_XYZ_D65)
     } else {
         Matrix3::IDENTITY
     }

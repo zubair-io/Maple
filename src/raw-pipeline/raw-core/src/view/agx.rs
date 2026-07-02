@@ -106,7 +106,9 @@ fn matrix_mul(m: &[[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
 fn log_encode(channel: f32) -> f32 {
     let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
     let clamped = channel.max(floor);
-    let log_v = (clamped / AGX_MID_GRAY).log2().clamp(AGX_MIN_EV, AGX_MAX_EV);
+    let log_v = (clamped / AGX_MID_GRAY)
+        .log2()
+        .clamp(AGX_MIN_EV, AGX_MAX_EV);
     (log_v - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV)
 }
 
@@ -228,19 +230,11 @@ mod tests {
         // mid-gray no longer maps to neutral mid-gray.
         for row in &AGX_INSET_MATRIX {
             let s: f32 = row.iter().sum();
-            assert!(
-                (s - 1.0).abs() < 1e-6,
-                "INSET row sum {} ≠ 1.0",
-                s
-            );
+            assert!((s - 1.0).abs() < 1e-6, "INSET row sum {} ≠ 1.0", s);
         }
         for row in &AGX_OUTSET_MATRIX {
             let s: f32 = row.iter().sum();
-            assert!(
-                (s - 1.0).abs() < 1e-6,
-                "OUTSET row sum {} ≠ 1.0",
-                s
-            );
+            assert!((s - 1.0).abs() < 1e-6, "OUTSET row sum {} ≠ 1.0", s);
         }
     }
 
@@ -388,7 +382,12 @@ mod tests {
         for &c in &p {
             assert!(c >= 0.0 && c <= 1.0, "out of [0,1]: {}", c);
         }
-        assert!(p[0] - p[1] > 0.05, "R-G spread collapsed: {} vs {}", p[0], p[1]);
+        assert!(
+            p[0] - p[1] > 0.05,
+            "R-G spread collapsed: {} vs {}",
+            p[0],
+            p[1]
+        );
     }
 
     #[test]

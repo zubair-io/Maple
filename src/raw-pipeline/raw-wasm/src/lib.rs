@@ -49,7 +49,11 @@ pub use wasm_bindgen_rayon::init_thread_pool;
 /// `crossOriginIsolated` is false (e.g. Safari or Firefox without COOP/COEP).
 #[wasm_bindgen]
 pub fn is_threaded() -> bool {
-    cfg!(all(target_arch = "wasm32", target_feature = "atomics", feature = "parallel"))
+    cfg!(all(
+        target_arch = "wasm32",
+        target_feature = "atomics",
+        feature = "parallel"
+    ))
 }
 
 /// One-shot panic hook installer. Safe to call multiple times. JS calls this
@@ -108,40 +112,56 @@ impl MapleRender {
 #[wasm_bindgen]
 impl MapleRender {
     #[wasm_bindgen(getter)]
-    pub fn width(&self) -> u32 { self.width }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
     #[wasm_bindgen(getter)]
-    pub fn height(&self) -> u32 { self.height }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
     /// Oriented dimensions a full-resolution render of the SAME RAW would
     /// produce (`raw_core::pipeline::native_render_dims`). Equal to
     /// `width`/`height` on the full-res entries; on `render_bytes_sized` they
     /// carry the native dims so the caller can do fit/100% zoom math while
     /// holding only a viewport-sized buffer (#1101).
     #[wasm_bindgen(getter)]
-    pub fn full_width(&self) -> u32 { self.full_width }
+    pub fn full_width(&self) -> u32 {
+        self.full_width
+    }
     #[wasm_bindgen(getter)]
-    pub fn full_height(&self) -> u32 { self.full_height }
+    pub fn full_height(&self) -> u32 {
+        self.full_height
+    }
     /// RGB bytes (3 per pixel). **Clones the full frame on every JS access**
     /// (the wasm-side buffer stays alive alongside the JS copy until `free()` /
     /// GC) — prefer the consuming [`MapleRender::take_rgb`] when the render is
     /// only read once (#1080).
     #[wasm_bindgen(getter)]
-    pub fn rgb(&self) -> Vec<u8> { self.rgb.clone() }
+    pub fn rgb(&self) -> Vec<u8> {
+        self.rgb.clone()
+    }
     /// Consume the RGB buffer WITHOUT cloning: moves the bytes out to JS and
     /// leaves an empty buffer behind, so peak memory is one frame, not two
     /// (#1080). The scalar getters (`width`/`height`/As-Shot WB) stay valid
     /// after the take; a subsequent `rgb`/`take_rgb` returns an empty array.
-    pub fn take_rgb(&mut self) -> Vec<u8> { std::mem::take(&mut self.rgb) }
+    pub fn take_rgb(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.rgb)
+    }
     /// Camera-side "As Shot" correlated colour temperature in Kelvin, as
     /// determined by rawler from the RAW metadata. When the RAW lacks an
     /// explicit CCT we fall back to 6500K (D65) so callers always get a
     /// usable value.
     #[wasm_bindgen(getter)]
-    pub fn as_shot_temperature(&self) -> f32 { self.as_shot_temperature }
+    pub fn as_shot_temperature(&self) -> f32 {
+        self.as_shot_temperature
+    }
     /// "As Shot" tint in Maple's slider units (-100 .. 100). Approximated
     /// from the camera's AsShotNeutral (blue vs red skew). 0 when the RAW
     /// does not expose enough information.
     #[wasm_bindgen(getter)]
-    pub fn as_shot_tint(&self) -> f32 { self.as_shot_tint }
+    pub fn as_shot_tint(&self) -> f32 {
+        self.as_shot_tint
+    }
 }
 
 /// Rough CCT estimator from a green-normalised AsShotNeutral (R, 1, B).
@@ -166,8 +186,8 @@ fn estimate_cct_from_neutral(as_shot_neutral: [f32; 3]) -> f32 {
 /// touched the Temperature slider.
 #[wasm_bindgen]
 pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleRender, JsError> {
-    let raw_img = raw_core::decode::decode_bytes(raw, ext)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let raw_img =
+        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     // rawler 0.7 doesn't surface AsShotTemperature, so `as_shot_cct` is
     // always None today. Fall back to estimating the CCT from the camera's
@@ -204,7 +224,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
         raw_core::pipeline::RenderQuality::Full,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
     )
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleRender {
         width: w,
         height: h,
@@ -241,10 +261,12 @@ pub fn render_bytes_sized(
     max_long_edge: u32,
 ) -> Result<MapleRender, JsError> {
     if max_long_edge == 0 {
-        return Err(JsError::new("render_bytes_sized: max_long_edge must be > 0"));
+        return Err(JsError::new(
+            "render_bytes_sized: max_long_edge must be > 0",
+        ));
     }
-    let raw_img = raw_core::decode::decode_bytes(raw, ext)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let raw_img =
+        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     // As-shot derivation + fresh-open WB substitution — IDENTICAL to
     // `render_bytes` so a sized cold open seeds the same sliders.
@@ -311,16 +333,24 @@ pub struct MapleSceneLinearRender {
 #[wasm_bindgen]
 impl MapleSceneLinearRender {
     #[wasm_bindgen(getter)]
-    pub fn width(&self) -> u32 { self.width }
+    pub fn width(&self) -> u32 {
+        self.width
+    }
     #[wasm_bindgen(getter)]
-    pub fn height(&self) -> u32 { self.height }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
     /// Oriented dimensions a full-resolution render of the SAME RAW would
     /// produce — see [`MapleRender::full_width`]. Equal to `width`/`height`
     /// on the full-res entry; the sized entry carries the native dims here.
     #[wasm_bindgen(getter)]
-    pub fn full_width(&self) -> u32 { self.full_width }
+    pub fn full_width(&self) -> u32 {
+        self.full_width
+    }
     #[wasm_bindgen(getter)]
-    pub fn full_height(&self) -> u32 { self.full_height }
+    pub fn full_height(&self) -> u32 {
+        self.full_height
+    }
     /// fp16 RGBA lanes (4 channels, 2 bytes per lane). Length is always
     /// `4 * width * height`. Alpha lane is fp16 1.0 (`0x3c00`).
     /// Returned as `Uint16Array` over the WASM heap on the JS side.
@@ -329,26 +359,38 @@ impl MapleSceneLinearRender {
     /// [`MapleSceneLinearRender::take_fp16_rgba`] when the render is only read
     /// once (#1080).
     #[wasm_bindgen(getter)]
-    pub fn fp16_rgba(&self) -> Vec<u16> { self.fp16_rgba.clone() }
+    pub fn fp16_rgba(&self) -> Vec<u16> {
+        self.fp16_rgba.clone()
+    }
     /// Consume the fp16 RGBA buffer WITHOUT cloning: moves the lanes out to JS
     /// and leaves an empty buffer behind, so peak memory is one frame, not two
     /// (#1080). The scalar getters stay valid after the take; a subsequent
     /// `fp16_rgba`/`take_fp16_rgba` returns an empty array.
-    pub fn take_fp16_rgba(&mut self) -> Vec<u16> { std::mem::take(&mut self.fp16_rgba) }
+    pub fn take_fp16_rgba(&mut self) -> Vec<u16> {
+        std::mem::take(&mut self.fp16_rgba)
+    }
     /// Bytes per pixel — always 8. Exposed for symmetry with Apple's
     /// `MapleSceneLinearBuffer.bytes_per_pixel` so future bit-depth
     /// changes (HDR / fp32) don't break the JS consumer.
     #[wasm_bindgen(getter)]
-    pub fn bytes_per_pixel(&self) -> u32 { 8 }
+    pub fn bytes_per_pixel(&self) -> u32 {
+        8
+    }
     /// Channels per pixel — always 4 (R, G, B, A).
     #[wasm_bindgen(getter)]
-    pub fn channels(&self) -> u32 { 4 }
+    pub fn channels(&self) -> u32 {
+        4
+    }
     /// Camera "As Shot" CCT in Kelvin — see `MapleRender::as_shot_temperature`.
     #[wasm_bindgen(getter)]
-    pub fn as_shot_temperature(&self) -> f32 { self.as_shot_temperature }
+    pub fn as_shot_temperature(&self) -> f32 {
+        self.as_shot_temperature
+    }
     /// Camera "As Shot" tint in slider units (-100..100).
     #[wasm_bindgen(getter)]
-    pub fn as_shot_tint(&self) -> f32 { self.as_shot_tint }
+    pub fn as_shot_tint(&self) -> f32 {
+        self.as_shot_tint
+    }
 }
 
 /// Render a RAW from bytes to a scene-linear Rec.2020 fp16 RGBA buffer.
@@ -371,8 +413,8 @@ pub fn render_bytes_scene_linear(
     xmp: Option<String>,
     quality_preview: bool,
 ) -> Result<MapleSceneLinearRender, JsError> {
-    let raw_img = raw_core::decode::decode_bytes(raw, ext)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let raw_img =
+        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     // Same as_shot derivation as the legacy entry — rawler 0.7 still doesn't
     // surface AsShotTemperature, so we estimate from AsShotNeutral and pass
@@ -440,8 +482,8 @@ pub fn render_bytes_scene_linear_sized(
             "render_bytes_scene_linear_sized: max_long_edge must be > 0",
         ));
     }
-    let raw_img = raw_core::decode::decode_bytes(raw, ext)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let raw_img =
+        raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     // Same as_shot derivation + fresh-open WB substitution as the full-size
     // entry — see `render_bytes_scene_linear`.

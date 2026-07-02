@@ -89,10 +89,19 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
     let mut dgintv = vec![0.0_f32; w * h];
     let mut dginth = vec![0.0_f32; w * h];
     interpolate_green_and_diffs(
-        &cfa_flat, w, h, cfa,
-        &dirwts0, &dirwts1,
-        &mut green, &mut vcd, &mut hcd, &mut vcdalt, &mut hcdalt,
-        &mut dgintv, &mut dginth,
+        &cfa_flat,
+        w,
+        h,
+        cfa,
+        &dirwts0,
+        &dirwts1,
+        &mut green,
+        &mut vcd,
+        &mut hcd,
+        &mut vcdalt,
+        &mut hcdalt,
+        &mut dgintv,
+        &mut dginth,
     );
 
     // Stage 2: variance-based selection (vcd vs vcdalt, hcd vs hcdalt) —
@@ -107,14 +116,22 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
     // Stage 4: adaptive H/V direction weight per pixel (engine 741-784 — the
     // varwt/diffwt selector that consults dirwts, the color-difference
     // variance, AND the dgintv/dginth fluctuation fields).
-    let mut hvwt = adaptive_hv_weight(
-        w, h, cfa, &vcd, &hcd, &dirwts0, &dirwts1, &dgintv, &dginth,
-    );
+    let mut hvwt = adaptive_hv_weight(w, h, cfa, &vcd, &hcd, &dirwts0, &dirwts1, &dgintv, &dginth);
 
     // Stage 5: full AMaZE chroma reconstruction.
     let mut out = combine_rgb(
-        &cfa_flat, w, h, cfa, &mut green, &vcd, &hcd, &mut hvwt,
-        &cddiffsq, &delhvsqsum, &dirwts0, &dirwts1,
+        &cfa_flat,
+        w,
+        h,
+        cfa,
+        &mut green,
+        &vcd,
+        &hcd,
+        &mut hvwt,
+        &cddiffsq,
+        &delhvsqsum,
+        &dirwts0,
+        &dirwts1,
     );
 
     // Stage 6: post-demosaic false-colour suppression. Blends reconstructed
@@ -147,7 +164,8 @@ fn flatten_mosaic(mosaic: &Image, cfa: CfaPattern) -> Vec<f32> {
     // Read whichever of [r, g, b] the CFA position says is populated. The
     // others are zero per the `sensor_linearize` contract; we don't trust
     // them in case a future stage starts seeding the off-channels.
-    mosaic.pixels
+    mosaic
+        .pixels
         .par_iter()
         .enumerate()
         .map(|(i, p)| {
@@ -296,10 +314,26 @@ fn interpolate_green_and_diffs(
             let grha = cfa[i + 1] + 0.5 * (cf - cfa[i + 2]);
 
             // Adaptive-ratio cardinal G estimates (engine 469-491).
-            let mut guar = if (1.0 - cru).abs() < ARTHRESH { cf * cru } else { guha };
-            let mut gdar = if (1.0 - crd).abs() < ARTHRESH { cf * crd } else { gdha };
-            let mut glar = if (1.0 - crl).abs() < ARTHRESH { cf * crl } else { glha };
-            let mut grar = if (1.0 - crr).abs() < ARTHRESH { cf * crr } else { grha };
+            let mut guar = if (1.0 - cru).abs() < ARTHRESH {
+                cf * cru
+            } else {
+                guha
+            };
+            let mut gdar = if (1.0 - crd).abs() < ARTHRESH {
+                cf * crd
+            } else {
+                gdha
+            };
+            let mut glar = if (1.0 - crl).abs() < ARTHRESH {
+                cf * crl
+            } else {
+                glha
+            };
+            let mut grar = if (1.0 - crr).abs() < ARTHRESH {
+                cf * crr
+            } else {
+                grha
+            };
 
             // dirwts-weighted V/H blends (engine 494-499). The numerator on
             // the up-side (`dirwts0[N]`) means a strong gradient ABOVE
@@ -376,9 +410,8 @@ fn refine_color_diff_by_variance(
     vcdalt: &[f32],
     hcdalt: &[f32],
 ) {
-    let var3 = |a: f32, b: f32, c: f32| -> f32 {
-        3.0 * (a * a + b * b + c * c) - (a + b + c).powi(2)
-    };
+    let var3 =
+        |a: f32, b: f32, c: f32| -> f32 { 3.0 * (a * a + b * b + c * c) - (a + b + c).powi(2) };
     for y in 4..h - 4 {
         for x in 4..w - 4 {
             let i = y * w + x;
@@ -859,8 +892,8 @@ fn combine_rgb(
                             sumcfa += cfatemp;
                             sumh += cfa[i1 - 1] + cfa[i1 + 1];
                             sumv += cfa[at(i1, -v1)] + cfa[at(i1, v1)];
-                            sumsqh += (cfatemp - cfa[i1 - 1]).powi(2)
-                                + (cfatemp - cfa[i1 + 1]).powi(2);
+                            sumsqh +=
+                                (cfatemp - cfa[i1 - 1]).powi(2) + (cfatemp - cfa[i1 + 1]).powi(2);
                             sumsqv += (cfatemp - cfa[at(i1, -v1)]).powi(2)
                                 + (cfatemp - cfa[at(i1, v1)]).powi(2);
                             areawt += 1.0;
@@ -889,8 +922,8 @@ fn combine_rgb(
             let i = y * w + x;
             // Diagonal-neighbour hvwt refinement: prefer the neighbour average
             // when it discriminates more strongly than the local one.
-            let hvwtalt = 0.25
-                * (hvwt[hf(i, -m1)] + hvwt[hf(i, p1)] + hvwt[hf(i, -p1)] + hvwt[hf(i, m1)]);
+            let hvwtalt =
+                0.25 * (hvwt[hf(i, -m1)] + hvwt[hf(i, p1)] + hvwt[hf(i, -p1)] + hvwt[hf(i, m1)]);
             if (0.5 - hvwt[i >> 1]).abs() < (0.5 - hvwtalt).abs() {
                 hvwt[i >> 1] = hvwtalt;
             }
@@ -899,11 +932,9 @@ fn combine_rgb(
 
             // Local G curvature² (prep for the Nyquist refinement step).
             if nyquist2[i >> 1] != 0 {
-                dgrb2h[i >> 1] =
-                    (rgbgreen[i] - 0.5 * (rgbgreen[i - 1] + rgbgreen[i + 1])).powi(2);
-                dgrb2v[i >> 1] = (rgbgreen[i]
-                    - 0.5 * (rgbgreen[at(i, -v1)] + rgbgreen[at(i, v1)]))
-                .powi(2);
+                dgrb2h[i >> 1] = (rgbgreen[i] - 0.5 * (rgbgreen[i - 1] + rgbgreen[i + 1])).powi(2);
+                dgrb2v[i >> 1] =
+                    (rgbgreen[i] - 0.5 * (rgbgreen[at(i, -v1)] + rgbgreen[at(i, v1)])).powi(2);
             }
         }
     }
@@ -1055,8 +1086,8 @@ fn combine_rgb(
                     rbp_v = median3(rbp_v, cfa[at(i, -p1)], cfa[at(i, p1)]);
                 } else {
                     let pwt = 2.0 * (cfi - rbp_v) / (EPS + rbp_v + cfi);
-                    rbp_v = pwt * rbp_v
-                        + (1.0 - pwt) * median3(rbp_v, cfa[at(i, -p1)], cfa[at(i, p1)]);
+                    rbp_v =
+                        pwt * rbp_v + (1.0 - pwt) * median3(rbp_v, cfa[at(i, -p1)], cfa[at(i, p1)]);
                 }
             }
             if rbm_v < cfi {
@@ -1064,8 +1095,8 @@ fn combine_rgb(
                     rbm_v = median3(rbm_v, cfa[at(i, -m1)], cfa[at(i, m1)]);
                 } else {
                     let mwt = 2.0 * (cfi - rbm_v) / (EPS + rbm_v + cfi);
-                    rbm_v = mwt * rbm_v
-                        + (1.0 - mwt) * median3(rbm_v, cfa[at(i, -m1)], cfa[at(i, m1)]);
+                    rbm_v =
+                        mwt * rbm_v + (1.0 - mwt) * median3(rbm_v, cfa[at(i, -m1)], cfa[at(i, m1)]);
                 }
             }
             if rbp_v > CLIP_PT {
@@ -1087,8 +1118,8 @@ fn combine_rgb(
                 continue;
             }
             let i = y * w + x;
-            let pmwtalt = 0.25
-                * (pmwt[hf(i, -m1)] + pmwt[hf(i, p1)] + pmwt[hf(i, -p1)] + pmwt[hf(i, m1)]);
+            let pmwtalt =
+                0.25 * (pmwt[hf(i, -m1)] + pmwt[hf(i, p1)] + pmwt[hf(i, -p1)] + pmwt[hf(i, m1)]);
             if (0.5 - pmwt[i >> 1]).abs() < (0.5 - pmwtalt).abs() {
                 pmwt[i >> 1] = pmwtalt;
             }
@@ -1129,8 +1160,8 @@ fn combine_rgb(
 
             let mut gintv = (dirwts0[at(i, -v1)] * gd + dirwts0[at(i, v1)] * gu)
                 / (dirwts0[at(i, v1)] + dirwts0[at(i, -v1)]);
-            let mut ginth = (dirwts1[i - 1] * gr + dirwts1[i + 1] * gl)
-                / (dirwts1[i - 1] + dirwts1[i + 1]);
+            let mut ginth =
+                (dirwts1[i - 1] * gr + dirwts1[i + 1] * gl) / (dirwts1[i - 1] + dirwts1[i + 1]);
 
             let rbi = rbint[i >> 1];
             if gintv < rbi {
@@ -1138,8 +1169,8 @@ fn combine_rgb(
                     gintv = median3(gintv, cfa[at(i, -v1)], cfa[at(i, v1)]);
                 } else {
                     let vwt = 2.0 * (rbi - gintv) / (EPS + gintv + rbi);
-                    gintv = vwt * gintv
-                        + (1.0 - vwt) * median3(gintv, cfa[at(i, -v1)], cfa[at(i, v1)]);
+                    gintv =
+                        vwt * gintv + (1.0 - vwt) * median3(gintv, cfa[at(i, -v1)], cfa[at(i, v1)]);
                 }
             }
             if ginth < rbi {
@@ -1260,90 +1291,91 @@ fn combine_rgb(
     let interior_hi_x = w.saturating_sub(16);
     let interior_hi_y = h.saturating_sub(16);
 
-    out.pixels.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
-        for x in 0..w {
-            let i = y * w + x;
-            let c = pattern.color_at(x as u32, y as u32) as usize;
-            let g = rgbgreen[i];
-            let mut px = [0.0_f32; 3];
-            px[1] = g;
+    out.pixels
+        .par_chunks_mut(w)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for x in 0..w {
+                let i = y * w + x;
+                let c = pattern.color_at(x as u32, y as u32) as usize;
+                let g = rgbgreen[i];
+                let mut px = [0.0_f32; 3];
+                px[1] = g;
 
-            let interior = x >= interior_lo
-                && x < interior_hi_x
-                && y >= interior_lo
-                && y < interior_hi_y;
+                let interior =
+                    x >= interior_lo && x < interior_hi_x && y >= interior_lo && y < interior_hi_y;
 
-            if !interior {
-                // Border fallback: bilinear color-difference over the green
-                // plane (keeps the frame edge + uniform tests well-defined).
-                // Each neighbour is bounds-checked individually so edge rows /
-                // columns still gather their in-frame chroma neighbours.
-                px[c] = cfa[i];
-                for target in 0..3 {
-                    if target == 1 || target == c {
-                        continue;
-                    }
-                    let mut sum = 0.0_f32;
-                    let mut cnt = 0u32;
-                    for (dx, dy) in [
-                        (-1_i32, -1_i32),
-                        (-1, 0),
-                        (-1, 1),
-                        (0, -1),
-                        (0, 1),
-                        (1, -1),
-                        (1, 0),
-                        (1, 1),
-                    ] {
-                        let nx = x as i32 + dx;
-                        let ny = y as i32 + dy;
-                        if nx >= 0
-                            && (nx as usize) < w
-                            && ny >= 0
-                            && (ny as usize) < h
-                            && pattern.color_at(nx as u32, ny as u32) as usize == target
-                        {
-                            let ni = (ny as usize) * w + nx as usize;
-                            sum += cfa[ni] - rgbgreen[ni];
-                            cnt += 1;
+                if !interior {
+                    // Border fallback: bilinear color-difference over the green
+                    // plane (keeps the frame edge + uniform tests well-defined).
+                    // Each neighbour is bounds-checked individually so edge rows /
+                    // columns still gather their in-frame chroma neighbours.
+                    px[c] = cfa[i];
+                    for target in 0..3 {
+                        if target == 1 || target == c {
+                            continue;
                         }
+                        let mut sum = 0.0_f32;
+                        let mut cnt = 0u32;
+                        for (dx, dy) in [
+                            (-1_i32, -1_i32),
+                            (-1, 0),
+                            (-1, 1),
+                            (0, -1),
+                            (0, 1),
+                            (1, -1),
+                            (1, 0),
+                            (1, 1),
+                        ] {
+                            let nx = x as i32 + dx;
+                            let ny = y as i32 + dy;
+                            if nx >= 0
+                                && (nx as usize) < w
+                                && ny >= 0
+                                && (ny as usize) < h
+                                && pattern.color_at(nx as u32, ny as u32) as usize == target
+                            {
+                                let ni = (ny as usize) * w + nx as usize;
+                                sum += cfa[ni] - rgbgreen[ni];
+                                cnt += 1;
+                            }
+                        }
+                        px[target] = (g + if cnt > 0 { sum / cnt as f32 } else { 0.0 }).max(0.0);
                     }
-                    px[target] = (g + if cnt > 0 { sum / cnt as f32 } else { 0.0 }).max(0.0);
+                    row[x] = px;
+                    continue;
                 }
+
+                if c == 1 {
+                    // G site: R and B from the hvwt-weighted 4-cardinal Dgrb.
+                    let temp = 1.0
+                        / (hvwt[hf(i, -v1)] + 2.0 - hvwt[hf(i, 1)] - hvwt[hf(i, -1)]
+                            + hvwt[hf(i, v1)]);
+                    let r = g
+                        - (hvwt[hf(i, -v1)] * dgrb0[hf(i, -v1)]
+                            + (1.0 - hvwt[hf(i, 1)]) * dgrb0[hf(i, 1)]
+                            + (1.0 - hvwt[hf(i, -1)]) * dgrb0[hf(i, -1)]
+                            + hvwt[hf(i, v1)] * dgrb0[hf(i, v1)])
+                            * temp;
+                    let b = g
+                        - (hvwt[hf(i, -v1)] * dgrb1[hf(i, -v1)]
+                            + (1.0 - hvwt[hf(i, 1)]) * dgrb1[hf(i, 1)]
+                            + (1.0 - hvwt[hf(i, -1)]) * dgrb1[hf(i, -1)]
+                            + hvwt[hf(i, v1)] * dgrb1[hf(i, v1)])
+                            * temp;
+                    px[0] = r.max(0.0);
+                    px[2] = b.max(0.0);
+                } else {
+                    // R or B site: this channel is the raw sample; the opposite
+                    // chroma is green − Dgrb of the matching (now-sharpened) field.
+                    px[c] = cfa[i];
+                    px[0] = (g - dgrb0[i >> 1]).max(0.0);
+                    px[2] = (g - dgrb1[i >> 1]).max(0.0);
+                }
+
                 row[x] = px;
-                continue;
             }
-
-            if c == 1 {
-                // G site: R and B from the hvwt-weighted 4-cardinal Dgrb.
-                let temp = 1.0
-                    / (hvwt[hf(i, -v1)] + 2.0 - hvwt[hf(i, 1)] - hvwt[hf(i, -1)]
-                        + hvwt[hf(i, v1)]);
-                let r = g
-                    - (hvwt[hf(i, -v1)] * dgrb0[hf(i, -v1)]
-                        + (1.0 - hvwt[hf(i, 1)]) * dgrb0[hf(i, 1)]
-                        + (1.0 - hvwt[hf(i, -1)]) * dgrb0[hf(i, -1)]
-                        + hvwt[hf(i, v1)] * dgrb0[hf(i, v1)])
-                        * temp;
-                let b = g
-                    - (hvwt[hf(i, -v1)] * dgrb1[hf(i, -v1)]
-                        + (1.0 - hvwt[hf(i, 1)]) * dgrb1[hf(i, 1)]
-                        + (1.0 - hvwt[hf(i, -1)]) * dgrb1[hf(i, -1)]
-                        + hvwt[hf(i, v1)] * dgrb1[hf(i, v1)])
-                        * temp;
-                px[0] = r.max(0.0);
-                px[2] = b.max(0.0);
-            } else {
-                // R or B site: this channel is the raw sample; the opposite
-                // chroma is green − Dgrb of the matching (now-sharpened) field.
-                px[c] = cfa[i];
-                px[0] = (g - dgrb0[i >> 1]).max(0.0);
-                px[2] = (g - dgrb1[i >> 1]).max(0.0);
-            }
-
-            row[x] = px;
-        }
-    });
+        });
 
     out
 }
@@ -1427,7 +1459,11 @@ fn suppress_false_colour(
                 cnt += 1.0;
             }
         }
-        if cnt > 0.0 { sum / cnt } else { 0.0 }
+        if cnt > 0.0 {
+            sum / cnt
+        } else {
+            0.0
+        }
     };
 
     // Local green high-frequency content: how much the centre green departs
@@ -1505,7 +1541,12 @@ mod tests {
         for y in 0..h {
             for x in 0..w {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => r, 1 => g, 2 => b, _ => 0.0 };
+                let v = match c {
+                    0 => r,
+                    1 => g,
+                    2 => b,
+                    _ => 0.0,
+                };
                 img.pixels[(y * w + x) as usize][c] = v;
             }
         }
@@ -1579,8 +1620,13 @@ mod tests {
         let g_left = out.pixels[8 * 40 + 18][1];
         let g_right = out.pixels[8 * 40 + 21][1];
         let edge = (g_right - g_left).abs();
-        assert!(edge > 0.4, "edge collapsed: g_left={} g_right={} delta={}",
-            g_left, g_right, edge);
+        assert!(
+            edge > 0.4,
+            "edge collapsed: g_left={} g_right={} delta={}",
+            g_left,
+            g_right,
+            edge
+        );
     }
 
     #[test]
@@ -1590,7 +1636,12 @@ mod tests {
         for y in 0..20u32 {
             for x in 0..20u32 {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => 0.7, 1 => 0.5, 2 => 0.3, _ => 0.0 };
+                let v = match c {
+                    0 => 0.7,
+                    1 => 0.5,
+                    2 => 0.3,
+                    _ => 0.0,
+                };
                 img.pixels[(y * 20 + x) as usize][c] = v;
             }
         }
@@ -1615,7 +1666,12 @@ mod tests {
         for y in 0..20u32 {
             for x in 0..20u32 {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => 0.4, 1 => 0.5, 2 => 0.6, _ => 0.0 };
+                let v = match c {
+                    0 => 0.4,
+                    1 => 0.5,
+                    2 => 0.6,
+                    _ => 0.0,
+                };
                 img.pixels[(y * 20 + x) as usize][c] = v;
             }
         }

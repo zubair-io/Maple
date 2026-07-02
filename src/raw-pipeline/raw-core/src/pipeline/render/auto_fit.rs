@@ -160,7 +160,9 @@ fn downsample_preview_for_fit(
     mut preview: ExtractedPreview,
     max_long_edge: Option<u32>,
 ) -> ExtractedPreview {
-    let Some(mle) = max_long_edge else { return preview };
+    let Some(mle) = max_long_edge else {
+        return preview;
+    };
     let le = preview.image.width().max(preview.image.height());
     if le <= mle {
         return preview;
@@ -329,8 +331,7 @@ pub fn fit_auto_profile_from_raw(
                 // #1647 M2: shrink the JPEG to the proxy so the curve+residual
                 // fit over a ~1.5 MP pair, not the full embedded preview.
                 let preview = downsample_preview_for_fit(preview, mle);
-                let mut scene =
-                    develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
+                let mut scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
                 let (w, h) = (scene.width as usize, scene.height as usize);
                 let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
                 auto_profile::apply_pipeline::fit_auto_profile_artifacts(

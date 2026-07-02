@@ -79,11 +79,7 @@ pub fn find_entry_recursive<T: TiffTag + Copy>(
 /// Find the first IFD that contains `tag`, depth-first. Same semantics as
 /// [`find_entry_recursive`] but returns the surrounding IFD so callers can
 /// pull sibling tags from the same level.
-pub fn find_ifd_with_tag<T: TiffTag + Copy>(
-    root: &IFD,
-    tag: T,
-    max_depth: u32,
-) -> Option<&IFD> {
+pub fn find_ifd_with_tag<T: TiffTag + Copy>(root: &IFD, tag: T, max_depth: u32) -> Option<&IFD> {
     let mut stack: Vec<(&IFD, u32)> = vec![(root, 0)];
     let mut visited: HashSet<u32> = HashSet::new();
     while let Some((ifd, depth)) = stack.pop() {
@@ -125,7 +121,14 @@ mod tests {
     /// no sub-IFDs. Useful as a leaf in the synthetic tree below.
     fn leaf_ifd(offset: u32, tag: u16, value: u32) -> IFD {
         let mut entries = BTreeMap::new();
-        entries.insert(tag, Entry { tag, value: Value::Long(vec![value]), embedded: None });
+        entries.insert(
+            tag,
+            Entry {
+                tag,
+                value: Value::Long(vec![value]),
+                embedded: None,
+            },
+        );
         IFD {
             offset,
             base: 0,
@@ -245,7 +248,11 @@ mod tests {
         // Verify deduplication kicked in: if it didn't, both leaves would be
         // searched and we'd still find one. The actual property under test
         // is "doesn't infinite-loop" — finite return demonstrates the guard.
-        assert!(v == 0xAA || v == 0xBB, "expected one of the leaf values, got {:#x}", v);
+        assert!(
+            v == 0xAA || v == 0xBB,
+            "expected one of the leaf values, got {:#x}",
+            v
+        );
     }
 
     /// Walker returns the first matching IFD when the tag appears in
@@ -260,7 +267,11 @@ mod tests {
 
         let ifd = find_ifd_with_tag(&root, DngTag::ProfileGainTableMap, 4)
             .expect("at least one of the siblings carries the tag");
-        let v = ifd.get_entry(DngTag::ProfileGainTableMap).unwrap().value.force_u32(0);
+        let v = ifd
+            .get_entry(DngTag::ProfileGainTableMap)
+            .unwrap()
+            .value
+            .force_u32(0);
         assert!(v == 0x1111 || v == 0x2222);
     }
 }

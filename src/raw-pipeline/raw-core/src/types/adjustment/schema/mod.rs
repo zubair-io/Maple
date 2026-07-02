@@ -594,6 +594,5 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     },
 ];
 
-
 #[cfg(test)]
 mod tests;

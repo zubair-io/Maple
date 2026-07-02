@@ -143,7 +143,10 @@ fn apply_off_is_identity() {
     let gain = apply(&mut img, &model);
     assert_eq!(gain, 1.0);
     for (pa, pb) in img.pixels.iter().zip(original.iter()) {
-        assert_eq!(pa, pb, "AutoExposureMode::Off must be a bit-identical no-op");
+        assert_eq!(
+            pa, pb,
+            "AutoExposureMode::Off must be a bit-identical no-op"
+        );
     }
 }
 
@@ -176,10 +179,12 @@ fn apply_on_multiplies_pixels() {
 
 #[test]
 fn apply_is_deterministic() {
-    let make = || build_image(96, 96, |x, y| {
-        let v = ((x + y) as f32 / 191.0) * 0.4;
-        [v, v * 0.9, v * 1.1]
-    });
+    let make = || {
+        build_image(96, 96, |x, y| {
+            let v = ((x + y) as f32 / 191.0) * 0.4;
+            [v, v * 0.9, v * 1.1]
+        })
+    };
     let mut a = make();
     let mut b = make();
     let model = AdjustmentModel::default();

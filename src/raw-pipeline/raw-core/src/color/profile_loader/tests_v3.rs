@@ -147,8 +147,14 @@ fn dedup_collapses_identical_tables() {
     let index = parse_index(&enc.idx);
     let a = &index.records[&CameraKey::new("Synth A dual")];
     let b = &index.records[&CameraKey::new("Synth B single")];
-    assert_eq!(a.hsm1_pool_index, b.hsm1_pool_index, "shared table → same index");
-    assert_ne!(a.hsm1_pool_index, a.hsm2_pool_index, "A's two tables differ");
+    assert_eq!(
+        a.hsm1_pool_index, b.hsm1_pool_index,
+        "shared table → same index"
+    );
+    assert_ne!(
+        a.hsm1_pool_index, a.hsm2_pool_index,
+        "A's two tables differ"
+    );
 }
 
 /// Correction #2: locate ONE entry purely from the directory range, then
@@ -169,7 +175,11 @@ fn directory_addresses_single_entry() {
     let table = inflate_pool_entry(entry_bytes, &dir).expect("entry inflates");
 
     let expected = synth_hsm_bytes([4, 3, 1], 2);
-    assert_eq!(table.data, f32s(&expected), "A's HSM2 round-trips byte-identical");
+    assert_eq!(
+        table.data,
+        f32s(&expected),
+        "A's HSM2 round-trips byte-identical"
+    );
     assert_eq!(table.dims, [4, 3, 1]);
     assert_eq!(table.encoding, HsmEncoding::Linear);
 }
@@ -229,7 +239,11 @@ fn roundtrip_byte_identical() {
             .iter()
             .filter_map(|m| m.map(|m| m.0))
             .collect();
-        assert_eq!(got_mats, want_mats, "{}: matrices byte-identical", key.unique_camera_model);
+        assert_eq!(
+            got_mats, want_mats,
+            "{}: matrices byte-identical",
+            key.unique_camera_model
+        );
 
         // Illuminants survive their DNG codes (17→StdA, 21→D65).
         let want_il = |code: u16| match code {
@@ -238,22 +252,47 @@ fn roundtrip_byte_identical() {
             21 => Some(I::D65),
             _ => Some(I::D65),
         };
-        assert_eq!(rec.illum1, want_il(p.illum1), "{}: illum1", key.unique_camera_model);
-        assert_eq!(rec.illum2, want_il(p.illum2), "{}: illum2", key.unique_camera_model);
+        assert_eq!(
+            rec.illum1,
+            want_il(p.illum1),
+            "{}: illum1",
+            key.unique_camera_model
+        );
+        assert_eq!(
+            rec.illum2,
+            want_il(p.illum2),
+            "{}: illum2",
+            key.unique_camera_model
+        );
 
         // Baseline-exposure offset survives bit-for-bit.
-        assert_eq!(rec.baseline_exposure_offset.to_bits(), p.be_bits, "{}: BE", key.unique_camera_model);
+        assert_eq!(
+            rec.baseline_exposure_offset.to_bits(),
+            p.be_bits,
+            "{}: BE",
+            key.unique_camera_model
+        );
 
         // HSM tables resolve byte-identical from the pool.
         if let Some(want) = &p.hsm1 {
             let i = rec.hsm1_pool_index.expect("hsm1 index");
             let got = resolve_from_pool(&enc.pool, i, &index.pool_dir).expect("resolve");
-            assert_eq!(got.data, f32s(want), "{}: HSM1 byte-identical", key.unique_camera_model);
+            assert_eq!(
+                got.data,
+                f32s(want),
+                "{}: HSM1 byte-identical",
+                key.unique_camera_model
+            );
         }
         if let Some(want) = &p.hsm2 {
             let i = rec.hsm2_pool_index.expect("hsm2 index");
             let got = resolve_from_pool(&enc.pool, i, &index.pool_dir).expect("resolve");
-            assert_eq!(got.data, f32s(want), "{}: HSM2 byte-identical", key.unique_camera_model);
+            assert_eq!(
+                got.data,
+                f32s(want),
+                "{}: HSM2 byte-identical",
+                key.unique_camera_model
+            );
         }
     }
 }

@@ -143,11 +143,8 @@ pub fn compute_auto_adjustments(
     // Develop the probe buffer. Use Preview quality for speed — the
     // statistical estimators (percentiles, average) are not sensitive to
     // the extra precision Full provides and Preview is ~4× faster.
-    let probe = develop_scene_linear_from_raw_with_quality(
-        raw,
-        &probe_model,
-        RenderQuality::Preview,
-    )?;
+    let probe =
+        develop_scene_linear_from_raw_with_quality(raw, &probe_model, RenderQuality::Preview)?;
 
     // Build the luma histogram once; all tone stats share it.
     let hist = build_luma_histogram(&probe);
@@ -340,7 +337,10 @@ fn compute_awb(probe: &Image, as_shot_neutral: [f32; 3]) -> (f32, f32) {
         // penalizing slightly warm/cool naturalistic scenes.
         let max_ch = r.max(g).max(b).max(1e-6);
         let mean_ch = (r + g + b) / 3.0;
-        let dev = (r - mean_ch).abs().max((g - mean_ch).abs()).max((b - mean_ch).abs());
+        let dev = (r - mean_ch)
+            .abs()
+            .max((g - mean_ch).abs())
+            .max((b - mean_ch).abs());
         if dev / max_ch > AWB_CHROMA_GATE {
             continue;
         }
@@ -451,7 +451,11 @@ mod tests {
         // nudge), so ≈ +1.0 EV rather than the full correction.
         let h = flat_histogram(0.045);
         let ev = compute_exposure(&h);
-        assert!((ev - 1.0).abs() < 0.15, "expected ~+1.0 (damped), got {}", ev);
+        assert!(
+            (ev - 1.0).abs() < 0.15,
+            "expected ~+1.0 (damped), got {}",
+            ev
+        );
     }
 
     #[test]
@@ -489,7 +493,11 @@ mod tests {
         // Median ≈ 0.05 → naive rule = log2(0.18/0.05) ≈ +1.85 EV. With
         // p99 ≈ 0.82, highlight protection caps at log2(0.92/0.82) ≈ +0.17 EV.
         assert!(ev > 0.0, "should still brighten a little, got {}", ev);
-        assert!(ev < 0.5, "highlight protection must cap the brightening, got {}", ev);
+        assert!(
+            ev < 0.5,
+            "highlight protection must cap the brightening, got {}",
+            ev
+        );
     }
 
     // ---- AWB tests ----
@@ -503,10 +511,16 @@ mod tests {
         // real gray-world path (not the AsShotNeutral fallback).
         let (temp, tint) = compute_awb(&img, [0.5, 1.0, 0.7]);
         // Neutral probe at D65 should give near-D65 result.
-        assert!((temp - 6500.0).abs() < 1500.0,
-            "pure-grey should give temperature near 6500K, got {}", temp);
-        assert!(tint.abs() < 30.0,
-            "pure-grey should give tint near 0, got {}", tint);
+        assert!(
+            (temp - 6500.0).abs() < 1500.0,
+            "pure-grey should give temperature near 6500K, got {}",
+            temp
+        );
+        assert!(
+            tint.abs() < 30.0,
+            "pure-grey should give tint near 0, got {}",
+            tint
+        );
     }
 
     #[test]
@@ -543,10 +557,16 @@ mod tests {
         // red pixels are excluded by the chroma gate. Allow ±3000K tolerance
         // since the gray-world estimate from 75% neutral grey pixels can still
         // be pushed somewhat by boundary effects at the gate threshold.
-        assert!((temp - 6500.0).abs() < 3000.0,
-            "saturated red subject should not dominate: got {} K", temp);
-        assert!(tint.abs() < 50.0,
-            "saturated red subject should not drag tint: got {}", tint);
+        assert!(
+            (temp - 6500.0).abs() < 3000.0,
+            "saturated red subject should not dominate: got {} K",
+            temp
+        );
+        assert!(
+            tint.abs() < 50.0,
+            "saturated red subject should not drag tint: got {}",
+            tint
+        );
     }
 
     #[test]
@@ -561,10 +581,17 @@ mod tests {
         let (temp_fallback, tint_fallback) = neutral_to_temp_tint(as_shot_neutral);
         let (temp, tint) = compute_awb(&img, as_shot_neutral);
         // Should match the fallback result exactly.
-        assert!((temp - temp_fallback).abs() < 1.0,
-            "fallback temp mismatch: got {}, expected {}", temp, temp_fallback);
-        assert!((tint - tint_fallback).abs() < 1.0,
-            "fallback tint mismatch: got {}, expected {}", tint, tint_fallback);
+        assert!(
+            (temp - temp_fallback).abs() < 1.0,
+            "fallback temp mismatch: got {}, expected {}",
+            temp,
+            temp_fallback
+        );
+        assert!(
+            (tint - tint_fallback).abs() < 1.0,
+            "fallback tint mismatch: got {}, expected {}",
+            tint,
+            tint_fallback
+        );
     }
-
 }

@@ -47,7 +47,7 @@ impl ColorLut {
         [self.data[i], self.data[i + 1], self.data[i + 2]]
     }
 
-    /// Tetrahedral lookup of one RGB triplet (inputs clamped to [0,1]).
+    /// Trilinear lookup of one RGB triplet (inputs clamped to [0,1]).
     pub fn sample(&self, rgb: [f32; 3]) -> [f32; 3] {
         let n = self.size;
         let last = (n - 1) as f32;
@@ -59,39 +59,23 @@ impl ColorLut {
             lo[c] = l as usize;
             f[c] = p - l;
         }
-
-        let fx = f[0];
-        let fy = f[1];
-        let fz = f[2];
-
-        let mut out = [0.0f32; 3];
-        let c000 = self.node(lo[0], lo[1], lo[2]);
-        let c100 = self.node(lo[0] + 1, lo[1], lo[2]);
-        let c010 = self.node(lo[0], lo[1] + 1, lo[2]);
-        let c110 = self.node(lo[0] + 1, lo[1] + 1, lo[2]);
-        let c001 = self.node(lo[0], lo[1], lo[2] + 1);
-        let c101 = self.node(lo[0] + 1, lo[1], lo[2] + 1);
-        let c011 = self.node(lo[0], lo[1] + 1, lo[2] + 1);
-        let c111 = self.node(lo[0] + 1, lo[1] + 1, lo[2] + 1);
-
+        let mut out = [0f32; 3];
         for c in 0..3 {
-            out[c] = if fx >= fy {
-                if fy >= fz {
-                    c000[c] * (1.0 - fx) + c100[c] * (fx - fy) + c110[c] * (fy - fz) + c111[c] * fz
-                } else if fx >= fz {
-                    c000[c] * (1.0 - fx) + c100[c] * (fx - fz) + c101[c] * (fz - fy) + c111[c] * fy
-                } else {
-                    c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy
-                }
-            } else {
-                if fx >= fz {
-                    c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz
-                } else if fy >= fz {
-                    c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx
-                } else {
-                    c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx
-                }
-            };
+            let c000 = self.node(lo[0], lo[1], lo[2])[c];
+            let c100 = self.node(lo[0] + 1, lo[1], lo[2])[c];
+            let c010 = self.node(lo[0], lo[1] + 1, lo[2])[c];
+            let c110 = self.node(lo[0] + 1, lo[1] + 1, lo[2])[c];
+            let c001 = self.node(lo[0], lo[1], lo[2] + 1)[c];
+            let c101 = self.node(lo[0] + 1, lo[1], lo[2] + 1)[c];
+            let c011 = self.node(lo[0], lo[1] + 1, lo[2] + 1)[c];
+            let c111 = self.node(lo[0] + 1, lo[1] + 1, lo[2] + 1)[c];
+            let c00 = c000 * (1.0 - f[0]) + c100 * f[0];
+            let c10 = c010 * (1.0 - f[0]) + c110 * f[0];
+            let c01 = c001 * (1.0 - f[0]) + c101 * f[0];
+            let c11 = c011 * (1.0 - f[0]) + c111 * f[0];
+            let c0 = c00 * (1.0 - f[1]) + c10 * f[1];
+            let c1 = c01 * (1.0 - f[1]) + c11 * f[1];
+            out[c] = c0 * (1.0 - f[2]) + c1 * f[2];
         }
         out
     }
@@ -164,9 +148,7 @@ pub fn lut_strength_from_env() -> f32 {
     if strength.is_finite() && (0.0..=2.0).contains(&strength) {
         strength
     } else {
-        eprintln!(
-            "MAPLE_AUTO_LUT_STRENGTH={env_val} out of range [0,2] or non-finite — using 1.0"
-        );
+        eprintln!("MAPLE_AUTO_LUT_STRENGTH={env_val} out of range [0,2] or non-finite — using 1.0");
         1.0
     }
 }
@@ -180,7 +162,6 @@ pub fn lut_disabled_by_env() -> bool {
 }
 
 const FIT_CONF_COUNT: f32 = 8.0; // confidence half-count: c = count / (count + FIT_CONF_COUNT)
-const FIT_SMOOTH_PASSES: usize = 1; // separable 3D smoothing passes of the delta grid
 
 /// Grid resolution of the fitted per-image LUT (nodes per axis) — the single
 /// fidelity knob, chosen by cross-fixture sweep on the 17-fixture Auto gate
@@ -207,9 +188,9 @@ const MIN_LUT_PAIRS: usize = 256;
 /// neighbours; trilinear interpolation fills empty cells at apply time), and
 /// composes onto identity with `strength`. This is the O(pixels) limit of the
 /// former Gaussian RBF gather — at the resolved σ the kernel had collapsed to
-/// nearest-cell — so it uses ALL pairs for free in ms (no subsample, no σ). Grid
 /// SIZE is the only fidelity knob. Value-keyed + smoothed ⇒ spatially coherent
 /// (cannot blotch).
+#[allow(non_snake_case)]
 pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> ColorLut {
     let n = size.max(2);
     let id = ColorLut::identity(n);
@@ -217,60 +198,405 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
         return id;
     }
     let last = (n - 1) as f32;
+    let denom = last;
     let cells = n * n * n;
 
-    // Hard-bin all pairs into nearest cells, accumulating residual + count. Rayon
-    // fold/reduce keeps it O(pairs) and parallel (per-thread cell arrays merged).
-    let (acc, cnt) = pairs
+    // 1. Convert all grid coordinates to Oklab
+    let mut l_in = vec![0.0f32; cells];
+    let mut a_in = vec![0.0f32; cells];
+    let mut b_in = vec![0.0f32; cells];
+    let mut c_in = vec![0.0f32; cells];
+
+    for b in 0..n {
+        for g in 0..n {
+            for r in 0..n {
+                let idx = (b * n + g) * n + r;
+                let rgb_srgb = [r as f32 / denom, g as f32 / denom, b as f32 / denom];
+                let rgb_lin = [
+                    super::apply::srgb_gamma_decode(rgb_srgb[0]),
+                    super::apply::srgb_gamma_decode(rgb_srgb[1]),
+                    super::apply::srgb_gamma_decode(rgb_srgb[2]),
+                ];
+                let lab = crate::color::oklab::srgb_linear_to_oklab(rgb_lin);
+                l_in[idx] = lab[0];
+                a_in[idx] = lab[1];
+                b_in[idx] = lab[2];
+                c_in[idx] = (lab[1] * lab[1] + lab[2] * lab[2]).sqrt();
+            }
+        }
+    }
+
+    // 2. Precompute radial parents and sort indices by input chroma
+    let mut radial_parent = vec![None; cells];
+    let mut indices: Vec<usize> = (0..cells).collect();
+
+    let at = |r: usize, g: usize, b: usize| (b * n + g) * n + r;
+
+    for b in 0..n {
+        for g in 0..n {
+            for r in 0..n {
+                let idx = at(r, g, b);
+                let mean = (r as f32 + g as f32 + b as f32) / 3.0;
+                let dr = if (r as f32) > mean {
+                    -1
+                } else if (r as f32) < mean {
+                    1
+                } else {
+                    0
+                };
+                let dg = if (g as f32) > mean {
+                    -1
+                } else if (g as f32) < mean {
+                    1
+                } else {
+                    0
+                };
+                let db = if (b as f32) > mean {
+                    -1
+                } else if (b as f32) < mean {
+                    1
+                } else {
+                    0
+                };
+                if dr != 0 || dg != 0 || db != 0 {
+                    let pr = (r as isize + dr) as usize;
+                    let pg = (g as isize + dg) as usize;
+                    let pb = (b as isize + db) as usize;
+                    radial_parent[idx] = Some(at(pr, pg, pb));
+                }
+            }
+        }
+    }
+
+    // Sort indices by input chroma (ascending) so we propagate from neutral outward
+    indices.sort_unstable_by(|&i, &j| c_in[i].partial_cmp(&c_in[j]).unwrap());
+
+    // 3. Hard-bin all pairs, accumulating target L, a, b values and counts
+    let (acc_l, acc_a, acc_b, cnt) = pairs
         .par_iter()
         .fold(
-            || (vec![[0f64; 3]; cells], vec![0u32; cells]),
-            |(mut acc, mut cnt), pr| {
+            || {
+                (
+                    vec![0.0f64; cells],
+                    vec![0.0f64; cells],
+                    vec![0.0f64; cells],
+                    vec![0u32; cells],
+                )
+            },
+            |(mut acc_l, mut acc_a, mut acc_b, mut cnt), pr| {
                 let cr = ((pr.maple[0].clamp(0.0, 1.0) * last) + 0.5) as usize;
                 let cg = ((pr.maple[1].clamp(0.0, 1.0) * last) + 0.5) as usize;
                 let cb = ((pr.maple[2].clamp(0.0, 1.0) * last) + 0.5) as usize;
                 let idx = (cb.min(n - 1) * n + cg.min(n - 1)) * n + cr.min(n - 1);
-                for c in 0..3 {
-                    acc[idx][c] += (pr.jpeg[c] - pr.maple[c]) as f64;
-                }
+
+                let j_lin = [
+                    super::apply::srgb_gamma_decode(pr.jpeg[0].clamp(0.0, 1.0)),
+                    super::apply::srgb_gamma_decode(pr.jpeg[1].clamp(0.0, 1.0)),
+                    super::apply::srgb_gamma_decode(pr.jpeg[2].clamp(0.0, 1.0)),
+                ];
+
+                let j_ok = crate::color::oklab::srgb_linear_to_oklab(j_lin);
+
+                acc_l[idx] += j_ok[0] as f64;
+                acc_a[idx] += j_ok[1] as f64;
+                acc_b[idx] += j_ok[2] as f64;
                 cnt[idx] += 1;
-                (acc, cnt)
+                (acc_l, acc_a, acc_b, cnt)
             },
         )
         .reduce(
-            || (vec![[0f64; 3]; cells], vec![0u32; cells]),
-            |(mut a1, mut c1), (a2, c2)| {
+            || {
+                (
+                    vec![0.0f64; cells],
+                    vec![0.0f64; cells],
+                    vec![0.0f64; cells],
+                    vec![0u32; cells],
+                )
+            },
+            |(mut l1, mut a1, mut b1, mut c1), (l2, a2, b2, c2)| {
                 for i in 0..cells {
-                    for k in 0..3 {
-                        a1[i][k] += a2[i][k];
-                    }
+                    l1[i] += l2[i];
+                    a1[i] += a2[i];
+                    b1[i] += b2[i];
                     c1[i] += c2[i];
                 }
-                (a1, c1)
+                (l1, a1, b1, c1)
             },
         );
 
-    // Per-cell confidence-weighted mean residual (sparse cells → identity).
-    let mut delta = vec![[0f32; 3]; cells];
+    // 4. Compute target L and k for each cell, plus confidence weights
+    let mut l_target = vec![0.0f32; cells];
+    let mut a_target = vec![0.0f32; cells];
+    let mut b_target = vec![0.0f32; cells];
+    let mut w = vec![0.0f32; cells];
+
     for i in 0..cells {
         if cnt[i] > 0 {
-            let c = cnt[i] as f32 / (cnt[i] as f32 + FIT_CONF_COUNT);
-            for k in 0..3 {
-                delta[i][k] = c * (acc[i][k] / cnt[i] as f64) as f32;
+            let c_val = cnt[i] as f32;
+            w[i] = c_val / (c_val + FIT_CONF_COUNT);
+            l_target[i] = (acc_l[i] / cnt[i] as f64) as f32;
+            a_target[i] = (acc_a[i] / cnt[i] as f64) as f32;
+            b_target[i] = (acc_b[i] / cnt[i] as f64) as f32;
+        }
+    }
+
+    // 5. Initialize optimization variables (displacements from identity)
+    let mut dL = vec![0.0f32; cells];
+    let mut da = vec![0.0f32; cells];
+    let mut db = vec![0.0f32; cells];
+
+    let mut L_target_disp = vec![0.0f32; cells];
+    let mut a_target_disp = vec![0.0f32; cells];
+    let mut b_target_disp = vec![0.0f32; cells];
+
+    for i in 0..cells {
+        if cnt[i] > 0 {
+            L_target_disp[i] = l_target[i] - l_in[i];
+            a_target_disp[i] = a_target[i] - a_in[i];
+            b_target_disp[i] = b_target[i] - b_in[i];
+        }
+    }
+
+    // Regularization parameters
+    let lambda_l = 2.0f32;
+    let lambda_a = 2.0f32;
+    let lambda_b = 2.0f32;
+    const ITERATIONS: usize = 15;
+
+    for _ in 0..ITERATIONS {
+        // 1. Update dL (Raster order, with monotonicity clamps)
+        for b_coord in 0..n {
+            for g_coord in 0..n {
+                for r_coord in 0..n {
+                    let idx = at(r_coord, g_coord, b_coord);
+                    let w_i = w[idx];
+                    if w_i == 0.0 {
+                        dL[idx] = 0.0;
+                        continue;
+                    }
+
+                    let mut sum_dL = 0.0f32;
+                    let mut count_neighbors = 0.0f32;
+                    if r_coord > 0 && w[at(r_coord - 1, g_coord, b_coord)] > 0.0 {
+                        sum_dL += dL[at(r_coord - 1, g_coord, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if r_coord < n - 1 && w[at(r_coord + 1, g_coord, b_coord)] > 0.0 {
+                        sum_dL += dL[at(r_coord + 1, g_coord, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if g_coord > 0 && w[at(r_coord, g_coord - 1, b_coord)] > 0.0 {
+                        sum_dL += dL[at(r_coord, g_coord - 1, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if g_coord < n - 1 && w[at(r_coord, g_coord + 1, b_coord)] > 0.0 {
+                        sum_dL += dL[at(r_coord, g_coord + 1, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if b_coord > 0 && w[at(r_coord, g_coord, b_coord - 1)] > 0.0 {
+                        sum_dL += dL[at(r_coord, g_coord, b_coord - 1)];
+                        count_neighbors += 1.0;
+                    }
+                    if b_coord < n - 1 && w[at(r_coord, g_coord, b_coord + 1)] > 0.0 {
+                        sum_dL += dL[at(r_coord, g_coord, b_coord + 1)];
+                        count_neighbors += 1.0;
+                    }
+
+                    let avg_dL = if count_neighbors > 0.0 {
+                        sum_dL / count_neighbors
+                    } else {
+                        0.0
+                    };
+                    let dL_new = (w_i * L_target_disp[idx] + lambda_l * count_neighbors * avg_dL)
+                        / (w_i + lambda_l * count_neighbors);
+
+                    // Reconstruct L and clamp for lightness monotonicity: non-decreasing in r, g, b directions
+                    let L_val = l_in[idx] + dL_new;
+
+                    let mut lower_bound = 0.0f32;
+                    if r_coord > 0 {
+                        lower_bound = lower_bound.max(
+                            l_in[at(r_coord - 1, g_coord, b_coord)]
+                                + dL[at(r_coord - 1, g_coord, b_coord)],
+                        );
+                    }
+                    if g_coord > 0 {
+                        lower_bound = lower_bound.max(
+                            l_in[at(r_coord, g_coord - 1, b_coord)]
+                                + dL[at(r_coord, g_coord - 1, b_coord)],
+                        );
+                    }
+                    if b_coord > 0 {
+                        lower_bound = lower_bound.max(
+                            l_in[at(r_coord, g_coord, b_coord - 1)]
+                                + dL[at(r_coord, g_coord, b_coord - 1)],
+                        );
+                    }
+
+                    let mut upper_bound = 1.0f32;
+                    if r_coord < n - 1 {
+                        upper_bound = upper_bound.min(
+                            l_in[at(r_coord + 1, g_coord, b_coord)]
+                                + dL[at(r_coord + 1, g_coord, b_coord)],
+                        );
+                    }
+                    if g_coord < n - 1 {
+                        upper_bound = upper_bound.min(
+                            l_in[at(r_coord, g_coord + 1, b_coord)]
+                                + dL[at(r_coord, g_coord + 1, b_coord)],
+                        );
+                    }
+                    if b_coord < n - 1 {
+                        upper_bound = upper_bound.min(
+                            l_in[at(r_coord, g_coord, b_coord + 1)]
+                                + dL[at(r_coord, g_coord, b_coord + 1)],
+                        );
+                    }
+
+                    dL[idx] = L_val.clamp(lower_bound, upper_bound) - l_in[idx];
+                }
+            }
+        }
+
+        // 2. Update da and db (in raster order, then we will project using sorted indices)
+        for b_coord in 0..n {
+            for g_coord in 0..n {
+                for r_coord in 0..n {
+                    let idx = at(r_coord, g_coord, b_coord);
+                    let w_i = w[idx];
+                    if w_i == 0.0 {
+                        da[idx] = 0.0;
+                        db[idx] = 0.0;
+                        continue;
+                    }
+
+                    let mut sum_da = 0.0f32;
+                    let mut sum_db = 0.0f32;
+                    let mut count_neighbors = 0.0f32;
+                    if r_coord > 0 && w[at(r_coord - 1, g_coord, b_coord)] > 0.0 {
+                        sum_da += da[at(r_coord - 1, g_coord, b_coord)];
+                        sum_db += db[at(r_coord - 1, g_coord, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if r_coord < n - 1 && w[at(r_coord + 1, g_coord, b_coord)] > 0.0 {
+                        sum_da += da[at(r_coord + 1, g_coord, b_coord)];
+                        sum_db += db[at(r_coord + 1, g_coord, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if g_coord > 0 && w[at(r_coord, g_coord - 1, b_coord)] > 0.0 {
+                        sum_da += da[at(r_coord, g_coord - 1, b_coord)];
+                        sum_db += db[at(r_coord, g_coord - 1, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if g_coord < n - 1 && w[at(r_coord, g_coord + 1, b_coord)] > 0.0 {
+                        sum_da += da[at(r_coord, g_coord + 1, b_coord)];
+                        sum_db += db[at(r_coord, g_coord + 1, b_coord)];
+                        count_neighbors += 1.0;
+                    }
+                    if b_coord > 0 && w[at(r_coord, g_coord, b_coord - 1)] > 0.0 {
+                        sum_da += da[at(r_coord, g_coord, b_coord - 1)];
+                        sum_db += db[at(r_coord, g_coord, b_coord - 1)];
+                        count_neighbors += 1.0;
+                    }
+                    if b_coord < n - 1 && w[at(r_coord, g_coord, b_coord + 1)] > 0.0 {
+                        sum_da += da[at(r_coord, g_coord, b_coord + 1)];
+                        sum_db += db[at(r_coord, g_coord, b_coord + 1)];
+                        count_neighbors += 1.0;
+                    }
+
+                    let avg_da = if count_neighbors > 0.0 {
+                        sum_da / count_neighbors
+                    } else {
+                        0.0
+                    };
+                    let avg_db = if count_neighbors > 0.0 {
+                        sum_db / count_neighbors
+                    } else {
+                        0.0
+                    };
+
+                    da[idx] = (w_i * a_target_disp[idx] + lambda_a * count_neighbors * avg_da)
+                        / (w_i + lambda_a * count_neighbors);
+                    db[idx] = (w_i * b_target_disp[idx] + lambda_b * count_neighbors * avg_db)
+                        / (w_i + lambda_b * count_neighbors);
+                }
+            }
+        }
+
+        // 3. Project a and b to enforce saturation monotonicity (sorted order from neutral outward)
+        for &idx in &indices {
+            if w[idx] == 0.0 {
+                continue;
+            }
+            let a_val = a_in[idx] + da[idx];
+            let b_val = b_in[idx] + db[idx];
+            let c_i = (a_val * a_val + b_val * b_val).sqrt();
+            if let Some(parent_idx) = radial_parent[idx] {
+                let a_p = a_in[parent_idx] + da[parent_idx];
+                let b_p = b_in[parent_idx] + db[parent_idx];
+                let c_parent = (a_p * a_p + b_p * b_p).sqrt();
+                let L_parent = l_in[parent_idx] + dL[parent_idx];
+                let L_i = l_in[idx] + dL[idx];
+
+                // Saturation: S = C / (L + 1e-5). We enforce S_i >= S_parent.
+                let s_parent = c_parent / (L_parent + 1e-5);
+                let c_min = s_parent * (L_i + 1e-5);
+
+                if c_i < c_min {
+                    let mut next_a = a_val;
+                    let mut next_b = b_val;
+                    if c_i > 1e-6 {
+                        let scale = c_min / c_i;
+                        next_a *= scale;
+                        next_b *= scale;
+                    } else {
+                        // If c_i is 0/near-0, try input direction
+                        let c_in_val = c_in[idx];
+                        if c_in_val > 1e-6 {
+                            let scale = c_min / c_in_val;
+                            next_a = a_in[idx] * scale;
+                            next_b = b_in[idx] * scale;
+                        } else {
+                            // Try parent direction
+                            let c_p = (a_p * a_p + b_p * b_p).sqrt();
+                            if c_p > 1e-6 {
+                                let scale = c_min / c_p;
+                                next_a = a_p * scale;
+                                next_b = b_p * scale;
+                            } else {
+                                next_a = 0.0;
+                                next_b = 0.0;
+                            }
+                        }
+                    }
+                    da[idx] = next_a - a_in[idx];
+                    db[idx] = next_b - b_in[idx];
+                }
             }
         }
     }
-    let populated: Vec<bool> = cnt.iter().map(|&c| c > 0).collect();
 
-    for _ in 0..FIT_SMOOTH_PASSES {
-        smooth3(&mut delta, &populated, n);
-    }
-
+    // 6. Convert back to sRGB and compose with strength
     let mut lut = id.clone();
-    for i in 0..n * n * n {
-        for c in 0..3 {
-            lut.data[i * 3 + c] = (lut.data[i * 3 + c] + strength * delta[i][c]).clamp(0.0, 1.0);
-        }
+    for i in 0..cells {
+        let lab = [l_in[i] + dL[i], a_in[i] + da[i], b_in[i] + db[i]];
+        let rgb_lin = crate::color::oklab::oklab_to_srgb_linear(lab);
+        let rgb_srgb = [
+            crate::view::encode::srgb_gamma(rgb_lin[0]),
+            crate::view::encode::srgb_gamma(rgb_lin[1]),
+            crate::view::encode::srgb_gamma(rgb_lin[2]),
+        ];
+
+        let r = i % n;
+        let g = (i / n) % n;
+        let b = i / (n * n);
+        let id_r = r as f32 / denom;
+        let id_g = g as f32 / denom;
+        let id_b = b as f32 / denom;
+
+        lut.data[i * 3] = (id_r + strength * (rgb_srgb[0] - id_r)).clamp(0.0, 1.0);
+        lut.data[i * 3 + 1] = (id_g + strength * (rgb_srgb[1] - id_g)).clamp(0.0, 1.0);
+        lut.data[i * 3 + 2] = (id_b + strength * (rgb_srgb[2] - id_b)).clamp(0.0, 1.0);
     }
     lut
 }
@@ -302,83 +628,18 @@ pub fn fit_lut_from_preview(
     cs: JpegColorSpace,
     orientation: ExifOrientation,
 ) -> Option<ColorLut> {
-    let pairs =
-        super::pairs::sample_display_pairs(source_rgb, source_w, source_h, preview, cs, orientation);
+    let pairs = super::pairs::sample_display_pairs(
+        source_rgb,
+        source_w,
+        source_h,
+        preview,
+        cs,
+        orientation,
+    );
     if pairs.len() < MIN_LUT_PAIRS {
         return None;
     }
     Some(fit_lut_from_pairs(&pairs, LUT_SIZE, 1.0))
-}
-
-/// In-place separable 1-2-1 smoothing of the per-cell delta grid over each RGB
-/// axis, **confidence-masked**: empty cells (no pairs) are left at identity-delta
-/// (trilinear interpolation fills them at apply time) and are excluded from their
-/// neighbours' blends with renormalisation, so a populated cell at the colour-
-/// volume boundary isn't dragged toward identity by the empty cells outside the
-/// gamut. Borders replicate (clamp).
-fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
-    let at = |r: usize, g: usize, b: usize| (b * n + g) * n + r;
-    let mut tmp = delta.to_vec();
-    // R axis
-    for b in 0..n {
-        for g in 0..n {
-            for r in 0..n {
-                let cu = at(r, g, b);
-                if !populated[cu] {
-                    continue;
-                }
-                let lo = at(r.saturating_sub(1), g, b);
-                let hi = at((r + 1).min(n - 1), g, b);
-                let wlo = if populated[lo] { 0.25 } else { 0.0 };
-                let whi = if populated[hi] { 0.25 } else { 0.0 };
-                let wsum = wlo + 0.5 + whi;
-                for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
-                }
-            }
-        }
-    }
-    delta.copy_from_slice(&tmp);
-    // G axis
-    for b in 0..n {
-        for g in 0..n {
-            for r in 0..n {
-                let cu = at(r, g, b);
-                if !populated[cu] {
-                    continue;
-                }
-                let lo = at(r, g.saturating_sub(1), b);
-                let hi = at(r, (g + 1).min(n - 1), b);
-                let wlo = if populated[lo] { 0.25 } else { 0.0 };
-                let whi = if populated[hi] { 0.25 } else { 0.0 };
-                let wsum = wlo + 0.5 + whi;
-                for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
-                }
-            }
-        }
-    }
-    delta.copy_from_slice(&tmp);
-    // B axis
-    for b in 0..n {
-        for g in 0..n {
-            for r in 0..n {
-                let cu = at(r, g, b);
-                if !populated[cu] {
-                    continue;
-                }
-                let lo = at(r, g, b.saturating_sub(1));
-                let hi = at(r, g, (b + 1).min(n - 1));
-                let wlo = if populated[lo] { 0.25 } else { 0.0 };
-                let whi = if populated[hi] { 0.25 } else { 0.0 };
-                let wsum = wlo + 0.5 + whi;
-                for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
-                }
-            }
-        }
-    }
-    delta.copy_from_slice(&tmp);
 }
 
 #[cfg(test)]
@@ -412,7 +673,10 @@ mod tests {
     #[test]
     fn sparse_pairs_stay_identity() {
         // A lone neutral pair leaves distant corner nodes at identity.
-        let pairs = vec![DisplayPair { maple: [0.5, 0.5, 0.5], jpeg: [0.5, 0.5, 0.5] }];
+        let pairs = vec![DisplayPair {
+            maple: [0.5, 0.5, 0.5],
+            jpeg: [0.5, 0.5, 0.5],
+        }];
         let lut = fit_lut_from_pairs(&pairs, 9, 1.0);
         let id = ColorLut::identity(9);
         assert!((lut.node(0, 0, 0)[0] - id.node(0, 0, 0)[0]).abs() < 1e-3);
@@ -484,13 +748,19 @@ mod tests {
         let pairs: Vec<_> = (0..200)
             .map(|i| {
                 let v = i as f32 / 199.0;
-                DisplayPair { maple: [v, v, v], jpeg: [(v + 0.1).min(1.0), v, v] }
+                DisplayPair {
+                    maple: [v, v, v],
+                    jpeg: [(v + 0.1).min(1.0), v, v],
+                }
             })
             .collect();
         let lut = fit_lut_from_pairs(&pairs, 9, 1.0);
         let mut px = vec![0.5f32, 0.5, 0.5];
         lut.apply(&mut px);
         assert!(px[0] > 0.55, "red not boosted: {}", px[0]);
-        assert!((px[1] - 0.5).abs() < 0.03 && (px[2] - 0.5).abs() < 0.03, "green/blue drifted");
+        assert!(
+            (px[1] - 0.5).abs() < 0.03 && (px[2] - 0.5).abs() < 0.03,
+            "green/blue drifted"
+        );
     }
 }

@@ -28,7 +28,7 @@ pub(crate) fn f32_to_f16_bits(x: f32) -> u16 {
     let bits = x.to_bits();
     let sign: u16 = ((bits >> 16) & 0x8000) as u16;
     let stored_exp: i32 = ((bits >> 23) & 0xff) as i32;
-    let mant_bits: u32 = bits & 0x007fffff;            // 23-bit float32 mantissa
+    let mant_bits: u32 = bits & 0x007fffff; // 23-bit float32 mantissa
     if stored_exp == 0xff {
         // Inf / NaN — preserve NaN-ness via a non-zero mantissa flag.
         return sign | 0x7c00 | (if mant_bits != 0 { 0x0001 } else { 0 });
@@ -40,14 +40,16 @@ pub(crate) fn f32_to_f16_bits(x: f32) -> u16 {
     }
     if fp16_exp <= 0 {
         // Subnormal / underflow.
-        if fp16_exp < -10 { return sign; }
+        if fp16_exp < -10 {
+            return sign;
+        }
         // Add the implicit 1 and shift right to align in fp16 space.
         // fp16 subnormal precision = 10 bits below 2^-14.
         let mant_with_implicit = mant_bits | 0x00800000;
         let shift = (14 - unbiased_exp) as u32;
         // Round-to-nearest-even on the shifted-out bits.
         let shifted = mant_with_implicit >> (shift - 10 - 1); // keep 1 guard bit
-        let rounded = (shifted + 1) >> 1;                      // round half-up
+        let rounded = (shifted + 1) >> 1; // round half-up
         return sign | ((rounded & 0x03ff) as u16);
     }
     // Normal range. Extract top 10 mantissa bits, with round-to-nearest
@@ -126,8 +128,13 @@ mod tests {
         for x in [0.0f32, 1.0, 1.5, 2.0, 0.5, -1.0, -0.25] {
             let bits = f32_to_f16_bits(x);
             let back = f16_bits_to_f32(bits);
-            assert!((back - x).abs() < 1e-6,
-                "round-trip {}: got {} (fp16 bits 0x{:04x})", x, back, bits);
+            assert!(
+                (back - x).abs() < 1e-6,
+                "round-trip {}: got {} (fp16 bits 0x{:04x})",
+                x,
+                back,
+                bits
+            );
         }
     }
 
@@ -150,7 +157,11 @@ mod tests {
             let f32_exp = (exp + 127 - 15) << 23;
             f32::from_bits(sign | f32_exp | (mant << 13))
         };
-        assert!((f - 1.5).abs() < 1e-6,
-            "1.5 round-trip: got {} (fp16 bits 0x{:04x})", f, bits);
+        assert!(
+            (f - 1.5).abs() < 1e-6,
+            "1.5 round-trip: got {} (fp16 bits 0x{:04x})",
+            f,
+            bits
+        );
     }
 }

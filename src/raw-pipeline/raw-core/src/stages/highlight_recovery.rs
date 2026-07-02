@@ -62,6 +62,7 @@ use crate::{
     image::{ColorSpace, Image},
     xmp::HighlightRecoveryMode,
 };
+use rayon::prelude::*;
 
 /// Per-channel "this channel is clipped" margin, in post-WB camera-RGB units.
 const EPSILON: f32 = 0.005;
@@ -128,9 +129,10 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3]) {
     // now that ChromaticAdaptation is the default — see #335 per-fixture
     // diff). Bail out before touching the heap. `any()` short-circuits on
     // the first clipped pixel.
-    let any_clipped = img.pixels.iter().any(|p| {
-        p[0] >= thresholds[0] || p[1] >= thresholds[1] || p[2] >= thresholds[2]
-    });
+    let any_clipped = img
+        .pixels
+        .iter()
+        .any(|p| p[0] >= thresholds[0] || p[1] >= thresholds[1] || p[2] >= thresholds[2]);
     if !any_clipped {
         return;
     }
@@ -160,13 +162,16 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3]) {
     let pixels_in = img.pixels.clone();
 
     // Pass 2: reconstruct each clipped pixel.
-    for y in 0..h {
-        for x in 0..w {
-            let idx = (y * w + x) as usize;
+    img.pixels
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(idx, p_out)| {
             let m = clip_mask[idx];
             if m == 0 {
-                continue;
+                return;
             }
+            let y = (idx as i32) / w;
+            let x = (idx as i32) % w;
             let p_in = pixels_in[idx];
             let clipped_count = m.count_ones();
 
@@ -178,14 +183,27 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3]) {
             // saturation, but we can at least stop magenta from leaking in.
             if clipped_count == 3 {
                 let x_val = ceil[0].max(ceil[1]).max(ceil[2]);
-                img.pixels[idx] = [x_val, x_val, x_val];
-                continue;
+                *p_out = [x_val, x_val, x_val];
+                return;
             }
 
-            // 1+2-channel clip — gather (R/G, B/G) from unclipped neighbors.
-            let mut sum_rg = 0.0f32;
-            let mut sum_bg = 0.0f32;
-            let mut count: u32 = 0;
+            // Identify guide channel `u` (brightest unclipped channel)
+            let mut u = 0;
+            let mut max_u_val = -1.0;
+            for c in 0..3 {
+                if (m >> c) & 1 == 0 {
+                    if p_in[c] > max_u_val {
+                        max_u_val = p_in[c];
+                        u = c;
+                    }
+                }
+            }
+
+            // Guided bilateral filter propagation
+            let mut sum_ratio = [0.0f32; 3];
+            let mut sum_w = [0.0f32; 3];
+            let mut valid_count = 0;
+
             for dy in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
                 let ny = y + dy;
                 if ny < 0 || ny >= h {
@@ -201,87 +219,61 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3]) {
                         continue; // Only fully-unclipped neighbors contribute.
                     }
                     let np = pixels_in[n_idx];
-                    if np[1] > 1e-4 {
-                        sum_rg += np[0] / np[1];
-                        sum_bg += np[2] / np[1];
-                        count += 1;
+                    if np[u] > 1e-4 {
+                        let spatial_dist_sq = (dx * dx + dy * dy) as f32;
+                        let range_dist = np[u] - p_in[u];
+                        let range_dist_sq = range_dist * range_dist;
+
+                        // Bilateral weight calculation
+                        // sigma_s = 3.0 (2 * sigma_s^2 = 18.0)
+                        // sigma_r = 0.15 (2 * sigma_r^2 = 0.045)
+                        let w_n = (-spatial_dist_sq / 18.0).exp() * (-range_dist_sq / 0.045).exp();
+
+                        for c in 0..3 {
+                            if (m >> c) & 1 == 1 {
+                                sum_ratio[c] += w_n * (np[c] / np[u]);
+                                sum_w[c] += w_n;
+                            }
+                        }
+                        valid_count += 1;
                     }
                 }
             }
 
-            // Confidence: fraction of the 7×7 window that contributed.
-            // < 4 contributing neighbors is unstable — collapse confidence
-            // to zero and rely on the WB-implied neutral target.
-            let mut conf = (count as f32) / NEIGHBOR_WINDOW_AREA;
-            if count < 4 {
+            // Confidence based on number of contributing neighbors
+            let mut conf = (valid_count as f32) / NEIGHBOR_WINDOW_AREA;
+            if valid_count < 4 {
                 conf = 0.0;
             }
             conf = conf.clamp(0.0, 1.0);
 
-            let local_rg = if count > 0 { sum_rg / count as f32 } else { 1.0 };
-            let local_bg = if count > 0 { sum_bg / count as f32 } else { 1.0 };
-
-            // Target chromaticity = blend(local, neutral). Post-WB neutral
-            // white is (1,1,1), so the neutral chromaticity is (1, 1).
-            let target_rg = local_rg * conf + 1.0 * (1.0 - conf);
-            let target_bg = local_bg * conf + 1.0 * (1.0 - conf);
-
-            // Extrapolate to maintain chromaticity. Strategy:
-            //   - Use the brightest **unclipped** channel as the reference.
-            //   - Solve for the clipped channel(s) from the target ratios.
-            //   - If no unclipped channel exists (shouldn't happen here because
-            //     `clipped_count < 3`), fall through to leaving the pixel.
-            let mut p_out = p_in;
-            // Find the brightest unclipped channel (this is our anchor).
-            let mut anchor_c: Option<usize> = None;
-            let mut anchor_val = f32::MIN;
+            let mut reconstructed = p_in;
             for c in 0..3 {
-                if (m >> c) & 1 == 0 && p_in[c] > anchor_val {
-                    anchor_val = p_in[c];
-                    anchor_c = Some(c);
+                if (m >> c) & 1 == 1 {
+                    let local_ratio = if sum_w[c] > 1e-6 {
+                        sum_ratio[c] / sum_w[c]
+                    } else {
+                        1.0
+                    };
+                    let blended_ratio = local_ratio * conf + 1.0 * (1.0 - conf);
+                    reconstructed[c] = p_in[u] * blended_ratio;
                 }
             }
-            if let Some(ac) = anchor_c {
-                // Derive G implied by the anchor + target chromaticity.
-                let g_implied = match ac {
-                    0 => {
-                        // anchor is R; target_rg = R/G  → G = R/target_rg
-                        if target_rg.abs() > 1e-6 { p_in[0] / target_rg } else { p_in[1] }
-                    }
-                    1 => p_in[1], // anchor is G; G is fixed.
-                    2 => {
-                        // anchor is B; target_bg = B/G → G = B/target_bg
-                        if target_bg.abs() > 1e-6 { p_in[2] / target_bg } else { p_in[1] }
-                    }
-                    _ => unreachable!(),
-                };
-                let r_implied = g_implied * target_rg;
-                let b_implied = g_implied * target_bg;
-                let implied = [r_implied, g_implied, b_implied];
 
-                // Replace each clipped channel with the implied value. The
-                // spatial "feather" the brief calls for emerges naturally from
-                // the neighborhood averaging: adjacent clipped pixels see
-                // overlapping windows so their reconstructed chromaticities
-                // vary smoothly, and the unclipped channels (held fixed) tie
-                // the result to the local color.
-                //
-                // We do NOT clamp `implied[c] >= p_in[c]`. Path C derives
-                // `implied` from a stable anchor + local chromaticity, so
-                // letting it fall below the (numerical) input is legitimate
-                // when the input was magenta-shifted — the whole point is to
-                // pull the chromaticity back toward neutral. The legacy
-                // `Blend` magenta-pull came from anchoring to
-                // `max_unclipped ≤ 1.0`, not from the direction of motion.
+            // Ensure highlights roll off gracefully to white without chromatic shifts
+            let max_val = reconstructed[0].max(reconstructed[1]).max(reconstructed[2]);
+            let max_ceil = ceil[0].max(ceil[1]).max(ceil[2]);
+            let roll_off_start = max_ceil * 0.7;
+            let denom = max_ceil - roll_off_start;
+            if denom > 1e-4 && max_val > roll_off_start {
+                let t = ((max_val - roll_off_start) / denom).clamp(0.0, 1.0);
                 for c in 0..3 {
-                    if (m >> c) & 1 == 1 {
-                        p_out[c] = implied[c];
-                    }
+                    reconstructed[c] = reconstructed[c] * (1.0 - t) + max_val * t;
                 }
             }
-            img.pixels[idx] = p_out;
-        }
-    }
+
+            *p_out = reconstructed;
+        });
 }
 
 #[cfg(test)]
@@ -321,7 +313,11 @@ mod tests {
             *p = [0.5, 0.5, 0.5];
         }
         let before = img.pixels.clone();
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         assert_eq!(img.pixels, before);
     }
 
@@ -334,10 +330,17 @@ mod tests {
         for p in &mut img.pixels {
             *p = [1.0, 1.0, 1.0];
         }
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_IDENTITY);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_IDENTITY,
+        );
         for p in &img.pixels {
-            assert!((p[0] - p[1]).abs() < 1e-6 && (p[1] - p[2]).abs() < 1e-6,
-                "expected neutral, got {:?}", p);
+            assert!(
+                (p[0] - p[1]).abs() < 1e-6 && (p[1] - p[2]).abs() < 1e-6,
+                "expected neutral, got {:?}",
+                p
+            );
             assert!(p[0] >= 1.0, "expected at-or-above ceiling, got {}", p[0]);
         }
     }
@@ -351,10 +354,17 @@ mod tests {
         for p in &mut img.pixels {
             *p = [2.0, 1.0, 1.0 / 0.7];
         }
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         for p in &img.pixels {
-            assert!((p[0] - p[1]).abs() < 1e-5 && (p[1] - p[2]).abs() < 1e-5,
-                "expected neutral after full-clip, got {:?}", p);
+            assert!(
+                (p[0] - p[1]).abs() < 1e-5 && (p[1] - p[2]).abs() < 1e-5,
+                "expected neutral after full-clip, got {:?}",
+                p
+            );
             // The anchor X is the largest ceiling = 1/min(neutral) = 2.0.
             assert!((p[0] - 2.0).abs() < 1e-5, "expected X = 2.0, got {}", p[0]);
         }
@@ -383,7 +393,11 @@ mod tests {
         // stage falls back to the WB-implied neutral target (confidence 0).
         let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
         img.pixels[0] = [1.6, 1.0, 1.0];
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         let p = img.pixels[0];
         // G must have been lifted above the threshold (1.0 - EPSILON).
         assert!(p[1] > 1.0 - EPSILON, "G should be lifted, got {}", p[1]);
@@ -395,7 +409,11 @@ mod tests {
         // Under fallback-to-neutral, R/G and B/G should both move toward 1
         // (the post-WB neutral chromaticity). With the soft feather close to
         // the threshold, expect R/G ≤ 1.6 and B/G ≤ 1.0 — i.e. less magenta.
-        assert!(out_rg < 1.6, "expected magenta to reduce, got R/G = {}", out_rg);
+        assert!(
+            out_rg < 1.6,
+            "expected magenta to reduce, got R/G = {}",
+            out_rg
+        );
         assert!(out_bg <= 1.0 + 1e-4, "B/G out of bound: {}", out_bg);
     }
 
@@ -420,13 +438,20 @@ mod tests {
         let cx = 5;
         let cy = 5;
         img.pixels[cy * 11 + cx] = [1.6, 1.0, 1.0];
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         let p = img.pixels[cy * 11 + cx];
         let out_rg = p[0] / p[1];
         // 5% tolerance around the neighborhood's R/G = 1.0 — the chromaticity
         // axis the algorithm is responsible for.
-        assert!((out_rg - 1.0).abs() < 0.05,
-            "expected R/G ≈ 1.0 ± 5%, got {}", out_rg);
+        assert!(
+            (out_rg - 1.0).abs() < 0.05,
+            "expected R/G ≈ 1.0 ± 5%, got {}",
+            out_rg
+        );
         // G must have been lifted above its post-WB ceiling.
         assert!(p[1] > 1.0 - EPSILON, "G should be lifted, got {}", p[1]);
         // The original magenta cast must be gone: R/G strictly less than the
@@ -451,12 +476,28 @@ mod tests {
         let cx = 5;
         let cy = 5;
         img.pixels[cy * 11 + cx] = [2.0, 1.0, 1.2];
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         let p = img.pixels[cy * 11 + cx];
         // All three channels should now be ≈ 1.2.
-        assert!((p[0] - 1.2).abs() < 0.05, "R recovered to ≈ 1.2, got {}", p[0]);
-        assert!((p[1] - 1.2).abs() < 0.05, "G recovered to ≈ 1.2, got {}", p[1]);
-        assert!((p[2] - 1.2).abs() < 0.05, "B unchanged at 1.2, got {}", p[2]);
+        assert!(
+            (p[0] - 1.2).abs() < 0.05,
+            "R recovered to ≈ 1.2, got {}",
+            p[0]
+        );
+        assert!(
+            (p[1] - 1.2).abs() < 0.05,
+            "G recovered to ≈ 1.2, got {}",
+            p[1]
+        );
+        assert!(
+            (p[2] - 1.2).abs() < 0.05,
+            "B unchanged at 1.2, got {}",
+            p[2]
+        );
         // Neutral chromaticity within 5%.
         let out_rg = p[0] / p[1];
         let out_bg = p[2] / p[1];
@@ -472,22 +513,30 @@ mod tests {
             *p = [0.3, 0.4, 0.5];
         }
         let before = img.pixels.clone();
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         assert_eq!(img.pixels, before);
     }
 
     #[test]
     fn empty_image_is_a_noop() {
         let mut img = Image::new(0, 0, ColorSpace::CameraNativeLinearRgb);
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         assert_eq!(img.pixels.len(), 0);
     }
 
     /// Perf budget per ticket #325: ChromaticAdaptation must add < 4ms on a
-     /// 2 MP viewport. We synthesize a 2 MP image with ~5% clipped pixels
-     /// (a realistic blown-sky scenario) and assert the stage finishes in
-     /// under 4 ms in release mode. Skipped in debug to avoid spurious
-     /// timing failures.
+    /// 2 MP viewport. We synthesize a 2 MP image with ~5% clipped pixels
+    /// (a realistic blown-sky scenario) and assert the stage finishes in
+    /// under 4 ms in release mode. Skipped in debug to avoid spurious
+    /// timing failures.
     #[test]
     #[cfg(not(debug_assertions))]
     fn perf_chromatic_adaptation_2mp_under_4ms_release() {
@@ -508,9 +557,16 @@ mod tests {
             }
         }
         let t0 = std::time::Instant::now();
-        apply(&mut img, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         let elapsed = t0.elapsed();
-        eprintln!("highlight_recovery::apply ChromaticAdaptation on 2 MP: {:?}", elapsed);
+        eprintln!(
+            "highlight_recovery::apply ChromaticAdaptation on 2 MP: {:?}",
+            elapsed
+        );
         assert!(
             elapsed < std::time::Duration::from_millis(4),
             "perf budget exceeded: {:?} > 4 ms",
@@ -530,8 +586,16 @@ mod tests {
         for p in &mut img_ca.pixels {
             *p = [1.6, 1.0, 1.0];
         }
-        apply(&mut img_blend, HighlightRecoveryMode::Blend, NEUTRAL_DAYLIGHT);
-        apply(&mut img_ca, HighlightRecoveryMode::ChromaticAdaptation, NEUTRAL_DAYLIGHT);
+        apply(
+            &mut img_blend,
+            HighlightRecoveryMode::Blend,
+            NEUTRAL_DAYLIGHT,
+        );
+        apply(
+            &mut img_ca,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            NEUTRAL_DAYLIGHT,
+        );
         assert_eq!(img_blend.pixels, img_ca.pixels);
     }
 }

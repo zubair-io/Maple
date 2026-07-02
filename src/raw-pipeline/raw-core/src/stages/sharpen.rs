@@ -74,13 +74,7 @@ const MIN_SCALE: f32 = 0.0;
 /// Non-cancellable wrapper — forwards to [`apply_cancellable`] with a
 /// never-cancel token, so its output is bit-identical to the pre-#951 stage.
 #[inline]
-pub fn apply(
-    img: &mut Image,
-    amount: f32,
-    radius: f32,
-    detail: f32,
-    masking: f32,
-) {
+pub fn apply(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
     apply_cancellable(img, amount, radius, detail, masking, CancelToken::never());
 }
 
@@ -118,7 +112,9 @@ pub fn apply_cancellable(
     cancel: CancelToken<'_>,
 ) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if amount.abs() < 1e-3 { return; }
+    if amount.abs() < 1e-3 {
+        return;
+    }
 
     // `radius` IS the Gaussian PSF sigma — keep it float all the way down.
     // (Pre-#1083 this was rounded to an integer box radius whose `/ 3`
@@ -133,7 +129,9 @@ pub fn apply_cancellable(
     // Gaussian blur is linear, so blur(luma) == LUMA · blur(rgb).
     // Computing luma first and blurring one plane is 3× cheaper than
     // blurring RGB and dot-producting at every output pixel.
-    let luma: Vec<f32> = img.pixels.iter()
+    let luma: Vec<f32> = img
+        .pixels
+        .iter()
         .map(|p| LUMA_R * p[0] + LUMA_G * p[1] + LUMA_B * p[2])
         .collect();
     let luma_blur = gaussian_blur_plane_sigma(&luma, w_usize, h_usize, sigma);
@@ -208,7 +206,11 @@ pub fn apply_cancellable(
                     // Normalise by a rough estimate: gradient around 0.2 on
                     // typical edges → g_norm ∈ [0, 1].
                     let g_norm = (g / 0.2).clamp(0.0, 1.0);
-                    if g_norm >= masking_threshold { 1.0 } else { detail_atten }
+                    if g_norm >= masking_threshold {
+                        1.0
+                    } else {
+                        detail_atten
+                    }
                 } else {
                     1.0 // masking=0 → mix everywhere equally
                 };

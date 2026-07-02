@@ -23,8 +23,11 @@ fn compute_profile_lut_matches_raw_core_bake() {
         let y = lift + (1.0 - lift) * x.powf(exp);
         (x, y.clamp(0.0, 1.0))
     };
-    let (mut r, mut g, mut b) =
-        (ChannelCurve::identity(), ChannelCurve::identity(), ChannelCurve::identity());
+    let (mut r, mut g, mut b) = (
+        ChannelCurve::identity(),
+        ChannelCurve::identity(),
+        ChannelCurve::identity(),
+    );
     for i in 0..32 {
         r.anchors[i] = shape(i, 0.7, 0.05);
         g.anchors[i] = shape(i, 1.0, 0.0);
@@ -78,16 +81,15 @@ fn compute_profile_lut_accepts_n_bounds() {
 fn render_bytes_scene_linear_returns_fp16_rgba_with_alpha_one() {
     // Path mirror of the helper test in raw-core; this test only runs
     // when the engineer has the fixtures locally.
-    let path = std::path::PathBuf::from(
-        std::env::var("CARGO_MANIFEST_DIR").unwrap()
-    ).join("../test-fixtures/raws/dji-mavic3pro-100mp.dng");
+    let path = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join("../test-fixtures/raws/dji-mavic3pro-100mp.dng");
     if !path.exists() {
         eprintln!("fixture missing at {:?} — skipping", path);
         return;
     }
     let bytes = std::fs::read(&path).expect("read fixture");
-    let result = render_bytes_scene_linear(&bytes, "dng", None, true)
-        .expect("render_bytes_scene_linear ok");
+    let result =
+        render_bytes_scene_linear(&bytes, "dng", None, true).expect("render_bytes_scene_linear ok");
     let w = result.width();
     let h = result.height();
     assert!(w > 0 && h > 0, "non-zero dimensions");
@@ -112,7 +114,10 @@ fn render_bytes_scene_linear_returns_fp16_rgba_with_alpha_one() {
     // (the synthetic input has signal).
     let any_nonzero_rgb = (0..256.min(w as usize * h as usize))
         .any(|i| lanes[i * 4] != 0 || lanes[i * 4 + 1] != 0 || lanes[i * 4 + 2] != 0);
-    assert!(any_nonzero_rgb, "all R/G/B lanes were zero — pipeline failure");
+    assert!(
+        any_nonzero_rgb,
+        "all R/G/B lanes were zero — pipeline failure"
+    );
 }
 
 /// Repo-root fixture path (raw-wasm sits two levels below src/). Skip-pass
@@ -139,9 +144,18 @@ fn render_bytes_scene_linear_sized_caps_long_edge_and_reports_native_dims() {
     let result = render_bytes_scene_linear_sized(&bytes, "dng", None, true, cap)
         .expect("sized scene-linear render ok");
     let (w, h) = (result.width(), result.height());
-    assert!(w.max(h) <= cap, "long edge {} exceeds cap {}", w.max(h), cap);
+    assert!(
+        w.max(h) <= cap,
+        "long edge {} exceeds cap {}",
+        w.max(h),
+        cap
+    );
     let lanes: Vec<u16> = result.fp16_rgba();
-    assert_eq!(lanes.len(), (w as usize) * (h as usize) * 4, "4 fp16 lanes per pixel");
+    assert_eq!(
+        lanes.len(),
+        (w as usize) * (h as usize) * 4,
+        "4 fp16 lanes per pixel"
+    );
     assert_eq!(lanes[3], 0x3c00, "alpha lane must be fp16 1.0");
 
     let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
@@ -151,8 +165,10 @@ fn render_bytes_scene_linear_sized_caps_long_edge_and_reports_native_dims() {
         (nw, nh),
         "full_* getters must carry the native oriented dims"
     );
-    assert!(result.full_width().max(result.full_height()) > cap,
-        "fixture should be larger than the cap for this test to be meaningful");
+    assert!(
+        result.full_width().max(result.full_height()) > cap,
+        "fixture should be larger than the cap for this test to be meaningful"
+    );
 }
 
 /// #1101: the sized display entry respects the cap, reports native dims,
@@ -162,11 +178,20 @@ fn render_bytes_sized_caps_long_edge_and_matches_as_shot_seed() {
     let Some(path) = fixture_path() else { return };
     let bytes = std::fs::read(&path).expect("read fixture");
     let cap = 768u32;
-    let sized = render_bytes_sized(&bytes, "dng", None, false, cap)
-        .expect("sized display render ok");
+    let sized =
+        render_bytes_sized(&bytes, "dng", None, false, cap).expect("sized display render ok");
     let (w, h) = (sized.width(), sized.height());
-    assert!(w.max(h) <= cap, "long edge {} exceeds cap {}", w.max(h), cap);
-    assert_eq!(sized.rgb().len(), (w as usize) * (h as usize) * 3, "packed RGB bytes");
+    assert!(
+        w.max(h) <= cap,
+        "long edge {} exceeds cap {}",
+        w.max(h),
+        cap
+    );
+    assert_eq!(
+        sized.rgb().len(),
+        (w as usize) * (h as usize) * 3,
+        "packed RGB bytes"
+    );
 
     let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
     let (nw, nh) = raw_core::pipeline::native_render_dims(&raw_img);

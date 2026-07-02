@@ -237,6 +237,9 @@ mod tests {
             wgsl_f(r0[1]),
             wgsl_f(r0[2]),
         );
-        assert!(s.contains(&expected), "row-major row 0 mismatch:\n{expected}");
+        assert!(
+            s.contains(&expected),
+            "row-major row 0 mismatch:\n{expected}"
+        );
     }
 }

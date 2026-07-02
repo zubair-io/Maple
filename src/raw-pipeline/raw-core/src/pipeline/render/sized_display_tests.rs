@@ -12,12 +12,7 @@ use super::*;
 use crate::image::{CfaPattern, CropRect, ExifOrientation};
 use crate::test_support::fixtures::require_raw;
 
-fn raw_with(
-    w: u32,
-    h: u32,
-    orientation: ExifOrientation,
-    crop_rect: Option<CropRect>,
-) -> RawImage {
+fn raw_with(w: u32, h: u32, orientation: ExifOrientation, crop_rect: Option<CropRect>) -> RawImage {
     RawImage {
         width: w,
         height: h,
@@ -39,6 +34,8 @@ fn raw_with(
         profile_tone_curve: None,
         profile_gain_table_map: None,
         crop_rect,
+        iso: 100,
+        noise_profile: None,
     }
 }
 
@@ -50,14 +47,24 @@ fn native_dims_no_crop_normal_orientation_is_sensor_dims() {
 
 #[test]
 fn native_dims_applies_default_crop() {
-    let crop = CropRect { x: 8, y: 8, w: 5984, h: 3984 };
+    let crop = CropRect {
+        x: 8,
+        y: 8,
+        w: 5984,
+        h: 3984,
+    };
     let raw = raw_with(6000, 4000, ExifOrientation::Normal, Some(crop));
     assert_eq!(native_render_dims(&raw), (5984, 3984));
 }
 
 #[test]
 fn native_dims_swaps_on_rotated_orientation() {
-    let crop = CropRect { x: 8, y: 8, w: 5984, h: 3984 };
+    let crop = CropRect {
+        x: 8,
+        y: 8,
+        w: 5984,
+        h: 3984,
+    };
     let raw = raw_with(6000, 4000, ExifOrientation::Rotate90, Some(crop));
     assert_eq!(native_render_dims(&raw), (3984, 5984));
     let raw = raw_with(6000, 4000, ExifOrientation::Rotate270, Some(crop));
@@ -70,7 +77,12 @@ fn native_dims_swaps_on_rotated_orientation() {
 #[test]
 fn native_dims_clamps_overlarge_crop_like_crop_to_default() {
     // Rect reaches past the sensor edge → clamp to the in-frame extent.
-    let crop = CropRect { x: 5990, y: 0, w: 100, h: 4000 };
+    let crop = CropRect {
+        x: 5990,
+        y: 0,
+        w: 100,
+        h: 4000,
+    };
     let raw = raw_with(6000, 4000, ExifOrientation::Normal, Some(crop));
     assert_eq!(native_render_dims(&raw), (10, 4000));
 }
@@ -79,7 +91,12 @@ fn native_dims_clamps_overlarge_crop_like_crop_to_default() {
 fn native_dims_degenerate_crop_falls_back_to_full_frame() {
     // Fully out-of-range rect clamps to zero size → treated as "no crop",
     // matching `crop_to_default`'s defensive no-op.
-    let crop = CropRect { x: 6000, y: 0, w: 100, h: 4000 };
+    let crop = CropRect {
+        x: 6000,
+        y: 0,
+        w: 100,
+        h: 4000,
+    };
     let raw = raw_with(6000, 4000, ExifOrientation::Normal, Some(crop));
     assert_eq!(native_render_dims(&raw), (6000, 4000));
 }
@@ -100,19 +117,25 @@ fn sized_display_at_native_cap_matches_unsized_render() {
     let (uw, uh, unsized_rgb) =
         render_from_raw_with_quality_and_source(&raw, &model, RenderQuality::Full, None)
             .expect("unsized render");
-    assert_eq!((uw, uh), (nw, nh), "native_render_dims must predict the Full render dims");
+    assert_eq!(
+        (uw, uh),
+        (nw, nh),
+        "native_render_dims must predict the Full render dims"
+    );
 
     let cap = uw.max(uh);
-    let (sw, sh, sized_rgb) = render_sized_from_raw_with_quality_and_source(
-        &raw,
-        &model,
-        RenderQuality::Full,
-        None,
-        cap,
-    )
-    .expect("sized render");
-    assert_eq!((sw, sh), (uw, uh), "cap at native long edge must not resize");
-    assert_eq!(sized_rgb, unsized_rgb, "sized@native-cap must be byte-identical to unsized");
+    let (sw, sh, sized_rgb) =
+        render_sized_from_raw_with_quality_and_source(&raw, &model, RenderQuality::Full, None, cap)
+            .expect("sized render");
+    assert_eq!(
+        (sw, sh),
+        (uw, uh),
+        "cap at native long edge must not resize"
+    );
+    assert_eq!(
+        sized_rgb, unsized_rgb,
+        "sized@native-cap must be byte-identical to unsized"
+    );
 }
 
 /// Fixture-gated: a sized display render below native respects the long-edge
@@ -129,7 +152,12 @@ fn sized_display_below_native_caps_long_edge() {
     let (w, h, rgb) =
         render_sized_from_raw_with_quality_and_source(&raw, &model, RenderQuality::Full, None, cap)
             .expect("sized render");
-    assert!(w.max(h) <= cap, "long edge {} exceeds cap {}", w.max(h), cap);
+    assert!(
+        w.max(h) <= cap,
+        "long edge {} exceeds cap {}",
+        w.max(h),
+        cap
+    );
     assert_eq!(rgb.len() as u32, w * h * 3);
     let (nw, nh) = native_render_dims(&raw);
     let native_aspect = nw as f64 / nh as f64;
@@ -141,5 +169,9 @@ fn sized_display_below_native_caps_long_edge() {
         sized_aspect
     );
     let zero_ratio = rgb.iter().filter(|b| **b == 0).count() as f32 / rgb.len() as f32;
-    assert!(zero_ratio < 0.5, "too many zeros ({:.1}%)", zero_ratio * 100.0);
+    assert!(
+        zero_ratio < 0.5,
+        "too many zeros ({:.1}%)",
+        zero_ratio * 100.0
+    );
 }

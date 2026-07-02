@@ -15,8 +15,7 @@ fn run_scene_linear_case(linear_value: f32, eps_color: f32, eps_flat: f32) {
         ..Default::default()
     };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
 
     let model = AdjustmentModel::default();
     let scene = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
@@ -25,10 +24,26 @@ fn run_scene_linear_case(linear_value: f32, eps_color: f32, eps_flat: f32) {
     // Invariant A: per-pixel R == G == B within eps_color.
     for (i, p) in scene.pixels.iter().enumerate() {
         let (r, g, b) = (p[0], p[1], p[2]);
-        assert!((r - g).abs() <= eps_color,
-            "pixel {}: |R-G| = {} > {} (R={} G={} B={})", i, (r-g).abs(), eps_color, r, g, b);
-        assert!((r - b).abs() <= eps_color,
-            "pixel {}: |R-B| = {} > {} (R={} G={} B={})", i, (r-b).abs(), eps_color, r, g, b);
+        assert!(
+            (r - g).abs() <= eps_color,
+            "pixel {}: |R-G| = {} > {} (R={} G={} B={})",
+            i,
+            (r - g).abs(),
+            eps_color,
+            r,
+            g,
+            b
+        );
+        assert!(
+            (r - b).abs() <= eps_color,
+            "pixel {}: |R-B| = {} > {} (R={} G={} B={})",
+            i,
+            (r - b).abs(),
+            eps_color,
+            r,
+            g,
+            b
+        );
     }
 
     // Invariant B: per-pixel value == image mean within eps_flat (per channel).
@@ -37,12 +52,30 @@ fn run_scene_linear_case(linear_value: f32, eps_color: f32, eps_flat: f32) {
     let mean_g: f32 = scene.pixels.iter().map(|p| p[1]).sum::<f32>() / n;
     let mean_b: f32 = scene.pixels.iter().map(|p| p[2]).sum::<f32>() / n;
     for (i, p) in scene.pixels.iter().enumerate() {
-        assert!((p[0] - mean_r).abs() <= eps_flat,
-            "pixel {} R={} deviates from mean R={} by > {}", i, p[0], mean_r, eps_flat);
-        assert!((p[1] - mean_g).abs() <= eps_flat,
-            "pixel {} G={} deviates from mean G={} by > {}", i, p[1], mean_g, eps_flat);
-        assert!((p[2] - mean_b).abs() <= eps_flat,
-            "pixel {} B={} deviates from mean B={} by > {}", i, p[2], mean_b, eps_flat);
+        assert!(
+            (p[0] - mean_r).abs() <= eps_flat,
+            "pixel {} R={} deviates from mean R={} by > {}",
+            i,
+            p[0],
+            mean_r,
+            eps_flat
+        );
+        assert!(
+            (p[1] - mean_g).abs() <= eps_flat,
+            "pixel {} G={} deviates from mean G={} by > {}",
+            i,
+            p[1],
+            mean_g,
+            eps_flat
+        );
+        assert!(
+            (p[2] - mean_b).abs() <= eps_flat,
+            "pixel {} B={} deviates from mean B={} by > {}",
+            i,
+            p[2],
+            mean_b,
+            eps_flat
+        );
     }
 }
 
@@ -68,40 +101,72 @@ fn run_display_case(linear_value: f32, eps_color: i32, eps_flat: i32) {
         ..Default::default()
     };
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic DNG must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic DNG must decode");
 
     let model = AdjustmentModel::default();
-    let (w, h, rgb) = render_from_raw(&raw, &model)
-        .expect("full pipeline render must succeed");
+    let (w, h, rgb) = render_from_raw(&raw, &model).expect("full pipeline render must succeed");
 
     let n = (w * h) as usize;
     assert_eq!(rgb.len(), n * 3);
 
     // Invariant A: per-pixel R == G == B in 8-bit LSB.
     for i in 0..n {
-        let r = rgb[i*3]     as i32;
-        let g = rgb[i*3 + 1] as i32;
-        let b = rgb[i*3 + 2] as i32;
-        assert!((r - g).abs() <= eps_color,
-            "pixel {}: |R-G| = {} > {} (R={} G={} B={})", i, (r-g).abs(), eps_color, r, g, b);
-        assert!((r - b).abs() <= eps_color,
-            "pixel {}: |R-B| = {} > {} (R={} G={} B={})", i, (r-b).abs(), eps_color, r, g, b);
+        let r = rgb[i * 3] as i32;
+        let g = rgb[i * 3 + 1] as i32;
+        let b = rgb[i * 3 + 2] as i32;
+        assert!(
+            (r - g).abs() <= eps_color,
+            "pixel {}: |R-G| = {} > {} (R={} G={} B={})",
+            i,
+            (r - g).abs(),
+            eps_color,
+            r,
+            g,
+            b
+        );
+        assert!(
+            (r - b).abs() <= eps_color,
+            "pixel {}: |R-B| = {} > {} (R={} G={} B={})",
+            i,
+            (r - b).abs(),
+            eps_color,
+            r,
+            g,
+            b
+        );
     }
 
     // Invariant B: per-channel flatness in 8-bit LSB.
     let mean = |chan: usize| -> i32 {
-        let s: i32 = (0..n).map(|i| rgb[i*3 + chan] as i32).sum();
-        (s + n as i32 / 2) / n as i32  // round-half-up
+        let s: i32 = (0..n).map(|i| rgb[i * 3 + chan] as i32).sum();
+        (s + n as i32 / 2) / n as i32 // round-half-up
     };
     let (mr, mg, mb) = (mean(0), mean(1), mean(2));
     for i in 0..n {
-        assert!((rgb[i*3]     as i32 - mr).abs() <= eps_flat,
-            "pixel {} R={} deviates from mean {} by > {}", i, rgb[i*3], mr, eps_flat);
-        assert!((rgb[i*3 + 1] as i32 - mg).abs() <= eps_flat,
-            "pixel {} G={} deviates from mean {} by > {}", i, rgb[i*3 + 1], mg, eps_flat);
-        assert!((rgb[i*3 + 2] as i32 - mb).abs() <= eps_flat,
-            "pixel {} B={} deviates from mean {} by > {}", i, rgb[i*3 + 2], mb, eps_flat);
+        assert!(
+            (rgb[i * 3] as i32 - mr).abs() <= eps_flat,
+            "pixel {} R={} deviates from mean {} by > {}",
+            i,
+            rgb[i * 3],
+            mr,
+            eps_flat
+        );
+        assert!(
+            (rgb[i * 3 + 1] as i32 - mg).abs() <= eps_flat,
+            "pixel {} G={} deviates from mean {} by > {}",
+            i,
+            rgb[i * 3 + 1],
+            mg,
+            eps_flat
+        );
+        assert!(
+            (rgb[i * 3 + 2] as i32 - mb).abs() <= eps_flat,
+            "pixel {} B={} deviates from mean {} by > {}",
+            i,
+            rgb[i * 3 + 2],
+            mb,
+            eps_flat
+        );
     }
 }
 
@@ -110,8 +175,20 @@ fn neutral_display_srgb_018() {
     run_display_case(0.18, 2, 2);
 }
 
-#[test] fn neutral_scene_linear_005() { run_scene_linear_case(0.05, SCENE_LINEAR_EPS, SCENE_LINEAR_EPS); }
-#[test] fn neutral_scene_linear_050() { run_scene_linear_case(0.50, SCENE_LINEAR_EPS, SCENE_LINEAR_EPS); }
+#[test]
+fn neutral_scene_linear_005() {
+    run_scene_linear_case(0.05, SCENE_LINEAR_EPS, SCENE_LINEAR_EPS);
+}
+#[test]
+fn neutral_scene_linear_050() {
+    run_scene_linear_case(0.50, SCENE_LINEAR_EPS, SCENE_LINEAR_EPS);
+}
 
-#[test] fn neutral_display_srgb_005() { run_display_case(0.05, 2, 2); }
-#[test] fn neutral_display_srgb_050() { run_display_case(0.50, 2, 2); }
+#[test]
+fn neutral_display_srgb_005() {
+    run_display_case(0.05, 2, 2);
+}
+#[test]
+fn neutral_display_srgb_050() {
+    run_display_case(0.50, 2, 2);
+}

@@ -1,7 +1,5 @@
 use crate::{
-    color::matrices::{
-        CAT16, M_REC2020_TO_XYZ_D65, M_XYZ_D65_TO_REC2020, XYZ_D65,
-    },
+    color::matrices::{CAT16, M_REC2020_TO_XYZ_D65, M_XYZ_D65_TO_REC2020, XYZ_D65},
     image::{ColorSpace, Image},
     math::{Matrix3, Vec3},
     types::WbMethod,
@@ -45,15 +43,9 @@ fn cat16_inverse() -> &'static Matrix3 {
 pub fn cct_to_xy(cct: f32) -> (f32, f32) {
     let t = cct.clamp(2000.0, 25000.0);
     let x = if t <= 4000.0 {
-         0.179_910
-       + 0.877_695_6e3 / t
-       - 0.234_358_9e6 / (t * t)
-       - 0.266_123_9e9 / (t * t * t)
+        0.179_910 + 0.877_695_6e3 / t - 0.234_358_9e6 / (t * t) - 0.266_123_9e9 / (t * t * t)
     } else {
-         0.240_390
-       + 0.222_634_7e3 / t
-       + 2.107_037_9e6 / (t * t)
-       - 3.025_846_9e9 / (t * t * t)
+        0.240_390 + 0.222_634_7e3 / t + 2.107_037_9e6 / (t * t) - 3.025_846_9e9 / (t * t * t)
     };
     let y = -3.000 * x * x + 2.870 * x - 0.275;
     (x, y)
@@ -301,26 +293,40 @@ mod tests {
         // source (3000K, tungsten) means we apply COOLING to compensate
         // — gain[R] < 1, gain[B] > 1. Reversed in the previous version.
         let gains = wb_gains(3000.0, 0.0);
-        assert!(gains[0] < 0.85,
-            "R should cut to cool a warm-source scene, got {}", gains[0]);
-        assert!(gains[2] > 1.20,
-            "B should boost to cool a warm-source scene, got {}", gains[2]);
+        assert!(
+            gains[0] < 0.85,
+            "R should cut to cool a warm-source scene, got {}",
+            gains[0]
+        );
+        assert!(
+            gains[2] > 1.20,
+            "B should boost to cool a warm-source scene, got {}",
+            gains[2]
+        );
     }
 
     #[test]
     fn cool_source_warms_image() {
         // Cool source (10000K, overcast) → apply WARMING to compensate.
         let gains = wb_gains(10000.0, 0.0);
-        assert!(gains[2] < 0.95,
-            "B should cut to warm a cool-source scene, got {}", gains[2]);
-        assert!(gains[0] > 1.05,
-            "R should boost to warm a cool-source scene, got {}", gains[0]);
+        assert!(
+            gains[2] < 0.95,
+            "B should cut to warm a cool-source scene, got {}",
+            gains[2]
+        );
+        assert!(
+            gains[0] > 1.05,
+            "R should boost to warm a cool-source scene, got {}",
+            gains[0]
+        );
     }
 
     #[test]
     fn default_is_identity_on_image() {
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.4, 0.5]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.4, 0.5];
+        }
         apply(&mut img, 6500.0, 0.0, WbMethod::Cat16);
         for p in &img.pixels {
             assert_eq!(p, &[0.3, 0.4, 0.5]);
@@ -331,11 +337,21 @@ mod tests {
     fn non_default_mutates_pixels() {
         // Warm source = 3000K → cooling correction → R cut, B boost.
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
         apply(&mut img, 3000.0, 0.0, WbMethod::DiagonalRec2020);
         for p in &img.pixels {
-            assert!(p[0] < 0.3, "R should cut for warm-source cooling, got {}", p[0]);
-            assert!(p[2] > 0.3, "B should boost for warm-source cooling, got {}", p[2]);
+            assert!(
+                p[0] < 0.3,
+                "R should cut for warm-source cooling, got {}",
+                p[0]
+            );
+            assert!(
+                p[2] > 0.3,
+                "B should boost for warm-source cooling, got {}",
+                p[2]
+            );
         }
     }
 
@@ -346,13 +362,23 @@ mod tests {
         // The CAT16 default flips this — see `cat16_tint_plus_adds_magenta`
         // below for the corrected convention.
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
         apply(&mut img, 6500.0, -100.0, WbMethod::DiagonalRec2020);
         for p in &img.pixels {
-            assert!(p[0] > p[1],
-                "R should exceed G for legacy-diagonal magenta tint, got R={} G={}", p[0], p[1]);
-            assert!(p[2] > p[1],
-                "B should exceed G for legacy-diagonal magenta tint, got B={} G={}", p[2], p[1]);
+            assert!(
+                p[0] > p[1],
+                "R should exceed G for legacy-diagonal magenta tint, got R={} G={}",
+                p[0],
+                p[1]
+            );
+            assert!(
+                p[2] > p[1],
+                "B should exceed G for legacy-diagonal magenta tint, got B={} G={}",
+                p[2],
+                p[1]
+            );
         }
     }
 
@@ -363,10 +389,16 @@ mod tests {
         // Hernández-Andrés's Planckian polynomial cools much harder
         // (R drops to ~0.41, B rises to ~5.34 at 2000K).
         let gains = wb_gains(2000.0, 0.0);
-        assert!(gains[0] < 0.6,
-            "R should fall below 0.6 to deeply cool a 2000K source, got {}", gains[0]);
-        assert!(gains[2] > 3.0,
-            "B should exceed 3.0 to deeply cool a 2000K source, got {}", gains[2]);
+        assert!(
+            gains[0] < 0.6,
+            "R should fall below 0.6 to deeply cool a 2000K source, got {}",
+            gains[0]
+        );
+        assert!(
+            gains[2] > 3.0,
+            "B should exceed 3.0 to deeply cool a 2000K source, got {}",
+            gains[2]
+        );
     }
 
     #[test]
@@ -376,10 +408,16 @@ mod tests {
         // clamps above that — matches the reference renderer's apparent behaviour. At the
         // 25000K clamp R~1.18 (warming) and B~0.57 (cool-source kill).
         let gains = wb_gains(50000.0, 0.0);
-        assert!(gains[0] > 1.15,
-            "R should boost above 1.15 to warm a 50000K (clamped 25000K) source, got {}", gains[0]);
-        assert!(gains[2] < 0.6,
-            "B should fall below 0.6 to warm a 50000K source, got {}", gains[2]);
+        assert!(
+            gains[0] > 1.15,
+            "R should boost above 1.15 to warm a 50000K (clamped 25000K) source, got {}",
+            gains[0]
+        );
+        assert!(
+            gains[2] < 0.6,
+            "B should fall below 0.6 to warm a 50000K source, got {}",
+            gains[2]
+        );
     }
 
     #[test]
@@ -387,20 +425,32 @@ mod tests {
         // Legacy `DiagonalRec2020` path: tint+100 (sign-inverted vs the
         // reference renderer) drops R and B below G, producing a green image.
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
         apply(&mut img, 6500.0, 100.0, WbMethod::DiagonalRec2020);
         for p in &img.pixels {
-            assert!(p[1] > p[0],
-                "G should exceed R for legacy-diagonal green tint, got G={} R={}", p[1], p[0]);
-            assert!(p[1] > p[2],
-                "G should exceed B for legacy-diagonal green tint, got G={} B={}", p[1], p[2]);
+            assert!(
+                p[1] > p[0],
+                "G should exceed R for legacy-diagonal green tint, got G={} R={}",
+                p[1],
+                p[0]
+            );
+            assert!(
+                p[1] > p[2],
+                "G should exceed B for legacy-diagonal green tint, got G={} B={}",
+                p[1],
+                p[2]
+            );
         }
     }
 
     #[test]
     fn apply_delta_identity_when_live_equals_decoded() {
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.4, 0.5]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.4, 0.5];
+        }
         apply_delta(&mut img, 5000.0, 10.0, 5000.0, 10.0, WbMethod::Cat16);
         for p in &img.pixels {
             assert_eq!(p, &[0.3, 0.4, 0.5]);
@@ -421,9 +471,15 @@ mod tests {
             for (a, b) in img_a.pixels.iter().zip(img_b.pixels.iter()) {
                 for c in 0..3 {
                     let rel_err = (a[c] - b[c]).abs() / a[c].max(1e-6);
-                    assert!(rel_err < 0.01,
+                    assert!(
+                        rel_err < 0.01,
                         "method {:?} channel {} apply={} apply_delta={} rel_err={}",
-                        method, c, a[c], b[c], rel_err);
+                        method,
+                        c,
+                        a[c],
+                        b[c],
+                        rel_err
+                    );
                 }
             }
         }
@@ -433,15 +489,22 @@ mod tests {
     fn apply_delta_round_trip_undoes_decoded() {
         for method in [WbMethod::Cat16, WbMethod::DiagonalRec2020] {
             let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-            for p in &mut img.pixels { *p = [0.4, 0.4, 0.4]; }
+            for p in &mut img.pixels {
+                *p = [0.4, 0.4, 0.4];
+            }
             apply(&mut img, 3000.0, 0.0, method);
             apply_delta(&mut img, 6500.0, 0.0, 3000.0, 0.0, method);
             for p in &img.pixels {
                 for c in 0..3 {
                     let err = (p[c] - 0.4).abs();
-                    assert!(err < 0.005,
+                    assert!(
+                        err < 0.005,
                         "method {:?} round-trip channel {}: got {}, expected ~0.4 (err={})",
-                        method, c, p[c], err);
+                        method,
+                        c,
+                        p[c],
+                        err
+                    );
                 }
             }
         }
@@ -458,7 +521,9 @@ mod tests {
         // R=G=B once `source ≠ D65`; that's what the WB slider *does*.
         // See `cat16_warm_source_cools_image` etc. for that direction.)
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.4, 0.4, 0.4]; }
+        for p in &mut img.pixels {
+            *p = [0.4, 0.4, 0.4];
+        }
         apply(&mut img, 6500.0, 0.0, WbMethod::Cat16);
         for p in &img.pixels {
             assert_eq!(p, &[0.4, 0.4, 0.4]);
@@ -470,22 +535,42 @@ mod tests {
         // 3000K source (tungsten) → cooling correction → R cut, B boost
         // on a neutral patch.
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
         apply(&mut img, 3000.0, 0.0, WbMethod::Cat16);
         for p in &img.pixels {
-            assert!(p[0] < 0.3, "CAT16: R should cut to cool a warm-source patch, got {}", p[0]);
-            assert!(p[2] > 0.3, "CAT16: B should boost to cool a warm-source patch, got {}", p[2]);
+            assert!(
+                p[0] < 0.3,
+                "CAT16: R should cut to cool a warm-source patch, got {}",
+                p[0]
+            );
+            assert!(
+                p[2] > 0.3,
+                "CAT16: B should boost to cool a warm-source patch, got {}",
+                p[2]
+            );
         }
     }
 
     #[test]
     fn cat16_cool_source_warms_image() {
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
         apply(&mut img, 10000.0, 0.0, WbMethod::Cat16);
         for p in &img.pixels {
-            assert!(p[0] > 0.3, "CAT16: R should boost to warm a cool-source patch, got {}", p[0]);
-            assert!(p[2] < 0.3, "CAT16: B should cut to warm a cool-source patch, got {}", p[2]);
+            assert!(
+                p[0] > 0.3,
+                "CAT16: R should boost to warm a cool-source patch, got {}",
+                p[0]
+            );
+            assert!(
+                p[2] < 0.3,
+                "CAT16: B should cut to warm a cool-source patch, got {}",
+                p[2]
+            );
         }
     }
 
@@ -493,26 +578,38 @@ mod tests {
     fn cat16_tint_plus_adds_magenta() {
         // Reference-renderer convention: tint+ = magenta image (R+B up vs G).
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
         apply(&mut img, 6500.0, 50.0, WbMethod::Cat16);
         for p in &img.pixels {
             let rb_minus_2g = (p[0] + p[2]) - 2.0 * p[1];
-            assert!(rb_minus_2g > 0.0,
+            assert!(
+                rb_minus_2g > 0.0,
                 "CAT16: tint+50 should push (R+B) > 2G (magenta), got R={} G={} B={}",
-                p[0], p[1], p[2]);
+                p[0],
+                p[1],
+                p[2]
+            );
         }
     }
 
     #[test]
     fn cat16_tint_minus_adds_green() {
         let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.3, 0.3]; }
+        for p in &mut img.pixels {
+            *p = [0.3, 0.3, 0.3];
+        }
         apply(&mut img, 6500.0, -50.0, WbMethod::Cat16);
         for p in &img.pixels {
             let rb_minus_2g = (p[0] + p[2]) - 2.0 * p[1];
-            assert!(rb_minus_2g < 0.0,
+            assert!(
+                rb_minus_2g < 0.0,
                 "CAT16: tint-50 should push (R+B) < 2G (green), got R={} G={} B={}",
-                p[0], p[1], p[2]);
+                p[0],
+                p[1],
+                p[2]
+            );
         }
     }
 
@@ -534,9 +631,13 @@ mod tests {
         // The grey-adjustment `temp_symmetric` predictor gates `0.3 < ratio < 3.0`.
         // Main's diagonal path produces 8.98; CAT16 lands near 0.6 (order-of-
         // magnitude tighter). Local tolerance gives margin without overclaiming.
-        assert!(ratio > 0.4 && ratio < 2.5,
+        assert!(
+            ratio > 0.4 && ratio < 2.5,
             "CAT16 +/-1000K asymmetry too large: warm |R-B|={}, cool |R-B|={}, ratio={}",
-            warm_d, cool_d, ratio);
+            warm_d,
+            cool_d,
+            ratio
+        );
     }
 
     #[test]

@@ -218,4 +218,3 @@ pub fn encode_v3(profiles: &[EncoderProfile]) -> EncodedV3 {
         hsm_instances,
     }
 }
-

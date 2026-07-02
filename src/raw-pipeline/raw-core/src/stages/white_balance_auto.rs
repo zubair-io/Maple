@@ -199,8 +199,12 @@ mod tests {
         // log2(B/R) > 0 → 5500 + positive offset → higher CCT. ✓
         let cct_b_gt_r = estimate_cct_from_neutral([0.5, 1.0, 0.8]); // B > R
         let cct_neutral = estimate_cct_from_neutral([1.0, 1.0, 1.0]);
-        assert!(cct_b_gt_r > cct_neutral,
-            "neutral with B>R should give higher CCT: got {} vs {}", cct_b_gt_r, cct_neutral);
+        assert!(
+            cct_b_gt_r > cct_neutral,
+            "neutral with B>R should give higher CCT: got {} vs {}",
+            cct_b_gt_r,
+            cct_neutral
+        );
     }
 
     #[test]
@@ -209,16 +213,24 @@ mod tests {
         // log2(B/R) < 0 → 5500 + negative offset → lower CCT. ✓
         let cct_r_gt_b = estimate_cct_from_neutral([0.8, 1.0, 0.5]); // R > B
         let cct_neutral = estimate_cct_from_neutral([1.0, 1.0, 1.0]);
-        assert!(cct_r_gt_b < cct_neutral,
-            "neutral with R>B should give lower CCT: got {} vs {}", cct_r_gt_b, cct_neutral);
+        assert!(
+            cct_r_gt_b < cct_neutral,
+            "neutral with R>B should give lower CCT: got {} vs {}",
+            cct_r_gt_b,
+            cct_neutral
+        );
     }
 
     #[test]
     fn estimate_cct_result_in_valid_range() {
         for n in [[0.4_f32, 1.0, 0.9], [0.9, 1.0, 0.5], [0.5, 1.0, 0.5]] {
             let cct = estimate_cct_from_neutral(n);
-            assert!(cct >= 2000.0 && cct <= 12000.0,
-                "neutral {:?}: CCT {} out of range", n, cct);
+            assert!(
+                cct >= 2000.0 && cct <= 12000.0,
+                "neutral {:?}: CCT {} out of range",
+                n,
+                cct
+            );
         }
     }
 
@@ -229,8 +241,13 @@ mod tests {
         let mut prev = 0.0f32;
         for &ratio in &ratios {
             let cct = estimate_cct_from_neutral([1.0, 1.0, ratio]);
-            assert!(cct > prev || prev == 0.0,
-                "CCT not monotone at B/R={}: prev={}, got={}", ratio, prev, cct);
+            assert!(
+                cct > prev || prev == 0.0,
+                "CCT not monotone at B/R={}: prev={}, got={}",
+                ratio,
+                prev,
+                cct
+            );
             prev = cct;
         }
     }
@@ -241,20 +258,30 @@ mod tests {
     fn neutral_to_temp_tint_neutral_rgb_gives_near_d65() {
         // A perfectly neutral [1,1,1] means gain R/B = 1 → source ≈ D65 ≈ 6500K.
         let (t, tint) = neutral_to_temp_tint([1.0, 1.0, 1.0]);
-        assert!((t - 6500.0).abs() < 1000.0,
-            "neutral [1,1,1] should give near-D65 (~6500K), got {} K", t);
-        assert!(tint.abs() < 1.0,
-            "perfectly neutral [1,1,1] should solve to ~0 tint, got {}", tint);
+        assert!(
+            (t - 6500.0).abs() < 1000.0,
+            "neutral [1,1,1] should give near-D65 (~6500K), got {} K",
+            t
+        );
+        assert!(
+            tint.abs() < 1.0,
+            "perfectly neutral [1,1,1] should solve to ~0 tint, got {}",
+            tint
+        );
     }
 
     #[test]
     fn neutral_to_temp_tint_cool_neutral_higher_cct() {
         // B > R in neutral → COOL source illuminant → need WARM correction → higher CCT slider.
         // R > B in neutral → WARM source illuminant → need COOL correction → lower CCT slider.
-        let (t_b_gt_r, _) = neutral_to_temp_tint([0.5, 1.0, 0.8]);  // B > R: cool source
-        let (t_r_gt_b, _) = neutral_to_temp_tint([0.8, 1.0, 0.5]);  // R > B: warm source
-        assert!(t_b_gt_r > t_r_gt_b,
-            "B>R neutral should give higher CCT (cool source) than R>B: {} vs {}", t_b_gt_r, t_r_gt_b);
+        let (t_b_gt_r, _) = neutral_to_temp_tint([0.5, 1.0, 0.8]); // B > R: cool source
+        let (t_r_gt_b, _) = neutral_to_temp_tint([0.8, 1.0, 0.5]); // R > B: warm source
+        assert!(
+            t_b_gt_r > t_r_gt_b,
+            "B>R neutral should give higher CCT (cool source) than R>B: {} vs {}",
+            t_b_gt_r,
+            t_r_gt_b
+        );
     }
 
     #[test]
@@ -265,8 +292,13 @@ mod tests {
         let mut prev = 0.0_f32;
         for &b in &b_values {
             let (cct, _) = neutral_to_temp_tint([0.7, 1.0, b]);
-            assert!(cct > prev || prev == 0.0,
-                "neutral_to_temp_tint not monotone at B={}: prev={}, got={}", b, prev, cct);
+            assert!(
+                cct > prev || prev == 0.0,
+                "neutral_to_temp_tint not monotone at B={}: prev={}, got={}",
+                b,
+                prev,
+                cct
+            );
             prev = cct;
         }
     }
@@ -281,10 +313,18 @@ mod tests {
         ];
         for n in &neutrals {
             let (cct, tint) = neutral_to_temp_tint(*n);
-            assert!(cct >= 2000.0 && cct <= 25000.0,
-                "neutral {:?}: CCT {} out of range", n, cct);
-            assert!(tint.abs() <= 100.0,
-                "neutral {:?}: tint {} out of range", n, tint);
+            assert!(
+                cct >= 2000.0 && cct <= 25000.0,
+                "neutral {:?}: CCT {} out of range",
+                n,
+                cct
+            );
+            assert!(
+                tint.abs() <= 100.0,
+                "neutral {:?}: tint {} out of range",
+                n,
+                tint
+            );
         }
     }
 
@@ -305,10 +345,20 @@ mod tests {
             let g = wb_gains(cct, tint);
             let neutral = [1.0 / g[0], 1.0, 1.0 / g[2]];
             let (rc, rt) = neutral_to_temp_tint(neutral);
-            assert!((rc - cct).abs() < 500.0,
-                "cct {} tint {} → recovered cct {}", cct, tint, rc);
-            assert!((rt - tint).abs() < 6.0,
-                "cct {} tint {} → recovered tint {}", cct, tint, rt);
+            assert!(
+                (rc - cct).abs() < 500.0,
+                "cct {} tint {} → recovered cct {}",
+                cct,
+                tint,
+                rc
+            );
+            assert!(
+                (rt - tint).abs() < 6.0,
+                "cct {} tint {} → recovered tint {}",
+                cct,
+                tint,
+                rt
+            );
         }
     }
 }

@@ -254,7 +254,7 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     let h_amount = model.highlights / 100.0;
     let h_denom = 1.0 + h_amount * 2.0; // ≥ 1 whenever the h ≥ 0 branch uses it
     let h_expand = 1.0 + 2.0 * h_amount.abs(); // ≥ 1, used by the h < 0 branch
-    // Shadows (#1103): see `shadows_mult`.
+                                               // Shadows (#1103): see `shadows_mult`.
     let s_amount = model.shadows / 100.0;
     // Whites: smoothstep-weighted upper-end gain (see step 4).
     let w_amount = model.whites / 200.0;
@@ -284,9 +284,7 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             // sliders' domain. Hue is preserved by construction: the only
             // operation on RGB is a uniform scalar multiply.
             if apply_brightness {
-                let y = LUMA_REC2020[0] * p[0]
-                    + LUMA_REC2020[1] * p[1]
-                    + LUMA_REC2020[2] * p[2];
+                let y = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
                 let w = smoothstep(B_LO0, B_LO1, y) * (1.0 - smoothstep(B_HI0, B_HI1, y));
                 let gain = (br_amount * w).exp2();
                 p[0] *= gain;
@@ -323,9 +321,8 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             // saturates to 1 → full whites/200 gain. RGB is scaled uniformly
             // by the same factor so hue is preserved.
             if apply_whites {
-                let y_old = LUMA_REC2020[0] * p[0]
-                    + LUMA_REC2020[1] * p[1]
-                    + LUMA_REC2020[2] * p[2];
+                let y_old =
+                    LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
                 let w = smoothstep(0.5, 1.0, y_old);
                 let w_gain = 1.0 + w_amount * w;
                 p[0] *= w_gain;
@@ -366,9 +363,8 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             // See investigation spec
             // .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
             if apply_blacks {
-                let y_old = LUMA_REC2020[0] * p[0]
-                    + LUMA_REC2020[1] * p[1]
-                    + LUMA_REC2020[2] * p[2];
+                let y_old =
+                    LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
                 let w = 1.0 - smoothstep(0.0, 0.2, y_old);
                 if b_amount < 0.0 {
                     let factor = 1.0 + b_amount * w;

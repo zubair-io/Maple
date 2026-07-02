@@ -68,7 +68,6 @@ const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 /// Per-channel airlight floor applied INSIDE transmission only.
 const A_FLOOR: f32 = 1e-6;
 
-
 // ── `repr(C)` uniforms for the dehaze kernels ─────────────────────────────────
 
 /// `dehaze_min.wgsl` uniform: dims + mode. The airlight rides a SEPARATE uniform
@@ -333,7 +332,15 @@ impl Pass for DehazePass {
             "dehaze-sky-mask",
         );
         let sky = spatial::alloc_plane(ctx, width, height, "dehaze-sky");
-        spatial::box_blur_encode(ctx, encoder, &sky_raw, &sky, width, height, SKY_MASK_BLUR_RADIUS);
+        spatial::box_blur_encode(
+            ctx,
+            encoder,
+            &sky_raw,
+            &sky,
+            width,
+            height,
+            SKY_MASK_BLUR_RADIUS,
+        );
 
         // 5. Recovery (MULTI-INPUT, 4 storage + 2 uniforms): orig + mean_ab + sky →
         //    dst, with A read from the airlight uniform (binding 5, #1033 — so A is

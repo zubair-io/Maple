@@ -6,12 +6,8 @@ use super::*;
 /// fixture's XTransLayout). Used for synthetic constructions in
 /// the unit tests.
 const FUJI_PATTERN: [u8; 36] = [
-    1, 1, 0, 1, 1, 2,
-    1, 1, 2, 1, 1, 0,
-    2, 0, 1, 0, 2, 1,
-    1, 1, 2, 1, 1, 0,
-    1, 1, 0, 1, 1, 2,
-    0, 2, 1, 2, 0, 1,
+    1, 1, 0, 1, 1, 2, 1, 1, 2, 1, 1, 0, 2, 0, 1, 0, 2, 1, 1, 1, 2, 1, 1, 0, 1, 1, 0, 1, 1, 2, 0, 2,
+    1, 2, 0, 1,
 ];
 
 fn xtrans_uniform(w: u32, h: u32, r: f32, g: f32, b: f32) -> (Image, CfaPattern) {
@@ -20,7 +16,12 @@ fn xtrans_uniform(w: u32, h: u32, r: f32, g: f32, b: f32) -> (Image, CfaPattern)
     for y in 0..h {
         for x in 0..w {
             let c = cfa.color_at(x, y) as usize;
-            let v = match c { 0 => r, 1 => g, 2 => b, _ => 0.0 };
+            let v = match c {
+                0 => r,
+                1 => g,
+                2 => b,
+                _ => 0.0,
+            };
             img.pixels[(y * w + x) as usize][c] = v;
         }
     }
@@ -130,18 +131,26 @@ fn markesteijn_resolves_finer_detail_than_xtrans_bilinear() {
     };
     let hf_bi = hf_energy(&bi);
     let hf_mk = hf_energy(&mk);
-    eprintln!("xtrans HF energy: bilinear={:.3} markesteijn={:.3} ratio={:.3}×",
-              hf_bi, hf_mk, hf_mk / hf_bi);
+    eprintln!(
+        "xtrans HF energy: bilinear={:.3} markesteijn={:.3} ratio={:.3}×",
+        hf_bi,
+        hf_mk,
+        hf_mk / hf_bi
+    );
     // Markesteijn must preserve at least as much HF energy as
     // bilinear on this synthetic patch. The 1.0 floor (no slack) is
     // intentional — the algorithm's job is detail recovery; if it
     // doesn't beat bilinear on a 2-pixel checkerboard there is no
     // reason to ship it.
-    assert!(hf_mk >= hf_bi,
+    assert!(
+        hf_mk >= hf_bi,
         "Markesteijn HF energy {:.3} below bilinear HF energy {:.3} \
          (ratio {:.3}) — Markesteijn must preserve at least as much \
          detail as bilinear on a 2-pixel checkerboard",
-        hf_mk, hf_bi, hf_mk / hf_bi);
+        hf_mk,
+        hf_bi,
+        hf_mk / hf_bi
+    );
 }
 
 /// xtrans_bilinear must preserve the measured center-channel value
@@ -228,13 +237,22 @@ fn markesteijn_edge_column_directional_green_is_consistent() {
     for y in 2..(h - 2) {
         for x in 2..=3 {
             let p = out.pixels[(y * w + x) as usize];
-            assert!(p[1].is_finite(),
-                "G at ({},{}) is non-finite: {}", x, y, p[1]);
-            assert!(p[1] >= -tol,
-                "G at ({},{}) is negative: {}", x, y, p[1]);
-            assert!(p[1] <= 0.8 + tol,
+            assert!(
+                p[1].is_finite(),
+                "G at ({},{}) is non-finite: {}",
+                x,
+                y,
+                p[1]
+            );
+            assert!(p[1] >= -tol, "G at ({},{}) is negative: {}", x, y, p[1]);
+            assert!(
+                p[1] <= 0.8 + tol,
                 "G at ({},{}) above input range: {} (max ≈ 0.8 + {})",
-                x, y, p[1], tol);
+                x,
+                y,
+                p[1],
+                tol
+            );
         }
     }
 }

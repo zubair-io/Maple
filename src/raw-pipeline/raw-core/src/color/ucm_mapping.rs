@@ -95,9 +95,11 @@ mod tests {
 
     fn make_raw(model: &str) -> RawImage {
         RawImage {
-            width: 1, height: 1,
+            width: 1,
+            height: 1,
             cfa: CfaPattern::Rggb,
-            black_level: [0; 4], white_level: 1,
+            black_level: [0; 4],
+            white_level: 1,
             raw_data: vec![0],
             as_shot_neutral: [1.0, 1.0, 1.0],
             as_shot_cct: None,
@@ -113,6 +115,8 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         }
     }
 

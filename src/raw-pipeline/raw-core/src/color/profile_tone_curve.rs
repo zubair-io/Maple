@@ -136,7 +136,12 @@ mod tests {
         // (0,0) and (1,1) — perfectly linear identity.
         let c = ProfileToneCurve::from_floats(vec![0.0, 0.0, 1.0, 1.0]).unwrap();
         for x in [0.0_f32, 0.18, 0.5, 0.9, 1.0] {
-            assert!((c.eval(x) - x).abs() < 1e-6, "id curve at {} = {}", x, c.eval(x));
+            assert!(
+                (c.eval(x) - x).abs() < 1e-6,
+                "id curve at {} = {}",
+                x,
+                c.eval(x)
+            );
         }
     }
 
@@ -176,8 +181,12 @@ mod tests {
         apply(&mut img, &c);
         for (a, b) in before.iter().zip(img.pixels.iter()) {
             for c in 0..3 {
-                assert!((a[c] - b[c]).abs() < 1e-5,
-                    "identity PTC mutated pixel: before={:?} after={:?}", a, b);
+                assert!(
+                    (a[c] - b[c]).abs() < 1e-5,
+                    "identity PTC mutated pixel: before={:?} after={:?}",
+                    a,
+                    b
+                );
             }
         }
     }
@@ -192,10 +201,19 @@ mod tests {
         apply(&mut img, &c);
         // max was 1.5, eval(1.5) clamps to 1.0, scale = 1/1.5 = 2/3.
         let expected_scale = 1.0_f32 / 1.5;
-        let exp = [1.5 * expected_scale, 1.0 * expected_scale, 0.05 * expected_scale];
+        let exp = [
+            1.5 * expected_scale,
+            1.0 * expected_scale,
+            0.05 * expected_scale,
+        ];
         for c_i in 0..3 {
-            assert!((img.pixels[0][c_i] - exp[c_i]).abs() < 1e-5,
-                "ch{} = {} (want {})", c_i, img.pixels[0][c_i], exp[c_i]);
+            assert!(
+                (img.pixels[0][c_i] - exp[c_i]).abs() < 1e-5,
+                "ch{} = {} (want {})",
+                c_i,
+                img.pixels[0][c_i],
+                exp[c_i]
+            );
         }
     }
 

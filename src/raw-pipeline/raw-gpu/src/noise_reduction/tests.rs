@@ -142,7 +142,7 @@ fn raw_core_nr_luma(buf: &[f32], w: u32, h: u32, amount: f32) -> Vec<f32> {
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-    raw_core::stages::noise_reduction::apply_luminance(&mut img, amount);
+    raw_core::stages::noise_reduction::apply_luminance(&mut img, amount, None, 100);
     let mut out = Vec::with_capacity(buf.len());
     for (i, p) in img.pixels.iter().enumerate() {
         out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
@@ -158,7 +158,7 @@ fn raw_core_nr_color(buf: &[f32], w: u32, h: u32, amount: f32) -> Vec<f32> {
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-    raw_core::stages::noise_reduction::apply_color(&mut img, amount);
+    raw_core::stages::noise_reduction::apply_color(&mut img, amount, None, 100);
     let mut out = Vec::with_capacity(buf.len());
     for (i, p) in img.pixels.iter().enumerate() {
         out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);

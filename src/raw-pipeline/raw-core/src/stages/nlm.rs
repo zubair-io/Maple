@@ -165,7 +165,17 @@ pub struct NlmParams {
 /// pre-#951 implementation. Existing callers and tests use this entry.
 #[inline]
 pub fn denoise_plane(plane: &[f32], w: usize, h: usize, params: NlmParams) -> Vec<f32> {
-    denoise_plane_cancellable(plane, w, h, params, CancelToken::never())
+    denoise_plane_cancellable(
+        plane,
+        w,
+        h,
+        params,
+        CancelToken::never(),
+        plane,
+        None,
+        0,
+        false,
+    )
 }
 
 /// Cancellable variant of [`denoise_plane`]. Identical math; additionally
@@ -194,6 +204,10 @@ pub fn denoise_plane_cancellable(
     h: usize,
     params: NlmParams,
     cancel: CancelToken<'_>,
+    l_plane: &[f32],
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+    is_chroma: bool,
 ) -> Vec<f32> {
     let n = w * h;
     if plane.len() != n {
@@ -204,9 +218,38 @@ pub fn denoise_plane_cancellable(
     }
     let p = params.patch_radius;
     let s = params.search_radius as isize;
-    let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
-    let h_sq = params.h * params.h;
-    let inv_norm = 1.0 / (h_sq * patch_area);
+
+    let use_dynamic = noise_profile.is_some();
+    let (s_coeff, o_coeff) = if use_dynamic {
+        get_noise_params(noise_profile, iso, is_chroma)
+    } else {
+        (0.0, 0.0)
+    };
+
+    let mut local_s_plane = Vec::new();
+    let mut local_inv_norm_plane = Vec::new();
+    if use_dynamic {
+        let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
+        local_s_plane = vec![0isize; n];
+        local_inv_norm_plane = vec![0.0f32; n];
+        local_s_plane
+            .par_iter_mut()
+            .zip(local_inv_norm_plane.par_iter_mut())
+            .zip(l_plane.par_iter())
+            .for_each(|((s_out, inv_norm_out), &l_val)| {
+                let local_l = l_val.clamp(0.0, 10.0);
+                let var = s_coeff * local_l + o_coeff;
+                let sigma = var.max(0.0).sqrt();
+                let scale = (sigma / 0.002366).clamp(0.1, 10.0);
+
+                let local_h = params.h * scale;
+                let local_h_sq = local_h * local_h;
+                *inv_norm_out = 1.0 / (local_h_sq * patch_area);
+
+                let local_s = (params.search_radius as f32 * scale).round() as isize;
+                *s_out = local_s.clamp(1, params.search_radius as isize);
+            });
+    }
 
     // Persistent scratch — allocated once, reused across all shifts. (#1195
     // replaced the per-shift (w+1)×(h+1) f32 integral image with a FUSED
@@ -241,7 +284,10 @@ pub fn denoise_plane_cancellable(
                 p,
                 dx,
                 dy,
-                inv_norm,
+                params,
+                &local_s_plane,
+                &local_inv_norm_plane,
+                use_dynamic,
                 &mut sqdiff,
                 &mut acc,
                 &mut wsum,
@@ -262,6 +308,43 @@ pub fn denoise_plane_cancellable(
     out
 }
 
+#[inline(always)]
+fn get_noise_params(profile: Option<&[f32]>, iso: u32, is_chroma: bool) -> (f32, f32) {
+    if iso == 0 {
+        return (0.0, 0.0);
+    }
+    if let Some(prof) = profile {
+        if prof.len() >= 6 {
+            let (sr, or, sg, og, sb, ob) = if prof.len() >= 8 {
+                let sg = 0.5 * (prof[2] + prof[4]);
+                let og = 0.5 * (prof[3] + prof[5]);
+                (prof[0], prof[1], sg, og, prof[6], prof[7])
+            } else {
+                (prof[0], prof[1], prof[2], prof[3], prof[4], prof[5])
+            };
+            if is_chroma {
+                (0.5 * (sr + sb), 0.5 * (or + ob))
+            } else {
+                let s_luma = 0.2627 * sr + 0.6780 * sg + 0.0593 * sb;
+                let o_luma = 0.2627 * 0.2627 * or + 0.6780 * 0.6780 * og + 0.0593 * 0.0593 * ob;
+                (s_luma, o_luma)
+            }
+        } else if prof.len() >= 2 {
+            (prof[0], prof[1])
+        } else {
+            fallback_noise_params(iso)
+        }
+    } else {
+        fallback_noise_params(iso)
+    }
+}
+
+#[inline(always)]
+fn fallback_noise_params(iso: u32) -> (f32, f32) {
+    let ratio = iso as f32 / 100.0;
+    (0.00002 * ratio, 0.000002 * ratio * ratio)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn process_shift(
     plane: &[f32],
@@ -270,7 +353,10 @@ fn process_shift(
     p: usize,
     dx: isize,
     dy: isize,
-    inv_norm: f32,
+    params: NlmParams,
+    local_s_plane: &[isize],
+    local_inv_norm_plane: &[f32],
+    use_dynamic: bool,
     sqdiff: &mut [f32],
     acc: &mut [f32],
     wsum: &mut [f32],
@@ -369,7 +455,9 @@ fn process_shift(
     let band_rows = y_hi - y_lo + 1;
     let threads = rayon::current_num_threads().max(1);
     const MIN_STRIP_ROWS: usize = 32;
-    let vstrip = (band_rows / threads).clamp(MIN_STRIP_ROWS, VSTRIP_ROWS).max(1);
+    let vstrip = (band_rows / threads)
+        .clamp(MIN_STRIP_ROWS, VSTRIP_ROWS)
+        .max(1);
     let strip_len = vstrip * w;
     // Thread-local horizontal-sum scratch: at most (VSTRIP_ROWS + 2p) rows ×
     // w cols. Sized for the cap so it is allocated once per worker and reused.
@@ -450,18 +538,35 @@ fn process_shift(
                     let wsum_row = &mut wsum_strip[r * w..(r + 1) * w];
                     let max_w_row = &mut max_w_strip[r * w..(r + 1) * w];
                     for x in x_lo..=x_hi {
-                        // True patch-SSD is ≥ 0 by construction. With the local
-                        // box-sum there is no global-prefix cancellation, so this
-                        // clamp is now belt-and-braces (kept as defense layer 1 of
-                        // 2 for #1086 — it also neutralises a stray NaN;
-                        // `fast_neg_exp` independently guards negative input).
-                        let ssd = colsum[x].max(0.0);
-                        let weight = fast_neg_exp(ssd * inv_norm);
-                        let sx = (x as isize + dx) as usize;
-                        acc_row[x] += weight * shift_row[sx];
-                        wsum_row[x] += weight;
-                        if weight > max_w_row[x] {
-                            max_w_row[x] = weight;
+                        if !use_dynamic {
+                            // Classic constant-h NLM: no dynamic scaling, no pruning
+                            let ssd = colsum[x].max(0.0);
+                            let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
+                            let inv_norm = 1.0 / (params.h * params.h * patch_area);
+                            let weight = fast_neg_exp(ssd * inv_norm);
+                            let sx = (x as isize + dx) as usize;
+                            acc_row[x] += weight * shift_row[sx];
+                            wsum_row[x] += weight;
+                            if weight > max_w_row[x] {
+                                max_w_row[x] = weight;
+                            }
+                        } else {
+                            // Dynamic variance-scaled NLM
+                            let idx = y * w + x;
+                            let local_s = local_s_plane[idx];
+
+                            if dx.abs() > local_s || dy.abs() > local_s {
+                                continue;
+                            }
+
+                            let ssd = colsum[x].max(0.0);
+                            let weight = fast_neg_exp(ssd * local_inv_norm_plane[idx]);
+                            let sx = (x as isize + dx) as usize;
+                            acc_row[x] += weight * shift_row[sx];
+                            wsum_row[x] += weight;
+                            if weight > max_w_row[x] {
+                                max_w_row[x] = weight;
+                            }
                         }
                     }
                 }

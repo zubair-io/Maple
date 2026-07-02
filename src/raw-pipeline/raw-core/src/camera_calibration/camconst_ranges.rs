@@ -75,12 +75,23 @@ pub(super) static CAMCONST_ENTRIES: &[CamconstEntry] = &[
         data: Linearization {
             black: &[],
             white: &[
-            IsoBucket { iso_range: (50, 100), value: WhiteLevels::Single(14650) }, // iso=[50, 100]
-            IsoBucket { iso_range: (160, 5000), value: WhiteLevels::Single(15280) }, // iso=[160, 320, 640, 1250, 2500, 5000]
-            IsoBucket { iso_range: (125, 2000), value: WhiteLevels::Single(15280) }, // iso=[125, 200, 250, 400, 500, 800, 1000, 1600, 2000]
-            IsoBucket { iso_range: (3200, 25600), value: WhiteLevels::Single(15100) }, // iso=[3200, 4000, 6400, 8000, 10000, 12800, 16000, 20000, 25600]
+                IsoBucket {
+                    iso_range: (50, 100),
+                    value: WhiteLevels::Single(14650),
+                }, // iso=[50, 100]
+                IsoBucket {
+                    iso_range: (160, 5000),
+                    value: WhiteLevels::Single(15280),
+                }, // iso=[160, 320, 640, 1250, 2500, 5000]
+                IsoBucket {
+                    iso_range: (125, 2000),
+                    value: WhiteLevels::Single(15280),
+                }, // iso=[125, 200, 250, 400, 500, 800, 1000, 1600, 2000]
+                IsoBucket {
+                    iso_range: (3200, 25600),
+                    value: WhiteLevels::Single(15100),
+                }, // iso=[3200, 4000, 6400, 8000, 10000, 12800, 16000, 20000, 25600]
             ],
         },
     },
-
 ];

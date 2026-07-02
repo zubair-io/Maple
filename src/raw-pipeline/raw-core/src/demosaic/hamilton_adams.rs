@@ -5,8 +5,8 @@
 //! back to bilinear in a 2-pixel border where the 5-wide neighborhood
 //! doesn't fit.
 
-use crate::image::{CfaPattern, ColorSpace, Image};
 use super::bilinear::bilinear;
+use crate::image::{CfaPattern, ColorSpace, Image};
 
 /// Hamilton-Adams demosaic. Input must be `CameraNativeMosaic` with a 3-
 /// channel pixel buffer where only the CFA-appropriate channel carries data.
@@ -32,22 +32,22 @@ pub fn hamilton_adams(mosaic: &Image, cfa: CfaPattern) -> Image {
     for y in 2..h - 2 {
         for x in 2..w - 2 {
             let color = cfa.color_at(x as u32, y as u32) as usize;
-            if color == 1 { continue; } // Already have G at G positions.
+            if color == 1 {
+                continue;
+            } // Already have G at G positions.
             let center = sample(x, y, color);
             // Horizontal gradient: change in G + color-diff smoothness.
-            let g_left  = sample(x - 1, y, 1);
+            let g_left = sample(x - 1, y, 1);
             let g_right = sample(x + 1, y, 1);
-            let r_left  = sample(x - 2, y, color);
+            let r_left = sample(x - 2, y, color);
             let r_right = sample(x + 2, y, color);
-            let dh = (g_right - g_left).abs()
-                   + (center - (r_left + r_right) * 0.5).abs();
+            let dh = (g_right - g_left).abs() + (center - (r_left + r_right) * 0.5).abs();
             // Vertical gradient:
-            let g_up    = sample(x, y - 1, 1);
-            let g_down  = sample(x, y + 1, 1);
-            let r_up    = sample(x, y - 2, color);
-            let r_down  = sample(x, y + 2, color);
-            let dv = (g_down - g_up).abs()
-                   + (center - (r_up + r_down) * 0.5).abs();
+            let g_up = sample(x, y - 1, 1);
+            let g_down = sample(x, y + 1, 1);
+            let r_up = sample(x, y - 2, color);
+            let r_down = sample(x, y + 2, color);
+            let dv = (g_down - g_up).abs() + (center - (r_up + r_down) * 0.5).abs();
 
             let g_est = if dh < dv {
                 (g_left + g_right) * 0.5 + (2.0 * center - r_left - r_right) * 0.25
@@ -69,9 +69,7 @@ pub fn hamilton_adams(mosaic: &Image, cfa: CfaPattern) -> Image {
     // --- Step 2/3/4: Red and Blue using color-difference smoothness ---
     // At G positions, one chroma is horizontal-adjacent, the other vertical.
     // At R positions, B is diagonal. At B positions, R is diagonal.
-    let green = |x: i32, y: i32| -> f32 {
-        green_buf[(y as usize) * (w as usize) + (x as usize)]
-    };
+    let green = |x: i32, y: i32| -> f32 { green_buf[(y as usize) * (w as usize) + (x as usize)] };
 
     for y in 2..h - 2 {
         for x in 2..w - 2 {
@@ -79,22 +77,22 @@ pub fn hamilton_adams(mosaic: &Image, cfa: CfaPattern) -> Image {
             if color_here == 1 {
                 // G position: R neighbors on one axis, B on the other.
                 let horiz_c = cfa.color_at(x as u32 + 1, y as u32) as usize;
-                let vert_c  = cfa.color_at(x as u32, y as u32 + 1) as usize;
+                let vert_c = cfa.color_at(x as u32, y as u32 + 1) as usize;
 
-                let c_left  = sample(x - 1, y, horiz_c);
+                let c_left = sample(x - 1, y, horiz_c);
                 let c_right = sample(x + 1, y, horiz_c);
-                let g_left  = green(x - 1, y);
+                let g_left = green(x - 1, y);
                 let g_right = green(x + 1, y);
                 let horiz_est = green(x, y) + ((c_left - g_left) + (c_right - g_right)) * 0.5;
 
-                let c_up    = sample(x, y - 1, vert_c);
-                let c_down  = sample(x, y + 1, vert_c);
-                let g_up    = green(x, y - 1);
-                let g_down  = green(x, y + 1);
+                let c_up = sample(x, y - 1, vert_c);
+                let c_down = sample(x, y + 1, vert_c);
+                let g_up = green(x, y - 1);
+                let g_down = green(x, y + 1);
                 let vert_est = green(x, y) + ((c_up - g_up) + (c_down - g_down)) * 0.5;
 
                 out.pixels[(y as usize) * (w as usize) + (x as usize)][horiz_c] = horiz_est;
-                out.pixels[(y as usize) * (w as usize) + (x as usize)][vert_c]  = vert_est;
+                out.pixels[(y as usize) * (w as usize) + (x as usize)][vert_c] = vert_est;
             } else {
                 // R or B position: the opposite chroma is on diagonals.
                 let other = if color_here == 0 { 2 } else { 0 };
@@ -106,9 +104,8 @@ pub fn hamilton_adams(mosaic: &Image, cfa: CfaPattern) -> Image {
                 let g_ur = green(x + 1, y - 1);
                 let g_dl = green(x - 1, y + 1);
                 let g_dr = green(x + 1, y + 1);
-                let c_est = green(x, y) + (
-                    (c_ul - g_ul) + (c_ur - g_ur) + (c_dl - g_dl) + (c_dr - g_dr)
-                ) * 0.25;
+                let c_est = green(x, y)
+                    + ((c_ul - g_ul) + (c_ur - g_ur) + (c_dl - g_dl) + (c_dr - g_dr)) * 0.25;
                 out.pixels[(y as usize) * (w as usize) + (x as usize)][other] = c_est;
             }
         }
@@ -126,7 +123,12 @@ mod tests {
         for y in 0..h {
             for x in 0..w {
                 let c = cfa.color_at(x, y) as usize;
-                let v = match c { 0 => r, 1 => g, 2 => b, _ => 0.0 };
+                let v = match c {
+                    0 => r,
+                    1 => g,
+                    2 => b,
+                    _ => 0.0,
+                };
                 img.pixels[(y * w + x) as usize][c] = v;
             }
         }

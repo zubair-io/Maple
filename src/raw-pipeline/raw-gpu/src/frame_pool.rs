@@ -185,7 +185,10 @@ pub(crate) fn pool_scratch(
     // and the `&mut buckets` don't overlap.
     let buf = Rc::new(make(&ctx.device));
     pool.alloc_count.set(pool.alloc_count.get() + 1);
-    let bucket = pool.buckets.get_mut(&sig).expect("bucket created in begin_frame");
+    let bucket = pool
+        .buckets
+        .get_mut(&sig)
+        .expect("bucket created in begin_frame");
     if cursor < bucket.scratch.len() {
         bucket.scratch[cursor] = Rc::clone(&buf);
     } else {
@@ -242,7 +245,10 @@ pub(crate) fn pool_dispatch(
     let cursor = pool.dispatch_cursor;
     pool.dispatch_cursor += 1;
     {
-        let bucket = pool.buckets.get(&sig).expect("bucket created in begin_frame");
+        let bucket = pool
+            .buckets
+            .get(&sig)
+            .expect("bucket created in begin_frame");
         if let Some(entry) = bucket.dispatches.get(cursor) {
             // Reuse ONLY when the cached entry was built for THIS pipeline. A bind
             // group derived from a pipeline's auto layout is EXCLUSIVE to that
@@ -271,7 +277,10 @@ pub(crate) fn pool_dispatch(
         pipeline_id,
         _data: res.data,
     };
-    let bucket = pool.buckets.get_mut(&sig).expect("bucket created in begin_frame");
+    let bucket = pool
+        .buckets
+        .get_mut(&sig)
+        .expect("bucket created in begin_frame");
     // A fresh cursor appends (the first render fills the Vec in dispatch order); a
     // pipeline-mismatch rebuild REPLACES the stale entry at an existing cursor.
     // Either way the Vec stays dispatch-indexed.
@@ -284,7 +293,10 @@ pub(crate) fn pool_dispatch(
     } else {
         bucket.dispatches.push(entry);
     }
-    PooledDispatch { bind_group, uniform }
+    PooledDispatch {
+        bind_group,
+        uniform,
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

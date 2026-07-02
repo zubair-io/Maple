@@ -11,15 +11,9 @@ pub const XYZ_D50: Vec3 = [0.9642, 1.0000, 0.8251];
 pub fn cct_to_xyz(cct: f32) -> Vec3 {
     let t = cct.clamp(2000.0, 15000.0);
     let x = if t <= 7000.0 {
-         0.244_063
-       + 99.11 / t
-       + 2_967_800.0 / (t * t)
-       - 4_607_000_000.0 / (t * t * t)
+        0.244_063 + 99.11 / t + 2_967_800.0 / (t * t) - 4_607_000_000.0 / (t * t * t)
     } else {
-         0.237_040
-       + 247.48 / t
-       + 1_901_800.0 / (t * t)
-       - 2_006_400_000.0 / (t * t * t)
+        0.237_040 + 247.48 / t + 1_901_800.0 / (t * t) - 2_006_400_000.0 / (t * t * t)
     };
     let y = -3.0 * x * x + 2.870 * x - 0.275;
     [x / y, 1.0, (1.0 - x - y) / y]
@@ -30,9 +24,9 @@ pub const XYZ_D65: Vec3 = [0.9504, 1.0000, 1.0888];
 
 /// Bradford chromatic adaptation matrix: XYZ → LMS (cone-fundamental-like).
 pub const BRADFORD: Matrix3 = Matrix3([
-    [ 0.8951,  0.2664, -0.1614],
-    [-0.7502,  1.7135,  0.0367],
-    [ 0.0389, -0.0685,  1.0296],
+    [0.8951, 0.2664, -0.1614],
+    [-0.7502, 1.7135, 0.0367],
+    [0.0389, -0.0685, 1.0296],
 ]);
 
 /// CAT16 chromatic adaptation matrix: XYZ → LMS (cone-fundamental-like).
@@ -48,9 +42,9 @@ pub const BRADFORD: Matrix3 = Matrix3([
 /// default chromatic-adaptation transform for user WB; we mirror that
 /// choice.
 pub const CAT16: Matrix3 = Matrix3([
-    [ 0.401288,  0.650173, -0.051461],
-    [-0.250268,  1.204414,  0.045854],
-    [-0.002079,  0.048952,  0.953127],
+    [0.401288, 0.650173, -0.051461],
+    [-0.250268, 1.204414, 0.045854],
+    [-0.002079, 0.048952, 0.953127],
 ]);
 
 /// XYZ D65 → linear Rec.2020 inverse, pre-folded.
@@ -60,9 +54,9 @@ pub const CAT16: Matrix3 = Matrix3([
 /// matrix once per (T, tint) — having the constant avoids the
 /// `.inverse().expect()` call on the hot path.
 pub const M_REC2020_TO_XYZ_D65: Matrix3 = Matrix3([
-    [ 0.6369580,  0.1446169,  0.1688810],
-    [ 0.2627002,  0.6779981,  0.0593017],
-    [ 0.0000000,  0.0280727,  1.0609851],
+    [0.6369580, 0.1446169, 0.1688810],
+    [0.2627002, 0.6779981, 0.0593017],
+    [0.0000000, 0.0280727, 1.0609851],
 ]);
 
 /// ProPhoto RGB → XYZ D50. From the DNG specification, "ROMM" matrix.
@@ -74,16 +68,16 @@ pub const M_PRO_TO_XYZ_D50: Matrix3 = Matrix3([
 
 /// XYZ D65 → linear Rec.2020. ITU-R BT.2020.
 pub const M_XYZ_D65_TO_REC2020: Matrix3 = Matrix3([
-    [ 1.7166512, -0.3556708, -0.2533663],
-    [-0.6666844,  1.6164812,  0.0157685],
-    [ 0.0176399, -0.0427706,  0.9421031],
+    [1.7166512, -0.3556708, -0.2533663],
+    [-0.6666844, 1.6164812, 0.0157685],
+    [0.0176399, -0.0427706, 0.9421031],
 ]);
 
 /// Linear Rec.2020 → sRGB linear. ITU-R BT.2020 → IEC 61966-2-1.
 pub const M_REC2020_TO_SRGB: Matrix3 = Matrix3([
-    [ 1.6605, -0.5876, -0.0728],
-    [-0.1246,  1.1329, -0.0083],
-    [-0.0182, -0.1006,  1.1187],
+    [1.6605, -0.5876, -0.0728],
+    [-0.1246, 1.1329, -0.0083],
+    [-0.0182, -0.1006, 1.1187],
 ]);
 
 /// Linear Rec.2020 → linear Display P3 (SMPTE RP 431-2, D65 white point).
@@ -101,9 +95,9 @@ pub const M_REC2020_TO_SRGB: Matrix3 = Matrix3([
 /// selected (ticket #1337). The OETF is identical for sRGB and Display P3
 /// (IEC 61966-2-1 / 2.4-gamma), so `srgb_gamma_encode` is unchanged.
 pub const M_REC2020_TO_P3: Matrix3 = Matrix3([
-    [ 1.3436,  -0.2822, -0.0614],
-    [-0.0653,   1.0758, -0.0105],
-    [ 0.0028,  -0.0196,  1.0168],
+    [1.3436, -0.2822, -0.0614],
+    [-0.0653, 1.0758, -0.0105],
+    [0.0028, -0.0196, 1.0168],
 ]);
 
 /// Linear sRGB → linear Display P3 (SMPTE RP 431-2, D65 white point).
@@ -124,9 +118,9 @@ pub const M_REC2020_TO_P3: Matrix3 = Matrix3([
 ///   2. Oklab gamut compress (valid in linear sRGB)
 ///   3. sRGB → P3 (`M_SRGB_TO_P3`) ← this matrix
 pub const M_SRGB_TO_P3: Matrix3 = Matrix3([
-    [ 0.822_462_0,  0.177_538_0,  0.000_000_0],
-    [ 0.033_194_2,  0.966_805_8,  0.000_000_0],
-    [ 0.017_082_6,  0.072_397_4,  0.910_519_9],
+    [0.822_462_0, 0.177_538_0, 0.000_000_0],
+    [0.033_194_2, 0.966_805_8, 0.000_000_0],
+    [0.017_082_6, 0.072_397_4, 0.910_519_9],
 ]);
 
 /// Compute Bradford chromatic-adaptation matrix for `src_white` → `dst_white`.
@@ -149,7 +143,9 @@ pub fn bradford_adapt(src_white: Vec3, dst_white: Vec3) -> Matrix3 {
 /// See spec § 04 and § 3.4 step 6.
 pub fn m_pro_to_rec2020() -> Matrix3 {
     let adapt = bradford_adapt(XYZ_D50, XYZ_D65);
-    M_XYZ_D65_TO_REC2020.mul_mat(&adapt).mul_mat(&M_PRO_TO_XYZ_D50)
+    M_XYZ_D65_TO_REC2020
+        .mul_mat(&adapt)
+        .mul_mat(&M_PRO_TO_XYZ_D50)
 }
 
 #[cfg(test)]
@@ -204,8 +200,13 @@ mod tests {
         for rgb in cases {
             let xyz = M_REC2020_TO_XYZ_D65.mul_vec(rgb);
             let back = M_XYZ_D65_TO_REC2020.mul_vec(xyz);
-            assert!(approx(back, rgb, 1e-3),
-                "round-trip {:?} -> XYZ {:?} -> {:?}", rgb, xyz, back);
+            assert!(
+                approx(back, rgb, 1e-3),
+                "round-trip {:?} -> XYZ {:?} -> {:?}",
+                rgb,
+                xyz,
+                back
+            );
         }
     }
 
@@ -216,8 +217,12 @@ mod tests {
         // for typical illuminants.
         let lms = CAT16.mul_vec(XYZ_D65);
         for c in 0..3 {
-            assert!(lms[c] > 0.5 && lms[c] < 1.5,
-                "CAT16(D65) cone {} = {} outside expected band", c, lms[c]);
+            assert!(
+                lms[c] > 0.5 && lms[c] < 1.5,
+                "CAT16(D65) cone {} = {} outside expected band",
+                c,
+                lms[c]
+            );
         }
     }
 }

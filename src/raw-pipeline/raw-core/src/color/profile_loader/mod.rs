@@ -262,14 +262,11 @@ pub fn camera_key_for(raw: &RawImage) -> CameraKey {
 /// the source DNG's PTC/PLT — and currently it suppresses them whenever a
 /// bundled profile is in use, since PTC/PLT were calibrated against the
 /// vendor's own matrices.
-pub fn to_dcp_profile(
-    profile: &MapleProfile,
-    raw: &RawImage,
-) -> Option<DcpProfile> {
+pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfile> {
     // Mirror dcp::profile_for's WB-baked decision so a neutral patch maps
     // cleanly to (1,1,1) going into DCP (Phase 1.2 pre-gain semantics).
-    let skip_pre_gain = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb)
-        && raw.white_level <= 255;
+    let skip_pre_gain =
+        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
     let wb_already_baked = !skip_pre_gain;
 
     let cold = profile.illum1.and_then(|i| profile.cm1.map(|m| (i, m)));
@@ -286,14 +283,8 @@ pub fn to_dcp_profile(
     // tags, so the fallback is `None`, same as before.
     if let (Some((il_cold, m_cold)), Some((il_warm, m_warm))) = (cold, warm) {
         if il_cold != il_warm {
-            let hsm_cold = profile
-                .hsm1
-                .as_ref()
-                .or_else(|| raw.hsm_data.get(&il_cold));
-            let hsm_warm = profile
-                .hsm2
-                .as_ref()
-                .or_else(|| raw.hsm_data.get(&il_warm));
+            let hsm_cold = profile.hsm1.as_ref().or_else(|| raw.hsm_data.get(&il_cold));
+            let hsm_warm = profile.hsm2.as_ref().or_else(|| raw.hsm_data.get(&il_warm));
             return Some(interpolated_profile(
                 m_cold,
                 il_cold,
@@ -305,6 +296,8 @@ pub fn to_dcp_profile(
                 hsm_warm,
                 profile.fm1,
                 profile.fm2,
+                raw.plt.clone(),
+                None, // PTC is suppressed for BundleConfident
             ));
         }
     }
@@ -334,7 +327,14 @@ pub fn to_dcp_profile(
         .or_else(|| raw.hsm_data.get(&illum).cloned())
         .or_else(|| raw.hsm_data.values().next().cloned());
     Some(single_illuminant_profile(
-        cm, illum, fm, single_hsm, raw.as_shot_neutral, wb_already_baked,
+        cm,
+        illum,
+        fm,
+        single_hsm,
+        raw.as_shot_neutral,
+        wb_already_baked,
+        raw.plt.clone(),
+        None, // PTC is suppressed for BundleConfident
     ))
 }
 
@@ -379,8 +379,14 @@ mod tests {
         let p = table
             .get(&CameraKey::new("iPhone13,3 back camera"))
             .expect("iPhone13,3 back camera present");
-        assert!(p.cm1.is_some() && p.cm2.is_some(), "iPhone should have CM1+CM2");
-        assert!(p.fm1.is_some() && p.fm2.is_some(), "iPhone should have FM1+FM2");
+        assert!(
+            p.cm1.is_some() && p.cm2.is_some(),
+            "iPhone should have CM1+CM2"
+        );
+        assert!(
+            p.fm1.is_some() && p.fm2.is_some(),
+            "iPhone should have FM1+FM2"
+        );
         assert_eq!(p.illum1, Some(CoreIlluminant::StdA));
         assert_eq!(p.illum2, Some(CoreIlluminant::D65));
     }
@@ -393,7 +399,10 @@ mod tests {
         let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
         // Embedded bundle — empty means corrupt, not absent. See
         // `bundled_profiles_load_and_contain_fixture_cameras` (#1082).
-        assert!(!table.is_empty(), "embedded profiles.bin parsed to an empty table");
+        assert!(
+            !table.is_empty(),
+            "embedded profiles.bin parsed to an empty table"
+        );
         let variants = [
             "iPhone13,3 back camera",
             "iPhone13,3 back telephoto camera",
@@ -425,7 +434,10 @@ mod tests {
         let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
         // Embedded bundle — empty means corrupt, not absent. See
         // `bundled_profiles_load_and_contain_fixture_cameras` (#1082).
-        assert!(!table.is_empty(), "embedded profiles.bin parsed to an empty table");
+        assert!(
+            !table.is_empty(),
+            "embedded profiles.bin parsed to an empty table"
+        );
         let any_with_be = table.values().any(|p| p.baseline_exposure_offset != 0.0);
         assert!(
             any_with_be,

@@ -37,11 +37,7 @@ pub struct AutoTone {
 /// Phase 1a populates the `exposure` field only; the remaining five fields
 /// are returned as 0.0 (slider rest position).
 #[wasm_bindgen]
-pub fn compute_auto_tone(
-    scene_post_wb_rgba: &[f32],
-    width: u32,
-    height: u32,
-) -> AutoTone {
+pub fn compute_auto_tone(scene_post_wb_rgba: &[f32], width: u32, height: u32) -> AutoTone {
     let r = auto_tone::compute_auto_tone_from_rgba(
         scene_post_wb_rgba,
         width as usize,

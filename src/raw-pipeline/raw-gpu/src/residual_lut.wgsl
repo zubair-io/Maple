@@ -47,61 +47,49 @@ fn lut_node(r: u32, g: u32, b: u32, n: u32) -> vec3<f32> {
 fn lut_sample(rgb: vec3<f32>, n: u32) -> vec3<f32> {
     let last = f32(n - 1u);
 
-    var lo: array<u32, 3>;
-    var f: array<f32, 3>;
-    for (var c: i32 = 0; c < 3; c = c + 1) {
-        let p = clamp(rgb[c], 0.0, 1.0) * last;
-        let l = min(floor(p), last - 1.0);
-        lo[c] = u32(l);
-        f[c] = p - l;
-    }
+    let p_r = clamp(rgb[0], 0.0, 1.0) * last;
+    let l_r = min(floor(p_r), last - 1.0);
+    let r0 = u32(l_r);
+    let f_r = p_r - l_r;
 
-    let r0 = lo[0];
-    let g0 = lo[1];
-    let b0 = lo[2];
+    let p_g = clamp(rgb[1], 0.0, 1.0) * last;
+    let l_g = min(floor(p_g), last - 1.0);
+    let g0 = u32(l_g);
+    let f_g = p_g - l_g;
+
+    let p_b = clamp(rgb[2], 0.0, 1.0) * last;
+    let l_b = min(floor(p_b), last - 1.0);
+    let b0 = u32(l_b);
+    let f_b = p_b - l_b;
+
     let r1 = r0 + 1u;
     let g1 = g0 + 1u;
     let b1 = b0 + 1u;
 
-    let fx = f[0];
-    let fy = f[1];
-    let fz = f[2];
-
-    let c000 = lut_node(r0, g0, b0, n);
-    let c100 = lut_node(r1, g0, b0, n);
-    let c010 = lut_node(r0, g1, b0, n);
-    let c110 = lut_node(r1, g1, b0, n);
-    let c001 = lut_node(r0, g0, b1, n);
-    let c101 = lut_node(r1, g0, b1, n);
-    let c011 = lut_node(r0, g1, b1, n);
-    let c111 = lut_node(r1, g1, b1, n);
-
     var out = vec3<f32>(0.0, 0.0, 0.0);
     for (var c: i32 = 0; c < 3; c = c + 1) {
-        if (fx >= fy) {
-            if (fy >= fz) {
-                out[c] = c000[c] * (1.0 - fx) + c100[c] * (fx - fy) + c110[c] * (fy - fz) + c111[c] * fz;
-            } else if (fx >= fz) {
-                out[c] = c000[c] * (1.0 - fx) + c100[c] * (fx - fz) + c101[c] * (fz - fy) + c111[c] * fy;
-            } else {
-                out[c] = c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy;
-            }
-        } else {
-            if (fx >= fz) {
-                out[c] = c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz;
-            } else if (fy >= fz) {
-                out[c] = c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx;
-            } else {
-                out[c] = c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx;
-            }
-        }
+        let c000 = lut_node(r0, g0, b0, n)[c];
+        let c100 = lut_node(r1, g0, b0, n)[c];
+        let c010 = lut_node(r0, g1, b0, n)[c];
+        let c110 = lut_node(r1, g1, b0, n)[c];
+        let c001 = lut_node(r0, g0, b1, n)[c];
+        let c101 = lut_node(r1, g0, b1, n)[c];
+        let c011 = lut_node(r0, g1, b1, n)[c];
+        let c111 = lut_node(r1, g1, b1, n)[c];
+        let c00 = c000 * (1.0 - f_r) + c100 * f_r;
+        let c10 = c010 * (1.0 - f_r) + c110 * f_r;
+        let c01 = c001 * (1.0 - f_r) + c101 * f_r;
+        let c11 = c011 * (1.0 - f_r) + c111 * f_r;
+        let c0 = c00 * (1.0 - f_g) + c10 * f_g;
+        let c1 = c01 * (1.0 - f_g) + c11 * f_g;
+        out[c] = c0 * (1.0 - f_b) + c1 * f_b;
     }
     return out;
 }
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
-    let i = gid.y * ng.x * 64u + gid.x;
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
     if (i >= params.count) {
         return;
     }

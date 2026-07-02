@@ -105,8 +105,12 @@ const _: () = assert!(
 pub fn render_scene_linear_tile_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
-    src_x: u32, src_y: u32, src_w: u32, src_h: u32,
-    out_w: u32, out_h: u32,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<u16>)> {
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
@@ -119,13 +123,12 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
         return Err(crate::error::Error::Pipeline(
             "tile path does not support Fuji X-Trans RAFs; use the \
              full-image render entry instead (#420)."
-                .into()
+                .into(),
         ));
     }
     if model.dehaze.abs() > 1e-3 {
         return Err(crate::error::Error::Pipeline(
-            "tile path is not supported when dehaze != 0 (radius 67 px > overlap pad)"
-                .into()
+            "tile path is not supported when dehaze != 0 (radius 67 px > overlap pad)".into(),
         ));
     }
     if model.vignette_amount.abs() > 1e-3 {
@@ -137,7 +140,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
         // Refuse loudly rather than render a wrong (tile-local) ellipse.
         return Err(crate::error::Error::Pipeline(
             "tile path is not supported when vignette != 0 (full-frame anchor not threaded; #11)"
-                .into()
+                .into(),
         ));
     }
     // Active BM3D deep denoise → reject loudly, same contract as dehaze
@@ -152,7 +155,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
             "tile path is not supported when deep denoise != 0 \
              (the BM3D reference-patch grid is frame-anchored; use the \
              full-image render entry instead). See #1105."
-                .into()
+                .into(),
         ));
     }
     // Non-identity local adjustment → reject loudly, same contract as
@@ -171,7 +174,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
             "tile path is not supported when local adjustments are active \
              (mask coordinates are normalized to the full image; use the \
              full-image render entry instead). See #1084."
-                .into()
+                .into(),
         ));
     }
     // Active capture sharpening → reject loudly, same contract as dehaze
@@ -185,14 +188,14 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
             "tile path is not supported when capture sharpening is active \
              (Richardson–Lucy stencil exceeds the overlap pad; use the \
              full-image render entry instead). See #1084."
-                .into()
+                .into(),
         ));
     }
     if out_w > src_w || out_h > src_h {
-        return Err(crate::error::Error::Pipeline(
-            format!("tile path is downscale-only (no upscale): out {}×{} > src {}×{}",
-                out_w, out_h, src_w, src_h)
-        ));
+        return Err(crate::error::Error::Pipeline(format!(
+            "tile path is downscale-only (no upscale): out {}×{} > src {}×{}",
+            out_w, out_h, src_w, src_h
+        )));
     }
     // Aspect-mismatch guard: the trim → downsample path drives a single
     // long-edge scale (see `target_long_edge` below), so a request whose
@@ -201,14 +204,13 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     // wanting a non-matching aspect should recrop the source rect to
     // match. Cross-product comparison avoids fp; tolerance is one row /
     // column of integer rounding (`max(src_w, src_h)`).
-    let cross = (out_w as u64 * src_h as u64)
-        .abs_diff(out_h as u64 * src_w as u64);
+    let cross = (out_w as u64 * src_h as u64).abs_diff(out_h as u64 * src_w as u64);
     let tol = src_w.max(src_h) as u64;
     if cross > tol {
-        return Err(crate::error::Error::Pipeline(
-            format!("tile path requires matching aspect: src {}×{}, out {}×{}",
-                src_w, src_h, out_w, out_h)
-        ));
+        return Err(crate::error::Error::Pipeline(format!(
+            "tile path requires matching aspect: src {}×{}, out {}×{}",
+            src_w, src_h, out_w, out_h
+        )));
     }
     // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
     // that's what callers (Apple TileManager, maple-cli `tile` subcommand)
@@ -218,14 +220,11 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     // final `apply_orientation_f32_rgba` step rotates the developed tile
     // back into display orientation, so the returned tile lines up with
     // the display tile coords the caller asked for.
-    let (s_x, s_y, s_w, s_h) = raw.orientation.display_rect_to_sensor(
-        src_x, src_y, src_w, src_h,
-        raw.width, raw.height,
-    );
-    let (rect, (left_pad, top_pad)) = pad_and_clamp_mosaic_rect(
-        s_x, s_y, s_w, s_h, TILE_OVERLAP_PX,
-        raw.width, raw.height,
-    );
+    let (s_x, s_y, s_w, s_h) = raw
+        .orientation
+        .display_rect_to_sensor(src_x, src_y, src_w, src_h, raw.width, raw.height);
+    let (rect, (left_pad, top_pad)) =
+        pad_and_clamp_mosaic_rect(s_x, s_y, s_w, s_h, TILE_OVERLAP_PX, raw.width, raw.height);
     // Linearize ONLY the padded crop region — not the full sensor.
     // For a 100 MP RAW (~12288×8192) the per-tile cost was ~480 ms;
     // a 512+overlap region is ~582×582 px, ~10 ms. ~50× speedup with
@@ -264,7 +263,9 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
 
     let target_long_edge = out_w.max(out_h);
     if target_long_edge < sized.width.max(sized.height) {
-        stage("tile_downsample_area", || downsample_image_area(&mut sized, target_long_edge));
+        stage("tile_downsample_area", || {
+            downsample_image_area(&mut sized, target_long_edge)
+        });
     }
 
     let (w0, h0) = (sized.width, sized.height);

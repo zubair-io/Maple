@@ -4,8 +4,8 @@
 use raw_core::decode::decode_bytes;
 
 fn main() {
-    let fixture_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws");
+    let fixture_root =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../test-fixtures/raws");
     let raf = fixture_root.join("test_0008.RAF");
     let x3f = fixture_root.join("test_0016.X3F");
 

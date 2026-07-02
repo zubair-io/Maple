@@ -53,14 +53,18 @@ const HSL_HUE_MAX_RAD: f32 = 30.0_f32 * std::f32::consts::PI / 180.0;
 #[inline]
 fn circular_delta_deg(h: f32, center: f32) -> f32 {
     let mut d = (h - center).abs() % 360.0;
-    if d > 180.0 { d = 360.0 - d; }
+    if d > 180.0 {
+        d = 360.0 - d;
+    }
     d
 }
 
 /// Raised-cosine weight for angular distance `delta_deg`.
 #[inline]
 fn raised_cosine_weight(delta_deg: f32, half_width_deg: f32) -> f32 {
-    if delta_deg >= half_width_deg { return 0.0; }
+    if delta_deg >= half_width_deg {
+        return 0.0;
+    }
     let t = delta_deg / half_width_deg;
     0.5 * (1.0 + (std::f32::consts::PI * t).cos())
 }
@@ -217,7 +221,11 @@ pub fn apply_hsl(
 
         let hue_deg = {
             let h = b0.atan2(a0).to_degrees();
-            if h < 0.0 { h + 360.0 } else { h }
+            if h < 0.0 {
+                h + 360.0
+            } else {
+                h
+            }
         };
         let a_hat = a0 / c;
         let b_hat = b0 / c;
@@ -239,7 +247,9 @@ pub fn apply_hsl(
         let mut delta_sat = 0.0f32;
         let mut delta_lum = 0.0f32;
         for band in 0..NUM_BANDS {
-            if w_shape[band] < 1e-6 { continue; }
+            if w_shape[band] < 1e-6 {
+                continue;
+            }
             let w = w_shape[band] * w_norm_scale;
             delta_hue_rad += hue_rad[band] * w;
             delta_sat += sat_delta[band] * w;

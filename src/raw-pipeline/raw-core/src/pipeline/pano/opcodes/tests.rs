@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// Serialize a GainMap opcode body (big-endian) for blob-building.

@@ -267,9 +267,7 @@ fn main() -> ExitCode {
         )),
         Cmd::ExtractPreview { raw, out } => run_or_exit(commands::extract_preview::run(&raw, &out)),
         Cmd::AutoTone { raw } => run_or_exit(commands::auto_tone::run(&raw)),
-        Cmd::AutoAdjustments { raw } => {
-            run_or_exit(commands::auto_adjustments::run(&raw))
-        }
+        Cmd::AutoAdjustments { raw } => run_or_exit(commands::auto_adjustments::run(&raw)),
         Cmd::Synthetic {
             kind,
             primary,

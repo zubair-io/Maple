@@ -112,7 +112,11 @@ fn parametric_highlights_pulls_bright_pixels_down() {
     m.parametric_highlights = -100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    assert!(p[0] < 2.5, "highlights pull expected at scene 2.5: {}", p[0]);
+    assert!(
+        p[0] < 2.5,
+        "highlights pull expected at scene 2.5: {}",
+        p[0]
+    );
     assert!((p[0] - p[1]).abs() < 1e-5);
     assert!((p[1] - p[2]).abs() < 1e-5);
 }
@@ -149,7 +153,13 @@ fn parametric_conflicting_sliders_produce_monotonic_curve() {
         let mut img = fresh_img([v, v, v]);
         apply(&mut img, &m);
         let out = img.pixels[0][0];
-        assert!(out >= prev - 1e-5, "output regression at v={}: out={}, prev={}", v, out, prev);
+        assert!(
+            out >= prev - 1e-5,
+            "output regression at v={}: out={}, prev={}",
+            v,
+            out,
+            prev
+        );
         prev = out;
     }
 }

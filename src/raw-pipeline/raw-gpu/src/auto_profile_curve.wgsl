@@ -154,9 +154,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         return;
     }
     let px = input_buf[i];
-    let r0 = compress_input(px.r);
-    let g0 = compress_input(px.g);
-    let b0 = compress_input(px.b);
+
+    let sig_r = curve[OFF_LIGHTNESS_OFFSET];
+    let sig_g = curve[OFF_CHROMA_OFFSET];
+    let sig_b = curve[OFF_CHROMA_OFFSET + 1u];
+    let has_base_curve = select(0u, 1u, sig_r >= 0.1 && sig_g >= 0.1 && sig_b >= 0.1);
+
+    var r0 = 0.0;
+    var g0 = 0.0;
+    var b0 = 0.0;
+
+    if (has_base_curve == 1u) {
+        let r_lin = srgb_gamma_decode(px.r);
+        let g_lin = srgb_gamma_decode(px.g);
+        let b_lin = srgb_gamma_decode(px.b);
+        r0 = srgb_gamma(r_lin / (r_lin + sig_r));
+        g0 = srgb_gamma(g_lin / (g_lin + sig_g));
+        b0 = srgb_gamma(b_lin / (b_lin + sig_b));
+    } else {
+        r0 = compress_input(px.r);
+        g0 = compress_input(px.g);
+        b0 = compress_input(px.b);
+    }
 
     var r1 = r0;
     var g1 = g0;
@@ -186,8 +205,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // here (apply_curve has none).
     if (params.apply_chroma == 1u) {
         let chroma_boost = curve[OFF_CHROMA_BOOST];
-        let chroma_off = vec2<f32>(curve[OFF_CHROMA_OFFSET + 0u], curve[OFF_CHROMA_OFFSET + 1u]);
-        let l_off = curve[OFF_LIGHTNESS_OFFSET];
+        var chroma_off = vec2<f32>(curve[OFF_CHROMA_OFFSET + 0u], curve[OFF_CHROMA_OFFSET + 1u]);
+        var l_off = curve[OFF_LIGHTNESS_OFFSET];
+        if (has_base_curve == 1u) {
+            chroma_off = vec2<f32>(0.0, 0.0);
+            l_off = 0.0;
+        }
 
         let lab = rec2020_to_oklab(vec3<f32>(r2, g2, b2));
 

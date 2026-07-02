@@ -34,7 +34,10 @@ pub(super) fn extract_v1_records(bytes: &[u8]) -> Option<Vec<EncoderProfile>> {
         return None;
     }
     let count = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
-    let mut r = RawReader { buf: bytes, pos: 16 };
+    let mut r = RawReader {
+        buf: bytes,
+        pos: 16,
+    };
     let mut out = Vec::with_capacity(count as usize);
     for _ in 0..count {
         out.push(r.read_raw_record()?);
@@ -87,10 +90,17 @@ impl<'a> RawReader<'a> {
         let hsm_v = self.read_u16()?;
         let hsm_encoding = self.take(1)?[0];
         let _reserved = self.take(1)?;
-        let table_bytes =
-            (hsm_h as usize) * (hsm_s as usize) * (hsm_v as usize) * 3 * 4;
-        let hsm1 = if flags & 0x10 != 0 { Some(self.take(table_bytes)?.to_vec()) } else { None };
-        let hsm2 = if flags & 0x20 != 0 { Some(self.take(table_bytes)?.to_vec()) } else { None };
+        let table_bytes = (hsm_h as usize) * (hsm_s as usize) * (hsm_v as usize) * 3 * 4;
+        let hsm1 = if flags & 0x10 != 0 {
+            Some(self.take(table_bytes)?.to_vec())
+        } else {
+            None
+        };
+        let hsm2 = if flags & 0x20 != 0 {
+            Some(self.take(table_bytes)?.to_vec())
+        } else {
+            None
+        };
 
         let be = self.take(4)?;
         let be_bits = u32::from_le_bytes([be[0], be[1], be[2], be[3]]);
@@ -174,7 +184,11 @@ impl<'a> Reader<'a> {
             return None;
         }
         let count = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
-        Some(Self { buf, pos: 16, count })
+        Some(Self {
+            buf,
+            pos: 16,
+            count,
+        })
     }
 
     #[inline]
@@ -188,7 +202,9 @@ impl<'a> Reader<'a> {
         Some(s)
     }
 
-    fn read_u8(&mut self) -> Option<u8> { Some(self.take(1)?[0]) }
+    fn read_u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
     fn read_u16(&mut self) -> Option<u16> {
         let b = self.take(2)?;
         Some(u16::from_le_bytes([b[0], b[1]]))
@@ -228,10 +244,26 @@ impl<'a> Reader<'a> {
         let illum2_code = self.read_u16()?;
         let _reserved = self.read_u16()?;
 
-        let cm1 = if flags & 0x01 != 0 { Some(self.read_matrix()?) } else { None };
-        let cm2 = if flags & 0x02 != 0 { Some(self.read_matrix()?) } else { None };
-        let fm1 = if flags & 0x04 != 0 { Some(self.read_matrix()?) } else { None };
-        let fm2 = if flags & 0x08 != 0 { Some(self.read_matrix()?) } else { None };
+        let cm1 = if flags & 0x01 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
+        let cm2 = if flags & 0x02 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
+        let fm1 = if flags & 0x04 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
+        let fm2 = if flags & 0x08 != 0 {
+            Some(self.read_matrix()?)
+        } else {
+            None
+        };
 
         let hsm_h = self.read_u16()? as u32;
         let hsm_s = self.read_u16()? as u32;
@@ -256,8 +288,16 @@ impl<'a> Reader<'a> {
 
         let baseline_exposure_offset = self.read_f32()?;
 
-        let illum1 = if illum1_code != 0 { Some(exif_illuminant_to_core(illum1_code)) } else { None };
-        let illum2 = if illum2_code != 0 { Some(exif_illuminant_to_core(illum2_code)) } else { None };
+        let illum1 = if illum1_code != 0 {
+            Some(exif_illuminant_to_core(illum1_code))
+        } else {
+            None
+        };
+        let illum2 = if illum2_code != 0 {
+            Some(exif_illuminant_to_core(illum2_code))
+        } else {
+            None
+        };
 
         Some(MapleProfile {
             unique_camera_model,
@@ -289,8 +329,8 @@ fn exif_illuminant_to_core(code: u16) -> CoreIlluminant {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::PROFILES_BIN;
+    use super::*;
 
     /// The shipped bundle has no duplicate UCMs. The converter
     /// (`src/scripts/convert_dcps.py`) deterministically picks one

@@ -9,30 +9,30 @@ use crate::test_support::synth_dng::{
 use std::io;
 use std::path::Path;
 
-const TAG_NEW_SUBFILE_TYPE:        u16 = 254;
-const TAG_IMAGE_WIDTH:             u16 = 256;
-const TAG_IMAGE_LENGTH:            u16 = 257;
-const TAG_BITS_PER_SAMPLE:         u16 = 258;
-const TAG_COMPRESSION:             u16 = 259;
-const TAG_PHOTOMETRIC:             u16 = 262;
-const TAG_STRIP_OFFSETS:           u16 = 273;
-const TAG_SAMPLES_PER_PIXEL:       u16 = 277;
-const TAG_ROWS_PER_STRIP:          u16 = 278;
-const TAG_STRIP_BYTE_COUNTS:       u16 = 279;
-const TAG_PLANAR_CONFIG:           u16 = 284;
-const TAG_CFA_REPEAT_PATTERN_DIM:  u16 = 33421;
-const TAG_CFA_PATTERN:             u16 = 33422;
-const TAG_DNG_VERSION:             u16 = 50706;
-const TAG_DNG_BACKWARD_VERSION:    u16 = 50707;
-const TAG_UNIQUE_CAMERA_MODEL:     u16 = 50708;
-const TAG_BLACK_LEVEL:             u16 = 50714;
-const TAG_WHITE_LEVEL:             u16 = 50717;
-const TAG_COLOR_MATRIX_1:          u16 = 50721;
-const TAG_CAMERA_CALIBRATION_1:    u16 = 50723;
-const TAG_ANALOG_BALANCE:          u16 = 50727;
-const TAG_AS_SHOT_NEUTRAL:         u16 = 50728;
-const TAG_BASELINE_EXPOSURE:       u16 = 50730;
-const TAG_CALIBRATION_ILLUMINANT_1:u16 = 50778;
+const TAG_NEW_SUBFILE_TYPE: u16 = 254;
+const TAG_IMAGE_WIDTH: u16 = 256;
+const TAG_IMAGE_LENGTH: u16 = 257;
+const TAG_BITS_PER_SAMPLE: u16 = 258;
+const TAG_COMPRESSION: u16 = 259;
+const TAG_PHOTOMETRIC: u16 = 262;
+const TAG_STRIP_OFFSETS: u16 = 273;
+const TAG_SAMPLES_PER_PIXEL: u16 = 277;
+const TAG_ROWS_PER_STRIP: u16 = 278;
+const TAG_STRIP_BYTE_COUNTS: u16 = 279;
+const TAG_PLANAR_CONFIG: u16 = 284;
+const TAG_CFA_REPEAT_PATTERN_DIM: u16 = 33421;
+const TAG_CFA_PATTERN: u16 = 33422;
+const TAG_DNG_VERSION: u16 = 50706;
+const TAG_DNG_BACKWARD_VERSION: u16 = 50707;
+const TAG_UNIQUE_CAMERA_MODEL: u16 = 50708;
+const TAG_BLACK_LEVEL: u16 = 50714;
+const TAG_WHITE_LEVEL: u16 = 50717;
+const TAG_COLOR_MATRIX_1: u16 = 50721;
+const TAG_CAMERA_CALIBRATION_1: u16 = 50723;
+const TAG_ANALOG_BALANCE: u16 = 50727;
+const TAG_AS_SHOT_NEUTRAL: u16 = 50728;
+const TAG_BASELINE_EXPOSURE: u16 = 50730;
+const TAG_CALIBRATION_ILLUMINANT_1: u16 = 50778;
 
 const PHOTOMETRIC_CFA: u16 = 32803;
 const CALIBRATION_ILLUMINANT_D65: u16 = 21;
@@ -62,8 +62,12 @@ impl Default for SyntheticColorChart {
 }
 
 impl SyntheticColorChart {
-    pub fn cols(&self) -> u32 { 6 }
-    pub fn rows(&self) -> u32 { 4 }
+    pub fn cols(&self) -> u32 {
+        6
+    }
+    pub fn rows(&self) -> u32 {
+        4
+    }
 
     pub fn width(&self) -> u32 {
         self.cols() * (self.patch_size + self.guard) - self.guard
@@ -88,9 +92,8 @@ impl SyntheticColorChart {
         let strip_offset = ifd0_offset + ifd_size;
 
         let real_ifd = self.build_ifd0(strip_offset);
-        let mut buf: Vec<u8> = Vec::with_capacity(
-            (header_size as usize) + (ifd_size as usize) + strip_byte_count,
-        );
+        let mut buf: Vec<u8> =
+            Vec::with_capacity((header_size as usize) + (ifd_size as usize) + strip_byte_count);
         buf.extend_from_slice(b"II");
         write_u16_le(&mut buf, 0x002A);
         write_u32_le(&mut buf, ifd0_offset);
@@ -115,18 +118,14 @@ impl SyntheticColorChart {
         ifd.add_short(TAG_PLANAR_CONFIG, 1);
         ifd.add_shorts(TAG_CFA_REPEAT_PATTERN_DIM, vec![2, 2]);
         ifd.add_bytes(TAG_CFA_PATTERN, self.cfa_pattern_bytes());
-        ifd.add_bytes(TAG_DNG_VERSION,           vec![1, 4, 0, 0]);
-        ifd.add_bytes(TAG_DNG_BACKWARD_VERSION,  vec![1, 0, 0, 0]);
-        ifd.add_ascii(TAG_UNIQUE_CAMERA_MODEL,   "Maple Synthetic Chart");
+        ifd.add_bytes(TAG_DNG_VERSION, vec![1, 4, 0, 0]);
+        ifd.add_bytes(TAG_DNG_BACKWARD_VERSION, vec![1, 0, 0, 0]);
+        ifd.add_ascii(TAG_UNIQUE_CAMERA_MODEL, "Maple Synthetic Chart");
         ifd.add_short(TAG_BLACK_LEVEL, 0);
         ifd.add_short(TAG_WHITE_LEVEL, 65535);
 
         // Identity ColorMatrix1 — chart starts simple.
-        let identity = [
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ];
+        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         ifd.add_srationals(TAG_COLOR_MATRIX_1, matrix_to_srationals(identity));
         ifd.add_srationals(TAG_CAMERA_CALIBRATION_1, matrix_to_srationals(identity));
         ifd.add_rationals(TAG_ANALOG_BALANCE, vec![(1, 1), (1, 1), (1, 1)]);
@@ -183,11 +182,13 @@ impl SyntheticColorChart {
             CfaPattern::Bggr => vec![2, 1, 1, 0],
             CfaPattern::Grbg => vec![1, 0, 2, 1],
             CfaPattern::Gbrg => vec![1, 2, 0, 1],
-            CfaPattern::LinearRgb => panic!(
-                "SyntheticColorChart with CfaPattern::LinearRgb is unsupported"),
+            CfaPattern::LinearRgb => {
+                panic!("SyntheticColorChart with CfaPattern::LinearRgb is unsupported")
+            }
             CfaPattern::XTrans(_) => panic!(
                 "SyntheticColorChart with CfaPattern::XTrans is unsupported \
-                 (the DNG-writer's CFAPattern tag is 2×2-only)"),
+                 (the DNG-writer's CFAPattern tag is 2×2-only)"
+            ),
         }
     }
 
@@ -205,7 +206,9 @@ impl SyntheticColorChart {
         for dy in 0..inner {
             for dx in 0..inner {
                 let i = (y0 + dy) * w + (x0 + dx);
-                if i >= image.pixels.len() { continue; }
+                if i >= image.pixels.len() {
+                    continue;
+                }
                 let p = image.pixels[i];
                 sums[0] += p[0] as f64;
                 sums[1] += p[1] as f64;
@@ -214,7 +217,11 @@ impl SyntheticColorChart {
             }
         }
         let nn = n.max(1) as f64;
-        [(sums[0] / nn) as f32, (sums[1] / nn) as f32, (sums[2] / nn) as f32]
+        [
+            (sums[0] / nn) as f32,
+            (sums[1] / nn) as f32,
+            (sums[2] / nn) as f32,
+        ]
     }
 }
 
@@ -227,8 +234,7 @@ mod tests {
     fn chart_round_trips_via_decoder() {
         let chart = SyntheticColorChart::default();
         let bytes = chart.write_to_bytes();
-        let raw = decode_bytes(&bytes, "dng")
-            .expect("synthetic chart must decode");
+        let raw = decode_bytes(&bytes, "dng").expect("synthetic chart must decode");
         assert_eq!(raw.width, chart.width());
         assert_eq!(raw.height, chart.height());
         assert_eq!(raw.cfa, CfaPattern::Rggb);

@@ -10,7 +10,9 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 
 /// scene_tone_controls::apply, step 1.
 pub fn predict_exposure(scene: f32, ev: f32) -> f32 {
-    if ev.abs() < 1e-6 { return scene; }
+    if ev.abs() < 1e-6 {
+        return scene;
+    }
     scene * ev.exp2()
 }
 
@@ -21,7 +23,9 @@ pub fn predict_exposure(scene: f32, ev: f32) -> f32 {
 ///   gain  = exp2(0.7 · b/100 · w(Y))
 /// Output = scene · gain. Exactly identity at Y ≤ 0.05 and Y ≥ 4.0.
 pub fn predict_brightness(scene: f32, b_slider: f32) -> f32 {
-    if b_slider.abs() < 1e-3 { return scene; }
+    if b_slider.abs() < 1e-3 {
+        return scene;
+    }
     let w = smoothstep(0.05, 0.25, scene) * (1.0 - smoothstep(1.0, 4.0, scene));
     let gain = (0.7 * b_slider / 100.0 * w).exp2();
     scene * gain
@@ -41,7 +45,9 @@ pub fn predict_brightness(scene: f32, b_slider: f32) -> f32 {
 ///   the pole-free mirror (#1081 / PR #1117; the legacy shared denominator
 ///   crossed zero at h = −50).
 pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
-    if h_slider.abs() < 1e-3 { return scene; }
+    if h_slider.abs() < 1e-3 {
+        return scene;
+    }
     let h_amount = h_slider / 100.0;
     let w = smoothstep(0.25, 1.0, scene);
     let g = (-0.7 * h_amount * w).exp2();
@@ -67,7 +73,9 @@ pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
 /// see `S_GAIN_EV` in the stage), exactly 1 at Y ≥ 0.25. Sign conventions
 /// unchanged.
 pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
-    if s_slider.abs() < 1e-3 { return scene; }
+    if s_slider.abs() < 1e-3 {
+        return scene;
+    }
     let t = 1.0 - smoothstep(0.0, 0.25, scene);
     let w = t * t;
     let mult = 1.0 + ((1.5 * s_slider / 100.0).exp2() - 1.0) * w;
@@ -77,7 +85,9 @@ pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
 /// scene_tone_controls::apply, step 4. Parametric upper-end curve
 /// (Ticket #267) — smoothstep-weighted gain near diffuse white.
 pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
-    if w_slider.abs() < 1e-3 { return scene; }
+    if w_slider.abs() < 1e-3 {
+        return scene;
+    }
     let w = smoothstep(0.5, 1.0, scene);
     let w_gain = 1.0 + (w_slider / 200.0) * w;
     scene * w_gain
@@ -89,7 +99,9 @@ pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
 /// scene values possible); positive lifts additively (matches the
 /// legacy zero-input lift semantics).
 pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
-    if b_slider.abs() < 1e-3 { return scene; }
+    if b_slider.abs() < 1e-3 {
+        return scene;
+    }
     let w = 1.0 - smoothstep(0.0, 0.2, scene);
     if b_slider < 0.0 {
         let b_amount = b_slider / 100.0; // -1..0
@@ -101,8 +113,12 @@ pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
     }
 }
 
-pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 { scene }
-pub fn predict_vibrance(scene: f32, _v_slider: f32) -> f32 { scene }
+pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 {
+    scene
+}
+pub fn predict_vibrance(scene: f32, _v_slider: f32) -> f32 {
+    scene
+}
 
 /// The position-aware / display-tail predictors (vignette #1109, grain
 /// #1110, split toning #1111) live in the sibling `predictions_display`
@@ -115,8 +131,12 @@ pub use super::predictions_display::{predict_grain, predict_split_tone_ab, predi
 /// Output = `input * gain(radius_norm)` with linear interp between
 /// adjacent LUT samples.
 pub fn predict_radial_gain(input: f32, radius_norm: f32, gain_values: &[f32]) -> f32 {
-    if gain_values.is_empty() { return input; }
-    if gain_values.len() == 1 { return input * gain_values[0]; }
+    if gain_values.is_empty() {
+        return input;
+    }
+    if gain_values.len() == 1 {
+        return input * gain_values[0];
+    }
     let r = radius_norm.clamp(0.0, 1.0);
     let n = gain_values.len();
     let scaled = r * (n as f32 - 1.0);
@@ -134,11 +154,17 @@ pub fn predict_radial_gain(input: f32, radius_norm: f32, gain_values: &[f32]) ->
 /// R=G=B=scene, the production `apply` path scales by curve.eval(max)/max
 /// where max == scene — i.e. the output is just curve.eval(scene).
 pub fn predict_tone_curve(scene: f32, control_points: &[(f32, f32)]) -> f32 {
-    if control_points.is_empty() { return scene; }
+    if control_points.is_empty() {
+        return scene;
+    }
     let first = control_points[0];
     let last = control_points[control_points.len() - 1];
-    if scene <= first.0 { return first.1; }
-    if scene >= last.0 { return last.1; }
+    if scene <= first.0 {
+        return first.1;
+    }
+    if scene >= last.0 {
+        return last.1;
+    }
 
     // Linear scan for the bracketing pair (curves are short).
     let mut i = 0;
@@ -176,9 +202,15 @@ mod tests {
         model.exposure = ev;
         scene_tone_controls::apply(&mut img, &model);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_exposure({},{}) = {}, scene_tone_controls produced {} (chan {})",
-                scene, ev, predicted, img.pixels[0][c], c);
+                scene,
+                ev,
+                predicted,
+                img.pixels[0][c],
+                c
+            );
         }
     }
 
@@ -212,9 +244,15 @@ mod tests {
         model.highlights = h;
         scene_tone_controls::apply(&mut img, &model);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_highlights({},{}) = {}, got {} (chan {})",
-                scene, h, predicted, img.pixels[0][c], c);
+                scene,
+                h,
+                predicted,
+                img.pixels[0][c],
+                c
+            );
         }
     }
 
@@ -229,9 +267,15 @@ mod tests {
         model.shadows = s;
         scene_tone_controls::apply(&mut img, &model);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_shadows({},{}) = {}, got {} (chan {})",
-                scene, s, predicted, img.pixels[0][c], c);
+                scene,
+                s,
+                predicted,
+                img.pixels[0][c],
+                c
+            );
         }
     }
 
@@ -246,9 +290,15 @@ mod tests {
         model.whites = w;
         scene_tone_controls::apply(&mut img, &model);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_whites({},{}) = {}, got {} (chan {})",
-                scene, w, predicted, img.pixels[0][c], c);
+                scene,
+                w,
+                predicted,
+                img.pixels[0][c],
+                c
+            );
         }
     }
 
@@ -263,9 +313,15 @@ mod tests {
         model.blacks = b;
         scene_tone_controls::apply(&mut img, &model);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_blacks({},{}) = {}, got {} (chan {})",
-                scene, b, predicted, img.pixels[0][c], c);
+                scene,
+                b,
+                predicted,
+                img.pixels[0][c],
+                c
+            );
         }
     }
 
@@ -280,17 +336,38 @@ mod tests {
         model.brightness = b;
         scene_tone_controls::apply(&mut img, &model);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_brightness({},{}) = {}, got {} (chan {})",
-                scene, b, predicted, img.pixels[0][c], c);
+                scene,
+                b,
+                predicted,
+                img.pixels[0][c],
+                c
+            );
         }
     }
 
-    #[test] fn brightness_plus50_lifts_midtone()  { round_trip_brightness(0.18, 50.0); }
-    #[test] fn brightness_minus50_darkens_midtone() { round_trip_brightness(0.18, -50.0); }
-    #[test] fn brightness_pins_deep_shadow()      { round_trip_brightness(0.03, 100.0); }
-    #[test] fn brightness_pins_highlight_end()    { round_trip_brightness(5.0, 100.0); }
-    #[test] fn brightness_zero_is_identity()      { round_trip_brightness(0.18, 0.0); }
+    #[test]
+    fn brightness_plus50_lifts_midtone() {
+        round_trip_brightness(0.18, 50.0);
+    }
+    #[test]
+    fn brightness_minus50_darkens_midtone() {
+        round_trip_brightness(0.18, -50.0);
+    }
+    #[test]
+    fn brightness_pins_deep_shadow() {
+        round_trip_brightness(0.03, 100.0);
+    }
+    #[test]
+    fn brightness_pins_highlight_end() {
+        round_trip_brightness(5.0, 100.0);
+    }
+    #[test]
+    fn brightness_zero_is_identity() {
+        round_trip_brightness(0.18, 0.0);
+    }
 
     /// Brightness at the band ends is EXACT identity (w = 0 → gain = 1.0
     /// → bit-identical multiply), not merely within tolerance.
@@ -305,8 +382,12 @@ mod tests {
             let mut model = AdjustmentModel::default();
             model.brightness = 100.0;
             scene_tone_controls::apply(&mut img, &model);
-            assert_eq!(img.pixels[0], [scene, scene, scene],
-                "brightness must be bit-exact identity at Y={}", scene);
+            assert_eq!(
+                img.pixels[0],
+                [scene, scene, scene],
+                "brightness must be bit-exact identity at Y={}",
+                scene
+            );
         }
     }
 
@@ -316,7 +397,13 @@ mod tests {
         let mut prev = f32::NEG_INFINITY;
         for b in [-100.0_f32, -50.0, -10.0, 0.0, 10.0, 50.0, 100.0] {
             let out = predict_brightness(0.18, b);
-            assert!(out > prev, "brightness not monotone at b={}: {} <= {}", b, out, prev);
+            assert!(
+                out > prev,
+                "brightness not monotone at b={}: {} <= {}",
+                b,
+                out,
+                prev
+            );
             prev = out;
         }
     }
@@ -324,26 +411,63 @@ mod tests {
     // #1103: the engagement floor is Y = 0.25 (exact identity below — w_h
     // clamps to 0); the band acts below the clip point; above-knee keeps
     // compression for h ≥ 0 and the #1081 pole-free expansion for h < 0.
-    #[test] fn highlights_below_engagement_is_identity() { round_trip_highlights(0.20, 50.0); }
-    #[test] fn highlights_below_knee_engages()      { round_trip_highlights(0.70, 50.0); }
-    #[test] fn highlights_above_knee_compresses()   { round_trip_highlights(2.0, 50.0); }
-    #[test] fn highlights_zero_is_identity()        { round_trip_highlights(2.0, 0.0); }
+    #[test]
+    fn highlights_below_engagement_is_identity() {
+        round_trip_highlights(0.20, 50.0);
+    }
+    #[test]
+    fn highlights_below_knee_engages() {
+        round_trip_highlights(0.70, 50.0);
+    }
+    #[test]
+    fn highlights_above_knee_compresses() {
+        round_trip_highlights(2.0, 50.0);
+    }
+    #[test]
+    fn highlights_zero_is_identity() {
+        round_trip_highlights(2.0, 0.0);
+    }
     // #1081 / #1103 — negative half (pole-free expansion branch), incl. the
     // old h = -50 pole and the full-range endpoint.
-    #[test] fn highlights_minus25_expands()           { round_trip_highlights(2.0, -25.0); }
-    #[test] fn highlights_minus50_expands_no_pole()   { round_trip_highlights(2.0, -50.0); }
-    #[test] fn highlights_minus100_expands()          { round_trip_highlights(2.0, -100.0); }
-    #[test] fn highlights_negative_below_engagement_is_identity() {
+    #[test]
+    fn highlights_minus25_expands() {
+        round_trip_highlights(2.0, -25.0);
+    }
+    #[test]
+    fn highlights_minus50_expands_no_pole() {
+        round_trip_highlights(2.0, -50.0);
+    }
+    #[test]
+    fn highlights_minus100_expands() {
+        round_trip_highlights(2.0, -100.0);
+    }
+    #[test]
+    fn highlights_negative_below_engagement_is_identity() {
         round_trip_highlights(0.20, -50.0);
     }
 
-    #[test] fn shadows_plus50_lifts_dark()    { round_trip_shadows(0.05, 50.0); }
-    #[test] fn shadows_minus50_crushes_dark() { round_trip_shadows(0.05, -50.0); }
+    #[test]
+    fn shadows_plus50_lifts_dark() {
+        round_trip_shadows(0.05, 50.0);
+    }
+    #[test]
+    fn shadows_minus50_crushes_dark() {
+        round_trip_shadows(0.05, -50.0);
+    }
     // #1103: engagement ceiling widened 0.1 → 0.25; 0.18 now engages,
     // 0.50 stays exactly outside.
-    #[test] fn shadows_mid_engages()          { round_trip_shadows(0.18, 50.0); }
-    #[test] fn shadows_above_mask_no_op()     { round_trip_shadows(0.50, 50.0); }
-    #[test] fn shadows_zero_is_identity()     { round_trip_shadows(0.05, 0.0); }
+    #[test]
+    fn shadows_mid_engages() {
+        round_trip_shadows(0.18, 50.0);
+    }
+    #[test]
+    fn shadows_above_mask_no_op() {
+        round_trip_shadows(0.50, 50.0);
+    }
+    #[test]
+    fn shadows_zero_is_identity() {
+        round_trip_shadows(0.05, 0.0);
+    }
 
     /// #1103 — closed-form pins for the reworked responses (guards against
     /// silently re-deriving different constants on either side):
@@ -353,16 +477,33 @@ mod tests {
     fn sh_rework_closed_form_pins() {
         assert!((predict_shadows(0.0, 100.0) - 0.0).abs() < 1e-9); // 0·mult = 0
         let m_plus = predict_shadows(0.001, 100.0) / 0.001;
-        assert!((m_plus - 1.5_f32.exp2()).abs() < 0.01, "shadows +100 deep mult {} != 2.83", m_plus);
+        assert!(
+            (m_plus - 1.5_f32.exp2()).abs() < 0.01,
+            "shadows +100 deep mult {} != 2.83",
+            m_plus
+        );
         let m_minus = predict_shadows(0.001, -100.0) / 0.001;
-        assert!((m_minus - (-1.5_f32).exp2()).abs() < 0.01,
-            "shadows -100 deep mult {} != 0.354", m_minus);
+        assert!(
+            (m_minus - (-1.5_f32).exp2()).abs() < 0.01,
+            "shadows -100 deep mult {} != 0.354",
+            m_minus
+        );
         let h = predict_highlights(2.0, -50.0);
         let expect = 3.0 * (0.35_f32).exp2(); // (1+(2−1)·2) · 2^(0.7·0.5·1)
-        assert!((h - expect).abs() < 1e-4, "highlights -50 @Y=2: {} != {}", h, expect);
+        assert!(
+            (h - expect).abs() < 1e-4,
+            "highlights -50 @Y=2: {} != {}",
+            h,
+            expect
+        );
         let hp = predict_highlights(2.0, 100.0);
         let expect_p = (4.0 / 3.0) * (-0.7_f32).exp2(); // (1+1/3) · 2^−0.7
-        assert!((hp - expect_p).abs() < 1e-4, "highlights +100 @Y=2: {} != {}", hp, expect_p);
+        assert!(
+            (hp - expect_p).abs() < 1e-4,
+            "highlights +100 @Y=2: {} != {}",
+            hp,
+            expect_p
+        );
     }
 
     /// #1103 — the reworked per-pixel responses are MONOTONE in Y at the
@@ -372,7 +513,10 @@ mod tests {
     #[test]
     fn sh_rework_monotone_in_y_at_rails() {
         for &(name, f) in &[
-            ("shadows+100", (|y: f32| predict_shadows(y, 100.0)) as fn(f32) -> f32),
+            (
+                "shadows+100",
+                (|y: f32| predict_shadows(y, 100.0)) as fn(f32) -> f32,
+            ),
             ("shadows-100", |y: f32| predict_shadows(y, -100.0)),
             ("highlights+100", |y: f32| predict_highlights(y, 100.0)),
             ("highlights-100", |y: f32| predict_highlights(y, -100.0)),
@@ -381,8 +525,14 @@ mod tests {
             for i in 1..=600 {
                 let y = i as f32 * 0.005; // 0 → 3.0
                 let out = f(y);
-                assert!(out >= prev - 1e-6,
-                    "{} non-monotone at Y={}: {} < {}", name, y, out, prev);
+                assert!(
+                    out >= prev - 1e-6,
+                    "{} non-monotone at Y={}: {} < {}",
+                    name,
+                    y,
+                    out,
+                    prev
+                );
                 prev = out;
             }
         }
@@ -392,16 +542,43 @@ mod tests {
     // The lift / pull-down behaviour tests now sample a brighter input
     // (0.9) where the smoothstep weight is non-zero; the pivot test
     // covers a luma below the smoothstep e0.
-    #[test] fn whites_plus50_lifts_bright()   { round_trip_whites(0.90, 50.0); }
-    #[test] fn whites_minus50_pulls_bright()  { round_trip_whites(0.90, -50.0); }
-    #[test] fn whites_below_pivot_no_op()     { round_trip_whites(0.10, 50.0); }
-    #[test] fn whites_at_pivot_no_op()        { round_trip_whites(0.50, 50.0); }
-    #[test] fn whites_zero_is_identity()      { round_trip_whites(0.50, 0.0); }
+    #[test]
+    fn whites_plus50_lifts_bright() {
+        round_trip_whites(0.90, 50.0);
+    }
+    #[test]
+    fn whites_minus50_pulls_bright() {
+        round_trip_whites(0.90, -50.0);
+    }
+    #[test]
+    fn whites_below_pivot_no_op() {
+        round_trip_whites(0.10, 50.0);
+    }
+    #[test]
+    fn whites_at_pivot_no_op() {
+        round_trip_whites(0.50, 50.0);
+    }
+    #[test]
+    fn whites_zero_is_identity() {
+        round_trip_whites(0.50, 0.0);
+    }
 
-    #[test] fn blacks_plus50_lifts_floor()    { round_trip_blacks(0.05, 50.0); }
-    #[test] fn blacks_minus50_crushes_floor() { round_trip_blacks(0.05, -50.0); }
-    #[test] fn blacks_above_mid_no_op()       { round_trip_blacks(0.30, 50.0); }
-    #[test] fn blacks_zero_is_identity()      { round_trip_blacks(0.05, 0.0); }
+    #[test]
+    fn blacks_plus50_lifts_floor() {
+        round_trip_blacks(0.05, 50.0);
+    }
+    #[test]
+    fn blacks_minus50_crushes_floor() {
+        round_trip_blacks(0.05, -50.0);
+    }
+    #[test]
+    fn blacks_above_mid_no_op() {
+        round_trip_blacks(0.30, 50.0);
+    }
+    #[test]
+    fn blacks_zero_is_identity() {
+        round_trip_blacks(0.05, 0.0);
+    }
 
     /// Saturation and vibrance decompose the pixel into chroma + luma and
     /// reassemble; on a true neutral the chroma is zero so the output
@@ -419,9 +596,12 @@ mod tests {
         sat::apply(&mut img, 50.0);
         let predicted = predict_saturation(0.18, 50.0);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < SAT_VIB_EPS,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < SAT_VIB_EPS,
                 "saturation should not move a neutral; got {}, predicted {}",
-                img.pixels[0][c], predicted);
+                img.pixels[0][c],
+                predicted
+            );
         }
     }
 
@@ -434,44 +614,73 @@ mod tests {
         vibrance::apply(&mut img, 50.0);
         let predicted = predict_vibrance(0.18, 50.0);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < SAT_VIB_EPS,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < SAT_VIB_EPS,
                 "vibrance should not move a neutral; got {}, predicted {}",
-                img.pixels[0][c], predicted);
+                img.pixels[0][c],
+                predicted
+            );
         }
     }
 
     fn round_trip_ptc(scene: f32, points: &[(f32, f32)]) {
         use crate::color::profile_tone_curve::ProfileToneCurve;
         use crate::image::{ColorSpace, Image};
-        let curve = ProfileToneCurve::from_floats(
-            points.iter().flat_map(|(x, y)| vec![*x, *y]).collect()
-        ).expect("valid PTC");
+        let curve =
+            ProfileToneCurve::from_floats(points.iter().flat_map(|(x, y)| vec![*x, *y]).collect())
+                .expect("valid PTC");
         let predicted = predict_tone_curve(scene, points);
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [scene, scene, scene];
         crate::color::profile_tone_curve::apply(&mut img, &curve);
         for c in 0..3 {
-            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+            assert!(
+                (img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_tone_curve({}) = {}, got {} (chan {})",
-                scene, predicted, img.pixels[0][c], c);
+                scene,
+                predicted,
+                img.pixels[0][c],
+                c
+            );
         }
     }
 
     const SIMPLE_S_CURVE: &[(f32, f32)] = &[
-        (0.0,  0.0),
+        (0.0, 0.0),
         (0.18, 0.15),
-        (0.5,  0.55),
+        (0.5, 0.55),
         (0.82, 0.9),
-        (1.0,  1.0),
+        (1.0, 1.0),
     ];
 
-    #[test] fn ptc_at_origin()        { round_trip_ptc(0.0,  SIMPLE_S_CURVE); }
-    #[test] fn ptc_at_first_knot()    { round_trip_ptc(0.18, SIMPLE_S_CURVE); }
-    #[test] fn ptc_at_midpoint()      { round_trip_ptc(0.5,  SIMPLE_S_CURVE); }
-    #[test] fn ptc_at_last_knot()     { round_trip_ptc(0.82, SIMPLE_S_CURVE); }
-    #[test] fn ptc_at_unity()         { round_trip_ptc(1.0,  SIMPLE_S_CURVE); }
-    #[test] fn ptc_below_first_knot() { round_trip_ptc(0.10, SIMPLE_S_CURVE); }
-    #[test] fn ptc_above_last_knot()  { round_trip_ptc(0.90, SIMPLE_S_CURVE); }
+    #[test]
+    fn ptc_at_origin() {
+        round_trip_ptc(0.0, SIMPLE_S_CURVE);
+    }
+    #[test]
+    fn ptc_at_first_knot() {
+        round_trip_ptc(0.18, SIMPLE_S_CURVE);
+    }
+    #[test]
+    fn ptc_at_midpoint() {
+        round_trip_ptc(0.5, SIMPLE_S_CURVE);
+    }
+    #[test]
+    fn ptc_at_last_knot() {
+        round_trip_ptc(0.82, SIMPLE_S_CURVE);
+    }
+    #[test]
+    fn ptc_at_unity() {
+        round_trip_ptc(1.0, SIMPLE_S_CURVE);
+    }
+    #[test]
+    fn ptc_below_first_knot() {
+        round_trip_ptc(0.10, SIMPLE_S_CURVE);
+    }
+    #[test]
+    fn ptc_above_last_knot() {
+        round_trip_ptc(0.90, SIMPLE_S_CURVE);
+    }
 
     // The vignette / grain / split-tone predictor round-trips moved to
     // `predictions_display.rs` with their predictors (#1170).

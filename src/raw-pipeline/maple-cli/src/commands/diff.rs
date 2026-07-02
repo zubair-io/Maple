@@ -12,10 +12,18 @@ pub fn run(
     budget: Option<f32>,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     if !candidate.is_file() {
-        return Err(format!("diff: candidate path is not a file: {}", candidate.display()).into());
+        return Err(format!(
+            "diff: candidate path is not a file: {}",
+            candidate.display()
+        )
+        .into());
     }
     if !reference.is_file() {
-        return Err(format!("diff: reference path is not a file: {}", reference.display()).into());
+        return Err(format!(
+            "diff: reference path is not a file: {}",
+            reference.display()
+        )
+        .into());
     }
 
     // Locate compare_images.py by walking ancestors of the current working

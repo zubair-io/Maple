@@ -13,7 +13,10 @@ use super::*;
 struct Lcg(u64);
 impl Lcg {
     fn next_f32(&mut self) -> f32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         ((self.0 >> 40) as f32) / (1u64 << 24) as f32
     }
     fn noise(&mut self, a: f32) -> f32 {
@@ -79,7 +82,10 @@ fn strength_zero_is_bit_identical_skip() {
     let mut img = noisy_scene(32, 24, 0.02);
     let before = img.pixels.clone();
     apply(&mut img, 0.0, None);
-    assert_eq!(img.pixels, before, "strength 0 must be a bit-identical skip");
+    assert_eq!(
+        img.pixels, before,
+        "strength 0 must be a bit-identical skip"
+    );
 }
 
 #[test]
@@ -111,7 +117,8 @@ fn noise_energy_drops_on_flat_regions() {
     assert!(
         var_after < 0.5 * var_before,
         "flat-region luma variance should drop substantially: {} -> {}",
-        var_before, var_after
+        var_before,
+        var_after
     );
 }
 
@@ -133,7 +140,8 @@ fn chroma_is_cleaned_harder_than_luma() {
     assert!(
         chroma_residual <= luma_residual * 1.05,
         "chroma residual {} should be <= luma residual {}",
-        chroma_residual, luma_residual
+        chroma_residual,
+        luma_residual
     );
 }
 
@@ -152,7 +160,8 @@ fn edge_is_preserved_while_flats_clean() {
     assert!(
         right - left > 0.12,
         "the 0.12->0.30 step must survive: left {} right {}",
-        left, right
+        left,
+        right
     );
 }
 
@@ -171,7 +180,10 @@ fn deterministic_across_thread_counts() {
     };
     let one = run(1);
     let many = run(8);
-    assert_eq!(one, many, "BM3D output must be byte-identical across thread counts");
+    assert_eq!(
+        one, many,
+        "BM3D output must be byte-identical across thread counts"
+    );
 }
 
 #[test]
@@ -193,7 +205,11 @@ fn tiny_images_are_identity() {
         let mut img = uniform_img(w, h, [0.3, 0.2, 0.1]);
         let before = img.pixels.clone();
         apply(&mut img, 80.0, None);
-        assert_eq!(img.pixels, before, "{}x{}: no 8x8 patch fits -> identity", w, h);
+        assert_eq!(
+            img.pixels, before,
+            "{}x{}: no 8x8 patch fits -> identity",
+            w, h
+        );
     }
 }
 
@@ -207,13 +223,36 @@ fn progress_is_reported_monotonically_for_both_passes() {
     let mut img = noisy_scene(32, 24, 0.02);
     apply(&mut img, 50.0, Some(&sink));
     let log = log.into_inner().unwrap();
-    let p1: Vec<f32> = log.iter().filter(|(n, _)| *n == "pass 1/2").map(|&(_, f)| f).collect();
-    let p2: Vec<f32> = log.iter().filter(|(n, _)| *n == "pass 2/2").map(|&(_, f)| f).collect();
-    assert!(!p1.is_empty() && !p2.is_empty(), "both passes must report progress");
-    assert!(p1.windows(2).all(|w| w[1] >= w[0]), "pass 1 progress must be monotone");
-    assert!(p2.windows(2).all(|w| w[1] >= w[0]), "pass 2 progress must be monotone");
-    assert!((p1.last().unwrap() - 1.0).abs() < 1e-6, "pass 1 must reach 100%");
-    assert!((p2.last().unwrap() - 1.0).abs() < 1e-6, "pass 2 must reach 100%");
+    let p1: Vec<f32> = log
+        .iter()
+        .filter(|(n, _)| *n == "pass 1/2")
+        .map(|&(_, f)| f)
+        .collect();
+    let p2: Vec<f32> = log
+        .iter()
+        .filter(|(n, _)| *n == "pass 2/2")
+        .map(|&(_, f)| f)
+        .collect();
+    assert!(
+        !p1.is_empty() && !p2.is_empty(),
+        "both passes must report progress"
+    );
+    assert!(
+        p1.windows(2).all(|w| w[1] >= w[0]),
+        "pass 1 progress must be monotone"
+    );
+    assert!(
+        p2.windows(2).all(|w| w[1] >= w[0]),
+        "pass 2 progress must be monotone"
+    );
+    assert!(
+        (p1.last().unwrap() - 1.0).abs() < 1e-6,
+        "pass 1 must reach 100%"
+    );
+    assert!(
+        (p2.last().unwrap() - 1.0).abs() < 1e-6,
+        "pass 2 must reach 100%"
+    );
 }
 
 #[test]
@@ -233,7 +272,9 @@ fn every_strength_cleans_flat_noise_substantially() {
         assert!(
             v < 0.10 * v0,
             "strength {} should remove >90% of flat noise variance: {} vs {}",
-            s, v, v0
+            s,
+            v,
+            v0
         );
     }
 }

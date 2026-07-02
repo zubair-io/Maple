@@ -15,8 +15,16 @@ mod preview_tests {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../test-fixtures/raws/test_0017.dng");
         let preview = extract_preview(&path).expect("test_0017 has an embedded JPEG");
-        assert!(preview.width() >= 256, "preview too small: {}", preview.width());
-        assert!(preview.height() >= 256, "preview too small: {}", preview.height());
+        assert!(
+            preview.width() >= 256,
+            "preview too small: {}",
+            preview.width()
+        );
+        assert!(
+            preview.height() >= 256,
+            "preview too small: {}",
+            preview.height()
+        );
     }
 
     #[test]
@@ -66,8 +74,8 @@ mod preview_tests {
         // (fixture, ext hint, exact preview dims to assert — None = just non-empty)
         let cases: &[(&str, &str, Option<(u32, u32)>)] = &[
             ("test_0015.dng", "dng", Some((680, 512))), // preview, NOT the 4080×3072 CFA RAW
-            ("test_0013.DNG", "dng", None),             // preview 4032×3024 (== RAW dims; ΔE-checked elsewhere)
-            ("test_0016.X3F", "x3f", None),             // Sigma X3F preview via byte scan
+            ("test_0013.DNG", "dng", None), // preview 4032×3024 (== RAW dims; ΔE-checked elsewhere)
+            ("test_0016.X3F", "x3f", None), // Sigma X3F preview via byte scan
         ];
         for (name, ext, dims) in cases {
             let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -224,7 +232,11 @@ mod apply_tests {
         let mut rgb: Vec<f32> = vec![-0.5, 1.5, 0.5];
         apply_curve(&mut rgb, &ProfileCurve::identity());
         // For -0.5: compress_input clamps to 0.0; identity → 0.0.
-        assert!((rgb[0] - 0.0).abs() < 1e-6, "neg clamped to 0, got {}", rgb[0]);
+        assert!(
+            (rgb[0] - 0.0).abs() < 1e-6,
+            "neg clamped to 0, got {}",
+            rgb[0]
+        );
         // For 1.5: above KNEE (0.95), soft compress to roughly
         //   0.95 + 0.05 * (over/(1+over)) where over = (1.5-0.95)/0.05 = 11
         //   = 0.95 + 0.05 * (11/12) = 0.95 + 0.0458 = 0.9958
@@ -238,8 +250,8 @@ mod apply_tests {
 mod fit_tests {
     use super::super::fit_curve_from_raw_display as fit_curve_from_raw;
     use crate::image::ExifOrientation;
-    use std::path::PathBuf;
     use std::path::Path;
+    use std::path::PathBuf;
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn fit_curve_accepts_orientation_arg_and_returns_non_identity() {
@@ -264,10 +276,11 @@ mod fit_tests {
                 break;
             }
         }
-        assert!(differs, "fit produced identity — extraction probably failed silently");
+        assert!(
+            differs,
+            "fit produced identity — extraction probably failed silently"
+        );
     }
-
-
 
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
@@ -291,7 +304,10 @@ mod fit_tests {
                 break;
             }
         }
-        assert!(differs, "fit produced identity — extraction probably failed silently");
+        assert!(
+            differs,
+            "fit produced identity — extraction probably failed silently"
+        );
     }
 
     #[test]
@@ -318,8 +334,9 @@ mod fit_tests {
         let source: Vec<f32> = (0..w * h * 3).map(|i| (i % 256) as f32 / 255.0).collect();
         let from_path = fit_curve_from_raw(&raw_path, &source, w, h, ExifOrientation::Normal)
             .expect("path fit");
-        let from_bytes = fit_curve_from_bytes(&raw_bytes, "dng", &source, w, h, ExifOrientation::Normal)
-            .expect("bytes fit");
+        let from_bytes =
+            fit_curve_from_bytes(&raw_bytes, "dng", &source, w, h, ExifOrientation::Normal)
+                .expect("bytes fit");
         assert_eq!(from_path, from_bytes);
     }
 }

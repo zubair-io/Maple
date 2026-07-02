@@ -72,10 +72,7 @@ pub fn split_tone_shift(
     let y = yd.clamp(0.0, 1.0);
     let ws = (1.0 - y).powf(gamma);
     let wh = y.powf(inv_gamma);
-    [
-        ws * s_vec[0] + wh * h_vec[0],
-        ws * s_vec[1] + wh * h_vec[1],
-    ]
+    [ws * s_vec[0] + wh * h_vec[0], ws * s_vec[1] + wh * h_vec[1]]
 }
 
 /// Apply split toning per spec § 10.3. Identity short-circuit when both
@@ -92,8 +89,13 @@ pub fn apply(
     if shadow_sat.abs() < 1e-3 && highlight_sat.abs() < 1e-3 {
         return;
     }
-    let (gamma, inv_gamma, s_vec, h_vec) =
-        split_tone_params(shadow_hue, shadow_sat, highlight_hue, highlight_sat, balance);
+    let (gamma, inv_gamma, s_vec, h_vec) = split_tone_params(
+        shadow_hue,
+        shadow_sat,
+        highlight_hue,
+        highlight_sat,
+        balance,
+    );
 
     for p in &mut img.pixels {
         let yd = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
@@ -180,8 +182,14 @@ mod tests {
         let ws_neg = (1.0 - yd).powf(g_neg);
         let wh_pos = yd.powf(ig_pos);
         let wh_neg = yd.powf(ig_neg);
-        assert!(ws_pos < ws_neg, "positive balance must shrink the shadow weight");
-        assert!(wh_pos > wh_neg, "positive balance must grow the highlight weight");
+        assert!(
+            ws_pos < ws_neg,
+            "positive balance must shrink the shadow weight"
+        );
+        assert!(
+            wh_pos > wh_neg,
+            "positive balance must grow the highlight weight"
+        );
     }
 
     /// Shadow tint dominates dark pixels; highlight tint dominates bright
@@ -197,12 +205,18 @@ mod tests {
         };
         let (a_dark, _b_dark) = tint_ab(0.03);
         let (a_bright, b_bright) = tint_ab(0.95);
-        assert!(a_dark > 0.01, "dark pixels must carry the warm shadow tint (a = {a_dark})");
+        assert!(
+            a_dark > 0.01,
+            "dark pixels must carry the warm shadow tint (a = {a_dark})"
+        );
         assert!(
             b_bright < 0.0,
             "bright pixels must carry the cool highlight tint (b = {b_bright})"
         );
-        assert!(a_bright < a_dark, "warm shadow tint must fade with luminance");
+        assert!(
+            a_bright < a_dark,
+            "warm shadow tint must fade with luminance"
+        );
     }
 
     /// Tone invariance on a ramp: L is untouched for every pixel, so the

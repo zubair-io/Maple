@@ -85,7 +85,10 @@ impl CacheKey {
         let canonical = std::fs::canonicalize(path).ok()?;
         let meta = std::fs::metadata(&canonical).ok()?;
         let mtime = meta.modified().ok()?;
-        Some(CacheKey::Path { path: canonical, mtime })
+        Some(CacheKey::Path {
+            path: canonical,
+            mtime,
+        })
     }
 
     /// Build a [`CacheKey::Bytes`] from in-memory RAW bytes. Uses a 64-bit
@@ -107,9 +110,7 @@ impl CacheKey {
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         let digest = hasher.finalize();
         let b = digest.as_bytes();
-        let hash = u64::from_le_bytes([
-            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
-        ]);
+        let hash = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
         CacheKey::Bytes { hash }
     }
 }
@@ -238,6 +239,8 @@ mod tests {
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
+            iso: 100,
+            noise_profile: None,
         })
     }
 
@@ -269,9 +272,15 @@ mod tests {
         for i in 0..(CAPACITY as u64 + 1) {
             insert(CacheKey::Bytes { hash: i }, dummy_image(i as u32));
         }
-        assert!(get(&CacheKey::Bytes { hash: 0 }).is_none(), "oldest evicted");
+        assert!(
+            get(&CacheKey::Bytes { hash: 0 }).is_none(),
+            "oldest evicted"
+        );
         for i in 1..=(CAPACITY as u64) {
-            assert!(get(&CacheKey::Bytes { hash: i }).is_some(), "hash={i} present");
+            assert!(
+                get(&CacheKey::Bytes { hash: i }).is_some(),
+                "hash={i} present"
+            );
         }
     }
 
@@ -294,8 +303,14 @@ mod tests {
         let _ = get(&CacheKey::Bytes { hash: 0 });
         // Insert one more — the evicted entry is hash=1 (LRU), not hash=0.
         insert(CacheKey::Bytes { hash: 999 }, dummy_image(999));
-        assert!(get(&CacheKey::Bytes { hash: 0 }).is_some(), "hash=0 promoted, survives");
-        assert!(get(&CacheKey::Bytes { hash: 1 }).is_none(), "hash=1 was LRU, evicted");
+        assert!(
+            get(&CacheKey::Bytes { hash: 0 }).is_some(),
+            "hash=0 promoted, survives"
+        );
+        assert!(
+            get(&CacheKey::Bytes { hash: 1 }).is_none(),
+            "hash=1 was LRU, evicted"
+        );
     }
 
     #[test]
@@ -332,7 +347,11 @@ mod tests {
         let ka = CacheKey::from_bytes(&a);
         let kb = CacheKey::from_bytes(&b);
         let kc = CacheKey::from_bytes(&c);
-        assert_eq!(ka, CacheKey::from_bytes(&a), "identical bytes → identical key");
+        assert_eq!(
+            ka,
+            CacheKey::from_bytes(&a),
+            "identical bytes → identical key"
+        );
         assert_ne!(ka, kb, "different prefix → different key");
         assert_ne!(ka, kc, "different length → different key");
     }

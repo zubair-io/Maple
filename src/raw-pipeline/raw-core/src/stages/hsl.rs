@@ -67,14 +67,14 @@ pub const NUM_BANDS: usize = 8;
 /// Order: Red(0), Orange(1), Yellow(2), Green(3),
 ///        Aqua(4), Blue(5), Purple(6), Magenta(7).
 pub const HUE_CENTERS_DEG: [f32; NUM_BANDS] = [
-    29.0,   // Red
-    55.0,   // Orange
-    110.0,  // Yellow
-    145.0,  // Green
-    195.0,  // Aqua
-    250.0,  // Blue
-    285.0,  // Purple
-    328.0,  // Magenta
+    29.0,  // Red
+    55.0,  // Orange
+    110.0, // Yellow
+    145.0, // Green
+    195.0, // Aqua
+    250.0, // Blue
+    285.0, // Purple
+    328.0, // Magenta
 ];
 
 /// Raised-cosine half-width per band (degrees). Because the 8 ACR-aligned
@@ -137,7 +137,11 @@ pub fn circular_delta_deg(h: f32, center: f32) -> f32 {
 #[inline]
 fn oklab_hue_deg(a: f32, b: f32) -> f32 {
     let h = b.atan2(a).to_degrees();
-    if h < 0.0 { h + 360.0 } else { h }
+    if h < 0.0 {
+        h + 360.0
+    } else {
+        h
+    }
 }
 
 // ── Params struct (shared with GPU oracle) ────────────────────────────────────
@@ -182,7 +186,12 @@ pub fn hsl_params(
             is_identity = false;
         }
     }
-    HslParams { hue_rad, sat_scale, lum_shift, is_identity }
+    HslParams {
+        hue_rad,
+        sat_scale,
+        lum_shift,
+        is_identity,
+    }
 }
 
 /// Per-pixel HSL transform in Oklab. Returns the modified RGB pixel.
@@ -301,11 +310,15 @@ mod tests {
 
     const BANDS: usize = NUM_BANDS;
 
-    fn zero_bands() -> [f32; NUM_BANDS] { [0.0; NUM_BANDS] }
+    fn zero_bands() -> [f32; NUM_BANDS] {
+        [0.0; NUM_BANDS]
+    }
 
     fn grey_scene(w: u32, h: u32, v: f32) -> Image {
         let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [v, v, v]; }
+        for p in &mut img.pixels {
+            *p = [v, v, v];
+        }
         img
     }
 
@@ -317,7 +330,10 @@ mod tests {
         let mut img = grey_scene(8, 8, 0.18);
         let before = img.pixels.clone();
         apply(&mut img, &zero_bands(), &zero_bands(), &zero_bands());
-        assert_eq!(img.pixels, before, "all-default model must be bit-identical no-op");
+        assert_eq!(
+            img.pixels, before,
+            "all-default model must be bit-identical no-op"
+        );
     }
 
     /// Any slider set with a neutral (grey) input is a no-op because
@@ -334,10 +350,12 @@ mod tests {
                 let before = img.pixels.clone();
                 apply(&mut img, &zero_bands(), &sat, &zero_bands());
                 for (i, (a, b)) in img.pixels.iter().zip(before.iter()).enumerate() {
-                    assert!((a[0] - b[0]).abs() < 1e-5
-                        && (a[1] - b[1]).abs() < 1e-5
-                        && (a[2] - b[2]).abs() < 1e-5,
-                        "sat[{band}]={sv}: neutral pixel {i} changed: {a:?} != {b:?}");
+                    assert!(
+                        (a[0] - b[0]).abs() < 1e-5
+                            && (a[1] - b[1]).abs() < 1e-5
+                            && (a[2] - b[2]).abs() < 1e-5,
+                        "sat[{band}]={sv}: neutral pixel {i} changed: {a:?} != {b:?}"
+                    );
                 }
             }
         }
@@ -350,10 +368,12 @@ mod tests {
             let before = img.pixels.clone();
             apply(&mut img, &hue, &zero_bands(), &zero_bands());
             for (i, (a, b)) in img.pixels.iter().zip(before.iter()).enumerate() {
-                assert!((a[0] - b[0]).abs() < 1e-5
-                    && (a[1] - b[1]).abs() < 1e-5
-                    && (a[2] - b[2]).abs() < 1e-5,
-                    "hue[{band}]=100: neutral pixel {i} changed: {a:?} != {b:?}");
+                assert!(
+                    (a[0] - b[0]).abs() < 1e-5
+                        && (a[1] - b[1]).abs() < 1e-5
+                        && (a[2] - b[2]).abs() < 1e-5,
+                    "hue[{band}]=100: neutral pixel {i} changed: {a:?} != {b:?}"
+                );
             }
         }
     }
@@ -381,12 +401,16 @@ mod tests {
                 w[band] = raised_cosine_weight(delta, BAND_HALF_WIDTH_DEG);
                 raw_sum += w[band];
             }
-            assert!(raw_sum > 1e-6,
-                "coverage gap at hue {h}°: raw_sum = {raw_sum} (increase BAND_HALF_WIDTH_DEG)");
+            assert!(
+                raw_sum > 1e-6,
+                "coverage gap at hue {h}°: raw_sum = {raw_sum} (increase BAND_HALF_WIDTH_DEG)"
+            );
             // Normalized weights sum to exactly 1
             let norm_sum: f32 = w.iter().map(|wi| wi / raw_sum).sum();
-            assert!((norm_sum - 1.0).abs() < 1e-5,
-                "normalized partition-of-unity violated at hue {h}°: sum = {norm_sum}");
+            assert!(
+                (norm_sum - 1.0).abs() < 1e-5,
+                "normalized partition-of-unity violated at hue {h}°: sum = {norm_sum}"
+            );
         }
     }
 
@@ -438,8 +462,11 @@ mod tests {
                 assert!((c_out - expected_c).abs() < 0.005,
                     "band {band} SAT {sv}: c_out={c_out:.4} expected≈{expected_c:.4} (w_band={w_band:.3})");
                 // L must not change (luminance slider = 0)
-                assert!((lab_out[0] - l0).abs() < 1e-3,
-                    "band {band} SAT {sv}: L changed from {l0} to {}", lab_out[0]);
+                assert!(
+                    (lab_out[0] - l0).abs() < 1e-3,
+                    "band {band} SAT {sv}: L changed from {l0} to {}",
+                    lab_out[0]
+                );
             }
         }
     }
@@ -480,16 +507,22 @@ mod tests {
                 let expected_rot = hv / 100.0 * HSL_HUE_MAX_DEG * w_band * chroma_gate;
                 let actual_rot = {
                     let mut d = h_out - h_in_deg;
-                    while d > 180.0 { d -= 360.0; }
-                    while d <= -180.0 { d += 360.0; }
+                    while d > 180.0 {
+                        d -= 360.0;
+                    }
+                    while d <= -180.0 {
+                        d += 360.0;
+                    }
                     d
                 };
                 assert!((actual_rot - expected_rot).abs() < 3.0,
                     "band {band} HUE {hv}: rot={actual_rot:.1}° expected≈{expected_rot:.1}° (w_band={w_band:.3})");
                 // Chroma should be unchanged (hue-only rotation)
-                let c_out = (lab_out[1]*lab_out[1] + lab_out[2]*lab_out[2]).sqrt();
-                assert!((c_out - c_in).abs() < 0.005,
-                    "band {band} HUE {hv}: chroma changed {c_in} → {c_out}");
+                let c_out = (lab_out[1] * lab_out[1] + lab_out[2] * lab_out[2]).sqrt();
+                assert!(
+                    (c_out - c_in).abs() < 0.005,
+                    "band {band} HUE {hv}: chroma changed {c_in} → {c_out}"
+                );
             }
         }
     }
@@ -528,12 +561,17 @@ mod tests {
                 // Effective lum_shift = (lv/100) * w_band * chroma_gate
                 let effective_shift = (lv / 100.0) * w_band * chroma_gate;
                 let expected_l = l0 * (1.0 + effective_shift);
-                assert!((lab_out[0] - expected_l).abs() < 0.01,
-                    "band {band} LUM {lv}: L={} expected≈{expected_l} (w_band={w_band:.3})", lab_out[0]);
+                assert!(
+                    (lab_out[0] - expected_l).abs() < 0.01,
+                    "band {band} LUM {lv}: L={} expected≈{expected_l} (w_band={w_band:.3})",
+                    lab_out[0]
+                );
                 // Chroma unchanged (only L modified)
-                let c_out = (lab_out[1]*lab_out[1] + lab_out[2]*lab_out[2]).sqrt();
-                assert!((c_out - c_in).abs() < 0.01,
-                    "band {band} LUM {lv}: chroma changed {c_in} → {c_out}");
+                let c_out = (lab_out[1] * lab_out[1] + lab_out[2] * lab_out[2]).sqrt();
+                assert!(
+                    (c_out - c_in).abs() < 0.01,
+                    "band {band} LUM {lv}: chroma changed {c_in} → {c_out}"
+                );
             }
         }
     }
@@ -550,15 +588,19 @@ mod tests {
         let mut hue = zero_bands();
         hue[0] = 100.0;
         let mut sat = zero_bands();
-        for i in 0..BANDS { sat[i] = 100.0; }
+        for i in 0..BANDS {
+            sat[i] = 100.0;
+        }
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = rgb;
         let before = img.pixels[0];
         apply(&mut img, &hue, &sat, &zero_bands());
         let after = img.pixels[0];
         for c in 0..3 {
-            assert!((after[c] - before[c]).abs() < 1e-4,
-                "low-chroma pixel channel {c} changed: {before:?} → {after:?}");
+            assert!(
+                (after[c] - before[c]).abs() < 1e-4,
+                "low-chroma pixel channel {c} changed: {before:?} → {after:?}"
+            );
         }
     }
 

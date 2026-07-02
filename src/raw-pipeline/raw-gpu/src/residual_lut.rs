@@ -57,38 +57,23 @@ fn sample(data: &[f32], size: usize, rgb: [f32; 3]) -> [f32; 3] {
         lo[c] = l as usize;
         f[c] = p - l;
     }
-    let fx = f[0];
-    let fy = f[1];
-    let fz = f[2];
-
-    let mut out = [0.0f32; 3];
-    let c000 = node(data, size, lo[0], lo[1], lo[2]);
-    let c100 = node(data, size, lo[0] + 1, lo[1], lo[2]);
-    let c010 = node(data, size, lo[0], lo[1] + 1, lo[2]);
-    let c110 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2]);
-    let c001 = node(data, size, lo[0], lo[1], lo[2] + 1);
-    let c101 = node(data, size, lo[0] + 1, lo[1], lo[2] + 1);
-    let c011 = node(data, size, lo[0], lo[1] + 1, lo[2] + 1);
-    let c111 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2] + 1);
-
-    for c in 0..3 {
-        out[c] = if fx >= fy {
-            if fy >= fz {
-                c000[c] * (1.0 - fx) + c100[c] * (fx - fy) + c110[c] * (fy - fz) + c111[c] * fz
-            } else if fx >= fz {
-                c000[c] * (1.0 - fx) + c100[c] * (fx - fz) + c101[c] * (fz - fy) + c111[c] * fy
-            } else {
-                c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy
-            }
-        } else {
-            if fx >= fz {
-                c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz
-            } else if fy >= fz {
-                c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx
-            } else {
-                c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx
-            }
-        };
+    let mut out = [0f32; 3];
+    for (c, out_c) in out.iter_mut().enumerate() {
+        let c000 = node(data, size, lo[0], lo[1], lo[2])[c];
+        let c100 = node(data, size, lo[0] + 1, lo[1], lo[2])[c];
+        let c010 = node(data, size, lo[0], lo[1] + 1, lo[2])[c];
+        let c110 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2])[c];
+        let c001 = node(data, size, lo[0], lo[1], lo[2] + 1)[c];
+        let c101 = node(data, size, lo[0] + 1, lo[1], lo[2] + 1)[c];
+        let c011 = node(data, size, lo[0], lo[1] + 1, lo[2] + 1)[c];
+        let c111 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2] + 1)[c];
+        let c00 = c000 * (1.0 - f[0]) + c100 * f[0];
+        let c10 = c010 * (1.0 - f[0]) + c110 * f[0];
+        let c01 = c001 * (1.0 - f[0]) + c101 * f[0];
+        let c11 = c011 * (1.0 - f[0]) + c111 * f[0];
+        let c0 = c00 * (1.0 - f[1]) + c10 * f[1];
+        let c1 = c01 * (1.0 - f[1]) + c11 * f[1];
+        *out_c = c0 * (1.0 - f[2]) + c1 * f[2];
     }
     out
 }
@@ -152,7 +137,11 @@ impl Pass for ResidualLutPass {
         dst: &wgpu::Buffer,
         dims: (u32, u32),
     ) {
-        assert!(self.size >= 2, "residual LUT size must be >= 2, got {}", self.size);
+        assert!(
+            self.size >= 2,
+            "residual LUT size must be >= 2, got {}",
+            self.size
+        );
         assert_eq!(
             self.data.len(),
             residual_lut_flat_len(self.size),

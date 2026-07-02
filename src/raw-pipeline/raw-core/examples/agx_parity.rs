@@ -25,7 +25,8 @@ const W: usize = 256;
 const H: usize = 256;
 
 fn main() -> std::io::Result<()> {
-    let out_dir: PathBuf = std::env::args().nth(1)
+    let out_dir: PathBuf = std::env::args()
+        .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/agx-parity"));
     std::fs::create_dir_all(&out_dir)?;
@@ -75,8 +76,7 @@ fn main() -> std::io::Result<()> {
         "{{\"width\":{},\"height\":{},\"min_ev\":{},\"max_ev\":{},\"mid_gray\":{},\"version\":{}}}\n",
         W, H, AGX_MIN_EV, AGX_MAX_EV, AGX_MID_GRAY, AGX_VERSION
     );
-    File::create(out_dir.join("agx_parity.json"))?
-        .write_all(meta.as_bytes())?;
+    File::create(out_dir.join("agx_parity.json"))?.write_all(meta.as_bytes())?;
 
     eprintln!("wrote agx_parity_in.f32 ({} bytes)", W * H * 3 * 4);
     eprintln!("wrote agx_parity_out.f32 ({} bytes)", W * H * 3 * 4);

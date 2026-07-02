@@ -65,17 +65,41 @@ type Mat3 = [[f32; 3]; 3];
 /// `raw_core::view::agx::AGX_INSET_MATRIX` (and the generated WGSL `AGX_INSET`).
 #[allow(clippy::excessive_precision)]
 const AGX_INSET_MATRIX: Mat3 = [
-    [8.591975135285663e-01, 5.597524856454414e-02, 8.482723790688949e-02],
-    [5.919751352856634e-02, 8.559752485645438e-01, 8.482723790688945e-02],
-    [5.919751352856627e-02, 5.597524856454419e-02, 8.848272379068893e-01],
+    [
+        8.591975135285663e-01,
+        5.597524856454414e-02,
+        8.482723790688949e-02,
+    ],
+    [
+        5.919751352856634e-02,
+        8.559752485645438e-01,
+        8.482723790688945e-02,
+    ],
+    [
+        5.919751352856627e-02,
+        5.597524856454419e-02,
+        8.848272379068893e-01,
+    ],
 ];
 /// Outset matrix (AgX-Base-Rec.2020 -> Rec.2020). Numerical inverse of INSET;
 /// values identical to `raw_core::view::agx::AGX_OUTSET_MATRIX`.
 #[allow(clippy::excessive_precision)]
 const AGX_OUTSET_MATRIX: Mat3 = [
-    [1.176003108089292e+00, -6.996906070568021e-02, -1.060340473836119e-01],
-    [-7.399689191070798e-02, 1.180030939294320e+00, -1.060340473836119e-01],
-    [-7.399689191070784e-02, -6.996906070568031e-02, 1.143965952616388e+00],
+    [
+        1.176003108089292e+00,
+        -6.996906070568021e-02,
+        -1.060340473836119e-01,
+    ],
+    [
+        -7.399689191070798e-02,
+        1.180030939294320e+00,
+        -1.060340473836119e-01,
+    ],
+    [
+        -7.399689191070784e-02,
+        -6.996906070568031e-02,
+        1.143965952616388e+00,
+    ],
 ];
 
 // ── Oklab pair (duplicated from raw_core::color::oklab, rec2020 pair) ───────
@@ -180,7 +204,11 @@ fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
     let (l, a, b) = (lab[0], lab[1], lab[2]);
     let c_in = (a * a + b * b).sqrt();
     if c_in <= CHROMA_FLOOR {
-        return [rgb[0].clamp(0.0, 1.0), rgb[1].clamp(0.0, 1.0), rgb[2].clamp(0.0, 1.0)];
+        return [
+            rgb[0].clamp(0.0, 1.0),
+            rgb[1].clamp(0.0, 1.0),
+            rgb[2].clamp(0.0, 1.0),
+        ];
     }
     let scale_chroma = |s: f32| oklab_to_rec2020([l, a * s, b * s]);
     if in_unit_box(scale_chroma(1.0 / COMPRESS_THRESHOLD)) {
@@ -190,7 +218,11 @@ fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
     let hull = c_in * s_hull;
     if !hull.is_finite() || hull <= CHROMA_FLOOR {
         let out = scale_chroma(s_hull.max(0.0));
-        return [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)];
+        return [
+            out[0].clamp(0.0, 1.0),
+            out[1].clamp(0.0, 1.0),
+            out[2].clamp(0.0, 1.0),
+        ];
     }
     let knee = COMPRESS_THRESHOLD * hull;
     let c_out = if c_in <= knee {
@@ -200,7 +232,11 @@ fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
         knee + (hull - knee) * (x / (1.0 + x))
     };
     let out = scale_chroma(c_out / c_in);
-    [out[0].clamp(0.0, 1.0), out[1].clamp(0.0, 1.0), out[2].clamp(0.0, 1.0)]
+    [
+        out[0].clamp(0.0, 1.0),
+        out[1].clamp(0.0, 1.0),
+        out[2].clamp(0.0, 1.0),
+    ]
 }
 
 /// Largest in-gamut chroma scale (bracket + 24-iter bisection). Mirrors
@@ -262,7 +298,9 @@ fn sample_lut(x: f32) -> f32 {
 fn log_encode(channel: f32) -> f32 {
     let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
     let clamped = channel.max(floor);
-    let log_v = (clamped / AGX_MID_GRAY).log2().clamp(AGX_MIN_EV, AGX_MAX_EV);
+    let log_v = (clamped / AGX_MID_GRAY)
+        .log2()
+        .clamp(AGX_MIN_EV, AGX_MAX_EV);
     (log_v - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV)
 }
 

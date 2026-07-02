@@ -226,7 +226,7 @@ pub fn apply_scene_linear_chain(
     });
     // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
     stage("ffi_chain_nr_luminance", || {
-        noise_reduction::apply_luminance(&mut img, model.nr_luminance)
+        noise_reduction::apply_luminance(&mut img, model.nr_luminance, None, 100)
     });
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {
@@ -443,7 +443,7 @@ pub fn apply_scene_linear_chain_f32(
     });
     // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
     stage("ffi_chain_nr_luminance", || {
-        noise_reduction::apply_luminance(&mut img, model.nr_luminance)
+        noise_reduction::apply_luminance(&mut img, model.nr_luminance, None, 100)
     });
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {

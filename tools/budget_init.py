@@ -20,7 +20,8 @@ from collections import defaultdict
 # Match a case row from calibrate_color_pipeline.sh's output:
 #   test_0000    baseline                 8.32M    8.41 12.34 27.50  -0.0431 +0.0042 -0.0301
 ROW_RE = re.compile(
-    r"^(?P<fixture>test_\d+)\s+"
+    r"^(?:PASS|FAIL)?\s*"
+    r"(?P<fixture>test_\d+)\s+"
     r"(?P<case>\S+)\s+"
     r"\S+\s+"  # n_pix
     r"(?P<mean>[\d.]+)\s+"

@@ -22,7 +22,9 @@
 pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32) {
     let (sw, sh) = (image.width, image.height);
     let long_edge = sw.max(sh);
-    if long_edge <= max_long_edge { return; }
+    if long_edge <= max_long_edge {
+        return;
+    }
     let (dw, dh) = if sw >= sh {
         let scale = max_long_edge as f64 / sw as f64;
         (max_long_edge, ((sh as f64 * scale).round() as u32).max(1))
@@ -47,12 +49,14 @@ pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32
         if ax < 1.0 {
             ((12.0 - 9.0 * b - 6.0 * c) * ax * ax * ax
                 + (-18.0 + 12.0 * b + 6.0 * c) * ax * ax
-                + (6.0 - 2.0 * b)) / 6.0
+                + (6.0 - 2.0 * b))
+                / 6.0
         } else if ax < 2.0 {
             ((-b - 6.0 * c) * ax * ax * ax
                 + (6.0 * b + 30.0 * c) * ax * ax
                 + (-12.0 * b - 48.0 * c) * ax
-                + (8.0 * b + 24.0 * c)) / 6.0
+                + (8.0 * b + 24.0 * c))
+                / 6.0
         } else {
             0.0
         }

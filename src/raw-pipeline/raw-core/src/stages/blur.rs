@@ -44,7 +44,9 @@ pub(crate) struct GuidedOptions {
 }
 
 pub(crate) fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
-    if r == 0 { return buf.to_vec(); }
+    if r == 0 {
+        return buf.to_vec();
+    }
     let mut out = vec![0.0f32; buf.len()];
     let mut tmp_row = vec![0.0f32; buf.len()];
     let mut tmp_col = vec![0.0f32; buf.len()];
@@ -79,27 +81,36 @@ fn box_blur_into(
     debug_assert!(r > 0, "box_blur_into requires r > 0");
 
     // --- Horizontal sweep: row-parallel, row-major into `tmp_row` ---
-    tmp_row.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
-        let row = &src[y * w..(y + 1) * w];
-        let right0 = r.min(w - 1);
-        let mut acc: f64 = row[0..=right0].iter().map(|&x| x as f64).sum();
-        let mut count = right0 + 1;
-        out_row[0] = (acc / count as f64) as f32;
-        for x in 1..w {
-            if x + r < w { acc += row[x + r] as f64; count += 1; }
-            if x > r     { acc -= row[x - r - 1] as f64; count -= 1; }
-            
-            // Periodic reset every 256 pixels to flush rounding errors
-            if x % 256 == 0 {
-                let start = if x > r { x - r } else { 0 };
-                let end = (x + r).min(w - 1);
-                acc = row[start..=end].iter().map(|&v| v as f64).sum();
-                count = end - start + 1;
+    tmp_row
+        .par_chunks_mut(w)
+        .enumerate()
+        .for_each(|(y, out_row)| {
+            let row = &src[y * w..(y + 1) * w];
+            let right0 = r.min(w - 1);
+            let mut acc: f64 = row[0..=right0].iter().map(|&x| x as f64).sum();
+            let mut count = right0 + 1;
+            out_row[0] = (acc / count as f64) as f32;
+            for x in 1..w {
+                if x + r < w {
+                    acc += row[x + r] as f64;
+                    count += 1;
+                }
+                if x > r {
+                    acc -= row[x - r - 1] as f64;
+                    count -= 1;
+                }
+
+                // Periodic reset every 256 pixels to flush rounding errors
+                if x % 256 == 0 {
+                    let start = if x > r { x - r } else { 0 };
+                    let end = (x + r).min(w - 1);
+                    acc = row[start..=end].iter().map(|&v| v as f64).sum();
+                    count = end - start + 1;
+                }
+
+                out_row[x] = (acc / count as f64) as f32;
             }
-            
-            out_row[x] = (acc / count as f64) as f32;
-        }
-    });
+        });
 
     // --- Vertical sweep: column-parallel into a column-major scratch ---
     //
@@ -107,26 +118,35 @@ fn box_blur_into(
     // Each column is a contiguous `h`-element chunk of `tmp_col`, and
     // columns don't overlap, so par_chunks_mut(h) is safe.
     let tmp_row_ro: &[f32] = tmp_row;
-    tmp_col.par_chunks_mut(h).enumerate().for_each(|(x, out_col)| {
-        let bot0 = r.min(h - 1);
-        let mut acc: f64 = (0..=bot0).map(|i| tmp_row_ro[i * w + x] as f64).sum();
-        let mut count = bot0 + 1;
-        out_col[0] = (acc / count as f64) as f32;
-        for y in 1..h {
-            if y + r < h { acc += tmp_row_ro[(y + r) * w + x] as f64; count += 1; }
-            if y > r     { acc -= tmp_row_ro[(y - r - 1) * w + x] as f64; count -= 1; }
-            
-            // Periodic reset every 256 pixels to flush rounding errors
-            if y % 256 == 0 {
-                let start = if y > r { y - r } else { 0 };
-                let end = (y + r).min(h - 1);
-                acc = (start..=end).map(|i| tmp_row_ro[i * w + x] as f64).sum();
-                count = end - start + 1;
+    tmp_col
+        .par_chunks_mut(h)
+        .enumerate()
+        .for_each(|(x, out_col)| {
+            let bot0 = r.min(h - 1);
+            let mut acc: f64 = (0..=bot0).map(|i| tmp_row_ro[i * w + x] as f64).sum();
+            let mut count = bot0 + 1;
+            out_col[0] = (acc / count as f64) as f32;
+            for y in 1..h {
+                if y + r < h {
+                    acc += tmp_row_ro[(y + r) * w + x] as f64;
+                    count += 1;
+                }
+                if y > r {
+                    acc -= tmp_row_ro[(y - r - 1) * w + x] as f64;
+                    count -= 1;
+                }
+
+                // Periodic reset every 256 pixels to flush rounding errors
+                if y % 256 == 0 {
+                    let start = if y > r { y - r } else { 0 };
+                    let end = (y + r).min(h - 1);
+                    acc = (start..=end).map(|i| tmp_row_ro[i * w + x] as f64).sum();
+                    count = end - start + 1;
+                }
+
+                out_col[y] = (acc / count as f64) as f32;
             }
-            
-            out_col[y] = (acc / count as f64) as f32;
-        }
-    });
+        });
 
     // --- Transpose column-major → row-major (parallel by output row) ---
     let tmp_col_ro: &[f32] = tmp_col;
@@ -303,7 +323,11 @@ pub(crate) fn guided_filter(
     // message in release builds instead of a downstream out-of-bounds panic when
     // a caller's `(w, h)` disagrees with the buffer length. The per-tile box-blur
     // hot loop keeps `debug_assert_eq!` for the same invariant (see `box_blur_into`).
-    assert_eq!(n, w * h, "guided_filter: dims {w}×{h} disagree with buffer len {n}");
+    assert_eq!(
+        n,
+        w * h,
+        "guided_filter: dims {w}×{h} disagree with buffer len {n}"
+    );
 
     // --- Scratch arena (#1089 item 7) ---------------------------------
     //

@@ -34,11 +34,7 @@ use crate::error::Result;
 /// Input/output: packed f32 RGBA, row-major, 4 lanes per pixel. Alpha is read
 /// but ignored; output alpha is 1.0 unconditionally (straight alpha, every
 /// stage operates on RGB only).
-pub fn encode_display_srgb_f32(
-    in_f32_rgba: &[f32],
-    width: u32,
-    height: u32,
-) -> Result<Vec<f32>> {
+pub fn encode_display_srgb_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> Result<Vec<f32>> {
     use crate::image::{ColorSpace, Image};
     use crate::view::encode;
 
@@ -120,10 +116,10 @@ mod tests {
         use crate::view::encode;
 
         let cases: [[f32; 3]; 4] = [
-            [0.0, 0.8, 0.0],       // saturated wide-gamut green (#877)
-            [0.0, 1.0, 0.0],       // pure Rec.2020 green primary
-            [0.46, 0.46, 0.46],    // neutral mid
-            [0.95, 0.97, 0.9],     // near-white highlight
+            [0.0, 0.8, 0.0],    // saturated wide-gamut green (#877)
+            [0.0, 1.0, 0.0],    // pure Rec.2020 green primary
+            [0.46, 0.46, 0.46], // neutral mid
+            [0.95, 0.97, 0.9],  // near-white highlight
         ];
         for rgb in cases {
             // Reference: the exact two CPU stages on a 1×1 image.
@@ -135,15 +131,17 @@ mod tests {
 
             // Under test: the FFI-facing f32 RGBA wrapper.
             let input = vec![rgb[0], rgb[1], rgb[2], 1.0];
-            let out = encode_display_srgb_f32(&input, 1, 1)
-                .expect("encode_display_srgb_f32");
+            let out = encode_display_srgb_f32(&input, 1, 1).expect("encode_display_srgb_f32");
             assert_eq!(out.len(), 4);
             for c in 0..3 {
                 assert_eq!(
                     out[c].to_bits(),
                     expected[c].to_bits(),
                     "channel {} byte-mismatch for input {:?}: got {} expected {}",
-                    c, rgb, out[c], expected[c]
+                    c,
+                    rgb,
+                    out[c],
+                    expected[c]
                 );
             }
             assert!((out[3] - 1.0).abs() < 1e-6, "alpha must be 1.0");
@@ -153,7 +151,9 @@ mod tests {
                 assert!(
                     out[c] >= 0.0 && out[c] <= 1.0,
                     "channel {} out of [0,1] for {:?}: {}",
-                    c, rgb, out[c]
+                    c,
+                    rgb,
+                    out[c]
                 );
             }
         }

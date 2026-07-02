@@ -12,8 +12,7 @@ const EPS_SCENE_LINEAR: f32 = 5e-4;
 
 fn develop(dng: &SyntheticGreyDng, model: &AdjustmentModel) -> raw_core::image::Image {
     let bytes = dng.write_to_bytes();
-    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
-        .expect("synthetic must decode");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("synthetic must decode");
     develop_scene_linear_from_raw_with_quality(&raw, model, RenderQuality::Full)
         .expect("scene-linear render must succeed")
 }
@@ -28,12 +27,26 @@ fn neutral_preserved_under_real_dcp() {
     let img = develop(&dng, &model);
     for (i, p) in img.pixels.iter().enumerate() {
         let (r, g, b) = (p[0], p[1], p[2]);
-        assert!((r - g).abs() <= EPS_SCENE_LINEAR,
+        assert!(
+            (r - g).abs() <= EPS_SCENE_LINEAR,
             "pixel {} |R-G| = {} > {}: ({}, {}, {})",
-            i, (r-g).abs(), EPS_SCENE_LINEAR, r, g, b);
-        assert!((r - b).abs() <= EPS_SCENE_LINEAR,
+            i,
+            (r - g).abs(),
+            EPS_SCENE_LINEAR,
+            r,
+            g,
+            b
+        );
+        assert!(
+            (r - b).abs() <= EPS_SCENE_LINEAR,
             "pixel {} |R-B| = {} > {}: ({}, {}, {})",
-            i, (r-b).abs(), EPS_SCENE_LINEAR, r, g, b);
+            i,
+            (r - b).abs(),
+            EPS_SCENE_LINEAR,
+            r,
+            g,
+            b
+        );
     }
 }
 
@@ -47,7 +60,7 @@ fn cct_interpolation_continuous() {
     fn pick_asn(t: f32) -> [f32; 3] {
         // Synthetic StdA-side endpoint (cooler/warmer-leaning than D65).
         let stda = [0.65, 1.0, 0.45];
-        let d65  = AS_SHOT_NEUTRAL;
+        let d65 = AS_SHOT_NEUTRAL;
         [
             stda[0] + t * (d65[0] - stda[0]),
             stda[1] + t * (d65[1] - stda[1]),
@@ -70,9 +83,14 @@ fn cct_interpolation_continuous() {
     for i in 1..samples.len() {
         for c in 0..3 {
             let d = (samples[i][c] - samples[i - 1][c]).abs();
-            assert!(d < 1e-2,
+            assert!(
+                d < 1e-2,
                 "discontinuity between AsShotNeutral samples {} and {} chan {}: |Δ|={}",
-                i - 1, i, c, d);
+                i - 1,
+                i,
+                c,
+                d
+            );
         }
     }
 }
@@ -84,11 +102,7 @@ fn cct_interpolation_continuous() {
 #[test]
 fn forward_matrix_replaces_bradford() {
     // Hand-crafted near-identity FM with channel bias.
-    let fm = [
-        [1.05, 0.0, 0.0],
-        [0.0,  1.0, 0.0],
-        [0.0,  0.0, 0.95],
-    ];
+    let fm = [[1.05, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.95]];
 
     let without_fm = SyntheticGreyDng::default().with_hasselblad_dcp();
     let mut with_fm = SyntheticGreyDng::default().with_hasselblad_dcp();
@@ -96,18 +110,22 @@ fn forward_matrix_replaces_bradford() {
     with_fm.forward_matrix_2 = Some(fm);
 
     let img_off = develop(&without_fm, &AdjustmentModel::default());
-    let img_on  = develop(&with_fm,    &AdjustmentModel::default());
+    let img_on = develop(&with_fm, &AdjustmentModel::default());
 
     let p_off = img_off.pixels[(32 * 64 + 32) as usize];
-    let p_on  = img_on.pixels[(32 * 64 + 32) as usize];
+    let p_on = img_on.pixels[(32 * 64 + 32) as usize];
 
     let max_delta = (0..3)
         .map(|c| (p_off[c] - p_on[c]).abs())
         .fold(0.0_f32, f32::max);
-    assert!(max_delta > 5e-3,
+    assert!(
+        max_delta > 5e-3,
         "FM-on vs FM-off identical (max |Δ|={}) — FM path may not be activating. \
          off={:?} on={:?}",
-        max_delta, p_off, p_on);
+        max_delta,
+        p_off,
+        p_on
+    );
 }
 
 /// Under ticket #425 (colorimetry-only DCP), the source DNG's
@@ -126,17 +144,18 @@ fn forward_matrix_replaces_bradford() {
 #[test]
 fn profile_tone_curve_is_noop_under_colorimetry_only() {
     let curve = vec![
-        (0.0,  0.0),
+        (0.0, 0.0),
         (0.18, 0.15),
-        (0.5,  0.55),
+        (0.5, 0.55),
         (0.82, 0.9),
-        (1.0,  1.0),
+        (1.0, 1.0),
     ];
     for L in [0.05, 0.18, 0.50, 0.82] {
         let dng_no_ptc = SyntheticGreyDng {
             linear_value: L,
             ..Default::default()
-        }.with_hasselblad_dcp();
+        }
+        .with_hasselblad_dcp();
         let mut dng_with_ptc = dng_no_ptc.clone();
         dng_with_ptc.profile_tone_curve = Some(curve.clone());
 
@@ -152,10 +171,17 @@ fn profile_tone_curve_is_noop_under_colorimetry_only() {
             .enumerate()
         {
             for c in 0..3 {
-                assert!((a[c] - b[c]).abs() <= EPS_SCENE_LINEAR,
+                assert!(
+                    (a[c] - b[c]).abs() <= EPS_SCENE_LINEAR,
                     "pixel {} chan {}: PTC must be a no-op under \
                      colorimetry-only DCP (no-PTC={}, with-PTC={}, |Δ|>{}, L={})",
-                    i, c, a[c], b[c], EPS_SCENE_LINEAR, L);
+                    i,
+                    c,
+                    a[c],
+                    b[c],
+                    EPS_SCENE_LINEAR,
+                    L
+                );
             }
         }
     }

@@ -21,7 +21,11 @@ fn dct_basis() -> &'static [[f32; BLOCK]; BLOCK] {
         let mut b = [[0f32; BLOCK]; BLOCK];
         let n = BLOCK as f64;
         for (k, row) in b.iter_mut().enumerate() {
-            let scale = if k == 0 { (1.0 / n).sqrt() } else { (2.0 / n).sqrt() };
+            let scale = if k == 0 {
+                (1.0 / n).sqrt()
+            } else {
+                (2.0 / n).sqrt()
+            };
             for (i, v) in row.iter_mut().enumerate() {
                 let angle = std::f64::consts::PI * (2.0 * i as f64 + 1.0) * k as f64 / (2.0 * n);
                 *v = (scale * angle.cos()) as f32;
@@ -122,7 +126,13 @@ mod tests {
         dct2d_forward(&mut p);
         dct2d_inverse(&mut p);
         for i in 0..PATCH {
-            assert!((p[i] - orig[i]).abs() < 1e-5, "i={} {} vs {}", i, p[i], orig[i]);
+            assert!(
+                (p[i] - orig[i]).abs() < 1e-5,
+                "i={} {} vs {}",
+                i,
+                p[i],
+                orig[i]
+            );
         }
     }
 
@@ -162,7 +172,10 @@ mod tests {
             }
             let mut z = vec![0f32; n];
             wht_in_place(&mut z);
-            assert!(z.iter().all(|&x| x == 0.0), "WHT of zeros must be exactly zero");
+            assert!(
+                z.iter().all(|&x| x == 0.0),
+                "WHT of zeros must be exactly zero"
+            );
         }
     }
 }

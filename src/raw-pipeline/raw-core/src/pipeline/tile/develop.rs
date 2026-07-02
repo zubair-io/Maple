@@ -20,9 +20,8 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, white_balance,
+        chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab, noise_reduction,
+        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -62,7 +61,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             "tile path does not support Fuji X-Trans RAFs; use the \
              full-image render entry instead. The X-Trans 6×6 CFA phase \
              is incompatible with the 2×2-aligned tile padding (#420)."
-                .into()
+                .into(),
         ));
     }
     mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
@@ -95,14 +94,18 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
     });
     stage("tile_highlight_recovery", || {
-        highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
+        highlight_recovery::apply(
+            &mut camera_rgb,
+            model.highlight_recovery,
+            raw.as_shot_neutral,
+        )
     });
     let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
     // Colorimetry-only DCP per #425 — PLT and PTC no longer run on any
     // path (see `pipeline::develop` for the strategic rationale).
-    let mut scene = stage("tile_dcp_apply", || dcp::apply_colorimetry(
-        &camera_rgb, &profile,
-    ))?;
+    let mut scene = stage("tile_dcp_apply", || {
+        dcp::apply_colorimetry(&camera_rgb, &profile)
+    })?;
     // Ticket #471: opt-in post-DCP Oklab chroma-reduction highlight
     // recovery. No-op for every other mode — see `pipeline::develop` for
     // the strategic rationale.
@@ -141,16 +144,24 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // render slightly darker than the full-image path (by whatever EV the
     // full path's AE picked); follow-up tracked in #1167. The same
     // architectural reason already excludes dehaze from this path.
-    stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
-    stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    stage("tile_white_balance", || {
+        white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method)
+    });
+    stage("tile_scene_tone_controls", || {
+        scene_tone_controls::apply(&mut scene, model)
+    });
     // User-authored tone curves (parametric + per-channel) — same chain
     // position as the full path (post-scene_tone_controls, pre-vibrance).
     // Pointwise per-pixel, so trivially tile-safe; identity short-circuits
     // on the default model. Was silently omitted before #1084 — deep-zoom
     // tiles diverged from the preview for any image with a curve.
     stage("tile_tone_curves", || tone_curves::apply(&mut scene, model));
-    stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
-    stage("tile_saturation", || saturation::apply(&mut scene, model.saturation));
+    stage("tile_vibrance", || {
+        vibrance::apply(&mut scene, model.vibrance)
+    });
+    stage("tile_saturation", || {
+        saturation::apply(&mut scene, model.saturation)
+    });
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
     // dehaze intentionally omitted — the tile entry asserts dehaze == 0
@@ -167,8 +178,30 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // vignette intentionally omitted — full-frame-anchored radial gain
     // (#1109); the tile entry rejects `vignette_amount != 0` until the
     // tile window is threaded through (`apply_windowed`, #11).
-    stage("tile_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
-    stage("tile_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
-    stage("tile_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    stage("tile_sharpen", || {
+        sharpen::apply(
+            &mut scene,
+            model.sharpen_amount,
+            model.sharpen_radius,
+            model.sharpen_detail,
+            model.sharpen_masking,
+        )
+    });
+    stage("tile_nr_luminance", || {
+        noise_reduction::apply_luminance(
+            &mut scene,
+            model.nr_luminance,
+            raw.noise_profile.as_deref(),
+            raw.iso,
+        )
+    });
+    stage("tile_nr_color", || {
+        noise_reduction::apply_color(
+            &mut scene,
+            model.nr_color,
+            raw.noise_profile.as_deref(),
+            raw.iso,
+        )
+    });
     Ok(scene)
 }

@@ -151,8 +151,13 @@ pub fn apply_split_tone(
     highlight_sat: f32,
     balance: f32,
 ) {
-    let (gamma, inv_gamma, s_vec, h_vec) =
-        split_tone_params(shadow_hue, shadow_sat, highlight_hue, highlight_sat, balance);
+    let (gamma, inv_gamma, s_vec, h_vec) = split_tone_params(
+        shadow_hue,
+        shadow_sat,
+        highlight_hue,
+        highlight_sat,
+        balance,
+    );
     for px in buf.chunks_exact_mut(4) {
         let yd = (LUMA_REC2020[0] * px[0] + LUMA_REC2020[1] * px[1] + LUMA_REC2020[2] * px[2])
             .clamp(0.0, 1.0);

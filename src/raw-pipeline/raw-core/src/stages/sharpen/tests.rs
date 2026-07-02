@@ -11,15 +11,11 @@ use super::*;
 /// eliminate). Used by `broken_per_channel_reference_does_drift_chroma`
 /// below to prove the no-chroma-drift assertions in the real test would
 /// fire on a regression to per-channel. Not called by production code.
-fn apply_broken_per_channel(
-    img: &mut Image,
-    amount: f32,
-    radius: f32,
-    detail: f32,
-    masking: f32,
-) {
+fn apply_broken_per_channel(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if amount.abs() < 1e-3 { return; }
+    if amount.abs() < 1e-3 {
+        return;
+    }
     let sigma = radius.clamp(0.5, 3.0);
     let w = img.width as usize;
     let h = img.height as usize;
@@ -83,7 +79,11 @@ fn apply_broken_per_channel(
             let edge = if masking_threshold > 1e-3 {
                 let g = gradient(x, y);
                 let g_norm = (g / 0.2).clamp(0.0, 1.0);
-                if g_norm >= masking_threshold { 1.0 } else { detail_atten }
+                if g_norm >= masking_threshold {
+                    1.0
+                } else {
+                    detail_atten
+                }
             } else {
                 1.0
             };
@@ -105,12 +105,16 @@ fn apply_broken_per_channel(
 /// fused single-pass `apply` replaced. Not called by production code.
 fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if amount.abs() < 1e-3 { return; }
+    if amount.abs() < 1e-3 {
+        return;
+    }
     let sigma = radius.clamp(0.5, 3.0);
     let (w, h) = (img.width as i32, img.height as i32);
     let (wu, hu) = (img.width as usize, img.height as usize);
 
-    let luma: Vec<f32> = img.pixels.iter()
+    let luma: Vec<f32> = img
+        .pixels
+        .iter()
         .map(|p| LUMA_R * p[0] + LUMA_G * p[1] + LUMA_B * p[2])
         .collect();
     let luma_blur = gaussian_blur_plane_sigma(&luma, wu, hu, sigma);
@@ -132,7 +136,8 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
     let detail_atten = (detail / 100.0).clamp(0.0, 1.0);
     let masking_threshold = (masking / 100.0).clamp(0.0, 1.0);
     let gradient = |x: i32, y: i32| -> f32 {
-        let idx = |xi: i32, yi: i32| (yi.clamp(0, h - 1) as usize) * wu + xi.clamp(0, w - 1) as usize;
+        let idx =
+            |xi: i32, yi: i32| (yi.clamp(0, h - 1) as usize) * wu + xi.clamp(0, w - 1) as usize;
         let gx = luma[idx(x + 1, y)] - luma[idx(x - 1, y)];
         let gy = luma[idx(x, y + 1)] - luma[idx(x, y - 1)];
         (gx * gx + gy * gy).sqrt()
@@ -142,7 +147,11 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
             let i = (y * w + x) as usize;
             let edge = if masking_threshold > 1e-3 {
                 let g_norm = (gradient(x, y) / 0.2).clamp(0.0, 1.0);
-                if g_norm >= masking_threshold { 1.0 } else { detail_atten }
+                if g_norm >= masking_threshold {
+                    1.0
+                } else {
+                    detail_atten
+                }
             } else {
                 1.0
             };
@@ -171,7 +180,8 @@ fn fused_is_bit_identical_to_two_sweep_reference() {
     for y in 0..h as usize {
         for x in 0..w as usize {
             let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
-            base.pixels[y * w as usize + x] = [0.05 + 0.9 * fx, 0.05 + 0.9 * fy, 0.05 + 0.9 * fx * fy];
+            base.pixels[y * w as usize + x] =
+                [0.05 + 0.9 * fx, 0.05 + 0.9 * fy, 0.05 + 0.9 * fx * fy];
         }
     }
     base.pixels[(h / 2 * w + w / 2) as usize] = [3.0, 3.0, 3.0]; // impulse → scale clamp
@@ -193,10 +203,12 @@ fn fused_is_bit_identical_to_two_sweep_reference() {
         for (i, (a, b)) in fused.pixels.iter().zip(reference.pixels.iter()).enumerate() {
             for c in 0..3 {
                 assert_eq!(
-                    a[c].to_bits(), b[c].to_bits(),
+                    a[c].to_bits(),
+                    b[c].to_bits(),
                     "pixel {i} ch {c} differs (a={} b={}) @ amount={amount} radius={radius} \
                      detail={detail} masking={masking}",
-                    a[c], b[c],
+                    a[c],
+                    b[c],
                 );
             }
         }
@@ -219,7 +231,9 @@ fn flat_region_stays_flat_approximately() {
     // On a perfectly flat field, luma USM has luma_in == luma_blur,
     // so the unsharp delta is zero and scale = 1.0 (identity).
     let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = [0.5, 0.5, 0.5]; }
+    for p in &mut img.pixels {
+        *p = [0.5, 0.5, 0.5];
+    }
     apply(&mut img, 100.0, 1.0, 25.0, 0.0);
     for p in &img.pixels {
         for &c in p {
@@ -244,18 +258,28 @@ fn edge_becomes_sharper() {
     let before = img.pixels.clone();
     apply(&mut img, 100.0, 1.0, 25.0, 0.0);
     let right_idx = 2 * 16 + 8; // first pixel after the edge
-    let left_idx = 2 * 16 + 7;  // last pixel before the edge
-    assert!(img.pixels[right_idx][0] >= before[right_idx][0] - 0.01,
-        "right side: {} vs {}", img.pixels[right_idx][0], before[right_idx][0]);
-    assert!(img.pixels[left_idx][0] <= before[left_idx][0] + 0.01,
-        "left side: {} vs {}", img.pixels[left_idx][0], before[left_idx][0]);
+    let left_idx = 2 * 16 + 7; // last pixel before the edge
+    assert!(
+        img.pixels[right_idx][0] >= before[right_idx][0] - 0.01,
+        "right side: {} vs {}",
+        img.pixels[right_idx][0],
+        before[right_idx][0]
+    );
+    assert!(
+        img.pixels[left_idx][0] <= before[left_idx][0] + 0.01,
+        "left side: {} vs {}",
+        img.pixels[left_idx][0],
+        before[left_idx][0]
+    );
 }
 
 #[test]
 fn preserves_scene_headroom() {
     // Above-display values must remain finite (no NaN/Inf).
     let mut img = Image::new(10, 10, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = [5.0, 3.0, 1.5]; }
+    for p in &mut img.pixels {
+        *p = [5.0, 3.0, 1.5];
+    }
     apply(&mut img, 100.0, 1.0, 25.0, 0.0);
     for p in &img.pixels {
         for &c in p {
@@ -276,7 +300,9 @@ fn chroma_ratio_is_preserved() {
     let h = 16u32;
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     // Mid-gray field with one strongly blue pixel (R:G:B = 1:1:4).
-    for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
+    for p in &mut img.pixels {
+        *p = [0.18, 0.18, 0.18];
+    }
     let cx = (w / 2) as usize;
     let cy = (h / 2) as usize;
     let center = cy * (w as usize) + cx;
@@ -288,10 +314,16 @@ fn chroma_ratio_is_preserved() {
     let r = p[0].max(1e-6);
     let bg_ratio = p[2] / r;
     let gr_ratio = p[1] / r;
-    assert!((bg_ratio - 4.0).abs() < 1e-3,
-        "B/R ratio drifted from 4.0: got {}", bg_ratio);
-    assert!((gr_ratio - 1.0).abs() < 1e-3,
-        "G/R ratio drifted from 1.0: got {}", gr_ratio);
+    assert!(
+        (bg_ratio - 4.0).abs() < 1e-3,
+        "B/R ratio drifted from 4.0: got {}",
+        bg_ratio
+    );
+    assert!(
+        (gr_ratio - 1.0).abs() < 1e-3,
+        "G/R ratio drifted from 1.0: got {}",
+        gr_ratio
+    );
 }
 
 /// Regression for test_0004 (Hasselblad H5D-40 ColorChecker SG): strongly
@@ -304,17 +336,28 @@ fn negative_pixels_stay_bounded() {
     let w = 16u32;
     let h = 16u32;
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
+    for p in &mut img.pixels {
+        *p = [0.18, 0.18, 0.18];
+    }
     // One strongly negative R pixel (mimics test_0004 worst case).
     img.pixels[(h / 2 * w + w / 2) as usize] = [-0.5, 0.18, 0.18];
     apply(&mut img, 40.0, 1.0, 25.0, 0.0);
     for (i, p) in img.pixels.iter().enumerate() {
         for (c, &v) in p.iter().enumerate() {
-            assert!(v.is_finite(),
-                "pixel {} channel {} is NOT finite: {}", i, c, v);
-            assert!(v.abs() < 5.0,
+            assert!(
+                v.is_finite(),
+                "pixel {} channel {} is NOT finite: {}",
+                i,
+                c,
+                v
+            );
+            assert!(
+                v.abs() < 5.0,
                 "pixel {} channel {} blew up: {} (pre-fix this exceeded 100)",
-                i, c, v);
+                i,
+                c,
+                v
+            );
         }
     }
 }
@@ -369,7 +412,12 @@ fn saturated_edge_has_no_chroma_fringing() {
         assert!(
             (kr - kg).abs() < 1e-4 && (kg - kb).abs() < 1e-4,
             "pixel {} drifted off luma-only scaling: in={:?} out={:?} kr/kg/kb = {} {} {}",
-            i, a, b, kr, kg, kb,
+            i,
+            a,
+            b,
+            kr,
+            kg,
+            kb,
         );
         // Chroma ratio (R:G:B) must be preserved bit-for-bit (within
         // float tolerance): if a[0]/a[1] == c, then b[0]/b[1] == c.
@@ -380,12 +428,16 @@ fn saturated_edge_has_no_chroma_fringing() {
         assert!(
             (r_in - r_out).abs() < 1e-4,
             "pixel {} R/G chroma ratio drifted: in={} out={}",
-            i, r_in, r_out,
+            i,
+            r_in,
+            r_out,
         );
         assert!(
             (g_in - g_out).abs() < 1e-4,
             "pixel {} B/G chroma ratio drifted: in={} out={}",
-            i, g_in, g_out,
+            i,
+            g_in,
+            g_out,
         );
     }
 
@@ -459,8 +511,13 @@ fn broken_per_channel_reference_does_drift_chroma() {
          saturated_edge_has_no_chroma_fringing would not bite on a \
          regression. Worst pixel: idx={} in={:?} out={:?} \
          kr/kg/kb={}/{}/{} (max spread {:.2e})",
-        worst_pixel.0, worst_pixel.1, worst_pixel.2,
-        worst_pixel.3, worst_pixel.4, worst_pixel.5, worst_spread,
+        worst_pixel.0,
+        worst_pixel.1,
+        worst_pixel.2,
+        worst_pixel.3,
+        worst_pixel.4,
+        worst_pixel.5,
+        worst_spread,
     );
 }
 
@@ -479,7 +536,9 @@ fn smoothstep_endpoints() {
 /// in the sharpen response ring around the impulse.
 fn impulse_image() -> Image {
     let mut img = Image::new(32, 32, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
+    for p in &mut img.pixels {
+        *p = [0.18, 0.18, 0.18];
+    }
     img.pixels[16 * 32 + 16] = [1.0, 1.0, 1.0];
     img
 }
@@ -495,7 +554,9 @@ fn halo_energy_beyond(before: &Image, after: &Image, min_d: i32) -> f32 {
     for y in 0..32i32 {
         for x in 0..32i32 {
             let d = (x - cx).abs().max((y - cy).abs());
-            if d < min_d { continue; }
+            if d < min_d {
+                continue;
+            }
             let i = (y * w + x) as usize;
             for c in 0..3 {
                 e += (after.pixels[i][c] - before.pixels[i][c]).abs();
@@ -522,7 +583,10 @@ fn radius_extremes_produce_different_outputs() {
     // Both must actually sharpen (non-vacuous).
     let narrow_moved = halo_energy_beyond(&base, &narrow, 0);
     let wide_moved = halo_energy_beyond(&base, &wide, 0);
-    assert!(narrow_moved > 1e-3, "radius=0.5 did nothing ({narrow_moved})");
+    assert!(
+        narrow_moved > 1e-3,
+        "radius=0.5 did nothing ({narrow_moved})"
+    );
     assert!(wide_moved > 1e-3, "radius=3.0 did nothing ({wide_moved})");
 
     // And they must differ from EACH OTHER, materially.
@@ -572,13 +636,16 @@ fn radius_monotonically_widens_halo() {
         assert!(
             spreads[i] > spreads[i - 1],
             "halo energy not strictly increasing at radius {} -> {}: {:?}",
-            radii[i - 1], radii[i], spreads
+            radii[i - 1],
+            radii[i],
+            spreads
         );
     }
     // Non-vacuous: the full range must spread the halo by a wide margin.
     assert!(
         spreads[3] > spreads[0] * 4.0,
         "radius 3.0 halo ({:e}) not materially wider than radius 0.5's ({:e})",
-        spreads[3], spreads[0]
+        spreads[3],
+        spreads[0]
     );
 }

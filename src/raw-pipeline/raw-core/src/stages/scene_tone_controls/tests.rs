@@ -14,7 +14,9 @@ fn model_default() -> AdjustmentModel {
 
 fn fresh_img(value: [f32; 3]) -> Image {
     let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-    for p in &mut img.pixels { *p = value; }
+    for p in &mut img.pixels {
+        *p = value;
+    }
     img
 }
 
@@ -60,7 +62,12 @@ fn highlights_positive_compresses_above_knee() {
     apply(&mut img, &m);
     let p = img.pixels[0];
     let expected = (1.0 + 1.0 / 3.0) * (-0.7_f32).exp2();
-    assert!((p[0] - expected).abs() < 1e-4, "R was {}, expected {}", p[0], expected);
+    assert!(
+        (p[0] - expected).abs() < 1e-4,
+        "R was {}, expected {}",
+        p[0],
+        expected
+    );
 }
 
 #[test]
@@ -88,14 +95,24 @@ fn highlights_engages_below_the_knee() {
     m.highlights = 100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    assert!((p[0] - 0.7 * g).abs() < 1e-4, "+100 expected {}, got {}", 0.7 * g, p[0]);
+    assert!(
+        (p[0] - 0.7 * g).abs() < 1e-4,
+        "+100 expected {}, got {}",
+        0.7 * g,
+        p[0]
+    );
 
     let mut img = fresh_img([0.7, 0.7, 0.7]);
     let mut m = model_default();
     m.highlights = -100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    assert!((p[0] - 0.7 / g).abs() < 1e-4, "-100 expected {}, got {}", 0.7 / g, p[0]);
+    assert!(
+        (p[0] - 0.7 / g).abs() < 1e-4,
+        "-100 expected {}, got {}",
+        0.7 / g,
+        p[0]
+    );
 }
 
 #[test]
@@ -118,8 +135,16 @@ fn highlights_preserves_hue_on_partial_specular_below_knee_luma() {
     let p = img.pixels[0];
     let ratio_rg = p[0] / p[1];
     let ratio_rb = p[0] / p[2];
-    assert!((ratio_rg - 4.0).abs() / 4.0 < 0.01, "R:G drift {} ", ratio_rg);
-    assert!((ratio_rb - 4.0).abs() / 4.0 < 0.01, "R:B drift {} ", ratio_rb);
+    assert!(
+        (ratio_rg - 4.0).abs() / 4.0 < 0.01,
+        "R:G drift {} ",
+        ratio_rg
+    );
+    assert!(
+        (ratio_rb - 4.0).abs() / 4.0 < 0.01,
+        "R:B drift {} ",
+        ratio_rb
+    );
 }
 
 #[test]
@@ -143,8 +168,16 @@ fn highlights_preserves_hue_on_specular_above_knee_luma() {
     let p = img.pixels[0];
     let ratio_rg = p[0] / p[1];
     let ratio_rb = p[0] / p[2];
-    assert!((ratio_rg - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.01, "R:G drift {} ", ratio_rg);
-    assert!((ratio_rb - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.01, "R:B drift {} ", ratio_rb);
+    assert!(
+        (ratio_rg - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.01,
+        "R:G drift {} ",
+        ratio_rg
+    );
+    assert!(
+        (ratio_rb - 4.0 / 3.0).abs() / (4.0 / 3.0) < 0.01,
+        "R:B drift {} ",
+        ratio_rb
+    );
 }
 
 #[test]
@@ -157,14 +190,21 @@ fn shadows_lifts_deep_values() {
     // #1103: luma = 0.02 → w_s = (1 − smoothstep(0, 0.25, 0.02))² ≈ 0.963,
     // mult = 1 + (2^1.5 − 1)·w_s ≈ 2.76 → p ≈ 0.055.
     assert!(p[0] > 0.02, "expected lift, got {}", p[0]);
-    let expected = 0.02 * (1.0 + ((1.5_f32).exp2() - 1.0) * {
-        let t = 1.0 - {
-            let tt = (0.02_f32 / 0.25).clamp(0.0, 1.0);
-            tt * tt * (3.0 - 2.0 * tt)
-        };
-        t * t
-    });
-    assert!((p[0] - expected).abs() < 1e-5, "expected {}, got {}", expected, p[0]);
+    let expected = 0.02
+        * (1.0
+            + ((1.5_f32).exp2() - 1.0) * {
+                let t = 1.0 - {
+                    let tt = (0.02_f32 / 0.25).clamp(0.0, 1.0);
+                    tt * tt * (3.0 - 2.0 * tt)
+                };
+                t * t
+            });
+    assert!(
+        (p[0] - expected).abs() < 1e-5,
+        "expected {}, got {}",
+        expected,
+        p[0]
+    );
 }
 
 #[test]
@@ -192,7 +232,11 @@ fn whites_midtone_untouched_at_y_half() {
     apply(&mut img, &m);
     let p = img.pixels[0];
     for &c in &p {
-        assert!((c - 0.5).abs() / 0.5 < 0.01, "Y=0.5 should not lift, got {}", c);
+        assert!(
+            (c - 0.5).abs() / 0.5 < 0.01,
+            "Y=0.5 should not lift, got {}",
+            c
+        );
     }
 }
 
@@ -223,7 +267,11 @@ fn whites_preserves_neutral_hue() {
     // R:G = 1.2/0.9 = 1.333; R:B = 1.2/0.6 = 2.0. Both must be preserved.
     let ratio_rg = p[0] / p[1];
     let ratio_rb = p[0] / p[2];
-    assert!((ratio_rg - 4.0 / 3.0).abs() < 1e-4, "R:G {} ≠ 1.333", ratio_rg);
+    assert!(
+        (ratio_rg - 4.0 / 3.0).abs() < 1e-4,
+        "R:G {} ≠ 1.333",
+        ratio_rg
+    );
     assert!((ratio_rb - 2.0).abs() < 1e-4, "R:B {} ≠ 2.0", ratio_rb);
 }
 
@@ -240,8 +288,16 @@ fn whites_symmetric_negative_pulls_bright_values_down() {
     apply(&mut img_mid, &m);
     let p_bright = img_bright.pixels[0];
     let p_mid = img_mid.pixels[0];
-    assert!(p_bright[0] < 0.95, "expected pull-down at Y=0.95, got {}", p_bright[0]);
-    assert!((p_mid[0] - 0.5).abs() / 0.5 < 0.01, "Y=0.5 should not move, got {}", p_mid[0]);
+    assert!(
+        p_bright[0] < 0.95,
+        "expected pull-down at Y=0.95, got {}",
+        p_bright[0]
+    );
+    assert!(
+        (p_mid[0] - 0.5).abs() / 0.5 < 0.01,
+        "Y=0.5 should not move, got {}",
+        p_mid[0]
+    );
 }
 
 #[test]
@@ -301,7 +357,9 @@ fn blacks_no_negative_pixels_at_any_setting() {
     // for ANY blacks setting. Sweep a few representative settings
     // across a low-luma input that would have driven the legacy
     // additive shift below zero.
-    for blacks in &[-100.0_f32, -75.0, -50.0, -25.0, -1.0, 1.0, 25.0, 50.0, 100.0] {
+    for blacks in &[
+        -100.0_f32, -75.0, -50.0, -25.0, -1.0, 1.0, 25.0, 50.0, 100.0,
+    ] {
         for &start in &[0.0_f32, 0.005, 0.05, 0.10] {
             let mut img = fresh_img([start, start, start]);
             let mut m = model_default();
@@ -378,12 +436,24 @@ fn shadows_preserves_hue_on_saturated_deep_shadow() {
     let ratio_rb_in = 0.06 / 0.01;
     let ratio_rg_out = p[0] / p[1];
     let ratio_rb_out = p[0] / p[2];
-    assert!((ratio_rg_out - ratio_rg_in).abs() / ratio_rg_in < 0.001,
-        "shadows+100 R:G drift {} → {}", ratio_rg_in, ratio_rg_out);
-    assert!((ratio_rb_out - ratio_rb_in).abs() / ratio_rb_in < 0.001,
-        "shadows+100 R:B drift {} → {}", ratio_rb_in, ratio_rb_out);
+    assert!(
+        (ratio_rg_out - ratio_rg_in).abs() / ratio_rg_in < 0.001,
+        "shadows+100 R:G drift {} → {}",
+        ratio_rg_in,
+        ratio_rg_out
+    );
+    assert!(
+        (ratio_rb_out - ratio_rb_in).abs() / ratio_rb_in < 0.001,
+        "shadows+100 R:B drift {} → {}",
+        ratio_rb_in,
+        ratio_rb_out
+    );
     // And the lift direction is correct.
-    assert!(p[0] > 0.06, "shadows+100 should brighten saturated deep red, got {}", p[0]);
+    assert!(
+        p[0] > 0.06,
+        "shadows+100 should brighten saturated deep red, got {}",
+        p[0]
+    );
 }
 
 #[test]
@@ -398,11 +468,21 @@ fn shadows_negative_preserves_hue_on_saturated_deep_shadow() {
     let p = img.pixels[0];
     let ratio_rg_out = p[0] / p[1];
     let ratio_rb_out = p[0] / p[2];
-    assert!((ratio_rg_out - 3.0).abs() / 3.0 < 0.001,
-        "shadows-100 R:G drift, got {}", ratio_rg_out);
-    assert!((ratio_rb_out - 6.0).abs() / 6.0 < 0.001,
-        "shadows-100 R:B drift, got {}", ratio_rb_out);
-    assert!(p[0] < 0.06, "shadows-100 should crush deep shadow, got {}", p[0]);
+    assert!(
+        (ratio_rg_out - 3.0).abs() / 3.0 < 0.001,
+        "shadows-100 R:G drift, got {}",
+        ratio_rg_out
+    );
+    assert!(
+        (ratio_rb_out - 6.0).abs() / 6.0 < 0.001,
+        "shadows-100 R:B drift, got {}",
+        ratio_rb_out
+    );
+    assert!(
+        p[0] < 0.06,
+        "shadows-100 should crush deep shadow, got {}",
+        p[0]
+    );
 }
 
 #[test]
@@ -418,10 +498,16 @@ fn blacks_negative_preserves_hue_on_saturated_deep_shadow() {
     let p = img.pixels[0];
     let ratio_rg_out = p[0] / p[1];
     let ratio_rb_out = p[0] / p[2];
-    assert!((ratio_rg_out - 3.0).abs() / 3.0 < 0.001,
-        "blacks-100 R:G drift, got {}", ratio_rg_out);
-    assert!((ratio_rb_out - 6.0).abs() / 6.0 < 0.001,
-        "blacks-100 R:B drift, got {}", ratio_rb_out);
+    assert!(
+        (ratio_rg_out - 3.0).abs() / 3.0 < 0.001,
+        "blacks-100 R:G drift, got {}",
+        ratio_rg_out
+    );
+    assert!(
+        (ratio_rb_out - 6.0).abs() / 6.0 < 0.001,
+        "blacks-100 R:B drift, got {}",
+        ratio_rb_out
+    );
     assert!(p[0] < 0.06, "blacks-100 should crush, got {}", p[0]);
 }
 
@@ -438,8 +524,18 @@ fn blacks_positive_proportional_lift_preserves_ratios() {
     let r0 = p[0] / 0.06;
     let r1 = p[1] / 0.05;
     let r2 = p[2] / 0.04;
-    assert!((r0 - r1).abs() < 1e-5, "ratio R/G changed: {} vs {}", r0, r1);
-    assert!((r0 - r2).abs() < 1e-5, "ratio R/B changed: {} vs {}", r0, r2);
+    assert!(
+        (r0 - r1).abs() < 1e-5,
+        "ratio R/G changed: {} vs {}",
+        r0,
+        r1
+    );
+    assert!(
+        (r0 - r2).abs() < 1e-5,
+        "ratio R/B changed: {} vs {}",
+        r0,
+        r2
+    );
     // Direction.
     assert!(p[0] > 0.06, "blacks+25 should lift, got {}", p[0]);
 }
@@ -453,10 +549,19 @@ fn blacks_positive_lift_preserves_chromaticity_for_non_zero_luma() {
     m.blacks = 100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    assert!(p[0] == 0.0, "R was 0 and should remain 0 under proportional scaling, got {}", p[0]);
+    assert!(
+        p[0] == 0.0,
+        "R was 0 and should remain 0 under proportional scaling, got {}",
+        p[0]
+    );
     let r1 = p[1] / 0.05;
     let r2 = p[2] / 0.10;
-    assert!((r1 - r2).abs() < 1e-5, "ratio G/B changed: {} vs {}", r1, r2);
+    assert!(
+        (r1 - r2).abs() < 1e-5,
+        "ratio G/B changed: {} vs {}",
+        r1,
+        r2
+    );
 }
 
 #[test]
@@ -465,9 +570,9 @@ fn highlights_preserves_hue_on_arbitrary_saturated_above_knee() {
     // verify R:G:B ratios survive. Adds breadth to the existing
     // two-case hue test above.
     let cases: &[[f32; 3]] = &[
-        [2.0, 1.5, 0.5],   // warm above knee
-        [0.5, 1.5, 2.0],   // cool above knee
-        [1.8, 1.8, 0.2],   // yellow above knee
+        [2.0, 1.5, 0.5], // warm above knee
+        [0.5, 1.5, 2.0], // cool above knee
+        [1.8, 1.8, 0.2], // yellow above knee
     ];
     for &input in cases {
         let mut img = fresh_img(input);
@@ -480,10 +585,20 @@ fn highlights_preserves_hue_on_arbitrary_saturated_above_knee() {
         let s_r = p[0] / input[0];
         let s_g = p[1] / input[1];
         let s_b = p[2] / input[2];
-        assert!((s_r - s_g).abs() / s_r < 0.001,
-            "highlights+50 hue drift on {:?}: scale R={} G={}", input, s_r, s_g);
-        assert!((s_r - s_b).abs() / s_r < 0.001,
-            "highlights+50 hue drift on {:?}: scale R={} B={}", input, s_r, s_b);
+        assert!(
+            (s_r - s_g).abs() / s_r < 0.001,
+            "highlights+50 hue drift on {:?}: scale R={} G={}",
+            input,
+            s_r,
+            s_g
+        );
+        assert!(
+            (s_r - s_b).abs() / s_r < 0.001,
+            "highlights+50 hue drift on {:?}: scale R={} B={}",
+            input,
+            s_r,
+            s_b
+        );
     }
 }
 
@@ -492,11 +607,7 @@ fn whites_preserves_hue_on_arbitrary_saturated() {
     // Sweep saturated near-white colours through whites=±50; assert
     // uniform scaling (already tested for one neutral case above —
     // this adds saturated coverage).
-    let cases: &[[f32; 3]] = &[
-        [0.95, 0.70, 0.50],
-        [0.50, 0.70, 0.95],
-        [0.95, 0.95, 0.40],
-    ];
+    let cases: &[[f32; 3]] = &[[0.95, 0.70, 0.50], [0.50, 0.70, 0.95], [0.95, 0.95, 0.40]];
     for &slider in &[50.0_f32, -50.0] {
         for &input in cases {
             let mut img = fresh_img(input);
@@ -507,10 +618,18 @@ fn whites_preserves_hue_on_arbitrary_saturated() {
             let s_r = p[0] / input[0];
             let s_g = p[1] / input[1];
             let s_b = p[2] / input[2];
-            assert!((s_r - s_g).abs() / s_r.abs().max(1e-6) < 0.001,
-                "whites={} hue drift on {:?}", slider, input);
-            assert!((s_r - s_b).abs() / s_r.abs().max(1e-6) < 0.001,
-                "whites={} hue drift on {:?}", slider, input);
+            assert!(
+                (s_r - s_g).abs() / s_r.abs().max(1e-6) < 0.001,
+                "whites={} hue drift on {:?}",
+                slider,
+                input
+            );
+            assert!(
+                (s_r - s_b).abs() / s_r.abs().max(1e-6) < 0.001,
+                "whites={} hue drift on {:?}",
+                slider,
+                input
+            );
         }
     }
 }
@@ -534,7 +653,11 @@ fn scene_referred_handles_values_above_unity() {
     m.exposure = 1.0; // ×2 → 10.0
     apply(&mut img, &m);
     let p = img.pixels[0];
-    assert!((p[0] - 10.0).abs() < 1e-4, "expected unclipped 10.0, got {}", p[0]);
+    assert!(
+        (p[0] - 10.0).abs() < 1e-4,
+        "expected unclipped 10.0, got {}",
+        p[0]
+    );
     assert_eq!(p[0], p[1]);
     assert_eq!(p[1], p[2]);
 }
@@ -551,8 +674,11 @@ fn scene_referred_does_not_clip_negatives_introduced_upstream() {
     m.exposure = 1.0; // ×2 → [-0.02, 1.0, 1.0]
     apply(&mut img, &m);
     let p = img.pixels[0];
-    assert!((p[0] - (-0.02)).abs() < 1e-5,
-        "scene-linear stage must pass negatives through, got R={}", p[0]);
+    assert!(
+        (p[0] - (-0.02)).abs() < 1e-5,
+        "scene-linear stage must pass negatives through, got R={}",
+        p[0]
+    );
 }
 
 #[test]
@@ -568,5 +694,10 @@ fn exposure_and_highlights_compose() {
     apply(&mut img, &m);
     let p = img.pixels[0];
     let expected = (1.0 + 0.2 / 3.0) * (-0.7_f32).exp2();
-    assert!((p[0] - expected).abs() < 1e-4, "R was {}, expected {}", p[0], expected);
+    assert!(
+        (p[0] - expected).abs() < 1e-4,
+        "R was {}, expected {}",
+        p[0],
+        expected
+    );
 }

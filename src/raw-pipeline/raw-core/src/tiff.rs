@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
+use bytemuck::cast_slice;
 use image::codecs::tiff::TiffEncoder;
 use image::ImageEncoder;
-use bytemuck::cast_slice;
 
 /// Encode a sRGB 16-bit TIFF into an in-memory buffer.
 ///
@@ -13,7 +13,9 @@ pub fn encode_u16(width: u32, height: u32, rgb: &[u16]) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
         return Err(Error::Png(format!(
-            "expected {} u16 values, got {}", expected_len, rgb.len()
+            "expected {} u16 values, got {}",
+            expected_len,
+            rgb.len()
         )));
     }
     let mut out: Vec<u8> = Vec::with_capacity(expected_len * 2);
@@ -39,7 +41,7 @@ mod tests {
 
     #[test]
     fn encode_tiny_tiff_from_u8_produces_bytes() {
-        let rgb: Vec<u8> = vec![255, 0, 0,  0, 255, 0,  0, 0, 255,  255, 255, 255];
+        let rgb: Vec<u8> = vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255];
         let bytes = encode_from_u8(2, 2, &rgb).unwrap();
         assert!(bytes.len() > 0);
         // TIFF little-endian magic "II*\0" or big-endian "MM\0*".

@@ -25,14 +25,7 @@ fn display_buffer() -> Vec<f32> {
 }
 
 /// Run `raw_core::stages::split_tone::apply` (the ticket's reference).
-fn raw_core_split_tone(
-    buf: &[f32],
-    hs: f32,
-    ss: f32,
-    hh: f32,
-    sh: f32,
-    bal: f32,
-) -> Vec<f32> {
+fn raw_core_split_tone(buf: &[f32], hs: f32, ss: f32, hh: f32, sh: f32, bal: f32) -> Vec<f32> {
     use raw_core::image::{ColorSpace, Image};
     let count = buf.len() / 4;
     let mut img = Image::new(count as u32, 1, ColorSpace::DisplayLinearRec2020);
@@ -61,7 +54,7 @@ fn wgsl_split_tone_matches_raw_core_stage_within_1e_4() {
         (30.0_f32, 60.0_f32, 210.0_f32, 40.0_f32, 0.0_f32),
         (30.0, 100.0, 210.0, 100.0, 100.0),
         (300.0, 45.0, 120.0, 80.0, -100.0),
-        (0.0, 0.0, 45.0, 70.0, 30.0),  // highlight-only
+        (0.0, 0.0, 45.0, 70.0, 30.0),   // highlight-only
         (200.0, 70.0, 0.0, 0.0, -40.0), // shadow-only
     ] {
         let reference = raw_core_split_tone(&input, hs, ss, hh, sh, bal);

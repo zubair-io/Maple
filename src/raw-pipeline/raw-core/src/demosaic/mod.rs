@@ -1,13 +1,13 @@
 pub mod amaze;
 pub mod bilinear;
-pub mod hamilton_adams;
 pub mod half_res;
+pub mod hamilton_adams;
 pub mod xtrans;
 
 pub use self::amaze::amaze;
 pub use self::bilinear::{bilinear, bilinear_cancellable};
-pub use self::hamilton_adams::hamilton_adams;
 pub use self::half_res::{half_res, half_res_cancellable};
+pub use self::hamilton_adams::hamilton_adams;
 pub use self::xtrans::{markesteijn, xtrans_bilinear};
 
 use crate::image::{CfaPattern, Image};
@@ -30,16 +30,17 @@ pub enum DemosaicAlgorithm {
 }
 
 impl Default for DemosaicAlgorithm {
-    fn default() -> Self { Self::Bilinear }
+    fn default() -> Self {
+        Self::Bilinear
+    }
 }
 
 pub fn demosaic(algo: DemosaicAlgorithm, mosaic: &Image, cfa: CfaPattern) -> Image {
     match algo {
-        DemosaicAlgorithm::Bilinear      => bilinear(mosaic, cfa),
+        DemosaicAlgorithm::Bilinear => bilinear(mosaic, cfa),
         DemosaicAlgorithm::HamiltonAdams => hamilton_adams(mosaic, cfa),
-        DemosaicAlgorithm::Amaze         => amaze(mosaic, cfa),
-        DemosaicAlgorithm::HalfRes       => half_res(mosaic, cfa),
-        DemosaicAlgorithm::Markesteijn   => markesteijn(mosaic, cfa),
+        DemosaicAlgorithm::Amaze => amaze(mosaic, cfa),
+        DemosaicAlgorithm::HalfRes => half_res(mosaic, cfa),
+        DemosaicAlgorithm::Markesteijn => markesteijn(mosaic, cfa),
     }
 }
-
