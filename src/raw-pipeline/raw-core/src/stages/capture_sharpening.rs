@@ -79,12 +79,11 @@ impl Default for CaptureSharpeningParams {
 /// (e.g. 3.76 µm for APS-C, 5.9 µm for full-frame 24 MP).
 ///
 /// Returns `None` if the inputs are non-positive / non-finite.
-pub fn estimate_diffraction_sigma(
-    f_number: f32,
-    pixel_pitch_um: f32,
-) -> Option<f32> {
-    if !f_number.is_finite() || f_number <= 0.0
-        || !pixel_pitch_um.is_finite() || pixel_pitch_um <= 0.0
+pub fn estimate_diffraction_sigma(f_number: f32, pixel_pitch_um: f32) -> Option<f32> {
+    if !f_number.is_finite()
+        || f_number <= 0.0
+        || !pixel_pitch_um.is_finite()
+        || pixel_pitch_um <= 0.0
     {
         return None;
     }

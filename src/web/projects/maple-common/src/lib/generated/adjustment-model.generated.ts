@@ -14,7 +14,7 @@ export type HighlightRecoveryMode =
 
 export type Look = 'Neutral' | 'Default';
 
-export type Profile = 'Auto' | 'Neutral';
+export type Profile = 'Auto' | 'Neutral' | 'AcrMatch';
 
 export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';
 

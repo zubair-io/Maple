@@ -172,9 +172,7 @@ mod tests {
         let (r0, r1, rt) = coord(r);
         let (g0, g1, gt) = coord(g);
         let (b0, b1, bt) = coord(b);
-        let at = |ri: usize, gi: usize, bi: usize, c: usize| {
-            lut[((bi * n + gi) * n + ri) * 3 + c]
-        };
+        let at = |ri: usize, gi: usize, bi: usize, c: usize| lut[((bi * n + gi) * n + ri) * 3 + c];
         let mut out = [0.0_f32; 3];
         for (c, slot) in out.iter_mut().enumerate() {
             let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
@@ -233,8 +231,8 @@ mod tests {
                     let sampled = trilinear(&lut, n, rv, gv, bv);
                     // Bin by the EXACT output's Rec.709 luma (the value a
                     // gate would see).
-                    let luma = (0.2126 * exact[0] + 0.7152 * exact[1] + 0.0722 * exact[2])
-                        .clamp(0.0, 1.0);
+                    let luma =
+                        (0.2126 * exact[0] + 0.7152 * exact[1] + 0.0722 * exact[2]).clamp(0.0, 1.0);
                     let band = ((luma * 5.0) as usize).min(4);
                     for c in 0..3 {
                         let d = sampled[c] - exact[c];
@@ -306,7 +304,10 @@ mod tests {
         let max = bake_profile_lut(&curve, MAX_LUT_SIZE);
         assert_eq!(max.len(), MAX_LUT_SIZE * MAX_LUT_SIZE * MAX_LUT_SIZE * 3);
         let def = bake_profile_lut(&curve, DEFAULT_LUT_SIZE);
-        assert_eq!(def.len(), DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * 3);
+        assert_eq!(
+            def.len(),
+            DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * 3
+        );
     }
 
     /// Acceptance: composing the curve with an IDENTITY residual reproduces the
@@ -350,7 +351,11 @@ mod tests {
         let curve_only = bake_profile_lut(&curve, n);
         let mut max = 0.0_f32;
         for i in 0..n * n * n {
-            let after_curve = [curve_only[i * 3], curve_only[i * 3 + 1], curve_only[i * 3 + 2]];
+            let after_curve = [
+                curve_only[i * 3],
+                curve_only[i * 3 + 1],
+                curve_only[i * 3 + 2],
+            ];
             let expect = residual.sample(after_curve);
             for c in 0..3 {
                 max = max.max((composed[i * 3 + c] - expect[c]).abs());

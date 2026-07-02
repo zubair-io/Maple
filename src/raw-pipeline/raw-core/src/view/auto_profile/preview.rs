@@ -418,7 +418,11 @@ fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource) -> JpegColorSpace
 
 fn extract_preview_via_exiftool(path: &Path) -> Option<DynamicImage> {
     for tag in ["-PreviewImage", "-JpgFromRaw"] {
-        let out = Command::new("exiftool").args(["-b", tag, "--"]).arg(path).output().ok()?;
+        let out = Command::new("exiftool")
+            .args(["-b", tag, "--"])
+            .arg(path)
+            .output()
+            .ok()?;
         if out.status.success() && !out.stdout.is_empty() {
             if let Ok(img) = image::load_from_memory(&out.stdout) {
                 return Some(img);

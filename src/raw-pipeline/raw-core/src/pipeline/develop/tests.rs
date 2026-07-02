@@ -323,11 +323,8 @@ fn develop_applies_opcode_list3_corrections() {
     let model = AdjustmentModel::default();
 
     // 2. Develop it without corrections first
-    let uncorrected = develop_scene_linear_from_raw_with_quality(
-        &raw,
-        &model,
-        RenderQuality::Full,
-    ).unwrap();
+    let uncorrected =
+        develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap();
 
     // 3. Inject a WarpRectilinear OpcodeList3 correction into the raw image
     let list = crate::pipeline::pano::opcodes::OpcodeList3 {
@@ -343,19 +340,22 @@ fn develop_applies_opcode_list3_corrections() {
         )],
         skipped_unknown: 0,
     };
-    raw.opcode_list3 = Some((list, crate::pipeline::pano::opcodes::ActiveAreaRect::full(raw.width, raw.height)));
+    raw.opcode_list3 = Some((
+        list,
+        crate::pipeline::pano::opcodes::ActiveAreaRect::full(raw.width, raw.height),
+    ));
 
     // 4. Develop it with corrections
-    let corrected = develop_scene_linear_from_raw_with_quality(
-        &raw,
-        &model,
-        RenderQuality::Full,
-    ).unwrap();
+    let corrected =
+        develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap();
 
     // 5. Assert that corrected pixel values differ from uncorrected values
     let mut different = false;
     for (p_c, p_u) in corrected.pixels.iter().zip(uncorrected.pixels.iter()) {
-        if (p_c[0] - p_u[0]).abs() > 1e-4 || (p_c[1] - p_u[1]).abs() > 1e-4 || (p_c[2] - p_u[2]).abs() > 1e-4 {
+        if (p_c[0] - p_u[0]).abs() > 1e-4
+            || (p_c[1] - p_u[1]).abs() > 1e-4
+            || (p_c[2] - p_u[2]).abs() > 1e-4
+        {
             different = true;
             break;
         }

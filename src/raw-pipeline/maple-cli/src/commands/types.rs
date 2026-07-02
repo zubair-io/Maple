@@ -65,4 +65,8 @@ pub enum ProfileChoice {
     /// Force `Profile::Neutral` regardless of XMP. Used by the
     /// color-parity harness.
     Neutral,
+    /// Force `Profile::AcrMatch` regardless of XMP (#1722). Applies the
+    /// fitted ACR-match view transform instead of AgX.
+    #[value(name = "acr-match")]
+    AcrMatch,
 }

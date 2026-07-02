@@ -52,7 +52,9 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
     let l_band = curve.lightness_band_offsets;
     let ab_band = curve.ab_band_offsets;
     let any_l_band = l_band.iter().any(|v| v.abs() > 1e-4);
-    let any_ab_band = ab_band.iter().any(|v| v[0].abs() > 1e-4 || v[1].abs() > 1e-4);
+    let any_ab_band = ab_band
+        .iter()
+        .any(|v| v[0].abs() > 1e-4 || v[1].abs() > 1e-4);
     let apply_chroma = (chroma_boost - 1.0).abs() > 1e-4
         || chroma_off[0].abs() > 1e-4
         || chroma_off[1].abs() > 1e-4
