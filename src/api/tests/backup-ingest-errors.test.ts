@@ -167,7 +167,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     // lands at the next free sibling path instead.
     const captureDate = '2024-07-04T12:00:00Z';
     const fname = 'IMG_COLLISION.HEIC';
-    const targetDir = path.join(suite.handle.tmpLib, '2024/07');
+    const targetDir = path.join(suite.handle.tmpLib, '2024/Misc');
     await fs.mkdir(targetDir, { recursive: true });
     const preExistingPath = path.join(targetDir, fname);
     await fs.writeFile(preExistingPath, Buffer.alloc(64, 0));
@@ -185,7 +185,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     );
     expect(rCollide.status).toBe(200);
     const b = await rCollide.json();
-    expect(b.target_rel_path).toBe('2024/07/IMG_COLLISION-1.HEIC');
+    expect(b.target_rel_path).toBe('2024/Misc/IMG_COLLISION-1.HEIC');
     expect(b.maple_id).toBe('collision-maple-id');
 
     // The pre-existing file is untouched; our bytes landed at the sibling path.
@@ -200,7 +200,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     const assets = await assetsCollection();
     const row = await assets.findOne({ maple_id: 'collision-maple-id' });
     expect(row).not.toBeNull();
-    expect(row!.fileinfo[0].path).toBe('2024/07');
+    expect(row!.fileinfo[0].path).toBe('2024/Misc');
     expect(row!.fileinfo[0].filename).toBe('IMG_COLLISION-1.HEIC');
 
     // A retry after a downstream (sidecar/rendered) failure must short-circuit
@@ -218,7 +218,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
       }),
     );
     expect(rRetry.status).toBe(200);
-    expect((await rRetry.json()).target_rel_path).toBe('2024/07/IMG_COLLISION-1.HEIC');
+    expect((await rRetry.json()).target_rel_path).toBe('2024/Misc/IMG_COLLISION-1.HEIC');
 
     // Clean up
     await assets.deleteMany({ maple_id: 'collision-maple-id' });
@@ -233,7 +233,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     const captureDate = '2024-08-09T12:00:00Z';
     const fname = 'IMG_RECOVER.HEIC';
     const bytes = Buffer.alloc(96, 7);
-    const targetDir = path.join(suite.handle.tmpLib, '2024/08');
+    const targetDir = path.join(suite.handle.tmpLib, '2024/Misc');
     await fs.mkdir(targetDir, { recursive: true });
     const preExistingPath = path.join(targetDir, fname);
     await fs.writeFile(preExistingPath, bytes);
@@ -255,7 +255,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     );
     expect(rRecover.status).toBe(200);
     const b = await rRecover.json();
-    expect(b.target_rel_path).toBe('2024/08/IMG_RECOVER.HEIC');
+    expect(b.target_rel_path).toBe('2024/Misc/IMG_RECOVER.HEIC');
     expect(b.maple_id).toBe('recover-maple-id');
 
     // The original file is still there (no spurious sibling), and the missing

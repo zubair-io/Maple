@@ -457,6 +457,30 @@ describe('culling projection', () => {
     expect(patch['flag']).toBe(0);
     expect(patch['color_label']).toBe('');
   });
+
+  test('isScreenshot=true in sidecar is projected to metadata_override and top-level', async () => {
+    const image = await writeSidecar(
+      makeXmp('papp:IsScreenshot="true" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
+    );
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const patch = result.patch as Record<string, unknown>;
+    expect((patch['metadata_override'] as Record<string, unknown>)['is_screenshot']).toBe(true);
+    expect(patch['is_screenshot']).toBe(true);
+  });
+
+  test('isScreenshot=false in sidecar is projected to metadata_override and top-level', async () => {
+    const image = await writeSidecar(
+      makeXmp('papp:IsScreenshot="false" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
+    );
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const patch = result.patch as Record<string, unknown>;
+    expect((patch['metadata_override'] as Record<string, unknown>)['is_screenshot']).toBe(false);
+    expect(patch['is_screenshot']).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
