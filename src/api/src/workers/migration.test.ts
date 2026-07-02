@@ -133,15 +133,15 @@ describe('migration end-to-end (restructure)', () => {
         fileinfo?: { path: string; filename: string }[];
         stages?: Record<string, { version: number }>;
       } | null;
-      expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
+      expect(doc?.fileinfo?.[0].path).toBe('2024/Tokyo');
       expect(doc?.fileinfo?.[0].filename).toBe('IMG_E2E.HEIC');
       // Cache stage versions reset so workers regenerate at the new path.
       expect(doc?.stages?.thumb.version).toBe(0);
       expect(doc?.stages?.preview.version).toBe(0);
 
       // File + sidecar moved; old day-folder reclaimed.
-      expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.HEIC'), 'utf8')).toBe('pixels');
-      expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.xmp'), 'utf8')).toBe('edits');
+      expect(await fs.readFile(path.join(dir, '2024/Tokyo/IMG_E2E.HEIC'), 'utf8')).toBe('pixels');
+      expect(await fs.readFile(path.join(dir, '2024/Tokyo/IMG_E2E.xmp'), 'utf8')).toBe('edits');
       await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
     } finally {
       await assets.deleteOne({ _id });
@@ -202,14 +202,14 @@ describe('migration end-to-end (restructure)', () => {
       const docs = (await assets.find({ _id: { $in: [idA, idB] } }).toArray()) as {
         fileinfo: { path: string; filename: string }[];
       }[];
-      // Both now live under 2024/Misc; filenames are DUP.HEIC and DUP.1.HEIC.
-      for (const d of docs) expect(d.fileinfo[0].path).toBe('2024/Misc');
+      // Both now live under 2024/Tokyo; filenames are DUP.HEIC and DUP.1.HEIC.
+      for (const d of docs) expect(d.fileinfo[0].path).toBe('2024/Tokyo');
       const names = docs.map((d) => d.fileinfo[0].filename).sort();
       expect(names).toEqual(['DUP.1.HEIC', 'DUP.HEIC']);
 
       // Both files present at their recorded paths; neither content lost.
       const contents = await Promise.all(
-          docs.map((d) => fs.readFile(path.join(dir!, '2024/Misc', d.fileinfo[0].filename), 'utf8')),
+        docs.map((d) => fs.readFile(path.join(dir!, '2024/Tokyo', d.fileinfo[0].filename), 'utf8')),
       );
       expect(contents.sort()).toEqual(['content-A', 'content-B']);
       // No overwrite: distinct bytes preserved at distinct names.
