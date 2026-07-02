@@ -144,8 +144,22 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // render slightly darker than the full-image path (by whatever EV the
     // full path's AE picked); follow-up tracked in #1167. The same
     // architectural reason already excludes dehaze from this path.
+    // ACR anchoring (#1729): when Custom WB is active but only one component
+    // was authored, anchor the absent component to as-shot. Anchoring only
+    // fires when at least one flag is set — both-false means no Custom WB,
+    // so we keep 6500 K / 0 (short-circuit no-op; as-shot already baked by
+    // `apply_pre_gain`). Mirrors the identical block in `develop/mod.rs`.
+    let effective_temperature = if model.temperature_seen {
+        model.temperature
+    } else if model.tint_seen {
+        raw.as_shot_cct
+            .unwrap_or_else(|| white_balance::estimate_cct_from_neutral(raw.as_shot_neutral))
+    } else {
+        model.temperature
+    };
+    let effective_tint = if model.tint_seen { model.tint } else { 0.0 };
     stage("tile_white_balance", || {
-        white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method)
+        white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
     });
     stage("tile_scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
