@@ -41,11 +41,10 @@ const log = childLogger('migration:refile');
 /** Layout generation stamped on a refiled asset — the worker's done-marker, NOT a
  * correctness oracle. See `AssetDoc.backup_layout_version`.
  *
- * v4 (#1525): the no-location branch now mirrors `formatBackupPath`'s `<year>/<MM>`
- * (it previously left undated/junk-folder files in place), so the bump re-sweeps
- * the library once to normalise e.g. `2026/2595` → `2026/05`. Only mis-filed
- * assets actually move; the rest no-op and re-stamp. */
-export const BACKUP_LAYOUT_VERSION = 4;
+ * v5: the no-location branch now falls back to `<year>/Misc`, so the bump re-sweeps
+ * the library to relocate placeless assets into their canonical fallback folder.
+ * Only mis-filed assets actually move; the rest no-op and re-stamp. */
+export const BACKUP_LAYOUT_VERSION = 5;
 
 /** Matches the screenshot destination layout (`<year>/Screenshot`) exactly — the
  * "already filed" gate inside `relocateBackupScreenshot`. */
