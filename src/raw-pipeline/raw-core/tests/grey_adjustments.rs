@@ -342,10 +342,11 @@ fn temp_symmetric() {
 /// Tint follows the reference-renderer convention: tint>0 = magenta (R+B grows vs 2G),
 /// tint<0 = green (R+B shrinks vs 2G).
 ///
-/// **Known failure:** Maple currently inverts this — these two tests
-/// fail today because the production tint sign is wrong. The test
-/// failure is the alert. See spawned investigation task; do not flip
-/// the assertion to make this pass.
+/// Fixed by ticket #1725: tint is now displaced perpendicular to the
+/// Planckian locus in CIE 1960 uv space (the DNG/ACR convention) rather
+/// than as a pure +y displacement in CIE xy, which had a temperature-axis
+/// component mixed in and inverted the green/magenta direction relative to
+/// the reference renderer at the grey harness level.
 #[test]
 fn tint_plus_pushes_magenta() {
     let default_p = scene_linear_pixel(|_| {});
