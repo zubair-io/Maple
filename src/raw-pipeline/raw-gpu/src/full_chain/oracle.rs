@@ -207,6 +207,8 @@ impl Case {
             target_primaries: 0,
             // All oracle cases are RAW — the full chain.
             input_shape: crate::full_chain::InputShape::PostDcpRec2020Fp16,
+            // Oracle cases use the default profile (AgX / not AcrMatch).
+            profile_id: 0,
         }
     }
 }
