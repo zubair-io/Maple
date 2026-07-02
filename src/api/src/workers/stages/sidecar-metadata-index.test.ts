@@ -481,6 +481,20 @@ describe('culling projection', () => {
     expect((patch['metadata_override'] as Record<string, unknown>)['is_screenshot']).toBe(false);
     expect(patch['is_screenshot']).toBe(false);
   });
+
+  test('absent isScreenshot in sidecar preserves existing top-level is_screenshot', async () => {
+    const rawFile = path.join(tmpDir, 'test.dng');
+    const sidecarFile = path.join(tmpDir, 'test.xmp');
+    await fs.writeFile(rawFile, '');
+    await fs.writeFile(sidecarFile, makeXmp('photoshop:City="Berlin"'), 'utf-8');
+    const image = makeImage({ is_screenshot: true });
+
+    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    expect(result).toHaveProperty('patch');
+    if (!('patch' in result)) throw new Error('Expected patch result');
+    const patch = result.patch as Record<string, unknown>;
+    expect(patch['is_screenshot']).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -136,7 +136,7 @@ export async function sidecarMetadataIndexHandler(
   patch['is_screenshot'] =
     override.is_screenshot !== undefined && override.is_screenshot !== null
       ? override.is_screenshot
-      : (image.vision?.is_screenshot ?? false);
+      : (image.is_screenshot ?? false);
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps

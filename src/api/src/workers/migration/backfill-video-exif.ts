@@ -27,7 +27,7 @@ import { assetAbsPath, isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename, VIDEO_EXTS } from '../../indexer/media-types.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { child as childLogger } from '../../log.ts';
-import { monthFor } from './refile-backups.ts';
+
 import type { Migration, MigrationBatchResult } from './types.ts';
 
 const log = childLogger('migration:video-exif');
@@ -152,8 +152,8 @@ export const backfillVideoExif: Migration = {
         if (exif.gps) {
           // Re-geocode → place → (geocode hook) reset blv → refile under location.
           set['stages.geocode.version'] = 0;
-        } else if (monthFor(exif.captured_month)) {
-          // Dated but no GPS → make it a refile candidate for the <year>/<MM> path.
+        } else if (exif.captured_year != null) {
+          // Dated but no GPS → make it a refile candidate for the <year>/Misc path.
           set.backup_layout_version = REFILE_RESET_VERSION;
         }
       }

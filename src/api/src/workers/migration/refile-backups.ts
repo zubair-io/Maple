@@ -66,22 +66,6 @@ function yearFor(oldDir: string, capturedYear: number | null | undefined): strin
   return null;
 }
 
-/** Zero-padded `MM` for the no-location `<year>/<MM>` layout, or `null` when the
- * capture month is unknown (then we don't invent a month-folder — see the
- * no-location branch). Exported for the video-exif backfill, which only resets the
- * refile marker when a usable month exists. */
-export function monthFor(capturedMonth: number | null | undefined): string | null {
-  if (
-    capturedMonth != null &&
-    Number.isInteger(capturedMonth) &&
-    capturedMonth >= 1 &&
-    capturedMonth <= 12
-  ) {
-    return String(capturedMonth).padStart(2, '0');
-  }
-  return null;
-}
-
 /**
  * The canonical directory a backup asset's canonical live entry
  * (`assetPrimaryFileInfo` — the first live `fileinfo`, i.e. neither `deleted_at`
@@ -92,9 +76,7 @@ export function monthFor(capturedMonth: number | null | undefined): string | nul
  *
  *   1. screenshot (`is_screenshot`)         → `<year>/Screenshot`  (wins over location)
  *   2. resolved location (`place` segments) → `<year>/<seg>/<seg>`
- *   3. no location, capture month known     → `<year>/<MM>`  (mirrors formatBackupPath)
- *   4. no location, no month                → flatten a recognised old day-folder,
- *      else leave the asset where it is (we never invent a month-folder).
+ *   3. no location                          → `<year>/Misc`
  *
  * Pure (no DB / fs) and exhaustively unit-tested. Mirrors `formatBackupPath` so a
  * migrated file matches a fresh ingest of the same asset.
