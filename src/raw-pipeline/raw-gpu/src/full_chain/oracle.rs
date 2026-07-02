@@ -98,6 +98,7 @@ pub fn rc_capture(
         iterations: p.iterations,
         highlight_threshold: p.highlight_threshold,
         strength: p.strength,
+        noise_floor: p.noise_floor,
     }
 }
 
