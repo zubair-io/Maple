@@ -263,13 +263,23 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
     let inv_pro = M_PRO_TO_XYZ_D50
         .inverse()
         .expect("ProPhoto matrix is invertible");
-    let cam_to_pro = match profile.forward_matrix {
-        Some(fm) => inv_pro.mul_mat(&fm),
-        None => {
-            // Non-FM path: invert CM here (lazily — the FM path doesn't
-            // need it and skipping the inversion saves a 3x3 matrix inverse
-            // per image). CM is XYZ→camera per the DNG spec; we want the
-            // forward direction.
+    let cam_to_pro = match (profile.forward_matrix, profile.wb_already_baked) {
+        (Some(fm), true) => inv_pro.mul_mat(&fm),
+        _ => {
+            // Non-FM / pre-gain-skipped path: invert CM here (lazily — the
+            // FM path doesn't need it and skipping the inversion saves a 3x3
+            // matrix inverse per image). CM is XYZ→camera per the DNG spec;
+            // we want the forward direction.
+            //
+            // Two reasons to reach here:
+            //   1. `forward_matrix` is `None` — no FM in the profile.
+            //   2. `wb_already_baked = false` — the 8-bit lossy LinearRaw
+            //      escape hatch (see `is_lossy_linearraw`): the converter
+            //      baked WB through gamma decode, so AsShotNeutral was NOT
+            //      pre-applied by the pipeline's `apply_pre_gain`. Applying
+            //      FM here would assume the buffer is WB-divided (FM's
+            //      contract per DNG SDK), which it is not — so we Bradford
+            //      instead of touching FM.
             let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
                 crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
             })?;
@@ -2403,6 +2413,92 @@ mod tests {
         assert!((h_new - expected_h).abs() < 1.0e-3);
         assert!((s_new - expected_s).abs() < 1.0e-3);
         assert!((v_new - expected_v).abs() < 1.0e-3);
+    }
+
+    /// PR #1709 review finding: the match that dispatches FM vs Bradford was
+    /// collapsed to check only `forward_matrix`, dropping the `wb_already_baked`
+    /// guard. For 8-bit lossy LinearRaw DNGs (`wb_already_baked = false`) the
+    /// pipeline does NOT pre-divide by AsShotNeutral, so the FM contract (FM
+    /// expects a WB-divided buffer) is violated. The fix restores the two-arm
+    /// match `(Some(fm), true) => FM path, _ => Bradford path`.
+    ///
+    /// This test constructs a profile with `forward_matrix = Some(...)` but
+    /// `wb_already_baked = false` and asserts that the Bradford path runs —
+    /// i.e. the output matches what we get when `forward_matrix = None`
+    /// (which unambiguously takes Bradford) and differs from what we get when
+    /// `wb_already_baked = true` (which would run the FM path).
+    #[test]
+    fn wb_not_baked_takes_bradford_even_when_forward_matrix_present() {
+        // Plausible camera matrix: XYZ → camera at D65.
+        let cm = Matrix3([
+            [0.7501, -0.1234, -0.0712],
+            [-0.3801, 1.2001, 0.1899],
+            [-0.0488, 0.1801, 0.6011],
+        ]);
+        // Plausible forward matrix: WB-divided camera RGB → XYZ-D50.
+        let fm = Matrix3([
+            [0.5309, 0.2555, 0.1711],
+            [0.2034, 0.7981, -0.0015],
+            [0.0149, -0.0710, 0.7736],
+        ]);
+        // Common scene white derived from inv(CM) * [1,1,1] (identity ASN).
+        let scene_white_xyz = crate::color::matrices::XYZ_D65;
+
+        // Profile A: wb_already_baked=false + FM present → must take Bradford.
+        let profile_wb_false = DcpProfile {
+            illuminant: Illuminant::D65,
+            color_matrix: cm,
+            forward_matrix: Some(fm),
+            scene_cct: Illuminant::D65.cct(),
+            scene_white_xyz,
+            wb_already_baked: false,
+            hsm: None,
+            look_table: None,
+            tone_curve: None,
+        };
+        // Profile B: wb_already_baked=true + FM present → takes FM path.
+        let profile_wb_true = DcpProfile {
+            wb_already_baked: true,
+            ..profile_wb_false.clone()
+        };
+        // Profile C: forward_matrix=None (unambiguous Bradford reference).
+        let profile_no_fm = DcpProfile {
+            forward_matrix: None,
+            wb_already_baked: false,
+            ..profile_wb_false.clone()
+        };
+
+        let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
+        img.pixels[0] = [0.5, 0.48, 0.52];
+
+        let out_wb_false =
+            apply(&img, &profile_wb_false).expect("wb_false + FM: should succeed");
+        let out_wb_true =
+            apply(&img, &profile_wb_true).expect("wb_true + FM: should succeed");
+        let out_no_fm = apply(&img, &profile_no_fm).expect("no FM: should succeed");
+
+        // wb_already_baked=false must produce the same result as no-FM (Bradford)
+        // and must differ from wb_already_baked=true (FM path).
+        for ch in 0..3 {
+            assert!(
+                (out_wb_false.pixels[0][ch] - out_no_fm.pixels[0][ch]).abs() < 1e-5,
+                "ch={ch}: wb_false path ({}) must equal Bradford-only path ({})",
+                out_wb_false.pixels[0][ch],
+                out_no_fm.pixels[0][ch]
+            );
+            // FM path and Bradford path must differ — guards against a
+            // degenerate case where the matrices happen to produce the same
+            // output.
+            let fm_vs_bradford_diff =
+                (out_wb_true.pixels[0][ch] - out_no_fm.pixels[0][ch]).abs();
+            assert!(
+                fm_vs_bradford_diff > 1e-3,
+                "ch={ch}: FM path ({}) and Bradford path ({}) must differ \
+                 for this test to be meaningful (diff={fm_vs_bradford_diff:.6})",
+                out_wb_true.pixels[0][ch],
+                out_no_fm.pixels[0][ch]
+            );
+        }
     }
 }
 
