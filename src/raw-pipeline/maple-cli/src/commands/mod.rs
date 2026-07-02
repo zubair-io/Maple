@@ -12,6 +12,7 @@ pub mod auto_tone;
 pub mod batch;
 pub mod diff;
 pub mod extract_preview;
+pub mod fit_acr;
 pub mod inspect;
 pub mod render;
 pub mod synthetic;

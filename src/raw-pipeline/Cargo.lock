@@ -1275,6 +1275,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "maple-pano",
+ "png 0.17.16",
  "raw-core",
  "serde",
  "serde_json",
