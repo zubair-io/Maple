@@ -36,6 +36,7 @@ fn raw_with(w: u32, h: u32, orientation: ExifOrientation, crop_rect: Option<Crop
         crop_rect,
         iso: 100,
         noise_profile: None,
+        opcode_list3: None,
     }
 }
 

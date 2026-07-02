@@ -28,7 +28,7 @@ mod downsample;
 mod fp16;
 mod inpaint_store;
 mod orient;
-mod pano;
+pub(crate) mod pano;
 mod render;
 mod scene_linear_chain;
 mod tile;

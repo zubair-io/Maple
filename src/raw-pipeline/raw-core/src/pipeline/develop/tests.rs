@@ -312,3 +312,53 @@ fn amaze_resolves_finer_detail_than_hamilton_adams() {
         hf_amz / hf_ha
     );
 }
+
+#[test]
+fn develop_applies_opcode_list3_corrections() {
+    use crate::test_support::synth_chart::SyntheticColorChart;
+    // 1. Build a synthetic DNG (which doesn't have an OpcodeList3)
+    let chart = SyntheticColorChart::default();
+    let mut raw = crate::decode::decode_bytes(&chart.write_to_bytes(), "dng")
+        .expect("synthetic chart must decode");
+    let model = AdjustmentModel::default();
+
+    // 2. Develop it without corrections first
+    let uncorrected = develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        RenderQuality::Full,
+    ).unwrap();
+
+    // 3. Inject a WarpRectilinear OpcodeList3 correction into the raw image
+    let list = crate::pipeline::pano::opcodes::OpcodeList3 {
+        opcodes: vec![crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(
+            crate::pipeline::pano::opcodes::WarpRectilinearOpcode {
+                planes: vec![crate::pipeline::pano::opcodes::WarpPlaneParams {
+                    kr: [1.02, 0.0, 0.0, 0.0],
+                    kt: [0.0, 0.0],
+                }],
+                center_x: 0.5,
+                center_y: 0.5,
+            },
+        )],
+        skipped_unknown: 0,
+    };
+    raw.opcode_list3 = Some((list, crate::pipeline::pano::opcodes::ActiveAreaRect::full(raw.width, raw.height)));
+
+    // 4. Develop it with corrections
+    let corrected = develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        RenderQuality::Full,
+    ).unwrap();
+
+    // 5. Assert that corrected pixel values differ from uncorrected values
+    let mut different = false;
+    for (p_c, p_u) in corrected.pixels.iter().zip(uncorrected.pixels.iter()) {
+        if (p_c[0] - p_u[0]).abs() > 1e-4 || (p_c[1] - p_u[1]).abs() > 1e-4 || (p_c[2] - p_u[2]).abs() > 1e-4 {
+            different = true;
+            break;
+        }
+    }
+    assert!(different, "corrected and uncorrected pixels must differ");
+}
