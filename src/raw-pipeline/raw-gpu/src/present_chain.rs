@@ -184,7 +184,12 @@ impl PersistentPresentSurface {
 
     /// Draw the session's final f32 chain buffer into the surface's current
     /// drawable and present it. No configure — pure per-frame draw work.
-    fn draw_and_present(&self, ctx: &GpuContext, session: &LiveSession, final_idx: usize) -> Result<(), String> {
+    fn draw_and_present(
+        &self,
+        ctx: &GpuContext,
+        session: &LiveSession,
+        final_idx: usize,
+    ) -> Result<(), String> {
         let chain_buf = session.ping_pong_buffer(final_idx);
         let frame = self
             .surface
@@ -277,6 +282,10 @@ pub unsafe fn present_chain_to_surface(
     };
 
     let just_configured = if needs_fresh_surface {
+        // Drop any stale surface BEFORE creating its replacement: if the
+        // caller swapped CAMetalLayers, the old wgpu::Surface is bound to a
+        // possibly-destroyed layer and must not outlive a failed create.
+        *cache = None;
         *cache = Some(PersistentPresentSurface::create(ctx, layer, width, height)?);
         true
     } else {
