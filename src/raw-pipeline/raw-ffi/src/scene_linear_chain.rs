@@ -224,6 +224,19 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     let mut model = raw_core::xmp::AdjustmentModel::default();
     model.temperature = p.temperature;
     model.tint = p.tint;
+    // FFI-supplied temperature and tint are ALWAYS explicit user state — the
+    // Apple host serialises its live in-memory model and passes the values it
+    // intends the pipeline to use verbatim.  Set both seen-flags to true so
+    // `white_balance::resolve_wb` passes the values through unchanged.
+    //
+    // Without this, `resolve_wb` would fall through to its neither-seen branch
+    // and compute `effective_tint = 0.0` regardless of the tint the host
+    // supplied — zeroing any tint the user dialled in on every CPU refine render
+    // while the GPU-live path applied it correctly, producing the horizontal
+    // band visible when a refined region's WB differed from the live frame.
+    // (#1725 / #1729)
+    model.temperature_seen = true;
+    model.tint_seen = true;
     model.exposure = p.exposure;
     model.brightness = p.brightness;
     model.contrast = p.contrast;
@@ -403,6 +416,11 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     let mut model = raw_core::xmp::AdjustmentModel::default();
     model.temperature = p.temperature;
     model.tint = p.tint;
+    // Same rationale as the fp16 sibling above (#1725 / #1729): FFI params are
+    // always explicit user state; set both seen-flags so resolve_wb passes the
+    // values through unchanged instead of zeroing the tint on the CPU refine path.
+    model.temperature_seen = true;
+    model.tint_seen = true;
     model.exposure = p.exposure;
     model.brightness = p.brightness;
     model.contrast = p.contrast;

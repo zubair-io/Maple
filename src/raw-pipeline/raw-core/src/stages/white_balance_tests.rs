@@ -385,3 +385,137 @@ fn cached_cat16_inverse_matches_fresh_inverse() {
     // And the cache is sticky — second call returns the same pointer.
     assert!(std::ptr::eq(cat16_inverse(), cached));
 }
+
+// ── resolve_wb tests (#1725 / #1729) ────────────────────────────────────────
+//
+// One test per cell of the exhaustive (temperature_seen, tint_seen) × source
+// table in `resolve_wb`'s doc-comment.  Covers the four flag combinations plus
+// the FFI-shaped path (both flags true, explicit non-default values).
+
+/// (true, true) — XMP Custom with both Temperature and Tint: values passed
+/// through unchanged.
+#[test]
+fn resolve_wb_both_seen_passes_through() {
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 4500.0,
+        tint: 25.0,
+        temperature_seen: true,
+        tint_seen: true,
+        ..Default::default()
+    };
+    let (t, tnt) = resolve_wb(&model);
+    assert_eq!(t, 4500.0, "temperature must pass through when temperature_seen=true");
+    assert_eq!(tnt, 25.0, "tint must pass through when tint_seen=true");
+}
+
+/// (true, false) — XMP temperature-only Custom WB: temperature passes
+/// through, tint resolves to 0 (neutral, the ACR 'absent tint' value).
+#[test]
+fn resolve_wb_temperature_only_zeroes_tint() {
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 4500.0,
+        tint: 99.0, // must be ignored
+        temperature_seen: true,
+        tint_seen: false,
+        ..Default::default()
+    };
+    let (t, tnt) = resolve_wb(&model);
+    assert_eq!(t, 4500.0, "temperature must pass through when temperature_seen=true");
+    assert_eq!(tnt, 0.0, "tint must be 0 when tint_seen=false");
+}
+
+/// (false, true) — XMP tint-only Custom WB: absent temperature anchors to
+/// 6500 K (D65 identity in the post-DCP space), tint passes through.
+#[test]
+fn resolve_wb_tint_only_anchors_temperature_to_6500() {
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 2850.0, // must be ignored — replaced by 6500 K
+        tint: 15.0,
+        temperature_seen: false,
+        tint_seen: true,
+        ..Default::default()
+    };
+    let (t, tnt) = resolve_wb(&model);
+    assert_eq!(
+        t, 6500.0,
+        "absent temperature in tint-only Custom WB must anchor to 6500 K (D65)"
+    );
+    assert_eq!(tnt, 15.0, "tint must pass through when tint_seen=true");
+}
+
+/// (false, false) — Default model / no sidecar: both values pass through
+/// from model.  Default carries (6500, 0) which is a no-op at the WB stage.
+#[test]
+fn resolve_wb_neither_seen_passes_model_values() {
+    let model = crate::xmp::AdjustmentModel::default();
+    // Default carries temperature=6500, tint=0, both seen=false.
+    let (t, tnt) = resolve_wb(&model);
+    assert_eq!(t, 6500.0, "default model temperature must pass through");
+    assert_eq!(tnt, 0.0, "default model tint must pass through");
+}
+
+/// (false, false) with a named WB preset already resolved by the XMP parser
+/// (e.g. Tungsten → 2850 K, 0 tint): the neither-seen fall-through preserves
+/// the preset's resolved (temperature, tint).  Presets do NOT set the seen
+/// flags (they populate model.temperature/model.tint from wb_preset() at parse
+/// time without setting temperature_seen/tint_seen).
+#[test]
+fn resolve_wb_neither_seen_preserves_preset_resolved_values() {
+    // Simulate what the XMP parser does for crs:WhiteBalance="Tungsten".
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 2850.0,
+        tint: 0.0,
+        temperature_seen: false, // presets don't set the flag
+        tint_seen: false,
+        ..Default::default()
+    };
+    let (t, tnt) = resolve_wb(&model);
+    assert_eq!(t, 2850.0, "preset-resolved temperature must pass through (neither-seen)");
+    assert_eq!(tnt, 0.0, "preset-resolved tint must pass through (neither-seen)");
+}
+
+/// FFI-shaped path: simulates what `maple_apply_scene_linear_chain` does when
+/// the Apple host supplies temperature=4500 K and tint=+30 via the C-ABI struct
+/// (i.e. both seen-flags set to true, values != default).  The tint must survive
+/// `resolve_wb` unchanged — this is the regression test for the horizontal-band
+/// bug (#1725) where tint was zeroed because the FFI conversion did not set
+/// `tint_seen=true`.
+#[test]
+fn resolve_wb_ffi_shaped_model_preserves_tint() {
+    // This is how `maple_apply_scene_linear_chain` now builds the model:
+    // copy temperature + tint from params, then set both seen-flags.
+    let mut model = crate::xmp::AdjustmentModel::default();
+    model.temperature = 4500.0;
+    model.tint = 30.0;
+    model.temperature_seen = true; // fixed in #1725
+    model.tint_seen = true;        // fixed in #1725 — was missing, causing tint → 0
+
+    let (t, tnt) = resolve_wb(&model);
+    assert_eq!(t, 4500.0, "FFI temperature must pass through");
+    assert_eq!(
+        tnt, 30.0,
+        "FFI tint must pass through (was zeroed before #1725 fix: tint_seen was false)"
+    );
+}
+
+/// Cross-check: a model built with tint_seen=false and a non-zero tint value
+/// (the pre-#1725 FFI state) zeroes the tint at resolve_wb — confirming that
+/// the old behaviour was the regression and the fix (setting tint_seen=true) is
+/// the correct remedy.
+#[test]
+fn resolve_wb_pre_fix_ffi_model_would_zero_tint() {
+    // Pre-#1725: the FFI conversion did NOT set tint_seen=true.
+    let mut model = crate::xmp::AdjustmentModel::default();
+    model.temperature = 4500.0;
+    model.tint = 30.0;
+    // temperature_seen=false, tint_seen=false — the pre-fix state.
+
+    let (t, tnt) = resolve_wb(&model);
+    // temperature_seen=false + tint_seen=false → neither-seen → model.temperature
+    assert_eq!(t, 4500.0);
+    // tint_seen=false → 0.0 — this was the bug: the user's +30 tint was dropped.
+    assert_eq!(
+        tnt, 0.0,
+        "pre-fix FFI model (tint_seen=false) must yield 0.0 tint (confirming the regression)"
+    );
+}
