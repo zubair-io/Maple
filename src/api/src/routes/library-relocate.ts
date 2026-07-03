@@ -108,7 +108,9 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
   if (!primary) return null;
 
   // Screenshot wins over location.
-  if (doc.is_screenshot) {
+  const isScreenshot =
+    doc.metadata_override?.is_screenshot ?? doc.is_screenshot;
+  if (isScreenshot) {
     const year = yearForDir(primary.path, doc.exif?.captured_year ?? null);
     return year ? `${year}/${SCREENSHOT_DIR_SEGMENT}` : null;
   }
@@ -183,6 +185,7 @@ async function findGeoDocs(
           "exif.captured_year": 1,
           is_screenshot: 1,
           "metadata_override.place_text": 1,
+          "metadata_override.is_screenshot": 1,
           stages: 1,
         },
       },
