@@ -406,6 +406,80 @@ pub fn apply_delta(
     }
 }
 
+/// Resolve the (temperature, tint) pair the develop chain should pass to
+/// `white_balance::apply`, honouring the #1729 ACR anchoring semantics.
+///
+/// ## Exhaustive resolution table
+///
+/// ```text
+/// temperature_seen | tint_seen | effective_temperature  | effective_tint | Source
+/// ─────────────────┼───────────┼────────────────────────┼────────────────┼──────────────────────────────────────
+/// true             | true      | model.temperature       | model.tint     | XMP: Custom with both T and tint
+/// true             | false     | model.temperature       | 0.0            | XMP: temperature-only Custom WB
+/// false            | true      | 6500.0 (D65 neutral)   | model.tint     | XMP: tint-only Custom WB
+/// false            | false     | model.temperature       | model.tint     | No XMP / named preset / FFI / Default
+/// ─────────────────┴───────────┴────────────────────────┴────────────────┴──────────────────────────────────────
+/// ```
+///
+/// ## Why 6500 K when only tint is set
+///
+/// After `apply_pre_gain` + DCP the scene buffer is in scene-linear Rec.2020
+/// D65: the camera's `AsShotNeutral` was divided out (pre-gain) and the DCP
+/// `ForwardMatrix` mapped `(1,1,1)` camera neutral → D65 white. In that
+/// post-DCP space `white_balance::apply(6500, 0)` is the identity — "as-shot"
+/// ≡ 6500 K from the WB slider's perspective. Using `raw.as_shot_cct` instead
+/// would double-correct: pre-gain + DCP already neutralised the illuminant CCT;
+/// applying it again shifts the image away from as-shot rather than keeping it
+/// there.
+///
+/// ## Why the neither-seen case uses `model.temperature` / `model.tint`
+///
+/// **Default model (no sidecar):** both flags are false and both values carry
+/// the `AdjustmentModel::default()` values (6500 / 0) — a no-op by the
+/// `white_balance::apply` short-circuit. The Apple app overrides
+/// `model.temperature` with the DNG's as-shot CCT before calling FFI, so the
+/// result is correct as-shot WB.
+///
+/// **Named WB preset (Tungsten, Daylight, …):** the XMP parser populates
+/// `model.temperature` and `model.tint` from `wb_preset()` but does NOT set
+/// the seen flags (presets are resolved to a `(temp, tint)` pair at parse time,
+/// not authored as explicit numeric fields). The neither-seen fall-through
+/// preserves the preset's resolved values — critical for e.g. Tungsten
+/// (2850 K, 0 tint) to reach the WB stage correctly.
+///
+/// **FFI-supplied values (Apple CPU develop, WASM fresh-open with as-shot
+/// temperature injected):** both flags are forced to `true` by the FFI
+/// conversion (`raw-ffi::scene_linear_chain` / `raw-ffi::render`), so
+/// explicit user values always survive. This function's neither-seen branch
+/// is therefore exercised only by the Default model and preset paths, both
+/// of which are correct to pass `model.temperature`/`model.tint` through.
+///
+/// ## Shared use
+///
+/// All three develop sites call this function so the semantics cannot drift:
+/// `develop::develop_scene_linear_from_raw_with_quality_cancellable`,
+/// `develop_sized::develop_scene_linear_sized_from_raw_with_quality_cancellable`,
+/// and `tile::develop::develop_scene_linear_from_padded_mosaic`. (#1725)
+pub fn resolve_wb(model: &crate::xmp::AdjustmentModel) -> (f32, f32) {
+    let effective_temperature = if model.temperature_seen {
+        model.temperature
+    } else if model.tint_seen {
+        // Tint-only Custom WB: anchor absent temperature to 6500 K (D65).
+        // See the doc-comment above for the derivation.
+        6500.0
+    } else {
+        // No Custom WB authored, or a named WB preset (Tungsten, Daylight, …),
+        // or a Default model (no sidecar): use model.temperature as-is.
+        model.temperature
+    };
+    // Absent tint → 0.  When neither flag is set, model.tint is already 0
+    // for the Default model or a preset-resolved value — both pass through
+    // correctly. When temperature-only Custom WB is set, tint defaults to 0
+    // (the neutral value) per the resolution table.
+    let effective_tint = if model.tint_seen { model.tint } else { 0.0 };
+    (effective_temperature, effective_tint)
+}
+
 // Tests live in the sibling `white_balance_tests.rs` so this file stays under the
 // 600-LOC budget (same `#[path]` split pattern as `stages/nlm.rs`).
 #[cfg(test)]
