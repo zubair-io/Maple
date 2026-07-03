@@ -9,7 +9,7 @@ import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } fr
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import {
   sidecarMetadataIndexHandler,
   SIDECAR_METADATA_INDEX_VERSION,
@@ -482,18 +482,41 @@ describe('culling projection', () => {
     expect(patch['is_screenshot']).toBe(false);
   });
 
-  test('absent isScreenshot in sidecar preserves existing top-level is_screenshot', async () => {
-    const rawFile = path.join(tmpDir, 'test.dng');
-    const sidecarFile = path.join(tmpDir, 'test.xmp');
-    await fs.writeFile(rawFile, '');
-    await fs.writeFile(sidecarFile, makeXmp('photoshop:City="Berlin"'), 'utf-8');
-    const image = makeImage({ is_screenshot: true });
+  test('absent isScreenshot in sidecar reverts to native is_screenshot (false for photo, true for screenshot)', async () => {
+    // 1. Photo case: sidecar test.xmp exists with metadata, has no isScreenshot
+    const rawPhoto = path.join(tmpDir, 'test.dng');
+    const sidecarPhoto = path.join(tmpDir, 'test.xmp');
+    await fs.writeFile(rawPhoto, '');
+    await fs.writeFile(sidecarPhoto, makeXmp('photoshop:City="Berlin"'), 'utf-8');
 
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect(patch['is_screenshot']).toBe(true);
+    const photoImage = makeImage({ is_screenshot: true });
+    const resultPhoto = await sidecarMetadataIndexHandler(photoImage, fakeCtx);
+    expect(resultPhoto).toHaveProperty('patch');
+    if (!('patch' in resultPhoto)) throw new Error('Expected patch result');
+    const patchPhoto = resultPhoto.patch as Record<string, unknown>;
+    expect(patchPhoto['is_screenshot']).toBe(false);
+
+    // 2. Screenshot case: sidecar Screenshot_123.xmp exists with metadata, has no isScreenshot
+    const rawScreenshot = path.join(tmpDir, 'Screenshot_123.png');
+    const sidecarScreenshot = path.join(tmpDir, 'Screenshot_123.xmp');
+    await fs.writeFile(rawScreenshot, '');
+    await fs.writeFile(sidecarScreenshot, makeXmp('photoshop:City="Berlin"'), 'utf-8');
+
+    const screenshotImage = makeImage({
+      is_screenshot: false,
+      fileinfo: [
+        {
+          path: '',
+          filename: 'Screenshot_123.png',
+          library_id: { toHexString: () => FAKE_LIB_ID } as unknown as ObjectId,
+        },
+      ],
+    });
+    const resultScreenshot = await sidecarMetadataIndexHandler(screenshotImage, fakeCtx);
+    expect(resultScreenshot).toHaveProperty('patch');
+    if (!('patch' in resultScreenshot)) throw new Error('Expected patch result');
+    const patchScreenshot = resultScreenshot.patch as Record<string, unknown>;
+    expect(patchScreenshot['is_screenshot']).toBe(true);
   });
 });
 
