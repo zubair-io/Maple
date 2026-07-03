@@ -144,19 +144,10 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // render slightly darker than the full-image path (by whatever EV the
     // full path's AE picked); follow-up tracked in #1167. The same
     // architectural reason already excludes dehaze from this path.
-    // ACR anchoring (#1729 / round-trip fix): mirrors the identical block in
-    // `develop/mod.rs` — see that file for the full derivation. Short summary:
-    // tint-only Custom WB anchors the absent temperature to 6500 K (D65), not
-    // `raw.as_shot_cct`; named presets (Tungsten, Daylight, …) fall through to
-    // `model.temperature` which the XMP parser already populated.
-    let effective_temperature = if model.temperature_seen {
-        model.temperature
-    } else if model.tint_seen {
-        6500.0
-    } else {
-        model.temperature
-    };
-    let effective_tint = if model.tint_seen { model.tint } else { 0.0 };
+    // ACR anchoring (#1729 / round-trip fix, #1725 band fix): delegate to
+    // `white_balance::resolve_wb` — the single source of truth for WB
+    // resolution semantics, shared by all three develop sites.
+    let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
     stage("tile_white_balance", || {
         white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
     });
