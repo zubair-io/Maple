@@ -7,7 +7,7 @@
 //! The headless GPU kernel is gated DIRECTLY against the real
 //! `raw_core::view::auto_profile::lut::ColorLut::apply` (the ticket's parity
 //! oracle), via the test-only `raw-core` dev-dep, at `< 1e-4` per channel. The
-//! load-bearing case is a NON-identity fitted grid — the trilinear interpolation
+//! load-bearing case is a NON-identity fitted grid — the tetrahedral interpolation
 //! must run off the identity diagonal, or it's a false green (an identity LUT
 //! returns its input regardless of whether the corner blend is correct).
 
@@ -19,7 +19,7 @@ use raw_core::view::auto_profile::pairs::DisplayPair;
 
 /// An RGBA test buffer spanning the LUT's `[0, 1]` domain and its interpolation
 /// branches:
-///   - shadow / midtone / highlight greys (interior cells, generic trilinear),
+///   - shadow / midtone / highlight greys (interior cells, generic tetrahedral),
 ///   - off-diagonal colors with distinct per-channel values (so the r→g→b corner
 ///     blend can't agree by symmetry),
 ///   - exact node-aligned values + exact 1.0 (the `min(_, last-1)` top-cell guard),
@@ -67,7 +67,7 @@ fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
 /// `fit_lut_from_pairs` (the same uniform-shift-pair pattern raw-core's own LUT
 /// tests use). The pairs add a luma-dependent, channel-asymmetric shift along the
 /// grey diagonal, so the fitted grid departs from identity across the volume and
-/// the trilinear blend is genuinely exercised. Using the real fitter guarantees
+/// the tetrahedral blend is genuinely exercised. Using the real fitter guarantees
 /// the grid is a shape the production path actually produces.
 fn fitted_residual_lut(size: usize) -> ColorLut {
     let pairs: Vec<DisplayPair> = (0..400)
@@ -90,7 +90,7 @@ fn fitted_residual_lut(size: usize) -> ColorLut {
 
 /// THE PARITY GATE (the ticket's contract): the WGSL residual-LUT kernel matches
 /// the REAL `ColorLut::apply` within 1e-4 on a NON-identity fitted grid. This is
-/// the non-vacuous trilinear-interpolation proof — the grid departs from identity
+/// the non-vacuous tetrahedral-interpolation proof — the grid departs from identity
 /// across the color volume, so the corner blend (not just a passthrough) is what
 /// gets gated. Run at the production node count (49) and a small count (9) to
 /// catch any `size`-uniform off-by-one.
@@ -181,7 +181,7 @@ fn wgsl_residual_lut_matches_cpu_oracle_within_1e_4() {
 }
 
 /// An identity LUT is a near-passthrough on the GPU within `[0, 1]` (where each
-/// trilinear sample of the identity grid reproduces its input). Guards against an
+/// tetrahedral sample of the identity grid reproduces its input). Guards against an
 /// index-order bug in `((b*N+g)*N+r)` that would skew even a true identity grid.
 #[test]
 fn identity_lut_is_near_passthrough_on_gpu() {
