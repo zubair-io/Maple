@@ -13,7 +13,7 @@
  * Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
  */
 
-import type { MetadataOverride } from "../db/schema.ts";
+import type { MetadataOverride } from '../db/schema.ts';
 
 /** Version sentinel — bump when parse semantics change to invalidate cached overrides. */
 export const METADATA_PARSER_VERSION = 1;
@@ -41,7 +41,7 @@ export interface XmpMetadataResult {
   creator?: string;
   creatorJobTitle?: string;
   copyrightNotice?: string;
-  copyrightStatus?: "unknown" | "copyrighted" | "public-domain";
+  copyrightStatus?: 'unknown' | 'copyrighted' | 'public-domain';
   usageTerms?: string;
   credit?: string;
   source?: string;
@@ -49,9 +49,9 @@ export interface XmpMetadataResult {
   /** Star rating 1–5 (0 is treated as absent). */
   rating?: number;
   /** Pick/reject flag. Absent means unflagged. */
-  flag?: "pick" | "reject";
+  flag?: 'pick' | 'reject';
   /** Color label string. */
-  colorLabel?: "red" | "orange" | "yellow" | "green" | "blue";
+  colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue';
   isScreenshot?: boolean;
 }
 
@@ -65,7 +65,7 @@ function gpsFromXmp(s: string): number | null {
   if (!m) return null;
   const deg = Number(m[1]);
   const min = Number(m[2]);
-  const sign = m[3] === "S" || m[3] === "W" ? -1 : 1;
+  const sign = m[3] === 'S' || m[3] === 'W' ? -1 : 1;
   const result = sign * (deg + min / 60);
   return result === 0 ? 0 : result;
 }
@@ -77,26 +77,20 @@ function altitudeFromXmp(value: string, ref: string): number | null {
   const denom = Number(m[2]);
   if (denom === 0) return null;
   const meters = Number(m[1]) / denom;
-  return ref === "1" ? -meters : meters;
+  return ref === '1' ? -meters : meters;
 }
 
-const MARKED_TO_COPYRIGHT: Record<string, "copyrighted" | "public-domain"> = {
-  True: "copyrighted",
-  False: "public-domain",
+const MARKED_TO_COPYRIGHT: Record<string, 'copyrighted' | 'public-domain'> = {
+  True: 'copyrighted',
+  False: 'public-domain',
 };
 
-const VALID_COLOR_LABELS = new Set([
-  "red",
-  "orange",
-  "yellow",
-  "green",
-  "blue",
-]);
+const VALID_COLOR_LABELS = new Set(['red', 'orange', 'yellow', 'green', 'blue']);
 
 /** Map `xmpRights:Marked` value to tri-state; `null` for absent/unrecognised. */
 function copyrightStatusFromMarked(
   marked: string | null,
-): "unknown" | "copyrighted" | "public-domain" | null {
+): 'unknown' | 'copyrighted' | 'public-domain' | null {
   if (marked === null) return null;
   return MARKED_TO_COPYRIGHT[marked] ?? null;
 }
@@ -120,14 +114,14 @@ function extractAttributes(xml: string): Map<string, string> {
   const descMatch =
     /<rdf:Description([^>]*(?:>[^<]*<[^>]+>[^>]*)*)?>/.exec(xml) ??
     /<Description([^>]*)>/.exec(xml);
-  const attrStr = descMatch ? (descMatch[1] ?? "") : xml;
+  const attrStr = descMatch ? (descMatch[1] ?? '') : xml;
 
   const attrs = new Map<string, string>();
   // Match name="value" pairs; value may contain escaped entities but not unescaped quotes.
   const attrRe = /([\w:.-]+)="([^"]*)"/g;
   let m: RegExpExecArray | null;
   while ((m = attrRe.exec(attrStr)) !== null) {
-    if (!m[1].startsWith("xmlns")) {
+    if (!m[1].startsWith('xmlns')) {
       attrs.set(m[1], unescapeXml(m[2]));
     }
   }
@@ -137,11 +131,11 @@ function extractAttributes(xml: string): Map<string, string> {
 /** Unescape minimal XML entities used in attribute values and text content. */
 function unescapeXml(s: string): string {
   return s
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'");
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&apos;', "'");
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +152,7 @@ function extractNestedText(xml: string, tagName: string): string | undefined {
   // The `s` (dotAll) flag lets `.` match newlines for multi-line XML.
   const blockRe = new RegExp(
     `<${tagName}[\\s>][\\s\\S]*?<rdf:li[^>]*>([\\s\\S]*?)<\\/rdf:li>`,
-    "s",
+    's',
   );
   const m = blockRe.exec(xml);
   if (!m) return undefined;
@@ -217,69 +211,66 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
   };
 
   // GPS
-  const latStr = str("exif:GPSLatitude");
+  const latStr = str('exif:GPSLatitude');
   if (latStr !== undefined) {
     const v = gpsFromXmp(latStr);
     if (v !== null) result.gpsLatitude = v;
   }
-  const lonStr = str("exif:GPSLongitude");
+  const lonStr = str('exif:GPSLongitude');
   if (lonStr !== undefined) {
     const v = gpsFromXmp(lonStr);
     if (v !== null) result.gpsLongitude = v;
   }
-  const altStr = str("exif:GPSAltitude");
+  const altStr = str('exif:GPSAltitude');
   if (altStr !== undefined) {
-    const v = altitudeFromXmp(altStr, str("exif:GPSAltitudeRef") ?? "0");
+    const v = altitudeFromXmp(altStr, str('exif:GPSAltitudeRef') ?? '0');
     if (v !== null) result.gpsAltitude = v;
   }
 
   // Simple string attrs
-  result.dateTimeOriginal = str("exif:DateTimeOriginal");
-  result.timeZone = str("papp:TimeZone");
-  result.sublocation = str("Iptc4xmpCore:Location");
-  result.city = str("photoshop:City");
-  result.state = str("photoshop:State");
-  result.country = str("photoshop:Country");
-  result.countryCode = str("Iptc4xmpCore:CountryCode");
-  result.headline = str("photoshop:Headline");
-  result.instructions = str("photoshop:Instructions");
-  result.creatorJobTitle = str("photoshop:AuthorsPosition");
-  result.credit = str("photoshop:Credit");
-  result.source = str("photoshop:Source");
+  result.dateTimeOriginal = str('exif:DateTimeOriginal');
+  result.timeZone = str('papp:TimeZone');
+  result.sublocation = str('Iptc4xmpCore:Location');
+  result.city = str('photoshop:City');
+  result.state = str('photoshop:State');
+  result.country = str('photoshop:Country');
+  result.countryCode = str('Iptc4xmpCore:CountryCode');
+  result.headline = str('photoshop:Headline');
+  result.instructions = str('photoshop:Instructions');
+  result.creatorJobTitle = str('photoshop:AuthorsPosition');
+  result.credit = str('photoshop:Credit');
+  result.source = str('photoshop:Source');
 
   // Copyright status
-  const markedStr = str("xmpRights:Marked") ?? null;
-  const status = copyrightStatusFromMarked(
-    markedStr !== undefined ? markedStr : null,
-  );
+  const markedStr = str('xmpRights:Marked') ?? null;
+  const status = copyrightStatusFromMarked(markedStr !== undefined ? markedStr : null);
   if (status !== null) result.copyrightStatus = status;
 
   // Nested lang-alt / seq elements
-  result.title = extractNestedText(xml, "dc:title");
-  result.creator = extractNestedText(xml, "dc:creator");
-  result.caption = extractNestedText(xml, "dc:description");
-  result.copyrightNotice = extractNestedText(xml, "dc:rights");
-  result.usageTerms = extractNestedText(xml, "xmpRights:UsageTerms");
+  result.title = extractNestedText(xml, 'dc:title');
+  result.creator = extractNestedText(xml, 'dc:creator');
+  result.caption = extractNestedText(xml, 'dc:description');
+  result.copyrightNotice = extractNestedText(xml, 'dc:rights');
+  result.usageTerms = extractNestedText(xml, 'xmpRights:UsageTerms');
 
   // Keywords bag
   result.keywords = extractKeywords(xml);
 
   // Culling
-  const ratingStr = str("xmp:Rating");
+  const ratingStr = str('xmp:Rating');
   if (ratingStr !== undefined) {
     const n = Number(ratingStr);
     if (Number.isInteger(n) && n >= 1 && n <= 5) result.rating = n;
   }
-  const flagStr = str("papp:Flag");
-  if (flagStr === "pick" || flagStr === "reject") result.flag = flagStr;
-  const colorLabelStr = str("papp:ColorLabel");
+  const flagStr = str('papp:Flag');
+  if (flagStr === 'pick' || flagStr === 'reject') result.flag = flagStr;
+  const colorLabelStr = str('papp:ColorLabel');
   if (colorLabelStr !== undefined && VALID_COLOR_LABELS.has(colorLabelStr)) {
-    result.colorLabel = colorLabelStr as
-      "red" | "orange" | "yellow" | "green" | "blue";
+    result.colorLabel = colorLabelStr as 'red' | 'orange' | 'yellow' | 'green' | 'blue';
   }
-  const isScrStr = str("papp:IsScreenshot");
-  if (isScrStr === "true") result.isScreenshot = true;
-  else if (isScrStr === "false") result.isScreenshot = false;
+  const isScrStr = str('papp:IsScreenshot');
+  if (isScrStr === 'true') result.isScreenshot = true;
+  else if (isScrStr === 'false') result.isScreenshot = false;
 
   // Strip undefined keys so consumers can use `key in result` cleanly.
   for (const k of Object.keys(result) as (keyof XmpMetadataResult)[]) {
@@ -300,8 +291,8 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
  */
 export function xmpMetadataToOverridePatch(
   parsed: XmpMetadataResult,
-): Omit<MetadataOverride, "edited_at" | "touched_fields"> {
-  const patch: Omit<MetadataOverride, "edited_at" | "touched_fields"> = {};
+): Omit<MetadataOverride, 'edited_at' | 'touched_fields'> {
+  const patch: Omit<MetadataOverride, 'edited_at' | 'touched_fields'> = {};
 
   if (parsed.gpsLatitude !== undefined && parsed.gpsLongitude !== undefined) {
     patch.gps = {
@@ -311,8 +302,7 @@ export function xmpMetadataToOverridePatch(
     };
   }
 
-  if (parsed.dateTimeOriginal !== undefined)
-    patch.captured_at = parsed.dateTimeOriginal;
+  if (parsed.dateTimeOriginal !== undefined) patch.captured_at = parsed.dateTimeOriginal;
   if (parsed.timeZone !== undefined) patch.time_zone = parsed.timeZone;
 
   // Place text — only set when at least one field present.
@@ -324,15 +314,11 @@ export function xmpMetadataToOverridePatch(
     parsed.countryCode !== undefined;
   if (hasPlaceText) {
     patch.place_text = {
-      ...(parsed.sublocation !== undefined
-        ? { sublocation: parsed.sublocation }
-        : {}),
+      ...(parsed.sublocation !== undefined ? { sublocation: parsed.sublocation } : {}),
       ...(parsed.city !== undefined ? { city: parsed.city } : {}),
       ...(parsed.state !== undefined ? { state: parsed.state } : {}),
       ...(parsed.country !== undefined ? { country: parsed.country } : {}),
-      ...(parsed.countryCode !== undefined
-        ? { country_code: parsed.countryCode }
-        : {}),
+      ...(parsed.countryCode !== undefined ? { country_code: parsed.countryCode } : {}),
     };
   }
 
@@ -340,23 +326,18 @@ export function xmpMetadataToOverridePatch(
   if (parsed.title !== undefined) patch.title = parsed.title;
   if (parsed.caption !== undefined) patch.caption = parsed.caption;
   if (parsed.headline !== undefined) patch.headline = parsed.headline;
-  if (parsed.instructions !== undefined)
-    patch.instructions = parsed.instructions;
+  if (parsed.instructions !== undefined) patch.instructions = parsed.instructions;
   if (parsed.creator !== undefined) patch.creator = parsed.creator;
-  if (parsed.creatorJobTitle !== undefined)
-    patch.creator_job_title = parsed.creatorJobTitle;
-  if (parsed.copyrightNotice !== undefined)
-    patch.copyright_notice = parsed.copyrightNotice;
-  if (parsed.copyrightStatus !== undefined)
-    patch.copyright_status = parsed.copyrightStatus;
+  if (parsed.creatorJobTitle !== undefined) patch.creator_job_title = parsed.creatorJobTitle;
+  if (parsed.copyrightNotice !== undefined) patch.copyright_notice = parsed.copyrightNotice;
+  if (parsed.copyrightStatus !== undefined) patch.copyright_status = parsed.copyrightStatus;
   if (parsed.usageTerms !== undefined) patch.usage_terms = parsed.usageTerms;
   if (parsed.credit !== undefined) patch.credit = parsed.credit;
   if (parsed.source !== undefined) patch.source = parsed.source;
   if (parsed.rating !== undefined) patch.rating = parsed.rating;
   if (parsed.flag !== undefined) patch.flag = parsed.flag;
   if (parsed.colorLabel !== undefined) patch.color_label = parsed.colorLabel;
-  if (parsed.isScreenshot !== undefined)
-    patch.is_screenshot = parsed.isScreenshot;
+  if (parsed.isScreenshot !== undefined) patch.is_screenshot = parsed.isScreenshot;
 
   return patch;
 }
