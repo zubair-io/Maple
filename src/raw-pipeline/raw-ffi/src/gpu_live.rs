@@ -201,6 +201,12 @@ struct LiveHandleInner {
     session: LiveSession,
     width: u32,
     height: u32,
+    /// The cached `CAMetalLayer` present surface (#1742) — created on the first
+    /// [`maple_gpu_present_chain`] call and reused across every subsequent call on
+    /// this handle. `None` until the first present; only Apple builds populate or
+    /// read it (`present_chain_to_surface` is Apple-gated in `raw-gpu`).
+    #[cfg(target_vendor = "apple")]
+    present_surface: Option<raw_gpu::PersistentPresentSurface>,
 }
 
 /// Opaque handle to a GPU-resident live-render session. Allocate via
@@ -291,6 +297,8 @@ pub unsafe extern "C" fn maple_gpu_live_open(
             session,
             width,
             height,
+            #[cfg(target_vendor = "apple")]
+            present_surface: None,
         });
         (*handle_out).inner = Box::into_raw(boxed) as *mut c_void;
         0
@@ -451,12 +459,12 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
         set_last_error("gpu_present_chain: null pointer".into());
         return -1;
     }
-    let inner_ptr = (*handle).inner as *const LiveHandleInner;
+    let inner_ptr = (*handle).inner as *mut LiveHandleInner;
     if inner_ptr.is_null() {
         set_last_error("gpu_present_chain: closed/invalid handle".into());
         return -1;
     }
-    let inner = &*inner_ptr;
+    let inner = &mut *inner_ptr;
     let p = &*params;
 
     // Entry cancel-check (the meaningful bail point — see the fn doc). If the host
@@ -490,8 +498,18 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
         };
 
         // SAFETY: `layer` is non-null and a valid CAMetalLayer* per this fn's
-        // contract; `present_chain_to_surface` drops the surface before returning.
-        match raw_gpu::present_chain_to_surface(&inner.ctx, &inner.session, final_idx, layer) {
+        // contract, and outlives the handle (the Swift host keeps the view/layer
+        // alive for the life of the `MapleGpuLiveSession`) — the same layer
+        // pointer is expected on every present against this handle, which is what
+        // lets `present_surface` cache the surface across calls (#1742) instead of
+        // recreating + reconfiguring it every present.
+        match raw_gpu::present_chain_to_surface(
+            &inner.ctx,
+            &inner.session,
+            final_idx,
+            layer,
+            &mut inner.present_surface,
+        ) {
             Ok(()) => 0,
             Err(msg) => {
                 set_last_error(format!("gpu_present_chain present: {msg}"));
