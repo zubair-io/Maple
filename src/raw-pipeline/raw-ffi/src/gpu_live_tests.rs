@@ -120,8 +120,8 @@ pub(super) fn cpu_reference(
         model.sharpen_detail,
         model.sharpen_masking,
     );
-    raw_core::stages::noise_reduction::apply_luminance(&mut img, model.nr_luminance);
-    raw_core::stages::noise_reduction::apply_color(&mut img, model.nr_color);
+    raw_core::stages::noise_reduction::apply_luminance(&mut img, model.nr_luminance, None, 100);
+    raw_core::stages::noise_reduction::apply_color(&mut img, model.nr_color, None, 100);
 
     // View tail: agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT.
     raw_core::view::agx::apply(&mut img, model.contrast);
