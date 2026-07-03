@@ -215,6 +215,20 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
 /// path / xmp handling — the handle already carries the decoded
 /// `RawImage` and parsed `AdjustmentModel`.
 ///
+/// `decoded_temperature` / `decoded_tint` (#1725 band fix, append-only —
+/// same precedent as `noise_profile_ptr`): when `decoded_temperature > 0`,
+/// the tile's WB stage applies `model.temperature`/`model.tint` as a DELTA
+/// relative to `(decoded_temperature, decoded_tint)`, matching
+/// `maple_apply_scene_linear_chain`'s (the GPU-live per-tick FFI entry's)
+/// delta contract — a tile rendered with `model.temperature ==
+/// decoded_temperature` is IDENTITY, so it agrees with an unedited-open
+/// live frame instead of shifting away from it (the horizontal-band
+/// symptom). Pass `decoded_temperature <= 0.0` (e.g. `0.0`) to preserve the
+/// pre-#1725 ABSOLUTE `resolve_wb` + `apply` behavior — the correct
+/// semantics when the handle's stored model came from an XMP sidecar with
+/// an authored absolute `crs:Temperature` and there is no "decoded anchor"
+/// concept (e.g. `maple-cli`-style one-shot renders).
+///
 /// Error codes:
 ///   - 1: null pointer argument
 ///   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
@@ -227,6 +241,7 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
 ///         to match `src_w/src_h` aspect (within integer rounding)
 ///   - 8: any other error from the core tile renderer
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
     handle: *const MapleRawHandle,
     src_x: u32,
@@ -236,6 +251,8 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
     out_w: u32,
     out_h: u32,
     quality_preview: i32,
+    decoded_temperature: f32,
+    decoded_tint: f32,
     out: *mut MapleSceneLinearBuffer,
 ) -> i32 {
     if handle.is_null() || out.is_null() {
@@ -260,6 +277,13 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
     } else {
         raw_core::pipeline::RenderQuality::Full
     };
+    // Sentinel convention matches `raw-ffi/src/gpu_live/params.rs`'s
+    // `use_delta = p.decoded_temperature > 0.0` (0/0 means "no decoded WB").
+    let wb_anchor = if decoded_temperature > 0.0 {
+        Some((decoded_temperature, decoded_tint))
+    } else {
+        None
+    };
     with_large_stack(move || {
         // SAFETY: caller guarantees the handle is alive for the
         // duration of this call (caller is the actor-isolated
@@ -273,8 +297,8 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
             set_last_error("dehaze unsupported on tile path".into());
             return 10;
         }
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
-            raw_img, model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+            raw_img, model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
         ) {
             Ok(t) => t,
             Err(e) => {

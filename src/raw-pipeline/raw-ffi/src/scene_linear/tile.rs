@@ -32,9 +32,18 @@ use std::ffi::{c_char, CStr};
 ///   - 12: `(out_w, out_h)` aspect does not match `(src_w, src_h)` —
 ///          tile path requires matching aspect.
 ///
+/// `decoded_temperature` / `decoded_tint` (#1725 band fix, append-only):
+/// `decoded_temperature > 0` applies the model's WB as a DELTA vs.
+/// `(decoded_temperature, decoded_tint)` — the same contract
+/// `maple_apply_scene_linear_chain` uses — instead of the legacy ABSOLUTE
+/// `resolve_wb` + `apply`. Pass `0.0` / `0.0` for the legacy behavior. See
+/// `maple_render_handle_scene_linear_tile`'s doc comment (`raw-ffi/src/handle.rs`)
+/// for the full rationale.
+///
 /// Plan 3 — see .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md
 /// Task 2 and docs/tickets/06-viewport-sized-rust-ffi-preview.md M4.
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
     raw_path: *const c_char,
     xmp_path: *const c_char,
@@ -45,6 +54,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
     out_w: u32,
     out_h: u32,
     quality_preview: i32,
+    decoded_temperature: f32,
+    decoded_tint: f32,
     out: *mut MapleSceneLinearBuffer,
 ) -> i32 {
     if raw_path.is_null() || out.is_null() {
@@ -74,6 +85,13 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
         }
     };
     let out_ptr = out as usize;
+    // Sentinel convention matches `raw-ffi/src/gpu_live/params.rs`'s
+    // `use_delta = p.decoded_temperature > 0.0` (0/0 means "no decoded WB").
+    let wb_anchor = if decoded_temperature > 0.0 {
+        Some((decoded_temperature, decoded_tint))
+    } else {
+        None
+    };
     with_large_stack(move || {
         let raw_path = std::path::Path::new(&raw_path_str);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
@@ -113,8 +131,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
             set_last_error("deepDenoise unsupported on tile path".into());
             return 10;
         }
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
-            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
         ) {
             Ok(t) => t,
             Err(e) => {
@@ -150,7 +168,12 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
 /// `maple_render_file_scene_linear_tile`. Same arguments + `raw_bytes` /
 /// `raw_len` / `hint_ext` (mirroring the bytes-variant convention from
 /// `maple_render_bytes_scene_linear_sized`).
+///
+/// `decoded_temperature` / `decoded_tint`: same #1725 delta-anchor contract
+/// as `maple_render_file_scene_linear_tile` — see that function's doc
+/// comment.
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
     raw_bytes: *const u8,
     raw_len: usize,
@@ -163,6 +186,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
     out_w: u32,
     out_h: u32,
     quality_preview: i32,
+    decoded_temperature: f32,
+    decoded_tint: f32,
     out: *mut MapleSceneLinearBuffer,
 ) -> i32 {
     if raw_bytes.is_null() || out.is_null() {
@@ -197,6 +222,13 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
     };
     let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
     let out_ptr = out as usize;
+    // Sentinel convention matches `raw-ffi/src/gpu_live/params.rs`'s
+    // `use_delta = p.decoded_temperature > 0.0` (0/0 means "no decoded WB").
+    let wb_anchor = if decoded_temperature > 0.0 {
+        Some((decoded_temperature, decoded_tint))
+    } else {
+        None
+    };
     with_large_stack(move || {
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
@@ -226,8 +258,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
             set_last_error("deepDenoise unsupported on tile path".into());
             return 10;
         }
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
-            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
+        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
         ) {
             Ok(t) => t,
             Err(e) => {
