@@ -738,11 +738,26 @@ public struct PipelineRenderer: Sendable {
     ///   - 12: mismatched aspect — `outW/outH` aspect must match
     ///         `srcW/srcH` aspect (the tile path's downsampler is
     ///         long-edge driven, not two-axis)
+    ///
+    /// `decodedTemperature`/`decodedTint` (#1725 band fix): when both are
+    /// non-nil, the tile's WB stage applies `model.temperature`/`model.tint`
+    /// as a DELTA vs. `(decodedTemperature, decodedTint)` — the same
+    /// contract `applySceneLinearChainViaFFI`'s `decodedTemperature`/
+    /// `decodedTint` use — so a tile rendered at `model.temperature ==
+    /// decodedTemperature` is IDENTITY, matching an unedited-open live
+    /// frame instead of shifting away from it. `nil` (the default) sends
+    /// the `0.0`/`0.0` sentinel, preserving the legacy ABSOLUTE `resolve_wb`
+    /// + `apply` behavior — correct for handles opened with `xmpPath: nil`
+    /// (the current deep-zoom `RawImageCache`/`TileManager` callers, which
+    /// carry no edits, so ABSOLUTE and DELTA already agree at the default
+    /// model).
     public static func renderTile(
         handle: MapleRawHandle,
         srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
         outW: UInt32, outH: UInt32,
-        quality: Quality = .full
+        quality: Quality = .full,
+        decodedTemperature: Double? = nil,
+        decodedTint: Double? = nil
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBuffer(
             fp16_rgba: nil, len_bytes: 0, channels: 0,
@@ -753,6 +768,8 @@ public struct PipelineRenderer: Sendable {
             srcX, srcY, srcW, srcH,
             outW, outH,
             quality.rawValue,
+            Float(decodedTemperature ?? 0.0),
+            Float(decodedTint ?? 0.0),
             &buf
         )
         guard rc == 0 else {
@@ -783,12 +800,17 @@ public struct PipelineRenderer: Sendable {
     /// where the caller doesn't want to keep the decoded mosaic alive.
     /// Internally calls the Task-2 file-based tile FFI so the rawler
     /// decode happens inline.
+    ///
+    /// `decodedTemperature`/`decodedTint`: same #1725 delta-anchor contract
+    /// as `renderTile(handle:...)` — see that overload's doc comment.
     public static func renderTile(
         rawPath: URL,
         xmpPath: URL? = nil,
         srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
         outW: UInt32, outH: UInt32,
-        quality: Quality = .full
+        quality: Quality = .full,
+        decodedTemperature: Double? = nil,
+        decodedTint: Double? = nil
     ) throws -> MapleSceneLinearImageData {
         try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
             try rawPath.withPathCString { rawCStr in
@@ -797,14 +819,16 @@ public struct PipelineRenderer: Sendable {
                         try _renderFileTile(
                             rawCStr: rawCStr, xmpCStr: xmpCStr,
                             srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
-                            outW: outW, outH: outH, quality: quality
+                            outW: outW, outH: outH, quality: quality,
+                            decodedTemperature: decodedTemperature, decodedTint: decodedTint
                         )
                     }
                 } else {
                     return try _renderFileTile(
                         rawCStr: rawCStr, xmpCStr: nil,
                         srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
-                        outW: outW, outH: outH, quality: quality
+                        outW: outW, outH: outH, quality: quality,
+                        decodedTemperature: decodedTemperature, decodedTint: decodedTint
                     )
                 }
             }
@@ -812,14 +836,17 @@ public struct PipelineRenderer: Sendable {
     }
 
     /// Bytes-variant of `renderTile(rawPath:...)` — same one-shot
-    /// semantics.
+    /// semantics. `decodedTemperature`/`decodedTint`: same #1725
+    /// delta-anchor contract as `renderTile(handle:...)`.
     public static func renderTile(
         rawBytes: Data,
         hint: String,
         xmpPath: URL? = nil,
         srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
         outW: UInt32, outH: UInt32,
-        quality: Quality = .full
+        quality: Quality = .full,
+        decodedTemperature: Double? = nil,
+        decodedTint: Double? = nil
     ) throws -> MapleSceneLinearImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
@@ -833,7 +860,8 @@ public struct PipelineRenderer: Sendable {
                             ptr: base, len: buf.count,
                             hintCStr: hintCStr, xmpCStr: xmpCStr,
                             srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
-                            outW: outW, outH: outH, quality: quality
+                            outW: outW, outH: outH, quality: quality,
+                            decodedTemperature: decodedTemperature, decodedTint: decodedTint
                         )
                     }
                 } else {
@@ -841,7 +869,8 @@ public struct PipelineRenderer: Sendable {
                         ptr: base, len: buf.count,
                         hintCStr: hintCStr, xmpCStr: nil,
                         srcX: srcX, srcY: srcY, srcW: srcW, srcH: srcH,
-                        outW: outW, outH: outH, quality: quality
+                        outW: outW, outH: outH, quality: quality,
+                        decodedTemperature: decodedTemperature, decodedTint: decodedTint
                     )
                 }
             }
@@ -888,7 +917,9 @@ public struct PipelineRenderer: Sendable {
         xmpCStr: UnsafePointer<CChar>?,
         srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
         outW: UInt32, outH: UInt32,
-        quality: Quality
+        quality: Quality,
+        decodedTemperature: Double? = nil,
+        decodedTint: Double? = nil
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBuffer(
             fp16_rgba: nil, len_bytes: 0, channels: 0,
@@ -899,6 +930,8 @@ public struct PipelineRenderer: Sendable {
             srcX, srcY, srcW, srcH,
             outW, outH,
             quality.rawValue,
+            Float(decodedTemperature ?? 0.0),
+            Float(decodedTint ?? 0.0),
             &buf
         )
         guard rc == 0 else {
@@ -931,7 +964,9 @@ public struct PipelineRenderer: Sendable {
         xmpCStr: UnsafePointer<CChar>?,
         srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
         outW: UInt32, outH: UInt32,
-        quality: Quality
+        quality: Quality,
+        decodedTemperature: Double? = nil,
+        decodedTint: Double? = nil
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBuffer(
             fp16_rgba: nil, len_bytes: 0, channels: 0,
@@ -944,6 +979,8 @@ public struct PipelineRenderer: Sendable {
                 srcX, srcY, srcW, srcH,
                 outW, outH,
                 quality.rawValue,
+                Float(decodedTemperature ?? 0.0),
+                Float(decodedTint ?? 0.0),
                 &buf
             )
         }
