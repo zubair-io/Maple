@@ -430,46 +430,13 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // no-op.
     stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
-    // ACR anchoring (#1729 / round-trip fix): when `crs:WhiteBalance="Custom"`
-    // is set in the XMP sidecar but only one of `crs:Temperature` / `crs:Tint`
-    // appears, resolve the absent component as follows:
-    //
-    //   temperature_seen=true              → use explicit crs:Temperature
-    //   temperature_seen=false, tint_seen  → tint-only Custom WB: anchor to 6500 K
-    //   neither seen                       → preset (e.g. Tungsten) or no XMP:
-    //                                        use model.temperature as-is
-    //
-    // The 6500 K anchor for the tint-only case (not raw.as_shot_cct) is the
-    // correct choice. After `apply_pre_gain` + DCP the scene is in scene-linear
-    // Rec.2020 D65: the camera's AsShotNeutral was divided out (pre-gain) and
-    // the DCP ForwardMatrix mapped (1,1,1) camera neutral → D65 white. In that
-    // post-DCP D65-normalised space `white_balance::apply(6500, 0)` is the
-    // *identity* — "as-shot" ≡ 6500 K from the WB slider's perspective.
-    //
-    // Using `raw.as_shot_cct` instead (the physical illuminant CCT, e.g. 5500 K
-    // for a tungsten shot) is a double-correction: pre-gain + DCP already
-    // neutralised the 5500 K cast; applying another 5500-K WB correction on top
-    // shifts the image away from as-shot rather than keeping it there.  The
-    // round-trip invariant is: Custom+Tint=0+no-Temperature must reproduce
-    // as-shot exactly (channel ratios ≈ 1.000).
-    //
-    // The neither-seen fall-through returns `model.temperature` (6500 for "As
-    // Shot" / no XMP → identity short-circuit, or 2850 for Tungsten preset,
-    // etc.) — named WB presets are converted to a numeric temperature by the XMP
-    // parser without setting `temperature_seen`, so they must reach this branch.
-    let effective_temperature = if model.temperature_seen {
-        model.temperature
-    } else if model.tint_seen {
-        // Tint-only Custom WB: anchor absent temperature to 6500 K (D65).
-        6500.0
-    } else {
-        // No Custom WB authored, or a named WB preset (Tungsten, Daylight, …):
-        // use model.temperature which the XMP parser already set from the preset.
-        model.temperature
-    };
-    // As-shot tint: absent tint → 0. When neither flag is set, model.tint is
-    // already 0 (default), so this is a no-op for the neither-seen case.
-    let effective_tint = if model.tint_seen { model.tint } else { 0.0 };
+    // ACR anchoring (#1729 / round-trip fix, #1725 band fix): resolve the
+    // (temperature, tint) pair the WB stage should use.  The full semantics
+    // table and derivation live in `white_balance::resolve_wb`; see that
+    // function's doc-comment. All three develop sites (develop/mod.rs,
+    // develop_sized.rs, tile/develop.rs) call this shared helper so the
+    // logic cannot drift between them.
+    let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
     stage("white_balance", || {
         white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
     });
