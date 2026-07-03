@@ -32,6 +32,7 @@ import { parseXmpMetadata, xmpMetadataToOverridePatch } from '../../xmp/metadata
 import { parseYearMonth } from '../../metadata/override-resolver.ts';
 import type { MetadataOverride } from '../../db/schema.ts';
 import { coll, assetAbsPath } from '../../indexer/images.repo.ts';
+import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 
 export const SIDECAR_METADATA_INDEX_VERSION = 1;
 
@@ -133,10 +134,19 @@ export async function sidecarMetadataIndexHandler(
   patch['rating'] = override.rating ?? 0;
   patch['flag'] = override.flag === 'pick' ? 1 : override.flag === 'reject' ? -1 : 0;
   patch['color_label'] = override.color_label ?? '';
+  const nativeIsScreenshot = (() => {
+    if (image.vision?.is_screenshot !== undefined && image.vision?.is_screenshot !== null) {
+      return image.vision.is_screenshot;
+    }
+    const primary = image.fileinfo?.find((e) => !e.deleted_at);
+    if (!primary) return false;
+    return isLikelyScreenshot(primary.filename, image.exif?.camera_make ?? null);
+  })();
+
   patch['is_screenshot'] =
     override.is_screenshot !== undefined && override.is_screenshot !== null
       ? override.is_screenshot
-      : (image.is_screenshot ?? false);
+      : nativeIsScreenshot;
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps
