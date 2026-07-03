@@ -124,6 +124,8 @@ fn tile_null_arg_sets_error() {
             256,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -153,6 +155,8 @@ fn tile_zero_dim_sets_error() {
             256,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -169,6 +173,8 @@ fn tile_zero_dim_sets_error() {
             256,
             0,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -193,6 +199,8 @@ fn tile_bytes_null_arg_sets_error() {
             256,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -222,6 +230,8 @@ fn render_tile_default_model_via_ffi() {
             256,
             256,
             /* quality_preview = */ 0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -269,6 +279,8 @@ fn render_tile_default_model_via_bytes_ffi() {
             256,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -312,6 +324,8 @@ fn render_tile_dehaze_active_returns_error_code_10() {
             256,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -343,6 +357,8 @@ fn render_tile_upscale_returns_error_code_11() {
             512,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -359,6 +375,8 @@ fn render_tile_upscale_returns_error_code_11() {
             256,
             512,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -389,6 +407,8 @@ fn render_tile_mismatched_aspect_returns_error_code_12() {
             512,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
