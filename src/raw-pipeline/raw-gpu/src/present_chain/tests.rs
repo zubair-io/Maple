@@ -258,6 +258,71 @@ fn present_paints_the_image_not_the_clear_color() {
     );
 }
 
+/// GH #1737-adjacent regression (the "half-render seam" report): a present at a
+/// width whose `Bgra8Unorm` row-bytes are NOT 256-byte-aligned — the exact class
+/// of width the operator's cold-open canvas used (3000 px; `3000*4 = 12000`,
+/// `12000 / 256 = 46.875`, not a whole `COPY_BYTES_PER_ROW_ALIGNMENT` multiple).
+/// `present_chain_to_offscreen` unpads each row from the padded readback buffer
+/// itself (`present_chain.rs`'s `copy_texture_to_buffer` requires the 256-aligned
+/// `padded_bpr`), so THIS test is the direct proof that unpadding is correct for
+/// every row, not just a size that happens to divide evenly. Uses 300×200 (same
+/// 3:2 aspect as the operator's 3000×2000 viewport, scaled down for test speed);
+/// its row-bytes (`300*4 = 1200`) are likewise misaligned (`1200/256 = 4.6875`).
+///
+/// Asserts EVERY ROW independently against the CPU oracle (not just a global max
+/// delta) — a misaligned-stride bug would corrupt PROGRESSIVELY from a fixed row
+/// onward (each subsequent row reads from the wrong offset by an accumulating
+/// pad), producing a clean-top / wrong-bottom split; a per-row check catches that
+/// shape precisely, where a whole-buffer `byte_diff` could still pass if the
+/// corruption happened to average out.
+#[test]
+fn offscreen_present_row_alignment_misaligned_width() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (300u32, 200u32);
+    assert_ne!(
+        (w * 4) % wgpu::COPY_BYTES_PER_ROW_ALIGNMENT,
+        0,
+        "test fixture must use a 256-byte-misaligned row stride"
+    );
+    let input = scene_linear_rgba(w as usize, h as usize);
+
+    for (name, case) in [
+        ("neutral", neutral_case()),
+        ("mild", mild_case()),
+        ("aggressive", aggressive_case()),
+    ] {
+        let inputs = case.gpu_inputs();
+        let got = gpu_present_u8(&ctx, &input, w, h, &inputs);
+        let want = cpu_reference_u8(&input, w, h, &case);
+        assert_eq!(got.len(), want.len(), "[{name}] length mismatch");
+
+        let row_bytes = w as usize * 3;
+        let mut first_bad_row: Option<usize> = None;
+        let mut worst_row_delta = 0u32;
+        for y in 0..h as usize {
+            let g_row = &got[y * row_bytes..(y + 1) * row_bytes];
+            let w_row = &want[y * row_bytes..(y + 1) * row_bytes];
+            let (row_max_delta, _) = byte_diff(g_row, w_row);
+            worst_row_delta = worst_row_delta.max(row_max_delta);
+            if row_max_delta > MAX_BYTE_DELTA && first_bad_row.is_none() {
+                first_bad_row = Some(y);
+            }
+        }
+        eprintln!(
+            "ROW-ALIGNMENT [{name}, {w}x{h}]: worst per-row max byte delta = {worst_row_delta}, \
+             first bad row = {first_bad_row:?}"
+        );
+        assert!(
+            first_bad_row.is_none(),
+            "[{name}] row {} onward diverges from the CPU oracle by more than {MAX_BYTE_DELTA} LSB \
+             at a 256-byte-misaligned width ({w}px, row-bytes {}) — a row-stride/padding bug in the \
+             texture→buffer readback, matching the reported clean-top/corrupted-bottom seam",
+            first_bad_row.unwrap_or(0),
+            w * 4
+        );
+    }
+}
+
 /// A pre-cancelled token abandons the chain-to-f32 render before encoding
 /// (returns `None`) — the present path's cancellation contract, mirroring
 /// `render_to_buffer`. (The host's per-render cancel flag flips this when a newer
