@@ -55,7 +55,7 @@ import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
 import { moveBackupAsset } from '../workers/migration/move-backup-asset.ts';
 import { child as childLogger } from '../log.ts';
-import type { AssetDoc, MetadataOverride } from '../db/schema.ts';
+import type { AssetDoc } from '../db/schema.ts';
 import type { Collection, WithId } from 'mongodb';
 import {
   sidecarMetadataIndexHandler,
