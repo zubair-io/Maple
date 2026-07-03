@@ -296,6 +296,10 @@ fn offscreen_present_row_alignment_misaligned_width() {
         let want = cpu_reference_u8(&input, w, h, &case);
         assert_eq!(got.len(), want.len(), "[{name}] length mismatch");
 
+        // NOTE: the GPU-side Bgra8Unorm texture rows are w*4 bytes (that
+        // misalignment is what this test exercises), but gpu_present_u8 /
+        // cpu_reference_u8 both return PACKED RGB — 3 bytes per pixel —
+        // so buffer indexing here strides at w*3, covering every byte.
         let row_bytes = w as usize * 3;
         let mut first_bad_row: Option<usize> = None;
         let mut worst_row_delta = 0u32;
