@@ -50,7 +50,7 @@
 //! Animation hasn't fully handed off yet, splicing old and new content at
 //! whatever scanline the compositor happened to be partway through — a stale
 //! lower region under a freshly-drawn upper region, sticky to that first
-//! present. [`PersistentPresentSurface::present`] reconfigures only when the
+//! present. [`present_chain_to_surface`] reconfigures only when the
 //! layer identity or the image dims actually change, and always draws AND
 //! presents twice immediately after a (re)configure, so the second present lands
 //! on a fully handed-off drawable and the caller-visible frame is always
@@ -89,19 +89,6 @@ pub struct PersistentPresentSurface {
     /// surface — reusing a surface across layers is not a supported wgpu shape.
     layer: *mut c_void,
 }
-
-// SAFETY: `wgpu::Surface<'static>` (created via `create_surface_unsafe`, which
-// stores no borrowed handle) plus the render pipeline/layout are the same
-// `Send + Sync` wgpu resource types already carried on `GpuContext` and inside
-// `WebPresentSurface`. The cache is only ever touched from the single GPU-owning
-// thread the FFI contract already requires (see `gpu_live.rs`'s module docs); the
-// bound is needed only so `LiveHandleInner` (which is boxed and passed across the
-// FFI boundary as a raw pointer) can hold it without the compiler inferring
-// non-`Send`/`Sync` from the raw `*mut c_void` layer field.
-#[cfg(target_vendor = "apple")]
-unsafe impl Send for PersistentPresentSurface {}
-#[cfg(target_vendor = "apple")]
-unsafe impl Sync for PersistentPresentSurface {}
 
 #[cfg(target_vendor = "apple")]
 impl PersistentPresentSurface {
@@ -242,6 +229,15 @@ impl PersistentPresentSurface {
 /// complete frame against a fully handed-off drawable (Core Animation's
 /// mid-transition window is the first frame after a configure, not the second).
 ///
+/// A failed present (either draw call above) clears `*cache` before returning
+/// the `Err`, so a broken cached surface (e.g. a swapchain lost/outdated by a
+/// display change) is never retried — the NEXT call recreates it from scratch
+/// instead of failing forever on the same poisoned surface. This path requires
+/// a live `CAMetalLayer` to exercise (a `get_current_texture` failure isn't
+/// reachable through the offscreen oracle in `present_chain/tests.rs`, which has
+/// no `CAMetalLayer`), so it is covered by the Apple XCUITest visual harness
+/// instead of a unit test here.
+///
 /// # Safety
 /// `layer` must be a valid, non-null `CAMetalLayer*` that outlives `cache` (i.e.
 /// outlives the `MapleGpuLiveSession` handle this cache is stored on) for as long
@@ -294,12 +290,26 @@ pub unsafe fn present_chain_to_surface(
     };
 
     let surface = cache.as_ref().expect("populated above");
-    surface.draw_and_present(ctx, session, final_idx)?;
+    if let Err(e) = surface.draw_and_present(ctx, session, final_idx) {
+        // A failed present (e.g. `get_current_texture` erroring because the
+        // swapchain was lost/outdated from a display change) leaves the cached
+        // surface in a broken state. Drop it so the NEXT call's
+        // `needs_fresh_surface` check is forced true and a fresh surface gets
+        // created from scratch, instead of permanently failing on every
+        // subsequent present against a surface that can never recover.
+        *cache = None;
+        return Err(e);
+    }
     if just_configured {
         // First frame after (re)configure can land on a drawable Core Animation
         // hasn't fully handed off yet (the #1742 seam). A second present against
         // the now-settled swapchain guarantees the caller-visible frame is whole.
-        surface.draw_and_present(ctx, session, final_idx)?;
+        let surface = cache.as_ref().expect("populated above");
+        if let Err(e) = surface.draw_and_present(ctx, session, final_idx) {
+            // Same cache-poisoning guard as the first present above.
+            *cache = None;
+            return Err(e);
+        }
     }
     Ok(())
 }
