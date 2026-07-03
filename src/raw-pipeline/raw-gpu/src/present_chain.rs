@@ -33,6 +33,31 @@
 //! entry ([`present_chain_to_offscreen`]) is host-only (any native target) — it
 //! renders to an owned `Bgra8Unorm` texture and reads it back so the parity gate
 //! needs no `CAMetalLayer`.
+//!
+//! ## Persistent surface (#1742 — the half-render seam)
+//!
+//! [`PersistentPresentSurface`] is the Apple counterpart of
+//! [`crate::present_chain_web::WebPresentSurface`]: the `wgpu::Surface` (+its
+//! present pipeline) is created and `configure`d ONCE per `(CAMetalLayer*, dims)`
+//! and cached across every present, instead of being torn down and rebuilt on
+//! every single call. The pre-#1742 shape called `create_surface_unsafe` +
+//! `surface.configure()` fresh on EVERY present against the SAME persistent
+//! `CAMetalLayer` — the only such pattern in the codebase (the web sibling and
+//! the P1b test-pattern proof both cache). Reconfiguring a live Metal drawable
+//! every frame leaves the compositor mid-transition on the very first present: a
+//! freshly `configure`d `CAMetalLayer` starts with an undefined/black drawable
+//! pool, so the FIRST frame after a configure can land on a drawable Core
+//! Animation hasn't fully handed off yet, splicing old and new content at
+//! whatever scanline the compositor happened to be partway through — a stale
+//! lower region under a freshly-drawn upper region, sticky to that first
+//! present. [`PersistentPresentSurface::present`] reconfigures only when the
+//! layer identity or the image dims actually change, and always draws AND
+//! presents twice immediately after a (re)configure, so the second present lands
+//! on a fully handed-off drawable and the caller-visible frame is always
+//! complete.
+//!
+//! The cache lives on the FFI handle (`LiveHandleInner` in `raw-ffi`), not here —
+//! this module only owns the type and the create/reconfigure/present logic.
 
 use crate::context::GpuContext;
 use crate::live_session::LiveSession;
@@ -45,24 +70,189 @@ use crate::present_chain_pipeline::{
 };
 use std::ffi::c_void;
 
+/// A persistent `CAMetalLayer` present surface, cached across presents (#1742).
+/// Bound to one `(layer pointer, width, height)` triple at a time; created once,
+/// reconfigured ONLY when that identity changes. Mirrors
+/// [`crate::present_chain_web::WebPresentSurface`]'s zero-recompile shape on the
+/// Apple side, where the analogous risk is a per-frame Metal surface
+/// reconfiguration rather than a per-tick WebGPU one.
+#[cfg(target_vendor = "apple")]
+pub struct PersistentPresentSurface {
+    surface: wgpu::Surface<'static>,
+    pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
+    /// Identity of the `CAMetalLayer*` this surface was created from. A present
+    /// against a DIFFERENT layer pointer (a new `NSView`/window) forces a fresh
+    /// surface — reusing a surface across layers is not a supported wgpu shape.
+    layer: *mut c_void,
+}
+
+// SAFETY: `wgpu::Surface<'static>` (created via `create_surface_unsafe`, which
+// stores no borrowed handle) plus the render pipeline/layout are the same
+// `Send + Sync` wgpu resource types already carried on `GpuContext` and inside
+// `WebPresentSurface`. The cache is only ever touched from the single GPU-owning
+// thread the FFI contract already requires (see `gpu_live.rs`'s module docs); the
+// bound is needed only so `LiveHandleInner` (which is boxed and passed across the
+// FFI boundary as a raw pointer) can hold it without the compiler inferring
+// non-`Send`/`Sync` from the raw `*mut c_void` layer field.
+#[cfg(target_vendor = "apple")]
+unsafe impl Send for PersistentPresentSurface {}
+#[cfg(target_vendor = "apple")]
+unsafe impl Sync for PersistentPresentSurface {}
+
+#[cfg(target_vendor = "apple")]
+impl PersistentPresentSurface {
+    /// Create + configure a new surface from `layer` at `(width, height)` on
+    /// `ctx`'s existing device/adapter/instance. Does NOT present — the caller
+    /// (`present`) draws into it after construction.
+    fn create(
+        ctx: &GpuContext,
+        layer: *mut c_void,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, String> {
+        // Create the surface from the CONTEXT's instance, not a fresh one (#1240).
+        // Adapters belong to the instance that produced them; a surface from a
+        // sibling instance + `get_capabilities(&ctx.adapter)` panics with
+        // `Adapter[Id(…)] does not exist` because wgpu's hub registry is
+        // per-instance.
+        //
+        // SAFETY: `layer` is a valid, non-null CAMetalLayer* per the caller's
+        // contract (checked in `present` before this is called), and it must
+        // outlive this cached surface — the FFI contract requires the Swift host
+        // to keep the `NSView`/layer alive for the life of the `MapleGpuLiveSession`
+        // handle this surface is cached on.
+        let surface = unsafe {
+            ctx.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
+                .map_err(|e| format!("create_surface_unsafe failed: {e}"))?
+        };
+
+        // Now `surface` and `ctx.adapter` share the same instance, so this is safe.
+        let caps = surface.get_capabilities(&ctx.adapter);
+        if caps.formats.is_empty() {
+            return Err("surface advertised no formats".to_string());
+        }
+        let format = pick_surface_format(&caps);
+
+        surface.configure(
+            &ctx.device,
+            &wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format,
+                width,
+                height,
+                present_mode: wgpu::PresentMode::Fifo,
+                desired_maximum_frame_latency: 2,
+                alpha_mode: caps.alpha_modes[0],
+                view_formats: vec![],
+            },
+        );
+
+        let (pipeline, bind_group_layout) = build_present_pipeline(ctx, format);
+
+        Ok(Self {
+            surface,
+            pipeline,
+            bind_group_layout,
+            format,
+            width,
+            height,
+            layer,
+        })
+    }
+
+    /// Reconfigure the EXISTING surface (same layer identity) at new dims —
+    /// cheaper than a full teardown/recreate since the `Surface` handle and
+    /// adapter capabilities are already known; only the swapchain + the
+    /// format-dependent present pipeline are rebuilt.
+    fn reconfigure(&mut self, ctx: &GpuContext, width: u32, height: u32) {
+        let caps = self.surface.get_capabilities(&ctx.adapter);
+        let format = pick_surface_format(&caps);
+        self.surface.configure(
+            &ctx.device,
+            &wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format,
+                width,
+                height,
+                present_mode: wgpu::PresentMode::Fifo,
+                desired_maximum_frame_latency: 2,
+                alpha_mode: caps.alpha_modes[0],
+                view_formats: vec![],
+            },
+        );
+        if format != self.format {
+            let (pipeline, bgl) = build_present_pipeline(ctx, format);
+            self.pipeline = pipeline;
+            self.bind_group_layout = bgl;
+            self.format = format;
+        }
+        self.width = width;
+        self.height = height;
+    }
+
+    /// Draw the session's final f32 chain buffer into the surface's current
+    /// drawable and present it. No configure — pure per-frame draw work.
+    fn draw_and_present(&self, ctx: &GpuContext, session: &LiveSession, final_idx: usize) -> Result<(), String> {
+        let chain_buf = session.ping_pong_buffer(final_idx);
+        let frame = self
+            .surface
+            .get_current_texture()
+            .map_err(|e| format!("get_current_texture failed: {e}"))?;
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("present-chain-encoder"),
+            });
+        encode_present_pass(
+            ctx,
+            &mut encoder,
+            &self.pipeline,
+            &self.bind_group_layout,
+            chain_buf,
+            &view,
+            (self.width, self.height),
+        );
+        ctx.queue.submit(Some(encoder.finish()));
+        frame.present();
+        Ok(())
+    }
+}
+
 /// Present the live chain's final f32 buffer (left resident by
 /// [`LiveSession::render_chain_to_f32`] at ping-pong index `final_idx`) into
 /// `layer` (a `CAMetalLayer*`) — the dithered/quantized 8-bit display surface,
 /// with NO CPU readback.
 ///
-/// Creates a wgpu surface from `layer` configured with `ctx`'s EXISTING device
-/// (the f32 buffer lives there), at the session's dims (asserted == surface dims).
-/// Runs `present_chain.wgsl` and presents one frame.
+/// `cache` is the caller-owned [`PersistentPresentSurface`] slot (one per
+/// `MapleGpuLiveSession` handle — see `raw-ffi`'s `LiveHandleInner`). The surface
+/// is created on the FIRST call and reused on every subsequent call as long as
+/// `layer` and the session's dims are unchanged; a change in either forces a
+/// fresh create (new layer) or a reconfigure (dims changed, same layer) — see the
+/// module docs for why per-present reconfiguration produced the #1742 seam.
+/// Immediately after any create/reconfigure, a SECOND frame is drawn and
+/// presented before returning, so the caller-visible present is always a
+/// complete frame against a fully handed-off drawable (Core Animation's
+/// mid-transition window is the first frame after a configure, not the second).
 ///
 /// # Safety
-/// `layer` must be a valid, non-null `CAMetalLayer*` that outlives this call. The
-/// surface created from it is dropped before this function returns.
+/// `layer` must be a valid, non-null `CAMetalLayer*` that outlives `cache` (i.e.
+/// outlives the `MapleGpuLiveSession` handle this cache is stored on) for as long
+/// as the SAME layer pointer keeps being passed in.
 #[cfg(target_vendor = "apple")]
 pub unsafe fn present_chain_to_surface(
     ctx: &GpuContext,
     session: &LiveSession,
     final_idx: usize,
     layer: *mut c_void,
+    cache: &mut Option<PersistentPresentSurface>,
 ) -> Result<(), String> {
     if layer.is_null() {
         return Err("present_chain: layer pointer is null".to_string());
@@ -85,69 +275,32 @@ pub unsafe fn present_chain_to_surface(
         ));
     }
 
-    // Create the surface from the CONTEXT's instance, not a fresh one (#1240).
-    // Adapters belong to the instance that produced them; a surface from a
-    // sibling instance + `get_capabilities(&ctx.adapter)` panics with
-    // `Adapter[Id(…)] does not exist` because wgpu's hub registry is
-    // per-instance. The fresh-instance shape worked in unit tests against an
-    // `Instance::default()` that happened to enumerate the same adapter, but
-    // fails on the very first present call in production — the bug behind the
-    // editor's "image disappears" report (#1240 user trace:
-    // `gpu_present_chain: panicked: Adapter[Id(0,1)] does not exist`).
-    //
-    // SAFETY: `layer` is a valid CAMetalLayer* per this fn's contract; the surface
-    // is used and dropped entirely within this call.
-    let surface = ctx
-        .instance
-        .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
-        .map_err(|e| format!("create_surface_unsafe failed: {e}"))?;
+    let needs_fresh_surface = match cache {
+        Some(existing) => existing.layer != layer,
+        None => true,
+    };
 
-    // Now `surface` and `ctx.adapter` share the same instance, so this is safe.
-    let caps = surface.get_capabilities(&ctx.adapter);
-    if caps.formats.is_empty() {
-        return Err("surface advertised no formats".to_string());
+    let just_configured = if needs_fresh_surface {
+        *cache = Some(PersistentPresentSurface::create(ctx, layer, width, height)?);
+        true
+    } else {
+        let existing = cache.as_mut().expect("checked Some above");
+        if (existing.width, existing.height) != (width, height) {
+            existing.reconfigure(ctx, width, height);
+            true
+        } else {
+            false
+        }
+    };
+
+    let surface = cache.as_ref().expect("populated above");
+    surface.draw_and_present(ctx, session, final_idx)?;
+    if just_configured {
+        // First frame after (re)configure can land on a drawable Core Animation
+        // hasn't fully handed off yet (the #1742 seam). A second present against
+        // the now-settled swapchain guarantees the caller-visible frame is whole.
+        surface.draw_and_present(ctx, session, final_idx)?;
     }
-    let format = pick_surface_format(&caps);
-
-    surface.configure(
-        &ctx.device,
-        &wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Fifo,
-            desired_maximum_frame_latency: 2,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-        },
-    );
-
-    let (pipeline, bgl) = build_present_pipeline(ctx, format);
-    let chain_buf = session.ping_pong_buffer(final_idx);
-
-    let frame = surface
-        .get_current_texture()
-        .map_err(|e| format!("get_current_texture failed: {e}"))?;
-    let view = frame
-        .texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
-    let mut encoder = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("present-chain-encoder"),
-        });
-    encode_present_pass(
-        ctx,
-        &mut encoder,
-        &pipeline,
-        &bgl,
-        chain_buf,
-        &view,
-        (width, height),
-    );
-    ctx.queue.submit(Some(encoder.finish()));
-    frame.present();
     Ok(())
 }
 
