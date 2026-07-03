@@ -637,6 +637,51 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
     profile_for_with_source(raw).map(|(p, _)| p)
 }
 
+/// Estimate the scene's as-shot `(temperature_k, tint)` from the camera's
+/// OWN interpolated color matrix, rather than a generic camera-agnostic
+/// model (#1725).
+///
+/// Resolves a [`DcpProfile`] the same way the real develop chain does
+/// (`profile_for` — embedded-full → bundle → embedded-CM-only → rawler
+/// fallback, "never identity"). CCT is `profile.scene_cct` — the value
+/// `compute_as_shot_cct`'s camera-matrix-consistent iteration already
+/// produced — reused UNCHANGED.
+///
+/// Tint is the new half, and needs the SAME xy point that iteration
+/// converged on: `inv(profile.color_matrix) · raw.as_shot_neutral`,
+/// normalized to Y=1. This is deliberately **not** `profile.scene_white_xyz`
+/// — that field is `inv(color_matrix) · (1,1,1)` whenever
+/// `wb_already_baked` (true for every non-LinearRaw Bayer source, i.e.
+/// nearly everything), because it represents where a pipeline-pre-gained
+/// NEUTRAL PATCH lands in XYZ post-DCP, not the scene illuminant's own
+/// chromaticity — a completely different quantity. Measured on
+/// test_0000.DNG: `scene_white_xyz` gives xy≈(0.387, 0.260), ~0.09 uv units
+/// off ANY point on the generic locus (10× the whole tint slider's ±100
+/// range of ±0.01 uv) — that field was never going to produce a sane tint
+/// no matter how the projection axis was computed. Re-deriving
+/// `inv(color_matrix) · as_shot_neutral` directly instead gives
+/// xy≈(0.2946, 0.3351), which IS where `compute_as_shot_cct`'s iteration
+/// actually converged (verified by re-running McCamy on it: matches
+/// `scene_cct` to <1 K) — a sane, small residual after projecting
+/// perpendicular to the locus at that CCT.
+///
+/// `profile_for` never returns `Err` in practice (every resolver tier
+/// constructs `Ok`); the `Result` is threaded through here so callers that
+/// already handle `profile_for`'s signature don't need a second error path.
+pub fn estimate_as_shot_cct_tint(raw: &RawImage) -> crate::Result<(f32, f32)> {
+    let profile = profile_for(raw)?;
+    let scene_illuminant_xyz = profile
+        .color_matrix
+        .inverse()
+        .map(|inv| normalize_to_y1(inv.mul_vec(raw.as_shot_neutral)))
+        .unwrap_or(crate::color::matrices::XYZ_D65);
+    let tint = crate::stages::white_balance_auto::estimate_tint_from_scene_xyz(
+        scene_illuminant_xyz,
+        profile.scene_cct,
+    );
+    Ok((profile.scene_cct, tint))
+}
+
 /// Same lookup as [`profile_for`], but also returns the [`ProfileSource`]
 /// describing which path produced the profile. Used by the develop chain
 /// to decide PTC suppression in a single pass — see ticket #324 and the

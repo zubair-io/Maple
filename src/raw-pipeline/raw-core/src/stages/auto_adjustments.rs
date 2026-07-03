@@ -25,7 +25,9 @@
 //! is converted to (temperature, tint) via `neutral_to_temp_tint` which
 //! seeds from `estimate_cct_from_neutral` and refines with ≤ 8 bisection
 //! steps. Graceful degradation: when too few pixels survive the gates, the
-//! function falls back to the camera's `as_shot_neutral`.
+//! function falls back to `dcp::estimate_as_shot_cct_tint`, which reads the
+//! camera's own interpolated color matrix instead of forcing the raw
+//! `as_shot_neutral` through the generic model (#1725).
 //!
 //! # Tone (deferred — #1376)
 //!
@@ -153,7 +155,7 @@ pub fn compute_auto_adjustments(
     let exposure = compute_exposure(&hist);
 
     // --- AWB (temperature + tint) ---
-    let (temperature, tint) = compute_awb(&probe, raw.as_shot_neutral);
+    let (temperature, tint) = compute_awb(&probe, raw);
 
     // --- Tone (contrast / highlights / shadows / whites / blacks) ---
     // Deferred to #1376. The histogram-percentile heuristics prototyped during
@@ -292,7 +294,8 @@ const AWB_WHITE_PATCH_THRESHOLD: f32 = 0.7;
 const AWB_GRAY_WORLD_BLEND: f32 = 0.6;
 
 /// Minimum surviving pixel count to trust the estimate. Below this
-/// threshold the function falls back to `raw.as_shot_neutral`.
+/// threshold the function falls back to the camera-matrix-aware as-shot
+/// estimate (see [`crate::color::dcp::estimate_as_shot_cct_tint`]).
 const AWB_MIN_PIXELS: usize = 64;
 
 /// Compute auto white-balance recommendation as (temperature_k, tint).
@@ -304,8 +307,13 @@ const AWB_MIN_PIXELS: usize = 64;
 ///
 /// Graceful degradation:
 /// - Near-neutral scene (gain very close to [1,1,1]) → ~(6500, 0).
-/// - Too few surviving pixels → falls back to camera `as_shot_neutral`.
-fn compute_awb(probe: &Image, as_shot_neutral: [f32; 3]) -> (f32, f32) {
+/// - Too few surviving pixels → falls back to `dcp::estimate_as_shot_cct_tint`,
+///   which reads the camera's OWN interpolated color matrix rather than
+///   forcing the camera-native `AsShotNeutral` through the generic
+///   Planckian-locus model (#1725 — that combination rails to a tint bound
+///   for essentially every realistic body; see
+///   `white_balance_auto::estimate_cct_tint_from_scene_xyz`'s doc comment).
+fn compute_awb(probe: &Image, raw: &RawImage) -> (f32, f32) {
     probe.assert_space(ColorSpace::SceneLinearRec2020);
 
     let mut gray_sum = [0.0_f64; 3];
@@ -360,11 +368,12 @@ fn compute_awb(probe: &Image, as_shot_neutral: [f32; 3]) -> (f32, f32) {
         }
     }
 
-    // Fallback: too few surviving pixels — use the camera's AsShotNeutral
-    // mapped through neutral_to_temp_tint so we still return Kelvin/tint
-    // rather than a raw neutral.
+    // Fallback: too few surviving pixels — use the camera-matrix-aware
+    // as-shot estimate (camera's interpolated ColorMatrix, not the generic
+    // Planckian model) so we still return Kelvin/tint rather than a raw
+    // neutral, and without railing to a tint bound (#1725).
     if gray_n < AWB_MIN_PIXELS {
-        return neutral_to_temp_tint(as_shot_neutral);
+        return crate::color::dcp::estimate_as_shot_cct_tint(raw).unwrap_or((6500.0, 0.0));
     }
 
     let gray_avg = [
@@ -413,7 +422,6 @@ fn compute_awb(probe: &Image, as_shot_neutral: [f32; 3]) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stages::white_balance::neutral_to_temp_tint;
 
     fn flat_image(r: f32, g: f32, b: f32) -> Image {
         let mut img = Image::new(128, 128, ColorSpace::SceneLinearRec2020);
@@ -421,6 +429,40 @@ mod tests {
             *px = [r, g, b];
         }
         img
+    }
+
+    /// Minimal synthetic `RawImage` for AWB fallback tests — no embedded
+    /// color matrix, so `dcp::profile_for` takes the rawler-fallback tier
+    /// (synthetic D65→Rec.2020 CM, "never identity"). Same literal shape as
+    /// `color::dcp::tests::make_raw`.
+    fn make_raw(as_shot_neutral: [f32; 3]) -> RawImage {
+        RawImage {
+            width: 1,
+            height: 1,
+            cfa: crate::image::CfaPattern::Rggb,
+            black_level: [0; 4],
+            white_level: 1,
+            raw_data: vec![0],
+            as_shot_neutral,
+            as_shot_cct: None,
+            camera_make: "Test".into(),
+            camera_model: "Test".into(),
+            unique_camera_model: None,
+            color_matrices: std::collections::HashMap::new(),
+            forward_matrices: std::collections::HashMap::new(),
+            orientation: crate::image::ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+            hsm_data: std::collections::HashMap::new(),
+            plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
+            crop_rect: None,
+            iso: 100,
+            noise_profile: None,
+            opcode_list3: None,
+            aperture: None,
+            focal_length: None,
+        }
     }
 
     fn flat_histogram(luma: f32) -> [u32; HIST_BINS] {
@@ -509,7 +551,8 @@ mod tests {
         let img = flat_image(0.18, 0.18, 0.18);
         // A grey probe has plenty of surviving pixels, so this exercises the
         // real gray-world path (not the AsShotNeutral fallback).
-        let (temp, tint) = compute_awb(&img, [0.5, 1.0, 0.7]);
+        let raw = make_raw([0.5, 1.0, 0.7]);
+        let (temp, tint) = compute_awb(&img, &raw);
         // Neutral probe at D65 should give near-D65 result.
         assert!(
             (temp - 6500.0).abs() < 1500.0,
@@ -530,7 +573,8 @@ mod tests {
         // After gating, the neutral is dominated by the warm-biased pixels →
         // neutral.R > neutral.B → target_gain_rb = B/R < 1 → LOW CCT (warm source).
         let img = flat_image(0.30, 0.25, 0.20);
-        let (temp, _tint) = compute_awb(&img, [0.5, 1.0, 0.7]);
+        let raw = make_raw([0.5, 1.0, 0.7]);
+        let (temp, _tint) = compute_awb(&img, &raw);
         // A gentle warm scene (R>B within gate) → slider CCT < 6500K.
         assert!(temp < 6500.0,
             "gentle-warm-cast scene (R>B, within chroma gate) should give temperature < 6500K, got {}", temp);
@@ -552,7 +596,8 @@ mod tests {
         for px in pixels[neutral_count..].iter_mut() {
             *px = [0.8, 0.05, 0.05];
         }
-        let (temp, tint) = compute_awb(&img, [0.5, 1.0, 0.7]);
+        let raw = make_raw([0.5, 1.0, 0.7]);
+        let (temp, tint) = compute_awb(&img, &raw);
         // The estimate should be near neutral (6500K) because the saturated
         // red pixels are excluded by the chroma gate. Allow ±3000K tolerance
         // since the gray-world estimate from 75% neutral grey pixels can still
@@ -571,15 +616,21 @@ mod tests {
 
     #[test]
     fn awb_too_few_pixels_falls_back_to_as_shot_neutral() {
-        // An image with mostly crushed/clipped pixels → fallback to AsShotNeutral.
+        // An image with mostly crushed/clipped pixels → fallback to the
+        // camera-matrix-aware as-shot estimate (#1725 — was
+        // `neutral_to_temp_tint(as_shot_neutral)` directly, which rails to
+        // tint=-100 for camera-native neutrals; see
+        // `estimate_cct_tint_from_scene_xyz`'s doc comment for why).
         let mut img = Image::new(16, 16, ColorSpace::SceneLinearRec2020);
         // All pixels are crushed black (below AWB_LUMA_MIN) — none survive the gate.
         for px in &mut img.pixels {
             *px = [0.001, 0.001, 0.001];
         }
         let as_shot_neutral = [0.52_f32, 1.0, 0.68];
-        let (temp_fallback, tint_fallback) = neutral_to_temp_tint(as_shot_neutral);
-        let (temp, tint) = compute_awb(&img, as_shot_neutral);
+        let raw = make_raw(as_shot_neutral);
+        let (temp_fallback, tint_fallback) =
+            crate::color::dcp::estimate_as_shot_cct_tint(&raw).unwrap();
+        let (temp, tint) = compute_awb(&img, &raw);
         // Should match the fallback result exactly.
         assert!(
             (temp - temp_fallback).abs() < 1.0,
