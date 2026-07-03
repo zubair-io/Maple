@@ -48,6 +48,8 @@ fn render_handle_null_arg_sets_error() {
             256,
             256,
             0,
+            0.0,
+            0.0,
             &mut buf,
         )
     };
@@ -76,7 +78,9 @@ fn raw_handle_round_trip_renders_tile() {
     assert!(!handle.is_null());
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 256, 256, 0, 0.0, 0.0, &mut buf,
+        )
     };
     assert_eq!(rc, 0, "render rc = {}", rc);
     assert_eq!(buf.width, 256);
@@ -114,7 +118,9 @@ fn raw_handle_renders_multiple_tiles() {
     for (sx, sy) in coords.iter() {
         let mut buf = empty_buf();
         let rc = unsafe {
-            maple_render_handle_scene_linear_tile(handle, *sx, *sy, 512, 512, 256, 256, 0, &mut buf)
+            maple_render_handle_scene_linear_tile(
+                handle, *sx, *sy, 512, 512, 256, 256, 0, 0.0, 0.0, &mut buf,
+            )
         };
         assert_eq!(rc, 0, "tile ({},{}) rc = {}", sx, sy, rc);
         assert_eq!(buf.width, 256);
@@ -146,7 +152,9 @@ fn raw_handle_with_dehaze_xmp_returns_rc10() {
     assert_eq!(rc, 0, "open rc = {}", rc);
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 256, 256, 0, 0.0, 0.0, &mut buf,
+        )
     };
     assert_eq!(rc, 10, "expected dehaze rc=10, got {}", rc);
     unsafe {
@@ -170,7 +178,9 @@ fn raw_handle_upscale_returns_rc11() {
     assert_eq!(rc, 0);
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 256, 256, 512, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 256, 256, 512, 256, 0, 0.0, 0.0, &mut buf,
+        )
     };
     assert_eq!(rc, 11, "out_w>src_w must rc=11, got {}", rc);
     unsafe { maple_close_raw_handle(handle) };
@@ -192,7 +202,9 @@ fn raw_handle_mismatched_aspect_returns_rc12() {
     let mut buf = empty_buf();
     // src 512×512 (1:1), out 512×256 (2:1) — strict mismatch.
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 512, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 512, 256, 0, 0.0, 0.0, &mut buf,
+        )
     };
     assert_eq!(rc, 12, "mismatched aspect must rc=12, got {}", rc);
     unsafe { maple_close_raw_handle(handle) };
@@ -222,7 +234,9 @@ fn raw_handle_bytes_round_trip() {
     assert!(!handle.is_null());
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 256, 256, 0, 0.0, 0.0, &mut buf,
+        )
     };
     assert_eq!(rc, 0);
     assert_eq!(buf.width, 256);
