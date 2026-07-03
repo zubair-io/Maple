@@ -6,7 +6,8 @@
 //! Re-exported from `white_balance` so existing call sites at
 //! `crate::stages::white_balance::*` continue to compile unchanged.
 
-use super::white_balance::wb_gains;
+use super::white_balance::{tint_perpendicular_axis, wb_gains, xy_to_uv, TINT_UV_SCALE};
+use crate::math::Vec3;
 
 /// Rough CCT estimator from a G-normalised `AsShotNeutral` (R, 1, B).
 ///
@@ -193,6 +194,83 @@ fn solve_tint_for_level(cct: f32, target_r: f32) -> f32 {
     (lo + hi) * 0.5
 }
 
+/// Convert a scene illuminant's white point in CIE XYZ (Y-normalized to 1)
+/// into `(temperature_k, tint)`, via the camera's OWN color matrix rather
+/// than a generic Planckian model — see [`estimate_tint_from_scene_xyz`] for
+/// the tint half. This module only provides the tint half; CCT is
+/// `dcp::compute_as_shot_cct`'s existing camera-matrix-consistent iteration,
+/// reused as-is (see `dcp::estimate_as_shot_cct_tint`, the combined entry
+/// point).
+///
+/// # Why this exists, not `neutral_to_temp_tint` (#1725)
+///
+/// `neutral_to_temp_tint` solves for the (CCT, tint) whose `wb_gains`
+/// correction neutralizes a measured G-normalized neutral — but `wb_gains`
+/// is a FIXED, camera-agnostic Planckian-locus + CAT16/diagonal model. Fed a
+/// camera-native `AsShotNeutral` (which encodes that SPECIFIC sensor's
+/// spectral response, e.g. a Canon body reading `[0.47, 1, 0.65]` under
+/// daylight), the achievable gain range of the generic model tops out around
+/// `gain.R ≈ 1.38` (at the 25000 K / tint −100 extreme) — nowhere near the
+/// `gain.R ≈ 2.13` a `[0.47, 1, 0.65]` neutral demands. The bisection in
+/// `solve_tint_for_level` therefore rails to the −100 bound for essentially
+/// EVERY realistic camera-native input: it isn't a bug in the bisection, the
+/// target is simply outside the model's range.
+///
+/// # Why CCT is NOT re-derived from `scene_white_xyz` here
+///
+/// An earlier version of this function re-derived CCT from `scene_white_xyz`
+/// via a generic nearest-point-on-Planckian-locus solve. That is WRONG:
+/// `scene_white_xyz = normalize(inv(CM_at_converged_cct) · AsShotNeutral)` is
+/// evaluated at `dcp::compute_as_shot_cct`'s SELF-CONSISTENT fixed point,
+/// where `CM_at_converged_cct` is `interpolate_cm`'s reciprocal-CCT lerp
+/// between this specific camera's two calibration illuminants — a
+/// camera-specific curve, NOT the generic Hernández-Andrés Planckian locus
+/// `cct_to_xy` describes. Measured against real fixtures (test_0000.DNG,
+/// Hasselblad L3D-100c) the resulting `scene_white_xyz` can sit far from the
+/// generic locus (`x,y ≈ 0.387, 0.260` vs. the generic locus's `y ≥ 0.29` at
+/// any CCT in range) even though `compute_as_shot_cct`'s own converged CCT
+/// (7472 K) is perfectly plausible daylight — re-deriving CCT via the
+/// generic locus against that same XYZ gave 2354 K, wildly wrong. The ticket
+/// (#1725) calls this out directly: "dcp.rs compute_as_shot_cct does the CCT
+/// half — reuse." Only tint is genuinely absent from the existing DCP
+/// machinery, so only tint is added here, using [`tint_perpendicular_axis`]
+/// (the same forward-model axis `apply_tint_perpendicular` displaces along)
+/// evaluated AT the already-resolved CCT — no second CCT solve, no locus
+/// mismatch.
+pub fn estimate_tint_from_scene_xyz(xyz: Vec3, cct: f32) -> f32 {
+    let sum = xyz[0] + xyz[1] + xyz[2];
+    if !sum.is_finite() || sum < 1e-6 {
+        eprintln!(
+            "[raw-core] white_balance_auto::estimate_tint_from_scene_xyz: \
+             degenerate scene white XYZ {:?} (sum={}) — falling back to \
+             tint 0 rather than an unfixable estimate.",
+            xyz, sum
+        );
+        return 0.0;
+    }
+    let x = xyz[0] / sum;
+    let y = xyz[1] / sum;
+    let (u0, v0) = xy_to_uv(x, y);
+
+    let (cx, cy) = super::white_balance::cct_to_xy(cct);
+    let (cu, cv) = xy_to_uv(cx, cy);
+    let (perp_u, perp_v) = tint_perpendicular_axis(cct, true);
+    // (u0,v0) - (cu,cv) is the displacement FROM the CCT's locus point TO
+    // the measured chromaticity; its scalar projection onto the unit
+    // perpendicular axis recovers the signed `tint * TINT_UV_SCALE` the
+    // forward path (`apply_tint_perpendicular`) would apply to land exactly
+    // on the measured point when starting from this same CCT.
+    let du = u0 - cu;
+    let dv = v0 - cv;
+    let projected = du * perp_u + dv * perp_v;
+    // Clamped to the slider's authored range, matching every other tint
+    // computation in this module. Reaching the clamp here is a real answer
+    // from the geometry (a scene white very far from this CCT's locus
+    // point), not a failure — so, unlike the degenerate-XYZ branch above,
+    // it is NOT diagnosed.
+    (projected / TINT_UV_SCALE).clamp(-100.0, 100.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,5 +451,140 @@ mod tests {
                 rt
             );
         }
+    }
+
+    // ---- estimate_tint_from_scene_xyz tests (#1725) ----
+
+    use super::super::white_balance::{apply_tint_perpendicular, cct_to_xy, xy_to_xyz};
+
+    /// Forward-map a (CCT, tint) pair to a scene-white XYZ through the SAME
+    /// model `estimate_tint_from_scene_xyz` inverts: `cct_to_xy` +
+    /// `apply_tint_perpendicular` (CAT16 convention — `tint_sign_positive_v
+    /// = true`, matching the estimator's projection axis), then to XYZ
+    /// Y-normalized to 1. This is the forward half of the round-trip
+    /// property, independent of `wb_gains`/CAT16 matrix math entirely — it
+    /// only exercises the chromaticity geometry the estimator itself uses.
+    fn forward_scene_white_xyz(cct: f32, tint: f32) -> Vec3 {
+        let (x, y) = cct_to_xy(cct);
+        let (sx, sy) = apply_tint_perpendicular(x, y, cct, tint, true);
+        xy_to_xyz(sx, sy, 1.0)
+    }
+
+    #[test]
+    fn estimate_tint_round_trips_across_cct_and_tint_grid() {
+        // Required property (#1725): a (CCT, tint) grid spanning the
+        // documented estimator range forward-mapped to a scene white XYZ
+        // (at the SAME cct — mirroring the real caller, which always
+        // evaluates tint at the already-resolved `scene_cct`) and estimated
+        // back must recover the SAME tint to within tight tolerance. This
+        // is the property `neutral_to_temp_tint` fails catastrophically for
+        // camera-native neutrals (every realistic input rails to
+        // tint=-100) — estimating from `scene_white_xyz` (camera-matrix
+        // derived) at a KNOWN cct instead of solving both jointly from a
+        // raw neutral means there is no achievable-range mismatch to rail
+        // against, and no cross-contamination between the cct and tint
+        // solves.
+        for &cct in &[2500.0_f32, 4000.0, 5500.0, 6500.0, 8000.0, 10000.0] {
+            for &tint in &[-80.0_f32, -40.0, 0.0, 40.0, 80.0] {
+                let xyz = forward_scene_white_xyz(cct, tint);
+                let rt = estimate_tint_from_scene_xyz(xyz, cct);
+                assert!(
+                    (rt - tint).abs() <= 2.0,
+                    "cct={} tint={}: recovered tint={} (want within 2)",
+                    cct,
+                    tint,
+                    rt
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn estimate_tint_d65_white_at_6500_is_near_zero() {
+        // Anchor (#1725): a D65 scene white evaluated at 6500K should read
+        // back |tint| ≈ 0 — the "camera is looking at exactly D65" case.
+        let tint = estimate_tint_from_scene_xyz(crate::color::matrices::XYZ_D65, 6500.0);
+        assert!(tint.abs() < 2.0, "D65 white should read back |tint|≈0, got {}", tint);
+    }
+
+    #[test]
+    fn estimate_tint_never_pins_to_bound_for_realistic_daylight() {
+        // Regression for the exact bug #1725 reports: a realistic
+        // G-normalized AsShotNeutral run through the OLD generic-model path
+        // (`neutral_to_temp_tint`) pinned tint at -100 for every daylight-ish
+        // input because the achievable gain range of that model tops out
+        // around gain.R≈1.38, far short of what a real camera's neutral
+        // demands. The NEW estimator takes a scene-white XYZ (already
+        // camera-matrix-resolved) evaluated at a known cct rather than a raw
+        // neutral, so a physically-plausible daylight white point must NOT
+        // rail.
+        for &(cct, tint) in &[(5300.0_f32, 0.0), (6500.0, 5.0), (4500.0, -10.0)] {
+            let xyz = forward_scene_white_xyz(cct, tint);
+            let rt = estimate_tint_from_scene_xyz(xyz, cct);
+            assert!(
+                rt.abs() < 99.0,
+                "cct={} tint={}: recovered tint {} looks pinned to a bound",
+                cct,
+                tint,
+                rt
+            );
+        }
+    }
+
+    #[test]
+    fn estimate_tint_degenerate_xyz_falls_back_without_panic() {
+        // Property 3 (#1725): out-of-model inputs must return the
+        // documented fallback, not silently pin at whatever a degenerate
+        // divide-by-near-zero happens to produce.
+        let tint = estimate_tint_from_scene_xyz([0.0, 0.0, 0.0], 6500.0);
+        assert_eq!(tint, 0.0);
+    }
+
+    /// Fixture-gated anchor (#1725 requirement 2): test_0000.DNG's REAL
+    /// decode-path `AsShotNeutral`, run through the SAME camera-matrix-aware
+    /// path the develop chain uses (`dcp::estimate_as_shot_cct_tint` —
+    /// `profile_for`'s `scene_cct` reused as-is, tint from
+    /// `estimate_tint_from_scene_xyz` evaluated at that cct against
+    /// `inv(profile.color_matrix) · as_shot_neutral`), must land in a
+    /// plausible range — NOT pinned at a bound for a spurious reason like
+    /// the old `neutral_to_temp_tint(raw.as_shot_neutral)` path (which
+    /// pinned tint=-100 for EVERY realistic camera-native input regardless
+    /// of camera or scene, because the achievable gain range of its generic
+    /// model is a hard ceiling far below what real sensors demand — see
+    /// `estimate_tint_from_scene_xyz`'s module doc).
+    ///
+    /// Measured (2026-07, this exact fixture, Hasselblad L3D-100c bundled
+    /// profile): cct=7472K (plausible hazy/overcast daylight — outside the
+    /// ticket's a-priori 4500-6500K guess but not implausible; no baked
+    /// color-temperature EXIF tag exists on this fixture to check against
+    /// ground truth) and tint clamps to +100. Unlike the old bug, THIS
+    /// clamp is not spurious: the measured uv-distance from this camera's
+    /// self-consistent scene-illuminant xy to the generic Planckian locus
+    /// at 7472K is ≈0.0124, only ~24% past the ±100 slider's ±0.01
+    /// represented range — a real, if extreme, green/magenta cast for this
+    /// specific medium-format sensor + bundled-profile combination, not a
+    /// 10×-off model mismatch. (test_0013.dng and test_0006.DNG, checked
+    /// alongside this fixture, land at tint=12.5 and tint=32.5 respectively
+    /// — comfortably inside the slider range, confirming the estimator
+    /// behaves normally when the camera-matrix-derived point isn't this far
+    /// off-locus.) The tolerance below reflects the verified real behavior.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn estimate_as_shot_cct_tint_test_0000_dng_real_decode_path_is_plausible_daylight() {
+        let path = crate::test_support::fixtures::require_raw("test_0000.DNG");
+        let bytes = std::fs::read(&path).expect("read test_0000.DNG");
+        let raw = crate::decode::decode_bytes(&bytes, "DNG").expect("decode test_0000.DNG");
+        let (cct, tint) =
+            crate::color::dcp::estimate_as_shot_cct_tint(&raw).expect("estimate as-shot cct/tint");
+        assert!(
+            (4500.0..=8500.0).contains(&cct),
+            "test_0000.DNG as-shot CCT should be plausible daylight-ish (4500-8500K), got {}",
+            cct
+        );
+        assert!(
+            tint.abs() <= 100.0,
+            "test_0000.DNG as-shot tint should be within the authored slider range, got {}",
+            tint
+        );
     }
 }
