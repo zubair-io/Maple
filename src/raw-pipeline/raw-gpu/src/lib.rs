@@ -306,7 +306,7 @@ pub use present::present_test_pattern;
 #[cfg(not(target_arch = "wasm32"))]
 pub use present_chain::present_chain_to_offscreen;
 #[cfg(target_vendor = "apple")]
-pub use present_chain::present_chain_to_surface;
+pub use present_chain::{present_chain_to_surface, PersistentPresentSurface};
 
 #[cfg(target_arch = "wasm32")]
 pub use present_web::{present_test_pattern_web, PresentReport, TARGET_COLOR_SPACE};
