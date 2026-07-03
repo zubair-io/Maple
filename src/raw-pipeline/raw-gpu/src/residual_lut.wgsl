@@ -2,11 +2,20 @@
 // view-transform stage (epic #925 / #990).
 //
 // Line-for-line WGSL port of `raw_core::view::auto_profile::lut::ColorLut::sample`
-// (the trilinear apply layered onto the Auto Profile cube). The LUT is PER-IMAGE
-// RUNTIME DATA (fitted from the embedded JPEG, NOT a codegen constant), so the
-// flat grid rides a read-only storage buffer uploaded per pass — the canonical
-// "runtime 3D LUT in storage + trilinear sample" shape the spatial / P3 / P4
-// waves reuse.
+// (the TETRAHEDRAL apply layered onto the Auto Profile cube — a 6-case
+// barycentric split of the unit cube by the ordering of fx/fy/fz, using only 4
+// of the 8 corner nodes per sample). The LUT is PER-IMAGE RUNTIME DATA (fitted
+// from the embedded JPEG, NOT a codegen constant), so the flat grid rides a
+// read-only storage buffer uploaded per pass — the canonical "runtime 3D LUT in
+// storage + tetrahedral sample" shape the spatial / P3 / P4 waves reuse.
+//
+// #1737: an earlier version of this kernel implemented standard 8-corner
+// TRILINEAR interpolation, which silently diverges from `ColorLut::sample`
+// (~0.033 max abs diff, vs the 1e-4 parity budget) off the identity diagonal —
+// the GPU-live vs CPU-refine seam under profile=auto. Trilinear and tetrahedral
+// interpolation agree only on the 6 corners/edges they share by construction;
+// interior samples differ because tetrahedral blends 4 of the 8 corners
+// (chosen by the fx/fy/fz ordering) while trilinear blends all 8.
 //
 // PARITY-CRITICAL invariants (mirrored verbatim from lut.rs `sample` / `node`):
 //   * Grid layout: index = ((b*N + g)*N + r)*3 + c. `size` (N) is a runtime
@@ -14,8 +23,8 @@
 //   * Per-channel: p = clamp(rgb[c], 0, 1) * last; lo = min(floor(p), last - 1);
 //     f = p - lo. The `min(_, last - 1)` is load-bearing: an input of exactly
 //     1.0 lands in the TOP cell with f = 1.0 (not an out-of-range node read).
-//   * Trilinear nesting order r (f0) -> g (f1) -> b (f2), per output channel,
-//     for bit-stable accumulation matching the Rust `sample`.
+//   * Tetrahedral 6-case split on the ordering of fx/fy/fz (see `lut_sample`),
+//     bit-stable accumulation order matching the Rust `sample`.
 //   * RGB lanes only; alpha carried through.
 
 struct Params {
@@ -41,9 +50,11 @@ fn lut_node(r: u32, g: u32, b: u32, n: u32) -> vec3<f32> {
     return vec3<f32>(lut[i], lut[i + 1u], lut[i + 2u]);
 }
 
-// Trilinear lookup of one RGB triplet (inputs clamped to [0, 1]). Mirrors
+// Tetrahedral lookup of one RGB triplet (inputs clamped to [0, 1]). Mirrors
 // `ColorLut::sample` EXACTLY — same lo/f derivation (with the `min(_, last-1)`
-// top-cell guard) and the same r->g->b corner-blend nesting per channel.
+// top-cell guard) and the same 6-case barycentric split of the unit cube (by
+// the ordering of f_r/f_g/f_b), blending only 4 of the 8 corner nodes per
+// sample. NOT trilinear — see the module-level comment (#1737).
 fn lut_sample(rgb: vec3<f32>, n: u32) -> vec3<f32> {
     let last = f32(n - 1u);
 
@@ -66,23 +77,34 @@ fn lut_sample(rgb: vec3<f32>, n: u32) -> vec3<f32> {
     let g1 = g0 + 1u;
     let b1 = b0 + 1u;
 
+    let c000 = lut_node(r0, g0, b0, n);
+    let c100 = lut_node(r1, g0, b0, n);
+    let c010 = lut_node(r0, g1, b0, n);
+    let c110 = lut_node(r1, g1, b0, n);
+    let c001 = lut_node(r0, g0, b1, n);
+    let c101 = lut_node(r1, g0, b1, n);
+    let c011 = lut_node(r0, g1, b1, n);
+    let c111 = lut_node(r1, g1, b1, n);
+
     var out = vec3<f32>(0.0, 0.0, 0.0);
     for (var c: i32 = 0; c < 3; c = c + 1) {
-        let c000 = lut_node(r0, g0, b0, n)[c];
-        let c100 = lut_node(r1, g0, b0, n)[c];
-        let c010 = lut_node(r0, g1, b0, n)[c];
-        let c110 = lut_node(r1, g1, b0, n)[c];
-        let c001 = lut_node(r0, g0, b1, n)[c];
-        let c101 = lut_node(r1, g0, b1, n)[c];
-        let c011 = lut_node(r0, g1, b1, n)[c];
-        let c111 = lut_node(r1, g1, b1, n)[c];
-        let c00 = c000 * (1.0 - f_r) + c100 * f_r;
-        let c10 = c010 * (1.0 - f_r) + c110 * f_r;
-        let c01 = c001 * (1.0 - f_r) + c101 * f_r;
-        let c11 = c011 * (1.0 - f_r) + c111 * f_r;
-        let c0 = c00 * (1.0 - f_g) + c10 * f_g;
-        let c1 = c01 * (1.0 - f_g) + c11 * f_g;
-        out[c] = c0 * (1.0 - f_b) + c1 * f_b;
+        if (f_r >= f_g) {
+            if (f_g >= f_b) {
+                out[c] = c000[c] * (1.0 - f_r) + c100[c] * (f_r - f_g) + c110[c] * (f_g - f_b) + c111[c] * f_b;
+            } else if (f_r >= f_b) {
+                out[c] = c000[c] * (1.0 - f_r) + c100[c] * (f_r - f_b) + c101[c] * (f_b - f_g) + c111[c] * f_g;
+            } else {
+                out[c] = c000[c] * (1.0 - f_b) + c001[c] * (f_b - f_r) + c101[c] * (f_r - f_g) + c111[c] * f_g;
+            }
+        } else {
+            if (f_r >= f_b) {
+                out[c] = c000[c] * (1.0 - f_g) + c010[c] * (f_g - f_r) + c110[c] * (f_r - f_b) + c111[c] * f_b;
+            } else if (f_g >= f_b) {
+                out[c] = c000[c] * (1.0 - f_g) + c010[c] * (f_g - f_b) + c011[c] * (f_b - f_r) + c111[c] * f_r;
+            } else {
+                out[c] = c000[c] * (1.0 - f_b) + c001[c] * (f_b - f_g) + c011[c] * (f_g - f_r) + c111[c] * f_r;
+            }
+        }
     }
     return out;
 }
