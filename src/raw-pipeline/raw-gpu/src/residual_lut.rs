@@ -2,12 +2,17 @@
 //!
 //! Ports `raw_core::view::auto_profile::lut::ColorLut::sample` (#924): the
 //! per-image residual RGB→RGB grid layered onto the Auto Profile cube, applied by
-//! **trilinear** interpolation. The grid is PER-IMAGE RUNTIME DATA — fitted from
-//! the embedded JPEG at open time (`fit_lut_from_*`), NOT a codegen constant — so
-//! the flat grid rides a read-only storage buffer uploaded per pass. This is the
-//! canonical "runtime 3D LUT in storage + trilinear sample" pattern the spatial /
-//! P3 / P4 waves reuse (distinct from the tone-curve / WB / auto_profile family,
-//! which upload CPU-derived per-image *coefficients* rather than a sampled LUT).
+//! **tetrahedral** interpolation (a 6-case barycentric split of the unit cube by
+//! the ordering of `fx`/`fy`/`fz`, using only 4 of the 8 corner nodes per
+//! sample — NOT trilinear; #1737 found a standard 8-corner trilinear GPU port
+//! diverging from the CPU reference by ~0.033, well outside the 1e-4 parity
+//! budget, off the identity diagonal). The grid is PER-IMAGE RUNTIME DATA —
+//! fitted from the embedded JPEG at open time (`fit_lut_from_*`), NOT a codegen
+//! constant — so the flat grid rides a read-only storage buffer uploaded per
+//! pass. This is the canonical "runtime 3D LUT in storage + tetrahedral sample"
+//! pattern the spatial / P3 / P4 waves reuse (distinct from the tone-curve / WB /
+//! auto_profile family, which upload CPU-derived per-image *coefficients* rather
+//! than a sampled LUT).
 //!
 //! Three pieces (the per-stage template):
 //! 1. [`apply_residual_lut`] — the CPU oracle: a line-for-line port of
@@ -15,13 +20,13 @@
 //!    the grid in the same `((b*N+g)*N+r)*3+c` layout.
 //! 2. [`ResidualLutPass`] — the GPU-resident [`Pass`]; carries the flat grid +
 //!    its node count `size`. The kernel needs NO generated color matrices (pure
-//!    trilinear lookup), so `residual_lut.wgsl` compiles standalone. Uploads the
-//!    grid to storage binding 3 and the `count` / `size` to uniform binding 0.
+//!    tetrahedral lookup), so `residual_lut.wgsl` compiles standalone. Uploads
+//!    the grid to storage binding 3 and the `count` / `size` to uniform binding 0.
 //! 3. The headless parity test ([`mod tests`], in `residual_lut/tests.rs`) — GPU
 //!    vs the real `ColorLut::apply` (via the test-only `raw-core` dev-dep)
-//!    `< 1e-4` on a NON-identity fitted grid (so the trilinear interpolation runs
-//!    off the identity diagonal — the identity LUT alone would be a false green),
-//!    plus an identity-LUT passthrough and an alpha-passthrough guard.
+//!    `< 1e-4` on a NON-identity fitted grid (so the tetrahedral interpolation
+//!    runs off the identity diagonal — the identity LUT alone would be a false
+//!    green), plus an identity-LUT passthrough and an alpha-passthrough guard.
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
@@ -43,10 +48,13 @@ fn node(data: &[f32], size: usize, r: usize, g: usize, b: usize) -> [f32; 3] {
     [data[i], data[i + 1], data[i + 2]]
 }
 
-/// Trilinear lookup of one RGB triplet (inputs clamped to `[0, 1]`). A
+/// Tetrahedral lookup of one RGB triplet (inputs clamped to `[0, 1]`). A
 /// line-for-line port of `ColorLut::sample` — same `lo`/`f` derivation (with the
 /// `min(_, last - 1)` top-cell guard so an input of exactly 1.0 lands in the top
-/// cell with `f = 1.0`) and the same r→g→b corner-blend nesting per channel.
+/// cell with `f = 1.0`) and the same 6-case barycentric split of the unit cube
+/// (by the ordering of `fx`/`fy`/`fz`) using only 4 of the 8 corner nodes per
+/// sample. NOT trilinear — `ColorLut::sample` never blends all 8 corners; a
+/// standard trilinear port silently diverges off the identity diagonal (#1737).
 fn sample(data: &[f32], size: usize, rgb: [f32; 3]) -> [f32; 3] {
     let last = (size - 1) as f32;
     let mut lo = [0usize; 3];
@@ -57,23 +65,36 @@ fn sample(data: &[f32], size: usize, rgb: [f32; 3]) -> [f32; 3] {
         lo[c] = l as usize;
         f[c] = p - l;
     }
+    let fx = f[0];
+    let fy = f[1];
+    let fz = f[2];
+
+    let c000 = node(data, size, lo[0], lo[1], lo[2]);
+    let c100 = node(data, size, lo[0] + 1, lo[1], lo[2]);
+    let c010 = node(data, size, lo[0], lo[1] + 1, lo[2]);
+    let c110 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2]);
+    let c001 = node(data, size, lo[0], lo[1], lo[2] + 1);
+    let c101 = node(data, size, lo[0] + 1, lo[1], lo[2] + 1);
+    let c011 = node(data, size, lo[0], lo[1] + 1, lo[2] + 1);
+    let c111 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2] + 1);
+
     let mut out = [0f32; 3];
-    for (c, out_c) in out.iter_mut().enumerate() {
-        let c000 = node(data, size, lo[0], lo[1], lo[2])[c];
-        let c100 = node(data, size, lo[0] + 1, lo[1], lo[2])[c];
-        let c010 = node(data, size, lo[0], lo[1] + 1, lo[2])[c];
-        let c110 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2])[c];
-        let c001 = node(data, size, lo[0], lo[1], lo[2] + 1)[c];
-        let c101 = node(data, size, lo[0] + 1, lo[1], lo[2] + 1)[c];
-        let c011 = node(data, size, lo[0], lo[1] + 1, lo[2] + 1)[c];
-        let c111 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2] + 1)[c];
-        let c00 = c000 * (1.0 - f[0]) + c100 * f[0];
-        let c10 = c010 * (1.0 - f[0]) + c110 * f[0];
-        let c01 = c001 * (1.0 - f[0]) + c101 * f[0];
-        let c11 = c011 * (1.0 - f[0]) + c111 * f[0];
-        let c0 = c00 * (1.0 - f[1]) + c10 * f[1];
-        let c1 = c01 * (1.0 - f[1]) + c11 * f[1];
-        *out_c = c0 * (1.0 - f[2]) + c1 * f[2];
+    for c in 0..3 {
+        out[c] = if fx >= fy {
+            if fy >= fz {
+                c000[c] * (1.0 - fx) + c100[c] * (fx - fy) + c110[c] * (fy - fz) + c111[c] * fz
+            } else if fx >= fz {
+                c000[c] * (1.0 - fx) + c100[c] * (fx - fz) + c101[c] * (fz - fy) + c111[c] * fy
+            } else {
+                c000[c] * (1.0 - fz) + c001[c] * (fz - fx) + c101[c] * (fx - fy) + c111[c] * fy
+            }
+        } else if fx >= fz {
+            c000[c] * (1.0 - fy) + c010[c] * (fy - fx) + c110[c] * (fx - fz) + c111[c] * fz
+        } else if fy >= fz {
+            c000[c] * (1.0 - fy) + c010[c] * (fy - fz) + c011[c] * (fz - fx) + c111[c] * fx
+        } else {
+            c000[c] * (1.0 - fz) + c001[c] * (fz - fy) + c011[c] * (fy - fx) + c111[c] * fx
+        };
     }
     out
 }
