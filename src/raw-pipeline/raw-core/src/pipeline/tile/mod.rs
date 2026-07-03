@@ -113,6 +113,38 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     out_h: u32,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<u16>)> {
+    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+        raw, model, src_x, src_y, src_w, src_h, out_w, out_h, quality, None,
+    )
+}
+
+/// Same as [`render_scene_linear_tile_from_raw_with_quality`], with an
+/// explicit WB delta anchor (#1725 band fix).
+///
+/// `decoded_wb_anchor = Some((decoded_temp, decoded_tint))` makes this tile
+/// render use the SAME delta contract as the app's live-chain
+/// (`pipeline::apply_scene_linear_chain`): `model.temperature`/`model.tint`
+/// are applied relative to the buffer's decode-time WB, so a tile rendered
+/// with `model.temperature == decoded_temp` (the common "unedited open"
+/// case, where both are the image's as-shot CCT) is IDENTITY — matching the
+/// GPU-live frame exactly instead of shifting away from it. `None` keeps the
+/// legacy ABSOLUTE `resolve_wb` + `apply` contract, correct for the
+/// maple-cli / XMP-render family where `crs:Temperature` is an absolute
+/// value. See `tile::develop::develop_scene_linear_from_padded_mosaic`'s
+/// doc-comment for the full rationale.
+#[allow(clippy::too_many_arguments)]
+pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
+) -> Result<(u32, u32, Vec<u16>)> {
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
             "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07."
@@ -244,7 +276,8 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
             crate::stages::hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
         });
     }
-    let scene = develop_scene_linear_from_padded_mosaic(&mosaic, raw, model, quality)?;
+    let scene =
+        develop_scene_linear_from_padded_mosaic(&mosaic, raw, model, quality, decoded_wb_anchor)?;
 
     // Trim the overlap, leaving the inner s_w × s_h block in SENSOR coords
     // (rotation applied below). For half-res Preview the trim coords

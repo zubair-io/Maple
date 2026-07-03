@@ -38,11 +38,26 @@ use crate::pipeline::{stage, RenderQuality};
 /// this fn runs when any of them is active — see the rejection block in
 /// `render_scene_linear_tile_from_raw_with_quality`, #1084 / #1105 /
 /// #1109).
+///
+/// `decoded_wb_anchor` is the app's live-chain / tile-refine DELTA contract
+/// (#1725 band fix): `Some((decoded_temp, decoded_tint))` applies
+/// `white_balance::apply_delta(scene, model.temperature, model.tint,
+/// decoded_temp, decoded_tint, model.wb_method)` — the SAME delta semantics
+/// `pipeline::apply_scene_linear_chain` (the per-tick GPU-live FFI entry)
+/// uses, so a tile rendered at `model.temperature == decoded_temp` is
+/// IDENTITY, exactly like the live frame. `None` preserves the prior
+/// ABSOLUTE behavior via `white_balance::resolve_wb` + `apply` — the
+/// correct semantics for the maple-cli / XMP-render callers of the tile
+/// path (`maple-cli tile`, any caller that doesn't know about a "decoded"
+/// buffer), where `crs:Temperature` is an absolute ACR sidecar value, not a
+/// delta. See `raw-ffi/src/scene_linear/tile.rs` for which FFI entries pass
+/// which.
 pub(super) fn develop_scene_linear_from_padded_mosaic(
     mosaic: &crate::image::Image,
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<crate::image::Image> {
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -144,13 +159,52 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // render slightly darker than the full-image path (by whatever EV the
     // full path's AE picked); follow-up tracked in #1167. The same
     // architectural reason already excludes dehaze from this path.
-    // ACR anchoring (#1729 / round-trip fix, #1725 band fix): delegate to
-    // `white_balance::resolve_wb` — the single source of truth for WB
-    // resolution semantics, shared by all three develop sites.
-    let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
-    stage("tile_white_balance", || {
-        white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
-    });
+    // WB contract split (#1725 band fix):
+    //
+    // - `decoded_wb_anchor = Some((decoded_temp, decoded_tint))`: the caller
+    //   is the app's live-chain / tile-refine flow, which treats slider
+    //   values as a DELTA vs. the buffer's decode-time WB — exactly like
+    //   `pipeline::apply_scene_linear_chain` (the GPU-live per-tick FFI
+    //   entry) does. Applying `model.temperature`/`model.tint` here via
+    //   `resolve_wb` + ABSOLUTE `apply` (the pre-fix behavior) shifted the
+    //   tile away from the GPU-live frame's IDENTITY render whenever the
+    //   as-shot CCT was off D65 — the horizontal band. `apply_delta` with
+    //   the SAME anchor the live chain used makes slider==as-shot render
+    //   IDENTITY through both paths.
+    // - `None`: the caller is the maple-cli / XMP-render family (or any
+    //   caller that predates the anchor), where ABSOLUTE semantics are
+    //   correct — `crs:Temperature` in an XMP sidecar is an absolute ACR
+    //   value, not a delta. Falls through to the pre-fix `resolve_wb` +
+    //   `apply` path unchanged.
+    match decoded_wb_anchor {
+        Some((decoded_temp, decoded_tint)) => {
+            stage("tile_white_balance_delta", || {
+                white_balance::apply_delta(
+                    &mut scene,
+                    model.temperature,
+                    model.tint,
+                    decoded_temp,
+                    decoded_tint,
+                    model.wb_method,
+                )
+            });
+        }
+        None => {
+            // ACR anchoring (#1729 / round-trip fix): delegate to
+            // `white_balance::resolve_wb` — the single source of truth for
+            // WB resolution semantics, shared by the develop/mod.rs and
+            // develop_sized.rs XMP/CLI render sites.
+            let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
+            stage("tile_white_balance", || {
+                white_balance::apply(
+                    &mut scene,
+                    effective_temperature,
+                    effective_tint,
+                    model.wb_method,
+                )
+            });
+        }
+    }
     stage("tile_scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
     });

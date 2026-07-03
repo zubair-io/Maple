@@ -67,7 +67,10 @@ pub use scene_linear_chain::{
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
     encode_display_srgb_f32,
 };
-pub use tile::{render_scene_linear_tile_from_raw_with_quality, TILE_OVERLAP_PX};
+pub use tile::{
+    render_scene_linear_tile_from_raw_with_quality,
+    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor, TILE_OVERLAP_PX,
+};
 
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
 /// to stderr when `MAPLE_PROFILE` is set in the environment. When unset
