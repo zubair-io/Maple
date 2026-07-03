@@ -37,7 +37,7 @@ use std::sync::OnceLock;
 /// To re-fit empirically: generate tint references where both temperature AND
 /// tint are set in the XMP, so the tint effect is genuinely different from the
 /// baseline. Track in #1725.
-const TINT_UV_SCALE: f32 = 1e-4;
+pub(crate) const TINT_UV_SCALE: f32 = 1e-4;
 
 /// Re-export the auto-WB estimators that live in the sibling
 /// `white_balance_auto` module so existing call sites at
@@ -95,8 +95,13 @@ pub fn xy_to_xyz(x: f32, y: f32, big_y: f32) -> Vec3 {
 /// Standard formulæ (Robertson 1968 / Wyszecki & Stiles):
 ///   u = 4x / (−2x + 12y + 3)
 ///   v = 6y / (−2x + 12y + 3)
+///
+/// `pub(crate)` — reused by `white_balance_auto::tint_from_xy` (#1725) for the
+/// inverse projection (measured chromaticity → signed perpendicular distance
+/// from the locus), which needs the SAME uv metric `apply_tint_perpendicular`
+/// displaces in below.
 #[inline]
-fn xy_to_uv(x: f32, y: f32) -> (f32, f32) {
+pub(crate) fn xy_to_uv(x: f32, y: f32) -> (f32, f32) {
     let denom = -2.0 * x + 12.0 * y + 3.0;
     (4.0 * x / denom, 6.0 * y / denom)
 }
@@ -147,7 +152,21 @@ pub fn apply_tint_perpendicular(
     tint: f32,
     tint_sign_positive_v: bool,
 ) -> (f32, f32) {
-    // Finite-difference tangent of the locus in uv at this CCT.
+    let (perp_u, perp_v) = tint_perpendicular_axis(cct, tint_sign_positive_v);
+    let (u0, v0) = xy_to_uv(x, y);
+    let displacement = tint * TINT_UV_SCALE;
+    let u1 = u0 + displacement * perp_u;
+    let v1 = v0 + displacement * perp_v;
+    uv_to_xy(u1, v1)
+}
+
+/// Unit tangent-to-locus direction in CIE 1960 uv space at `cct`, via
+/// central finite difference at `cct ± 50 K`. Shared by
+/// `tint_perpendicular_axis` (rotates this ±90°) and
+/// `white_balance_auto`'s nearest-point-on-locus CCT solve (#1725), which
+/// needs the tangent directly to know which way along the locus reduces
+/// the residual.
+pub(crate) fn locus_tangent_uv(cct: f32) -> (f32, f32) {
     let delta_k = 50.0_f32;
     let (xp, yp) = cct_to_xy((cct + delta_k).min(25000.0));
     let (xm, ym) = cct_to_xy((cct - delta_k).max(2000.0));
@@ -155,10 +174,24 @@ pub fn apply_tint_perpendicular(
     let (um, vm) = xy_to_uv(xm, ym);
     let mut du = up - um;
     let mut dv = vp - vm;
-    // Normalise tangent.
     let len = (du * du + dv * dv).sqrt().max(1e-10);
     du /= len;
     dv /= len;
+    (du, dv)
+}
+
+/// Unit perpendicular-to-locus direction in CIE 1960 uv space at `cct`,
+/// oriented per the `tint_sign_positive_v` convention documented on
+/// [`apply_tint_perpendicular`].
+///
+/// Factored out (#1725) so the FORWARD displacement above and the INVERSE
+/// projection in `white_balance_auto::tint_from_xy` share the exact same
+/// axis — a measured chromaticity fed back through the inverse must recover
+/// the tint that would have produced it via the forward path, and any drift
+/// between two independently-derived tangent computations would show up as
+/// systematic round-trip error.
+pub(crate) fn tint_perpendicular_axis(cct: f32, tint_sign_positive_v: bool) -> (f32, f32) {
+    let (du, dv) = locus_tangent_uv(cct);
     // Perpendicular candidates (rotate tangent ±90°):
     //   candidate A: (−dv, +du)  — v-component = +du
     //   candidate B: (+dv, −du)  — v-component = −du
@@ -171,19 +204,13 @@ pub fn apply_tint_perpendicular(
     // Pick the one whose v-component is positive when `tint_sign_positive_v`
     // is true (CAT16: tint+ = greener source = higher v), or negative when
     // false (diagonal: tint+ = magenta source = lower v, image goes green).
-    let (perp_u, perp_v) = if tint_sign_positive_v {
+    if tint_sign_positive_v {
         // Green direction: candidate B (+dv, −du), v-component = −du > 0.
         (dv, -du)
     } else {
         // Magenta direction: candidate A (−dv, +du), v-component = +du < 0.
         (-dv, du)
-    };
-
-    let (u0, v0) = xy_to_uv(x, y);
-    let displacement = tint * TINT_UV_SCALE;
-    let u1 = u0 + displacement * perp_u;
-    let v1 = v0 + displacement * perp_v;
-    uv_to_xy(u1, v1)
+    }
 }
 
 /// Compute per-channel gains in linear Rec.2020 for a SOURCE-LIGHT
