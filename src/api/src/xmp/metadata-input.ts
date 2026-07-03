@@ -8,7 +8,7 @@
  */
 
 /** Copyright status tri-state (mirrors CopyrightStatus from xmp.types.ts). */
-export type CopyrightStatus = 'unknown' | 'copyrighted' | 'public-domain';
+export type CopyrightStatus = "unknown" | "copyrighted" | "public-domain";
 
 /**
  * Metadata fields the batch route accepts per asset.
@@ -45,10 +45,10 @@ export interface XmpMetadataInput {
   rating?: number | null;
   /** Pick/reject flag. 'unflagged' means "clear".
    * Written as `papp:Flag` attribute. */
-  flag?: 'pick' | 'reject' | 'unflagged' | null;
+  flag?: "pick" | "reject" | "unflagged" | null;
   /** Color label. null means "clear".
    * Written as `papp:ColorLabel` attribute. */
-  colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+  colorLabel?: "red" | "orange" | "yellow" | "green" | "blue" | null;
   /** Custom screenshot flag. null means "clear".
    * Written as `papp:IsScreenshot` attribute. */
   isScreenshot?: boolean | null;
