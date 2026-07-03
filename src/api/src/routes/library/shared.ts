@@ -62,6 +62,12 @@ export async function safeReadBytes(p: string): Promise<Uint8Array | null> {
 
 /**
  * Stream a file as a Response. Returns null if the file cannot be read.
+ *
+ * The body is a `BunFile` so `Bun.serve` takes its zero-copy file-send path.
+ * The previous `Readable.toWeb(createReadStream(...))` bridge delivered bytes
+ * with several ms of per-chunk latency that, under HTTP/2 per-stream flow
+ * control, capped a single download near ~5–11 MB/s regardless of link speed
+ * (#1735). Explicit headers override Bun's auto-detected Content-Type/Length.
  */
 export async function streamFile(
   absPath: string,
@@ -70,11 +76,7 @@ export async function streamFile(
 ): Promise<Response | null> {
   const st = await safeStat(absPath);
   if (!st || !st.isFile()) return null;
-  const { Readable } = await import('node:stream');
-  const { createReadStream } = await import('node:fs');
-  const nodeStream = createReadStream(absPath);
-  const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
-  return new Response(webStream, {
+  return new Response(Bun.file(absPath), {
     status: 200,
     headers: {
       'Content-Type': contentType,
