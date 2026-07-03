@@ -9,7 +9,7 @@ import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } fr
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import {
   sidecarMetadataIndexHandler,
   SIDECAR_METADATA_INDEX_VERSION,
