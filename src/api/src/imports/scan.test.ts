@@ -15,6 +15,24 @@ import { scanFolder, buildImportFiles } from './scan.ts';
 
 let root: string;
 let rootFolderName: string;
+let previousMapleRoots: string | undefined;
+
+// walk() now re-checks every symlink target against MAPLE_ROOTS (see
+// scan.ts). This suite's temp dirs all live under os.tmpdir(), so jail to
+// that for the file's duration — bun runs every test file in one process, so
+// without this, whatever another file left in `process.env.MAPLE_ROOTS`
+// (many test files set it to their OWN narrow temp dir and never restore it)
+// would leak in here and reject every path in this file. Restored in the
+// matching afterAll so it doesn't leak OUT to files that run after this one.
+beforeAll(async () => {
+  previousMapleRoots = process.env.MAPLE_ROOTS;
+  process.env.MAPLE_ROOTS = await fs.realpath(os.tmpdir());
+});
+
+afterAll(() => {
+  if (previousMapleRoots === undefined) delete process.env.MAPLE_ROOTS;
+  else process.env.MAPLE_ROOTS = previousMapleRoots;
+});
 
 /** Write a file and stamp its mtime to a fixed UTC instant. */
 async function put(rel: string, mtimeUtc: string): Promise<string> {
