@@ -768,6 +768,9 @@ public struct PipelineRenderer: Sendable {
             srcX, srcY, srcW, srcH,
             outW, outH,
             quality.rawValue,
+            // 0.0 is the FFI sentinel for "no decoded WB anchor" (the C side
+            // treats `decoded_temperature > 0.0` as "use it"; Kelvin bottoms
+            // out at 2000, so 0.0 is safely out of range).
             Float(decodedTemperature ?? 0.0),
             Float(decodedTint ?? 0.0),
             &buf
