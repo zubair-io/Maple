@@ -50,9 +50,9 @@ import {
   markImportCancelled,
   isImportCancelRequested,
   assetExistsForHash as realAssetExistsForHash,
-  findNearbyAssetFolder,
   type ClaimedImport,
 } from './repo.ts';
+import { loadNearbyAssetCandidates } from './nearby.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 
 const POLL_MS_DEFAULT = 1_000;
@@ -254,7 +254,10 @@ export class ImportRunner {
       const scanned = await buildImportFiles(
         claim.source_root,
         {},
-        { findNearbyFolder: (mtimeMs) => findNearbyAssetFolder(claim.library_id, mtimeMs) },
+        {
+          loadNearbyCandidates: (minMs, maxMs) =>
+            loadNearbyAssetCandidates(claim.library_id, minMs, maxMs),
+        },
       );
       if (scanned.length === 0) {
         await failImport(

@@ -109,11 +109,17 @@ describe('buildImportFiles', () => {
     expect(mov.kind).toBe('movie');
   });
 
+  const OLD_0002_MTIME_MS = new Date('2007-11-25T08:00:00Z').getTime();
+
   test('a nearby-asset match wins over the misc default, even with no label override', async () => {
     const files = await buildImportFiles(
       root,
       {},
-      { findNearbyFolder: async () => '2007/Reunion' },
+      {
+        loadNearbyCandidates: async () => [
+          { capturedAtMs: OLD_0002_MTIME_MS, folderPath: '2007/Reunion' },
+        ],
+      },
     );
     const nef = files.find((f) => f.dest.endsWith('OLD_0002.nef'))!;
     expect(nef.dest).toBe('2007/Reunion/OLD_0002.nef');
@@ -123,27 +129,35 @@ describe('buildImportFiles', () => {
     const files = await buildImportFiles(
       root,
       { '2007/11': 'Explicit' },
-      { findNearbyFolder: async () => '2007/Reunion' },
+      {
+        loadNearbyCandidates: async () => [
+          { capturedAtMs: OLD_0002_MTIME_MS, folderPath: '2007/Reunion' },
+        ],
+      },
     );
     const nef = files.find((f) => f.dest.endsWith('OLD_0002.nef'))!;
     expect(nef.dest).toBe('2007/Explicit/OLD_0002.nef');
   });
 
-  test('findNearbyFolder is queried with the file mtime', async () => {
-    const seen: number[] = [];
+  test('loadNearbyCandidates is called once with the min/max mtime span, padded by the window', async () => {
+    const calls: Array<{ minMs: number; maxMs: number }> = [];
     await buildImportFiles(
       root,
       {},
       {
-        findNearbyFolder: async (mtimeMs) => {
-          seen.push(mtimeMs);
-          return null;
+        loadNearbyCandidates: async (minMs, maxMs) => {
+          calls.push({ minMs, maxMs });
+          return [];
         },
       },
     );
-    // Every primary (image + movie; the sidecar shares its image's lookup) was queried.
-    expect(seen).toContain(new Date('2024-03-09T12:00:00Z').getTime());
-    expect(seen).toContain(new Date('2007-11-25T08:00:00Z').getTime());
+    // Exactly one batched call, not one per file.
+    expect(calls).toHaveLength(1);
+    const earliestMtime = new Date('2007-11-25T08:00:00Z').getTime();
+    const latestMtime = new Date('2024-03-20T00:00:00Z').getTime(); // clip.mov
+    const windowMs = 30 * 60 * 1000;
+    expect(calls[0].minMs).toBe(earliestMtime - windowMs);
+    expect(calls[0].maxMs).toBe(latestMtime + windowMs);
   });
 });
 
@@ -228,7 +242,11 @@ describe('buildImportFiles: shot-folder fallback', () => {
     const files = await buildImportFiles(
       shotDir,
       {},
-      { findNearbyFolder: async () => '2024/Reunion' },
+      {
+        loadNearbyCandidates: async () => [
+          { capturedAtMs: new Date('2024-09-01T00:00:00Z').getTime(), folderPath: '2024/Reunion' },
+        ],
+      },
     );
     const img = files.find((f) => f.dest.endsWith('IMG_0001.dng'))!;
     expect(img.dest).toBe('2024/Reunion/IMG_0001.dng');
