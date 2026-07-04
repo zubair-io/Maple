@@ -24,13 +24,13 @@ import { scanFolder, buildImportFiles } from '../imports/scan.ts';
 import { isSafeLabel } from '../imports/dest.ts';
 import {
   createImport,
-  findNearbyAssetFolder,
   getImport,
   getImportFiles,
   listImports,
   requestImportCancel,
   retryImport,
 } from '../imports/repo.ts';
+import { loadNearbyAssetCandidates } from '../imports/nearby.ts';
 
 const KNOWN_STATUSES: ReadonlySet<ImportStatus> = new Set([
   'pending',
@@ -243,7 +243,7 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
       // whole folder. It only returns empty when the folder has nothing
       // importable at all.
       const files = await buildImportFiles(jail.real, labels, {
-        findNearbyFolder: (mtimeMs) => findNearbyAssetFolder(folder._id, mtimeMs),
+        loadNearbyCandidates: (minMs, maxMs) => loadNearbyAssetCandidates(folder._id, minMs, maxMs),
       });
       if (files.length === 0) {
         set.status = 400;
