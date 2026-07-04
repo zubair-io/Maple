@@ -76,6 +76,7 @@
         "src/fs/mirror-config.test.ts",
         "src/fs/mirrored.test.ts",
         "src/imports/copy.test.ts",
+        "src/imports/scan.capture-time.test.ts",
         "src/imports/scan.test.ts",
         "src/imports/worker.test.ts",
         "src/indexer/exif.formats.test.ts",
