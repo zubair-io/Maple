@@ -40,6 +40,10 @@ on:
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
       - 'src/scripts/test_grey_dcp.sh'
+      - 'src/scripts/test_banding.sh'
+      - 'src/scripts/banding_check.py'
+      - 'src/scripts/banding_check_test.py'
+      - 'test-fixtures/banding_budgets.json'
       - '.github/workflows/raw-pipeline.yml'
   pull_request:
     paths:
@@ -54,6 +58,10 @@ on:
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
       - 'src/scripts/test_grey_dcp.sh'
+      - 'src/scripts/test_banding.sh'
+      - 'src/scripts/banding_check.py'
+      - 'src/scripts/banding_check_test.py'
+      - 'test-fixtures/banding_budgets.json'
       - '.github/workflows/raw-pipeline.yml'
 
 concurrency:
@@ -126,6 +134,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # banding_check.py (#1627) needs numpy + an EXR reader (OpenEXR
+      # preferred, imageio fallback) — a strict subset of
+      # src/scripts/requirements.txt, installed here rather than the full
+      # file so this job doesn't pick up colour-science/scipy/tifffile it
+      # doesn't use.
+      - name: Install Python deps for the banding gate
+        run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34'
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
         with:
@@ -145,6 +163,10 @@ jobs:
         run: bash src/scripts/test_grey_adjustments.sh
       - name: Grey DCP gate (test_grey_dcp.sh)
         run: bash src/scripts/test_grey_dcp.sh
+      - name: banding_check.py unit tests
+        run: python3 src/scripts/banding_check_test.py
+      - name: Banding second-difference gate (test_banding.sh, #1627/#1733)
+        run: bash src/scripts/test_banding.sh
 
   color-pipeline:
     name: color-pipeline (test_color_pipeline.sh)
