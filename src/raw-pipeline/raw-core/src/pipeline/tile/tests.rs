@@ -57,12 +57,14 @@ fn render_scene_linear_tile_rejects_active_dehaze() {
     let r = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        1024,
-        1024,
-        512,
-        512,
-        512,
-        512,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 512,
+        },
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error when dehaze != 0");
@@ -88,12 +90,14 @@ fn render_scene_linear_tile_rejects_active_vignette() {
     let r = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        1024,
-        1024,
-        512,
-        512,
-        512,
-        512,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 512,
+        },
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error when vignette_amount != 0");
@@ -121,12 +125,14 @@ fn render_scene_linear_tile_rejects_active_deep_denoise() {
     let r = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        1024,
-        1024,
-        512,
-        512,
-        512,
-        512,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 512,
+        },
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error when deep_denoise != 0");
@@ -164,12 +170,14 @@ fn render_scene_linear_tile_rejects_active_local_adjustments() {
     let r = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        1024,
-        1024,
-        512,
-        512,
-        512,
-        512,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 512,
+        },
         RenderQuality::Full,
     );
     assert!(
@@ -201,12 +209,14 @@ fn render_scene_linear_tile_rejects_active_local_adjustments() {
     let r_identity = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model_identity,
-        1024,
-        1024,
-        512,
-        512,
-        512,
-        512,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 512,
+        },
         RenderQuality::Full,
     );
     if let Err(e) = r_identity {
@@ -236,12 +246,14 @@ fn render_scene_linear_tile_rejects_active_capture_sharpening() {
     let r = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        1024,
-        1024,
-        512,
-        512,
-        512,
-        512,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 512,
+        },
         RenderQuality::Full,
     );
     assert!(
@@ -271,12 +283,14 @@ fn render_scene_linear_tile_rejects_mismatched_aspect() {
     let r = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        0,
-        0,
-        512,
-        512,
-        512,
-        256,
+        TileRect {
+            src_x: 0,
+            src_y: 0,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 256,
+        },
         RenderQuality::Full,
     );
     assert!(r.is_err(), "tile path must error on mismatched aspect");
@@ -294,12 +308,14 @@ fn render_scene_linear_tile_rejects_mismatched_aspect() {
     let r_ok_aspect = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        0,
-        0,
-        1024,
-        512,
-        256,
-        128,
+        TileRect {
+            src_x: 0,
+            src_y: 0,
+            src_w: 1024,
+            src_h: 512,
+            out_w: 256,
+            out_h: 128,
+        },
         RenderQuality::Full,
     );
     if let Err(e) = r_ok_aspect {
@@ -317,12 +333,14 @@ fn render_scene_linear_tile_rejects_mismatched_aspect() {
     let r_tol = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        0,
-        0,
-        513,
-        512,
-        257,
-        256,
+        TileRect {
+            src_x: 0,
+            src_y: 0,
+            src_w: 513,
+            src_h: 512,
+            out_w: 257,
+            out_h: 256,
+        },
         RenderQuality::Full,
     );
     if let Err(e) = r_tol {
@@ -344,12 +362,14 @@ fn render_scene_linear_tile_rejects_upscale() {
     let r_w = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        0,
-        0,
-        512,
-        512,
-        1024,
-        512,
+        TileRect {
+            src_x: 0,
+            src_y: 0,
+            src_w: 512,
+            src_h: 512,
+            out_w: 1024,
+            out_h: 512,
+        },
         RenderQuality::Full,
     );
     assert!(r_w.is_err(), "out_w > src_w must error");
@@ -363,14 +383,15 @@ fn render_scene_linear_tile_rejects_upscale() {
     let r_h = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        0,
-        0,
-        512,
-        512,
-        512,
-        1024,
+        TileRect {
+            src_x: 0,
+            src_y: 0,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 1024,
+        },
         RenderQuality::Full,
     );
     assert!(r_h.is_err(), "out_h > src_h must error");
 }
-
