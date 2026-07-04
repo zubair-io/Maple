@@ -410,8 +410,7 @@ fn compute_overlap_rms_rel(
     _full_ts: &model::Tonescale,
 ) -> Option<f32> {
     // For the overlap metric we need at least two renders with samples.
-    // We take the first two non-empty renders and compute the metric between them.
-    let non_empty: Vec<&Vec<NeutralSample>> = per_render_neutrals
+    let mut non_empty: Vec<&Vec<NeutralSample>> = per_render_neutrals
         .iter()
         .filter(|v| v.len() >= 2)
         .collect();
@@ -419,74 +418,79 @@ fn compute_overlap_rms_rel(
         return None;
     }
 
-    // Sort the two render sample sets by their median x to identify which is
-    // the "lower exposure" (wider x range, clips higher) and which is the
-    // "higher exposure" (x range is shifted left by 2^ev, so more shadow detail).
+    // Sort ALL non-empty render sample sets by their median x — ascending, so
+    // index i and i+1 are the "adjacent" pair sharing the narrowest x-gap
+    // (lowest-exposure/widest-range render first, highest-exposure/shifted-
+    // left-by-2^ev render last).
     let median_x = |samples: &[NeutralSample]| -> f32 {
         let mut xs: Vec<f32> = samples.iter().map(|s| s.scene_lum).collect();
         xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
         xs[xs.len() / 2]
     };
+    non_empty.sort_by(|a, b| median_x(a).partial_cmp(&median_x(b)).unwrap());
 
-    // Take first two non-empty renders, sorted by ascending median x.
-    let mut pair: [&Vec<NeutralSample>; 2] = [non_empty[0], non_empty[1]];
-    if median_x(pair[0]) > median_x(pair[1]) {
-        pair.swap(0, 1);
-    }
+    // Evaluate the metric on every adjacent pair and keep the maximum — a
+    // single badly-disagreeing seam should surface the warning even if the
+    // other seams are clean.
+    let mut max_rms: Option<f32> = None;
+    for pair in non_empty.windows(2) {
+        let (lo, hi) = (pair[0], pair[1]);
 
-    // The overlap is the intersection of the two x ranges.
-    let x_min0 = pair[0]
-        .iter()
-        .map(|s| s.scene_lum)
-        .fold(f32::INFINITY, f32::min);
-    let x_max0 = pair[0]
-        .iter()
-        .map(|s| s.scene_lum)
-        .fold(f32::NEG_INFINITY, f32::max);
-    let x_min1 = pair[1]
-        .iter()
-        .map(|s| s.scene_lum)
-        .fold(f32::INFINITY, f32::min);
-    let x_max1 = pair[1]
-        .iter()
-        .map(|s| s.scene_lum)
-        .fold(f32::NEG_INFINITY, f32::max);
+        // The overlap is the intersection of the two renders' x ranges.
+        let x_min_lo = lo.iter().map(|s| s.scene_lum).fold(f32::INFINITY, f32::min);
+        let x_max_lo = lo
+            .iter()
+            .map(|s| s.scene_lum)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let x_min_hi = hi.iter().map(|s| s.scene_lum).fold(f32::INFINITY, f32::min);
+        let x_max_hi = hi
+            .iter()
+            .map(|s| s.scene_lum)
+            .fold(f32::NEG_INFINITY, f32::max);
 
-    let overlap_lo = x_min0.max(x_min1);
-    let overlap_hi = x_max0.min(x_max1);
-    if overlap_lo >= overlap_hi {
-        return None;
-    }
-
-    // Fit tonescale separately on each render's samples.
-    let ts0 = fit_tonescale(pair[0])?;
-    let ts1 = fit_tonescale(pair[1])?;
-
-    // Sample 20 points in the overlap range and compute RMS relative diff.
-    let n_eval = 20usize;
-    let mut sum_sq = 0.0f64;
-    let mut count = 0usize;
-    for i in 0..n_eval {
-        let t = i as f32 / (n_eval - 1) as f32;
-        let x = overlap_lo + t * (overlap_hi - overlap_lo);
-        if x <= 0.0 {
+        let overlap_lo = x_min_lo.max(x_min_hi);
+        let overlap_hi = x_max_lo.min(x_max_hi);
+        if overlap_lo >= overlap_hi {
             continue;
         }
-        let y0 = model::tonescale_apply(&ts0, x);
-        let y1 = model::tonescale_apply(&ts1, x);
-        let avg = (y0 + y1) / 2.0;
-        if avg < 1e-4 {
+
+        // Fit tonescale separately on each render's samples.
+        let Some(ts_lo) = fit_tonescale(lo) else {
+            continue;
+        };
+        let Some(ts_hi) = fit_tonescale(hi) else {
+            continue;
+        };
+
+        // Sample 20 points in the overlap range and compute RMS relative diff.
+        let n_eval = 20usize;
+        let mut sum_sq = 0.0f64;
+        let mut count = 0usize;
+        for i in 0..n_eval {
+            let t = i as f32 / (n_eval - 1) as f32;
+            let x = overlap_lo + t * (overlap_hi - overlap_lo);
+            if x <= 0.0 {
+                continue;
+            }
+            let y0 = model::tonescale_apply(&ts_lo, x);
+            let y1 = model::tonescale_apply(&ts_hi, x);
+            let avg = (y0 + y1) / 2.0;
+            if avg < 1e-4 {
+                continue;
+            }
+            let rel = ((y0 - y1) / avg) as f64;
+            sum_sq += rel * rel;
+            count += 1;
+        }
+
+        if count == 0 {
             continue;
         }
-        let rel = ((y0 - y1) / avg) as f64;
-        sum_sq += rel * rel;
-        count += 1;
+        let rms = (sum_sq / count as f64).sqrt() as f32;
+        max_rms = Some(max_rms.map_or(rms, |m: f32| m.max(rms)));
     }
 
-    if count == 0 {
-        return None;
-    }
-    Some((sum_sq / count as f64).sqrt() as f32)
+    max_rms
 }
 
 /// Compute the root-mean-square CIEDE2000 of `apply_model` prediction vs
@@ -549,3 +553,9 @@ fn compute_fit_rms_de(
         (total_de / n as f64).sqrt() as f32
     }
 }
+
+// Tests live in the sibling `mod_tests.rs` so this file stays closer to the
+// 600-LOC hard budget (same `#[path]` split pattern as `auto_profile/lut.rs`).
+#[cfg(all(test, feature = "test-support"))]
+#[path = "mod_tests.rs"]
+mod tests;

@@ -214,9 +214,12 @@ impl AcrModel {
         let patches_clipped = parse_usize(json, "patches_clipped")?;
         let fit_rms_de = parse_f32(json, "fit_rms_de")?;
 
-        // Optional field.
+        // Optional field: absent entirely → None. Present but malformed → a
+        // parse error propagates (matches this function's "Returns an error
+        // string on parse failure" contract; silently coercing a malformed
+        // value to `None` would mask real corruption).
         let overlap_rms_rel = if json.contains("\"overlap_rms_rel\":") {
-            parse_f32(json, "overlap_rms_rel").ok()
+            Some(parse_f32(json, "overlap_rms_rel")?)
         } else {
             None
         };

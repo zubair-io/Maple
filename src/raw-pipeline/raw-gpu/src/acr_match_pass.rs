@@ -132,6 +132,15 @@ fn sample_lut(data: &[f32], n: usize, rgb: [f32; 3]) -> [f32; 3] {
 fn lut() -> &'static Vec<f32> {
     static CELL: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
+        // `chunks_exact(4)` silently drops a trailing partial chunk — assert
+        // the committed artifact is f32-aligned so a corrupted/truncated
+        // `.bin` fails loudly here instead of quietly baking a short LUT.
+        debug_assert_eq!(
+            ACR_MATCH_LUT_BYTES.len() % 4,
+            0,
+            "acr_match_lut.bin length {} is not a multiple of 4 (f32) — file is truncated or corrupted",
+            ACR_MATCH_LUT_BYTES.len()
+        );
         ACR_MATCH_LUT_BYTES
             .chunks_exact(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
