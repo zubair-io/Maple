@@ -51,10 +51,26 @@ fn render_at(
 
     let (profile, source) = dcp::profile_for_with_source(raw)?;
     println!("  profile_source: {:?}", source);
-    println!("  scene_cct (as-shot): {:.1} K", profile.scene_cct);
+    println!(
+        "  scene_cct (as-shot, render profile): {:.1} K",
+        profile.scene_cct
+    );
 
     if !skip_pre_gain && !matches!(source, dcp::ProfileSource::RawlerFallback) {
-        wb_camera::apply(&mut camera_rgb, &profile, raw.as_shot_neutral, temperature, tint);
+        let frame = wb_camera::SliderFrame::resolve(raw, &profile);
+        println!(
+            "  scene_cct (as-shot, slider frame): {:.1} K",
+            frame.scene_cct
+        );
+        wb_camera::apply(
+            &mut camera_rgb,
+            &frame,
+            raw.as_shot_neutral,
+            temperature,
+            tint,
+        );
+        let dcp_profile = wb_camera::retargeted_render_profile(&frame, &profile, temperature, tint);
+        return Ok(dcp::apply_colorimetry(&camera_rgb, &dcp_profile)?);
     }
     Ok(dcp::apply_colorimetry(&camera_rgb, &profile)?)
 }
@@ -71,7 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let i = (y as usize) * (raw.width as usize) + (x as usize);
 
     let (profile, _source) = dcp::profile_for_with_source(&raw)?;
-    let as_shot_cct = profile.scene_cct;
+    // As-shot in the SLIDER frame (#1727) — the temperature at which the
+    // WB stage is an identity for this image.
+    let as_shot_cct = wb_camera::SliderFrame::resolve(&raw, &profile).scene_cct;
 
     for (label, temperature, tint) in [
         ("as-shot", as_shot_cct, 0.0),
@@ -83,12 +101,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("25000K", 25000.0_f32, 0.0),
         ("50000K", 50000.0_f32, 0.0),
     ] {
-        println!("-- target: {} ({:.0}K, tint {:.1}) --", label, temperature, tint);
+        println!(
+            "-- target: {} ({:.0}K, tint {:.1}) --",
+            label, temperature, tint
+        );
         let scene = render_at(&raw, temperature, tint)?;
         let p = scene.pixels[i];
         println!(
             "  pixel ({}, {}) scene-linear Rec.2020: [{:.4}, {:.4}, {:.4}] (R/B = {:.4})",
-            x, y, p[0], p[1], p[2], p[0] / p[2].max(1e-6)
+            x,
+            y,
+            p[0],
+            p[1],
+            p[2],
+            p[0] / p[2].max(1e-6)
         );
     }
 
