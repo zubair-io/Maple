@@ -238,6 +238,29 @@ enum Cmd {
         #[arg(long)]
         report: PathBuf,
     },
+    /// Fit the SHIPPING Auto Profile tail from a real RAW (production entry
+    /// point — `MAPLE_AUTO2` selects Auto 1.0 vs Auto 2.0 exactly as in the
+    /// app), apply it to smooth display-space ramps (neutral + the four
+    /// named chroma-ramp hues), and write `18_auto_tail.exr` stage dumps
+    /// for `src/scripts/banding_check.py` — the Auto Profile section of the
+    /// banding gate (`src/scripts/test_banding.sh`, #1740 M1).
+    ///
+    /// Requires `--features stage-dump`. Exit 3 = no embedded preview
+    /// (skip); exit 4 = the fit produced no tail (gate-visible failure).
+    AutoTailRamp {
+        /// Path to the RAW file.
+        #[arg(long)]
+        raw: PathBuf,
+        /// Directory to write `<ramp>/18_auto_tail.exr` dumps under.
+        #[arg(long = "out-dir")]
+        out_dir: PathBuf,
+        /// Ramp width in pixels (the sweep axis).
+        #[arg(long, default_value_t = 1024)]
+        width: u32,
+        /// Ramp height in pixels.
+        #[arg(long, default_value_t = 8)]
+        height: u32,
+    },
     /// Repack a v1 (inline) DCP `profiles.bin` into the v3 split layout
     /// (dedup HSM pool + per-entry zlib + offset directory; #829 / PR #831).
     /// Prints dedup stats + the pool byte size.
@@ -374,6 +397,12 @@ fn main() -> ExitCode {
             })())
         }
         Cmd::FitAuto2 { raw, report } => run_or_exit(commands::fit_auto2::run(&raw, &report)),
+        Cmd::AutoTailRamp {
+            raw,
+            out_dir,
+            width,
+            height,
+        } => run_or_exit(commands::auto_tail_ramp::run(&raw, &out_dir, width, height)),
         Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(commands::transcode_dcp::run(
             &src,
             &out,

@@ -8,6 +8,7 @@
 //! `auto_exposure.rs`.
 
 pub mod auto_adjustments;
+pub mod auto_tail_ramp;
 pub mod auto_tone;
 pub mod batch;
 pub mod diff;

@@ -11,6 +11,17 @@
     "skin/16_agx/chroma": { "max_abs_d2": 0.005329, "max_spike_ratio": 1.2 },
     "skin/17_srgb_linear/chroma": { "max_abs_d2": 0.001799, "max_spike_ratio": 1.2 },
     "neutral/16_agx/luma": { "max_abs_d2": 0.005096, "max_spike_ratio": 1.2 },
-    "neutral/17_srgb_linear/luma": { "max_abs_d2": 0.005096, "max_spike_ratio": 1.2 }
+    "neutral/17_srgb_linear/luma": { "max_abs_d2": 0.005096, "max_spike_ratio": 1.2 },
+    "_comment_auto_tail": "Auto Profile tail keys (#1740 M1, `maple-cli auto-tail-ramp` on test_0000): ceilings derived from the shipping AUTO 1.0 tail's RED run (worst observed + the standard headroom/floors). The auto2 keys deliberately REUSE the auto1-derived ceilings — the bar is 'Auto 2.0 must be at least as smooth as the shipping tail', never Auto 2.0's own observed values (which, at introduction, breached neutral flat-run at 0.261 — the operator's posterized-highlight repro — and foliage spike-ratio at 1.64). max_flat_run_frac is the plateau/posterization metric: longest |d1|<=1e-6 run over ramp steps.",
+    "test_0000_auto1_neutral/18_auto_tail/luma": { "max_abs_d2": 0.004007, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto1_foliage/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto1_blue/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto1_magenta/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto1_skin/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto2_neutral/18_auto_tail/luma": { "max_abs_d2": 0.004007, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto2_foliage/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto2_blue/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto2_magenta/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
+    "test_0000_auto2_skin/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 }
   }
 }
