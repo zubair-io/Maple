@@ -89,9 +89,14 @@ function stubFetch(status: number, body = ''): void {
 
 async function get(path: string, jwt: string): Promise<{ status: number; body: unknown }> {
   const res = await app!.handle(
-    new Request(`http://localhost${path}`, { headers: { authorization: `Bearer ${jwt}` } }),
+    new Request(`http://localhost${path}`, {
+      headers: { authorization: `Bearer ${jwt}` },
+    }),
   );
-  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+  return {
+    status: res.status,
+    body: res.status === 204 ? null : await res.json(),
+  };
 }
 
 async function put(
@@ -102,11 +107,17 @@ async function put(
   const res = await app!.handle(
     new Request(`http://localhost${path}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${jwt}` },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${jwt}`,
+      },
       body: JSON.stringify(body),
     }),
   );
-  return { status: res.status, body: res.status === 204 ? null : await res.json() };
+  return {
+    status: res.status,
+    body: res.status === 204 ? null : await res.json(),
+  };
 }
 
 const FULL_CONFIG = {
@@ -187,15 +198,11 @@ describe('PUT /api/cloudflare/config', () => {
     if (!mongoReachable) return;
     stubFetch(200);
     await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
-    const r = await put(
-      '/api/cloudflare/config',
-      { enabled: false, bucket: 'renamed' },
-      ownerJwt,
-    );
+    const r = await put('/api/cloudflare/config', { enabled: false, bucket: 'renamed' }, ownerJwt);
     expect(r.status).toBe(200);
-    const saved = await db!
-      .collection('app_settings')
-      .findOne<{ config: { secret_access_key?: string } }>({ _id: 'cloudflare' } as never);
+    const saved = await db!.collection('app_settings').findOne<{
+      config: { secret_access_key?: string };
+    }>({ _id: 'cloudflare' } as never);
     expect(saved!.config.secret_access_key).toBe('secretexample');
   });
 
@@ -213,7 +220,10 @@ describe('POST /api/cloudflare/test', () => {
     const res = await app!.handle(
       new Request('http://localhost/api/cloudflare/test', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${ownerJwt}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${ownerJwt}`,
+        },
         body: JSON.stringify(FULL_CONFIG),
       }),
     );
@@ -227,7 +237,10 @@ describe('POST /api/cloudflare/test', () => {
     const res = await app!.handle(
       new Request('http://localhost/api/cloudflare/test', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${ownerJwt}` },
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${ownerJwt}`,
+        },
         body: JSON.stringify(FULL_CONFIG),
       }),
     );
