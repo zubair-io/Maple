@@ -18,8 +18,8 @@ use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{
-        clarity, crop, dehaze, grain, noise_reduction, saturation, sharpen, split_tone, texture,
-        vibrance, vignette,
+        clarity, crop, dehaze, grain, hsl, noise_reduction, saturation, scene_tone_controls,
+        sharpen, split_tone, texture, vibrance, vignette,
     },
     types::adjustment::{AutoExposureMode, Profile},
     view::{acr_match, agx, auto_profile, encode},
@@ -394,15 +394,19 @@ pub fn render_from_scene_linear(
 /// runs over real raws, but on a fresh `Image` rather than going through
 /// decode / demosaic / DCP / auto-exposure.
 ///
-/// White-balance and scene-tone-controls are skipped — the synthetic input
-/// is generated directly in the Rec.2020 working space at a known
-/// brightness, so running WB delta or tone-mapping over it would only
-/// muddy the artefact under test. Vibrance and saturation are kept (they
-/// scale around the achromatic axis, so they're no-ops on neutrals but DO
-/// affect saturated primaries the way a real pixel would see). Stage
-/// numbering matches the real RAW develop chain in `develop.rs`, with no
-/// dumps for the skipped stages (so `05_auto_exposure` / `06_white_balance`
-/// / `07_scene_tone_controls` are absent from this trace by design).
+/// White-balance is skipped — the synthetic input is generated directly in
+/// the Rec.2020 working space at a known brightness, so running a WB delta
+/// over it would only muddy the artefact under test. Scene-tone-controls
+/// (exposure/brightness/highlights/shadows/whites/blacks) IS run (#1627
+/// banding-gate machinery needs exposure/shadows/blacks slider-extreme
+/// sweeps on gradient fixtures); it identity-short-circuits at the default
+/// model so every existing clarity/dehaze/sharpen/halo detector that calls
+/// this with a default-tone-controls model sees a byte-identical trace.
+/// Vibrance and saturation are kept (they scale around the achromatic axis,
+/// so they're no-ops on neutrals but DO affect saturated primaries the way
+/// a real pixel would see). Stage numbering matches the real RAW develop
+/// chain in `develop.rs`, with no dump for the skipped stage (so
+/// `06_white_balance` is absent from this trace by design).
 pub fn render_from_scene_linear_with_chain(
     image: Image,
     model: &AdjustmentModel,
@@ -410,10 +414,13 @@ pub fn render_from_scene_linear_with_chain(
     let mut scene = image;
     scene.assert_space(ColorSpace::SceneLinearRec2020);
     dump_after("00_synthetic_input", &scene);
-    // White-balance + scene-tone-controls deliberately skipped — see
-    // doc-comment. The detectors that consume this trace target slider
-    // artefacts (clarity / dehaze / sharpen halos, NR banding); the WB
-    // and tone-control stages are tested elsewhere on real RAWs.
+    // White-balance deliberately skipped — see doc-comment. Scene-tone-controls
+    // runs (identity no-op at the default model) so exposure/shadows/blacks
+    // slider-extreme sweeps (#1627) see their real pipeline effect.
+    stage("synth_scene_tone_controls", || {
+        scene_tone_controls::apply(&mut scene, model)
+    });
+    dump_after("07_scene_tone_controls", &scene);
     stage("synth_vibrance", || {
         vibrance::apply(&mut scene, model.vibrance)
     });
@@ -422,6 +429,48 @@ pub fn render_from_scene_linear_with_chain(
         saturation::apply(&mut scene, model.saturation)
     });
     dump_after("09_saturation", &scene);
+    // HSL 8-band (#1112) — same chain position as the real develop path
+    // (after saturation, before clarity). Identity short-circuit on
+    // all-default model. Added for the #1733 clamp audit: HSL's per-band
+    // SAT slider is a chroma-scaling stage like vibrance/saturation and
+    // needs the same banding-gate coverage (see `stages::hsl`'s
+    // `hsl_soft_compress` fix).
+    stage("synth_hsl", || {
+        hsl::apply(
+            &mut scene,
+            &[
+                model.hue_adjustment_red,
+                model.hue_adjustment_orange,
+                model.hue_adjustment_yellow,
+                model.hue_adjustment_green,
+                model.hue_adjustment_aqua,
+                model.hue_adjustment_blue,
+                model.hue_adjustment_purple,
+                model.hue_adjustment_magenta,
+            ],
+            &[
+                model.saturation_adjustment_red,
+                model.saturation_adjustment_orange,
+                model.saturation_adjustment_yellow,
+                model.saturation_adjustment_green,
+                model.saturation_adjustment_aqua,
+                model.saturation_adjustment_blue,
+                model.saturation_adjustment_purple,
+                model.saturation_adjustment_magenta,
+            ],
+            &[
+                model.luminance_adjustment_red,
+                model.luminance_adjustment_orange,
+                model.luminance_adjustment_yellow,
+                model.luminance_adjustment_green,
+                model.luminance_adjustment_aqua,
+                model.luminance_adjustment_blue,
+                model.luminance_adjustment_purple,
+                model.luminance_adjustment_magenta,
+            ],
+        )
+    });
+    dump_after("09b_hsl", &scene);
     stage("synth_clarity", || {
         clarity::apply(&mut scene, model.clarity)
     });
@@ -520,3 +569,8 @@ mod sized_display_tests;
 // stays under the 600-LOC hard budget (#772).
 #[cfg(test)]
 mod crop_tests;
+
+// Dither-terminal static source gate (#1627 scope addition, ticket #441) —
+// own sibling file per the same size-budget convention.
+#[cfg(test)]
+mod dither_terminal_tests;

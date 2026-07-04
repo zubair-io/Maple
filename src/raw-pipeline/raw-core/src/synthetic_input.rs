@@ -24,6 +24,7 @@
 //! Used by `maple-cli synthetic`. See `src/scripts/banding_check.py`,
 //! `hue_stability.py`, `halo_check.py`.
 
+use crate::color::oklab::oklab_to_rec2020;
 use crate::image::{ColorSpace, Image};
 
 /// Spec mid-gray used as the brightness anchor for the synthetic inputs.
@@ -197,6 +198,98 @@ pub fn saturated_neutral_edge(
     for y in 0..height as usize {
         for x in 0..w {
             img.pixels[y * w + x] = if x < w / 2 { neu_rgb } else { sat_rgb };
+        }
+    }
+    img
+}
+
+/// A named constant-hue axis for [`chroma_ramp`], anchored to a real-world
+/// color family rather than an arbitrary angle — the #1627 banding gate
+/// wants coverage on the hues where pushed-color banding (#1621) actually
+/// shows up in user reports (foliage, sky/blue, skin), not just a generic
+/// hue sweep (that broader sweep already exists as a pure-function unit
+/// test in `color::oklab_gamut::tests::soft_compress_invariants_across_hue_and_lightness`).
+///
+/// `(hue_deg, l)` pairs are derived from linearized sRGB approximations of
+/// each named color (see the derivation note on each variant); `hue_deg` is
+/// the Oklab hue angle in degrees, `l` is the Oklab lightness the ramp holds
+/// constant while chroma sweeps from 0 out past the gamut hull.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RampHue {
+    /// Foliage yellow-green — the #1621 repro hue (linearized sRGB
+    /// ~[0.35, 0.55, 0.05] → Oklab hue ≈ 123°, L ≈ 0.77).
+    FoliageYellowGreen,
+    /// Saturated blue primary (linear sRGB [0, 0, 1] → Oklab hue ≈ 264°,
+    /// L ≈ 0.45).
+    Blue,
+    /// Saturated magenta (linear sRGB [1, 0, 1] → Oklab hue ≈ 328°,
+    /// L ≈ 0.70).
+    Magenta,
+    /// Caucasian mid-tone skin (linearized sRGB ~[0.62, 0.42, 0.32] →
+    /// Oklab hue ≈ 53°, L ≈ 0.77).
+    Skin,
+}
+
+impl RampHue {
+    /// `(hue_degrees, oklab_lightness)` for this axis.
+    pub fn hue_and_lightness(self) -> (f32, f32) {
+        match self {
+            RampHue::FoliageYellowGreen => (123.4, 0.768),
+            RampHue::Blue => (264.1, 0.452),
+            RampHue::Magenta => (328.4, 0.702),
+            RampHue::Skin => (53.1, 0.773),
+        }
+    }
+
+    /// Short slug used to name dump subdirectories / CLI flags.
+    pub fn slug(self) -> &'static str {
+        match self {
+            RampHue::FoliageYellowGreen => "foliage",
+            RampHue::Blue => "blue",
+            RampHue::Magenta => "magenta",
+            RampHue::Skin => "skin",
+        }
+    }
+
+    pub fn from_slug(s: &str) -> Option<Self> {
+        match s {
+            "foliage" => Some(RampHue::FoliageYellowGreen),
+            "blue" => Some(RampHue::Blue),
+            "magenta" => Some(RampHue::Magenta),
+            "skin" => Some(RampHue::Skin),
+            _ => None,
+        }
+    }
+}
+
+/// Constant-lightness, constant-hue Oklab chroma ramp in scene-linear
+/// Rec.2020 — the #1627/#1621 banding-gate fixture. Column `x` carries
+/// chroma `C_MAX * x / (width - 1)`, held at `hue`'s fixed Oklab `(L, hue)`
+/// and converted back to Rec.2020 via [`oklab_to_rec2020`]. The ramp runs
+/// well past the sRGB/Rec.2020 gamut hull for every named hue (`C_MAX`
+/// chosen generously per the #1621 repro's C≈0.45 span) so the second half
+/// of the ramp exercises the AgX + display-encode gamut compressors' soft
+/// knee — a hard clip collapses that half onto a single output color
+/// (the #1621 defect); the fix keeps it monotonic.
+///
+/// Unlike `hue_patch` (a single uniform saturated patch, used by the
+/// hue-stability detector), this generator's whole point is the smooth
+/// *gradient* — `banding_check.py`'s second-difference metric measures
+/// spikes in exactly this kind of per-pixel monotonic progression.
+pub fn chroma_ramp(hue: RampHue, width: u32, height: u32) -> Image {
+    assert!(width >= 2, "chroma_ramp: width must be >= 2");
+    assert!(height >= 1, "chroma_ramp: height must be >= 1");
+    const C_MAX: f32 = 0.45; // past the Rec.2020/sRGB hull for every named hue
+    let (hue_deg, l) = hue.hue_and_lightness();
+    let h = hue_deg.to_radians();
+    let (sin_h, cos_h) = h.sin_cos();
+    let denom = (width - 1) as f32;
+    let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
+    for x in 0..width as usize {
+        let c = C_MAX * (x as f32) / denom;
+        let rgb = oklab_to_rec2020([l, c * cos_h, c * sin_h]);
+        for y in 0..height as usize {
+            img.pixels[y * width as usize + x] = rgb;
         }
     }
     img
@@ -395,5 +488,77 @@ mod tests {
             intermediates >= 1,
             "halo edge is not anti-aliased (0 intermediate pixels)"
         );
+    }
+
+    #[test]
+    fn ramp_hue_slug_round_trips() {
+        for h in [
+            RampHue::FoliageYellowGreen,
+            RampHue::Blue,
+            RampHue::Magenta,
+            RampHue::Skin,
+        ] {
+            assert_eq!(RampHue::from_slug(h.slug()), Some(h));
+        }
+        assert!(RampHue::from_slug("nonexistent").is_none());
+    }
+
+    #[test]
+    fn chroma_ramp_starts_at_the_neutral_axis() {
+        // x=0 carries chroma 0 — the Oklab (a, b) collapse to (0, 0), so
+        // the Rec.2020 triple must be achromatic (R == G == B).
+        let img = chroma_ramp(RampHue::FoliageYellowGreen, 128, 1);
+        let p = img.pixels[0];
+        assert!(
+            (p[0] - p[1]).abs() < 1e-4 && (p[1] - p[2]).abs() < 1e-4,
+            "x=0 should be achromatic: {:?}",
+            p
+        );
+    }
+
+    #[test]
+    fn chroma_ramp_is_not_uniform() {
+        // A real ramp must vary across x — this catches a degenerate
+        // generator that emits the same pixel everywhere (which would
+        // make the banding detector vacuously pass).
+        let img = chroma_ramp(RampHue::Blue, 64, 1);
+        let first = img.pixels[0];
+        let last = img.pixels[63];
+        assert_ne!(first, last, "chroma ramp did not vary across x");
+    }
+
+    #[test]
+    fn chroma_ramp_rows_are_identical() {
+        let img = chroma_ramp(RampHue::Skin, 16, 4);
+        let w = 16usize;
+        for y in 1..4 {
+            for x in 0..w {
+                assert_eq!(img.pixels[y * w + x], img.pixels[x]);
+            }
+        }
+    }
+
+    #[test]
+    fn chroma_ramp_covers_every_named_hue() {
+        // Smoke test: every named hue produces a valid, finite, varying ramp.
+        for hue in [
+            RampHue::FoliageYellowGreen,
+            RampHue::Blue,
+            RampHue::Magenta,
+            RampHue::Skin,
+        ] {
+            let img = chroma_ramp(hue, 32, 1);
+            for p in &img.pixels {
+                for &c in p {
+                    assert!(c.is_finite(), "{:?}: non-finite pixel {:?}", hue, p);
+                }
+            }
+            assert_ne!(
+                img.pixels[0],
+                img.pixels[31],
+                "{:?}: ramp did not vary",
+                hue
+            );
+        }
     }
 }
