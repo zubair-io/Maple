@@ -127,6 +127,9 @@ export function isSafeLabel(label: string): boolean {
  * filesystem.
  */
 export function destRelPath(args: { year: string; label: string; filename: string }): string {
+  if (!isSafeLabel(args.year)) {
+    throw new Error(`unsafe year: ${JSON.stringify(args.year)}`);
+  }
   if (!isSafeLabel(args.label)) {
     throw new Error(`unsafe import bucket label: ${JSON.stringify(args.label)}`);
   }
@@ -146,6 +149,9 @@ export function destRelPathDefault(args: {
   folderName: string;
   filename: string;
 }): string {
+  if (!isSafeLabel(args.year)) {
+    throw new Error(`unsafe year: ${JSON.stringify(args.year)}`);
+  }
   if (!isSafeLabel(args.folderName)) {
     throw new Error(`unsafe source folder name: ${JSON.stringify(args.folderName)}`);
   }
@@ -168,6 +174,9 @@ export function destRelPathShotFolder(args: {
   folderName: string;
   filename: string;
 }): string {
+  if (!isSafeLabel(args.year)) {
+    throw new Error(`unsafe year: ${JSON.stringify(args.year)}`);
+  }
   if (!isSafeLabel(args.parentFolderName)) {
     throw new Error(`unsafe parent folder name: ${JSON.stringify(args.parentFolderName)}`);
   }
