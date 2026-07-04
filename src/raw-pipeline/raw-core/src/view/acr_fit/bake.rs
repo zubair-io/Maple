@@ -33,10 +33,42 @@ use crate::view::auto_profile::lut::ColorLut;
 use crate::view::encode::srgb_gamma;
 use rayon::prelude::*;
 
+/// Upper-end soft shoulder for the baked node values: identity below
+/// `KNEE = 0.95` display-linear, then a smooth (C¹, Reinhard-shaped)
+/// roll-off asymptoting to 1.0 — the same idiom as
+/// `auto_profile::apply::compress_input` and the #1621 gamut soft-knees.
+/// A HARD `clamp(0.0, 1.0)` here posterizes: every over-range prediction
+/// (a display-domain tonescale can legitimately overshoot near clipped
+/// JPEG highlights) collapses onto exactly 1.0, so a whole input range
+/// renders identically (the #1740 test_0000 highlight blob; gated by the
+/// banding harness's `max_flat_run_frac`). The shoulder keeps the mapping
+/// strictly increasing — ordering survives into the LUT — while a truly
+/// blown prediction still lands within ~0.01 of white (ΔE00 ≈ 0.35 on
+/// blown pixels vs the hard clamp). The lower bound stays a hard floor at
+/// 0.0 (negative predictions carry no ordering worth preserving).
+///
+/// Knee at 0.95, same constant as `compress_input`: a tighter knee (0.98,
+/// tried first) leaves the asymptote's slope below the banding gate's
+/// flat-run epsilon for a strongly over-range prediction — ordering
+/// technically survives but at < 1e-6 per ramp step, which the gate
+/// rightly reads as a plateau (measured 0.0254 flat-run on test_0000 at
+/// knee 0.98 vs 0.0 at 0.95).
+fn shoulder_01(x: f32) -> f32 {
+    const KNEE: f32 = 0.95;
+    let x = x.max(0.0);
+    if x <= KNEE {
+        x
+    } else {
+        let over = (x - KNEE) / (1.0 - KNEE);
+        KNEE + (1.0 - KNEE) * (over / (1.0 + over))
+    }
+}
+
 /// Apply `model` to one `DisplayEncodedSrgb` `[0, 1]³` triplet, round-
 /// tripping through display-linear Rec.2020 (the domain `apply_model`
-/// expects) and back. Clamps the Rec.2020→sRGB result to `[0, 1]` before
-/// gamma-encoding, matching `maple-cli fit-auto2`'s own metric helpers.
+/// expects) and back. The Rec.2020→sRGB result passes through
+/// [`shoulder_01`] (hard floor at 0.0, soft shoulder into 1.0) before
+/// gamma-encoding.
 fn apply_model_to_display_srgb(model: &AcrModel, srgb_gamma_rgb: [f32; 3]) -> [f32; 3] {
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
@@ -50,9 +82,9 @@ fn apply_model_to_display_srgb(model: &AcrModel, srgb_gamma_rgb: [f32; 3]) -> [f
     let pred_rec2020 = apply_model(model, lin_rec2020);
     let pred_lin_srgb = M_REC2020_TO_SRGB.mul_vec(pred_rec2020);
     [
-        srgb_gamma(pred_lin_srgb[0].clamp(0.0, 1.0)),
-        srgb_gamma(pred_lin_srgb[1].clamp(0.0, 1.0)),
-        srgb_gamma(pred_lin_srgb[2].clamp(0.0, 1.0)),
+        srgb_gamma(shoulder_01(pred_lin_srgb[0])),
+        srgb_gamma(shoulder_01(pred_lin_srgb[1])),
+        srgb_gamma(shoulder_01(pred_lin_srgb[2])),
     ]
 }
 
@@ -177,6 +209,38 @@ mod tests {
             (lut.data[i] - identity_v).abs() > 1e-3,
             "expected the doubling tonescale to move the mid-grey node"
         );
+    }
+
+    /// #1740 M1 calibration: the bake's upper range limit must be the C1
+    /// soft shoulder, not a hard clamp. Under the doubling tonescale every
+    /// diagonal node from mid-grey up predicts display-linear > 1 — a hard
+    /// `clamp(0.0, 1.0)` collapses ALL of them onto exactly 1.0 (equal
+    /// consecutive nodes = the posterized-highlight blob), while the
+    /// shoulder keeps them strictly ordered below 1.0.
+    #[test]
+    fn baked_diagonal_stays_strictly_ordered_above_the_shoulder_knee() {
+        let model = doubling_tonescale_model();
+        let n = 33;
+        let lut = bake_acr_model_lut(&model, n);
+        let diag = |k: usize| -> f32 {
+            let i = ((k * n + k) * n + k) * 3;
+            lut.data[i]
+        };
+        for k in 20..n {
+            assert!(
+                diag(k) > diag(k - 1),
+                "diagonal nodes {k}-1 -> {k} not strictly ordered: {} -> {} \
+                 (a hard clamp would collapse the over-range top nodes)",
+                diag(k - 1),
+                diag(k)
+            );
+            assert!(
+                diag(k) < 1.0,
+                "diagonal node {k} = {} must stay strictly below 1.0 \
+                 (shoulder asymptote), not sit on the clamp boundary",
+                diag(k)
+            );
+        }
     }
 
     /// Composing the baked artifacts the same way
