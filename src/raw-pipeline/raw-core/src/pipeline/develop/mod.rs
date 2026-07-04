@@ -339,25 +339,16 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     dump_after("02_highlight_recovery", &camera_rgb);
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
-    // Camera-space user white balance (#1726): move the temperature/tint
-    // sliders upstream of DCP, in camera-native linear RGB, matching ACR.
-    // Bounded to what the sensor can physically report per channel, so
-    // extreme slider settings no longer manufacture post-DCP values outside
-    // the Rec.2020 gamut (the 12000K/+17 yellow-filter/banding repro this
-    // ticket fixes). See `stages::wb_camera` for the full design writeup —
-    // including why the diagonal gain is the SOLE carrier of the cast and
-    // `profile` (in particular `scene_white_xyz`, DCP's Bradford source)
-    // passes to `dcp::apply_colorimetry` below completely unmodified.
-    //
-    // Tier gate: only the three calibrated `ProfileSource` tiers carry a
-    // real per-camera `ColorMatrix`; `RawlerFallback`'s matrix is a
-    // synthetic `M_XYZ_D65_TO_REC2020` stand-in, not a calibration, so a
-    // camera-space target neutral computed from it would be meaningless.
-    // `RawlerFallback` (and the `skip_pre_gain` LinearRaw path, whose WB is
-    // baked before this point) fall through to the pre-existing post-DCP
-    // CAT16 path below unchanged — this is also what keeps the synthetic-
-    // grey harnesses (identity ColorMatrix1 → always `RawlerFallback`)
-    // exercising the unmodified closed-form CAT16 predictors.
+    // Camera-space user white balance (#1726): moves the temperature/tint
+    // sliders upstream of DCP, in camera-native linear RGB, matching ACR —
+    // bounded to what the sensor can physically report per channel (the
+    // 12000K/+17 yellow-filter/banding repro this ticket fixes). Gated to
+    // the three calibrated `ProfileSource` tiers (`RawlerFallback`'s matrix
+    // is a synthetic stand-in, not a real calibration); the LinearRaw
+    // (`skip_pre_gain`) and `RawlerFallback` cases fall through to the
+    // pre-existing post-DCP CAT16 path below unchanged. Full design
+    // writeup, including why `profile` passes to `dcp::apply_colorimetry`
+    // below completely unmodified, in `stages::wb_camera`'s module doc.
     let camera_wb_applied = if !skip_pre_gain
         && !matches!(profile_source, dcp::ProfileSource::RawlerFallback)
     {
@@ -467,15 +458,11 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
     // Post-DCP white balance: skipped when the camera-space stage above
-    // already normalised `camera_rgb` to the user's target illuminant
-    // (#1726) — applying the Rec.2020 CAT16 matrix on top would
-    // double-count the WB shift. Falls through to the unchanged
-    // ACR-anchored CAT16 path (#1729 / round-trip fix, #1725 band fix) for
-    // the `RawlerFallback` tier and the LinearRaw (`skip_pre_gain`) path,
-    // where `camera_wb_applied` is false. The full anchoring semantics
-    // table and derivation live in `white_balance::resolve_wb`'s
-    // doc-comment; all three develop sites call this shared helper on
-    // that fallback branch so the logic cannot drift between them.
+    // already normalised `camera_rgb` (#1726) — applying the CAT16 matrix
+    // on top would double-count the shift. Falls through to the unchanged
+    // ACR-anchored CAT16 path (`white_balance::resolve_wb`'s doc-comment
+    // has the full anchoring table; #1729/#1725) for `RawlerFallback` and
+    // LinearRaw (`skip_pre_gain`), where `camera_wb_applied` is false.
     if !camera_wb_applied {
         let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
         stage("white_balance", || {
