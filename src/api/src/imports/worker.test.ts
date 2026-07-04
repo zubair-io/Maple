@@ -169,9 +169,13 @@ describe('ImportRunner.tick', () => {
     });
     expect((await runner.tick()).kind).toBe('done');
 
-    // Worker scanned + filed everything under <year>/<MM>/.
-    expect(await fs.readFile(path.join(lib, '2024/03/IMG.dng'), 'utf8')).toBe('bytes-auto-IMG.dng');
-    expect(await fs.readFile(path.join(lib, '2024/03/IMG.xmp'), 'utf8')).toBe('bytes-auto-IMG.xmp');
+    // Worker scanned + filed everything under the default <year>/misc/<source folder>/.
+    expect(await fs.readFile(path.join(lib, '2024/misc/src/IMG.dng'), 'utf8')).toBe(
+      'bytes-auto-IMG.dng',
+    );
+    expect(await fs.readFile(path.join(lib, '2024/misc/src/IMG.xmp'), 'utf8')).toBe(
+      'bytes-auto-IMG.xmp',
+    );
     expect(handed).toBe(1); // the image was handed to the indexer
 
     const doc = await repo.getImport(created._id);
