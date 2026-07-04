@@ -416,17 +416,23 @@ export interface AssetDoc {
    */
   geo_backfill_skipped?: 'no-donor' | 'skip';
   /**
-   * BLAKE3 hex identifying the canonical original bytes. Populated on nearly
-   * every asset, via three write paths:
+   * Maple stable image id (see `indexer/id.ts`) — NOT a hash of the full
+   * original bytes. Derived from a SHA1 of just the first 64 KB
+   * (`SHA1_HEAD_BYTES`) of the file, combined via BLAKE3 with EXIF capture
+   * metadata (capture timestamp, camera serial, shutter count) when
+   * available ("primary" form), or with the file size alone ("fallback"
+   * form) when it isn't. Populated on nearly every asset, via three write
+   * paths:
    *  - Discover watcher (`workers/discover/handle-event.ts`, `hashFileForId`):
-   *    computed inline at insert time for every locally-discovered file —
-   *    this is the primary path, not a fallback (the old separate `hash`
-   *    stage was retired in the drop-abs-path-2026-05-21 migration).
-   *  - EXIF stage (`workers/stages/exif.ts`): upgrades the id in place to a
-   *    stronger form once `captured_at` is available, re-hashing with more
-   *    signal than the discover-time id had.
+   *    computed inline at insert time for every locally-discovered file, in
+   *    fallback form — this is the primary path, not a stopgap (the old
+   *    separate `hash` stage was retired in the drop-abs-path-2026-05-21
+   *    migration).
+   *  - EXIF stage (`workers/stages/exif.ts`): upgrades the id in place to
+   *    primary form once `captured_at` is available.
    *  - Backup ingest endpoint (`routes/backup-ingest.ts`): sets it directly
-   *    for PhotoKit-originated assets that never go through discover.
+   *    for PhotoKit-originated assets that never go through discover (id
+   *    computed client-side).
    * null/absent only for assets that predate one of these paths or hit an
    * error before hashing. Used as the deduplication key when the same
    * content arrives from multiple devices or discovery paths.
