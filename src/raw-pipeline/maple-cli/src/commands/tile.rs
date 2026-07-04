@@ -5,7 +5,7 @@
 //! sanity check on the tile math, not a parity gate.
 
 use raw_core::decode::decode_bytes;
-use raw_core::pipeline::{render_scene_linear_tile_from_raw_with_quality, RenderQuality};
+use raw_core::pipeline::{render_scene_linear_tile_from_raw_with_quality, RenderQuality, TileRect};
 use raw_core::xmp;
 use std::path::Path;
 
@@ -42,7 +42,17 @@ pub fn run(
         }
     };
     let (w, h, fp16) = render_scene_linear_tile_from_raw_with_quality(
-        &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, q,
+        &raw_img,
+        &model,
+        TileRect {
+            src_x,
+            src_y,
+            src_w,
+            src_h,
+            out_w,
+            out_h,
+        },
+        q,
     )?;
     // Decode fp16 → f32, build an Image, run the legacy view tail (AgX +
     // Rec.2020→sRGB + quantize) so we can write a viewable PNG.
