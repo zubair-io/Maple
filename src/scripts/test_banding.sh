@@ -25,6 +25,15 @@
 # deleting the JSON's entries, running with BUDGET_INIT=1 (prints the
 # derived table instead of gating), and pasting the result back in.
 #
+# Auto Profile tail section (#1740 M1): fits the SHIPPING Auto Profile tail
+# from a real fixture RAW (default test-fixtures/raws/test_0000.DNG — the
+# operator's posterized-highlight repro) in BOTH modes (Auto 1.0 and
+# MAPLE_AUTO2=1 Auto 2.0) via `maple-cli auto-tail-ramp`, applies it to
+# smooth display-space ramps, and gates second-difference spike AND flat-run
+# (plateau/posterization) budgets. Skip-passes when the gitignored RAW is
+# absent. The auto2 keys' ceilings are the auto1-derived ones — the bar is
+# "hold or improve on the shipping tail", never auto2's own observed values.
+#
 # Env overrides:
 #   OUT_DIR      Working root. Default: /tmp/maple-banding-*.
 #   KEEP_TMP     Non-empty -> keep OUT_DIR after exit for inspection.
@@ -32,7 +41,9 @@
 #   HEIGHT       Ramp height in pixels (default 8).
 #   BUDGETS      Override path to the budgets JSON.
 #   BUDGET_INIT  Non-empty -> print derived ceilings instead of gating
-#                (still exits 0; use to regenerate banding_budgets.json).
+#                (still exits 0; use to regenerate banding_budgets.json)
+#   AUTO_TAIL_RAW  Fixture RAW for the Auto Profile tail section
+#                (default: test-fixtures/raws/test_0000.DNG).
 #
 # Companion to:
 #   * `test_color_pipeline.sh`   — end-to-end ΔE gate vs ACR references.
@@ -179,40 +190,50 @@ run_case() {
   [[ "$fixture" == "neutral" ]] && axis="luma"
 
   for stage in "${STAGES[@]}"; do
-    local json_out="$WORK/result_${fixture}_${case}_${stage}.json"
-    local budget_key="${fixture}/${stage}/${axis}"
-    local py_args=("$SCRIPT_DIR/banding_check.py" "$dump" --stage "$stage" \
-      --ramp-axis "$axis" --json "$json_out" --budgets "$BUDGETS" \
-      --budget-key "$budget_key")
-    if [[ -z "$BUDGET_INIT" ]]; then
-      py_args+=(--require-budget)
-    fi
-    local py_status=0
-    python3 "${py_args[@]}" > "$WORK/log_${fixture}_${case}_${stage}.txt" 2>&1 || py_status=$?
-    if [[ "$py_status" -ne 0 ]]; then
-      if [[ -z "$BUDGET_INIT" ]]; then
-        echo "## FAIL: $budget_key (case=$case)"
-        cat "$WORK/log_${fixture}_${case}_${stage}.txt"
-        FAIL=1
-      else
-        # BUDGET_INIT mode doesn't pass --require-budget, so a failure here
-        # is a real error (crash, malformed dump, etc.), not a missing
-        # budget entry. Surface it and skip this case instead of reading a
-        # missing/stale $json_out, which would mask the real failure behind
-        # a secondary "file not found" / JSON-decode error.
-        echo "## BUDGET_INIT ERROR: $budget_key (case=$case) — banding_check.py failed"
-        cat "$WORK/log_${fixture}_${case}_${stage}.txt"
-        FAIL=1
-      fi
-      continue
-    fi
-    if [[ -n "$BUDGET_INIT" ]]; then
-      local d2 ratio
-      d2=$(python3 -c "import json;print(json.load(open('$json_out'))['second_difference']['max_abs_d2'])")
-      ratio=$(python3 -c "import json;print(json.load(open('$json_out'))['second_difference']['max_spike_ratio'])")
-      INIT_ROWS+=("$budget_key $d2 $ratio")
-    fi
+    gate_one "$dump" "$stage" "$axis" "${fixture}/${stage}/${axis}" \
+      "$WORK/log_${fixture}_${case}_${stage}.txt" \
+      "$WORK/result_${fixture}_${case}_${stage}.json" \
+      "case=$case"
   done
+}
+
+# Run banding_check.py once against one dump dir / stage / axis, gating (or,
+# under BUDGET_INIT, recording) the budget key. Shared by the synthetic-ramp
+# sweep above and the Auto Profile tail sweep below.
+gate_one() {
+  local dump="$1" stage="$2" axis="$3" budget_key="$4" logfile="$5" json_out="$6" label="$7"
+  local py_args=("$SCRIPT_DIR/banding_check.py" "$dump" --stage "$stage" \
+    --ramp-axis "$axis" --json "$json_out" --budgets "$BUDGETS" \
+    --budget-key "$budget_key")
+  if [[ -z "$BUDGET_INIT" ]]; then
+    py_args+=(--require-budget)
+  fi
+  local py_status=0
+  python3 "${py_args[@]}" > "$logfile" 2>&1 || py_status=$?
+  if [[ "$py_status" -ne 0 ]]; then
+    if [[ -z "$BUDGET_INIT" ]]; then
+      echo "## FAIL: $budget_key ($label)"
+      cat "$logfile"
+      FAIL=1
+    else
+      # BUDGET_INIT mode doesn't pass --require-budget, so a failure here
+      # is a real error (crash, malformed dump, etc.), not a missing
+      # budget entry. Surface it and skip this case instead of reading a
+      # missing/stale $json_out, which would mask the real failure behind
+      # a secondary "file not found" / JSON-decode error.
+      echo "## BUDGET_INIT ERROR: $budget_key ($label) — banding_check.py failed"
+      cat "$logfile"
+      FAIL=1
+    fi
+    return
+  fi
+  if [[ -n "$BUDGET_INIT" ]]; then
+    local d2 ratio flat
+    d2=$(python3 -c "import json;print(json.load(open('$json_out'))['second_difference']['max_abs_d2'])")
+    ratio=$(python3 -c "import json;print(json.load(open('$json_out'))['second_difference']['max_spike_ratio'])")
+    flat=$(python3 -c "import json;print(json.load(open('$json_out'))['flat_run']['max_flat_run_frac'])")
+    INIT_ROWS+=("$budget_key $d2 $ratio $flat")
+  fi
 }
 
 echo "# Sweeping neutral ramp (luma axis) across ${#CASES[@]} slider-extreme cases..."
@@ -227,6 +248,66 @@ for hue in "${HUES[@]}"; do
   done
 done
 
+# ----- Auto Profile tail gate (#1740 M1) ------------------------------------
+# The synthetic ramps above never exercise the Auto Profile tail (it is
+# fitted per-image against the RAW's own embedded JPEG; a synthetic ramp has
+# none, so the Auto stage no-ops). `maple-cli auto-tail-ramp` fits the
+# SHIPPING tail from a real fixture through the production entry point
+# (`fit_auto_profile_artifacts` — `MAPLE_AUTO2` selects Auto 1.0 vs 2.0
+# exactly as in the app), applies it to smooth display-space ramps, and this
+# section gates the result with the same second-difference metric. Both
+# modes run on every invocation so an Auto 2.0 smoothness regression can
+# never hide behind the default mode.
+#
+# Budget policy: the auto1 keys' ceilings are derived from Auto 1.0's own
+# RED run (worst observed + the standard headroom); the auto2 keys REUSE the
+# same auto1-derived ceilings — the bar is "Auto 2.0's tail must be at least
+# as smooth as the shipping Auto 1.0 tail", not "whatever Auto 2.0 does
+# today" (deriving auto2 ceilings from auto2's own observed values would
+# launder the #1740 posterized-highlight defect green).
+#
+# Fixture-gated: without the gitignored RAW this section skip-passes,
+# mirroring test_color_pipeline.sh's no-fixtures soft pass. The synthetic
+# sweep above still ran, so the script as a whole stays a real gate in CI.
+AUTO_TAIL_RAW="${AUTO_TAIL_RAW:-$REPO_ROOT/test-fixtures/raws/test_0000.DNG}"
+TAIL_RAMPS=(neutral foliage blue magenta skin)
+if [[ -f "$AUTO_TAIL_RAW" ]]; then
+  tail_stem="$(basename "${AUTO_TAIL_RAW%.*}")"
+  for mode in auto1 auto2; do
+    echo "# Auto Profile tail sweep: fixture=$tail_stem mode=$mode ..."
+    tail_dir="$WORK/tail_${tail_stem}_${mode}"
+    tail_log="$WORK/tail_cli_${tail_stem}_${mode}.log"
+    tail_args=(auto-tail-ramp --raw "$AUTO_TAIL_RAW" --out-dir "$tail_dir" \
+      --width "$WIDTH" --height "$HEIGHT")
+    tail_status=0
+    if [[ "$mode" == "auto2" ]]; then
+      MAPLE_AUTO2=1 "$MAPLE_CLI" "${tail_args[@]}" >"$tail_log" 2>&1 || tail_status=$?
+    else
+      env -u MAPLE_AUTO2 "$MAPLE_CLI" "${tail_args[@]}" >"$tail_log" 2>&1 || tail_status=$?
+    fi
+    if [[ "$tail_status" -eq 3 ]]; then
+      echo "# SKIP: $tail_stem has no extractable embedded preview — tail gate skipped"
+      continue
+    elif [[ "$tail_status" -ne 0 ]]; then
+      echo "## FAIL: auto-tail-ramp (mode=$mode) exited $tail_status"
+      cat "$tail_log"
+      FAIL=1
+      continue
+    fi
+    for ramp in "${TAIL_RAMPS[@]}"; do
+      axis="chroma"
+      [[ "$ramp" == "neutral" ]] && axis="luma"
+      gate_one "$tail_dir/$ramp" "18_auto_tail" "$axis" \
+        "${tail_stem}_${mode}_${ramp}/18_auto_tail/${axis}" \
+        "$WORK/log_tail_${tail_stem}_${mode}_${ramp}.txt" \
+        "$WORK/result_tail_${tail_stem}_${mode}_${ramp}.json" \
+        "mode=$mode ramp=$ramp"
+    done
+  done
+else
+  echo "# Auto Profile tail gate: fixture $AUTO_TAIL_RAW not present — skipping (soft pass)"
+fi
+
 if [[ -n "$BUDGET_INIT" ]]; then
   echo ""
   echo "# BUDGET_INIT — worst-case per (fixture/stage/axis) across the sweep,"
@@ -236,18 +317,25 @@ if [[ -n "$BUDGET_INIT" ]]; then
 import sys
 from collections import defaultdict
 
-worst = defaultdict(lambda: (0.0, 0.0))
+worst = defaultdict(lambda: (0.0, 0.0, 0.0))
 for row in sys.argv[1:]:
-    key, d2, ratio = row.split()
-    d2, ratio = float(d2), float(ratio)
-    w_d2, w_ratio = worst[key]
-    worst[key] = (max(w_d2, d2), max(w_ratio, ratio))
+    key, d2, ratio, flat = row.split()
+    d2, ratio, flat = float(d2), float(ratio), float(flat)
+    w_d2, w_ratio, w_flat = worst[key]
+    worst[key] = (max(w_d2, d2), max(w_ratio, ratio), max(w_flat, flat))
 
 for key in sorted(worst):
-    w_d2, w_ratio = worst[key]
+    w_d2, w_ratio, w_flat = worst[key]
     budget_d2 = max(round(w_d2 * 1.10, 6), 0.001)
     budget_ratio = max(round(w_ratio * 1.08, 3), 1.2)
-    print(f'    "{key}": {{ "max_abs_d2": {budget_d2}, "max_spike_ratio": {budget_ratio} }},')
+    if "18_auto_tail" in key:
+        # The tail keys additionally gate the plateau metric — a fitted
+        # Auto tail must never flatten a range the AgX chain preserved
+        # (floor 0.02 = ~20 samples of a 1024-wide ramp).
+        budget_flat = max(round(w_flat * 1.10, 4), 0.02)
+        print(f'    "{key}": {{ "max_abs_d2": {budget_d2}, "max_spike_ratio": {budget_ratio}, "max_flat_run_frac": {budget_flat} }},')
+    else:
+        print(f'    "{key}": {{ "max_abs_d2": {budget_d2}, "max_spike_ratio": {budget_ratio} }},')
 PYEOF
   echo ""
   echo "# (BUDGET_INIT run — not gated. Paste the table above into"
