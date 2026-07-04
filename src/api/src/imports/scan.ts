@@ -5,9 +5,10 @@
  * file, pairs `.xmp` sidecars to their parent image, and groups everything
  * into `YEAR/MM` buckets keyed on CAPTURE time (UTC) — the EXIF
  * `DateTimeOriginal`/`CreateDate`, falling back to file mtime when a file
- * carries no EXIF time (see `resolveCapturedAtMs`). Bucketing on capture
- * time (not raw mtime) keeps the folder Maple files a photo under in sync
- * with the date it's shown under everywhere else in the app. The result
+ * carries no EXIF time (see `capture-time.ts`'s `resolveCapturedAtMs`).
+ * Bucketing on capture time (not raw mtime) keeps the folder Maple files a
+ * photo under in sync with the date it's shown under everywhere else in the
+ * app. The result
  * drives the UI's editable-bucket review; the create route turns it (plus
  * the user's label edits) into the per-file destination list on the import
  * doc.
@@ -74,7 +75,8 @@ interface ScanItem extends RawFile {
   sidecars: RawFile[];
 }
 
-/** A `ScanItem` with its capture time resolved (see `resolveCapturedAtMs`). */
+/** A `ScanItem` with its capture time resolved (see `capture-time.ts`'s
+ * `resolveCapturedAtMs`). */
 interface ResolvedItem extends ScanItem {
   capturedAtMs: number;
 }
@@ -108,11 +110,12 @@ export interface ScanBucket {
    */
   defaultDest: string;
   /**
-   * Number of files in this bucket that would instead land next to an
-   * already-indexed photo captured within 30 minutes of them (see
-   * `NEARBY_ASSET_WINDOW_MS`) — overriding `defaultDest` for just those
-   * files. Zero when no `library_id` was given to `scanFolder` (nothing to
-   * match against) or nothing matched.
+   * Number of files in this bucket — counting a matched primary AND its
+   * sidecars, since a sidecar always follows its parent's placement — that
+   * would instead land next to an already-indexed photo captured within 30
+   * minutes of them (see `NEARBY_ASSET_WINDOW_MS`), overriding `defaultDest`
+   * for just those files. Zero when no `library_id` was given to
+   * `scanFolder` (nothing to match against) or nothing matched.
    */
   nearbyMatchCount: number;
   /** Distinct folders those nearby-matched files would land in. */
@@ -364,7 +367,10 @@ export async function scanFolder(
     }
     const nearbyFolder = nearestCandidateFolder(nearbyCandidates, it.capturedAtMs);
     if (nearbyFolder != null) {
-      b.nearbyMatchCount += 1;
+      // The primary AND its sidecars all land in the nearby folder (a
+      // sidecar always follows its parent's placement — see
+      // buildImportFiles), so count both here rather than just the primary.
+      b.nearbyMatchCount += 1 + it.sidecars.length;
       if (!b.nearbyMatchFolders.includes(nearbyFolder)) b.nearbyMatchFolders.push(nearbyFolder);
     }
     for (const sc of it.sidecars) {

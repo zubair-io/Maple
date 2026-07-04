@@ -122,7 +122,9 @@ describe('POST /api/imports/scan', () => {
       }[];
     };
     const bucket = body.buckets.find((b) => b.key === '2024/03')!;
-    expect(bucket.nearbyMatchCount).toBe(1);
+    // IMG_0001.dng matches AND its sidecar IMG_0001.xmp follows it, so this
+    // is 2, not 1 — a sidecar always lands wherever its parent lands.
+    expect(bucket.nearbyMatchCount).toBe(2);
     expect(bucket.nearbyMatchFolders).toEqual(['2024/Reunion']);
     // defaultDest is unaffected by the nearby match — it's the fallback for
     // files that DON'T match.

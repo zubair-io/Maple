@@ -142,7 +142,7 @@
                 />
                 <p class="dest-preview">
                   → <code class="mono">{{ effectiveDest(b) }}</code>
-                  @if (b.nearbyMatchCount > 0) {
+                  @if (b.nearbyMatchCount > 0 && !hasOverride(b)) {
                     <span class="nearby-note">
                       ({{ b.nearbyMatchCount }}
                       {{ b.nearbyMatchCount === 1 ? 'file' : 'files' }} will instead join existing

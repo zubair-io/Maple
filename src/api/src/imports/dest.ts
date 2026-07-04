@@ -19,8 +19,9 @@
  *
  *   - YEAR comes from a file's CAPTURE time (EXIF `DateTimeOriginal`/
  *     `CreateDate`, falling back to file mtime when no EXIF time is
- *     available — see `scan.ts`'s `resolveCapturedAtMs`), in **UTC** (parity
- *     with `backup/path-formatter.ts`, which also buckets on UTC wall-clock).
+ *     available — see `capture-time.ts`'s `resolveCapturedAtMs`), in **UTC**
+ *     (parity with `backup/path-formatter.ts`, which also buckets on UTC
+ *     wall-clock).
  *
  * No Mongo, no filesystem — these are the safety + assembly primitives the
  * scan/copy/worker layers and the create route all funnel through, so the
@@ -43,7 +44,7 @@ export interface Bucket {
 /**
  * Derive the `{ year, mm }` bucket for a file from its CAPTURE time (epoch
  * ms, UTC) — the EXIF `DateTimeOriginal`/`CreateDate`, or the file's mtime
- * when no EXIF capture time is available (see `scan.ts`'s
+ * when no EXIF capture time is available (see `capture-time.ts`'s
  * `resolveCapturedAtMs`, which resolves that value before this is called).
  */
 export function bucketForCapturedAt(capturedAtMs: number): Bucket {
