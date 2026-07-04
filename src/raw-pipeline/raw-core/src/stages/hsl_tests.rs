@@ -120,13 +120,26 @@ fn partition_of_unity_holds_at_sample_hues() {
 /// neighboring bands also contributing, the effective chroma scale is
 /// `1 + (sat_scale[b] - 1) · w_b`. Other bands are at their default
 /// sat_scale=1 → their contribution to delta_sat_scale is 0.
+///
+/// Uses `c_in = 0.04` (vs. the pre-#1733 `0.10`) so the +100 case's target
+/// chroma stays safely inside the Rec.2020 hull for every band at
+/// `L=0.5` — this test's job is to pin the exact-linear-scaling predictor,
+/// which only holds below the gamut knee (`hsl_soft_compress` is identity
+/// there). The near-hull / out-of-gamut half of the curve is covered
+/// separately by `saturation_band_keeps_all_channels_non_negative_near_hull`
+/// (#1733 clamp-audit fix — HSL SAT now soft-compresses toward the hull
+/// exactly like `saturation::apply_pixel` / `vibrance::apply_pixel`, so it
+/// no longer emits negative Rec.2020 channels, but that means an
+/// aggressive SAT+100 near the hull is NOT exactly linear anymore).
 #[test]
 fn saturation_scales_chroma_at_band_center() {
     for band in 0..BANDS {
         let center_rad = HUE_CENTERS_DEG[band].to_radians();
-        // Construct a Rec.2020 color at the band's Oklab hue center
-        // with a known chroma (well above CHROMA_GATE_C0 so gate ≈ 1).
-        let c_in = 0.10_f32; // > 2 * CHROMA_GATE_C0 = 0.10, so gate ≈ 1.0
+        // Construct a Rec.2020 color at the band's Oklab hue center with a
+        // known chroma: above CHROMA_GATE_C0*2 (=0.10) so the chroma gate
+        // is exactly 1.0, but low enough that c_in*(1+1.0) stays in-gamut
+        // for every band at L=0.5 (checked against the hull below).
+        let c_in = 0.04_f32;
         let a0 = c_in * center_rad.cos();
         let b0 = c_in * center_rad.sin();
         let l0 = 0.5_f32;
@@ -152,7 +165,7 @@ fn saturation_scales_chroma_at_band_center() {
 
             // Only the target band has non-zero delta: (sat_scale[b]-1) * w_band
             let delta_scale = (sv / 100.0) * w_band;
-            // chroma_gate at c_in=0.10 vs 2*C0=0.10: exactly 1.0
+            // chroma_gate at c_in=0.04 vs 2*C0=0.10: exactly 1.0
             let chroma_gate = smoothstep(CHROMA_GATE_C0, 2.0 * CHROMA_GATE_C0, c_in);
             let effective_delta = delta_scale * chroma_gate;
             let expected_c = (c_in * (1.0 + effective_delta)).max(0.0);
@@ -310,4 +323,59 @@ fn raised_cosine_boundary_values() {
     assert!((raised_cosine_weight(0.0, hw) - 1.0).abs() < 1e-6);
     assert!(raised_cosine_weight(hw, hw).abs() < 1e-6);
     assert!(raised_cosine_weight(hw + 1.0, hw).abs() < 1e-6);
+}
+
+// ── #1733 clamp audit: gamut-hull soft-compression parity with saturation/vibrance ──
+
+/// `saturation::apply_pixel` and `vibrance::apply_pixel` both soft-compress
+/// chroma toward the Rec.2020 hull (Reinhard knee, C¹-continuous) before
+/// converting back from Oklab, so a large positive slider can never drive a
+/// channel negative. `hsl::apply_pixel`'s per-band SAT channel scaled chroma
+/// with only a non-negativity floor on `c_new` itself (`.max(0.0)`) — a floor
+/// on Oklab chroma, NOT a check that the Rec.2020 round-trip stays in
+/// `[0, ∞)^3`. A saturated near-hull input pushed further out by SAT+100
+/// therefore emitted negative Rec.2020 channels with NO soft-knee, i.e. an
+/// un-audited pre-view-transform gap on exactly the axis #1621 fixed for the
+/// other two chroma-scaling stages. This test locks the fixed behavior in:
+/// every channel must stay non-negative after HSL SAT at its most aggressive
+/// per-band setting on a near-hull saturated primary.
+#[test]
+fn saturation_band_keeps_all_channels_non_negative_near_hull() {
+    let cases: [[f32; 3]; 5] = [
+        [0.9, 0.05, 0.05], // near-Rec.2020 red
+        [0.05, 0.9, 0.05], // near-Rec.2020 green
+        [0.05, 0.05, 0.9], // near-Rec.2020 blue
+        [0.7, 0.7, 0.05],  // saturated yellow
+        [4.0, 0.5, 0.5],   // HDR-headroom saturated red
+    ];
+    for rgb in cases {
+        // Find the band whose center is nearest this pixel's hue and push
+        // ONLY that band's saturation to +100 — mirrors how a user would
+        // actually drive the defect (a single HSL saturation slider), and
+        // matches `saturation_scales_chroma_at_band_center`'s setup.
+        let lab = crate::color::oklab::rec2020_to_oklab(rgb);
+        let hue = oklab_hue_deg(lab[1], lab[2]);
+        let band = (0..BANDS)
+            .min_by(|&a, &b| {
+                circular_delta_deg(hue, HUE_CENTERS_DEG[a])
+                    .partial_cmp(&circular_delta_deg(hue, HUE_CENTERS_DEG[b]))
+                    .unwrap()
+            })
+            .unwrap();
+        let mut sat = zero_bands();
+        sat[band] = 100.0;
+
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = rgb;
+        apply(&mut img, &zero_bands(), &sat, &zero_bands());
+        let p = img.pixels[0];
+        let min = p[0].min(p[1]).min(p[2]);
+        assert!(
+            min >= -1e-4,
+            "input {rgb:?} band {band} SAT+100 → output {p:?} has min channel {min} < 0"
+        );
+        for c in p {
+            assert!(c.is_finite(), "non-finite channel in {:?}", p);
+        }
+    }
 }
