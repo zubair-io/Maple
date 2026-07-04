@@ -267,15 +267,99 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
         l *= 1.0 + delta_lum_shift;
     }
 
-    // Apply saturation (scale chroma)
-    let c_new = (c * (1.0 + delta_sat_scale)).max(0.0);
+    // Apply saturation (scale chroma). `.max(0.0)` is an Oklab-chroma floor
+    // only — it does NOT guarantee the Rec.2020 round-trip stays
+    // non-negative. Gamut protection for the *increasing*-chroma case is
+    // below (#1733 audit fix), mirroring `saturation::apply_pixel` /
+    // `vibrance::apply_pixel`'s soft-knee.
+    let c_target = (c * (1.0 + delta_sat_scale)).max(0.0);
 
-    // Apply hue rotation (rotate (a, b) by delta_hue_rad)
+    // Apply hue rotation (rotate the target (a, b) by delta_hue_rad). Done
+    // on the post-saturation chroma so the gamut check below sees the same
+    // final hue the pixel will actually land at.
     let (sin_dh, cos_dh) = delta_hue_rad.sin_cos();
-    let a_new = c_new * (a_hat * cos_dh - b_hat * sin_dh);
-    let b_new = c_new * (a_hat * sin_dh + b_hat * cos_dh);
+    let hue_hat = |ch: f32| {
+        (
+            ch * (a_hat * cos_dh - b_hat * sin_dh),
+            ch * (a_hat * sin_dh + b_hat * cos_dh),
+        )
+    };
 
-    oklab_to_rec2020([l, a_new, b_new])
+    // For desaturation (c_target <= c) gamut never tightens — moving
+    // toward neutral can't push a Rec.2020 channel further negative than
+    // the input. Only the increasing-chroma case (a positive per-band SAT
+    // slider, or GREEN/YELLOW bands' luminance-driven interplay) can drive
+    // a channel negative.
+    if c_target <= c {
+        let (a_new, b_new) = hue_hat(c_target);
+        return oklab_to_rec2020([l, a_new, b_new]);
+    }
+
+    // Fast path: scaled target stays in gamut — most pixels are far
+    // enough from the hull that this branch wins.
+    let (a_fast, b_fast) = hue_hat(c_target);
+    let rgb_target = oklab_to_rec2020([l, a_fast, b_fast]);
+    if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -HSL_GAMUT_EPS {
+        return rgb_target;
+    }
+
+    // Bisect for the hull chroma along the POST-ROTATION hue ray (the ray
+    // the pixel actually travels along), then Reinhard-soft-compress into
+    // it — identical shape to `saturation::soft_compress` /
+    // `vibrance::soft_compress`, single source of the curve would be a
+    // 3-way dedup better done when a fourth caller appears (YAGNI).
+    let (rot_a_hat, rot_b_hat) = hue_hat(1.0);
+    let c_hull = hsl_bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_target);
+    let c_floor = c; // never pull chroma back below the pre-HSL input
+    let c_out = hsl_soft_compress(c_target, c_hull).max(c_floor);
+    oklab_to_rec2020([l, rot_a_hat * c_out, rot_b_hat * c_out])
+}
+
+/// Tolerance used when deciding whether the bisected chroma is "in gamut" —
+/// matches `saturation.rs` / `vibrance.rs`'s `GAMUT_EPS` / literal `-1e-5`.
+const HSL_GAMUT_EPS: f32 = 1e-5;
+
+/// Fraction of the per-pixel gamut-hull chroma at which the soft-compression
+/// knee starts — matches `saturation::GAMUT_KNEE_FRACTION`.
+const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
+
+/// Bisection iteration count — matches `saturation::GAMUT_BISECT_ITERS`.
+const HSL_GAMUT_BISECT_ITERS: usize = 12;
+
+/// Reinhard-style smooth compression, identical shape to
+/// `saturation::soft_compress` / `vibrance::soft_compress`.
+#[inline]
+fn hsl_soft_compress(c_target: f32, c_hull: f32) -> f32 {
+    let c_thresh = HSL_GAMUT_KNEE_FRACTION * c_hull;
+    if c_target <= c_thresh {
+        return c_target;
+    }
+    let d = c_target - c_thresh;
+    let d_max = c_hull - c_thresh;
+    if d_max <= 0.0 {
+        return c_hull;
+    }
+    c_thresh + d_max * (d / (d + d_max))
+}
+
+/// Bisect along the (L, a_hat, b_hat) ray in Oklab for the largest chroma
+/// whose Rec.2020 projection has all channels >= -HSL_GAMUT_EPS. Identical
+/// shape to `saturation::bisect_gamut_hull` / `vibrance::bisect_gamut_hull`.
+#[inline]
+fn hsl_bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
+    let mut lo = 0.0f32;
+    let mut hi = c_high;
+    for _ in 0..HSL_GAMUT_BISECT_ITERS {
+        let mid = 0.5 * (lo + hi);
+        let rgb = oklab_to_rec2020([l, a_hat * mid, b_hat * mid]);
+        let min_c = rgb[0].min(rgb[1]).min(rgb[2]);
+        if min_c >= -HSL_GAMUT_EPS {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 #[inline]
