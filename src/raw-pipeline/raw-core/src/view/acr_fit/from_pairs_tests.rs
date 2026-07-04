@@ -8,8 +8,9 @@ use super::*;
 /// Build a synthetic pair set with a KNOWN transform so the fit can be
 /// checked against ground truth: `jpeg = tonescale_known(maple)` on
 /// luma, with a small hue twist applied uniformly, over a dense random
-/// scatter of display-space RGB triplets. Deterministic PRNG (xorshift64*,
-/// matching the repo convention in `lut_tests.rs`) — no external dep.
+/// scatter of display-space RGB triplets. Deterministic PRNG (plain
+/// xorshift — 13/7/17 shift-xor, no final multiply — matching the repo
+/// convention in `lut_tests.rs`) — no external dep.
 ///
 /// Luma is sampled LOG-uniformly across the tonescale's own knot range
 /// (`TONESCALE_KNOTS`' `0.001..4.0` span, see `tonescale.rs`), not

@@ -65,9 +65,10 @@ pairs, a smoothness figure (the maximum second difference of the model's own
 residual walked along the neutral grey diagonal, the same instrument
 `lut_tests.rs`'s `no_second_difference_spike_across_sparse_boundary` already
 uses for the free LUT), and the correction magnitude the model applies at
-three deliberately far-out-of-JPEG-gamut probe points — fully saturated red,
-green, and blue, colors an 8-bit sRGB JPEG's correspondence set never
-actually reaches.
+three fully-saturated sRGB primary probe points — red, green, and blue,
+colors a real photo's JPEG correspondence set almost never actually
+reaches, so both fits must extrapolate or default there rather than
+interpolate.
 
 Two unit tests exercise the front-end against a synthetic, ground-truth
 transform (a known tonescale gamma plus a known uniform hue twist, both
