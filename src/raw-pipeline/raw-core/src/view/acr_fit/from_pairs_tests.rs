@@ -420,3 +420,67 @@ fn midtone_correction_stays_near_identity_when_neutral_subset_is_dark_and_narrow
          test_0006, mean ΔE00 6.59 -> 21.84); got mean ΔE00 {mean_de}"
     );
 }
+
+/// #1740 M1 calibration: a display-domain tonescale whose top knots fit a
+/// CLIPPED JPEG band (equal display values) must come out of
+/// `shape_tonescale_for_display_domain` strictly increasing — an exactly
+/// flat knot run renders every luminance in the band identically (the
+/// posterized-highlight blob the banding gate's `max_flat_run_frac`
+/// captures on test_0000).
+#[test]
+fn shaped_tonescale_has_no_flat_knot_run() {
+    use super::super::model::Tonescale;
+    let mut ts = Tonescale {
+        knots_log2: vec![-4.0, -3.0, -2.0, -1.0],
+        values: vec![0.2, 0.5, 0.5, 0.5], // clipped top band: dead flat
+    };
+    super::shape_tonescale_for_display_domain(&mut ts);
+    for i in 1..ts.values.len() {
+        assert!(
+            ts.values[i] > ts.values[i - 1],
+            "knot {i} not strictly increasing after shaping: {} -> {}",
+            ts.values[i - 1],
+            ts.values[i]
+        );
+    }
+}
+
+/// #1740 M1 calibration: past the fitted range the tonescale must DECAY TO
+/// IDENTITY (scale -> 1), not hold the boundary scale flat. Flat-scale
+/// extrapolation keeps multiplying ever-brighter pixels by the boundary
+/// gain, overshoots the display range, and the bake's range limit
+/// posterizes the overshoot into one flat blob — measured on test_0000 as
+/// a 26% flat run (scale 1.457 at the 98th-percentile top knot crossed
+/// display 1.0 at input luminance ~0.69).
+#[test]
+fn shaped_tonescale_extrapolation_decays_to_identity() {
+    use super::super::model::{tonescale_apply, Tonescale};
+    // Boundary scale 1.5 at l = 0.4 (log2 = -1.32): the test_0000 shape.
+    let mut ts = Tonescale {
+        knots_log2: vec![-4.0, -1.321928],
+        values: vec![0.0625 * 1.5, 0.4 * 1.5],
+    };
+    super::shape_tonescale_for_display_domain(&mut ts);
+    // Far past the decay span the mapping must be exact identity (flat
+    // scale 1.0 extrapolation from the appended anchor knots).
+    for l in [4.0f32, 8.0, 16.0] {
+        let t = tonescale_apply(&ts, l);
+        assert!(
+            (t / l - 1.0).abs() < 1e-3,
+            "expected identity extrapolation at l={l}, got T={t} (scale {})",
+            t / l
+        );
+    }
+    // And the decay itself must stay monotone (no dip while the boundary
+    // gain unwinds).
+    let mut prev = 0.0f32;
+    for i in 0..200 {
+        let l = 0.05 + i as f32 * (4.0 - 0.05) / 199.0;
+        let t = tonescale_apply(&ts, l);
+        assert!(
+            t >= prev,
+            "tonescale not monotone during identity decay at l={l}: {prev} -> {t}"
+        );
+        prev = t;
+    }
+}
