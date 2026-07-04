@@ -239,8 +239,14 @@ fn hue_rotates_at_band_center() {
 
 /// For a color at a band center, the LUM slider scales Oklab L by
 /// `1 + (slider/100) · w_band · chroma_gate`, where `w_band` is the
-/// normalized weight for that band at its own center. Hue and chroma
-/// are unchanged.
+/// normalized weight for that band at its own center. Hue is unchanged,
+/// and chroma is unchanged **unless** the L shift moves the pixel to a
+/// part of the Rec.2020 hull narrower than the input chroma — the hull's
+/// radius depends on L, so scaling L (like rotating hue, #1748 review fix)
+/// can require the same gamut-hull compression as the SAT/HUE sliders.
+/// When that happens chroma may only shrink (never grow) and every
+/// channel must stay non-negative; the L target itself is unaffected by
+/// the chroma-only compression.
 #[test]
 fn luminance_scales_l_at_band_center() {
     for band in 0..BANDS {
@@ -276,11 +282,23 @@ fn luminance_scales_l_at_band_center() {
                 "band {band} LUM {lv}: L={} expected≈{expected_l} (w_band={w_band:.3})",
                 lab_out[0]
             );
-            // Chroma unchanged (only L modified)
+            // Chroma must not increase beyond the input, and every
+            // Rec.2020 channel must stay non-negative (gamut-hull
+            // compression may shrink chroma if the shifted L narrows the
+            // hull below c_in — see doc comment above).
             let c_out = (lab_out[1] * lab_out[1] + lab_out[2] * lab_out[2]).sqrt();
             assert!(
-                (c_out - c_in).abs() < 0.01,
-                "band {band} LUM {lv}: chroma changed {c_in} → {c_out}"
+                c_out <= c_in + 0.01,
+                "band {band} LUM {lv}: chroma grew {c_in} → {c_out}"
+            );
+            let min_channel = img.pixels[0]
+                .iter()
+                .cloned()
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                min_channel >= -1e-4,
+                "band {band} LUM {lv}: output {:?} has negative channel {min_channel}",
+                img.pixels[0]
             );
         }
     }
@@ -379,3 +397,105 @@ fn saturation_band_keeps_all_channels_non_negative_near_hull() {
         }
     }
 }
+
+
+
+// ── #1748 review fix: hue-only rotation can also emit negative channels ──
+
+/// The Rec.2020 hull is not hue-invariant — rotating a near-hull pixel's
+/// hue can land it on a narrower part of the hull even when Oklab chroma
+/// itself does not increase. An earlier version special-cased
+/// `c_target <= c` as "chroma never increases, so gamut can't tighten" and
+/// skipped the gamut check entirely on that path — wrong, because hue
+/// rotation (applied unconditionally, independent of the SAT slider) can
+/// still push a channel negative. This test drives HUE only (SAT = 0, so
+/// `c_target == c` exactly) on near-hull primaries and secondaries and
+/// asserts every channel stays non-negative.
+#[test]
+fn hue_only_rotation_keeps_all_channels_non_negative_near_hull() {
+    let cases: [[f32; 3]; 6] = [
+        [0.95, 0.02, 0.02], // near-Rec.2020 red
+        [0.02, 0.95, 0.02], // near-Rec.2020 green
+        [0.02, 0.02, 0.95], // near-Rec.2020 blue
+        [0.9, 0.9, 0.02],   // near-hull yellow
+        [0.9, 0.02, 0.9],   // near-hull magenta
+        [0.02, 0.9, 0.9],   // near-hull cyan
+    ];
+    for rgb in cases {
+        let lab = crate::color::oklab::rec2020_to_oklab(rgb);
+        let hue = oklab_hue_deg(lab[1], lab[2]);
+        let band = (0..BANDS)
+            .min_by(|&a, &b| {
+                circular_delta_deg(hue, HUE_CENTERS_DEG[a])
+                    .partial_cmp(&circular_delta_deg(hue, HUE_CENTERS_DEG[b]))
+                    .unwrap()
+            })
+            .unwrap();
+        for hue_deg in [-120.0_f32, -90.0, -60.0, -30.0, 30.0, 60.0, 90.0, 120.0] {
+            let mut hue_arr = zero_bands();
+            hue_arr[band] = hue_deg;
+            let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+            img.pixels[0] = rgb;
+            apply(&mut img, &hue_arr, &zero_bands(), &zero_bands());
+            let p = img.pixels[0];
+            let min = p[0].min(p[1]).min(p[2]);
+            assert!(
+                min >= -1e-4,
+                "input {rgb:?} band {band} HUE={hue_deg} -> output {p:?} has min channel {min} < 0"
+            );
+            for c in p {
+                assert!(c.is_finite(), "non-finite channel in {:?}", p);
+            }
+        }
+    }
+}
+
+/// Companion to the HUE-only test above: a modest SAT increase combined
+/// with hue rotation toward a narrower hull region must not force chroma
+/// back out of gamut via a stale `.max(c_floor)` clamp (the second half of
+/// the #1748 review fix — the floor at the pre-HSL input chroma could
+/// override the just-bisected hull chroma when the hull at the new hue is
+/// narrower than the original input chroma).
+#[test]
+fn hue_and_sat_combo_keeps_all_channels_non_negative_near_hull() {
+    let cases: [[f32; 3]; 6] = [
+        [0.95, 0.02, 0.02],
+        [0.02, 0.95, 0.02],
+        [0.02, 0.02, 0.95],
+        [0.9, 0.9, 0.02],
+        [0.9, 0.02, 0.9],
+        [0.02, 0.9, 0.9],
+    ];
+    for rgb in cases {
+        let lab = crate::color::oklab::rec2020_to_oklab(rgb);
+        let hue = oklab_hue_deg(lab[1], lab[2]);
+        let band = (0..BANDS)
+            .min_by(|&a, &b| {
+                circular_delta_deg(hue, HUE_CENTERS_DEG[a])
+                    .partial_cmp(&circular_delta_deg(hue, HUE_CENTERS_DEG[b]))
+                    .unwrap()
+            })
+            .unwrap();
+        for sat_v in [5.0_f32, 15.0, 30.0, 50.0, 100.0] {
+            for hue_deg in [-120.0_f32, -90.0, -60.0, -30.0, 30.0, 60.0, 90.0, 120.0] {
+                let mut hue_arr = zero_bands();
+                let mut sat_arr = zero_bands();
+                hue_arr[band] = hue_deg;
+                sat_arr[band] = sat_v;
+                let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+                img.pixels[0] = rgb;
+                apply(&mut img, &hue_arr, &sat_arr, &zero_bands());
+                let p = img.pixels[0];
+                let min = p[0].min(p[1]).min(p[2]);
+                assert!(
+                    min >= -1e-4,
+                    "input {rgb:?} band {band} sat={sat_v} HUE={hue_deg} -> output {p:?} has min channel {min} < 0"
+                );
+                for c in p {
+                    assert!(c.is_finite(), "non-finite channel in {:?}", p);
+                }
+            }
+        }
+    }
+}
+
