@@ -50,9 +50,9 @@ describe('uploadThumbToR2', () => {
 
   it('throws with the response body on a non-2xx response', async () => {
     stubFetch(403, 'AccessDenied');
-    await expect(
-      uploadThumbToR2(CONFIG, 'thumbs/main/a.jpg', new Uint8Array([1])),
-    ).rejects.toThrow(/403/);
+    await expect(uploadThumbToR2(CONFIG, 'thumbs/main/a.jpg', new Uint8Array([1]))).rejects.toThrow(
+      /403/,
+    );
   });
 });
 
