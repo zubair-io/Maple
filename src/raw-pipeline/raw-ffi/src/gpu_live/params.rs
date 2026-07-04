@@ -227,9 +227,12 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             2 => InputShape::SrgbGammaEncoded8,
             _ => InputShape::PostDcpRec2020Fp16,
         },
-        // Marshal the profile_id discriminant (#1722). Unknown values default
-        // to 0 (Auto / AgX) — the safe conservative fallback that matches the
-        // pre-#1722 behaviour. A stale host (zero-initialised struct) reads 0.
+        // Marshal the profile_id discriminant (#1722) unchanged — this layer
+        // does no remapping. Downstream (`full_chain`/`live_chain`) only
+        // special-cases `PROFILE_ID_ACR_MATCH` (2); every other value,
+        // including 0 (Auto) and any value this FFI doesn't yet know about,
+        // falls through to the AgX view tail. A stale host (zero-initialised
+        // struct) reads 0, which lands on that same AgX fallback.
         profile_id: p.profile_id,
     }
 }

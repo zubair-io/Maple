@@ -2,8 +2,10 @@
 //!
 //! The fitted model (`acr_fit/acr_match_model.json`) is loaded once at
 //! first use and applied per-pixel via `apply_model`. For the GPU path the
-//! model is pre-baked into a 3D scene-linear LUT at `ACR_MATCH_LUT_BIN_BYTES`
-//! (see `bake_acr_match_lut`).
+//! model is pre-baked into a 3D scene-linear LUT and committed at
+//! `acr_match_lut.bin` (see [`bake_acr_match_lut`]); `raw-gpu`'s
+//! `acr_match_pass` embeds those bytes as `ACR_MATCH_LUT_BYTES` via
+//! `include_bytes!`.
 //!
 //! The LUT shaper mirrors AgX exactly (log2 domain, MIN_EV = −10, MAX_EV =
 //! +6.5, MID_GRAY = 0.18) so the GPU kernel can reuse the same log-encode
