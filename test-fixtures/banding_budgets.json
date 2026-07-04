@@ -3,25 +3,80 @@
   "_comment": "Second-difference spike-ratio ceilings for src/scripts/test_banding.sh (#1627). Derived via a RED run (tools/budget_init.py pattern): every (fixture, stage, ramp_axis) cell was measured across the full slider-extreme sweep (baseline, exposure+4, contrast+100, shadows+100, blacks-100, saturation+100, vibrance+100, hsl_saturation+100 all-bands), the worst observed max_spike_ratio / max_abs_d2 recorded, then +8%/+10% headroom applied (floor 1.2 / 0.001) so a sub-percent noise wobble on a re-run doesn't flip PASS to FAIL. One-way ratchet: lower these only in the same commit that delivers the improvement (never invented round numbers). hsl_saturation+100 (#1733) did not move any worst-case cell vs the original 7-case sweep, confirming the hsl.rs gamut-soft-knee fix holds at the pipeline level.",
   "fixtures": {
     "blue/16_agx/chroma": { "max_abs_d2": 0.001789, "max_spike_ratio": 1.2 },
-    "blue/17_srgb_linear/chroma": { "max_abs_d2": 0.032407, "max_spike_ratio": 1.2 },
+    "blue/17_srgb_linear/chroma": {
+      "max_abs_d2": 0.032407,
+      "max_spike_ratio": 1.2
+    },
     "foliage/16_agx/chroma": { "max_abs_d2": 0.007655, "max_spike_ratio": 1.2 },
-    "foliage/17_srgb_linear/chroma": { "max_abs_d2": 0.001805, "max_spike_ratio": 1.2 },
+    "foliage/17_srgb_linear/chroma": {
+      "max_abs_d2": 0.001805,
+      "max_spike_ratio": 1.2
+    },
     "magenta/16_agx/chroma": { "max_abs_d2": 0.005891, "max_spike_ratio": 1.2 },
-    "magenta/17_srgb_linear/chroma": { "max_abs_d2": 0.003351, "max_spike_ratio": 1.2 },
+    "magenta/17_srgb_linear/chroma": {
+      "max_abs_d2": 0.003351,
+      "max_spike_ratio": 1.2
+    },
     "skin/16_agx/chroma": { "max_abs_d2": 0.005329, "max_spike_ratio": 1.2 },
-    "skin/17_srgb_linear/chroma": { "max_abs_d2": 0.001799, "max_spike_ratio": 1.2 },
+    "skin/17_srgb_linear/chroma": {
+      "max_abs_d2": 0.001799,
+      "max_spike_ratio": 1.2
+    },
     "neutral/16_agx/luma": { "max_abs_d2": 0.005096, "max_spike_ratio": 1.2 },
-    "neutral/17_srgb_linear/luma": { "max_abs_d2": 0.005096, "max_spike_ratio": 1.2 },
+    "neutral/17_srgb_linear/luma": {
+      "max_abs_d2": 0.005096,
+      "max_spike_ratio": 1.2
+    },
     "_comment_auto_tail": "Auto Profile tail keys (#1740 M1, `maple-cli auto-tail-ramp` on test_0000): ceilings derived from the shipping AUTO 1.0 tail's RED run (worst observed + the standard headroom/floors). The auto2 keys deliberately REUSE the auto1-derived ceilings — the bar is 'Auto 2.0 must be at least as smooth as the shipping tail', never Auto 2.0's own observed values (which, at introduction, breached neutral flat-run at 0.261 — the operator's posterized-highlight repro — and foliage spike-ratio at 1.64). max_flat_run_frac is the plateau/posterization metric: longest |d1|<=1e-6 run over ramp steps.",
-    "test_0000_auto1_neutral/18_auto_tail/luma": { "max_abs_d2": 0.004007, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto1_foliage/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto1_blue/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto1_magenta/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto1_skin/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto2_neutral/18_auto_tail/luma": { "max_abs_d2": 0.004007, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto2_foliage/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto2_blue/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto2_magenta/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 },
-    "test_0000_auto2_skin/18_auto_tail/chroma": { "max_abs_d2": 0.001, "max_spike_ratio": 1.2, "max_flat_run_frac": 0.02 }
+    "test_0000_auto1_neutral/18_auto_tail/luma": {
+      "max_abs_d2": 0.004007,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto1_foliage/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto1_blue/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto1_magenta/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto1_skin/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto2_neutral/18_auto_tail/luma": {
+      "max_abs_d2": 0.004007,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto2_foliage/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto2_blue/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto2_magenta/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    },
+    "test_0000_auto2_skin/18_auto_tail/chroma": {
+      "max_abs_d2": 0.001,
+      "max_spike_ratio": 1.2,
+      "max_flat_run_frac": 0.02
+    }
   }
 }

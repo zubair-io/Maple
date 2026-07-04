@@ -33,7 +33,7 @@
 //!   uses every pair (its own confidence-by-count handles sparse hue/chroma
 //!   cells, and cells with no support already default to identity).
 
-use super::field::{fit_field, SweepSample};
+use super::field::{fit_field, SweepSample, PAIRS_SHRINK_K};
 use super::model::{AcrModel, FitStats, Tonescale};
 use super::tonescale::{fit_tonescale_with_range, KnotRange, NeutralSample};
 use crate::color::matrices::M_REC2020_TO_SRGB;
@@ -43,11 +43,18 @@ use crate::view::auto_profile::pairs::DisplayPair;
 
 /// Oklab chroma ceiling (same units as `field.rs`'s `c_pred`, normalised
 /// against the field's own `0.30` chroma span) below which a pair is treated
-/// as "neutral" for the tonescale fit. `0.30 * NEUTRAL_CHROMA_FRAC` ~= 0.03
-/// Oklab chroma units — comfortably inside a true grey/near-grey surface
-/// (film grain, JPEG dithering, and sensor noise on a flat wall commonly sit
-/// under this) while excluding anything with visible hue.
-const NEUTRAL_CHROMA_FRAC: f32 = 0.10;
+/// as "neutral" for the tonescale fit. `0.30 * NEUTRAL_CHROMA_FRAC` ~= 0.045
+/// Oklab chroma units — still well inside "no visible hue" territory while
+/// admitting the slightly-tinted near-greys a real photo actually has.
+///
+/// #1740 M1 calibration: raised from 0.10 to 0.15. A fixture whose strict
+/// near-neutrals cluster in one luminance band (test_0006's sit in deep
+/// shadow — the M0.5 pathology) starves the tonescale elsewhere; the wider
+/// ceiling admits enough lightly-tinted midtone samples to anchor the
+/// mid-lattice knots (test_0006 baseline_auto mean ΔE00 4.40 → 3.75 on the
+/// ACR-parity harness, no measurable cost on the fixtures that were
+/// already well-anchored).
+const NEUTRAL_CHROMA_FRAC: f32 = 0.15;
 
 /// Rec.2020 luma coefficients (ITU-R BT.2020), matching `field.rs` /
 /// `model.rs`'s `apply_model`.
@@ -192,16 +199,17 @@ pub fn sweep_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<SweepSample> {
 pub fn solve_acr_model_from_display_pairs(pairs: &[DisplayPair]) -> Result<AcrModel, String> {
     let neutral = neutral_samples_from_pairs(pairs);
     let knot_range = KnotRange::from_scene_luminances(&all_pairs_scene_luminances(pairs));
-    let ts = fit_tonescale_with_range(&neutral, knot_range).ok_or_else(|| {
+    let mut ts = fit_tonescale_with_range(&neutral, knot_range).ok_or_else(|| {
         format!(
             "tonescale fit failed: {} neutral-chroma pairs out of {} total (need >= 2)",
             neutral.len(),
             pairs.len()
         )
     })?;
+    shape_tonescale_for_display_domain(&mut ts);
 
     let sweep = sweep_samples_from_pairs(pairs);
-    let (field, patches_used, patches_clipped) = fit_field(&sweep, &ts);
+    let (field, patches_used, patches_clipped) = fit_field(&sweep, &ts, PAIRS_SHRINK_K);
 
     let fit_rms_de = compute_fit_rms_de_from_pairs(pairs, &ts, &field);
 
@@ -215,6 +223,74 @@ pub fn solve_acr_model_from_display_pairs(pairs: &[DisplayPair]) -> Result<AcrMo
             overlap_rms_rel: None,
         },
     })
+}
+
+/// Minimum tonescale slope, in display-luminance units per scene-luminance
+/// unit: consecutive knot values must rise by at least this fraction of
+/// their linear scene-luminance gap. The raw fit's monotone clamp-up pass
+/// only enforces `>=`, so a clipped-JPEG luminance band (blown sky) fits a
+/// run of EXACTLY equal knots — a plateau that renders every input in the
+/// band identically (posterization; the banding gate's `max_flat_run_frac`
+/// metric, #1740 M1). 5% keeps ordering strictly visible at a cost the
+/// harness can't measure (the affected band is within a hair of clip).
+const MIN_TONESCALE_SLOPE: f32 = 0.05;
+
+/// Identity-decay length floor, in log2 stops past the last fitted knot,
+/// and the monotonicity-safety factor that widens it for large boundary
+/// gains (see `shape_tonescale_for_display_domain`).
+const DECAY_STOPS_MIN: f32 = 1.5;
+const DECAY_STOPS_PER_GAIN: f32 = 2.2;
+
+/// Post-fit shaping for the display-domain (JPEG-pair) tonescale — #1740 M1
+/// calibration. Two structured constraints the chart-domain fit doesn't
+/// need (its synthetic neutral ramp never clips and its evaluation domain
+/// never exceeds its knot span):
+///
+/// 1. **Strict monotonicity** ([`MIN_TONESCALE_SLOPE`]): no two knots may
+///    map a luminance gap onto a dead-flat display value.
+/// 2. **Identity-decay extrapolation**: three appended knots carry the
+///    boundary scale `vals[last] / l_last` smoothly (smoothstep) down to
+///    exactly 1.0 over `max(1.5, 2.2·(scale−1))` stops, after which the
+///    evaluator's own flat-SCALE extrapolation continues at scale 1.0 —
+///    i.e. exact identity. This is the epic's "unsupported cells decay to
+///    identity" contract applied to the tonescale's luminance axis: without
+///    it, flat-scale extrapolation keeps applying the boundary gain to
+///    ever-brighter pixels, overshoots the display range, and the bake's
+///    range limit posterizes the whole overshoot region into one flat blob
+///    (the operator's test_0000 highlight repro). The decay length grows
+///    with the boundary gain so `d(l·scale(l))/dl` stays positive
+///    (smoothstep peak slope 1.5, so monotonicity needs
+///    `stops > (scale−1)·1.5/ln 2 ≈ (scale−1)·2.16`).
+fn shape_tonescale_for_display_domain(ts: &mut Tonescale) {
+    let n = ts.knots_log2.len();
+    if n < 2 {
+        return;
+    }
+    // 1. Strict monotonicity.
+    for i in 1..n {
+        let l_prev = ts.knots_log2[i - 1].exp2();
+        let l_cur = ts.knots_log2[i].exp2();
+        let floor = ts.values[i - 1] + MIN_TONESCALE_SLOPE * (l_cur - l_prev);
+        if ts.values[i] < floor {
+            ts.values[i] = floor;
+        }
+    }
+    // 2. Identity-decay extrapolation knots.
+    let k_last = ts.knots_log2[n - 1];
+    let l_last = k_last.exp2();
+    let scale_top = ts.values[n - 1] / l_last;
+    let stops = DECAY_STOPS_MIN.max(DECAY_STOPS_PER_GAIN * (scale_top - 1.0).abs());
+    let smoothstep = |t: f32| t * t * (3.0 - 2.0 * t);
+    for frac in [1.0f32 / 3.0, 2.0 / 3.0, 1.0] {
+        let k = k_last + stops * frac;
+        let l = k.exp2();
+        let scale = 1.0 + (scale_top - 1.0) * (1.0 - smoothstep(frac));
+        // Clamp-up keeps the appended series monotone even for a
+        // sub-identity boundary scale (scale_top < 1).
+        let v = (l * scale).max(ts.values[n - 1]);
+        ts.knots_log2.push(k);
+        ts.values.push(v.max(*ts.values.last().unwrap()));
+    }
 }
 
 /// RMS CIEDE2000 of `apply_model` prediction vs the measured JPEG pair, over

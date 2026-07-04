@@ -354,7 +354,9 @@ pub fn solve_acr_model_multi(
     let ts = fit_tonescale(&all_neutral).ok_or("tonescale fit failed: too few neutral samples")?;
 
     // ── Stage 2: field fit (baseline render only) ──────────────────────────
-    let (field, patches_used, patches_clipped_stage2) = fit_field(&sweep_samples, &ts);
+    // Chart fit: no count-based shrinkage (the chart's per-cell count is a
+    // design constant, not a confidence signal — see `field::PAIRS_SHRINK_K`).
+    let (field, patches_used, patches_clipped_stage2) = fit_field(&sweep_samples, &ts, 0.0);
     let patches_clipped = total_clipped + patches_clipped_stage2;
 
     // ── Stage 3: overlap consistency metric ───────────────────────────────
