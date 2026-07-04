@@ -26,12 +26,14 @@ fn render_scene_linear_tile_returns_oriented_fp16_rgba_at_target_size() {
     let (w, h, fp16) = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        src_x,
-        src_y,
-        src_w,
-        src_h,
-        out_w,
-        out_h,
+        TileRect {
+            src_x: src_x,
+            src_y: src_y,
+            src_w: src_w,
+            src_h: src_h,
+            out_w: out_w,
+            out_h: out_h,
+        },
         RenderQuality::Full,
     )
     .expect("tile render");
@@ -63,24 +65,28 @@ fn render_scene_linear_tile_rounds_source_coords_to_even() {
     let (w_odd, h_odd, _) = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        1025,
-        1025,
-        512,
-        512,
-        256,
-        256,
+        TileRect {
+            src_x: 1025,
+            src_y: 1025,
+            src_w: 512,
+            src_h: 512,
+            out_w: 256,
+            out_h: 256,
+        },
         RenderQuality::Full,
     )
     .expect("odd coords tile");
     let (w_even, h_even, _) = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        1024,
-        1024,
-        512,
-        512,
-        256,
-        256,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 256,
+            out_h: 256,
+        },
         RenderQuality::Full,
     )
     .expect("even coords tile");
@@ -175,12 +181,14 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
     let (tw, th, tile_fp16) = render_scene_linear_tile_from_raw_with_quality(
         &raw,
         &model,
-        src_x,
-        src_y,
-        side,
-        side,
-        side,
-        side,
+        TileRect {
+            src_x: src_x,
+            src_y: src_y,
+            src_w: side,
+            src_h: side,
+            out_w: side,
+            out_h: side,
+        },
         RenderQuality::Full,
     )
     .expect("tile render");
@@ -324,12 +332,14 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
     let (tw, th, tile_fp16) = render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
         &raw,
         &model,
-        src_x,
-        src_y,
-        side,
-        side,
-        side,
-        side,
+        TileRect {
+            src_x,
+            src_y,
+            src_w: side,
+            src_h: side,
+            out_w: side,
+            out_h: side,
+        },
         RenderQuality::Full,
         Some((as_shot_cct, as_shot_tint)),
     )
@@ -375,7 +385,12 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
             }
         }
     }
-    assert!(compared > n / 2, "too few comparable pixels: {}/{}", compared, n);
+    assert!(
+        compared > n / 2,
+        "too few comparable pixels: {}/{}",
+        compared,
+        n
+    );
     eprintln!(
         "tile-vs-scene-chain WB-anchor parity: max per-channel ratio rel err = {:.5} over {} pixels",
         max_rel_err, compared
