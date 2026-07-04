@@ -2,37 +2,40 @@
 //!
 //! The module is split into two tiers:
 //!
-//! **Always compiled** (`model.rs`): `AcrModel`, `Tonescale`, `HueChromaField`,
-//! `FitStats`, `apply_model`, and the JSON round-trip.  The future bake path
-//! and `apply_model` in the shipping core need these unconditionally.
+//! **Always compiled** (`model.rs`, `tonescale.rs`, `field.rs`,
+//! `from_pairs.rs`, `bake.rs`): `AcrModel`, `Tonescale`, `HueChromaField`,
+//! `FitStats`, `apply_model`, the JSON round-trip, the tonescale/field fit
+//! stages, (Auto 2.0 M0/M1, #1740) the JPEG-pair front-end
+//! `solve_acr_model_from_display_pairs` that runs the same tonescale + field
+//! fit against a real photo's scattered `auto_profile::pairs::DisplayPair`
+//! correspondences instead of a synthetic chart, and (M1) `bake_acr_model_lut`
+//! / `acr_model_as_profile_artifacts`, which compose a fitted `AcrModel` into
+//! the SAME `(ProfileCurve, ColorLut)` shape Auto 1.0's
+//! `auto_profile::bake_auto_profile_lut` produces. These are pure solver
+//! math with no dependency on the chart-only tooling below, and Auto 2.0's
+//! M1 dev A/B (`MAPLE_AUTO2=1`, see `pipeline::render::auto_fit`) needs
+//! `solve_acr_model_from_display_pairs` + the bake in the normal build, not
+//! just under `test-support`.
 //!
-//! **Test-support only** (this file, `tonescale.rs`, `field.rs`,
-//! `from_pairs.rs`): the solver itself — spec JSON parsing, patch extraction,
-//! `solve_acr_model`, `solve_acr_model_multi`, and (Auto 2.0 M0, #1740) the
-//! JPEG-pair front-end `solve_acr_model_from_display_pairs` that runs the same
-//! tonescale + field fit against a real photo's scattered
-//! `auto_profile::pairs::DisplayPair` correspondences instead of a synthetic
-//! chart.  Compiled only when `feature = "test-support"` is active so the
-//! solver (and its DNG-synthesis helpers) never ship in the xcframework or
-//! the WASM binary.
+//! **Test-support only** (this file's chart-fit tooling — spec JSON parsing,
+//! patch extraction, `solve_acr_model`, `solve_acr_model_multi`): the
+//! synthetic-sweep-chart solver, gated behind `feature = "test-support"` so
+//! its DNG-synthesis / chart-rendering helpers never ship in the xcframework
+//! or the WASM binary.
 
 pub mod model;
 
 pub use model::{apply_model, AcrModel, FitStats, HueChromaField, Tonescale};
 
-// Solver sub-modules and the public solver API are test-support-only.
-#[cfg(feature = "test-support")]
+pub mod bake;
 pub mod field;
-#[cfg(feature = "test-support")]
 pub mod from_pairs;
-#[cfg(feature = "test-support")]
 pub mod tonescale;
 
-#[cfg(feature = "test-support")]
+pub use bake::{acr_model_as_profile_artifacts, bake_acr_model_lut};
 pub use from_pairs::{
     neutral_samples_from_pairs, solve_acr_model_from_display_pairs, sweep_samples_from_pairs,
 };
-#[cfg(feature = "test-support")]
 pub use tonescale::{KnotRange, NeutralSample};
 
 #[cfg(feature = "test-support")]
