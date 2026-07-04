@@ -424,6 +424,20 @@ export interface AssetDoc {
    */
   maple_id?: string;
   /**
+   * ISO timestamp of the last successful upload of this asset's
+   * content-addressed thumbnail to the Cloudflare R2 mirror (see
+   * `cloudflare/r2-client.ts`). Absent/null means the thumbnail either
+   * hasn't been generated yet, Cloudflare upload is disabled, or the
+   * backfill job hasn't reached this asset yet — all three are
+   * indistinguishable and all three mean "still pending" to the backfill
+   * job's selection query. Never holds a URL: the R2 object key is always
+   * re-derived from `(library slug, fileinfo[0].path, fileinfo[0].filename)`
+   * via `cloudflare/thumb-key.ts`, mirroring the existing
+   * "never persist a derivable thumb path" convention (see
+   * `workers/stages/thumb.ts`).
+   */
+  cf_thumb_synced_at?: string | null;
+  /**
    * Denormalized count of live `fileinfo` entries (entries where neither
    * `deleted_at` nor `missing_since` is set). Maintained at every liveness
    * mutation site and backfilled by the `backfill-live-location-count`
