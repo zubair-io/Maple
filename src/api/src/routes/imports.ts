@@ -134,7 +134,13 @@ async function projectImport(doc: ImportWithId): Promise<ImportView> {
   return { ...projectImportSummary(doc), files };
 }
 
-const ScanBody = t.Object({ source_root: t.String() });
+const ScanBody = t.Object({
+  source_root: t.String(),
+  /** Target library — optional so the endpoint still works before a library
+   * is chosen, but when given, the preview also resolves nearby-asset
+   * matches (see `ScanBucket.nearbyMatchCount`) against that library. */
+  library_id: t.Optional(t.String()),
+});
 
 const CreateBody = t.Object({
   source_root: t.String(),
@@ -165,7 +171,17 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
         set.status = 400;
         return { error: jail.error };
       }
-      const result = await scanFolder(jail.real);
+      if (body.library_id !== undefined && !ObjectId.isValid(body.library_id)) {
+        set.status = 400;
+        return { error: 'Invalid library_id' };
+      }
+      const libraryId = body.library_id !== undefined ? new ObjectId(body.library_id) : null;
+      const result = await scanFolder(jail.real, {
+        loadNearbyCandidates:
+          libraryId !== null
+            ? (minMs, maxMs) => loadNearbyAssetCandidates(libraryId, minMs, maxMs)
+            : undefined,
+      });
       return result;
     },
     { body: ScanBody },
