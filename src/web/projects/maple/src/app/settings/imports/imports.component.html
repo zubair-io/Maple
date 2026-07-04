@@ -118,9 +118,12 @@
         </p>
         <p class="hint">
           Leave a folder name blank to use the default: an already-indexed photo taken within 30
-          minutes wins first, otherwise
-          <code class="mono">{{ 'misc/' + sourceFolderName() }}</code
-          >.
+          minutes wins first, otherwise it's filed under
+          <code class="mono">misc/{{ sourceFolderName() }}</code> — or under
+          <code class="mono">{{ sourceFolderName() }}</code
+          >'s parent folder name instead of <code class="mono">misc</code>, if
+          <code class="mono">{{ sourceFolderName() }}</code> looks like an unlabeled camera folder
+          (e.g. <code class="mono">Shot0123</code>, <code class="mono">0123</code>).
         </p>
 
         <div class="bucket-table">
@@ -136,7 +139,7 @@
                 type="text"
                 [ngModel]="labels()[b.key]"
                 (ngModelChange)="setLabel(b.key, $event)"
-                [placeholder]="'misc/' + sourceFolderName() + ' (default)'"
+                placeholder="(leave blank for the default)"
                 [attr.aria-label]="'Folder name for ' + b.key"
               />
               <span class="num">{{ b.imageCount }}</span>

@@ -48,6 +48,35 @@ export function bucketForMtime(mtimeMs: number): Bucket {
 /** The fixed default-bucket directory name (see `destRelPathDefault`). */
 export const MISC_SEGMENT = 'misc';
 
+/** Proximity window for the nearby-asset-folder match (see `imports/nearby.ts`). */
+export const NEARBY_ASSET_WINDOW_MS = 30 * 60 * 1000;
+
+export interface NearbyAssetCandidate {
+  /** Epoch ms of the candidate asset's `exif.captured_at`. */
+  capturedAtMs: number;
+  /** The library-root-relative folder the candidate already lives in. */
+  folderPath: string;
+}
+
+/** Nearest candidate to `mtimeMs` within `NEARBY_ASSET_WINDOW_MS`, or null.
+ * Pure — the Mongo query that produces `candidates` lives in
+ * `imports/nearby.ts`'s `loadNearbyAssetCandidates`. */
+export function nearestCandidateFolder(
+  candidates: readonly NearbyAssetCandidate[],
+  mtimeMs: number,
+): string | null {
+  let best: NearbyAssetCandidate | null = null;
+  let bestDeltaMs = Infinity;
+  for (const cand of candidates) {
+    const deltaMs = Math.abs(cand.capturedAtMs - mtimeMs);
+    if (deltaMs <= NEARBY_ASSET_WINDOW_MS && deltaMs < bestDeltaMs) {
+      best = cand;
+      bestDeltaMs = deltaMs;
+    }
+  }
+  return best?.folderPath ?? null;
+}
+
 /**
  * Generic camera "dump folder" names that carry no information about their
  * contents on their own — `Shot0123`/`shot0123`, or a bare zero-padded number

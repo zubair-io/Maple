@@ -14,14 +14,16 @@
  * Symlinked directories and files ARE followed (a source folder is often a
  * tree of symlinks into a NAS/removable-media mount). A cyclic symlink can't
  * loop forever: each symlinked directory's realpath is recorded the first
- * time it's queued, and a repeat realpath is skipped.
+ * time it's queued, and a repeat realpath is skipped. A symlink target is
+ * also re-checked against `MAPLE_ROOTS` (see `walk()`), since it can point
+ * anywhere on disk regardless of where the source folder itself was jailed.
  */
 
 import fs from 'node:fs/promises';
 import type { Dirent, Stats } from 'node:fs';
 import path from 'node:path';
 import { SUPPORTED_EXTS } from '../workers/discover/types.ts';
-import { canonicalBaseFromSidecarFilename } from '../fs/browse.ts';
+import { browseRoots, canonicalBaseFromSidecarFilename, isUnderRoot } from '../fs/browse.ts';
 import {
   bucketForMtime,
   destRelPath,
@@ -29,6 +31,10 @@ import {
   destRelPathInFolder,
   destRelPathShotFolder,
   isNumberedShotFolder,
+  MISC_SEGMENT,
+  nearestCandidateFolder,
+  NEARBY_ASSET_WINDOW_MS,
+  type NearbyAssetCandidate,
 } from './dest.ts';
 import { child as childLogger } from '../log.ts';
 import type { ImportFileEntry, ImportFileKind } from '../db/schema.ts';
@@ -101,7 +107,14 @@ function classify(filename: string): ImportFileKind | null {
  * de-duplicated by its REALPATH the moment it's dequeued (not just when it's
  * a symlink), so a cyclic symlink (A → B → A) — or two different paths
  * landing on the same real directory — can't cause an infinite loop or
- * double-count the same files. */
+ * double-count the same files.
+ *
+ * A symlink can point anywhere, including outside `MAPLE_ROOTS` — so every
+ * directory (at dequeue, via its already-computed realpath) and every
+ * symlinked FILE is re-checked against `browseRoots()` before it's read or
+ * recorded. A non-symlinked file needs no separate check: it's a direct
+ * child of an already-jailed directory. Mirrors the per-child realpath jail
+ * check in `fs/browse.ts`. */
 async function walk(root: string): Promise<{
   primaries: RawFile[];
   sidecars: RawFile[];
@@ -110,6 +123,8 @@ async function walk(root: string): Promise<{
   const sidecars: RawFile[] = [];
   const stack: string[] = [root];
   const visitedRealDirs = new Set<string>();
+  const roots = await browseRoots();
+  const insideJail = (real: string): boolean => roots.some((r) => isUnderRoot(real, r));
 
   while (stack.length > 0) {
     const dir = stack.pop() as string;
@@ -121,6 +136,7 @@ async function walk(root: string): Promise<{
     }
     if (visitedRealDirs.has(realDir)) continue;
     visitedRealDirs.add(realDir);
+    if (!insideJail(realDir)) continue; // symlink escaped MAPLE_ROOTS
 
     let entries: Dirent[];
     try {
@@ -142,15 +158,29 @@ async function walk(root: string): Promise<{
 
       let isDir = ent.isDirectory();
       let isFile = ent.isFile();
+      // Stat once for a symlink (it must be followed to know what it points
+      // at) and reuse that same Stats below instead of stat'ing `abs` again.
+      let symlinkStat: Stats | null = null;
       if (ent.isSymbolicLink()) {
-        let st: Stats;
         try {
-          st = await fs.stat(abs); // follows the link
+          symlinkStat = await fs.stat(abs); // follows the link
         } catch {
           continue; // dangling symlink
         }
-        isDir = st.isDirectory();
-        isFile = st.isFile();
+        isDir = symlinkStat.isDirectory();
+        isFile = symlinkStat.isFile();
+        if (isFile) {
+          // A symlinked directory is jail-checked above when it's dequeued
+          // (via `realDir`); a symlinked FILE needs its own check here since
+          // it's never pushed onto the stack.
+          let realFile: string;
+          try {
+            realFile = await fs.realpath(abs);
+          } catch {
+            continue;
+          }
+          if (!insideJail(realFile)) continue; // symlink escaped MAPLE_ROOTS
+        }
       }
 
       if (isDir) {
@@ -161,10 +191,14 @@ async function walk(root: string): Promise<{
       const kind = classify(ent.name);
       if (!kind) continue;
       let st: Stats;
-      try {
-        st = await fs.stat(abs); // follows a symlinked file
-      } catch {
-        continue;
+      if (symlinkStat) {
+        st = symlinkStat;
+      } else {
+        try {
+          st = await fs.stat(abs);
+        } catch {
+          continue;
+        }
       }
       const rec: RawFile = {
         src: abs,
@@ -280,14 +314,17 @@ export async function scanFolder(absRoot: string): Promise<ScanResult> {
 
 export interface BuildImportFilesOptions {
   /**
-   * Look up whether an asset already indexed in the target library was
-   * captured within 30 minutes of `mtimeMs`, and if so return the folder it
-   * already lives in (so this file lands next to it). Injected so this
-   * module stays Mongo-free (see file header) — the real implementation is
-   * `imports/repo.ts`'s `findNearbyAssetFolder`. Omitted (e.g. in unit tests)
-   * means "never match."
+   * Load already-indexed assets in the target library captured in
+   * `[minMs, maxMs]`, so nearby-folder matches (see `nearestCandidateFolder`
+   * in `dest.ts`) can be resolved in-memory for every file in this batch
+   * instead of issuing one Mongo query per file. Called ONCE per
+   * `buildImportFiles` call, with the min/max mtime across every scanned
+   * file (already padded by the proximity window). Injected so this module
+   * stays Mongo-free (see file header) — the real implementation is
+   * `imports/nearby.ts`'s `loadNearbyAssetCandidates`. Omitted (e.g. in unit
+   * tests) means "never match."
    */
-  findNearbyFolder?: (mtimeMs: number) => Promise<string | null>;
+  loadNearbyCandidates?: (minMs: number, maxMs: number) => Promise<NearbyAssetCandidate[]>;
 }
 
 /**
@@ -322,11 +359,24 @@ export async function buildImportFiles(
 ): Promise<ImportFileEntry[]> {
   const { primaries, sidecars } = await walk(absRoot);
   const { items } = pair(primaries, sidecars);
-  const findNearbyFolder = opts.findNearbyFolder ?? (async () => null);
 
   const folderName = path.basename(absRoot);
   const parentFolderName = path.basename(path.dirname(absRoot));
   const useShotFolderFallback = isNumberedShotFolder(folderName);
+
+  // One nearby-candidates query for the WHOLE batch (not one per file): load
+  // every already-indexed asset captured across the full span of this
+  // import's file mtimes, padded by the proximity window on both ends, then
+  // match each file against that in-memory list.
+  const loadNearbyCandidates = opts.loadNearbyCandidates ?? (async () => []);
+  const mtimes = items.map((it) => it.mtime);
+  const nearbyCandidates =
+    mtimes.length > 0
+      ? await loadNearbyCandidates(
+          Math.min(...mtimes) - NEARBY_ASSET_WINDOW_MS,
+          Math.max(...mtimes) + NEARBY_ASSET_WINDOW_MS,
+        )
+      : [];
 
   const files: ImportFileEntry[] = [];
 
@@ -359,7 +409,10 @@ export async function buildImportFiles(
     const { year, mm } = bucketForMtime(it.mtime);
     const rawOverride = labels[`${year}/${mm}`];
     const overrideLabel = rawOverride !== undefined ? rawOverride.trim() : '';
-    const nearbyFolder = await findNearbyFolder(it.mtime);
+    // An explicit override can never lose to a nearby-asset match, so skip
+    // the (already in-memory, but still non-free) lookup when one is set.
+    const nearbyFolder =
+      overrideLabel.length > 0 ? null : nearestCandidateFolder(nearbyCandidates, it.mtime);
 
     const resolveDestFor = (filename: string): string => {
       if (overrideLabel.length > 0) return destRelPath({ year, label: overrideLabel, filename });
@@ -369,7 +422,16 @@ export async function buildImportFiles(
       }
       return destRelPathDefault({ year, folderName, filename });
     };
-    const displayDir = `${year}/${overrideLabel || folderName}`;
+    // Best-effort display directory for a failed entry — mirrors the same
+    // precedence `resolveDestFor` uses (minus the throwing validation).
+    const displayDir =
+      overrideLabel.length > 0
+        ? `${year}/${overrideLabel}`
+        : nearbyFolder != null
+          ? nearbyFolder
+          : useShotFolderFallback
+            ? `${year}/${parentFolderName}/${folderName}`
+            : `${year}/${MISC_SEGMENT}/${folderName}`;
 
     // Resolve the image's destination first: if it's unsafe, the whole group
     // (image + its sidecars) is failed, since a sidecar with no landed image
