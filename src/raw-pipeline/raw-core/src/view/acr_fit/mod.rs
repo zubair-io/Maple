@@ -33,7 +33,7 @@ pub use from_pairs::{
     neutral_samples_from_pairs, solve_acr_model_from_display_pairs, sweep_samples_from_pairs,
 };
 #[cfg(feature = "test-support")]
-pub use tonescale::NeutralSample;
+pub use tonescale::{KnotRange, NeutralSample};
 
 #[cfg(feature = "test-support")]
 use field::{fit_field, SweepSample};
