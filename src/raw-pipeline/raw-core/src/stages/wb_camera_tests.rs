@@ -250,15 +250,17 @@ fn apply_with_unmodified_profile_casts_a_neutral_scene_off_neutral() {
     }
 }
 
-/// `resolve_target` must pass an explicit, non-default `(temperature,
-/// tint)` straight through unchanged — this is the ordinary "user dialed
-/// in a custom WB" case.
+/// `resolve_target` must pass an explicit Custom WB (both `crs:Temperature`
+/// and `crs:Tint` authored, both `_seen` flags set — see `xmp::set_field`)
+/// straight through unchanged.
 #[test]
-fn resolve_target_passes_through_explicit_values() {
+fn resolve_target_passes_through_explicit_custom_wb() {
     let profile = test_profile(5500.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
     let model = crate::xmp::AdjustmentModel {
         temperature: 3200.0,
         tint: -15.0,
+        temperature_seen: true,
+        tint_seen: true,
         ..crate::xmp::AdjustmentModel::default()
     };
     let (t, tint) = resolve_target(&model, &profile);
@@ -266,21 +268,87 @@ fn resolve_target_passes_through_explicit_values() {
     assert_eq!(tint, -15.0);
 }
 
+/// `resolve_target` must pass a named WB preset's resolved `(temperature,
+/// tint)` through unchanged, even though `xmp::wb_preset` never sets the
+/// `_seen` flags (presets resolve to a pair at parse time rather than being
+/// authored as explicit numeric fields) — matching `white_balance::
+/// resolve_wb`'s neither-seen row. Uses Tungsten's real resolved value
+/// (2850 K, 0 tint) from `xmp::wb_preset`'s table.
+#[test]
+fn resolve_target_passes_through_named_preset() {
+    let profile = test_profile(5500.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 2850.0,
+        tint: 0.0,
+        temperature_seen: false,
+        tint_seen: false,
+        ..crate::xmp::AdjustmentModel::default()
+    };
+    let (t, tint) = resolve_target(&model, &profile);
+    assert_eq!(t, 2850.0, "named preset's resolved temperature must pass through");
+    assert_eq!(tint, 0.0);
+}
+
+/// `resolve_target` must zero tint for a temperature-only Custom WB
+/// (`temperature_seen` set, `tint_seen` NOT set) — ACR's "absent tint"
+/// convention, matching `white_balance::resolve_wb`'s row for the same
+/// shape.
+#[test]
+fn resolve_target_zeroes_tint_for_temperature_only_custom_wb() {
+    let profile = test_profile(5500.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 3200.0,
+        tint: 42.0, // must be ignored: tint_seen is false
+        temperature_seen: true,
+        tint_seen: false,
+        ..crate::xmp::AdjustmentModel::default()
+    };
+    let (t, tint) = resolve_target(&model, &profile);
+    assert_eq!(t, 3200.0);
+    assert_eq!(tint, 0.0, "tint must zero when temperature_seen && !tint_seen");
+}
+
 /// `resolve_target` must substitute the profile's own as-shot reference
-/// point when the model sits at the literal `AdjustmentModel::default()`
-/// numeric values — the only representation "As Shot" (or "no sidecar
-/// yet") has on this branch. See the module doc's "As-Shot seeding"
-/// section for the full rationale.
+/// point when neither `_seen` flag is set AND the model sits at the
+/// literal `AdjustmentModel::default()` numeric values — the state parsing
+/// leaves a no-sidecar image, or an explicit `crs:WhiteBalance="As Shot"`/
+/// absent attribute, in. See the module doc's "As-Shot seeding" section
+/// for the full rationale.
 #[test]
 fn resolve_target_seeds_as_shot_from_profile_scene_cct() {
     let profile = test_profile(5508.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
     let model = crate::xmp::AdjustmentModel::default();
     assert_eq!(model.temperature, 6500.0, "precondition: literal default");
     assert_eq!(model.tint, 0.0, "precondition: literal default");
+    assert!(!model.temperature_seen, "precondition: flag unset");
+    assert!(!model.tint_seen, "precondition: flag unset");
     let (t, tint) = resolve_target(&model, &profile);
     assert_eq!(
         t, 5508.0,
         "As-Shot model must resolve to the profile's own scene_cct, not 6500K"
+    );
+    assert_eq!(tint, 0.0);
+}
+
+/// An explicit Custom WB dialed to exactly `(6500.0, 0.0)` — both `_seen`
+/// flags set — must NOT be re-seeded from `profile.scene_cct`: this is a
+/// real, deliberate user choice of D65/no-tint, not "As Shot", and the
+/// `_seen` flags (unlike the old numeric-only heuristic) can tell the two
+/// apart.
+#[test]
+fn resolve_target_does_not_reseed_explicit_6500k_custom_wb() {
+    let profile = test_profile(5508.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 6500.0,
+        tint: 0.0,
+        temperature_seen: true,
+        tint_seen: true,
+        ..crate::xmp::AdjustmentModel::default()
+    };
+    let (t, tint) = resolve_target(&model, &profile);
+    assert_eq!(
+        t, 6500.0,
+        "explicit Custom WB at 6500K must pass through, not resolve to scene_cct 5508"
     );
     assert_eq!(tint, 0.0);
 }
@@ -315,5 +383,118 @@ fn resolve_target_then_apply_is_a_no_op_for_as_shot_model_far_from_6500k() {
         img.pixels, before,
         "As-Shot model (numeric default) must be a bit-exact no-op via resolve_target, \
          even at a scene_cct far from 6500K"
+    );
+}
+
+// ---- apply_delta tests (tile-refine delta anchor) ----
+
+#[test]
+fn apply_delta_is_identity_when_target_equals_anchor() {
+    let scene_cct = 5500.0_f32;
+    let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
+    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
+    for (i, p) in img.pixels.iter_mut().enumerate() {
+        *p = [0.1 * (i as f32 + 1.0), 0.2, 0.3];
+    }
+    let before = img.pixels.clone();
+    // Anchor far from profile.scene_cct AND with a large tint — the exact
+    // shape that defeats `apply`'s single fixed identity point (a real
+    // camera's as-shot chromaticity can sit beyond the tint slider's ±100
+    // range from the locus at its own CCT).
+    apply_delta(
+        &mut img,
+        &profile,
+        as_shot_neutral,
+        3000.0,
+        90.0,
+        3000.0,
+        90.0,
+    );
+    assert_eq!(
+        img.pixels, before,
+        "target == anchor must be a bit-exact no-op regardless of how far \
+         the shared point sits from profile.scene_cct"
+    );
+}
+
+#[test]
+fn apply_delta_reaches_identity_beyond_apply_single_reference_point() {
+    // The regression this function exists to fix: an anchor whose tint is
+    // far enough from 0 that `apply`'s hardcoded `tint.abs() < 0.5` check
+    // would never short-circuit, even though target == anchor should be a
+    // no-op. Uses a large tint (90) at a CCT away from scene_cct (5500) to
+    // simulate a real camera's clamped-at-the-rail as-shot tint (measured:
+    // +144, clamped to +100, on a real Hasselblad H2D-39 bundle profile).
+    let scene_cct = 5500.0_f32;
+    let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
+    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let anchor_temperature = 7200.0_f32;
+    let anchor_tint = 90.0_f32;
+
+    // Confirm `apply` (absolute) at this exact point is NOT a no-op —
+    // establishing that its identity check genuinely can't reach this
+    // point, so `apply_delta`'s own contract is doing real work.
+    let mut img_absolute = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
+    img_absolute.pixels[0] = [0.5, 0.5, 0.5];
+    let before_absolute = img_absolute.pixels.clone();
+    apply(
+        &mut img_absolute,
+        &profile,
+        as_shot_neutral,
+        anchor_temperature,
+        anchor_tint,
+    );
+    assert_ne!(
+        img_absolute.pixels, before_absolute,
+        "precondition: apply's fixed identity point must NOT cover this anchor"
+    );
+
+    // apply_delta at the SAME (temperature, tint) as the anchor must be a
+    // bit-exact no-op.
+    let mut img_delta = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
+    img_delta.pixels[0] = [0.5, 0.5, 0.5];
+    let before_delta = img_delta.pixels.clone();
+    apply_delta(
+        &mut img_delta,
+        &profile,
+        as_shot_neutral,
+        anchor_temperature,
+        anchor_tint,
+        anchor_temperature,
+        anchor_tint,
+    );
+    assert_eq!(
+        img_delta.pixels, before_delta,
+        "apply_delta must reach identity at target == anchor even where apply cannot"
+    );
+}
+
+#[test]
+fn apply_delta_moves_in_the_correct_direction_off_anchor() {
+    let scene_cct = 5500.0_f32;
+    let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
+    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let anchor = (7200.0_f32, 20.0_f32);
+
+    let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
+    img.pixels[0] = [1.0, 1.0, 1.0];
+    // Warmer than the anchor: expect R > B after the delta, matching the
+    // same "warmer target -> higher R" direction `apply`'s own
+    // `warmer_target_than_as_shot_boosts_red_gain` test pins.
+    apply_delta(
+        &mut img,
+        &profile,
+        as_shot_neutral,
+        anchor.0 + 3000.0,
+        anchor.1,
+        anchor.0,
+        anchor.1,
+    );
+    let p = img.pixels[0];
+    assert!(
+        p[0] > p[2],
+        "warmer-than-anchor target should give R > B, got {:?}",
+        p
     );
 }

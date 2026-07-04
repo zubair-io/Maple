@@ -124,16 +124,41 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // `scene_white_xyz`) passes to DCP below completely unmodified. This
     // function rejects LinearRaw at the top (see the guard above), so the
     // only tier gate needed here is `RawlerFallback`.
+    //
+    // `decoded_wb_anchor` (#1725 delta contract) takes precedence over
+    // `resolve_target`'s absolute As-Shot seeding when both apply: a
+    // `Some` anchor means the caller has its own decoded/live reference
+    // point in hand (see `stages::wb_camera::apply_delta`'s doc for why
+    // that reference point can differ from `resolve_target`'s
+    // `profile.scene_cct` idealized-locus seed — a real camera's as-shot
+    // chromaticity can sit far enough off the locus that no
+    // `(temperature, tint)` pair within the slider's ±100 tint range
+    // reaches it, so `apply`'s single fixed identity point isn't always
+    // reachable). `apply_delta`'s own identity short-circuit (`target ==
+    // anchor`) is what actually decides no-op-ness in that case.
     let camera_wb_applied = if !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-        let (target_temperature, target_tint) = wb_camera::resolve_target(model, &profile);
-        stage("tile_wb_camera::apply", || {
-            wb_camera::apply(
-                &mut camera_rgb,
-                &profile,
-                raw.as_shot_neutral,
-                target_temperature,
-                target_tint,
-            )
+        stage("tile_wb_camera::apply", || match decoded_wb_anchor {
+            Some((decoded_temperature, decoded_tint)) => {
+                wb_camera::apply_delta(
+                    &mut camera_rgb,
+                    &profile,
+                    raw.as_shot_neutral,
+                    model.temperature,
+                    model.tint,
+                    decoded_temperature,
+                    decoded_tint,
+                )
+            }
+            None => {
+                let (target_temperature, target_tint) = wb_camera::resolve_target(model, &profile);
+                wb_camera::apply(
+                    &mut camera_rgb,
+                    &profile,
+                    raw.as_shot_neutral,
+                    target_temperature,
+                    target_tint,
+                )
+            }
         });
         true
     } else {

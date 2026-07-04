@@ -75,15 +75,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (label, temperature, tint) in [
         ("as-shot", as_shot_cct, 0.0),
-        ("50000K", 50000.0_f32, 0.0),
         ("2000K", 2000.0_f32, 0.0),
+        ("3500K", 3500.0_f32, 0.0),
+        ("5500K", 5500.0_f32, 0.0),
+        ("7500K", 7500.0_f32, 0.0),
+        ("12000K", 12000.0_f32, 0.0),
+        ("25000K", 25000.0_f32, 0.0),
+        ("50000K", 50000.0_f32, 0.0),
     ] {
         println!("-- target: {} ({:.0}K, tint {:.1}) --", label, temperature, tint);
         let scene = render_at(&raw, temperature, tint)?;
         let p = scene.pixels[i];
         println!(
-            "  pixel ({}, {}) scene-linear Rec.2020: [{:.4}, {:.4}, {:.4}]",
-            x, y, p[0], p[1], p[2]
+            "  pixel ({}, {}) scene-linear Rec.2020: [{:.4}, {:.4}, {:.4}] (R/B = {:.4})",
+            x, y, p[0], p[1], p[2], p[0] / p[2].max(1e-6)
         );
     }
 
