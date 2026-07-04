@@ -117,31 +117,40 @@
           {{ s.totals.sidecars }} sidecars → <strong>{{ libraryLabel(targetLibraryId()) }}</strong>
         </p>
         <p class="hint">
-          Leave a folder name blank to use the default: an already-indexed photo taken within 30
-          minutes wins first, otherwise it's filed under
-          <code class="mono">misc/{{ sourceFolderName() }}</code> — or under
-          <code class="mono">{{ sourceFolderName() }}</code
-          >'s parent folder name instead of <code class="mono">misc</code>, if
-          <code class="mono">{{ sourceFolderName() }}</code> looks like an unlabeled camera folder
-          (e.g. <code class="mono">Shot0123</code>, <code class="mono">0123</code>).
+          Groups are by capture date (from each photo's EXIF, or its file date when it has none).
+          Leave a folder name blank to use the default destination shown below each row — an
+          already-indexed photo captured within 30 minutes of one of these files always takes
+          priority over that default, for just those files.
         </p>
 
         <div class="bucket-table">
           <div class="bucket-head">
-            <span>Year</span><span>Folder name</span><span class="num">Photos</span>
+            <span>Year</span><span>Folder name — will go to</span><span class="num">Photos</span>
             <span class="num">Movies</span><span class="num">Sidecars</span>
           </div>
           @for (b of s.buckets; track b.key) {
             <div class="bucket-row">
               <span class="mono">{{ b.year }}</span>
-              <input
-                class="label-input"
-                type="text"
-                [ngModel]="labels()[b.key]"
-                (ngModelChange)="setLabel(b.key, $event)"
-                placeholder="(leave blank for the default)"
-                [attr.aria-label]="'Folder name for ' + b.key"
-              />
+              <div class="folder-cell">
+                <input
+                  class="label-input"
+                  type="text"
+                  [ngModel]="labels()[b.key]"
+                  (ngModelChange)="setLabel(b.key, $event)"
+                  placeholder="(leave blank for the default)"
+                  [attr.aria-label]="'Folder name for ' + b.key"
+                />
+                <p class="dest-preview">
+                  → <code class="mono">{{ effectiveDest(b) }}</code>
+                  @if (b.nearbyMatchCount > 0) {
+                    <span class="nearby-note">
+                      ({{ b.nearbyMatchCount }}
+                      {{ b.nearbyMatchCount === 1 ? 'file' : 'files' }} will instead join existing
+                      photos in {{ b.nearbyMatchFolders.join(', ') }})
+                    </span>
+                  }
+                </p>
+              </div>
               <span class="num">{{ b.imageCount }}</span>
               <span class="num">{{ b.movieCount }}</span>
               <span class="num">{{ b.sidecarCount }}</span>
