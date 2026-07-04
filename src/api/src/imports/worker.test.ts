@@ -24,6 +24,7 @@ let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
 let tmp: string;
+let previousMapleRoots: string | undefined;
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
@@ -44,6 +45,12 @@ async function tryConnect(): Promise<MongoClient | null> {
 
 beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-import-worker-'));
+  // buildImportFiles' walk() re-checks every path against MAPLE_ROOTS (see
+  // scan.ts). Jail to os.tmpdir() for this file's duration so a value left
+  // behind by another test file in this shared process can't reject our temp
+  // dirs; restored in afterAll so it doesn't leak to files that run after.
+  previousMapleRoots = process.env.MAPLE_ROOTS;
+  process.env.MAPLE_ROOTS = await fs.realpath(os.tmpdir());
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
@@ -64,6 +71,8 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  if (previousMapleRoots === undefined) delete process.env.MAPLE_ROOTS;
+  else process.env.MAPLE_ROOTS = previousMapleRoots;
   if (mongo) {
     try {
       await mongo.db(TEST_DB).dropDatabase();

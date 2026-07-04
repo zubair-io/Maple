@@ -9,12 +9,23 @@
 import type { ObjectId } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
 import type { NearbyAssetCandidate } from './dest.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('import-nearby');
+
+/** Hard cap on candidates pulled into memory for one `buildImportFiles` call.
+ * An import batch spanning years (e.g. a folder mixing decades-old scans with
+ * new photos) would otherwise load every live asset captured across that
+ * whole span. This is a safety valve, not a correctness requirement: hitting
+ * it just means some files fall back to the shot-folder/misc default instead
+ * of a nearby-asset match — never a data-loss or crash condition. */
+const CANDIDATE_CAP = 20_000;
 
 /**
- * Load every asset already indexed in `libraryId` whose capture time falls
- * in `[minMs, maxMs]`, for in-memory nearest-match lookup by the caller (see
- * `dest.ts`'s `nearestCandidateFolder`, used from `scan.ts`'s
- * `buildImportFiles`).
+ * Load already-indexed assets in `libraryId` whose capture time falls in
+ * `[minMs, maxMs]` (capped at `CANDIDATE_CAP`), for in-memory nearest-match
+ * lookup by the caller (see `dest.ts`'s `nearestCandidateFolder`, used from
+ * `scan.ts`'s `buildImportFiles`).
  *
  * A SINGLE range query for the whole import batch, not one per file: the
  * caller passes the min/max mtime across every file it's about to place
@@ -52,7 +63,16 @@ export async function loadNearbyAssetCandidates(
       },
       { projection: { 'fileinfo.$': 1, 'exif.captured_at': 1 } },
     )
+    .limit(CANDIDATE_CAP + 1)
     .toArray();
+
+  if (docs.length > CANDIDATE_CAP) {
+    log.warn(
+      { libraryId: libraryId.toHexString(), minMs, maxMs, cap: CANDIDATE_CAP },
+      'nearby-asset candidate window exceeded cap; results truncated',
+    );
+    docs.length = CANDIDATE_CAP;
+  }
 
   const out: NearbyAssetCandidate[] = [];
   for (const doc of docs) {
