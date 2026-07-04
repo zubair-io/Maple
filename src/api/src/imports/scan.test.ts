@@ -1,9 +1,10 @@
 /**
  * scan.ts integration tests — real temp-dir trees, no Mongo.
  *
- * Covers: recursive walk, file classification, sidecar pairing, mtime
- * bucketing, label overrides in buildImportFiles, and sidecar-before-image
- * ordering.
+ * Covers: recursive walk (including symlinks), file classification, sidecar
+ * pairing, mtime bucketing, destination precedence in buildImportFiles
+ * (label override → nearby-asset match → shot-folder fallback → misc
+ * default), and sidecar-before-image ordering.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -13,6 +14,7 @@ import path from 'node:path';
 import { scanFolder, buildImportFiles } from './scan.ts';
 
 let root: string;
+let rootFolderName: string;
 
 /** Write a file and stamp its mtime to a fixed UTC instant. */
 async function put(rel: string, mtimeUtc: string): Promise<string> {
@@ -26,6 +28,7 @@ async function put(rel: string, mtimeUtc: string): Promise<string> {
 
 beforeAll(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-scan-'));
+  rootFolderName = path.basename(root);
   // March 2024 image + its sidecar (nested).
   await put('a/IMG_0001.dng', '2024-03-09T12:00:00Z');
   await put('a/IMG_0001.xmp', '2024-03-09T12:05:00Z');
@@ -79,12 +82,18 @@ describe('buildImportFiles', () => {
     const dngs = files.filter((f) => f.dest.endsWith('IMG_0001.dng'));
     expect(dngs).toHaveLength(1);
     expect(dngs[0].dest).toBe('2024/Spring Trip/IMG_0001.dng');
-    // Untouched bucket keeps the default MM label.
+    // Untouched bucket falls back to the misc/<source folder> default.
     const nef = files.find((f) => f.dest.endsWith('OLD_0002.nef'))!;
-    expect(nef.dest).toBe('2007/11/OLD_0002.nef');
+    expect(nef.dest).toBe(`2007/misc/${rootFolderName}/OLD_0002.nef`);
   });
 
-  test('places a sidecar in the same bucket/label as its image, before it', async () => {
+  test('an unset (or blank) label uses the misc/<source folder> default', async () => {
+    const files = await buildImportFiles(root, { '2024/03': '  ' });
+    const dng = files.find((f) => f.dest.endsWith('IMG_0001.dng'))!;
+    expect(dng.dest).toBe(`2024/misc/${rootFolderName}/IMG_0001.dng`);
+  });
+
+  test('places a sidecar in the same folder as its image, before it', async () => {
     const files = await buildImportFiles(root, { '2024/03': 'Spring Trip' });
     const xmpIdx = files.findIndex((f) => f.dest.endsWith('IMG_0001.xmp'));
     const dngIdx = files.findIndex((f) => f.dest.endsWith('IMG_0001.dng'));
@@ -99,6 +108,131 @@ describe('buildImportFiles', () => {
     const mov = files.find((f) => f.dest.endsWith('clip.mov'))!;
     expect(mov.kind).toBe('movie');
   });
+
+  test('a nearby-asset match wins over the misc default, even with no label override', async () => {
+    const files = await buildImportFiles(
+      root,
+      {},
+      { findNearbyFolder: async () => '2007/Reunion' },
+    );
+    const nef = files.find((f) => f.dest.endsWith('OLD_0002.nef'))!;
+    expect(nef.dest).toBe('2007/Reunion/OLD_0002.nef');
+  });
+
+  test('an explicit label override still wins over a nearby-asset match', async () => {
+    const files = await buildImportFiles(
+      root,
+      { '2007/11': 'Explicit' },
+      { findNearbyFolder: async () => '2007/Reunion' },
+    );
+    const nef = files.find((f) => f.dest.endsWith('OLD_0002.nef'))!;
+    expect(nef.dest).toBe('2007/Explicit/OLD_0002.nef');
+  });
+
+  test('findNearbyFolder is queried with the file mtime', async () => {
+    const seen: number[] = [];
+    await buildImportFiles(
+      root,
+      {},
+      {
+        findNearbyFolder: async (mtimeMs) => {
+          seen.push(mtimeMs);
+          return null;
+        },
+      },
+    );
+    // Every primary (image + movie; the sidecar shares its image's lookup) was queried.
+    expect(seen).toContain(new Date('2024-03-09T12:00:00Z').getTime());
+    expect(seen).toContain(new Date('2007-11-25T08:00:00Z').getTime());
+  });
+});
+
+// Symlinks: a source folder is often a tree of symlinks into a NAS/removable
+// mount. walk() must follow both symlinked directories and symlinked files,
+// while a cyclic symlink can't cause an infinite loop.
+describe('walk() follows symlinks', () => {
+  let symRoot: string;
+  let realDir: string;
+
+  beforeAll(async () => {
+    symRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-symlink-'));
+    realDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-symlink-target-'));
+
+    // A real file living outside symRoot, symlinked in as a plain file.
+    const realFile = path.join(realDir, 'REAL_0001.dng');
+    await fs.writeFile(realFile, 'content');
+    const when = new Date('2024-08-01T00:00:00Z');
+    await fs.utimes(realFile, when, when);
+    await fs.symlink(realFile, path.join(symRoot, 'LINKED_0001.dng'));
+
+    // A real directory (with a file inside), symlinked in as a subdirectory.
+    const realSubdir = path.join(realDir, 'sub');
+    await fs.mkdir(realSubdir, { recursive: true });
+    const nestedFile = path.join(realSubdir, 'NESTED_0002.nef');
+    await fs.writeFile(nestedFile, 'content');
+    await fs.utimes(nestedFile, when, when);
+    await fs.symlink(realSubdir, path.join(symRoot, 'linked-dir'), 'dir');
+
+    // A cyclic symlink: symRoot/loop -> symRoot (must not recurse forever).
+    await fs.symlink(symRoot, path.join(symRoot, 'loop'), 'dir');
+  });
+
+  afterAll(async () => {
+    await fs.rm(symRoot, { recursive: true, force: true });
+    await fs.rm(realDir, { recursive: true, force: true });
+  });
+
+  test('scanFolder counts files reached through symlinked files and directories', async () => {
+    const res = await scanFolder(symRoot);
+    expect(res.totals.images).toBe(2); // LINKED_0001.dng + NESTED_0002.nef
+  });
+
+  test('buildImportFiles resolves a destination for symlinked files without hanging', async () => {
+    const symFolderName = path.basename(symRoot);
+    const files = await buildImportFiles(symRoot, {});
+    const names = files.map((f) => path.posix.basename(f.dest));
+    expect(names).toContain('LINKED_0001.dng');
+    expect(names).toContain('NESTED_0002.nef');
+    const linked = files.find((f) => f.dest.endsWith('LINKED_0001.dng'))!;
+    expect(linked.dest).toBe(`2024/misc/${symFolderName}/LINKED_0001.dng`);
+  });
+});
+
+// New default: an anonymous camera dump-folder name (Shot0123 / 0123 / 012)
+// keeps its parent directory's name for context instead of a flat `misc`.
+describe('buildImportFiles: shot-folder fallback', () => {
+  let dcimRoot: string;
+  let shotDir: string;
+
+  beforeAll(async () => {
+    dcimRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-dcim-'));
+    shotDir = path.join(dcimRoot, '0123');
+    await fs.mkdir(shotDir, { recursive: true });
+    const abs = path.join(shotDir, 'IMG_0001.dng');
+    await fs.writeFile(abs, 'content');
+    const when = new Date('2024-09-01T00:00:00Z');
+    await fs.utimes(abs, when, when);
+  });
+
+  afterAll(async () => {
+    await fs.rm(dcimRoot, { recursive: true, force: true });
+  });
+
+  test('uses <year>/<parentFolderName>/<folderName> when the source folder is a bare number', async () => {
+    const files = await buildImportFiles(shotDir, {});
+    const img = files.find((f) => f.dest.endsWith('IMG_0001.dng'))!;
+    expect(img.dest).toBe(`2024/${path.basename(dcimRoot)}/0123/IMG_0001.dng`);
+  });
+
+  test('a nearby-asset match still wins over the shot-folder fallback', async () => {
+    const files = await buildImportFiles(
+      shotDir,
+      {},
+      { findNearbyFolder: async () => '2024/Reunion' },
+    );
+    const img = files.find((f) => f.dest.endsWith('IMG_0001.dng'))!;
+    expect(img.dest).toBe('2024/Reunion/IMG_0001.dng');
+  });
 });
 
 // Regression for #793: a folder containing a leading-dot hidden/temp file
@@ -110,6 +244,7 @@ describe('buildImportFiles', () => {
 // in the suite above (which expect exactly 1 movie) are unaffected.
 describe('walk() skips hidden/temp files (#793)', () => {
   let hiddenRoot: string;
+  let hiddenFolderName: string;
 
   async function putHidden(rel: string): Promise<void> {
     const abs = path.join(hiddenRoot, rel);
@@ -121,6 +256,7 @@ describe('walk() skips hidden/temp files (#793)', () => {
 
   beforeAll(async () => {
     hiddenRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-hidden-'));
+    hiddenFolderName = path.basename(hiddenRoot);
     // The literal reported Lightroom temp file + other hidden entries.
     await putHidden('.LrTmp-0a5769699416531db35ca57a8969401a.mp4');
     await putHidden('._IMG_9001.jpg'); // macOS AppleDouble
@@ -154,10 +290,10 @@ describe('walk() skips hidden/temp files (#793)', () => {
     expect(names).toContain('IMG_9001.jpg');
     expect(names).toContain('IMG_9001.xmp');
     expect(names).toContain('real-clip.mp4');
-    // The sidecar still pairs to its image (same bucket/label, before it).
+    // The sidecar still pairs to its image (same folder, before it).
     const xmp = files.find((f) => f.dest.endsWith('IMG_9001.xmp'))!;
     expect(xmp.kind).toBe('sidecar');
-    expect(xmp.dest).toBe('2024/05/IMG_9001.xmp');
+    expect(xmp.dest).toBe(`2024/misc/${hiddenFolderName}/IMG_9001.xmp`);
   });
 });
 
@@ -264,6 +400,7 @@ describe('video sidecar pairing (M5, #1635)', () => {
 // in a DIFFERENT, validly-labelled bucket still imports.
 describe('buildImportFiles skips files with an unsafe destination (#795)', () => {
   let mixedRoot: string;
+  let mixedFolderName: string;
 
   async function putFile(rel: string, mtimeUtc: string): Promise<void> {
     const abs = path.join(mixedRoot, rel);
@@ -275,10 +412,11 @@ describe('buildImportFiles skips files with an unsafe destination (#795)', () =>
 
   beforeAll(async () => {
     mixedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-unsafe-'));
+    mixedFolderName = path.basename(mixedRoot);
     // March 2024 image + sidecar — we'll give 2024/03 an unsafe label.
     await putFile('BAD_0001.dng', '2024-03-09T12:00:00Z');
     await putFile('BAD_0001.xmp', '2024-03-09T12:05:00Z');
-    // November 2007 image — its 2007/11 bucket gets a safe default label.
+    // November 2007 image — its 2007/11 bucket keeps the safe misc default.
     await putFile('GOOD_0002.nef', '2007-11-25T08:00:00Z');
   });
 
@@ -305,6 +443,6 @@ describe('buildImportFiles skips files with an unsafe destination (#795)', () =>
     const good = files.find((f) => f.dest.endsWith('GOOD_0002.nef'))!;
     expect(good.state).toBe('pending');
     expect(good.error).toBeNull();
-    expect(good.dest).toBe('2007/11/GOOD_0002.nef');
+    expect(good.dest).toBe(`2007/misc/${mixedFolderName}/GOOD_0002.nef`);
   });
 });
