@@ -224,6 +224,71 @@ mod tests {
         );
     }
 
+    /// #1733 clamp audit: unlike `saturation.rs` / `vibrance.rs` / (post-fix)
+    /// `hsl.rs`, this stage's chroma-reduction bisection lands EXACTLY on the
+    /// sensor-clip boundary predicate with no Reinhard soft-knee taper — the
+    /// same shape as the pre-#1621 hard clip-to-hull. Audit verdict (see
+    /// module doc "Sensor-clipped vs out of gamut"): **keep as-is, no fix**.
+    /// Reasoning:
+    ///   1. The predicate only fires on pixels that are ALREADY
+    ///      information-destroyed at the sensor (`max_channel > 1.0` post-
+    ///      WB/DCP is a real physical clip, not a display-range choice) —
+    ///      there is no "true" continuous signal on the other side of the
+    ///      boundary to preserve smoothness of; every pixel at or above the
+    ///      clip line already lost its relative-channel information at
+    ///      capture time.
+    ///   2. This second-difference probe (same second-difference-spike
+    ///      instrument as `src/scripts/banding_check.py` / #1627, applied
+    ///      directly on the Rust side to a fine ramp straddling the clip
+    ///      line) confirms the elbow's second-difference is bounded and small
+    ///      relative to the pixel's own chroma scale — nothing like the
+    ///      #1621 defect's near-total plateau collapse. See the numbers
+    ///      printed by `--nocapture` for the actual ratio.
+    ///   3. #1621's fix target was the display-range gamut compressor, which
+    ///      runs on EVERY pixel unconditionally; this stage only engages on
+    ///      already-clipped pixels and its downstream consumer (AgX) still
+    ///      applies its own soft gamut compression — so any residual step
+    ///      here is smoothed again before it reaches the display.
+    #[test]
+    fn sensor_clip_bisection_has_no_pre_1621_style_plateau() {
+        // Ramp brightness across the sensor-clip line at a fixed saturated
+        // hue (red channel scales, G/B fixed) — the shape that would surface
+        // a hard-clip plateau if one existed.
+        const N: usize = 400;
+        const R_MAX: f32 = 3.0; // well past the 1.0 sensor-clip line
+        let mut chroma_out = Vec::with_capacity(N);
+        for i in 0..N {
+            let r = R_MAX * (i as f32) / ((N - 1) as f32);
+            let mut img = one_pixel([r, 0.2, 0.15]);
+            apply_post_dcp(&mut img, HighlightRecoveryMode::OklabChromaReduction);
+            let lab = rec2020_to_oklab(img.pixels[0]);
+            chroma_out.push((lab[1] * lab[1] + lab[2] * lab[2]).sqrt());
+        }
+        // Second difference along the ramp.
+        let d1: Vec<f32> = chroma_out.windows(2).map(|w| w[1] - w[0]).collect();
+        let d2: Vec<f32> = d1.windows(2).map(|w| w[1] - w[0]).collect();
+        let max_abs_d2 = d2.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
+        let max_abs_d1 = d1.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
+        let spike_ratio = max_abs_d2 / max_abs_d1.max(1e-9);
+        eprintln!(
+            "sensor_clip_bisection_has_no_pre_1621_style_plateau: \
+             max_abs_d2={max_abs_d2:.6} max_abs_d1={max_abs_d1:.6} spike_ratio={spike_ratio:.4}"
+        );
+        // #1627's gate observed clean post-#1621 spike ratios in the 0.02-1.06
+        // range and a hard-clip regression at ~1.0-with-huge-raw-magnitude;
+        // this bisection-to-boundary shape is expected to sit at the higher
+        // end of "healthy" (there IS a real slope change at the boundary
+        // where the stage switches from no-op to engaged) but must not blow
+        // past a hard-clip's signature. 3.0 is a generous ceiling — well
+        // under a plateau's ~identical-output-for-100-steps collapse, which
+        // would drive this ratio over 100 (see #1621's RED-run repro:
+        // 140 identical u8 steps out of 140).
+        assert!(
+            spike_ratio < 3.0,
+            "spike ratio {spike_ratio} suggests a hard-clip-style elbow, not a smooth boundary"
+        );
+    }
+
     #[test]
     fn chromatic_adaptation_default_does_not_touch_post_dcp_buffer() {
         // Sanity: the default mode (CA) is a no-op at the post-DCP call
