@@ -947,6 +947,26 @@ export async function ensureIndexes(): Promise<void> {
     .collection('assets')
     .createIndex({ sha1_head: 1 }, { name: 'sha1_head_1', sparse: true });
 
+  // Cloudflare R2 thumbnail-sync backfill: the job selects assets that are
+  // indexed (`maple_id` set) but not yet mirrored (`cf_thumb_synced_at`
+  // unset), in batches. MongoDB's partialFilterExpression only supports
+  // `$exists: true` (not `$exists: false` — that throws "unsupported
+  // partial index expression"), so this mirrors the `maple_id_gt_1` index
+  // above: `{ $gt: '' }` selects "has a real string value", scoping the
+  // index to indexed assets only (the overwhelming majority on any
+  // established library — only the just-discovered tail lacks maple_id).
+  // Non-sparse on the indexed key itself: assets missing
+  // `cf_thumb_synced_at` get a null-equivalent b-tree entry, so a query
+  // for `{ maple_id: { $gt: '' }, cf_thumb_synced_at: null }` (the
+  // backfill job's pending-selection query, sub-issue 4) walks only that
+  // null bucket via IXSCAN rather than the whole collection.
+  await db
+    .collection('assets')
+    .createIndex(
+      { maple_id: 1, cf_thumb_synced_at: 1 },
+      { name: 'cf_thumb_pending', partialFilterExpression: { maple_id: { $gt: '' } } },
+    );
+
   // Partial index for the one-time `refile-backups` cleanup migration: every tick
   // it counts and scans backup-origin assets not yet refiled
   // (`backup_layout_version != 3`). Scoping the index to `phasset_links.0`-exists
