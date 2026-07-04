@@ -20,11 +20,17 @@ fn develop(dng: &SyntheticGreyDng, model: &AdjustmentModel) -> raw_core::image::
 /// Spec § 3.4: a neutral camera reading at the calibration illuminant
 /// renders neutral after CM application. Hasselblad dual-CM CCT
 /// interpolation must preserve that.
+///
+/// `AdjustmentModel::default()` is a WB no-op here (#1726):
+/// `stages::wb_camera::resolve_target` resolves the numeric-default
+/// `(temperature, tint)` to this fixture's own as-shot reference point
+/// (`profile.scene_cct`) before `wb_camera::apply`'s identity check runs,
+/// so no manual seeding is needed to keep this test's WB slider at the
+/// as-shot no-op point.
 #[test]
 fn neutral_preserved_under_real_dcp() {
     let dng = SyntheticGreyDng::default().with_hasselblad_dcp();
-    let model = AdjustmentModel::default();
-    let img = develop(&dng, &model);
+    let img = develop(&dng, &AdjustmentModel::default());
     for (i, p) in img.pixels.iter().enumerate() {
         let (r, g, b) = (p[0], p[1], p[2]);
         assert!(
@@ -53,6 +59,14 @@ fn neutral_preserved_under_real_dcp() {
 /// Sweep AsShotNeutral across a StdA → D65 axis. Output should be
 /// continuous — no discontinuity at the CCT crossover where Maple flips
 /// between the two CMs.
+///
+/// `AdjustmentModel::default()` is a WB no-op for every sample (#1726):
+/// `stages::wb_camera::resolve_target` resolves the numeric-default
+/// `(temperature, tint)` to EACH sample's own as-shot reference point
+/// before `wb_camera::apply` runs, so the WB stage stays a no-op across
+/// the whole sweep and this test measures CM interpolation continuity in
+/// isolation, without conflating it with the WB gain's own (separately
+/// tested) CCT-dependent curve.
 #[test]
 fn cct_interpolation_continuous() {
     use raw_core::test_support::hasselblad_dcp::AS_SHOT_NEUTRAL;
@@ -99,6 +113,14 @@ fn cct_interpolation_continuous() {
 /// outputs should differ in scene-linear because FM and Bradford aren't
 /// equivalent in general. Confirms the decoder reads ForwardMatrix1/2
 /// tags and the DCP path consumes them when present.
+///
+/// `AdjustmentModel::default()` is a WB no-op here (#1726), same as
+/// `neutral_preserved_under_real_dcp` — and under the current contract
+/// `wb_camera::apply` never modifies the `DcpProfile` passed to
+/// `dcp::apply_colorimetry` (only the camera-native buffer's neutral
+/// point), so the FM-vs-Bradford dispatch in `dcp::apply_colorimetry` is
+/// unaffected by camera-space WB at ANY `(temperature, tint)` — this test
+/// no longer depends on staying at the as-shot point for FM to activate.
 #[test]
 fn forward_matrix_replaces_bradford() {
     // Hand-crafted near-identity FM with channel bias.
@@ -109,8 +131,10 @@ fn forward_matrix_replaces_bradford() {
     with_fm.forward_matrix_1 = Some(fm);
     with_fm.forward_matrix_2 = Some(fm);
 
-    let img_off = develop(&without_fm, &AdjustmentModel::default());
-    let img_on = develop(&with_fm, &AdjustmentModel::default());
+    let model = AdjustmentModel::default();
+
+    let img_off = develop(&without_fm, &model);
+    let img_on = develop(&with_fm, &model);
 
     let p_off = img_off.pixels[(32 * 64 + 32) as usize];
     let p_on = img_on.pixels[(32 * 64 + 32) as usize];

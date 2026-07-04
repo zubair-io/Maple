@@ -21,7 +21,8 @@ use crate::{
     image::RawImage,
     stages::{
         chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, white_balance,
+        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, wb_camera,
+        white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -115,12 +116,32 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             raw.as_shot_neutral,
         )
     });
-    let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
+    let (profile, profile_source) =
+        stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    // Camera-space user white balance (#1726) — mirrors the full-res
+    // develop chain; see `pipeline::develop` and `stages::wb_camera` for
+    // the design writeup and why `profile` (in particular
+    // `scene_white_xyz`) passes to DCP below completely unmodified. This
+    // function rejects LinearRaw at the top (see the guard above), so the
+    // only tier gate needed here is `RawlerFallback`.
+    let camera_wb_applied = if !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
+        let (target_temperature, target_tint) = wb_camera::resolve_target(model, &profile);
+        stage("tile_wb_camera::apply", || {
+            wb_camera::apply(
+                &mut camera_rgb,
+                &profile,
+                raw.as_shot_neutral,
+                target_temperature,
+                target_tint,
+            )
+        });
+        true
+    } else {
+        false
+    };
     // Colorimetry-only DCP per #425 — PLT and PTC no longer run on any
     // path (see `pipeline::develop` for the strategic rationale).
-    let mut scene = stage("tile_dcp_apply", || {
-        dcp::apply_colorimetry(&camera_rgb, &profile)
-    })?;
+    let mut scene = stage("tile_dcp_apply", || dcp::apply_colorimetry(&camera_rgb, &profile))?;
     // Ticket #471: opt-in post-DCP Oklab chroma-reduction highlight
     // recovery. No-op for every other mode — see `pipeline::develop` for
     // the strategic rationale.
@@ -159,7 +180,14 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // render slightly darker than the full-image path (by whatever EV the
     // full path's AE picked); follow-up tracked in #1167. The same
     // architectural reason already excludes dehaze from this path.
-    // WB contract split (#1725 band fix):
+    // Post-DCP white balance — skipped entirely when camera-space WB
+    // already ran (#1726; see `pipeline::develop` for the full rationale):
+    // that stage normalised `camera_rgb` to the user's target illuminant
+    // pre-DCP, so neither the delta nor the absolute post-DCP contract
+    // below should also fire, or the shift would double-count. Falls
+    // through to the pre-#1726 WB contract split (#1725 band fix)
+    // unchanged for the `RawlerFallback` tier, where `camera_wb_applied`
+    // is false:
     //
     // - `decoded_wb_anchor = Some((decoded_temp, decoded_tint))`: the caller
     //   is the app's live-chain / tile-refine flow, which treats slider
@@ -176,33 +204,36 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     //   correct — `crs:Temperature` in an XMP sidecar is an absolute ACR
     //   value, not a delta. Falls through to the pre-fix `resolve_wb` +
     //   `apply` path unchanged.
-    match decoded_wb_anchor {
-        Some((decoded_temp, decoded_tint)) => {
-            stage("tile_white_balance_delta", || {
-                white_balance::apply_delta(
-                    &mut scene,
-                    model.temperature,
-                    model.tint,
-                    decoded_temp,
-                    decoded_tint,
-                    model.wb_method,
-                )
-            });
-        }
-        None => {
-            // ACR anchoring (#1729 / round-trip fix): delegate to
-            // `white_balance::resolve_wb` — the single source of truth for
-            // WB resolution semantics, shared by the develop/mod.rs and
-            // develop_sized.rs XMP/CLI render sites.
-            let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
-            stage("tile_white_balance", || {
-                white_balance::apply(
-                    &mut scene,
-                    effective_temperature,
-                    effective_tint,
-                    model.wb_method,
-                )
-            });
+    if !camera_wb_applied {
+        match decoded_wb_anchor {
+            Some((decoded_temp, decoded_tint)) => {
+                stage("tile_white_balance_delta", || {
+                    white_balance::apply_delta(
+                        &mut scene,
+                        model.temperature,
+                        model.tint,
+                        decoded_temp,
+                        decoded_tint,
+                        model.wb_method,
+                    )
+                });
+            }
+            None => {
+                // ACR anchoring (#1729 / round-trip fix): delegate to
+                // `white_balance::resolve_wb` — the single source of truth
+                // for WB resolution semantics, shared by the
+                // develop/mod.rs and develop_sized.rs XMP/CLI render
+                // sites.
+                let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
+                stage("tile_white_balance", || {
+                    white_balance::apply(
+                        &mut scene,
+                        effective_temperature,
+                        effective_tint,
+                        model.wb_method,
+                    )
+                });
+            }
         }
     }
     stage("tile_scene_tone_controls", || {

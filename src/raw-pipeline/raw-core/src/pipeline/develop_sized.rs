@@ -22,7 +22,7 @@ use crate::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        vignette, white_balance,
+        vignette, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -235,13 +235,35 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral)
     });
     dump_after("02_highlight_recovery", &camera_rgb);
-    let profile = stage("sized_dcp_profile_for", || dcp::profile_for(raw))?;
+    let (profile, profile_source) =
+        stage("sized_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    // Camera-space user white balance (#1726) — mirrors the full-res
+    // develop chain exactly; see `super::develop` and `stages::wb_camera`
+    // for the full design writeup, the `RawlerFallback` tier-gate
+    // rationale, and why `profile` (in particular `scene_white_xyz`)
+    // passes to DCP below completely unmodified.
+    let camera_wb_applied = if !skip_pre_gain
+        && !matches!(profile_source, dcp::ProfileSource::RawlerFallback)
+    {
+        let (target_temperature, target_tint) = wb_camera::resolve_target(model, &profile);
+        stage("sized_wb_camera::apply", || {
+            wb_camera::apply(
+                &mut camera_rgb,
+                &profile,
+                raw.as_shot_neutral,
+                target_temperature,
+                target_tint,
+            )
+        });
+        true
+    } else {
+        false
+    };
+    dump_after("02b_wb_camera", &camera_rgb);
     // Colorimetry-only DCP per #425 — see `pipeline::develop` for the
     // rationale. PLT and PTC no longer run; HSM still does (metameric
     // correction).
-    let mut scene = stage("sized_dcp_apply", || {
-        dcp::apply_colorimetry(&camera_rgb, &profile)
-    })?;
+    let mut scene = stage("sized_dcp_apply", || dcp::apply_colorimetry(&camera_rgb, &profile))?;
     dump_after("03_dcp_apply", &scene);
     // Ticket #471: post-DCP Oklab chroma-reduction highlight recovery. See
     // `super::develop` for the rationale; no-op unless the user opts in via
@@ -288,13 +310,16 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         auto_exposure::apply(&mut scene, model)
     });
     dump_after("05_auto_exposure", &scene);
-    // ACR anchoring (#1729 / round-trip fix, #1725 band fix): delegate to
-    // `white_balance::resolve_wb` — the single source of truth for WB
-    // resolution semantics, shared by all three develop sites.
-    let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
-    stage("sized_white_balance", || {
-        white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
-    });
+    // Post-DCP white balance — skipped when camera-space WB already ran
+    // (#1726); see `super::develop` for the full rationale. Falls through
+    // to the ACR-anchored CAT16 path (#1729 / round-trip fix, #1725 band
+    // fix) via the shared `white_balance::resolve_wb` helper otherwise.
+    if !camera_wb_applied {
+        let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
+        stage("sized_white_balance", || {
+            white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
+        });
+    }
     dump_after("06_white_balance", &scene);
     stage("sized_scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
