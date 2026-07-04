@@ -367,17 +367,32 @@ fn trilinear_sample(
 }
 
 /// Evaluate the PCHIP tonescale at scene-linear luminance `l`.
-/// Extrapolates flat above the last knot (returns last value).
+///
+/// Extrapolates by holding the LOCAL SCALE (`display / scene`) flat beyond
+/// each end knot, not the raw display value: `vals[0] * (l / knots[0].exp2())`
+/// below the first knot (unclamped — see #1740 M0.5) and, symmetrically,
+/// `vals[n-1] * (l / knots[n-1].exp2())` above the last. Holding the display
+/// VALUE flat instead (the pre-#1740-M0.5 behaviour above the top knot) means
+/// the effective scale `T(l)/l` keeps shrinking the further `l` sits past the
+/// boundary — for the JPEG-pair front-end (`from_pairs.rs`), whose knot range
+/// is derived from a real photo's often-narrower neutral-luminance subset
+/// (`KnotRange::from_neutral_samples`), a bright saturated colour's luminance
+/// can land well past the last knot even after that fix, and a flat-VALUE
+/// extrapolation would wrongly crush it. Flat SCALE extrapolation is the
+/// correct "decay to identity" default: for an identity-transform fit, the
+/// scale at the boundary is already ~1.0, so holding it flat keeps any
+/// out-of-range luminance at ~identity too, matching the field fit's own
+/// `sat_scale = 1.0` identity default for empty cells.
 pub fn tonescale_apply(ts: &Tonescale, l: f32) -> f32 {
     let log2_l = l.max(1e-10).log2();
     let knots = &ts.knots_log2;
     let vals = &ts.values;
     let n = knots.len();
     if log2_l <= knots[0] {
-        return vals[0] * (l / knots[0].exp2()).clamp(0.0, 1.0); // scale linearly below first knot
+        return vals[0] * (l / knots[0].exp2()).clamp(0.0, 1.0); // flat scale below first knot
     }
     if log2_l >= knots[n - 1] {
-        return vals[n - 1]; // flat extrapolation above last knot
+        return vals[n - 1] * (l / knots[n - 1].exp2()); // flat scale above last knot
     }
     // Binary search for bracketing interval.
     let mut lo = 0usize;

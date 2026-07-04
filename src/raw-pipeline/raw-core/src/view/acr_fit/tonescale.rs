@@ -12,15 +12,105 @@
 //! knots, flat-extrapolated beyond the ends, so the exported model stays
 //! trivial to consume. A smoother PCHIP-style cubic can replace this under
 //! #1722 if knot-level linearity shows up in the baked LUT.
+//!
+//! The knot range is a caller-supplied [`KnotRange`], not a hard-coded span:
+//! the synthetic sweep chart's neutral ramp is engineered to cover a known
+//! scene-linear range (0.001 to 4.0, [`KnotRange::CHART_DEFAULT`]), but a
+//! real photo's display-domain samples (Auto 2.0 M0's JPEG-pair front-end,
+//! `from_pairs.rs`) live in a completely different, data-dependent range —
+//! using the chart's fixed span there starves the top knots and produces
+//! flat-extrapolation artefacts well inside the populated data (#1740 M0.5).
 
 use super::model::{Tonescale, TONESCALE_KNOTS};
 
-/// Scene-linear luminance range covered by the 9 tonescale knots.
-/// Matches the neutral ramp: 0.001 to 4.0, log-spaced.
-fn knot_positions_log2() -> [f32; TONESCALE_KNOTS] {
-    let lo = 0.001f32.log2();
-    let hi = 4.0f32.log2();
-    std::array::from_fn(|i| lo + i as f32 / (TONESCALE_KNOTS - 1) as f32 * (hi - lo))
+/// Scene-linear luminance range the tonescale's knots are log-spaced across.
+/// The chart solver uses the fixed [`KnotRange::CHART_DEFAULT`] (matching the
+/// synthetic neutral ramp's engineered span); the JPEG-pair front-end derives
+/// one from the actual data via [`KnotRange::from_scene_luminances`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KnotRange {
+    pub lo: f32,
+    pub hi: f32,
+}
+
+impl KnotRange {
+    /// Absolute floor/ceiling a derived range is clamped into — guards
+    /// against a degenerate (all-identical or near-zero) sample set
+    /// producing a zero- or negative-width log2 span.
+    const FLOOR: f32 = 1e-4;
+    const CEILING: f32 = 16.0;
+
+    /// The chart solver's fixed span: 0.001 to 4.0 scene-linear, matching the
+    /// synthetic sweep chart's engineered neutral ramp.
+    pub const CHART_DEFAULT: KnotRange = KnotRange { lo: 0.001, hi: 4.0 };
+
+    /// Derive a knot range from a population of scene-linear luminances: the
+    /// 2nd/98th percentile, clamped into `[FLOOR, CEILING]` and given a
+    /// minimum log2 span so a tightly clustered sample set (e.g. a flat grey
+    /// card) doesn't collapse the range to a single point. Falls back to
+    /// [`KnotRange::CHART_DEFAULT`] when there are too few samples to derive
+    /// a percentile from.
+    ///
+    /// Callers should pass the FULL population of scene luminances the
+    /// tonescale will actually be evaluated against — i.e. every pair's
+    /// luminance, not just the neutral-chroma subset used to fit the
+    /// tonescale's VALUES. The chart solver's own neutral ramp is engineered
+    /// to span the exact same range as its sweep patches for this reason: a
+    /// range derived only from a neutral-chroma subset can be much narrower
+    /// than the full luminance spread of a real photo's dominant (chromatic)
+    /// content — e.g. a photo whose near-neutral pixels sit only in deep
+    /// shadow while its saturated content spans well into the midtones would
+    /// otherwise anchor the whole lattice to a near-black range and push most
+    /// of the actual image into flat-scale extrapolation from that dark
+    /// anchor (#1740 M0.5 fixture regression on `test_0006`).
+    ///
+    /// Percentile (not raw min/max) clamping keeps a handful of outlier
+    /// pixels — a stray hot pixel or a mis-tagged near-black sample — from
+    /// stretching the whole lattice thin; the field fit's own per-cell
+    /// identity default already handles the resulting few-percent tail that
+    /// falls outside the populated range exactly the way it handles chroma
+    /// cells with no coverage.
+    pub fn from_scene_luminances(luminances: &[f32]) -> KnotRange {
+        let mut lums: Vec<f32> = luminances
+            .iter()
+            .copied()
+            .filter(|l| l.is_finite() && *l > 0.0)
+            .collect();
+        if lums.len() < 8 {
+            return KnotRange::CHART_DEFAULT;
+        }
+        lums.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let pct = |p: f32| -> f32 {
+            let idx = ((lums.len() - 1) as f32 * p).round() as usize;
+            lums[idx.min(lums.len() - 1)]
+        };
+        let lo_raw = pct(0.02).clamp(Self::FLOOR, Self::CEILING);
+        let hi_raw = pct(0.98).clamp(Self::FLOOR, Self::CEILING);
+
+        // Minimum span of one log2 stop so a near-flat sample set still
+        // yields a usable (non-degenerate) lattice.
+        const MIN_LOG2_SPAN: f32 = 1.0;
+        let (lo, hi) = if hi_raw.log2() - lo_raw.log2() < MIN_LOG2_SPAN {
+            let mid_log2 = (lo_raw.log2() + hi_raw.log2()) * 0.5;
+            (
+                (mid_log2 - MIN_LOG2_SPAN * 0.5)
+                    .exp2()
+                    .clamp(Self::FLOOR, Self::CEILING),
+                (mid_log2 + MIN_LOG2_SPAN * 0.5)
+                    .exp2()
+                    .clamp(Self::FLOOR, Self::CEILING),
+            )
+        } else {
+            (lo_raw, hi_raw)
+        };
+        KnotRange { lo, hi }
+    }
+
+    fn knot_positions_log2(&self) -> [f32; TONESCALE_KNOTS] {
+        let lo = self.lo.log2();
+        let hi = self.hi.log2();
+        std::array::from_fn(|i| lo + i as f32 / (TONESCALE_KNOTS - 1) as f32 * (hi - lo))
+    }
 }
 
 /// A single neutral-ramp observation: (scene_lum, display_lum).
@@ -30,7 +120,9 @@ pub struct NeutralSample {
     pub display_lum: f32,
 }
 
-/// Fit a monotone piecewise-linear (PCHIP-stable) tonescale from neutral samples.
+/// Fit a monotone piecewise-linear (PCHIP-stable) tonescale from neutral
+/// samples over the chart solver's fixed [`KnotRange::CHART_DEFAULT`] span.
+/// Chart-fit callers (`mod.rs`) keep using this entry point unchanged.
 ///
 /// `samples` must include at least 2 unclipped points. Samples are binned into
 /// `TONESCALE_KNOTS` log2 intervals; the knot value is the weighted mean of
@@ -38,11 +130,20 @@ pub struct NeutralSample {
 /// interpolation from adjacent knots. Monotonicity is enforced after the fact
 /// by clamping each knot value to be ≥ the previous.
 pub fn fit_tonescale(samples: &[NeutralSample]) -> Option<Tonescale> {
+    fit_tonescale_with_range(samples, KnotRange::CHART_DEFAULT)
+}
+
+/// Same as [`fit_tonescale`] but over a caller-supplied [`KnotRange`] instead
+/// of the chart's fixed span — the JPEG-pair front-end (`from_pairs.rs`)
+/// derives its range from the FULL pair population's scene luminances via
+/// [`KnotRange::from_scene_luminances`] so the lattice covers the luminance
+/// span the model is actually evaluated against (#1740 M0.5).
+pub fn fit_tonescale_with_range(samples: &[NeutralSample], range: KnotRange) -> Option<Tonescale> {
     if samples.len() < 2 {
         return None;
     }
 
-    let knot_log2 = knot_positions_log2();
+    let knot_log2 = range.knot_positions_log2();
 
     // Bin samples by log2(scene_lum) proximity to each knot.
     let bin_width = (knot_log2[TONESCALE_KNOTS - 1] - knot_log2[0]) / (TONESCALE_KNOTS - 1) as f32;
@@ -133,7 +234,7 @@ mod tests {
 
     #[test]
     fn knot_positions_span_neutral_ramp() {
-        let kp = knot_positions_log2();
+        let kp = KnotRange::CHART_DEFAULT.knot_positions_log2();
         assert!((kp[0] - 0.001f32.log2()).abs() < 1e-5, "first knot");
         assert!(
             (kp[TONESCALE_KNOTS - 1] - 4.0f32.log2()).abs() < 1e-5,
@@ -143,6 +244,55 @@ mod tests {
         for i in 0..TONESCALE_KNOTS - 1 {
             assert!(kp[i + 1] > kp[i], "not monotone at {i}");
         }
+    }
+
+    #[test]
+    fn knot_range_from_scene_luminances_matches_percentile_bounds() {
+        // 100 luminances log-uniform in [0.01, 2.0]; the derived range should
+        // sit close to the 2nd/98th percentile of that span, not the raw
+        // min/max.
+        let lums: Vec<f32> = (0..100)
+            .map(|i| {
+                let t = i as f32 / 99.0;
+                let log2_l = 0.01f32.log2() + t * (2.0f32.log2() - 0.01f32.log2());
+                log2_l.exp2()
+            })
+            .collect();
+        let range = KnotRange::from_scene_luminances(&lums);
+        assert!(
+            range.lo > 0.01 * 0.5 && range.lo < 0.01 * 4.0,
+            "derived lo {} should be near the low percentile, not the chart default 0.001",
+            range.lo
+        );
+        assert!(
+            range.hi > 2.0 * 0.5 && range.hi < 2.0 * 2.0,
+            "derived hi {} should be near the high percentile, not the chart default 4.0",
+            range.hi
+        );
+    }
+
+    #[test]
+    fn knot_range_from_scene_luminances_falls_back_on_sparse_input() {
+        let lums = vec![0.5, 0.6];
+        assert_eq!(
+            KnotRange::from_scene_luminances(&lums),
+            KnotRange::CHART_DEFAULT,
+            "too few samples to derive a percentile — must fall back to the chart default"
+        );
+    }
+
+    #[test]
+    fn knot_range_from_scene_luminances_enforces_minimum_span() {
+        // All luminances identical -> a degenerate zero-width span must be
+        // widened to the minimum log2 span, not left collapsed.
+        let lums = vec![0.3f32; 20];
+        let range = KnotRange::from_scene_luminances(&lums);
+        assert!(
+            range.hi.log2() - range.lo.log2() >= 0.99,
+            "degenerate sample set must still yield a usable span, got lo={} hi={}",
+            range.lo,
+            range.hi
+        );
     }
 
     #[test]
