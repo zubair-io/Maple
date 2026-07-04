@@ -5,7 +5,7 @@
 //! `MAPLE_STAGE_DUMP` for per-stage EXR output via raw-core's view path.
 
 use raw_core::pipeline::{render_from_scene_linear, render_from_scene_linear_with_chain};
-use raw_core::synthetic_input::{halo_disk, hue_patch, neutral_ramp, Primary};
+use raw_core::synthetic_input::{chroma_ramp, halo_disk, hue_patch, neutral_ramp, Primary, RampHue};
 use raw_core::xmp;
 use std::path::Path;
 
@@ -14,6 +14,7 @@ use super::types::SyntheticKind;
 pub fn run(
     kind: SyntheticKind,
     primary: Option<&str>,
+    hue: Option<&str>,
     ev: f32,
     out: &Path,
     width: Option<u32>,
@@ -31,6 +32,7 @@ pub fn run(
         SyntheticKind::NeutralRamp => (1024u32, 8u32),
         SyntheticKind::HuePatch => (64u32, 64u32),
         SyntheticKind::HaloDisk => (256u32, 256u32),
+        SyntheticKind::ChromaRamp => (1024u32, 8u32),
     };
     let w = width.unwrap_or(default_w);
     let h = height.unwrap_or(default_h);
@@ -44,6 +46,7 @@ pub fn run(
         SyntheticKind::NeutralRamp => (2u32, 1u32),
         SyntheticKind::HuePatch => (1u32, 1u32),
         SyntheticKind::HaloDisk => (4u32, 4u32),
+        SyntheticKind::ChromaRamp => (2u32, 1u32),
     };
     if w < min_w || h < min_h {
         return Err(format!(
@@ -63,6 +66,16 @@ pub fn run(
             hue_patch(p, ev, w, h)
         }
         SyntheticKind::HaloDisk => halo_disk(w, h),
+        SyntheticKind::ChromaRamp => {
+            let slug = hue.ok_or("--hue is required for --kind chroma-ramp")?;
+            let rh = RampHue::from_slug(slug).ok_or_else(|| {
+                format!(
+                    "--hue '{}' not recognised — use foliage/blue/magenta/skin",
+                    slug
+                )
+            })?;
+            chroma_ramp(rh, w, h)
+        }
     };
 
     // With `--params`, run the slider chain so clarity / dehaze etc.

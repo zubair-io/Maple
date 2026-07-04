@@ -169,6 +169,10 @@ enum Cmd {
         /// For `--kind hue-patch`: which primary (r, g, b, c, m, y).
         #[arg(long)]
         primary: Option<String>,
+        /// For `--kind chroma-ramp`: which named hue axis (foliage, blue,
+        /// magenta, skin).
+        #[arg(long)]
+        hue: Option<String>,
         /// For `--kind hue-patch`: scene-linear exposure offset from
         /// mid-gray (EV).
         #[arg(long, default_value_t = 0.0)]
@@ -298,6 +302,7 @@ fn main() -> ExitCode {
         Cmd::Synthetic {
             kind,
             primary,
+            hue,
             ev,
             out,
             width,
@@ -306,6 +311,7 @@ fn main() -> ExitCode {
         } => run_or_exit(commands::synthetic::run(
             kind,
             primary.as_deref(),
+            hue.as_deref(),
             ev,
             &out,
             width,

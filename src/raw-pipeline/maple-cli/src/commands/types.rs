@@ -36,6 +36,9 @@ pub enum SyntheticKind {
     NeutralRamp,
     HuePatch,
     HaloDisk,
+    /// Constant-lightness, constant-hue Oklab chroma ramp (#1627 banding
+    /// gate). Pair with `--hue`.
+    ChromaRamp,
 }
 
 impl From<DemosaicChoice> for RenderQuality {
