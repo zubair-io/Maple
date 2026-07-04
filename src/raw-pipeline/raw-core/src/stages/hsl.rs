@@ -269,9 +269,10 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
 
     // Apply saturation (scale chroma). `.max(0.0)` is an Oklab-chroma floor
     // only — it does NOT guarantee the Rec.2020 round-trip stays
-    // non-negative. Gamut protection for the *increasing*-chroma case is
-    // below (#1733 audit fix), mirroring `saturation::apply_pixel` /
-    // `vibrance::apply_pixel`'s soft-knee.
+    // non-negative. Full gamut protection (chroma-scale AND hue-rotation
+    // cases) is applied below (#1733 audit fix, #1748 review fix),
+    // mirroring `saturation::apply_pixel` / `vibrance::apply_pixel`'s
+    // soft-knee.
     let c_target = (c * (1.0 + delta_sat_scale)).max(0.0);
 
     // Apply hue rotation (rotate the target (a, b) by delta_hue_rad). Done
@@ -285,16 +286,15 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
         )
     };
 
-    // For desaturation (c_target <= c) gamut never tightens — moving
-    // toward neutral can't push a Rec.2020 channel further negative than
-    // the input. Only the increasing-chroma case (a positive per-band SAT
-    // slider, or GREEN/YELLOW bands' luminance-driven interplay) can drive
-    // a channel negative.
-    if c_target <= c {
-        let (a_new, b_new) = hue_hat(c_target);
-        return oklab_to_rec2020([l, a_new, b_new]);
-    }
-
+    // NOTE: hue rotation moves the pixel to a different point on the
+    // Rec.2020 hull, whose radius at the *new* hue can be smaller than at
+    // the input hue — the hull is not hue-invariant. So even when chroma
+    // does not increase (`c_target <= c`), rotation alone can still drive
+    // a channel negative; there is no shortcut that skips the gamut check
+    // (#1748 review fix — an earlier `c_target <= c` fast-return here was
+    // wrong for exactly this reason, confirmed via a hue-only-rotation
+    // repro on a near-hull primary).
+    //
     // Fast path: scaled target stays in gamut — most pixels are far
     // enough from the hull that this branch wins.
     let (a_fast, b_fast) = hue_hat(c_target);
@@ -308,10 +308,17 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
     // it — identical shape to `saturation::soft_compress` /
     // `vibrance::soft_compress`, single source of the curve would be a
     // 3-way dedup better done when a fourth caller appears (YAGNI).
+    //
+    // No `.max(c_floor)` here: an earlier version floored `c_out` at the
+    // pre-HSL input chroma `c`, meant to avoid pulling saturation below
+    // what the user started with. But when hue rotation lands the pixel on
+    // a narrower part of the hull (`c_hull < c`), that floor forces
+    // `c_out > c_hull`, i.e. deliberately re-emits the negative channel the
+    // bisection just solved for. Soft-compression must be allowed to land
+    // anywhere in `[0, c_hull]`.
     let (rot_a_hat, rot_b_hat) = hue_hat(1.0);
     let c_hull = hsl_bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_target);
-    let c_floor = c; // never pull chroma back below the pre-HSL input
-    let c_out = hsl_soft_compress(c_target, c_hull).max(c_floor);
+    let c_out = hsl_soft_compress(c_target, c_hull);
     oklab_to_rec2020([l, rot_a_hat * c_out, rot_b_hat * c_out])
 }
 

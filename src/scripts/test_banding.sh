@@ -187,12 +187,24 @@ run_case() {
     if [[ -z "$BUDGET_INIT" ]]; then
       py_args+=(--require-budget)
     fi
-    if ! python3 "${py_args[@]}" > "$WORK/log_${fixture}_${case}_${stage}.txt" 2>&1; then
+    local py_status=0
+    python3 "${py_args[@]}" > "$WORK/log_${fixture}_${case}_${stage}.txt" 2>&1 || py_status=$?
+    if [[ "$py_status" -ne 0 ]]; then
       if [[ -z "$BUDGET_INIT" ]]; then
         echo "## FAIL: $budget_key (case=$case)"
         cat "$WORK/log_${fixture}_${case}_${stage}.txt"
         FAIL=1
+      else
+        # BUDGET_INIT mode doesn't pass --require-budget, so a failure here
+        # is a real error (crash, malformed dump, etc.), not a missing
+        # budget entry. Surface it and skip this case instead of reading a
+        # missing/stale $json_out, which would mask the real failure behind
+        # a secondary "file not found" / JSON-decode error.
+        echo "## BUDGET_INIT ERROR: $budget_key (case=$case) — banding_check.py failed"
+        cat "$WORK/log_${fixture}_${case}_${stage}.txt"
+        FAIL=1
       fi
+      continue
     fi
     if [[ -n "$BUDGET_INIT" ]]; then
       local d2 ratio
