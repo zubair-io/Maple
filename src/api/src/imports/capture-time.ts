@@ -1,5 +1,5 @@
 /**
- * Capture-time resolution for the Imports feature (ticket #1752).
+ * Capture-time resolution for the Imports feature (ticket #1765).
  *
  * Split out of `imports/scan.ts` to keep that file under the repo's file-size
  * budget (see `CONTRIBUTING.md`) — this is a self-contained EXIF-read
