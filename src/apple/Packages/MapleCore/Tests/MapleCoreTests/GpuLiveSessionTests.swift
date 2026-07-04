@@ -146,6 +146,35 @@ final class GpuLiveSessionTests: XCTestCase {
         XCTAssertEqual(p.vibrance, 0)
     }
 
+    /// #1747 review fix: the decoded-anchor 0/0 sentinel is an ALL-OR-NOTHING
+    /// pair. A caller that (by mistake) supplies only ONE of `asShotCCT` /
+    /// `asShotTint` must still get the legacy sentinel (0/0) — NOT a
+    /// half-populated anchor (e.g. decoded_temperature = asShotCCT,
+    /// decoded_tint = 0), which would corrupt the WB delta math
+    /// (`M_net = wb(live) · wb(decoded)⁻¹`) with a decoded anchor that was
+    /// never actually observed together.
+    func test_makeGpuLiveParams_partial_asShot_anchor_falls_back_to_sentinel() {
+        let model = perturbedModel()
+
+        let ccdOnly = PipelineRenderer.makeGpuLiveParams(
+            from: model, asShotCCT: 5500.0, asShotTint: nil)
+        XCTAssertEqual(ccdOnly.decoded_temperature, 0,
+                       "asShotTint=nil must zero the WHOLE anchor, not just leave tint at 0")
+        XCTAssertEqual(ccdOnly.decoded_tint, 0)
+
+        let tintOnly = PipelineRenderer.makeGpuLiveParams(
+            from: model, asShotCCT: nil, asShotTint: 12.0)
+        XCTAssertEqual(tintOnly.decoded_temperature, 0)
+        XCTAssertEqual(tintOnly.decoded_tint, 0,
+                       "asShotCCT=nil must zero the WHOLE anchor, not just leave temperature at 0")
+
+        // Both supplied — the real paired-anchor path — is unaffected.
+        let both = PipelineRenderer.makeGpuLiveParams(
+            from: model, asShotCCT: 5500.0, asShotTint: 12.0)
+        XCTAssertEqual(both.decoded_temperature, 5500.0)
+        XCTAssertEqual(both.decoded_tint, 12.0)
+    }
+
     // MARK: - Wiring / non-vacuity
 
     /// A structured scene-linear Rec.2020 RGBA buffer (the kind the decode produces)

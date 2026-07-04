@@ -89,10 +89,25 @@ extension PipelineRenderer {
         //     because `wb_cat16_matrix(6500, 0)` is not exact identity and
         //     composing with its inverse would silently shift the legacy
         //     output. (Copilot review on #1262.) #1240 follow-up.
+        //
+        //     The 0/0 sentinel fallback is an ALL-OR-NOTHING pair, not a
+        //     per-field default: `decodedAnchor` below requires BOTH
+        //     `asShotCCT` and `asShotTint` to be non-nil before using either,
+        //     so a caller that (by mistake) supplies only one of the two
+        //     still gets the legacy sentinel instead of a silently
+        //     half-populated anchor (temp=asShot, tint=0) that would corrupt
+        //     the WB delta math. (#1747 review fix — an earlier version
+        //     defaulted each field independently via `?? 0.0`.)
+        let decodedAnchor: (temperature: Double, tint: Double) =
+            if let asShotCCT, let asShotTint {
+                (asShotCCT, asShotTint)
+            } else {
+                (0.0, 0.0)
+            }
         p.temperature = Float(model.temperature)
         p.tint = Float(model.tint)
-        p.decoded_temperature = Float(asShotCCT ?? 0.0)
-        p.decoded_tint = Float(asShotTint ?? 0.0)
+        p.decoded_temperature = Float(decodedAnchor.temperature)
+        p.decoded_tint = Float(decodedAnchor.tint)
         p.wb_method = 0 // CAT16 (the Apple model carries no method field)
 
         // --- scene tone controls ---
