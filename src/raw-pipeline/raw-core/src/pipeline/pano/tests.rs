@@ -16,13 +16,28 @@ use crate::AdjustmentModel;
 /// excludes turned into its documented bit-identical no-op: auto-exposure
 /// Off, and the three non-zero display defaults (sharpen 40, nr_color 25)
 /// zeroed. Everything else in `AdjustmentModel::default()` already
-/// short-circuits at its default value.
+/// short-circuits at its default value — including white balance, on BOTH
+/// of `develop`'s two WB stages:
 ///
-/// `temperature_seen` and `tint_seen` are set to `true` so the WB stage
-/// resolves to 6500 K / 0 tint and short-circuits to a no-op (#1729). Without
-/// them the anchoring logic would resolve to as-shot CCT, which is non-identity
-/// for the synthetic DNG (as-shot = 5500 K), breaking the bit-pin against the
-/// pano path (which intentionally omits user WB entirely).
+/// * Camera-space (#1726, pre-DCP): this fixture's real (non-identity)
+///   Hasselblad `ColorMatrix1`/`ColorMatrix2` resolves to a calibrated
+///   `ProfileSource` tier, so `develop` DOES run
+///   `stages::wb_camera::apply` here (unlike the identity-CM1 default
+///   fixture elsewhere in this file, which stays on `RawlerFallback`).
+///   `wb_camera::resolve_target` resolves the numeric-default
+///   `(temperature, tint)` to THIS image's own as-shot reference point
+///   before `apply`'s identity check runs, so the stage is a no-op
+///   regardless of the fixture's as-shot CCT (5500 K, off the 6500 K
+///   default) — `decode_for_pano` never calls `wb_camera::apply` at all,
+///   but since the stage is a pixel no-op here, that's an inert
+///   architectural difference, not a pixel divergence.
+/// * Post-DCP CAT16 (#1729/#1725, `white_balance::resolve_wb` + `apply`):
+///   gated out entirely once camera-space WB has run
+///   (`camera_wb_applied`), so its own anchoring semantics don't apply to
+///   this fixture. `temperature_seen`/`tint_seen` are set to `true` below
+///   defensively, so that IF a future change ever made this fixture take
+///   the `RawlerFallback` branch instead, `resolve_wb` would still resolve
+///   to the documented 6500 K/0-tint no-op rather than the as-shot CCT.
 fn display_stages_zeroed() -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
