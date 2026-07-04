@@ -19,13 +19,19 @@
 //     owns the brightness mapping; for Neutral, AE-ON. The decoded buffer's AE
 //     state is correct by construction — the editor's decode cache is profile-
 //     keyed — so the chain just must not stack another AE.)
-//   * derive WB from the live `temperature`/`tint` as the ABSOLUTE matrix (NOT a
-//     delta vs as-shot). `MapleGpuLiveParams` carries temp/tint and the FFI
-//     derives `wb_cat16_matrix(temp, tint)` — exactly develop's absolute
-//     `white_balance::apply(scene, model.temperature, model.tint, …)`
-//     (`develop/mod.rs:369`), on the D65/6500K-landed buffer. The Apple CPU path's
-//     `apply_delta(live, asShot)` is the per-platform divergence this CONVERGES
-//     away from (toward canonical `render`).
+//   * derive WB from the live `temperature`/`tint` as a DELTA off the decoded
+//     anchor the caller supplies via `asShotCCT`/`asShotTint` (#1240, #1734).
+//     `MapleGpuLiveParams` carries temp/tint plus the decoded anchor; the FFI
+//     composes `M_net = wb_cat16_matrix(live) · wb_cat16_matrix(decoded)⁻¹` —
+//     identity when live == decoded, matching `raw_core::white_balance::apply_delta`.
+//     For RAW assets the caller passes the as-shot CCT/tint (the CPU develop
+//     chain's `apply_delta(live, asShot)` contract). For non-RAW assets
+//     (JPEG/HEIF/pano) there is no as-shot anchor — the buffer is already at
+//     D65 — so the caller (`EditSession+GpuLive.swift`) passes `6500.0/0.0`
+//     explicitly. Only a caller that supplies neither (`nil`/`nil`) falls back
+//     to the legacy 0/0 sentinel below, which the FFI reads as "no decoded
+//     anchor" and applies `M_live` absolutely — preserved for callers written
+//     before #1240 that still expect the pre-delta behavior.
 //   * pass the REAL `sharpen_amount` / `nr_color` / `nr_luminance` — the chain
 //     runs them at their canonical scene-linear positions, REPLACING the post-AgX
 //     Metal kernels (`MetalKernels.applySceneSharpen` / `applySceneNRColor`). This
@@ -57,8 +63,11 @@ extension PipelineRenderer {
     /// `inputShape` is the `MapleGpuLiveParams.input_shape` tag (#1331): 0 =
     /// PostDcpRec2020Fp16 (RAW, all stages; the historic default), 1 =
     /// LinearRec2020Fp16 (pano PNG — capture_sharpening is skipped; WB stays
-    /// engaged with decoded=6500/0 so temperature/tint sliders work).
-    /// Callers that don't pass it get 0 (RAW), preserving pre-#1331 behaviour.
+    /// engaged). Callers that don't pass it get 0 (RAW), preserving pre-#1331
+    /// behaviour. The D65 WB anchor for non-RAW shapes is the CALLER's
+    /// responsibility (`asShotCCT`/`asShotTint`, #1734) — this function does not
+    /// infer an anchor from `inputShape`, keeping a single source of truth for
+    /// the non-RAW contract at the `EditSession+GpuLive.swift` call site.
     public static func makeGpuLiveParams(
         from model: AdjustmentModel,
         asShotCCT: Double? = nil,

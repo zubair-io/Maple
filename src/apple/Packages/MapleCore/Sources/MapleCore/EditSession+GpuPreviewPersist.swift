@@ -35,7 +35,18 @@ extension EditSession {
         // hydration reads with, so the reopen lookup hits this entry.
         let coldOpenModel = model
         let screenWidth = Int(max(previewSize.width, 1))
-        guard let frame = await driver.renderCurrentFrameBytes(model: coldOpenModel) else { return }
+        // Same non-RAW D65-anchor contract as `presentViaGpuLive` (#1734): this
+        // one-shot cold-open readback re-runs the same GPU chain the live present
+        // just drew, so it must anchor WB identically or the persisted preview
+        // would disagree with what's on screen.
+        let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
+        let cct = resolvedIsRaw ? asShotCCT : 6500.0
+        let tint = resolvedIsRaw ? asShotTint : 0.0
+        guard let frame = await driver.renderCurrentFrameBytes(
+            model: coldOpenModel,
+            asShotCCT: cct,
+            asShotTint: tint
+        ) else { return }
         // Build + JPEG-encode + store on a DETACHED utility task so the per-pixel
         // RGBA expansion + encode never touch the MainActor editor — matching
         // `persistCurrentPreviewToCache`'s detach (the synchronous prefix of an
