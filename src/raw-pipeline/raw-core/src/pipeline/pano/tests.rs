@@ -16,35 +16,39 @@ use crate::AdjustmentModel;
 /// excludes turned into its documented bit-identical no-op: auto-exposure
 /// Off, and the three non-zero display defaults (sharpen 40, nr_color 25)
 /// zeroed. Everything else in `AdjustmentModel::default()` already
-/// short-circuits at its default value — including white balance, on BOTH
-/// of `develop`'s two WB stages:
+/// short-circuits at its default value — including white balance, on
+/// whichever of `develop`'s two WB stages this fixture actually takes:
 ///
-/// * Camera-space (#1726, pre-DCP): this fixture's real (non-identity)
-///   Hasselblad `ColorMatrix1`/`ColorMatrix2` resolves to a calibrated
-///   `ProfileSource` tier, so `develop` DOES run
-///   `stages::wb_camera::apply` here (unlike the identity-CM1 default
-///   fixture elsewhere in this file, which stays on `RawlerFallback`).
-///   `wb_camera::resolve_target` resolves the numeric-default
-///   `(temperature, tint)` to THIS image's own as-shot reference point
-///   before `apply`'s identity check runs, so the stage is a no-op
-///   regardless of the fixture's as-shot CCT (5500 K, off the 6500 K
-///   default) — `decode_for_pano` never calls `wb_camera::apply` at all,
-///   but since the stage is a pixel no-op here, that's an inert
-///   architectural difference, not a pixel divergence.
-/// * Post-DCP CAT16 (#1729/#1725, `white_balance::resolve_wb` + `apply`):
-///   gated out entirely once camera-space WB has run
-///   (`camera_wb_applied`), so its own anchoring semantics don't apply to
-///   this fixture. `temperature_seen`/`tint_seen` are set to `true` below
-///   defensively, so that IF a future change ever made this fixture take
-///   the `RawlerFallback` branch instead, `resolve_wb` would still resolve
-///   to the documented 6500 K/0-tint no-op rather than the as-shot CCT.
+/// This fixture's real (non-identity) Hasselblad `ColorMatrix1`/
+/// `ColorMatrix2` resolves to a calibrated `ProfileSource` tier, so
+/// `develop` runs the camera-space stage (#1726, pre-DCP,
+/// `stages::wb_camera::apply`) here — unlike the identity-CM1 default
+/// fixture elsewhere in this file, which stays on `RawlerFallback` and
+/// takes the post-DCP CAT16 stage (#1729/#1725, `white_balance::
+/// resolve_wb` + `apply`) instead. `camera_wb_applied` gates the two
+/// mutually exclusively, so only one runs on any given fixture.
+///
+/// Both stages resolve "as-shot" the same way: neither `temperature_seen`
+/// nor `tint_seen` is set (the struct's default, left alone here — NOT
+/// forced `true`), which is what both `wb_camera::resolve_target` and
+/// `white_balance::resolve_wb` treat as "no explicit WB was authored".
+/// `wb_camera::resolve_target` then seeds from THIS image's own
+/// `profile.scene_cct` (5500 K, off the 6500 K numeric default) before
+/// `apply`'s identity check runs, so the camera-space stage is a no-op
+/// here regardless of that gap. (Had the flags been forced `true`, as an
+/// earlier version of this fixture did to satisfy the OTHER tier's
+/// `resolve_wb` contract, `wb_camera::resolve_target` would read that as
+/// an explicit — not As-Shot — target of the literal `6500.0`/`0.0`
+/// pair, and the camera-space gain would render a real, non-identity warm
+/// cast: exactly the regression this comment now heads off.)
+/// `decode_for_pano` never calls `wb_camera::apply` at all, but since the
+/// stage is a pixel no-op on this fixture, that's an inert architectural
+/// difference, not a pixel divergence.
 fn display_stages_zeroed() -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
         sharpen_amount: 0.0,
         nr_color: 0.0,
-        temperature_seen: true,
-        tint_seen: true,
         ..AdjustmentModel::default()
     }
 }

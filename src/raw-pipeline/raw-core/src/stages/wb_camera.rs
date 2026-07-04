@@ -86,23 +86,64 @@
 //!
 //! [`resolve_target`] answers "what `(temperature, tint)` does THIS
 //! `AdjustmentModel` actually mean for this image?" before either [`apply`]
-//! or its identity check runs. On this branch, `AdjustmentModel` carries no
-//! `WhiteBalancePreset` field and no `_seen` flags (that instrumentation is
-//! ticket #1730, not landed here) — a `crs:WhiteBalance="As Shot"` XMP (or
-//! one with no `crs:WhiteBalance` attribute at all, e.g. a fresh image with
-//! no sidecar yet) simply never touches `model.temperature`/`model.tint`
-//! during parsing (`xmp::wb_preset` returns `None` for "As Shot"/"Auto"/
+//! or its identity check runs. This reuses the `temperature_seen` /
+//! `tint_seen` flags `AdjustmentModel` carries (#1730): `xmp::set_field`
+//! sets a flag only when the corresponding `crs:Temperature` / `crs:Tint`
+//! attribute is literally present in the sidecar (an authored Custom WB
+//! component), and the FFI conversions (`raw-ffi::scene_linear_chain` /
+//! `raw-ffi::scene_linear_chain_f32_entry`) force both flags `true` because
+//! those callers always supply an explicit, already-resolved numeric value
+//! (including the as-shot CCT itself for an unedited FFI render — see
+//! `white_balance::resolve_wb`'s doc-comment). A `crs:WhiteBalance="As
+//! Shot"` XMP (or one with no `crs:WhiteBalance` attribute at all, e.g. a
+//! fresh image with no sidecar yet) leaves BOTH flags `false` and BOTH
+//! values at the literal `AdjustmentModel::default()` numeric defaults
+//! `(6500.0, 0.0)` — `xmp::wb_preset` returns `None` for "As Shot"/"Auto"/
 //! "Custom" and the unrecognized-value branch leaves the model's existing
-//! value in place — see `xmp::set_field`'s `crs:WhiteBalance` arm). Because
-//! `xmp::parse` always starts from `AdjustmentModel::default()`, the As-Shot
-//! case is therefore indistinguishable, by construction, from "the model's
-//! temperature/tint are still sitting at the literal numeric default
-//! `(6500.0, 0.0)`" — there is no other representation of "As Shot" to gate
-//! on today. [`resolve_target`] treats exactly that condition as the
-//! As-Shot signal and substitutes the profile's own resolved as-shot
-//! reference point (`profile.scene_cct`, tint 0 — DCP has no separate
-//! as-shot tint concept) so unedited renders are exact no-ops regardless of
-//! how far the camera's true as-shot CCT sits from 6500K.
+//! (i.e. still-default) value in place (see `xmp::set_field`'s
+//! `crs:WhiteBalance` arm).
+//!
+//! [`resolve_target`] therefore treats `!temperature_seen && !tint_seen &&
+//! model.temperature == 6500.0 && model.tint == 0.0` as the As-Shot signal
+//! and substitutes the profile's own resolved as-shot reference point
+//! (`profile.scene_cct`, tint 0 — DCP has no separate as-shot tint concept)
+//! so unedited renders are exact no-ops regardless of how far the camera's
+//! true as-shot CCT sits from 6500K. Checking the numeric pair in addition
+//! to the flags (rather than the flags alone) is what correctly keeps a
+//! named WB preset (e.g. Tungsten, 2850 K / 0 tint — which also leaves both
+//! `_seen` flags `false`, since presets resolve to a `(temp, tint)` pair at
+//! parse time rather than being authored as explicit numeric fields) OUT of
+//! the As-Shot branch: no preset in `xmp::wb_preset`'s table resolves to
+//! exactly `(6500.0, 0.0)`, so every preset's resolved value reaches
+//! [`apply`] as an explicit target, same as `white_balance::resolve_wb`'s
+//! neither-seen row.
+//!
+//! ## Tile-refine delta anchor ([`apply_delta`])
+//!
+//! #1725 (landed on `main` ahead of this ticket, reconciled here) gave the
+//! CPU tile-refine path (`pipeline::tile::develop`) a `decoded_wb_anchor`
+//! contract: an app that hydrates `model.temperature`/`model.tint` to the
+//! camera's own ESTIMATED as-shot `(cct, tint)` (rather than leaving the
+//! model at [`resolve_target`]'s numeric-default As-Shot sentinel) needs
+//! the tile buffer's WB to match a GPU-live frame's own decoded anchor
+//! point exactly, or the tile-vs-live-frame seam reappears (the original
+//! #1725 "horizontal band" symptom, for the post-DCP CAT16 path).
+//! [`apply`]'s own identity short-circuit only recognizes ONE reference
+//! point, `(profile.scene_cct, 0.0)` — insufficient here because a real
+//! camera's as-shot chromaticity can sit far enough off the blackbody
+//! locus that no `(temperature, tint)` pair within the slider's ±100 tint
+//! range reaches it at all (measured on a real Hasselblad H2D-39 bundle
+//! profile: the true as-shot point's diagonal-convention tint projects to
+//! +144, clamped to +100 — `apply` literally cannot reach identity for
+//! that model shape via its single fixed reference point). [`apply_delta`]
+//! solves this the same way `white_balance::apply_delta` does for the
+//! post-DCP path: compare the TARGET's gain against the DECODED ANCHOR's
+//! own gain (both computed by the same [`camera_wb_gain`]), so a target
+//! that equals the anchor is a bit-exact no-op regardless of where either
+//! point sits relative to the locus. `pipeline::tile::develop` dispatches
+//! to [`apply_delta`] when the caller supplies a `decoded_wb_anchor` and
+//! to [`apply`] (absolute, via [`resolve_target`]) otherwise — mirroring
+//! the post-DCP path's own `Some`/`None` dispatch on the same parameter.
 //!
 //! ## GPU-live boundary (documented, not yet closed — tracked for #1727)
 //!
@@ -113,7 +154,9 @@
 //! runs upstream, on the CPU, before any of those entry points see the data.
 //! There is no camera-native buffer or `DcpProfile` available at that layer
 //! to apply this module's math against. Those paths keep using the existing
-//! Rec.2020-space CAT16 `wb_cat16_matrix` / `apply_delta` contract unchanged.
+//! Rec.2020-space CAT16 `wb_cat16_matrix` / `white_balance::apply_delta`
+//! contract unchanged — [`apply_delta`] above closes the gap for the CPU
+//! tile-refine path specifically, not for the GPU-live per-tick path.
 //!
 //! Net effect: a cold/refine render (this module, camera-space) and a
 //! GPU-live slider tick (unchanged, scene-linear CAT16) compute user WB
@@ -123,43 +166,54 @@
 //! precomputed camera-space delta *matrix* through the FFI the way
 //! `WhiteBalancePass` already accepts a precomputed Rec.2020 matrix today.
 //! Both are real WGSL/FFI-surface changes, out of scope for this ticket —
-//! #1727 is the tracking ticket, and `fix/wb-tint-axis-1725` (in flight in
-//! parallel, not merged into this branch) is independently reworking the
-//! tile path's delta contract; keeping this module CPU-only and self-
-//! contained keeps that rebase from fighting this change.
+//! #1727 is the tracking ticket.
 
 use crate::{color::dcp::DcpProfile, math::Matrix3, xmp::AdjustmentModel};
 
-use super::white_balance::{cct_to_xy, xy_to_xyz};
+use super::white_balance::{apply_tint_perpendicular, cct_to_xy, xy_to_xyz};
 
 /// The literal numeric defaults `AdjustmentModel::default()` assigns to
 /// `temperature`/`tint`. See the module doc's "As-Shot seeding" section for
-/// why this pair, and not a dedicated flag, is the As-Shot signal on this
-/// branch.
+/// why this pair, checked alongside `temperature_seen`/`tint_seen`, is the
+/// As-Shot signal.
 const MODEL_DEFAULT_TEMPERATURE: f32 = 6500.0;
 const MODEL_DEFAULT_TINT: f32 = 0.0;
 
 /// Resolve the effective `(temperature, tint)` target for camera-space WB.
 ///
-/// When `model.temperature`/`model.tint` sit at the exact numeric defaults
-/// `AdjustmentModel::default()` assigns — the only representation "As Shot
-/// / no explicit WB" has on this branch (see the module doc) — substitutes
-/// the profile's own resolved as-shot reference point
-/// (`profile.scene_cct`, tint `0.0`) instead. Any other `(temperature,
-/// tint)` pair is assumed to be an explicit, user- or preset-resolved
-/// value (including a user who happens to dial in exactly 6500K/0 —
-/// indistinguishable from As-Shot on this branch, and harmless: at that
-/// exact point [`apply`]'s own identity check regarding the SUBSTITUTED
-/// as-shot CCT is what actually decides no-op-ness, not this function) and
-/// is passed through unchanged.
+/// As-Shot signal: NEITHER `temperature_seen` nor `tint_seen` is set (no
+/// authored Custom-WB component — see the module doc) AND the model's
+/// `(temperature, tint)` still sit at the exact `AdjustmentModel::default()`
+/// numeric defaults `(6500.0, 0.0)` — the state parsing leaves an image
+/// with no sidecar, or an explicit `crs:WhiteBalance="As Shot"`/absent
+/// attribute, in. When that holds, substitutes the profile's own resolved
+/// as-shot reference point (`profile.scene_cct`, tint `0.0`) instead of the
+/// literal default, so unedited renders are exact no-ops regardless of how
+/// far the camera's true as-shot CCT sits from 6500K.
+///
+/// Every other case — an authored Custom WB (either flag set), an FFI
+/// caller (both flags forced `true`), or a named preset resolved by
+/// `xmp::wb_preset` at parse time (neither flag set, but a non-default
+/// value — no preset resolves to exactly `6500.0, 0.0`) — is an explicit
+/// target and passes through, honoring the same temperature-only-Custom
+/// tint-defaulting rule `white_balance::resolve_wb` uses: `crs:Tint`
+/// absent alongside an authored `crs:Temperature` means ACR's "absent
+/// tint" convention (0.0), not "carry over whatever `model.tint` happens
+/// to hold".
 pub fn resolve_target(model: &AdjustmentModel, profile: &DcpProfile) -> (f32, f32) {
-    let is_unset = (model.temperature - MODEL_DEFAULT_TEMPERATURE).abs() < 0.5
+    let is_as_shot = !model.temperature_seen
+        && !model.tint_seen
+        && (model.temperature - MODEL_DEFAULT_TEMPERATURE).abs() < 0.5
         && (model.tint - MODEL_DEFAULT_TINT).abs() < 0.5;
-    if is_unset {
-        (profile.scene_cct, 0.0)
-    } else {
-        (model.temperature, model.tint)
+    if is_as_shot {
+        return (profile.scene_cct, 0.0);
     }
+    let tint = if model.temperature_seen && !model.tint_seen {
+        0.0
+    } else {
+        model.tint
+    };
+    (model.temperature, tint)
 }
 
 /// G-normalise a camera-space triple so the green channel reads exactly 1.0
@@ -171,14 +225,28 @@ fn g_normalize(v: [f32; 3]) -> [f32; 3] {
 }
 
 /// Target chromaticity XYZ (Y=1) for the user's `(temperature, tint)`.
-/// `tint` follows the same sign convention as `stages::white_balance::
-/// wb_gains`: positive tint moves the source chromaticity toward magenta
-/// (lower `y`) so the corrective gain pushes the rendered image toward
-/// green.
+///
+/// Uses the same CIE 1960 uv-perpendicular-to-locus axis as
+/// `stages::white_balance::wb_gains` (`apply_tint_perpendicular`,
+/// `tint_sign_positive_v = false`) — NOT a crude linear `y -= tint *
+/// 0.001` offset off the locus. Matching `wb_gains`'s axis exactly matters
+/// here specifically because `wb_gains`'s inverse,
+/// `color::dcp::estimate_as_shot_cct_tint` /
+/// `white_balance_auto::estimate_tint_from_scene_xyz`, is what recovers a
+/// camera's as-shot `(cct, tint)` pair for the tile-refine delta-anchor
+/// contract (`pipeline::tile::develop`'s `decoded_wb_anchor`) — a
+/// round-trip through a DIFFERENT tint axis than the one that produced the
+/// estimate would reintroduce exactly the kind of large, spurious cast a
+/// mismatched convention produces (measured: a linear-offset axis put a
+/// real fixture's as-shot tint at the -100 clamp rail and rendered a
+/// [1.47, 1.0, 1.63] gain at what should have been the as-shot identity
+/// point). Same sign convention as `wb_gains`: positive tint moves the
+/// source chromaticity toward magenta (lower `y`-ish, precisely "lower v
+/// in uv") so the corrective gain pushes the rendered image toward green.
 fn target_xyz(temperature: f32, tint: f32) -> [f32; 3] {
-    let (x, mut y) = cct_to_xy(temperature);
-    y -= tint * 0.001;
-    xy_to_xyz(x, y, 1.0)
+    let (x, y) = cct_to_xy(temperature);
+    let (tx, ty) = apply_tint_perpendicular(x, y, temperature, tint, false);
+    xy_to_xyz(tx, ty, 1.0)
 }
 
 /// Camera-native neutral a scene lit by `(temperature, tint)` would produce
@@ -259,6 +327,61 @@ pub fn apply(
         p[0] *= g[0];
         p[1] *= g[1];
         p[2] *= g[2];
+    }
+}
+
+/// Delta-anchored variant of [`apply`], for the tile-refine / GPU-live
+/// boundary (#1725's `decoded_wb_anchor` contract, `pipeline::tile::develop`).
+///
+/// Applies `(temperature, tint)` relative to `(decoded_temperature,
+/// decoded_tint)` rather than as an absolute target — i.e. a tile rendered
+/// at `temperature == decoded_temperature && tint == decoded_tint` is a
+/// bit-exact no-op, matching `white_balance::apply_delta`'s contract for
+/// the post-DCP CAT16 path. This matters specifically because
+/// [`apply`]'s own identity short-circuit only recognizes ONE reference
+/// point — `(profile.scene_cct, 0.0)` — and a real camera's as-shot
+/// chromaticity can sit far enough off the blackbody locus that its
+/// diagonal-convention tint (see [`target_xyz`]'s doc) exceeds the ±100
+/// slider range entirely (measured on a real Hasselblad H2D-39 bundle
+/// profile: the true as-shot tint projects to +144, clamped to +100 by
+/// `estimate_tint_from_scene_xyz` before any sign-convention difference
+/// even enters). An app that hydrates `model.temperature`/`model.tint`
+/// to the camera's own estimated as-shot `(cct, tint)` (rather than
+/// leaving the model at the literal numeric default, which is what
+/// [`resolve_target`]'s As-Shot seeding is FOR) needs a decoded/live
+/// buffer's own anchor to compare against directly — comparing to
+/// `profile.scene_cct`'s idealized locus point can never reach identity
+/// for a camera whose as-shot point doesn't sit near that locus.
+///
+/// `gain = camera_wb_gain(target) / camera_wb_gain(anchor)` — `as_shot_neutral`
+/// cancels out of the ratio algebraically (both numerator and denominator
+/// gains divide by the same `as_shot_neutral`), so passing it through is
+/// for API symmetry with [`apply`] / [`camera_wb_gain`], not because the
+/// ratio depends on its value.
+pub fn apply_delta(
+    img: &mut crate::image::Image,
+    profile: &DcpProfile,
+    as_shot_neutral: [f32; 3],
+    temperature: f32,
+    tint: f32,
+    decoded_temperature: f32,
+    decoded_tint: f32,
+) {
+    img.assert_space(crate::image::ColorSpace::CameraNativeLinearRgb);
+    if (temperature - decoded_temperature).abs() < 0.5 && (tint - decoded_tint).abs() < 0.5 {
+        return; // identity short-circuit: live == decoded, no shift to apply
+    }
+    let g_target = camera_wb_gain(profile, as_shot_neutral, temperature, tint);
+    let g_decoded = camera_wb_gain(profile, as_shot_neutral, decoded_temperature, decoded_tint);
+    let g_net = [
+        g_target[0] / g_decoded[0].max(1e-6),
+        g_target[1] / g_decoded[1].max(1e-6),
+        g_target[2] / g_decoded[2].max(1e-6),
+    ];
+    for p in &mut img.pixels {
+        p[0] *= g_net[0];
+        p[1] *= g_net[1];
+        p[2] *= g_net[2];
     }
 }
 
