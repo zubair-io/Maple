@@ -219,6 +219,23 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Auto 2.0 milestone M0 (#1740): offline fit-quality report comparing
+    /// the Auto 1.0 free residual LUT against the structured fit-acr
+    /// solver's JPEG-pair front-end, for one RAW file's own embedded JPEG.
+    /// Measurement only — no pipeline wiring, no profile switch.
+    ///
+    /// Requires `--features test-support`. Exits with the dedicated
+    /// sentinel code 3 when the RAW has no usable embedded JPEG preview (so
+    /// a batch script can skip it cleanly); a missing/unreadable RAW or a
+    /// write failure exits with the generic error code 1.
+    FitAuto2 {
+        /// Path to the RAW file.
+        #[arg(long)]
+        raw: PathBuf,
+        /// Output report path (plain text; see `commands::fit_auto2`).
+        #[arg(long)]
+        report: PathBuf,
+    },
     /// Repack a v1 (inline) DCP `profiles.bin` into the v3 split layout
     /// (dedup HSM pool + per-entry zlib + offset directory; #829 / PR #831).
     /// Prints dedup stats + the pool byte size.
@@ -354,6 +371,7 @@ fn main() -> ExitCode {
                 commands::fit_acr::run(&spec, &refs, &out)
             })())
         }
+        Cmd::FitAuto2 { raw, report } => run_or_exit(commands::fit_auto2::run(&raw, &report)),
         Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(commands::transcode_dcp::run(
             &src,
             &out,
