@@ -131,34 +131,35 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
             set_last_error("deepDenoise unsupported on tile path".into());
             return 10;
         }
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
-            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                let msg = format!("{}", e);
-                set_last_error(msg.clone());
-                // rc=10 — model not tile-compatible; caller should fall
-                // back to the full-image render. Covers the core entry's
-                // dehaze / vignette / deep-denoise / local-adjustments /
-                // capture-sharpening rejections (#1084, #1105, #1109).
-                if msg.contains("dehaze")
-                    || msg.contains("vignette")
-                    || msg.contains("deep denoise")
-                    || msg.contains("local adjustments")
-                    || msg.contains("capture sharpening")
-                {
-                    return 10;
+        let (w, h, fp16) =
+            match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+                &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    set_last_error(msg.clone());
+                    // rc=10 — model not tile-compatible; caller should fall
+                    // back to the full-image render. Covers the core entry's
+                    // dehaze / vignette / deep-denoise / local-adjustments /
+                    // capture-sharpening rejections (#1084, #1105, #1109).
+                    if msg.contains("dehaze")
+                        || msg.contains("vignette")
+                        || msg.contains("deep denoise")
+                        || msg.contains("local adjustments")
+                        || msg.contains("capture sharpening")
+                    {
+                        return 10;
+                    }
+                    if msg.contains("upscale") || msg.contains("downscale-only") {
+                        return 11;
+                    }
+                    if msg.contains("matching aspect") {
+                        return 12;
+                    }
+                    return 8;
                 }
-                if msg.contains("upscale") || msg.contains("downscale-only") {
-                    return 11;
-                }
-                if msg.contains("matching aspect") {
-                    return 12;
-                }
-                return 8;
-            }
-        };
+            };
         super::write_scene_linear_buf(out_ptr, w, h, fp16);
         0
     })
@@ -258,34 +259,35 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
             set_last_error("deepDenoise unsupported on tile path".into());
             return 10;
         }
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
-            &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                let msg = format!("{}", e);
-                set_last_error(msg.clone());
-                // rc=10 — model not tile-compatible; caller should fall
-                // back to the full-image render. Covers the core entry's
-                // dehaze / vignette / deep-denoise / local-adjustments /
-                // capture-sharpening rejections (#1084, #1105, #1109).
-                if msg.contains("dehaze")
-                    || msg.contains("vignette")
-                    || msg.contains("deep denoise")
-                    || msg.contains("local adjustments")
-                    || msg.contains("capture sharpening")
-                {
-                    return 10;
+        let (w, h, fp16) =
+            match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+                &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    set_last_error(msg.clone());
+                    // rc=10 — model not tile-compatible; caller should fall
+                    // back to the full-image render. Covers the core entry's
+                    // dehaze / vignette / deep-denoise / local-adjustments /
+                    // capture-sharpening rejections (#1084, #1105, #1109).
+                    if msg.contains("dehaze")
+                        || msg.contains("vignette")
+                        || msg.contains("deep denoise")
+                        || msg.contains("local adjustments")
+                        || msg.contains("capture sharpening")
+                    {
+                        return 10;
+                    }
+                    if msg.contains("upscale") || msg.contains("downscale-only") {
+                        return 11;
+                    }
+                    if msg.contains("matching aspect") {
+                        return 12;
+                    }
+                    return 8;
                 }
-                if msg.contains("upscale") || msg.contains("downscale-only") {
-                    return 11;
-                }
-                if msg.contains("matching aspect") {
-                    return 12;
-                }
-                return 8;
-            }
-        };
+            };
         super::write_scene_linear_buf(out_ptr, w, h, fp16);
         0
     })
