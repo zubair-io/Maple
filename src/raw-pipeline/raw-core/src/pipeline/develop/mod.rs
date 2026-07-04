@@ -253,7 +253,6 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         return Err(Error::Cancelled);
     }
 
-
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
     if let Some((list, aa)) = raw.opcode_list3.as_ref() {
@@ -347,26 +346,42 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // is a synthetic stand-in, not a real calibration); the LinearRaw
     // (`skip_pre_gain`) and `RawlerFallback` cases fall through to the
     // pre-existing post-DCP CAT16 path below unchanged. Full design
-    // writeup, including why `profile` passes to `dcp::apply_colorimetry`
-    // below completely unmodified, in `stages::wb_camera`'s module doc.
-    let camera_wb_applied = if !skip_pre_gain
-        && !matches!(profile_source, dcp::ProfileSource::RawlerFallback)
-    {
-        let (target_temperature, target_tint) = wb_camera::resolve_target(model, &profile);
-        stage("wb_camera::apply", || {
-            wb_camera::apply(
-                &mut camera_rgb,
-                &profile,
-                raw.as_shot_neutral,
-                target_temperature,
-                target_tint,
-            )
-        });
-        true
-    } else {
-        false
-    };
+    // writeup in `stages::wb_camera`'s module doc.
+    let camera_wb_target =
+        if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
+            let frame = wb_camera::SliderFrame::resolve(raw, &profile);
+            let (target_temperature, target_tint) = wb_camera::resolve_target(model, &frame);
+            stage("wb_camera::apply", || {
+                wb_camera::apply(
+                    &mut camera_rgb,
+                    &frame,
+                    raw.as_shot_neutral,
+                    target_temperature,
+                    target_tint,
+                )
+            });
+            Some((frame, target_temperature, target_tint))
+        } else {
+            None
+        };
+    let camera_wb_applied = camera_wb_target.is_some();
     dump_after("02b_wb_camera", &camera_rgb);
+    // DNG-spec `SetWhiteXY` ForwardMatrix retarget (#1727): when
+    // camera-space WB moved off as-shot, the FM the DCP stage applies
+    // below re-interpolates at the render profile's own CCT reading of the
+    // target camera-neutral — the SDK's camera→PCS weight tracks the user
+    // white point. The non-FM Bradford fallback stays at as-shot (the gain
+    // is the sole carrier of the cast — see `stages::wb_camera`'s module
+    // doc, and `retargeted_render_profile`'s doc for the measured evidence
+    // against retargeting CM/white on that path). As-shot targets (the
+    // `resolve_target` seed) return the profile unchanged, so unedited
+    // renders stay bit-identical.
+    let dcp_profile = match &camera_wb_target {
+        Some((frame, target_temperature, target_tint)) => {
+            wb_camera::retargeted_render_profile(frame, &profile, *target_temperature, *target_tint)
+        }
+        None => profile.clone(),
+    };
     // dcp::apply_colorimetry runs CM/FM (chromatic adaptation) and HSM
     // (metameric correction) only. Under ticket #425 (part of #416),
     // the Adobe aesthetic layers — ProfileToneCurve (PTC) and
@@ -380,7 +395,9 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // express. `raw.plt` and `raw.profile_tone_curve` remain on RawImage
     // for now but are dead data in the develop chain; cleanup is a
     // separate follow-up.
-    let mut scene = stage("dcp::apply", || dcp::apply_colorimetry(&camera_rgb, &profile))?;
+    let mut scene = stage("dcp::apply", || {
+        dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
+    })?;
     dump_after("03_dcp_apply", &scene);
     // Ticket #471: opt-in `OklabChromaReduction` highlight recovery runs in
     // scene-linear Rec.2020 D65 where Oklab is well-defined. No-op for the
@@ -466,7 +483,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     if !camera_wb_applied {
         let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
         stage("white_balance", || {
-            white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
+            white_balance::apply(
+                &mut scene,
+                effective_temperature,
+                effective_tint,
+                model.wb_method,
+            )
         });
     }
     dump_after("06_white_balance", &scene);

@@ -82,6 +82,39 @@ pub struct DcpProfile {
     pub look_table: Option<HsmTable>,
     /// Custom ProfileToneCurve.
     pub tone_curve: Option<ProfileToneCurve>,
+    /// Dual-illuminant calibration endpoints (CM1/CM2 plus their
+    /// illuminants' CCTs), retained post-interpolation so downstream
+    /// consumers can re-interpolate the calibration at a DIFFERENT CCT than
+    /// the as-shot scene. Consumer: `stages::wb_camera` (#1727), which needs
+    /// the CM at the USER'S target temperature — the DNG spec's xy→neutral
+    /// direction ("Mapping white balance xy coordinates to camera neutral
+    /// coordinates", `dng_color_spec.cpp::SetWhiteXY`) interpolates the
+    /// calibration at the target chromaticity's own CCT, not the scene's.
+    /// `None` for single-illuminant profiles and every fallback tier —
+    /// [`DcpProfile::color_matrix_for_cct`] then returns `color_matrix`
+    /// unchanged.
+    pub cm_endpoints: Option<CmEndpoints>,
+}
+
+/// The two calibration endpoints of a dual-illuminant profile, in the
+/// codebase's sort-by-CCT convention: "cold" = the LOWER-CCT calibration
+/// illuminant (e.g. StdA 2856 K), "warm" = the higher-CCT one (e.g. D65
+/// 6504 K) — matching `profile_from_embedded`'s cold/warm pairing.
+#[derive(Copy, Clone, Debug)]
+pub struct CmEndpoints {
+    /// ColorMatrix calibrated under the lower-CCT illuminant.
+    pub m_cold: Matrix3,
+    /// CCT of the lower-CCT calibration illuminant, Kelvin.
+    pub cct_cold: f32,
+    /// ColorMatrix calibrated under the higher-CCT illuminant.
+    pub m_warm: Matrix3,
+    /// CCT of the higher-CCT calibration illuminant, Kelvin.
+    pub cct_warm: f32,
+    /// ForwardMatrix paired with the cold-side CM, when the profile ships
+    /// one (DNG makes FM optional per side).
+    pub fm_cold: Option<Matrix3>,
+    /// ForwardMatrix paired with the warm-side CM, when present.
+    pub fm_warm: Option<Matrix3>,
 }
 
 impl DcpProfile {
@@ -115,6 +148,38 @@ impl DcpProfile {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            cm_endpoints: None,
+        }
+    }
+
+    /// ColorMatrix (XYZ → camera) re-interpolated at an arbitrary CCT.
+    ///
+    /// Dual-illuminant profiles reciprocal-CCT-lerp between their two
+    /// calibration endpoints exactly like [`interpolated_profile`] does for
+    /// the as-shot scene — so `color_matrix_for_cct(self.scene_cct)`
+    /// reproduces `self.color_matrix` bit-for-bit (same `interpolate_cm`,
+    /// same inputs). Single-illuminant and fallback profiles carry one
+    /// calibration and return `color_matrix` unchanged at every CCT.
+    pub fn color_matrix_for_cct(&self, cct: f32) -> Matrix3 {
+        match self.cm_endpoints {
+            Some(e) => interpolate_cm(e.m_cold, e.cct_cold, e.m_warm, e.cct_warm, cct),
+            None => self.color_matrix,
+        }
+    }
+
+    /// ForwardMatrix re-interpolated at an arbitrary CCT, mirroring
+    /// [`interpolated_profile`]'s single-side dispatch: both sides present →
+    /// reciprocal-CCT lerp, one side → that side as-is, neither → `None`.
+    /// Profiles without retained endpoints return `forward_matrix` unchanged.
+    pub fn forward_matrix_for_cct(&self, cct: f32) -> Option<Matrix3> {
+        let Some(e) = self.cm_endpoints else {
+            return self.forward_matrix;
+        };
+        match (e.fm_cold, e.fm_warm) {
+            (Some(fc), Some(fw)) => Some(interpolate_cm(fc, e.cct_cold, fw, e.cct_warm, cct)),
+            (Some(fc), None) => Some(fc),
+            (None, Some(fw)) => Some(fw),
+            (None, None) => None,
         }
     }
 }
@@ -336,7 +401,13 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
 
 /// Build a color-temperature-specific profile by interpolating between two
 /// illuminants' calibration matrices. Reciprocal-CCT lerp per spec § 3.4.
-fn interpolate_cm(m1: Matrix3, cct1: f32, m2: Matrix3, cct2: f32, cct_target: f32) -> Matrix3 {
+pub(crate) fn interpolate_cm(
+    m1: Matrix3,
+    cct1: f32,
+    m2: Matrix3,
+    cct2: f32,
+    cct_target: f32,
+) -> Matrix3 {
     if (cct1 - cct2).abs() < 1.0 {
         return m1; // degenerate — same illuminants
     }
@@ -478,6 +549,14 @@ pub fn interpolated_profile(
         hsm,
         look_table,
         tone_curve,
+        cm_endpoints: Some(CmEndpoints {
+            m_cold,
+            cct_cold,
+            m_warm,
+            cct_warm,
+            fm_cold,
+            fm_warm,
+        }),
     }
 }
 
@@ -637,49 +716,46 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
     profile_for_with_source(raw).map(|(p, _)| p)
 }
 
-/// Estimate the scene's as-shot `(temperature_k, tint)` from the camera's
-/// OWN interpolated color matrix, rather than a generic camera-agnostic
-/// model (#1725).
+/// Estimate the scene's as-shot `(temperature_k, tint)` in the WB SLIDER
+/// FRAME (`stages::wb_camera::SliderFrame`) — the calibration frame the
+/// temperature/tint sliders are interpreted in (#1725, re-anchored by
+/// #1727).
 ///
-/// Resolves a [`DcpProfile`] the same way the real develop chain does
-/// (`profile_for` — embedded-full → bundle → embedded-CM-only → rawler
-/// fallback, "never identity"). CCT is `profile.scene_cct` — the value
-/// `compute_as_shot_cct`'s camera-matrix-consistent iteration already
-/// produced — reused UNCHANGED.
+/// This value hydrates the app's WB sliders and the tile-refine
+/// `decoded_wb_anchor`, so it MUST be expressed in the same frame
+/// `wb_camera::camera_wb_gain` reads slider values in — otherwise an
+/// unedited open would round-trip a frame-mismatched pair back through
+/// `wb_camera::apply` and render a spurious cast. Pre-#1727 this estimated
+/// through `profile.color_matrix` (the render profile's frame); the slider
+/// frame now prefers the DNG's own embedded calibration when present
+/// (matching ACR's slider scale — see `SliderFrame`'s doc for the
+/// test_0000 7471.6 K-vs-5507.7 K measurement), so the estimate moved with
+/// it.
 ///
-/// Tint is the new half, and needs the SAME xy point that iteration
-/// converged on: `inv(profile.color_matrix) · raw.as_shot_neutral`,
-/// normalized to Y=1. This is deliberately **not** `profile.scene_white_xyz`
-/// — that field is `inv(color_matrix) · (1,1,1)` whenever
-/// `wb_already_baked` (true for every non-LinearRaw Bayer source, i.e.
-/// nearly everything), because it represents where a pipeline-pre-gained
-/// NEUTRAL PATCH lands in XYZ post-DCP, not the scene illuminant's own
-/// chromaticity — a completely different quantity. Measured on
-/// test_0000.DNG: `scene_white_xyz` gives xy≈(0.387, 0.260), ~0.09 uv units
-/// off ANY point on the generic locus (10× the whole tint slider's ±100
-/// range of ±0.01 uv) — that field was never going to produce a sane tint
-/// no matter how the projection axis was computed. Re-deriving
-/// `inv(color_matrix) · as_shot_neutral` directly instead gives
-/// xy≈(0.2946, 0.3351), which IS where `compute_as_shot_cct`'s iteration
-/// actually converged (verified by re-running McCamy on it: matches
-/// `scene_cct` to <1 K) — a sane, small residual after projecting
-/// perpendicular to the locus at that CCT.
+/// CCT is `frame.scene_cct` — the same `compute_as_shot_cct`
+/// camera-matrix-consistent iteration the render resolver runs, evaluated
+/// on the frame's calibration. Tint needs the SAME xy point that iteration
+/// converged on: `inv(frame CM at scene_cct) · raw.as_shot_neutral`,
+/// normalized to Y=1 (`SliderFrame::scene_illuminant_xyz`). This is
+/// deliberately **not** `profile.scene_white_xyz` — that field is
+/// `inv(color_matrix) · (1,1,1)` whenever `wb_already_baked` (true for
+/// every non-LinearRaw Bayer source), which represents where a
+/// pipeline-pre-gained NEUTRAL PATCH lands in XYZ post-DCP, not the scene
+/// illuminant's own chromaticity — a completely different quantity
+/// (measured on test_0000.DNG: xy≈(0.387, 0.260), ~0.09 uv units off ANY
+/// locus point — 10× the whole tint slider's ±100 range).
 ///
 /// `profile_for` never returns `Err` in practice (every resolver tier
 /// constructs `Ok`); the `Result` is threaded through here so callers that
 /// already handle `profile_for`'s signature don't need a second error path.
 pub fn estimate_as_shot_cct_tint(raw: &RawImage) -> crate::Result<(f32, f32)> {
     let profile = profile_for(raw)?;
-    let scene_illuminant_xyz = profile
-        .color_matrix
-        .inverse()
-        .map(|inv| normalize_to_y1(inv.mul_vec(raw.as_shot_neutral)))
-        .unwrap_or(crate::color::matrices::XYZ_D65);
+    let frame = crate::stages::wb_camera::SliderFrame::resolve(raw, &profile);
     let tint = crate::stages::white_balance_auto::estimate_tint_from_scene_xyz(
-        scene_illuminant_xyz,
-        profile.scene_cct,
+        frame.scene_illuminant_xyz(raw.as_shot_neutral),
+        frame.scene_cct,
     );
-    Ok((profile.scene_cct, tint))
+    Ok((frame.scene_cct, tint))
 }
 
 /// Same lookup as [`profile_for`], but also returns the [`ProfileSource`]
@@ -795,6 +871,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             hsm: None,
             look_table: None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             tone_curve: raw.profile_tone_curve.clone(),
+            cm_endpoints: None,
         },
         ProfileSource::RawlerFallback,
     ))
@@ -1002,7 +1079,7 @@ fn profile_from_embedded_cm_only(
 /// shape, NEVER a real calibration. Filtered out of the embedded-CM
 /// pool so the "never identity" guarantee of ticket #424 holds at the
 /// fixture-DNG layer as well as the no-matrices layer.
-fn is_approx_identity(m: &Matrix3) -> bool {
+pub(crate) fn is_approx_identity(m: &Matrix3) -> bool {
     const EPS: f32 = 1e-4;
     let id = Matrix3::IDENTITY.0;
     for i in 0..3 {
@@ -1049,6 +1126,7 @@ pub(crate) fn single_illuminant_profile(
         hsm,
         look_table,
         tone_curve,
+        cm_endpoints: None,
     }
 }
 
@@ -1274,6 +1352,7 @@ mod tests {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            cm_endpoints: None,
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         for p in &mut img.pixels {
@@ -1486,6 +1565,7 @@ mod tests {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            cm_endpoints: None,
         };
 
         // Run a neutral 0.18 mid-gray camera-RGB patch through both.
@@ -1545,6 +1625,74 @@ mod tests {
         // Target above warm — t should clamp to 1 → m2.
         let hotter = interpolate_cm(m1, 2856.0, m2, 6504.0, 10000.0);
         assert_eq!(hotter.0[0][0], 2.0);
+    }
+
+    /// #1727: `interpolated_profile` retains its calibration endpoints so
+    /// `color_matrix_for_cct` can re-interpolate the calibration at a user
+    /// WB target CCT (the DNG-spec xy→neutral direction used by
+    /// `stages::wb_camera`). Re-interpolating at the profile's own
+    /// `scene_cct` must reproduce `color_matrix` bit-for-bit — same
+    /// `interpolate_cm`, same inputs — which is what keeps the wb_camera
+    /// as-shot identity invariant intact.
+    #[test]
+    fn color_matrix_for_cct_reinterpolates_from_retained_endpoints() {
+        let m_cold = Matrix3::IDENTITY;
+        let m_warm = Matrix3([[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]]);
+        let profile = interpolated_profile(
+            m_cold,
+            Illuminant::StdA,
+            m_warm,
+            Illuminant::D65,
+            [1.0, 1.0, 1.0],
+            /* wb_already_baked */ true,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let e = profile
+            .cm_endpoints
+            .expect("dual-illuminant profile must retain its calibration endpoints");
+        assert_eq!(e.cct_cold, Illuminant::StdA.cct());
+        assert_eq!(e.cct_warm, Illuminant::D65.cct());
+        assert_eq!(e.m_cold.0, m_cold.0);
+        assert_eq!(e.m_warm.0, m_warm.0);
+        // Bit-exact reproduction of the as-shot interpolation.
+        assert_eq!(
+            profile.color_matrix_for_cct(profile.scene_cct).0,
+            profile.color_matrix.0,
+            "re-interpolating at scene_cct must reproduce color_matrix exactly"
+        );
+        // Clamped endpoint pinning, mirroring `interpolate_cm`'s contract.
+        assert_eq!(profile.color_matrix_for_cct(2000.0).0, m_cold.0);
+        assert_eq!(profile.color_matrix_for_cct(15000.0).0, m_warm.0);
+    }
+
+    /// Single-illuminant profiles carry no endpoints: `color_matrix_for_cct`
+    /// returns the one calibration unchanged at every CCT.
+    #[test]
+    fn color_matrix_for_cct_single_illuminant_returns_fixed_cm() {
+        let cm = Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]);
+        let profile = single_illuminant_profile(
+            cm,
+            Illuminant::D65,
+            None,
+            None,
+            [0.5, 1.0, 0.6],
+            /* wb_already_baked */ true,
+            None,
+            None,
+        );
+        assert!(profile.cm_endpoints.is_none());
+        for cct in [2000.0_f32, 6504.0, 15000.0] {
+            assert_eq!(profile.color_matrix_for_cct(cct).0, cm.0);
+        }
     }
 
     /// Bradford-from-scene-CCT (unified path): a neutral patch at an
@@ -2492,6 +2640,7 @@ mod tests {
             hsm: None,
             look_table: None,
             tone_curve: None,
+            cm_endpoints: None,
         };
         // Profile B: wb_already_baked=true + FM present → takes FM path.
         let profile_wb_true = DcpProfile {
