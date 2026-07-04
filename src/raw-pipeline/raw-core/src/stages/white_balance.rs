@@ -7,36 +7,19 @@ use crate::{
 use std::sync::OnceLock;
 
 /// Scale factor (uv units per tint unit) for the perpendicular-to-locus
-/// tint displacement.
+/// tint displacement: tint ±150 spans ±0.015 uv perpendicular to the locus
+/// (~19% of the 2000–25000 K locus range in uv), matching the rawpy / LibRaw
+/// convention of 0.0001 uv per tint unit.
 ///
-/// **Derivation.** The available ACR tint references (test_0000, test_0006,
-/// test_0013 tint_max/tint_min) set `crs:Tint` without `crs:Temperature`, so
-/// ACR renders at the DNG's as-shot CCT. With the #1729 anchoring fix, Maple
-/// now correctly uses as-shot CCT for tint-only XMPs. However, empirical
-/// investigation reveals that ACR's tint_max and tint_min renders are
-/// effectively IDENTICAL (≤1 LSB difference at 8-bit per channel) for all
-/// three tint fixtures — these references carry no usable tint-scale signal.
-/// A sweep over 0.5e-4 to 3e-4 is therefore still monotone-increasing in ΔE
-/// (any non-zero tint moves Maple away from the identical tint_max/tint_min
-/// references, which differ from the baseline only in their CCT processing):
-///
-///   5.00e-05 → avg ΔE 11.48  ← monotone minimum, tint effect invisible
-///   8.00e-05 → avg ΔE 13.11
-///   1.00e-04 → avg ΔE 14.24  ← analytically derived value (retained)
-///   1.20e-04 → avg ΔE 15.34
-///   2.00e-04 → avg ΔE 19.28
-///   3.00e-04 → avg ΔE 23.50
-///
-/// Scale=0 is not acceptable (tint becomes a no-op). The scale is therefore
-/// kept at the analytically derived value: tint ±150 should span ±0.015 uv
-/// perpendicular to the locus, which covers ~19 % of the 2 000–25 000 K locus
-/// range in uv and matches the rawpy / LibRaw convention (perpendicular
-/// distance in uv divided by 0.0001 per tint unit).
-/// TINT_UV_SCALE = 0.015 / 150 = 1e-4.
-///
-/// To re-fit empirically: generate tint references where both temperature AND
-/// tint are set in the XMP, so the tint effect is genuinely different from the
-/// baseline. Track in #1725.
+/// The available ACR tint references (test_0000/0006/0013 tint_max/tint_min)
+/// turned out to carry no usable tint-scale signal — they're byte-identical
+/// to each other (≤1 LSB at 8-bit), since ACR resolves tint-only XMPs to the
+/// DNG's as-shot CCT with no differentiating tint. A sweep from 0.5e-4 to
+/// 3e-4 against those references is therefore monotone-increasing in ΔE with
+/// no in-range minimum (any non-zero tint reads as drift). The value is kept
+/// at the analytically-derived 1e-4 rather than 0 (which would make tint a
+/// no-op). Re-fit once tint references exist that set both `crs:Temperature`
+/// and `crs:Tint` (#1725).
 pub(crate) const TINT_UV_SCALE: f32 = 1e-4;
 
 /// Re-export the auto-WB estimators that live in the sibling
@@ -106,10 +89,7 @@ pub(crate) fn xy_to_uv(x: f32, y: f32) -> (f32, f32) {
     (4.0 * x / denom, 6.0 * y / denom)
 }
 
-/// CIE 1960 UCS (u, v) → CIE xy chromaticity.
-///
-/// Derivation: invert the forward formulæ u=4x/D, v=6y/D where D=−2x+12y+3.
-/// This gives x/y = 3u/(2v), and substituting back yields:
+/// CIE 1960 UCS (u, v) → CIE xy chromaticity. Exact inverse of [`xy_to_uv`]:
 ///   x = 3u / (2u − 8v + 4)
 ///   y = 2v / (2u − 8v + 4)
 ///
@@ -168,8 +148,15 @@ pub fn apply_tint_perpendicular(
 /// the residual.
 pub(crate) fn locus_tangent_uv(cct: f32) -> (f32, f32) {
     let delta_k = 50.0_f32;
-    let (xp, yp) = cct_to_xy((cct + delta_k).min(25000.0));
-    let (xm, ym) = cct_to_xy((cct - delta_k).max(2000.0));
+    // Clamp the CENTER first, then step ±delta_k. Clamping each endpoint
+    // independently (the pre-fix behavior) breaks down outside
+    // [2000, 25000]: e.g. at cct=30000, `(cct + delta_k).min(25000.0)` = 25000
+    // but `(cct - delta_k).max(2000.0)` = 29950 — the "plus" sample ends up
+    // BELOW the "minus" sample, reversing `up - um` and flipping the tint
+    // axis (or, if both rail to the same clamp, producing a zero vector).
+    let center = cct.clamp(2000.0, 25000.0);
+    let (xp, yp) = cct_to_xy((center + delta_k).min(25000.0));
+    let (xm, ym) = cct_to_xy((center - delta_k).max(2000.0));
     let (up, vp) = xy_to_uv(xp, yp);
     let (um, vm) = xy_to_uv(xm, ym);
     let mut du = up - um;
@@ -499,11 +486,19 @@ pub fn resolve_wb(model: &crate::xmp::AdjustmentModel) -> (f32, f32) {
         // or a Default model (no sidecar): use model.temperature as-is.
         model.temperature
     };
-    // Absent tint → 0.  When neither flag is set, model.tint is already 0
-    // for the Default model or a preset-resolved value — both pass through
-    // correctly. When temperature-only Custom WB is set, tint defaults to 0
-    // (the neutral value) per the resolution table.
-    let effective_tint = if model.tint_seen { model.tint } else { 0.0 };
+    // Per the resolution table: tint zeroes ONLY for temperature-only Custom
+    // WB (temperature_seen && !tint_seen) — ACR's "absent tint" convention.
+    // Every other row (including neither-seen: Default model, or a named
+    // preset resolved by the XMP parser) passes `model.tint` through as-is.
+    // `model.tint_seen` alone is NOT sufficient here: gating on it directly
+    // would also zero the neither-seen row, silently discarding a non-zero
+    // preset tint (e.g. a Fluorescent preset) even though presets never set
+    // the seen flags in the first place.
+    let effective_tint = if model.temperature_seen && !model.tint_seen {
+        0.0
+    } else {
+        model.tint
+    };
     (effective_temperature, effective_tint)
 }
 
