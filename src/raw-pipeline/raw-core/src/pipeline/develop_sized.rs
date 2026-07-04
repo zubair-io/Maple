@@ -235,35 +235,48 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral)
     });
     dump_after("02_highlight_recovery", &camera_rgb);
-    let (profile, profile_source) =
-        stage("sized_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    let (profile, profile_source) = stage("sized_dcp_profile_for", || {
+        dcp::profile_for_with_source(raw)
+    })?;
     // Camera-space user white balance (#1726) — mirrors the full-res
     // develop chain exactly; see `super::develop` and `stages::wb_camera`
-    // for the full design writeup, the `RawlerFallback` tier-gate
-    // rationale, and why `profile` (in particular `scene_white_xyz`)
-    // passes to DCP below completely unmodified.
-    let camera_wb_applied = if !skip_pre_gain
-        && !matches!(profile_source, dcp::ProfileSource::RawlerFallback)
-    {
-        let (target_temperature, target_tint) = wb_camera::resolve_target(model, &profile);
-        stage("sized_wb_camera::apply", || {
-            wb_camera::apply(
-                &mut camera_rgb,
-                &profile,
-                raw.as_shot_neutral,
-                target_temperature,
-                target_tint,
-            )
-        });
-        true
-    } else {
-        false
-    };
+    // for the full design writeup and the `RawlerFallback` tier-gate
+    // rationale.
+    let camera_wb_target =
+        if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
+            let frame = wb_camera::SliderFrame::resolve(raw, &profile);
+            let (target_temperature, target_tint) = wb_camera::resolve_target(model, &frame);
+            stage("sized_wb_camera::apply", || {
+                wb_camera::apply(
+                    &mut camera_rgb,
+                    &frame,
+                    raw.as_shot_neutral,
+                    target_temperature,
+                    target_tint,
+                )
+            });
+            Some((frame, target_temperature, target_tint))
+        } else {
+            None
+        };
+    let camera_wb_applied = camera_wb_target.is_some();
     dump_after("02b_wb_camera", &camera_rgb);
+    // DNG-spec `SetWhiteXY` retarget (#1727) — mirrors `super::develop`:
+    // DCP's rendering matrices track the user's target when camera-space
+    // WB moved off as-shot; as-shot targets return the profile unchanged
+    // (bit-identical). See `wb_camera::retargeted_render_profile`.
+    let dcp_profile = match &camera_wb_target {
+        Some((frame, target_temperature, target_tint)) => {
+            wb_camera::retargeted_render_profile(frame, &profile, *target_temperature, *target_tint)
+        }
+        None => profile.clone(),
+    };
     // Colorimetry-only DCP per #425 — see `pipeline::develop` for the
     // rationale. PLT and PTC no longer run; HSM still does (metameric
     // correction).
-    let mut scene = stage("sized_dcp_apply", || dcp::apply_colorimetry(&camera_rgb, &profile))?;
+    let mut scene = stage("sized_dcp_apply", || {
+        dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
+    })?;
     dump_after("03_dcp_apply", &scene);
     // Ticket #471: post-DCP Oklab chroma-reduction highlight recovery. See
     // `super::develop` for the rationale; no-op unless the user opts in via
@@ -317,7 +330,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     if !camera_wb_applied {
         let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
         stage("sized_white_balance", || {
-            white_balance::apply(&mut scene, effective_temperature, effective_tint, model.wb_method)
+            white_balance::apply(
+                &mut scene,
+                effective_temperature,
+                effective_tint,
+                model.wb_method,
+            )
         });
     }
     dump_after("06_white_balance", &scene);

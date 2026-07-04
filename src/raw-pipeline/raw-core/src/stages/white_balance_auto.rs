@@ -550,9 +550,9 @@ mod tests {
     /// Fixture-gated anchor (#1725 requirement 2): test_0000.DNG's REAL
     /// decode-path `AsShotNeutral`, run through the SAME camera-matrix-aware
     /// path the develop chain uses (`dcp::estimate_as_shot_cct_tint` —
-    /// `profile_for`'s `scene_cct` reused as-is, tint from
-    /// `estimate_tint_from_scene_xyz` evaluated at that cct against
-    /// `inv(profile.color_matrix) · as_shot_neutral`), must land in a
+    /// the WB slider frame's `scene_cct`, tint from
+    /// `estimate_tint_from_scene_xyz` evaluated at that cct against the
+    /// frame's `inv(CM) · as_shot_neutral`), must land in a
     /// plausible range — NOT pinned at a bound for a spurious reason like
     /// the old `neutral_to_temp_tint(raw.as_shot_neutral)` path (which
     /// pinned tint=-100 for EVERY realistic camera-native input regardless
@@ -560,21 +560,15 @@ mod tests {
     /// model is a hard ceiling far below what real sensors demand — see
     /// `estimate_tint_from_scene_xyz`'s module doc).
     ///
-    /// Measured (2026-07, this exact fixture, Hasselblad L3D-100c bundled
-    /// profile): cct=7472K (plausible hazy/overcast daylight — outside the
-    /// ticket's a-priori 4500-6500K guess but not implausible; no baked
-    /// color-temperature EXIF tag exists on this fixture to check against
-    /// ground truth) and tint clamps to +100. Unlike the old bug, THIS
-    /// clamp is not spurious: the measured uv-distance from this camera's
-    /// self-consistent scene-illuminant xy to the generic Planckian locus
-    /// at 7472K is ≈0.0124, only ~24% past the ±100 slider's ±0.01
-    /// represented range — a real, if extreme, green/magenta cast for this
-    /// specific medium-format sensor + bundled-profile combination, not a
-    /// 10×-off model mismatch. (test_0013.dng and test_0006.DNG, checked
-    /// alongside this fixture, land at tint=12.5 and tint=32.5 respectively
-    /// — comfortably inside the slider range, confirming the estimator
-    /// behaves normally when the camera-matrix-derived point isn't this far
-    /// off-locus.) The tolerance below reflects the verified real behavior.
+    /// Measured (2026-07, this exact fixture): 7472 K through the BUNDLE
+    /// profile's frame pre-#1727, 5507.7 K through the DNG's own embedded
+    /// dual-CM pair once #1727 re-anchored the slider frame on it (see
+    /// `wb_camera::SliderFrame` — the embedded frame is the scale ACR's
+    /// own slider reads for this DNG, and 5508 K is ordinary daylight,
+    /// squarely inside the ticket's a-priori 4500-6500 K guess). The old
+    /// bundle-frame reading also clamped tint at +100 (a real ≈0.0124
+    /// uv-distance off-locus for that CM); the embedded frame's tint
+    /// residual is what the assertion below bounds.
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn estimate_as_shot_cct_tint_test_0000_dng_real_decode_path_is_plausible_daylight() {

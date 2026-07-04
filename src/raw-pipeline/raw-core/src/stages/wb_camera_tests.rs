@@ -15,6 +15,17 @@ const CANON_5D3_D65_CM: [[f32; 3]; 3] = [
     [-0.0908, 0.2162, 0.5668],
 ];
 
+/// Build a single-calibration `SliderFrame` fixture — the shape
+/// `SliderFrame::resolve` produces for a single embedded CM (or a
+/// single-illuminant render profile).
+fn test_frame(scene_cct: f32, cm: [[f32; 3]; 3]) -> SliderFrame {
+    SliderFrame {
+        endpoints: None,
+        cm_as_shot: Matrix3(cm),
+        scene_cct,
+    }
+}
+
 /// Build a `DcpProfile` fixture the way `color::dcp::single_illuminant_profile`
 /// does: `scene_white_xyz = normalize_to_y1(inv(cm) · as_shot_neutral)`.
 fn test_profile(scene_cct: f32, cm: [[f32; 3]; 3], as_shot_neutral: [f32; 3]) -> DcpProfile {
@@ -33,6 +44,7 @@ fn test_profile(scene_cct: f32, cm: [[f32; 3]; 3], as_shot_neutral: [f32; 3]) ->
         hsm: None,
         look_table: None,
         tone_curve: None,
+        cm_endpoints: None,
     }
 }
 
@@ -60,8 +72,8 @@ fn gain_is_approximately_identity_near_the_as_shot_reference_point() {
         // Construct an as-shot neutral that IS exactly on the locus at this
         // CCT, so the approximation gap is zero and gain must be exact.
         let as_shot_neutral = camera_neutral_for(cm, scene_cct, 0.0);
-        let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
-        let gain = camera_wb_gain(&profile, as_shot_neutral, scene_cct, 0.0);
+        let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
+        let gain = camera_wb_gain(&frame, as_shot_neutral, scene_cct, 0.0);
         assert!(
             (gain[0] - 1.0).abs() < 1e-5,
             "scene_cct {scene_cct}: R gain {} != 1",
@@ -80,13 +92,13 @@ fn gain_is_approximately_identity_near_the_as_shot_reference_point() {
 fn apply_is_pixel_identical_no_op_at_as_shot_point() {
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
     let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
     for (i, p) in img.pixels.iter_mut().enumerate() {
         *p = [0.1 * (i as f32 + 1.0), 0.2, 0.3];
     }
     let before = img.pixels.clone();
-    apply(&mut img, &profile, as_shot_neutral, scene_cct, 0.0);
+    apply(&mut img, &frame, as_shot_neutral, scene_cct, 0.0);
     assert_eq!(
         img.pixels, before,
         "as-shot (T, tint) must be a bit-exact no-op regardless of the (approximate) gain formula"
@@ -101,8 +113,8 @@ fn warmer_target_than_as_shot_boosts_red_gain() {
     // camera space uses the same sign convention via the shared `cct_to_xy`.
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
-    let gain_warm_target = camera_wb_gain(&profile, as_shot_neutral, scene_cct + 2000.0, 0.0);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
+    let gain_warm_target = camera_wb_gain(&frame, as_shot_neutral, scene_cct + 2000.0, 0.0);
     assert!(
         gain_warm_target[0] > 1.0,
         "raising target temperature should boost R gain, got {}",
@@ -119,8 +131,8 @@ fn warmer_target_than_as_shot_boosts_red_gain() {
 fn cooler_target_than_as_shot_cuts_red_gain() {
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
-    let gain_cool_target = camera_wb_gain(&profile, as_shot_neutral, scene_cct - 2000.0, 0.0);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
+    let gain_cool_target = camera_wb_gain(&frame, as_shot_neutral, scene_cct - 2000.0, 0.0);
     assert!(
         gain_cool_target[0] < 1.0,
         "lowering target temperature should cut R gain, got {}",
@@ -137,9 +149,9 @@ fn cooler_target_than_as_shot_cuts_red_gain() {
 fn tint_sign_matches_shared_convention() {
     let scene_cct = 6500.0_f32;
     let as_shot_neutral = [1.0_f32, 1.0, 1.0];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
-    let gain_plus = camera_wb_gain(&profile, as_shot_neutral, scene_cct, 30.0);
-    let gain_minus = camera_wb_gain(&profile, as_shot_neutral, scene_cct, -30.0);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
+    let gain_plus = camera_wb_gain(&frame, as_shot_neutral, scene_cct, 30.0);
+    let gain_minus = camera_wb_gain(&frame, as_shot_neutral, scene_cct, -30.0);
     // Positive tint should differ from negative tint on both non-green
     // channels (opposite direction), exercising the same sign convention
     // `cct_to_xy`/`xy_to_xyz` already encode for the post-DCP path.
@@ -165,8 +177,8 @@ fn extreme_temperature_gain_stays_finite_and_bounded() {
     // path could produce (the yellow-filter/banding repro).
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
-    let gain = camera_wb_gain(&profile, as_shot_neutral, 12000.0, 17.0);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
+    let gain = camera_wb_gain(&frame, as_shot_neutral, 12000.0, 17.0);
     for (i, g) in gain.iter().enumerate() {
         assert!(g.is_finite(), "channel {i} gain not finite: {g}");
         assert!(
@@ -178,8 +190,8 @@ fn extreme_temperature_gain_stays_finite_and_bounded() {
 
 #[test]
 fn singular_matrix_falls_back_to_identity_gain() {
-    let profile = test_profile(6500.0, [[0.0; 3]; 3], [0.5, 1.0, 0.7]);
-    let gain = camera_wb_gain(&profile, [0.5, 1.0, 0.7], 3000.0, 20.0);
+    let frame = test_frame(6500.0, [[0.0; 3]; 3]);
+    let gain = camera_wb_gain(&frame, [0.5, 1.0, 0.7], 3000.0, 20.0);
     // camera_neutral_for on a zero matrix gives [0,0,0], g_normalize clamps
     // the denominator so this must not panic or produce NaN/Inf.
     for g in gain {
@@ -191,10 +203,10 @@ fn singular_matrix_falls_back_to_identity_gain() {
 fn apply_asserts_camera_native_color_space() {
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
     let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        apply(&mut img, &profile, as_shot_neutral, 3000.0, 10.0);
+        apply(&mut img, &frame, as_shot_neutral, 3000.0, 10.0);
     }));
     assert!(
         result.is_err(),
@@ -223,6 +235,7 @@ fn apply_with_unmodified_profile_casts_a_neutral_scene_off_neutral() {
 
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
     let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
 
     // A buffer that is neutral post-pre-gain (i.e. every pixel already
@@ -237,7 +250,7 @@ fn apply_with_unmodified_profile_casts_a_neutral_scene_off_neutral() {
     // through DCP, not cancel back to neutral.
     let (temperature, tint) = (12000.0_f32, 0.0);
     let mut buf = img.clone();
-    apply(&mut buf, &profile, as_shot_neutral, temperature, tint);
+    apply(&mut buf, &frame, as_shot_neutral, temperature, tint);
     let scene = apply_colorimetry(&buf, &profile).expect("apply_colorimetry");
     for (i, p) in scene.pixels.iter().enumerate() {
         let (r, _g, b) = (p[0], p[1], p[2]);
@@ -255,7 +268,7 @@ fn apply_with_unmodified_profile_casts_a_neutral_scene_off_neutral() {
 /// straight through unchanged.
 #[test]
 fn resolve_target_passes_through_explicit_custom_wb() {
-    let profile = test_profile(5500.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let frame = test_frame(5500.0, CANON_5D3_D65_CM);
     let model = crate::xmp::AdjustmentModel {
         temperature: 3200.0,
         tint: -15.0,
@@ -263,7 +276,7 @@ fn resolve_target_passes_through_explicit_custom_wb() {
         tint_seen: true,
         ..crate::xmp::AdjustmentModel::default()
     };
-    let (t, tint) = resolve_target(&model, &profile);
+    let (t, tint) = resolve_target(&model, &frame);
     assert_eq!(t, 3200.0);
     assert_eq!(tint, -15.0);
 }
@@ -276,7 +289,7 @@ fn resolve_target_passes_through_explicit_custom_wb() {
 /// (2850 K, 0 tint) from `xmp::wb_preset`'s table.
 #[test]
 fn resolve_target_passes_through_named_preset() {
-    let profile = test_profile(5500.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let frame = test_frame(5500.0, CANON_5D3_D65_CM);
     let model = crate::xmp::AdjustmentModel {
         temperature: 2850.0,
         tint: 0.0,
@@ -284,8 +297,11 @@ fn resolve_target_passes_through_named_preset() {
         tint_seen: false,
         ..crate::xmp::AdjustmentModel::default()
     };
-    let (t, tint) = resolve_target(&model, &profile);
-    assert_eq!(t, 2850.0, "named preset's resolved temperature must pass through");
+    let (t, tint) = resolve_target(&model, &frame);
+    assert_eq!(
+        t, 2850.0,
+        "named preset's resolved temperature must pass through"
+    );
     assert_eq!(tint, 0.0);
 }
 
@@ -295,7 +311,7 @@ fn resolve_target_passes_through_named_preset() {
 /// shape.
 #[test]
 fn resolve_target_zeroes_tint_for_temperature_only_custom_wb() {
-    let profile = test_profile(5500.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let frame = test_frame(5500.0, CANON_5D3_D65_CM);
     let model = crate::xmp::AdjustmentModel {
         temperature: 3200.0,
         tint: 42.0, // must be ignored: tint_seen is false
@@ -303,9 +319,12 @@ fn resolve_target_zeroes_tint_for_temperature_only_custom_wb() {
         tint_seen: false,
         ..crate::xmp::AdjustmentModel::default()
     };
-    let (t, tint) = resolve_target(&model, &profile);
+    let (t, tint) = resolve_target(&model, &frame);
     assert_eq!(t, 3200.0);
-    assert_eq!(tint, 0.0, "tint must zero when temperature_seen && !tint_seen");
+    assert_eq!(
+        tint, 0.0,
+        "tint must zero when temperature_seen && !tint_seen"
+    );
 }
 
 /// `resolve_target` must substitute the profile's own as-shot reference
@@ -316,13 +335,13 @@ fn resolve_target_zeroes_tint_for_temperature_only_custom_wb() {
 /// for the full rationale.
 #[test]
 fn resolve_target_seeds_as_shot_from_profile_scene_cct() {
-    let profile = test_profile(5508.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let frame = test_frame(5508.0, CANON_5D3_D65_CM);
     let model = crate::xmp::AdjustmentModel::default();
     assert_eq!(model.temperature, 6500.0, "precondition: literal default");
     assert_eq!(model.tint, 0.0, "precondition: literal default");
     assert!(!model.temperature_seen, "precondition: flag unset");
     assert!(!model.tint_seen, "precondition: flag unset");
-    let (t, tint) = resolve_target(&model, &profile);
+    let (t, tint) = resolve_target(&model, &frame);
     assert_eq!(
         t, 5508.0,
         "As-Shot model must resolve to the profile's own scene_cct, not 6500K"
@@ -337,7 +356,7 @@ fn resolve_target_seeds_as_shot_from_profile_scene_cct() {
 /// apart.
 #[test]
 fn resolve_target_does_not_reseed_explicit_6500k_custom_wb() {
-    let profile = test_profile(5508.0, CANON_5D3_D65_CM, [0.6063, 1.0, 0.4619]);
+    let frame = test_frame(5508.0, CANON_5D3_D65_CM);
     let model = crate::xmp::AdjustmentModel {
         temperature: 6500.0,
         tint: 0.0,
@@ -345,7 +364,7 @@ fn resolve_target_does_not_reseed_explicit_6500k_custom_wb() {
         tint_seen: true,
         ..crate::xmp::AdjustmentModel::default()
     };
-    let (t, tint) = resolve_target(&model, &profile);
+    let (t, tint) = resolve_target(&model, &frame);
     assert_eq!(
         t, 6500.0,
         "explicit Custom WB at 6500K must pass through, not resolve to scene_cct 5508"
@@ -363,10 +382,10 @@ fn resolve_target_does_not_reseed_explicit_6500k_custom_wb() {
 fn resolve_target_then_apply_is_a_no_op_for_as_shot_model_far_from_6500k() {
     let scene_cct = 3200.0_f32; // far from the 6500K numeric default
     let as_shot_neutral = camera_neutral_for(Matrix3(CANON_5D3_D65_CM), scene_cct, 0.0);
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
     let model = crate::xmp::AdjustmentModel::default();
 
-    let (target_temperature, target_tint) = resolve_target(&model, &profile);
+    let (target_temperature, target_tint) = resolve_target(&model, &frame);
     let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
     for (i, p) in img.pixels.iter_mut().enumerate() {
         *p = [0.1 * (i as f32 + 1.0), 0.2, 0.3];
@@ -374,7 +393,7 @@ fn resolve_target_then_apply_is_a_no_op_for_as_shot_model_far_from_6500k() {
     let before = img.pixels.clone();
     apply(
         &mut img,
-        &profile,
+        &frame,
         as_shot_neutral,
         target_temperature,
         target_tint,
@@ -392,7 +411,7 @@ fn resolve_target_then_apply_is_a_no_op_for_as_shot_model_far_from_6500k() {
 fn apply_delta_is_identity_when_target_equals_anchor() {
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
     let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
     for (i, p) in img.pixels.iter_mut().enumerate() {
         *p = [0.1 * (i as f32 + 1.0), 0.2, 0.3];
@@ -404,7 +423,7 @@ fn apply_delta_is_identity_when_target_equals_anchor() {
     // range from the locus at its own CCT).
     apply_delta(
         &mut img,
-        &profile,
+        &frame,
         as_shot_neutral,
         3000.0,
         90.0,
@@ -428,7 +447,7 @@ fn apply_delta_reaches_identity_beyond_apply_single_reference_point() {
     // +144, clamped to +100, on a real Hasselblad H2D-39 bundle profile).
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
     let anchor_temperature = 7200.0_f32;
     let anchor_tint = 90.0_f32;
 
@@ -440,7 +459,7 @@ fn apply_delta_reaches_identity_beyond_apply_single_reference_point() {
     let before_absolute = img_absolute.pixels.clone();
     apply(
         &mut img_absolute,
-        &profile,
+        &frame,
         as_shot_neutral,
         anchor_temperature,
         anchor_tint,
@@ -457,7 +476,7 @@ fn apply_delta_reaches_identity_beyond_apply_single_reference_point() {
     let before_delta = img_delta.pixels.clone();
     apply_delta(
         &mut img_delta,
-        &profile,
+        &frame,
         as_shot_neutral,
         anchor_temperature,
         anchor_tint,
@@ -474,7 +493,7 @@ fn apply_delta_reaches_identity_beyond_apply_single_reference_point() {
 fn apply_delta_moves_in_the_correct_direction_off_anchor() {
     let scene_cct = 5500.0_f32;
     let as_shot_neutral = [0.6063_f32, 1.0, 0.4619];
-    let profile = test_profile(scene_cct, CANON_5D3_D65_CM, as_shot_neutral);
+    let frame = test_frame(scene_cct, CANON_5D3_D65_CM);
     let anchor = (7200.0_f32, 20.0_f32);
 
     let mut img = Image::new(1, 1, ColorSpace::CameraNativeLinearRgb);
@@ -484,7 +503,7 @@ fn apply_delta_moves_in_the_correct_direction_off_anchor() {
     // `warmer_target_than_as_shot_boosts_red_gain` test pins.
     apply_delta(
         &mut img,
-        &profile,
+        &frame,
         as_shot_neutral,
         anchor.0 + 3000.0,
         anchor.1,
@@ -496,5 +515,155 @@ fn apply_delta_moves_in_the_correct_direction_off_anchor() {
         p[0] > p[2],
         "warmer-than-anchor target should give R > B, got {:?}",
         p
+    );
+}
+
+/// #1727: with a dual-illuminant slider frame, `camera_wb_gain` projects
+/// the target chromaticity through the frame's CM re-interpolated at the
+/// TARGET's own CCT (the DNG-spec xy→neutral direction), not through a
+/// fixed as-shot matrix.
+///
+/// Verified via `interpolate_cm`'s clamp contract: a 2000 K target sits
+/// below the cold endpoint (StdA, 2856 K), so the dual-frame gain must
+/// equal one computed against a single-CM frame pinned to the cold
+/// endpoint matrix — and must differ measurably from a gain projected
+/// through the warm/as-shot matrix, proving the per-target interpolation
+/// is live.
+#[test]
+fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
+    // Plausible non-identity StdA-side calibration, visibly different from
+    // the D65-side CANON_5D3_D65_CM so the interpolation has real spread.
+    let m_cold = Matrix3([
+        [0.7234, 0.0231, -0.0542],
+        [-0.3956, 1.1998, 0.2239],
+        [-0.0512, 0.1892, 0.5231],
+    ]);
+    let m_warm = Matrix3(CANON_5D3_D65_CM);
+    let as_shot_neutral = [0.55_f32, 1.0, 0.62];
+    let scene_cct = 5500.0_f32;
+    let dual = SliderFrame {
+        endpoints: Some((
+            m_cold,
+            Illuminant::StdA.cct(),
+            m_warm,
+            Illuminant::D65.cct(),
+        )),
+        cm_as_shot: dcp::interpolate_cm(
+            m_cold,
+            Illuminant::StdA.cct(),
+            m_warm,
+            Illuminant::D65.cct(),
+            scene_cct,
+        ),
+        scene_cct,
+    };
+
+    // Frame pinned to the cold endpoint CM with no endpoints: at a 2000 K
+    // target (clamped below StdA's 2856 K) both must project through
+    // exactly m_cold, so the gains must agree bit-for-bit.
+    let cold_pinned = SliderFrame {
+        endpoints: None,
+        cm_as_shot: m_cold,
+        scene_cct,
+    };
+    let g_dual = camera_wb_gain(&dual, as_shot_neutral, 2000.0, 0.0);
+    let g_cold = camera_wb_gain(&cold_pinned, as_shot_neutral, 2000.0, 0.0);
+    assert_eq!(
+        g_dual, g_cold,
+        "2000 K clamps to the cold endpoint: dual-frame gain must match the cold-pinned frame"
+    );
+
+    // Frame pinned to the as-shot-interpolated CM (the pre-#1727 fixed-CM
+    // projection): the gain must differ.
+    let fixed = SliderFrame {
+        endpoints: None,
+        cm_as_shot: dual.cm_as_shot,
+        scene_cct,
+    };
+    let g_fixed = camera_wb_gain(&fixed, as_shot_neutral, 2000.0, 0.0);
+    assert!(
+        (g_dual[0] - g_fixed[0]).abs() > 1e-4 || (g_dual[2] - g_fixed[2]).abs() > 1e-4,
+        "per-target CM interpolation must actually move the gain vs the fixed as-shot CM: \
+         dual {:?} vs fixed {:?}",
+        g_dual,
+        g_fixed
+    );
+}
+
+/// #1727 frame mapping: `retargeted_render_profile` at the slider frame's
+/// as-shot point must return a bit-identical clone of the render profile
+/// (unedited renders unchanged); an off-as-shot target must re-interpolate
+/// the ForwardMatrix at the render frame's own CCT reading of the target —
+/// and ONLY the ForwardMatrix: the non-FM Bradford inputs (`color_matrix`,
+/// `scene_white_xyz`) stay at as-shot so the camera-space gain remains the
+/// sole carrier of the cast (measured rationale in
+/// `retargeted_render_profile`'s doc).
+#[test]
+fn retargeted_render_profile_is_identity_at_frame_as_shot() {
+    use crate::color::dcp::interpolated_profile;
+
+    let m_cold = Matrix3([
+        [0.7234, 0.0231, -0.0542],
+        [-0.3956, 1.1998, 0.2239],
+        [-0.0512, 0.1892, 0.5231],
+    ]);
+    let m_warm = Matrix3(CANON_5D3_D65_CM);
+    // Distinct FM endpoints so the target-tracking lerp has real spread.
+    let fm_cold = Matrix3([
+        [0.9500, 0.0200, -0.0100],
+        [0.0300, 0.9800, 0.0100],
+        [-0.0200, 0.0400, 0.8100],
+    ]);
+    let fm_warm = Matrix3([
+        [0.8100, 0.0900, 0.0600],
+        [0.1000, 0.8600, 0.0400],
+        [0.0100, 0.1200, 0.6900],
+    ]);
+    let as_shot_neutral = [0.55_f32, 1.0, 0.62];
+    let profile = interpolated_profile(
+        m_cold,
+        Illuminant::StdA,
+        m_warm,
+        Illuminant::D65,
+        as_shot_neutral,
+        /* wb_already_baked */ true,
+        None,
+        None,
+        Some(fm_cold),
+        Some(fm_warm),
+        None,
+        None,
+    );
+    // A slider frame in a DIFFERENT calibration reading, as an
+    // embedded-vs-bundle stand-in.
+    let frame = SliderFrame {
+        endpoints: None,
+        cm_as_shot: m_warm,
+        scene_cct: 4800.0,
+    };
+
+    // As-shot target (frame's own scene_cct, tint 0): bit-identical clone.
+    let retargeted = retargeted_render_profile(&frame, &profile, frame.scene_cct, 0.0);
+    assert_eq!(retargeted.color_matrix.0, profile.color_matrix.0);
+    assert_eq!(
+        retargeted.forward_matrix.map(|m| m.0),
+        profile.forward_matrix.map(|m| m.0)
+    );
+    assert_eq!(retargeted.scene_white_xyz, profile.scene_white_xyz);
+
+    // Off-as-shot target: ONLY the ForwardMatrix moves.
+    let retargeted_warm = retargeted_render_profile(&frame, &profile, 2000.0, 0.0);
+    assert_ne!(
+        retargeted_warm.forward_matrix.map(|m| m.0),
+        profile.forward_matrix.map(|m| m.0),
+        "off-as-shot target must re-interpolate the FM at the render-frame CCT"
+    );
+    assert_eq!(
+        retargeted_warm.color_matrix.0, profile.color_matrix.0,
+        "the Bradford-path CM must stay at as-shot"
+    );
+    assert_eq!(
+        retargeted_warm.scene_white_xyz, profile.scene_white_xyz,
+        "the Bradford source must stay at as-shot (gain is the sole cast carrier)"
     );
 }

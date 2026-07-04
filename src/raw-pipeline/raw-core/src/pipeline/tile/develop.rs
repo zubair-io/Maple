@@ -120,10 +120,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
     // Camera-space user white balance (#1726) — mirrors the full-res
     // develop chain; see `pipeline::develop` and `stages::wb_camera` for
-    // the design writeup and why `profile` (in particular
-    // `scene_white_xyz`) passes to DCP below completely unmodified. This
-    // function rejects LinearRaw at the top (see the guard above), so the
-    // only tier gate needed here is `RawlerFallback`.
+    // the design writeup. This function rejects LinearRaw at the top (see
+    // the guard above), so the only tier gate needed here is
+    // `RawlerFallback`.
     //
     // `decoded_wb_anchor` (#1725 delta contract) takes precedence over
     // `resolve_target`'s absolute As-Shot seeding when both apply: a
@@ -136,37 +135,58 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // reaches it, so `apply`'s single fixed identity point isn't always
     // reachable). `apply_delta`'s own identity short-circuit (`target ==
     // anchor`) is what actually decides no-op-ness in that case.
-    let camera_wb_applied = if !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-        stage("tile_wb_camera::apply", || match decoded_wb_anchor {
+    let camera_wb_target = if !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
+        let frame = wb_camera::SliderFrame::resolve(raw, &profile);
+        let target = stage("tile_wb_camera::apply", || match decoded_wb_anchor {
             Some((decoded_temperature, decoded_tint)) => {
                 wb_camera::apply_delta(
                     &mut camera_rgb,
-                    &profile,
+                    &frame,
                     raw.as_shot_neutral,
                     model.temperature,
                     model.tint,
                     decoded_temperature,
                     decoded_tint,
-                )
+                );
+                // The anchor contract promises the caller hydrated the
+                // model to explicit values (see `apply_delta`'s doc), so
+                // the model pair IS the render target the full develop of
+                // this same model would retarget DCP at.
+                (model.temperature, model.tint)
             }
             None => {
-                let (target_temperature, target_tint) = wb_camera::resolve_target(model, &profile);
+                let (target_temperature, target_tint) = wb_camera::resolve_target(model, &frame);
                 wb_camera::apply(
                     &mut camera_rgb,
-                    &profile,
+                    &frame,
                     raw.as_shot_neutral,
                     target_temperature,
                     target_tint,
-                )
+                );
+                (target_temperature, target_tint)
             }
         });
-        true
+        Some((frame, target))
     } else {
-        false
+        None
+    };
+    let camera_wb_applied = camera_wb_target.is_some();
+    // DNG-spec `SetWhiteXY` retarget (#1727) — mirrors `pipeline::develop`:
+    // DCP's rendering matrices track the user's target when camera-space
+    // WB moved off as-shot, keeping a tile bit-consistent with a full
+    // develop of the same model. As-shot targets return the profile
+    // unchanged. See `wb_camera::retargeted_render_profile`.
+    let dcp_profile = match &camera_wb_target {
+        Some((frame, (target_temperature, target_tint))) => {
+            wb_camera::retargeted_render_profile(frame, &profile, *target_temperature, *target_tint)
+        }
+        None => profile.clone(),
     };
     // Colorimetry-only DCP per #425 — PLT and PTC no longer run on any
     // path (see `pipeline::develop` for the strategic rationale).
-    let mut scene = stage("tile_dcp_apply", || dcp::apply_colorimetry(&camera_rgb, &profile))?;
+    let mut scene = stage("tile_dcp_apply", || {
+        dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
+    })?;
     // Ticket #471: opt-in post-DCP Oklab chroma-reduction highlight
     // recovery. No-op for every other mode — see `pipeline::develop` for
     // the strategic rationale.
