@@ -28,10 +28,11 @@
 //     chain's `apply_delta(live, asShot)` contract). For non-RAW assets
 //     (JPEG/HEIF/pano) there is no as-shot anchor — the buffer is already at
 //     D65 — so the caller (`EditSession+GpuLive.swift`) passes `6500.0/0.0`
-//     explicitly. Only a caller that supplies neither (`nil`/`nil`) falls back
-//     to the legacy 0/0 sentinel below, which the FFI reads as "no decoded
-//     anchor" and applies `M_live` absolutely — preserved for callers written
-//     before #1240 that still expect the pre-delta behavior.
+//     explicitly. The 0/0 sentinel fallback is ALL-OR-NOTHING: a caller that
+//     supplies neither, OR supplies only one of the two (a caller bug), falls
+//     back to the legacy 0/0 sentinel below, which the FFI reads as "no
+//     decoded anchor" and applies `M_live` absolutely — preserved for callers
+//     written before #1240 that still expect the pre-delta behavior.
 //   * pass the REAL `sharpen_amount` / `nr_color` / `nr_luminance` — the chain
 //     runs them at their canonical scene-linear positions, REPLACING the post-AgX
 //     Metal kernels (`MetalKernels.applySceneSharpen` / `applySceneNRColor`). This
