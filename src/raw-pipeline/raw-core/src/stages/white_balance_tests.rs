@@ -386,6 +386,44 @@ fn cached_cat16_inverse_matches_fresh_inverse() {
     assert!(std::ptr::eq(cat16_inverse(), cached));
 }
 
+/// Regression guard: `locus_tangent_uv` must clamp the CENTER cct before
+/// stepping ±delta_k, not clamp each finite-difference endpoint
+/// independently. Independent clamping breaks down above 25000 K (or below
+/// 2000 K): e.g. at cct=30000, the "+50 K" sample rails to 25000 while the
+/// "-50 K" sample evaluates at 29950 — putting the "plus" sample BELOW the
+/// "minus" sample and reversing the tangent (flipping the tint axis), or
+/// collapsing to a zero vector if both rail to the same clamp.
+///
+/// With the center clamped first, any cct >= 25000 K produces the exact same
+/// tangent as cct == 25000 K (both evaluate the finite difference at the
+/// same clamped center) — no reversal, no zero vector.
+#[test]
+fn locus_tangent_uv_no_reversal_above_25000k() {
+    let (du_25000, dv_25000) = locus_tangent_uv(25000.0);
+    let (du_30000, dv_30000) = locus_tangent_uv(30000.0);
+    assert_eq!(
+        (du_25000, dv_25000),
+        (du_30000, dv_30000),
+        "tangent at cct=30000 must equal tangent at the 25000K clamp boundary"
+    );
+    // Guard against the degenerate "both fixed" false-pass: the tangent must
+    // be a genuine unit vector, not the zero vector the bug can also produce.
+    let len = (du_30000 * du_30000 + dv_30000 * dv_30000).sqrt();
+    assert!(
+        (len - 1.0).abs() < 1e-4,
+        "tangent at cct=30000 must be a unit vector, got length {len}"
+    );
+
+    // Same check at the cold boundary (2000 K).
+    let (du_2000, dv_2000) = locus_tangent_uv(2000.0);
+    let (du_neg, dv_neg) = locus_tangent_uv(500.0);
+    assert_eq!(
+        (du_2000, dv_2000),
+        (du_neg, dv_neg),
+        "tangent at cct=500 must equal tangent at the 2000K clamp boundary"
+    );
+}
+
 // ── resolve_wb tests (#1725 / #1729) ────────────────────────────────────────
 //
 // One test per cell of the exhaustive (temperature_seen, tint_seen) × source
@@ -404,7 +442,10 @@ fn resolve_wb_both_seen_passes_through() {
         ..Default::default()
     };
     let (t, tnt) = resolve_wb(&model);
-    assert_eq!(t, 4500.0, "temperature must pass through when temperature_seen=true");
+    assert_eq!(
+        t, 4500.0,
+        "temperature must pass through when temperature_seen=true"
+    );
     assert_eq!(tnt, 25.0, "tint must pass through when tint_seen=true");
 }
 
@@ -420,7 +461,10 @@ fn resolve_wb_temperature_only_zeroes_tint() {
         ..Default::default()
     };
     let (t, tnt) = resolve_wb(&model);
-    assert_eq!(t, 4500.0, "temperature must pass through when temperature_seen=true");
+    assert_eq!(
+        t, 4500.0,
+        "temperature must pass through when temperature_seen=true"
+    );
     assert_eq!(tnt, 0.0, "tint must be 0 when tint_seen=false");
 }
 
@@ -470,8 +514,14 @@ fn resolve_wb_neither_seen_preserves_preset_resolved_values() {
         ..Default::default()
     };
     let (t, tnt) = resolve_wb(&model);
-    assert_eq!(t, 2850.0, "preset-resolved temperature must pass through (neither-seen)");
-    assert_eq!(tnt, 0.0, "preset-resolved tint must pass through (neither-seen)");
+    assert_eq!(
+        t, 2850.0,
+        "preset-resolved temperature must pass through (neither-seen)"
+    );
+    assert_eq!(
+        tnt, 0.0,
+        "preset-resolved tint must pass through (neither-seen)"
+    );
 }
 
 /// FFI-shaped path: simulates what `maple_apply_scene_linear_chain` does when
@@ -488,7 +538,7 @@ fn resolve_wb_ffi_shaped_model_preserves_tint() {
     model.temperature = 4500.0;
     model.tint = 30.0;
     model.temperature_seen = true; // fixed in #1725
-    model.tint_seen = true;        // fixed in #1725 — was missing, causing tint → 0
+    model.tint_seen = true; // fixed in #1725 — was missing, causing tint → 0
 
     let (t, tnt) = resolve_wb(&model);
     assert_eq!(t, 4500.0, "FFI temperature must pass through");
@@ -498,24 +548,51 @@ fn resolve_wb_ffi_shaped_model_preserves_tint() {
     );
 }
 
-/// Cross-check: a model built with tint_seen=false and a non-zero tint value
-/// (the pre-#1725 FFI state) zeroes the tint at resolve_wb — confirming that
-/// the old behaviour was the regression and the fix (setting tint_seen=true) is
-/// the correct remedy.
+/// Cross-check: a model shaped like the pre-#1725 FFI state (temperature_seen
+/// and tint_seen both false, despite the FFI caller having supplied an
+/// explicit non-default temperature/tint pair) now falls into the
+/// neither-seen row and passes BOTH values through unchanged. Before the
+/// FFI conversion fix (this ticket, setting both seen-flags), tint_seen was
+/// incorrectly false here, so `resolve_wb` needed to preserve the value
+/// regardless — the true fix is at the FFI boundary (set the flags), and
+/// `resolve_wb` correctly treats neither-seen as "pass model values through"
+/// (named-preset / default semantics), not as "zero the tint".
 #[test]
 fn resolve_wb_pre_fix_ffi_model_would_zero_tint() {
-    // Pre-#1725: the FFI conversion did NOT set tint_seen=true.
+    // Shape: temperature_seen=false, tint_seen=false, non-default values.
     let mut model = crate::xmp::AdjustmentModel::default();
     model.temperature = 4500.0;
     model.tint = 30.0;
-    // temperature_seen=false, tint_seen=false — the pre-fix state.
 
     let (t, tnt) = resolve_wb(&model);
     // temperature_seen=false + tint_seen=false → neither-seen → model.temperature
     assert_eq!(t, 4500.0);
-    // tint_seen=false → 0.0 — this was the bug: the user's +30 tint was dropped.
+    // neither-seen → model.tint passes through (this is also the named-preset
+    // row: a Fluorescent preset's non-zero tint must survive resolve_wb).
     assert_eq!(
-        tnt, 0.0,
-        "pre-fix FFI model (tint_seen=false) must yield 0.0 tint (confirming the regression)"
+        tnt, 30.0,
+        "neither-seen must pass model.tint through unchanged (matches the documented truth table)"
+    );
+}
+
+/// (false, false) with a non-zero tint simulating a named preset that carries
+/// tint (e.g. a hypothetical Fluorescent preset with +10 green cast): the
+/// neither-seen row must preserve it, not silently zero it. This is the
+/// regression guard for the truth-table violation where `effective_tint`
+/// was gated on `tint_seen` alone.
+#[test]
+fn resolve_wb_preserves_preset_tint() {
+    let model = crate::xmp::AdjustmentModel {
+        temperature: 4200.0,
+        tint: 10.0,
+        temperature_seen: false,
+        tint_seen: false,
+        ..Default::default()
+    };
+    let (t, tnt) = resolve_wb(&model);
+    assert_eq!(t, 4200.0, "preset-resolved temperature must pass through");
+    assert_eq!(
+        tnt, 10.0,
+        "preset-resolved non-zero tint (e.g. Cloudy +10) must survive resolve_wb, not zero out"
     );
 }
