@@ -2,12 +2,24 @@
  * Pure unit tests for the imports destination-layout helpers. No Mongo, no
  * filesystem — these are the layout/safety primitives PR #1 ships.
  *
- * Layout target (ticket #742):  <YEAR>/<MM-or-label>/<filename>
+ * Layout target (ticket #742):
+ *   override:      <YEAR>/<label>/<filename>
+ *   default:       <YEAR>/misc/<source-folder>/<filename>
+ *   shot-folder:   <YEAR>/<parent-folder>/<source-folder>/<filename>
+ *   nearby-match:  <existing-asset-folder>/<filename>
  * Bucketing basis: file mtime, UTC (parity with backup/path-formatter.ts).
  */
 
 import { describe, test, expect } from 'bun:test';
-import { bucketForMtime, isSafeLabel, destRelPath } from './dest.ts';
+import {
+  bucketForMtime,
+  isSafeLabel,
+  isNumberedShotFolder,
+  destRelPath,
+  destRelPathDefault,
+  destRelPathShotFolder,
+  destRelPathInFolder,
+} from './dest.ts';
 
 const NUL = String.fromCharCode(0);
 const NL = String.fromCharCode(10);
@@ -102,5 +114,78 @@ describe('destRelPath', () => {
   test('throws on an unsafe filename', () => {
     expect(() => destRelPath({ year: '2024', label: '03', filename: '../a.dng' })).toThrow();
     expect(() => destRelPath({ year: '2024', label: '03', filename: 'a/b.dng' })).toThrow();
+  });
+});
+
+describe('isNumberedShotFolder', () => {
+  test('matches anonymous camera dump-folder names', () => {
+    expect(isNumberedShotFolder('Shot0123')).toBe(true);
+    expect(isNumberedShotFolder('shot0456')).toBe(true);
+    expect(isNumberedShotFolder('0123')).toBe(true);
+    expect(isNumberedShotFolder('012')).toBe(true);
+  });
+
+  test('does not match meaningful folder names', () => {
+    expect(isNumberedShotFolder('Vacation 2024')).toBe(false);
+    expect(isNumberedShotFolder('IMG_0123')).toBe(false);
+    expect(isNumberedShotFolder('DCIM')).toBe(false);
+  });
+});
+
+describe('destRelPathDefault', () => {
+  test('assembles <year>/misc/<folderName>/<filename>', () => {
+    expect(
+      destRelPathDefault({ year: '2024', folderName: 'Family Trip', filename: 'IMG_0001.dng' }),
+    ).toBe('2024/misc/Family Trip/IMG_0001.dng');
+  });
+
+  test('throws on an unsafe folder name or filename', () => {
+    expect(() =>
+      destRelPathDefault({ year: '2024', folderName: '../etc', filename: 'a.dng' }),
+    ).toThrow();
+    expect(() =>
+      destRelPathDefault({ year: '2024', folderName: 'ok', filename: '../a.dng' }),
+    ).toThrow();
+  });
+});
+
+describe('destRelPathShotFolder', () => {
+  test('assembles <year>/<parentFolderName>/<folderName>/<filename>', () => {
+    expect(
+      destRelPathShotFolder({
+        year: '2024',
+        parentFolderName: 'DCIM',
+        folderName: '0123',
+        filename: 'IMG_0001.dng',
+      }),
+    ).toBe('2024/DCIM/0123/IMG_0001.dng');
+  });
+
+  test('throws on an unsafe parent folder name', () => {
+    expect(() =>
+      destRelPathShotFolder({
+        year: '2024',
+        parentFolderName: '../etc',
+        folderName: '0123',
+        filename: 'a.dng',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('destRelPathInFolder', () => {
+  test('joins an existing (possibly nested) asset folder with the filename', () => {
+    expect(destRelPathInFolder({ folderPath: '2024/misc/Trip', filename: 'IMG_0002.dng' })).toBe(
+      '2024/misc/Trip/IMG_0002.dng',
+    );
+  });
+
+  test('throws on an empty folder path', () => {
+    expect(() => destRelPathInFolder({ folderPath: '', filename: 'a.dng' })).toThrow();
+  });
+
+  test('throws on an unsafe segment or filename', () => {
+    expect(() => destRelPathInFolder({ folderPath: '2024/../etc', filename: 'a.dng' })).toThrow();
+    expect(() => destRelPathInFolder({ folderPath: '2024/misc', filename: '../a.dng' })).toThrow();
   });
 });

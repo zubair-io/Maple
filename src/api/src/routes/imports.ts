@@ -24,6 +24,7 @@ import { scanFolder, buildImportFiles } from '../imports/scan.ts';
 import { isSafeLabel } from '../imports/dest.ts';
 import {
   createImport,
+  findNearbyAssetFolder,
   getImport,
   getImportFiles,
   listImports,
@@ -212,8 +213,9 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
       }
 
       // Auto Import: queue immediately with no files; the worker scans
-      // `source_root` (default MM labels) and resolves destinations when it
-      // claims the job. Keeps the click instant even for huge folders.
+      // `source_root` (default `misc/<folder>` labels, or a nearby-asset/
+      // shot-folder match — see `buildImportFiles`) and resolves destinations
+      // when it claims the job. Keeps the click instant even for huge folders.
       if (body.auto) {
         const doc = await createImport({
           source_root: jail.real,
@@ -240,7 +242,9 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
       // failed entry (with its reason) rather than throwing and 400-ing the
       // whole folder. It only returns empty when the folder has nothing
       // importable at all.
-      const files = await buildImportFiles(jail.real, labels);
+      const files = await buildImportFiles(jail.real, labels, {
+        findNearbyFolder: (mtimeMs) => findNearbyAssetFolder(folder._id, mtimeMs),
+      });
       if (files.length === 0) {
         set.status = 400;
         return { error: 'No importable files found in the selected folder.' };

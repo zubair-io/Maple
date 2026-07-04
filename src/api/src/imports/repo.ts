@@ -12,6 +12,7 @@ import { type WithId } from 'mongodb';
 import { importsCollection, importFilesCollection, assetsCollection } from '../db/client.ts';
 import { isSafeLabel } from './dest.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
+import { isLiveFileInfo } from '../indexer/images.repo.ts';
 import type {
   ImportDoc,
   ImportFileDoc,
@@ -447,13 +448,18 @@ export async function markImportCancelled(
  * re-claim until the file rows are ready.
  */
 function destIsSafe(dest: string): boolean {
-  // Mirror `destRelPath`'s invariant exactly: `<year>/<label>/<filename>` —
-  // EXACTLY three segments. A retry must never resurrect a file to an
-  // unvalidated nested path, so anything but three segments is unsafe.
+  // A dest can now be `<year>/<label>/<filename>` (explicit override),
+  // `<year>/misc/<folder>/<filename>` or `<year>/<parent>/<folder>/<filename>`
+  // (the two no-override defaults — see dest.ts), or an arbitrary-depth
+  // existing-asset folder path (a nearby-match placement). At least one
+  // directory segment plus the filename is required; every directory segment
+  // and the filename are re-validated exactly as `destRelPath*` would — a
+  // retry must never resurrect a file to an unvalidated path.
   const parts = dest.split('/');
-  if (parts.length !== 3) return false;
-  const [year, label, filename] = parts;
-  return isSafeLabel(year) && isSafeLabel(label) && isSafeFilename(filename);
+  if (parts.length < 2) return false;
+  const filename = parts[parts.length - 1];
+  const dirs = parts.slice(0, -1);
+  return dirs.every((seg) => isSafeLabel(seg)) && isSafeFilename(filename);
 }
 
 export async function retryImport(
@@ -584,4 +590,57 @@ export async function assetExistsForHash(maple_id: string, sha1_head: string): P
   if (byId) return true;
   const byHash = await c.findOne({ sha1_head }, { projection: { _id: 1 } });
   return byHash != null;
+}
+
+/** Default proximity window for `findNearbyAssetFolder`. */
+export const NEARBY_ASSET_WINDOW_MS = 30 * 60 * 1000;
+
+/**
+ * Look up whether an asset already indexed in `libraryId` was captured
+ * within `windowMs` of `mtimeMs`, and if so return the folder (library-root
+ * relative directory, from its live `fileinfo[].path` in this library) it
+ * already lives in — so an import file from the same shoot lands next to it
+ * instead of the default `misc/<source folder>` bucket.
+ *
+ * `exif.captured_at` is a UTC ISO string, so the range query is a plain
+ * lexicographic compare against the `exif.captured_at` index (same trick as
+ * `findDonor` in `workers/migration/audit-video-geo-backfill.ts`). Returns the
+ * closest-in-time match, or null when nothing is indexed nearby yet.
+ */
+export async function findNearbyAssetFolder(
+  libraryId: ObjectId,
+  mtimeMs: number,
+  windowMs: number = NEARBY_ASSET_WINDOW_MS,
+): Promise<string | null> {
+  const c = await assetsCollection();
+  const lo = new Date(mtimeMs - windowMs).toISOString();
+  const hi = new Date(mtimeMs + windowMs).toISOString();
+  const candidates = await c
+    .find(
+      {
+        'exif.captured_at': { $gte: lo, $lte: hi },
+        fileinfo: {
+          $elemMatch: {
+            library_id: libraryId,
+            deleted_at: { $in: [null] },
+            missing_since: { $in: [null] },
+          },
+        },
+      },
+      { projection: { fileinfo: 1, 'exif.captured_at': 1 } },
+    )
+    .toArray();
+
+  let best: { deltaMs: number; path: string } | null = null;
+  for (const doc of candidates) {
+    const capturedAt = doc.exif?.captured_at;
+    if (!capturedAt) continue;
+    const deltaMs = Math.abs(new Date(capturedAt).getTime() - mtimeMs);
+    const entry = (doc.fileinfo ?? []).find(
+      (fi) => fi.library_id.equals(libraryId) && isLiveFileInfo(fi),
+    );
+    if (!entry) continue;
+    if (!best || deltaMs < best.deltaMs) best = { deltaMs, path: entry.path };
+  }
+  return best?.path ?? null;
 }

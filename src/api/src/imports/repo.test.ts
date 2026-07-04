@@ -413,9 +413,10 @@ describe('imports.repo', () => {
           state: 'failed',
           error: 'unsafe filename',
         },
-        // ... and one with a nested (>3-segment) dest that violates the
-        // `<year>/<label>/<filename>` invariant. Each segment is individually
-        // "safe", but the extra path level is not — it must NOT be resurrected.
+        // ... and one with a nested (>3-segment) dest. This is now a LEGITIMATE
+        // shape (the misc/shot-folder defaults and a nearby-asset-match both
+        // produce >3 segments — see dest.ts), so every segment being
+        // individually safe means the whole dest is recoverable.
         {
           src: '/srv/in/nested.dng',
           dest: '2024/03/sub/nested.dng',
@@ -423,21 +424,34 @@ describe('imports.repo', () => {
           mtime: 0,
           kind: 'image',
           state: 'failed',
-          error: 'unexpected nested dest',
+          error: 'transient',
+        },
+        // ... and one with a genuinely unsafe segment buried in a nested dest
+        // (a leading-dot directory) — depth doesn't exempt it from validation.
+        {
+          src: '/srv/in/hidden.dng',
+          dest: '2024/03/.hidden/hidden.dng',
+          size: 1,
+          mtime: 0,
+          kind: 'image',
+          state: 'failed',
+          error: 'unsafe directory segment',
         },
       ],
     });
-    await repo.failImport(created._id, 'three files failed');
+    await repo.failImport(created._id, 'four files failed');
 
     expect(await repo.retryImport(created._id)).toBe(true);
     const requeued = await repo.getImport(created._id);
     expect(requeued!.status).toBe('pending');
-    // Recoverable one is reset; the unsafe ones stay failed and are still counted.
+    // Recoverable ones are reset; the unsafe one stays failed and is still counted.
     const requeuedFiles = await repo.getImportFiles(created._id);
     expect(requeuedFiles[0].state).toBe('pending');
     expect(requeuedFiles[1].state).toBe('failed');
-    // A >3-segment dest is treated as unsafe — stays failed, not resurrected.
-    expect(requeuedFiles[2].state).toBe('failed');
+    // A >3-segment dest with every segment safe is now recoverable.
+    expect(requeuedFiles[2].state).toBe('pending');
+    // A leading-dot segment stays unsafe regardless of depth.
+    expect(requeuedFiles[3].state).toBe('failed');
     expect(requeued!.counts.failed).toBe(2);
   });
 

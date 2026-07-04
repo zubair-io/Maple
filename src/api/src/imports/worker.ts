@@ -50,6 +50,7 @@ import {
   markImportCancelled,
   isImportCancelRequested,
   assetExistsForHash as realAssetExistsForHash,
+  findNearbyAssetFolder,
   type ClaimedImport,
 } from './repo.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
@@ -242,14 +243,19 @@ export class ImportRunner {
     const id = claim._id;
 
     // Auto Import: the create request deferred the scan to us. Walk the source
-    // now (default MM labels), persist the resolved files to `import_files`,
+    // now (default `misc/<folder>` labels, or a nearby-asset/shot-folder match
+    // — see `buildImportFiles`), persist the resolved files to `import_files`,
     // then copy as usual. The manual path's files were resolved up-front by
     // the create request and already live in `import_files`. Either way we
     // pull them back from the collection (NOT off the claim doc) — they were
     // moved out of the import doc so a huge folder can't overflow it.
     let files: ImportFileEntry[];
     if (claim.scan_pending) {
-      const scanned = await buildImportFiles(claim.source_root, {});
+      const scanned = await buildImportFiles(
+        claim.source_root,
+        {},
+        { findNearbyFolder: (mtimeMs) => findNearbyAssetFolder(claim.library_id, mtimeMs) },
+      );
       if (scanned.length === 0) {
         await failImport(
           id,
