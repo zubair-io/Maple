@@ -7,6 +7,13 @@
 // source that overlaps the target library, and re-validates every bucket
 // label — the UI's checks are a convenience, not the security boundary.
 //
+// A bucket's label field starts BLANK, not pre-filled with the month: leaving
+// it blank means "use the server default" (an already-indexed photo within 30
+// minutes wins first, then `<year>/misc/<source folder name>`, or
+// `<year>/<parent folder>/<source folder>` when the source folder is an
+// anonymous camera dump name like `Shot0123`/`0123`/`012`). Typing a value
+// overrides all of that for just that bucket.
+//
 // Deep link: `/settings/imports?job=<id>` jumps straight to a running
 // import's live status (the link the Workers page hands out).
 
@@ -96,8 +103,20 @@ export class ImportsComponent implements OnInit, OnDestroy {
 
   // --- Scan ----------------------------------------------------------------
   protected readonly scan = signal<ImportScanResult | null>(null);
-  /** Editable per-bucket labels, keyed on the `${year}/${mm}` bucket key. */
+  /** Editable per-bucket labels, keyed on the `${year}/${mm}` bucket key.
+   * A key absent (or blank) here means "use the server default" for that
+   * bucket — see the class-level comment above. */
   protected readonly labels = signal<Record<string, string>>({});
+
+  /** Basename of the chosen source folder — shown in the default-folder hint
+   * (the server computes the same value from `source_root`). */
+  protected readonly sourceFolderName = computed(() => {
+    const src = this.selectedSource();
+    if (!src) return '';
+    const trimmed = src.replace(/\/+$/, '');
+    const idx = trimmed.lastIndexOf('/');
+    return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+  });
 
   // --- Progress ------------------------------------------------------------
   protected readonly active = signal<ImportSummary | null>(null);
@@ -190,10 +209,8 @@ export class ImportsComponent implements OnInit, OnDestroy {
         this.error.set('No importable photos, sidecars, or movies in that folder.');
         return;
       }
-      const labels: Record<string, string> = {};
-      for (const b of result.buckets) labels[b.key] = b.mm;
       this.scan.set(result);
-      this.labels.set(labels);
+      this.labels.set({});
       this.step.set('review');
     } catch (e) {
       this.error.set(this.msg(e));
@@ -219,7 +236,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
   }
 
   /** Auto Import — queue immediately; the worker scans + resolves destinations
-   * (default MM labels). */
+   * (the default folder — see the class-level comment above). */
   async autoImport(): Promise<void> {
     await this.queue('auto', { auto: true });
   }

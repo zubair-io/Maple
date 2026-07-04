@@ -11,8 +11,10 @@
  * land in different folders. Orphan sidecars (no matching image in the scan)
  * are ignored — a sidecar with no image is meaningless to copy.
  *
- * Symlinked directories are NOT followed: the scan stays within the source
- * subtree the caller already jailed to `MAPLE_ROOTS`.
+ * Symlinked directories and files ARE followed (a source folder is often a
+ * tree of symlinks into a NAS/removable-media mount). A cyclic symlink can't
+ * loop forever: each symlinked directory's realpath is recorded the first
+ * time it's queued, and a repeat realpath is skipped.
  */
 
 import fs from 'node:fs/promises';
@@ -20,7 +22,14 @@ import type { Dirent, Stats } from 'node:fs';
 import path from 'node:path';
 import { SUPPORTED_EXTS } from '../workers/discover/types.ts';
 import { canonicalBaseFromSidecarFilename } from '../fs/browse.ts';
-import { bucketForMtime, destRelPath } from './dest.ts';
+import {
+  bucketForMtime,
+  destRelPath,
+  destRelPathDefault,
+  destRelPathInFolder,
+  destRelPathShotFolder,
+  isNumberedShotFolder,
+} from './dest.ts';
 import { child as childLogger } from '../log.ts';
 import type { ImportFileEntry, ImportFileKind } from '../db/schema.ts';
 
@@ -87,7 +96,12 @@ function classify(filename: string): ImportFileKind | null {
   return null;
 }
 
-/** Recursively collect classifiable files under `root`. Skips symlinks. */
+/** Recursively collect classifiable files under `root`, following symlinks
+ * (both symlinked directories and symlinked files). Every directory is
+ * de-duplicated by its REALPATH the moment it's dequeued (not just when it's
+ * a symlink), so a cyclic symlink (A → B → A) — or two different paths
+ * landing on the same real directory — can't cause an infinite loop or
+ * double-count the same files. */
 async function walk(root: string): Promise<{
   primaries: RawFile[];
   sidecars: RawFile[];
@@ -95,9 +109,19 @@ async function walk(root: string): Promise<{
   const primaries: RawFile[] = [];
   const sidecars: RawFile[] = [];
   const stack: string[] = [root];
+  const visitedRealDirs = new Set<string>();
 
   while (stack.length > 0) {
     const dir = stack.pop() as string;
+    let realDir: string;
+    try {
+      realDir = await fs.realpath(dir);
+    } catch {
+      continue; // dangling symlink or vanished dir — skip
+    }
+    if (visitedRealDirs.has(realDir)) continue;
+    visitedRealDirs.add(realDir);
+
     let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
@@ -105,7 +129,6 @@ async function walk(root: string): Promise<{
       continue; // unreadable dir — skip rather than abort the whole scan
     }
     for (const ent of entries) {
-      if (ent.isSymbolicLink()) continue; // don't follow symlinks out of jail
       // Skip hidden/temp entries (files AND dirs): Lightroom temp files
       // (`.LrTmp-*`), macOS AppleDouble (`._*`), `.DS_Store`, dotdirs like
       // `.git`/`.thumbnails`. None are real asset sources, and leading-dot
@@ -116,16 +139,30 @@ async function walk(root: string): Promise<{
       // leading dot) so this does not affect sidecar pairing.
       if (ent.name.startsWith('.')) continue;
       const abs = path.join(dir, ent.name);
-      if (ent.isDirectory()) {
+
+      let isDir = ent.isDirectory();
+      let isFile = ent.isFile();
+      if (ent.isSymbolicLink()) {
+        let st: Stats;
+        try {
+          st = await fs.stat(abs); // follows the link
+        } catch {
+          continue; // dangling symlink
+        }
+        isDir = st.isDirectory();
+        isFile = st.isFile();
+      }
+
+      if (isDir) {
         stack.push(abs);
         continue;
       }
-      if (!ent.isFile()) continue;
+      if (!isFile) continue;
       const kind = classify(ent.name);
       if (!kind) continue;
       let st: Stats;
       try {
-        st = await fs.stat(abs);
+        st = await fs.stat(abs); // follows a symlinked file
       } catch {
         continue;
       }
@@ -241,27 +278,55 @@ export async function scanFolder(absRoot: string): Promise<ScanResult> {
   };
 }
 
+export interface BuildImportFilesOptions {
+  /**
+   * Look up whether an asset already indexed in the target library was
+   * captured within 30 minutes of `mtimeMs`, and if so return the folder it
+   * already lives in (so this file lands next to it). Injected so this
+   * module stays Mongo-free (see file header) — the real implementation is
+   * `imports/repo.ts`'s `findNearbyAssetFolder`. Omitted (e.g. in unit tests)
+   * means "never match."
+   */
+  findNearbyFolder?: (mtimeMs: number) => Promise<string | null>;
+}
+
 /**
  * Re-scan `absRoot` and flatten it into the per-file destination list stored
- * on the import doc, applying the user's per-bucket label overrides (keyed on
- * the `${year}/${mm}` bucket key). Default label is the two-digit month.
+ * on the import doc. Each file's destination directory is resolved through
+ * this precedence chain (highest first):
  *
- * Each label and filename is run through `destRelPath`, which throws on an
- * unsafe segment. Rather than letting one bad file abort the whole batch, we
- * catch per-file: an unsafe file is SKIPPED and recorded as a `state:'failed'`
- * entry (with the reason) so the operator sees it in the per-file error UI and
- * the import still completes with the good files. The failure is also logged
- * structured (filename + reason + source root) so it reaches SigNoz. A sidecar
- * lands in the SAME bucket/label as its parent image; if the parent image is
- * unsafe, its sidecars are failed too so they don't silently vanish (an
- * unattachable sidecar is dropped by the worker's `groupFiles`).
+ *   1. The user's explicit per-bucket label override, keyed on the
+ *      `${year}/${mm}` bucket key → `${year}/${label}/filename`.
+ *   2. A nearby (within 30 min) already-indexed photo in the same library →
+ *      the SAME folder that photo already lives in.
+ *   3. The source folder's own name is an anonymous camera dump-folder name
+ *      (`Shot0123`, `0123`, `012`) → `${year}/${parentFolderName}/${folderName}`,
+ *      keeping the parent directory name for context.
+ *   4. Otherwise → `${year}/misc/${folderName}`, the default.
+ *
+ * Each candidate destination is built through the `dest.ts` helpers, which
+ * throw on an unsafe segment. Rather than letting one bad file abort the
+ * whole batch, we catch per-file: an unsafe file is SKIPPED and recorded as a
+ * `state:'failed'` entry (with the reason) so the operator sees it in the
+ * per-file error UI and the import still completes with the good files. The
+ * failure is also logged structured (filename + reason + source root) so it
+ * reaches SigNoz. A sidecar lands in the SAME folder as its parent image; if
+ * the parent image is unsafe, its sidecars are failed too so they don't
+ * silently vanish (an unattachable sidecar is dropped by the worker's
+ * `groupFiles`).
  */
 export async function buildImportFiles(
   absRoot: string,
   labels: Record<string, string>,
+  opts: BuildImportFilesOptions = {},
 ): Promise<ImportFileEntry[]> {
   const { primaries, sidecars } = await walk(absRoot);
   const { items } = pair(primaries, sidecars);
+  const findNearbyFolder = opts.findNearbyFolder ?? (async () => null);
+
+  const folderName = path.basename(absRoot);
+  const parentFolderName = path.basename(path.dirname(absRoot));
+  const useShotFolderFallback = isNumberedShotFolder(folderName);
 
   const files: ImportFileEntry[] = [];
 
@@ -275,14 +340,13 @@ export async function buildImportFiles(
     size: number,
     mtime: number,
     kind: ImportFileKind,
-    year: string,
-    label: string,
+    displayDir: string,
     reason: string,
   ): void => {
     log.warn({ source_root: absRoot, filename, kind, reason }, 'skipping unsafe import file');
     files.push({
       src,
-      dest: `${year}/${label}/${filename}`,
+      dest: `${displayDir}/${filename}`,
       size,
       mtime,
       kind,
@@ -293,14 +357,26 @@ export async function buildImportFiles(
 
   for (const it of items) {
     const { year, mm } = bucketForMtime(it.mtime);
-    const label = (labels[`${year}/${mm}`] ?? mm).trim();
+    const rawOverride = labels[`${year}/${mm}`];
+    const overrideLabel = rawOverride !== undefined ? rawOverride.trim() : '';
+    const nearbyFolder = await findNearbyFolder(it.mtime);
+
+    const resolveDestFor = (filename: string): string => {
+      if (overrideLabel.length > 0) return destRelPath({ year, label: overrideLabel, filename });
+      if (nearbyFolder != null) return destRelPathInFolder({ folderPath: nearbyFolder, filename });
+      if (useShotFolderFallback) {
+        return destRelPathShotFolder({ year, parentFolderName, folderName, filename });
+      }
+      return destRelPathDefault({ year, folderName, filename });
+    };
+    const displayDir = `${year}/${overrideLabel || folderName}`;
 
     // Resolve the image's destination first: if it's unsafe, the whole group
     // (image + its sidecars) is failed, since a sidecar with no landed image
     // is meaningless.
     let primaryDest: string | null = null;
     try {
-      primaryDest = destRelPath({ year, label, filename: it.filename });
+      primaryDest = resolveDestFor(it.filename);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       // Place the failed sidecars first (UI ordering parity with the happy
@@ -312,12 +388,11 @@ export async function buildImportFiles(
           sc.size,
           sc.mtime,
           'sidecar',
-          year,
-          label,
+          displayDir,
           `parent image rejected: ${reason}`,
         );
       }
-      recordSkipped(it.src, it.filename, it.size, it.mtime, it.kind, year, label, reason);
+      recordSkipped(it.src, it.filename, it.size, it.mtime, it.kind, displayDir, reason);
       continue;
     }
 
@@ -327,7 +402,7 @@ export async function buildImportFiles(
       try {
         files.push({
           src: sc.src,
-          dest: destRelPath({ year, label, filename: sc.filename }),
+          dest: resolveDestFor(sc.filename),
           size: sc.size,
           mtime: sc.mtime,
           kind: 'sidecar',
@@ -341,8 +416,7 @@ export async function buildImportFiles(
           sc.size,
           sc.mtime,
           'sidecar',
-          year,
-          label,
+          displayDir,
           err instanceof Error ? err.message : String(err),
         );
       }
