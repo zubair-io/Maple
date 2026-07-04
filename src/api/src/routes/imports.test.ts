@@ -88,6 +88,46 @@ describe('POST /api/imports/scan', () => {
     const res = await post('/api/imports/scan', { source_root: '/etc' });
     expect(res.status).toBe(400);
   });
+
+  it('rejects an invalid library_id', async () => {
+    const res = await post('/api/imports/scan', {
+      source_root: sourceRoot,
+      library_id: 'not-an-id',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('reports a nearby-asset match when library_id is given', async () => {
+    if (!mongoReachable || !db) return;
+    await db.collection('assets').deleteMany({});
+    // IMG_0001.dng's mtime is 2024-03-09T12:00:00Z (no real EXIF in its
+    // plain-text test content, so capturedAtMs falls back to mtime) — an
+    // asset captured 10 minutes later, in the same library, should match.
+    await db.collection('assets').insertOne({
+      exif: { captured_at: '2024-03-09T12:10:00.000Z' },
+      fileinfo: [{ path: '2024/Reunion', filename: 'a.dng', library_id: libraryId }],
+    } as never);
+
+    const res = await post('/api/imports/scan', {
+      source_root: sourceRoot,
+      library_id: libraryId.toHexString(),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      buckets: {
+        key: string;
+        defaultDest: string;
+        nearbyMatchCount: number;
+        nearbyMatchFolders: string[];
+      }[];
+    };
+    const bucket = body.buckets.find((b) => b.key === '2024/03')!;
+    expect(bucket.nearbyMatchCount).toBe(1);
+    expect(bucket.nearbyMatchFolders).toEqual(['2024/Reunion']);
+    // defaultDest is unaffected by the nearby match — it's the fallback for
+    // files that DON'T match.
+    expect(bucket.defaultDest).toBe(`2024/misc/${path.basename(sourceRoot)}`);
+  });
 });
 
 describe('POST /api/imports', () => {
