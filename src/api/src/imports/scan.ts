@@ -31,6 +31,7 @@ import {
   destRelPathInFolder,
   destRelPathShotFolder,
   isNumberedShotFolder,
+  isSafeLabel,
   MISC_SEGMENT,
   nearestCandidateFolder,
   NEARBY_ASSET_WINDOW_MS,
@@ -169,18 +170,6 @@ async function walk(root: string): Promise<{
         }
         isDir = symlinkStat.isDirectory();
         isFile = symlinkStat.isFile();
-        if (isFile) {
-          // A symlinked directory is jail-checked above when it's dequeued
-          // (via `realDir`); a symlinked FILE needs its own check here since
-          // it's never pushed onto the stack.
-          let realFile: string;
-          try {
-            realFile = await fs.realpath(abs);
-          } catch {
-            continue;
-          }
-          if (!insideJail(realFile)) continue; // symlink escaped MAPLE_ROOTS
-        }
       }
 
       if (isDir) {
@@ -190,6 +179,22 @@ async function walk(root: string): Promise<{
       if (!isFile) continue;
       const kind = classify(ent.name);
       if (!kind) continue;
+
+      // Jail-check every FILE unconditionally (not only ones that were
+      // symlinks at readdir time): a directory is jail-checked once when
+      // it's dequeued (via `realDir`), but a file is read and recorded in
+      // the same pass it's discovered in, so re-deriving the realpath right
+      // here — immediately before recording it — is what actually closes the
+      // window for a plain name that got swapped to an out-of-jail symlink
+      // between the `readdir` and this point.
+      let realFile: string;
+      try {
+        realFile = await fs.realpath(abs);
+      } catch {
+        continue;
+      }
+      if (!insideJail(realFile)) continue; // symlink escaped MAPLE_ROOTS
+
       let st: Stats;
       if (symlinkStat) {
         st = symlinkStat;
@@ -362,7 +367,11 @@ export async function buildImportFiles(
 
   const folderName = path.basename(absRoot);
   const parentFolderName = path.basename(path.dirname(absRoot));
-  const useShotFolderFallback = isNumberedShotFolder(folderName);
+  // `path.basename(path.dirname(absRoot))` is '' when `absRoot` is itself a
+  // filesystem root (e.g. importing directly from `/0123`) — isSafeLabel
+  // rejects an empty segment, so destRelPathShotFolder would throw for every
+  // file. Fall through to the misc default in that case instead.
+  const useShotFolderFallback = isNumberedShotFolder(folderName) && isSafeLabel(parentFolderName);
 
   // One nearby-candidates query for the WHOLE batch (not one per file): load
   // every already-indexed asset captured across the full span of this

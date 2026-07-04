@@ -171,6 +171,33 @@ describe('destRelPathShotFolder', () => {
       }),
     ).toThrow();
   });
+
+  // Regression: `path.basename(path.dirname(absRoot))` is '' when absRoot is
+  // itself a filesystem root (e.g. importing directly from `/0123`) — the
+  // caller (buildImportFiles in scan.ts) must never reach this helper with an
+  // empty parentFolderName; this pins the underlying validation that guard
+  // relies on.
+  test('throws on an empty parent folder name', () => {
+    expect(() =>
+      destRelPathShotFolder({
+        year: '2024',
+        parentFolderName: '',
+        folderName: '0123',
+        filename: 'a.dng',
+      }),
+    ).toThrow();
+  });
+
+  test('throws on an unsafe year', () => {
+    expect(() =>
+      destRelPathShotFolder({
+        year: '../2024',
+        parentFolderName: 'DCIM',
+        folderName: '0123',
+        filename: 'a.dng',
+      }),
+    ).toThrow();
+  });
 });
 
 describe('destRelPathInFolder', () => {
