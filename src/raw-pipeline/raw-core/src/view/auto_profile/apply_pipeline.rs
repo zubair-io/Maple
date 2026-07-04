@@ -17,12 +17,27 @@
 //! buffer (see `auto_fit::run_auto_profile_stage`).
 
 use crate::image::ExifOrientation;
+use crate::view::acr_fit;
 
 use super::cache::{self, CacheKey};
 use super::curve::ProfileCurve;
 use super::lut::{self, ColorLut};
+use super::pairs::sample_display_pairs;
 use super::preview::ExtractedPreview;
 use super::{apply_curve, fit_display};
+
+/// #1740 M1 dev A/B: swap the Auto Profile fit implementation from Auto 1.0
+/// (curve + free residual LUT, fit against the embedded JPEG) to Auto 2.0
+/// (the M0 structured tonescale+field solver, `acr_fit::from_pairs`) when
+/// set. Purely a developer toggle for seeing the M1 structured fit live in
+/// the app for A/B comparison — NOT a product setting; the repo's settings
+/// system is for operator-facing toggles, and this one has no operator-
+/// facing meaning (it swaps an internal fit algorithm, not a behavior an end
+/// user chooses). The real M2 flip removes this env var entirely and either
+/// keeps Auto 1.0 or replaces it outright per the epic's decision.
+pub fn auto2_enabled_by_env() -> bool {
+    std::env::var_os("MAPLE_AUTO2").is_some()
+}
 
 /// Fit (or reuse from cache) the Auto Profile artifacts from the pinned fit
 /// buffer `pixels` (interleaved RGB f32, `DisplayEncodedSrgb`, `w × h`,
@@ -61,6 +76,27 @@ pub fn fit_auto_profile_artifacts(
     cached_curve: Option<ProfileCurve>,
     cached_lut: Option<ColorLut>,
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
+    // #1740 M1 dev A/B: swap the whole fit for the Auto 2.0 structured
+    // solver. Runs BEFORE the Auto 1.0 curve/LUT logic below (and returns
+    // early) so the two implementations never interleave — `pixels` is left
+    // UN-curved either way (Auto 2.0 has no separate curve stage; its tail
+    // is entirely the baked LUT), matching what `fit_via_acr2` samples
+    // pairs from. Shares the same cache as Auto 1.0 (`(ProfileCurve,
+    // ColorLut)`-shaped either way) — safe because a process runs one mode
+    // for its whole lifetime; there is no cross-contamination within a run.
+    if auto2_enabled_by_env() {
+        return fit_via_acr2(
+            pixels,
+            w,
+            h,
+            orientation,
+            preview,
+            cache_key,
+            cached_curve,
+            cached_lut,
+        );
+    }
+
     // 1. #550 per-channel curve — cached, or fit on the pre-curve buffer.
     let curve = cached_curve.or_else(|| {
         let fitted = preview.and_then(|p| {
@@ -95,6 +131,60 @@ pub fn fit_auto_profile_artifacts(
         }
         fitted
     });
+    (curve, residual)
+}
+
+/// Auto 2.0 M1 dev A/B (`MAPLE_AUTO2=1`, #1740): fit the structured
+/// tonescale+field solver against the SAME `pixels`/`preview` pair Auto
+/// 1.0's curve+LUT would otherwise fit, then bake it into the same
+/// `(ProfileCurve, ColorLut)` shape via [`acr_fit::acr_model_as_profile_artifacts`]
+/// so this is a drop-in for [`fit_auto_profile_artifacts`]'s return value —
+/// any caller composing/sampling the pair (CPU cube bake, GPU two-pass) gets
+/// Auto 2.0's tail without knowing which fit produced it.
+///
+/// `pixels` is left UN-mutated (no curve applied) — the Auto 2.0 tail is one
+/// LUT, no separate curve stage, and its pairs are sampled from `pixels` as
+/// the caller developed it, matching `maple-cli fit-auto2`'s own pair
+/// sampling (`sample_display_pairs` on the pre-curve buffer).
+///
+/// Returns `(None, None)` when there's no preview to sample pairs from, or
+/// when the solve fails (too few neutral/sweep samples — mirrors
+/// `solve_acr_model_from_display_pairs`'s own error contract; this dev slice
+/// does not try to fall back to Auto 1.0 on a failed Auto 2.0 fit, so a
+/// solve failure surfaces as "no Auto Profile tail" rather than silently
+/// reverting to the other implementation).
+fn fit_via_acr2(
+    pixels: &mut [f32],
+    w: usize,
+    h: usize,
+    orientation: ExifOrientation,
+    preview: Option<&ExtractedPreview>,
+    cache_key: Option<&CacheKey>,
+    cached_curve: Option<ProfileCurve>,
+    cached_lut: Option<ColorLut>,
+) -> (Option<ProfileCurve>, Option<ColorLut>) {
+    if let (Some(c), Some(l)) = (&cached_curve, &cached_lut) {
+        return (Some(c.clone()), Some(l.clone()));
+    }
+    let Some(p) = preview else {
+        return (None, None);
+    };
+    let pairs = sample_display_pairs(pixels, w, h, p.image.clone(), p.color_space, orientation);
+    let model = match acr_fit::solve_acr_model_from_display_pairs(&pairs) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("[auto2] structured fit failed, no Auto Profile tail: {e}");
+            return (None, None);
+        }
+    };
+    let (curve, residual) = acr_fit::acr_model_as_profile_artifacts(
+        &model,
+        crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
+    );
+    if let (Some(key), Some(c), Some(l)) = (cache_key, curve.as_ref(), residual.as_ref()) {
+        cache::insert(key.clone(), c.clone());
+        cache::insert_lut(key.clone(), l.clone());
+    }
     (curve, residual)
 }
 

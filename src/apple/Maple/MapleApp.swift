@@ -26,6 +26,13 @@ struct MapleApp: App {
         Self.registerBundledFonts()
         Self.installMemoryPressureObserver()
         BGTaskRegistration.register()
+        // #1740 M1 dev A/B — must run BEFORE the first Auto-Profile fit
+        // (cold-open develop), so the Rust FFI's `MAPLE_AUTO2` env read sees
+        // whichever of the two toggles (env var already present, or the
+        // `-MapleAuto2 1` launch argument) selected the structured fit. See
+        // Auto2Flag's module doc for why `open -n` needs the launch-argument
+        // form.
+        Auto2Flag.propagateToProcessEnvironmentIfNeeded()
 
         #if DEBUG
         // Note: the Plan 1 AgX-kernel load assertion was retired when the
