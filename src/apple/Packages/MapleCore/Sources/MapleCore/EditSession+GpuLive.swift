@@ -51,10 +51,20 @@ extension EditSession {
     /// Non-RAW assets (pano PNG, JPEG, HEIF) are now also handled via the GPU
     /// live chain with `inputShape = LinearRec2020Fp16` (#1331): the CPU decode
     /// (`decodeSceneLinearNonRaw`) promotes the buffer to extended linear Rec.2020
-    /// before upload, so the chain skips only `capture_sharpening` (not WB —
-    /// WB stays engaged with `decoded=6500/0` so temperature/tint slider edits
-    /// work correctly on non-RAW assets) and runs the same user-edit and
-    /// view-tail stages as the RAW path.
+    /// before upload, so the chain skips only `capture_sharpening` (not WB — WB
+    /// stays engaged for the temperature/tint sliders to work).
+    ///
+    /// WB CONTRACT (#1734): non-RAW assets have no "as-shot" anchor — the buffer
+    /// is already at the D65 white point (linearised at session open), so the
+    /// slider must be a delta OFF D65, not off some as-shot CCT. This call site
+    /// passes `asShotCCT/asShotTint = 6500.0/0.0` (never `nil`, never the raw
+    /// as-shot values) whenever `resolvedIsRaw` is false, so
+    /// `makeGpuLiveParams` always sees an explicit decoded anchor for non-RAW
+    /// and composes `M_net = wb(live) · wb(6500, 0)⁻¹` — identity at the default
+    /// slider position, shifting correctly as the user drags. The matching CPU
+    /// refine path (`scene_linear_chain.rs` / `_f32_entry.rs`, #1734) anchors to
+    /// the SAME D65 baseline for non-RAW shapes, so a drag shifts the image on
+    /// the GPU-live chain and does NOT snap back on the next CPU refine tick.
     ///
     /// Upload-once contract: the decoded buffer is read back to f32 and uploaded
     /// to the `GpuLiveSession` only when the dims change (a new decode / a
@@ -179,8 +189,8 @@ extension EditSession {
         var presentErr: Error? = nil
         await driver.present(
             model: m,
-            asShotCCT: asShotCCT,
-            asShotTint: asShotTint
+            asShotCCT: resolvedIsRaw ? asShotCCT : 6500.0,
+            asShotTint: resolvedIsRaw ? asShotTint : 0.0
         ) { [weak self] error in
             presentErr = error
             self?.renderError = error

@@ -200,11 +200,18 @@ public final class GpuLiveDriver {
     /// avoids. Returns `nil` when no session is open or the render was cancelled
     /// (the caller then simply leaves the cache unpopulated).
     public func renderCurrentFrameBytes(
-        model: AdjustmentModel
+        model: AdjustmentModel,
+        asShotCCT: Double? = nil,
+        asShotTint: Double? = nil
     ) async -> (bytes: [UInt8], width: Int, height: Int)? {
         guard let s = session, let dims = sessionDims else { return nil }
         do {
-            guard let bytes = try await s.renderToBuffer(model: model, inputShape: inputShape)
+            guard let bytes = try await s.renderToBuffer(
+                model: model,
+                asShotCCT: asShotCCT,
+                asShotTint: asShotTint,
+                inputShape: inputShape
+            )
             else { return nil }
             return (bytes, dims.width, dims.height)
         } catch {
