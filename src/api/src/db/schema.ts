@@ -416,11 +416,20 @@ export interface AssetDoc {
    */
   geo_backfill_skipped?: 'no-donor' | 'skip';
   /**
-   * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
-   * endpoint; null/absent for assets indexed by other paths (the indexer
-   * pipeline does not compute it — only the PhotoKit backup path does).
-   * Used as the deduplication key when the same content arrives from
-   * multiple devices.
+   * BLAKE3 hex identifying the canonical original bytes. Populated on nearly
+   * every asset, via three write paths:
+   *  - Discover watcher (`workers/discover/handle-event.ts`, `hashFileForId`):
+   *    computed inline at insert time for every locally-discovered file —
+   *    this is the primary path, not a fallback (the old separate `hash`
+   *    stage was retired in the drop-abs-path-2026-05-21 migration).
+   *  - EXIF stage (`workers/stages/exif.ts`): upgrades the id in place to a
+   *    stronger form once `captured_at` is available, re-hashing with more
+   *    signal than the discover-time id had.
+   *  - Backup ingest endpoint (`routes/backup-ingest.ts`): sets it directly
+   *    for PhotoKit-originated assets that never go through discover.
+   * null/absent only for assets that predate one of these paths or hit an
+   * error before hashing. Used as the deduplication key when the same
+   * content arrives from multiple devices or discovery paths.
    */
   maple_id?: string;
   /**
