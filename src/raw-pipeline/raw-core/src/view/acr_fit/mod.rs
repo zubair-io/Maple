@@ -6,11 +6,15 @@
 //! `FitStats`, `apply_model`, and the JSON round-trip.  The future bake path
 //! and `apply_model` in the shipping core need these unconditionally.
 //!
-//! **Test-support only** (this file, `tonescale.rs`, `field.rs`): the solver
-//! itself — spec JSON parsing, patch extraction, `solve_acr_model`,
-//! `solve_acr_model_multi`.  Compiled only when `feature = "test-support"` is
-//! active so the solver (and its DNG-synthesis helpers) never ship in the
-//! xcframework or the WASM binary.
+//! **Test-support only** (this file, `tonescale.rs`, `field.rs`,
+//! `from_pairs.rs`): the solver itself — spec JSON parsing, patch extraction,
+//! `solve_acr_model`, `solve_acr_model_multi`, and (Auto 2.0 M0, #1740) the
+//! JPEG-pair front-end `solve_acr_model_from_display_pairs` that runs the same
+//! tonescale + field fit against a real photo's scattered
+//! `auto_profile::pairs::DisplayPair` correspondences instead of a synthetic
+//! chart.  Compiled only when `feature = "test-support"` is active so the
+//! solver (and its DNG-synthesis helpers) never ship in the xcframework or
+//! the WASM binary.
 
 pub mod model;
 
@@ -20,8 +24,14 @@ pub use model::{apply_model, AcrModel, FitStats, HueChromaField, Tonescale};
 #[cfg(feature = "test-support")]
 pub mod field;
 #[cfg(feature = "test-support")]
+pub mod from_pairs;
+#[cfg(feature = "test-support")]
 pub mod tonescale;
 
+#[cfg(feature = "test-support")]
+pub use from_pairs::{
+    neutral_samples_from_pairs, solve_acr_model_from_display_pairs, sweep_samples_from_pairs,
+};
 #[cfg(feature = "test-support")]
 pub use tonescale::NeutralSample;
 
