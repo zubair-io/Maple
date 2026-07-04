@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, it, beforeAll, afterAll, afterEach } from 'bun:test';
 import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -280,5 +280,144 @@ describe('thumb handler — content-addressed cache path', () => {
     const expected = path.join(dir, 'vacation', '.maple', 'thumbs', `${mapleId}.jpg`);
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);
+  });
+});
+
+describe('thumb handler — Cloudflare upload hook', () => {
+  let mongo: MongoClient | null = null;
+  let mongoReachable = false;
+  let db: Db | null = null;
+  let dir: string;
+  let libId: ObjectId;
+  const realFetch = globalThis.fetch;
+
+  const CF_CONFIG = {
+    enabled: true,
+    account_id: 'acct123',
+    bucket: 'maple-thumbs',
+    access_key_id: 'AKIAEXAMPLE',
+    secret_access_key: 'secretexample',
+  };
+
+  function stubFetch(status: number): void {
+    globalThis.fetch = (async () => new Response('', { status })) as unknown as typeof fetch;
+  }
+
+  async function makeIndexedDoc(filename: string, mapleId: string) {
+    const file = path.join(dir, filename);
+    const buf = await sharp({
+      create: { width: 400, height: 300, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .jpeg()
+      .toBuffer();
+    await writeFile(file, buf);
+    // makeDoc hardcodes a fixed `_id`; give each inserted doc a real, unique
+    // one so three inserts in this block don't collide on the assets
+    // collection's primary key.
+    const doc = { ...makeDoc(file, libId, dir, null, mapleId), _id: new ObjectId() };
+    await db!.collection('assets').insertOne(doc as never);
+    return doc;
+  }
+
+  beforeAll(async () => {
+    mongo = await tryConnect();
+    mongoReachable = mongo !== null;
+    if (!mongoReachable) {
+      console.log('[thumb.test] skipping Cloudflare upload hook block: MongoDB unreachable');
+      return;
+    }
+    db = mongo!.db(TEST_DB);
+    await db.dropDatabase();
+    const { closeDb } = await import('../../db/client.ts');
+    await closeDb();
+    dir = await mkdtemp(path.join(os.tmpdir(), 'thumb-stage-cf-'));
+    const { foldersCollection } = await import('../../db/client.ts');
+    const { invalidateLibraryRoots } = await import('../../indexer/libraries.cache.ts');
+    libId = new ObjectId();
+    const folder = await foldersCollection();
+    await folder.insertOne({
+      _id: libId,
+      slug: 'cf-test-lib',
+      path: dir,
+      label: 'cf-test',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    invalidateLibraryRoots();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  afterAll(async () => {
+    if (mongoReachable) {
+      const { closeDb } = await import('../../db/client.ts');
+      await closeDb();
+      try {
+        await mongo!.db(TEST_DB).dropDatabase();
+      } catch {}
+      try {
+        await mongo!.close();
+      } catch {}
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not call R2 or stamp cf_thumb_synced_at when Cloudflare is disabled (default)', async () => {
+    if (!mongoReachable) return;
+    await db!.collection('app_settings').deleteMany({});
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response('', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const doc = await makeIndexedDoc('disabled.jpg', 'a'.repeat(32));
+    await thumbStage.handler(doc as never, {} as never);
+
+    expect(fetchCalled).toBe(false);
+    const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);
+    expect((saved as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBeUndefined();
+  });
+
+  it('uploads to R2 and stamps cf_thumb_synced_at when enabled and complete', async () => {
+    if (!mongoReachable) return;
+    await db!.collection('app_settings').updateOne(
+      { _id: 'cloudflare' } as never,
+      { $set: { config: CF_CONFIG } },
+      { upsert: true },
+    );
+    stubFetch(200);
+
+    const doc = await makeIndexedDoc('enabled.jpg', 'b'.repeat(32));
+    const result = await thumbStage.handler(doc as never, {} as never);
+    expect(result).toEqual({ wrote: true });
+
+    const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);
+    expect(
+      typeof (saved as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at,
+    ).toBe('string');
+  });
+
+  it('never throws and leaves cf_thumb_synced_at unset when the R2 upload fails', async () => {
+    if (!mongoReachable) return;
+    await db!.collection('app_settings').updateOne(
+      { _id: 'cloudflare' } as never,
+      { $set: { config: CF_CONFIG } },
+      { upsert: true },
+    );
+    stubFetch(500);
+
+    const doc = await makeIndexedDoc('failed.jpg', 'c'.repeat(32));
+    // Must not throw despite the upload failing — the stage still reports
+    // { wrote: true } for the local thumb; the backfill job catches this
+    // asset later via the cf_thumb_pending index.
+    const result = await thumbStage.handler(doc as never, {} as never);
+    expect(result).toEqual({ wrote: true });
+
+    const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);
+    expect((saved as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBeUndefined();
   });
 });

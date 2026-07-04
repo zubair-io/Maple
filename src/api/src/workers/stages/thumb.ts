@@ -21,11 +21,21 @@
  *     migration; discover writes sha1_head + maple_id inline at insert so
  *     the new cache-key dependency is satisfied before this stage runs.
  */
+import { readFile } from 'node:fs/promises';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import {
+  isCloudflareConfigComplete,
+  loadCloudflareConfig,
+  resolveCloudflareConfig,
+} from '../../cloudflare/cloudflare-config.repo.ts';
+import { uploadThumbToR2 } from '../../cloudflare/r2-client.ts';
+import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
+import { getDb } from '../../db/client.ts';
+import { child as childLogger } from '../../log.ts';
 import {
   defineStage,
   runStage,
@@ -33,6 +43,65 @@ import {
   type RunStageHandle,
   type StageResult,
 } from '../run-stage.ts';
+
+const log = childLogger('workers/stages/thumb');
+
+/** Upper bound on how long the stage will wait for the Cloudflare upload
+ * before giving up and moving on. A bounded await (not blind fire-and-
+ * forget) so an in-flight upload isn't silently lost if the process exits
+ * mid-request — but short enough that an R2 outage can't meaningfully slow
+ * the indexer, whose thumb-stage concurrency is already only 2. */
+const CF_UPLOAD_TIMEOUT_MS = 5_000;
+
+function withTimeout(promise: Promise<void>, ms: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
+ * Best-effort mirror of a freshly-written thumbnail to Cloudflare R2. Never
+ * throws — a failure here must not fail the thumb stage itself; an
+ * asset whose upload didn't land simply stays selected by the
+ * `cf_thumb_pending` index until the backfill job (sub-issue 4) catches it.
+ */
+async function maybeUploadThumbToCloudflare(image: ImageDoc, thumbPath: string): Promise<void> {
+  if (!image.maple_id) return;
+  const dbConfig = await loadCloudflareConfig();
+  const config = resolveCloudflareConfig(dbConfig);
+  if (!isCloudflareConfigComplete(config)) return;
+
+  const primary = assetPrimaryFileInfo(image);
+  if (!primary) return;
+  const idToSlug = await loadLibraryIdToSlug();
+  const slug = idToSlug.get(primary.library_id.toHexString());
+  if (!slug) return;
+
+  const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
+  try {
+    const bytes = await readFile(thumbPath);
+    await withTimeout(uploadThumbToR2(config, key, bytes), CF_UPLOAD_TIMEOUT_MS);
+    const db = await getDb();
+    await db
+      .collection('assets')
+      .updateOne({ _id: image._id }, { $set: { cf_thumb_synced_at: new Date().toISOString() } });
+  } catch (err) {
+    log.warn(
+      { assetId: image._id.toHexString(), key, err: err instanceof Error ? err.message : err },
+      'cloudflare thumb upload failed — will retry via backfill job',
+    );
+  }
+}
 
 const thumbStage = defineStage({
   name: 'thumb',
@@ -92,6 +161,7 @@ const thumbStage = defineStage({
     // fileinfo[0].path, maple_id) via `resolveThumbPathForAsset`, so a stored
     // `thumb_path` would be dead, redundant data. `{ wrote: true }` marks the
     // stage done without patching any asset field.
+    await maybeUploadThumbToCloudflare(image, thumbPath);
     return { wrote: true };
   },
 });

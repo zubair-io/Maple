@@ -478,4 +478,20 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         // #861: rescinding an invite is sensitive — require a fresh step-up.
         { beforeHandle: stepUpBeforeHandle },
       ),
+  )
+
+  // GET /api/auth/jwt-secret — deliberate, narrowly-scoped exception to
+  // "secrets are never echoed": the operator needs the raw value to run
+  // `wrangler secret put JWT_SECRET` so the Cloudflare thumbnail-cache
+  // Worker (src/cloudflare/, sub-issue 3 of #1757) can independently
+  // verify the same access tokens the API issues. Owner-gated;
+  // `Cache-Control: no-store` so it never lands in a shared/browser cache.
+  .group('/jwt-secret', (g) =>
+    g
+      .use(requireAuth)
+      .use(requireOwner)
+      .get('/', ({ set }) => {
+        set.headers['cache-control'] = 'no-store';
+        return { secret: jwtSecret() };
+      }),
   );
