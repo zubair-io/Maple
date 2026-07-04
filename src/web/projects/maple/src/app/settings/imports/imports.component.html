@@ -58,7 +58,7 @@
                 type="button"
                 class="btn-ghost"
                 [disabled]="busy()"
-                title="Queue immediately — the worker scans and files everything by month (MM)."
+                title="Queue immediately — the worker scans and files everything under the default folder."
                 (click)="autoImport()"
               >
                 Auto Import
@@ -116,6 +116,12 @@
           {{ s.totals.images }} photos · {{ s.totals.movies }} movies ·
           {{ s.totals.sidecars }} sidecars → <strong>{{ libraryLabel(targetLibraryId()) }}</strong>
         </p>
+        <p class="hint">
+          Leave a folder name blank to use the default: an already-indexed photo taken within 30
+          minutes wins first, otherwise
+          <code class="mono">{{ 'misc/' + sourceFolderName() }}</code
+          >.
+        </p>
 
         <div class="bucket-table">
           <div class="bucket-head">
@@ -130,6 +136,7 @@
                 type="text"
                 [ngModel]="labels()[b.key]"
                 (ngModelChange)="setLabel(b.key, $event)"
+                [placeholder]="'misc/' + sourceFolderName() + ' (default)'"
                 [attr.aria-label]="'Folder name for ' + b.key"
               />
               <span class="num">{{ b.imageCount }}</span>

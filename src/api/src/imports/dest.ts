@@ -1,12 +1,24 @@
 /**
  * Pure destination-layout helpers for the Imports feature (ticket #742).
  *
- * Layout:  <YEAR>/<MM-or-label>/<filename>
+ * Four ways a file's destination directory is resolved (highest priority
+ * first — see `buildImportFiles` in `scan.ts` for the actual precedence
+ * chain):
  *
- *   - YEAR / MM come from a file's mtime, in **UTC** (parity with
+ *   1. `destRelPath`          — `<YEAR>/<label>/<filename>`, when the user
+ *      typed an explicit per-bucket label override in the review screen.
+ *   2. `destRelPathInFolder`  — `<existing-asset-folder>/<filename>`, when a
+ *      photo already indexed in the target library was captured within 30
+ *      minutes of this file (it lands next to its neighbor).
+ *   3. `destRelPathShotFolder` — `<YEAR>/<parent-folder>/<source-folder>/<filename>`,
+ *      the fallback for an unlabeled camera dump folder (`Shot0123`, `0123`,
+ *      `012`) — those names carry no information on their own, so the parent
+ *      directory name is kept for context.
+ *   4. `destRelPathDefault`   — `<YEAR>/misc/<source-folder>/<filename>`, the
+ *      default when nothing more specific applies.
+ *
+ *   - YEAR comes from a file's mtime, in **UTC** (parity with
  *     `backup/path-formatter.ts`, which also buckets on UTC wall-clock).
- *   - The middle segment defaults to the two-digit month but is a
- *     user-editable, path-safe free-text label.
  *
  * No Mongo, no filesystem — these are the safety + assembly primitives the
  * scan/copy/worker layers and the create route all funnel through, so the
@@ -31,6 +43,24 @@ export function bucketForMtime(mtimeMs: number): Bucket {
   const year = d.getUTCFullYear().toString().padStart(4, '0');
   const mm = (d.getUTCMonth() + 1).toString().padStart(2, '0');
   return { year, mm };
+}
+
+/** The fixed default-bucket directory name (see `destRelPathDefault`). */
+export const MISC_SEGMENT = 'misc';
+
+/**
+ * Generic camera "dump folder" names that carry no information about their
+ * contents on their own — `Shot0123`/`shot0123`, or a bare zero-padded number
+ * like `0123`/`012`. When the imported source folder's own name matches one
+ * of these, `destRelPathShotFolder` keeps the parent directory name too, so
+ * the destination isn't just an anonymous number.
+ */
+const SHOT_FOLDER_PATTERNS: readonly RegExp[] = [/^shot0\d{3}$/i, /^0\d{3}$/, /^0\d{2}$/];
+
+/** True when a source folder's own name is an anonymous camera dump-folder
+ * name (`Shot0123`, `0123`, `012`, …) rather than a meaningful label. */
+export function isNumberedShotFolder(folderName: string): boolean {
+  return SHOT_FOLDER_PATTERNS.some((re) => re.test(folderName));
 }
 
 /**
@@ -75,4 +105,71 @@ export function destRelPath(args: { year: string; label: string; filename: strin
     throw new Error(`unsafe filename: ${JSON.stringify(args.filename)}`);
   }
   return `${args.year}/${args.label}/${args.filename}`;
+}
+
+/**
+ * The no-override default: `<year>/misc/<source-folder-name>/<filename>`.
+ * `folderName` is the basename of the folder the user picked as the import
+ * source — same validation as a bucket label (it becomes a directory name).
+ */
+export function destRelPathDefault(args: {
+  year: string;
+  folderName: string;
+  filename: string;
+}): string {
+  if (!isSafeLabel(args.folderName)) {
+    throw new Error(`unsafe source folder name: ${JSON.stringify(args.folderName)}`);
+  }
+  if (!isSafeFilename(args.filename)) {
+    throw new Error(`unsafe filename: ${JSON.stringify(args.filename)}`);
+  }
+  return `${args.year}/${MISC_SEGMENT}/${args.folderName}/${args.filename}`;
+}
+
+/**
+ * The anonymous-dump-folder default: `<year>/<parent-folder-name>/<source-folder-name>/<filename>`.
+ * Used instead of `destRelPathDefault` when the source folder's own name is
+ * an uninformative camera dump-folder name (see `isNumberedShotFolder`) — the
+ * parent directory's name is kept for context instead of filing everything
+ * under a flat `misc`.
+ */
+export function destRelPathShotFolder(args: {
+  year: string;
+  parentFolderName: string;
+  folderName: string;
+  filename: string;
+}): string {
+  if (!isSafeLabel(args.parentFolderName)) {
+    throw new Error(`unsafe parent folder name: ${JSON.stringify(args.parentFolderName)}`);
+  }
+  if (!isSafeLabel(args.folderName)) {
+    throw new Error(`unsafe source folder name: ${JSON.stringify(args.folderName)}`);
+  }
+  if (!isSafeFilename(args.filename)) {
+    throw new Error(`unsafe filename: ${JSON.stringify(args.filename)}`);
+  }
+  return `${args.year}/${args.parentFolderName}/${args.folderName}/${args.filename}`;
+}
+
+/**
+ * Place a file next to an existing asset: `<folderPath>/<filename>`, where
+ * `folderPath` is another asset's live `fileinfo[].path` (library-root
+ * relative, POSIX-separated, arbitrary depth). Every segment is re-validated
+ * as a safe label even though it originated from our own DB — defense in
+ * depth against a legacy row written before a stricter check existed.
+ */
+export function destRelPathInFolder(args: { folderPath: string; filename: string }): string {
+  const segments = args.folderPath.split('/').filter((s) => s.length > 0);
+  if (segments.length === 0) {
+    throw new Error(`empty existing-asset folder path: ${JSON.stringify(args.folderPath)}`);
+  }
+  for (const seg of segments) {
+    if (!isSafeLabel(seg)) {
+      throw new Error(`unsafe existing-asset folder segment: ${JSON.stringify(seg)}`);
+    }
+  }
+  if (!isSafeFilename(args.filename)) {
+    throw new Error(`unsafe filename: ${JSON.stringify(args.filename)}`);
+  }
+  return `${segments.join('/')}/${args.filename}`;
 }
