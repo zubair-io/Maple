@@ -11,6 +11,25 @@ import os from 'node:os';
 import path from 'node:path';
 import { scanFolder, buildImportFiles } from './scan.ts';
 
+let previousMapleRoots: string | undefined;
+
+// walk() re-checks every symlink target against MAPLE_ROOTS (see scan.ts).
+// This suite's temp dirs all live under os.tmpdir(), so jail to that for the
+// file's duration — bun runs every test file in one process, so without
+// this, whatever another file left in `process.env.MAPLE_ROOTS` (many test
+// files set it to their OWN narrow temp dir and never restore it) would leak
+// in here and reject every path in this file. Restored in the matching
+// afterAll so it doesn't leak OUT to files that run after this one.
+beforeAll(async () => {
+  previousMapleRoots = process.env.MAPLE_ROOTS;
+  process.env.MAPLE_ROOTS = await fs.realpath(os.tmpdir());
+});
+
+afterAll(() => {
+  if (previousMapleRoots === undefined) delete process.env.MAPLE_ROOTS;
+  else process.env.MAPLE_ROOTS = previousMapleRoots;
+});
+
 // Bucketing/nearby-match now key off CAPTURE time (EXIF DateTimeOriginal/
 // CreateDate), not raw file mtime, so a photo lands under the date it's
 // shown under everywhere else in the app — see resolveCapturedAtMs in
