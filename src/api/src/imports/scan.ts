@@ -367,14 +367,22 @@ export async function buildImportFiles(
   // One nearby-candidates query for the WHOLE batch (not one per file): load
   // every already-indexed asset captured across the full span of this
   // import's file mtimes, padded by the proximity window on both ends, then
-  // match each file against that in-memory list.
+  // match each file against that in-memory list. Min/max computed with a
+  // plain loop, NOT `Math.min(...items.map(...))` — spreading a huge array
+  // onto Math.min/max blows V8's call-stack argument limit (~65,536) on a
+  // large import.
   const loadNearbyCandidates = opts.loadNearbyCandidates ?? (async () => []);
-  const mtimes = items.map((it) => it.mtime);
+  let minMtime = Infinity;
+  let maxMtime = -Infinity;
+  for (const it of items) {
+    if (it.mtime < minMtime) minMtime = it.mtime;
+    if (it.mtime > maxMtime) maxMtime = it.mtime;
+  }
   const nearbyCandidates =
-    mtimes.length > 0
+    items.length > 0
       ? await loadNearbyCandidates(
-          Math.min(...mtimes) - NEARBY_ASSET_WINDOW_MS,
-          Math.max(...mtimes) + NEARBY_ASSET_WINDOW_MS,
+          minMtime - NEARBY_ASSET_WINDOW_MS,
+          maxMtime + NEARBY_ASSET_WINDOW_MS,
         )
       : [];
 
