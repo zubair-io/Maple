@@ -71,12 +71,17 @@ pub fn neutral_to_temp_tint(neutral: [f32; 3]) -> (f32, f32) {
     // #1725), tint also shifts the R/B ratio, so CCT and tint are coupled.
     // A simple alternating iteration can diverge; we use a two-step approach:
     //
-    //  1. Outer bisection over CCT (16 steps, ~0.4 K resolution at 6500 K):
-    //     For each candidate CCT, solve for the tint that brings the R level to
-    //     1 (`solve_tint_for_level`), then compute the resulting R/B.  We bisect
-    //     CCT until that R/B matches target_rb.  The outer function is monotone
-    //     in CCT because at higher CCTs the source is bluer: lower R gain →
-    //     lower R/B, so the residual is strictly decreasing.
+    //  1. Outer bisection over CCT (20 steps, ~0.03 K resolution over the
+    //     [2000, 25000] K range): For each candidate CCT, solve for the tint
+    //     that brings the R level to 1 (`solve_tint_for_level`), then compute
+    //     the resulting R/B.  We bisect CCT until that R/B matches
+    //     target_rb.  The outer function is monotone INCREASING in CCT:
+    //     a warmer (lower-CCT) source has excess R, so the correction
+    //     gain[R] = D65/source is LOW and gain[B] is HIGH there, making R/B
+    //     low at low CCT; a cooler (higher-CCT) source inverts that, making
+    //     R/B high at high CCT. The residual `rb_at_cct(mid) - target_gain_rb`
+    //     is therefore strictly increasing in CCT, which is what the
+    //     bisection direction below assumes.
     //  2. Final tint solve at the converged CCT.
     //
     // `solve_tint_for_level` can rail to ±100 when the neutral is far from the
@@ -105,10 +110,8 @@ pub fn neutral_to_temp_tint(neutral: [f32; 3]) -> (f32, f32) {
         }
     };
 
-    // Outer CCT bisection: rb_at_cct is monotone INCREASING in CCT
-    // (low CCT = warm source → high R gain relative to B? No — warm source
-    // has excess R, so gain[R] = D65/source is LOW and gain[B] is HIGH;
-    // thus R/B is LOW at low CCT and HIGH at high CCT).
+    // Outer CCT bisection: rb_at_cct is monotone INCREASING in CCT (see the
+    // derivation in this function's doc-comment above).
     // Direction: lo=2000 → lowest R/B; hi=25000 → highest R/B.
     let mut lo = 2000.0_f32;
     let mut hi = 25000.0_f32;
@@ -504,7 +507,11 @@ mod tests {
         // Anchor (#1725): a D65 scene white evaluated at 6500K should read
         // back |tint| ≈ 0 — the "camera is looking at exactly D65" case.
         let tint = estimate_tint_from_scene_xyz(crate::color::matrices::XYZ_D65, 6500.0);
-        assert!(tint.abs() < 2.0, "D65 white should read back |tint|≈0, got {}", tint);
+        assert!(
+            tint.abs() < 2.0,
+            "D65 white should read back |tint|≈0, got {}",
+            tint
+        );
     }
 
     #[test]
