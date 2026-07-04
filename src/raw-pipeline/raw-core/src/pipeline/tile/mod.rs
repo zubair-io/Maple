@@ -24,6 +24,8 @@ mod region;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_render;
 
 use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
 
