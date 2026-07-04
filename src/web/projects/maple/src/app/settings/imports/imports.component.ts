@@ -222,6 +222,16 @@ export class ImportsComponent implements OnInit, OnDestroy {
     this.labels.update((m) => ({ ...m, [key]: value }));
   }
 
+  /** True when the user has typed an explicit label override for this
+   * bucket. An override always wins over a nearby-asset match (see
+   * buildImportFiles's precedence in scan.ts), so the nearby-match note must
+   * hide once one is set — otherwise the review screen would claim files
+   * will "join existing photos" when they're actually going to the
+   * user-typed folder. */
+  protected hasOverride(bucket: ImportScanBucket): boolean {
+    return (this.labels()[bucket.key] ?? '').trim().length > 0;
+  }
+
   /** The destination a bucket's files will ACTUALLY land in, reflecting the
    * user's current (possibly still-being-typed) label override — so the
    * review screen never shows a stale or ambiguous folder. */
