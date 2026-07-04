@@ -98,7 +98,19 @@ _STAGE_WORKING_SPACE = {
     "16a_split_tone": "rec2020",
     "16b_grain": "rec2020",
     "17_srgb_linear": "srgb_linear",
+    # The Auto Profile tail (`maple-cli auto-tail-ramp`, #1740 M1) operates
+    # on and emits gamma-encoded display sRGB — decoded to linear before any
+    # metric so the second-difference gate measures the same perceptual axes
+    # as the other stages.
+    "18_auto_tail": "srgb_gamma",
 }
+
+
+def _srgb_gamma_decode(rgb: np.ndarray) -> np.ndarray:
+    """IEC 61966-2-1 sRGB EOTF (gamma decode), matching
+    `raw-core/src/view/agx_inverse.rs::srgb_gamma_inv`."""
+    x = rgb.astype(np.float64)
+    return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
 
 
 def _to_oklab(rgb: np.ndarray, working_space: str) -> np.ndarray:
@@ -106,6 +118,8 @@ def _to_oklab(rgb: np.ndarray, working_space: str) -> np.ndarray:
     flat = rgb.reshape(-1, 3).astype(np.float64)
     if working_space == "rec2020":
         flat = flat @ _M_REC2020_TO_SRGB.T
+    elif working_space == "srgb_gamma":
+        flat = _srgb_gamma_decode(flat)
     elif working_space != "srgb_linear":
         raise ValueError(f"unknown working space {working_space!r}")
     lms = flat @ _M1_SRGB_TO_LMS.T
@@ -210,10 +224,11 @@ def ramp_axis_values(rgb: np.ndarray, stage: str, axis: str) -> np.ndarray:
     """Return the (H, W) scalar field the second-difference metric runs
     over: Oklab chroma for `axis == "chroma"`, Rec.2020 luma for
     `axis == "luma"`."""
+    working_space = _STAGE_WORKING_SPACE.get(stage, "srgb_linear")
     if axis == "luma":
-        return (rgb * REC2020_LUM).sum(axis=-1).astype(np.float64)
+        lin = _srgb_gamma_decode(rgb) if working_space == "srgb_gamma" else rgb
+        return (lin * REC2020_LUM).sum(axis=-1).astype(np.float64)
     if axis == "chroma":
-        working_space = _STAGE_WORKING_SPACE.get(stage, "srgb_linear")
         lab = _to_oklab(rgb, working_space)
         return np.sqrt(lab[..., 1] ** 2 + lab[..., 2] ** 2)
     raise ValueError(f"unknown ramp axis {axis!r}")
@@ -251,6 +266,31 @@ def second_difference_spike(values: np.ndarray) -> dict:
     }
 
 
+def flat_run(values: np.ndarray, eps: float = 1e-6) -> dict:
+    """Longest run of consecutive first-difference steps with |d1| <= eps,
+    as a fraction of the row's step count — the PLATEAU metric (#1740 M1).
+
+    The second-difference spike above catches a HARD clip's elbow, but a
+    tone mapping can also destroy a range smoothly: approach saturation with
+    a soft shoulder, then sit exactly flat (the Auto 2.0 posterized-highlight
+    defect on test_0000 — everything above ~0.74 input collapsed onto output
+    1.0 with no sharp elbow anywhere, max_abs_d2 stayed tiny). A flat run
+    IS the posterization: every input in the run renders identically. A
+    healthy compressive tail keeps a strictly positive (if small) slope, so
+    its longest |d1|<=eps run is ~0.
+    """
+    d1 = np.abs(np.diff(values, axis=1))
+    flat = d1 <= eps
+    max_frac = 0.0
+    for row in flat:
+        run = best = 0
+        for f in row:
+            run = run + 1 if f else 0
+            best = max(best, run)
+        max_frac = max(max_frac, best / row.shape[0])
+    return {"max_flat_run_frac": float(max_frac), "flat_eps": eps}
+
+
 def load_budgets(path: Path) -> dict:
     """Load `test-fixtures/banding_budgets.json`. Matches the
     `{"version": 1, "fixtures": {...}}` wrapper convention shared with
@@ -271,7 +311,7 @@ def check_budget(metrics: dict, budget: dict | None) -> tuple[bool, list[str]]:
     if budget is None:
         return True, []
     failures = []
-    for key in ("max_abs_d2", "max_spike_ratio"):
+    for key in ("max_abs_d2", "max_spike_ratio", "max_flat_run_frac"):
         if key not in budget:
             continue
         ceiling = budget[key]
@@ -315,6 +355,7 @@ def main() -> int:
     rgb = load_exr_rgb(exr_path)
     values = ramp_axis_values(rgb, args.stage, args.ramp_axis)
     spike = second_difference_spike(values)
+    plateau = flat_run(values)
     drift = per_row_rgb_drift(rgb) if args.ramp_axis == "luma" else None
     gaps = shadow_histogram_gaps(rgb)
 
@@ -325,6 +366,9 @@ def main() -> int:
     print(f"  mean_abs_d2:      {spike['mean_abs_d2']:.6f}")
     print(f"  max_spike_ratio:  {spike['max_spike_ratio']:.6f}  (spike / row's own peak step)")
     print(f"  mean_spike_ratio: {spike['mean_spike_ratio']:.6f}")
+    print()
+    print(f"Flat run (plateau / posterization metric, |d1| <= {plateau['flat_eps']:g}):")
+    print(f"  max_flat_run_frac: {plateau['max_flat_run_frac']:.6f}  (longest flat run / ramp steps)")
     print()
     if drift is not None:
         print("R/G/B equality (max abs diff over all pixels):")
@@ -345,7 +389,7 @@ def main() -> int:
     budgets = load_budgets(args.budgets)
     budget_key = args.budget_key or f"{args.dump_dir.name}/{args.stage}/{args.ramp_axis}"
     budget = budgets.get(budget_key)
-    passed, failures = check_budget(spike, budget)
+    passed, failures = check_budget({**spike, **plateau}, budget)
 
     print()
     if budget is None:
@@ -369,6 +413,7 @@ def main() -> int:
             "ramp_axis": args.ramp_axis,
             "shape": list(rgb.shape),
             "second_difference": spike,
+            "flat_run": plateau,
             "rgb_drift": drift,
             "shadow_gaps": gaps,
             "budget_key": budget_key,
