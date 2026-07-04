@@ -84,6 +84,19 @@ impl KnotRange {
             let idx = ((lums.len() - 1) as f32 * p).round() as usize;
             lums[idx.min(lums.len() - 1)]
         };
+        // 2nd/98th percentile. #1740 M1 calibration note: widening the
+        // ceiling to the 99.9th percentile was tried as a posterized-
+        // highlight fix (pull the highlight population inside the fitted
+        // lattice) and REJECTED — stretching the 9-knot span across the
+        // outlier tail coarsens midtone resolution enough to regress
+        // fixtures whose signal lives there (test_0006 baseline_auto mean
+        // ΔE00 4.40 → 6.43 on the ACR-parity harness). The highlight
+        // plateau is instead fixed where it belongs: the JPEG-pair
+        // front-end's identity-decay extrapolation
+        // (`from_pairs::shape_tonescale_for_display_domain`) and the bake's
+        // soft shoulder (`acr_fit::bake::shoulder_01`) — the top ~2% past
+        // the last knot decays to identity instead of compounding the
+        // boundary gain.
         let lo_raw = pct(0.02).clamp(Self::FLOOR, Self::CEILING);
         let hi_raw = pct(0.98).clamp(Self::FLOOR, Self::CEILING);
 

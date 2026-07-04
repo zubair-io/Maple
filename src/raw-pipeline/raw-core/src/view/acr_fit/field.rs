@@ -13,6 +13,31 @@
 use super::model::{HueChromaField, Tonescale, CHROMA_BINS, FIELD_N, HUE_BINS, LUMA_BINS};
 use crate::color::oklab::rec2020_to_oklab;
 
+/// Per-sample chroma-ratio bounds (#1740 M1 calibration). `s = C_meas /
+/// C_pred` is a ratio of two chroma magnitudes; when the prediction sits
+/// near the neutral axis the denominator is tiny and one noisy JPEG pixel
+/// yields a wild ratio (an unshrunk test_0000 fit carried a cell mean of
+/// 33.8×). A camera JPEG engine never legitimately multiplies chroma by
+/// more than a few — bound each OBSERVATION before it enters a cell mean
+/// so a handful of degenerate samples can't own a sparse cell.
+const SAT_RATIO_MIN: f32 = 0.25;
+const SAT_RATIO_MAX: f32 = 4.0;
+
+/// Count-based shrinkage toward identity (Δh = 0, s = 1) for the JPEG-pair
+/// front-end: a cell's mean is weighted by `count / (count + k)`, so a cell
+/// supported by only a few scattered photo samples decays most of the way
+/// to identity while a well-populated cell (real hue mass in the photo)
+/// keeps essentially its full fitted value. This is the epic's "unsupported
+/// cells decay to identity" gamut feathering applied per-observation-count
+/// rather than as a binary empty/non-empty switch.
+///
+/// The CHART solver passes `shrink_k = 0.0` (no shrinkage): its sweep chart
+/// deliberately places ~1 engineered, noise-free patch per lattice cell, so
+/// count is a design constant there, not a confidence signal — shrinking on
+/// it would just scale the whole fitted field down (measured: the 6°-twist
+/// capture test regresses to a −4.3° mean residual under `k = 8`).
+pub const PAIRS_SHRINK_K: f32 = 8.0;
+
 /// A sweep-patch observation for the field fit.
 pub struct SweepSample {
     /// Scene-linear Rec.2020 RGB (from spec).
@@ -23,8 +48,15 @@ pub struct SweepSample {
 
 /// Fit the hue/chroma residual field from unclipped sweep samples.
 ///
+/// `shrink_k` is the count-based identity-shrinkage constant (0.0 = none —
+/// the chart solver; [`PAIRS_SHRINK_K`] — the JPEG-pair front-end).
+///
 /// Returns `(field, patches_used, patches_clipped)`.
-pub fn fit_field(samples: &[SweepSample], ts: &Tonescale) -> (HueChromaField, usize, usize) {
+pub fn fit_field(
+    samples: &[SweepSample],
+    ts: &Tonescale,
+    shrink_k: f32,
+) -> (HueChromaField, usize, usize) {
     use crate::color::matrices::M_REC2020_TO_SRGB;
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
@@ -71,9 +103,14 @@ pub fn fit_field(samples: &[SweepSample], ts: &Tonescale) -> (HueChromaField, us
             h_pred
         };
 
-        // Residuals.
+        // Residuals. The per-sample ratio is bounded BEFORE averaging so a
+        // near-neutral prediction's degenerate ratio can't own a sparse cell.
         let dh = angle_diff_deg(h_meas, h_pred);
-        let sat_scale = if c_pred > 1e-6 { c_meas / c_pred } else { 1.0 };
+        let sat_scale = if c_pred > 1e-6 {
+            (c_meas / c_pred).clamp(SAT_RATIO_MIN, SAT_RATIO_MAX)
+        } else {
+            1.0
+        };
 
         // Lattice coordinates (nearest-bin).
         let hue_norm = h_pred.rem_euclid(360.0) / 360.0;
@@ -90,13 +127,18 @@ pub fn fit_field(samples: &[SweepSample], ts: &Tonescale) -> (HueChromaField, us
         patches_used += 1;
     }
 
-    // Convert sums to means; fill empty cells with 0 / 1 defaults.
+    // Convert sums to count-shrunk means (empty cells stay at the 0 / 1
+    // identity defaults; sparsely-supported cells decay most of the way
+    // toward them when `shrink_k > 0` — see [`PAIRS_SHRINK_K`]).
     let mut dh_field = vec![0.0f32; FIELD_N];
     let mut ss_field = vec![1.0f32; FIELD_N];
     for i in 0..FIELD_N {
         if counts[i] > 0 {
-            dh_field[i] = (dh_sum[i] / counts[i] as f64) as f32;
-            ss_field[i] = (ss_sum[i] / counts[i] as f64) as f32;
+            let mean_dh = (dh_sum[i] / counts[i] as f64) as f32;
+            let mean_ss = (ss_sum[i] / counts[i] as f64) as f32;
+            let w = counts[i] as f32 / (counts[i] as f32 + shrink_k);
+            dh_field[i] = mean_dh * w;
+            ss_field[i] = 1.0 + (mean_ss - 1.0) * w;
         }
     }
 
@@ -180,6 +222,76 @@ mod tests {
         let mut data = vec![1.0f32; FIELD_N];
         smooth_field(&mut data);
         assert_eq!(data.len(), FIELD_N);
+    }
+
+    fn one_sample(scene: [f32; 3], display: [f32; 3]) -> Vec<SweepSample> {
+        vec![SweepSample {
+            scene_rec2020: scene,
+            display_srgb: display,
+        }]
+    }
+
+    fn flat_tonescale() -> Tonescale {
+        // Identity in the display-linear domain: T(l) = l.
+        Tonescale {
+            knots_log2: vec![-10.0, 0.0],
+            values: vec![2.0f32.powf(-10.0), 1.0],
+        }
+    }
+
+    /// #1740 M1: a cell supported by ONE scattered photo sample must decay
+    /// most of the way to identity under `PAIRS_SHRINK_K` (w = 1/(1+8)),
+    /// while the chart path (shrink_k = 0) keeps the full residual. The
+    /// neighbour smoothing is linear, so the ratio survives it exactly.
+    #[test]
+    fn count_shrinkage_pulls_single_sample_cell_toward_identity() {
+        // A mid-luma red-ish sample whose display hue is twisted.
+        let scene = [0.4f32, 0.1, 0.1];
+        let display = [0.38f32, 0.14, 0.08];
+        let (f_chart, used_a, _) = fit_field(&one_sample(scene, display), &flat_tonescale(), 0.0);
+        let (f_pairs, used_b, _) = fit_field(
+            &one_sample(scene, display),
+            &flat_tonescale(),
+            PAIRS_SHRINK_K,
+        );
+        assert_eq!(used_a, 1);
+        assert_eq!(used_b, 1);
+        let max_dh_chart = f_chart
+            .delta_h_deg
+            .iter()
+            .fold(0.0f32, |m, v| m.max(v.abs()));
+        let max_dh_pairs = f_pairs
+            .delta_h_deg
+            .iter()
+            .fold(0.0f32, |m, v| m.max(v.abs()));
+        assert!(
+            max_dh_chart > 1.0,
+            "control: unshrunk twist should be visible"
+        );
+        let expected = 1.0 / (1.0 + PAIRS_SHRINK_K);
+        let ratio = max_dh_pairs / max_dh_chart;
+        assert!(
+            (ratio - expected).abs() < 0.02,
+            "single-sample cell should shrink by count/(count+K) = {expected}, got {ratio}"
+        );
+    }
+
+    /// #1740 M1: a near-neutral prediction's chroma ratio is a division by
+    /// almost zero — one noisy sample used to plant a wild sat_scale (33.8x
+    /// observed on an unshrunk test_0000 fit). The per-sample bound caps it
+    /// before it enters the cell mean.
+    #[test]
+    fn degenerate_chroma_ratio_is_bounded_per_sample() {
+        // Prediction barely off-neutral; display strongly chromatic.
+        let scene = [0.4f32, 0.3995, 0.3995];
+        let display = [0.7f32, 0.2, 0.2];
+        let (field, used, _) = fit_field(&one_sample(scene, display), &flat_tonescale(), 0.0);
+        assert_eq!(used, 1);
+        let max_ss = field.sat_scale.iter().fold(0.0f32, |m, v| m.max(*v));
+        assert!(
+            max_ss <= SAT_RATIO_MAX,
+            "per-sample ratio bound must cap the cell mean at {SAT_RATIO_MAX}, got {max_ss}"
+        );
     }
 
     #[test]
