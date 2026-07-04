@@ -13,6 +13,7 @@ pub mod batch;
 pub mod diff;
 pub mod extract_preview;
 pub mod fit_acr;
+pub mod fit_auto2;
 pub mod inspect;
 pub mod render;
 pub mod synthetic;
