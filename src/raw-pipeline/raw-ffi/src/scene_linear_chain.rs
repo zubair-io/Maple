@@ -287,16 +287,33 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.luminance_adjustment_magenta = p.hsl_lum_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
-    // For non-RAW shapes (#1331) WB is meaningless — the buffer is already at
-    // the correct linear Rec.2020 white point (the 8-bit path was linearised at
-    // session open; the 16-bit pano path was never WB-encoded). Collapse the WB
-    // delta to identity by setting decoded == live (so apply_delta returns the
-    // identity matrix).
+    // Non-RAW WB contract (#1331 / #1734): for a non-RAW shape the uploaded
+    // buffer is ALREADY at the correct linear Rec.2020 D65 white point (the
+    // 8-bit JPEG/HEIF path was linearised at session open; the 16-bit pano
+    // path was never WB-encoded) — there is no "as-shot" anchor to preserve,
+    // only the D65 baseline. So the temp/tint sliders apply as a DELTA off
+    // D65 (`decoded = 6500.0/0.0`), the SAME contract the GPU-live chain's
+    // `inputs_from_params` uses when the host supplies a decoded anchor:
+    // `M_net = wb(live) · wb(6500, 0)⁻¹`, identity at the default slider
+    // position, shifting correctly as the user drags temp/tint.
+    //
+    // Earlier this branch collapsed the delta to IDENTITY outright
+    // (`decoded = (p.temperature, p.tint)`, forcing `live == decoded`
+    // unconditionally) — that made the temp/tint sliders permanently inert
+    // on this CPU refine path regardless of the GPU-live half of the fix,
+    // which is worse than the original drag-time-pop bug: a drag would shift
+    // the image live on the GPU chain then SNAP BACK to unshifted on the next
+    // CPU refine tick. Anchoring to D65 here instead keeps both paths
+    // agreeing on the same delta at every slider position.
+    //
+    // Scoped to non-RAW only (`p.input_shape != 0`): RAW callers (shape 0)
+    // keep the pre-existing `decoded_temperature`/`decoded_tint` passthrough
+    // unchanged — the as-shot-anchored behavior legacy/headless RAW callers
+    // depend on (Copilot review on #1262) is untouched by this fix.
     let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
         (p.decoded_temperature, p.decoded_tint)
     } else {
-        // Non-zero shape: WB delta → identity (live == decoded → no-op).
-        (p.temperature, p.tint)
+        (6500.0, 0.0)
     };
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);

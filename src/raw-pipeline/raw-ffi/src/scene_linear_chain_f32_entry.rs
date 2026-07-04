@@ -100,13 +100,16 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.luminance_adjustment_magenta = p.hsl_lum_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
-    // Same WB-identity collapse as the fp16 sibling (#1331): for non-RAW input
-    // shapes WB has no meaning — pass `decoded == live` so `apply_delta` is a
-    // no-op regardless of the slider value.
+    // Non-RAW WB contract (#1331 / #1734) — same D65-baseline delta as the fp16
+    // sibling in `scene_linear_chain.rs` (see that file's doc comment for the
+    // full rationale): a non-RAW buffer is already at linear Rec.2020 D65, so
+    // temp/tint apply as a delta OFF 6500K/0 tint, not identity. Scoped to
+    // non-RAW (`input_shape != 0`) only — RAW callers keep the as-shot-anchored
+    // `decoded_temperature`/`decoded_tint` passthrough unchanged.
     let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
         (p.decoded_temperature, p.decoded_tint)
     } else {
-        (p.temperature, p.tint)
+        (6500.0, 0.0)
     };
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
