@@ -12,6 +12,9 @@ test-fixtures/*
 !test-fixtures/pano-budgets.json
 # Exception: drift / state notes that travel with budgets.json.
 !test-fixtures/BUDGETS_DRIFT.md
+# Exception: the banding second-difference budget table IS committed (CI
+# ratchet for src/scripts/test_banding.sh — #1627/#1733).
+!test-fixtures/banding_budgets.json
 # Exception: face-clustering fixtures are small (~2 MB) and IS committed
 # (the parity gate at src/scripts/test_face_clustering.sh needs them).
 # See test-fixtures/face-clustering/README.md for regenerator details.

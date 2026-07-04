@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "_comment": "Second-difference spike-ratio ceilings for src/scripts/test_banding.sh (#1627). Derived via a RED run (tools/budget_init.py pattern): every (fixture, stage, ramp_axis) cell was measured across the full slider-extreme sweep (baseline, exposure+4, contrast+100, shadows+100, blacks-100, saturation+100, vibrance+100, hsl_saturation+100 all-bands), the worst observed max_spike_ratio / max_abs_d2 recorded, then +8%/+10% headroom applied (floor 1.2 / 0.001) so a sub-percent noise wobble on a re-run doesn't flip PASS to FAIL. One-way ratchet: lower these only in the same commit that delivers the improvement (never invented round numbers). hsl_saturation+100 (#1733) did not move any worst-case cell vs the original 7-case sweep, confirming the hsl.rs gamut-soft-knee fix holds at the pipeline level.",
+  "fixtures": {
+    "blue/16_agx/chroma": { "max_abs_d2": 0.001789, "max_spike_ratio": 1.2 },
+    "blue/17_srgb_linear/chroma": { "max_abs_d2": 0.032407, "max_spike_ratio": 1.2 },
+    "foliage/16_agx/chroma": { "max_abs_d2": 0.007655, "max_spike_ratio": 1.2 },
+    "foliage/17_srgb_linear/chroma": { "max_abs_d2": 0.001805, "max_spike_ratio": 1.2 },
+    "magenta/16_agx/chroma": { "max_abs_d2": 0.005891, "max_spike_ratio": 1.2 },
+    "magenta/17_srgb_linear/chroma": { "max_abs_d2": 0.003351, "max_spike_ratio": 1.2 },
+    "skin/16_agx/chroma": { "max_abs_d2": 0.005329, "max_spike_ratio": 1.2 },
+    "skin/17_srgb_linear/chroma": { "max_abs_d2": 0.001799, "max_spike_ratio": 1.2 },
+    "neutral/16_agx/luma": { "max_abs_d2": 0.005096, "max_spike_ratio": 1.2 },
+    "neutral/17_srgb_linear/luma": { "max_abs_d2": 0.005096, "max_spike_ratio": 1.2 }
+  }
+}
