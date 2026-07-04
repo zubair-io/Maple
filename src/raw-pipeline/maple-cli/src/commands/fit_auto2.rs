@@ -24,8 +24,9 @@
 //! measured JPEG pairs; smoothness (max second-difference of the model's own
 //! residual along the neutral grey diagonal, reusing the
 //! `no_second_difference_spike_across_sparse_boundary` instrument's shape);
-//! and correction magnitude at three deliberately far-out-of-JPEG-gamut probe
-//! points (saturated primaries pushed past what an 8-bit sRGB JPEG can hold).
+//! and correction magnitude at three fully-saturated sRGB primary probe
+//! points (colors a real photo's JPEG correspondence set almost never
+//! actually reaches, so both fits must extrapolate/default there).
 //!
 //! Feature gate: `test-support` (the fit-acr solver only compiles under it).
 
@@ -69,7 +70,7 @@ mod imp {
     }
 
     /// Correction magnitude (ΔE00 between the model's output and its input)
-    /// at a single far-out-of-JPEG-gamut probe point.
+    /// at a single fully-saturated sRGB primary probe point.
     pub struct GamutProbe {
         pub label: &'static str,
         pub correction_de: f32,
@@ -138,6 +139,18 @@ mod imp {
 
         // ── Sample the display-space (maple, jpeg) pairs — the shared front
         // door for both Auto 1.0's free LUT and Auto 2.0's structured solver.
+        //
+        // `sample_display_pairs` / `fit_curve_from_preview_display` each take
+        // the preview by value AND rotate both it and their sensor-space RGB
+        // buffer using the same `orientation` argument (see the "CRITICAL —
+        // orientation alignment" comment on `fit_curve_from_preview_display`),
+        // so `orientation` cannot be pre-applied to only one of the two
+        // buffers without desyncing them (the test_0013 Rotate90 regression
+        // this exact refactor hit once, before this fix). What CAN be
+        // trimmed is clone count: only the first two calls need their own
+        // owned copy of the preview, since the third and last use can take
+        // `extracted.image` itself instead of cloning it again (Copilot
+        // review, PR #1749).
         let pairs = sample_display_pairs(
             &flat,
             w,
@@ -175,7 +188,7 @@ mod imp {
             &curved_flat,
             w,
             h,
-            extracted.image.clone(),
+            extracted.image,
             extracted.color_space,
             raw.orientation,
         );
@@ -379,11 +392,12 @@ mod imp {
 
     // ── Shared helpers ───────────────────────────────────────────────────
 
-    /// Three deliberately far-out-of-JPEG-gamut probe points: an 8-bit sRGB
-    /// JPEG cannot represent fully-saturated primaries pushed past its
-    /// gamut boundary the way a wide-gamut scene-linear render can, so a
-    /// fit's correspondence set never sees anything like these. Auto 1.0's
-    /// free LUT is expected to still carry a large stale correction here
+    /// Three fully-saturated sRGB primaries, sitting exactly on the sRGB
+    /// gamut boundary: colors a real photo's JPEG correspondence set almost
+    /// never actually reaches (a busy scene rarely has a pixel that is
+    /// PURELY red, green, or blue with zero of the other channels), so both
+    /// fits have to extrapolate/default rather than interpolate here. Auto
+    /// 1.0's free LUT is expected to still carry a large stale correction
     /// (extrapolated/clamped, not decayed); Auto 2.0's field defaults
     /// unsupported cells to identity by construction.
     fn gamut_probe_points() -> [(&'static str, [f32; 3]); 3] {

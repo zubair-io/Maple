@@ -221,9 +221,11 @@ enum Cmd {
     /// Measurement only — no pipeline wiring, no profile switch.
     ///
     /// Requires `--features test-support`. Exits with the dedicated
-    /// sentinel code 3 when the RAW has no usable embedded JPEG preview (so
-    /// a batch script can skip it cleanly); a missing/unreadable RAW or a
-    /// write failure exits with the generic error code 1.
+    /// sentinel code 3 when the RAW has no usable embedded JPEG preview, OR
+    /// when the preview yields too few display pairs (< 256) to fit either
+    /// model (so a batch script can skip either skip-reason cleanly); a
+    /// missing/unreadable RAW or a write failure exits with the generic
+    /// error code 1.
     FitAuto2 {
         /// Path to the RAW file.
         #[arg(long)]
