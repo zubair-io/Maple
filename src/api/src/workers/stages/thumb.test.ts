@@ -60,11 +60,41 @@ function makeDoc(
         processed_at: new Date().toISOString(),
         dead: false,
       },
-      thumb: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      face: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      describe: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      geocode: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      meili: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      thumb: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      face: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      describe: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      geocode: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      meili: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
     },
   };
 }
@@ -87,7 +117,12 @@ describe('thumb handler — bitmap path', () => {
   it('generates a thumb for a JPEG and marks the stage as wrote', async () => {
     const file = path.join(dir, 'photo.jpg');
     const buf = await sharp({
-      create: { width: 800, height: 600, channels: 3, background: { r: 100, g: 150, b: 200 } },
+      create: {
+        width: 800,
+        height: 600,
+        channels: 3,
+        background: { r: 100, g: 150, b: 200 },
+      },
     })
       .jpeg()
       .toBuffer();
@@ -142,7 +177,12 @@ describe('thumb handler — bitmap path', () => {
     // Create a 16x8 JPEG tagged as orientation 6 (90° CW). After the orientation
     // fix (Plan 0), the on-disk thumb must be 8 wide × 16 tall.
     const buf = await sharp({
-      create: { width: 16, height: 8, channels: 3, background: { r: 200, g: 50, b: 50 } },
+      create: {
+        width: 16,
+        height: 8,
+        channels: 3,
+        background: { r: 200, g: 50, b: 50 },
+      },
     })
       .jpeg()
       .withMetadata({ orientation: 6 })
@@ -257,7 +297,12 @@ describe('thumb handler — content-addressed cache path', () => {
     await import('node:fs/promises').then(({ mkdir }) => mkdir(sub, { recursive: true }));
     const file = path.join(sub, 'IMG_001.jpg');
     const buf = await sharp({
-      create: { width: 800, height: 600, channels: 3, background: { r: 50, g: 50, b: 50 } },
+      create: {
+        width: 800,
+        height: 600,
+        channels: 3,
+        background: { r: 50, g: 50, b: 50 },
+      },
     })
       .jpeg()
       .toBuffer();
@@ -269,7 +314,12 @@ describe('thumb handler — content-addressed cache path', () => {
       // Override to point fileinfo[0] at the vacation subdir explicitly so
       // the content-addressed thumb path lives there.
       fileinfo: [
-        { path: 'vacation', filename: 'IMG_001.jpg', library_id: libId, deleted_at: null },
+        {
+          path: 'vacation',
+          filename: 'IMG_001.jpg',
+          library_id: libId,
+          deleted_at: null,
+        },
       ],
     };
 
@@ -306,7 +356,12 @@ describe('thumb handler — Cloudflare upload hook', () => {
   async function makeIndexedDoc(filename: string, mapleId: string) {
     const file = path.join(dir, filename);
     const buf = await sharp({
-      create: { width: 400, height: 300, channels: 3, background: { r: 10, g: 20, b: 30 } },
+      create: {
+        width: 400,
+        height: 300,
+        channels: 3,
+        background: { r: 10, g: 20, b: 30 },
+      },
     })
       .jpeg()
       .toBuffer();
@@ -314,7 +369,10 @@ describe('thumb handler — Cloudflare upload hook', () => {
     // makeDoc hardcodes a fixed `_id`; give each inserted doc a real, unique
     // one so three inserts in this block don't collide on the assets
     // collection's primary key.
-    const doc = { ...makeDoc(file, libId, dir, null, mapleId), _id: new ObjectId() };
+    const doc = {
+      ...makeDoc(file, libId, dir, null, mapleId),
+      _id: new ObjectId(),
+    };
     await db!.collection('assets').insertOne(doc as never);
     return doc;
   }
@@ -384,11 +442,9 @@ describe('thumb handler — Cloudflare upload hook', () => {
 
   it('uploads to R2 and stamps cf_thumb_synced_at when enabled and complete', async () => {
     if (!mongoReachable) return;
-    await db!.collection('app_settings').updateOne(
-      { _id: 'cloudflare' } as never,
-      { $set: { config: CF_CONFIG } },
-      { upsert: true },
-    );
+    await db!
+      .collection('app_settings')
+      .updateOne({ _id: 'cloudflare' } as never, { $set: { config: CF_CONFIG } }, { upsert: true });
     stubFetch(200);
 
     const doc = await makeIndexedDoc('enabled.jpg', 'b'.repeat(32));
@@ -396,18 +452,14 @@ describe('thumb handler — Cloudflare upload hook', () => {
     expect(result).toEqual({ wrote: true });
 
     const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);
-    expect(
-      typeof (saved as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at,
-    ).toBe('string');
+    expect(typeof (saved as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBe('string');
   });
 
   it('never throws and leaves cf_thumb_synced_at unset when the R2 upload fails', async () => {
     if (!mongoReachable) return;
-    await db!.collection('app_settings').updateOne(
-      { _id: 'cloudflare' } as never,
-      { $set: { config: CF_CONFIG } },
-      { upsert: true },
-    );
+    await db!
+      .collection('app_settings')
+      .updateOne({ _id: 'cloudflare' } as never, { $set: { config: CF_CONFIG } }, { upsert: true });
     stubFetch(500);
 
     const doc = await makeIndexedDoc('failed.jpg', 'c'.repeat(32));

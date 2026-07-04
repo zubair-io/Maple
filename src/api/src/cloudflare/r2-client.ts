@@ -75,7 +75,5 @@ export async function testR2Credentials(config: ResolvedCloudflareConfig): Promi
   }
   // Best-effort cleanup — a failed DELETE doesn't invalidate the probe
   // (the credentials clearly worked if the PUT above succeeded).
-  await client
-    .fetch(r2Endpoint(config, probeKey), { method: 'DELETE' })
-    .catch(() => undefined);
+  await client.fetch(r2Endpoint(config, probeKey), { method: 'DELETE' }).catch(() => undefined);
 }
