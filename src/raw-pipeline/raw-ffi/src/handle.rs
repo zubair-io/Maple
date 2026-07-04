@@ -299,7 +299,18 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
         }
         let (w, h, fp16) =
             match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
-                raw_img, model, src_x, src_y, src_w, src_h, out_w, out_h, quality, wb_anchor,
+                raw_img,
+                model,
+                raw_core::pipeline::TileRect {
+                    src_x,
+                    src_y,
+                    src_w,
+                    src_h,
+                    out_w,
+                    out_h,
+                },
+                quality,
+                wb_anchor,
             ) {
                 Ok(t) => t,
                 Err(e) => {
