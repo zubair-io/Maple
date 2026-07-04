@@ -26,5 +26,6 @@ pub mod texture;
 pub mod tone_curves;
 pub mod vibrance;
 pub mod vignette;
+pub mod wb_camera;
 pub mod white_balance;
 pub mod white_balance_auto;
