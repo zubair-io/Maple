@@ -62,14 +62,34 @@ const _: () = assert!(
     "TILE_OVERLAP_PX must cover the clarity guided-filter reach; bump it when CLARITY_GUIDED_RADIUS grows.",
 );
 
+/// Source-pixel rectangle + target output dimensions for a tile render.
+///
+/// Groups the six geometry parameters that used to be passed positionally
+/// to `render_scene_linear_tile_from_raw_with_quality_and_wb_anchor` (which
+/// pushed it past the project's 5-parameter / no-`too_many_arguments`
+/// guideline).
+#[derive(Debug, Clone, Copy)]
+pub struct TileRect {
+    /// Source-pixel rectangle origin/size in mosaic coordinates
+    /// (pre-orientation). Rounded to even via `pad_and_clamp_mosaic_rect`
+    /// for Bayer-phase preservation.
+    pub src_x: u32,
+    pub src_y: u32,
+    pub src_w: u32,
+    pub src_h: u32,
+    /// Target output dimensions — never upscale; the render errors if
+    /// `out_w > src_w || out_h > src_h`.
+    pub out_w: u32,
+    pub out_h: u32,
+}
+
 /// Render a tile of the developed scene-linear Rec.2020 fp16 RGBA image.
 ///
 /// Parameters:
-/// - `(src_x, src_y, src_w, src_h)`: source-pixel rectangle in mosaic
-///   coordinates (pre-orientation). The mosaic crop coords get rounded
-///   to even via `pad_and_clamp_mosaic_rect` for Bayer-phase preservation.
-/// - `(out_w, out_h)`: target dimensions — never upscale; this fn errors
-///   if `out_w > src_w || out_h > src_h`.
+/// - `rect`: source-pixel rectangle (`rect.src_x/src_y/src_w/src_h`, mosaic
+///   coordinates, pre-orientation) and target output dimensions
+///   (`rect.out_w/out_h`) — never upscale; this fn errors if
+///   `rect.out_w > rect.src_w || rect.out_h > rect.src_h`. See [`TileRect`].
 /// - `quality`: `Preview` (half-res quad demosaic) or `Full` (bilinear or
 ///   hamilton_adams per `cfg(feature)`).
 ///
@@ -107,17 +127,10 @@ const _: () = assert!(
 pub fn render_scene_linear_tile_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
-    src_x: u32,
-    src_y: u32,
-    src_w: u32,
-    src_h: u32,
-    out_w: u32,
-    out_h: u32,
+    rect: TileRect,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<u16>)> {
-    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
-        raw, model, src_x, src_y, src_w, src_h, out_w, out_h, quality, None,
-    )
+    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(raw, model, rect, quality, None)
 }
 
 /// Same as [`render_scene_linear_tile_from_raw_with_quality`], with an
@@ -134,19 +147,21 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
 /// maple-cli / XMP-render family where `crs:Temperature` is an absolute
 /// value. See `tile::develop::develop_scene_linear_from_padded_mosaic`'s
 /// doc-comment for the full rationale.
-#[allow(clippy::too_many_arguments)]
 pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
     raw: &RawImage,
     model: &AdjustmentModel,
-    src_x: u32,
-    src_y: u32,
-    src_w: u32,
-    src_h: u32,
-    out_w: u32,
-    out_h: u32,
+    rect: TileRect,
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<(u32, u32, Vec<u16>)> {
+    let TileRect {
+        src_x,
+        src_y,
+        src_w,
+        src_h,
+        out_w,
+        out_h,
+    } = rect;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
             "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07."
