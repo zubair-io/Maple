@@ -486,3 +486,8 @@ mod gpu_live_p3_tests;
 #[cfg(test)]
 #[path = "gpu_live_tests.rs"]
 mod gpu_live_tests;
+// Non-RAW (JPEG/HEIC) WB slider contract parity (#1734) — split out so this
+// file stays under the 600-LOC budget.
+#[cfg(test)]
+#[path = "gpu_live_nonraw_wb_tests.rs"]
+mod gpu_live_nonraw_wb_tests;
