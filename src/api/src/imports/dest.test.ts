@@ -7,12 +7,13 @@
  *   default:       <YEAR>/misc/<source-folder>/<filename>
  *   shot-folder:   <YEAR>/<parent-folder>/<source-folder>/<filename>
  *   nearby-match:  <existing-asset-folder>/<filename>
- * Bucketing basis: file mtime, UTC (parity with backup/path-formatter.ts).
+ * Bucketing basis: capture time (EXIF, falling back to file mtime), UTC
+ * (parity with backup/path-formatter.ts).
  */
 
 import { describe, test, expect } from 'bun:test';
 import {
-  bucketForMtime,
+  bucketForCapturedAt,
   isSafeLabel,
   isNumberedShotFolder,
   destRelPath,
@@ -30,32 +31,32 @@ function utc(y: number, m: number, d: number, hh = 0, mm = 0): number {
   return Date.UTC(y, m - 1, d, hh, mm, 0, 0);
 }
 
-describe('bucketForMtime', () => {
+describe('bucketForCapturedAt', () => {
   test('returns 4-digit year and 2-digit month from UTC mtime', () => {
-    expect(bucketForMtime(utc(2024, 3, 9))).toEqual({ year: '2024', mm: '03' });
-    expect(bucketForMtime(utc(2007, 11, 25))).toEqual({
+    expect(bucketForCapturedAt(utc(2024, 3, 9))).toEqual({ year: '2024', mm: '03' });
+    expect(bucketForCapturedAt(utc(2007, 11, 25))).toEqual({
       year: '2007',
       mm: '11',
     });
   });
 
   test('pads single-digit months', () => {
-    expect(bucketForMtime(utc(2024, 1, 1)).mm).toBe('01');
-    expect(bucketForMtime(utc(2024, 9, 30)).mm).toBe('09');
+    expect(bucketForCapturedAt(utc(2024, 1, 1)).mm).toBe('01');
+    expect(bucketForCapturedAt(utc(2024, 9, 30)).mm).toBe('09');
   });
 
   test('buckets by UTC, not local time, at a day boundary', () => {
     // 2023-12-31 23:30 UTC stays in December 2023 regardless of host TZ.
-    const b = bucketForMtime(utc(2023, 12, 31, 23, 30));
+    const b = bucketForCapturedAt(utc(2023, 12, 31, 23, 30));
     expect(b).toEqual({ year: '2023', mm: '12' });
   });
 
   test('handles year rollover and leap day', () => {
-    expect(bucketForMtime(utc(2024, 2, 29))).toEqual({
+    expect(bucketForCapturedAt(utc(2024, 2, 29))).toEqual({
       year: '2024',
       mm: '02',
     });
-    expect(bucketForMtime(utc(2025, 1, 1))).toEqual({ year: '2025', mm: '01' });
+    expect(bucketForCapturedAt(utc(2025, 1, 1))).toEqual({ year: '2025', mm: '01' });
   });
 });
 

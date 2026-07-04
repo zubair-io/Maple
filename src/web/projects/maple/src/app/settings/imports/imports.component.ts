@@ -7,12 +7,19 @@
 // source that overlaps the target library, and re-validates every bucket
 // label — the UI's checks are a convenience, not the security boundary.
 //
+// Buckets group by CAPTURE time (EXIF, falling back to file mtime when a
+// file has no EXIF date), not raw file mtime — so a bucket's Year/Month
+// matches the date Maple shows for those photos everywhere else.
+//
 // A bucket's label field starts BLANK, not pre-filled with the month: leaving
 // it blank means "use the server default" (an already-indexed photo within 30
 // minutes wins first, then `<year>/misc/<source folder name>`, or
 // `<year>/<parent folder>/<source folder>` when the source folder is an
 // anonymous camera dump name like `Shot0123`/`0123`/`012`). Typing a value
-// overrides all of that for just that bucket.
+// overrides all of that for just that bucket. Each bucket row shows the
+// ACTUAL resolved destination (`ImportScanBucket.defaultDest`, or the
+// nearby-match folder for some of its files) so it's never ambiguous where a
+// group of photos is about to land — see `effectiveDest()`.
 //
 // Deep link: `/settings/imports?job=<id>` jumps straight to a running
 // import's live status (the link the Workers page hands out).
@@ -35,6 +42,7 @@ import {
   ImportsApiService,
   type ApiFolder,
   type FsDirListing,
+  type ImportScanBucket,
   type ImportScanResult,
   type ImportSummary,
   errorMessage,
@@ -107,16 +115,6 @@ export class ImportsComponent implements OnInit, OnDestroy {
    * A key absent (or blank) here means "use the server default" for that
    * bucket — see the class-level comment above. */
   protected readonly labels = signal<Record<string, string>>({});
-
-  /** Basename of the chosen source folder — shown in the default-folder hint
-   * (the server computes the same value from `source_root`). */
-  protected readonly sourceFolderName = computed(() => {
-    const src = this.selectedSource();
-    if (!src) return '';
-    const trimmed = src.replace(/\/+$/, '');
-    const idx = trimmed.lastIndexOf('/');
-    return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
-  });
 
   // --- Progress ------------------------------------------------------------
   protected readonly active = signal<ImportSummary | null>(null);
@@ -200,11 +198,12 @@ export class ImportsComponent implements OnInit, OnDestroy {
 
   async runScan(): Promise<void> {
     const src = this.selectedSource();
-    if (!src || !this.targetLibraryId()) return;
+    const lib = this.targetLibraryId();
+    if (!src || !lib) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      const result = await firstValueFrom(this.api.scan(src));
+      const result = await firstValueFrom(this.api.scan(src, lib));
       if (result.totals.files === 0) {
         this.error.set('No importable photos, sidecars, or movies in that folder.');
         return;
@@ -221,6 +220,14 @@ export class ImportsComponent implements OnInit, OnDestroy {
 
   setLabel(key: string, value: string): void {
     this.labels.update((m) => ({ ...m, [key]: value }));
+  }
+
+  /** The destination a bucket's files will ACTUALLY land in, reflecting the
+   * user's current (possibly still-being-typed) label override — so the
+   * review screen never shows a stale or ambiguous folder. */
+  protected effectiveDest(bucket: ImportScanBucket): string {
+    const override = (this.labels()[bucket.key] ?? '').trim();
+    return override.length > 0 ? `${bucket.year}/${override}` : bucket.defaultDest;
   }
 
   backToPick(): void {

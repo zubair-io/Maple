@@ -199,6 +199,12 @@
   font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
+.folder-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 .label-input {
   padding: 6px 8px;
   font-size: 13px;
@@ -207,6 +213,15 @@
   background: var(--s-surface, #fff);
   color: var(--s-text);
   width: 100%;
+}
+.dest-preview {
+  margin: 0;
+  font-size: 11px;
+  color: var(--s-text-muted);
+  overflow-wrap: break-word;
+}
+.nearby-note {
+  color: var(--s-warning, #b8860b);
 }
 
 .actions {

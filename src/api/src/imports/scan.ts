@@ -3,9 +3,14 @@
  *
  * Walks a server-local source folder (and its subfolders), classifies each
  * file, pairs `.xmp` sidecars to their parent image, and groups everything
- * into `YEAR/MM` buckets keyed on file mtime (UTC). The result drives the
- * UI's editable-bucket review; the create route turns it (plus the user's
- * label edits) into the per-file destination list on the import doc.
+ * into `YEAR/MM` buckets keyed on CAPTURE time (UTC) — the EXIF
+ * `DateTimeOriginal`/`CreateDate`, falling back to file mtime when a file
+ * carries no EXIF time (see `resolveCapturedAtMs`). Bucketing on capture
+ * time (not raw mtime) keeps the folder Maple files a photo under in sync
+ * with the date it's shown under everywhere else in the app. The result
+ * drives the UI's editable-bucket review; the create route turns it (plus
+ * the user's label edits) into the per-file destination list on the import
+ * doc.
  *
  * Sidecars inherit their parent image's bucket so a RAW and its `.xmp` never
  * land in different folders. Orphan sidecars (no matching image in the scan)
@@ -24,17 +29,17 @@ import type { Dirent, Stats } from 'node:fs';
 import path from 'node:path';
 import { SUPPORTED_EXTS } from '../workers/discover/types.ts';
 import { browseRoots, canonicalBaseFromSidecarFilename, isUnderRoot } from '../fs/browse.ts';
+import { resolveCapturedTimesFor } from './capture-time.ts';
 import {
-  bucketForMtime,
+  bucketForCapturedAt,
+  defaultDestDir,
   destRelPath,
   destRelPathDefault,
   destRelPathInFolder,
   destRelPathShotFolder,
-  isNumberedShotFolder,
-  isSafeLabel,
-  MISC_SEGMENT,
   nearestCandidateFolder,
   NEARBY_ASSET_WINDOW_MS,
+  resolveSourceFolderContext,
   type NearbyAssetCandidate,
 } from './dest.ts';
 import { child as childLogger } from '../log.ts';
@@ -69,6 +74,19 @@ interface ScanItem extends RawFile {
   sidecars: RawFile[];
 }
 
+/** A `ScanItem` with its capture time resolved (see `resolveCapturedAtMs`). */
+interface ResolvedItem extends ScanItem {
+  capturedAtMs: number;
+}
+
+/** Resolve every item's capture time (bounded concurrency — see
+ * `capture-time.ts`). Sidecars don't get their own EXIF read; they inherit
+ * whatever folder their parent image/movie resolves to. */
+async function resolveCapturedTimes(items: ScanItem[]): Promise<ResolvedItem[]> {
+  const capturedAtMsList = await resolveCapturedTimesFor(items);
+  return items.map((it, i) => ({ ...it, capturedAtMs: capturedAtMsList[i] }));
+}
+
 export interface ScanBucket {
   /** Stable key `${year}/${mm}` — the label-override map is keyed on this. */
   key: string;
@@ -81,6 +99,24 @@ export interface ScanBucket {
   movieCount: number;
   sidecarCount: number;
   totalBytes: number;
+  /**
+   * Where files in this bucket land BY DEFAULT if the label is left blank —
+   * `<year>/misc/<source folder>`, or `<year>/<parent folder>/<source
+   * folder>` when the source folder is an anonymous camera dump name (see
+   * `isNumberedShotFolder`). Shown in the review screen so the destination
+   * is explicit instead of implied by an empty input.
+   */
+  defaultDest: string;
+  /**
+   * Number of files in this bucket that would instead land next to an
+   * already-indexed photo captured within 30 minutes of them (see
+   * `NEARBY_ASSET_WINDOW_MS`) — overriding `defaultDest` for just those
+   * files. Zero when no `library_id` was given to `scanFolder` (nothing to
+   * match against) or nothing matched.
+   */
+  nearbyMatchCount: number;
+  /** Distinct folders those nearby-matched files would land in. */
+  nearbyMatchFolders: string[];
 }
 
 export interface ScanResult {
@@ -253,10 +289,42 @@ function pair(
   return { items, orphanSidecars: orphans };
 }
 
-/** Scan a folder tree into mtime-bucketed groups for UI review. */
-export async function scanFolder(absRoot: string): Promise<ScanResult> {
+export interface ScanFolderOptions {
+  /** Same contract as `BuildImportFilesOptions.loadNearbyCandidates` — when
+   * given (i.e. a target library has been chosen), the preview also reports
+   * how many files in each bucket would be placed via a nearby-asset match
+   * instead of the bucket's `defaultDest`. Omitted → every bucket's
+   * `nearbyMatchCount` is 0. */
+  loadNearbyCandidates?: (minMs: number, maxMs: number) => Promise<NearbyAssetCandidate[]>;
+}
+
+/** Scan a folder tree into capture-time-bucketed groups for UI review. */
+export async function scanFolder(
+  absRoot: string,
+  opts: ScanFolderOptions = {},
+): Promise<ScanResult> {
   const { primaries, sidecars } = await walk(absRoot);
-  const { items } = pair(primaries, sidecars);
+  const { items: paired } = pair(primaries, sidecars);
+  const items = await resolveCapturedTimes(paired);
+
+  const ctx = resolveSourceFolderContext(absRoot);
+
+  // Same batching approach as buildImportFiles: one nearby-candidates query
+  // for the whole scan, not one per file.
+  const loadNearbyCandidates = opts.loadNearbyCandidates ?? (async () => []);
+  let minCapturedAt = Infinity;
+  let maxCapturedAt = -Infinity;
+  for (const it of items) {
+    if (it.capturedAtMs < minCapturedAt) minCapturedAt = it.capturedAtMs;
+    if (it.capturedAtMs > maxCapturedAt) maxCapturedAt = it.capturedAtMs;
+  }
+  const nearbyCandidates =
+    items.length > 0
+      ? await loadNearbyCandidates(
+          minCapturedAt - NEARBY_ASSET_WINDOW_MS,
+          maxCapturedAt + NEARBY_ASSET_WINDOW_MS,
+        )
+      : [];
 
   const buckets = new Map<string, ScanBucket>();
   let images = 0;
@@ -265,7 +333,7 @@ export async function scanFolder(absRoot: string): Promise<ScanResult> {
   let bytes = 0;
 
   for (const it of items) {
-    const { year, mm } = bucketForMtime(it.mtime);
+    const { year, mm } = bucketForCapturedAt(it.capturedAtMs);
     const key = `${year}/${mm}`;
     let b = buckets.get(key);
     if (!b) {
@@ -278,6 +346,9 @@ export async function scanFolder(absRoot: string): Promise<ScanResult> {
         movieCount: 0,
         sidecarCount: 0,
         totalBytes: 0,
+        defaultDest: defaultDestDir(year, ctx),
+        nearbyMatchCount: 0,
+        nearbyMatchFolders: [],
       };
       buckets.set(key, b);
     }
@@ -290,6 +361,11 @@ export async function scanFolder(absRoot: string): Promise<ScanResult> {
     } else {
       b.movieCount += 1;
       movies += 1;
+    }
+    const nearbyFolder = nearestCandidateFolder(nearbyCandidates, it.capturedAtMs);
+    if (nearbyFolder != null) {
+      b.nearbyMatchCount += 1;
+      if (!b.nearbyMatchFolders.includes(nearbyFolder)) b.nearbyMatchFolders.push(nearbyFolder);
     }
     for (const sc of it.sidecars) {
       b.fileCount += 1;
@@ -363,35 +439,31 @@ export async function buildImportFiles(
   opts: BuildImportFilesOptions = {},
 ): Promise<ImportFileEntry[]> {
   const { primaries, sidecars } = await walk(absRoot);
-  const { items } = pair(primaries, sidecars);
+  const { items: paired } = pair(primaries, sidecars);
+  const items = await resolveCapturedTimes(paired);
 
-  const folderName = path.basename(absRoot);
-  const parentFolderName = path.basename(path.dirname(absRoot));
-  // `path.basename(path.dirname(absRoot))` is '' when `absRoot` is itself a
-  // filesystem root (e.g. importing directly from `/0123`) — isSafeLabel
-  // rejects an empty segment, so destRelPathShotFolder would throw for every
-  // file. Fall through to the misc default in that case instead.
-  const useShotFolderFallback = isNumberedShotFolder(folderName) && isSafeLabel(parentFolderName);
+  const ctx = resolveSourceFolderContext(absRoot);
+  const { folderName, parentFolderName, useShotFolderFallback } = ctx;
 
   // One nearby-candidates query for the WHOLE batch (not one per file): load
   // every already-indexed asset captured across the full span of this
-  // import's file mtimes, padded by the proximity window on both ends, then
-  // match each file against that in-memory list. Min/max computed with a
-  // plain loop, NOT `Math.min(...items.map(...))` — spreading a huge array
-  // onto Math.min/max blows V8's call-stack argument limit (~65,536) on a
-  // large import.
+  // import's file CAPTURE times, padded by the proximity window on both
+  // ends, then match each file against that in-memory list. Min/max computed
+  // with a plain loop, NOT `Math.min(...items.map(...))` — spreading a huge
+  // array onto Math.min/max blows V8's call-stack argument limit (~65,536)
+  // on a large import.
   const loadNearbyCandidates = opts.loadNearbyCandidates ?? (async () => []);
-  let minMtime = Infinity;
-  let maxMtime = -Infinity;
+  let minCapturedAt = Infinity;
+  let maxCapturedAt = -Infinity;
   for (const it of items) {
-    if (it.mtime < minMtime) minMtime = it.mtime;
-    if (it.mtime > maxMtime) maxMtime = it.mtime;
+    if (it.capturedAtMs < minCapturedAt) minCapturedAt = it.capturedAtMs;
+    if (it.capturedAtMs > maxCapturedAt) maxCapturedAt = it.capturedAtMs;
   }
   const nearbyCandidates =
     items.length > 0
       ? await loadNearbyCandidates(
-          minMtime - NEARBY_ASSET_WINDOW_MS,
-          maxMtime + NEARBY_ASSET_WINDOW_MS,
+          minCapturedAt - NEARBY_ASSET_WINDOW_MS,
+          maxCapturedAt + NEARBY_ASSET_WINDOW_MS,
         )
       : [];
 
@@ -423,13 +495,13 @@ export async function buildImportFiles(
   };
 
   for (const it of items) {
-    const { year, mm } = bucketForMtime(it.mtime);
+    const { year, mm } = bucketForCapturedAt(it.capturedAtMs);
     const rawOverride = labels[`${year}/${mm}`];
     const overrideLabel = rawOverride !== undefined ? rawOverride.trim() : '';
     // An explicit override can never lose to a nearby-asset match, so skip
     // the (already in-memory, but still non-free) lookup when one is set.
     const nearbyFolder =
-      overrideLabel.length > 0 ? null : nearestCandidateFolder(nearbyCandidates, it.mtime);
+      overrideLabel.length > 0 ? null : nearestCandidateFolder(nearbyCandidates, it.capturedAtMs);
 
     const resolveDestFor = (filename: string): string => {
       if (overrideLabel.length > 0) return destRelPath({ year, label: overrideLabel, filename });
@@ -444,11 +516,7 @@ export async function buildImportFiles(
     const displayDir =
       overrideLabel.length > 0
         ? `${year}/${overrideLabel}`
-        : nearbyFolder != null
-          ? nearbyFolder
-          : useShotFolderFallback
-            ? `${year}/${parentFolderName}/${folderName}`
-            : `${year}/${MISC_SEGMENT}/${folderName}`;
+        : (nearbyFolder ?? defaultDestDir(year, ctx));
 
     // Resolve the image's destination first: if it's unsafe, the whole group
     // (image + its sidecars) is failed, since a sidecar with no landed image

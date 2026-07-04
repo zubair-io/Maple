@@ -17,8 +17,10 @@
  *   4. `destRelPathDefault`   — `<YEAR>/misc/<source-folder>/<filename>`, the
  *      default when nothing more specific applies.
  *
- *   - YEAR comes from a file's mtime, in **UTC** (parity with
- *     `backup/path-formatter.ts`, which also buckets on UTC wall-clock).
+ *   - YEAR comes from a file's CAPTURE time (EXIF `DateTimeOriginal`/
+ *     `CreateDate`, falling back to file mtime when no EXIF time is
+ *     available — see `scan.ts`'s `resolveCapturedAtMs`), in **UTC** (parity
+ *     with `backup/path-formatter.ts`, which also buckets on UTC wall-clock).
  *
  * No Mongo, no filesystem — these are the safety + assembly primitives the
  * scan/copy/worker layers and the create route all funnel through, so the
@@ -28,6 +30,7 @@
  * `<MM>-<DD>` (or `.../MM-DD`) day segment we don't want here.
  */
 
+import path from 'node:path';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 
 export interface Bucket {
@@ -37,9 +40,14 @@ export interface Bucket {
   mm: string;
 }
 
-/** Derive the `{ year, mm }` bucket for a file from its mtime (epoch ms, UTC). */
-export function bucketForMtime(mtimeMs: number): Bucket {
-  const d = new Date(mtimeMs);
+/**
+ * Derive the `{ year, mm }` bucket for a file from its CAPTURE time (epoch
+ * ms, UTC) — the EXIF `DateTimeOriginal`/`CreateDate`, or the file's mtime
+ * when no EXIF capture time is available (see `scan.ts`'s
+ * `resolveCapturedAtMs`, which resolves that value before this is called).
+ */
+export function bucketForCapturedAt(capturedAtMs: number): Bucket {
+  const d = new Date(capturedAtMs);
   const year = d.getUTCFullYear().toString().padStart(4, '0');
   const mm = (d.getUTCMonth() + 1).toString().padStart(2, '0');
   return { year, mm };
@@ -58,17 +66,17 @@ export interface NearbyAssetCandidate {
   folderPath: string;
 }
 
-/** Nearest candidate to `mtimeMs` within `NEARBY_ASSET_WINDOW_MS`, or null.
- * Pure — the Mongo query that produces `candidates` lives in
+/** Nearest candidate to `capturedAtMs` within `NEARBY_ASSET_WINDOW_MS`, or
+ * null. Pure — the Mongo query that produces `candidates` lives in
  * `imports/nearby.ts`'s `loadNearbyAssetCandidates`. */
 export function nearestCandidateFolder(
   candidates: readonly NearbyAssetCandidate[],
-  mtimeMs: number,
+  capturedAtMs: number,
 ): string | null {
   let best: NearbyAssetCandidate | null = null;
   let bestDeltaMs = Infinity;
   for (const cand of candidates) {
-    const deltaMs = Math.abs(cand.capturedAtMs - mtimeMs);
+    const deltaMs = Math.abs(cand.capturedAtMs - capturedAtMs);
     if (deltaMs <= NEARBY_ASSET_WINDOW_MS && deltaMs < bestDeltaMs) {
       best = cand;
       bestDeltaMs = deltaMs;
@@ -210,4 +218,37 @@ export function destRelPathInFolder(args: { folderPath: string; filename: string
     throw new Error(`unsafe filename: ${JSON.stringify(args.filename)}`);
   }
   return `${segments.join('/')}/${args.filename}`;
+}
+
+/** Properties of the chosen source folder that drive the no-override default
+ * destination (see `defaultDestDir`) — computed once per scan/build call
+ * (`scan.ts`), not per file, since they only depend on `absRoot` itself. */
+export interface SourceFolderContext {
+  folderName: string;
+  parentFolderName: string;
+  /** True when `folderName` is an anonymous camera dump name (`Shot0123`,
+   * `0123`, `012`) AND `parentFolderName` is non-empty/safe. */
+  useShotFolderFallback: boolean;
+}
+
+export function resolveSourceFolderContext(absRoot: string): SourceFolderContext {
+  const folderName = path.basename(absRoot);
+  const parentFolderName = path.basename(path.dirname(absRoot));
+  // `path.basename(path.dirname(absRoot))` is '' when `absRoot` is itself a
+  // filesystem root (e.g. importing directly from `/0123`) — isSafeLabel
+  // rejects an empty segment, so destRelPathShotFolder would throw for every
+  // file. Fall through to the misc default in that case instead.
+  const useShotFolderFallback = isNumberedShotFolder(folderName) && isSafeLabel(parentFolderName);
+  return { folderName, parentFolderName, useShotFolderFallback };
+}
+
+/** The no-override default destination DIRECTORY (no filename) for `year`,
+ * mirroring `destRelPathDefault`/`destRelPathShotFolder` minus the filename
+ * segment and the throwing validation — used for both the review-screen
+ * preview (`scan.ts`'s `scanFolder`) and a failed entry's display-only dest
+ * (`buildImportFiles`'s `recordSkipped`). */
+export function defaultDestDir(year: string, ctx: SourceFolderContext): string {
+  return ctx.useShotFolderFallback
+    ? `${year}/${ctx.parentFolderName}/${ctx.folderName}`
+    : `${year}/${MISC_SEGMENT}/${ctx.folderName}`;
 }

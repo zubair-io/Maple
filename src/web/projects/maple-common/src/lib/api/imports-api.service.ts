@@ -23,6 +23,14 @@ export interface ImportScanBucket {
   movieCount: number;
   sidecarCount: number;
   totalBytes: number;
+  /** Where files in this bucket land if the label is left blank. */
+  defaultDest: string;
+  /** Number of files that would instead land next to an already-indexed
+   * photo captured within 30 minutes of them (0 if no library was given to
+   * `scan()`, or nothing matched). */
+  nearbyMatchCount: number;
+  /** Distinct folders those nearby-matched files would land in. */
+  nearbyMatchFolders: string[];
 }
 
 export interface ImportScanResult {
@@ -89,10 +97,14 @@ export class ImportsApiService {
   private readonly http = inject(HttpClient);
   private readonly base = inject(API_BASE_URL);
 
-  /** POST /api/imports/scan — scan a server-local folder into buckets. */
-  scan(sourceRoot: string): Observable<ImportScanResult> {
+  /** POST /api/imports/scan — scan a server-local folder into buckets.
+   * `libraryId` is optional but should be passed whenever known (the target
+   * library is always chosen before the source folder in the UI flow) so
+   * the preview can also resolve nearby-asset matches against it. */
+  scan(sourceRoot: string, libraryId?: string): Observable<ImportScanResult> {
     return this.http.post<ImportScanResult>(`${this.base}/imports/scan`, {
       source_root: sourceRoot,
+      library_id: libraryId,
     });
   }
 
