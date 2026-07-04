@@ -52,14 +52,13 @@
 //! where the gain had moved the neutral to. That reasoning was backwards:
 //! Bradford-adapting FROM the exact point the buffer's neutral now sits AT,
 //! TO D50, maps that point back to neutral — which is precisely what
-//! undoes the WB shift [`apply`] just introduced. Probe evidence: as-shot
-//! `[1.868, 1.515, 0.502]` vs a 50000K retarget-profile probe only reached
-//! `[2.047, 1.538, 0.483]` (barely moved) and a 2000K probe distorted hue
-//! instead of casting cool — a near-total, and at the cool end
-//! direction-corrupting, cancellation. Leaving `scene_white_xyz` fixed at
-//! the as-shot point means Bradford performs the SAME adaptation
-//! regardless of the gain, so the gain's shift survives through DCP into
-//! the rendered cast, exactly like ACR's pre-DCP slider. (A softer
+//! undoes the WB shift [`apply`] just introduced. Probe evidence: a
+//! 50000K retarget-profile probe barely moved off as-shot ([1.868, 1.515,
+//! 0.502] → [2.047, 1.538, 0.483]) and a 2000K probe distorted hue
+//! instead of casting cool. Leaving `scene_white_xyz` fixed at the
+//! as-shot point means Bradford performs the SAME adaptation regardless
+//! of the gain, so the gain's shift survives through DCP into the
+//! rendered cast, exactly like ACR's pre-DCP slider. (A softer
 //! target-white Bradford retarget — `inv(CM_T) · (1,1,1)`, which does NOT
 //! cancel the cast — was also measured against the ACR references in the
 //! #1727 slice and regressed the non-FM body: test_0000 temperature_min
@@ -162,23 +161,20 @@
 //! The GPU-live / per-tick FFI path (`pipeline::scene_linear_chain::
 //! apply_scene_linear_chain[_f32]`, and every `raw-gpu` chain —
 //! `WhiteBalancePass`, `full_chain`, `live_chain`) receives an
-//! **already-decoded, post-DCP** scene-linear Rec.2020 buffer: DCP itself
-//! runs upstream, on the CPU, before any of those entry points see the data.
-//! There is no camera-native buffer or `DcpProfile` available at that layer
-//! to apply this module's math against. Those paths keep using the existing
+//! **already-decoded, post-DCP** scene-linear Rec.2020 buffer — no
+//! camera-native buffer or `DcpProfile` exists at that layer to apply
+//! this module's math against. Those paths keep using the existing
 //! Rec.2020-space CAT16 `wb_cat16_matrix` / `white_balance::apply_delta`
 //! contract unchanged — [`apply_delta`] above closes the gap for the CPU
 //! tile-refine path specifically, not for the GPU-live per-tick path.
 //!
 //! Net effect: a cold/refine render (this module, camera-space) and a
 //! GPU-live slider tick (unchanged, scene-linear CAT16) compute user WB
-//! differently for the same non-default `(temperature, tint)`. Closing that
-//! gap means teaching the GPU chain to either (a) run DCP itself so it has a
-//! camera-native buffer + `color_matrix` to work from, or (b) accept a
-//! precomputed camera-space delta *matrix* through the FFI the way
-//! `WhiteBalancePass` already accepts a precomputed Rec.2020 matrix today.
-//! Both are real WGSL/FFI-surface changes, out of scope for this ticket —
-//! #1727 is the tracking ticket.
+//! differently for the same non-default `(temperature, tint)`. Closing
+//! that gap means teaching the GPU chain to run DCP itself, or to accept
+//! a precomputed camera-space delta *matrix* through the FFI the way
+//! `WhiteBalancePass` accepts a precomputed Rec.2020 matrix today. Both
+//! are real WGSL/FFI-surface changes; #1727 tracks the remainder.
 
 use crate::{
     color::dcp::{self, DcpProfile},
@@ -598,3 +594,7 @@ pub fn retargeted_render_profile(
 #[cfg(test)]
 #[path = "wb_camera_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "wb_camera_frame_tests.rs"]
+mod frame_tests;
