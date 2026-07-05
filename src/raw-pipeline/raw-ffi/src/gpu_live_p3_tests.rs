@@ -162,6 +162,8 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             // Display P3 (#1337).
             target_primaries: 1,
             input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
+            // Auto/AgX view tail (#1722 default, value 0).
+            profile_id: 0,
         };
         let ctx = GpuContext::new_blocking().expect("gpu context");
         let session = LiveSession::new(&ctx, &input, w, h).expect("session");

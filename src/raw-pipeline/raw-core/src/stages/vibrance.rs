@@ -63,7 +63,9 @@ pub(crate) fn apply_pixel(rgb: [f32; 3], amount: f32) -> [f32; 3] {
 }
 
 const GAMUT_KNEE_FRACTION: f32 = 0.8;
-const GAMUT_BISECT_ITERS: usize = 12;
+// 24, matching `saturation::GAMUT_BISECT_ITERS` — see the rationale there
+// (restored from the Jul-1 12-iteration lowering; #1769).
+const GAMUT_BISECT_ITERS: usize = 24;
 
 #[inline]
 fn soft_compress(c_target: f32, c_hull: f32) -> f32 {

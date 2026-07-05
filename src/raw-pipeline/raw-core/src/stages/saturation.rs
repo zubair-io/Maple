@@ -39,7 +39,15 @@ const GAMUT_KNEE_FRACTION: f32 = 0.8;
 /// `C_target ≤ 1.0`-scale interval produces a relative precision well below
 /// 1e-6 — comfortably under the 1e-4 cross-platform parity gate even if the
 /// WebGL mirror uses a slightly different float reduction order.
-const GAMUT_BISECT_ITERS: usize = 12;
+///
+/// Was briefly lowered to 12 (Jul 1, #1681–#1687 batch), which halves the
+/// bisect resolution to ~2.4e-4 relative — above the cross-platform parity
+/// contract this doc-comment states. At 12, a CPU-vs-GPU predicate flip on a
+/// hull-boundary pixel leaves an O(2⁻¹²) chroma residual that the dehaze/NR/
+/// sharpen suffix amplifies past 1 LSB (the #1769 row-alignment gate red).
+/// Restored to 24 (#1769); the GPU twins (`saturation.wgsl` / `vibrance.wgsl`
+/// / `hsl.wgsl` + their raw-gpu oracles) carry the SAME count.
+const GAMUT_BISECT_ITERS: usize = 24;
 
 /// Tolerance used when deciding whether the bisected chroma is "in gamut".
 /// We require every Rec.2020 channel to be ≥ -GAMUT_EPS. Tighter than this

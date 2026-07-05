@@ -282,6 +282,8 @@ pub(super) fn make_params(
         target_primaries: 0,
         // RAW shape — the full chain runs (the pre-#1331 default, value 0).
         input_shape: 0,
+        // Auto/AgX view tail (#1722 default, value 0).
+        profile_id: 0,
     }
 }
 
@@ -537,6 +539,8 @@ pub(super) fn direct_raw_gpu(
         target_primaries: 0,
         // RAW shape — full chain including WB (pre-#1331 default).
         input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
+        // Auto/AgX view tail (#1722 default, value 0).
+        profile_id: 0,
     };
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let session = LiveSession::new(&ctx, input, w, h).expect("session");

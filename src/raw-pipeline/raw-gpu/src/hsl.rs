@@ -49,6 +49,13 @@ const CHROMA_GATE_C0: f32 = 0.05;
 /// Max hue rotation at ±100 in radians, matching `raw_core::stages::hsl::HSL_HUE_MAX_RAD`.
 const HSL_HUE_MAX_RAD: f32 = 30.0_f32 * std::f32::consts::PI / 180.0;
 
+/// Gamut soft-knee constants (#1733 / #1748), matching
+/// `raw_core::stages::hsl::{HSL_GAMUT_EPS, HSL_GAMUT_KNEE_FRACTION,
+/// HSL_GAMUT_BISECT_ITERS}` — the WGSL kernel carries the same values.
+const HSL_GAMUT_EPS: f32 = 1e-5;
+const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
+const HSL_GAMUT_BISECT_ITERS: usize = 24;
+
 /// Circular angular distance (degrees) in [0, 180].
 #[inline]
 fn circular_delta_deg(h: f32, center: f32) -> f32 {
@@ -88,7 +95,10 @@ struct HslGpuParams {
     lum_shift: [[f32; 4]; 2],
     chroma_gate_c0: f32,
     count: u32,
-    _pad0: u32,
+    /// 1 when ALL 24 sliders are at default — the WGSL kernel's bit-exact
+    /// passthrough flag, mirroring raw-core's `HslParams::is_identity` (see
+    /// the `Params.is_identity` comment in `hsl.wgsl`).
+    is_identity: u32,
     _pad1: u32,
 }
 
@@ -256,18 +266,73 @@ pub fn apply_hsl(
             delta_lum += lum_shift[band] * w;
         }
 
-        let l_new = l0 * (1.0 + delta_lum);
-        let c_new = (c * (1.0 + delta_sat)).max(0.0);
+        // Luminance — mirrors raw-core's conditional multiply exactly (a
+        // sub-1e-6 accumulated shift leaves L bit-identical).
+        let l_new = if delta_lum.abs() > 1e-6 {
+            l0 * (1.0 + delta_lum)
+        } else {
+            l0
+        };
+        // Saturation (Oklab-chroma floor only; gamut protection below).
+        let c_target = (c * (1.0 + delta_sat)).max(0.0);
+        // Hue rotation on the post-saturation chroma (#1733 / #1748).
         let (sin_dh, cos_dh) = delta_hue_rad.sin_cos();
-        let a_new = c_new * (a_hat * cos_dh - b_hat * sin_dh);
-        let b_new = c_new * (a_hat * sin_dh + b_hat * cos_dh);
+        let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
+        let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
-        let out = oklab_to_rec2020([l_new, a_new, b_new]);
+        // Fast path: rotated + scaled target stays in gamut.
+        let rgb_target = oklab_to_rec2020([l_new, c_target * rot_a_hat, c_target * rot_b_hat]);
+        let out = if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -HSL_GAMUT_EPS {
+            rgb_target
+        } else {
+            // Bisect for the hull chroma along the POST-ROTATION hue ray, then
+            // Reinhard-soft-compress into it (no `.max(c_floor)` — raw-core's
+            // #1748 rationale: rotation can land on a narrower hull section).
+            let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_target);
+            let c_out = hsl_soft_compress(c_target, c_hull);
+            oklab_to_rec2020([l_new, rot_a_hat * c_out, rot_b_hat * c_out])
+        };
         px[0] = out[0];
         px[1] = out[1];
         px[2] = out[2];
         // px[3] (alpha) untouched
     }
+}
+
+/// Reinhard-style smooth compression — `raw_core::stages::hsl::hsl_soft_compress`
+/// verbatim (the WGSL kernel mirrors the same fn).
+#[inline]
+fn hsl_soft_compress(c_target: f32, c_hull: f32) -> f32 {
+    let c_thresh = HSL_GAMUT_KNEE_FRACTION * c_hull;
+    if c_target <= c_thresh {
+        return c_target;
+    }
+    let d = c_target - c_thresh;
+    let d_max = c_hull - c_thresh;
+    if d_max <= 0.0 {
+        return c_hull;
+    }
+    c_thresh + d_max * (d / (d + d_max))
+}
+
+/// Bisect along the (L, a_hat, b_hat) Oklab ray for the largest chroma whose
+/// Rec.2020 projection has all channels >= -HSL_GAMUT_EPS — raw-core's
+/// `hsl_bisect_gamut_hull`, using this oracle's own Oklab round-trip.
+#[inline]
+fn hsl_bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
+    let mut lo = 0.0f32;
+    let mut hi = c_high;
+    for _ in 0..HSL_GAMUT_BISECT_ITERS {
+        let mid = 0.5 * (lo + hi);
+        let rgb = oklab_to_rec2020([l, a_hat * mid, b_hat * mid]);
+        let min_c = rgb[0].min(rgb[1]).min(rgb[2]);
+        if min_c >= -HSL_GAMUT_EPS {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 // ── HslPass ───────────────────────────────────────────────────────────────────
@@ -316,7 +381,7 @@ impl HslPass {
             lum_shift: pack(&lum_shift_flat),
             chroma_gate_c0: CHROMA_GATE_C0,
             count: pixel_count,
-            _pad0: 0,
+            is_identity: u32::from(self.is_noop()),
             _pad1: 0,
         }
     }
