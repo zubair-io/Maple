@@ -176,6 +176,61 @@
           </p>
         </div>
       </section>
+
+      <!-- Backfill: mirror already-indexed thumbnails that predate uploads
+           being enabled (or that failed the best-effort live-upload hook). -->
+      <section class="backfill-panel">
+        <div class="jwt-panel-header">
+          <h2>Sync existing thumbnails</h2>
+          <p>
+            New thumbnails upload to R2 automatically once uploads are enabled above. Run this to
+            also mirror thumbnails that were generated before uploads were turned on, or that missed
+            the automatic upload.
+          </p>
+        </div>
+
+        @if (!canBackfill()) {
+          <p class="backfill-disabled-hint">
+            Enable uploads and save valid credentials above to sync existing thumbnails.
+          </p>
+        } @else {
+          <div class="backfill-controls">
+            @if (backfill.isRunning()) {
+              <div class="backfill-status">
+                <p class="backfill-summary">{{ backfill.statusLabel() }}</p>
+                <div
+                  class="backfill-progress-track"
+                  role="progressbar"
+                  [attr.aria-label]="backfill.statusLabel()"
+                >
+                  @let j = backfill.job();
+                  @if (j && j.progress.total > 0) {
+                    <div
+                      class="backfill-progress-fill"
+                      [style.width.%]="(j.progress.current / j.progress.total) * 100"
+                    ></div>
+                  } @else {
+                    <div class="backfill-progress-fill backfill-progress-indeterminate"></div>
+                  }
+                </div>
+              </div>
+              <button type="button" class="secondary-btn" (click)="backfill.cancel()">
+                Cancel
+              </button>
+            } @else {
+              @if (backfill.statusLabel()) {
+                <span class="backfill-summary">{{ backfill.statusLabel() }}</span>
+              }
+              @if (backfill.error()) {
+                <span class="save-error">{{ backfill.error() }}</span>
+              }
+              <button type="button" class="secondary-btn" (click)="backfill.start()">
+                Sync existing thumbnails
+              </button>
+            }
+          </div>
+        }
+      </section>
     }
   </div>
 </maple-settings-shell>
