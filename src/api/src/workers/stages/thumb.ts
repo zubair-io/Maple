@@ -50,24 +50,11 @@ const log = childLogger('workers/stages/thumb');
  * before giving up and moving on. A bounded await (not blind fire-and-
  * forget) so an in-flight upload isn't silently lost if the process exits
  * mid-request — but short enough that an R2 outage can't meaningfully slow
- * the indexer, whose thumb-stage concurrency is already only 2. */
+ * the indexer, whose thumb-stage concurrency is already only 2. Passed as
+ * an `AbortSignal` into the fetch itself (not just raced against it) so a
+ * stalled request is actually cancelled — sockets/TLS state don't leak
+ * into the background once the stage moves on. */
 const CF_UPLOAD_TIMEOUT_MS = 5_000;
-
-function withTimeout(promise: Promise<void>, ms: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
-}
 
 /**
  * Best-effort mirror of a freshly-written thumbnail to Cloudflare R2. Never
@@ -90,7 +77,7 @@ async function maybeUploadThumbToCloudflare(image: ImageDoc, thumbPath: string):
   const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
   try {
     const bytes = await readFile(thumbPath);
-    await withTimeout(uploadThumbToR2(config, key, bytes), CF_UPLOAD_TIMEOUT_MS);
+    await uploadThumbToR2(config, key, bytes, AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS));
     const db = await getDb();
     await db
       .collection('assets')
