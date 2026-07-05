@@ -233,6 +233,11 @@ public actor ImageEditPipeline {
         public let image: CIImage
         public let noiseProfile: [Float]?
         public let iso: UInt32
+        /// Decode-exported WB slider frame (#1781); `nil` when the source
+        /// carries no frame. Survives the decode→render hand-off via
+        /// `DecodedSnapshot` so the per-tick chains and the As-Shot seed
+        /// use raw-core's numbers.
+        public let wbFrame: WbSliderFrame?
     }
 
     nonisolated public func decodeSceneLinear(
@@ -292,7 +297,8 @@ public actor ImageEditPipeline {
         return SceneLinearDecodeResult(
             image: ciImage,
             noiseProfile: imageData.noiseProfile,
-            iso: imageData.iso
+            iso: imageData.iso,
+            wbFrame: imageData.wbFrame
         )
     }
 
@@ -380,7 +386,8 @@ public actor ImageEditPipeline {
         return SceneLinearDecodeResult(
             image: ciImage,
             noiseProfile: imageData.noiseProfile,
-            iso: imageData.iso
+            iso: imageData.iso,
+            wbFrame: imageData.wbFrame
         )
     }
 
@@ -655,6 +662,7 @@ public actor ImageEditPipeline {
         model: AdjustmentModel,
         decodedTemperature: Double,
         decodedTint: Double,
+        wbFrame: WbSliderFrame? = nil,
         skipAgX: Bool,
         assetID: UUID? = nil,
         noiseProfile: [Float]? = nil,
@@ -680,7 +688,8 @@ public actor ImageEditPipeline {
                 decodedTint: decodedTint,
                 skipAgX: skipAgX,
                 width: w,
-                height: h
+                height: h,
+                wbFrame: wbFrame
             )
         }
         if let cacheKey, let hit = sceneLinearChainCache.get(cacheKey) {
@@ -719,7 +728,8 @@ public actor ImageEditPipeline {
             decodedTemperature: decodedTemperature,
             decodedTint: decodedTint,
             skipAgX: skipAgX,
-            iso: iso
+            iso: iso,
+            wbFrame: wbFrame
         )
         let outputBytes: Data
         do {
@@ -980,6 +990,13 @@ public actor ImageEditPipeline {
     /// sidecar exists). The WhiteBalance kernel uses it to apply only the
     /// live-vs-decoded WB delta so opening a saved sidecar doesn't
     /// double-apply WB between the Rust path and the Apple kernel.
+    /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
+    /// the chain's WB delta anchors at the strip-XMP decode bake —
+    /// `WbSliderFrame.decodeBakeAnchor` (6500/0, interpreted IN the frame)
+    /// — and is derived with the frame's own calibration, so this CPU tick
+    /// path agrees with both the GPU live chain and a fresh full develop
+    /// of the same model. `nil` keeps the legacy asShot-anchored generic
+    /// delta bit-for-bit.
     nonisolated public func processSceneLinear(
         decoded: CIImage,
         model: AdjustmentModel,
@@ -989,7 +1006,8 @@ public actor ImageEditPipeline {
         profileLUT: CIFilter? = nil,
         assetID: UUID? = nil,
         noiseProfile: [Float]? = nil,
-        iso: UInt32 = 0
+        iso: UInt32 = 0,
+        wbFrame: WbSliderFrame? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
@@ -1031,8 +1049,16 @@ public actor ImageEditPipeline {
         // `decodedAtModel` is unused; kept on the signature so a future
         // saved-WB sidecar workflow can re-thread per-asset baselines.
         let _ = decodedAtModel
-        let decodedTemp = asShot?.temperature ?? 6500.0
-        let decodedTint = asShot?.tint ?? 0.0
+        // #1781: with a present frame the anchor is the strip-XMP decode
+        // bake (explicit 6500/0 in the frame) — `asShot` remains the
+        // legacy anchor for frame-absent sources only.
+        let frame = (wbFrame?.isPresent == true) ? wbFrame : nil
+        let decodedTemp = frame != nil
+            ? WbSliderFrame.decodeBakeAnchor.temperature
+            : (asShot?.temperature ?? 6500.0)
+        let decodedTint = frame != nil
+            ? WbSliderFrame.decodeBakeAnchor.tint
+            : (asShot?.tint ?? 0.0)
         if let asShot {
             logger.notice("processSceneLinear asShot=\(asShot.temperature, format: .fixed(precision: 0))K/\(asShot.tint, format: .fixed(precision: 1)) live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         } else {
@@ -1041,6 +1067,7 @@ public actor ImageEditPipeline {
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
+            wbFrame: frame,
             skipAgX: false,
             assetID: assetID,
             noiseProfile: noiseProfile,

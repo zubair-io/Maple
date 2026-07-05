@@ -142,6 +142,12 @@ public actor RenderActor {
     /// available; the Rust chain substitutes 100 on its side.
     var decodedISO: UInt32 = 0
 
+    /// Decode-exported WB slider frame captured at decode time (#1781).
+    /// `nil` for non-RAW / seeded buffers or frame-less bodies. Stored
+    /// alongside the decoded image so the per-tick chains and the
+    /// EditSession's As-Shot seed use raw-core's frame numbers.
+    var decodedWbFrame: WbSliderFrame? = nil
+
     /// Profile the cached `decodedImage` was developed for (#871). The
     /// decode buffer is now profile-dependent: `Profile::Auto` develops
     /// `auto_exposure` Off (so it byte-matches the buffer the Auto curve
@@ -160,9 +166,10 @@ public actor RenderActor {
     /// final render. Seeded preview / embedded-JPEG buffers are NOT full.
     var decodedIsFull: Bool = false
 
-    /// (image, noiseProfile, iso) — noiseProfile/iso forwarded to the NR stage
-    /// (PR #1709 review fix 4). Non-RAW decodes yield (image, nil, 0).
-    var decodeTask: Task<(CIImage, [Float]?, UInt32)?, Never>?
+    /// (image, noiseProfile, iso, wbFrame) — noiseProfile/iso forwarded to the
+    /// NR stage (PR #1709 review fix 4); wbFrame is the #1781 slider-frame
+    /// export. Non-RAW decodes yield (image, nil, 0, nil).
+    var decodeTask: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?)?, Never>?
     var decodeTaskAssetID: AssetRef.ID?
     /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
     /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
@@ -253,6 +260,9 @@ public actor RenderActor {
         /// ISO speed from the RAW decode (PR #1709 review fix 4). 0 for seeded
         /// / non-RAW buffers; the Rust chain substitutes 100 on its side.
         public let iso: UInt32
+        /// Decode-exported WB slider frame (#1781). `nil` for seeded /
+        /// non-RAW buffers or frame-less bodies.
+        public let wbFrame: WbSliderFrame?
     }
 
     // MARK: - Scheduler state (slice 3)
@@ -335,7 +345,8 @@ public actor RenderActor {
             decodedAtModel: nil,
             assetID: asset.id,
             noiseProfile: decodeResult.noiseProfile,
-            iso: decodeResult.iso
+            iso: decodeResult.iso,
+            wbFrame: decodeResult.wbFrame
         )
     }
 
@@ -377,6 +388,7 @@ public actor RenderActor {
         let exportDecodedAtModel = EditSession.parseSidecarModel(for: asset)
         let exportNoiseProfile = exportDecodeResult.noiseProfile
         let exportISO = exportDecodeResult.iso
+        let exportWbFrame = exportDecodeResult.wbFrame
         return await Task.detached(priority: .userInitiated) {
             pipeline.processSceneLinear(
                 decoded: exportDecodeResult.image,
@@ -385,7 +397,8 @@ public actor RenderActor {
                 asShot: asShot,
                 decodedAtModel: exportDecodedAtModel,
                 noiseProfile: exportNoiseProfile,
-                iso: exportISO
+                iso: exportISO,
+                wbFrame: exportWbFrame
             )
         }.value
     }
