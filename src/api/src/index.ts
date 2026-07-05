@@ -43,6 +43,7 @@ import { child as childLogger } from './log.ts';
 import { ensureJwtSecret } from './auth/jwt-bootstrap.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { healthRoutes } from './routes/health.ts';
+import { networkPublicRoutes, networkSettingsRoutes } from './routes/network.ts';
 import { foldersRoutes } from './routes/folders.ts';
 import { assetsRoutes } from './routes/assets.ts';
 import { xmpPathRoutes } from './routes/xmp.ts';
@@ -103,8 +104,9 @@ import {
   childScriptPath,
   DEFAULT_NATIVE_CHILD_NICE,
 } from './runtime/child-process-worker.ts';
+import { SERVER_PORT } from './runtime/server-port.ts';
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT = SERVER_PORT;
 const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? '*';
 
 const log = childLogger('server');
@@ -137,6 +139,11 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
       set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
       set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
       set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+      // Chrome's Private Network Access: lets a page fetch this server's
+      // LAN address (see routes/network.ts) without the request being
+      // blocked as a public-to-private-network access. No-op in browsers
+      // that don't check it.
+      set.headers['Access-Control-Allow-Private-Network'] = 'true';
     })
     // Mirror the isolation headers onto OPTIONS preflight too, so that any
     // cross-origin check counts them as present.
@@ -146,6 +153,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
       set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
       set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
       set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
+      set.headers['Access-Control-Allow-Private-Network'] = 'true';
       set.status = 204;
       return;
     })
@@ -158,6 +166,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // credentials + invites routes wrap themselves in their own `.use(requireAuth)`
     // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
     .use(healthRoutes)
+    .use(networkPublicRoutes)
     .use(authRoutes)
     // Wraps itself in `.use(requireAuth).use(requireOwner)` internally
     // (mirrors authRoutes' /invites sub-tree above), so it sits outside
@@ -214,6 +223,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(importsRoutes)
         .use(enrichmentRoutes)
         .use(observabilityRoutes)
+        .use(networkSettingsRoutes)
         .use(meilisearchBackfillRoutes)
         .use(purgeSubthresholdFacesRoutes)
         .use(peopleRoutes)
