@@ -29,3 +29,17 @@ extension XMPSerializer {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
+
+extension XMPParser {
+    /// Parse a `papp:Hidden` attribute value. Only exact "true"/"false" are
+    /// recognized (matching what `XMPSerializer` ever writes) — anything
+    /// else returns nil so the caller leaves `hidden` at its current default
+    /// (no override) instead of silently coercing to false.
+    static func parseHiddenAttribute(_ value: String) -> Bool? {
+        switch value.lowercased() {
+        case "true": return true
+        case "false": return false
+        default: return nil
+        }
+    }
+}

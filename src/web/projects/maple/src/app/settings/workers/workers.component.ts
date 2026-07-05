@@ -586,5 +586,4 @@ export class WorkersComponent implements OnInit, OnDestroy {
       return { stages: cur.stages.map((s) => (s.name === name ? { ...s, status } : s)) };
     });
   }
-
 }
