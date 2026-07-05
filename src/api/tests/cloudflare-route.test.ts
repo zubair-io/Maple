@@ -303,6 +303,33 @@ describe('POST /api/cloudflare/backfill', () => {
     expect(doc?.kind).toBe('cf_thumb_backfill');
     expect(doc?.status).toBe('queued');
   });
+
+  it('rejects a second concurrent backfill with 409 and the existing job id', async () => {
+    if (!mongoReachable) return;
+    stubFetch(200);
+    await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
+    const first = await post('/api/cloudflare/backfill', ownerJwt);
+    expect(first.status).toBe(201);
+    const { id: firstId } = first.body as { id: string };
+
+    const second = await post('/api/cloudflare/backfill', ownerJwt);
+    expect(second.status).toBe(409);
+    expect((second.body as { jobId: string }).jobId).toBe(firstId);
+  });
+
+  it('allows a new backfill once the prior one is no longer queued/running', async () => {
+    if (!mongoReachable) return;
+    stubFetch(200);
+    await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
+    const first = await post('/api/cloudflare/backfill', ownerJwt);
+    const { id: firstId } = first.body as { id: string };
+    await db!
+      .collection('jobs')
+      .updateOne({ _id: new ObjectId(firstId) }, { $set: { status: 'done' } });
+
+    const second = await post('/api/cloudflare/backfill', ownerJwt);
+    expect(second.status).toBe(201);
+  });
 });
 
 describe('GET /api/cloudflare/backfill/:id', () => {

@@ -7,6 +7,7 @@
 // one page, not a cross-page concern.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
+import type { Subscription } from 'rxjs';
 import { type CloudflareBackfillJob, CloudflareService, errorMessage } from '@maple-common';
 
 const POLL_MS = 2000;
@@ -20,6 +21,7 @@ export class BackfillPanelService {
   readonly error = signal<string | null>(null);
 
   private timer: ReturnType<typeof setInterval> | null = null;
+  private fetchSub: Subscription | null = null;
 
   readonly isRunning = computed(() => {
     const status = this.job()?.status;
@@ -53,6 +55,22 @@ export class BackfillPanelService {
     this.error.set(null);
     this.cloudflare.triggerBackfill().subscribe({
       next: ({ id }) => {
+        // Seed an optimistic `queued` job immediately, before the first
+        // GET /backfill/:id poll resolves. Without this, `starting` flips
+        // to false here while `job()` is still whatever it was before
+        // (null, or a prior run's terminal state) — `isRunning()` would
+        // momentarily read false, flashing the "Sync existing thumbnails"
+        // button back on-screen and allowing a double-submit.
+        this.job.set({
+          id,
+          status: 'queued',
+          progress: { current: 0, total: 0 },
+          result: null,
+          error: null,
+          cancel_requested: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
         this.starting.set(false);
         this.poll(id);
       },
@@ -66,7 +84,9 @@ export class BackfillPanelService {
   cancel(): void {
     const j = this.job();
     if (!j) return;
-    this.cloudflare.cancelBackfillJob(j.id).subscribe();
+    this.cloudflare.cancelBackfillJob(j.id).subscribe({
+      error: (err: unknown) => this.error.set(errorMessage(err)),
+    });
   }
 
   /** Stop polling — called on component destroy so a navigated-away page
@@ -74,6 +94,8 @@ export class BackfillPanelService {
   stopPolling(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.fetchSub?.unsubscribe();
+    this.fetchSub = null;
   }
 
   private poll(id: string): void {
@@ -88,7 +110,7 @@ export class BackfillPanelService {
   }
 
   private fetchOnce(id: string): void {
-    this.cloudflare.getBackfillJob(id).subscribe({
+    this.fetchSub = this.cloudflare.getBackfillJob(id).subscribe({
       next: (job) => {
         this.job.set(job);
         if (job.status !== 'queued' && job.status !== 'running') {

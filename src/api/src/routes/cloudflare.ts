@@ -34,7 +34,7 @@ import {
   type CloudflareConfig,
 } from '../cloudflare/cloudflare-config.repo.ts';
 import { testR2Credentials } from '../cloudflare/r2-client.ts';
-import { createJob, getJob, requestCancel } from '../job-runner/jobs.repo.ts';
+import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 import type { JobWithId } from '../db/schema.ts';
 
 const log = childLogger('cloudflare:routes');
@@ -141,12 +141,28 @@ export const cloudflareRoutes = new Elysia({ prefix: '/api/cloudflare' })
 
   // POST /api/cloudflare/backfill — queue a cf_thumb_backfill job. Refuses
   // when config isn't complete/enabled so the operator gets an immediate
-  // 409 instead of a job that fails on its first batch.
+  // 409 instead of a job that fails on its first batch. Also refuses a
+  // second concurrent backfill (409 with the existing job's id) — the
+  // handler's single-cursor pass already covers everything pending, so a
+  // duplicate run only doubles R2 traffic and DB scans for no benefit,
+  // mirroring the pano_stitch single-concurrent-job guard.
   .post('/backfill', async ({ set }) => {
     const config = resolveCloudflareConfig(await loadCloudflareConfig());
     if (!isCloudflareConfigComplete(config)) {
       set.status = 409;
       return { error: 'Cloudflare upload must be enabled with valid credentials to backfill' };
+    }
+    const existing = await listJobs({
+      kind: 'cf_thumb_backfill',
+      statuses: ['queued', 'running'],
+      limit: 1,
+    });
+    if (existing.length > 0) {
+      set.status = 409;
+      return {
+        error: 'A backfill job is already in progress',
+        jobId: existing[0]._id.toHexString(),
+      };
     }
     const doc = await createJob({ kind: 'cf_thumb_backfill', payload: {} });
     set.status = 201;
