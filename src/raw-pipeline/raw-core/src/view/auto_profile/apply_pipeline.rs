@@ -38,7 +38,11 @@ use super::{apply_curve, fit_display};
 /// operator-facing meaning (it swaps an internal fit algorithm, not a
 /// behavior an end user chooses).
 pub fn auto1_enabled_by_env() -> bool {
-    std::env::var_os("MAPLE_AUTO1").is_some()
+    // Match the Swift Auto1Flag semantics exactly: "0" and empty are
+    // DISABLED — only a non-empty, non-"0" value engages the escape hatch.
+    std::env::var("MAPLE_AUTO1")
+        .map(|v| !v.is_empty() && v != "0")
+        .unwrap_or(false)
 }
 
 /// Fit (or reuse from cache) the Auto Profile artifacts from the pinned fit
