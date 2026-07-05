@@ -29,6 +29,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import type { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
@@ -49,6 +50,14 @@ const log = childLogger('job:cf-thumb-backfill');
 const BATCH_SIZE = 100;
 const UPLOAD_MAX_ATTEMPTS = 3;
 const UPLOAD_RETRY_BASE_MS = 500;
+// Caps the per-failure detail array recorded on the job document. Without a
+// cap, a systemic failure (wrong bucket, revoked credentials that slip past
+// the mid-run completeness re-check, a sustained R2 outage) would push one
+// `{ assetId, error }` entry per failed asset — across a large library that
+// can approach MongoDB's 16MB document limit and make the runner's own
+// completion write fail. `failedCount` still counts every failure; only the
+// detail list is bounded.
+const MAX_RECORDED_FAILURES = 100;
 
 const PENDING_FILTER = { cf_thumb_synced_at: null, maple_id: { $gt: '' } } as const;
 
@@ -103,6 +112,20 @@ export const cfThumbBackfillHandler: JobHandler = {
     const idToSlug = await loadLibraryIdToSlug();
     const libs = await loadLibraryRoots();
 
+    // Successful uploads are batched into a single `updateMany` every
+    // BATCH_SIZE (and flushed once more at the end) instead of one
+    // `updateOne` per asset — an N+1 write pattern jules flagged, unnecessary
+    // since these documents don't need individually-precise timestamps.
+    let pendingSynced: ObjectId[] = [];
+    async function flushSynced(): Promise<void> {
+      if (pendingSynced.length === 0) return;
+      await coll.updateMany(
+        { _id: { $in: pendingSynced } },
+        { $set: { cf_thumb_synced_at: new Date().toISOString() } },
+      );
+      pendingSynced = [];
+    }
+
     let processed = 0;
     let cancelled = false;
     let sinceConfigCheck = 0;
@@ -125,6 +148,7 @@ export const cfThumbBackfillHandler: JobHandler = {
       // so an operator disabling uploads mid-run halts new work promptly
       // without adding a DB round-trip to every single asset.
       if (sinceConfigCheck >= BATCH_SIZE) {
+        await flushSynced();
         dbConfig = await loadCloudflareConfig();
         config = resolveCloudflareConfig(dbConfig);
         if (!isCloudflareConfigComplete(config)) {
@@ -146,10 +170,7 @@ export const cfThumbBackfillHandler: JobHandler = {
           const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
           const bytes = await readFile(thumbPath);
           await uploadWithRetry(config, key, bytes);
-          await coll.updateOne(
-            { _id: asset._id },
-            { $set: { cf_thumb_synced_at: new Date().toISOString() } },
-          );
+          pendingSynced.push(asset._id);
           result.successCount += 1;
         }
       } catch (err) {
@@ -160,7 +181,13 @@ export const cfThumbBackfillHandler: JobHandler = {
           result.skippedCount += 1;
         } else {
           result.failedCount += 1;
-          result.failures.push({ assetId, error: message });
+          // Cap recorded detail so a systemic failure (bad bucket, revoked
+          // credentials, sustained outage) across a large library can't grow
+          // this array past MongoDB's 16MB document limit — failedCount
+          // still reflects every failure even once the detail list is full.
+          if (result.failures.length < MAX_RECORDED_FAILURES) {
+            result.failures.push({ assetId, error: message });
+          }
           log.warn({ assetId, err: message }, 'cf_thumb_backfill: upload failed');
         }
       }
@@ -168,6 +195,8 @@ export const cfThumbBackfillHandler: JobHandler = {
       processed += 1;
       await ctx.reportProgress(processed, total);
     }
+
+    await flushSynced();
 
     return cancelled
       ? { kind: 'cancelled', result: result as unknown as Record<string, unknown> }
