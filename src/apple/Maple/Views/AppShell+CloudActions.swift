@@ -65,7 +65,8 @@ extension AppShell {
         guard session.isSignedIn else { return [] }
 
         let httpClient = makeAuthenticatedHTTPClient(server: url)
-        let client = CloudFoldersClient(server: url, httpClient: httpClient)
+        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: url)
+        let client = CloudFoldersClient(server: effectiveServer, httpClient: httpClient)
         do {
             let folders = try await client.listFolders()
             CloudFoldersCache.save(folders, server: url)
@@ -99,7 +100,8 @@ extension AppShell {
         guard session.isSignedIn else { return nil }
 
         let httpClient = makeAuthenticatedHTTPClient(server: server)
-        let client = CloudFoldersClient(server: server, httpClient: httpClient)
+        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: server)
+        let client = CloudFoldersClient(server: effectiveServer, httpClient: httpClient)
         do { return try await client.listDir(absPath: absPath) }
         catch { return nil }
     }
@@ -166,7 +168,8 @@ extension AppShell {
             case .folder:
                 cloudTimelineVM = nil
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-                let source = CloudSource(server: serverID,
+                let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
+                let source = CloudSource(server: effectiveServer,
                                          folderID: folderID,
                                          libraryPath: libraryPath,
                                          httpClient: httpClient)
@@ -181,7 +184,7 @@ extension AppShell {
                 // there, then update the persisted selection so cold
                 // start no longer points at the missing path.
                 if browseVM.loadError != nil {
-                    let foldersClient = CloudFoldersClient(server: serverID,
+                    let foldersClient = CloudFoldersClient(server: effectiveServer,
                                                            httpClient: httpClient)
                     if let libs = try? await foldersClient.listFolders(),
                        let registered = libs.first(where: { $0.id == folderID }),
@@ -223,7 +226,8 @@ extension AppShell {
                 // expired tokens at once — only one /api/auth/refresh
                 // call goes out, all callers wait on the same continuation.
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-                let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
+                let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
+                let searchClient = CloudSearchClient(server: effectiveServer, httpClient: httpClient)
                 // Scope the Timeline to whatever the user picked in the
                 // sidebar — the library root, or a subfolder when they pick
                 // deeper. The server matches pathPrefix against
@@ -276,7 +280,7 @@ extension AppShell {
                     pathPrefix: timelinePrefix,
                     searchClient: searchClient,
                     photoKitMerge: photoKitMerge)
-                cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
+                cloudTimelineThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
                 cloudTimelineThumbCache = CloudThumbCache()
                 // Title is the friendly library name, not the URL host
                 // (#782). The " — Timeline" suffix was dropped in #692 — it
@@ -334,11 +338,12 @@ extension AppShell {
     func activateSearch() {
         guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
         let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
         searchVM = SearchViewModel(
             server: serverID,
             libraryID: folderID,
-            searchClient: CloudSearchClient(server: serverID, httpClient: httpClient))
-        searchThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
+            searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
+        searchThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
         searchThumbCache = CloudThumbCache()
         isSearchActive = true
     }
@@ -368,7 +373,7 @@ extension AppShell {
            case .cloudLibrary(let serverID, let folderID) = librarySelection,
            let path = cloudCurrentPath {
             let httpClient = makeAuthenticatedHTTPClient(server: serverID)
-            let source = CloudSource(server: serverID,
+            let source = CloudSource(server: LocalNetworkResolver.shared.effectiveURL(for: serverID),
                                      folderID: folderID,
                                      libraryPath: path,
                                      httpClient: httpClient)
@@ -393,12 +398,13 @@ extension AppShell {
     @MainActor
     func prepareCloudSession(_ asset: SearchAsset, server: URL) -> AssetRef {
         let httpClient = makeAuthenticatedHTTPClient(server: server)
+        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: server)
         // libraryPath is unused for this code path — we never call
         // source.images() on a single-asset open. Pass the asset's
         // parent dir so a hypothetical navigate() lands somewhere
         // sensible.
         let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
-        let source = CloudSource(server: server,
+        let source = CloudSource(server: effectiveServer,
                                  folderID: asset.folder_id,
                                  libraryPath: parentPath,
                                  httpClient: httpClient)
@@ -432,7 +438,7 @@ extension AppShell {
             bytesProvider: { try await downloadBox.bytes() }
         )
         if sessions[assetRef.id] == nil {
-            let remoteStore = CloudSidecarStore(server: server, assetID: asset.id, httpClient: httpClient)
+            let remoteStore = CloudSidecarStore(server: effectiveServer, assetID: asset.id, httpClient: httpClient)
             let session = EditSession(asset: assetRef,
                                       remoteSidecarStore: remoteStore,
                                       downloadProgress: progress)
@@ -443,7 +449,7 @@ extension AppShell {
         // InfoPanel's HistogramBlock can fetch live RGB curves. Reuses
         // the same AuthenticatedHTTPClient as the rest of the cloud
         // session to keep the 401-refresh coalescer single-flighted.
-        cloudHistogramClient = CloudHistogramClient(server: server, httpClient: httpClient)
+        cloudHistogramClient = CloudHistogramClient(server: effectiveServer, httpClient: httpClient)
         return assetRef
     }
 
@@ -500,14 +506,15 @@ extension AppShell {
         guard session.isSignedIn else { return nil }
 
         let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
         let vm = SearchViewModel(
             server: serverID,
             libraryID: nil, // account-wide
-            searchClient: CloudSearchClient(server: serverID, httpClient: httpClient))
+            searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
         return PhoneSearchSession(
             server: serverID,
             vm: vm,
-            thumbClient: CloudThumbClient(server: serverID, httpClient: httpClient),
+            thumbClient: CloudThumbClient(server: effectiveServer, httpClient: httpClient),
             thumbCache: CloudThumbCache())
     }
 }

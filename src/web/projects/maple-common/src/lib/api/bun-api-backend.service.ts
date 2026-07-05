@@ -15,6 +15,7 @@ import type { DownloadProgress } from './filesystem-browse.service';
 // and is re-exported from the library's public-api barrel; we only need the type
 // here for the method signatures below.
 import type { ObservabilityConfigResponse } from '../observability/observability-config.model';
+import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
 
 export interface ApiFolder {
   id: string;
@@ -349,6 +350,22 @@ export class BunApiBackendService {
 
   registerFolder(folderPath: string): Observable<ApiFolder> {
     return this.http.post<ApiFolder>(`${this.base}/folders`, { path: folderPath });
+  }
+
+  // --- Network settings (LAN address override) ------------------------------
+
+  /** Current effective LAN-address config + provenance. Powers the
+   * Settings → Network page (auto-detected value shown alongside any saved
+   * override). */
+  getNetworkConfig(): Observable<NetworkConfigResponse> {
+    return this.http.get<NetworkConfigResponse>(`${this.base}/network/config`);
+  }
+
+  /** Save the LAN-address override (patch semantics — only send the fields
+   * you want to change) and get the re-resolved view back. `null` clears an
+   * override back to auto-detection / the server's listen port. */
+  saveNetworkConfig(body: NetworkConfigPatch): Observable<NetworkConfigResponse> {
+    return this.http.put<NetworkConfigResponse>(`${this.base}/network/config`, body);
   }
 
   // --- Mirror / backup locations (per library) -----------------------------

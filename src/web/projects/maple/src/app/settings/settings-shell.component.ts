@@ -16,6 +16,7 @@ export type SettingsSection =
   | 'people'
   | 'users'
   | 'observability'
+  | 'network'
   | 'pano'
   | 'cloudflare';
 
@@ -54,6 +55,14 @@ const ITEMS: readonly NavItem[] = [
     link: '/settings/observability',
     ownerOnly: true,
     sub: 'SigNoz telemetry',
+  },
+  {
+    id: 'network',
+    label: 'Network',
+    icon: 'wifi',
+    link: '/settings/network',
+    ownerOnly: true,
+    sub: 'LAN address for local connections',
   },
   {
     id: 'pano',

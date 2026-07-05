@@ -50,6 +50,13 @@ export * from './lib/observability/observability-config-cache';
 export * from './lib/observability/observability.service';
 export * from './lib/observability/maple-error-handler';
 
+// LAN address discovery — settings CRUD model + the public report shape +
+// the dynamic API_BASE_URL store + the on-load preference initializer.
+export * from './lib/network/network-config.model';
+export * from './lib/network/local-address-report.model';
+export * from './lib/api/api-base-url-store';
+export * from './lib/network/network-preference-bootstrap';
+
 export * from './lib/components/loading-banner/loading-banner.component';
 export * from './lib/components/error-banner/error-banner.component';
 export * from './lib/components/library-picker/library-picker.component';

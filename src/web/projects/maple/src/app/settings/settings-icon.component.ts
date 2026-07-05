@@ -36,7 +36,8 @@ export type SettingsIconName =
   | 'open'
   | 'kebab'
   | 'edit'
-  | 'merge';
+  | 'merge'
+  | 'wifi';
 
 @Component({
   selector: 'maple-settings-icon',
@@ -492,6 +493,17 @@ export type SettingsIconName =
             stroke-linejoin="round"
             d="M5 13V8a3 3 0 013-3h0a3 3 0 013 3v5M11 13V3M11 3l-2 2M11 3l2 2"
           />
+        }
+        @case ('wifi') {
+          <path
+            [attr.stroke-width]="stroke()"
+            stroke="currentColor"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M2 6c3.3-3 8.7-3 12 0M4.3 8.8c2.2-2 5.2-2 7.4 0M6.7 11.5a3 3 0 012.6 0"
+          />
+          <circle fill="currentColor" cx="8" cy="13.2" r="1" />
         }
         @default {
           <circle

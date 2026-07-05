@@ -68,8 +68,16 @@ struct MapleBackupAgentEntryPoint {
       tokensProvider: { try? TokenStore.load(server: url) },
       onTokensRefreshed: { try? TokenStore.save($0, server: url) },
       onSignOut: { TokenStore.clear(server: url) })
+    // Separate process from the main app — no access to its in-memory
+    // LocalNetworkResolver cache. LocalNetworkResolving is a stateless free
+    // function for exactly this reason; re-probing fresh on every agent
+    // launch is fine (arguably more correct than trusting a stale
+    // foreground-process cache). `authClient` keeps using the identity `url`
+    // (it only builds the token-refresh request); `upload`/`reader` get the
+    // resolved (possibly-LAN) address for actual data requests.
+    let effectiveURL = await LocalNetworkResolving.resolveEffectiveURL(identity: url)
     let upload = UploadClient(
-      baseURL: url,
+      baseURL: effectiveURL,
       libraryId: s.libraryId,
       deviceId: deviceId,
       transport: { try await authClient.data(for: $0) })
@@ -79,7 +87,7 @@ struct MapleBackupAgentEntryPoint {
     // agent target (drag it in via Xcode Build Phases → Compile Sources).
     let reader: any AssetReader = PhotoKitAssetReader(
       deviceId: deviceId,
-      geocode: GeocodeClient(baseURL: url))
+      geocode: GeocodeClient(baseURL: effectiveURL))
     #else
     fatalError("MapleBackupAgent requires Photos.framework")
     #endif

@@ -135,15 +135,16 @@ public final class EngineHost {
                 await queue.enqueue(task, priority: task.priority)
             }
 
+            let effectiveServerURL = LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL)
             let upload = UploadClient(
-                baseURL: serverBaseURL,
+                baseURL: effectiveServerURL,
                 libraryId: settings.libraryId,
                 deviceId: deviceId,
                 transport: makeBackupTransport(server: serverBaseURL))
 
             let reader: any AssetReader = PhotoKitAssetReader(
                 deviceId: deviceId,
-                geocode: GeocodeClient(baseURL: serverBaseURL))
+                geocode: GeocodeClient(baseURL: effectiveServerURL))
 
             let engine = BackupEngine(
                 queue: queue,

@@ -20,6 +20,17 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+    <!--
+      Self-hosted servers are commonly reachable directly over plain HTTP on
+      the LAN (see Maple-Info.plist for the full rationale). Without this,
+      RemoteCatalog's LAN-address probe/requests are blocked by ATS at the
+      network layer inside this extension's own process/sandbox.
+    -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
     <key>NSExtension</key>
     <dict>
         <key>NSExtensionFileProviderDocumentGroup</key>
