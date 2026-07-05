@@ -40,6 +40,9 @@ export * from './lib/api/imports-api.service';
 export * from './lib/api/pano.service';
 export * from './lib/pano/pano-dialog.component';
 
+// #1757 — Cloudflare R2 thumbnail-mirror operator config
+export * from './lib/api/cloudflare.service';
+
 // #713 — Observability (SigNoz / OpenTelemetry). Config model + IndexedDB
 // cache + the SDK-wiring service + the global Angular error handler.
 export * from './lib/observability/observability-config.model';
