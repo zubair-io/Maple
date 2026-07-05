@@ -58,9 +58,10 @@ public struct WbSliderFrame: Sendable, Equatable {
     }
 
     /// Read the export off a decode buffer. Returns `nil` when the buffer
-    /// carries no frame (`wb_frame_scene_cct <= 0`).
+    /// carries no frame (`wb_frame_scene_cct <= 0` or non-finite — the
+    /// same presence predicate as Rust's `SliderFrameExport::is_present`).
     init?(buffer: MapleSceneLinearBufferF32) {
-        guard buffer.wb_frame_scene_cct > 0 else { return nil }
+        guard buffer.wb_frame_scene_cct.isFinite, buffer.wb_frame_scene_cct > 0 else { return nil }
         self.mCold = Self.array9(buffer.wb_frame_m_cold)
         self.cctCold = buffer.wb_frame_cct_cold
         self.mWarm = Self.array9(buffer.wb_frame_m_warm)

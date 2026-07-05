@@ -90,6 +90,8 @@ final class WbSliderFrameTests: XCTestCase {
         // Pre-decode placeholder seed (the CIRAWFilter numbers).
         session.asShotCCT = 4522
         session.asShotTint = -43.65
+        session.wbSeedTemperature = 4522
+        session.wbSeedTint = -43.65
         session.model.temperature = 4522
         session.model.tint = -43.65
         session.originalModel.temperature = 4522
@@ -103,6 +105,39 @@ final class WbSliderFrameTests: XCTestCase {
         XCTAssertEqual(session.model.tint, -100, accuracy: 0.01)
         XCTAssertEqual(session.originalModel.temperature, 5520, accuracy: 0.01)
         XCTAssertEqual(session.originalModel.tint, -100, accuracy: 0.01)
+    }
+
+    /// A bytes-backed RAW (no `primaryURL`) never gets the `CIRAWFilter`
+    /// placeholder — hydration seeds the model with the DEFAULTS and
+    /// records them as the seed. Adoption must still re-seed (the
+    /// placeholder-equality gate this replaces left these sessions stuck
+    /// at 6500/0).
+    func testAdoptReSeedsDefaultSeededModelWithoutPlaceholder() {
+        let session = rawSession()
+        // No placeholder read: asShot stays nil, seed = model defaults.
+        session.wbSeedTemperature = session.model.temperature
+        session.wbSeedTint = session.model.tint
+
+        session.adoptDecodedWbFrame(frame(sceneCCT: 5520, asShotTint: -100))
+
+        XCTAssertEqual(session.model.temperature, 5520, accuracy: 0.01)
+        XCTAssertEqual(session.model.tint, -100, accuracy: 0.01)
+        XCTAssertEqual(session.originalModel.temperature, 5520, accuracy: 0.01)
+        XCTAssertEqual(session.originalModel.tint, -100, accuracy: 0.01)
+    }
+
+    /// Authored sidecar values ⇒ hydration records NO seed ⇒ adoption
+    /// never touches the model, even if the sliders numerically equal the
+    /// defaults.
+    func testAdoptLeavesSidecarSeededModelAlone() {
+        let session = rawSession()
+        session.wbSeedTemperature = nil
+        session.wbSeedTint = nil
+
+        session.adoptDecodedWbFrame(frame(sceneCCT: 5520, asShotTint: -100))
+
+        XCTAssertEqual(session.model.temperature, 6500, accuracy: 0.01)
+        XCTAssertEqual(session.model.tint, 0, accuracy: 0.01)
     }
 
     func testAdoptLeavesUserAuthoredWBAlone() {

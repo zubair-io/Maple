@@ -26,6 +26,65 @@ use super::{
 };
 use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
 
+/// Per-render options for [`apply_scene_linear_chain`] /
+/// [`apply_scene_linear_chain_f32`] (and their `_with_patches` wrappers) —
+/// everything about the render EXCEPT the buffer and the adjustment model.
+///
+/// [`Default`] is the "plain re-render" configuration: decode anchor
+/// 6500 K / 0 (the "no sidecar applied at decode" bake), no WB frame, AgX
+/// on, sRGB target, no noise profile, ISO 100.
+#[derive(Clone, Copy)]
+pub struct ChainOptions<'a> {
+    /// WB temperature the cached buffer was decoded at by the Rust FFI
+    /// (sidecar `Temperature` when an XMP was passed to `decodeSceneLinear`,
+    /// else 6500). The chain applies the **delta**
+    /// `wb_gains(live) / wb_gains(decoded)` so opening a saved sidecar
+    /// doesn't double-apply WB.
+    pub decoded_temp: f32,
+    /// WB tint sibling of `decoded_temp` (0 for the no-sidecar decode).
+    pub decoded_tint: f32,
+    /// Decode-exported [`wb_camera::SliderFrameExport`] (#1781): when
+    /// present, the WB delta is derived in the SAME camera-calibration
+    /// frame the develop chain interprets the sliders in
+    /// (`SliderFrameExport::apply_delta_rec2020`), instead of the generic
+    /// Planckian CAT16 delta — closing the live-vs-refine WB seam. `None`
+    /// (or an absent export) keeps the legacy `white_balance::apply_delta`
+    /// bit-identical.
+    pub wb_frame: Option<&'a crate::stages::wb_camera::SliderFrameExport>,
+    /// Flips off the AgX view-transform tail. Set true for the non-RAW
+    /// input path, where the JPEG / HEIF input already has a tone curve
+    /// baked in by the camera and applying AgX would double-tone-map.
+    pub skip_agx: bool,
+    /// Output primaries when the display tail runs — see the per-function
+    /// docs for the exact output color space per variant.
+    pub target_primaries: TargetPrimaries,
+    /// Per-camera noise profile from the decoded `RawImage` (typically two
+    /// coefficients per channel in the DNG NoiseLevelFunction model).
+    /// `None` disables the profile-aware path and falls back to the
+    /// ISO-based estimate (the pre-#1709 behaviour). When present, passed
+    /// through to `noise_reduction::apply_luminance` for
+    /// scene-noise-adaptive NR.
+    pub noise_profile: Option<&'a [f32]>,
+    /// ISO speed at capture (`RawImage::iso`), used with `noise_profile`
+    /// to derive the per-channel sigma. 100 = the hardcoded fallback that
+    /// predates noise-profile plumbing.
+    pub iso: u32,
+}
+
+impl Default for ChainOptions<'_> {
+    fn default() -> Self {
+        ChainOptions {
+            decoded_temp: 6500.0,
+            decoded_tint: 0.0,
+            wb_frame: None,
+            skip_agx: false,
+            target_primaries: TargetPrimaries::Srgb,
+            noise_profile: None,
+            iso: 100,
+        }
+    }
+}
+
 /// Apply the per-tick scene-linear chain to an already-decoded fp16 RGBA
 /// scene-linear Rec.2020 buffer.
 ///
@@ -43,16 +102,9 @@ use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
 ///   * nr_color is borderline (~5 ms) but architecturally easier to leave
 ///     on Metal alongside sharpen than to split the FFI surface.
 ///
-/// `decoded_temp`/`decoded_tint` are the WB the cached buffer was decoded
-/// at by the Rust FFI (sidecar `Temperature`/`Tint` fields when an XMP
-/// was passed to `decodeSceneLinear`, else 6500/0). The chain applies
-/// the **delta** `wb_gains(live) / wb_gains(decoded)` so opening a saved
-/// sidecar doesn't double-apply WB. Pass `(6500.0, 0.0)` for the "no
-/// sidecar applied at decode" common case.
-///
-/// `skip_agx` flips off the AgX view transform tail. Set true for the
-/// non-RAW input path, where the JPEG / HEIF input already has a tone
-/// curve baked in by the camera and applying AgX would double-tone-map.
+/// Everything about the render besides the buffer and the model — the
+/// decode WB anchor, the WB slider frame, AgX/primaries switches, noise
+/// data — rides in [`ChainOptions`] (see its field docs).
 ///
 /// Input is parsed as packed fp16 RGBA, row-major, 4 lanes per pixel
 /// (`bytes_per_pixel = 8`). Alpha is read but ignored — the output writes
@@ -76,37 +128,22 @@ use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
 /// the exception of dehaze (which short-circuits to a no-op when
 /// `model.dehaze == 0`, the default). Whole-chain target: <10 ms.
 ///
-/// `noise_profile` is the per-camera noise profile from the decoded `RawImage`
-/// (typically two coefficients per channel in the DNG NoiseLevelFunction model).
-/// `None` disables the profile-aware path and falls back to the ISO-based
-/// estimate (the pre-#1709 behaviour). When present, passed through to
-/// `noise_reduction::apply_luminance` for scene-noise-adaptive NR.
-///
-/// `iso` is the ISO speed at which the image was captured (`RawImage::iso`),
-/// used by `noise_reduction::apply_luminance` together with `noise_profile` to
-/// derive the per-channel sigma. Pass `100` when noise profile data is not
-/// available (the hardcoded fallback that was in place before this fix).
-///
-/// `wb_frame` (#1781) is the decode-exported [`wb_camera::SliderFrameExport`]:
-/// when present, the WB delta is derived in the SAME camera-calibration frame
-/// the develop chain interprets the sliders in
-/// (`SliderFrameExport::apply_delta_rec2020`), instead of the generic
-/// Planckian CAT16 delta — closing the live-vs-refine WB seam. `None` (or an
-/// absent export) keeps the legacy `white_balance::apply_delta` bit-identical.
-#[allow(clippy::too_many_arguments)]
 pub fn apply_scene_linear_chain(
     in_fp16_rgba: &[u16],
     width: u32,
     height: u32,
     model: &AdjustmentModel,
-    decoded_temp: f32,
-    decoded_tint: f32,
-    wb_frame: Option<&crate::stages::wb_camera::SliderFrameExport>,
-    skip_agx: bool,
-    target_primaries: TargetPrimaries,
-    noise_profile: Option<&[f32]>,
-    iso: u32,
+    opts: &ChainOptions<'_>,
 ) -> Result<Vec<u16>> {
+    let ChainOptions {
+        decoded_temp,
+        decoded_tint,
+        wb_frame,
+        skip_agx,
+        target_primaries,
+        noise_profile,
+        iso,
+    } = *opts;
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
@@ -343,22 +380,24 @@ pub fn apply_scene_linear_chain(
 /// `Srgb` (0) leaves the output in `DisplayLinearRec2020` (bit-identical
 /// to pre-#1337); `P3` (1) applies `rec2020_to_display` inside the chain.
 ///
-/// `noise_profile`, `iso`, and `wb_frame` — see [`apply_scene_linear_chain`];
-/// identical semantics for the f32 entry.
-#[allow(clippy::too_many_arguments)]
+/// All other options — see [`ChainOptions`]; identical semantics for the
+/// f32 entry.
 pub fn apply_scene_linear_chain_f32(
     in_f32_rgba: &[f32],
     width: u32,
     height: u32,
     model: &AdjustmentModel,
-    decoded_temp: f32,
-    decoded_tint: f32,
-    wb_frame: Option<&crate::stages::wb_camera::SliderFrameExport>,
-    skip_agx: bool,
-    target_primaries: TargetPrimaries,
-    noise_profile: Option<&[f32]>,
-    iso: u32,
+    opts: &ChainOptions<'_>,
 ) -> Result<Vec<f32>> {
+    let ChainOptions {
+        decoded_temp,
+        decoded_tint,
+        wb_frame,
+        skip_agx,
+        target_primaries,
+        noise_profile,
+        iso,
+    } = *opts;
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,

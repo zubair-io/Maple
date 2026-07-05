@@ -65,7 +65,7 @@ pub use render::{
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32,
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
-    encode_display_srgb_f32,
+    encode_display_srgb_f32, ChainOptions,
 };
 pub use tile::{
     render_scene_linear_tile_from_raw_with_quality,

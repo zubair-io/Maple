@@ -144,18 +144,17 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
         p.wb_frame_as_shot_tint,
     );
 
-    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
-        in_slice,
-        width,
-        height,
-        &model,
+    let opts = raw_core::pipeline::ChainOptions {
         decoded_temp,
         decoded_tint,
-        Some(&wb_frame),
-        p.skip_agx != 0,
-        primaries,
-        noise_profile_slice_f32,
-        iso_f32,
+        wb_frame: Some(&wb_frame),
+        skip_agx: p.skip_agx != 0,
+        target_primaries: primaries,
+        noise_profile: noise_profile_slice_f32,
+        iso: iso_f32,
+    };
+    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
+        in_slice, width, height, &model, &opts,
     ) {
         Ok(v) => v,
         Err(e) => {

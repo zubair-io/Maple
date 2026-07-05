@@ -79,6 +79,14 @@ extension EditSession {
         model = base
         isHydratingInitialState = false
 
+        // Record what a fresh (sidecar-less) model was seeded with — the
+        // placeholder pair, or the defaults when no placeholder was
+        // readable (bytes-backed RAWs have no URL for the ImageIO read).
+        // `adoptDecodedWbFrame` re-seeds only while the model still sits
+        // exactly at this pair; authored sidecar values ⇒ nil ⇒ never.
+        wbSeedTemperature = loadedModel == nil ? base.temperature : nil
+        wbSeedTint = loadedModel == nil ? base.tint : nil
+
         if renderRequested, model != previousModel {
             _scheduleRender(phase: .fast)
         }
@@ -116,8 +124,8 @@ extension EditSession {
 
     /// Adopt the decode-exported WB slider frame: the decode's numbers win
     /// over the `CIRAWFilter` pre-decode placeholder. Updates the session's
-    /// as-shot estimate, and — when the model still sits at the placeholder
-    /// seed (fresh open, WB untouched) — re-seeds the live model + the
+    /// as-shot estimate, and — when the model still sits at the recorded
+    /// hydration seed (fresh open, WB untouched) — re-seeds the live model + the
     /// RESET baseline to the frame's as-shot pair, WITHOUT triggering the
     /// autosave (an untouched open must not manufacture a sidecar). A
     /// cheap fast re-render is scheduled instead so the canvas converges
@@ -131,18 +139,20 @@ extension EditSession {
         wbSliderFrame = frame
         let newCCT = Double(frame.sceneCCT)
         let newTint = Double(frame.asShotTint)
-        let oldCCT = asShotCCT
-        let oldTint = asShotTint
+        let oldCCT = wbSeedTemperature
+        let oldTint = wbSeedTint
         asShotCCT = newCCT
         asShotTint = newTint
         // Re-seed only an untouched As-Shot model: both the live model and
-        // the RESET baseline still sit exactly at the placeholder pair the
-        // pre-decode seed wrote. A user WB move, or a sidecar carrying
-        // authored values, never matches and is left alone.
-        let modelAtPlaceholder = oldCCT != nil && oldTint != nil
+        // the RESET baseline still sit exactly at the recorded hydration
+        // seed (`wbSeedTemperature`/`wbSeedTint` — the placeholder pair, or
+        // the defaults for bytes-backed RAWs with no readable placeholder).
+        // A user WB move, or a sidecar carrying authored values (seed nil),
+        // never matches and is left alone.
+        let modelAtSeed = oldCCT != nil && oldTint != nil
             && model.temperature == oldCCT && model.tint == oldTint
             && originalModel.temperature == oldCCT && originalModel.tint == oldTint
-        guard modelAtPlaceholder else {
+        guard modelAtSeed else {
             editSessionLogger.notice(
                 "WB frame adopted (asShot \(newCCT, format: .fixed(precision: 0))K/\(newTint, format: .fixed(precision: 1))); model not at placeholder — sliders left alone"
             )
@@ -155,6 +165,11 @@ extension EditSession {
         originalModel.temperature = newCCT
         originalModel.tint = newTint
         isHydratingInitialState = false
+        // The frame's pair is the model's new "untouched" seed — a later
+        // adoption (e.g. a re-decode) may re-seed again iff WB is still
+        // sitting here.
+        wbSeedTemperature = newCCT
+        wbSeedTint = newTint
         editSessionLogger.notice(
             "WB frame adopted — As-Shot re-seeded from \(oldCCT ?? 0, format: .fixed(precision: 0))K/\(oldTint ?? 0, format: .fixed(precision: 1)) to \(newCCT, format: .fixed(precision: 0))K/\(newTint, format: .fixed(precision: 1))"
         )
