@@ -156,6 +156,52 @@ pub struct MapleAdjustmentParams {
     /// ISO speed at capture from `RawImage::iso`. 0 is treated as 100 on the
     /// Rust side (the pre-fix hardcoded fallback). A stale host leaves this 0.
     pub iso: u32,
+    // --- WB slider frame (#1781) — the decode-exported `SliderFrame` data
+    //     (`MapleSceneLinearBufferF32.wb_frame_*`, passed back verbatim by the
+    //     host). When present (`wb_frame_scene_cct > 0`) the chain derives its
+    //     WB delta in the SAME camera-calibration frame the develop chain
+    //     interprets the sliders in, closing the live-vs-refine WB seam.
+    //     Appended at the struct tail per the offset-stable ABI convention: a
+    //     stale host leaves all six fields 0 ⇒ frame absent ⇒ the legacy
+    //     generic CAT16 delta, bit-identical to pre-#1781 output. ---
+    /// Cold calibration endpoint (XYZ→camera), row-major 3×3.
+    pub wb_frame_m_cold: [f32; 9],
+    pub wb_frame_cct_cold: f32,
+    /// Warm calibration endpoint (XYZ→camera), row-major 3×3. Equal to the
+    /// cold endpoint (with equal CCTs) for a single-calibration frame.
+    pub wb_frame_m_warm: [f32; 9],
+    pub wb_frame_cct_warm: f32,
+    /// The frame's as-shot CCT — the slider's identity temperature. 0 ⇒ the
+    /// whole frame block is absent.
+    pub wb_frame_scene_cct: f32,
+    /// The frame's as-shot tint (in-frame estimate).
+    pub wb_frame_as_shot_tint: f32,
+}
+
+/// Rebuild the raw-core [`raw_core::stages::wb_camera::SliderFrameExport`]
+/// from the six flat `wb_frame_*` fields (#1781). An absent frame
+/// (`scene_cct <= 0`, e.g. a zero-initialised stale host) maps to
+/// `SliderFrameExport::ABSENT`, whose `is_present()` is false — consumers
+/// then keep the legacy generic-CAT16 path.
+pub(crate) fn wb_frame_from_flat(
+    m_cold: &[f32; 9],
+    cct_cold: f32,
+    m_warm: &[f32; 9],
+    cct_warm: f32,
+    scene_cct: f32,
+    as_shot_tint: f32,
+) -> raw_core::stages::wb_camera::SliderFrameExport {
+    let mat = |m: &[f32; 9]| {
+        raw_core::math::Matrix3([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]])
+    };
+    raw_core::stages::wb_camera::SliderFrameExport {
+        m_cold: mat(m_cold),
+        cct_cold,
+        m_warm: mat(m_warm),
+        cct_warm,
+        scene_cct,
+        as_shot_tint,
+    }
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -341,6 +387,22 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
         };
     let iso = if p.iso == 0 { 100 } else { p.iso };
 
+    // WB slider frame (#1781): RAW shapes only — a non-RAW buffer has no
+    // camera calibration and its D65-anchored delta stays on the generic
+    // path. An absent frame (zeros) is `!is_present()` ⇒ legacy behaviour.
+    let wb_frame = wb_frame_from_flat(
+        &p.wb_frame_m_cold,
+        p.wb_frame_cct_cold,
+        &p.wb_frame_m_warm,
+        p.wb_frame_cct_warm,
+        if p.input_shape == 0 {
+            p.wb_frame_scene_cct
+        } else {
+            0.0
+        },
+        p.wb_frame_as_shot_tint,
+    );
+
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
         in_slice,
         width,
@@ -348,6 +410,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
         &model,
         decoded_temp,
         decoded_tint,
+        Some(&wb_frame),
         p.skip_agx != 0,
         primaries,
         noise_profile_slice,

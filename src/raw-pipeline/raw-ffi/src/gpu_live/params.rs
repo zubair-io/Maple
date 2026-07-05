@@ -66,43 +66,94 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     // composing with its inverse would silently change the legacy output.
     // (Copilot review on #1262.)
     let use_delta = p.decoded_temperature > 0.0;
-    let wb_matrix = match wb_method {
-        raw_core::types::WbMethod::Cat16 => {
-            let m_live = raw_core::stages::white_balance::wb_cat16_matrix(p.temperature, p.tint);
-            if use_delta {
-                let m_decoded = raw_core::stages::white_balance::wb_cat16_matrix(
-                    p.decoded_temperature,
-                    p.decoded_tint,
-                );
-                let m_decoded_inv = m_decoded
-                    .inverse()
-                    .expect("CAT16 user-WB matrix is non-singular for valid (T, tint)");
-                m_live.mul_mat(&m_decoded_inv).0
-            } else {
-                m_live.0
+    // WB slider frame (#1781): the decode-exported `SliderFrame` data. Only
+    // meaningful for RAW input (`input_shape == 0` — a non-RAW buffer has no
+    // camera calibration) AND under the delta contract (`use_delta` — the
+    // frame math is inherently anchor-relative; legacy absolute callers never
+    // supply a frame). A zero-filled tail reads `scene_cct == 0` ⇒ absent ⇒
+    // every branch below is byte-for-byte the pre-#1781 computation.
+    let wb_frame = crate::scene_linear_chain::wb_frame_from_flat(
+        &p.wb_frame_m_cold,
+        p.wb_frame_cct_cold,
+        &p.wb_frame_m_warm,
+        p.wb_frame_cct_warm,
+        if p.input_shape == 0 {
+            p.wb_frame_scene_cct
+        } else {
+            0.0
+        },
+        p.wb_frame_as_shot_tint,
+    );
+    let frame_delta_engaged = use_delta && wb_frame.is_present();
+    let wb_matrix = if frame_delta_engaged {
+        // Frame-anchored delta: `C_f · diag(g(live)/g(decoded)) · C_f⁻¹` —
+        // the same `wb_camera` gain math the CPU develop interprets the
+        // sliders with, conjugated into Rec.2020 (see
+        // `wb_camera::SliderFrameExport::rec2020_delta_matrix`). Exact
+        // identity at `live == decoded`. `wb_method` is irrelevant here —
+        // the frame defines the slider scale.
+        wb_frame
+            .rec2020_delta_matrix(
+                (p.temperature, p.tint),
+                (p.decoded_temperature, p.decoded_tint),
+            )
+            .0
+    } else {
+        match wb_method {
+            raw_core::types::WbMethod::Cat16 => {
+                let m_live =
+                    raw_core::stages::white_balance::wb_cat16_matrix(p.temperature, p.tint);
+                if use_delta {
+                    let m_decoded = raw_core::stages::white_balance::wb_cat16_matrix(
+                        p.decoded_temperature,
+                        p.decoded_tint,
+                    );
+                    let m_decoded_inv = m_decoded
+                        .inverse()
+                        .expect("CAT16 user-WB matrix is non-singular for valid (T, tint)");
+                    m_live.mul_mat(&m_decoded_inv).0
+                } else {
+                    m_live.0
+                }
+            }
+            raw_core::types::WbMethod::DiagonalRec2020 => {
+                let g_live = raw_core::stages::white_balance::wb_gains(p.temperature, p.tint);
+                if use_delta {
+                    let g_decoded = raw_core::stages::white_balance::wb_gains(
+                        p.decoded_temperature,
+                        p.decoded_tint,
+                    );
+                    let r = [
+                        g_live[0] / g_decoded[0].max(1e-6),
+                        g_live[1] / g_decoded[1].max(1e-6),
+                        g_live[2] / g_decoded[2].max(1e-6),
+                    ];
+                    [[r[0], 0.0, 0.0], [0.0, r[1], 0.0], [0.0, 0.0, r[2]]]
+                } else {
+                    [
+                        [g_live[0], 0.0, 0.0],
+                        [0.0, g_live[1], 0.0],
+                        [0.0, 0.0, g_live[2]],
+                    ]
+                }
             }
         }
-        raw_core::types::WbMethod::DiagonalRec2020 => {
-            let g_live = raw_core::stages::white_balance::wb_gains(p.temperature, p.tint);
-            if use_delta {
-                let g_decoded = raw_core::stages::white_balance::wb_gains(
-                    p.decoded_temperature,
-                    p.decoded_tint,
-                );
-                let r = [
-                    g_live[0] / g_decoded[0].max(1e-6),
-                    g_live[1] / g_decoded[1].max(1e-6),
-                    g_live[2] / g_decoded[2].max(1e-6),
-                ];
-                [[r[0], 0.0, 0.0], [0.0, r[1], 0.0], [0.0, 0.0, r[2]]]
-            } else {
-                [
-                    [g_live[0], 0.0, 0.0],
-                    [0.0, g_live[1], 0.0],
-                    [0.0, 0.0, g_live[2]],
-                ]
-            }
-        }
+    };
+    // Live-builder WB gate values (#1781). `build_live_chain` gates the WB
+    // pass on `wb_is_noop(wb_temperature, wb_tint)` — the ABSOLUTE 6500/0
+    // short-circuit predicate. Under the frame-anchored DELTA contract the
+    // correct skip condition is `live == decoded` (the matrix is exact
+    // identity there), so synthesize gate values that make the absolute
+    // predicate test exactly that: `6500 + (live − decoded)` Kelvin and
+    // `live − decoded` tint. Legacy paths (no frame) pass the raw live
+    // values through unchanged — bit-identical gating to pre-#1781.
+    let (gate_temperature, gate_tint) = if frame_delta_engaged {
+        (
+            6500.0 + (p.temperature - p.decoded_temperature),
+            p.tint - p.decoded_tint,
+        )
+    } else {
+        (p.temperature, p.tint)
     };
 
     let capture_sharpening = if p.capture_sharpening_enabled != 0 {
@@ -122,8 +173,8 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
 
     FullChainInputs {
         wb_matrix,
-        wb_temperature: p.temperature,
-        wb_tint: p.tint,
+        wb_temperature: gate_temperature,
+        wb_tint: gate_tint,
         tone: [
             p.exposure,
             p.brightness,

@@ -146,6 +146,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
+            &wb_frame_export(&raw_img),
         );
         0
     })
@@ -239,6 +240,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
+            &wb_frame_export(&raw_img),
         );
         0
     })
@@ -341,6 +343,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
+            &wb_frame_export(&raw_img),
         );
         0
     })
@@ -435,6 +438,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
+            &wb_frame_export(&raw_img),
         );
         0
     })
@@ -462,6 +466,44 @@ fn decode_file_cached(
     }
 }
 
+/// Resolve the WB slider-frame export for a decoded RAW (#1781): the
+/// `wb_camera::SliderFrame` data + the in-frame as-shot `(scene_cct, tint)`
+/// estimate, carried on [`MapleSceneLinearBufferF32`] so the host can derive
+/// per-tick WB deltas in the SAME calibration frame the develop chain used.
+///
+/// Gated on EXACTLY the tiers the develop chain gates `wb_camera` on
+/// (`pipeline::develop`): a real calibration (`!RawlerFallback`) and a
+/// pre-gained Bayer/full-LinearRaw source (not the 8-bit lossy LinearRaw
+/// escape hatch). Everything else exports `SliderFrameExport::ABSENT`
+/// (all-zero) — the host then keeps its legacy generic-CAT16 behaviour,
+/// matching the develop chain's own post-DCP CAT16 fallback for those tiers.
+pub(crate) fn wb_frame_export(
+    raw: &raw_core::RawImage,
+) -> raw_core::stages::wb_camera::SliderFrameExport {
+    use raw_core::stages::wb_camera::SliderFrameExport;
+    let skip_pre_gain =
+        matches!(raw.cfa, raw_core::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    if skip_pre_gain {
+        return SliderFrameExport::ABSENT;
+    }
+    match raw_core::color::dcp::profile_for_with_source(raw) {
+        Ok((profile, source))
+            if !matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback) =>
+        {
+            SliderFrameExport::resolve(raw, &profile)
+        }
+        _ => SliderFrameExport::ABSENT,
+    }
+}
+
+/// Row-major flatten of a raw-core 3x3 matrix for the flat C-ABI fields.
+pub(crate) fn flatten_matrix(m: raw_core::math::Matrix3) -> [f32; 9] {
+    [
+        m.0[0][0], m.0[0][1], m.0[0][2], m.0[1][0], m.0[1][1], m.0[1][2], m.0[2][0], m.0[2][1],
+        m.0[2][2],
+    ]
+}
+
 /// f32 counterpart to [`write_scene_linear_buf`]. Boxes the `Vec<f32>` and
 /// hands the raw parts to the caller in a [`MapleSceneLinearBufferF32`].
 ///
@@ -476,6 +518,7 @@ pub(crate) fn write_scene_linear_buf_f32(
     f32_rgba: Vec<f32>,
     noise_profile: Option<&[f32]>,
     iso: u32,
+    wb_frame: &raw_core::stages::wb_camera::SliderFrameExport,
 ) {
     let (f32_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack_f32", || {
         let mut boxed = f32_rgba.into_boxed_slice();
@@ -506,6 +549,12 @@ pub(crate) fn write_scene_linear_buf_f32(
             noise_profile_data: np_ptr,
             noise_profile_len: np_len,
             iso,
+            wb_frame_m_cold: flatten_matrix(wb_frame.m_cold),
+            wb_frame_cct_cold: wb_frame.cct_cold,
+            wb_frame_m_warm: flatten_matrix(wb_frame.m_warm),
+            wb_frame_cct_warm: wb_frame.cct_warm,
+            wb_frame_scene_cct: wb_frame.scene_cct,
+            wb_frame_as_shot_tint: wb_frame.as_shot_tint,
         };
     }
 }
