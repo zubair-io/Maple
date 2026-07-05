@@ -949,21 +949,32 @@ export async function ensureIndexes(): Promise<void> {
 
   // Cloudflare R2 thumbnail-sync backfill: the job selects assets that are
   // indexed (`maple_id` set) but not yet mirrored (`cf_thumb_synced_at`
-  // unset), in batches. MongoDB's partialFilterExpression only supports
-  // `$exists: true` (not `$exists: false` — that throws "unsupported
-  // partial index expression"), so this mirrors the `maple_id_gt_1` index
-  // above: `{ $gt: '' }` selects "has a real string value", scoping the
-  // index to indexed assets only (the overwhelming majority on any
-  // established library — only the just-discovered tail lacks maple_id).
+  // unset), in batches. Key order follows the Equality-Sort-Range rule:
+  // `cf_thumb_synced_at` (equality — the backfill query is
+  // `cf_thumb_synced_at: null`) leads, `maple_id` (range — `{ $gt: '' }`)
+  // trails. Leading with the equality field lets MongoDB seek straight to
+  // the null bucket; leading with the range field instead (as an earlier
+  // version of this index did) would force a scan across every indexed
+  // asset's b-tree entry to test the equality condition — on a
+  // largely-synced library that's nearly a full index scan every run.
+  //
+  // MongoDB's partialFilterExpression only supports `$exists: true` (not
+  // `$exists: false` — that throws "unsupported partial index
+  // expression"), so it mirrors the `maple_id_gt_1` index above:
+  // `{ $gt: '' }` selects "has a real string value", scoping the index to
+  // indexed assets only (the overwhelming majority on any established
+  // library — only the just-discovered tail lacks maple_id). The filter
+  // expression doesn't need to follow the key order.
+  //
   // Non-sparse on the indexed key itself: assets missing
   // `cf_thumb_synced_at` get a null-equivalent b-tree entry, so a query
-  // for `{ maple_id: { $gt: '' }, cf_thumb_synced_at: null }` (the
-  // backfill job's pending-selection query, sub-issue 4) walks only that
-  // null bucket via IXSCAN rather than the whole collection.
+  // for `{ cf_thumb_synced_at: null, maple_id: { $gt: '' } }` (the
+  // backfill job's pending-selection query, sub-issue 4) is an IXSCAN
+  // bounded to that null bucket, not the whole collection.
   await db
     .collection('assets')
     .createIndex(
-      { maple_id: 1, cf_thumb_synced_at: 1 },
+      { cf_thumb_synced_at: 1, maple_id: 1 },
       { name: 'cf_thumb_pending', partialFilterExpression: { maple_id: { $gt: '' } } },
     );
 

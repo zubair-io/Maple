@@ -484,14 +484,33 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   // "secrets are never echoed": the operator needs the raw value to run
   // `wrangler secret put JWT_SECRET` so the Cloudflare thumbnail-cache
   // Worker (src/cloudflare/, sub-issue 3 of #1757) can independently
-  // verify the same access tokens the API issues. Owner-gated;
+  // verify the same access tokens the API issues.
+  //
+  // This is the server's root HS256 signing key — anyone holding it can
+  // forge a token for ANY user with ANY expiry, permanently (rotating the
+  // key is the only revocation, and that signs every session out). A
+  // stolen 15-minute access token is bounded by design (see
+  // `auth/middleware.ts`'s "stateless" comment); echoing the raw secret
+  // over an endpoint reachable with only that same bearer token would
+  // undo that bound — a transient session compromise (XSS, a hijacked
+  // bearer) would escalate into a permanent, unrevokable skeleton key.
+  // `requireOwner` alone is NOT enough. Same #861 step-up requirement as
+  // invite create/rescind above, which guards against exactly this class
+  // of "valid session, not really the owner" escalation: a fresh WebAuthn
+  // assertion within the last few minutes, which a stolen bearer token
+  // cannot produce on its own.
+  //
   // `Cache-Control: no-store` so it never lands in a shared/browser cache.
   .group('/jwt-secret', (g) =>
     g
       .use(requireAuth)
       .use(requireOwner)
-      .get('/', ({ set }) => {
-        set.headers['cache-control'] = 'no-store';
-        return { secret: jwtSecret() };
-      }),
+      .get(
+        '/',
+        ({ set }) => {
+          set.headers['cache-control'] = 'no-store';
+          return { secret: jwtSecret() };
+        },
+        { beforeHandle: stepUpBeforeHandle },
+      ),
   );

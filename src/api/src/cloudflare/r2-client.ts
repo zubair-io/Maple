@@ -41,17 +41,21 @@ function r2Client(config: ResolvedCloudflareConfig): AwsClient {
 }
 
 /** Upload thumbnail bytes to R2 under `key`. Throws on any non-2xx
- * response or network failure — callers decide whether that's fatal. */
+ * response or network failure — callers decide whether that's fatal.
+ * `signal`, when supplied, aborts the underlying fetch (not just the
+ * caller's wait) — see the indexer hook's use of `AbortSignal.timeout()`. */
 export async function uploadThumbToR2(
   config: ResolvedCloudflareConfig,
   key: string,
   bytes: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<void> {
   const client = r2Client(config);
   const res = await client.fetch(r2Endpoint(config, key), {
     method: 'PUT',
     body: bytes as BodyInit,
     headers: { 'Content-Type': 'image/jpeg' },
+    signal,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
