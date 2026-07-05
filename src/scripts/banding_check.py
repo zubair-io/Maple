@@ -108,9 +108,12 @@ _STAGE_WORKING_SPACE = {
 
 def _srgb_gamma_decode(rgb: np.ndarray) -> np.ndarray:
     """IEC 61966-2-1 sRGB EOTF (gamma decode), matching
-    `raw-core/src/view/agx_inverse.rs::srgb_gamma_inv`."""
-    x = rgb.astype(np.float64)
-    return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+    `raw-core/src/view/agx_inverse.rs::srgb_gamma_inv` exactly: inputs are
+    clamped to [0, 1] (the Rust reference clamps, and tail dumps can carry
+    small float overshoots) and the linear-segment breakpoint is the same
+    0.040449936 constant the Rust side uses."""
+    x = np.clip(rgb.astype(np.float64), 0.0, 1.0)
+    return np.where(x <= 0.040449936, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
 
 
 def _to_oklab(rgb: np.ndarray, working_space: str) -> np.ndarray:
