@@ -27,6 +27,7 @@ const app = buildApp({ stageNames: [] });
 const PUBLIC_ROUTES = new Set<string>([
   'OPTIONS /*', // CORS preflight
   'GET /api/health', // liveness probe (no user data)
+  'GET /api/network/local-address', // LAN-address discovery (no user data) — see routes/network.ts
   'GET /api/auth/bootstrap', // claim-state probe (no user data)
   'POST /api/auth/dev-login', // dev-only; 404 unless MAPLE_DEV_AUTH=1
   'POST /api/auth/register/options', // passkey registration ceremony
