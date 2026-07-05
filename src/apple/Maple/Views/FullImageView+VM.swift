@@ -83,14 +83,20 @@ enum FullImageViewVM {
     /// `driver.register(layer:)` never fired, every tick rejected `no-layer`,
     /// and the chain stayed on CPU. The `isRaw` external label is preserved on
     /// the signature for callers that pass it, but the parameter is bound to
-    /// `_` because the runtime gate is now `flagEnabled && !showingOriginal` —
-    /// the asset type is irrelevant.)
+    /// `_` — the asset type is irrelevant.)
+    ///
+    /// `presentFailed` (#1769): once a GPU present has THROWN for this session
+    /// (`EditSession.gpuPresentFailed`), the GPU canvas must unmount — a torn
+    /// drawable has no GPU repaint path, and the CPU fallback render that the
+    /// failure triggered publishes to `renderedPreview`, which only the CPU
+    /// leaf displays.
     static func shouldPresentViaGpuCanvas(
         flagEnabled: Bool,
         isRaw _: Bool,
-        showingOriginal: Bool
+        showingOriginal: Bool,
+        presentFailed: Bool = false
     ) -> Bool {
-        flagEnabled && !showingOriginal
+        flagEnabled && !showingOriginal && !presentFailed
     }
 
     // MARK: - Zoom math

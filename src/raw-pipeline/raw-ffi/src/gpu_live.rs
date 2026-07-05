@@ -33,6 +33,65 @@
 use crate::error::{catch_panic_rc, set_last_error};
 use raw_gpu::{CancelToken, GpuContext, LiveSession};
 use std::os::raw::c_void;
+use std::sync::Mutex;
+
+/// Process-wide GPU state shared across every live-session open (#1769): ONE
+/// `GpuContext` (device + pipeline cache + pool) and ONE cached
+/// `CAMetalLayer` present surface.
+///
+/// ## Why process-wide, not per-handle
+///
+/// Before #1769 each `maple_gpu_live_open` built its own `GpuContext` and each
+/// handle carried its own `present_surface`. Every fast→refine re-open (a new
+/// handle at new dims on EVERY cold open) therefore tore down a live
+/// surface+device pair against the SAME `CAMetalLayer` (wgpu's `configure`
+/// reassigns `layer.device`) at a nondeterministic `deinit` time, while the
+/// replacement surface was already presenting — exactly the drawable-pool
+/// splice window of the iPad partial-render report. With the context and the
+/// surface hoisted here, a dims change is an in-place `configure`
+/// (reconfigure + settle double-present) and the surface survives handle
+/// re-opens; teardown happens only on an explicit generation/layer change,
+/// deterministically, before the replacement is created.
+///
+/// ## Locking / threading
+///
+/// `GpuContext` is `!Sync` (unsync `OnceCell` pipeline cache, `RefCell` frame
+/// pool) but `Send`; the `Mutex` serializes every FFI entry onto the shared
+/// state, which is exactly the "one render in flight" contract the Swift
+/// `GpuLiveSession` actor already enforces per session — the lock extends it
+/// across sessions (e.g. an old EditSession's teardown racing a new one's
+/// first present). Lock poisoning is recovered via `into_inner`-style access:
+/// a contained panic elsewhere must not brick rendering forever.
+struct GpuShared {
+    ctx: GpuContext,
+    /// The cached `CAMetalLayer` present surface (#1742/#1769) — created on the
+    /// first `maple_gpu_present_chain` call, keyed on `(generation, layer,
+    /// dims)`, reused across presents AND across handle re-opens.
+    #[cfg(target_vendor = "apple")]
+    present_surface: Option<raw_gpu::PersistentPresentSurface>,
+}
+
+// SAFETY: `GpuContext` is `!Send` solely because its `FramePool` stores
+// `Rc<wgpu::Buffer>` / `Rc<wgpu::BindGroup>` (non-atomic refcounts). Those `Rc`
+// allocations are FULLY ENCAPSULATED by the pool: the only clones handed out
+// (`frame_pool` / `spatial` encode helpers) are transient stack values inside
+// calls that run while the `GPU_SHARED` lock is held, and no other type in the
+// crate stores an `Rc` (`LiveSession` holds plain `wgpu::Buffer`s, which are
+// `Send + Sync`). So every owner of every non-atomic refcount moves BETWEEN
+// threads only as part of this one struct, under the `Mutex`, whose
+// acquire/release provides the happens-before edge for the refcount memory.
+// The remaining fields (wgpu device/queue/instance/adapter, pipelines,
+// `PersistentPresentSurface` with its address-token layer key) are `Send`.
+unsafe impl Send for GpuShared {}
+
+static GPU_SHARED: Mutex<Option<GpuShared>> = Mutex::new(None);
+
+/// Lock the shared slot, recovering from poisoning (see [`GpuShared`] docs).
+fn lock_shared() -> std::sync::MutexGuard<'static, Option<GpuShared>> {
+    GPU_SHARED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Return code for a present the host cancelled before rendering (mirrors
 /// [`crate::scene_linear_f32`]'s `RC_CANCELLED = 4`): the host flipped the cancel
@@ -201,18 +260,14 @@ pub struct MapleGpuLiveParams {
     pub profile_id: u8,
 }
 
-/// Internal handle state: the owned context + session. Behind the opaque pointer.
+/// Internal handle state: the per-open session. Behind the opaque pointer.
+/// The `GpuContext` and the present-surface cache live in the process-wide
+/// [`GpuShared`] slot (#1769), NOT here — a handle re-open (fast→refine, new
+/// decode dims) must not tear either down.
 struct LiveHandleInner {
-    ctx: GpuContext,
     session: LiveSession,
     width: u32,
     height: u32,
-    /// The cached `CAMetalLayer` present surface (#1742) — created on the first
-    /// [`maple_gpu_present_chain`] call and reused across every subsequent call on
-    /// this handle. `None` until the first present; only Apple builds populate or
-    /// read it (`present_chain_to_surface` is Apple-gated in `raw-gpu`).
-    #[cfg(target_vendor = "apple")]
-    present_surface: Option<raw_gpu::PersistentPresentSurface>,
 }
 
 /// Opaque handle to a GPU-resident live-render session. Allocate via
@@ -283,15 +338,27 @@ pub unsafe extern "C" fn maple_gpu_live_open(
     // unwind through this `extern "C"` frame (an abort on Apple). rc 99 + a
     // last-error message instead — the Swift host CPU-falls-back on any nonzero.
     catch_panic_rc("gpu_live_open", || {
-        let ctx = match GpuContext::new_blocking() {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                set_last_error(format!("gpu_live_open: {e}"));
-                return -5;
+        // One process-wide GpuContext (#1769): created on the FIRST open, reused
+        // by every subsequent open/render/present. See [`GpuShared`].
+        let mut shared = lock_shared();
+        if shared.is_none() {
+            match GpuContext::new_blocking() {
+                Ok(ctx) => {
+                    *shared = Some(GpuShared {
+                        ctx,
+                        #[cfg(target_vendor = "apple")]
+                        present_surface: None,
+                    });
+                }
+                Err(e) => {
+                    set_last_error(format!("gpu_live_open: {e}"));
+                    return -5;
+                }
             }
-        };
+        }
+        let ctx = &shared.as_ref().expect("initialized above").ctx;
         // Validates dims against the device's REAL limits before allocating.
-        let session = match LiveSession::new(&ctx, px, width, height) {
+        let session = match LiveSession::new(ctx, px, width, height) {
             Ok(s) => s,
             Err(e) => {
                 set_last_error(format!("gpu_live_open: {e}"));
@@ -299,12 +366,9 @@ pub unsafe extern "C" fn maple_gpu_live_open(
             }
         };
         let boxed = Box::new(LiveHandleInner {
-            ctx,
             session,
             width,
             height,
-            #[cfg(target_vendor = "apple")]
-            present_surface: None,
         });
         (*handle_out).inner = Box::into_raw(boxed) as *mut c_void;
         0
@@ -355,7 +419,15 @@ pub unsafe extern "C" fn maple_gpu_live_render(
     catch_panic_rc("gpu_live_render", || {
         let inputs = params::inputs_from_params(p);
         let cancel = CancelToken::new();
-        let out = match inner.session.render_to_buffer(&inner.ctx, &inputs, &cancel) {
+        let shared = lock_shared();
+        let ctx = match shared.as_ref() {
+            Some(s) => &s.ctx,
+            None => {
+                set_last_error("gpu_live_render: shared GPU context missing".into());
+                return -4;
+            }
+        };
+        let out = match inner.session.render_to_buffer(ctx, &inputs, &cancel) {
             Ok(Some(v)) => v,
             Ok(None) => {
                 set_last_error("gpu_live_render: render returned None".into());
@@ -416,13 +488,24 @@ pub unsafe extern "C" fn maple_gpu_live_close(handle: *mut MapleGpuLiveSession) 
 /// readback). The colour-correct sibling of [`maple_gpu_present_test_pattern`]
 /// (P1b's passthrough pattern).
 ///
-/// `layer` is the `CAMetalLayer*` whose `drawableSize` MUST equal the session's
-/// dims (the present samples the f32 buffer by pixel position; a size mismatch
-/// desyncs the Bayer dither + the buffer index). The caller resizes the IMAGE to
-/// the viewport before [`maple_gpu_live_open`] and sets the layer to the same dims
-/// — the present never rescales. The layer's `colorspace` tag is the host's
-/// responsibility (sRGB — the chain outputs sRGB-primary gamma-encoded; see the
-/// P4b-apple plan).
+/// `layer` is the `CAMetalLayer*` to present into. Its `drawableSize` is OWNED
+/// by the Rust side (#1769): wgpu's `surface.configure` sets it to the session
+/// dims on every (re)configure, and the host MUST NOT write it — every
+/// value-changing host write invalidates the layer's drawable pool without wgpu
+/// knowing, landing the next single present on a freshly-invalidated pool (the
+/// iPad splice). The caller resizes the IMAGE to the viewport before
+/// [`maple_gpu_live_open`] — the present never rescales. The layer's
+/// `colorspace` tag is the host's responsibility (sRGB — the chain outputs
+/// sRGB-primary gamma-encoded; see the P4b-apple plan).
+///
+/// `surface_generation` keys the process-wide present-surface cache together
+/// with the layer pointer and dims (#1769). The host bumps it when it registers
+/// a DIFFERENT `CAMetalLayer` instance (a recreated canvas view — covers malloc
+/// address reuse where the raw pointer alone would falsely match) and when it
+/// detects the layer's `drawableSize` diverged from the dims of the last
+/// successful present at an unchanged key (an external re-derivation wgpu
+/// cannot see). A bumped generation forces a deterministic old-surface teardown,
+/// a fresh configure, and the settle double-present.
 ///
 /// `cancel` is an optional host-owned [`crate::cancel::MapleCancelFlag`]. When
 /// non-null and the host has already set it (a newer edit superseded this present
@@ -460,6 +543,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
     params: *const MapleGpuLiveParams,
     layer: *mut c_void,
     cancel: *const crate::cancel::MapleCancelFlag,
+    surface_generation: u64,
 ) -> i32 {
     if handle.is_null() || params.is_null() || layer.is_null() {
         set_last_error("gpu_present_chain: null pointer".into());
@@ -488,9 +572,17 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
     catch_panic_rc("gpu_present_chain", || {
         let inputs = params::inputs_from_params(p);
         let token = CancelToken::new();
+        let mut shared = lock_shared();
+        let state = match shared.as_mut() {
+            Some(s) => s,
+            None => {
+                set_last_error("gpu_present_chain: shared GPU context missing".into());
+                return -3;
+            }
+        };
         let final_idx = match inner
             .session
-            .render_chain_to_f32(&inner.ctx, &inputs, &token)
+            .render_chain_to_f32(&state.ctx, &inputs, &token)
         {
             Ok(Some(idx)) => idx,
             Ok(None) => {
@@ -504,17 +596,19 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
         };
 
         // SAFETY: `layer` is non-null and a valid CAMetalLayer* per this fn's
-        // contract, and outlives the handle (the Swift host keeps the view/layer
-        // alive for the life of the `MapleGpuLiveSession`) — the same layer
-        // pointer is expected on every present against this handle, which is what
-        // lets `present_surface` cache the surface across calls (#1742) instead of
-        // recreating + reconfiguring it every present.
+        // contract, retained by the wgpu surface for the cache's lifetime. The
+        // surface cache is PROCESS-WIDE (#1769) and keyed on
+        // `(surface_generation, layer, dims)` — the Swift host bumps the
+        // generation whenever it registers a different layer instance (covers
+        // pointer reuse / ABA) or detects a drawableSize divergence, so a stale
+        // cached surface can never be presented against a recycled address.
         match raw_gpu::present_chain_to_surface(
-            &inner.ctx,
+            &state.ctx,
             &inner.session,
             final_idx,
             layer,
-            &mut inner.present_surface,
+            &mut state.present_surface,
+            surface_generation,
         ) {
             Ok(()) => 0,
             Err(msg) => {

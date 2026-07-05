@@ -51,7 +51,8 @@ struct FullImageView: View {
         FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: session.asset.isRaw,
-            showingOriginal: session.showingOriginal
+            showingOriginal: session.showingOriginal,
+            presentFailed: session.gpuPresentFailed
         )
     }
 
