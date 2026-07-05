@@ -192,11 +192,16 @@ fn extreme_temperature_gain_stays_finite_and_bounded() {
 fn singular_matrix_falls_back_to_identity_gain() {
     let frame = test_frame(6500.0, [[0.0; 3]; 3]);
     let gain = camera_wb_gain(&frame, [0.5, 1.0, 0.7], 3000.0, 20.0);
-    // camera_neutral_for on a zero matrix gives [0,0,0], g_normalize clamps
-    // the denominator so this must not panic or produce NaN/Inf.
-    for g in gain {
-        assert!(g.is_finite(), "gain must stay finite for a degenerate CM");
-    }
+    // A zero matrix projects the target chromaticity to [0, 0, 0] — no
+    // usable calibration. The documented contract is an exact identity
+    // fallback, NOT merely "finite": without the explicit degenerate check
+    // the 1e-6 clamps would yield huge finite gains (asn / 1e-6), not a
+    // no-op.
+    assert_eq!(
+        gain,
+        [1.0, 1.0, 1.0],
+        "degenerate CM must fall back to the exact identity gain"
+    );
 }
 
 #[test]
@@ -425,10 +430,8 @@ fn apply_delta_is_identity_when_target_equals_anchor() {
         &mut img,
         &frame,
         as_shot_neutral,
-        3000.0,
-        90.0,
-        3000.0,
-        90.0,
+        (3000.0, 90.0),
+        (3000.0, 90.0),
     );
     assert_eq!(
         img.pixels, before,
@@ -478,10 +481,8 @@ fn apply_delta_reaches_identity_beyond_apply_single_reference_point() {
         &mut img_delta,
         &frame,
         as_shot_neutral,
-        anchor_temperature,
-        anchor_tint,
-        anchor_temperature,
-        anchor_tint,
+        (anchor_temperature, anchor_tint),
+        (anchor_temperature, anchor_tint),
     );
     assert_eq!(
         img_delta.pixels, before_delta,
@@ -505,10 +506,8 @@ fn apply_delta_moves_in_the_correct_direction_off_anchor() {
         &mut img,
         &frame,
         as_shot_neutral,
-        anchor.0 + 3000.0,
-        anchor.1,
-        anchor.0,
-        anchor.1,
+        (anchor.0 + 3000.0, anchor.1),
+        anchor,
     );
     let p = img.pixels[0];
     assert!(
