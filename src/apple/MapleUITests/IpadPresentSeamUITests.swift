@@ -271,7 +271,7 @@ final class IpadPresentSeamUITests: XCTestCase {
         guard x35 - x18 >= 16, x82 - x65 >= 16 else { return nil }
         let strips = [x18..<x35, x65..<x82]
         let perStrip = strips.compactMap { xs in
-            stripMetrics(buf: buf, bytesPerRow: bytesPerRow, height: height, xs: xs, luma: luma)
+            stripMetrics(bytesPerRow: bytesPerRow, height: height, xs: xs, luma: luma)
         }
         guard perStrip.count == strips.count else { return nil }
         return perStrip.min { $0.maxRowSecondDiff < $1.maxRowSecondDiff }
@@ -287,7 +287,6 @@ final class IpadPresentSeamUITests: XCTestCase {
     /// and proved JUMPIER on sharp horizontal content edges — ~7/255 at a
     /// hair/background boundary — eating the threshold's margin.)
     private static func stripMetrics(
-        buf: [UInt8],
         bytesPerRow: Int,
         height: Int,
         xs: Range<Int>,
