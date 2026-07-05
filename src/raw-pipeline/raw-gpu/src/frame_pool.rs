@@ -28,14 +28,19 @@
 //! [`crate::live_chain::chain_signature`], single-sourced with the gating
 //! predicates so it can't drift from which passes `build_live_chain` pushes.
 //!
-//! ## Rc, not Clone
+//! ## Arc, not Clone
 //!
 //! `wgpu::Buffer` / `BindGroup` are not `Clone` in wgpu 23 (the Arc-wrapping that
 //! made them Clone landed in wgpu 24, and the 23 pin is load-bearing for the
 //! `downlevel_defaults` ≤4-storage constraints). So the pool owns
-//! [`std::rc::Rc`]`<wgpu::Buffer>` / `Rc<wgpu::BindGroup>` and hands out Rc clones
-//! (a refcount bump, NOT a GPU allocation). `Rc` (not `Arc`) matches
-//! [`GpuContext`]'s `!Send`/`!Sync` single-threaded-around-the-GPU design.
+//! [`std::sync::Arc`]`<wgpu::Buffer>` / `Arc<wgpu::BindGroup>` and hands out Arc
+//! clones (a refcount bump, NOT a GPU allocation). `Arc` (not `Rc`) keeps
+//! [`GpuContext`] `Send`, so the FFI's process-wide `Mutex<GpuShared>` slot
+//! (#1769) holds it without an `unsafe impl Send` (#1772 review); the context
+//! stays `!Sync` (this pool sits in a `RefCell`), preserving the
+//! single-render-in-flight, single-threaded-around-the-GPU design. The atomic
+//! refcount bump is noise next to a `create_buffer`, and the hot path (a cache
+//! hit) is one clone per dispatch.
 //!
 //! ## Allocation accounting
 //!
@@ -47,7 +52,7 @@
 use crate::context::GpuContext;
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 /// One cached dispatch's resources: the bind group + the params uniform it
 /// references (so a slider drag can `write_buffer` fresh params into the same
@@ -56,8 +61,8 @@ use std::rc::Rc;
 /// buffers (curve / LUT / grid / AgX-LUT) ride `storage` — session-constant, so
 /// caching them here both reuses and keeps them resident across ticks.
 struct DispatchEntry {
-    bind_group: Rc<wgpu::BindGroup>,
-    uniform: Rc<wgpu::Buffer>,
+    bind_group: Arc<wgpu::BindGroup>,
+    uniform: Arc<wgpu::Buffer>,
     /// Identity of the pipeline this bind group was built for — `&ComputePipeline`
     /// pointer (the context owns each pipeline in a `OnceCell`, so its address is
     /// stable for the cache's lifetime, and distinct pipelines occupy distinct
@@ -71,7 +76,7 @@ struct DispatchEntry {
     /// the session's persistent ping-pong pair, passed fresh each call but with
     /// stable identity per signature; the per-image DATA buffers ARE here, so
     /// they aren't re-uploaded on a cache hit).
-    _data: Vec<Rc<wgpu::Buffer>>,
+    _data: Vec<Arc<wgpu::Buffer>>,
 }
 
 /// The per-signature cache bucket: dispatch entries indexed by their order within
@@ -80,7 +85,7 @@ struct DispatchEntry {
 #[derive(Default)]
 struct Bucket {
     dispatches: Vec<DispatchEntry>,
-    scratch: Vec<Rc<wgpu::Buffer>>,
+    scratch: Vec<Arc<wgpu::Buffer>>,
 }
 
 /// The dims/signature-keyed pool. Lives on [`GpuContext`] behind a `RefCell`
@@ -152,21 +157,21 @@ impl FramePool {
 /// Get-or-create the next pooled scratch plane of `byte_len` bytes for the
 /// current frame's signature, advancing the scratch cursor. On the first render
 /// of a signature the plane is created (an allocation); on subsequent same-
-/// signature renders the same `Rc<Buffer>` is returned (zero allocation).
+/// signature renders the same `Arc<Buffer>` is returned (zero allocation).
 ///
 /// `make` builds the buffer on a miss; it is called ONLY on a miss, so a cache
-/// hit does no `create_buffer`. The returned `Rc` is cheap to clone and outlives
+/// hit does no `create_buffer`. The returned `Arc` is cheap to clone and outlives
 /// the `RefCell` borrow (the caller holds it for the encoder's lifetime).
 pub(crate) fn pool_scratch(
     ctx: &GpuContext,
     byte_len: u64,
     make: impl FnOnce(&wgpu::Device) -> wgpu::Buffer,
-) -> Rc<wgpu::Buffer> {
+) -> Arc<wgpu::Buffer> {
     let mut pool = ctx.frame_pool.borrow_mut();
     if !pool.frame_active {
         // Outside a pooled render window (e.g. a stage unit test): plain alloc.
         pool.alloc_count.set(pool.alloc_count.get() + 1);
-        return Rc::new(make(&ctx.device));
+        return Arc::new(make(&ctx.device));
     }
     let sig = pool.current_sig;
     let cursor = pool.scratch_cursor;
@@ -176,23 +181,23 @@ pub(crate) fn pool_scratch(
     // size; a smaller cached plane can't happen within a fixed signature).
     if let Some(existing) = pool.buckets.get(&sig).and_then(|b| b.scratch.get(cursor)) {
         if existing.size() >= byte_len {
-            return Rc::clone(existing);
+            return Arc::clone(existing);
         }
     }
 
     // Miss: create (count it), then store at the cursor (replacing any too-small
     // slot). The alloc-count bump happens before the bucket borrow so the `Cell`
     // and the `&mut buckets` don't overlap.
-    let buf = Rc::new(make(&ctx.device));
+    let buf = Arc::new(make(&ctx.device));
     pool.alloc_count.set(pool.alloc_count.get() + 1);
     let bucket = pool
         .buckets
         .get_mut(&sig)
         .expect("bucket created in begin_frame");
     if cursor < bucket.scratch.len() {
-        bucket.scratch[cursor] = Rc::clone(&buf);
+        bucket.scratch[cursor] = Arc::clone(&buf);
     } else {
-        bucket.scratch.push(Rc::clone(&buf));
+        bucket.scratch.push(Arc::clone(&buf));
     }
     buf
 }
@@ -202,8 +207,8 @@ pub(crate) fn pool_scratch(
 /// `miss` closure is NOT called (so no buffers / bind group / data uploads
 /// happen); the caller just `write_buffer`s fresh params into `uniform`.
 pub(crate) struct PooledDispatch {
-    pub bind_group: Rc<wgpu::BindGroup>,
-    pub uniform: Rc<wgpu::Buffer>,
+    pub bind_group: Arc<wgpu::BindGroup>,
+    pub uniform: Arc<wgpu::Buffer>,
 }
 
 /// What a dispatch's `miss` closure produces: the freshly-created uniform, bind
@@ -211,7 +216,7 @@ pub(crate) struct PooledDispatch {
 pub(crate) struct DispatchResources {
     pub bind_group: wgpu::BindGroup,
     pub uniform: wgpu::Buffer,
-    pub data: Vec<Rc<wgpu::Buffer>>,
+    pub data: Vec<Arc<wgpu::Buffer>>,
 }
 
 /// Get-or-create the next pooled dispatch (bind group + uniform) for the current
@@ -237,8 +242,8 @@ pub(crate) fn pool_dispatch(
         let res = make(&ctx.device);
         pool.alloc_count.set(pool.alloc_count.get() + 2); // uniform + bind group
         return PooledDispatch {
-            bind_group: Rc::new(res.bind_group),
-            uniform: Rc::new(res.uniform),
+            bind_group: Arc::new(res.bind_group),
+            uniform: Arc::new(res.uniform),
         };
     }
     let sig = pool.current_sig;
@@ -260,8 +265,8 @@ pub(crate) fn pool_dispatch(
             // bounded extra allocation, never a hard failure.
             if entry.pipeline_id == pipeline_id {
                 return PooledDispatch {
-                    bind_group: Rc::clone(&entry.bind_group),
-                    uniform: Rc::clone(&entry.uniform),
+                    bind_group: Arc::clone(&entry.bind_group),
+                    uniform: Arc::clone(&entry.uniform),
                 };
             }
         }
@@ -269,11 +274,11 @@ pub(crate) fn pool_dispatch(
     // Miss (or pipeline mismatch): build everything, count the two creates, cache it.
     let res = make(&ctx.device);
     pool.alloc_count.set(pool.alloc_count.get() + 2);
-    let bind_group = Rc::new(res.bind_group);
-    let uniform = Rc::new(res.uniform);
+    let bind_group = Arc::new(res.bind_group);
+    let uniform = Arc::new(res.uniform);
     let entry = DispatchEntry {
-        bind_group: Rc::clone(&bind_group),
-        uniform: Rc::clone(&uniform),
+        bind_group: Arc::clone(&bind_group),
+        uniform: Arc::clone(&uniform),
         pipeline_id,
         _data: res.data,
     };
