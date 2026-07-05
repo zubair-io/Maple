@@ -360,15 +360,7 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             case "reject":      culling.flag = .reject
             default:            break
             }
-        case "papp:Hidden":
-            // Only "true"/"false" are ever written (see XMPSerializer below);
-            // an unrecognized value leaves `hidden` at its current default
-            // (nil = no override) rather than silently coercing to false.
-            switch value.lowercased() {
-            case "true":  culling.hidden = true
-            case "false": culling.hidden = false
-            default:      break
-            }
+        case "papp:Hidden": culling.hidden = XMPParser.parseHiddenAttribute(value)
         default: _xmpApplyHSLAttribute(key: key, value: value, model: &model)
         }
     }
@@ -435,14 +427,7 @@ public struct XMPSerializer {
         if culling.flag != .none {
             attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))
         }
-        // Only emit `papp:Hidden` when the user (or a batch edit) has
-        // explicitly touched it (`hidden != nil`) — never as a default. The
-        // backend treats ANY written value, including "false", as an
-        // explicit override that takes precedence over an AI-driven hide or
-        // a prior hidden state; emitting it unconditionally on every save
-        // would silently un-hide assets hidden by other means the moment
-        // the user made an unrelated edit in Apple.
-        if let hidden = culling.hidden {
+        if let hidden = culling.hidden {  // tri-state: only emit when explicitly touched, never a default
             attrs.append(("papp:Hidden", hidden ? "true" : "false"))
         }
         // Brightness (#1102) — emit only when non-default (0) so sidecars
