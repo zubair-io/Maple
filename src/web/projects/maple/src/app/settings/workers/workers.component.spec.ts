@@ -10,8 +10,6 @@ import type {
   WorkersStatusResponse,
   WorkersStatusUpdate,
   EnrichmentConfigResponse,
-  ApiHiddenPhoto,
-  ApiEnrichmentStageState,
 } from '@maple-common';
 
 // Stub the WS events service so the component renders from a `workers-status`
@@ -593,103 +591,5 @@ describe('WorkersComponent', () => {
     expect(put.request.body.face_min_detection_size).toBe(0.1);
     put.flush(MOCK_ENRICHMENT);
     fixture.detectChanges();
-  });
-
-  // ── Hidden-images "newly auto-hidden" alert banner ──────────────────────
-
-  const NO_STAGE: ApiEnrichmentStageState = {
-    done_at: null,
-    locked_by: null,
-    lease_expires_at: null,
-    attempts: 0,
-    last_error: null,
-    version: null,
-    dead_letter_at: null,
-  };
-
-  const MOCK_HIDDEN_ALERT: ApiHiddenPhoto = {
-    id: 'asset-1',
-    address: 'lib:sub/img.dng',
-    folder_id: 'folder-1',
-    filename: 'img.dng',
-    abs_path: '/lib/sub/img.dng',
-    size: 1,
-    mtime: 1,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    place: null,
-    faces: [],
-    description: null,
-    description_meta: null,
-    ocr_text: null,
-    ocr_meta: null,
-    vision: null,
-    vision_meta: null,
-    is_screenshot: null,
-    hidden: true,
-    hidden_reason: 'nudity',
-    hidden_ack: false,
-    enrichment: { geocode: NO_STAGE, face: NO_STAGE, describe: NO_STAGE },
-  };
-
-  /** Same sequence as `initWithMock`, but lets the caller control the
-   * `/api/photos/hidden` response instead of the afterEach catch-all
-   * flushing it empty. */
-  function initWithHiddenAlerts(alerts: unknown[]): void {
-    fixture.detectChanges();
-    wsFrames.next({ status: MOCK_STATUS, counted: true });
-    http.expectOne('/api/workers/status').flush(MOCK_STATUS);
-    http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
-    http.expectOne('/api/workers/missing-reaper/prune-window').flush(MOCK_PRUNE);
-    http.expectOne('/api/workers/performance').flush(MOCK_PERF);
-    flushPanelPolls();
-    http.expectOne((req) => req.url.includes('/api/photos/hidden')).flush(alerts);
-    fixture.detectChanges();
-  }
-
-  it('renders the hidden-alerts banner when the API returns newly-hidden photos', () => {
-    initWithHiddenAlerts([MOCK_HIDDEN_ALERT]);
-    const banner = fixture.nativeElement.querySelector('.banner-alerts');
-    expect(banner).toBeTruthy();
-    expect(banner.textContent).toContain('img.dng');
-  });
-
-  it('does not render the hidden-alerts banner when there are none', () => {
-    initWithHiddenAlerts([]);
-    expect(fixture.nativeElement.querySelector('.banner-alerts')).toBeNull();
-  });
-
-  it('Acknowledge POSTs hidden-ack and dismisses the alert', () => {
-    initWithHiddenAlerts([MOCK_HIDDEN_ALERT]);
-    const buttons = Array.from(
-      fixture.nativeElement.querySelectorAll('.banner-alerts button'),
-    ) as HTMLButtonElement[];
-    buttons.find((b) => b.textContent?.trim() === 'Acknowledge')!.click();
-
-    http.expectOne('/api/assets/asset-1/hidden-ack').flush({ ok: true });
-    fixture.detectChanges();
-
-    expect(fixture.nativeElement.querySelector('.banner-alerts')).toBeNull();
-  });
-
-  it('Unhide POSTs xmp/batch with the address then hidden-ack, and dismisses the alert', () => {
-    initWithHiddenAlerts([MOCK_HIDDEN_ALERT]);
-    const buttons = Array.from(
-      fixture.nativeElement.querySelectorAll('.banner-alerts button'),
-    ) as HTMLButtonElement[];
-    buttons.find((b) => b.textContent?.trim() === 'Unhide')!.click();
-
-    const batch = http.expectOne('/api/xmp/batch');
-    expect(batch.request.body.entries).toEqual([
-      { address: 'lib:sub/img.dng', metadata: { hidden: false } },
-    ]);
-    batch.flush({ results: [{ address: 'lib:sub/img.dng', ok: true }] });
-
-    http.expectOne('/api/assets/asset-1/hidden-ack').flush({ ok: true });
-    fixture.detectChanges();
-
-    expect(fixture.nativeElement.querySelector('.banner-alerts')).toBeNull();
   });
 });

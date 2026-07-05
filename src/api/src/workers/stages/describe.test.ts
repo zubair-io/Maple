@@ -187,7 +187,12 @@ describe('describeHandler — happy path', () => {
 
   it('does not reset hidden_ack when re-running on an already-hidden, already-acknowledged asset', async () => {
     const absPath = join(tmpRoot, 'img.dng');
-    const doc = { ...stageDoc(absPath), hidden: true, hidden_reason: 'nudity' as const, hidden_ack: true };
+    const doc = {
+      ...stageDoc(absPath),
+      hidden: true,
+      hidden_reason: 'nudity' as const,
+      hidden_ack: true,
+    };
     const provider = mockProvider({
       text: JSON.stringify({ ...VALID_VISION, nudity_detected: true }),
       cost_usd: 0.0,
