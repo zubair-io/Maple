@@ -56,7 +56,6 @@ import { searchRoutes } from './routes/search.ts';
 import { jobsRoutes } from './routes/jobs.ts';
 import { importsRoutes } from './routes/imports.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
-import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
 import { purgeSubthresholdFacesRoutes } from './routes/admin-purge-subthreshold-faces.ts';
@@ -76,6 +75,8 @@ import { backupNotifyDeletedRoutes } from './routes/backup-notify-deleted.ts';
 import { changesRoutes } from './routes/changes.ts';
 import { mirrorRoutes } from './routes/mirror.ts';
 import { assetsListRoutes } from './routes/assets-list.ts';
+import { photosRoutes } from './routes/photos.ts';
+import { displayRoutes } from './routes/display.ts';
 import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
@@ -157,10 +158,6 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
     .use(healthRoutes)
     .use(authRoutes)
-    // Wraps itself in `.use(requireAuth).use(requireOwner)` internally
-    // (mirrors authRoutes' /invites sub-tree above), so it sits outside
-    // the authedApi gate the same way.
-    .use(cloudflareRoutes)
     // Native PKCE code redeem (public) — the Apple shell exchanges its one-time
     // code for tokens here; no bearer (this is how the app first gets tokens).
     .use(nativeCodeRedeemRoutes)
@@ -216,6 +213,8 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(purgeSubthresholdFacesRoutes)
         .use(peopleRoutes)
         .use(presetsRoutes)
+        .use(photosRoutes)
+        .use(displayRoutes)
         .use(panoRoutes)
         .use(changesRoutes)
         .use(mirrorRoutes)

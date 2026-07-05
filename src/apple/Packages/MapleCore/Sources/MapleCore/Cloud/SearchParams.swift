@@ -80,6 +80,21 @@ public enum SearchSceneType: String, Codable, Sendable, CaseIterable {
   public var label: String { rawValue.capitalized }
 }
 
+/// Hidden filter options.
+public enum SearchHidden: String, Codable, Sendable, CaseIterable {
+  case none = "none"
+  case only = "only"
+  case all  = "all"
+
+  public var label: String {
+    switch self {
+    case .none: return "Exclude"
+    case .only: return "Only"
+    case .all:  return "Include"
+    }
+  }
+}
+
 // MARK: - SearchParams
 
 /// All `GET /api/search` query parameters. Mirrors the web `SearchParams`
@@ -134,6 +149,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   public var pathPrefix: String?
   /// When true, only assets with a non-null `captured_at` match.
   public var hasCapturedAt: Bool?
+  public var hidden: SearchHidden = .none
   public var sort: SearchSort = .capturedDesc
 
   public init(libraryID: String? = nil) {
@@ -151,6 +167,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
       || rating != nil || flag != nil || color != nil
       || !ext.isEmpty || sceneType != nil || activity != nil
       || !subjects.isEmpty || isScreenshot != nil || hasCapturedAt != nil
+      || hidden != .none
   }
 
   // MARK: - Serialisation
@@ -201,6 +218,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     add("sceneType", sceneType?.rawValue)
     add("activity", activity)
     add("scope", scope)
+    if hidden != .none { add("hidden", hidden.rawValue) }
     if !subjects.isEmpty { add("subjects", subjects.joined(separator: ",")) }
     if let isScreenshot { add("isScreenshot", isScreenshot ? "true" : "false") }
     return items

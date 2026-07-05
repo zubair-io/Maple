@@ -125,9 +125,8 @@ public enum Look: String, Codable, Sendable, Hashable {
 /// Default is `.auto` — new sidecars omit `papp:Profile` and existing
 /// sidecars without the attribute land on `.auto`.
 public enum Profile: String, Codable, Sendable, Hashable, CaseIterable {
-    case auto     = "Auto"
-    case neutral  = "Neutral"
-    case acrMatch = "AcrMatch"
+    case auto    = "Auto"
+    case neutral = "Neutral"
 }
 
 // MARK: - HotPixelSuppressionMode
@@ -465,6 +464,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
 public struct CullingState: Codable, Sendable, Equatable, Hashable {
     public var stars: Int        // 0..5
     public var flag: CullFlag    // pick / reject / none
+    public var hidden: Bool
 
     /// IPTC keywords (#632). Round-tripped through the XMP `dc:subject`
     /// element as `<dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>`
@@ -475,10 +475,11 @@ public struct CullingState: Codable, Sendable, Equatable, Hashable {
     /// order, so the preservation is in practice safe.
     public var keywords: [String]
 
-    public init(stars: Int = 0, flag: CullFlag = .none, keywords: [String] = []) {
+    public init(stars: Int = 0, flag: CullFlag = .none, keywords: [String] = [], hidden: Bool = false) {
         self.stars = stars
         self.flag = flag
         self.keywords = keywords
+        self.hidden = hidden
     }
 
     // MARK: Codable
@@ -487,6 +488,7 @@ public struct CullingState: Codable, Sendable, Equatable, Hashable {
         case stars
         case flag
         case keywords
+        case hidden
     }
 
     /// Custom `init(from:)` so any previously-persisted JSON encoded
@@ -500,6 +502,7 @@ public struct CullingState: Codable, Sendable, Equatable, Hashable {
         self.stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
         self.flag = try container.decodeIfPresent(CullFlag.self, forKey: .flag) ?? .none
         self.keywords = try container.decodeIfPresent([String].self, forKey: .keywords) ?? []
+        self.hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
     }
 }
 

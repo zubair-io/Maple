@@ -44,6 +44,7 @@ import {
   WorkersApiService,
   type StageStatus,
   type WorkersStatusResponse,
+  BatchMetadataService,
 } from '@maple-common';
 import { DamagedPanelService } from './damaged-panel.service';
 import { MigrationPanelService } from './migration-panel.service';
@@ -103,7 +104,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
   private readonly api = inject(WorkersApiService);
   private readonly events = inject(WorkerEventsService);
   private readonly enrichmentApi = inject(BunApiBackendService);
+  private readonly batchMetaSvc = inject(BatchMetadataService);
 
+  protected readonly hiddenAlerts = signal<any[]>([]);
   protected readonly status = signal<WorkersStatusResponse | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly expanded = signal<Record<string, boolean>>({});
@@ -158,6 +161,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
     // (keeps this component under the file-size budget).
     this.migration.startPolling();
     this.imports.startPolling();
+    this.fetchHiddenAlerts();
   }
 
   private fetchReaperPruneWindow(): void {
@@ -576,6 +580,41 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.status.update((cur) => {
       if (!cur) return cur;
       return { stages: cur.stages.map((s) => (s.name === name ? { ...s, status } : s)) };
+    });
+  }
+
+  protected fetchHiddenAlerts(): void {
+    this.enrichmentApi.getHiddenPhotos(true).subscribe({
+      next: (assets) => this.hiddenAlerts.set(assets),
+      error: () => {},
+    });
+  }
+
+  protected acknowledgeAlert(asset: any): void {
+    this.enrichmentApi.acknowledgeHidden(asset.id).subscribe({
+      next: () => {
+        this.hiddenAlerts.update((list) => list.filter((a) => a.id !== asset.id));
+      },
+    });
+  }
+
+  protected unhideAlert(asset: any): void {
+    const entry = {
+      address: asset.id,
+      metadata: {
+        hidden: false,
+      },
+    };
+    this.batchMetaSvc.batchApply([entry]).subscribe({
+      next: (res) => {
+        if (res.results?.[0]?.ok) {
+          this.enrichmentApi.acknowledgeHidden(asset.id).subscribe({
+            next: () => {
+              this.hiddenAlerts.update((list) => list.filter((a) => a.id !== asset.id));
+            },
+          });
+        }
+      },
     });
   }
 }

@@ -34,13 +34,15 @@ import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import {
   type DescribeProvider,
   getDescribeProvider,
 } from '../../enrichment/describe-providers/index.ts';
+import { writeHiddenMarker } from '../../fs/hidden-marker.ts';
+import { findBurstSiblings } from '../../enrichment/burst-siblings.ts';
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
@@ -54,6 +56,7 @@ import {
   VISION_DOC_JSON_SCHEMA,
 } from '../../enrichment/describe-providers/parse-vision-json.ts';
 import { PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
+import { coll } from '../../indexer/images.repo.ts';
 
 /**
  * Prompt version stamped on both `description_meta.prompt_version` and
@@ -147,6 +150,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // libraries loaded fine, but the asset has no fileinfo[0] or its library
   // is unregistered.
   const libs = await loadLibraryRoots();
+  const absPath = assetAbsPath(image, libs);
   const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
   if (!previewPath) {
     return { skip: 'no-resolvable-location' };
@@ -228,8 +232,8 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // screenshot migration). Best-effort: a move failure must never fail the
   // describe stage — the migration is the backstop. The early `phasset_links`
   // gate keeps non-backup assets (and unit-test docs) off the DB path entirely.
-  // moveBackupAsset repoints fileinfo directly; the metadata patch above does
-  // not touch fileinfo, so the relocation and the stage write don't collide.
+  // moveBackupAsset repoints fileinfo: [{ library_id: new ObjectId('5f8d04dc5b6e680017a42163'), path: 'sub', filename: 'img.dng', deleted_at: null }],
+  // and the stage write don't collide.
   if (vision.is_screenshot && (image.phasset_links?.length ?? 0) > 0) {
     try {
       const outcome = await relocateBackupScreenshot(image._id);
@@ -244,6 +248,58 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
         { assetId: image._id.toHexString(), err: err instanceof Error ? err.message : err },
         'screenshot relocation failed — left for the screenshot migration',
       );
+    }
+  }
+
+  // Nudity auto-hide safety net
+  if (vision.nudity_detected) {
+    patch.hidden = true;
+    if (image.hidden_reason !== 'manual') {
+      patch.hidden_reason = 'nudity';
+      patch.hidden_ack = false;
+    }
+
+    // Call writeHiddenMarker on the main asset
+    if (absPath) {
+      await writeHiddenMarker(absPath);
+    }
+
+    // Burst propagation: if it wasn't already hidden
+    if (image.hidden !== true) {
+      try {
+        const assets = await coll();
+        const siblings = await findBurstSiblings(assets, image as any);
+        if (siblings.length > 0) {
+          const siblingIds = siblings.map((s) => s._id);
+          await assets.updateMany(
+            { _id: { $in: siblingIds }, hidden: { $ne: true } },
+            {
+              $set: {
+                hidden: true,
+                hidden_reason: 'nudity-burst',
+                hidden_ack: false,
+              },
+            },
+          );
+
+          // Write hidden markers for siblings
+          for (const sib of siblings) {
+            const sibAbsPath = assetAbsPath(sib, libs);
+            if (sibAbsPath) {
+              await writeHiddenMarker(sibAbsPath);
+            }
+          }
+          ctx.log.info(
+            { assetId: image._id.toHexString(), siblingCount: siblings.length },
+            'describe: propagated nudity-hide to burst siblings',
+          );
+        }
+      } catch (err) {
+        ctx.log.warn(
+          { assetId: image._id.toHexString(), err: err instanceof Error ? err.message : err },
+          'describe: burst sibling propagation failed',
+        );
+      }
     }
   }
 
@@ -270,7 +326,8 @@ const describeStage = defineStage({
   // (e.g. "partly cloudy", "day") would have parsed OK at write-time
   // but were dead-lettered at re-run; bumping forces every v3 row to
   // re-attempt with the relaxed parser.
-  targetVersion: 4,
+  // v5: adds nudity detection, auto-hiding safety net, and temporal burst propagation.
+  targetVersion: 5,
   dependsOn: ['preview'],
   defaults: {
     concurrency: 2,
