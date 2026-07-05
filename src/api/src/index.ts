@@ -139,21 +139,27 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
       set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
       set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
       set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
-      // Chrome's Private Network Access: lets a page fetch this server's
-      // LAN address (see routes/network.ts) without the request being
-      // blocked as a public-to-private-network access. No-op in browsers
-      // that don't check it.
-      set.headers['Access-Control-Allow-Private-Network'] = 'true';
     })
     // Mirror the isolation headers onto OPTIONS preflight too, so that any
     // cross-origin check counts them as present.
-    .options('/*', ({ set }) => {
+    .options('/*', ({ headers, set }) => {
       set.headers['Access-Control-Allow-Origin'] = CORS_ORIGIN;
       set.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
       set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
       set.headers['Cross-Origin-Opener-Policy'] = 'same-origin';
       set.headers['Cross-Origin-Embedder-Policy'] = 'require-corp';
-      set.headers['Access-Control-Allow-Private-Network'] = 'true';
+      // Chrome's Private Network Access: only echo this back when the
+      // browser's preflight actually asked for it — a page only sets this
+      // header when it resolved the target to a private-network address in
+      // the first place, so this only ever fires for the LAN discovery flow
+      // (see routes/network.ts), not for every cross-origin request this
+      // server answers. Blanket-setting it (as an earlier version of this
+      // change did) would let ANY public webpage bypass PNA for every route,
+      // not just the intentionally-public one — a meaningfully wider
+      // exposure than the feature needs.
+      if (headers['access-control-request-private-network'] === 'true') {
+        set.headers['Access-Control-Allow-Private-Network'] = 'true';
+      }
       set.status = 204;
       return;
     })
