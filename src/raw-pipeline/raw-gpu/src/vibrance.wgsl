@@ -57,7 +57,7 @@ fn oklab_to_rec2020(lab: vec3<f32>) -> vec3<f32> {
 }
 
 const GAMUT_KNEE_FRACTION: f32 = 0.8;
-const GAMUT_BISECT_ITERS: i32 = 12;
+const GAMUT_BISECT_ITERS: i32 = 24;
 
 fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
     let c_thresh = GAMUT_KNEE_FRACTION * c_hull;

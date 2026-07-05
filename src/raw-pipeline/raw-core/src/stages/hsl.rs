@@ -330,8 +330,9 @@ const HSL_GAMUT_EPS: f32 = 1e-5;
 /// knee starts — matches `saturation::GAMUT_KNEE_FRACTION`.
 const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
 
-/// Bisection iteration count — matches `saturation::GAMUT_BISECT_ITERS`.
-const HSL_GAMUT_BISECT_ITERS: usize = 12;
+/// Bisection iteration count — matches `saturation::GAMUT_BISECT_ITERS`
+/// (24; restored with it from the Jul-1 12-iteration lowering; #1769).
+const HSL_GAMUT_BISECT_ITERS: usize = 24;
 
 /// Reinhard-style smooth compression, identical shape to
 /// `saturation::soft_compress` / `vibrance::soft_compress`.
