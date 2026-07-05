@@ -340,26 +340,6 @@ export class AuthService {
     );
   }
 
-  /** Owner-only. Fetches the raw JWT signing secret so the operator can copy
-   * it into `wrangler secret put JWT_SECRET` for the Cloudflare thumbnail-
-   * cache Worker (#1757). Deliberately not cached on this service — callers
-   * (the Cloudflare settings page) should fetch it only on an explicit
-   * "Reveal" click, never on page load.
-   *
-   * Requires a fresh step-up assertion (#861), same as invite create/
-   * rescind — this is the server's root signing key, so a stolen bearer
-   * token alone must not be enough to extract it. Triggers the browser's
-   * passkey prompt. */
-  async getJwtSecret(): Promise<string> {
-    const stepUp = await this.stepUp();
-    const r = await firstValueFrom(
-      this.http.get<{ secret: string }>('/api/auth/jwt-secret', {
-        headers: { 'X-Step-Up': stepUp },
-      }),
-    );
-    return r.secret;
-  }
-
   private acceptTokens(r: any): void {
     this.accessToken = r.access_token;
     this.user.set(r.user);

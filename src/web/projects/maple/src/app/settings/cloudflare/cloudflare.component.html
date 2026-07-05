@@ -160,40 +160,21 @@
         </div>
       </form>
 
-      <!-- JWT secret reveal panel -->
+      <!-- Worker authentication note. The JWT secret is deliberately NOT
+           surfaced here — the operator retrieves it directly from the
+           server (see cloudflare.component.ts header comment) rather than
+           through an app-served endpoint. -->
       <section class="jwt-panel">
         <div class="jwt-panel-header">
           <h2>Worker authentication</h2>
           <p>
             The Cloudflare Worker that fronts thumbnail requests validates the same bearer tokens
-            this server issues. Copy this value into
-            <code>wrangler secret put JWT_SECRET</code> on the Worker — treat it like a password;
-            anyone with it can mint valid API tokens.
+            this server issues. It needs the server's JWT signing secret, which this app does not
+            display — retrieve it directly from the server (MongoDB
+            <code>server_state</code> collection, <code>_id: "jwt_secret"</code>, field
+            <code>value</code>) and run <code>wrangler secret put JWT_SECRET</code> on the Worker.
           </p>
         </div>
-
-        @switch (jwtSecretState().kind) {
-          @case ('hidden') {
-            <button type="button" class="secondary-btn" (click)="revealJwtSecret()">
-              Reveal JWT secret
-            </button>
-          }
-          @case ('loading') {
-            <span class="banner-loading">Loading…</span>
-          }
-          @case ('error') {
-            <span class="save-error">{{ $any(jwtSecretState()).message }}</span>
-          }
-          @case ('revealed') {
-            <div class="secret-box">
-              <code class="secret-value">{{ $any(jwtSecretState()).secret }}</code>
-              <button type="button" class="secondary-btn" (click)="copyJwtSecret()">
-                {{ jwtSecretCopied() ? 'Copied' : 'Copy' }}
-              </button>
-              <button type="button" class="secondary-btn" (click)="hideJwtSecret()">Hide</button>
-            </div>
-          }
-        }
       </section>
     }
   </div>
