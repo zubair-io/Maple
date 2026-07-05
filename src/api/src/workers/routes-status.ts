@@ -74,6 +74,7 @@ type StatusDbState = {
    * stage). Not per-stage — a damaged file is global state, surfaced as the
    * "Damaged" pill in the Workers UI. */
   damagedTotal: number;
+  newlyHiddenTotal: number;
 };
 export const STATUS_CACHE_TTL_MS = 2000;
 let statusCache: {
@@ -130,6 +131,7 @@ export async function fetchStatusDbState(
   const readyByStage = new Map<string, number>();
   const deadByStage = new Map<string, number>();
   let damagedTotal = 0;
+  let newlyHiddenTotal = 0;
   let assets: Collection<Document> | null = null;
   try {
     const db = await getDb();
@@ -271,12 +273,17 @@ export async function fetchStatusDbState(
       damagedTotal = await assets.countDocuments({
         'damaged.since': { $type: 'string' },
       });
+      newlyHiddenTotal = await assets.countDocuments({
+        hidden: true,
+        hidden_ack: false,
+        hidden_reason: { $in: ['nudity', 'nudity-burst'] },
+      });
     } catch (err) {
-      log.warn({ err }, 'countDocuments failed for damaged count — leaving 0');
+      log.warn({ err }, 'countDocuments failed for damaged/newlyHidden counts — leaving 0');
     }
   }
 
-  return { configMap, pendingByStage, readyByStage, deadByStage, damagedTotal };
+  return { configMap, pendingByStage, readyByStage, deadByStage, damagedTotal, newlyHiddenTotal };
 }
 
 /** One stage row in the `/status` response (and the WS `workers-status` frame). */
@@ -300,6 +307,7 @@ export interface WorkersStatusPayload {
   /** Collection-level count of assets tagged `damaged` (unreadable bytes,
    * parked out of every stage). Drives the "Damaged" pill in the Workers UI. */
   damaged: number;
+  newlyHiddenTotal: number;
 }
 
 /**
@@ -375,7 +383,7 @@ export function assembleWorkersStatus(
       batchSize,
     };
   });
-  return { stages, damaged: dbState.damagedTotal };
+  return { stages, damaged: dbState.damagedTotal, newlyHiddenTotal: dbState.newlyHiddenTotal };
 }
 
 /** Full `/status` payload, resolving the DB half through the shared cache.

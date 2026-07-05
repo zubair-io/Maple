@@ -69,7 +69,8 @@ struct LibraryGrid: View {
             flag: cullFlag == .none ? nil : cullFlag,
             sync: nil,
             isVideo: false,
-            style: .phone
+            style: .phone,
+            hidden: session?.culling.hidden ?? false
         )
     }
 }

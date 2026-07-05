@@ -21,6 +21,7 @@ public enum MetadataFieldKey: String, CaseIterable {
     case usageTerms, credit, source
     case rating   // Maps to CullingState.stars
     case flag     // Maps to CullingState.flag
+    case hidden   // Maps to CullingState.hidden
 }
 
 // MARK: - TouchedMetadata
@@ -58,6 +59,8 @@ public struct TouchedMetadata {
     public var stars: Int? = nil
     /// Pick/reject flag. nil = untouched.
     public var flag: CullFlag? = nil
+    /// Hidden flag. nil = untouched.
+    public var hidden: Bool? = nil
 
     public init() {}
 
@@ -71,7 +74,7 @@ public struct TouchedMetadata {
         keywords != nil || instructions != nil ||
         creator != nil || creatorJobTitle != nil || copyrightNotice != nil ||
         copyrightStatus != nil || usageTerms != nil || credit != nil || source != nil ||
-        stars != nil || flag != nil
+        stars != nil || flag != nil || hidden != nil
     }
 }
 
@@ -114,6 +117,10 @@ public final class BatchMetadataViewModel: Identifiable {
     /// The flag shared by all assets when they agree (even `.none`); nil only
     /// when the selection is mixed (flags differ across assets).
     public private(set) var commonFlag: CullFlag? = nil
+
+    /// The hidden status shared by all assets when they agree; nil only
+    /// when the selection is mixed.
+    public private(set) var commonHidden: Bool? = nil
 
     /// The fields the user has explicitly touched in this editing session.
     public var touchedMetadata: TouchedMetadata = TouchedMetadata()
@@ -181,6 +188,9 @@ public final class BatchMetadataViewModel: Identifiable {
 
         let firstFlag = cullingSets.first?.flag ?? .none
         commonFlag = mixed.contains(.flag) ? nil : firstFlag
+
+        let firstHidden = cullingSets.first?.hidden ?? false
+        commonHidden = mixed.contains(.hidden) ? nil : firstHidden
 
         mixedFields = mixed
     }
@@ -272,6 +282,9 @@ public final class BatchMetadataViewModel: Identifiable {
         }
         if let flag = touchedMetadata.flag {
             culling.flag = flag
+        }
+        if let hidden = touchedMetadata.hidden {
+            culling.hidden = hidden
         }
         await store.update(model: model, culling: culling, metadata: merged)
         await store.flush()
@@ -389,6 +402,12 @@ public final class BatchMetadataViewModel: Identifiable {
         let firstFlag = cullingSets.first?.flag ?? .none
         if !cullingSets.allSatisfy({ $0.flag == firstFlag }) {
             mixed.insert(.flag)
+        }
+
+        // Hidden
+        let firstHidden = cullingSets.first?.hidden ?? false
+        if !cullingSets.allSatisfy({ $0.hidden == firstHidden }) {
+            mixed.insert(.hidden)
         }
 
         return (common, mixed)

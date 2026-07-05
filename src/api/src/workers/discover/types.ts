@@ -34,6 +34,8 @@ export interface WatchEvent {
   fromPath?: string;
 }
 
+// Sibling .hidden marker files (for photo hiding) are implicitly skipped because
+// they do not match any extension in this set.
 export const SUPPORTED_EXTS = new Set([
   // RAW formats decoded via libraw FFI
   '.dng',

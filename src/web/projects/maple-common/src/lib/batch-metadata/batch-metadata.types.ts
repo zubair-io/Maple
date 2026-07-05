@@ -53,6 +53,7 @@ export interface MixedValueMap {
   rating: MixedOr<number | undefined>;
   flag: MixedOr<'pick' | 'reject' | 'unflagged' | undefined>;
   colorLabel: MixedOr<'red' | 'orange' | 'yellow' | 'green' | 'blue' | null | undefined>;
+  hidden: MixedOr<boolean | undefined>;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ export interface AssetMetadataSnapshot {
     rating?: number;
     flag?: 'pick' | 'reject' | 'unflagged';
     colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+    hidden?: boolean;
   };
 }
 
@@ -137,6 +139,7 @@ export function computeMixedValues(snapshots: AssetMetadataSnapshot[]): MixedVal
     rating: scalar((s) => s.metadata.rating),
     flag: scalar((s) => s.metadata.flag),
     colorLabel: scalar((s) => s.metadata.colorLabel),
+    hidden: scalar((s) => s.metadata.hidden),
   };
 }
 
@@ -167,6 +170,7 @@ function _emptyMixedMap(): MixedValueMap {
     rating: undefined,
     flag: undefined,
     colorLabel: undefined,
+    hidden: undefined,
   };
 }
 
@@ -179,6 +183,7 @@ export type BatchApplyMetadata = Partial<XmpMetadata> & {
   rating?: number | null;
   flag?: 'pick' | 'reject' | 'unflagged' | null;
   colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+  hidden?: boolean | null;
 };
 
 export interface BatchApplyEntry {

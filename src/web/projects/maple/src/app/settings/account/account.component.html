@@ -28,7 +28,7 @@
       <div class="section-row">
         <div class="subhead">Passkeys</div>
         <button type="button" class="btn-ghost" [disabled]="busy()" (click)="addDevice()">
-          <maple-settings-icon name="plus" [size]="12"/>
+          <maple-settings-icon name="plus" [size]="12" />
           Add device
         </button>
       </div>
@@ -38,7 +38,7 @@
         <div class="card-list">
           @for (c of credentials(); track c.id) {
             <div class="card-row">
-              <maple-settings-icon name="key" [size]="16" [color]="'#a8a29e'"/>
+              <maple-settings-icon name="key" [size]="16" [color]="'#a8a29e'" />
               <div class="card-text">
                 <div class="card-name">{{ c.device_label }}</div>
                 <div class="card-meta mono">
@@ -53,11 +53,40 @@
                 class="delete-btn"
                 [disabled]="busy()"
                 (click)="deleteDevice(c.id)"
-              >Delete</button>
+              >
+                Delete
+              </button>
             </div>
           }
         </div>
       }
+    </section>
+
+    <section>
+      <div class="subhead">Preferences</div>
+      <div
+        class="flex items-center justify-between gap-4 p-3 bg-surface border border-border rounded"
+      >
+        <div>
+          <div class="text-[12px] font-semibold text-text-main">Show Hidden Images</div>
+          <div class="text-[10px] text-text-muted">
+            Display hidden photos and AI safety net auto-hidden items while browsing the catalog.
+          </div>
+        </div>
+        <button
+          type="button"
+          class="px-3 py-1.5 rounded border text-[11px] font-medium transition-colors cursor-pointer"
+          [class.bg-primary]="showHidden()"
+          [class.text-white]="showHidden()"
+          [class.border-transparent]="showHidden()"
+          [class.bg-surface-hover]="!showHidden()"
+          [class.border-border]="!showHidden()"
+          [class.text-text-main]="!showHidden()"
+          (click)="toggleShowHidden()"
+        >
+          {{ showHidden() ? 'On' : 'Off' }}
+        </button>
+      </div>
     </section>
 
     <section>

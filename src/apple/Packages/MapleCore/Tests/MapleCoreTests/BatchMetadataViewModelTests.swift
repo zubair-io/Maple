@@ -446,6 +446,50 @@ final class BatchMetadataViewModelTests: XCTestCase {
                        "commonFlag should be CullFlag.none when all assets agree on no flag")
     }
 
+    func testTouchedHiddenApplied() async throws {
+        let culling = CullingState(stars: 0, flag: .none, keywords: [], hidden: false)
+        let (asset, store) = try await tempAsset(culling: culling)
+        let sidecarURL = await store.url
+
+        let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        vm.touchedMetadata.hidden = true
+        try await vm.apply()
+
+        let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
+        let (_, parsedCulling) = try XMPParser.parse(xml)
+        XCTAssertTrue(parsedCulling.hidden, "Touched hidden must be written to sidecar")
+    }
+
+    func testHiddenMixedDetected() async throws {
+        let c1 = CullingState(stars: 0, flag: .none, keywords: [], hidden: true)
+        let c2 = CullingState(stars: 0, flag: .none, keywords: [], hidden: false)
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertTrue(vm.mixedFields.contains(.hidden),
+                      "Hidden should be mixed when assets differ")
+        XCTAssertNil(vm.commonHidden, "commonHidden must be nil when hidden is mixed")
+    }
+
+    func testHiddenAgreedCommon() async throws {
+        let c1 = CullingState(stars: 0, flag: .none, keywords: [], hidden: true)
+        let c2 = CullingState(stars: 0, flag: .none, keywords: [], hidden: true)
+        let (a1, _) = try await tempAsset(culling: c1)
+        let (a2, _) = try await tempAsset(culling: c2)
+
+        let vm = BatchMetadataViewModel(assets: [a1, a2], sessions: [:])
+        await vm.loadExistingMetadata()
+
+        XCTAssertFalse(vm.mixedFields.contains(.hidden),
+                       "Hidden should not be mixed when both assets agree")
+        XCTAssertEqual(vm.commonHidden, true, "commonHidden should be true when both agree")
+    }
+
     // MARK: - Store preserves metadata on a model-only write
 
     func testModelOnlyWritePreservesExistingMetadata() async throws {

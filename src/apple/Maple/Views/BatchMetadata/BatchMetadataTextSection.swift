@@ -65,11 +65,45 @@ struct BatchMetadataTextSection: View {
                               value: Binding(get: { vm.touchedMetadata.headline     ?? "" },
                                             set: { vm.touchedMetadata.headline     = $0 }))
             keywordsField
+            hiddenField
             metadataTextField("Instructions",     placeholder: placeholder(.instructions),
                               value: Binding(get: { vm.touchedMetadata.instructions ?? "" },
                                             set: { vm.touchedMetadata.instructions = $0 }))
         }
         .padding(.bottom, 12)
+    }
+
+    // MARK: - Hidden field
+
+    private var hiddenField: some View {
+        let hiddenBinding = Binding<Bool?>(
+            get: {
+                if let outer = vm.touchedMetadata.hidden {
+                    return outer
+                }
+                return vm.commonHidden
+            },
+            set: { newValue in
+                vm.touchedMetadata.hidden = newValue
+            }
+        )
+
+        return HStack {
+            Text("Hidden State")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 140, alignment: .leading)
+            Picker("Hidden State", selection: hiddenBinding) {
+                Text("No change").tag(Optional<Bool>(nil))
+                Text("Visible").tag(Optional(false))
+                Text("Hidden").tag(Optional(true))
+            }
+            .pickerStyle(.menu)
+            if vm.mixedFields.contains(.hidden) && vm.touchedMetadata.hidden == nil {
+                Text("(mixed)").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Keywords field

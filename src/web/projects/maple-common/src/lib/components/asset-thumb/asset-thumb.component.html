@@ -6,21 +6,41 @@
   [class.focused]="focused()"
   [class.variant-grid]="variant() === 'grid'"
   [class.variant-filmstrip]="variant() === 'filmstrip'"
+  [class.dimmed]="a.hidden"
   [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
   (click)="thumbClick.emit($event)"
   (dblclick)="thumbDblClick.emit($event)"
 >
   @if (url) {
-    <img class="absolute inset-0 block h-full w-full object-cover" [src]="url" alt="" loading="lazy" decoding="async" />
+    <img
+      class="absolute inset-0 block h-full w-full object-cover"
+      [src]="url"
+      alt=""
+      loading="lazy"
+      decoding="async"
+    />
+  }
+
+  @if (a.hidden && variant() === 'grid') {
+    <div
+      class="absolute left-[5px] top-[5px] flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
+    >
+      HIDDEN
+    </div>
   }
 
   <!-- Selection / focus ring. Separate overlay element so it stacks
        above the absolutely-positioned <img>; box-shadow/outline render
        on the .thumb itself which the img completely obscures. -->
-  <div class="thumb-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]" aria-hidden="true"></div>
+  <div
+    class="thumb-ring pointer-events-none absolute inset-0 rounded-[2px] border-2 border-transparent transition-[border-color] duration-[80ms]"
+    aria-hidden="true"
+  ></div>
 
   @if (a.edited && variant() === 'grid') {
-    <div class="absolute right-[5px] top-[5px] flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] border-success-text bg-success-bg backdrop-blur-[4px]">
+    <div
+      class="absolute right-[5px] top-[5px] flex h-[14px] w-[14px] items-center justify-center rounded-[3px] border-[0.5px] border-success-text bg-success-bg backdrop-blur-[4px]"
+    >
       <maple-icon name="check" [size]="9" [strokeWidth]="2" color="var(--color-success-text)" />
     </div>
   } @else if (a.edited && variant() === 'filmstrip') {
@@ -28,13 +48,23 @@
   }
 
   @if (variant() === 'grid') {
-    <div class="pointer-events-none absolute bottom-[5px] left-[5px] right-[5px] flex items-end justify-between gap-1">
+    <div
+      class="pointer-events-none absolute bottom-[5px] left-[5px] right-[5px] flex items-end justify-between gap-1"
+    >
       <div class="flex gap-[3px]">
         @if (a.flag === 'pick') {
-          <div class="rounded-[3px] bg-success-bg px-1 py-0.5 text-[9px] font-semibold tracking-[0.3px] text-success-text backdrop-blur-[4px]">PICK</div>
+          <div
+            class="rounded-[3px] bg-success-bg px-1 py-0.5 text-[9px] font-semibold tracking-[0.3px] text-success-text backdrop-blur-[4px]"
+          >
+            PICK
+          </div>
         }
         @if (a.flag === 'reject') {
-          <div class="rounded-[3px] bg-error-bg px-1 py-0.5 text-[9px] font-semibold tracking-[0.3px] text-error-text backdrop-blur-[4px]">REJECT</div>
+          <div
+            class="rounded-[3px] bg-error-bg px-1 py-0.5 text-[9px] font-semibold tracking-[0.3px] text-error-text backdrop-blur-[4px]"
+          >
+            REJECT
+          </div>
         }
       </div>
       @if (a.rating > 0) {
@@ -51,9 +81,13 @@
     </div>
   } @else {
     @if (a.flag === 'pick') {
-      <div class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-success-text"></div>
+      <div
+        class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-success-text"
+      ></div>
     } @else if (a.flag === 'reject') {
-      <div class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-error-text"></div>
+      <div
+        class="absolute bottom-[3px] left-[3px] h-[6px] w-[6px] rounded-full bg-error-text"
+      ></div>
     }
   }
 </div>

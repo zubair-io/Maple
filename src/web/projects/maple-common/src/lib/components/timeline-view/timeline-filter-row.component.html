@@ -61,6 +61,23 @@
 
   <div class="h-5 w-px bg-border"></div>
 
+  <!-- Hidden filter -->
+  <div class="flex items-center gap-1" role="group" aria-label="Hidden images filter">
+    @for (h of HIDDEN_OPTIONS; track h.value) {
+      <button
+        type="button"
+        class="filter-pill h-6 cursor-pointer rounded border-[0.5px] border-transparent bg-transparent px-2 text-[11px] text-text-muted transition-colors duration-[120ms] hover:bg-surface-hover hover:border-border hover:text-text-main"
+        [class.is-active]="state.hiddenFilter() === h.value"
+        [attr.aria-pressed]="state.hiddenFilter() === h.value"
+        (click)="onHiddenClick(h.value)"
+      >
+        {{ h.label }}
+      </button>
+    }
+  </div>
+
+  <div class="h-5 w-px bg-border"></div>
+
   <!-- Date range -->
   <div class="flex items-center gap-1.5">
     <input

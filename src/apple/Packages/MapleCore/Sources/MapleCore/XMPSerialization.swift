@@ -336,10 +336,9 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             // from clobbering this explicit choice.
             profileSeen = true
             switch value.lowercased() {
-            case "auto":     model.profile = .auto
-            case "neutral":  model.profile = .neutral
-            case "acrmatch": model.profile = .acrMatch
-            default:         break
+            case "auto":    model.profile = .auto
+            case "neutral": model.profile = .neutral
+            default:        break
             }
         // Crop / straighten (#277, spec § 3.12). Rect fields gated by
         // `hasCrop` (above). `crs:CropAngle` is always parsed — it can
@@ -360,6 +359,8 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             case "reject":      culling.flag = .reject
             default:            break
             }
+        case "papp:Hidden":
+            culling.hidden = (value.lowercased() == "true")
         default: _xmpApplyHSLAttribute(key: key, value: value, model: &model)
         }
     }
@@ -422,6 +423,7 @@ public struct XMPSerializer {
             ("crs:LuminanceSmoothing",   String(format: "%.0f", model.nrLuminance)),
             ("crs:ColorNoiseReduction",  String(format: "%.0f", model.nrColor)),
             ("xmp:Rating",               String(culling.stars)),
+            ("papp:Hidden",              culling.hidden ? "true" : "false"),
         ]
         if culling.flag != .none {
             attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))

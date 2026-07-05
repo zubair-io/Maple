@@ -178,6 +178,7 @@ export interface VisionDoc {
    * run, overwriting whatever the exif stage's filename heuristic
    * guessed first. */
   is_screenshot: boolean;
+  nudity_detected: boolean;
 }
 
 /**
@@ -330,6 +331,9 @@ export interface AssetDoc {
    * the heuristic can't. Mirrors `vision.is_screenshot` once describe
    * has run; until then, the heuristic value stands. */
   is_screenshot?: boolean;
+  hidden?: boolean;
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  hidden_ack?: boolean;
   /** Structured photo-vision metadata from the qwen2.5-vl describe stage.
    * `null` until the stage has run on this asset. See `VisionDoc`. */
   vision?: VisionDoc | null;
@@ -416,42 +420,13 @@ export interface AssetDoc {
    */
   geo_backfill_skipped?: 'no-donor' | 'skip';
   /**
-   * Maple stable image id (see `indexer/id.ts`) — NOT a hash of the full
-   * original bytes. Derived from a SHA1 of just the first 64 KB
-   * (`SHA1_HEAD_BYTES`) of the file, combined via BLAKE3 with EXIF capture
-   * metadata (capture timestamp, camera serial, shutter count) when
-   * available ("primary" form), or with the file size alone ("fallback"
-   * form) when it isn't. Populated on nearly every asset, via three write
-   * paths:
-   *  - Discover watcher (`workers/discover/handle-event.ts`, `hashFileForId`):
-   *    computed inline at insert time for every locally-discovered file, in
-   *    fallback form — this is the primary path, not a stopgap (the old
-   *    separate `hash` stage was retired in the drop-abs-path-2026-05-21
-   *    migration).
-   *  - EXIF stage (`workers/stages/exif.ts`): upgrades the id in place to
-   *    primary form once `captured_at` is available.
-   *  - Backup ingest endpoint (`routes/backup-ingest.ts`): sets it directly
-   *    for PhotoKit-originated assets that never go through discover (id
-   *    computed client-side).
-   * null/absent only for assets that predate one of these paths or hit an
-   * error before hashing. Used as the deduplication key when the same
-   * content arrives from multiple devices or discovery paths.
+   * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
+   * endpoint; null/absent for assets indexed by other paths (the indexer
+   * pipeline does not compute it — only the PhotoKit backup path does).
+   * Used as the deduplication key when the same content arrives from
+   * multiple devices.
    */
   maple_id?: string;
-  /**
-   * ISO timestamp of the last successful upload of this asset's
-   * content-addressed thumbnail to the Cloudflare R2 mirror (see
-   * `cloudflare/r2-client.ts`). Absent/null means the thumbnail either
-   * hasn't been generated yet, Cloudflare upload is disabled, or the
-   * backfill job hasn't reached this asset yet — all three are
-   * indistinguishable and all three mean "still pending" to the backfill
-   * job's selection query. Never holds a URL: the R2 object key is always
-   * re-derived from `(library slug, fileinfo[0].path, fileinfo[0].filename)`
-   * via `cloudflare/thumb-key.ts`, mirroring the existing
-   * "never persist a derivable thumb path" convention (see
-   * `workers/stages/thumb.ts`).
-   */
-  cf_thumb_synced_at?: string | null;
   /**
    * Denormalized count of live `fileinfo` entries (entries where neither
    * `deleted_at` nor `missing_since` is set). Maintained at every liveness
@@ -1302,6 +1277,7 @@ export interface MetadataOverride {
   flag?: 'pick' | 'reject';
   /** Color label string from papp:ColorLabel. */
   color_label?: string;
+  hidden?: boolean | null;
   /**
    * Derived effective capture year/month (from `captured_at ?? exif.captured_at`),
    * stored here — NOT under `exif.*`, which stays the immutable file-original.
@@ -1309,8 +1285,6 @@ export interface MetadataOverride {
    */
   captured_year?: number;
   captured_month?: number;
-  /** Custom screenshot flag. null means "clear". */
-  is_screenshot?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------

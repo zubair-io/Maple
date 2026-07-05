@@ -187,6 +187,9 @@ export interface SearchQuery {
    * album field — see `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`
    * and `db/schema.ts` `AssetDoc`. */
   scope?: string;
+  /** Hidden image filter. "only" returns only hidden images, "all" returns everything,
+   * omitted or "none" (default) excludes hidden images. */
+  hidden?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -218,6 +221,7 @@ export const SearchQueryT = t.Object({
   isScreenshot: t.Optional(t.String()),
   people: t.Optional(t.String()),
   scope: t.Optional(t.String()),
+  hidden: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
@@ -427,6 +431,16 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
     // `$ne: true` rather than `false` so rows where is_screenshot was
     // never written (pre-#175 indexes) still appear under "Photos only".
     (filter as Record<string, unknown>).is_screenshot = { $ne: true };
+  }
+
+  // Hidden images filter
+  if (q.hidden === 'only') {
+    (filter as Record<string, unknown>).hidden = true;
+  } else if (q.hidden === 'all') {
+    // No filter on hidden, returns all.
+  } else {
+    // Default is to filter out hidden images.
+    (filter as Record<string, unknown>).hidden = { $ne: true };
   }
 
   // Extensions: comma-separated, alphanumeric only.

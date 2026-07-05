@@ -150,6 +150,28 @@
                 >Selecting "None (clear)" removes the label from all selected photos.</span
               >
             </div>
+
+            <div class="bm-field">
+              <label class="bm-label" for="bm-hidden">Hidden State</label>
+              <select
+                id="bm-hidden"
+                class="bm-select"
+                [value]="hiddenVal()"
+                (change)="onHiddenChange($any($event.target).value)"
+              >
+                <option value="">
+                  @if (mixed().hidden === MIXED) {
+                    (mixed)
+                  } @else {
+                    — leave unchanged —
+                  }
+                </option>
+                <option value="true">Hidden</option>
+                <option value="false">Visible</option>
+                <option value="__clear__">Clear (default)</option>
+              </select>
+              <span class="bm-hint">Hiding images excludes them from standard browse results.</span>
+            </div>
           </section>
 
           <!-- ── Section: Capture ───────────────────────────────────────── -->

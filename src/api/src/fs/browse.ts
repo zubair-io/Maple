@@ -446,7 +446,9 @@ export async function listDirContents(
     };
   }
 
-  const visible = names.filter((n) => !n.startsWith('.')).sort((a, b) => a.localeCompare(b));
+  const visible = names
+    .filter((n) => !n.startsWith('.') && !n.endsWith('.hidden'))
+    .sort((a, b) => a.localeCompare(b));
 
   // Paging window. cursor === undefined AND limit === undefined keeps
   // the historical single-shot behaviour (no slicing, no next_cursor).
@@ -792,7 +794,7 @@ export async function listDirFast(
   // (the latter aren't surfaced by this endpoint and shouldn't pay the
   // realpath+stat cost per entry).
   const visible = names
-    .filter((n) => !n.startsWith('.'))
+    .filter((n) => !n.startsWith('.') && !n.endsWith('.hidden'))
     .filter((n) => !n.toLowerCase().endsWith('.xmp'))
     .sort((a, b) => a.localeCompare(b));
 

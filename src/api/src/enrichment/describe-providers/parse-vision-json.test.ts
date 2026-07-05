@@ -22,6 +22,7 @@ const VALID = {
   shot_type: 'action',
   indoor_outdoor: 'outdoor',
   is_screenshot: false,
+  nudity_detected: false,
 };
 
 describe('parseVisionJson — happy paths', () => {
@@ -207,6 +208,52 @@ describe('parseVisionJson — rejection paths', () => {
     const v = { ...VALID, is_screenshot: true };
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.is_screenshot).toBe(true);
+  });
+
+  it('defaults nudity_detected to false when missing', () => {
+    const v = { ...VALID } as any;
+    delete v.nudity_detected;
+    const out = parseVisionJson(JSON.stringify(v));
+    expect(out.nudity_detected).toBe(false);
+  });
+
+  it('coerces nudity_detected string/number/boolean variants', () => {
+    expect(
+      parseVisionJson(JSON.stringify({ ...VALID, nudity_detected: 'true' })).nudity_detected,
+    ).toBe(true);
+    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity_detected: 1 })).nudity_detected).toBe(
+      true,
+    );
+    expect(
+      parseVisionJson(JSON.stringify({ ...VALID, nudity_detected: 'false' })).nudity_detected,
+    ).toBe(false);
+    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity_detected: 0 })).nudity_detected).toBe(
+      false,
+    );
+    expect(
+      parseVisionJson(JSON.stringify({ ...VALID, nudity_detected: null })).nudity_detected,
+    ).toBe(false);
+    expect(
+      parseVisionJson(JSON.stringify({ ...VALID, nudity_detected: true })).nudity_detected,
+    ).toBe(true);
+  });
+
+  it('rejects uncoercible nudity_detected values', () => {
+    const bad = [
+      { ...VALID, nudity_detected: {} },
+      { ...VALID, nudity_detected: [] },
+      { ...VALID, nudity_detected: 'maybe' },
+    ];
+    for (const b of bad) {
+      try {
+        parseVisionJson(JSON.stringify(b));
+        fail('should have failed');
+      } catch (err) {
+        expect(err).toBeInstanceOf(VisionParseError);
+        expect((err as VisionParseError).reason).toBe('wrong-type');
+        expect((err as VisionParseError).field).toBe('nudity_detected');
+      }
+    }
   });
 
   it('joins text_visible string[] into a newline-separated string', () => {
@@ -408,6 +455,7 @@ describe('prompt ↔ parser cross-check', () => {
     'shot_type',
     'indoor_outdoor',
     'is_screenshot',
+    'nudity_detected',
   ] as const;
 
   for (const key of REQUIRED_KEYS) {
@@ -418,8 +466,8 @@ describe('prompt ↔ parser cross-check', () => {
     });
   }
 
-  it('DESCRIBE_VISION_PROMPT_VERSION is 3 (post-is_screenshot)', () => {
-    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(3);
+  it('DESCRIBE_VISION_PROMPT_VERSION is 4 (post-nudity)', () => {
+    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(4);
   });
 });
 

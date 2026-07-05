@@ -192,6 +192,7 @@ export const VISION_DOC_JSON_SCHEMA = {
     shot_type: { type: ['string', 'null'], enum: [...ALLOWED_SHOT_TYPE, null] },
     indoor_outdoor: { type: ['string', 'null'], enum: [...ALLOWED_INDOOR_OUTDOOR, null] },
     is_screenshot: { type: 'boolean' },
+    nudity_detected: { type: 'boolean' },
   },
   required: [
     'caption',
@@ -210,5 +211,6 @@ export const VISION_DOC_JSON_SCHEMA = {
     'shot_type',
     'indoor_outdoor',
     'is_screenshot',
+    'nudity_detected',
   ],
 } as const;

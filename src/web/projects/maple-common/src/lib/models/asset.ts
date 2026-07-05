@@ -40,6 +40,9 @@ export interface Asset {
   rating: number; // 0..5
   flag: Flag;
   colorLabel: ColorLabel;
+  hidden?: boolean;
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  hidden_ack?: boolean;
 
   // Placeholder visual (gradient swatch until raw-wasm in P4).
   thumbnailGradient: string; // data-URI SVG

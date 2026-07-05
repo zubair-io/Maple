@@ -248,6 +248,9 @@ export interface ApiAssetDetail {
    * stage heuristic, overwritten by the describe stage's VLM verdict.
    * `null` for legacy rows indexed before #175. */
   is_screenshot: boolean | null;
+  hidden?: boolean;
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  hidden_ack?: boolean;
   enrichment: ApiEnrichment;
 }
 
@@ -412,6 +415,24 @@ export class BunApiBackendService {
    * "Pending" badge that would otherwise stick forever. */
   getWorkerStatus(): Observable<ApiWorkerStatus> {
     return this.http.get<ApiWorkerStatus>(`${this.base}/workers/status`);
+  }
+
+  getDisplayConfig(): Observable<{ show_hidden_images: boolean }> {
+    return this.http.get<{ show_hidden_images: boolean }>(`${this.base}/display/config`);
+  }
+
+  saveDisplayConfig(config: { show_hidden_images: boolean }): Observable<{ ok: boolean }> {
+    return this.http.put<{ ok: boolean }>(`${this.base}/display/config`, config);
+  }
+
+  acknowledgeHidden(assetId: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.base}/assets/${assetId}/hidden-ack`, {});
+  }
+
+  getHiddenPhotos(onlyNew?: boolean): Observable<ApiAssetDetail[]> {
+    return this.http.get<ApiAssetDetail[]>(`${this.base}/photos/hidden`, {
+      params: onlyNew ? { onlyNew: 'true' } : undefined,
+    });
   }
 
   /**
