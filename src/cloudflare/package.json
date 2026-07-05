@@ -1,0 +1,24 @@
+{
+	"name": "maple-thumb-cache",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Cloudflare Worker fronting /api/thumb/* with an R2 edge cache (#1757, #1760)",
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit",
+		"cf-typegen": "wrangler types"
+	},
+	"dependencies": {
+		"jose": "^6.2.3"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.12.4",
+		"@types/node": "^26.1.0",
+		"typescript": "^5.5.2",
+		"vitest": "~3.2.0",
+		"wrangler": "^4.107.0"
+	}
+}

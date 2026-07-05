@@ -1,0 +1,99 @@
+# .github/workflows/cloudflare.yml
+#
+# CI + deploy for the Cloudflare thumbnail-cache Worker (src/cloudflare/,
+# #1757/#1760). This is a standalone deploy unit with no shared imports
+# into src/api or src/web (the R2 key scheme and JWT verification are
+# independently re-implemented — see src/cloudflare/src/r2.ts and auth.ts),
+# so unlike web.yml this gate is safely path-scoped: a change elsewhere in
+# the repo cannot break this Worker.
+#
+# Uses Node/npm, not Bun (every other subproject's convention) — see
+# src/cloudflare/README.md "Why Node, not Bun": @cloudflare/vitest-pool-workers
+# bridges the test runner and the worker isolate over a WebSocket, and Bun's
+# WebSocket implementation doesn't fire the `upgrade` event that bridge
+# needs, so `bun run test` hangs indefinitely under this package specifically.
+#
+# Two jobs:
+#   cloudflare-test   — typecheck + vitest (@cloudflare/vitest-pool-workers)
+#                        on every push/PR that touches src/cloudflare/.
+#   cloudflare-deploy — `wrangler deploy`, push-to-main only, gated on the
+#                        same path filter. Requires repo secrets
+#                        CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+#                        (Workers Scripts:Edit + Account Settings:Read
+#                        permissions) — the deploy step no-ops with a clear
+#                        log message if they aren't configured yet, so
+#                        adding this workflow doesn't require the secrets
+#                        to exist on day one.
+
+name: cloudflare
+
+on:
+  push:
+    branches: [main]
+    paths: ['src/cloudflare/**']
+  pull_request:
+    paths: ['src/cloudflare/**']
+
+concurrency:
+  group: cloudflare-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  cloudflare-test:
+    name: cloudflare-test (typecheck + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Worker deps
+        working-directory: src/cloudflare
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: src/cloudflare
+        run: npm run typecheck
+
+      - name: Run Worker tests
+        working-directory: src/cloudflare
+        run: npm test
+
+  cloudflare-deploy:
+    name: cloudflare-deploy (wrangler deploy)
+    needs: cloudflare-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Worker deps
+        working-directory: src/cloudflare
+        run: npm ci
+
+      - name: Check Cloudflare deploy credentials are configured
+        id: creds
+        run: |
+          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping deploy. Add both as repo secrets to enable automatic deploys."
+          fi
+
+      # JWT_SECRET is a Worker secret set once via `wrangler secret put`
+      # (see src/cloudflare/wrangler.jsonc) — it is NOT touched by this
+      # deploy step and does not need to be a GitHub secret.
+      - name: Deploy Worker
+        if: steps.creds.outputs.configured == 'true'
+        working-directory: src/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
