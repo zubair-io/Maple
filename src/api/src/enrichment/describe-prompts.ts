@@ -53,7 +53,8 @@ export const DEFAULT_DESCRIBE_VISION_PROMPT = `You are indexing a personal photo
   "notable_objects": ["distinctive objects, max 8"],
   "shot_type":       "action | static | candid | posed | architectural | nature | event",
   "indoor_outdoor":  "indoor | outdoor",
-  "is_screenshot":   "true when this image is a screenshot of a phone/computer/app UI (including cropped screenshots and screenshots-of-screenshots), false for photographs and photos-of-screens"
+  "is_screenshot":   "true when this image is a screenshot of a phone/computer/app UI (including cropped screenshots and screenshots-of-screenshots), false for photographs and photos-of-screens",
+  "nudity_detected": "true when this image contains nudity, false otherwise"
 }
 
 Rules:
@@ -70,5 +71,6 @@ Rules:
  *   1 — free-text `DEFAULT_DESCRIBE_SYSTEM_PROMPT` (llava era)
  *   2 — structured JSON `DEFAULT_DESCRIBE_VISION_PROMPT` (qwen2.5-vl)
  *   3 — adds `is_screenshot` boolean field (#175)
+ *   4 — adds `nudity_detected` boolean field for auto-hide safety net
  */
-export const DESCRIBE_VISION_PROMPT_VERSION = 3;
+export const DESCRIBE_VISION_PROMPT_VERSION = 4;

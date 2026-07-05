@@ -32,6 +32,7 @@ const VALID_VISION = {
   shot_type: 'static',
   indoor_outdoor: 'outdoor',
   is_screenshot: false,
+  nudity_detected: false,
 };
 
 function fakeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string): ImageDoc {
@@ -161,6 +162,27 @@ describe('describeHandler — happy path', () => {
 
     // Top-level is_screenshot mirror — overwrites the exif heuristic.
     expect(patch.is_screenshot).toBe(false);
+  });
+
+  it('returns patch with hidden true, hidden_reason nudity, and hidden_ack false when nudity is detected', async () => {
+    const absPath = join(tmpRoot, 'img.dng');
+    const doc = stageDoc(absPath);
+    const provider = mockProvider({
+      text: JSON.stringify({ ...VALID_VISION, nudity_detected: true }),
+      cost_usd: 0.0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen2.5vl:7b',
+    });
+
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.hidden).toBe(true);
+    expect(patch.hidden_reason).toBe('nudity');
+    expect(patch.hidden_ack).toBe(false);
   });
 
   it('threads VISION_DOC_JSON_SCHEMA through to the provider as `format`', async () => {

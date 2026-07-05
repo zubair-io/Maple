@@ -113,6 +113,9 @@ export interface AssetDetailDto {
   vision: VisionDoc | null;
   vision_meta: VisionMeta | null;
   is_screenshot: boolean | null;
+  hidden?: boolean;
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  hidden_ack?: boolean;
   enrichment: Enrichment;
 }
 
@@ -135,6 +138,9 @@ export interface AssetListItemDto {
   mtime: number;
   rating: number;
   has_xmp: boolean;
+  hidden?: boolean;
+  hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  hidden_ack?: boolean;
 }
 
 /** Minimal shape used by routes that need to drive FS / change-feed
@@ -204,6 +210,9 @@ export function toDetailDto(
     vision: doc.vision ?? null,
     vision_meta: doc.vision_meta ?? null,
     is_screenshot: doc.is_screenshot ?? null,
+    hidden: doc.hidden,
+    hidden_reason: doc.hidden_reason,
+    hidden_ack: doc.hidden_ack,
     enrichment: normaliseEnrichment(doc.enrichment),
   };
 }
@@ -225,6 +234,9 @@ export function toListItemDto(
     mtime: Math.floor(doc.mtime / 1000),
     rating: doc.rating,
     has_xmp: doc.has_xmp ?? false,
+    hidden: doc.hidden,
+    hidden_reason: doc.hidden_reason,
+    hidden_ack: doc.hidden_ack,
   };
 }
 
