@@ -26,7 +26,14 @@ export async function writeHiddenMarker(absPath: string): Promise<void> {
     await fs.writeFile(tmp, '');
     await fs.rename(tmp, marker);
   } catch {
-    // Best-effort, swallow errors.
+    // Best-effort, but don't leave an orphaned temp file behind if rename
+    // fails after writeFile succeeded (e.g. a cross-device link error) —
+    // mirrors the cleanup in fs/xmp.ts's writeXmpAtomic.
+    try {
+      await fs.unlink(tmp);
+    } catch {
+      // tmp was never created, or is already gone — nothing to clean up.
+    }
   }
 }
 
