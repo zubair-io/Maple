@@ -1,0 +1,200 @@
+<maple-settings-shell section="cloudflare">
+  <div class="page">
+    <header class="page-header">
+      <div class="titles">
+        <h1>Cloudflare</h1>
+        <p>
+          Mirror content-addressed thumbnails to a Cloudflare R2 bucket so a Cloudflare Worker can
+          serve them from the edge instead of round-tripping to this server on every request.
+        </p>
+      </div>
+    </header>
+
+    @if (loading()) {
+      <div class="banner-loading">Loading…</div>
+    } @else if (loadError()) {
+      <div class="banner-error">{{ loadError() }}</div>
+    } @else {
+      <form class="settings-form" (ngSubmit)="save()">
+        <!-- Enable toggle -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="cf-enabled">Upload thumbnails to Cloudflare</label>
+            <span class="field-hint">
+              When off, thumbnails are only ever served from this server; no data leaves your
+              library.
+            </span>
+          </div>
+          <div class="field-control">
+            <label class="toggle">
+              <input
+                id="cf-enabled"
+                type="checkbox"
+                [ngModel]="fEnabled()"
+                (ngModelChange)="fEnabled.set($event)"
+                name="enabled"
+              />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Account ID -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="cf-account-id">Account ID</label>
+            <span class="field-hint">Your Cloudflare account ID (Dashboard → R2 → Overview).</span>
+          </div>
+          <div class="field-control">
+            <input
+              id="cf-account-id"
+              type="text"
+              class="text-input"
+              placeholder="a1b2c3d4e5f6..."
+              [ngModel]="fAccountId()"
+              (ngModelChange)="fAccountId.set($event)"
+              name="accountId"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- Bucket -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="cf-bucket">Bucket name</label>
+            <span class="field-hint">The R2 bucket thumbnails are uploaded into.</span>
+          </div>
+          <div class="field-control">
+            <input
+              id="cf-bucket"
+              type="text"
+              class="text-input"
+              placeholder="maple-thumbs"
+              [ngModel]="fBucket()"
+              (ngModelChange)="fBucket.set($event)"
+              name="bucket"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- Access key ID -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="cf-access-key-id">Access key ID</label>
+            <span class="field-hint">
+              An R2 API token's access key ID (Dashboard → R2 → Manage API tokens).
+            </span>
+          </div>
+          <div class="field-control">
+            <input
+              id="cf-access-key-id"
+              type="text"
+              class="text-input"
+              placeholder="AKIAEXAMPLE..."
+              [ngModel]="fAccessKeyId()"
+              (ngModelChange)="fAccessKeyId.set($event)"
+              name="accessKeyId"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- Secret access key -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="cf-secret-access-key">Secret access key</label>
+            <span class="field-hint">
+              Write-only — never sent back to the browser. Leave blank to keep the currently saved
+              key.
+            </span>
+          </div>
+          <div class="field-control">
+            <input
+              id="cf-secret-access-key"
+              type="password"
+              class="text-input"
+              [placeholder]="secretPlaceholder()"
+              [ngModel]="fSecretAccessKey()"
+              (ngModelChange)="fSecretAccessKey.set($event)"
+              name="secretAccessKey"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- Test credentials -->
+        <div class="form-actions test-actions">
+          @if (testState().kind === 'error') {
+            <span class="save-error">{{ $any(testState()).message }}</span>
+          }
+          @if (testState().kind === 'ok') {
+            <span class="save-ok">Connected.</span>
+          }
+          <button
+            type="button"
+            class="secondary-btn"
+            [disabled]="!canTest() || testState().kind === 'testing'"
+            (click)="test()"
+          >
+            {{ testState().kind === 'testing' ? 'Testing…' : 'Test' }}
+          </button>
+        </div>
+
+        <!-- Save / status -->
+        <div class="form-actions">
+          @if (saveState().kind === 'error') {
+            <span class="save-error">{{ $any(saveState()).message }}</span>
+          }
+          @if (saveState().kind === 'saved') {
+            <span class="save-ok">Saved.</span>
+          }
+          <button type="submit" class="save-btn" [disabled]="saveState().kind === 'saving'">
+            {{ saveState().kind === 'saving' ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </form>
+
+      <!-- JWT secret reveal panel -->
+      <section class="jwt-panel">
+        <div class="jwt-panel-header">
+          <h2>Worker authentication</h2>
+          <p>
+            The Cloudflare Worker that fronts thumbnail requests validates the same bearer tokens
+            this server issues. Copy this value into
+            <code>wrangler secret put JWT_SECRET</code> on the Worker — treat it like a password;
+            anyone with it can mint valid API tokens.
+          </p>
+        </div>
+
+        @switch (jwtSecretState().kind) {
+          @case ('hidden') {
+            <button type="button" class="secondary-btn" (click)="revealJwtSecret()">
+              Reveal JWT secret
+            </button>
+          }
+          @case ('loading') {
+            <span class="banner-loading">Loading…</span>
+          }
+          @case ('error') {
+            <span class="save-error">{{ $any(jwtSecretState()).message }}</span>
+          }
+          @case ('revealed') {
+            <div class="secret-box">
+              <code class="secret-value">{{ $any(jwtSecretState()).secret }}</code>
+              <button type="button" class="secondary-btn" (click)="copyJwtSecret()">
+                {{ jwtSecretCopied() ? 'Copied' : 'Copy' }}
+              </button>
+              <button type="button" class="secondary-btn" (click)="hideJwtSecret()">Hide</button>
+            </div>
+          }
+        }
+      </section>
+    }
+  </div>
+</maple-settings-shell>
