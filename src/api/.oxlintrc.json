@@ -170,6 +170,7 @@
         "src/workers/stages/sidecar-metadata-index.test.ts",
         "src/workers/stages/preview.test.ts",
         "src/workers/stages/thumb.test.ts",
+        "src/workers/stages/thumb.ts",
         "src/workers/trash-gc.test.ts",
         "src/workers/trash-gc.ts"
       ],
