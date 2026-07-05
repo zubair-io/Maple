@@ -146,6 +146,34 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertEqual(c2.stars, 1)
     }
 
+    /// `papp:Hidden` is tri-state: an untouched `CullingState` (`hidden ==
+    /// nil`) must emit no attribute at all, never a default `"false"` —
+    /// the backend treats any written value, including "false", as an
+    /// explicit override that would silently un-hide an asset hidden by
+    /// other means (AI verdict, a prior manual hide from elsewhere).
+    /// Regression test for the PR #1782 follow-up review finding.
+    func testHiddenTriStateRoundTripAndDefaultOmission() throws {
+        let untouchedXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(
+            untouchedXml.contains("papp:Hidden"),
+            "an untouched CullingState must never write papp:Hidden"
+        )
+        let (_, untouchedCulling) = try XMPParser.parse(untouchedXml)
+        XCTAssertNil(untouchedCulling.hidden, "absent papp:Hidden must parse back to nil")
+
+        let hiddenXml = XMPSerializer.serialize(
+            model: AdjustmentModel(), culling: CullingState(hidden: true))
+        XCTAssertTrue(hiddenXml.contains(#"papp:Hidden="true""#))
+        let (_, hiddenCulling) = try XMPParser.parse(hiddenXml)
+        XCTAssertEqual(hiddenCulling.hidden, true)
+
+        let unhiddenXml = XMPSerializer.serialize(
+            model: AdjustmentModel(), culling: CullingState(hidden: false))
+        XCTAssertTrue(unhiddenXml.contains(#"papp:Hidden="false""#))
+        let (_, unhiddenCulling) = try XMPParser.parse(unhiddenXml)
+        XCTAssertEqual(unhiddenCulling.hidden, false)
+    }
+
     // MARK: - S5 effects fields (#643)
 
     /// Parses Lightroom-compatible `crs:` keys for vignette / grain /

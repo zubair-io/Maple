@@ -22,8 +22,8 @@
   box-shadow: inset 0 0 0 1.5px var(--color-primary);
 }
 
-/* Hidden-but-shown photos ("show hidden images" is on, not a hidden-only
-   filter view) are dimmed so the HIDDEN badge reads as an overlay on
+/* Applied whenever a photo is hidden, in every view (including the
+   hidden-only filter) — dimmed so the HIDDEN badge reads as an overlay on
    something de-emphasized rather than a normal photo with an odd label. */
 .timeline-photo.dimmed img {
   opacity: 0.45;
