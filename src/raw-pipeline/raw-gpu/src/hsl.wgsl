@@ -37,7 +37,13 @@ struct Params {
     chroma_gate_c0: f32,
     // Number of RGBA pixels in this dispatch.
     count: u32,
-    _pad0: u32,
+    // 1 when ALL 24 sliders are at default — mirrors raw-core's
+    // `HslParams::is_identity` per-pixel early-return (`apply_pixel` returns the
+    // input bit-exactly). Required since the #1733/#1748 gamut soft-knee port:
+    // without it, an identity-params dispatch (the UNGATED composition layer
+    // runs every pass) would gamut-compress pixels that arrive already outside
+    // Rec.2020, where the CPU stage is a pure passthrough.
+    is_identity: u32,
     _pad1: u32,
 };
 
@@ -113,6 +119,60 @@ fn smoothstep_fn(e0: f32, e1: f32, x: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// ── Gamut soft-knee (#1733 / #1748, ported from raw_core::stages::hsl) ────────
+//
+// Mirrors HSL_GAMUT_EPS / HSL_GAMUT_KNEE_FRACTION / HSL_GAMUT_BISECT_ITERS and
+// the `hsl_soft_compress` / `hsl_bisect_gamut_hull` fns in
+// raw-core/src/stages/hsl.rs verbatim. Same shape as the saturation / vibrance
+// kernels' knee; unlike those there is NO `.max(c_floor)` — hue rotation can
+// land the pixel on a NARROWER part of the hull than the input hue, and a floor
+// at the input chroma would re-emit the negative channel the bisection just
+// solved for (see the raw-core comment).
+
+const HSL_GAMUT_EPS: f32 = 1e-5;
+const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
+const HSL_GAMUT_BISECT_ITERS: i32 = 24;
+
+// Lower-bound-only gamut predicate: every Rec.2020 channel >= -HSL_GAMUT_EPS.
+// Scene-linear values above 1 are legal and must pass (no upper bound).
+fn hsl_min_channel_in_gamut(rgb: vec3<f32>) -> bool {
+    let min_c = min(rgb.x, min(rgb.y, rgb.z));
+    return min_c >= -HSL_GAMUT_EPS;
+}
+
+// Reinhard-style smooth compression — raw-core's `hsl_soft_compress` verbatim,
+// including both early returns.
+fn hsl_soft_compress(c_target: f32, c_hull: f32) -> f32 {
+    let c_thresh = HSL_GAMUT_KNEE_FRACTION * c_hull;
+    if (c_target <= c_thresh) {
+        return c_target;
+    }
+    let d = c_target - c_thresh;
+    let d_max = c_hull - c_thresh;
+    if (d_max <= 0.0) {
+        return c_hull;
+    }
+    return c_thresh + d_max * (d / (d + d_max));
+}
+
+// Bisect along the (L, a_hat, b_hat) Oklab ray for the largest chroma whose
+// Rec.2020 projection has all channels >= -HSL_GAMUT_EPS. Mirrors raw-core's
+// `hsl_bisect_gamut_hull` (same iteration count, same `lo` returned).
+fn hsl_bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
+    var lo: f32 = 0.0;
+    var hi: f32 = c_high;
+    for (var iter: i32 = 0; iter < HSL_GAMUT_BISECT_ITERS; iter = iter + 1) {
+        let mid = 0.5 * (lo + hi);
+        let rgb = oklab_to_rec2020(vec3<f32>(l, a_hat * mid, b_hat * mid));
+        if (hsl_min_channel_in_gamut(rgb)) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
 // ── Main kernel ───────────────────────────────────────────────────────────────
 
 @compute @workgroup_size(64)
@@ -124,6 +184,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 
     let p = input_buf[i];
     let rgb = p.rgb;
+
+    // All-defaults: bit-exact passthrough (raw-core's `p.is_identity` return).
+    if (params.is_identity != 0u) {
+        output_buf[i] = p;
+        return;
+    }
 
     // Convert to Oklab.
     let lab = rec2020_to_oklab(rgb);
@@ -206,18 +272,41 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         delta_lum = delta_lum + lum_shift[band] * ww;
     }
 
-    // Apply luminance (scale L — hue-preserving).
-    let l_new = l0 * (1.0 + delta_lum);
+    // Apply luminance (scale L — hue-preserving). Mirrors the raw-core branch
+    // exactly: the multiply only runs when |delta_lum| > 1e-6 (a sub-threshold
+    // accumulated shift must leave L bit-identical, as the CPU stage does).
+    var l_new = l0;
+    if (abs(delta_lum) > 1e-6) {
+        l_new = l0 * (1.0 + delta_lum);
+    }
 
-    // Apply saturation (scale chroma).
-    let c_new = max(c * (1.0 + delta_sat), 0.0);
+    // Apply saturation (scale chroma). The floor at 0 is an Oklab-chroma floor
+    // only — full gamut protection is the soft-knee below (#1733 / #1748).
+    let c_target = max(c * (1.0 + delta_sat), 0.0);
 
-    // Apply hue rotation.
+    // Apply hue rotation on the post-saturation chroma, so the gamut check
+    // below sees the same final hue the pixel will actually land at.
     let cos_dh = cos(delta_hue_rad);
     let sin_dh = sin(delta_hue_rad);
-    let a_new = c_new * (a_hat * cos_dh - b_hat * sin_dh);
-    let b_new = c_new * (a_hat * sin_dh + b_hat * cos_dh);
+    let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
+    let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
-    let out_rgb = oklab_to_rec2020(vec3<f32>(l_new, a_new, b_new));
+    // Fast path: rotated + scaled target stays in gamut. NOTE: hue rotation
+    // alone can leave gamut (the hull is not hue-invariant), so there is no
+    // `c_target <= c` shortcut that skips this check (#1748).
+    let a_fast = c_target * rot_a_hat;
+    let b_fast = c_target * rot_b_hat;
+    let rgb_target = oklab_to_rec2020(vec3<f32>(l_new, a_fast, b_fast));
+    if (hsl_min_channel_in_gamut(rgb_target)) {
+        output_buf[i] = vec4<f32>(rgb_target, p.a);
+        return;
+    }
+
+    // Bisect for the hull chroma along the POST-ROTATION hue ray, then
+    // Reinhard-soft-compress into it. No `.max(c_floor)` — see the knee's
+    // module comment above.
+    let c_hull = hsl_bisect_gamut_hull(l_new, rot_a_hat, rot_b_hat, c_target);
+    let c_out = hsl_soft_compress(c_target, c_hull);
+    let out_rgb = oklab_to_rec2020(vec3<f32>(l_new, rot_a_hat * c_out, rot_b_hat * c_out));
     output_buf[i] = vec4<f32>(out_rgb, p.a);
 }
