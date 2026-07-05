@@ -133,9 +133,7 @@ describe('CloudflareComponent', () => {
 
     it('queues a backfill job and polls its status once config is complete', async () => {
       await loadComplete();
-      const buttons = Array.from(
-        (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
-      );
+      const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
       const syncBtn = buttons.find((b) => b.textContent?.includes('Sync existing thumbnails'));
       expect(syncBtn).toBeTruthy();
       syncBtn!.click();
@@ -173,9 +171,7 @@ describe('CloudflareComponent', () => {
 
     it('shows the done summary and stops polling once the job completes', async () => {
       await loadComplete();
-      const buttons = Array.from(
-        (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
-      );
+      const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
       const syncBtn = buttons.find((b) => b.textContent?.includes('Sync existing thumbnails'));
       syncBtn!.click();
       fixture.detectChanges();

@@ -93,6 +93,7 @@
         "src/indexer/webp-exif.test.ts",
         "src/indexer/webp-exif.ts",
         "src/job-runner/handlers/batch-jpeg-export.ts",
+        "src/job-runner/handlers/cf-thumb-backfill.test.ts",
         "src/job-runner/handlers/cf-thumb-backfill.ts",
         "src/job-runner/handlers/pano-stitch.ts",
         "src/library/address.test.ts",
