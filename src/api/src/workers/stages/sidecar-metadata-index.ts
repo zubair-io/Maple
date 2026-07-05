@@ -27,12 +27,13 @@ import * as fs from 'node:fs/promises';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { parseXmpMetadata, xmpMetadataToOverridePatch } from '../../xmp/metadata-parser.ts';
 import { parseYearMonth } from '../../metadata/override-resolver.ts';
 import type { MetadataOverride } from '../../db/schema.ts';
-import { coll, assetAbsPath } from '../../indexer/images.repo.ts';
-import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
+import { coll } from '../../indexer/images.repo.ts';
+import { writeHiddenMarker, removeHiddenMarker } from '../../fs/hidden-marker.ts';
 
 export const SIDECAR_METADATA_INDEX_VERSION = 1;
 
@@ -65,7 +66,7 @@ export async function sidecarMetadataIndexHandler(
 ): Promise<StageResult> {
   // 1. Resolve absolute path.
   const libraries = await loadLibraryRoots();
-  const absPath = assetAbsPath(image, libraries, { allowMissing: true });
+  const absPath = assetAbsPath(image, libraries);
   if (!absPath) return { skip: 'no-path' };
 
   // 2. Read sidecar.
@@ -134,19 +135,23 @@ export async function sidecarMetadataIndexHandler(
   patch['rating'] = override.rating ?? 0;
   patch['flag'] = override.flag === 'pick' ? 1 : override.flag === 'reject' ? -1 : 0;
   patch['color_label'] = override.color_label ?? '';
-  const nativeIsScreenshot = (() => {
-    if (image.vision?.is_screenshot !== undefined && image.vision?.is_screenshot !== null) {
-      return image.vision.is_screenshot;
-    }
-    const primary = image.fileinfo?.find((e) => !e.deleted_at);
-    if (!primary) return false;
-    return isLikelyScreenshot(primary.filename, image.exif?.camera_make ?? null);
-  })();
 
-  patch['is_screenshot'] =
-    override.is_screenshot !== undefined && override.is_screenshot !== null
-      ? override.is_screenshot
-      : nativeIsScreenshot;
+  const priorHidden = image.hidden === true;
+  const nativeHidden = image.vision?.nudity_detected ?? false;
+  const finalHidden = override.hidden ?? (priorHidden || nativeHidden);
+  patch['hidden'] = finalHidden;
+
+  if (override.hidden === true) {
+    patch['hidden_reason'] = 'manual';
+  } else if (override.hidden === false) {
+    patch['hidden_reason'] = null;
+  }
+
+  if (finalHidden) {
+    await writeHiddenMarker(absPath);
+  } else {
+    await removeHiddenMarker(absPath);
+  }
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps

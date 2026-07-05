@@ -249,7 +249,8 @@ struct BrowseGrid: View {
             flag: cullFlag == .none ? nil : cullFlag,
             sync: nil,
             isVideo: false,
-            style: .desktop
+            style: .desktop,
+            hidden: session?.culling.hidden ?? false
         )
     }
 

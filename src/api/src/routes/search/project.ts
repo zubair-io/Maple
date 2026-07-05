@@ -49,6 +49,7 @@ export interface SearchResult {
    * filter chip (#628). Optional because legacy docs predate the flag;
    * readers coerce missing as `false`. */
   has_xmp?: boolean;
+  hidden?: boolean;
 }
 
 export function projectAsset(
@@ -93,6 +94,7 @@ export function projectAsset(
     description: d.description ?? null,
     // S2 "Edited" filter chip backing (#628) — coerce missing to false.
     has_xmp: d.has_xmp ?? false,
+    hidden: d.hidden,
   };
   if (d.phasset_links && d.phasset_links.length > 0) {
     // Strip `device_id` and `first_seen` from the wire shape — the merged

@@ -72,6 +72,8 @@ export interface SearchParams {
   isScreenshot?: boolean;
   /** S7 search chip scope. See `SearchScopeParam`. */
   scope?: SearchScopeParam;
+  /** Hidden image filter option. */
+  hidden?: 'all' | 'only';
 }
 
 /** Single hit returned by /api/search. */
@@ -99,6 +101,7 @@ export interface SearchResult {
    * next to this asset. Drives the S2 Library Grid "Edited" filter
    * chip (#628). Missing on legacy docs — readers coerce to `false`. */
   has_xmp?: boolean;
+  hidden?: boolean;
 }
 
 export interface SearchResponse {
@@ -184,6 +187,7 @@ function paramsFrom(p: SearchParams): HttpParams {
   }
   if (p.isScreenshot !== undefined) set('isScreenshot', p.isScreenshot ? 'true' : 'false');
   set('scope', p.scope);
+  set('hidden', p.hidden);
   return h;
 }
 

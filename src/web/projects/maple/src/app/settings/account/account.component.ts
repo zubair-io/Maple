@@ -16,7 +16,7 @@ import {
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AuthService, errorMessage } from '@maple-common';
+import { AuthService, errorMessage, BunApiBackendService } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -39,16 +39,19 @@ export class AccountComponent implements OnInit {
   protected auth = inject(AuthService);
   private router = inject(Router);
   private http = inject(HttpClient);
+  private displayApi = inject(BunApiBackendService);
 
   protected readonly credentials = signal<Credential[]>([]);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly showHidden = signal<boolean>(false);
 
   protected readonly user = computed(() => this.auth.user());
   protected readonly isOwner = computed(() => this.auth.user()?.role === 'owner');
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
+    this.fetchDisplayConfig();
   }
 
   private async refresh(): Promise<void> {
@@ -91,5 +94,23 @@ export class AccountComponent implements OnInit {
   async signOut(): Promise<void> {
     await this.auth.signOut();
     await this.router.navigate(['/sign-in']);
+  }
+
+  private fetchDisplayConfig(): void {
+    this.displayApi.getDisplayConfig().subscribe({
+      next: (config) => this.showHidden.set(config.show_hidden_images),
+      error: () => {},
+    });
+  }
+
+  protected toggleShowHidden(): void {
+    const nextVal = !this.showHidden();
+    this.displayApi.saveDisplayConfig({ show_hidden_images: nextVal }).subscribe({
+      next: (res) => {
+        if (res.ok) {
+          this.showHidden.set(nextVal);
+        }
+      },
+    });
   }
 }

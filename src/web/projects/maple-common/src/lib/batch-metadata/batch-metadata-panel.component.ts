@@ -125,6 +125,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly colorLabelVal = signal<
     'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | ''
   >('');
+  readonly hiddenVal = signal<'true' | 'false' | '__clear__' | ''>('');
 
   // ── Per-field touched flags ────────────────────────────────────────────────
   readonly touched = signal<Set<keyof MixedValueMap>>(new Set());
@@ -264,6 +265,11 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       raw as 'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | '',
     );
     this._setTouched('colorLabel', raw !== '');
+  }
+
+  onHiddenChange(raw: string): void {
+    this.hiddenVal.set(raw as 'true' | 'false' | '__clear__' | '');
+    this._setTouched('hidden', raw !== '');
   }
 
   onReset(): void {
@@ -539,6 +545,10 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       meta.colorLabel =
         v === '__clear__' ? null : (v as 'red' | 'orange' | 'yellow' | 'green' | 'blue');
     }
+    if (t.has('hidden')) {
+      const v = this.hiddenVal();
+      meta.hidden = v === '__clear__' ? null : v === 'true';
+    }
 
     return this.assetSnapshots().map((snap) => ({ address: snap.address, metadata: meta }));
   }
@@ -592,6 +602,9 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       m.colorLabel === MIXED || m.colorLabel == null
         ? ''
         : (m.colorLabel as 'red' | 'orange' | 'yellow' | 'green' | 'blue'),
+    );
+    this.hiddenVal.set(
+      m.hidden === MIXED || m.hidden == null ? '' : (String(m.hidden) as 'true' | 'false'),
     );
   }
 }

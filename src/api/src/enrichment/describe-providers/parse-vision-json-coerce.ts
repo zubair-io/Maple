@@ -142,3 +142,21 @@ export function coerceTextVisible(v: unknown): string | null | typeof COERCE_FAI
   }
   return COERCE_FAIL;
 }
+
+/** Coerce nudity_detected variants to boolean, defaulting to false if null/missing. */
+export function coerceNudityDetected(v: unknown): boolean | typeof COERCE_FAIL {
+  if (typeof v === 'boolean') return v;
+  if (v === null || v === undefined) return false;
+  if (typeof v === 'number') {
+    if (v === 0) return false;
+    if (v === 1) return true;
+    return COERCE_FAIL;
+  }
+  if (typeof v === 'string') {
+    const norm = v.trim().toLowerCase();
+    if (norm === 'true' || norm === 'yes' || norm === '1') return true;
+    if (norm === 'false' || norm === 'no' || norm === '0' || norm === '') return false;
+    return COERCE_FAIL;
+  }
+  return COERCE_FAIL;
+}

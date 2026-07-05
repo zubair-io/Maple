@@ -132,6 +132,7 @@
                                 type="button"
                                 class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
                                 [class.is-selected]="state.focusedAssetId() === p.id"
+                                [class.dimmed]="p.hidden"
                                 [attr.aria-label]="p.filename"
                                 (click)="onPhotoClick(p, $event)"
                                 (dblclick)="onPhotoDblClick(p)"
@@ -144,6 +145,13 @@
                                     loading="lazy"
                                     decoding="async"
                                   />
+                                }
+                                @if (p.hidden) {
+                                  <div
+                                    class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
+                                  >
+                                    HIDDEN
+                                  </div>
                                 }
                                 @if (p.rating > 0) {
                                   <div

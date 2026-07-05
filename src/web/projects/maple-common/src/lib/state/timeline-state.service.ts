@@ -20,7 +20,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from './library-state.service';
 import { SidebarEntry } from '../models/folder';
-import { ApiFolder } from '../api/bun-api-backend.service';
+import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
 import { SearchParams } from '../api/search.service';
 
 export type TimelineFlag = '' | 'pick' | 'reject';
@@ -29,11 +29,26 @@ export type TimelineColor = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
 @Injectable({ providedIn: 'root' })
 export class TimelineStateService {
   private readonly state = inject(LibraryStateService);
+  private readonly api = inject(BunApiBackendService);
+
+  constructor() {
+    this.api.getDisplayConfig().subscribe({
+      next: (config) => {
+        if (config.show_hidden_images) {
+          this.hiddenFilter.set('all');
+        } else {
+          this.hiddenFilter.set('none');
+        }
+      },
+      error: () => {},
+    });
+  }
 
   // ── Filter signals (Timeline-only) ────────────────────────────────────────
   readonly minRating = signal<number>(0);
   readonly flag = signal<TimelineFlag>('');
   readonly color = signal<TimelineColor>('');
+  readonly hiddenFilter = signal<'none' | 'all' | 'only'>('none');
   readonly from = signal<string>('');
   readonly to = signal<string>('');
 
@@ -109,6 +124,7 @@ export class TimelineStateService {
     const color = this.color();
     const from = this.from();
     const to = this.to();
+    const hidden = this.hiddenFilter();
     return {
       libraryId: owning.id,
       pathPrefix: rel.length > 0 ? rel : undefined,
@@ -119,6 +135,7 @@ export class TimelineStateService {
       color: color === '' ? undefined : color,
       from: from || undefined,
       to: to || undefined,
+      hidden: hidden === 'none' ? undefined : hidden,
     };
   });
 
@@ -143,12 +160,17 @@ export class TimelineStateService {
     this.to.set(v);
   }
 
+  setHiddenFilter(v: 'none' | 'all' | 'only'): void {
+    this.hiddenFilter.set(v);
+  }
+
   clearAll(): void {
     this.minRating.set(0);
     this.flag.set('');
     this.color.set('');
     this.from.set('');
     this.to.set('');
+    this.hiddenFilter.set('none');
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────

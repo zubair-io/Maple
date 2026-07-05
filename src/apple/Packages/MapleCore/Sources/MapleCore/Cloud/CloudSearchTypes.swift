@@ -55,6 +55,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// Pick flag: 1 = pick, 0 = none, -1 = reject. Number on the wire.
   public let flag: Int?
   public let color_label: String?
+  public let hidden: Bool?
   /// PhotoKit asset links. Populated by the backup engine when an asset
   /// was ingested via PhotoKit backup. The first entry's `phasset_local_id`
   /// identifies the matching PHAsset so the merged timeline can correlate
@@ -82,6 +83,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
               rating: Int? = nil,
               flag: Int? = nil,
               color_label: String? = nil,
+              hidden: Bool? = nil,
               phasset_links: [SearchAssetPHLink]? = nil) {
     self.id = id
     self.folder_id = folder_id
@@ -99,6 +101,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     self.rating = rating
     self.flag = flag
     self.color_label = color_label
+    self.hidden = hidden
     self.phasset_links = phasset_links
   }
 }

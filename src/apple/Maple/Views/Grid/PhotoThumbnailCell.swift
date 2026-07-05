@@ -81,8 +81,20 @@ struct PhotoThumbnailCell: View {
         // `thumb` (async-loaded) takes precedence once the .task completes.
         ThumbnailImage(jpegData: thumb ?? provider.cachedThumbnail(for: item.thumbnailSource),
                        displayMode: displayMode)
+            .opacity(item.overlays.hidden ? 0.4 : 1.0)
             .overlay {
                 GridCellOverlayView(overlays: item.overlays)
+            }
+            .overlay(alignment: .topLeading) {
+                if item.overlays.hidden {
+                    Text("HIDDEN")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
+                        .padding(6)
+                }
             }
             .overlay(alignment: .topTrailing) {
                 // Multi-select badge — only present when multiSelectChecked is non-nil.

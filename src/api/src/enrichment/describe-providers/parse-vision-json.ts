@@ -48,6 +48,7 @@ import {
   COERCE_FAIL,
   coerceEnum,
   coerceIsScreenshot,
+  coerceNudityDetected,
   coerceTextVisible,
   unwrapEnum,
 } from './parse-vision-json-coerce.ts';
@@ -216,6 +217,16 @@ export function parseVisionJson(raw: string): VisionDoc {
     );
   }
 
+  const nudity_detected = coerceNudityDetected(obj.nudity_detected);
+  if (nudity_detected === COERCE_FAIL) {
+    throw new VisionParseError(
+      'wrong-type',
+      'expected boolean (or coercible string / number)',
+      raw,
+      'nudity_detected',
+    );
+  }
+
   return {
     caption,
     subjects,
@@ -233,5 +244,6 @@ export function parseVisionJson(raw: string): VisionDoc {
     shot_type: shot_type as VisionDoc['shot_type'],
     indoor_outdoor: indoor_outdoor as VisionDoc['indoor_outdoor'],
     is_screenshot,
+    nudity_detected,
   };
 }
