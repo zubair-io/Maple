@@ -123,6 +123,18 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/cloudflare/cloudflare.component').then((m) => m.CloudflareComponent),
   },
+  // LAN address discovery — lets an operator override the auto-detected
+  // local network address self-hosted clients prefer over the public URL
+  // when they're on the same network as the server. Same route-guard
+  // convention as settings/observability above.
+  {
+    path: 'settings/network',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/network/network-settings.component').then(
+        (m) => m.NetworkSettingsComponent,
+      ),
+  },
   // S7 (#622) — responsive-program search experience. `/search` lands on
   // the new `<app-search>` (phone tab content + tablet/desktop overlay
   // payload). The rich Self-Hosted filter page (cameras, lenses, EXIF

@@ -95,6 +95,11 @@ struct MapleApp: App {
         let s = AuthSession(server: server, client: client)
         sessions[server] = s
         Task { await s.bootstrapAndRestore() }
+        // Resolves the server's LAN address (if any) so per-feature clients
+        // constructed later can prefer it over `server` — see
+        // `LocalNetworkResolver` for why this is a sibling task rather than
+        // folded into `bootstrapAndRestore()`.
+        Task { await LocalNetworkResolver.shared.resolve(identity: server) }
         return s
     }
 
