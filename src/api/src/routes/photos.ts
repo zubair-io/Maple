@@ -64,11 +64,19 @@ export const photosRoutes = new Elysia()
       }
 
       const db = await assetsCollection();
-      const result = await db.updateOne({ _id: objId }, { $set: { hidden_ack: true } });
+      // Scoped to AI-driven hides only — `hidden_ack` is documented as
+      // meaningless for `hidden_reason: 'manual'`, so a manual hide's flag
+      // is never touched here (it's already not `hidden_ack: false`, since
+      // that path never sets it in the first place — see describe.ts and
+      // sidecar-metadata-index.ts).
+      const result = await db.updateOne(
+        { _id: objId, hidden_reason: { $in: ['nudity', 'nudity-burst'] } },
+        { $set: { hidden_ack: true } },
+      );
 
       if (result.matchedCount === 0) {
         set.status = 404;
-        return { error: 'asset not found' };
+        return { error: 'asset not found or not an AI-driven hide' };
       }
 
       return { ok: true };
