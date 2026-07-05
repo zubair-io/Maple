@@ -24,10 +24,10 @@ import {
   MIXED,
   type AssetMetadataSnapshot,
   type BatchApplyEntry,
-  type BatchApplyMetadata,
   type GeocodeCandidate,
   type MixedValueMap,
 } from './batch-metadata.types';
+import { buildBatchApplyMetadata } from './batch-metadata-panel.form-mapping';
 import type { CopyrightStatus } from '../xmp/xmp.types';
 
 type PanelPhase =
@@ -428,127 +428,38 @@ export class BatchMetadataPanelComponent implements OnDestroy {
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  /** Build the POST /api/xmp/batch payload from only touched fields. */
+  /** Build the POST /api/xmp/batch payload from only touched fields. The
+   * per-field mapping is pure logic, extracted to
+   * `batch-metadata-panel.form-mapping.ts` (file-size budget). */
   private _buildPayload(): BatchApplyEntry[] {
-    const t = this.touched();
-    const meta: BatchApplyMetadata = {};
-
-    if (t.has('gpsLatitude')) {
-      const v = this.gpsLatitudeVal().trim();
-      meta.gpsLatitude = v === '' ? null : Number(v);
-    }
-    if (t.has('gpsLongitude')) {
-      const v = this.gpsLongitudeVal().trim();
-      meta.gpsLongitude = v === '' ? null : Number(v);
-    }
-    if (t.has('gpsAltitude')) {
-      const v = this.gpsAltitudeVal().trim();
-      meta.gpsAltitude = v === '' ? null : Number(v);
-    }
-    if (t.has('dateTimeOriginal')) {
-      const v = this.dateTimeOriginalVal().trim();
-      meta.dateTimeOriginal = v === '' ? null : v;
-    }
-    if (t.has('timeZone')) {
-      const v = this.timeZoneVal().trim();
-      meta.timeZone = v === '' ? null : v;
-    }
-    if (t.has('sublocation')) {
-      const v = this.sublocationVal().trim();
-      meta.sublocation = v === '' ? null : v;
-    }
-    if (t.has('city')) {
-      const v = this.cityVal().trim();
-      meta.city = v === '' ? null : v;
-    }
-    if (t.has('state')) {
-      const v = this.stateVal().trim();
-      meta.state = v === '' ? null : v;
-    }
-    if (t.has('country')) {
-      const v = this.countryVal().trim();
-      meta.country = v === '' ? null : v;
-    }
-    if (t.has('countryCode')) {
-      const v = this.countryCodeVal().trim();
-      meta.countryCode = v === '' ? null : v;
-    }
-    if (t.has('title')) {
-      const v = this.titleVal().trim();
-      meta.title = v === '' ? null : v;
-    }
-    if (t.has('caption')) {
-      const v = this.captionVal().trim();
-      meta.caption = v === '' ? null : v;
-    }
-    if (t.has('headline')) {
-      const v = this.headlineVal().trim();
-      meta.headline = v === '' ? null : v;
-    }
-    if (t.has('keywords')) {
-      const v = this.keywordsVal().trim();
-      meta.keywords =
-        v === ''
-          ? []
-          : v
-              .split(',')
-              .map((k) => k.trim())
-              .filter(Boolean);
-    }
-    if (t.has('instructions')) {
-      const v = this.instructionsVal().trim();
-      meta.instructions = v === '' ? null : v;
-    }
-    if (t.has('creator')) {
-      const v = this.creatorVal().trim();
-      meta.creator = v === '' ? null : v;
-    }
-    if (t.has('creatorJobTitle')) {
-      const v = this.creatorJobTitleVal().trim();
-      meta.creatorJobTitle = v === '' ? null : v;
-    }
-    if (t.has('copyrightNotice')) {
-      const v = this.copyrightNoticeVal().trim();
-      meta.copyrightNotice = v === '' ? null : v;
-    }
-    if (t.has('copyrightStatus')) {
-      const v = this.copyrightStatusVal();
-      meta.copyrightStatus = v === '' ? null : (v as CopyrightStatus);
-    }
-    if (t.has('usageTerms')) {
-      const v = this.usageTermsVal().trim();
-      meta.usageTerms = v === '' ? null : v;
-    }
-    if (t.has('credit')) {
-      const v = this.creditVal().trim();
-      meta.credit = v === '' ? null : v;
-    }
-    if (t.has('source')) {
-      const v = this.sourceVal().trim();
-      meta.source = v === '' ? null : v;
-    }
-    if (t.has('rating')) {
-      // The rating handler only marks this touched for a finite 0–5 integer, so
-      // Number() is safe here (no NaN→null surprise).
-      meta.rating = Number(this.ratingVal().trim());
-    }
-    if (t.has('flag')) {
-      // Touched only via a non-empty option. The explicit-clear sentinel maps to
-      // 'unflagged'; '' (leave unchanged) can never reach here.
-      const v = this.flagVal();
-      meta.flag = v === '__clear__' ? 'unflagged' : (v as 'pick' | 'reject' | 'unflagged');
-    }
-    if (t.has('colorLabel')) {
-      // Touched only via a non-empty option. The explicit-clear sentinel sends
-      // null; '' (leave unchanged) can never reach here.
-      const v = this.colorLabelVal();
-      meta.colorLabel =
-        v === '__clear__' ? null : (v as 'red' | 'orange' | 'yellow' | 'green' | 'blue');
-    }
-    if (t.has('hidden')) {
-      const v = this.hiddenVal();
-      meta.hidden = v === '__clear__' ? null : v === 'true';
-    }
+    const meta = buildBatchApplyMetadata(this.touched(), {
+      gpsLatitude: this.gpsLatitudeVal(),
+      gpsLongitude: this.gpsLongitudeVal(),
+      gpsAltitude: this.gpsAltitudeVal(),
+      dateTimeOriginal: this.dateTimeOriginalVal(),
+      timeZone: this.timeZoneVal(),
+      sublocation: this.sublocationVal(),
+      city: this.cityVal(),
+      state: this.stateVal(),
+      country: this.countryVal(),
+      countryCode: this.countryCodeVal(),
+      title: this.titleVal(),
+      caption: this.captionVal(),
+      headline: this.headlineVal(),
+      keywords: this.keywordsVal(),
+      instructions: this.instructionsVal(),
+      creator: this.creatorVal(),
+      creatorJobTitle: this.creatorJobTitleVal(),
+      copyrightNotice: this.copyrightNoticeVal(),
+      copyrightStatus: this.copyrightStatusVal(),
+      usageTerms: this.usageTermsVal(),
+      credit: this.creditVal(),
+      source: this.sourceVal(),
+      rating: this.ratingVal(),
+      flag: this.flagVal(),
+      colorLabel: this.colorLabelVal(),
+      hidden: this.hiddenVal(),
+    });
 
     return this.assetSnapshots().map((snap) => ({ address: snap.address, metadata: meta }));
   }
