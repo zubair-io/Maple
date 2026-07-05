@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'bun:test';
 import {
   detectLocalIPv4,
+  isValidPort,
   resolveNetworkConfig,
   validateLocalAddress,
 } from './network-config.repo.ts';
+
+describe('isValidPort', () => {
+  it('accepts integers in [1, 65535]', () => {
+    expect(isValidPort(1)).toBe(true);
+    expect(isValidPort(3000)).toBe(true);
+    expect(isValidPort(65535)).toBe(true);
+  });
+
+  it('rejects out-of-range and non-integer values', () => {
+    expect(isValidPort(0)).toBe(false);
+    expect(isValidPort(65536)).toBe(false);
+    expect(isValidPort(-1)).toBe(false);
+    expect(isValidPort(3000.5)).toBe(false);
+    expect(isValidPort(NaN)).toBe(false);
+  });
+});
 
 describe('validateLocalAddress', () => {
   it('returns null for null input', () => {
@@ -65,6 +82,11 @@ describe('resolveNetworkConfig', () => {
     const resolved = resolveNetworkConfig({ local_port_override: 4000 });
     expect(resolved.local_port).toBe(4000);
     expect(resolved.source.local_port).toBe('db_override');
+  });
+
+  it('ignores an out-of-range port override (e.g. a hand-edited DB row) and falls back to the server default', () => {
+    const resolved = resolveNetworkConfig({ local_port_override: 70000 });
+    expect(resolved.source.local_port).toBe('default');
   });
 
   it('enabled: false forces local_ip to null regardless of overrides', () => {

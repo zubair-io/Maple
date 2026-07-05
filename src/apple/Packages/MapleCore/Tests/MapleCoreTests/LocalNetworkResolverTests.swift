@@ -46,6 +46,27 @@ final class LocalNetworkResolverTests: XCTestCase {
     XCTAssertEqual(effective, identity)
   }
 
+  func test_resolveEffectiveURL_returnsIdentity_whenCandidateReportsDifferentAddress() async {
+    // The candidate answers 200 with `available: true`, but a DIFFERENT
+    // ip/port than the identity server reported — e.g. the IP was stale or
+    // has since been reassigned to an unrelated device on the LAN. Must
+    // fall back to identity rather than treat "something answered" as
+    // confirmation, since per-feature clients attach a Bearer token to
+    // every subsequent request.
+    nonisolated(unsafe) var callCount = 0
+    let session = URLSession.stubbedSequence { req in
+      callCount += 1
+      if callCount == 1 {
+        let body = #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http"}"#
+        return (Data(body.utf8), Self.okResponse(for: req))
+      }
+      let body = #"{"available":true,"ip":"192.168.1.99","port":8080,"scheme":"http"}"#
+      return (Data(body.utf8), Self.okResponse(for: req))
+    }
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
+    XCTAssertEqual(effective, identity)
+  }
+
   func test_resolveEffectiveURL_returnsIdentity_whenReportFetchFails() async {
     let session = URLSession.stubbedSequence { req in
       (Data(), HTTPURLResponse(url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1", headerFields: [:])!)
