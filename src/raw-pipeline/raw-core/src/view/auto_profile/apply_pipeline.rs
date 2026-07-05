@@ -26,17 +26,19 @@ use super::pairs::sample_display_pairs;
 use super::preview::ExtractedPreview;
 use super::{apply_curve, fit_display};
 
-/// #1740 M1 dev A/B: swap the Auto Profile fit implementation from Auto 1.0
-/// (curve + free residual LUT, fit against the embedded JPEG) to Auto 2.0
-/// (the M0 structured tonescale+field solver, `acr_fit::from_pairs`) when
-/// set. Purely a developer toggle for seeing the M1 structured fit live in
-/// the app for A/B comparison — NOT a product setting; the repo's settings
-/// system is for operator-facing toggles, and this one has no operator-
-/// facing meaning (it swaps an internal fit algorithm, not a behavior an end
-/// user chooses). The real M2 flip removes this env var entirely and either
-/// keeps Auto 1.0 or replaces it outright per the epic's decision.
-pub fn auto2_enabled_by_env() -> bool {
-    std::env::var_os("MAPLE_AUTO2").is_some()
+/// #1740 M2 escape hatch: restore the Auto 1.0 fit (curve + free residual
+/// LUT, fit against the embedded JPEG) when set. Since the M2 flip, Auto 2.0
+/// (the structured tonescale+field solver, `acr_fit::from_pairs`) is the
+/// DEFAULT fit — the flip was owner-directed for TestFlight evaluation with
+/// the M1 ship-gate at 9/16 (no external users on TestFlight; M3's WB
+/// offset is the expected closer for the remaining fidelity breaches).
+/// `MAPLE_AUTO1=1` is the same plumbing the M1 dev A/B's `MAPLE_AUTO2` used,
+/// inverted — a dev/operator escape hatch, NOT a product setting; the repo's
+/// settings system is for operator-facing toggles, and this one has no
+/// operator-facing meaning (it swaps an internal fit algorithm, not a
+/// behavior an end user chooses).
+pub fn auto1_enabled_by_env() -> bool {
+    std::env::var_os("MAPLE_AUTO1").is_some()
 }
 
 /// Fit (or reuse from cache) the Auto Profile artifacts from the pinned fit
@@ -76,15 +78,16 @@ pub fn fit_auto_profile_artifacts(
     cached_curve: Option<ProfileCurve>,
     cached_lut: Option<ColorLut>,
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
-    // #1740 M1 dev A/B: swap the whole fit for the Auto 2.0 structured
-    // solver. Runs BEFORE the Auto 1.0 curve/LUT logic below (and returns
-    // early) so the two implementations never interleave — `pixels` is left
-    // UN-curved either way (Auto 2.0 has no separate curve stage; its tail
-    // is entirely the baked LUT), matching what `fit_via_acr2` samples
-    // pairs from. Shares the same cache as Auto 1.0 (`(ProfileCurve,
-    // ColorLut)`-shaped either way) — safe because a process runs one mode
-    // for its whole lifetime; there is no cross-contamination within a run.
-    if auto2_enabled_by_env() {
+    // #1740 M2: Auto 2.0's structured solver is the DEFAULT fit;
+    // `MAPLE_AUTO1=1` restores the Auto 1.0 curve/LUT logic below. The
+    // dispatch runs FIRST (and the default returns early) so the two
+    // implementations never interleave — `pixels` is left UN-curved either
+    // way (Auto 2.0 has no separate curve stage; its tail is entirely the
+    // baked LUT), matching what `fit_via_acr2` samples pairs from. Shares
+    // the same cache as Auto 1.0 (`(ProfileCurve, ColorLut)`-shaped either
+    // way) — safe because a process runs one mode for its whole lifetime;
+    // there is no cross-contamination within a run.
+    if !auto1_enabled_by_env() {
         return fit_via_acr2(
             pixels,
             w,
@@ -134,13 +137,14 @@ pub fn fit_auto_profile_artifacts(
     (curve, residual)
 }
 
-/// Auto 2.0 M1 dev A/B (`MAPLE_AUTO2=1`, #1740): fit the structured
-/// tonescale+field solver against the SAME `pixels`/`preview` pair Auto
-/// 1.0's curve+LUT would otherwise fit, then bake it into the same
-/// `(ProfileCurve, ColorLut)` shape via [`acr_fit::acr_model_as_profile_artifacts`]
-/// so this is a drop-in for [`fit_auto_profile_artifacts`]'s return value —
-/// any caller composing/sampling the pair (CPU cube bake, GPU two-pass) gets
-/// Auto 2.0's tail without knowing which fit produced it.
+/// Auto 2.0 — the DEFAULT fit since the #1740 M2 flip (`MAPLE_AUTO1=1`
+/// restores Auto 1.0): fit the structured tonescale+field solver against
+/// the SAME `pixels`/`preview` pair Auto 1.0's curve+LUT would otherwise
+/// fit, then bake it into the same `(ProfileCurve, ColorLut)` shape via
+/// [`acr_fit::acr_model_as_profile_artifacts`] so this is a drop-in for
+/// [`fit_auto_profile_artifacts`]'s return value — any caller composing/
+/// sampling the pair (CPU cube bake, GPU two-pass) gets Auto 2.0's tail
+/// without knowing which fit produced it.
 ///
 /// `pixels` is left UN-mutated (no curve applied) — the Auto 2.0 tail is one
 /// LUT, no separate curve stage, and its pairs are sampled from `pixels` as
@@ -149,8 +153,8 @@ pub fn fit_auto_profile_artifacts(
 ///
 /// Returns `(None, None)` when there's no preview to sample pairs from, or
 /// when the solve fails (too few neutral/sweep samples — mirrors
-/// `solve_acr_model_from_display_pairs`'s own error contract; this dev slice
-/// does not try to fall back to Auto 1.0 on a failed Auto 2.0 fit, so a
+/// `solve_acr_model_from_display_pairs`'s own error contract; there is
+/// deliberately no fallback to Auto 1.0 on a failed Auto 2.0 fit, so a
 /// solve failure surfaces as "no Auto Profile tail" rather than silently
 /// reverting to the other implementation).
 fn fit_via_acr2(
