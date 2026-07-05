@@ -18,6 +18,7 @@
 
 import { Elysia, t } from 'elysia';
 import {
+  isValidPort,
   loadNetworkConfig,
   resolveNetworkConfig,
   saveNetworkConfig,
@@ -65,9 +66,7 @@ export const networkSettingsRoutes = new Elysia({ prefix: '/api/network' })
       if (
         body.local_port_override !== undefined &&
         body.local_port_override !== null &&
-        (!Number.isInteger(body.local_port_override) ||
-          body.local_port_override < 1 ||
-          body.local_port_override > 65535)
+        !isValidPort(body.local_port_override)
       ) {
         set.status = 400;
         return { error: 'Invalid local_port_override: must be an integer between 1 and 65535' };

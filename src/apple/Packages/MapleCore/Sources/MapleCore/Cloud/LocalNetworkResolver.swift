@@ -44,7 +44,7 @@ public enum LocalNetworkResolving {
     probeTimeout: TimeInterval = 1.5,
     session: URLSession = .shared
   ) async -> URL {
-    guard let report = await fetchReport(identity: identity, session: session),
+    guard let report = await fetchReport(url: identity.appending(path: "/api/network/local-address"), session: session),
           report.available,
           let ip = report.ip,
           let port = report.port,
@@ -52,31 +52,36 @@ public enum LocalNetworkResolving {
     else {
       return identity
     }
-    guard await probe(candidate, timeout: probeTimeout, session: session) else {
+    // Reachability probe: re-hit the SAME report endpoint, but at the
+    // candidate origin, and require it to answer with a matching
+    // `available`/ip/port — not just any 200. Per-feature clients attach a
+    // Bearer token to every subsequent data request, so a probe that only
+    // checked "is something listening on ip:port" would risk sending
+    // credentials to an unrelated host if the reported IP were stale or
+    // later reassigned to a different device on the LAN.
+    guard let confirmed = await fetchReport(
+      url: candidate.appending(path: "/api/network/local-address"),
+      session: session,
+      timeout: probeTimeout
+    ),
+      confirmed.available,
+      confirmed.ip == ip,
+      confirmed.port == port
+    else {
       return identity
     }
     return candidate
   }
 
-  private static func fetchReport(identity: URL, session: URLSession) async -> LocalAddressReport? {
-    var req = URLRequest(url: identity.appending(path: "/api/network/local-address"))
-    req.timeoutInterval = 3
+  private static func fetchReport(
+    url: URL, session: URLSession, timeout: TimeInterval = 3
+  ) async -> LocalAddressReport? {
+    var req = URLRequest(url: url)
+    req.timeoutInterval = timeout
     guard let (data, resp) = try? await session.data(for: req),
           (resp as? HTTPURLResponse)?.statusCode == 200
     else { return nil }
     return try? JSONDecoder().decode(LocalAddressReport.self, from: data)
-  }
-
-  /// Reuses `/api/health` (rather than re-hitting the local-address report)
-  /// as the reachability check — it's the existing, proven-cheap,
-  /// unauthenticated liveness endpoint, so a basic "did we get a 200" check
-  /// is sufficient here (a failed probe just means "stay on the identity
-  /// URL", not "verify this is definitely the same server").
-  private static func probe(_ candidate: URL, timeout: TimeInterval, session: URLSession) async -> Bool {
-    var req = URLRequest(url: candidate.appending(path: "/api/health"))
-    req.timeoutInterval = timeout
-    guard let (_, resp) = try? await session.data(for: req) else { return false }
-    return (resp as? HTTPURLResponse)?.statusCode == 200
   }
 }
 
