@@ -258,9 +258,15 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // the vision verdict still/again says nudity_detected. Only an absent or
   // `true` override lets the AI verdict (re)assert the hide.
   const userExplicitlyUnhid = image.metadata_override?.hidden === false;
+  const wasAlreadyHidden = image.hidden === true;
   if (vision.nudity_detected && !userExplicitlyUnhid) {
     patch.hidden = true;
-    if (image.hidden_reason !== 'manual') {
+    // Only stamp hidden_reason/hidden_ack on a genuinely NEW hide. Without
+    // the `!wasAlreadyHidden` guard, every re-run of this stage (retry,
+    // re-import, a future prompt-version bump) would reset hidden_ack back
+    // to false for an asset the operator already reviewed and acknowledged,
+    // making the "newly hidden" alert reappear for something that isn't new.
+    if (image.hidden_reason !== 'manual' && !wasAlreadyHidden) {
       patch.hidden_reason = 'nudity';
       patch.hidden_ack = false;
     }
@@ -271,7 +277,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     }
 
     // Burst propagation: if it wasn't already hidden
-    if (image.hidden !== true) {
+    if (!wasAlreadyHidden) {
       try {
         const assets = await coll();
         const siblings = await findBurstSiblings(assets, image);

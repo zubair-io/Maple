@@ -185,6 +185,30 @@ describe('describeHandler — happy path', () => {
     expect(patch.hidden_ack).toBe(false);
   });
 
+  it('does not reset hidden_ack when re-running on an already-hidden, already-acknowledged asset', async () => {
+    const absPath = join(tmpRoot, 'img.dng');
+    const doc = { ...stageDoc(absPath), hidden: true, hidden_reason: 'nudity' as const, hidden_ack: true };
+    const provider = mockProvider({
+      text: JSON.stringify({ ...VALID_VISION, nudity_detected: true }),
+      cost_usd: 0.0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen2.5vl:7b',
+    });
+
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.hidden).toBe(true);
+    // The re-run must not stamp hidden_reason/hidden_ack again — doing so
+    // would reset hidden_ack to false and make an already-reviewed alert
+    // reappear in the "newly hidden" list.
+    expect(patch.hidden_reason).toBeUndefined();
+    expect(patch.hidden_ack).toBeUndefined();
+  });
+
   it('threads VISION_DOC_JSON_SCHEMA through to the provider as `format`', async () => {
     const absPath = join(tmpRoot, 'img.dng');
     const doc = stageDoc(absPath);

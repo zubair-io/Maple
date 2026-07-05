@@ -465,7 +465,16 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
 public struct CullingState: Codable, Sendable, Equatable, Hashable {
     public var stars: Int        // 0..5
     public var flag: CullFlag    // pick / reject / none
-    public var hidden: Bool
+    /// `nil` = never explicitly touched by the user (no `papp:Hidden`
+    /// attribute is written for this sidecar — see `XMPSerializer`). Only
+    /// `true`/`false` are written, and only because the user (or a batch
+    /// edit) explicitly set it. This tri-state matters because the backend
+    /// treats ANY written `papp:Hidden` value — including `"false"` — as an
+    /// explicit override that takes precedence over an AI-driven hide or a
+    /// prior hidden state; unconditionally emitting `false` on every
+    /// untouched sidecar write would silently un-hide assets hidden by
+    /// other means.
+    public var hidden: Bool?
 
     /// IPTC keywords (#632). Round-tripped through the XMP `dc:subject`
     /// element as `<dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>`
@@ -476,7 +485,7 @@ public struct CullingState: Codable, Sendable, Equatable, Hashable {
     /// order, so the preservation is in practice safe.
     public var keywords: [String]
 
-    public init(stars: Int = 0, flag: CullFlag = .none, keywords: [String] = [], hidden: Bool = false) {
+    public init(stars: Int = 0, flag: CullFlag = .none, keywords: [String] = [], hidden: Bool? = nil) {
         self.stars = stars
         self.flag = flag
         self.keywords = keywords
@@ -503,7 +512,7 @@ public struct CullingState: Codable, Sendable, Equatable, Hashable {
         self.stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
         self.flag = try container.decodeIfPresent(CullFlag.self, forKey: .flag) ?? .none
         self.keywords = try container.decodeIfPresent([String].self, forKey: .keywords) ?? []
-        self.hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+        self.hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)
     }
 }
 

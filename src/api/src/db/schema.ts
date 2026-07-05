@@ -1344,8 +1344,13 @@ export interface MetadataOverride {
   captured_month?: number;
   /** Custom screenshot flag. null means "clear". */
   is_screenshot?: boolean | null;
-  /** Custom hidden flag from papp:Hidden. null means "clear" (explicitly
-   * un-hide, taking precedence over any AI-derived hide). */
+  /** Custom hidden flag from papp:Hidden. `sidecar-metadata-index` reads
+   * this via `override.hidden ?? (priorHidden || nativeHidden)` (nullish
+   * coalescing): only an explicit `true`/`false` is an override — `true`
+   * forces hidden, `false` forces un-hidden (taking precedence over any
+   * AI-derived or prior hidden state). `null` is NOT a "force visible"
+   * signal — it behaves identically to the field being absent, clearing
+   * any override and falling back to the prior/AI-derived state. */
   hidden?: boolean | null;
 }
 

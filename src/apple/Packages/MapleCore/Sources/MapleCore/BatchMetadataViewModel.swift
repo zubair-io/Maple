@@ -189,7 +189,10 @@ public final class BatchMetadataViewModel: Identifiable {
         let firstFlag = cullingSets.first?.flag ?? .none
         commonFlag = mixed.contains(.flag) ? nil : firstFlag
 
-        let firstHidden = cullingSets.first?.hidden ?? false
+        // No `?? false` coercion: `hidden` is itself tri-state (nil = never
+        // explicitly touched), and when every set agrees (not mixed) the
+        // shared value — nil included — IS the common value.
+        let firstHidden = cullingSets.first?.hidden
         commonHidden = mixed.contains(.hidden) ? nil : firstHidden
 
         mixedFields = mixed
@@ -404,8 +407,11 @@ public final class BatchMetadataViewModel: Identifiable {
             mixed.insert(.flag)
         }
 
-        // Hidden
-        let firstHidden = cullingSets.first?.hidden ?? false
+        // Hidden. No `?? false` coercion here: comparing against a coerced
+        // non-optional baseline would report a single-element (or
+        // all-untouched) set as "mixed" the moment the shared value is nil,
+        // since `nil != .some(false)`.
+        let firstHidden = cullingSets.first?.hidden
         if !cullingSets.allSatisfy({ $0.hidden == firstHidden }) {
             mixed.insert(.hidden)
         }
