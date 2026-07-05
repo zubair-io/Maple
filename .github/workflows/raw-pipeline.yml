@@ -98,6 +98,15 @@ jobs:
       - name: cargo build -p raw-ffi
         working-directory: src/raw-pipeline
         run: cargo build -p raw-ffi
+      # Lib test gate: until this step existed, the raw-ffi shim tests
+      # (pointer/geometry guards + the #877 encode contract in
+      # scene_linear_chain_tests.rs) ran only on laptops — the #1621
+      # soft-gamut change landed with a red raw-ffi test that no CI job
+      # executed. These are fixture-free unit tests on the host target,
+      # sharing the compile cache with the build step above.
+      - name: cargo test -p raw-ffi --lib
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-ffi --lib
       # Scoped fmt gate (#1247): raw-ffi files are now rustfmt-canonical; this
       # step ensures they stay that way so future `cargo fmt` runs are no-ops
       # and don't bloat files or trip the file-budget gate again. NOT a
