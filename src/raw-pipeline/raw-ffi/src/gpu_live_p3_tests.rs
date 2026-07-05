@@ -71,7 +71,7 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
     // `raw_gpu::LiveSession` render with `target_primaries: 1` — the only
     // difference is the C-ABI round-trip, not the primaries selector.
     let direct = {
-        use raw_core::types::{ToneCurveMode, WbMethod as CoreWb};
+        use raw_core::types::ToneCurveMode;
         use raw_gpu::{CurveMode, FullChainInputs, GpuContext, LiveSession, ToneCurveInputs};
         let wb_matrix =
             raw_core::stages::white_balance::wb_cat16_matrix(model.temperature, model.tint).0;
