@@ -35,7 +35,8 @@ enum CloudFoldersListing {
             )
         }
         let httpClient = makeHTTPClient(server: server)
-        return CloudFoldersClient(server: server, httpClient: httpClient)
+        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: server)
+        return CloudFoldersClient(server: effectiveServer, httpClient: httpClient)
     }
 
     // MARK: - Private

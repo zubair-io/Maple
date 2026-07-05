@@ -31,5 +31,19 @@
 			</array>
 		</dict>
 	</array>
+	<!--
+	  Self-hosted servers are commonly reachable directly over plain HTTP on
+	  the LAN (the Bun process itself never terminates TLS — only a public-
+	  facing reverse proxy/tunnel does). Without this, ATS blocks every
+	  LocalNetworkResolver probe/request at the network layer, so the LAN-
+	  address feature silently never activates. NSAllowsLocalNetworking (not
+	  NSAllowsArbitraryLoads) permits HTTP only to local-network hosts,
+	  leaving the HTTPS requirement intact for internet hosts.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

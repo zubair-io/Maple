@@ -163,9 +163,10 @@ enum ChangeObserverWiring {
         // restart: the server already knows about them. Best-effort — a network
         // failure falls back to local-state-only reconciliation.
         var serverKnownPhids: Set<String> = []
-        let stateClient = BackupStateClient(baseURL: serverBaseURL,
-                                            libraryId: libraryId, deviceId: deviceId,
-                                            transport: makeBackupTransport(server: serverBaseURL))
+        let stateClient = BackupStateClient(
+            baseURL: LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL),
+            libraryId: libraryId, deviceId: deviceId,
+            transport: makeBackupTransport(server: serverBaseURL))
         do {
             let known = try await stateClient.fetchKnownAssets()
             serverKnownPhids = Set(known.map(\.phassetLocalId))
@@ -305,9 +306,10 @@ enum ChangeObserverWiring {
         state: BackupStateStore,
         markUploaded: () -> Void
     ) async -> [String] {
-        let existsClient = BatchExistsClient(baseURL: serverBaseURL,
-                                             libraryId: libraryId, deviceId: deviceId,
-                                             transport: makeBackupTransport(server: serverBaseURL))
+        let existsClient = BatchExistsClient(
+            baseURL: LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL),
+            libraryId: libraryId, deviceId: deviceId,
+            transport: makeBackupTransport(server: serverBaseURL))
         var toEnqueue: [String] = []
         var presentPhids: [String] = []
 
@@ -453,7 +455,7 @@ enum ChangeObserverWiring {
     /// swallowed — the next walk will retry the diff.
     private static func notifyDeleted(deviceId: String, libraryId: String,
                                        serverBaseURL: URL, phids: [String]) async {
-        let url = serverBaseURL
+        let url = LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL)
             .appendingPathComponent("api")
             .appendingPathComponent("libraries")
             .appendingPathComponent(libraryId)
