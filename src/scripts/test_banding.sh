@@ -25,14 +25,16 @@
 # deleting the JSON's entries, running with BUDGET_INIT=1 (prints the
 # derived table instead of gating), and pasting the result back in.
 #
-# Auto Profile tail section (#1740 M1): fits the SHIPPING Auto Profile tail
-# from a real fixture RAW (default test-fixtures/raws/test_0000.DNG — the
-# operator's posterized-highlight repro) in BOTH modes (Auto 1.0 and
-# MAPLE_AUTO2=1 Auto 2.0) via `maple-cli auto-tail-ramp`, applies it to
+# Auto Profile tail section (#1740 M1, default flipped in M2): fits the
+# SHIPPING Auto Profile tail from a real fixture RAW (default
+# test-fixtures/raws/test_0000.DNG — the operator's posterized-highlight
+# repro) in BOTH modes (Auto 2.0, the default since the M2 flip, and
+# MAPLE_AUTO1=1 Auto 1.0) via `maple-cli auto-tail-ramp`, applies it to
 # smooth display-space ramps, and gates second-difference spike AND flat-run
 # (plateau/posterization) budgets. Skip-passes when the gitignored RAW is
 # absent. The auto2 keys' ceilings are the auto1-derived ones — the bar is
-# "hold or improve on the shipping tail", never auto2's own observed values.
+# "hold or improve on the previously shipping tail", never auto2's own
+# observed values.
 #
 # Env overrides:
 #   OUT_DIR      Working root. Default: /tmp/maple-banding-*.
@@ -248,21 +250,21 @@ for hue in "${HUES[@]}"; do
   done
 done
 
-# ----- Auto Profile tail gate (#1740 M1) ------------------------------------
+# ----- Auto Profile tail gate (#1740 M1; default flipped to Auto 2.0 in M2) -
 # The synthetic ramps above never exercise the Auto Profile tail (it is
 # fitted per-image against the RAW's own embedded JPEG; a synthetic ramp has
 # none, so the Auto stage no-ops). `maple-cli auto-tail-ramp` fits the
 # SHIPPING tail from a real fixture through the production entry point
-# (`fit_auto_profile_artifacts` — `MAPLE_AUTO2` selects Auto 1.0 vs 2.0
-# exactly as in the app), applies it to smooth display-space ramps, and this
-# section gates the result with the same second-difference metric. Both
-# modes run on every invocation so an Auto 2.0 smoothness regression can
-# never hide behind the default mode.
+# (`fit_auto_profile_artifacts` — Auto 2.0 by default, `MAPLE_AUTO1=1`
+# restores Auto 1.0, exactly as in the app), applies it to smooth
+# display-space ramps, and this section gates the result with the same
+# second-difference metric. Both modes run on every invocation so a
+# smoothness regression in EITHER fit can never hide behind the default.
 #
 # Budget policy: the auto1 keys' ceilings are derived from Auto 1.0's own
 # RED run (worst observed + the standard headroom); the auto2 keys REUSE the
 # same auto1-derived ceilings — the bar is "Auto 2.0's tail must be at least
-# as smooth as the shipping Auto 1.0 tail", not "whatever Auto 2.0 does
+# as smooth as the Auto 1.0 tail it replaced", not "whatever Auto 2.0 does
 # today" (deriving auto2 ceilings from auto2's own observed values would
 # launder the #1740 posterized-highlight defect green).
 #
@@ -280,10 +282,12 @@ if [[ -f "$AUTO_TAIL_RAW" ]]; then
     tail_args=(auto-tail-ramp --raw "$AUTO_TAIL_RAW" --out-dir "$tail_dir" \
       --width "$WIDTH" --height "$HEIGHT")
     tail_status=0
-    if [[ "$mode" == "auto2" ]]; then
-      MAPLE_AUTO2=1 "$MAPLE_CLI" "${tail_args[@]}" >"$tail_log" 2>&1 || tail_status=$?
+    if [[ "$mode" == "auto1" ]]; then
+      MAPLE_AUTO1=1 "$MAPLE_CLI" "${tail_args[@]}" >"$tail_log" 2>&1 || tail_status=$?
     else
-      env -u MAPLE_AUTO2 "$MAPLE_CLI" "${tail_args[@]}" >"$tail_log" 2>&1 || tail_status=$?
+      # Auto 2.0 is the default since the #1740 M2 flip — run it exactly as
+      # a plain invocation would, with the escape hatch explicitly unset.
+      env -u MAPLE_AUTO1 "$MAPLE_CLI" "${tail_args[@]}" >"$tail_log" 2>&1 || tail_status=$?
     fi
     if [[ "$tail_status" -eq 3 ]]; then
       echo "# SKIP: $tail_stem has no extractable embedded preview — tail gate skipped"

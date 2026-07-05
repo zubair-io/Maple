@@ -12,8 +12,9 @@
 //! / `acr_model_as_profile_artifacts`, which compose a fitted `AcrModel` into
 //! the SAME `(ProfileCurve, ColorLut)` shape Auto 1.0's
 //! `auto_profile::bake_auto_profile_lut` produces. These are pure solver
-//! math with no dependency on the chart-only tooling below, and Auto 2.0's
-//! M1 dev A/B (`MAPLE_AUTO2=1`, see `pipeline::render::auto_fit`) needs
+//! math with no dependency on the chart-only tooling below, and Auto 2.0 —
+//! the DEFAULT Auto Profile fit since the #1740 M2 flip (`MAPLE_AUTO1=1`
+//! restores Auto 1.0; see `pipeline::render::auto_fit`) — needs
 //! `solve_acr_model_from_display_pairs` + the bake in the normal build, not
 //! just under `test-support`.
 //!

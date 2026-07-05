@@ -239,8 +239,9 @@ enum Cmd {
         report: PathBuf,
     },
     /// Fit the SHIPPING Auto Profile tail from a real RAW (production entry
-    /// point — `MAPLE_AUTO2` selects Auto 1.0 vs Auto 2.0 exactly as in the
-    /// app), apply it to smooth display-space ramps (neutral + the four
+    /// point — Auto 2.0 by default, `MAPLE_AUTO1=1` restores Auto 1.0,
+    /// exactly as in the app), apply it to smooth display-space ramps
+    /// (neutral + the four
     /// named chroma-ramp hues), and write `18_auto_tail.exr` stage dumps
     /// for `src/scripts/banding_check.py` — the Auto Profile section of the
     /// banding gate (`src/scripts/test_banding.sh`, #1740 M1).
