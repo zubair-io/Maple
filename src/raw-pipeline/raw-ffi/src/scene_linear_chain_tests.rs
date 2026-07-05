@@ -376,12 +376,36 @@ fn encode_saturated_green_compresses_blue_above_zero() {
     let mut out = vec![0.0f32; 4];
     let rc = unsafe { maple_encode_display_srgb_f32(input.as_ptr(), 1, 1, out.as_mut_ptr()) };
     assert_eq!(rc, 0, "expected success rc 0, got {}", rc);
-    assert_eq!(out[0], 0.0, "red must stay 0 on pure green");
+    // Red bound: pre-#1621 the gamut stage was a hard clip-to-hull, which
+    // landed pure Rec.2020 green exactly ON the sRGB gamut's R=0 face, so
+    // this asserted `out[0] == 0.0`. Commit 3ca37adb4 (#1621) replaced the
+    // clip with a Reinhard soft-knee that compresses chroma strictly INSIDE
+    // the hull — a far-out-of-gamut green desaturates slightly and picks up
+    // a small hue-preserving red component by design. Measured at 3ca37adb4
+    // (unchanged at main tip): out = [0.1057922, 0.8400208, 0.4544547]
+    // sRGB-gamma, i.e. ~1.1% red in linear light. Neutral probes (white,
+    // 0.18 grey, warm grey) are byte-identical across #1621, so the bleed is
+    // chroma-confined — not a cast on neutrals. Ceiling 0.15 gamma (~1.9%
+    // linear) is ~1.7× the measured value: loose enough for knee retunes,
+    // tight enough that a real red-on-green regression (per-channel math
+    // error, matrix swap) still fails.
+    assert!(
+        out[0] >= 0.0 && out[0] < 0.15,
+        "red on pure green must stay a small soft-knee bleed (<0.15 gamma), got {}",
+        out[0]
+    );
     assert!(out[1] > 0.0 && out[1] <= 1.0, "green in (0,1]: {}", out[1]);
     assert!(
         out[2] > 0.3,
         "blue crushed ({}) — Oklab compression must keep blue, not per-channel clip",
         out[2]
+    );
+    // Channel ordering must survive the compression: green dominates, and
+    // red stays the smallest component (hue preservation).
+    assert!(
+        out[1] > out[2] && out[2] > out[0],
+        "pure-green channel ordering G > B > R lost: {:?}",
+        &out[..3]
     );
     assert!((out[3] - 1.0).abs() < 1e-6, "alpha must be 1.0");
 }
