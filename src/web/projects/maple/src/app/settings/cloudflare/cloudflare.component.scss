@@ -235,7 +235,7 @@
   }
 }
 
-// JWT secret reveal panel
+// Worker authentication note
 .jwt-panel {
   margin-top: 32px;
   padding-top: 24px;
@@ -266,23 +266,4 @@
       border-radius: 3px;
     }
   }
-}
-
-.secret-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.secret-value {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 8px;
-  border-radius: 5px;
-  border: 0.5px solid var(--color-border);
-  background: var(--color-surface-hover);
-  font-size: 11px;
-  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', monospace;
-  overflow-x: auto;
-  white-space: nowrap;
 }

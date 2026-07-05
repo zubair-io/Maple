@@ -5,9 +5,14 @@
 //   - R2 credentials (account id, bucket, access key id, secret access key)
 //   - A "Test" button that round-trips a probe object through R2 without
 //     saving, so a typo surfaces before the operator commits it
-//   - A read-only JWT-secret reveal panel: the operator copies the value
-//     into `wrangler secret put JWT_SECRET` for the Cloudflare Worker
-//     (#1760) that fronts `/api/thumb/*` at the edge
+//
+// The JWT secret the Cloudflare Worker (#1760) needs is NOT surfaced here —
+// the operator retrieves it directly from the server (MongoDB
+// `server_state` collection, `_id: "jwt_secret"`, field `value`; see
+// `src/api/src/auth/jwt-secret.repo.ts`) and runs `wrangler secret put
+// JWT_SECRET` themselves. The app deliberately has no route that echoes the
+// root signing secret — that would add an HTTP-reachable path to what
+// otherwise requires actual server access.
 //
 // The "Sync existing thumbnails to Cloudflare" backfill trigger is
 // deliberately NOT on this page yet — it depends on the backfill job
@@ -19,7 +24,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { AuthService, CloudflareService, type CloudflareConfig } from '@maple-common';
+import { CloudflareService, type CloudflareConfig } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 
 type SaveState =
@@ -34,12 +39,6 @@ type TestState =
   | { kind: 'ok' }
   | { kind: 'error'; message: string };
 
-type JwtSecretState =
-  | { kind: 'hidden' }
-  | { kind: 'loading' }
-  | { kind: 'revealed'; secret: string }
-  | { kind: 'error'; message: string };
-
 @Component({
   selector: 'maple-cloudflare-settings',
   standalone: true,
@@ -50,14 +49,11 @@ type JwtSecretState =
 })
 export class CloudflareComponent implements OnInit {
   private readonly cloudflare = inject(CloudflareService);
-  private readonly auth = inject(AuthService);
 
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
   protected readonly saveState = signal<SaveState>({ kind: 'idle' });
   protected readonly testState = signal<TestState>({ kind: 'idle' });
-  protected readonly jwtSecretState = signal<JwtSecretState>({ kind: 'hidden' });
-  protected readonly jwtSecretCopied = signal(false);
 
   protected readonly config = signal<CloudflareConfig | null>(null);
 
@@ -174,35 +170,5 @@ export class CloudflareComponent implements OnInit {
           });
         },
       });
-  }
-
-  protected revealJwtSecret(): void {
-    this.jwtSecretState.set({ kind: 'loading' });
-    this.auth
-      .getJwtSecret()
-      .then((secret) => this.jwtSecretState.set({ kind: 'revealed', secret }))
-      .catch((err: HttpErrorResponse) =>
-        this.jwtSecretState.set({
-          kind: 'error',
-          message: err.error?.error ?? 'Failed to load the JWT secret.',
-        }),
-      );
-  }
-
-  protected hideJwtSecret(): void {
-    this.jwtSecretState.set({ kind: 'hidden' });
-    this.jwtSecretCopied.set(false);
-  }
-
-  protected copyJwtSecret(): void {
-    const state = this.jwtSecretState();
-    if (state.kind !== 'revealed') return;
-    // Clipboard API is unavailable in non-secure contexts / older browsers —
-    // same guard as users.component.ts's copyCode().
-    if (typeof navigator === 'undefined' || !('clipboard' in navigator)) return;
-    void navigator.clipboard.writeText(state.secret).then(() => {
-      this.jwtSecretCopied.set(true);
-      setTimeout(() => this.jwtSecretCopied.set(false), 2000);
-    });
   }
 }
