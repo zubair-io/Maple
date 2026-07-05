@@ -56,6 +56,26 @@ public final class GpuLiveDriver {
     /// view goes away the driver simply has nothing to present to.
     private weak var layer: CAMetalLayer?
 
+    /// The surface-cache generation token (#1769). Forwarded to every
+    /// `maple_gpu_present_chain`; the Rust side keys its PROCESS-WIDE present
+    /// surface on `(generation, layer, dims)`. Bumped when:
+    ///   * a DIFFERENT `CAMetalLayer` instance registers (SwiftUI recreated the
+    ///     canvas view — covers malloc address reuse, where the raw pointer
+    ///     alone would falsely match a dead layer), or
+    ///   * the layer's `drawableSize` diverges from the last successful
+    ///     present's dims at an otherwise-unchanged key (an external
+    ///     re-derivation wgpu cannot see — see `presentDivergenceCheck`).
+    /// A bump forces a deterministic old-surface teardown + fresh configure +
+    /// the settle double-present on the Rust side.
+    private var surfaceGeneration: UInt64 = 0
+
+    /// The `(generation, dims)` of the most recent SUCCESSFUL present — the
+    /// state the Rust cache is known to be configured at. Drives the
+    /// drawableSize-divergence check: only when the upcoming present would hit
+    /// the no-configure fast path (same generation, same dims) does a
+    /// drawableSize mismatch mean an external invalidation.
+    private var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
+
     /// The RAW path + decode quality for the Auto Profile fit (set on open).
     private var autoProfileFitDone = false
 
@@ -89,40 +109,46 @@ public final class GpuLiveDriver {
 
     /// Register the canvas layer the driver presents into. Called by
     /// `GpuLiveCanvasView` when its `CAMetalLayer` is created / its host view lays
-    /// out. Idempotent.
+    /// out. Idempotent for the SAME layer instance; a different instance bumps
+    /// the surface generation so the Rust cache can never present against a
+    /// recycled layer address (#1769).
+    ///
+    /// NOTE (single-writer contract, #1769): the driver does NOT write
+    /// `layer.drawableSize` — wgpu's `surface.configure` owns it. Host-side
+    /// writes (the old `layoutSubviews` sizing + `setDrawableSize`) invalidated
+    /// the CAMetalLayer drawable pool without wgpu knowing, so a single present
+    /// after a layout pass could land on a freshly-invalidated pool: the iPad
+    /// partial-render splice, with none of #1743's double-present protection.
     public func register(layer: CAMetalLayer) {
-        self.layer = layer
-    }
-
-    /// Force the registered layer's `drawableSize` to exactly `(width, height)`.
-    /// The wgpu present chain asserts `surface_dims == image_dims`; the
-    /// canvas view sizes the layer from the host view's pixel bounds, but the
-    /// renderer's `prescaledExtent` rounds to aspect-preserved integer dims
-    /// that may be 1 pixel off (e.g. 914x685 viewport → 913x685 image). The
-    /// present then throws `GpuLiveError(1)` and the canvas reads as opaque
-    /// black — the #1240 "image disappears" report. Calling this with the
-    /// image dims before `present` keeps them aligned.
-    public func setDrawableSize(width: Int, height: Int) {
-        guard let layer = layer else { return }
-        let size = CGSize(width: CGFloat(width), height: CGFloat(height))
-        if layer.drawableSize != size {
-            layer.drawableSize = size
+        if layer !== self.layer {
+            self.layer = layer
+            surfaceGeneration &+= 1
         }
     }
 
     /// Open (or re-open) the session for `pixels` at `width × height` — the decoded
     /// scene-linear f32 RGBA buffer. A re-open happens only when the dims change
-    /// (upload-once per dims). Resets the Auto Profile fit so the next `present`
-    /// re-fits for the new buffer if needed. Throws on an FFI open failure (the
-    /// caller falls back to leaving the canvas on its prior frame).
+    /// (upload-once per dims) or a new decode lands. Resets the Auto Profile fit
+    /// so the next `present` re-fits for the new buffer if needed. Throws on an
+    /// FFI open failure (the caller falls back to leaving the canvas on its
+    /// prior frame).
+    ///
+    /// DETERMINISTIC TEARDOWN (#1769): the OLD session is closed explicitly —
+    /// and its close AWAITED — before the new one opens. Pre-#1769 the old
+    /// actor's `deinit` closed the old FFI handle at a nondeterministic time,
+    /// possibly after the replacement had already presented; with the handle
+    /// owning the surface+context that dropped a live `wgpu::Surface` (and its
+    /// whole device) against the still-mounted `CAMetalLayer` mid-flight — the
+    /// cold-open splice boundary. The surface + `GpuContext` now live in a
+    /// process-wide Rust slot that SURVIVES this re-open (dims changes
+    /// reconfigure in place), and the old session teardown drops only its
+    /// image/scratch buffers, serialized behind the same Rust-side lock.
+    ///
     /// `inputShape` is the `MapleGpuLiveParams.input_shape` tag (#1331): 0 =
     /// PostDcpRec2020Fp16 (RAW, all stages), 1 = LinearRec2020Fp16 (pano PNG).
-    public func open(pixels: [Float], width: Int, height: Int, inputShape: UInt32 = 0) throws {
-        if let d = sessionDims, d.width == width, d.height == height, session != nil {
-            // Same dims — reuse the existing upload-once session (just refresh the
-            // pixels by re-opening only if the buffer content changed is the
-            // caller's call; for a decode at the same dims we re-open to pick up the
-            // new buffer).
+    public func open(pixels: [Float], width: Int, height: Int, inputShape: UInt32 = 0) async throws {
+        if let old = session {
+            await old.close()
         }
         let s = try GpuLiveSession(pixels: pixels, width: width, height: height)
         self.session = s
@@ -165,6 +191,23 @@ public final class GpuLiveDriver {
             return
         }
         gpuDriverLog.notice("GPU-TRACE driver.present begin drawableSize=\(Int(layer.drawableSize.width))x\(Int(layer.drawableSize.height))")
+        // drawableSize divergence check (#1769): the Rust side is
+        // `drawableSize`'s single writer (`surface.configure`), so when this
+        // present would hit the no-configure fast path (same generation, same
+        // dims as the last successful present) the layer MUST still report
+        // those dims. A mismatch means something outside wgpu re-derived the
+        // drawable pool (a CoreAnimation scale/bounds re-derivation) — bump the
+        // generation so the Rust side tears down + reconfigures + settles with
+        // the double-present instead of landing one present on an invalidated
+        // pool.
+        if let key = lastPresentedKey, let dims = sessionDims,
+           key.generation == surfaceGeneration,
+           key.width == dims.width, key.height == dims.height,
+           layer.drawableSize != CGSize(width: CGFloat(dims.width), height: CGFloat(dims.height)) {
+            surfaceGeneration &+= 1
+            gpuDriverLog.notice(
+                "GPU-TRACE drawableSize diverged (\(Int(layer.drawableSize.width))x\(Int(layer.drawableSize.height)) vs \(dims.width)x\(dims.height)) — bumped surface generation to \(self.surfaceGeneration)")
+        }
         inFlightCancel?.requestCancel()
         let cancel = CancelFlag()
         inFlightCancel = cancel
@@ -172,11 +215,15 @@ public final class GpuLiveDriver {
             let elapsedMs = try await s.present(
                 model: model, layer: layer, cancel: cancel,
                 asShotCCT: asShotCCT, asShotTint: asShotTint,
-                inputShape: self.inputShape
+                inputShape: self.inputShape,
+                surfaceGeneration: surfaceGeneration
             )
             withExtendedLifetime(cancel) {}
             if let elapsedMs {
                 gpuDriverLog.notice("GPU-TRACE driver.present OK \(elapsedMs)ms")
+                if let dims = sessionDims {
+                    lastPresentedKey = (surfaceGeneration, dims.width, dims.height)
+                }
             } else {
                 gpuDriverLog.notice("GPU-TRACE driver.present cancelled (returned nil)")
             }

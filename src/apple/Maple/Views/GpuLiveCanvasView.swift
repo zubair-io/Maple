@@ -81,27 +81,33 @@ final class GpuLiveCanvasController {
         self.session = session
     }
 
-    /// Size the drawable from the host view's pixel bounds, register the layer
-    /// with the driver on first sizing, and kick the initial render. Called from
-    /// the host view's `layout()` / `layoutSubviews()`, where bounds are
-    /// authoritative.
+    /// Track the host view's pixel bounds (driving the decode `previewSize`),
+    /// register the layer with the driver on first sizing, and kick the initial
+    /// render. Called from the host view's `layout()` / `layoutSubviews()`,
+    /// where bounds are authoritative.
+    ///
+    /// SINGLE-WRITER CONTRACT (#1769): this controller does NOT write
+    /// `layer.drawableSize` — wgpu's `surface.configure` owns it (it sets the
+    /// drawable size to the presented image dims on every (re)configure).
+    /// The old write here ran on EVERY layout pass — and UIKit lays the iPad
+    /// canvas out constantly (filmstrip, sidebar, zoom chrome, rotation) — so
+    /// each 1-px disagreement with the image dims invalidated the layer's
+    /// drawable pool without wgpu knowing. The next present then landed a
+    /// SINGLE frame on a freshly-invalidated pool: the #1742-class splice with
+    /// none of the settle double-present protection (that only engages when
+    /// wgpu itself configures). The viewport pixel size still flows into
+    /// `session.previewSize`, so the decode target (and therefore the
+    /// configured drawable size) tracks the canvas as before.
     func layoutAndPresent(pixelWidth: CGFloat, pixelHeight: CGFloat) {
         guard pixelWidth >= 1, pixelHeight >= 1 else { return }
-        // Round to integer pixels BEFORE setting `drawableSize` and propagating
-        // to `previewSize`. The wgpu present chain asserts
-        // `surface_dims == image_dims`, where image_dims comes from
-        // `Int(prescaledExtent.width.rounded())` — passing a fractional
-        // `bounds.width * scale` to `drawableSize` (e.g. 913.5) and to the
-        // decode `targetSize` lands on `914` for the surface but `913` for the
-        // image after `prescaledExtent` rounds the other way. The present
-        // throws `GpuLiveError(1)` and the canvas reads as a black surface
-        // — the exact root cause of the #1240 "image disappears" report.
-        // Rounding both inputs to the same integer here keeps them aligned.
+        // Round to integer pixels BEFORE propagating to `previewSize` — the
+        // decode target and the wgpu surface must resolve from the same
+        // integers (fractional bounds like 913.5 would round differently in
+        // `prescaledExtent`; the #1240 lesson).
         let w = pixelWidth.rounded()
         let h = pixelHeight.rounded()
         let size = CGSize(width: w, height: h)
         if size != lastPixelSize {
-            layer.drawableSize = size
             lastPixelSize = size
         }
         guard let session, let driver = session.gpuLiveDriver else { return }
