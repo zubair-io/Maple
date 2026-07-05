@@ -53,6 +53,13 @@ jobs:
         working-directory: src/cloudflare
         run: npm ci
 
+      # worker-configuration.d.ts (Env type, ~14k lines of Cloudflare's own
+      # runtime declarations) is gitignored — regenerate it from
+      # wrangler.jsonc before typechecking.
+      - name: Generate Worker types
+        working-directory: src/cloudflare
+        run: npm run cf-typegen
+
       - name: Typecheck
         working-directory: src/cloudflare
         run: npm run typecheck
