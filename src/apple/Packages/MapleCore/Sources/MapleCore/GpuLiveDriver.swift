@@ -180,6 +180,7 @@ public final class GpuLiveDriver {
         model: AdjustmentModel,
         asShotCCT: Double? = nil,
         asShotTint: Double? = nil,
+        wbFrame: WbSliderFrame? = nil,
         onError: (Error) -> Void
     ) async {
         guard let s = session else {
@@ -216,7 +217,8 @@ public final class GpuLiveDriver {
                 model: model, layer: layer, cancel: cancel,
                 asShotCCT: asShotCCT, asShotTint: asShotTint,
                 inputShape: self.inputShape,
-                surfaceGeneration: surfaceGeneration
+                surfaceGeneration: surfaceGeneration,
+                wbFrame: wbFrame
             )
             withExtendedLifetime(cancel) {}
             if let elapsedMs {
@@ -249,7 +251,8 @@ public final class GpuLiveDriver {
     public func renderCurrentFrameBytes(
         model: AdjustmentModel,
         asShotCCT: Double? = nil,
-        asShotTint: Double? = nil
+        asShotTint: Double? = nil,
+        wbFrame: WbSliderFrame? = nil
     ) async -> (bytes: [UInt8], width: Int, height: Int)? {
         guard let s = session, let dims = sessionDims else { return nil }
         do {
@@ -257,7 +260,8 @@ public final class GpuLiveDriver {
                 model: model,
                 asShotCCT: asShotCCT,
                 asShotTint: asShotTint,
-                inputShape: inputShape
+                inputShape: inputShape,
+                wbFrame: wbFrame
             )
             else { return nil }
             return (bytes, dims.width, dims.height)
