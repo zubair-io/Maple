@@ -23,6 +23,12 @@ import { SERVER_PORT } from '../runtime/server-port.ts';
 const COLL = 'app_settings';
 const DOC_ID = 'network';
 
+/** Valid TCP port range. Shared by the resolver (guards against a stale/
+ * hand-edited DB row) and the route's write-side validation. */
+export function isValidPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 export interface NetworkConfig {
   /** Operator override for the advertised LAN IP/hostname. `null`/missing →
    * fall back to auto-detection. */
@@ -143,7 +149,7 @@ export function resolveNetworkConfig(db: NetworkConfig | null): ResolvedNetworkC
 
   let localPort = SERVER_PORT;
   let localPortSource: ResolvedNetworkConfig['source']['local_port'] = 'default';
-  if (typeof db?.local_port_override === 'number' && Number.isFinite(db.local_port_override)) {
+  if (typeof db?.local_port_override === 'number' && isValidPort(db.local_port_override)) {
     localPort = db.local_port_override;
     localPortSource = 'db_override';
   }
