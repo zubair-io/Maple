@@ -128,6 +128,16 @@ public final class EditSession {
     public internal(set) var asShotCCT: Double?
     public internal(set) var asShotTint: Double?
 
+    /// The WB pair `loadSidecar()` seeded into a fresh (sidecar-less)
+    /// model: the `CIRAWFilter` placeholder when readable, else the model
+    /// defaults (bytes-backed RAWs have no URL for the placeholder read).
+    /// `nil` before hydration, or when a sidecar's authored values won.
+    /// `adoptDecodedWbFrame` re-seeds the model only while it still sits
+    /// exactly at this pair — an explicit record of "WB untouched since
+    /// hydration" that doesn't depend on the placeholder existing (#1781).
+    var wbSeedTemperature: Double?
+    var wbSeedTint: Double?
+
     /// Decode-exported WB slider frame (#1781) — raw-core's own calibration
     /// frame for this asset, adopted when the first scene-linear decode
     /// lands (`adoptDecodedWbFrame`). Once present:

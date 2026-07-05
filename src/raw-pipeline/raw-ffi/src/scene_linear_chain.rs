@@ -180,9 +180,10 @@ pub struct MapleAdjustmentParams {
 
 /// Rebuild the raw-core [`raw_core::stages::wb_camera::SliderFrameExport`]
 /// from the six flat `wb_frame_*` fields (#1781). An absent frame
-/// (`scene_cct <= 0`, e.g. a zero-initialised stale host) maps to
-/// `SliderFrameExport::ABSENT`, whose `is_present()` is false — consumers
-/// then keep the legacy generic-CAT16 path.
+/// (`scene_cct <= 0` or non-finite, e.g. a zero-initialised stale host)
+/// maps to `SliderFrameExport::ABSENT`, whose `is_present()` is false —
+/// consumers then keep the legacy generic-CAT16 path, and no unchecked
+/// host floats leak into the export.
 pub(crate) fn wb_frame_from_flat(
     m_cold: &[f32; 9],
     cct_cold: f32,
@@ -191,6 +192,9 @@ pub(crate) fn wb_frame_from_flat(
     scene_cct: f32,
     as_shot_tint: f32,
 ) -> raw_core::stages::wb_camera::SliderFrameExport {
+    if !(scene_cct.is_finite() && scene_cct > 0.0) {
+        return raw_core::stages::wb_camera::SliderFrameExport::ABSENT;
+    }
     let mat = |m: &[f32; 9]| {
         raw_core::math::Matrix3([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]])
     };
@@ -403,18 +407,17 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
         p.wb_frame_as_shot_tint,
     );
 
-    let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
-        in_slice,
-        width,
-        height,
-        &model,
+    let opts = raw_core::pipeline::ChainOptions {
         decoded_temp,
         decoded_tint,
-        Some(&wb_frame),
-        p.skip_agx != 0,
-        primaries,
-        noise_profile_slice,
+        wb_frame: Some(&wb_frame),
+        skip_agx: p.skip_agx != 0,
+        target_primaries: primaries,
+        noise_profile: noise_profile_slice,
         iso,
+    };
+    let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
+        in_slice, width, height, &model, &opts,
     ) {
         Ok(v) => v,
         Err(e) => {

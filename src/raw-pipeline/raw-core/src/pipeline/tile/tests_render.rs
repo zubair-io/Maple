@@ -319,13 +319,15 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
         side,
         side,
         &model,
-        as_shot_cct,
-        as_shot_tint,
-        None,
-        true, // skip_agx: stay in scene-linear, matching the tile path's output space
-        crate::view::encode::TargetPrimaries::Srgb,
-        raw.noise_profile.as_deref(),
-        raw.iso,
+        &crate::pipeline::ChainOptions {
+            decoded_temp: as_shot_cct,
+            decoded_tint: as_shot_tint,
+            // skip_agx: stay in scene-linear, matching the tile path's output space
+            skip_agx: true,
+            noise_profile: raw.noise_profile.as_deref(),
+            iso: raw.iso,
+            ..crate::pipeline::ChainOptions::default()
+        },
     )
     .expect("scene-chain apply");
 
