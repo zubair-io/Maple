@@ -154,7 +154,7 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// pass), mirroring how raw-core's `apply` early-returns. The per-pixel
 /// `chroma < 1e-6` passthrough is preserved here and in the kernel.
 const GAMUT_KNEE_FRACTION: f32 = 0.8;
-const GAMUT_BISECT_ITERS: usize = 12;
+const GAMUT_BISECT_ITERS: usize = 24;
 
 #[inline]
 fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
