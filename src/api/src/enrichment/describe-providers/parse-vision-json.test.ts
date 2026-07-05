@@ -245,11 +245,11 @@ describe('parseVisionJson — rejection paths', () => {
       { ...VALID, nudity_detected: 'maybe' },
     ];
     for (const b of bad) {
+      const json = JSON.stringify(b);
+      expect(() => parseVisionJson(json)).toThrow(VisionParseError);
       try {
-        parseVisionJson(JSON.stringify(b));
-        fail('should have failed');
+        parseVisionJson(json);
       } catch (err) {
-        expect(err).toBeInstanceOf(VisionParseError);
         expect((err as VisionParseError).reason).toBe('wrong-type');
         expect((err as VisionParseError).field).toBe('nudity_detected');
       }

@@ -174,6 +174,7 @@ const MetadataInputSchema = t.Object(
       ),
     ),
     isScreenshot: t.Optional(t.Nullable(t.Boolean())),
+    hidden: t.Optional(t.Nullable(t.Boolean())),
   },
   { additionalProperties: true },
 );

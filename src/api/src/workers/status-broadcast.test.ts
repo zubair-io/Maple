@@ -45,6 +45,7 @@ const fakePayload: WorkersStatusPayload = {
     },
   ],
   damaged: 0,
+  newlyHiddenTotal: 0,
 };
 
 describe('cheapStatus', () => {

@@ -1,4 +1,4 @@
-import type { Collection } from 'mongodb';
+import type { Collection, WithId } from 'mongodb';
 import type { AssetDoc } from '../db/schema.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 
@@ -12,9 +12,9 @@ export const BURST_WINDOW_MS = 5000;
  */
 export async function findBurstSiblings(
   assets: Collection<AssetDoc>,
-  image: AssetDoc,
+  image: WithId<AssetDoc>,
   windowMs: number = BURST_WINDOW_MS,
-): Promise<AssetDoc[]> {
+): Promise<WithId<AssetDoc>[]> {
   const capturedAt = image.exif?.captured_at;
   if (!capturedAt) return [];
 
@@ -23,18 +23,16 @@ export async function findBurstSiblings(
 
   const libraryId = primary.library_id;
 
-  let vt: Date;
-  try {
-    vt = new Date(capturedAt);
-    if (isNaN(vt.getTime())) return [];
-  } catch {
-    return [];
-  }
+  const vt = new Date(capturedAt);
+  if (isNaN(vt.getTime())) return [];
 
   const lo = new Date(vt.getTime() - windowMs).toISOString();
   const hi = new Date(vt.getTime() + windowMs).toISOString();
 
   // Find all sibling assets in the same library within the capture window.
+  // A sibling whose own manual override explicitly un-hid it must not be
+  // re-hidden by burst propagation (mirrors the `hidden: { $ne: true }`
+  // guard the caller applies to the resulting updateMany).
   const siblings = await assets
     .find({
       'exif.captured_at': { $gte: lo, $lte: hi },

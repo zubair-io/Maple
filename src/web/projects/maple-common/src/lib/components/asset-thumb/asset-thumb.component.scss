@@ -19,3 +19,11 @@
 .thumb.variant-filmstrip:not(.focused):hover .thumb-ring {
   border-color: rgba(255, 255, 255, 0.2);
 }
+
+/* Hidden-but-shown photos (the "show hidden images" setting is on, but this
+   isn't a hidden-only filter view) are visually distinct from a normal
+   thumbnail — dimmed, so the HIDDEN badge above reads as an overlay on
+   something de-emphasized rather than a normal photo with an odd label. */
+.thumb.dimmed img {
+  opacity: 0.45;
+}

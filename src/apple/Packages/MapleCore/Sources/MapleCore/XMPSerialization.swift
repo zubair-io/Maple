@@ -336,9 +336,10 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             // from clobbering this explicit choice.
             profileSeen = true
             switch value.lowercased() {
-            case "auto":    model.profile = .auto
-            case "neutral": model.profile = .neutral
-            default:        break
+            case "auto":     model.profile = .auto
+            case "neutral":  model.profile = .neutral
+            case "acrmatch": model.profile = .acrMatch
+            default:         break
             }
         // Crop / straighten (#277, spec § 3.12). Rect fields gated by
         // `hasCrop` (above). `crs:CropAngle` is always parsed — it can

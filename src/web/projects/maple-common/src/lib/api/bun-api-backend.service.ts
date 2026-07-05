@@ -254,6 +254,14 @@ export interface ApiAssetDetail {
   enrichment: ApiEnrichment;
 }
 
+/** `ApiAssetDetail` plus the `slug:relPath` address `GET /api/photos/hidden`
+ * additionally computes — required by `/api/xmp/batch`, which cannot resolve
+ * a plain Mongo id the way `resolveAddressString` expects. `null` when the
+ * asset's library has no registered slug. */
+export interface ApiHiddenPhoto extends ApiAssetDetail {
+  address: string | null;
+}
+
 export interface ApiRequeueResponse {
   stage: ApiEnrichmentStage;
   version: number;
@@ -429,8 +437,8 @@ export class BunApiBackendService {
     return this.http.post<{ ok: boolean }>(`${this.base}/assets/${assetId}/hidden-ack`, {});
   }
 
-  getHiddenPhotos(onlyNew?: boolean): Observable<ApiAssetDetail[]> {
-    return this.http.get<ApiAssetDetail[]>(`${this.base}/photos/hidden`, {
+  getHiddenPhotos(onlyNew?: boolean): Observable<ApiHiddenPhoto[]> {
+    return this.http.get<ApiHiddenPhoto[]>(`${this.base}/photos/hidden`, {
       params: onlyNew ? { onlyNew: 'true' } : undefined,
     });
   }

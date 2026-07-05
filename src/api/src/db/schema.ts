@@ -178,6 +178,10 @@ export interface VisionDoc {
    * run, overwriting whatever the exif stage's filename heuristic
    * guessed first. */
   is_screenshot: boolean;
+  /** True when the image contains nudity or sexually explicit content.
+   * Canonical AI signal — the top-level `AssetDoc.hidden` is set (never
+   * cleared) from this once the describe stage has run, unless an
+   * explicit user override says otherwise. See `AssetDoc.hidden`. */
   nudity_detected: boolean;
 }
 
@@ -331,8 +335,33 @@ export interface AssetDoc {
    * the heuristic can't. Mirrors `vision.is_screenshot` once describe
    * has run; until then, the heuristic value stands. */
   is_screenshot?: boolean;
+  /**
+   * Authoritative hidden flag, read by every browse/search/badge surface.
+   * Set either by explicit user action (via the XMP `papp:Hidden`
+   * override — see `MetadataOverride.hidden`) or by the describe stage's
+   * nudity verdict (`vision.nudity_detected`). `sidecar-metadata-index`
+   * projects the effective value: an explicit override always wins;
+   * absent an override, the value is `priorHidden || nudity_detected` —
+   * deliberately one-directional. A later describe re-run with a
+   * `nudity_detected: false` verdict must never silently un-hide an
+   * asset a user hid manually, or one a prior AI pass correctly
+   * flagged; only an explicit user override can turn `hidden` back to
+   * `false`. Optional because legacy rows pre-date the field; readers
+   * must treat missing as `false`.
+   */
   hidden?: boolean;
+  /** Why `hidden` is currently true. `'manual'` when the user explicitly
+   * hid it (an XMP override is present); `'nudity'` when the describe
+   * stage's own vision verdict set it; `'nudity-burst'` when it was
+   * propagated from a sibling asset in the same burst (see
+   * `enrichment/burst-siblings.ts`). Absent when not hidden. A manual
+   * reason is never overwritten by a later AI pass. */
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
+  /** Operator has reviewed an AI-driven hide (`hidden_reason` is
+   * `'nudity'` or `'nudity-burst'`). `false` immediately after an
+   * automatic hide; flips to `true` via `POST /api/assets/:id/hidden-ack`
+   * once the operator has seen it in the "newly hidden" review list.
+   * Meaningless for `hidden_reason: 'manual'` — never set for those. */
   hidden_ack?: boolean;
   /** Structured photo-vision metadata from the qwen2.5-vl describe stage.
    * `null` until the stage has run on this asset. See `VisionDoc`. */
@@ -420,13 +449,42 @@ export interface AssetDoc {
    */
   geo_backfill_skipped?: 'no-donor' | 'skip';
   /**
-   * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
-   * endpoint; null/absent for assets indexed by other paths (the indexer
-   * pipeline does not compute it — only the PhotoKit backup path does).
-   * Used as the deduplication key when the same content arrives from
-   * multiple devices.
+   * Maple stable image id (see `indexer/id.ts`) — NOT a hash of the full
+   * original bytes. Derived from a SHA1 of just the first 64 KB
+   * (`SHA1_HEAD_BYTES`) of the file, combined via BLAKE3 with EXIF capture
+   * metadata (capture timestamp, camera serial, shutter count) when
+   * available ("primary" form), or with the file size alone ("fallback"
+   * form) when it isn't. Populated on nearly every asset, via three write
+   * paths:
+   *  - Discover watcher (`workers/discover/handle-event.ts`, `hashFileForId`):
+   *    computed inline at insert time for every locally-discovered file, in
+   *    fallback form — this is the primary path, not a stopgap (the old
+   *    separate `hash` stage was retired in the drop-abs-path-2026-05-21
+   *    migration).
+   *  - EXIF stage (`workers/stages/exif.ts`): upgrades the id in place to
+   *    primary form once `captured_at` is available.
+   *  - Backup ingest endpoint (`routes/backup-ingest.ts`): sets it directly
+   *    for PhotoKit-originated assets that never go through discover (id
+   *    computed client-side).
+   * null/absent only for assets that predate one of these paths or hit an
+   * error before hashing. Used as the deduplication key when the same
+   * content arrives from multiple devices or discovery paths.
    */
   maple_id?: string;
+  /**
+   * ISO timestamp of the last successful upload of this asset's
+   * content-addressed thumbnail to the Cloudflare R2 mirror (see
+   * `cloudflare/r2-client.ts`). Absent/null means the thumbnail either
+   * hasn't been generated yet, Cloudflare upload is disabled, or the
+   * backfill job hasn't reached this asset yet — all three are
+   * indistinguishable and all three mean "still pending" to the backfill
+   * job's selection query. Never holds a URL: the R2 object key is always
+   * re-derived from `(library slug, fileinfo[0].path, fileinfo[0].filename)`
+   * via `cloudflare/thumb-key.ts`, mirroring the existing
+   * "never persist a derivable thumb path" convention (see
+   * `workers/stages/thumb.ts`).
+   */
+  cf_thumb_synced_at?: string | null;
   /**
    * Denormalized count of live `fileinfo` entries (entries where neither
    * `deleted_at` nor `missing_since` is set). Maintained at every liveness
@@ -1277,7 +1335,6 @@ export interface MetadataOverride {
   flag?: 'pick' | 'reject';
   /** Color label string from papp:ColorLabel. */
   color_label?: string;
-  hidden?: boolean | null;
   /**
    * Derived effective capture year/month (from `captured_at ?? exif.captured_at`),
    * stored here — NOT under `exif.*`, which stays the immutable file-original.
@@ -1285,6 +1342,11 @@ export interface MetadataOverride {
    */
   captured_year?: number;
   captured_month?: number;
+  /** Custom screenshot flag. null means "clear". */
+  is_screenshot?: boolean | null;
+  /** Custom hidden flag from papp:Hidden. null means "clear" (explicitly
+   * un-hide, taking precedence over any AI-derived hide). */
+  hidden?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------

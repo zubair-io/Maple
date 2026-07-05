@@ -52,6 +52,7 @@ export interface XmpMetadataResult {
   flag?: 'pick' | 'reject';
   /** Color label string. */
   colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue';
+  isScreenshot?: boolean;
   hidden?: boolean;
 }
 
@@ -268,6 +269,9 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
   if (colorLabelStr !== undefined && VALID_COLOR_LABELS.has(colorLabelStr)) {
     result.colorLabel = colorLabelStr as 'red' | 'orange' | 'yellow' | 'green' | 'blue';
   }
+  const isScrStr = str('papp:IsScreenshot');
+  if (isScrStr === 'true') result.isScreenshot = true;
+  else if (isScrStr === 'false') result.isScreenshot = false;
   const hiddenStr = str('papp:Hidden');
   if (hiddenStr === 'true' || hiddenStr === 'false') {
     result.hidden = hiddenStr === 'true';
@@ -338,6 +342,7 @@ export function xmpMetadataToOverridePatch(
   if (parsed.rating !== undefined) patch.rating = parsed.rating;
   if (parsed.flag !== undefined) patch.flag = parsed.flag;
   if (parsed.colorLabel !== undefined) patch.color_label = parsed.colorLabel;
+  if (parsed.isScreenshot !== undefined) patch.is_screenshot = parsed.isScreenshot;
   if (parsed.hidden !== undefined) patch.hidden = parsed.hidden;
 
   return patch;

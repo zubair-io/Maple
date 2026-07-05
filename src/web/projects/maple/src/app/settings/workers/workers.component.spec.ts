@@ -167,8 +167,7 @@ describe('WorkersComponent', () => {
     // pending so verify() — which asserts no open requests — doesn't trip.
     for (const r of http.match('/api/folders')) r.flush([]);
     for (const r of http.match('/api/mirror/status')) r.flush({ queue: { pending: 0, dead: 0 } });
-    for (const r of http.match((req) => req.url.includes('/api/photos/hidden')))
-      r.flush({ hasHiddenNudity: false });
+    for (const r of http.match((req) => req.url.includes('/api/photos/hidden'))) r.flush([]);
     http.verify();
   });
 
