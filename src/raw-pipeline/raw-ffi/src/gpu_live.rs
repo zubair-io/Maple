@@ -505,6 +505,12 @@ mod gpu_live_airlight_tests;
 #[cfg(test)]
 #[path = "gpu_live_p3_tests.rs"]
 mod gpu_live_p3_tests;
+// Shared fixtures/param builders for the gpu_live test family — split from
+// gpu_live_tests.rs for the 600-LOC budget (canonical import path stays
+// `super::gpu_live_tests::{..}` via re-exports there).
+#[cfg(test)]
+#[path = "gpu_live_test_support.rs"]
+mod gpu_live_test_support;
 #[cfg(test)]
 #[path = "gpu_live_tests.rs"]
 mod gpu_live_tests;
