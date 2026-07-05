@@ -156,11 +156,11 @@ final class GpuLiveSessionTests: XCTestCase {
     func test_makeGpuLiveParams_partial_asShot_anchor_falls_back_to_sentinel() {
         let model = perturbedModel()
 
-        let ccdOnly = PipelineRenderer.makeGpuLiveParams(
+        let cctOnly = PipelineRenderer.makeGpuLiveParams(
             from: model, asShotCCT: 5500.0, asShotTint: nil)
-        XCTAssertEqual(ccdOnly.decoded_temperature, 0,
+        XCTAssertEqual(cctOnly.decoded_temperature, 0,
                        "asShotTint=nil must zero the WHOLE anchor, not just leave tint at 0")
-        XCTAssertEqual(ccdOnly.decoded_tint, 0)
+        XCTAssertEqual(cctOnly.decoded_tint, 0)
 
         let tintOnly = PipelineRenderer.makeGpuLiveParams(
             from: model, asShotCCT: nil, asShotTint: 12.0)
