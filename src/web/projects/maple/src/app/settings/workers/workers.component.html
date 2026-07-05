@@ -48,6 +48,50 @@
     </div>
   }
 
+  @if (hiddenAlerts().length > 0) {
+    <div class="banner-alerts mb-4 rounded border border-error-text/30 bg-error-bg/20 p-4">
+      <h3 class="text-[13px] font-semibold text-error-text mb-2 flex items-center gap-1.5">
+        ⚠️ AI Safety Net: Nudity Detected
+      </h3>
+      <p class="text-[11px] text-text-muted mb-3">
+        The AI vision pipeline auto-hid the following photos because they matched nudity filters.
+        Please acknowledge to dismiss, or unhide them.
+      </p>
+      <div class="flex flex-col gap-2 max-h-60 overflow-y-auto">
+        @for (alert of hiddenAlerts(); track alert.id) {
+          <div
+            class="flex items-center justify-between gap-3 bg-surface p-2 rounded border border-border"
+          >
+            <div class="flex items-center gap-2">
+              <div class="flex flex-col">
+                <span class="text-[11px] font-mono text-text-main">{{ alert.filename }}</span>
+                <span class="text-[9px] text-text-muted"
+                  >Path: {{ alert.fileinfo?.[0]?.path || '/' }}</span
+                >
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button
+                type="button"
+                class="px-2 py-1 rounded bg-surface-hover border border-border hover:border-text-muted text-[10px] text-text-main"
+                (click)="acknowledgeAlert(alert)"
+              >
+                Acknowledge
+              </button>
+              <button
+                type="button"
+                class="px-2 py-1 rounded bg-primary text-white hover:bg-primary-hover text-[10px]"
+                (click)="unhideAlert(alert)"
+              >
+                Unhide
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
   <div class="workers-body">
     <!-- Column header -->
     <div class="row-grid col-header">

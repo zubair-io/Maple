@@ -28,6 +28,12 @@ const FLAG_OPTIONS: ReadonlyArray<{ value: TimelineFlag; label: string }> = [
   { value: 'reject', label: 'Reject' },
 ];
 
+const HIDDEN_OPTIONS: ReadonlyArray<{ value: 'none' | 'all' | 'only'; label: string }> = [
+  { value: 'none', label: 'Show Normal' },
+  { value: 'all', label: 'Show All' },
+  { value: 'only', label: 'Show Only Hidden' },
+];
+
 @Component({
   selector: 'app-timeline-filter-row',
   standalone: true,
@@ -42,6 +48,7 @@ export class TimelineFilterRowComponent {
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
   readonly COLOR_OPTIONS = COLOR_OPTIONS;
   readonly FLAG_OPTIONS = FLAG_OPTIONS;
+  readonly HIDDEN_OPTIONS = HIDDEN_OPTIONS;
 
   onRatingClick(n: number): void {
     const cur = this.state.minRating();
@@ -54,6 +61,10 @@ export class TimelineFilterRowComponent {
 
   onColorClick(v: TimelineColor): void {
     this.state.setColor(v);
+  }
+
+  onHiddenClick(v: 'none' | 'all' | 'only'): void {
+    this.state.setHiddenFilter(v);
   }
 
   onFromInput(e: Event): void {

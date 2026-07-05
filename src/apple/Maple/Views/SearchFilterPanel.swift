@@ -33,6 +33,7 @@ struct SearchFilterPanel: View {
           }
           Group {
             screenshotSection
+            hiddenSection
             subjectsSection
             extensionsSection
             rangeSection(title: "ISO",
@@ -230,6 +231,20 @@ struct SearchFilterPanel: View {
         }
         chip("Screenshots", selected: vm.params.isScreenshot == true) {
           vm.params.isScreenshot = true; Task { await vm.submit() }
+        }
+      }
+    }
+  }
+
+  // MARK: - Hidden
+
+  private var hiddenSection: some View {
+    section("Hidden") {
+      HStack(spacing: 6) {
+        ForEach(SearchHidden.allCases, id: \.self) { opt in
+          chip(opt.label, selected: vm.params.hidden == opt) {
+            vm.params.hidden = opt; Task { await vm.submit() }
+          }
         }
       }
     }
