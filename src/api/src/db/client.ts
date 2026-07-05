@@ -993,6 +993,29 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
+  // Hidden-images feature: `hidden` is `false`/absent for the overwhelming
+  // majority of assets, so this index is scoped (partialFilterExpression) to
+  // `hidden: true` — it can only ever help queries that are themselves
+  // looking FOR hidden assets, never the main browse/search route's default
+  // `hidden: { $ne: true }` exclusion (no index can narrow a "give me
+  // everything not in this small set" query the way it narrows "give me only
+  // this small set"). The two hot callers this does help:
+  //   - `workers/routes-status.ts`'s `newlyHiddenTotal` countDocuments,
+  //     polled every `STATUS_CACHE_TTL_MS` — without this it's a full
+  //     COLLSCAN on every tick.
+  //   - `routes/photos.ts`'s `GET /api/photos/hidden` listing.
+  // Both filter on `hidden: true` plus `hidden_ack`, so `hidden_ack` is
+  // included in the compound key; `hidden_reason` isn't (low selectivity
+  // once already narrowed to the hidden subset, and it would need a
+  // multi-value $in-friendly key order that isn't worth the maintenance
+  // cost here).
+  await db
+    .collection('assets')
+    .createIndex(
+      { hidden: 1, hidden_ack: 1 },
+      { name: 'hidden_pending', partialFilterExpression: { hidden: true } },
+    );
+
   // The former standalone `filename_1` index was retired by the
   // drop-abs-path-2026-05-21 migration at the end of this function;
   // filename queries now run against `fileinfo.filename`.
