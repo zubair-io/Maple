@@ -31,11 +31,12 @@ tests locally.
 
 ```bash
 npm install
+npm run cf-typegen    # generates worker-configuration.d.ts (Env type) — gitignored,
+                       # run this once after install and again after editing wrangler.jsonc
 npm run typecheck     # tsc --noEmit
 npm test              # vitest run, via @cloudflare/vitest-pool-workers
 npm run dev           # wrangler dev — local server at http://localhost:8787
 npm run deploy        # wrangler deploy
-npm run cf-typegen    # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 ```
 
 ## First-time setup (per Cloudflare account)

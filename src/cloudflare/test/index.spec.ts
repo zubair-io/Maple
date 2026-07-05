@@ -31,6 +31,8 @@ describe('thumbnail-cache Worker', () => {
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 		expect(response.status).toBe(401);
+		expect(response.headers.get('cache-control')).toBe('no-store');
+		expect(response.headers.get('www-authenticate')).toBe('Bearer');
 		expect(await env.THUMBS_BUCKET.get('thumbs/main/a.jpg')).toBeNull();
 	});
 
@@ -60,6 +62,25 @@ describe('thumbnail-cache Worker', () => {
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 	});
 
+	it('serves an R2 hit with the content-type stored on the object, not a hard-coded guess', async () => {
+		const token = await bearerToken();
+		await env.THUMBS_BUCKET.put('thumbs/main/hit.png', new Uint8Array([1, 2, 3]), {
+			httpMetadata: { contentType: 'image/png' },
+		});
+
+		const request = new IncomingRequest('https://example.com/api/thumb/main/hit.png', {
+			headers: { authorization: `Bearer ${token}` },
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		// Drain the body before the test ends — vitest-pool-workers' isolated
+		// storage teardown asserts every R2 object body was fully consumed.
+		await response.arrayBuffer();
+		await waitOnExecutionContext(ctx);
+
+		expect(response.headers.get('content-type')).toBe('image/png');
+	});
+
 	it('forwards to the origin on a miss and populates R2 for next time', async () => {
 		const token = await bearerToken();
 		const bytes = new Uint8Array([9, 9, 9]);
@@ -82,6 +103,28 @@ describe('thumbnail-cache Worker', () => {
 		const cached = await env.THUMBS_BUCKET.get('thumbs/main/miss.jpg');
 		expect(cached).not.toBeNull();
 		expect(new Uint8Array(await cached!.arrayBuffer())).toEqual(bytes);
+	});
+
+	it('forwards If-None-Match to the origin on a miss, so the origin can 304', async () => {
+		const token = await bearerToken();
+
+		fetchMock
+			.get('https://origin.test')
+			.intercept({
+				path: '/api/thumb/main/revalidate.jpg',
+				method: 'GET',
+				headers: { 'if-none-match': '"abc123"' },
+			})
+			.reply(304, '');
+
+		const request = new IncomingRequest('https://example.com/api/thumb/main/revalidate.jpg', {
+			headers: { authorization: `Bearer ${token}`, 'if-none-match': '"abc123"' },
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(304);
 	});
 
 	it('passes through a non-200 origin response (e.g. 202 unindexed) without caching it', async () => {
