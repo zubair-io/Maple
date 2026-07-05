@@ -232,8 +232,8 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // screenshot migration). Best-effort: a move failure must never fail the
   // describe stage — the migration is the backstop. The early `phasset_links`
   // gate keeps non-backup assets (and unit-test docs) off the DB path entirely.
-  // moveBackupAsset repoints fileinfo: [{ library_id: new ObjectId('5f8d04dc5b6e680017a42163'), path: 'sub', filename: 'img.dng', deleted_at: null }],
-  // and the stage write don't collide.
+  // moveBackupAsset repoints fileinfo directly; the metadata patch above does
+  // not touch fileinfo, so the relocation and the stage write don't collide.
   if (vision.is_screenshot && (image.phasset_links?.length ?? 0) > 0) {
     try {
       const outcome = await relocateBackupScreenshot(image._id);
@@ -251,8 +251,14 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     }
   }
 
-  // Nudity auto-hide safety net
-  if (vision.nudity_detected) {
+  // Nudity auto-hide safety net. Gated on the asset's own manual override:
+  // a user who explicitly unhid this asset (metadata_override.hidden ===
+  // false) must not have that choice silently reverted the next time this
+  // stage re-runs (retry, re-import, or a future prompt-version bump) and
+  // the vision verdict still/again says nudity_detected. Only an absent or
+  // `true` override lets the AI verdict (re)assert the hide.
+  const userExplicitlyUnhid = image.metadata_override?.hidden === false;
+  if (vision.nudity_detected && !userExplicitlyUnhid) {
     patch.hidden = true;
     if (image.hidden_reason !== 'manual') {
       patch.hidden_reason = 'nudity';
@@ -268,11 +274,15 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     if (image.hidden !== true) {
       try {
         const assets = await coll();
-        const siblings = await findBurstSiblings(assets, image as any);
+        const siblings = await findBurstSiblings(assets, image);
         if (siblings.length > 0) {
           const siblingIds = siblings.map((s) => s._id);
           await assets.updateMany(
-            { _id: { $in: siblingIds }, hidden: { $ne: true } },
+            {
+              _id: { $in: siblingIds },
+              hidden: { $ne: true },
+              'metadata_override.hidden': { $ne: false },
+            },
             {
               $set: {
                 hidden: true,
@@ -282,13 +292,18 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
             },
           );
 
-          // Write hidden markers for siblings
-          for (const sib of siblings) {
-            const sibAbsPath = assetAbsPath(sib, libs);
-            if (sibAbsPath) {
-              await writeHiddenMarker(sibAbsPath);
-            }
-          }
+          // Write hidden markers for siblings — a manually-unhidden sibling
+          // (metadata_override.hidden === false) is excluded from the DB
+          // update above, but its marker is left alone too, so DB and disk
+          // stay consistent for it.
+          await Promise.all(
+            siblings
+              .filter((sib) => sib.metadata_override?.hidden !== false)
+              .map((sib) => {
+                const sibAbsPath = assetAbsPath(sib, libs);
+                return sibAbsPath ? writeHiddenMarker(sibAbsPath) : Promise.resolve();
+              }),
+          );
           ctx.log.info(
             { assetId: image._id.toHexString(), siblingCount: siblings.length },
             'describe: propagated nudity-hide to burst siblings',

@@ -65,9 +65,7 @@
             <div class="flex items-center gap-2">
               <div class="flex flex-col">
                 <span class="text-[11px] font-mono text-text-main">{{ alert.filename }}</span>
-                <span class="text-[9px] text-text-muted"
-                  >Path: {{ alert.fileinfo?.[0]?.path || '/' }}</span
-                >
+                <span class="text-[9px] text-text-muted">Path: {{ alert.abs_path || '/' }}</span>
               </div>
             </div>
             <div class="flex items-center gap-1.5">

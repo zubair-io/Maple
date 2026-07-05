@@ -212,6 +212,12 @@ All emit together when `crop` is non-identity. `HasCrop="True"` signals crop dat
 - `papp:Flag` — only emitted when not "unflagged". Values: `pick` or `reject`.
 - `papp:ColorLabel` — only emitted when set. Values: `red` / `orange` /
   `yellow` / `green` / `blue`.
+- `papp:Hidden` — `"true"` or `"false"`. Explicit user override for the
+  hidden-image feature; absence means no override (the effective hidden
+  state falls back to the describe stage's nudity verdict — see
+  `AssetDoc.hidden` in `db/schema.ts`). Apple only emits the attribute when
+  `true` (parity note: both platforms treat an absent attribute as
+  `false`/no-override).
 
 ## Tone curves
 
