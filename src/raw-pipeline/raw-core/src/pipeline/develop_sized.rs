@@ -267,9 +267,9 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     // (bit-identical). See `wb_camera::retargeted_render_profile`.
     let dcp_profile = match &camera_wb_target {
         Some((frame, target_temperature, target_tint)) => {
-            wb_camera::retargeted_render_profile(frame, &profile, *target_temperature, *target_tint)
+            wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)
         }
-        None => profile.clone(),
+        None => profile,
     };
     // Colorimetry-only DCP per #425 — see `pipeline::develop` for the
     // rationale. PLT and PTC no longer run; HSM still does (metameric

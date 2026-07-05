@@ -140,8 +140,9 @@ fn retargeted_render_profile_is_identity_at_frame_as_shot() {
         scene_cct: 4800.0,
     };
 
-    // As-shot target (frame's own scene_cct, tint 0): bit-identical clone.
-    let retargeted = retargeted_render_profile(&frame, &profile, frame.scene_cct, 0.0);
+    // As-shot target (frame's own scene_cct, tint 0): bit-identical
+    // pass-through.
+    let retargeted = retargeted_render_profile(&frame, profile.clone(), frame.scene_cct, 0.0);
     assert_eq!(retargeted.color_matrix.0, profile.color_matrix.0);
     assert_eq!(
         retargeted.forward_matrix.map(|m| m.0),
@@ -150,7 +151,7 @@ fn retargeted_render_profile_is_identity_at_frame_as_shot() {
     assert_eq!(retargeted.scene_white_xyz, profile.scene_white_xyz);
 
     // Off-as-shot target: ONLY the ForwardMatrix moves.
-    let retargeted_warm = retargeted_render_profile(&frame, &profile, 2000.0, 0.0);
+    let retargeted_warm = retargeted_render_profile(&frame, profile.clone(), 2000.0, 0.0);
     assert_ne!(
         retargeted_warm.forward_matrix.map(|m| m.0),
         profile.forward_matrix.map(|m| m.0),

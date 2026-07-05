@@ -143,10 +143,8 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
                     &mut camera_rgb,
                     &frame,
                     raw.as_shot_neutral,
-                    model.temperature,
-                    model.tint,
-                    decoded_temperature,
-                    decoded_tint,
+                    (model.temperature, model.tint),
+                    (decoded_temperature, decoded_tint),
                 );
                 // The anchor contract promises the caller hydrated the
                 // model to explicit values (see `apply_delta`'s doc), so
@@ -178,9 +176,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // unchanged. See `wb_camera::retargeted_render_profile`.
     let dcp_profile = match &camera_wb_target {
         Some((frame, (target_temperature, target_tint))) => {
-            wb_camera::retargeted_render_profile(frame, &profile, *target_temperature, *target_tint)
+            wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)
         }
-        None => profile.clone(),
+        None => profile,
     };
     // Colorimetry-only DCP per #425 — PLT and PTC no longer run on any
     // path (see `pipeline::develop` for the strategic rationale).
