@@ -37,6 +37,7 @@ import { FormsModule } from '@angular/forms';
 import { type Subscription } from 'rxjs';
 import {
   BunApiBackendService,
+  type ApiHiddenPhoto,
   type DeadDoc,
   type EnrichmentConfigResponse,
   type PerformanceConfig,
@@ -106,7 +107,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   private readonly enrichmentApi = inject(BunApiBackendService);
   private readonly batchMetaSvc = inject(BatchMetadataService);
 
-  protected readonly hiddenAlerts = signal<any[]>([]);
+  protected readonly hiddenAlerts = signal<ApiHiddenPhoto[]>([]);
   protected readonly status = signal<WorkersStatusResponse | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly expanded = signal<Record<string, boolean>>({});
@@ -590,17 +591,27 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  protected acknowledgeAlert(asset: any): void {
+  private dismissAlert(assetId: string): void {
+    this.hiddenAlerts.update((list) => list.filter((a) => a.id !== assetId));
+  }
+
+  protected acknowledgeAlert(asset: ApiHiddenPhoto): void {
     this.enrichmentApi.acknowledgeHidden(asset.id).subscribe({
-      next: () => {
-        this.hiddenAlerts.update((list) => list.filter((a) => a.id !== asset.id));
-      },
+      next: () => this.dismissAlert(asset.id),
     });
   }
 
-  protected unhideAlert(asset: any): void {
+  protected unhideAlert(asset: ApiHiddenPhoto): void {
+    if (!asset.address) {
+      // No registered library slug for this asset — the batch route can't
+      // resolve an address for it. Acknowledge so the alert stops
+      // resurfacing; the operator can still unhide from the asset's own
+      // detail/batch-metadata panel, which resolves addresses differently.
+      this.acknowledgeAlert(asset);
+      return;
+    }
     const entry = {
-      address: asset.id,
+      address: asset.address,
       metadata: {
         hidden: false,
       },
@@ -609,9 +620,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
       next: (res) => {
         if (res.results?.[0]?.ok) {
           this.enrichmentApi.acknowledgeHidden(asset.id).subscribe({
-            next: () => {
-              this.hiddenAlerts.update((list) => list.filter((a) => a.id !== asset.id));
-            },
+            next: () => this.dismissAlert(asset.id),
           });
         }
       },
