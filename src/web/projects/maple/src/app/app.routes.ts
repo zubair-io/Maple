@@ -114,6 +114,15 @@ export const routes: Routes = [
         (m) => m.ObservabilityComponent,
       ),
   },
+  // #1757 — Cloudflare R2 thumbnail-mirror config + JWT-secret reveal for
+  // the Worker's `wrangler secret put`. Owner-only visibility is handled by
+  // the settings nav, not a route guard (same convention as observability).
+  {
+    path: 'settings/cloudflare',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/cloudflare/cloudflare.component').then((m) => m.CloudflareComponent),
+  },
   // S7 (#622) — responsive-program search experience. `/search` lands on
   // the new `<app-search>` (phone tab content + tablet/desktop overlay
   // payload). The rich Self-Hosted filter page (cameras, lenses, EXIF
