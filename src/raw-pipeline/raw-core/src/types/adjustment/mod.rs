@@ -146,7 +146,7 @@ pub use crop::Crop;
 // Profile / WhiteBalancePreset / ToneCurveMode split into their own
 // submodule to stay under the 600-LOC hard budget (PR #1730).
 mod render_enums;
-pub use render_enums::{Profile, ToneCurveMode, WhiteBalancePreset};
+pub use render_enums::{Profile, ToneCurveMode, WbScaleVersion, WhiteBalancePreset};
 
 /// Per-image develop settings.
 ///
@@ -180,6 +180,14 @@ pub struct AdjustmentModel {
     /// proper chromatic adaptation in CAT16 LMS cone space; legacy
     /// `DiagonalRec2020` keeps the pre-#431 von-Kries diagonal gains.
     pub wb_method: WbMethod,
+    /// WB slider-scale version of the sidecar's stored temperature/tint
+    /// (#1780). `V1` = pre-#1756 post-DCP CAT16 scale (converted on use by
+    /// `stages::wb_camera::resolve_target_versioned`); `V2` = ACR
+    /// calibration-frame scale (pass-through). Set by the XMP parser from
+    /// `papp:WbScaleVersion` / the Maple-authorship heuristic; default `V2`.
+    /// Not part of the codegen schema — internal parse-state, like
+    /// `temperature_seen`.
+    pub wb_scale_version: WbScaleVersion,
     pub exposure: f32, // -4..+4 EV, default 0
     /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
     /// spec § 4.1). Applied inside `scene_tone_controls` after exposure,
@@ -426,6 +434,7 @@ impl Default for AdjustmentModel {
             temperature_seen: false,
             tint_seen: false,
             wb_method: WbMethod::Cat16,
+            wb_scale_version: WbScaleVersion::V2,
             exposure: 0.0,
             brightness: 0.0,
             contrast: 0.0,

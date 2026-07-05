@@ -245,7 +245,11 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     let camera_wb_target =
         if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
             let frame = wb_camera::SliderFrame::resolve(raw, &profile);
-            let (target_temperature, target_tint) = wb_camera::resolve_target(model, &frame);
+            // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
+            // temperature/tint convert into the slider frame here so the
+            // authored look is preserved; V2 models resolve unchanged.
+            let (target_temperature, target_tint) =
+                wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
             stage("sized_wb_camera::apply", || {
                 wb_camera::apply(
                     &mut camera_rgb,

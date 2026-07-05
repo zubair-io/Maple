@@ -287,6 +287,58 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
     [p[0] + lift, p[1] + lift, p[2] + lift]
 }
 
+/// The linear camera→ProPhoto-D50 core of [`apply_colorimetry`]: the FM
+/// path (`inv(M_pro_to_xyz_d50) · FM`) when the profile carries a
+/// ForwardMatrix and pre-gain ran upstream, otherwise the Bradford
+/// fallback (`inv(M_pro) · bradford(scene_white → D50) · inv(CM)`). Kept as
+/// a named helper so [`camera_to_rec2020_matrix`] (the #1780 WB-scale
+/// migration's probe of the develop chain's linear rendering transform)
+/// shares the exact dispatch `apply_with_post_pro` renders with — a second
+/// hand-rolled copy of this match would drift.
+fn camera_to_prophoto_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
+    let inv_pro = M_PRO_TO_XYZ_D50
+        .inverse()
+        .expect("ProPhoto matrix is invertible");
+    match (profile.forward_matrix, profile.wb_already_baked) {
+        (Some(fm), true) => Ok(inv_pro.mul_mat(&fm)),
+        _ => {
+            // Non-FM / pre-gain-skipped path: invert CM here (lazily — the
+            // FM path doesn't need it and skipping the inversion saves a 3x3
+            // matrix inverse per image). CM is XYZ→camera per the DNG spec;
+            // we want the forward direction.
+            //
+            // Two reasons to reach here:
+            //   1. `forward_matrix` is `None` — no FM in the profile.
+            //   2. `wb_already_baked = false` — the 8-bit lossy LinearRaw
+            //      escape hatch (see `is_lossy_linearraw`): the converter
+            //      baked WB through gamma decode, so AsShotNeutral was NOT
+            //      pre-applied by the pipeline's `apply_pre_gain`. Applying
+            //      FM here would assume the buffer is WB-divided (FM's
+            //      contract per DNG SDK), which it is not — so we Bradford
+            //      instead of touching FM.
+            let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
+                crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
+            })?;
+            let adapt = bradford_adapt(profile.scene_white_xyz, XYZ_D50);
+            Ok(inv_pro.mul_mat(&adapt).mul_mat(&cam_to_xyz))
+        }
+    }
+}
+
+/// The full linear camera→Rec.2020-D65 transform [`apply_colorimetry`]'s
+/// fast (no-HSM) path folds per pixel: `m_pro_to_rec2020 ·
+/// camera_to_prophoto`. Used by the #1780 WB-scale migration
+/// (`stages::wb_camera::resolve_target_versioned`) to express the
+/// pre-#1756 post-DCP CAT16 white-balance cast as an equivalent
+/// camera-space gain: the migration needs "what does the develop chain
+/// render camera reading `r` as", and this matrix IS that answer for the
+/// linear core (HSM/LookTable are deliberately excluded — they are
+/// smooth, near-identity-at-neutral corrections, and the old CAT16 cast
+/// composed around them the same way the new camera gain does).
+pub(crate) fn camera_to_rec2020_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
+    Ok(m_pro_to_rec2020().mul_mat(&camera_to_prophoto_matrix(profile)?))
+}
+
 fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 
@@ -316,33 +368,7 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
     //     comment block; that path leaves WB baked through gamma decode).
     //     In both cases we invert CM, Bradford-adapt from the scene white
     //     to D50, then inverse-ProPhoto to enter ProPhoto D50.
-    let inv_pro = M_PRO_TO_XYZ_D50
-        .inverse()
-        .expect("ProPhoto matrix is invertible");
-    let cam_to_pro = match (profile.forward_matrix, profile.wb_already_baked) {
-        (Some(fm), true) => inv_pro.mul_mat(&fm),
-        _ => {
-            // Non-FM / pre-gain-skipped path: invert CM here (lazily — the
-            // FM path doesn't need it and skipping the inversion saves a 3x3
-            // matrix inverse per image). CM is XYZ→camera per the DNG spec;
-            // we want the forward direction.
-            //
-            // Two reasons to reach here:
-            //   1. `forward_matrix` is `None` — no FM in the profile.
-            //   2. `wb_already_baked = false` — the 8-bit lossy LinearRaw
-            //      escape hatch (see `is_lossy_linearraw`): the converter
-            //      baked WB through gamma decode, so AsShotNeutral was NOT
-            //      pre-applied by the pipeline's `apply_pre_gain`. Applying
-            //      FM here would assume the buffer is WB-divided (FM's
-            //      contract per DNG SDK), which it is not — so we Bradford
-            //      instead of touching FM.
-            let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
-                crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
-            })?;
-            let adapt = bradford_adapt(profile.scene_white_xyz, XYZ_D50);
-            inv_pro.mul_mat(&adapt).mul_mat(&cam_to_xyz)
-        }
-    };
+    let cam_to_pro = camera_to_prophoto_matrix(profile)?;
 
     if profile.hsm.is_some() || profile.look_table.is_some() {
         // Slow path: project to ProPhoto D50, run HSM (metameric correction)
