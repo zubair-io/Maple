@@ -1,7 +1,6 @@
 //! Unit tests for `scene_linear_chain`. Split into this submodule to stay
 //! under the 600-LOC file budget (#1181).
 use super::*;
-use crate::view::encode::TargetPrimaries;
 
 /// `apply_scene_linear_chain` over a default model is the AgX-only
 /// transform (every other stage short-circuits at default values). On
@@ -22,20 +21,8 @@ fn apply_scene_linear_chain_default_model_yields_agx_only() {
         input.push(one);
     }
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain(
-        &input,
-        w,
-        h,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    )
-    .expect("apply_scene_linear_chain default-model");
+    let out = apply_scene_linear_chain(&input, w, h, &model, &ChainOptions::default())
+        .expect("apply_scene_linear_chain default-model");
     assert_eq!(out.len(), input.len());
     let r = f16_bits_to_f32(out[0]);
     let g_out = f16_bits_to_f32(out[1]);
@@ -71,13 +58,10 @@ fn apply_scene_linear_chain_skip_agx_preserves_scene_linear() {
         w,
         h,
         &model,
-        6500.0,
-        0.0,
-        None,
-        true,
-        TargetPrimaries::Srgb,
-        None,
-        100,
+        &ChainOptions {
+            skip_agx: true,
+            ..ChainOptions::default()
+        },
     )
     .expect("apply_scene_linear_chain skip_agx");
     let r = f16_bits_to_f32(out[0]);
@@ -95,19 +79,7 @@ fn apply_scene_linear_chain_skip_agx_preserves_scene_linear() {
 fn apply_scene_linear_chain_rejects_size_mismatch() {
     let model = AdjustmentModel::default();
     let bogus_input = vec![0u16; 10];
-    let r = apply_scene_linear_chain(
-        &bogus_input,
-        4,
-        4,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    );
+    let r = apply_scene_linear_chain(&bogus_input, 4, 4, &model, &ChainOptions::default());
     assert!(r.is_err(), "size mismatch must error");
 }
 
@@ -123,19 +95,7 @@ fn apply_scene_linear_chain_rgba_length_overflow_errors() {
     // usize on 64-bit (usize::MAX = 0xFFFFFFFFFFFFFFFF). The reliable
     // overflow happens on the next step: `pixel_count * 4` for the RGBA
     // byte length, which the impl also guards with checked_mul.
-    let r = apply_scene_linear_chain(
-        &[],
-        u32::MAX,
-        u32::MAX,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    );
+    let r = apply_scene_linear_chain(&[], u32::MAX, u32::MAX, &model, &ChainOptions::default());
     match r {
         Err(crate::error::Error::Pipeline(msg)) => {
             assert!(
@@ -169,13 +129,10 @@ fn apply_scene_linear_chain_f32_skip_agx_is_identity_on_default_model() {
         w,
         h,
         &model,
-        6500.0,
-        0.0,
-        None,
-        true,
-        TargetPrimaries::Srgb,
-        None,
-        100,
+        &ChainOptions {
+            skip_agx: true,
+            ..ChainOptions::default()
+        },
     )
     .expect("apply_scene_linear_chain_f32 skip_agx default-model");
     assert_eq!(out.len(), input.len());
@@ -203,20 +160,8 @@ fn apply_scene_linear_chain_f32_default_model_yields_agx_only() {
         input.push(1.0);
     }
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain_f32(
-        &input,
-        w,
-        h,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    )
-    .expect("apply_scene_linear_chain_f32 default-model");
+    let out = apply_scene_linear_chain_f32(&input, w, h, &model, &ChainOptions::default())
+        .expect("apply_scene_linear_chain_f32 default-model");
     assert!(out[0] > 0.0 && out[0] < 1.0, "R out of [0,1]: {}", out[0]);
     assert!(
         (out[0] - out[1]).abs() < 1e-4,
@@ -238,19 +183,7 @@ fn apply_scene_linear_chain_f32_default_model_yields_agx_only() {
 fn apply_scene_linear_chain_f32_rejects_size_mismatch() {
     let model = AdjustmentModel::default();
     let bogus_input = vec![0.0f32; 10];
-    let r = apply_scene_linear_chain_f32(
-        &bogus_input,
-        4,
-        4,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    );
+    let r = apply_scene_linear_chain_f32(&bogus_input, 4, 4, &model, &ChainOptions::default());
     assert!(r.is_err(), "size mismatch must error");
 }
 
@@ -288,13 +221,10 @@ fn apply_scene_linear_chain_scrubs_non_finite_at_pack_endcap() {
         w,
         h,
         &model,
-        6500.0,
-        0.0,
-        None,
-        true,
-        TargetPrimaries::Srgb,
-        None,
-        100,
+        &ChainOptions {
+            skip_agx: true,
+            ..ChainOptions::default()
+        },
     )
     .expect("apply_scene_linear_chain NaN injection");
     for (i, &bits) in out.iter().enumerate() {
@@ -351,13 +281,10 @@ fn apply_scene_linear_chain_f32_scrubs_non_finite_at_pack_endcap() {
         w,
         h,
         &model,
-        6500.0,
-        0.0,
-        None,
-        true,
-        TargetPrimaries::Srgb,
-        None,
-        100,
+        &ChainOptions {
+            skip_agx: true,
+            ..ChainOptions::default()
+        },
     )
     .expect("apply_scene_linear_chain_f32 NaN injection");
     assert!(
@@ -384,19 +311,7 @@ fn apply_scene_linear_chain_f32_scrubs_non_finite_at_pack_endcap() {
 #[test]
 fn apply_scene_linear_chain_f32_rgba_length_overflow_errors() {
     let model = AdjustmentModel::default();
-    let r = apply_scene_linear_chain_f32(
-        &[],
-        u32::MAX,
-        u32::MAX,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    );
+    let r = apply_scene_linear_chain_f32(&[], u32::MAX, u32::MAX, &model, &ChainOptions::default());
     match r {
         Err(crate::error::Error::Pipeline(msg)) => {
             assert!(
@@ -420,32 +335,14 @@ fn with_patches_empty_matches_plain_entry_f32() {
         input.extend_from_slice(&[v, v * 0.9, v * 0.8, 1.0]);
     }
     let model = AdjustmentModel::default();
-    let plain = apply_scene_linear_chain_f32(
-        &input,
-        w,
-        h,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    )
-    .unwrap();
+    let plain =
+        apply_scene_linear_chain_f32(&input, w, h, &model, &ChainOptions::default()).unwrap();
     let with = apply_scene_linear_chain_f32_with_patches(
         &input,
         w,
         h,
         &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
+        &ChainOptions::default(),
         &[],
     )
     .unwrap();
@@ -480,13 +377,7 @@ fn with_patches_equals_manual_composite_then_chain_f32() {
         w,
         h,
         &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
+        &ChainOptions::default(),
         std::slice::from_ref(&patch),
     )
     .unwrap();
@@ -502,38 +393,14 @@ fn with_patches_equals_manual_composite_then_chain_f32() {
     for p in &img.pixels {
         composited.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
     }
-    let manual = apply_scene_linear_chain_f32(
-        &composited,
-        w,
-        h,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    )
-    .unwrap();
+    let manual =
+        apply_scene_linear_chain_f32(&composited, w, h, &model, &ChainOptions::default()).unwrap();
     assert_eq!(
         via_entry, manual,
         "with_patches must equal composite-then-chain"
     );
-    let plain = apply_scene_linear_chain_f32(
-        &input,
-        w,
-        h,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    )
-    .unwrap();
+    let plain =
+        apply_scene_linear_chain_f32(&input, w, h, &model, &ChainOptions::default()).unwrap();
     assert_ne!(
         via_entry, plain,
         "a full-coverage patch must change the output"
@@ -551,35 +418,10 @@ fn with_patches_empty_matches_plain_entry_fp16() {
         input.extend_from_slice(&[g, g, g, one]);
     }
     let model = AdjustmentModel::default();
-    let plain = apply_scene_linear_chain(
-        &input,
-        w,
-        h,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-    )
-    .unwrap();
-    let with = apply_scene_linear_chain_with_patches(
-        &input,
-        w,
-        h,
-        &model,
-        6500.0,
-        0.0,
-        None,
-        false,
-        TargetPrimaries::Srgb,
-        None,
-        100,
-        &[],
-    )
-    .unwrap();
+    let plain = apply_scene_linear_chain(&input, w, h, &model, &ChainOptions::default()).unwrap();
+    let with =
+        apply_scene_linear_chain_with_patches(&input, w, h, &model, &ChainOptions::default(), &[])
+            .unwrap();
     assert_eq!(
         plain, with,
         "fp16 empty patches must be bit-identical to the plain entry"
