@@ -18,7 +18,6 @@
 //! doc-comment for the rationale.
 
 mod composite;
-use composite::{composite_into_f32, composite_into_fp16};
 
 use super::{
     finite_or_zero,
