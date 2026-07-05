@@ -99,6 +99,20 @@ public actor GpuLiveSession {
         }
     }
 
+    /// Close the FFI handle NOW, on the actor (serialized behind any in-flight
+    /// present). `GpuLiveDriver.open` awaits this on the OLD session before
+    /// opening its replacement, making teardown deterministic (#1769) — the
+    /// pre-#1769 shape relied on `deinit`, which ran whenever ARC got around to
+    /// it, sometimes after the new session had already presented. Idempotent;
+    /// `deinit` remains the last-resort close for a session that was never
+    /// explicitly closed.
+    public func close() {
+        if var h = handle {
+            maple_gpu_live_close(&h)
+            handle = nil
+        }
+    }
+
     /// Fit (and cache on this session) the Auto Profile curve + residual LUT for
     /// `rawPath` under `Profile::Auto` — the A2 artifacts the chain's curve/LUT
     /// passes reapply every tick. A no-op (clears to `nil` → plain AgX) when the
@@ -193,7 +207,8 @@ public actor GpuLiveSession {
         cancel: CancelFlag?,
         asShotCCT: Double? = nil,
         asShotTint: Double? = nil,
-        inputShape: UInt32 = 0
+        inputShape: UInt32 = 0,
+        surfaceGeneration: UInt64 = 0
     ) throws -> Double? {
         guard var h = handle else {
             throw GpuLiveError(message: "present: session is closed")
@@ -217,7 +232,7 @@ public actor GpuLiveSession {
         // RECORDING, not the cheap timestamp).
         let t0 = CACurrentMediaTime()
         let rc = withGpuLiveParams(params) { pp in
-            maple_gpu_present_chain(&h, pp, layerPtr, cancelPtr)
+            maple_gpu_present_chain(&h, pp, layerPtr, cancelPtr, surfaceGeneration)
         }
         let elapsedMs = (CACurrentMediaTime() - t0) * 1000.0
 

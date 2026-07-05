@@ -439,7 +439,8 @@ struct EditorView: View {
         FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: state.session.asset.isRaw,
-            showingOriginal: state.session.showingOriginal
+            showingOriginal: state.session.showingOriginal,
+            presentFailed: state.session.gpuPresentFailed
         )
     }
 

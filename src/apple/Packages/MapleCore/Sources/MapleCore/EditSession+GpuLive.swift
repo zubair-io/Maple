@@ -46,7 +46,10 @@ extension EditSession {
     ///   * the runtime flag is off / no driver (a gpu build with `MAPLE_GPU_LIVE`
     ///     unset),
     ///   * no canvas layer is registered yet (the view hasn't laid out),
-    ///   * the f32 readback or the session open fails (surfaced, then CPU).
+    ///   * the f32 readback or the session open fails (surfaced, then CPU),
+    ///   * the present itself THREW (#1769) — `gpuPresentFailed` flips, the GPU
+    ///     canvas leaf unmounts, and this same pass publishes via the CPU path
+    ///     so a torn drawable never stays on glass.
     ///
     /// Non-RAW assets (pano PNG, JPEG, HEIF) are now also handled via the GPU
     /// live chain with `inputShape = LinearRec2020Fp16` (#1331): the CPU decode
@@ -137,7 +140,7 @@ extension EditSession {
             }
             editSessionLogger.notice("GPU-TRACE readback ok pixels=\(buf.pixels.count) dims=\(buf.width)x\(buf.height) firstPx=[\(buf.pixels[0]), \(buf.pixels[1]), \(buf.pixels[2]), \(buf.pixels[3])]")
             do {
-                try driver.open(
+                try await driver.open(
                     pixels: buf.pixels, width: buf.width, height: buf.height,
                     inputShape: inputShape)
                 editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0) inputShape=\(inputShape)")
@@ -169,12 +172,11 @@ extension EditSession {
         }
 
         renderError = nil
-        // Align the layer's drawableSize to the image dims BEFORE present —
-        // see `GpuLiveDriver.setDrawableSize` doc for why; without this the
-        // viewport-derived drawableSize is 1 pixel off the image dims, the
-        // wgpu chain's `surface_dims == image_dims` assertion fails, and the
-        // present throws `GpuLiveError(1)` (#1240).
-        driver.setDrawableSize(width: dims.width, height: dims.height)
+        // NOTE (#1769): the driver no longer writes `layer.drawableSize` here —
+        // wgpu's `surface.configure` is the single writer (see
+        // `GpuLiveDriver.register`). The old host-side write invalidated the
+        // drawable pool on every 1-px disagreement, un-protected by the
+        // settle double-present.
         editSessionLogger.notice("GPU-TRACE present begin gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height)")
         var presentErr: Error? = nil
         await driver.present(
@@ -186,10 +188,19 @@ extension EditSession {
             self?.renderError = error
         }
         if let presentErr {
-            editSessionLogger.notice("GPU-TRACE present FAILED gen=\(gen ?? 0): \(presentErr.localizedDescription, privacy: .public)")
-        } else {
-            editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
+            // NO silent failure (#1769): a thrown present means nothing (or a
+            // torn frame) is on glass and the GPU path has no repaint of its
+            // own. Returning `false` sends this same `decodeAndRender` pass
+            // down the CPU `processSceneLinear` + `renderedPreview` publish,
+            // and `gpuPresentFailed` unmounts the GPU canvas leaf so the CPU
+            // preview is actually visible. Pre-#1769 this path returned `true`
+            // ("handled"), leaving a stale/torn drawable on screen with no
+            // recovery until the next successful GPU present.
+            gpuPresentFailed = true
+            editSessionLogger.notice("GPU-TRACE present FAILED gen=\(gen ?? 0), falling back to CPU canvas: \(presentErr.localizedDescription, privacy: .public)")
+            return false
         }
+        editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
         if !gpuFramePresented { gpuFramePresented = true }
         // GPU analog of the CPU publish clear (#1221): `decodeAndRender` returns
         // early on a successful GPU present and never reaches its `renderedPreview`

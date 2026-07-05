@@ -70,6 +70,11 @@ struct AppShell: View {
     // by `body` / layout code stay `private`.
     @State var browseVM = BrowseViewModel()
     @State var sessions: [AssetRef.ID: EditSession] = [:]
+    /// Scene activation hook (#1769, iOS): Metal discards presents issued
+    /// while the app is backgrounded, so a GPU-live canvas backgrounded
+    /// mid-present can come back torn with nothing scheduled to repaint it.
+    /// On `.active` we ask the active editor session for one re-present.
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showExport = false
     @State private var showSettings = false
     // Held in @State (not constructed inside the .sheet content closure) so a
@@ -588,6 +593,16 @@ struct AppShell: View {
         // free before the new one renders.
         .onChange(of: browseVM.selectedID) { _, _ in
             pruneInactiveSessions()
+        }
+        // Foreground re-present (#1769, iOS): see the `scenePhase` property doc.
+        // macOS windows aren't backgrounded the same way (presents aren't
+        // discarded), so this is iOS-only.
+        .onChange(of: scenePhase) { _, newPhase in
+            #if os(iOS)
+            if newPhase == .active {
+                selectedSession?.representOnForeground()
+            }
+            #endif
         }
     }
 

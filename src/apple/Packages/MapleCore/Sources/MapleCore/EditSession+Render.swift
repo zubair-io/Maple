@@ -68,6 +68,23 @@ extension EditSession {
         _scheduleRender(phase: .fast)
     }
 
+    /// Re-present the current model after the scene returns to `.active`
+    /// (#1769, iOS). Metal discards presents issued while the app is
+    /// backgrounded, and CoreAnimation may hand back a stale/partial drawable
+    /// on reactivation — nothing else in the pipeline repaints when the MODEL
+    /// hasn't changed, so a canvas backgrounded mid-present could stay torn
+    /// indefinitely. One cheap fast-phase pass (cached decode → GPU present)
+    /// puts a whole frame back on glass. No-op when the GPU path isn't active
+    /// (the CPU `renderedPreview` is a plain SwiftUI image — reactivation
+    /// re-composites it for free).
+    public func representOnForeground() {
+        guard GpuLiveFlag.isEnabled,
+              gpuLiveDriver?.hasLayer == true,
+              gpuFramePresented,
+              !gpuPresentFailed else { return }
+        _scheduleRender(phase: .fast)
+    }
+
     /// Bake the current model against a fresh full-quality decode for export.
     public func renderForExport() async throws -> CIImage {
         let asShot: ImageEditPipeline.AsShotWB? = {
