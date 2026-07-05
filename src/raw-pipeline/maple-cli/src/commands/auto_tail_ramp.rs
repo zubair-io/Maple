@@ -101,7 +101,14 @@ mod imp {
     /// Build one `width × height` `DisplayEncodedSrgb` ramp. `None` hue →
     /// neutral (r = g = b = x/(w-1)); `Some((hue_deg, l))` → constant-L
     /// constant-hue Oklab chroma ramp, gamma-encoded.
-    fn build_ramp(width: u32, height: u32, hue: Option<(f32, f32)>) -> Image {
+    ///
+    /// Errors (instead of clamping) when a hue-ramp sample lands outside
+    /// `[0, 1]³`: the bisected chroma ceiling's 2% margin guarantees every
+    /// sample sits strictly inside the sRGB hull, so an out-of-hull value
+    /// here is a ramp-generation bug — a silent hard clamp would mask it
+    /// with a C¹ kink of its own and blunt the gate's whole premise (any
+    /// output kink must be the fitted tail's).
+    fn build_ramp(width: u32, height: u32, hue: Option<(f32, f32)>) -> Result<Image, String> {
         let mut img = Image::new(width, height, ColorSpace::DisplayEncodedSrgb);
         let m_rec2020_to_srgb = raw_core::color::matrices::M_REC2020_TO_SRGB;
         let c_max = hue.map(|(h, l)| max_in_gamut_chroma(l, h));
@@ -118,17 +125,24 @@ mod imp {
                         let hue_rad = hue_deg.to_radians();
                         let lab = [l, c * hue_rad.cos(), c * hue_rad.sin()];
                         let srgb_lin = m_rec2020_to_srgb.mul_vec(oklab_to_rec2020(lab));
+                        if srgb_lin.iter().any(|v| !(0.0..=1.0).contains(v)) {
+                            return Err(format!(
+                                "ramp sample out of sRGB hull at t={t} (hue={hue_deg}, l={l}, \
+                                 c={c}): {srgb_lin:?} — the bisected chroma ceiling should make \
+                                 this impossible; refusing to clamp a generation bug away"
+                            ));
+                        }
                         [
-                            encode::srgb_gamma(srgb_lin[0].clamp(0.0, 1.0)),
-                            encode::srgb_gamma(srgb_lin[1].clamp(0.0, 1.0)),
-                            encode::srgb_gamma(srgb_lin[2].clamp(0.0, 1.0)),
+                            encode::srgb_gamma(srgb_lin[0]),
+                            encode::srgb_gamma(srgb_lin[1]),
+                            encode::srgb_gamma(srgb_lin[2]),
                         ]
                     }
                 };
                 img.pixels[y * width as usize + x] = rgb;
             }
         }
-        img
+        Ok(img)
     }
 
     pub fn run(
@@ -234,7 +248,7 @@ mod imp {
             (HUE_RAMPS[3].0, Some((HUE_RAMPS[3].1, HUE_RAMPS[3].2))),
         ];
         for (name, hue) in ramps {
-            let mut ramp = build_ramp(width, height, hue);
+            let mut ramp = build_ramp(width, height, hue)?;
             let mut ramp_flat: Vec<f32> = ramp
                 .pixels
                 .iter()
