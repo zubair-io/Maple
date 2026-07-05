@@ -16,7 +16,8 @@ export type SettingsSection =
   | 'people'
   | 'users'
   | 'observability'
-  | 'pano';
+  | 'pano'
+  | 'cloudflare';
 
 interface NavItem {
   readonly id: SettingsSection;
@@ -63,6 +64,14 @@ const ITEMS: readonly NavItem[] = [
     sub: 'Panorama stitching',
   },
   { id: 'users', label: 'Users', icon: 'key', link: '/settings/users', ownerOnly: true },
+  {
+    id: 'cloudflare',
+    label: 'Cloudflare',
+    icon: 'globe',
+    link: '/settings/cloudflare',
+    ownerOnly: true,
+    sub: 'Edge thumbnail cache',
+  },
 ];
 
 @Component({
