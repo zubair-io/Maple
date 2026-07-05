@@ -51,7 +51,7 @@ struct Params {
 // GAMUT_BISECT_ITERS: bisection iteration count (24 → relative precision < 1e-6).
 // GAMUT_EPS: per-channel lower tolerance for the "in gamut" predicate.
 const GAMUT_KNEE_FRACTION: f32 = 0.8;
-const GAMUT_BISECT_ITERS: i32 = 12;
+const GAMUT_BISECT_ITERS: i32 = 24;
 const GAMUT_EPS: f32 = 1e-5;
 
 // Sign-preserving cube root (WGSL has no `cbrt`; `pow(x, 1/3)` is NaN for x<0).

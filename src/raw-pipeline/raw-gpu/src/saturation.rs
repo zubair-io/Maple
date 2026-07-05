@@ -49,7 +49,7 @@ struct Params {
 // gate pins all three together. (Not codegen color matrices — stage-local
 // scalars, inlined like scene_tone's LUMA_REC2020.)
 const GAMUT_KNEE_FRACTION: f32 = 0.8;
-const GAMUT_BISECT_ITERS: usize = 12;
+const GAMUT_BISECT_ITERS: usize = 24;
 const GAMUT_EPS: f32 = 1e-5;
 
 // ── Oklab helpers (duplicated from raw_core::color::oklab) ────────────────
