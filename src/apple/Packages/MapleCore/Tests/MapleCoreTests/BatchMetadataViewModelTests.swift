@@ -459,7 +459,7 @@ final class BatchMetadataViewModelTests: XCTestCase {
 
         let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
         let (_, parsedCulling) = try XMPParser.parse(xml)
-        XCTAssertTrue(parsedCulling.hidden, "Touched hidden must be written to sidecar")
+        XCTAssertEqual(parsedCulling.hidden, true, "Touched hidden must be written to sidecar")
     }
 
     func testHiddenMixedDetected() async throws {

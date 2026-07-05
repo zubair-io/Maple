@@ -201,4 +201,42 @@ describe('/api/photos/hidden & /api/assets/:id/hidden-ack', () => {
     const doc = await assets.findOne({ _id: targetId });
     expect(doc?.hidden_ack).toBe(true);
   });
+
+  it('POST /api/assets/:id/hidden-ack does not touch a manually-hidden asset', async () => {
+    if (!db) return;
+    const assets = db.collection('assets');
+    const targetId = new ObjectId();
+    await assets.insertOne({
+      _id: targetId,
+      size: 100,
+      mtime: Date.now(),
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: new Date().toISOString(),
+      fileinfo: [
+        {
+          library_id: new ObjectId('111111111111111111111111'),
+          path: 'sub',
+          filename: 'img4.dng',
+          deleted_at: null,
+        },
+      ],
+      hidden: true,
+      hidden_reason: 'manual',
+    });
+
+    const res = await app().handle(
+      new Request(`http://localhost/api/assets/${targetId.toHexString()}/hidden-ack`, {
+        method: 'POST',
+      }),
+    );
+    // hidden_ack is meaningless for a manual hide — the route scopes its
+    // update to AI-driven hides only, so a manual hide's id resolves as
+    // "not an AI-driven hide" rather than being silently stamped anyway.
+    expect(res.status).toBe(404);
+
+    const doc = await assets.findOne({ _id: targetId });
+    expect(doc?.hidden_ack).toBeUndefined();
+  });
 });
