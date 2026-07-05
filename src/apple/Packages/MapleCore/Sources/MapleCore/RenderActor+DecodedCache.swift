@@ -72,7 +72,7 @@ extension RenderActor {
             // or flip a cancel flag here — same-asset slider ticks during a cold
             // open share this one decode and its flag; nobody cancels until a
             // genuinely different decode supersedes it (the replace path below).
-            guard let (decoded, _, _) = await existing.value else { return nil }
+            guard let (decoded, _, _, _) = await existing.value else { return nil }
             if decodedAtModel == nil {
                 decodedAtModel = EditSession.parseSidecarModel(for: asset)
             }
@@ -103,7 +103,7 @@ extension RenderActor {
         // cancelAll can flip it to abandon this decode.
         let cancelFlag = CancelFlag()
         decodeCancelFlag = cancelFlag
-        let task: Task<(CIImage, [Float]?, UInt32)?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
+        let task: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?)?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
             var dispatchAsset = asset
             var dispatchIsRaw = extensionIsRaw
             if needsSniff, let provider = asset.bytesProvider {
@@ -154,7 +154,7 @@ extension RenderActor {
                     )
                 }
                 guard let nonRawImage else { return nil }
-                return (nonRawImage, nil, 0)
+                return (nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none)
             }
             let asset = dispatchAsset
             let sidecar: URL? = {
@@ -178,7 +178,10 @@ extension RenderActor {
                     )
                 }
                 guard let sizedResult else { return nil }
-                return (sizedResult.image, sizedResult.noiseProfile, sizedResult.iso)
+                return (
+                    sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
+                    sizedResult.wbFrame
+                )
             }
             // #940 — refine pass (full-resolution): use AMaZE when AmazeFlag
             // is enabled, otherwise bilinear Full (the production default).
@@ -194,7 +197,10 @@ extension RenderActor {
                 )
             }
             guard let refineResult else { return nil }
-            return (refineResult.image, refineResult.noiseProfile, refineResult.iso)
+            return (
+                refineResult.image, refineResult.noiseProfile, refineResult.iso,
+                refineResult.wbFrame
+            )
         }
         decodeTask = task
         decodeTaskAssetID = asset.id
@@ -204,7 +210,7 @@ extension RenderActor {
         let decodeResult = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
 
-        guard let (decoded, decodeNoiseProfile, decodeISO) = decodeResult else {
+        guard let (decoded, decodeNoiseProfile, decodeISO, decodeWbFrame) = decodeResult else {
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil
                 decodeTaskAssetID = nil
@@ -262,6 +268,9 @@ extension RenderActor {
             // fresh full cache also doesn't update the noise profile/ISO.
             decodedNoiseProfile = decodeNoiseProfile
             decodedISO = decodeISO
+            // #1781: the slider-frame export rides the same write gate as
+            // the buffer it describes.
+            decodedWbFrame = decodeWbFrame
         }
         if decodeTaskAssetID == asset.id {
             decodeTask = nil
@@ -335,6 +344,7 @@ extension RenderActor {
         decodedProfile = nil
         decodedNoiseProfile = nil
         decodedISO = 0
+        decodedWbFrame = nil
     }
 
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
@@ -374,7 +384,8 @@ extension RenderActor {
             isFull: decodedIsFull,
             profile: decodedProfile,
             noiseProfile: decodedNoiseProfile,
-            iso: decodedISO
+            iso: decodedISO,
+            wbFrame: decodedWbFrame
         )
     }
 
@@ -430,6 +441,9 @@ extension RenderActor {
         // the profile unknown so the first real render re-decodes for RAW
         // Auto rather than reusing an AE-On preview under the Auto cube.
         self.decodedProfile = nil
+        // Seeded preview buffers carry no slider-frame export (#1781); a
+        // stale frame from a previous decode must not describe them.
+        self.decodedWbFrame = nil
     }
 
     public func seedIfUnpopulated(
@@ -449,6 +463,7 @@ extension RenderActor {
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = false
         self.decodedProfile = nil  // #871 — see `seed(...)`
+        self.decodedWbFrame = nil  // #1781 — see `seed(...)`
         return true
     }
 }

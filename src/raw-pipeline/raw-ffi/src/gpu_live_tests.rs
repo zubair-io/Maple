@@ -284,6 +284,14 @@ pub(super) fn make_params(
         input_shape: 0,
         // Auto/AgX view tail (#1722 default, value 0).
         profile_id: 0,
+        // WB slider frame absent (#1781 default: zero-filled tail = the
+        // legacy generic-CAT16 behaviour these parity tests calibrate).
+        wb_frame_m_cold: [0.0; 9],
+        wb_frame_cct_cold: 0.0,
+        wb_frame_m_warm: [0.0; 9],
+        wb_frame_cct_warm: 0.0,
+        wb_frame_scene_cct: 0.0,
+        wb_frame_as_shot_tint: 0.0,
     }
 }
 
