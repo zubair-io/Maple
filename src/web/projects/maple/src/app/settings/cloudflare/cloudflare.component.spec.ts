@@ -154,14 +154,18 @@ describe('CloudflareComponent', () => {
     await flushJwtSecretReveal('super-secret-value');
     fixture.detectChanges();
 
+    const originalClipboard = navigator.clipboard;
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
+    try {
+      const copyBtn = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll('.secret-box button'),
+      ).find((b) => b.textContent?.trim() === 'Copy') as HTMLButtonElement;
+      copyBtn.click();
 
-    const copyBtn = Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll('.secret-box button'),
-    ).find((b) => b.textContent?.trim() === 'Copy') as HTMLButtonElement;
-    copyBtn.click();
-
-    expect(writeText).toHaveBeenCalledWith('super-secret-value');
+      expect(writeText).toHaveBeenCalledWith('super-secret-value');
+    } finally {
+      Object.assign(navigator, { clipboard: originalClipboard });
+    }
   });
 });
