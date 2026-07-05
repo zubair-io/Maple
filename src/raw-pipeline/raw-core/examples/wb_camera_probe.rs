@@ -69,7 +69,7 @@ fn render_at(
             temperature,
             tint,
         );
-        let dcp_profile = wb_camera::retargeted_render_profile(&frame, &profile, temperature, tint);
+        let dcp_profile = wb_camera::retargeted_render_profile(&frame, profile, temperature, tint);
         return Ok(dcp::apply_colorimetry(&camera_rgb, &dcp_profile)?);
     }
     Ok(dcp::apply_colorimetry(&camera_rgb, &profile)?)
