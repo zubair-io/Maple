@@ -133,6 +133,14 @@
     &:checked + .toggle-track::after {
       transform: translateX(14px);
     }
+
+    // The checkbox itself is visually hidden (opacity: 0 above), so its
+    // focus ring must be drawn on the visible track instead — otherwise
+    // keyboard users get no indication the control is focused.
+    &:focus-visible + .toggle-track {
+      outline: 2px solid var(--color-accent, #0066cc);
+      outline-offset: 2px;
+    }
   }
 }
 

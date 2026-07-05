@@ -197,6 +197,9 @@ export class CloudflareComponent implements OnInit {
   protected copyJwtSecret(): void {
     const state = this.jwtSecretState();
     if (state.kind !== 'revealed') return;
+    // Clipboard API is unavailable in non-secure contexts / older browsers —
+    // same guard as users.component.ts's copyCode().
+    if (typeof navigator === 'undefined' || !('clipboard' in navigator)) return;
     void navigator.clipboard.writeText(state.secret).then(() => {
       this.jwtSecretCopied.set(true);
       setTimeout(() => this.jwtSecretCopied.set(false), 2000);
