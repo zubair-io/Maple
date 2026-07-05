@@ -7,8 +7,9 @@
 //! there. This command closes that gap: it fits the SHIPPING Auto Profile
 //! tail from a real RAW (through the production entry point
 //! `auto_profile::apply_pipeline::fit_auto_profile_artifacts`, so
-//! `MAPLE_AUTO2` selects Auto 1.0 vs Auto 2.0 exactly as it does in the
-//! app), applies that fitted tail to smooth display-space ramps, and dumps
+//! `MAPLE_AUTO1` selects Auto 1.0 vs the default Auto 2.0 exactly as it
+//! does in the app), applies that fitted tail to smooth display-space
+//! ramps, and dumps
 //! the results as `18_auto_tail.exr` stage dumps that
 //! `src/scripts/banding_check.py` gates with the standard second-difference
 //! spike metric.
@@ -26,7 +27,7 @@
 //!
 //! Exit codes: 0 = dumps written; 3 = skip (no embedded preview — mirrors
 //! `extract-preview` / `fit-auto2`); 4 = the fit produced NO tail (a solve
-//! failure — under `MAPLE_AUTO2` this means Auto 2.0 silently degraded to
+//! failure — in the default mode this means Auto 2.0 silently degraded to
 //! "no Auto Profile", which the banding gate must surface, not skip).
 //!
 //! Feature gate: `stage-dump` (the EXR writer lives behind it).
@@ -56,7 +57,7 @@ mod imp {
     use raw_core::types::adjustment::AutoExposureMode;
     use raw_core::view::auto_profile::apply_curve;
     use raw_core::view::auto_profile::apply_pipeline::{
-        auto2_enabled_by_env, fit_auto_profile_artifacts,
+        auto1_enabled_by_env, fit_auto_profile_artifacts,
     };
     use raw_core::view::auto_profile::lut::lut_strength_from_env;
     use raw_core::view::auto_profile::preview;
@@ -210,12 +211,13 @@ mod imp {
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect();
 
-        // The PRODUCTION fit entry — `MAPLE_AUTO2` selects the Auto 1.0
-        // curve+LUT fit or the Auto 2.0 structured fit exactly as in the app.
-        let mode = if auto2_enabled_by_env() {
-            "auto2"
-        } else {
+        // The PRODUCTION fit entry — `MAPLE_AUTO1` selects the Auto 1.0
+        // curve+LUT fit; the default is the Auto 2.0 structured fit,
+        // exactly as in the app (#1740 M2).
+        let mode = if auto1_enabled_by_env() {
             "auto1"
+        } else {
+            "auto2"
         };
         eprintln!("[auto-tail-ramp] fitting Auto Profile tail (mode={mode}) ...");
         let (curve, residual) = fit_auto_profile_artifacts(
