@@ -11,7 +11,7 @@ use quick_xml::reader::Reader;
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
     AdjustmentModel, AutoExposureMode, Crop, HighlightRecoveryMode, HotPixelSuppressionMode, Look,
-    Profile, ToneCurveMode, WbMethod,
+    Profile, ToneCurveMode, WbMethod, WbScaleVersion,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
@@ -27,6 +27,22 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     let mut model = AdjustmentModel::default();
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
+
+    // WB scale versioning (#1780) — document-level state. `papp_seen`
+    // records whether ANY element carries the Maple `papp:` namespace
+    // (declaration or attribute); every Maple writer declares it
+    // unconditionally, so its presence identifies a Maple-authored sidecar.
+    // The prefix (not a URI) is the discriminator because the three Maple
+    // writers historically bound `papp` to different URIs, while all three
+    // parsers key attribute lookups on the `papp:` prefix. An explicit
+    // `papp:WbScaleVersion` stamp always wins; a Maple-authored document
+    // without one that carries an explicit `crs:Temperature`/`crs:Tint`
+    // predates the versioning (pre-#1756 scale, V1); everything else — a
+    // document with no `papp:` namespace at all (ACR/Lightroom-authored,
+    // always expressed in ACR's own slider scale) or one with no authored
+    // WB (nothing to convert; scale-agnostic) — is V2.
+    let mut papp_seen = false;
+    let mut stamp: Option<WbScaleVersion> = None;
 
     loop {
         match reader.read_event() {
@@ -77,6 +93,21 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                     let value = attr
                         .unescape_value()
                         .map_err(|e| Error::Xmp(e.to_string()))?;
+                    if key == "xmlns:papp" || key.starts_with("papp:") {
+                        papp_seen = true;
+                    }
+                    if key == "papp:WbScaleVersion" {
+                        stamp = Some(match value.as_ref() {
+                            "1" => WbScaleVersion::V1,
+                            "2" => WbScaleVersion::V2,
+                            other => {
+                                return Err(Error::Xmp(format!(
+                                    "unknown WbScaleVersion: {}",
+                                    other
+                                )))
+                            }
+                        });
+                    }
                     set_field(
                         &mut model,
                         key,
@@ -92,6 +123,12 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
             _ => {}
         }
     }
+    let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
+    model.wb_scale_version = stamp.unwrap_or(if unstamped_is_v1 {
+        WbScaleVersion::V1
+    } else {
+        WbScaleVersion::V2
+    });
     Ok(model)
 }
 
@@ -381,6 +418,7 @@ fn set_field(
         "crs:CropAngle" => m.crop.angle = v()?,
         "crs:HasCrop" => {}             // consumed in the pre-pass
         "crs:CropConstrainToWarp" => {} // ACR compat — no Maple semantics
+        "papp:WbScaleVersion" => {}     // consumed at document level in `parse` (#1780)
         _ => {}                         // Slices 1-2-3-4 ignore everything else.
     }
     Ok(())
@@ -478,3 +516,5 @@ mod tests_effects;
 mod tests_metadata;
 #[cfg(test)]
 mod tests_modes;
+#[cfg(test)]
+mod tests_wb_scale;
