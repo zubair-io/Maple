@@ -196,6 +196,15 @@ mod frame_delta;
 pub use frame::SliderFrame;
 pub use frame_delta::SliderFrameExport;
 
+// WB slider-scale migration (#1780): converts pre-#1756 (V1) stored
+// temperature/tint into this module's slider frame at develop time. Split
+// into a sibling file for the 600-line budget; re-exported so callers
+// address it as `wb_camera::resolve_target_versioned`.
+#[path = "wb_camera_scale.rs"]
+mod scale;
+
+pub use scale::resolve_target_versioned;
+
 /// The literal numeric defaults `AdjustmentModel::default()` assigns to
 /// `temperature`/`tint`. See the module doc's "As-Shot seeding" section for
 /// why this pair, checked alongside `temperature_seen`/`tint_seen`, is the
