@@ -286,6 +286,17 @@ struct EditorView: View {
         // keeps its top inset so the pill clears the notch/status bar.
         .ignoresSafeArea(edges: isRegular ? .top : [])
         .background(MapleTokens.bg.ignoresSafeArea())
+        // Scope the shell identifier to a CONTAINER element (#1769). A bare
+        // `.accessibilityIdentifier` on a multi-element view BROADCASTS the
+        // identifier onto every contained accessibility element, overriding
+        // the ones they set for themselves — a11y dumps showed every editor
+        // element (the `canvas-render-ready` sentinel, `canvas-zoom-indicator`,
+        // even toolbar buttons) reading `editor-view` on BOTH platforms, which
+        // silently broke the macOS golden visual harness (it waits on the
+        // canvas sentinel) and blocked the iPad seam harness. `.contain`
+        // makes `editor-view` its own container node and leaves descendants'
+        // identifiers intact.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor-view")
         // Kick the render once this view is the active editor for the
         // current asset.  `ensureRenderStarted()` is idempotent (guards
@@ -480,6 +491,24 @@ struct EditorView: View {
                 }
             }
             .accessibilityElement(children: .ignore)
+            // The label is REQUIRED for the element to exist on iOS at all: a
+            // children-ignored element with no label/traits is pruned from the
+            // UIKit accessibility tree, which hid the ready sentinel from the
+            // iPad XCUITest harness (#1769). macOS exposes it either way.
+            // Also the repo's a11y contract: every element needs a label.
+            .accessibilityLabel("Editor canvas")
+            // Readiness rides BOTH the identifier (the macOS harness contract)
+            // and the VALUE: on iOS the root-level `editor-view` identifier
+            // (line ~289) clobbers every descendant element's identifier
+            // (verified via a11y dump — even `canvas-zoom-indicator` reads
+            // `editor-view` there), so the iPad harness matches on
+            // label + value instead (#1769).
+            .accessibilityValue(
+                FullImageViewVM.canvasAccessibilityID(
+                    isRendering: state.session.isRendering,
+                    hasPreview: state.session.gpuFramePresented
+                )
+            )
             .accessibilityIdentifier(
                 FullImageViewVM.canvasAccessibilityID(
                     isRendering: state.session.isRendering,
@@ -492,6 +521,15 @@ struct EditorView: View {
             // exactly as FullImageView does.
             CanvasImageView(image: preview)
                 .accessibilityElement(children: .ignore)
+                // See the GPU branch: label + value materialize the element
+                // and carry the ready sentinel on iOS (#1769).
+                .accessibilityLabel("Editor canvas")
+                .accessibilityValue(
+                    FullImageViewVM.canvasAccessibilityID(
+                        isRendering: state.session.isRendering,
+                        hasPreview: state.session.renderedPreview != nil
+                    )
+                )
                 .accessibilityIdentifier(
                     FullImageViewVM.canvasAccessibilityID(
                         isRendering: state.session.isRendering,

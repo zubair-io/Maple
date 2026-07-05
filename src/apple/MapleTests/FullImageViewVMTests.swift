@@ -65,4 +65,19 @@ final class FullImageViewVMTests: XCTestCase {
       FullImageViewVM.shouldPresentViaGpuCanvas(
         flagEnabled: false, isRaw: false, showingOriginal: false))
   }
+
+  func testPresentFailureUnmountsGpuCanvas() {
+    // #1769: once a GPU present has THROWN (`EditSession.gpuPresentFailed`),
+    // the GPU canvas must unmount so the CPU fallback preview is visible — a
+    // torn drawable has no GPU repaint path of its own.
+    XCTAssertFalse(
+      FullImageViewVM.shouldPresentViaGpuCanvas(
+        flagEnabled: true, isRaw: true, showingOriginal: false,
+        presentFailed: true))
+    // And the default (no failure) keeps the GPU branch.
+    XCTAssertTrue(
+      FullImageViewVM.shouldPresentViaGpuCanvas(
+        flagEnabled: true, isRaw: true, showingOriginal: false,
+        presentFailed: false))
+  }
 }
