@@ -1,17 +1,28 @@
 /**
  * /api/cloudflare/* — operator-facing routes for the Cloudflare R2
  * thumbnail-mirror (see #1757). Every route is owner-gated: R2
- * credentials and the enable toggle are consequential settings, not
- * something a `member`-role account should read or change.
+ * credentials, the enable toggle, and the backfill trigger are
+ * consequential settings/actions, not something a `member`-role account
+ * should read or invoke.
  *
- *   GET  /api/cloudflare/config — current effective config (secret redacted)
- *   PUT  /api/cloudflare/config — save new config; validates credentials
- *                                 before persisting when enabling
- *   POST /api/cloudflare/test   — round-trip a probe object through R2
- *                                 without saving (UI "Test" button)
+ *   GET    /api/cloudflare/config        — current effective config (secret redacted)
+ *   PUT    /api/cloudflare/config        — save new config; validates credentials
+ *                                          before persisting when enabling
+ *   POST   /api/cloudflare/test          — round-trip a probe object through R2
+ *                                          without saving (UI "Test" button)
+ *   POST   /api/cloudflare/backfill      — queue a `cf_thumb_backfill` job
+ *   GET    /api/cloudflare/backfill/:id  — poll that job's status/progress
+ *   DELETE /api/cloudflare/backfill/:id  — cancel an in-flight backfill job
+ *
+ * The backfill routes mirror `/api/pano/jobs/:id`'s shape (a thin,
+ * kind-scoped view over the generic JobRunner) rather than exposing the
+ * generic `/api/jobs/:id` here — kind-scoping means a stray id for some
+ * other job kind 404s instead of leaking cross-feature job state to this
+ * owner-gated surface.
  */
 
 import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import {
@@ -23,8 +34,23 @@ import {
   type CloudflareConfig,
 } from '../cloudflare/cloudflare-config.repo.ts';
 import { testR2Credentials } from '../cloudflare/r2-client.ts';
+import { createJob, getJob, requestCancel } from '../job-runner/jobs.repo.ts';
+import type { JobWithId } from '../db/schema.ts';
 
 const log = childLogger('cloudflare:routes');
+
+function projectBackfillJob(doc: JobWithId) {
+  return {
+    id: doc._id.toHexString(),
+    status: doc.status,
+    progress: doc.progress,
+    result: doc.result,
+    error: doc.error,
+    cancel_requested: doc.cancel_requested,
+    created_at: doc.created_at,
+    updated_at: doc.updated_at,
+  };
+}
 
 const ConfigBody = t.Object({
   enabled: t.Boolean(),
@@ -111,4 +137,47 @@ export const cloudflareRoutes = new Elysia({ prefix: '/api/cloudflare' })
       }
     },
     { body: TestBody },
-  );
+  )
+
+  // POST /api/cloudflare/backfill — queue a cf_thumb_backfill job. Refuses
+  // when config isn't complete/enabled so the operator gets an immediate
+  // 409 instead of a job that fails on its first batch.
+  .post('/backfill', async ({ set }) => {
+    const config = resolveCloudflareConfig(await loadCloudflareConfig());
+    if (!isCloudflareConfigComplete(config)) {
+      set.status = 409;
+      return { error: 'Cloudflare upload must be enabled with valid credentials to backfill' };
+    }
+    const doc = await createJob({ kind: 'cf_thumb_backfill', payload: {} });
+    set.status = 201;
+    return { id: doc._id.toHexString() };
+  })
+
+  // GET /api/cloudflare/backfill/:id — job status.
+  .get('/backfill/:id', async ({ params, set }) => {
+    if (!ObjectId.isValid(params.id)) {
+      set.status = 400;
+      return { error: 'Invalid job id' };
+    }
+    const doc = await getJob(new ObjectId(params.id));
+    if (!doc || doc.kind !== 'cf_thumb_backfill') {
+      set.status = 404;
+      return { error: 'Backfill job not found' };
+    }
+    return projectBackfillJob(doc);
+  })
+
+  // DELETE /api/cloudflare/backfill/:id — cancel.
+  .delete('/backfill/:id', async ({ params, set }) => {
+    if (!ObjectId.isValid(params.id)) {
+      set.status = 400;
+      return { error: 'Invalid job id' };
+    }
+    const doc = await getJob(new ObjectId(params.id));
+    if (!doc || doc.kind !== 'cf_thumb_backfill') {
+      set.status = 404;
+      return { error: 'Backfill job not found' };
+    }
+    const ok = await requestCancel(new ObjectId(params.id));
+    return { ok };
+  });

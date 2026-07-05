@@ -1,8 +1,9 @@
 // CloudflareService — typed HttpClient wrapper for /api/cloudflare/* (#1757).
 //
 // Covers the R2 thumbnail-mirror operator config (credentials + on/off
-// toggle) and a credential test probe. All methods return Observable<T>
-// per project convention (mirrors PanoService).
+// toggle), a credential test probe, and the backfill job that mirrors
+// already-indexed thumbnails to R2 (sub-issue 4). All methods return
+// Observable<T> per project convention (mirrors PanoService).
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
@@ -40,6 +41,26 @@ export interface CloudflareTestResult {
   error?: string;
 }
 
+export type CloudflareBackfillJobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+
+export interface CloudflareBackfillResult {
+  successCount: number;
+  skippedCount: number;
+  failedCount: number;
+  failures: Array<{ assetId: string; error: string }>;
+}
+
+export interface CloudflareBackfillJob {
+  id: string;
+  status: CloudflareBackfillJobStatus;
+  progress: { current: number; total: number };
+  result: CloudflareBackfillResult | null;
+  error: string | null;
+  cancel_requested: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CloudflareService {
   private readonly http = inject(HttpClient);
@@ -60,5 +81,26 @@ export class CloudflareService {
    * page's "Test" button, for checking not-yet-saved credentials. */
   testCredentials(credentials: CloudflareCredentials): Observable<CloudflareTestResult> {
     return this.http.post<CloudflareTestResult>(`${this.base}/cloudflare/test`, credentials);
+  }
+
+  /** Queue a job that uploads every already-indexed, not-yet-mirrored
+   * thumbnail to R2. Server rejects (409) unless config is enabled and
+   * complete. */
+  triggerBackfill(): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.base}/cloudflare/backfill`, {});
+  }
+
+  /** Poll backfill job status + progress. */
+  getBackfillJob(id: string): Observable<CloudflareBackfillJob> {
+    return this.http.get<CloudflareBackfillJob>(
+      `${this.base}/cloudflare/backfill/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** Request cancellation of an in-flight backfill job. */
+  cancelBackfillJob(id: string): Observable<{ ok: boolean }> {
+    return this.http.delete<{ ok: boolean }>(
+      `${this.base}/cloudflare/backfill/${encodeURIComponent(id)}`,
+    );
   }
 }

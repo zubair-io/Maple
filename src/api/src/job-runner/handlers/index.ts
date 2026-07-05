@@ -15,6 +15,7 @@ import type { ObjectId } from 'mongodb';
 import type { JobKind } from '../../db/schema.ts';
 import { batchJpegExportHandler } from './batch-jpeg-export.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
+import { cfThumbBackfillHandler } from './cf-thumb-backfill.ts';
 
 /** Per-step context passed to handlers by the runner. */
 export interface JobHandlerContext {
@@ -45,4 +46,5 @@ export type JobHandlerResult =
 export const HANDLERS: Record<JobKind, JobHandler> = {
   batch_jpeg_export: batchJpegExportHandler,
   pano_stitch: panoStitchHandler,
+  cf_thumb_backfill: cfThumbBackfillHandler,
 };
