@@ -84,10 +84,20 @@ pub struct PersistentPresentSurface {
     format: wgpu::TextureFormat,
     width: u32,
     height: u32,
-    /// Identity of the `CAMetalLayer*` this surface was created from. A present
-    /// against a DIFFERENT layer pointer (a new `NSView`/window) forces a fresh
-    /// surface — reusing a surface across layers is not a supported wgpu shape.
-    layer: *mut c_void,
+    /// Identity of the `CAMetalLayer*` this surface was created from, stored as
+    /// an address token (`usize`, never dereferenced) so the cache stays `Send`
+    /// for the process-wide shared slot (#1769). A present against a DIFFERENT
+    /// layer pointer (a new view/window) forces a fresh surface — reusing a
+    /// surface across layers is not a supported wgpu shape.
+    layer: usize,
+    /// The host-supplied surface GENERATION this surface was created under
+    /// (#1769). The Swift host bumps it whenever the canvas layer's identity or
+    /// external state changes in a way wgpu cannot see — a new `CAMetalLayer`
+    /// registered on the driver (covers malloc address reuse / the ABA hazard a
+    /// raw-pointer key has), or a host-detected `drawableSize` divergence from
+    /// the configured extent. A generation mismatch forces a fresh surface +
+    /// the settle double-present, exactly like a layer-pointer change.
+    generation: u64,
 }
 
 #[cfg(target_vendor = "apple")]
@@ -100,6 +110,7 @@ impl PersistentPresentSurface {
         layer: *mut c_void,
         width: u32,
         height: u32,
+        generation: u64,
     ) -> Result<Self, String> {
         // Create the surface from the CONTEXT's instance, not a fresh one (#1240).
         // Adapters belong to the instance that produced them; a surface from a
@@ -148,7 +159,8 @@ impl PersistentPresentSurface {
             format,
             width,
             height,
-            layer,
+            layer: layer as usize,
+            generation,
         })
     }
 
@@ -223,12 +235,17 @@ impl PersistentPresentSurface {
 /// `layer` (a `CAMetalLayer*`) — the dithered/quantized 8-bit display surface,
 /// with NO CPU readback.
 ///
-/// `cache` is the caller-owned [`PersistentPresentSurface`] slot (one per
-/// `MapleGpuLiveSession` handle — see `raw-ffi`'s `LiveHandleInner`). The surface
-/// is created on the FIRST call and reused on every subsequent call as long as
-/// `layer` and the session's dims are unchanged; a change in either forces a
-/// fresh create (new layer) or a reconfigure (dims changed, same layer) — see the
-/// module docs for why per-present reconfiguration produced the #1742 seam.
+/// `cache` is the caller-owned [`PersistentPresentSurface`] slot. Since #1769 it
+/// is PROCESS-WIDE (raw-ffi's `GPU_SHARED`), not per-FFI-handle: the fast→refine
+/// re-open boundary (a new `MapleGpuLiveSession` at new dims every cold open)
+/// must RECONFIGURE the existing surface rather than destroy the old
+/// surface+device pair against the live layer and race a fresh one — the exact
+/// splice window the iPad report pinned. The cache key is
+/// `(generation, layer, dims)`: `generation` is the host-supplied token bumped on
+/// canvas re-registration or host-detected `drawableSize` divergence (see
+/// [`PersistentPresentSurface::generation`]); a generation or layer change forces
+/// a fresh create, a dims-only change reconfigures in place — see the module docs
+/// for why per-present reconfiguration produced the #1742 seam.
 /// Immediately after any create/reconfigure, a SECOND frame is drawn and
 /// presented before returning, so the caller-visible present is always a
 /// complete frame against a fully handed-off drawable (Core Animation's
@@ -254,6 +271,7 @@ pub unsafe fn present_chain_to_surface(
     final_idx: usize,
     layer: *mut c_void,
     cache: &mut Option<PersistentPresentSurface>,
+    generation: u64,
 ) -> Result<(), String> {
     if layer.is_null() {
         return Err("present_chain: layer pointer is null".to_string());
@@ -277,16 +295,21 @@ pub unsafe fn present_chain_to_surface(
     }
 
     let needs_fresh_surface = match cache {
-        Some(existing) => existing.layer != layer,
+        Some(existing) => existing.layer != layer as usize || existing.generation != generation,
         None => true,
     };
 
     let just_configured = if needs_fresh_surface {
         // Drop any stale surface BEFORE creating its replacement: if the
-        // caller swapped CAMetalLayers, the old wgpu::Surface is bound to a
+        // caller swapped CAMetalLayers (or bumped the generation over a
+        // suspect surface), the old wgpu::Surface is bound to a
         // possibly-destroyed layer and must not outlive a failed create.
+        // Deterministic teardown-then-create, never two surfaces (two
+        // devices) racing on the same live layer.
         *cache = None;
-        *cache = Some(PersistentPresentSurface::create(ctx, layer, width, height)?);
+        *cache = Some(PersistentPresentSurface::create(
+            ctx, layer, width, height, generation,
+        )?);
         true
     } else {
         let existing = cache.as_mut().expect("checked Some above");

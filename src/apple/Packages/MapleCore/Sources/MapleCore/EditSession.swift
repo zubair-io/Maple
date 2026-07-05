@@ -147,6 +147,16 @@ public final class EditSession {
     /// this resets to `false` naturally. Set in `presentViaGpuLive`. See #1069.
     public var gpuFramePresented: Bool = false
 
+    /// True once a wgpu present has THROWN for this session (#1769). Views gate
+    /// the GPU canvas leaf on this: a torn/failed present must not stay on
+    /// glass with no repaint path — flipping this false→true unmounts the
+    /// `CAMetalLayer` canvas and falls back to the CPU `renderedPreview` leaf,
+    /// which the CPU fallback render (the same `decodeAndRender` pass that
+    /// observed the failure) then publishes. Sticky for the session: the GPU
+    /// canvas unmounts, so no further presents run to clear it; a new image is
+    /// a new `EditSession` and starts clean. Set in `presentViaGpuLive`.
+    public var gpuPresentFailed: Bool = false
+
     /// True from the start of a cold-open until the full-quality (background
     /// Rust) decode lands. The sub-second-open seeds a fast preview (cache /
     /// embedded JPEG) and presents it within ~50 ms, so `gpuFramePresented` /
