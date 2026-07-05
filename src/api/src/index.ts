@@ -56,6 +56,7 @@ import { searchRoutes } from './routes/search.ts';
 import { jobsRoutes } from './routes/jobs.ts';
 import { importsRoutes } from './routes/imports.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
+import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
 import { purgeSubthresholdFacesRoutes } from './routes/admin-purge-subthreshold-faces.ts';
@@ -158,6 +159,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
     .use(healthRoutes)
     .use(authRoutes)
+    // Wraps itself in `.use(requireAuth).use(requireOwner)` internally
+    // (mirrors authRoutes' /invites sub-tree above), so it sits outside
+    // the authedApi gate the same way.
+    .use(cloudflareRoutes)
     // Native PKCE code redeem (public) — the Apple shell exchanges its one-time
     // code for tokens here; no bearer (this is how the app first gets tokens).
     .use(nativeCodeRedeemRoutes)
@@ -258,7 +263,14 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // SPA itself walks the user through sign-in via /api/auth/* calls.
     .use(staticUiPlugin);
 
-  return app;
+  // The accumulated route/schema generics on `app` at this point exceed
+  // TypeScript's structural-comparison depth (TS2589) once every plugin
+  // (now including photosRoutes/displayRoutes) is chained in — this
+  // function's declared return type is deliberately the bare `Elysia`
+  // (callers never rely on precise per-route inference here), so widen
+  // explicitly rather than asking the compiler to prove the full
+  // structural match.
+  return app as unknown as Elysia;
 }
 
 /**

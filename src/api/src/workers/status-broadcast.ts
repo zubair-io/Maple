@@ -73,7 +73,7 @@ export async function cheapStatus(): Promise<WorkersStatusPayload> {
   }));
   // No count queries in the cheap path — the real counts land on the next
   // counted tick (computeWorkersStatus). Zero until then, like the other counts.
-  return { stages, damaged: 0 };
+  return { stages, damaged: 0, newlyHiddenTotal: 0 };
 }
 
 class WorkersStatusBroadcaster {
