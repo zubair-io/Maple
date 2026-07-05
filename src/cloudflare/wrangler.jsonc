@@ -1,0 +1,59 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "maple-thumb-cache",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-10",
+	"observability": {
+		"enabled": true,
+	},
+	"upload_source_maps": true,
+
+	/**
+	 * R2 bucket the API server uploads content-addressed thumbnails into
+	 * (src/api/src/cloudflare/r2-client.ts). The bucket must already exist —
+	 * create it once with `npx wrangler r2 bucket create <bucket-name>` and
+	 * fill in the name below (and in the API's Cloudflare settings page).
+	 */
+	"r2_buckets": [
+		{
+			"binding": "THUMBS_BUCKET",
+			"bucket_name": "maple-thumbs",
+		},
+	],
+
+	/**
+	 * Origin to fall back to on a cache miss. Must be reachable from
+	 * Cloudflare's edge (a public hostname, not localhost) — point this at
+	 * the deployed Maple API server.
+	 */
+	"vars": {
+		"ORIGIN_API_BASE_URL": "https://your-maple-server.example.com",
+	},
+
+	/**
+	 * JWT_SECRET is NOT set here — it is a Worker secret, set once via
+	 * `npx wrangler secret put JWT_SECRET` (paste the value revealed in
+	 * Maple's Settings > Cloudflare page), and never committed.
+	 */
+
+	/**
+	 * Only requests to /api/thumb/* should ever reach this Worker — everything
+	 * else (including the legacy /api/fs/thumb route) must bypass it entirely
+	 * and go straight to the origin. Uncomment and fill in your zone once this
+	 * Worker is attached to a route on your domain:
+	 * https://developers.cloudflare.com/workers/configuration/routing/routes/
+	 */
+	// "routes": [
+	//   { "pattern": "your-maple-server.example.com/api/thumb/*", "zone_name": "example.com" }
+	// ]
+
+	/**
+	 * Smart Placement
+	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+	 */
+	// "placement": {  "mode": "smart" }
+}
