@@ -14,18 +14,28 @@
 // root signing secret — that would add an HTTP-reachable path to what
 // otherwise requires actual server access.
 //
-// The "Sync existing thumbnails to Cloudflare" backfill trigger is
-// deliberately NOT on this page yet — it depends on the backfill job
-// landing in #1761. Per the no-placeholder-controls convention, that
-// button ships alongside its backend, not before.
+// A "Sync existing thumbnails" panel (backed by BackfillPanelService) lets
+// the operator kick off the `cf_thumb_backfill` job that mirrors every
+// already-indexed, not-yet-synced thumbnail to R2, with a progress bar and
+// a Cancel control — enabled only once config is complete (see
+// `canBackfill()`).
 //
 // Config is DB-only (no env fallback) — same convention as Pano/Observability.
 
-import { ChangeDetectionStrategy, Component, OnInit, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  OnInit,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { CloudflareService, type CloudflareConfig } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
+import { BackfillPanelService } from './backfill-panel.service';
 
 type SaveState =
   | { kind: 'idle' }
@@ -46,9 +56,11 @@ type TestState =
   templateUrl: './cloudflare.component.html',
   styleUrl: './cloudflare.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [BackfillPanelService],
 })
-export class CloudflareComponent implements OnInit {
+export class CloudflareComponent implements OnInit, OnDestroy {
   private readonly cloudflare = inject(CloudflareService);
+  protected readonly backfill = inject(BackfillPanelService);
 
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
@@ -99,10 +111,28 @@ export class CloudflareComponent implements OnInit {
     this.fSecretAccessKey.set('');
   }
 
+  ngOnDestroy(): void {
+    this.backfill.stopPolling();
+  }
+
   protected secretPlaceholder(): string {
     return this.config()?.secret_access_key_set
       ? '••••••••  (unchanged — leave blank to keep)'
       : '';
+  }
+
+  /** The backfill job requires the same completeness the server checks
+   * before it'll queue one — surfacing the same gate client-side avoids a
+   * round-trip just to learn the button is disabled. */
+  protected canBackfill(): boolean {
+    const cfg = this.config();
+    return (
+      !!cfg?.enabled &&
+      cfg.secret_access_key_set &&
+      !!cfg.account_id &&
+      !!cfg.bucket &&
+      !!cfg.access_key_id
+    );
   }
 
   protected save(): void {
