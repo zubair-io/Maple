@@ -1,0 +1,126 @@
+<maple-settings-shell section="network">
+  <header class="page-header">
+    <div class="titles">
+      <h1>Network</h1>
+      <p>
+        Self-hosted Maple can be reached over a public URL and, when a client is on the same network
+        as the server, directly over the LAN — which skips the public round-trip. This is the
+        address the server advertises for that LAN path.
+      </p>
+    </div>
+  </header>
+
+  <div class="net-body">
+    @if (loadState().kind === 'loading') {
+      <p class="muted">Loading configuration…</p>
+    } @else if (loadState().kind === 'error') {
+      @if (loadState(); as ls) {
+        @if (ls.kind === 'error') {
+          <p class="error">Failed to load config: {{ ls.message }}</p>
+        }
+      }
+    } @else {
+      <!-- Current (resolved) -------------------------------------------------- -->
+      <section>
+        <div class="subhead">Current (resolved)</div>
+        @if (config(); as cfg) {
+          <dl class="config-grid">
+            <dt>Advertising a LAN address</dt>
+            <dd>{{ cfg.enabled ? 'Yes' : 'No' }}</dd>
+
+            <dt>Address</dt>
+            <dd class="mono">
+              @if (cfg.local_ip) {
+                {{ cfg.local_ip }}
+              } @else {
+                <span class="muted">none</span>
+              }
+              <span class="prov">({{ sourceLabel(cfg.source.local_ip) }})</span>
+            </dd>
+
+            <dt>Port</dt>
+            <dd class="mono">
+              {{ cfg.local_port }}
+              <span class="prov">({{ sourceLabel(cfg.source.local_port) }})</span>
+            </dd>
+          </dl>
+          @if (cfg.source.local_ip === 'unavailable' && cfg.enabled) {
+            <p class="section-hint warn">
+              No LAN address could be auto-detected — this is expected when the server runs in
+              Docker with default bridge networking (the container only sees its own internal bridge
+              IP, not the host's real LAN IP). Set an override below with the host's actual LAN IP
+              address.
+            </p>
+          }
+        }
+      </section>
+
+      <!-- Editable override ---------------------------------------------------- -->
+      <section>
+        <div class="subhead">Override</div>
+        <p class="section-hint">
+          Leave the address blank to use auto-detection. Set it explicitly when auto-detection is
+          wrong (the common case under Docker) or you want to advertise a specific interface.
+        </p>
+        <div class="form-grid">
+          <label class="field">
+            <span class="flabel">LAN address</span>
+            <input
+              class="finput mono"
+              placeholder="192.168.1.42"
+              autocomplete="off"
+              [ngModel]="fIpOverride()"
+              (ngModelChange)="fIpOverride.set($event)"
+            />
+          </label>
+
+          <label class="field">
+            <span class="flabel">Port</span>
+            <input
+              class="finput mono"
+              inputmode="numeric"
+              placeholder="3000"
+              autocomplete="off"
+              [ngModel]="fPortOverride()"
+              (ngModelChange)="fPortOverride.set($event)"
+            />
+            <span class="fhint">Blank uses the server's listen port.</span>
+          </label>
+        </div>
+
+        <div class="check-row">
+          <label class="check">
+            <input
+              type="checkbox"
+              [checked]="fEnabled()"
+              (change)="fEnabled.set($any($event.target).checked)"
+            />
+            Advertise a LAN address to clients
+          </label>
+        </div>
+
+        <div class="form-actions">
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="saveState().kind === 'saving'"
+            (click)="save()"
+          >
+            {{ saveState().kind === 'saving' ? 'Saving…' : 'Save' }}
+          </button>
+
+          @if (saveState(); as ss) {
+            @if (ss.kind === 'saved') {
+              <span class="test-ok"><maple-settings-icon name="check" [size]="13" /> Saved.</span>
+            }
+            @if (ss.kind === 'error') {
+              <span class="test-err"
+                ><maple-settings-icon name="x" [size]="13" /> {{ ss.message }}</span
+              >
+            }
+          }
+        </div>
+      </section>
+    }
+  </div>
+</maple-settings-shell>

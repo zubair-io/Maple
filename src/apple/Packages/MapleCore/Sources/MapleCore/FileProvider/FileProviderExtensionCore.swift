@@ -123,6 +123,18 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             }
         )
         self.changeFeed?.start()
+        // Separate sandboxed process from the main app and MapleBackupAgent
+        // — no access to either's in-memory LocalNetworkResolver cache, and
+        // this synchronous `init` (required by NSFileProviderReplicatedExtension)
+        // can't block on a network round-trip to resolve one inline. Kick
+        // off a non-blocking probe instead: `catalog` starts on the identity
+        // URL (correct immediately) and swaps to the LAN address, if any, once
+        // resolution completes — every request issued before then simply
+        // goes out over the identity URL, matching today's behavior.
+        Task { [catalog] in
+            let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: cfg.serverURL)
+            await catalog.updateServer(effective)
+        }
         let hasTokens = tokensStore.load(domain: domainID) != nil
         log.notice("init domain=\(domain.identifier.rawValue, privacy: .public) serverURL=\(cfg.serverURL.absoluteString, privacy: .public) hasTokens=\(hasTokens, privacy: .public) device=\(resolvedDeviceName, privacy: .public)")
         if !hasTokens {

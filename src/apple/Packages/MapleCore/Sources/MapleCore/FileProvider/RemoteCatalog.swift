@@ -267,7 +267,15 @@ public struct InvalidAssetIDError: Error, Equatable, Sendable {
 
 public actor RemoteCatalog {
     internal let http: AuthenticatedHTTPClient
-    internal let server: URL
+    /// The address used to build every request URL below. Starts as the
+    /// identity URL the extension was configured with; `updateServer(_:)`
+    /// swaps it to the server's LAN address once
+    /// `FileProviderExtensionCore.init` resolves one, so subsequent
+    /// requests (folders/thumbs/downloads/xmp/uploads) go over the LAN when
+    /// the host device is on the same network as the server. `http`'s own
+    /// (private, separately-held) server field is untouched — it only
+    /// builds the token-refresh request and stays on the identity URL.
+    internal var server: URL
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "catalog")
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
@@ -391,6 +399,13 @@ public actor RemoteCatalog {
             cfg.urlCredentialStorage = nil
             self.downloadURLSession = URLSession(configuration: cfg)
         }
+    }
+
+    /// Swaps the address used for future requests — see the `server` doc
+    /// comment above. Actor-isolated, so this can't race an in-flight
+    /// request reading the old value mid-build.
+    public func updateServer(_ url: URL) {
+        self.server = url
     }
 
     /// Test-only accessor: the URLSession used for streaming asset bodies.
