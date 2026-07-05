@@ -14,7 +14,7 @@ pub mod local_adjustment;
 
 pub use adjustment::{
     AdjustmentModel, Crop, FieldKind, FieldSpec, HighlightRecoveryMode, Profile, ToneCurve,
-    ToneCurveMode, ToneCurvePoint, WbMethod, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
+    ToneCurveMode, ToneCurvePoint, WbMethod, WbScaleVersion, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
 };
 pub use inpaint::{BakeGrade, InpaintPatch, Removal};
 pub use local_adjustment::{LocalAdjustment, Mask, PartialAdjustments, Point2};

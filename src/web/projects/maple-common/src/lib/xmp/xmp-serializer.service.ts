@@ -57,13 +57,26 @@ export class XmpSerializerService {
     }
 
     // Numeric adjustment fields — emit only when they differ from the default.
+    const emittedKeys = new Set<string>();
     for (const f of ADJUSTMENT_FIELDS) {
       const value = model[f.modelKey];
       if (value === undefined || value === null) continue;
       const defaultVal = f.defaultValue(model);
       if (value !== defaultVal) {
         parts.push(`${f.xmpKey}="${f.serialize(value)}"`);
+        emittedKeys.add(f.xmpKey);
       }
+    }
+
+    // WB scale stamp (#1780): whenever an explicit Temperature/Tint was
+    // emitted above, stamp the scale those numbers are expressed in.
+    // Re-emits the version the model was loaded with (1 for pre-#1756
+    // sidecars, 2 for fresh models) so a V1 sidecar's stored values keep
+    // their meaning across saves. Mirrors the Swift writer; raw-core's
+    // parser gives the stamp precedence over the papp-authorship
+    // heuristic.
+    if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
+      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion ?? 2}"`);
     }
 
     // DisplayLookCurve (#371; retired in #443) — the field is a no-op

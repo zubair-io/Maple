@@ -27,6 +27,7 @@ fn schema_matches_struct() {
         temperature_seen,
         tint_seen,
         wb_method,
+        wb_scale_version,
         exposure,
         brightness,
         contrast,
@@ -196,6 +197,7 @@ fn schema_matches_struct() {
         temperature_seen,
         tint_seen,
         wb_method,
+        wb_scale_version,
         exposure,
         brightness,
         contrast,
@@ -294,6 +296,12 @@ fn schema_matches_struct() {
         !tint_seen,
         "AdjustmentModel::default().tint_seen must be false"
     );
+    assert_eq!(
+        wb_scale_version,
+        super::super::WbScaleVersion::V2,
+        "AdjustmentModel::default().wb_scale_version must be V2 (fresh models \
+         author in the #1756 slider-frame scale)"
+    );
 }
 
 /// Schema-exemption allow-list. Fields appearing here are the ones
@@ -308,16 +316,19 @@ fn schema_exemption_allowlist() {
     // `inpaint_removals` added in #1486: Vec<Removal> structured payload.
     // `temperature_seen` / `tint_seen` added in #1729: internal parse-state
     // booleans, not user-facing slider values.
+    // `wb_scale_version` added in #1780: internal parse-state enum recording
+    // which WB slider scale the sidecar's stored values were authored in.
     const ALLOWED: &[&str] = &[
         "local_adjustments",
         "inpaint_removals",
         "crop",
         "temperature_seen",
         "tint_seen",
+        "wb_scale_version",
     ];
     assert_eq!(
         ALLOWED.len(),
-        5,
+        6,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
     );
@@ -340,6 +351,12 @@ fn schema_exemption_allowlist() {
         ALLOWED.contains(&"temperature_seen"),
         "temperature_seen must remain on the schema-exemption allow-list \
          (internal parse-state bool for #1729 WB anchoring, not a slider value)"
+    );
+    assert!(
+        ALLOWED.contains(&"wb_scale_version"),
+        "wb_scale_version must remain on the schema-exemption allow-list \
+         (internal parse-state enum for the #1780 WB scale migration, not a \
+         slider value)"
     );
     assert!(
         ALLOWED.contains(&"tint_seen"),

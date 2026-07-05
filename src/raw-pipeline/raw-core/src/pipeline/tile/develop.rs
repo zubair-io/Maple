@@ -153,7 +153,18 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
                 (model.temperature, model.tint)
             }
             None => {
-                let (target_temperature, target_tint) = wb_camera::resolve_target(model, &frame);
+                // `resolve_target_versioned` (#1780): V1 (pre-#1756)
+                // sidecar temperature/tint convert into the slider frame
+                // here, mirroring the full develop chain. The Some(anchor)
+                // branch above is the live-delta contract (#1725) and is
+                // deliberately untouched — its values come from the host's
+                // live model, not from a parsed sidecar.
+                let (target_temperature, target_tint) = wb_camera::resolve_target_versioned(
+                    model,
+                    &frame,
+                    &profile,
+                    raw.as_shot_neutral,
+                );
                 wb_camera::apply(
                     &mut camera_rgb,
                     &frame,

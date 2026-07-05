@@ -83,6 +83,10 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:Profile',
   // Hot/dead-pixel suppression (#1106) — decode-product enum field.
   'papp:HotPixelSuppression',
+  // WB slider-scale version (#1780) — parsed into `wbScaleVersion` and
+  // re-emitted by the serializer alongside explicit Temperature/Tint, so
+  // it must stay out of the passthrough bucket (double-emit otherwise).
+  'papp:WbScaleVersion',
   // Crop / straighten group (ticket #277)
   'crs:HasCrop',
   'crs:CropTop',
@@ -347,6 +351,25 @@ export class XmpParserService {
     let cropBottom: number | undefined;
     let cropRight: number | undefined;
     let cropAngle: number | undefined;
+
+    // WB scale versioning (#1780), resolved at document level: an explicit
+    // `papp:WbScaleVersion` stamp wins; otherwise a document carrying the
+    // Maple `papp:` namespace (declaration or attribute — every Maple
+    // writer declares it unconditionally) AND an explicit authored
+    // `crs:Temperature`/`crs:Tint` predates the versioning (pre-#1756
+    // scale, 1). Everything else — no `papp:` namespace at all
+    // (ACR/Lightroom-authored, always expressed in ACR's own slider
+    // scale) or no authored WB (nothing to convert) — is 2. Mirrors
+    // raw-core's `xmp::parse` and the Swift `XMPParser`. The prefix (not
+    // a URI) is the discriminator because the three Maple writers
+    // historically bound `papp` to different URIs.
+    const attrNames = Array.from(desc.attributes).map((a) => a.name);
+    const sawPapp = attrNames.some((n) => n === 'xmlns:papp' || n.startsWith('papp:'));
+    const sawExplicitWb =
+      desc.getAttribute('crs:Temperature') !== null || desc.getAttribute('crs:Tint') !== null;
+    const stampRaw = desc.getAttribute('papp:WbScaleVersion');
+    const stamp = stampRaw === '1' ? 1 : stampRaw === '2' ? 2 : undefined;
+    model.wbScaleVersion = stamp ?? (sawPapp && sawExplicitWb ? 1 : 2);
 
     // Pass 1: walk attributes, applying canonical fields and remembering
     // legacy-aliased attributes for a second pass.

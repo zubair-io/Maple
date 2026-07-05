@@ -93,6 +93,18 @@ export function isCropRectValid(c: Crop): boolean {
 export interface AdjustmentModel extends GeneratedAdjustmentModel {
   whiteBalancePreset: WhiteBalancePreset;
   crop: Crop;
+  /**
+   * WB slider-scale version of this model's temperature/tint (#1780).
+   * `1` = pre-#1756 scale (post-DCP CAT16, 6500 K identity) — raw-core
+   * converts on use; `2` = ACR calibration-frame scale (current). Parsed
+   * from `papp:WbScaleVersion` (absent stamp on a Maple-authored sidecar
+   * means `1`; non-Maple sidecars are `2`), re-stamped verbatim whenever
+   * an explicit Temperature/Tint is written so a V1 sidecar's stored
+   * values keep their meaning across saves. Fresh models author in the
+   * current scale. Internal parse-state (like raw-core's
+   * `wb_scale_version`) — not part of the generated codegen schema.
+   */
+  wbScaleVersion: number;
 }
 
 export function defaultAdjustmentModel(): AdjustmentModel {
@@ -100,6 +112,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     ...defaultGeneratedAdjustmentModel(),
     whiteBalancePreset: 'As Shot',
     crop: defaultCrop(),
+    wbScaleVersion: 2,
   };
 }
 
@@ -110,6 +123,10 @@ export function isDefaultAdjustment(m: AdjustmentModel): boolean {
   if (!isIdentityCrop(m.crop)) return false;
   return (Object.keys(d) as Array<keyof AdjustmentModel>).every((k) => {
     if (k === 'crop') return true;
+    // Parse-state, not an adjustment (#1780): a pristine pre-#1756 sidecar
+    // parses to wbScaleVersion 1 with every slider at default — that must
+    // not read as "has edits".
+    if (k === 'wbScaleVersion') return true;
     return m[k] === d[k];
   });
 }

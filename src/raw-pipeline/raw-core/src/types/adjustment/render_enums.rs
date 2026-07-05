@@ -1,10 +1,10 @@
-//! `Profile`, `WhiteBalancePreset`, and `ToneCurveMode` enums — split out of
-//! `adjustment/mod.rs` to stay under the 600-LOC hard budget (PR #1730).
-//! Same sibling-submodule + re-export pattern as `hot_pixel_suppression.rs`
-//! (#1181), `auto_exposure.rs` (#772), and `crop.rs` (#772). Public paths
-//! are unchanged — all three remain reachable at
-//! `crate::types::adjustment::{Profile, WhiteBalancePreset, ToneCurveMode}`
-//! via the `pub use` re-export in `mod.rs`.
+//! `Profile`, `WhiteBalancePreset`, `WbScaleVersion`, and `ToneCurveMode`
+//! enums — split out of `adjustment/mod.rs` to stay under the 600-LOC hard
+//! budget (PR #1730). Same sibling-submodule + re-export pattern as
+//! `hot_pixel_suppression.rs` (#1181), `auto_exposure.rs` (#772), and
+//! `crop.rs` (#772). Public paths are unchanged — all remain reachable at
+//! `crate::types::adjustment::{Profile, WhiteBalancePreset, WbScaleVersion,
+//! ToneCurveMode}` via the `pub use` re-export in `mod.rs`.
 
 /// Render-shaping profile applied at the view-transform stage (Auto
 /// Profile Phase 1, ticket #536). `Auto` (default) fits a per-image curve
@@ -60,6 +60,45 @@ pub enum WhiteBalancePreset {
 impl Default for WhiteBalancePreset {
     fn default() -> Self {
         Self::AsShot
+    }
+}
+
+/// WB slider-scale version carried by a parsed sidecar (#1780).
+///
+/// #1756 changed what stored `crs:Temperature` / `crs:Tint` numbers MEAN:
+/// they are now interpreted in ACR's calibration frame
+/// (`stages::wb_camera::SliderFrame`) instead of the pre-#1756 post-DCP
+/// CAT16 scale anchored at 6500 K / 0. That is a schema-semantics change,
+/// so the scale is versioned on the sidecar as `papp:WbScaleVersion`:
+///
+/// - [`WbScaleVersion::V1`] — pre-#1756 scale. Explicit temperature/tint
+///   values mean "post-DCP CAT16 adaptation relative to a 6500 K / 0
+///   identity" (`stages::white_balance::apply`'s contract). The develop
+///   chain converts these into the V2 frame on use
+///   (`stages::wb_camera::resolve_target_versioned`) so the rendered look
+///   authored under the old scale is preserved.
+/// - [`WbScaleVersion::V2`] — the #1756 scale. Values are slider-frame
+///   coordinates and pass through unconverted.
+///
+/// Parse rule (see `xmp::parse`): an explicit `papp:WbScaleVersion`
+/// attribute wins; otherwise a document that carries the Maple `papp:`
+/// namespace (every Maple writer declares it) AND an explicit authored
+/// `crs:Temperature`/`crs:Tint` predates this versioning and is V1.
+/// Everything else — no `papp:` namespace at all (ACR/Lightroom-authored,
+/// always expressed in ACR's own scale, the exact scale #1756 adopted) or
+/// no authored WB (nothing to convert) — is V2. Default (no sidecar) is
+/// V2.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WbScaleVersion {
+    /// Pre-#1756 Maple scale: post-DCP CAT16, identity at 6500 K / 0.
+    V1,
+    /// #1756 scale: ACR calibration-frame slider coordinates.
+    V2,
+}
+
+impl Default for WbScaleVersion {
+    fn default() -> Self {
+        Self::V2
     }
 }
 
