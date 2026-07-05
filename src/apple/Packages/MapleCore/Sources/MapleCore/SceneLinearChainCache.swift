@@ -148,7 +148,8 @@ final class SceneLinearChainCache: @unchecked Sendable {
         decodedTint: Double,
         skipAgX: Bool,
         width: Int,
-        height: Int
+        height: Int,
+        wbFrame: WbSliderFrame? = nil
     ) -> Key {
         var h = Hasher()
 
@@ -186,6 +187,15 @@ final class SceneLinearChainCache: @unchecked Sendable {
         h.combine(model.highlightRecovery)
         h.combine(model.look)
         h.combine(model.profile)
+
+        // WB slider frame (#1781): the frame changes the chain's WB math,
+        // and it ARRIVES asynchronously (the decode export lands after the
+        // CIRAWFilter-era placeholder renders) — without it in the digest a
+        // pre-frame render could serve for a post-frame tick at identical
+        // slider values. The discriminating floats are enough: a frame is
+        // per-asset constant once present.
+        h.combine(wbFrame?.sceneCCT.bitPattern ?? 0)
+        h.combine(wbFrame?.asShotTint.bitPattern ?? 0)
 
         return Key(
             assetID: assetID,

@@ -87,6 +87,14 @@ use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
 /// used by `noise_reduction::apply_luminance` together with `noise_profile` to
 /// derive the per-channel sigma. Pass `100` when noise profile data is not
 /// available (the hardcoded fallback that was in place before this fix).
+///
+/// `wb_frame` (#1781) is the decode-exported [`wb_camera::SliderFrameExport`]:
+/// when present, the WB delta is derived in the SAME camera-calibration frame
+/// the develop chain interprets the sliders in
+/// (`SliderFrameExport::apply_delta_rec2020`), instead of the generic
+/// Planckian CAT16 delta — closing the live-vs-refine WB seam. `None` (or an
+/// absent export) keeps the legacy `white_balance::apply_delta` bit-identical.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_scene_linear_chain(
     in_fp16_rgba: &[u16],
     width: u32,
@@ -94,6 +102,7 @@ pub fn apply_scene_linear_chain(
     model: &AdjustmentModel,
     decoded_temp: f32,
     decoded_tint: f32,
+    wb_frame: Option<&crate::stages::wb_camera::SliderFrameExport>,
     skip_agx: bool,
     target_primaries: TargetPrimaries,
     noise_profile: Option<&[f32]>,
@@ -159,15 +168,25 @@ pub fn apply_scene_linear_chain(
     // "starting" WB the live slider value is relative to. Identity
     // when `live == decoded` — that's the As Shot rendering, where
     // the slider sits at asShotCCT and the data is unshifted.
-    stage("ffi_chain_white_balance", || {
-        white_balance::apply_delta(
+    //
+    // With a decode-exported slider frame (#1781) the delta is derived in
+    // the SAME camera-calibration frame the develop chain reads the
+    // sliders in — the frame-absent branch is the legacy generic CAT16
+    // delta, bit-identical to pre-#1781.
+    stage("ffi_chain_white_balance", || match wb_frame {
+        Some(frame) if frame.is_present() => frame.apply_delta_rec2020(
+            &mut img,
+            (model.temperature, model.tint),
+            (decoded_temp, decoded_tint),
+        ),
+        _ => white_balance::apply_delta(
             &mut img,
             model.temperature,
             model.tint,
             decoded_temp,
             decoded_tint,
             model.wb_method,
-        )
+        ),
     });
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply(&mut img, model)
@@ -325,8 +344,9 @@ pub fn apply_scene_linear_chain(
 /// `Srgb` (0) leaves the output in `DisplayLinearRec2020` (bit-identical
 /// to pre-#1337); `P3` (1) applies `rec2020_to_display` inside the chain.
 ///
-/// `noise_profile` and `iso` — see [`apply_scene_linear_chain`]; identical
-/// semantics for the f32 entry.
+/// `noise_profile`, `iso`, and `wb_frame` — see [`apply_scene_linear_chain`];
+/// identical semantics for the f32 entry.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_scene_linear_chain_f32(
     in_f32_rgba: &[f32],
     width: u32,
@@ -334,6 +354,7 @@ pub fn apply_scene_linear_chain_f32(
     model: &AdjustmentModel,
     decoded_temp: f32,
     decoded_tint: f32,
+    wb_frame: Option<&crate::stages::wb_camera::SliderFrameExport>,
     skip_agx: bool,
     target_primaries: TargetPrimaries,
     noise_profile: Option<&[f32]>,
@@ -386,16 +407,22 @@ pub fn apply_scene_linear_chain_f32(
 
     // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
     // sibling) verbatim. The order MUST match the Rust reference so
-    // `calibrate_color_pipeline` remains the canonical metric.
-    stage("ffi_chain_white_balance", || {
-        white_balance::apply_delta(
+    // `calibrate_color_pipeline` remains the canonical metric. WB frame
+    // dispatch (#1781) — see the fp16 sibling.
+    stage("ffi_chain_white_balance", || match wb_frame {
+        Some(frame) if frame.is_present() => frame.apply_delta_rec2020(
+            &mut img,
+            (model.temperature, model.tint),
+            (decoded_temp, decoded_tint),
+        ),
+        _ => white_balance::apply_delta(
             &mut img,
             model.temperature,
             model.tint,
             decoded_temp,
             decoded_tint,
             model.wb_method,
-        )
+        ),
     });
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply(&mut img, model)

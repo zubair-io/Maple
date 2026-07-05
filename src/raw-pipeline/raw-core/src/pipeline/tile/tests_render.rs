@@ -321,6 +321,7 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
         &model,
         as_shot_cct,
         as_shot_tint,
+        None,
         true, // skip_agx: stay in scene-linear, matching the tile path's output space
         crate::view::encode::TargetPrimaries::Srgb,
         raw.noise_profile.as_deref(),

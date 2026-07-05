@@ -87,8 +87,35 @@ public struct MapleSceneLinearImageData: Sendable {
     /// available (the Rust chain substitutes 100 on its side). Forwarded to
     /// `MapleAdjustmentParams.iso`.
     public let iso: UInt32
+    /// Decode-exported WB slider frame (#1781) — the calibration frame the
+    /// develop chain interpreted the temperature/tint sliders in, plus its
+    /// as-shot `(sceneCCT, asShotTint)` estimate. `nil` when the source
+    /// carries no frame (fp16 tile path, `RawlerFallback` body, lossy
+    /// LinearRaw). Forwarded to the per-tick chains' `wb_frame_*` fields
+    /// and to `EditSession`'s As-Shot seeding.
+    public let wbFrame: WbSliderFrame?
 
     public var pixelCount: Int { width * height }
+
+    init(
+        width: Int,
+        height: Int,
+        channels: Int,
+        bytesPerPixel: Int,
+        pixels: Data,
+        noiseProfile: [Float]?,
+        iso: UInt32,
+        wbFrame: WbSliderFrame? = nil
+    ) {
+        self.width = width
+        self.height = height
+        self.channels = channels
+        self.bytesPerPixel = bytesPerPixel
+        self.pixels = pixels
+        self.noiseProfile = noiseProfile
+        self.iso = iso
+        self.wbFrame = wbFrame
+    }
 }
 
 // MARK: - PipelineRenderer
@@ -456,11 +483,9 @@ public struct PipelineRenderer: Sendable {
         quality: Quality,
         cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBufferF32(
-            f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0,
-            noise_profile_data: nil, noise_profile_len: 0, iso: 0
-        )
+        // Zero-filled by the imported C struct's implicit init — includes the
+        // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
+        var buf = MapleSceneLinearBufferF32()
         let rawPath = String(cString: rawCStr)
         let lastSlash = rawPath.lastIndex(of: "/").map { rawPath.index(after: $0) } ?? rawPath.startIndex
         let fileName = String(rawPath[lastSlash...])
@@ -510,7 +535,8 @@ public struct PipelineRenderer: Sendable {
             bytesPerPixel: Int(buf.bytes_per_pixel),
             pixels: data,
             noiseProfile: noiseProfile,
-            iso: buf.iso
+            iso: buf.iso,
+            wbFrame: WbSliderFrame(buffer: buf)
         )
     }
 
@@ -522,11 +548,9 @@ public struct PipelineRenderer: Sendable {
         quality: Quality,
         cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBufferF32(
-            f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0,
-            noise_profile_data: nil, noise_profile_len: 0, iso: 0
-        )
+        // Zero-filled by the imported C struct's implicit init — includes the
+        // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
+        var buf = MapleSceneLinearBufferF32()
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
             maple_render_bytes_scene_linear_f32(ptr, UInt(len), hintPtr.baseAddress,
                                                 xmpCStr, quality.rawValue, cancel?.pointer, &buf)
@@ -557,7 +581,8 @@ public struct PipelineRenderer: Sendable {
             bytesPerPixel: Int(buf.bytes_per_pixel),
             pixels: data,
             noiseProfile: noiseProfile,
-            iso: buf.iso
+            iso: buf.iso,
+            wbFrame: WbSliderFrame(buffer: buf)
         )
     }
 
@@ -570,11 +595,9 @@ public struct PipelineRenderer: Sendable {
         maxLongEdge: UInt32,
         cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBufferF32(
-            f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0,
-            noise_profile_data: nil, noise_profile_len: 0, iso: 0
-        )
+        // Zero-filled by the imported C struct's implicit init — includes the
+        // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
+        var buf = MapleSceneLinearBufferF32()
         let rc = maple_render_file_scene_linear_sized_f32(
             rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
         )
@@ -604,7 +627,8 @@ public struct PipelineRenderer: Sendable {
             bytesPerPixel: Int(buf.bytes_per_pixel),
             pixels: data,
             noiseProfile: noiseProfile,
-            iso: buf.iso
+            iso: buf.iso,
+            wbFrame: WbSliderFrame(buffer: buf)
         )
     }
 
@@ -617,11 +641,9 @@ public struct PipelineRenderer: Sendable {
         maxLongEdge: UInt32,
         cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBufferF32(
-            f32_rgba: nil, len_bytes: 0, channels: 0,
-            bytes_per_pixel: 0, width: 0, height: 0,
-            noise_profile_data: nil, noise_profile_len: 0, iso: 0
-        )
+        // Zero-filled by the imported C struct's implicit init — includes the
+        // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
+        var buf = MapleSceneLinearBufferF32()
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
             maple_render_bytes_scene_linear_sized_f32(
                 ptr, UInt(len), hintPtr.baseAddress,
@@ -654,7 +676,8 @@ public struct PipelineRenderer: Sendable {
             bytesPerPixel: Int(buf.bytes_per_pixel),
             pixels: data,
             noiseProfile: noiseProfile,
-            iso: buf.iso
+            iso: buf.iso,
+            wbFrame: WbSliderFrame(buffer: buf)
         )
     }
 
@@ -1020,12 +1043,17 @@ extension PipelineRenderer {
     /// XMP was applied, else 6500/0). `skipAgX` flips off the AgX view
     /// transform tail — used by the non-RAW path so we don't double-
     /// tone-map already-display-encoded JPEG / HEIF input.
+    /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
+    /// the Rust chain derives its WB delta in that frame (the same math the
+    /// full develop uses); `nil` leaves the `wb_frame_*` tail zeroed — the
+    /// legacy generic-CAT16 delta, bit-identical to pre-#1781.
     public static func makeParams(
         from model: AdjustmentModel,
         decodedTemperature: Double = 6500.0,
         decodedTint: Double = 0.0,
         skipAgX: Bool = false,
-        iso: UInt32 = 0
+        iso: UInt32 = 0,
+        wbFrame: WbSliderFrame? = nil
     ) -> MapleAdjustmentParams {
         // Diagnostic for the magenta-cast investigation: log every value the
         // Apple shell hands to the Rust slider chain. If temperature or tint
@@ -1126,6 +1154,12 @@ extension PipelineRenderer {
         params.noise_profile_len = 0
         // ISO speed (PR #1709): 0 = unknown; Rust side maps 0 → 100 as a safe default.
         params.iso = iso
+        // WB slider frame (#1781) — appended at the struct tail; absent
+        // (`nil`, or a frame that reads !isPresent) leaves the zero-filled
+        // legacy state.
+        if let wbFrame, wbFrame.isPresent {
+            wbFrame.fill(&params)
+        }
         return params
     }
 

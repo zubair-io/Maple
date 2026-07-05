@@ -166,6 +166,30 @@ pub struct MapleSceneLinearBufferF32 {
     /// ISO speed at capture from `RawImage::iso`. 0 when the source DNG did not
     /// carry an ISO tag (the chain substitutes 100 on the Rust side).
     pub iso: u32,
+    // --- WB slider frame export (#1781). The resolved
+    //     `wb_camera::SliderFrame` this buffer was developed under, plus the
+    //     frame's as-shot `(scene_cct, tint)` estimate — the data the host
+    //     passes back through `MapleAdjustmentParams.wb_frame_*` /
+    //     `MapleGpuLiveParams.wb_frame_*` so the per-tick WB delta is derived
+    //     in the SAME calibration frame the develop chain used, and seeds its
+    //     As-Shot slider values from raw-core's numbers instead of a
+    //     platform-estimated pre-decode placeholder. All six fields are 0 when
+    //     no frame applies (`RawlerFallback` body, lossy LinearRaw) — hosts
+    //     treat `wb_frame_scene_cct <= 0` as "absent" and keep their legacy
+    //     behaviour. Appended at the struct tail per the offset-stable ABI
+    //     convention (inline values, nothing extra to free). ---
+    /// Cold calibration endpoint (XYZ→camera), row-major 3×3.
+    pub wb_frame_m_cold: [f32; 9],
+    pub wb_frame_cct_cold: f32,
+    /// Warm calibration endpoint (XYZ→camera), row-major 3×3. Equal to the
+    /// cold endpoint (with equal CCTs) for a single-calibration frame.
+    pub wb_frame_m_warm: [f32; 9],
+    pub wb_frame_cct_warm: f32,
+    /// The frame's as-shot CCT (the slider identity temperature). 0 ⇒ absent.
+    pub wb_frame_scene_cct: f32,
+    /// The frame's as-shot tint (in-frame estimate; may sit at the ±100 rail
+    /// for bodies whose as-shot chromaticity is far off the Planckian locus).
+    pub wb_frame_as_shot_tint: f32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -180,6 +204,12 @@ impl MapleSceneLinearBufferF32 {
             noise_profile_data: std::ptr::null_mut(),
             noise_profile_len: 0,
             iso: 0,
+            wb_frame_m_cold: [0.0; 9],
+            wb_frame_cct_cold: 0.0,
+            wb_frame_m_warm: [0.0; 9],
+            wb_frame_cct_warm: 0.0,
+            wb_frame_scene_cct: 0.0,
+            wb_frame_as_shot_tint: 0.0,
         }
     }
 }

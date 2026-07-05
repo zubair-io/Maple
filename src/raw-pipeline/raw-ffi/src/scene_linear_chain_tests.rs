@@ -78,6 +78,12 @@ fn default_params() -> MapleAdjustmentParams {
         noise_profile_ptr: std::ptr::null(),
         noise_profile_len: 0,
         iso: 100,
+        wb_frame_m_cold: [0.0; 9],
+        wb_frame_cct_cold: 0.0,
+        wb_frame_m_warm: [0.0; 9],
+        wb_frame_cct_warm: 0.0,
+        wb_frame_scene_cct: 0.0,
+        wb_frame_as_shot_tint: 0.0,
     }
 }
 

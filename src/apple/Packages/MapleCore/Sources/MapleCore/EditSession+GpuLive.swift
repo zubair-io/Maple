@@ -189,10 +189,19 @@ extension EditSession {
         // settle double-present.
         editSessionLogger.notice("GPU-TRACE present begin gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height)")
         var presentErr: Error? = nil
+        // #1781: with a decode-exported slider frame the delta anchors at
+        // the strip-XMP decode bake (6500/0 IN the frame) and the FFI
+        // derives the matrix with the frame's own calibration — matching
+        // the CPU tick chain and a fresh full develop. Frame-less RAW
+        // keeps the legacy pre-decode as-shot anchor; non-RAW keeps the
+        // D65 baseline (#1734).
+        let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
+        let anchor = wbDeltaAnchor
         await driver.present(
             model: m,
-            asShotCCT: resolvedIsRaw ? asShotCCT : 6500.0,
-            asShotTint: resolvedIsRaw ? asShotTint : 0.0
+            asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0,
+            asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
+            wbFrame: liveWbFrame
         ) { [weak self] error in
             presentErr = error
             self?.renderError = error

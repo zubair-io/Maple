@@ -208,14 +208,15 @@ public actor GpuLiveSession {
         asShotCCT: Double? = nil,
         asShotTint: Double? = nil,
         inputShape: UInt32 = 0,
-        surfaceGeneration: UInt64 = 0
+        surfaceGeneration: UInt64 = 0,
+        wbFrame: WbSliderFrame? = nil
     ) throws -> Double? {
         guard var h = handle else {
             throw GpuLiveError(message: "present: session is closed")
         }
         let params = PipelineRenderer.makeGpuLiveParams(
             from: model, asShotCCT: asShotCCT, asShotTint: asShotTint,
-            inputShape: inputShape
+            inputShape: inputShape, wbFrame: wbFrame
         )
         let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
         let cancelPtr = cancel?.pointer
@@ -262,7 +263,8 @@ public actor GpuLiveSession {
         model: AdjustmentModel,
         asShotCCT: Double? = nil,
         asShotTint: Double? = nil,
-        inputShape: UInt32 = 0
+        inputShape: UInt32 = 0,
+        wbFrame: WbSliderFrame? = nil
     ) throws -> [UInt8]? {
         guard let h = handle else {
             throw GpuLiveError(message: "renderToBuffer: session is closed")
@@ -271,7 +273,8 @@ public actor GpuLiveSession {
             from: model,
             asShotCCT: asShotCCT,
             asShotTint: asShotTint,
-            inputShape: inputShape
+            inputShape: inputShape,
+            wbFrame: wbFrame
         )
         var out = [UInt8](repeating: 0, count: width * height * 3)
         let rc = withGpuLiveParams(params) { pp in

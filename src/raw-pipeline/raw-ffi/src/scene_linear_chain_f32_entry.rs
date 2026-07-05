@@ -129,6 +129,21 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
         };
     let iso_f32 = if p.iso == 0 { 100 } else { p.iso };
 
+    // WB slider frame (#1781) — same RAW-shape gate as the fp16 sibling; an
+    // absent frame (zeros) keeps the legacy generic CAT16 delta bit-identical.
+    let wb_frame = wb_frame_from_flat(
+        &p.wb_frame_m_cold,
+        p.wb_frame_cct_cold,
+        &p.wb_frame_m_warm,
+        p.wb_frame_cct_warm,
+        if p.input_shape == 0 {
+            p.wb_frame_scene_cct
+        } else {
+            0.0
+        },
+        p.wb_frame_as_shot_tint,
+    );
+
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
         in_slice,
         width,
@@ -136,6 +151,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
         &model,
         decoded_temp,
         decoded_tint,
+        Some(&wb_frame),
         p.skip_agx != 0,
         primaries,
         noise_profile_slice_f32,

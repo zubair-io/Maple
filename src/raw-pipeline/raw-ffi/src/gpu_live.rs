@@ -239,6 +239,28 @@ pub struct MapleGpuLiveParams {
     //     append-only ABI convention; a stale host leaves this 0 = Auto (AgX)
     //     — bit-identical to pre-#1722 output. ---
     pub profile_id: u8,
+    // --- WB slider frame (#1781) — the decode-exported `SliderFrame` data
+    //     (`MapleSceneLinearBufferF32.wb_frame_*`, passed back verbatim by
+    //     the host). When present (`wb_frame_scene_cct > 0`) AND a decoded
+    //     anchor is engaged, the WB matrix is derived in this frame via the
+    //     same `wb_camera` math the CPU develop uses, instead of the generic
+    //     Planckian CAT16 delta — closing the live-vs-refine seam. Appended
+    //     at the tail per the append-only ABI convention: a stale host
+    //     zero-fills all six fields ⇒ frame absent ⇒ the legacy CAT16 path,
+    //     bit-identical output (asserted by
+    //     `zero_frame_params_reproduce_legacy_wb_matrix`). ---
+    /// Cold calibration endpoint (XYZ→camera), row-major 3×3.
+    pub wb_frame_m_cold: [f32; 9],
+    pub wb_frame_cct_cold: f32,
+    /// Warm calibration endpoint (XYZ→camera), row-major 3×3. Equal to the
+    /// cold endpoint (with equal CCTs) for a single-calibration frame.
+    pub wb_frame_m_warm: [f32; 9],
+    pub wb_frame_cct_warm: f32,
+    /// The frame's as-shot CCT (the slider identity temperature). 0 ⇒ the
+    /// whole frame block is absent (legacy behaviour).
+    pub wb_frame_scene_cct: f32,
+    /// The frame's as-shot tint (in-frame estimate).
+    pub wb_frame_as_shot_tint: f32,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.
@@ -491,3 +513,8 @@ mod gpu_live_tests;
 #[cfg(test)]
 #[path = "gpu_live_nonraw_wb_tests.rs"]
 mod gpu_live_nonraw_wb_tests;
+// WB slider-frame gates (#1781): zero-frame legacy equivalence, the frame
+// parity gate, and the fixture-gated test_0002 live-vs-refine seam metric.
+#[cfg(test)]
+#[path = "gpu_live_wb_frame_tests.rs"]
+mod gpu_live_wb_frame_tests;

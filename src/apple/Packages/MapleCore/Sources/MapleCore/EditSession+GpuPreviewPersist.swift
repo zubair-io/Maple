@@ -40,12 +40,17 @@ extension EditSession {
         // just drew, so it must anchor WB identically or the persisted preview
         // would disagree with what's on screen.
         let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
-        let cct = resolvedIsRaw ? asShotCCT : 6500.0
-        let tint = resolvedIsRaw ? asShotTint : 0.0
+        // #1781: mirror `presentViaGpuLive`'s anchor exactly — decode-bake
+        // anchor + slider frame when present, legacy as-shot otherwise.
+        let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
+        let anchor = wbDeltaAnchor
+        let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
+        let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
         guard let frame = await driver.renderCurrentFrameBytes(
             model: coldOpenModel,
             asShotCCT: cct,
-            asShotTint: tint
+            asShotTint: tint,
+            wbFrame: liveWbFrame
         ) else { return }
         // Build + JPEG-encode + store on a DETACHED utility task so the per-pixel
         // RGBA expansion + encode never touch the MainActor editor — matching

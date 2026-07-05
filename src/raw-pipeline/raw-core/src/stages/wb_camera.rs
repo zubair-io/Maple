@@ -187,7 +187,14 @@ use super::white_balance::{apply_tint_perpendicular, cct_to_xy, xy_to_xyz};
 #[path = "wb_camera_frame.rs"]
 mod frame;
 
+// The FFI-transport export of a resolved frame + the Rec.2020 delta-matrix
+// derivation the post-DCP per-tick paths share (#1781). Sibling file per
+// the 600-LOC budget, same pattern as `frame` above.
+#[path = "wb_frame_delta.rs"]
+mod frame_delta;
+
 pub use frame::SliderFrame;
+pub use frame_delta::SliderFrameExport;
 
 /// The literal numeric defaults `AdjustmentModel::default()` assigns to
 /// `temperature`/`tint`. See the module doc's "As-Shot seeding" section for

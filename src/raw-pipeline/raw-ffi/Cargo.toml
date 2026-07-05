@@ -24,6 +24,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # raw-wasm's `gpu = ["dep:raw-gpu", ...]`).
 gpu = ["dep:raw-gpu", "raw-core/gpu"]
 
+# Gates fixture-dependent tests on the gitignored `test-fixtures/` tree —
+# forwards raw-core's `fixtures` feature (#1082 semantics: without it the
+# tests are visibly `ignored`; with it a missing fixture fails closed).
+# Used by the #1781 live-vs-refine seam gate (`gpu_live_wb_frame_tests`).
+fixtures = ["raw-core/fixtures"]
+
 # Epic #1234 / M3 (#1235): panorama stitch C-FFI (`src/pano.rs`).
 #
 # Two variants, same `dep:maple-pano` (M6 #1244 redesign):

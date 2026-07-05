@@ -69,11 +69,18 @@ extension PipelineRenderer {
     /// responsibility (`asShotCCT`/`asShotTint`, #1734) — this function does not
     /// infer an anchor from `inputShape`, keeping a single source of truth for
     /// the non-RAW contract at the `EditSession+GpuLive.swift` call site.
+    /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
+    /// (and a decoded anchor is engaged) the FFI derives the WB matrix in
+    /// that frame — the same `wb_camera` math the CPU develop uses — via
+    /// `SliderFrameExport::rec2020_delta_matrix`, closing the
+    /// live-vs-refine seam. `nil` leaves the `wb_frame_*` tail zeroed:
+    /// the legacy generic-CAT16 delta, bit-identical to pre-#1781.
     public static func makeGpuLiveParams(
         from model: AdjustmentModel,
         asShotCCT: Double? = nil,
         asShotTint: Double? = nil,
-        inputShape: UInt32 = 0
+        inputShape: UInt32 = 0,
+        wbFrame: WbSliderFrame? = nil
     ) -> MapleGpuLiveParams {
         // Per-field assignment (not a literal init) — the Swift expression type-
         // checker hits its complexity ceiling on a ~40-field literal init, exactly
@@ -239,6 +246,12 @@ extension PipelineRenderer {
         // (skip WB + capture_sharpening). The default (0) preserves the
         // pre-#1331 RAW behaviour for any caller that doesn't pass it.
         p.input_shape = inputShape
+
+        // WB slider frame (#1781) — appended at the struct tail; absent
+        // (`nil`, or !isPresent) leaves the zero-filled legacy state.
+        if let wbFrame, wbFrame.isPresent {
+            wbFrame.fill(&p)
+        }
 
         return p
     }

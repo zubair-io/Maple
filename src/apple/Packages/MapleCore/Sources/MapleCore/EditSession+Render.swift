@@ -87,12 +87,10 @@ extension EditSession {
 
     /// Bake the current model against a fresh full-quality decode for export.
     public func renderForExport() async throws -> CIImage {
-        let asShot: ImageEditPipeline.AsShotWB? = {
-            guard let cct = asShotCCT, let t = asShotTint else { return nil }
-            return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
-        }()
+        // #1781: decode-bake anchor with a present frame; the export
+        // decode's own frame export rides processSceneLinear(wbFrame:).
         return try await renderActor.renderForExport(
-            asset: asset, model: model, asShot: asShot
+            asset: asset, model: model, asShot: wbDeltaAnchor
         )
     }
 
@@ -212,7 +210,8 @@ extension EditSession {
                 cached: snapshot.image!,
                 cachedDecodedAtModel: snapshot.decodedAtModel,
                 cachedNoiseProfile: snapshot.noiseProfile,
-                cachedISO: snapshot.iso
+                cachedISO: snapshot.iso,
+                cachedWbFrame: snapshot.wbFrame
             )
             return
         }
@@ -227,16 +226,15 @@ extension EditSession {
         cached: CIImage,
         cachedDecodedAtModel: AdjustmentModel?,
         cachedNoiseProfile: [Float]? = nil,
-        cachedISO: UInt32 = 0
+        cachedISO: UInt32 = 0,
+        cachedWbFrame: WbSliderFrame? = nil
     ) async {
         let assetID = asset.id
         let canvasSize = nativeImageSize
         let pipeline = self.pipeline
         let m = model
-        let asShot: ImageEditPipeline.AsShotWB? = {
-            guard let cct = asShotCCT, let t = asShotTint else { return nil }
-            return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
-        }()
+        adoptDecodedWbFrame(cachedWbFrame) // #1781: decode-bake anchor below
+        let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
         let priorPreview = renderedPreview
         // Auto Profile (#812) — resolve/cache the per-image cube off the
         // synchronous chain block, mirroring `decodeAndRender`. The editor
@@ -269,7 +267,8 @@ extension EditSession {
                     profileLUT: profileLUT,
                     assetID: assetID,
                     noiseProfile: cachedNoiseProfile,
-                    iso: cachedISO
+                    iso: cachedISO,
+                    wbFrame: cachedWbFrame
                 )
                 let cropped = chain.cropped(to: visibleRect)
                 guard let cg = pipeline.materializeRegion(cropped, rect: visibleRect)
@@ -323,8 +322,12 @@ extension EditSession {
         }
         isRendering = true
         renderPhase = phase
-        let m = model
         let asset = self.asset
+        // #1781: adopt the decode-exported WB slider frame BEFORE capturing
+        // the model + anchor (this snapshot is also the freshness read).
+        let snapshot = await renderActor.snapshot(forAsset: asset)
+        adoptDecodedWbFrame(snapshot.wbFrame)
+        let m = model
         let pipeline = self.pipeline
         // Crop + straighten (#638). Applied as a CoreImage geometry op on the
         // FINAL developed CIImage — the crop is not in the Rust core on Apple,
@@ -357,7 +360,6 @@ extension EditSession {
             let scaleH = CGFloat(min(1.0 / fracH, 8.0))
             return CGSize(width: t.width * scaleW, height: t.height * scaleH)
         }()
-        let snapshot = await renderActor.snapshot(forAsset: asset)
         let cached = snapshot.image
         // Fast phase accepts any fresh cache (a downsampled decode is
         // fine for the viewport). Refine requires a FULL-resolution decode
@@ -378,10 +380,9 @@ extension EditSession {
         let cachedDecodedAtModel = snapshot.decodedAtModel
         let cachedNoiseProfile = snapshot.noiseProfile
         let cachedISO = snapshot.iso
-        let asShot: ImageEditPipeline.AsShotWB? = {
-            guard let cct = asShotCCT, let t = asShotTint else { return nil }
-            return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
-        }()
+        let cachedWbFrame = snapshot.wbFrame
+        // #1781: decode-bake anchor when a frame is present (wbDeltaAnchor).
+        let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
         // Auto Profile (#812) — resolve (and cache) the per-image display-space
         // CIColorCube once per render, OFF the synchronous filter-chain block.
         // The fit is a cold JPEG-extract + develop the first time per image;
@@ -445,7 +446,8 @@ extension EditSession {
                             profileLUT: profileLUT,
                             assetID: assetID,
                             noiseProfile: cachedNoiseProfile,
-                            iso: cachedISO
+                            iso: cachedISO,
+                            wbFrame: cachedWbFrame
                         )
                     }
                 }.value
@@ -479,6 +481,10 @@ extension EditSession {
                 guard let decoded else {
                     throw RenderError.pipelineFailed
                 }
+                // #1781: adopt the fresh decode's slider-frame export BEFORE
+                // the GPU present (it reads the session's frame + model).
+                let freshSnapshot = await renderActor.snapshot(forAsset: asset)
+                adoptDecodedWbFrame(freshSnapshot.wbFrame)
                 // wgpu live present on the fresh decode (epic #925, P4b-apple) —
                 // same runtime-gated parallel path as the cached branch above.
                 // #1617: crop the decoded buffer before the GPU readback (as the
@@ -488,10 +494,10 @@ extension EditSession {
                     isRendering = false
                     return
                 }
-                let freshSnapshot = await renderActor.snapshot(forAsset: asset)
                 let freshDecodedAtModel = freshSnapshot.decodedAtModel
                 let freshNoiseProfile = freshSnapshot.noiseProfile
-                let freshISO = freshSnapshot.iso
+                let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
+                let freshAsShot = wbDeltaAnchor
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
@@ -502,11 +508,12 @@ extension EditSession {
                         }
                         return pipeline.processSceneLinear(
                             decoded: decoded, model: m, targetSize: targetSize,
-                            asShot: asShot, decodedAtModel: freshDecodedAtModel,
+                            asShot: freshAsShot, decodedAtModel: freshDecodedAtModel,
                             profileLUT: profileLUT,
                             assetID: assetID,
                             noiseProfile: freshNoiseProfile,
-                            iso: freshISO
+                            iso: freshISO,
+                            wbFrame: freshWbFrame
                         )
                     }
                 }.value

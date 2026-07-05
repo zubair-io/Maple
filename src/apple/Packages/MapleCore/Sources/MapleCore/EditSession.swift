@@ -128,6 +128,33 @@ public final class EditSession {
     public internal(set) var asShotCCT: Double?
     public internal(set) var asShotTint: Double?
 
+    /// Decode-exported WB slider frame (#1781) — raw-core's own calibration
+    /// frame for this asset, adopted when the first scene-linear decode
+    /// lands (`adoptDecodedWbFrame`). Once present:
+    ///   • `asShotCCT`/`asShotTint` are updated to the frame's as-shot
+    ///     estimate (the decode's number wins over the `CIRAWFilter`
+    ///     pre-decode placeholder, which reads a DIFFERENT frame);
+    ///   • every per-tick WB delta anchors at the strip-XMP decode bake
+    ///     (`wbDeltaAnchor` below) and carries the frame so the GPU live
+    ///     chain, the CPU tick chain, and a fresh full develop agree.
+    /// `nil` until a decode lands, or forever for frame-less sources
+    /// (non-RAW, `RawlerFallback` bodies) — those keep legacy behaviour.
+    public internal(set) var wbSliderFrame: WbSliderFrame?
+
+    /// The WB delta anchor for the per-tick chains (#1781): the strip-XMP
+    /// decode bake (explicit 6500/0, interpreted IN the slider frame) when
+    /// a frame is present, else the legacy pre-decode as-shot estimate.
+    var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
+        if wbSliderFrame?.isPresent == true {
+            return ImageEditPipeline.AsShotWB(
+                temperature: WbSliderFrame.decodeBakeAnchor.temperature,
+                tint: WbSliderFrame.decodeBakeAnchor.tint
+            )
+        }
+        guard let cct = asShotCCT, let t = asShotTint else { return nil }
+        return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+    }
+
     // MARK: Render output
 
     public var renderedPreview: CIImage?

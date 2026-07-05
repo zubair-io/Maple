@@ -112,6 +112,55 @@ extension EditSession {
         return base
     }
 
+    // MARK: - Decode-exported WB slider frame adoption (#1781)
+
+    /// Adopt the decode-exported WB slider frame: the decode's numbers win
+    /// over the `CIRAWFilter` pre-decode placeholder. Updates the session's
+    /// as-shot estimate, and — when the model still sits at the placeholder
+    /// seed (fresh open, WB untouched) — re-seeds the live model + the
+    /// RESET baseline to the frame's as-shot pair, WITHOUT triggering the
+    /// autosave (an untouched open must not manufacture a sidecar). A
+    /// cheap fast re-render is scheduled instead so the canvas converges
+    /// on the frame-correct rendering.
+    ///
+    /// Idempotent (guards on frame equality); no-op for frame-less decodes
+    /// and non-RAW assets — those keep today's behaviour end to end.
+    func adoptDecodedWbFrame(_ frame: WbSliderFrame?) {
+        guard let frame, frame.isPresent, asset.isRaw else { return }
+        guard wbSliderFrame != frame else { return }
+        wbSliderFrame = frame
+        let newCCT = Double(frame.sceneCCT)
+        let newTint = Double(frame.asShotTint)
+        let oldCCT = asShotCCT
+        let oldTint = asShotTint
+        asShotCCT = newCCT
+        asShotTint = newTint
+        // Re-seed only an untouched As-Shot model: both the live model and
+        // the RESET baseline still sit exactly at the placeholder pair the
+        // pre-decode seed wrote. A user WB move, or a sidecar carrying
+        // authored values, never matches and is left alone.
+        let modelAtPlaceholder = oldCCT != nil && oldTint != nil
+            && model.temperature == oldCCT && model.tint == oldTint
+            && originalModel.temperature == oldCCT && originalModel.tint == oldTint
+        guard modelAtPlaceholder else {
+            editSessionLogger.notice(
+                "WB frame adopted (asShot \(newCCT, format: .fixed(precision: 0))K/\(newTint, format: .fixed(precision: 1))); model not at placeholder — sliders left alone"
+            )
+            if renderRequested { _scheduleRender(phase: .fast) }
+            return
+        }
+        isHydratingInitialState = true
+        model.temperature = newCCT
+        model.tint = newTint
+        originalModel.temperature = newCCT
+        originalModel.tint = newTint
+        isHydratingInitialState = false
+        editSessionLogger.notice(
+            "WB frame adopted — As-Shot re-seeded from \(oldCCT ?? 0, format: .fixed(precision: 0))K/\(oldTint ?? 0, format: .fixed(precision: 1)) to \(newCCT, format: .fixed(precision: 0))K/\(newTint, format: .fixed(precision: 1))"
+        )
+        if renderRequested { _scheduleRender(phase: .fast) }
+    }
+
     // MARK: - Cold-open orchestration
 
     /// Kick off a render for the current model. Views call this in `.task`
