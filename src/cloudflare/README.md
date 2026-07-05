@@ -30,6 +30,7 @@ tests locally.
 ## Commands
 
 ```bash
+cp wrangler.jsonc.example wrangler.jsonc  # first time only — see below
 npm install
 npm run cf-typegen    # generates worker-configuration.d.ts (Env type) — gitignored,
                        # run this once after install and again after editing wrangler.jsonc
@@ -39,30 +40,42 @@ npm run dev           # wrangler dev — local server at http://localhost:8787
 npm run deploy        # wrangler deploy
 ```
 
+`wrangler.jsonc` is gitignored — it holds account/domain-specific values
+(origin URL, R2 bucket name, route pattern) that are per-operator, not
+project source. `wrangler.jsonc.example` is the committed template; copy it
+once and edit your copy freely, it'll never show up in `git status`.
+
 ## First-time setup (per Cloudflare account)
 
-1. Create the R2 bucket (name must match `wrangler.jsonc`'s `r2_buckets[0].bucket_name`,
-   and the bucket name configured in Maple's Settings → Cloudflare page):
+0. `cp wrangler.jsonc.example wrangler.jsonc` if you haven't already.
+1. Create the R2 bucket (name must match your `wrangler.jsonc`'s
+   `r2_buckets[0].bucket_name`, and the bucket name configured in Maple's
+   Settings → Cloudflare page):
    ```bash
    npx wrangler r2 bucket create maple-thumbs
    ```
-2. Set the JWT secret — copy the value from Maple's Settings → Cloudflare page
-   ("Reveal JWT secret", step-up gated):
+2. Set the JWT secret. Maple has no UI or API route that echoes it —
+   retrieve it directly from the server (MongoDB `server_state` collection,
+   `_id: "jwt_secret"`, field `value`; see
+   `src/api/src/auth/jwt-secret.repo.ts`):
    ```bash
    npx wrangler secret put JWT_SECRET
    ```
-3. Fill in `ORIGIN_API_BASE_URL` in `wrangler.jsonc` with your deployed Maple
-   API server's public URL.
+3. Fill in `ORIGIN_API_BASE_URL` in your `wrangler.jsonc` with your deployed
+   Maple API server's public URL. If that's the same hostname the route
+   below intercepts, read the loop warning in `wrangler.jsonc.example` first.
 4. Attach a route so only `/api/thumb/*` traffic reaches this Worker —
-   uncomment and fill in the `routes` block in `wrangler.jsonc` (needs a
-   Cloudflare-managed zone). Everything else, including the legacy
+   uncomment and fill in the `routes` block in your `wrangler.jsonc` (needs
+   a Cloudflare-managed zone). Everything else, including the legacy
    `/api/fs/thumb` path, must keep going straight to the origin.
 5. `npm run deploy`.
 
-## CI / auto-deploy
+## CI
 
 `.github/workflows/cloudflare.yml` runs `npm run typecheck` + `npm test` on
-every push/PR touching this directory, and deploys (`npm run deploy`) on
-push to `main` — gated on the `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`
-repo secrets being configured (Workers Scripts:Edit + Account Settings:Read).
-The deploy step logs a warning and no-ops if those secrets are absent.
+every push/PR touching this directory, against a throwaway config generated
+from `wrangler.jsonc.example` (fine for typecheck/tests — they don't need
+real account values). There is **no auto-deploy job** — `wrangler.jsonc`
+being per-operator and gitignored means CI has no real config to deploy
+with. Deploy manually with `npm run deploy` whenever you're ready to ship,
+using your own local `wrangler.jsonc`.

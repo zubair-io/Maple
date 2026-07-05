@@ -1,6 +1,6 @@
 # .github/workflows/cloudflare.yml
 #
-# CI + deploy for the Cloudflare thumbnail-cache Worker (src/cloudflare/,
+# CI for the Cloudflare thumbnail-cache Worker (src/cloudflare/,
 # #1757/#1760). This is a standalone deploy unit with no shared imports
 # into src/api or src/web (the R2 key scheme and JWT verification are
 # independently re-implemented — see src/cloudflare/src/r2.ts and auth.ts),
@@ -13,17 +13,20 @@
 # WebSocket implementation doesn't fire the `upgrade` event that bridge
 # needs, so `bun run test` hangs indefinitely under this package specifically.
 #
-# Two jobs:
-#   cloudflare-test   — typecheck + vitest (@cloudflare/vitest-pool-workers)
-#                        on every push/PR that touches src/cloudflare/.
-#   cloudflare-deploy — `wrangler deploy`, push-to-main only, gated on the
-#                        same path filter. Requires repo secrets
-#                        CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
-#                        (Workers Scripts:Edit + Account Settings:Read
-#                        permissions) — the deploy step no-ops with a clear
-#                        log message if they aren't configured yet, so
-#                        adding this workflow doesn't require the secrets
-#                        to exist on day one.
+# One job:
+#   cloudflare-test — typecheck + vitest (@cloudflare/vitest-pool-workers)
+#                     on every push/PR that touches src/cloudflare/.
+#
+# No auto-deploy job. wrangler.jsonc is gitignored (it holds per-operator
+# values — origin URL, R2 bucket name, route/zone — not project source; see
+# wrangler.jsonc.example), so CI has no real config to deploy with. Each
+# operator (including this project's own Cloudflare account) deploys
+# manually from their machine: `npm run deploy` in src/cloudflare/, using
+# their own local wrangler.jsonc.
+#
+# CI's test job generates its own throwaway wrangler.jsonc from
+# wrangler.jsonc.example — fine for typecheck/tests, which only need a
+# structurally valid config, not real account values.
 
 name: cloudflare
 
@@ -53,6 +56,13 @@ jobs:
         working-directory: src/cloudflare
         run: npm ci
 
+      # wrangler.jsonc is gitignored (per-operator config) — CI needs a
+      # structurally valid one to typecheck/test against, so it copies the
+      # committed placeholder template. Never deployed anywhere.
+      - name: Generate a throwaway wrangler.jsonc from the example
+        working-directory: src/cloudflare
+        run: cp wrangler.jsonc.example wrangler.jsonc
+
       # worker-configuration.d.ts (Env type, ~14k lines of Cloudflare's own
       # runtime declarations) is gitignored — regenerate it from
       # wrangler.jsonc before typechecking.
@@ -67,40 +77,3 @@ jobs:
       - name: Run Worker tests
         working-directory: src/cloudflare
         run: npm test
-
-  cloudflare-deploy:
-    name: cloudflare-deploy (wrangler deploy)
-    needs: cloudflare-test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install Worker deps
-        working-directory: src/cloudflare
-        run: npm ci
-
-      - name: Check Cloudflare deploy credentials are configured
-        id: creds
-        run: |
-          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set — skipping deploy. Add both as repo secrets to enable automatic deploys."
-          fi
-
-      # JWT_SECRET is a Worker secret set once via `wrangler secret put`
-      # (see src/cloudflare/wrangler.jsonc) — it is NOT touched by this
-      # deploy step and does not need to be a GitHub secret.
-      - name: Deploy Worker
-        if: steps.creds.outputs.configured == 'true'
-        working-directory: src/cloudflare
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npm run deploy

@@ -1,4 +1,10 @@
 /**
+ * Copy this file to `wrangler.jsonc` (gitignored — it holds your own
+ * account/domain-specific values, e.g. the origin URL and route pattern
+ * below) and fill in the placeholders. Run `npm run cf-typegen` afterward
+ * to regenerate worker-configuration.d.ts (also gitignored) against your
+ * config.
+ *
  * For more details on how to configure Wrangler, refer to:
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  */
@@ -29,6 +35,14 @@
 	 * Origin to fall back to on a cache miss. Must be reachable from
 	 * Cloudflare's edge (a public hostname, not localhost) — point this at
 	 * the deployed Maple API server.
+	 *
+	 * IMPORTANT if your API's public hostname is the SAME hostname this
+	 * Worker's route (below) intercepts: that hostname must be
+	 * Cloudflare-proxied for the route to fire at all, which means this
+	 * fetch would ALSO re-enter Cloudflare's edge and match the same
+	 * route again — the Worker calling itself in a loop. Point this at a
+	 * separate, non-proxied ("DNS only" / grey-cloud) hostname or a
+	 * directly-reachable address for the same server instead.
 	 */
 	"vars": {
 		"ORIGIN_API_BASE_URL": "https://your-maple-server.example.com",
@@ -36,8 +50,11 @@
 
 	/**
 	 * JWT_SECRET is NOT set here — it is a Worker secret, set once via
-	 * `npx wrangler secret put JWT_SECRET` (paste the value revealed in
-	 * Maple's Settings > Cloudflare page), and never committed.
+	 * `npx wrangler secret put JWT_SECRET`. The operator retrieves the
+	 * value directly from the server (MongoDB `server_state` collection,
+	 * `_id: "jwt_secret"`, field `value`; see
+	 * src/api/src/auth/jwt-secret.repo.ts) — Maple has no UI or API route
+	 * that echoes it. Never commit the value.
 	 */
 
 	/**
