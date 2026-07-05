@@ -12,7 +12,7 @@
 //! validation build. Nothing ships until P5.
 //!
 //! Threading: `raw_gpu::run_exposure_gpu` constructs its own `GpuContext`
-//! (`!Send`/`!Sync` — an `OnceCell` pipeline cache) and consumes it entirely
+//! (`Send` but `!Sync` — an unsync `OnceCell` pipeline cache) and consumes it entirely
 //! within the single synchronous call, never sharing it across threads, so this
 //! entry is safe to call from any one thread (the Swift bridge keeps it on a
 //! single owner per the P1a note). Unlike the decode entries it does not need a

@@ -13,9 +13,14 @@ use std::cell::{OnceCell, RefCell};
 /// Device/queue handle plus lazily-compiled, cached compute pipelines.
 ///
 /// Construct once (`new_blocking` on native, `new_async` anywhere) and share by
-/// reference. Not `Send`/`Sync` — the cached-pipeline `OnceCell` is single-
-/// threaded; the headless harness and the P1b/P1c display owners are
+/// reference. `Send` but not `Sync` — the cached-pipeline `OnceCell` and the
+/// `RefCell` frame pool are single-threaded, so one render is in flight at a
+/// time; the headless harness and the P1b/P1c display owners are
 /// single-threaded around the GPU, matching wgpu's per-thread submission model.
+/// (`Send` is load-bearing for the FFI's process-wide `Mutex`-guarded shared
+/// slot (#1769), which moves the context between locked FFI entries — the
+/// pool's refcounted handles are `Arc`, not `Rc`, precisely so no
+/// `unsafe impl Send` is needed there.)
 pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,

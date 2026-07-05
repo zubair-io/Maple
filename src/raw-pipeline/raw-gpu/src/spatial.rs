@@ -37,14 +37,14 @@
 
 use crate::context::GpuContext;
 use crate::frame_pool::{pool_dispatch, pool_scratch, DispatchResources};
-use std::rc::Rc;
+use std::sync::Arc;
 
-/// A pooled GPU scratch buffer handle. `Rc<wgpu::Buffer>` so the live-render pool
+/// A pooled GPU scratch buffer handle. `Arc<wgpu::Buffer>` so the live-render pool
 /// ([`crate::frame_pool`]) can own the buffer and hand out cheap refcount-bump
 /// clones (NOT GPU allocations) on a same-signature re-render. Derefs to
 /// `&wgpu::Buffer` at function-arg / `as_entire_binding` positions; pass `&*plane`
 /// (or `plane.as_ref()`) where a `&wgpu::Buffer` slice element is needed.
-pub type Plane = Rc<wgpu::Buffer>;
+pub type Plane = Arc<wgpu::Buffer>;
 
 /// The standard scratch usage: `STORAGE | COPY_SRC | COPY_DST` (sub-pass src/dst,
 /// seeded by a copy, or read back).
@@ -62,9 +62,9 @@ pub fn plane_byte_len(width: u32, height: u32) -> u64 {
 /// for a scalar f32 plane (`width × height` f32). `STORAGE | COPY_SRC | COPY_DST`
 /// so it can be a sub-pass src/dst or be seeded by a copy. Drawn from the live
 /// pool ([`crate::frame_pool`]) — the first render of a chain shape creates it,
-/// subsequent same-shape renders reuse the same `Rc<Buffer>` (zero allocation).
+/// subsequent same-shape renders reuse the same `Arc<Buffer>` (zero allocation).
 /// Outside a render window (stage unit tests) the pool is dormant and this is a
-/// plain create. Returns an [`Plane`] (`Rc<Buffer>`); deref for `&Buffer`.
+/// plain create. Returns an [`Plane`] (`Arc<Buffer>`); deref for `&Buffer`.
 pub fn alloc_plane(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
     let byte_len = plane_byte_len(width, height);
     let label = label.to_string();
@@ -84,7 +84,7 @@ pub fn alloc_plane(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Pl
 /// same-signature re-render does NOT reallocate it) — but `contents` are written
 /// EVERY call via `queue.write_buffer` (a copy, not an allocation), so the data
 /// is always fresh. `STORAGE | COPY_SRC | COPY_DST`; the kernel binds it
-/// read-only. Returns an [`Plane`] (`Rc<Buffer>`); pass `data.as_ref()` to
+/// read-only. Returns an [`Plane`] (`Arc<Buffer>`); pass `data.as_ref()` to
 /// [`encode_simple`].
 ///
 /// PARITY-CRITICAL: the contents MUST be rewritten unconditionally, mirroring the
@@ -297,7 +297,7 @@ pub fn plane_vec2_byte_len(width: u32, height: u32) -> u64 {
 /// Pooled scratch storage buffer for a vec2 f32 plane (`width × height × 2` f32).
 /// Same usage + pooling as [`alloc_plane`]; used by dehaze's general guided
 /// filter to hold its PACKED mean-planes (two scalar quantities blurred together
-/// — see [`box_blur_vec2_encode`]). Returns an [`Plane`] (`Rc<Buffer>`).
+/// — see [`box_blur_vec2_encode`]). Returns an [`Plane`] (`Arc<Buffer>`).
 pub fn alloc_plane_vec2(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
     let byte_len = plane_vec2_byte_len(width, height);
     let label = label.to_string();
