@@ -28,14 +28,15 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// key (see file header). Default `"library"` matches the spec.
     @AppStorage("cm.tab.shell") private var activeTab: String = "library"
 
-    /// Library tab navigation stack. A Library cell tap appends the tapped
-    /// `AssetRef` here, which the tab's `NavigationStack(path:)` pushes and
-    /// `PhoneLibraryView`'s `.navigationDestination(for: AssetRef.self)`
-    /// resolves into `EditorDestination → EditorView` (S5, #625, #791).
-    /// `EditorDestination`'s back button calls `dismiss()`, which pops this
-    /// path. A typed `[AssetRef]` (AssetRef is Hashable) keeps push/pop
+    /// Library tab navigation stack. A Library cell tap appends
+    /// `.preview(asset)` here, which the tab's `NavigationStack(path:)` pushes
+    /// and `PhoneLibraryView`'s `.navigationDestination(for:
+    /// LibraryDestination.self)` resolves — `.preview` → the fast Preview
+    /// surface, `.edit` → `EditorDestination → EditorView` (Fast Preview §1;
+    /// S5 #625/#791). Each destination's back button calls `dismiss()`, which
+    /// pops this path. A typed `[LibraryDestination]` (Hashable) keeps push/pop
     /// trivial vs. a type-erased `NavigationPath`.
-    @State private var libraryPath: [AssetRef] = []
+    @State private var libraryPath: [LibraryDestination] = []
 
     /// Live text for the Search tab's native `.searchable` field (the
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
@@ -121,6 +122,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     browseDisplayMode: $browseDisplayMode,
                     browseVM: browseVM,
                     sessions: $sessions,
+                    libraryPath: $libraryPath,
                     toolbarContent: toolbarContent,
                     // Cloud Timeline / Search taps: resolve the asset's session
                     // (returns its AssetRef) and push the S5 Editor onto THIS
@@ -132,7 +134,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // (incl. its CloudSidecarStore) created during resolution.
                     onSelectCloudAsset: { asset, server in
                         if let ref = onSelectCloudAsset(asset, server) {
-                            libraryPath.append(ref)
+                            libraryPath.append(.preview(ref))
                         }
                     },
                     onCloseSearch: onCloseSearch,
@@ -140,21 +142,19 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // push as cloud assets (#809).
                     onSelectLocalAsset: { ref in
                         if let assetRef = onSelectLocalAsset(ref) {
-                            libraryPath.append(assetRef)
+                            libraryPath.append(.preview(assetRef))
                         }
                     },
                     onGrantPhotosAccess: onGrantPhotosAccess,
                     onNavigateFolder: onNavigateFolder,
-                    // Phone Library tap pushes the S5 Editor onto THIS tab's
-                    // NavigationStack (#791) instead of AppShell's legacy
-                    // `.browse → .fullImage` mode flip (which rendered the
-                    // zoom-only FullImageView with no adjustment controls).
-                    // The pushed `EditorDestination` reuses/creates the
-                    // EditSession itself and `.toolbar(.hidden, for: .tabBar)`
-                    // hides the tab bar on push. The AppShell-provided
+                    // Phone Library tap pushes the fast Preview surface onto
+                    // THIS tab's NavigationStack (Fast Preview §1) — NOT the
+                    // editor directly. Preview's Edit button pushes `.edit`
+                    // from inside PhoneLibraryView's resolved destination. The
+                    // tab bar is hidden on push (#791). The AppShell-provided
                     // `onOpenEditor` (mode flip) stays in use by the
                     // tablet/desktop pane shell, which has no NavigationStack.
-                    onOpenEditor: { asset in libraryPath.append(asset) },
+                    onOpenEditor: { asset in libraryPath.append(.preview(asset)) },
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback,
                     onMergePanorama: onMergePanorama,
