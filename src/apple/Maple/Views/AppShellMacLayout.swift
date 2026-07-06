@@ -31,6 +31,11 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     /// `isFullImage` is true. Always false on the iPhone path (this layout
     /// is the Mac/iPad pane shell only).
     let useEditor: Bool
+    /// When true the center column renders the fast static `PreviewView`
+    /// (Fast Preview §1) — a two-leg split (sidebar + full-bleed preview, no
+    /// inspector; Preview owns its own Flag/Info surfaces). Takes precedence
+    /// over `useEditor`. Only meaningful while `isFullImage` is true.
+    let usePreview: Bool
     @Binding var columnVisibility: NavigationSplitViewVisibility
     /// Whether the S5 editor's Info inspector is shown (#875 item 2). Only
     /// meaningful when `useEditor` is true — drives `.inspector(isPresented:)`
@@ -74,6 +79,12 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let onEditorShare: () -> Void
     /// S5 EditorView Info affordance — reveals the DetailPanel column.
     let onEditorInfo: () -> Void
+    /// Preview's Edit button — flips the pane shell to `mode = .editing`.
+    /// Fast Preview §1.
+    var onPreviewEdit: (AssetRef) -> Void = { _ in }
+    /// Preview's back button — returns to the browse grid (`mode = .browse`).
+    /// Fast Preview §1.
+    var onPreviewDismiss: () -> Void = {}
     /// M2: called when the user taps "Merge to Panorama…" from BrowseGrid
     /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
     var onMergePanorama: (() -> Void)? = nil
@@ -97,11 +108,32 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
 
     @ViewBuilder
     private var fullImage: some View {
-        if useEditor {
+        if usePreview {
+            previewFullImage
+        } else if useEditor {
             editorFullImage
         } else {
             legacyFullImage
         }
+    }
+
+    /// Fast Preview pane shell (Fast Preview §1). Two-leg split: sidebar +
+    /// full-bleed `PreviewView`, no persistent inspector — Preview owns its own
+    /// Flag popover + Info panel. Mirrors `editorFullImage`'s shape (which also
+    /// drops the third nav column) so the center subtree stays a plain content
+    /// column.
+    private var previewFullImage: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar()
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        } detail: {
+            centerColumn
+                // Preview ships its own 44pt header (back + filename), so
+                // suppress the navigation title to avoid a duplicate.
+                .navigationTitle("")
+                .toolbar { toolbarContent() }
+        }
+        .navigationSplitViewStyle(.balanced)
     }
 
     /// S5 editor pane shell (#815 / #875). The Info inspector is a
@@ -168,6 +200,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
         AppShellCenterColumn(
             isFullImage: isFullImage,
             useEditor: useEditor,
+            usePreview: usePreview,
             selectedSession: selectedSession,
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
@@ -190,6 +223,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onEditorDismiss: onEditorDismiss,
             onEditorShare: onEditorShare,
             onEditorInfo: onEditorInfo,
+            onPreviewEdit: onPreviewEdit,
+            onPreviewDismiss: onPreviewDismiss,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata
         )

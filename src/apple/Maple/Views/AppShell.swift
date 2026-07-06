@@ -147,7 +147,14 @@ struct AppShell: View {
     // shell's many `mode == .fullImage` / `.browse` readers — title, Info
     // sheet, back chevron, toolbar + drawer gating — behaviourally
     // unchanged: iPhone never enters `.editing`.
-    enum Mode { case browse, fullImage, editing, panoramaMerge }
+    //   • `.preview` — the fast static `PreviewView` (Fast Preview §1). The
+    //     default target of a grid tap on the Mac/iPad pane shell: a
+    //     cached-JPEG surface with a Flag/Edit/Info bar + filmstrip that
+    //     mounts NO render pipeline (no EditSession render, no GPU/CPU canvas,
+    //     no zoom controller). Edit flips to `.editing`; back returns to
+    //     `.browse`. The iPhone shell doesn't use this — it pushes
+    //     `PreviewDestination` onto its Library-tab NavigationStack instead.
+    enum Mode { case browse, preview, fullImage, editing, panoramaMerge }
     @State var mode: Mode = .browse
 
     /// PanoMergeSession drives the panorama merge view. Created when the
@@ -156,23 +163,23 @@ struct AppShell: View {
     /// real FFI stitch runs; MockPanoStitcher is retained for unit tests only.
     @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: RustPanoStitcher())
 
-    /// True when an image is open in either editor mode (`.fullImage` or
+    /// True when an image surface is open (`.preview`, `.fullImage`, or
     /// `.editing`) — i.e. the center column is showing an image, not the
     /// browse grid. The Mac/iPad three-column layout, the toolbar's
     /// back/export affordances, and the navigation title all key off
-    /// "is an image open?", which both editor modes answer yes to.
-    var isImageOpen: Bool { mode == .fullImage || mode == .editing }
+    /// "is an image open?", which all three answer yes to. Preview joins the
+    /// set (Fast Preview §1) so opening a photo collapses the grid to the
+    /// full-bleed Preview surface.
+    var isImageOpen: Bool { mode == .preview || mode == .fullImage || mode == .editing }
 
-    /// Editor mode to enter when the user opens an image. The Mac/iPad
-    /// pane shell gets the S5 `EditorView` (`.editing`); the iPhone tab
-    /// shell stays on the legacy `.fullImage` (S5-on-iPhone is separate
-    /// work) so its `mode`-reading title/toolbar/drawer code is preserved
-    /// exactly. Routed through `MapleShellKind.current` — NOT the
-    /// width-derived `mapleLayout` — so a narrow Mac window (which can
-    /// report a `.phone` layout) still gets the desktop editor.
-    var imageOpenMode: Mode {
-        MapleShellKind.current == .phoneTab ? .fullImage : .editing
-    }
+    /// Mode to enter when the user opens an image from the grid. Fast Preview
+    /// §1: every pane-shell open now lands on the fast static `.preview`
+    /// surface (the editor is reached only from Preview's Edit button). The
+    /// iPhone shell doesn't consume this — it pushes `PreviewDestination` onto
+    /// its Library-tab NavigationStack — so the pane shell is the only reader,
+    /// but the value is idiom-independent per the design ("resolves to
+    /// `.preview` on all idioms").
+    var imageOpenMode: Mode { .preview }
 
     // BrowseGrid layout — fill (cropped square cover) vs fit (letterboxed).
     // Session-scoped only; no UserDefaults persistence by design (see the
@@ -478,13 +485,15 @@ struct AppShell: View {
     @ViewBuilder
     private var macShell: some View {
         AppShellMacLayout(
-            // Both editor modes (`.fullImage`, `.editing`) collapse the
-            // browse grid to the image surface + DetailPanel column.
+            // Every image mode (`.preview`, `.fullImage`, `.editing`)
+            // collapses the browse grid to the image surface.
             isFullImage: isImageOpen,
             // The S5 EditorView replaces FullImageView in the pane shell's
             // center column when in `.editing` (#815). iPhone never gets
             // here — `phoneTabShell` is the iPhone path.
             useEditor: mode == .editing,
+            // Fast Preview §1: the static Preview surface on `.preview`.
+            usePreview: mode == .preview,
             columnVisibility: $columnVisibility,
             editorDetailVisible: $editorDetailVisible,
             libraryTitle: libraryTitle,
@@ -517,13 +526,25 @@ struct AppShell: View {
             // iPhone-only Info sheet), so the button's job is to make sure
             // the column is visible (e.g. after the user collapsed it via
             // the Library toggle).
-            onEditorDismiss: { mode = .browse },
+            // Fast Preview §1: the editor's back returns to Preview, not
+            // straight to the grid (`grid → Preview → Editor` back stack).
+            onEditorDismiss: { mode = .preview },
             onEditorShare: { showExport = true },
             // Toggle the editor's Info inspector (#875 item 2). On the pane
             // shell the info surface is the right-hand inspector, shown via
             // `.inspector(isPresented:)` — toggling preserves the editor's
             // armed-tool / fine-mode state (#816), unlike a column swap.
             onEditorInfo: { withAnimation { editorDetailVisible.toggle() } },
+            // Fast Preview §1: Preview's Edit button flips the pane shell into
+            // the S5 editor for the same asset. The asset is already selected
+            // (`browseVM.selectedID`), and `ensureSession` primed a session on
+            // grid appear, so the editor mounts against the warm session.
+            onPreviewEdit: { asset in
+                browseVM.selectedID = asset.id
+                mode = .editing
+            },
+            // Fast Preview §1: Preview's back returns to the browse grid.
+            onPreviewDismiss: { mode = .browse },
             // M2 panorama merge (#1236).
             onMergePanorama: { openPanoramaMerge() },
             // M4 batch metadata editor (#1629).
@@ -570,8 +591,8 @@ struct AppShell: View {
         // floating filmstrip/dock replace the side panels). The sidebar
         // returns on dismiss; ⌘\ and the Info button reopen them mid-session.
         .onChange(of: mode) { _, newMode in
-            let imageOpen = (newMode == .editing || newMode == .fullImage)
-            // Entering an editor on the pane shell (iPad/Mac): drop every other
+            let imageOpen = (newMode == .preview || newMode == .editing || newMode == .fullImage)
+            // Entering an image surface on the pane shell (iPad/Mac): drop every other
             // cached session so only the active asset's GPU + decoded buffers stay
             // resident. The open* actions cache every opened asset in `sessions`
             // and never prune, so two large RAWs held at once jetsam-killed iOS
@@ -814,12 +835,16 @@ struct AppShell: View {
     @ToolbarContentBuilder
     private var browseToolbarContent: some ToolbarContent {
         AppShellToolbar(
-            // Back chevron + Export are full-image-only. In `.editing` the
-            // EditorView's own EditorHeader owns those, so the window
-            // toolbar must NOT show them — pass the narrow `.fullImage`
-            // check, not `isImageOpen` (#815).
+            // Back chevron + Export are legacy-full-image-only. In `.editing`
+            // and `.preview` the center surface ships its own header (back +
+            // filename), so the window toolbar must NOT show them — pass the
+            // narrow `.fullImage` check, not `isImageOpen` (#815).
             isFullImage: mode == .fullImage,
-            isEditing: mode == .editing,
+            // `.editing` and `.preview` both own their chrome, so the window
+            // toolbar suppresses browse controls (fill/fit, select, cloud
+            // view-mode) for both — only Library/Search/Settings survive so the
+            // sidebar stays toggleable (#815; Fast Preview §1).
+            isEditing: mode == .editing || mode == .preview,
             hasSelection: selectedSession != nil,
             isCompact: isCompactShell,
             searchAvailable: searchAvailable,
