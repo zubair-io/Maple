@@ -76,7 +76,10 @@ export class XmpSerializerService {
     // parser gives the stamp precedence over the papp-authorship
     // heuristic.
     if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
-      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion ?? 2}"`);
+      // Clamp to {1, 2} (default 2): raw-core's parser hard-fails on an
+      // unknown stamp value, so a corrupted/out-of-range model field must
+      // never reach the sidecar.
+      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 2}"`);
     }
 
     // DisplayLookCurve (#371; retired in #443) — the field is a no-op
