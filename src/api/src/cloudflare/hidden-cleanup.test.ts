@@ -131,15 +131,24 @@ describe('cleanupR2ThumbForHiddenAsset / cleanupR2ThumbsForHiddenAssets', () => 
     expect((saved as { cf_thumb_synced_at?: string | null })?.cf_thumb_synced_at).toBeNull();
   });
 
-  it('skips the R2 round-trip entirely when the asset was never synced', async () => {
+  it('still attempts the R2 delete when the in-memory snapshot says never-synced (stale-read guard)', async () => {
     if (!mongoReachable) return;
-    stubFetch(200);
+    // A 404 is exactly what R2 would return for a genuinely-never-uploaded
+    // key — deleteThumbFromR2 treats that as success. This exercises the
+    // fix for the race where `asset.cf_thumb_synced_at` reflects a stale
+    // pre-upload snapshot even though the real document (or R2 itself) has
+    // since moved on; skipping on that stale read would leak a thumbnail
+    // that actually did get uploaded moments after this asset was claimed.
+    stubFetch(404);
     const asset = makeAsset({ synced: false });
     await db!.collection('assets').insertOne(asset as never);
 
     await cleanupR2ThumbForHiddenAsset(asset);
 
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe('DELETE');
+    const saved = await db!.collection('assets').findOne({ _id: asset._id } as never);
+    expect((saved as { cf_thumb_synced_at?: string | null })?.cf_thumb_synced_at).toBeNull();
   });
 
   it('is a no-op when Cloudflare credentials are not saved, even with enabled: true stale in memory', async () => {
@@ -202,16 +211,22 @@ describe('cleanupR2ThumbForHiddenAsset / cleanupR2ThumbsForHiddenAssets', () => 
     stubFetch(200);
     const a = makeAsset();
     const b = makeAsset();
+    // Attempted unconditionally too (see the stale-read test above) —
+    // still counts toward the fan-out even though never actually synced.
     const notSynced = makeAsset({ synced: false });
     await db!.collection('assets').insertMany([a, b, notSynced] as never[]);
 
     await cleanupR2ThumbsForHiddenAssets([a, b, notSynced]);
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     const savedA = await db!.collection('assets').findOne({ _id: a._id } as never);
     const savedB = await db!.collection('assets').findOne({ _id: b._id } as never);
+    const savedNotSynced = await db!.collection('assets').findOne({ _id: notSynced._id } as never);
     expect((savedA as { cf_thumb_synced_at?: string | null })?.cf_thumb_synced_at).toBeNull();
     expect((savedB as { cf_thumb_synced_at?: string | null })?.cf_thumb_synced_at).toBeNull();
+    expect(
+      (savedNotSynced as { cf_thumb_synced_at?: string | null })?.cf_thumb_synced_at,
+    ).toBeNull();
   });
 
   it('bulk variant is a no-op for an empty list', async () => {
