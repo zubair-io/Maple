@@ -76,11 +76,6 @@ struct PreviewView: View {
 
     private var isRegular: Bool { hSizeClass == .regular }
 
-    /// The already-primed session for the current asset, if any. Preview never
-    /// forces creation just to display an image — but Flag/Info need it, so the
-    /// bar lazily primes one on demand (pipeline-free) via `ensureSession`.
-    private var currentSession: EditSession? { sessions[asset.id] }
-
     private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
 
     var body: some View {
