@@ -43,6 +43,12 @@ import { thumbR2Key } from './thumb-key.ts';
 
 const log = childLogger('cloudflare:hidden-cleanup');
 
+/** Bounds a single R2 delete's wall-clock — this module is awaited from
+ * worker-stage handlers, so an unbounded `fetch` on an R2-side hang would
+ * stall the stage's concurrency slot indefinitely. Same value the
+ * live-upload hook used for its own bounded PUT. */
+const CF_DELETE_TIMEOUT_MS = 5_000;
+
 /** The subset of an asset doc this module needs — deliberately narrow so
  * callers can pass either a full `ImageDoc`/`AssetDoc` or a lighter
  * in-memory projection (e.g. a burst sibling) without a cast. */
@@ -66,7 +72,7 @@ async function deleteOne(
 
   const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
   try {
-    await deleteThumbFromR2(config, key);
+    await deleteThumbFromR2(config, key, AbortSignal.timeout(CF_DELETE_TIMEOUT_MS));
     const db = await getDb();
     await db
       .collection('assets')
@@ -84,23 +90,44 @@ async function deleteOne(
  * credentials aren't saved — without them there's nothing to delete
  * *from*. Unlike the upload gate, this deliberately does NOT require
  * `enabled: true`: an operator can turn uploads off while old thumbnails —
- * potentially now including a newly-hidden one — still sit in R2. */
+ * potentially now including a newly-hidden one — still sit in R2.
+ *
+ * The whole body is wrapped, not just the R2 call inside `deleteOne`: this
+ * function's callers (the describe / sidecar-metadata-index stage handlers)
+ * `await` it unwrapped, trusting the "never throws" contract above — a
+ * transient failure resolving config or the library-slug map (both real
+ * Mongo reads) must not propagate and fail the calling stage run. */
 export async function cleanupR2ThumbForHiddenAsset(asset: HidableAsset): Promise<void> {
-  const dbConfig = await loadCloudflareConfig();
-  const config = resolveCloudflareConfig(dbConfig);
-  if (!hasCloudflareCredentials(config)) return;
-  const idToSlug = await loadLibraryIdToSlug();
-  await deleteOne(asset, config, idToSlug);
+  try {
+    const dbConfig = await loadCloudflareConfig();
+    const config = resolveCloudflareConfig(dbConfig);
+    if (!hasCloudflareCredentials(config)) return;
+    const idToSlug = await loadLibraryIdToSlug();
+    await deleteOne(asset, config, idToSlug);
+  } catch (err) {
+    log.warn(
+      { assetId: asset._id.toHexString(), err: err instanceof Error ? err.message : err },
+      'failed to resolve config/library map for R2 cleanup — thumbnail remains cached until a manual cleanup',
+    );
+  }
 }
 
 /** Bulk variant for burst-sibling propagation — resolves the library-slug
  * map once and fans the deletes out concurrently instead of one
- * `loadLibraryIdToSlug()` call per sibling. */
+ * `loadLibraryIdToSlug()` call per sibling. Same non-throwing contract and
+ * rationale as `cleanupR2ThumbForHiddenAsset` above. */
 export async function cleanupR2ThumbsForHiddenAssets(assets: HidableAsset[]): Promise<void> {
   if (assets.length === 0) return;
-  const dbConfig = await loadCloudflareConfig();
-  const config = resolveCloudflareConfig(dbConfig);
-  if (!hasCloudflareCredentials(config)) return;
-  const idToSlug = await loadLibraryIdToSlug();
-  await Promise.all(assets.map((asset) => deleteOne(asset, config, idToSlug)));
+  try {
+    const dbConfig = await loadCloudflareConfig();
+    const config = resolveCloudflareConfig(dbConfig);
+    if (!hasCloudflareCredentials(config)) return;
+    const idToSlug = await loadLibraryIdToSlug();
+    await Promise.all(assets.map((asset) => deleteOne(asset, config, idToSlug)));
+  } catch (err) {
+    log.warn(
+      { count: assets.length, err: err instanceof Error ? err.message : err },
+      'failed to resolve config/library map for bulk R2 cleanup — thumbnails remain cached until a manual cleanup',
+    );
+  }
 }
