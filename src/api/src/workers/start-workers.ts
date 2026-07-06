@@ -2,7 +2,7 @@
  * Worker-tier lifecycle — extracted from `src/api/src/index.ts`'s boot IIFE.
  *
  * `startWorkers()` brings up every subsystem that belongs in the worker tier:
- *   - stage orchestrator (9 stages)
+ *   - stage orchestrator (10 stages)
  *   - discover sweep (in-process, no child spawn)
  *   - cache-gc sweep
  *   - FFI decode pool sizing

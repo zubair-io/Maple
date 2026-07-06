@@ -528,13 +528,13 @@ export interface AssetDoc {
    * content-addressed thumbnail to the Cloudflare R2 mirror (see
    * `cloudflare/r2-client.ts`). Absent/null means the thumbnail either
    * hasn't been generated yet, Cloudflare upload is disabled, or the
-   * backfill job hasn't reached this asset yet — all three are
-   * indistinguishable and all three mean "still pending" to the backfill
-   * job's selection query. Never holds a URL: the R2 object key is always
-   * re-derived from `(library slug, fileinfo[0].path, fileinfo[0].filename)`
-   * via `cloudflare/thumb-key.ts`, mirroring the existing
-   * "never persist a derivable thumb path" convention (see
-   * `workers/stages/thumb.ts`).
+   * `cf-thumb-sync` pipeline stage (`workers/stages/cf-thumb-sync.ts`)
+   * hasn't reached this asset yet — all three are indistinguishable and
+   * all three mean "still pending" to that stage's claim query. Never
+   * holds a URL: the R2 object key is always re-derived from `(library
+   * slug, fileinfo[0].path, fileinfo[0].filename)` via
+   * `cloudflare/thumb-key.ts`, mirroring the existing "never persist a
+   * derivable thumb path" convention (see `workers/stages/thumb.ts`).
    */
   cf_thumb_synced_at?: string | null;
   /**
@@ -952,7 +952,7 @@ export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
 
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending
  * this union and registering a handler in `job-runner/handlers/index.ts`. */
-export type JobKind = 'batch_jpeg_export' | 'pano_stitch' | 'cf_thumb_backfill';
+export type JobKind = 'batch_jpeg_export' | 'pano_stitch';
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between
