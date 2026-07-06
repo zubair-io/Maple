@@ -50,6 +50,7 @@ import { xmpPathRoutes } from './routes/xmp.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { authRoutes } from './routes/auth.ts';
 import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
+import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan-handoff.ts';
 import { accountRoutes } from './routes/auth-account.ts';
 import { fsRoutes } from './routes/fs.ts';
 import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
@@ -181,6 +182,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // Native PKCE code redeem (public) — the Apple shell exchanges its one-time
     // code for tokens here; no bearer (this is how the app first gets tokens).
     .use(nativeCodeRedeemRoutes)
+    // Web-to-web-LAN session handoff redeem (public) — the LAN-origin page
+    // exchanges its one-time code for tokens here; no bearer (this is how
+    // that origin first gets tokens). See routes/auth-lan-handoff.ts.
+    .use(lanHandoffRedeemRoutes)
     // Read-only geocode cache lookup — used by PhotoKit-backup clients to
     // determine a destination folder path before uploading; no auth required
     // since it returns no user data (only Place metadata keyed by lat/lon).
@@ -245,6 +250,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // Native PKCE code issue (authed) — wrapped in its own sub-app so its
     // `requireAuth` scoped-derive stays contained (same isolation as authedApi).
     .use(new Elysia({ name: 'authedNativeCode' }).use(nativeCodeIssueRoutes))
+
+    // Web-to-web-LAN session handoff issue (authed) — wrapped in its own
+    // sub-app so its `requireAuth` scoped-derive stays contained.
+    .use(new Elysia({ name: 'authedLanHandoff' }).use(lanHandoffIssueRoutes))
 
     // Authenticated account self-service (#861): /me, step-up re-auth, credential
     // management. Wrapped so its `requireAuth` scoped-derive stays contained.
