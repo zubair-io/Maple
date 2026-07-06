@@ -17,13 +17,16 @@ import { RouterOutlet } from '@angular/router';
 import { LayoutService } from '../layout-service';
 import { PhoneTabShellComponent } from './phone-tab-shell.component';
 import { UpdateToastComponent } from '../sw/update-toast.component';
+import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
 
 @Component({
   selector: 'app-root-shell',
   standalone: true,
-  imports: [RouterOutlet, PhoneTabShellComponent, UpdateToastComponent],
-  // The update toast renders alongside both shell variants so a pending app
-  // update is offered no matter which breakpoint is active.
+  imports: [RouterOutlet, PhoneTabShellComponent, UpdateToastComponent, LanSwitchBannerComponent],
+  // The update toast + LAN-switch banner render alongside both shell
+  // variants so they're offered no matter which breakpoint is active. The
+  // LAN-switch banner is a no-op on the Hosted build (see its LIBRARY_BACKEND
+  // gate) — safe to always mount here.
   template: `
     @if (layout() === 'phone') {
       <app-phone-tab-shell />
@@ -31,6 +34,7 @@ import { UpdateToastComponent } from '../sw/update-toast.component';
       <router-outlet />
     }
     <maple-update-toast />
+    <maple-lan-switch-banner />
   `,
   styles: [
     `

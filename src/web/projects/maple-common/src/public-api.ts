@@ -51,11 +51,15 @@ export * from './lib/observability/observability.service';
 export * from './lib/observability/maple-error-handler';
 
 // LAN address discovery — settings CRUD model + the public report shape +
-// the dynamic API_BASE_URL store + the on-load preference initializer.
+// the "switch to local network" banner (a redirect-with-handoff-code flow;
+// see auth.service.ts's issueLanHandoffCode/redeemLanHandoff — WebAuthn
+// requires a secure context a plain-HTTP LAN address can't provide, so the
+// LAN origin gets its own session via a one-time code instead of silently
+// swapping the API base URL underneath the page).
 export * from './lib/network/network-config.model';
 export * from './lib/network/local-address-report.model';
-export * from './lib/api/api-base-url-store';
-export * from './lib/network/network-preference-bootstrap';
+export * from './lib/network/lan-switch.service';
+export * from './lib/network/lan-switch-banner.component';
 
 export * from './lib/components/loading-banner/loading-banner.component';
 export * from './lib/components/error-banner/error-banner.component';

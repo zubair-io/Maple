@@ -40,6 +40,9 @@ const PUBLIC_ROUTES = new Set<string>([
   // token grab, before it holds any bearer — gated by the one-time code + PKCE
   // verifier, not by auth. (The paired issue route, POST /api/auth/native-code,
   // IS authed and is correctly gated.)
+  'POST /api/auth/lan-handoff/redeem', // web-to-web-LAN handoff redeem: the LAN
+  // origin's FIRST token grab, gated by the one-time code, not by auth. (The
+  // paired issue route, POST /api/auth/lan-handoff, IS authed.)
   'GET /api/geocode/reverse', // read-only Place metadata by lat/lon (no user data)
   'GET /docs', // Scalar API docs UI (client codegen source)
   'GET /openapi.json', // OpenAPI spec (client codegen source)
