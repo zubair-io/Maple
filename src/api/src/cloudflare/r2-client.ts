@@ -66,13 +66,18 @@ export async function uploadThumbToR2(
 /** Delete a thumbnail from R2 — used when an asset transitions to hidden
  * (see `cloudflare/hidden-cleanup.ts`) so it stops being fetchable from the
  * edge cache. A 404 (already absent) is not an error: the caller doesn't
- * know or care whether the object ever made it to R2 in the first place. */
+ * know or care whether the object ever made it to R2 in the first place.
+ * `signal`, when supplied, aborts the underlying fetch — same contract as
+ * `uploadThumbToR2`'s, since this is awaited from worker-stage handlers
+ * where an unbounded network call would stall the stage's concurrency slot
+ * indefinitely on an R2-side hang. */
 export async function deleteThumbFromR2(
   config: ResolvedCloudflareConfig,
   key: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const client = r2Client(config);
-  const res = await client.fetch(r2Endpoint(config, key), { method: 'DELETE' });
+  const res = await client.fetch(r2Endpoint(config, key), { method: 'DELETE', signal });
   if (!res.ok && res.status !== 404) {
     const body = await res.text().catch(() => '');
     throw new Error(`R2 delete failed (${res.status}): ${body.slice(0, 500)}`);
