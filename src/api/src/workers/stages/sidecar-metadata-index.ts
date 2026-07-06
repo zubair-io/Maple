@@ -34,6 +34,7 @@ import type { MetadataOverride } from '../../db/schema.ts';
 import { coll, assetAbsPath } from '../../indexer/images.repo.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { writeHiddenMarker, removeHiddenMarker } from '../../fs/hidden-marker.ts';
+import { cleanupR2ThumbForHiddenAsset } from '../../cloudflare/hidden-cleanup.ts';
 
 export const SIDECAR_METADATA_INDEX_VERSION = 1;
 
@@ -171,6 +172,13 @@ export async function sidecarMetadataIndexHandler(
     await writeHiddenMarker(absPath);
   } else {
     await removeHiddenMarker(absPath);
+  }
+
+  // Newly hidden by this projection (a manual toggle via the Batch
+  // Metadata Editor, most commonly) — any thumbnail already mirrored to R2
+  // must come down; see cloudflare/hidden-cleanup.ts. Best-effort/non-throwing.
+  if (finalHidden && !priorHidden) {
+    await cleanupR2ThumbForHiddenAsset(image);
   }
 
   // 7. If GPS changed, reset geocode stage to trigger re-run.
