@@ -81,6 +81,21 @@ export function resolveCloudflareConfig(db: CloudflareConfig | null): Cloudflare
   return db ? { ...DEFAULT_CONFIG, ...db } : DEFAULT_CONFIG;
 }
 
+/** True when every credential field needed to actually talk to R2 is
+ * present, irrespective of the `enabled` toggle. Split out from
+ * `isCloudflareConfigComplete` for callers that need to reach R2 regardless
+ * of whether new uploads are currently turned on — e.g. deleting a
+ * newly-hidden asset's thumbnail (`cloudflare/hidden-cleanup.ts`): an
+ * operator can disable uploads while thumbnails already sitting in R2,
+ * including one that just became hidden, still need cleaning up. */
+export function hasCloudflareCredentials(
+  config: CloudflareConfig,
+): config is CloudflareConfig & ResolvedCloudflareConfig {
+  return (
+    !!config.account_id && !!config.bucket && !!config.access_key_id && !!config.secret_access_key
+  );
+}
+
 /** True when every field required to actually talk to R2 is present.
  * `enabled` alone isn't enough — an operator can flip the toggle before
  * filling in credentials, and callers (the indexer hook, the backfill job)
@@ -88,13 +103,7 @@ export function resolveCloudflareConfig(db: CloudflareConfig | null): Cloudflare
 export function isCloudflareConfigComplete(
   config: CloudflareConfig,
 ): config is CloudflareConfig & ResolvedCloudflareConfig {
-  return (
-    config.enabled &&
-    !!config.account_id &&
-    !!config.bucket &&
-    !!config.access_key_id &&
-    !!config.secret_access_key
-  );
+  return config.enabled && hasCloudflareCredentials(config);
 }
 
 /** Strip the secret before it goes over HTTP, replacing it with a boolean

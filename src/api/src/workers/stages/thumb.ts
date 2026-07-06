@@ -61,9 +61,19 @@ const CF_UPLOAD_TIMEOUT_MS = 5_000;
  * throws — a failure here must not fail the thumb stage itself; an
  * asset whose upload didn't land simply stays selected by the
  * `cf_thumb_pending` index until the backfill job (sub-issue 4) catches it.
+ *
+ * Hidden assets (`hidden: true` — manual or AI nudity flag, see
+ * `AssetDoc.hidden` in `db/schema.ts`) are never uploaded: a Cloudflare
+ * Worker edge cache has no per-request auth check beyond "is this a valid
+ * Maple bearer token," so anything in R2 is reachable by any authenticated
+ * user for as long as it sits there, unlike the origin route which can
+ * layer additional checks later. A thumbnail that later becomes visible
+ * again picks up the live-upload hook on its next re-render, or gets
+ * caught by the backfill job in the meantime.
  */
 async function maybeUploadThumbToCloudflare(image: ImageDoc, thumbPath: string): Promise<void> {
   if (!image.maple_id) return;
+  if (image.hidden === true) return;
   const dbConfig = await loadCloudflareConfig();
   const config = resolveCloudflareConfig(dbConfig);
   if (!isCloudflareConfigComplete(config)) return;
