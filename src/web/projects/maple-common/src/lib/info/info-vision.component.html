@@ -28,13 +28,17 @@
         </div>
       }
 
-      <!-- scene + setting + activity (single-value chips, only show populated) -->
+      <!-- scene + setting + activity (single-value chips, only show populated).
+           scene_type / shot_type are null on screenshots (v5 short-circuit),
+           so each is gated the same way setting/activity already were. -->
       <div class="flex flex-wrap gap-1">
-        <div
-          class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-        >
-          {{ d.vision.scene_type }}
-        </div>
+        @if (d.vision.scene_type) {
+          <div
+            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
+          >
+            {{ d.vision.scene_type }}
+          </div>
+        }
         @if (d.vision.setting) {
           <div
             class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
@@ -49,14 +53,19 @@
             {{ d.vision.activity }}
           </div>
         }
-        <div
-          class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
-        >
-          {{ d.vision.shot_type }}
-        </div>
+        @if (d.vision.shot_type) {
+          <div
+            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main"
+          >
+            {{ d.vision.shot_type }}
+          </div>
+        }
       </div>
 
-      <!-- mood + composition + time/lighting/weather context (smaller, secondary row) -->
+      <!-- mood + composition + time/lighting/weather context (smaller, secondary row).
+           composition / time_of_day / lighting / weather are null on
+           screenshots (v5 short-circuit) — each chip is gated on a
+           populated value. -->
       <div class="flex flex-wrap gap-1">
         @if (d.vision.mood) {
           <div
@@ -65,22 +74,28 @@
             {{ d.vision.mood }}
           </div>
         }
-        <div
-          class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-        >
-          {{ d.vision.composition }}
-        </div>
-        <div
-          class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-        >
-          {{ d.vision.time_of_day }}
-        </div>
-        <div
-          class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
-        >
-          {{ d.vision.lighting }}
-        </div>
-        @if (d.vision.weather !== 'indoor' && d.vision.weather !== 'unknown') {
+        @if (d.vision.composition) {
+          <div
+            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
+          >
+            {{ d.vision.composition }}
+          </div>
+        }
+        @if (d.vision.time_of_day) {
+          <div
+            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
+          >
+            {{ d.vision.time_of_day }}
+          </div>
+        }
+        @if (d.vision.lighting) {
+          <div
+            class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
+          >
+            {{ d.vision.lighting }}
+          </div>
+        }
+        @if (d.vision.weather && d.vision.weather !== 'indoor' && d.vision.weather !== 'unknown') {
           <div
             class="rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-muted"
           >

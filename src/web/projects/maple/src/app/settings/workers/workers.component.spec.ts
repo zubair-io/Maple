@@ -105,7 +105,7 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
   describe_worker_enabled: true,
   describe_provider: 'ollama',
   describe_provider_url: null,
-  describe_model: 'qwen2.5vl:7b',
+  describe_model: 'qwen3-vl:8b',
   describe_system_prompt: '',
   describe_daily_cap_usd: 0,
   face_worker_enabled: false,

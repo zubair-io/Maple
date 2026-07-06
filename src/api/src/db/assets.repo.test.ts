@@ -146,7 +146,7 @@ describe('assets.repo', () => {
 
     it('passes through description_meta (not on AssetDoc) verbatim', async () => {
       if (!db) return;
-      const meta = { provider: 'ollama', model: 'qwen2.5vl:7b' };
+      const meta = { provider: 'ollama', model: 'qwen3-vl:8b' };
       const id = await seedAsset(db, { description_meta: meta });
       const dto = await findDetailById(id, db);
       expect(dto!.description_meta).toEqual(meta);
