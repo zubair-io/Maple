@@ -52,7 +52,17 @@ public actor DecodedBufferCache {
     // indefinitely (the cache hit short-circuits the Rust decode, then
     // the post-AgX chain runs against stale bytes that embed the
     // since-removed per-body BE table contribution).
-    private let rustVersion: UInt32 = 4
+    //
+    // v5 (2026-07-06, #1801): paired with RenderedPreviewCache
+    // viewTransformVersion=6. #1783 changed the decode contract — the
+    // scene-linear buffer now bakes WB at the strip-XMP 6500/0 anchor and
+    // the per-tick chains apply a SliderFrame-anchored delta on top. A v4
+    // buffer decoded with the sidecar WB baked in gets that delta applied
+    // OVER the baked WB (double-applied) while the refine pass develops
+    // fresh from RAW — the exact live-vs-refine band reported on
+    // TestFlight devices that carried pre-#1783 cache entries. #1756's
+    // WB-frame change rode the same gap.
+    private let rustVersion: UInt32 = 5
 
     public init() {}
 
