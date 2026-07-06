@@ -63,7 +63,7 @@ export const DEFAULT_DESCRIBE_SYSTEM_PROMPT =
 export const DEFAULT_DESCRIBE_VISION_PROMPT = `You are indexing a personal photo library. Analyze this image and return ONLY valid JSON matching this exact schema. No preamble, no markdown fences, no commentary — JSON only.
 
 {
-  "is_screenshot":   true when this image is a screen capture of a phone, computer, or app UI (including cropped screenshots and screenshots-of-screenshots); false for photographs, including photos OF screens,
+  "is_screenshot":   "boolean — true when this image is a screen capture of a phone, computer, or app UI (including cropped screenshots and screenshots-of-screenshots); false for photographs, including photos OF screens",
   "nudity":          "none | suggestive | explicit",
   "caption":         "1-2 sentence search-oriented description. Do not begin with 'This image shows', 'The image depicts', or similar. Lead with the subject and action, then setting. Include distinctive searchable details: clothing colors, number of people, animal breeds, landmarks, vehicle types.",
   "subjects":        ["subject types present: person, child, adult, dog, cat, bird, building, vehicle, landscape, food, plant, etc."],
