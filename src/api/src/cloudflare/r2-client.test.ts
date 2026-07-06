@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { testR2Credentials, uploadThumbToR2 } from './r2-client.ts';
+import { deleteThumbFromR2, testR2Credentials, uploadThumbToR2 } from './r2-client.ts';
 
 const CONFIG = {
   account_id: 'acct123',
@@ -53,6 +53,28 @@ describe('uploadThumbToR2', () => {
     await expect(uploadThumbToR2(CONFIG, 'thumbs/main/a.jpg', new Uint8Array([1]))).rejects.toThrow(
       /403/,
     );
+  });
+});
+
+describe('deleteThumbFromR2', () => {
+  it('DELETEs the account/bucket/key S3-compatible endpoint', async () => {
+    stubFetch(200);
+    await deleteThumbFromR2(CONFIG, 'thumbs/main/a.jpg');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe('DELETE');
+    expect(calls[0].url).toBe(
+      'https://acct123.r2.cloudflarestorage.com/maple-thumbs/thumbs/main/a.jpg',
+    );
+  });
+
+  it('treats a 404 (already absent) as success, not an error', async () => {
+    stubFetch(404, 'NoSuchKey');
+    await expect(deleteThumbFromR2(CONFIG, 'thumbs/main/a.jpg')).resolves.toBeUndefined();
+  });
+
+  it('throws with the response body on a non-2xx, non-404 response', async () => {
+    stubFetch(403, 'AccessDenied');
+    await expect(deleteThumbFromR2(CONFIG, 'thumbs/main/a.jpg')).rejects.toThrow(/403/);
   });
 });
 
