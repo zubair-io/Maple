@@ -32,18 +32,26 @@ const log = childLogger('server');
 export async function ensureJwtSecret(): Promise<void> {
   const { secret, source } = await resolveJwtSecret();
   process.env.MAPLE_JWT_SECRET = secret;
-  // Log a non-reversible fingerprint of the active secret (never the secret
-  // itself). Every instance that shares a secret prints the same fingerprint;
-  // if two replicas — or the same server across a restart — show different
-  // fingerprints, that's the smoking gun for "bad signature": a token signed
-  // by one secret is being verified against another.
+  // Log a non-reversible fingerprint of the active secret. Every instance
+  // that shares a secret prints the same fingerprint; if two replicas — or
+  // the same server across a restart — show different fingerprints, that's
+  // the smoking gun for "bad signature": a token signed by one secret is
+  // being verified against another. `secretPrefix` is the first 3 characters
+  // of the secret itself, so an operator can eyeball it against the stored
+  // `server_state.jwt_secret` row without hashing anything. Deliberately
+  // capped at 3: that exposes 18 of the secret's 256 entropy bits —
+  // negligible — and the cap is load-bearing, so don't widen it.
   const fingerprint = createHash('sha256').update(secret).digest('hex').slice(0, 12);
-  log.info({ source, fingerprint }, 'JWT secret resolved');
+  const secretPrefix = secret.slice(0, 3);
+  log.info({ source, fingerprint, secretPrefix }, 'JWT secret resolved');
 }
 
 type JwtSecretSource = 'db' | 'db-created' | 'file' | 'generated' | 'memory';
 
-async function resolveJwtSecret(): Promise<{ secret: string; source: JwtSecretSource }> {
+async function resolveJwtSecret(): Promise<{
+  secret: string;
+  source: JwtSecretSource;
+}> {
   // 1. DB — canonical, shared across instances, survives recreates.
   try {
     const { secret, created } = await getOrCreateJwtSecret();
@@ -66,7 +74,10 @@ async function resolveJwtSecret(): Promise<{ secret: string; source: JwtSecretSo
  * use. Only reached when the DB is unreachable. Filesystem errors do NOT abort
  * boot — they degrade to an in-memory secret (which won't survive a restart),
  * since this path runs exactly when the server is already in a degraded state. */
-function resolveJwtSecretFromFile(): { secret: string; source: JwtSecretSource } {
+function resolveJwtSecretFromFile(): {
+  secret: string;
+  source: JwtSecretSource;
+} {
   const path = process.env.MAPLE_JWT_SECRET_FILE ?? './.maple/jwt.secret';
   try {
     if (existsSync(path)) {
