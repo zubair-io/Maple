@@ -22,13 +22,14 @@ struct AppShellToolbar: ToolbarContent {
     /// `EditorHeader` owns back/share/title, so the window toolbar must
     /// not duplicate them (#815).
     let isFullImage: Bool
-    /// True when AppShell is in the S5 `.editing` mode (Mac/iPad pane
-    /// shell). The `EditorView` renders its own full chrome
-    /// (`EditorHeader`), so the window toolbar suppresses every
-    /// browse-specific control (grid fill/fit, cloud view-mode) AND the
-    /// full-image controls (back/export) — only the persistent
-    /// Library/Search/Settings group survives, so the sidebar can still
-    /// be toggled. Always false on iPhone (it never enters `.editing`).
+    /// True when AppShell's center surface owns its own chrome (the S5
+    /// `.editing` editor OR the Fast-Preview `.preview` surface, Mac/iPad
+    /// pane shell). Those views render their own header (back + filename),
+    /// so the window toolbar suppresses every browse-specific control (grid
+    /// fill/fit, select, cloud view-mode) AND the legacy full-image controls
+    /// (back/export) — only the persistent Library/Search/Settings group
+    /// survives, so the sidebar can still be toggled. Always false on iPhone
+    /// (it never enters these pane-shell modes).
     var isEditing: Bool = false
     /// True when an `EditSession` is selected — gates the Export button.
     let hasSelection: Bool

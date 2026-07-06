@@ -8,13 +8,17 @@
 // retired.
 //
 // We also implement the **tab-bar hide on push** contract: a Library
-// cell tap appends the tapped `AssetRef` to `PhoneTabShell`'s
-// `libraryPath`, which the tab's `NavigationStack(path:)` pushes and the
-// `.navigationDestination(for: AssetRef.self)` here resolves into
-// `EditorDestination → EditorView`, calling `.toolbar(.hidden, for:
-// .tabBar)` so the bottom tab bar disappears for the duration (#625,
-// #791). The modifier pattern is the contract that all push destinations
-// in the phone shell must follow.
+// cell tap appends `.preview(asset)` to `PhoneTabShell`'s `libraryPath`,
+// which the tab's `NavigationStack(path:)` pushes and the
+// `.navigationDestination(for: LibraryDestination.self)` here resolves.
+// Both cases call `.toolbar(.hidden, for: .tabBar)` so the bottom tab
+// bar disappears for the duration (#625, #791). The modifier pattern is
+// the contract that all push destinations in the phone shell follow.
+//
+// Fast Preview epic (§1): a grid tap now lands on `.preview` (the fast
+// static Preview surface); Preview's Edit button appends `.edit` to the
+// SAME `libraryPath` (→ `EditorDestination → EditorView`). Back stack is
+// `grid → Preview → Editor`; each back pops one level.
 
 #if os(iOS)
 
@@ -38,6 +42,10 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
+    /// The Library tab's navigation stack (owned by `PhoneTabShell`). Preview's
+    /// Edit button appends `.edit(asset)` to it, so this view needs write access
+    /// to push the editor from inside the resolved `.preview` destination.
+    @Binding var libraryPath: [LibraryDestination]
 
     let toolbarContent: () -> ToolbarContentT
 
@@ -83,21 +91,34 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata
         )
-        // Tab-bar hide-on-push contract for the phone shell. S4 was
-        // dropped (#619); cell tap pushes straight into the S5 Editor
-        // (#625) — the Editor canvas IS the full-image view (no
-        // separate Loupe).
-        .navigationDestination(for: AssetRef.self) { ref in
-            EditorDestination(asset: ref, sessions: $sessions)
-                // Hide both bars for the editor push (#791): the tab bar
-                // (spec §2 "tab-bar hide on push"), and the system
-                // navigation bar — `EditorView` ships its own 44pt
-                // `EditorHeader` with a back button (→ `dismiss()`), so the
-                // stack's nav bar would otherwise stack a second header +
-                // redundant back chevron on top of it. Applied here at the
-                // push site, not inside the shared `EditorView`.
-                .toolbar(.hidden, for: .tabBar)
-                .toolbar(.hidden, for: .navigationBar)
+        // Tab-bar hide-on-push contract for the phone shell (#625/#791).
+        // Fast Preview epic §1: a grid / cloud-result tap pushes `.preview`
+        // (the fast static surface); Preview's Edit pushes `.edit` onto the
+        // same stack. Both hide the tab bar + system nav bar (each ships its
+        // own 44pt header with a back button → `dismiss()`).
+        .navigationDestination(for: LibraryDestination.self) { destination in
+            Group {
+                switch destination {
+                case .preview(let ref):
+                    PreviewDestination(
+                        asset: ref,
+                        // Snapshot the current folder's assets at push time so
+                        // the filmstrip + prev/next have the sibling list. Cloud
+                        // / search taps push a single-asset preview (their own
+                        // grids own the list); the local library flow carries
+                        // the full `browseVM.assets`.
+                        assets: browseVM.assets.contains(ref) ? browseVM.assets : [ref],
+                        source: browseVM.currentSource,
+                        sessions: $sessions,
+                        onEdit: { asset in libraryPath.append(.edit(asset)) },
+                        onSelectionChanged: { asset in browseVM.selectedID = asset.id }
+                    )
+                case .edit(let ref):
+                    EditorDestination(asset: ref, sessions: $sessions)
+                }
+            }
+            .toolbar(.hidden, for: .tabBar)
+            .toolbar(.hidden, for: .navigationBar)
         }
     }
 }
