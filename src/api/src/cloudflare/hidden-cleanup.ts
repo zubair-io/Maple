@@ -27,8 +27,8 @@
  * best-effort contract in `workers/stages/thumb.ts`).
  */
 
-import type { ObjectId } from 'mongodb';
-import { getDb } from '../db/client.ts';
+import type { Collection, ObjectId } from 'mongodb';
+import { assetsCollection } from '../db/client.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
@@ -40,6 +40,7 @@ import {
 } from './cloudflare-config.repo.ts';
 import { deleteThumbFromR2, type ResolvedCloudflareConfig } from './r2-client.ts';
 import { thumbR2Key } from './thumb-key.ts';
+import type { AssetDoc } from '../db/schema.ts';
 
 const log = childLogger('cloudflare:hidden-cleanup');
 
@@ -62,9 +63,19 @@ async function deleteOne(
   asset: HidableAsset,
   config: ResolvedCloudflareConfig,
   idToSlug: ReadonlyMap<string, string>,
+  assets: Collection<AssetDoc>,
 ): Promise<void> {
-  // Nothing was ever uploaded — skip the R2 round-trip entirely.
-  if (!asset.cf_thumb_synced_at) return;
+  // Deliberately UNCONDITIONAL on `asset.cf_thumb_synced_at` — that field on
+  // the passed-in `asset` is a snapshot from whenever the calling stage
+  // claimed its batch, which can be stale relative to the database: a
+  // concurrently-running upload (the live-upload hook, or another poll tick)
+  // can set the real `cf_thumb_synced_at` after this snapshot was taken but
+  // before this hide transition is processed, and skipping on stale-null
+  // would leave that just-uploaded thumbnail stuck in R2 forever (the
+  // per-asset stage version is already marked done by then). Attempting the
+  // delete unconditionally costs one extra R2 round-trip for assets that
+  // truly were never uploaded — `deleteThumbFromR2` already treats a 404
+  // there as success, so that case is harmless.
   const primary = assetPrimaryFileInfo(asset);
   if (!primary) return;
   const slug = idToSlug.get(primary.library_id.toHexString());
@@ -73,10 +84,7 @@ async function deleteOne(
   const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
   try {
     await deleteThumbFromR2(config, key, AbortSignal.timeout(CF_DELETE_TIMEOUT_MS));
-    const db = await getDb();
-    await db
-      .collection('assets')
-      .updateOne({ _id: asset._id }, { $set: { cf_thumb_synced_at: null } });
+    await assets.updateOne({ _id: asset._id }, { $set: { cf_thumb_synced_at: null } });
   } catch (err) {
     log.warn(
       { assetId: asset._id.toHexString(), key, err: err instanceof Error ? err.message : err },
@@ -103,7 +111,8 @@ export async function cleanupR2ThumbForHiddenAsset(asset: HidableAsset): Promise
     const config = resolveCloudflareConfig(dbConfig);
     if (!hasCloudflareCredentials(config)) return;
     const idToSlug = await loadLibraryIdToSlug();
-    await deleteOne(asset, config, idToSlug);
+    const assets = await assetsCollection();
+    await deleteOne(asset, config, idToSlug, assets);
   } catch (err) {
     log.warn(
       { assetId: asset._id.toHexString(), err: err instanceof Error ? err.message : err },
@@ -116,17 +125,18 @@ export async function cleanupR2ThumbForHiddenAsset(asset: HidableAsset): Promise
  * map once and fans the deletes out concurrently instead of one
  * `loadLibraryIdToSlug()` call per sibling. Same non-throwing contract and
  * rationale as `cleanupR2ThumbForHiddenAsset` above. */
-export async function cleanupR2ThumbsForHiddenAssets(assets: HidableAsset[]): Promise<void> {
-  if (assets.length === 0) return;
+export async function cleanupR2ThumbsForHiddenAssets(hidden: HidableAsset[]): Promise<void> {
+  if (hidden.length === 0) return;
   try {
     const dbConfig = await loadCloudflareConfig();
     const config = resolveCloudflareConfig(dbConfig);
     if (!hasCloudflareCredentials(config)) return;
     const idToSlug = await loadLibraryIdToSlug();
-    await Promise.all(assets.map((asset) => deleteOne(asset, config, idToSlug)));
+    const assets = await assetsCollection();
+    await Promise.all(hidden.map((asset) => deleteOne(asset, config, idToSlug, assets)));
   } catch (err) {
     log.warn(
-      { count: assets.length, err: err instanceof Error ? err.message : err },
+      { count: hidden.length, err: err instanceof Error ? err.message : err },
       'failed to resolve config/library map for bulk R2 cleanup — thumbnails remain cached until a manual cleanup',
     );
   }
