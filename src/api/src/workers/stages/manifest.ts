@@ -19,6 +19,7 @@ import describeStage from './describe.ts';
 import geocodeStage from './geocode.ts';
 import meiliStage from './meili.ts';
 import sidecarMetadataIndexStage from './sidecar-metadata-index.ts';
+import cfThumbSyncStage from './cf-thumb-sync.ts';
 
 export const stageManifest = [
   exifStage,
@@ -30,6 +31,7 @@ export const stageManifest = [
   geocodeStage,
   meiliStage,
   sidecarMetadataIndexStage,
+  cfThumbSyncStage,
 ];
 
 export const ALL_STAGE_NAMES = [
@@ -42,6 +44,7 @@ export const ALL_STAGE_NAMES = [
   'geocode',
   'meili',
   'sidecar-metadata-index',
+  'cf-thumb-sync',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];
