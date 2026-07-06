@@ -1,14 +1,22 @@
 /**
- * Strict parser for the qwen2.5-vl describe stage's structured-JSON
+ * Strict parser for the qwen3-vl describe stage's structured-JSON
  * output. Used by `workers/stages/describe.ts` to convert the raw model
  * response into a typed `VisionDoc` (see `db/schema.ts`).
  *
- * Why strict: qwen2.5-vl sometimes wraps JSON in markdown fences, sometimes
+ * Why strict: qwen sometimes wraps JSON in markdown fences, sometimes
  * adds preamble ("Sure, here is the JSON:"), and occasionally drops a
  * required field. We forgive the fence wrapper (always present in some
  * Ollama builds) but reject everything else — silently coercing a missing
  * key would poison the search index and the dead-letter triage UI is the
  * right surface for "the model produced garbage on this asset."
+ *
+ * v5 classifies `is_screenshot` first (see `VISION_DOC_JSON_SCHEMA` in
+ * `parse-vision-json-enums.ts` for why property order matters) and, when
+ * true, every scene-descriptive field (`scene_type`, `setting`, `activity`,
+ * `time_of_day`, `lighting`, `weather`, `composition`, `shot_type`) is
+ * forced to `null` regardless of what the model emitted for those fields —
+ * the screenshot short-circuit is enforced here, not merely requested in
+ * the prompt.
  *
  * Throws `VisionParseError` (a typed subclass of `Error`) with a truncated
  * snippet of the raw response in its message. The runtime then stamps
@@ -27,7 +35,6 @@ import type { VisionDoc } from '../../db/schema.ts';
 import { stripFences, VisionParseError } from './parse-vision-json-errors.ts';
 import {
   ALLOWED_COMPOSITION,
-  ALLOWED_INDOOR_OUTDOOR,
   ALLOWED_LIGHTING,
   ALLOWED_SCENE_TYPE,
   ALLOWED_SHOT_TYPE,
@@ -35,7 +42,6 @@ import {
   ALLOWED_WEATHER,
   COMPOSITION_SYNONYMS,
   ENUM_DEFAULTS,
-  INDOOR_OUTDOOR_SYNONYMS,
   LIGHTING_SYNONYMS,
   SCENE_TYPE_SYNONYMS,
   SHOT_TYPE_SYNONYMS,
@@ -48,7 +54,7 @@ import {
   COERCE_FAIL,
   coerceEnum,
   coerceIsScreenshot,
-  coerceNudityDetected,
+  coerceNudity,
   coerceTextVisible,
   unwrapEnum,
 } from './parse-vision-json-coerce.ts';
@@ -86,6 +92,25 @@ export function parseVisionJson(raw: string): VisionDoc {
 
   const obj = parsed as Record<string, unknown>;
 
+  // Classification-first: is_screenshot gates whether the scene fields
+  // below are parsed normally or short-circuited to null. Mirrors the
+  // prompt's own field order (see VISION_DOC_JSON_SCHEMA).
+  const is_screenshot = coerceIsScreenshot(obj.is_screenshot);
+  if (is_screenshot === COERCE_FAIL) {
+    throw new VisionParseError(
+      'wrong-type',
+      'expected boolean (or coercible string / number)',
+      raw,
+      'is_screenshot',
+    );
+  }
+
+  // nudity has no COERCE_FAIL path — grammar-constrained decode makes a
+  // degenerate value near-impossible on modern Ollama, and this field is
+  // always classifiable, so an unrecognised input falls back to 'none'
+  // (see coerceNudity) rather than dead-lettering the whole row.
+  const nudity = coerceNudity(obj.nudity);
+
   const caption = asString(obj.caption);
   if (caption === null) {
     throw new VisionParseError('wrong-type', 'expected string', raw, 'caption');
@@ -99,55 +124,68 @@ export function parseVisionJson(raw: string): VisionDoc {
     throw new VisionParseError('wrong-type', 'expected string[] | null', raw, 'subjects');
   }
 
-  const scene_type = unwrapEnum(
-    coerceEnum(obj.scene_type, ALLOWED_SCENE_TYPE, SCENE_TYPE_SYNONYMS, ENUM_DEFAULTS.scene_type),
-    'scene_type',
-    obj.scene_type,
-    raw,
-    ALLOWED_SCENE_TYPE,
-  );
+  const scene_type = is_screenshot
+    ? null
+    : unwrapEnum(
+        coerceEnum(
+          obj.scene_type,
+          ALLOWED_SCENE_TYPE,
+          SCENE_TYPE_SYNONYMS,
+          ENUM_DEFAULTS.scene_type,
+        ),
+        'scene_type',
+        obj.scene_type,
+        raw,
+        ALLOWED_SCENE_TYPE,
+      );
 
-  const setting = obj.setting === null ? null : asString(obj.setting);
-  if (setting === null && obj.setting !== null) {
+  const setting = is_screenshot ? null : obj.setting === null ? null : asString(obj.setting);
+  if (!is_screenshot && setting === null && obj.setting !== null) {
     throw new VisionParseError('wrong-type', 'expected string | null', raw, 'setting');
   }
 
-  const activity = obj.activity === null ? null : asString(obj.activity);
-  if (activity === null && obj.activity !== null) {
+  const activity = is_screenshot ? null : obj.activity === null ? null : asString(obj.activity);
+  if (!is_screenshot && activity === null && obj.activity !== null) {
     throw new VisionParseError('wrong-type', 'expected string | null', raw, 'activity');
   }
 
-  const time_of_day = unwrapEnum(
-    coerceEnum(
-      obj.time_of_day,
-      ALLOWED_TIME_OF_DAY,
-      TIME_OF_DAY_SYNONYMS,
-      ENUM_DEFAULTS.time_of_day,
-    ),
-    'time_of_day',
-    obj.time_of_day,
-    raw,
-    ALLOWED_TIME_OF_DAY,
-  );
+  const time_of_day = is_screenshot
+    ? null
+    : unwrapEnum(
+        coerceEnum(
+          obj.time_of_day,
+          ALLOWED_TIME_OF_DAY,
+          TIME_OF_DAY_SYNONYMS,
+          ENUM_DEFAULTS.time_of_day,
+        ),
+        'time_of_day',
+        obj.time_of_day,
+        raw,
+        ALLOWED_TIME_OF_DAY,
+      );
 
-  const lighting = unwrapEnum(
-    coerceEnum(obj.lighting, ALLOWED_LIGHTING, LIGHTING_SYNONYMS, ENUM_DEFAULTS.lighting),
-    'lighting',
-    obj.lighting,
-    raw,
-    ALLOWED_LIGHTING,
-  );
+  const lighting = is_screenshot
+    ? null
+    : unwrapEnum(
+        coerceEnum(obj.lighting, ALLOWED_LIGHTING, LIGHTING_SYNONYMS, ENUM_DEFAULTS.lighting),
+        'lighting',
+        obj.lighting,
+        raw,
+        ALLOWED_LIGHTING,
+      );
 
-  const weather = unwrapEnum(
-    coerceEnum(obj.weather, ALLOWED_WEATHER, WEATHER_SYNONYMS, ENUM_DEFAULTS.weather),
-    'weather',
-    obj.weather,
-    raw,
-    ALLOWED_WEATHER,
-  );
+  const weather = is_screenshot
+    ? null
+    : unwrapEnum(
+        coerceEnum(obj.weather, ALLOWED_WEATHER, WEATHER_SYNONYMS, ENUM_DEFAULTS.weather),
+        'weather',
+        obj.weather,
+        raw,
+        ALLOWED_WEATHER,
+      );
 
   // mood is unconstrained free text. Accept null → "neutral" (qwen
-  // emits null on featureless images).
+  // emits null on featureless images, and always on screenshots).
   const mood = obj.mood === null || obj.mood === undefined ? 'neutral' : asString(obj.mood);
   if (mood === null) {
     throw new VisionParseError('wrong-type', 'expected string | null', raw, 'mood');
@@ -158,18 +196,20 @@ export function parseVisionJson(raw: string): VisionDoc {
     throw new VisionParseError('wrong-type', 'expected string[] | null', raw, 'colors');
   }
 
-  const composition = unwrapEnum(
-    coerceEnum(
-      obj.composition,
-      ALLOWED_COMPOSITION,
-      COMPOSITION_SYNONYMS,
-      ENUM_DEFAULTS.composition,
-    ),
-    'composition',
-    obj.composition,
-    raw,
-    ALLOWED_COMPOSITION,
-  );
+  const composition = is_screenshot
+    ? null
+    : unwrapEnum(
+        coerceEnum(
+          obj.composition,
+          ALLOWED_COMPOSITION,
+          COMPOSITION_SYNONYMS,
+          ENUM_DEFAULTS.composition,
+        ),
+        'composition',
+        obj.composition,
+        raw,
+        ALLOWED_COMPOSITION,
+      );
 
   const text_visible = coerceTextVisible(obj.text_visible);
   if (text_visible === COERCE_FAIL) {
@@ -186,46 +226,15 @@ export function parseVisionJson(raw: string): VisionDoc {
     throw new VisionParseError('wrong-type', 'expected string[] | null', raw, 'notable_objects');
   }
 
-  const shot_type = unwrapEnum(
-    coerceEnum(obj.shot_type, ALLOWED_SHOT_TYPE, SHOT_TYPE_SYNONYMS, ENUM_DEFAULTS.shot_type),
-    'shot_type',
-    obj.shot_type,
-    raw,
-    ALLOWED_SHOT_TYPE,
-  );
-
-  const indoor_outdoor = unwrapEnum(
-    coerceEnum(
-      obj.indoor_outdoor,
-      ALLOWED_INDOOR_OUTDOOR,
-      INDOOR_OUTDOOR_SYNONYMS,
-      ENUM_DEFAULTS.indoor_outdoor,
-    ),
-    'indoor_outdoor',
-    obj.indoor_outdoor,
-    raw,
-    ALLOWED_INDOOR_OUTDOOR,
-  );
-
-  const is_screenshot = coerceIsScreenshot(obj.is_screenshot);
-  if (is_screenshot === COERCE_FAIL) {
-    throw new VisionParseError(
-      'wrong-type',
-      'expected boolean (or coercible string / number)',
-      raw,
-      'is_screenshot',
-    );
-  }
-
-  const nudity_detected = coerceNudityDetected(obj.nudity_detected);
-  if (nudity_detected === COERCE_FAIL) {
-    throw new VisionParseError(
-      'wrong-type',
-      'expected boolean (or coercible string / number)',
-      raw,
-      'nudity_detected',
-    );
-  }
+  const shot_type = is_screenshot
+    ? null
+    : unwrapEnum(
+        coerceEnum(obj.shot_type, ALLOWED_SHOT_TYPE, SHOT_TYPE_SYNONYMS, ENUM_DEFAULTS.shot_type),
+        'shot_type',
+        obj.shot_type,
+        raw,
+        ALLOWED_SHOT_TYPE,
+      );
 
   return {
     caption,
@@ -242,8 +251,7 @@ export function parseVisionJson(raw: string): VisionDoc {
     text_visible,
     notable_objects,
     shot_type: shot_type as VisionDoc['shot_type'],
-    indoor_outdoor: indoor_outdoor as VisionDoc['indoor_outdoor'],
     is_screenshot,
-    nudity_detected,
+    nudity,
   };
 }
