@@ -101,6 +101,14 @@ export const STAGE_META: Record<string, StageMeta> = {
     enrichment: 'meili',
     description: 'Pushes enriched assets to Meilisearch so they show up in the library search.',
   },
+  'cf-thumb-sync': {
+    id: 'cf-thumb-sync',
+    group: 'Index',
+    icon: 'globe',
+    enrichment: null,
+    description:
+      'Mirrors thumbnails to a Cloudflare R2 edge cache. Starts paused — configure and enable uploads on Settings → Cloudflare first, then resume here.',
+  },
   migration: {
     id: 'migration',
     group: 'Ingest',
