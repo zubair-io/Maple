@@ -91,6 +91,8 @@ export * from './lib/api/people.store';
 // P7: Unified SPA shells + all components (moved from browse + editor apps)
 export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
+// Web Preview Surface Task 3 — fast static-image preview (no canvas/WASM).
+export * from './lib/shells/preview-shell/preview-shell.component';
 // S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
 export * from './lib/shells/bottom-sheet.component';
 

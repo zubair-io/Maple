@@ -1,0 +1,17 @@
+<div class="preview-shell">
+  <div class="top-bar">
+    <button class="top-btn" aria-label="Back to Library" (click)="goBack()">
+      <maple-icon name="back" [size]="14" color="var(--pro-text-muted)" />
+    </button>
+    <span class="top-name">{{ assetName() }}</span>
+  </div>
+
+  <div class="preview-image-wrap">
+    @if (thumbUrl(); as t) {
+      <img class="preview-img preview-img--thumb" [src]="t" alt="" />
+    }
+    @if (previewUrl(); as p) {
+      <img class="preview-img preview-img--full" [src]="p" alt="" />
+    }
+  </div>
+</div>

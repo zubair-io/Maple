@@ -3,6 +3,7 @@ import {
   BrowseShellComponent,
   EditorPageComponent,
   EditorShellComponent,
+  PreviewShellComponent,
   ProtocolHandlerComponent,
   authGuard,
 } from '@maple-common';
@@ -36,6 +37,14 @@ export const routes: Routes = [
     canActivate: [authGuard],
     children: [{ path: '**', component: EditorShellComponent }],
   },
+  // Web Preview Surface Task 3 — /view/:slug/** deep-links into a fast,
+  // static-image preview (grid thumbnail → display preview, no canvas/WASM).
+  {
+    path: 'view/:slug',
+    canActivate: [authGuard],
+    children: [{ path: '**', component: PreviewShellComponent }],
+  },
+  { path: 'view', canActivate: [authGuard], component: PreviewShellComponent },
   // Responsive-program S1a (#597) — phone-tier tab routes. The same
   // router serves both shells; RootShellComponent picks which wrapper
   // to render based on LayoutService.layout(). On phone the bottom-nav
