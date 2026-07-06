@@ -66,6 +66,26 @@
   display: grid;
   place-items: center;
 }
+.filmstrip-anchor {
+  // Left-side vertical strip, vertically centered like editor-shell's rail
+  // (see editor-shell.component.scss .filmstrip-anchor) but capped so it
+  // never overlaps the floating header (top-bar, top:14px/44px tall) or the
+  // bottom action bar (bottom:14px/52px tall).
+  position: absolute;
+  left: 12px;
+  top: 74px;
+  bottom: 82px;
+  width: 110px;
+  z-index: 10;
+  pointer-events: auto;
+  border-radius: var(--pro-glass-radius-bar);
+  overflow: hidden;
+  background: var(--pro-glass-bg-heavy);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+  -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+}
 .preview-img {
   position: absolute;
   max-width: 100%;
