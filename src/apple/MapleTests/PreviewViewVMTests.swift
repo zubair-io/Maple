@@ -171,9 +171,18 @@ final class PreviewViewVMTests: XCTestCase {
 
   // MARK: - filenameMaxWidth (spec §6)
 
-  func testFilenameMaxWidthMatchesPillHeaderCap() {
-    // The Preview header must cap the filename at the same 200pt the editor's
-    // PillHeader uses, so the two surfaces truncate identically.
-    XCTAssertEqual(PreviewViewVM.filenameMaxWidth, 200)
+  func testFilenameMaxWidthIsResponsiveToSizeClass() {
+    // Regular (iPad/Mac): the full 200pt ceiling, matching the Web fix's
+    // 200px cap. Compact (narrow iPhone): a tighter 150pt so a long name
+    // can't crowd the header's icon buttons. Both PillHeader (editor) and
+    // PreviewView's header read this, so the two truncate identically.
+    XCTAssertEqual(PreviewViewVM.filenameMaxWidth(isCompact: false), 200)
+    XCTAssertEqual(PreviewViewVM.filenameMaxWidth(isCompact: true), 150)
+  }
+
+  func testFilenameMaxWidthNeverExceedsWebCeiling() {
+    // Parity guard: neither size class may exceed the Web §6 200px ceiling.
+    XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: false), 200)
+    XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: true), 200)
   }
 }
