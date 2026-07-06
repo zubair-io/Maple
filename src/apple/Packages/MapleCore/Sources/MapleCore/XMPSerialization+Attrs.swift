@@ -23,8 +23,10 @@ extension XMPSerializer {
             // is always stamped alongside them. Re-emits the version the
             // model was loaded with (1 for pre-#1756 sidecars, 2 for fresh
             // models) so a V1 sidecar's stored values keep their meaning
-            // across saves.
-            ("papp:WbScaleVersion",      String(model.wbScaleVersion)),
+            // across saves. Clamped to {1, 2} (default 2): raw-core's
+            // parser hard-fails on an unknown stamp, so a corrupted model
+            // field must never reach the sidecar.
+            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 2)),
             ("crs:Exposure2012",         fmtF(model.exposure)),
             ("crs:Contrast2012",         String(format: "%.0f", model.contrast)),
             ("crs:Highlights2012",       String(format: "%.0f", model.highlights)),
