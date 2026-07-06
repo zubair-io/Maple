@@ -96,7 +96,7 @@ The `enrichment.<stage>` sub-document is the contract between the fast pipeline 
 | `lastError`      | Last error message, for triage.                                                   |
 | `version`        | Handler version that produced the output. Bumping it triggers re-runs (see §7.3). |
 
-This is the only state that needs to exist in Mongo for the architecture to work. The previous "linear pipeline + dead*letter collection" scheme moves \_into* the asset document. The dead_letter collection stays for fast-tier failures (a hash that can't be computed is still a fast-tier dead letter), but slow-tier failures live on the asset.
+This is the only state that needs to exist in Mongo for the architecture to work. The previous "linear pipeline + `dead_letter` collection" scheme moves _into_ the asset document. The dead_letter collection stays for fast-tier failures (a hash that can't be computed is still a fast-tier dead letter), but slow-tier failures live on the asset.
 
 ## 3. Worker mechanics
 

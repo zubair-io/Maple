@@ -145,9 +145,10 @@ export function coerceTextVisible(v: unknown): string | null | typeof COERCE_FAI
 
 /** Coerce a `nudity` value to the v5 ladder (`none | suggestive |
  * explicit`). Grammar-constrained decode makes a degenerate input (a
- * boolean, a number, an out-of-enum string) near-impossible on Ollama
- * >= 0.5, but this stays as defense in depth for older deploys and other
- * providers. Legacy boolean `true` (the pre-v5 `nudity_detected` shape)
+ * boolean, a number, an out-of-enum string) near-impossible on any Ollama
+ * that honours the `format` JSON-Schema parameter (0.5+; distinct from
+ * the 0.12.7 floor that qwen3-vl itself requires), but this stays as
+ * defense in depth for older deploys and other providers. Legacy boolean `true` (the pre-v5 `nudity_detected` shape)
  * maps to `'explicit'` — the old field's own semantics, preserved for any
  * caller that still hands this coercer a raw boolean; `false`/null/
  * missing/unrecognised all collapse to `'none'`, matching this file's
