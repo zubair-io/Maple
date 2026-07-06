@@ -208,6 +208,19 @@ describe('PreviewShellComponent', () => {
     expect(subscribePreviewUrl).toHaveBeenCalledWith('library:2026/a.jpg', expect.any(Function));
   });
 
+  it('resolves a raw (non-address) id passed as the slug, like /library/editor/:id did', () => {
+    // Search/People/Pano/deep-links pass a raw Mongo _id (no ':') via
+    // viewRouteCommands(), which emits it as a single `/view/<id>` segment —
+    // it lands in the `:slug` param with no further `**` segments.
+    const { comp, selectAsset } = setup({
+      slug: 'raw-mongo-id-123',
+      segments: [],
+      assets: [{ id: 'raw-mongo-id-123', filename: 'foo/bar.jpg' }],
+    });
+    expect(comp).toBeTruthy();
+    expect(selectAsset).toHaveBeenCalledWith('raw-mongo-id-123');
+  });
+
   it('hydrates an fs: id as a single-asset open — no slug-addressed folder fetch', () => {
     const { selectAsset, openSelfHostedSubfolder, hydrateSelfHostedFsAsset } = setup({
       slug: 'fs:/srv/photos/x.jpg',

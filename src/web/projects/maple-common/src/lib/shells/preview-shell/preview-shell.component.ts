@@ -222,6 +222,19 @@ export class PreviewShellComponent implements OnInit, OnDestroy {
         this.state.selectAsset(target.id);
         return;
       }
+      // Entry points that historically routed a raw (non-address) id straight
+      // to `/library/editor/:id` — Search, People, Pano, deep-links — now go
+      // through `viewRouteCommands()`, which passes such ids through as a
+      // single `:slug` segment (see route-address.ts). `formatAddress({slug:
+      // rawId, relPath: ''})` yields `"rawId:"` (trailing colon), which never
+      // matches `asset.id === rawId` above — so check the raw slug directly
+      // before falling through to the self-hosted-synth / cache-hydration
+      // paths below, mirroring what `/library/editor/:id` did.
+      const rawMatch = assets.find((a) => a.id === slug);
+      if (rawMatch) {
+        this.state.selectAsset(rawMatch.id);
+        return;
+      }
       if (this.state.backend === 'self-hosted') {
         const synth = this.state.hydrateSelfHostedFsAsset(addrStr as AssetId);
         if (synth) {
