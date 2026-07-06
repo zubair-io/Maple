@@ -4,7 +4,7 @@
 // cache, the requeue POSTs, the manual-override PUTs, and the 30 s
 // post-requeue poll loop. Composes four dumb leaves:
 //   • <app-info-place>       — reverse-geocoded place + override + requeue
-//   • <app-info-description> — qwen2.5-vl caption + override + requeue
+//   • <app-info-description> — qwen3-vl caption + override + requeue
 //   • <app-info-vision>      — structured visual classification (read-only)
 //   • <app-info-faces>       — face count + person chips + requeue
 //

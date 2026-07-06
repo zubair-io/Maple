@@ -170,7 +170,7 @@ describe('blankEnrichment', () => {
       describe_worker_enabled: true,
       describe_provider: 'ollama',
       describe_provider_url: 'http://ollama.local',
-      describe_model: 'qwen2.5vl:7b',
+      describe_model: 'qwen3-vl:8b',
       describe_system_prompt: '',
       describe_daily_cap_usd: 0,
       face_worker_enabled: false,
@@ -188,7 +188,7 @@ describe('blankEnrichment', () => {
     expect(form.nominatim_url).toBe('http://nom.local');
     expect(form.nominatim_rate_limit_per_sec).toBe('4');
     // describe_model is intentionally absent — the runtime hardcodes
-    // qwen2.5-VL via FIXED_DESCRIBE_MODEL.
+    // qwen3-VL via FIXED_DESCRIBE_MODEL.
     expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
     expect(form.face_min_detection_size).toBe('0.08');

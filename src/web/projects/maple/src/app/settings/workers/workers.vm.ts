@@ -146,7 +146,7 @@ export interface RuntimeForm {
 /** Per-stage form state for the enrichment domain config. */
 export interface EnrichmentForm {
   // Describe — `describe_model` is intentionally absent: the runtime
-  // hardcodes qwen2.5-VL (see FIXED_DESCRIBE_MODEL below), so the UI
+  // hardcodes qwen3-VL (see FIXED_DESCRIBE_MODEL below), so the UI
   // displays it read-only and never sends it.
   describe_provider_url: string;
   // Geocode
@@ -174,7 +174,7 @@ export interface EnrichmentForm {
  * matches by treating the field as read-only. Mirrors `QWEN_VL_OLLAMA_TAG`
  * + `FIXED_DESCRIBE_MODEL` in `src/api/src/enrichment/enrichment-config.repo.ts`
  * and `src/api/src/workers/stages/describe.ts`. */
-export const FIXED_DESCRIBE_MODEL = 'qwen2.5vl:7b';
+export const FIXED_DESCRIBE_MODEL = 'qwen3-vl:8b';
 
 export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 

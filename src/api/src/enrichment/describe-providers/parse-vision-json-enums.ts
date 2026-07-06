@@ -1,5 +1,5 @@
 /**
- * Allowed-value sets, synonym maps, and defaults for the qwen2.5-vl
+ * Allowed-value sets, synonym maps, and defaults for the qwen3-vl
  * `VisionDoc` schema. Split out from `parse-vision-json.ts` so the
  * orchestrator stays under the file-size budget (#114).
  *
@@ -36,6 +36,7 @@ export const ALLOWED_LIGHTING = new Set([
   'low-light',
   'backlit',
   'flash',
+  'unknown',
 ]);
 export const ALLOWED_WEATHER = new Set([
   'clear',
@@ -53,7 +54,6 @@ export const ALLOWED_COMPOSITION = new Set([
   'landscape',
   'aerial',
   'macro',
-  'candid',
 ]);
 export const ALLOWED_SHOT_TYPE = new Set([
   'action',
@@ -64,9 +64,9 @@ export const ALLOWED_SHOT_TYPE = new Set([
   'nature',
   'event',
 ]);
-export const ALLOWED_INDOOR_OUTDOOR = new Set(['indoor', 'outdoor']);
+export const ALLOWED_NUDITY = new Set(['none', 'suggestive', 'explicit']);
 
-/** Per-enum synonym maps. qwen2.5-vl regularly emits values that are
+/** Per-enum synonym maps. qwen regularly emits values that are
  * semantically equivalent to one of the allowed enum values but not
  * literally in the set — e.g. "partly cloudy" for `weather`, "day" for
  * `time_of_day`, "static" for `scene_type` (confused with `shot_type`).
@@ -101,7 +101,6 @@ export const LIGHTING_SYNONYMS: Record<string, string> = {
   dark: 'low-light',
   dim: 'low-light',
   'dimly lit': 'low-light',
-  unknown: 'natural',
 };
 export const WEATHER_SYNONYMS: Record<string, string> = {
   'partly cloudy': 'cloudy',
@@ -125,14 +124,16 @@ export const COMPOSITION_SYNONYMS: Record<string, string> = {
   'macro shot': 'macro',
   'aerial shot': 'aerial',
   // qwen sometimes confuses composition with shot_type and emits one of
-  // the shot_type enum values here. Map the non-overlapping ones to the
-  // closest composition; "candid" already overlaps both enums.
-  action: 'candid',
-  static: 'candid',
+  // the shot_type enum values here. "candid" left the composition enum
+  // in v5 (it's a shot-type concept), so it now maps here too instead of
+  // round-tripping to itself.
+  candid: 'wide shot',
+  action: 'wide shot',
+  static: 'wide shot',
   posed: 'portrait',
   architectural: 'wide shot',
   nature: 'landscape',
-  event: 'candid',
+  event: 'wide shot',
 };
 export const SHOT_TYPE_SYNONYMS: Record<string, string> = {
   motion: 'action',
@@ -141,28 +142,18 @@ export const SHOT_TYPE_SYNONYMS: Record<string, string> = {
   scenic: 'nature',
   natural: 'nature',
 };
-export const INDOOR_OUTDOOR_SYNONYMS: Record<string, string> = {
-  // qwen returns "unknown" for ambiguous frames. Real photos are
-  // overwhelmingly outdoor in our corpus — bias toward outdoor.
-  unknown: 'outdoor',
-  mixed: 'outdoor',
-  both: 'outdoor',
-  outside: 'outdoor',
-  inside: 'indoor',
-};
 
 /** Per-enum default for null/undefined/missing inputs. Picked to match
- * the value qwen2.5-vl would most likely have emitted had it classified
+ * the value qwen would most likely have emitted had it classified
  * the field — biased toward the "unknown" / least-informative legal
  * value rather than an arbitrary positive class. */
 export const ENUM_DEFAULTS = {
   scene_type: 'mixed',
   time_of_day: 'unknown', // already in the enum
-  lighting: 'natural',
+  lighting: 'unknown', // already in the enum
   weather: 'unknown', // already in the enum
-  composition: 'candid',
+  composition: 'wide shot',
   shot_type: 'static',
-  indoor_outdoor: 'outdoor',
 } as const;
 
 /**
@@ -170,12 +161,21 @@ export const ENUM_DEFAULTS = {
  * is constrained at decode time. Built from the same `ALLOWED_*` sets the
  * parser uses so the schema and the validator can never drift. `null` is
  * included on the nullable enum fields because the prompt asks the model
- * to return null on featureless images; the parser maps null to the
- * field's default.
+ * to return null on featureless images (or on every scene field when
+ * `is_screenshot` is true); the parser maps null to the field's default
+ * except where the field is meant to stay null (see `parse-vision-json.ts`).
+ *
+ * PROPERTY ORDER IS SIGNIFICANT — DO NOT ALPHABETIZE. Ollama's
+ * grammar-constrained decode emits object properties in the order they
+ * appear in this schema, and prompt v5's entire design rests on
+ * classifying `is_screenshot` and `nudity` before the model commits to a
+ * `caption` or any scene field, so those two fields must stay first.
  */
 export const VISION_DOC_JSON_SCHEMA = {
   type: 'object',
   properties: {
+    is_screenshot: { type: 'boolean' },
+    nudity: { type: 'string', enum: [...ALLOWED_NUDITY] },
     caption: { type: 'string', minLength: 1 },
     subjects: { type: ['array', 'null'], items: { type: 'string' } },
     scene_type: { type: ['string', 'null'], enum: [...ALLOWED_SCENE_TYPE, null] },
@@ -190,11 +190,10 @@ export const VISION_DOC_JSON_SCHEMA = {
     text_visible: { type: ['string', 'null'] },
     notable_objects: { type: ['array', 'null'], items: { type: 'string' } },
     shot_type: { type: ['string', 'null'], enum: [...ALLOWED_SHOT_TYPE, null] },
-    indoor_outdoor: { type: ['string', 'null'], enum: [...ALLOWED_INDOOR_OUTDOOR, null] },
-    is_screenshot: { type: 'boolean' },
-    nudity_detected: { type: 'boolean' },
   },
   required: [
+    'is_screenshot',
+    'nudity',
     'caption',
     'subjects',
     'scene_type',
@@ -209,8 +208,5 @@ export const VISION_DOC_JSON_SCHEMA = {
     'text_visible',
     'notable_objects',
     'shot_type',
-    'indoor_outdoor',
-    'is_screenshot',
-    'nudity_detected',
   ],
 } as const;

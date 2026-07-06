@@ -1,6 +1,6 @@
 // InfoDescriptionComponent — Self-Hosted enrichment "Description" section.
 //
-// Renders the qwen2.5-vl-authored description plus an inline manual
+// Renders the qwen3-vl-authored description plus an inline manual
 // override (textarea) and a "Re-describe" requeue button. The parent
 // `<app-info-enrichment>` orchestrator owns the API calls; this
 // component is purely presentational.

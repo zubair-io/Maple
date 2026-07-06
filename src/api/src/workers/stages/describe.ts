@@ -2,7 +2,7 @@
  * Describe (caption + structured vision) stage.
  *
  * Calls a vision LLM via the describe-provider abstraction (default:
- * Ollama serving qwen2.5vl:7b) against the 1280-px preview produced
+ * Ollama serving qwen3-vl:8b) against the 1280-px preview produced
  * by the preview stage, parses the structured-JSON response into a
  * typed `VisionDoc`, and writes:
  *
@@ -80,7 +80,7 @@ let _deps: DescribeDeps | null = null;
 
 /** Fixed model — sourced from the single shared constant so the stage,
  * the bootstrap health-check, and the UI copy can't drift. The
- * structured-JSON parser only accepts qwen2.5-VL's output shape, so
+ * structured-JSON parser only accepts qwen-VL's output shape, so
  * allowing operator overrides would silently dead-letter every row.
  * Operators can still point at a remote Ollama via the URL config, but
  * provider/model/prompt are locked. */
@@ -259,11 +259,13 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // a user who explicitly unhid this asset (metadata_override.hidden ===
   // false) must not have that choice silently reverted the next time this
   // stage re-runs (retry, re-import, or a future prompt-version bump) and
-  // the vision verdict still/again says nudity_detected. Only an absent or
-  // `true` override lets the AI verdict (re)assert the hide.
+  // the vision verdict still/again says explicit. Only an absent or `true`
+  // override lets the AI verdict (re)assert the hide. `'suggestive'` never
+  // hides — that preserves the pre-v5 boolean's semantics, under which
+  // only "contains nudity" (now `'explicit'`) triggered the auto-hide.
   const userExplicitlyUnhid = image.metadata_override?.hidden === false;
   const wasAlreadyHidden = image.hidden === true;
-  if (vision.nudity_detected && !userExplicitlyUnhid) {
+  if (vision.nudity === 'explicit' && !userExplicitlyUnhid) {
     patch.hidden = true;
     // Only stamp hidden_reason/hidden_ack on a genuinely NEW hide. Without
     // the `!wasAlreadyHidden` guard, every re-run of this stage (retry,
@@ -366,7 +368,13 @@ const describeStage = defineStage({
   // but were dead-lettered at re-run; bumping forces every v3 row to
   // re-attempt with the relaxed parser.
   // v5: adds nudity detection, auto-hiding safety net, and temporal burst propagation.
-  targetVersion: 5,
+  // v6: qwen3-vl:8b model swap + prompt v5 (DESCRIBE_VISION_PROMPT_VERSION
+  // 5) — classification-first field order, `nudity` ladder replacing
+  // `nudity_detected`, screenshot short-circuit nulling every scene
+  // field, verbatim OCR transcription, and `indoor_outdoor` dropped from
+  // the schema. Bumping forces the entire library to re-caption under the
+  // new model + prompt.
+  targetVersion: 6,
   dependsOn: ['preview'],
   defaults: {
     concurrency: 2,

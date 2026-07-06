@@ -16,6 +16,8 @@ import { describeHandler, setDescribeDepsForTests, DESCRIBE_PROMPT_VERSION } fro
 import { VISION_DOC_JSON_SCHEMA } from '../../enrichment/describe-providers/parse-vision-json.ts';
 
 const VALID_VISION = {
+  is_screenshot: false,
+  nudity: 'none',
   caption: 'A red bicycle leaning against a brick wall.',
   subjects: ['vehicle'],
   scene_type: 'outdoor',
@@ -30,9 +32,6 @@ const VALID_VISION = {
   text_visible: null,
   notable_objects: ['bicycle', 'brick wall'],
   shot_type: 'static',
-  indoor_outdoor: 'outdoor',
-  is_screenshot: false,
-  nudity_detected: false,
 };
 
 function fakeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string): ImageDoc {
@@ -123,13 +122,13 @@ describe('describeHandler — happy path', () => {
     const doc = stageDoc(absPath);
     const provider = mockProvider({
       text: JSON.stringify(VALID_VISION),
-      cost_usd: 0.0, // qwen2.5-vl runs locally; no spend
+      cost_usd: 0.0, // qwen3-vl runs locally; no spend
       provider_info: { eval_count: '30' },
     });
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'structured vision prompt',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -147,7 +146,7 @@ describe('describeHandler — happy path', () => {
     // description_meta keeps its existing shape + provider_info spread.
     const meta = patch.description_meta as Record<string, unknown>;
     expect(meta.provider).toBe('ollama');
-    expect(meta.model).toBe('qwen2.5vl:7b');
+    expect(meta.model).toBe('qwen3-vl:8b');
     expect(meta.prompt_version).toBe(DESCRIBE_PROMPT_VERSION);
     expect(typeof meta.generated_at).toBe('string');
     expect(meta.eval_count).toBe('30');
@@ -155,7 +154,7 @@ describe('describeHandler — happy path', () => {
     // vision_meta carries the same provenance plus raw_response_size.
     const vmeta = patch.vision_meta as Record<string, unknown>;
     expect(vmeta.provider).toBe('ollama');
-    expect(vmeta.model).toBe('qwen2.5vl:7b');
+    expect(vmeta.model).toBe('qwen3-vl:8b');
     expect(vmeta.prompt_version).toBe(DESCRIBE_PROMPT_VERSION);
     expect(typeof vmeta.raw_response_size).toBe('number');
     expect((vmeta.raw_response_size as number) > 0).toBe(true);
@@ -164,18 +163,18 @@ describe('describeHandler — happy path', () => {
     expect(patch.is_screenshot).toBe(false);
   });
 
-  it('returns patch with hidden true, hidden_reason nudity, and hidden_ack false when nudity is detected', async () => {
+  it('returns patch with hidden true, hidden_reason nudity, and hidden_ack false when nudity is explicit', async () => {
     const absPath = join(tmpRoot, 'img.dng');
     const doc = stageDoc(absPath);
     const provider = mockProvider({
-      text: JSON.stringify({ ...VALID_VISION, nudity_detected: true }),
+      text: JSON.stringify({ ...VALID_VISION, nudity: 'explicit' }),
       cost_usd: 0.0,
       provider_info: {},
     });
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'structured vision prompt',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -183,6 +182,26 @@ describe('describeHandler — happy path', () => {
     expect(patch.hidden).toBe(true);
     expect(patch.hidden_reason).toBe('nudity');
     expect(patch.hidden_ack).toBe(false);
+  });
+
+  it('does not auto-hide when nudity is suggestive (only explicit hides)', async () => {
+    const absPath = join(tmpRoot, 'img-suggestive.dng');
+    const doc = stageDoc(absPath);
+    const provider = mockProvider({
+      text: JSON.stringify({ ...VALID_VISION, nudity: 'suggestive' }),
+      cost_usd: 0.0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: 'structured vision prompt',
+      model: 'qwen3-vl:8b',
+    });
+
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.hidden).toBeUndefined();
+    expect(patch.hidden_reason).toBeUndefined();
   });
 
   it('does not reset hidden_ack when re-running on an already-hidden, already-acknowledged asset', async () => {
@@ -194,14 +213,14 @@ describe('describeHandler — happy path', () => {
       hidden_ack: true,
     };
     const provider = mockProvider({
-      text: JSON.stringify({ ...VALID_VISION, nudity_detected: true }),
+      text: JSON.stringify({ ...VALID_VISION, nudity: 'explicit' }),
       cost_usd: 0.0,
       provider_info: {},
     });
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'structured vision prompt',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -233,7 +252,7 @@ describe('describeHandler — happy path', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     await describeHandler(doc, fakeCtx);
     // Identity, not deep equality — the stage should pass the exported
@@ -255,7 +274,7 @@ describe('describeHandler — happy path', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
 
     const result = await describeHandler(doc, fakeCtx);
@@ -275,7 +294,7 @@ describe('describeHandler — happy path', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
@@ -295,7 +314,7 @@ describe('describeHandler — parse failure', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow('vision-parse');
   });
@@ -317,7 +336,7 @@ describe('describeHandler — parse failure', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow(/caption/);
   });
@@ -336,7 +355,7 @@ describe('describeHandler — preview missing', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
     expect('skip' in result).toBe(true);
@@ -359,7 +378,7 @@ describe('describeHandler — video files are not described', () => {
       },
       async health(): Promise<void> {},
     };
-    setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen2.5vl:7b' });
+    setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen3-vl:8b' });
 
     const result = await describeHandler(doc, fakeCtx);
     expect((result as { skip: string }).skip).toBe('video-file');
@@ -370,7 +389,7 @@ describe('describeHandler — video files are not described', () => {
     const absPath = join(tmpRoot, 'clip.mp4');
     const doc = stageDoc(absPath);
     const provider = mockProvider(new Error('must not run'));
-    setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen2.5vl:7b' });
+    setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen3-vl:8b' });
     const result = await describeHandler(doc, fakeCtx);
     expect((result as { skip: string }).skip).toBe('video-file');
   });
@@ -384,7 +403,7 @@ describe('describeHandler — provider errors', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow('503');
   });
@@ -396,7 +415,7 @@ describe('describeHandler — provider errors', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     await expect(describeHandler(doc, fakeCtx)).rejects.toThrow('401');
   });
@@ -416,14 +435,14 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
     expect(patch.ocr_text).toBe('STOP');
     const ocrMeta = patch.ocr_meta as { engine: string; engine_version: string };
     expect(ocrMeta.engine).toBe('qwen2.5-vl');
-    expect(ocrMeta.engine_version).toBe('qwen2.5vl:7b');
+    expect(ocrMeta.engine_version).toBe('qwen3-vl:8b');
   });
 
   it('writes ocr_text as empty string when vision.text_visible is null', async () => {
@@ -438,7 +457,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
@@ -464,7 +483,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const patch = (result as { patch: Record<string, unknown> }).patch;
@@ -487,7 +506,7 @@ describe('describeHandler — provider_info extras', () => {
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
     const meta = (result as { patch: { description_meta: Record<string, unknown> } }).patch

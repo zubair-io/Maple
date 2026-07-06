@@ -65,13 +65,16 @@ Each enrichment worker is a small, independently deployable process that loops:
 
 ```ts
 while (!shutdown) {
-  const job = await claim();           // findOneAndUpdate, see §3.1
-  if (!job) { await sleep(POLL_MS); continue; }
+  const job = await claim(); // findOneAndUpdate, see §3.1
+  if (!job) {
+    await sleep(POLL_MS);
+    continue;
+  }
   try {
     const result = await process(job);
-    await complete(job, result);       // sets doneAt, writes outputs
+    await complete(job, result); // sets doneAt, writes outputs
   } catch (err) {
-    await fail(job, err);              // increments attempts, may dead-letter
+    await fail(job, err); // increments attempts, may dead-letter
   }
 }
 ```
@@ -84,16 +87,16 @@ Workers are independent. A geocode worker can run on a tiny VM next to Nominatim
 
 The `enrichment.<stage>` sub-document is the contract between the fast pipeline and a worker:
 
-| Field | Purpose |
-|-------|---------|
-| `doneAt` | ISO timestamp when the stage completed. `null` = pending. |
-| `lockedBy` | Worker id holding the claim. `null` = available. |
-| `leaseExpiresAt` | When the lock auto-releases. Crashed workers don't block forever. |
-| `attempts` | Retry count. Crossed `MAX_ATTEMPTS` → dead-letter. |
-| `lastError` | Last error message, for triage. |
-| `version` | Handler version that produced the output. Bumping it triggers re-runs (see §7.3). |
+| Field            | Purpose                                                                           |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `doneAt`         | ISO timestamp when the stage completed. `null` = pending.                         |
+| `lockedBy`       | Worker id holding the claim. `null` = available.                                  |
+| `leaseExpiresAt` | When the lock auto-releases. Crashed workers don't block forever.                 |
+| `attempts`       | Retry count. Crossed `MAX_ATTEMPTS` → dead-letter.                                |
+| `lastError`      | Last error message, for triage.                                                   |
+| `version`        | Handler version that produced the output. Bumping it triggers re-runs (see §7.3). |
 
-This is the only state that needs to exist in Mongo for the architecture to work. The previous "linear pipeline + dead_letter collection" scheme moves *into* the asset document. The dead_letter collection stays for fast-tier failures (a hash that can't be computed is still a fast-tier dead letter), but slow-tier failures live on the asset.
+This is the only state that needs to exist in Mongo for the architecture to work. The previous "linear pipeline + dead*letter collection" scheme moves \_into* the asset document. The dead_letter collection stays for fast-tier failures (a hash that can't be computed is still a fast-tier dead letter), but slow-tier failures live on the asset.
 
 ## 3. Worker mechanics
 
@@ -104,22 +107,22 @@ The geocode worker's claim query:
 ```js
 db.assets.findOneAndUpdate(
   {
-    "exif.gps.lat":            { $ne: null },
-    "exif.gps.lon":            { $ne: null },
-    "enrichment.geocode.doneAt": null,
+    'exif.gps.lat': { $ne: null },
+    'exif.gps.lon': { $ne: null },
+    'enrichment.geocode.doneAt': null,
     $or: [
-      { "enrichment.geocode.lockedBy": null },
-      { "enrichment.geocode.leaseExpiresAt": { $lt: now } }   // expired lease
-    ]
+      { 'enrichment.geocode.lockedBy': null },
+      { 'enrichment.geocode.leaseExpiresAt': { $lt: now } }, // expired lease
+    ],
   },
   {
     $set: {
-      "enrichment.geocode.lockedBy": workerId,
-      "enrichment.geocode.leaseExpiresAt": now + LEASE_MS
-    }
+      'enrichment.geocode.lockedBy': workerId,
+      'enrichment.geocode.leaseExpiresAt': now + LEASE_MS,
+    },
   },
-  { sort: { "exif.captured_at": -1 } }   // newest first; tunable
-)
+  { sort: { 'exif.captured_at': -1 } }, // newest first; tunable
+);
 ```
 
 This is atomic — Mongo guarantees only one worker wins a given claim. Lease expiry handles crashed workers. The compound index for the geocode worker is `{ "exif.gps.lat": 1, "enrichment.geocode.doneAt": 1, "enrichment.geocode.lockedBy": 1 }`; each worker type gets its own index tuned to its claim shape.
@@ -144,7 +147,7 @@ A separate "reset" admin operation can clear `deadLetterAt` and reset `attempts`
 
 Every worker handler must be safe to re-run on the same asset. If `process()` partially writes outputs and then crashes, the next claim re-runs `process()` and the outputs get overwritten. This is fine for geocode (the result is deterministic given lat/lon), face (the result is deterministic given the thumbnail), and describe (the LLM may give a different caption, but the field gets overwritten cleanly).
 
-What's *not* safe is writing partial outputs across multiple Mongo updates. Each worker's `complete()` must be a single `updateOne` that sets the output and `doneAt` in one operation.
+What's _not_ safe is writing partial outputs across multiple Mongo updates. Each worker's `complete()` must be a single `updateOne` that sets the output and `doneAt` in one operation.
 
 ## 4. Geocode worker (the detailed spec)
 
@@ -176,10 +179,10 @@ The worker config:
 
 ```ts
 const GEOCODE_CONFIG = {
-  nominatimUrl: process.env.MAPLE_NOMINATIM_URL,  // required; fail-fast at boot if missing
-  requestTimeoutMs: 5_000,                        // remote service; tighter than localhost
-  rateLimitPerSec: 10,                            // respectful even on a private instance
-  cacheQuantizationDecimals: 4,                   // ~11m precision, see §4.3
+  nominatimUrl: process.env.MAPLE_NOMINATIM_URL, // required; fail-fast at boot if missing
+  requestTimeoutMs: 5_000, // remote service; tighter than localhost
+  rateLimitPerSec: 10, // respectful even on a private instance
+  cacheQuantizationDecimals: 4, // ~11m precision, see §4.3
   handlerVersion: 1,
 };
 ```
@@ -203,11 +206,11 @@ For a single trip, photos cluster geographically — 100 shots inside a museum a
 
 Quantization: round lat/lon to `N` decimals before keying.
 
-| Decimals | Precision | Notes |
-|----------|-----------|-------|
-| 3 | ~111 m | Coarse — groups a city block. Risk: misses neighboring POIs. |
-| **4** | **~11 m** | **Default. Same building usually shares a key.** |
-| 5 | ~1.1 m | Almost no dedup; basically no cache. |
+| Decimals | Precision | Notes                                                        |
+| -------- | --------- | ------------------------------------------------------------ |
+| 3        | ~111 m    | Coarse — groups a city block. Risk: misses neighboring POIs. |
+| **4**    | **~11 m** | **Default. Same building usually shares a key.**             |
+| 5        | ~1.1 m    | Almost no dedup; basically no cache.                         |
 
 The cache document:
 
@@ -229,8 +232,8 @@ This is what gets stored on `asset.place`:
 ```ts
 interface Place {
   // Provenance
-  source: "nominatim";          // future: "google", "azure", etc.
-  geocoderVersion: number;      // see §7.3
+  source: 'nominatim'; // future: "google", "azure", etc.
+  geocoderVersion: number; // see §7.3
   geocodedAt: ISODate;
 
   // Raw lat/lon (so we can re-geocode later if needed)
@@ -247,28 +250,28 @@ interface Place {
     road?: string;
     neighbourhood?: string;
     suburb?: string;
-    city?: string;             // "Albany"
+    city?: string; // "Albany"
     town?: string;
     village?: string;
-    county?: string;           // "Albany County"
-    state?: string;            // "New York"
-    stateCode?: string;        // "NY" (parsed from ISO3166-2-lvl4)
+    county?: string; // "Albany County"
+    state?: string; // "New York"
+    stateCode?: string; // "NY" (parsed from ISO3166-2-lvl4)
     postcode?: string;
-    country?: string;          // "United States"
-    countryCode?: string;      // "us"
+    country?: string; // "United States"
+    countryCode?: string; // "us"
   };
 
   // POIs at this location (extracted from amenity/tourism/leisure/historic/natural)
   pois: Array<{
-    name: string;              // "New York State Museum"
-    category: string;          // "tourism"
-    type: string;              // "museum"
+    name: string; // "New York State Museum"
+    category: string; // "tourism"
+    type: string; // "museum"
   }>;
 
   // Coarse rollups for browsing/grouping
   rollups: {
-    locality: string | null;   // city ?? town ?? village
-    region: string | null;     // state
+    locality: string | null; // city ?? town ?? village
+    region: string | null; // state
     countryCode: string | null;
   };
 
@@ -289,12 +292,12 @@ interface Place {
 
 ### 5.1 What we want
 
-| Query | Should match |
-|-------|--------------|
-| `Albany NY` | Photos in Albany, NY |
-| `NY` | All photos in New York state |
-| `Park` | Photos at Central Park, Battery Park, parks of any kind |
-| `Musum` | (typo) Photos at museums |
+| Query       | Should match                                            |
+| ----------- | ------------------------------------------------------- |
+| `Albany NY` | Photos in Albany, NY                                    |
+| `NY`        | All photos in New York state                            |
+| `Park`      | Photos at Central Park, Battery Park, parks of any kind |
+| `Musum`     | (typo) Photos at museums                                |
 
 The first three are **exact / prefix matching on words**. The fourth needs **fuzzy / typo tolerance**. We solve the first three in v1 with Mongo text indexes and a denormalized search blob; we defer the fourth to a Meilisearch sidecar.
 
@@ -311,7 +314,7 @@ Construction rules:
 
 - All non-empty `address.*` values, lowercased and joined.
 - The `stateCode` (`NY`), so a search for "NY" matches.
-- POI names *and* their `type` (`museum`, `park`), so a search for "Park" matches "Central Park" *and* generic park photos, and a search for "Museum" matches museum photos by category.
+- POI names _and_ their `type` (`museum`, `park`), so a search for "Park" matches "Central Park" _and_ generic park photos, and a search for "Museum" matches museum photos by category.
 - Both full and abbreviated country names if available (`United States` and `US`).
 
 This blob lives on the asset (denormalized from `place.address` and `place.pois`) so the text index can sit on the asset collection directly. It's a few hundred bytes per asset — cheap.
@@ -319,19 +322,19 @@ This blob lives on the asset (denormalized from `place.address` and `place.pois`
 ### 5.3 Mongo text index
 
 ```js
-db.assets.createIndex({ "place.searchBlob": "text" }, { default_language: "english" })
+db.assets.createIndex({ 'place.searchBlob': 'text' }, { default_language: 'english' });
 ```
 
 Then:
 
 ```js
-db.assets.find({ $text: { $search: "Albany NY" } })
+db.assets.find({ $text: { $search: 'Albany NY' } });
 // Matches assets whose searchBlob contains BOTH "Albany" AND "NY" — exactly what we want.
 
-db.assets.find({ $text: { $search: "NY" } })
+db.assets.find({ $text: { $search: 'NY' } });
 // Matches every asset with "NY" in the blob.
 
-db.assets.find({ $text: { $search: "Park" } })
+db.assets.find({ $text: { $search: 'Park' } });
 // Matches "Central Park", "Battery Park", and any asset tagged with park POIs.
 ```
 
@@ -342,7 +345,11 @@ For ranking, use Mongo's text score (`$meta: "textScore"`) and combine with capt
 For "browse by location" (the hierarchical UI: country → state → city), separate compound indexes serve:
 
 ```js
-db.assets.createIndex({ "place.rollups.countryCode": 1, "place.rollups.region": 1, "place.rollups.locality": 1 })
+db.assets.createIndex({
+  'place.rollups.countryCode': 1,
+  'place.rollups.region': 1,
+  'place.rollups.locality': 1,
+});
 ```
 
 Aggregation pipelines (`$group` on `rollups.region`, count) populate the browse tree. This is independent of the text search and can ship simultaneously.
@@ -362,16 +369,18 @@ V1 ships without typo tolerance. The first time a user types "Musum" and gets no
 Same worker shape as geocode (§3). What changes:
 
 **Face worker.**
+
 - Claim query: `{ "thumb.ready": true, "enrichment.face.doneAt": null, ... }`.
 - `process()`: open the thumbnail file, run RetinaFace + MobileFaceNet via ONNX (the `AiFace` shape in `pipeline.ts` is already the target), write `asset.faces = [...]`.
 - Pool size: 1-2 (CPU-bound, expensive). 1 if you also want to run on a GPU box.
 - Lease: 30 min.
 
 **Describe worker.**
+
 - Claim query: `{ "preview.ready": true, "enrichment.describe.doneAt": null, ... }`.
 - `process()`: read the 1280-px preview JPEG (see `src/api/src/workers/stages/preview.ts`), call Ollama with the structured-JSON prompt `DEFAULT_DESCRIBE_VISION_PROMPT` (`src/api/src/enrichment/enrichment-config.repo.ts`), parse strictly with `parseVisionJson`, then write `description` (caption mirror), `description_meta`, the structured `vision` subdoc, and `vision_meta`.
-- Default provider: Ollama with `qwen2.5vl:7b`. Anthropic / OpenAI / Gemini providers remain wired but are off by default.
-- `dependsOn: ["preview"]`. `targetVersion: 2`. `pausedOnFirstBoot: true`.
+- Default provider: Ollama with `qwen3-vl:8b` (requires Ollama >= 0.12.7 — the prior `qwen2.5vl:7b` generation worked on older Ollama builds, but the qwen3 family needs the newer runtime). Anthropic / OpenAI / Gemini providers remain wired but are off by default.
+- `dependsOn: ["preview"]`. `targetVersion: 6` as of the qwen3-vl / prompt-v5 upgrade. `pausedOnFirstBoot: true`.
 - Pool size: 1 (single-slot on the 24 GB VLM host). Network-bound providers can raise this.
 - Lease: 10 min.
 - Failure path: malformed model output throws `VisionParseError`; the runtime stamps the error and dead-letters at `maxAttempts`. No silent skips.
@@ -382,27 +391,32 @@ Both workers slot in without touching the geocode worker, the fast pipeline, or 
 
 The describe stage emits a structured `VisionDoc` subdoc on the asset alongside the legacy free-text `description`. The structured fields are what enable faceted filters ("outdoor sports", "drone photos with readable text") and richer search-blob composition without needing a vector DB.
 
-The full shape lives in `src/api/src/db/schema.ts` (search for `VisionDoc` / `VisionMeta`). Summary:
+The full shape lives in `src/api/src/db/schema.ts` (search for `VisionDoc` / `VisionMeta`). Summary, in prompt v5's field order — `is_screenshot` and `nudity` are classified first because Ollama's grammar-constrained decode emits JSON properties in schema order, so putting the classification fields first lets the rest of the response condition on them:
 
-| Field | Meaning |
-|-------|---------|
-| `caption` | 1–2 sentence search-oriented description. Mirrored to top-level `description`. |
-| `subjects[]` | Categorical subject types: `person`, `child`, `adult`, `dog`, `bird`, `vehicle`, `building`, … |
-| `scene_type` | `indoor` \| `outdoor` \| `aerial` \| `macro` \| `studio` \| `mixed`. |
-| `setting` | Specific environment (`kitchen`, `beach`, `forest`, …) or `null`. |
-| `activity` | What is happening, or `null` for a static scene. |
-| `time_of_day` | `morning` \| `midday` \| `afternoon` \| `golden hour` \| `evening` \| `night` \| `unknown`. |
-| `lighting` | `natural` \| `artificial` \| `mixed` \| `low-light` \| `backlit` \| `flash`. |
-| `weather` | `clear` \| `cloudy` \| `rainy` \| `snowy` \| `foggy` \| `indoor` \| `unknown`. |
-| `mood` | 1–3 words. |
-| `colors[]` | Dominant colors, max 5. |
-| `composition` | `wide shot` \| `close-up` \| `portrait` \| `landscape` \| `aerial` \| `macro` \| `candid`. |
-| `text_visible` | Any readable text in the image, or `null`. Always mirrored into `ocr_text` by the describe stage. |
-| `notable_objects[]` | Distinctive objects, max 8. |
-| `shot_type` | `action` \| `static` \| `candid` \| `posed` \| `architectural` \| `nature` \| `event`. |
-| `indoor_outdoor` | `indoor` \| `outdoor`. |
+| Field               | Meaning                                                                                                                                                                                                                           |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `is_screenshot`     | `true` for a screen capture of a phone/computer/app UI (including cropped screenshots and screenshots-of-screenshots), `false` for a photograph. When `true`, every scene field below is `null` (the "screenshot short-circuit"). |
+| `nudity`            | `none` \| `suggestive` \| `explicit`. See "Nudity ladder and auto-hide" below.                                                                                                                                                    |
+| `caption`           | 1–2 sentence search-oriented description. Mirrored to top-level `description`.                                                                                                                                                    |
+| `subjects[]`        | Categorical subject types: `person`, `child`, `adult`, `dog`, `bird`, `vehicle`, `building`, …                                                                                                                                    |
+| `scene_type`        | `indoor` \| `outdoor` \| `aerial` \| `macro` \| `studio` \| `mixed` \| `null` (screenshot).                                                                                                                                       |
+| `setting`           | Specific environment (`kitchen`, `beach`, `forest`, …), `null` when unidentifiable, or `null` (screenshot).                                                                                                                       |
+| `activity`          | What is happening, `null` for a static scene, or `null` (screenshot).                                                                                                                                                             |
+| `time_of_day`       | `morning` \| `midday` \| `afternoon` \| `golden hour` \| `evening` \| `night` \| `unknown` \| `null` (screenshot).                                                                                                                |
+| `lighting`          | `natural` \| `artificial` \| `mixed` \| `low-light` \| `backlit` \| `flash` \| `unknown` \| `null` (screenshot).                                                                                                                  |
+| `weather`           | `clear` \| `cloudy` \| `rainy` \| `snowy` \| `foggy` \| `indoor` \| `unknown` \| `null` (screenshot).                                                                                                                             |
+| `mood`              | 1–3 words.                                                                                                                                                                                                                        |
+| `colors[]`          | Dominant colors, max 5.                                                                                                                                                                                                           |
+| `composition`       | `wide shot` \| `close-up` \| `portrait` \| `landscape` \| `aerial` \| `macro` \| `null` (screenshot). `candid` left this enum in v5 — it's a shot-type concept.                                                                   |
+| `text_visible`      | Readable text transcribed verbatim (case + line order preserved), or `null` when nothing is legible. Always mirrored into `ocr_text` by the describe stage.                                                                       |
+| `notable_objects[]` | Distinctive objects, max 8.                                                                                                                                                                                                       |
+| `shot_type`         | `action` \| `static` \| `candid` \| `posed` \| `architectural` \| `nature` \| `event` \| `null` (screenshot).                                                                                                                     |
 
-`vision_meta` carries the provenance: `provider` (`ollama` \| `anthropic` \| `openai` \| `gemini`), `model` (e.g. `qwen2.5vl:7b`), `prompt_version`, `generated_at`, `raw_response_size` (bytes of the model's raw JSON response — helps spot truncation).
+`indoor_outdoor` (prompt v4 and earlier) was dropped in v5 — it's fully derivable from `scene_type`, and the parser's synonym map had accreted entries mopping up the model's own confusion between the two. Rows written under `prompt_version <= 4` still carry `indoor_outdoor` and a boolean `nudity_detected` instead of `nudity`; both fields stay on `VisionDoc` as deprecated-optional so readers can fall back until the `targetVersion: 6` re-run rewrites every row.
+
+`vision_meta` carries the provenance: `provider` (`ollama` \| `anthropic` \| `openai` \| `gemini`), `model` (e.g. `qwen3-vl:8b`), `prompt_version`, `generated_at`, `raw_response_size` (bytes of the model's raw JSON response — helps spot truncation).
+
+**Nudity ladder and auto-hide.** Prompt v4's `nudity_detected` boolean is now a three-point ladder: `explicit` (exposed genitals, buttocks, or female breasts/nipples — including in art, on statues, or on a screen within the image), `suggestive` (sexualized posing or underwear/lingerie-focused framing without exposure), and `none` (everything else, including swimwear, shirtless men, and ordinary family bath or beach photos). The describe stage's auto-hide safety net (`src/api/src/workers/stages/describe.ts`) fires only on `explicit` — `suggestive` leaves the asset visible. This preserves the old boolean's semantics: the v4 prompt's bare "contains nudity" question was written to mean what v5 calls `explicit`, so the hide threshold hasn't moved, it's just no longer conflating a nude photo with a shirtless-at-the-beach photo. `sidecar-metadata-index.ts`'s `nativeHidden` computation reads `vision.nudity === 'explicit'`, with a `vision.nudity_detected === true` fallback for stale v4 rows that haven't been re-captioned yet.
 
 **Preview dependency.** The describe stage reads the 1280-px JPEG written by the new `preview` stage (between `thumb` and `describe`; `dependsOn: ["thumb"]`; output at `<folder>/.maple/previews/<basename>_1280.jpg`). The 512-px thumb is too small for reliable captions or OCR on a 24 MP photo; the preview is sized to give the VLM enough resolution without blowing the VRAM budget. See `src/api/src/workers/stages/preview.ts` and `src/api/src/indexer/previewer.ts`.
 
@@ -451,9 +465,14 @@ Each handler has a `version: number`. When you fix a parser bug or upgrade the A
 
 ```js
 db.assets.updateMany(
-  { "enrichment.geocode.version": { $lt: 2 } },
-  { $set: { "enrichment.geocode.doneAt": null, "enrichment.geocode.attempts": 0 } }
-)
+  { 'enrichment.geocode.version': { $lt: 2 } },
+  {
+    $set: {
+      'enrichment.geocode.doneAt': null,
+      'enrichment.geocode.attempts': 0,
+    },
+  },
+);
 ```
 
 The worker picks up the affected assets on its next claim. No batch infrastructure needed.

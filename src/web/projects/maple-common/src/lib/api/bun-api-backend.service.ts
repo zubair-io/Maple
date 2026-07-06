@@ -192,28 +192,59 @@ export interface ApiDescriptionMeta {
 }
 
 /**
- * Structured vision metadata from the qwen2.5-vl describe stage.
+ * Structured vision metadata from the qwen3-vl describe stage.
  * Mirrors `VisionDoc` in `src/api/src/db/schema.ts`. `null` until the
  * stage has run on the asset.
+ *
+ * Prompt v5 classifies `is_screenshot` first and nulls every scene field
+ * below when it's true (screenshot short-circuit) — that's why
+ * `scene_type` / `time_of_day` / `lighting` / `weather` / `composition` /
+ * `shot_type` are nullable here.
  */
 export interface ApiVision {
   caption: string;
   subjects: string[];
-  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
+  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed' | null;
   setting: string | null;
   activity: string | null;
-  time_of_day: 'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown';
-  lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
-  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
+  time_of_day:
+    | 'morning'
+    | 'midday'
+    | 'afternoon'
+    | 'golden hour'
+    | 'evening'
+    | 'night'
+    | 'unknown'
+    | null;
+  lighting:
+    | 'natural'
+    | 'artificial'
+    | 'mixed'
+    | 'low-light'
+    | 'backlit'
+    | 'flash'
+    | 'unknown'
+    | null;
+  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown' | null;
   mood: string;
   colors: string[];
-  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | 'candid';
+  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | null;
   text_visible: string | null;
   notable_objects: string[];
-  shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event';
-  indoor_outdoor: 'indoor' | 'outdoor';
+  shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event' | null;
   /** True when the image is a screenshot rather than a photograph. */
   is_screenshot: boolean;
+  /** Nudity classification ladder (prompt v5): `'explicit'` auto-hides the
+   * asset, `'suggestive'` does not, `'none'` is the common case. */
+  nudity: 'none' | 'suggestive' | 'explicit';
+  /** @deprecated Superseded by `nudity` in prompt v5. Rows written under
+   * `prompt_version` <= 4 carry this instead; readers must handle both
+   * until every row has been re-captioned (targetVersion 6). */
+  nudity_detected?: boolean;
+  /** @deprecated Dropped in prompt v5 — derivable from `scene_type`. Rows
+   * written under `prompt_version` <= 4 carry this; readers must handle
+   * its absence. */
+  indoor_outdoor?: 'indoor' | 'outdoor';
 }
 
 export interface ApiVisionMeta {
@@ -241,7 +272,7 @@ export interface ApiAssetDetail {
   description_meta: ApiDescriptionMeta | null;
   ocr_text: string | null;
   ocr_meta: ApiOcrMeta | null;
-  /** Structured vision data from the qwen2.5-vl describe stage. */
+  /** Structured vision data from the qwen3-vl describe stage. */
   vision: ApiVision | null;
   vision_meta: ApiVisionMeta | null;
   /** Top-level mirror of `vision.is_screenshot` — seeded by the exif

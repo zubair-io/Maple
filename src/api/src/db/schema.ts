@@ -127,7 +127,7 @@ export interface AssetExif {
 }
 
 /**
- * Structured photo-vision metadata emitted by the qwen2.5-vl describe stage.
+ * Structured photo-vision metadata emitted by the qwen3-vl describe stage.
  *
  * One JSON object per asset, produced by a single VLM pass over the 1280-px
  * preview. The fields are independently queryable so the UI can filter by
@@ -136,6 +136,15 @@ export interface AssetExif {
  *
  * Versioned by `vision_meta.{model, prompt_version}`: bumping either causes
  * the runtime to invalidate stale rows and re-run the stage.
+ *
+ * Prompt v5 asks the model to classify `is_screenshot` and `nudity` before
+ * every other field (grammar-constrained decode follows schema property
+ * order — see `VISION_DOC_JSON_SCHEMA` in `parse-vision-json-enums.ts`), and
+ * short-circuits the scene-descriptive fields to `null` when
+ * `is_screenshot` is true. That is why `scene_type`, `time_of_day`,
+ * `lighting`, `weather`, `composition`, and `shot_type` are nullable here —
+ * they are always populated for photographs and always `null` for
+ * screenshots.
  *
  * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
@@ -148,41 +157,82 @@ export interface VisionDoc {
    * "building", "vehicle", "landscape", "food", "plant", … Open vocabulary,
    * but the prompt guides the model toward common values. */
   subjects: string[];
-  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
+  /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
+  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed' | null;
   /** Specific environment, e.g. "kitchen", "beach", "sports field".
    * Free-text but constrained by the prompt's examples. `null` when the
-   * model cannot identify the setting. */
+   * model cannot identify the setting, or when `is_screenshot` is true. */
   setting: string | null;
   /** What is happening, e.g. "lacrosse", "cooking", "hiking". `null` for
-   * a static scene with no action. */
+   * a static scene with no action, or when `is_screenshot` is true. */
   activity: string | null;
-  time_of_day: 'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown';
-  lighting: 'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash';
-  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown';
+  /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
+  time_of_day:
+    | 'morning'
+    | 'midday'
+    | 'afternoon'
+    | 'golden hour'
+    | 'evening'
+    | 'night'
+    | 'unknown'
+    | null;
+  /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
+  lighting:
+    | 'natural'
+    | 'artificial'
+    | 'mixed'
+    | 'low-light'
+    | 'backlit'
+    | 'flash'
+    | 'unknown'
+    | null;
+  /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
+  weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown' | null;
   /** 1–3 words describing atmosphere. */
   mood: string;
   /** Dominant colors, max 5. */
   colors: string[];
-  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | 'candid';
-  /** Any readable text in the image. `null` when there is none. The
-   * describe stage mirrors this value into `ocr_text` and stamps
-   * `ocr_meta.engine = "qwen2.5-vl"` on every run. */
+  /** `null` when `is_screenshot` is true (v5 screenshot short-circuit).
+   * `'candid'` was removed from the enum in v5 — it's a shot-type concept
+   * and the models frequently confused it with `shot_type`'s own
+   * `'candid'` value; see `COMPOSITION_SYNONYMS`. */
+  composition: 'wide shot' | 'close-up' | 'portrait' | 'landscape' | 'aerial' | 'macro' | null;
+  /** Any readable text in the image, transcribed verbatim (case + line
+   * order preserved). `null` when there is none. The describe stage
+   * mirrors this value into `ocr_text` and stamps
+   * `ocr_meta.engine = "qwen2.5-vl"` on every run — it is the sole OCR
+   * source since the parallel Tesseract stage was removed in #158. */
   text_visible: string | null;
   /** Distinctive objects, max 8. */
   notable_objects: string[];
-  shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event';
-  indoor_outdoor: 'indoor' | 'outdoor';
+  /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
+  shot_type: 'action' | 'static' | 'candid' | 'posed' | 'architectural' | 'nature' | 'event' | null;
   /** True when the image is a screenshot of a phone/computer/app UI
    * rather than a photograph. Canonical signal — the top-level
    * `AssetDoc.is_screenshot` mirrors this once the describe stage has
    * run, overwriting whatever the exif stage's filename heuristic
    * guessed first. */
   is_screenshot: boolean;
-  /** True when the image contains nudity or sexually explicit content.
-   * Canonical AI signal — the top-level `AssetDoc.hidden` is set (never
-   * cleared) from this once the describe stage has run, unless an
-   * explicit user override says otherwise. See `AssetDoc.hidden`. */
-  nudity_detected: boolean;
+  /** Nudity classification ladder (prompt v5). `'explicit'` covers exposed
+   * genitals/buttocks/female breasts (incl. art, statues, on-screen
+   * content); `'suggestive'` covers sexualized posing or underwear/
+   * lingerie-focused framing without exposure; `'none'` covers everything
+   * else, including swimwear, shirtless men, and ordinary family bath/beach
+   * photos. Canonical AI signal — the top-level `AssetDoc.hidden` is set
+   * (never cleared) when this is `'explicit'`, unless an explicit user
+   * override says otherwise. See `AssetDoc.hidden` and
+   * `sidecar-metadata-index.ts`'s `nativeHidden`. */
+  nudity: 'none' | 'suggestive' | 'explicit';
+  /** @deprecated Superseded by `nudity` in prompt v5. Rows written under
+   * `prompt_version` <= 4 carry this instead of `nudity`; the
+   * targetVersion-6 describe re-run rewrites them. Readers must handle
+   * both fields until every row has been re-captioned. */
+  nudity_detected?: boolean;
+  /** @deprecated Dropped in prompt v5 — fully derivable from `scene_type`.
+   * Rows written under `prompt_version` <= 4 carry this; the
+   * targetVersion-6 describe re-run drops it. Readers must handle its
+   * absence. */
+  indoor_outdoor?: 'indoor' | 'outdoor';
 }
 
 /**
@@ -195,7 +245,7 @@ export interface VisionDoc {
 export interface VisionMeta {
   /** Describe provider that produced this row. */
   provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
-  /** Concrete model tag, e.g. "qwen2.5vl:7b". */
+  /** Concrete model tag, e.g. "qwen3-vl:8b". */
   model: string;
   /** Bumped whenever the system prompt changes. */
   prompt_version: number;
@@ -330,7 +380,7 @@ export interface AssetDoc {
   /** True when this asset is a screenshot (phone/computer/app UI capture)
    * rather than a photograph. Set by the exif stage as a fast heuristic
    * (no camera_make + filename matches `Screenshot…` / `Screen Shot…`)
-   * and then overwritten by the describe stage with the qwen2.5-vl
+   * and then overwritten by the describe stage with the qwen3-vl
    * verdict, which handles cropped screenshots and photos-of-screens
    * the heuristic can't. Mirrors `vision.is_screenshot` once describe
    * has run; until then, the heuristic value stands. */
@@ -339,15 +389,17 @@ export interface AssetDoc {
    * Authoritative hidden flag, read by every browse/search/badge surface.
    * Set either by explicit user action (via the XMP `papp:Hidden`
    * override — see `MetadataOverride.hidden`) or by the describe stage's
-   * nudity verdict (`vision.nudity_detected`). `sidecar-metadata-index`
-   * projects the effective value: an explicit override always wins;
-   * absent an override, the value is `priorHidden || nudity_detected` —
-   * deliberately one-directional. A later describe re-run with a
-   * `nudity_detected: false` verdict must never silently un-hide an
-   * asset a user hid manually, or one a prior AI pass correctly
-   * flagged; only an explicit user override can turn `hidden` back to
-   * `false`. Optional because legacy rows pre-date the field; readers
-   * must treat missing as `false`.
+   * nudity verdict (`vision.nudity === 'explicit'`, with a legacy
+   * `vision.nudity_detected === true` fallback for stale v4 rows;
+   * `'suggestive'` does not hide). `sidecar-metadata-index` projects the
+   * effective value: an explicit override always wins; absent an
+   * override, the value is `priorHidden || explicitNudity` — deliberately
+   * one-directional. A later describe re-run whose verdict is not
+   * `'explicit'` must never silently un-hide an asset a user hid
+   * manually, or one a prior AI pass correctly flagged; only an explicit
+   * user override can turn `hidden` back to `false`. Optional because
+   * legacy rows pre-date the field; readers must treat missing as
+   * `false`.
    */
   hidden?: boolean;
   /** Why `hidden` is currently true. `'manual'` when the user explicitly
@@ -363,7 +415,7 @@ export interface AssetDoc {
    * once the operator has seen it in the "newly hidden" review list.
    * Meaningless for `hidden_reason: 'manual'` — never set for those. */
   hidden_ack?: boolean;
-  /** Structured photo-vision metadata from the qwen2.5-vl describe stage.
+  /** Structured photo-vision metadata from the qwen3-vl describe stage.
    * `null` until the stage has run on this asset. See `VisionDoc`. */
   vision?: VisionDoc | null;
   /** Provenance of the `vision` subdoc. Carries the model + prompt version

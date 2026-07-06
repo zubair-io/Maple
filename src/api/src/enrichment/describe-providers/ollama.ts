@@ -19,9 +19,10 @@ import {
 } from './index.ts';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
-// qwen2.5vl:7b on a 24 GB GPU is 8–12s typical per image, but can spike
-// to 30–60s under cold-load or when the model is paged in. 120s leaves
-// headroom without masking a genuinely hung backend.
+// qwen3-vl:8b on a 24 GB GPU is 8–12s typical per image (15-60% faster
+// than the prior qwen2.5vl:7b generation per-token, similar VRAM), but can
+// spike to 30–60s under cold-load or when the model is paged in. 120s
+// leaves headroom without masking a genuinely hung backend.
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 export interface OllamaProviderConfig {

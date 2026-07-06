@@ -138,7 +138,7 @@ describe('OllamaProvider.describe — happy path', () => {
     };
     await provider.describe(Buffer.from([0xff, 0xd8]), {
       systemPrompt: 'p',
-      model: 'qwen2.5vl:7b',
+      model: 'qwen3-vl:8b',
       format: schema,
     });
     const body = JSON.parse(String(calls[0]!.init!.body));
