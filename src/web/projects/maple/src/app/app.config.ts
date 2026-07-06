@@ -17,7 +17,6 @@ import {
   authInterceptor,
   provideAuthBootstrap,
   provideLibrarySource,
-  provideNetworkPreferenceBootstrap,
 } from '@maple-common';
 import { routes } from './app.routes';
 
@@ -35,11 +34,6 @@ export const appConfig: ApplicationConfig = {
       withRouterConfig({ paramsInheritanceStrategy: 'always' }),
     ),
     provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
-    // Must run before provideAuthBootstrap() / the ObservabilityService
-    // initializer below: it resolves ApiBaseUrlStore's value (read by
-    // API_BASE_URL's factory), and other initializers may inject services
-    // that read API_BASE_URL. See network-preference-bootstrap.ts.
-    provideNetworkPreferenceBootstrap(),
     provideAuthBootstrap(),
     provideLibrarySource,
     { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
