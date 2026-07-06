@@ -219,21 +219,55 @@
   pointer-events: auto;
 }
 
-// ── Bottom control card anchor ─────────────────────────────────────────────
+// ── Bottom control card anchor (tablet/desktop only — phone: below) ────────
 .control-card-anchor {
   position: absolute;
   bottom: 0;
-  left: 0;
-  right: 0;
   pointer-events: auto;
 
-  @media (min-width: 768px) {
-    // Centered between the left filmstrip rail and the right tool dock (#1564).
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
-    width: min(860px, calc(100vw - 320px));
-  }
+  // Centered between the left filmstrip rail and the right tool dock (#1564).
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(860px, calc(100vw - 320px));
+}
+
+// ── Phone CARD editor (#1807) ───────────────────────────────────────────────
+// Bottom horizontal tool dock — full-width, pinned to the bottom edge.
+.phone-dock-anchor {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  right: 12px;
+  pointer-events: auto;
+}
+
+// Flyout slider card — floats just above the dock. Its own `closed` input
+// (driven by phoneCardOpen()) hides the card contents; this anchor keeps
+// the reserved space so opening/closing doesn't reflow the dock underneath.
+.phone-card-anchor {
+  position: absolute;
+  bottom: 78px; // clears the 44px dock + its 10px inset + a gap
+  left: 12px;
+  right: 12px;
+  pointer-events: auto;
+}
+
+// Curve panel (tone curve + WB pad) on phone — same content as tablet/desktop
+// (#1569), floats above the dock like the flyout card.
+.phone-curve-panel {
+  position: absolute;
+  bottom: 78px;
+  left: 12px;
+  right: 12px;
+  pointer-events: auto;
+
+  background: var(--pro-glass-bg);
+  backdrop-filter: var(--pro-glass-blur);
+  -webkit-backdrop-filter: var(--pro-glass-blur);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  border-radius: var(--pro-glass-radius-card);
+  overflow: hidden;
 }
 
 // Left filmstrip rail (tablet+). editor-filmstrip is a vertical strip; it fills

@@ -130,6 +130,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   /** True when the curve panel (tone curve + WB pad) is open (#1540). */
   readonly curveOpen = signal<boolean>(false);
 
+  /**
+   * Phone only (#1807): whether the flyout control card is open above the
+   * bottom horizontal dock. Tapping a dock group icon opens it (and arms
+   * that group); tapping the active group's icon again, or the card's own
+   * close button, closes it. Independent of `curveOpen`, which drives its
+   * own floating curve panel.
+   */
+  readonly phoneCardOpen = signal<boolean>(false);
+
   // Chrome recede
   readonly chromeState = signal<ChromeState>('full');
   private _recedeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -372,6 +381,37 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onCurvePanelToggle(): void {
     this.curveOpen.update((v) => !v);
+  }
+
+  /**
+   * Phone bottom dock (#1807): tapping a group icon arms that group and opens
+   * the flyout card; tapping the already-active group's icon again closes it
+   * (mirrors the mockup's "tap active icon to collapse" affordance). Only one
+   * flyout (slider card or curve panel) is ever open at a time, since both
+   * float in the same anchor slot above the dock.
+   */
+  onPhoneDockGroupChange(group: ToolGroup): void {
+    if (this.phoneCardOpen() && !this.curveOpen() && group === this.activeGroup()) {
+      this.closePhoneCard();
+      return;
+    }
+    this.curveOpen.set(false);
+    this.onGroupChange(group);
+    this.phoneCardOpen.set(true);
+  }
+
+  /**
+   * Phone bottom dock's Curve entry: toggles the curve panel, closing the
+   * slider flyout card first so only one flyout is open at a time.
+   */
+  onPhoneCurvePanelToggle(): void {
+    this.phoneCardOpen.set(false);
+    this.onCurvePanelToggle();
+  }
+
+  closePhoneCard(): void {
+    this.phoneCardOpen.set(false);
+    this.editorState.haptic('switch');
   }
 
   // ── Current adjustment (for histogram) ────────────────────────────────

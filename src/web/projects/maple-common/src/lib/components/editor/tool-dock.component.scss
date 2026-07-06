@@ -1,9 +1,13 @@
-// ToolDock — vertical glass column (#1535).
-// Pro tokens imported once globally in styles.scss (#1537).
+// ToolDock — vertical glass column (tablet/desktop) or horizontal glass bar
+// (phone, #1807). Pro tokens imported once globally in styles.scss (#1537).
 
 :host {
   display: flex;
   flex-direction: column;
+}
+
+:host.dock-host--horizontal {
+  flex-direction: row;
 }
 
 .dock {
@@ -25,6 +29,25 @@
     backdrop-filter: var(--pro-glass-blur-heavy);
     -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
     border-radius: var(--pro-glass-radius-card-desktop);
+  }
+
+  // Horizontal bar (phone bottom dock, #1807): row of icons, full-width card.
+  // 6 entries at 375px viewport width — buttons shrink from the vertical
+  // dock's fixed 46px so the row never overflows a phone screen.
+  &.dock--horizontal {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-evenly;
+    gap: 2px;
+    width: 100%;
+    padding: 6px;
+
+    .dock-btn {
+      width: 44px;
+      height: 44px;
+      flex: 1 1 0;
+      max-width: 52px;
+    }
   }
 }
 

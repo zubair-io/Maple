@@ -88,14 +88,46 @@
           </div>
         }
       </div>
+
+      <!-- ── Tablet/desktop bottom control card ─────────────────── -->
+      <div class="control-card-anchor">
+        <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
+      </div>
+    } @else {
+      <!-- ── Phone CARD editor (#1807): flyout card + bottom dock ──── -->
+
+      <!-- Flyout slider card — floats above the dock, closeable. -->
+      <div class="phone-card-anchor">
+        <pro-control-card
+          [activeGroup]="activeGroup()"
+          [phone]="true"
+          [closed]="!phoneCardOpen()"
+          (groupChange)="onGroupChange($event)"
+          (closeRequest)="closePhoneCard()"
+        />
+      </div>
+
+      <!-- Curve panel (tone curve + WB pad) — same content as tablet/desktop,
+           floats above the dock like the phone control card (#1569). -->
+      @if (curveOpen()) {
+        <div class="phone-curve-panel">
+          <pro-tone-curve />
+          <div class="curve-panel-divider"></div>
+          <pro-wb-pad />
+        </div>
+      }
+
+      <!-- Bottom horizontal tool dock -->
+      <div class="phone-dock-anchor">
+        <pro-tool-dock
+          orientation="horizontal"
+          [activeGroup]="activeGroup()"
+          [curveOpen]="curveOpen()"
+          (groupChange)="onPhoneDockGroupChange($event)"
+          (curvePanelToggle)="onPhoneCurvePanelToggle()"
+        />
+      </div>
     }
-
-    <!-- ── Bottom control card ────────────────────────────────────── -->
-    <div class="control-card-anchor">
-      <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
-    </div>
-
-    <!-- Phone Curve trigger + sheet deferred to #1569 (no phone affordance opens curveOpen yet) -->
   </div>
 
   <!-- ── Value HUD (always visible layer, fades with its own signal) ── -->
