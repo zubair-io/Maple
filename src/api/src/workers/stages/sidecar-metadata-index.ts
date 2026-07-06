@@ -234,6 +234,6 @@ const sidecarMetadataIndexStage = defineStage({
 
 export default sidecarMetadataIndexStage;
 
-export async function startOverrideIngestStage(): Promise<RunStageHandle> {
+export async function startSidecarMetadataIndexStage(): Promise<RunStageHandle> {
   return runStage(sidecarMetadataIndexStage);
 }
