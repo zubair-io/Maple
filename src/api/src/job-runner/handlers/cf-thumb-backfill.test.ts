@@ -61,7 +61,11 @@ describe('cf_thumb_backfill handler', () => {
     globalThis.fetch = (async () => new Response('', { status })) as unknown as typeof fetch;
   }
 
-  async function makePendingAsset(filename: string, mapleId: string, opts?: { noThumb?: boolean }) {
+  async function makePendingAsset(
+    filename: string,
+    mapleId: string,
+    opts?: { noThumb?: boolean; hidden?: boolean },
+  ) {
     const relDir = 'vacation';
     if (!opts?.noThumb) {
       const thumbDir = path.join(dir, relDir, '.maple', 'thumbs');
@@ -73,6 +77,7 @@ describe('cf_thumb_backfill handler', () => {
       fileinfo: [{ path: relDir, filename, library_id: libId, deleted_at: null }],
       maple_id: mapleId,
       cf_thumb_synced_at: null,
+      hidden: opts?.hidden ?? false,
     };
     await db!.collection('assets').insertOne(doc as never);
     return doc;
@@ -147,6 +152,25 @@ describe('cf_thumb_backfill handler', () => {
     const savedB = await db!.collection('assets').findOne({ _id: b._id } as never);
     expect(typeof (savedA as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBe('string');
     expect(typeof (savedB as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBe('string');
+  });
+
+  it('never selects a hidden asset, even if its thumbnail is pending', async () => {
+    if (!mongoReachable) return;
+    stubFetch(200);
+    const hidden = await makePendingAsset('hidden.jpg', 'h'.repeat(32), { hidden: true });
+    const visible = await makePendingAsset('visible.jpg', 'v'.repeat(32));
+
+    const out = await cfThumbBackfillHandler.run({}, noopCtx());
+    expect(out.kind).toBe('done');
+    expect(out.result.successCount).toBe(1);
+    expect(out.result.skippedCount).toBe(0);
+
+    const savedHidden = await db!.collection('assets').findOne({ _id: hidden._id } as never);
+    const savedVisible = await db!.collection('assets').findOne({ _id: visible._id } as never);
+    expect((savedHidden as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBeNull();
+    expect(typeof (savedVisible as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBe(
+      'string',
+    );
   });
 
   it('skips (does not fail) an asset whose thumbnail has not been generated yet', async () => {

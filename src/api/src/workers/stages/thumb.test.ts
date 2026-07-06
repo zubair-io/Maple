@@ -353,7 +353,7 @@ describe('thumb handler — Cloudflare upload hook', () => {
     globalThis.fetch = (async () => new Response('', { status })) as unknown as typeof fetch;
   }
 
-  async function makeIndexedDoc(filename: string, mapleId: string) {
+  async function makeIndexedDoc(filename: string, mapleId: string, opts?: { hidden?: boolean }) {
     const file = path.join(dir, filename);
     const buf = await sharp({
       create: {
@@ -372,6 +372,7 @@ describe('thumb handler — Cloudflare upload hook', () => {
     const doc = {
       ...makeDoc(file, libId, dir, null, mapleId),
       _id: new ObjectId(),
+      hidden: opts?.hidden ?? false,
     };
     await db!.collection('assets').insertOne(doc as never);
     return doc;
@@ -434,6 +435,26 @@ describe('thumb handler — Cloudflare upload hook', () => {
 
     const doc = await makeIndexedDoc('disabled.jpg', 'a'.repeat(32));
     await thumbStage.handler(doc as never, {} as never);
+
+    expect(fetchCalled).toBe(false);
+    const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);
+    expect((saved as { cf_thumb_synced_at?: string })?.cf_thumb_synced_at).toBeUndefined();
+  });
+
+  it('does not call R2 or stamp cf_thumb_synced_at for a hidden asset, even when enabled', async () => {
+    if (!mongoReachable) return;
+    await db!
+      .collection('app_settings')
+      .updateOne({ _id: 'cloudflare' } as never, { $set: { config: CF_CONFIG } }, { upsert: true });
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response('', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const doc = await makeIndexedDoc('hidden.jpg', 'h'.repeat(32), { hidden: true });
+    const result = await thumbStage.handler(doc as never, {} as never);
+    expect(result).toEqual({ wrote: true });
 
     expect(fetchCalled).toBe(false);
     const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);

@@ -44,6 +44,10 @@ import {
 import { writeHiddenMarker } from '../../fs/hidden-marker.ts';
 import { findBurstSiblings } from '../../enrichment/burst-siblings.ts';
 import {
+  cleanupR2ThumbForHiddenAsset,
+  cleanupR2ThumbsForHiddenAssets,
+} from '../../cloudflare/hidden-cleanup.ts';
+import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
@@ -278,6 +282,10 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
 
     // Burst propagation: if it wasn't already hidden
     if (!wasAlreadyHidden) {
+      // Newly hidden — any thumbnail already mirrored to R2 must come down;
+      // see cloudflare/hidden-cleanup.ts for why. Best-effort/non-throwing.
+      await cleanupR2ThumbForHiddenAsset(image);
+
       try {
         const assets = await coll();
         const siblings = await findBurstSiblings(assets, image);
@@ -296,6 +304,16 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
                 hidden_ack: false,
               },
             },
+          );
+
+          // Same R2 cleanup as the primary asset, for exactly the siblings
+          // the updateMany above actually flipped to hidden (re-applying
+          // its own filter in memory — the siblings array already holds
+          // full docs, so no extra read is needed to know which qualify).
+          await cleanupR2ThumbsForHiddenAssets(
+            siblings.filter(
+              (sib) => sib.hidden !== true && sib.metadata_override?.hidden !== false,
+            ),
           );
 
           // Write hidden markers for siblings — a manually-unhidden sibling
