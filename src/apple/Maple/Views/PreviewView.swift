@@ -226,12 +226,15 @@ struct PreviewView: View {
 // MARK: - PreviewHeader
 
 /// Preview's 44pt header — back · filename · (histogram placeholder). The
-/// filename is capped at `PreviewViewVM.filenameMaxWidth` (200pt) with
-/// middle-truncation, so a pathologically long name can never push the header
-/// off-screen (spec §6) — the same cap `PillHeader` applies in the editor.
+/// filename is capped via `PreviewViewVM.filenameMaxWidth` (responsive: 200pt
+/// on iPad/Mac, 150pt on a narrow iPhone) with middle-truncation, so a
+/// pathologically long name can never push the header off-screen (spec §6) —
+/// the same cap `PillHeader` applies in the editor.
 private struct PreviewHeader: View {
     let displayName: String
     let onBack: () -> Void
+
+    @Environment(\.horizontalSizeClass) private var hSizeClass
 
     var body: some View {
         HStack(spacing: 10) {
@@ -250,7 +253,7 @@ private struct PreviewHeader: View {
                 .foregroundStyle(ProTokens.text)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: PreviewViewVM.filenameMaxWidth)
+                .frame(maxWidth: PreviewViewVM.filenameMaxWidth(isCompact: hSizeClass == .compact))
                 .layoutPriority(1)
                 .accessibilityIdentifier("preview-filename")
 

@@ -26,10 +26,23 @@ enum PreviewViewVM {
 
     /// Filename max-width cap for the Preview / Editor header, in points. A
     /// pathologically long filename truncates (middle) at this width rather
-    /// than pushing the trailing controls off-screen. Mirrors the 200pt cap
-    /// `PillHeader` already applies to the editor filename so the two headers
-    /// look identical.
-    static let filenameMaxWidth: CGFloat = 200
+    /// than pushing the trailing controls off-screen.
+    ///
+    /// Responsive, mirroring the Web fix's `min(200px, 40vw)`: on the compact
+    /// size class (a ~375–430pt iPhone) the pill also carries ~5 icon buttons,
+    /// so a flat 200pt name could still crowd them — cap tighter at 150pt. On
+    /// regular (iPad / Mac) the pill has room, so the full 200pt ceiling
+    /// applies. Used by both `PillHeader` (editor) and `PreviewView`'s header
+    /// so the two truncate identically at each width class.
+    ///
+    /// A size-class step (rather than a `GeometryReader`-measured `width * 0.5`)
+    /// is deliberate: the editor pill hugs its content via `fixedSize`, so
+    /// measuring its own width to cap a child inside it would be circular. The
+    /// two-step cap gives the same "can't crowd a narrow phone" guarantee
+    /// without that layout hazard.
+    static func filenameMaxWidth(isCompact: Bool) -> CGFloat {
+        isCompact ? 150 : 200
+    }
 
     // MARK: - Prev/next image navigation (spec §4)
 
