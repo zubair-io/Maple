@@ -192,6 +192,40 @@ export class AuthService {
     this.acceptTokens(r);
   }
 
+  /**
+   * Mint a one-time code so THIS SAME browser can redeem it on the server's
+   * LAN origin (see `redeemLanHandoff`) — used to hand off a session
+   * established here (on the public HTTPS domain, where the WebAuthn
+   * ceremony's secure-context requirement can be satisfied) to a plain-HTTP
+   * LAN address, which can't run that ceremony itself. Returns `null` on
+   * failure (network error, not signed in) so the caller can silently skip
+   * the redirect rather than sending the user somewhere broken.
+   */
+  async issueLanHandoffCode(): Promise<string | null> {
+    try {
+      const r = await firstValueFrom(this.http.post<{ code: string }>('/api/auth/lan-handoff', {}));
+      return r.code;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Redeem a one-time LAN-handoff code (see `issueLanHandoffCode`) for a
+   * fresh session scoped to THIS origin — the server sets its own refresh
+   * cookie for the LAN origin, so it refreshes independently from then on.
+   * Returns `true` on success.
+   */
+  async redeemLanHandoff(code: string): Promise<boolean> {
+    try {
+      const r = await firstValueFrom(this.http.post<any>('/api/auth/lan-handoff/redeem', { code }));
+      this.acceptTokens(r);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async refresh(): Promise<RefreshOutcome> {
     // Coalesce concurrent callers within this tab onto one attempt.
     this.inflight ??= this.runRefresh().finally(() => {
