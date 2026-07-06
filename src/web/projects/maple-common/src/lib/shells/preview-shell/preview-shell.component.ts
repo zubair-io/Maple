@@ -19,6 +19,7 @@ import {
   Component,
   HostListener,
   OnDestroy,
+  OnInit,
   computed,
   effect,
   inject,
@@ -35,12 +36,10 @@ import { BottomSheetComponent } from '../bottom-sheet.component';
 import { LayoutService } from '../../layout-service';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
-import {
-  routeSegmentsToAddress,
-  editRouteCommands,
-  viewRouteCommands,
-} from '../../addressing/route-address';
+import { routeSegmentsToAddress, viewRouteCommands } from '../../addressing/route-address';
 import { previewKeyAction } from './preview-shell-keyboard';
+import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
+import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
  * `.preview-image-wrap` counts as a prev/next gesture rather than a tap. */
@@ -49,16 +48,23 @@ const SWIPE_THRESHOLD_PX = 40;
 @Component({
   selector: 'preview-shell',
   standalone: true,
-  imports: [MapleIconComponent, RatingFlagsRowComponent, InfoPanelComponent, BottomSheetComponent],
+  imports: [
+    MapleIconComponent,
+    RatingFlagsRowComponent,
+    InfoPanelComponent,
+    BottomSheetComponent,
+    FilmstripComponent,
+  ],
   templateUrl: './preview-shell.component.html',
   styleUrl: './preview-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PreviewShellComponent implements OnDestroy {
+export class PreviewShellComponent implements OnInit, OnDestroy {
   state = inject(LibraryStateService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private layoutService = inject(LayoutService);
+  private tabBar = inject(TabBarVisibilityService);
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
@@ -103,9 +109,14 @@ export class PreviewShellComponent implements OnDestroy {
     this.applyRouteAddress();
   }
 
+  ngOnInit(): void {
+    this.tabBar.hidden.set(true);
+  }
+
   ngOnDestroy(): void {
     this.unsubThumb?.();
     this.unsubPreview?.();
+    this.tabBar.hidden.set(false);
   }
 
   goBack(): void {
@@ -113,7 +124,9 @@ export class PreviewShellComponent implements OnDestroy {
   }
   edit(): void {
     const id = this.state.focusedAssetId();
-    if (id) void this.router.navigate(editRouteCommands(id));
+    // Points at the feature-complete S5 editor until the canvas-first editor
+    // reaches parity (#1807), then flip back to editRouteCommands.
+    if (id) void this.router.navigate(['/library/editor', id]);
   }
 
   // ── Prev/next navigation (swipe + arrow keys) ────────────────────────────

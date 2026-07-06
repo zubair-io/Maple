@@ -13,7 +13,8 @@ import { PreviewShellComponent } from './preview-shell.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { BunApiBackendService } from '../../api/bun-api-backend.service';
-import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
+import { viewRouteCommands } from '../../addressing/route-address';
+import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import type { Asset } from '../../models/asset';
 
 interface Synth {
@@ -235,12 +236,12 @@ describe('PreviewShellComponent', () => {
     expect(bar!.querySelector('[aria-label="Info"]')).not.toBeNull();
   });
 
-  it('Edit navigates via editRouteCommands for the focused asset id', () => {
+  it('Edit navigates to the feature-complete S5 editor route (#1807)', () => {
     const { fixture, navigate } = setupFixture();
     const el = fixture.nativeElement as HTMLElement;
     const editBtn = el.querySelector('[aria-label="Edit"]') as HTMLButtonElement;
     editBtn.click();
-    expect(navigate).toHaveBeenCalledWith(editRouteCommands(STUB_ASSET.id));
+    expect(navigate).toHaveBeenCalledWith(['/library/editor', STUB_ASSET.id]);
   });
 
   it('Flag click toggles flagOpen and shows the rating/flags popover', () => {
@@ -441,5 +442,15 @@ describe('PreviewShellComponent', () => {
     comp.onImagePointerUp({ clientX: 150, clientY: 200 } as PointerEvent);
     expect(goNextSpy).not.toHaveBeenCalled();
     expect(goPrevSpy).not.toHaveBeenCalled();
+  });
+
+  // ── Phone tab-bar suppression (#Web Preview Surface Task 6a) ────────────
+
+  it('hides the phone tab bar on init and restores it on destroy', () => {
+    const { fixture } = setupFixture();
+    const tabBar = TestBed.inject(TabBarVisibilityService);
+    expect(tabBar.hidden()).toBe(true);
+    fixture.destroy();
+    expect(tabBar.hidden()).toBe(false);
   });
 });
