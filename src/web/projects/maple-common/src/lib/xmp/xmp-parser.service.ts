@@ -308,6 +308,7 @@ export class XmpParserService {
     };
 
     let desc: Element | null = null;
+    let sawPappAnywhere = false;
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(xml, 'text/xml');
@@ -321,6 +322,18 @@ export class XmpParserService {
       desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
 
       if (!desc) return emptyResult;
+
+      // Maple-authorship marker (#1780): raw-core and the Swift parser
+      // record the `papp:` namespace from ANY element (declaration or
+      // attribute) — a writer may declare `xmlns:papp` on an outer
+      // element like `x:xmpmeta`, not just `rdf:Description`. Computed
+      // here, where the whole Document is in scope; consumed by the WB
+      // scale-version resolution below.
+      sawPappAnywhere = Array.from(doc.getElementsByTagName('*')).some((el) =>
+        Array.from(el.attributes).some(
+          (a) => a.name === 'xmlns:papp' || a.name.startsWith('papp:'),
+        ),
+      );
     } catch {
       return emptyResult;
     }
@@ -363,13 +376,11 @@ export class XmpParserService {
     // raw-core's `xmp::parse` and the Swift `XMPParser`. The prefix (not
     // a URI) is the discriminator because the three Maple writers
     // historically bound `papp` to different URIs.
-    const attrNames = Array.from(desc.attributes).map((a) => a.name);
-    const sawPapp = attrNames.some((n) => n === 'xmlns:papp' || n.startsWith('papp:'));
     const sawExplicitWb =
       desc.getAttribute('crs:Temperature') !== null || desc.getAttribute('crs:Tint') !== null;
     const stampRaw = desc.getAttribute('papp:WbScaleVersion');
     const stamp = stampRaw === '1' ? 1 : stampRaw === '2' ? 2 : undefined;
-    model.wbScaleVersion = stamp ?? (sawPapp && sawExplicitWb ? 1 : 2);
+    model.wbScaleVersion = stamp ?? (sawPappAnywhere && sawExplicitWb ? 1 : 2);
 
     // Pass 1: walk attributes, applying canonical fields and remembering
     // legacy-aliased attributes for a second pass.

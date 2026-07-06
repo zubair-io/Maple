@@ -90,6 +90,16 @@ final class WbScaleVersionTests: XCTestCase {
         )
     }
 
+    func testSerializerClampsOutOfRangeVersionTo2() {
+        // raw-core's parser hard-fails on an unknown stamp — a corrupted
+        // model field must never produce an unparseable sidecar.
+        var corrupted = AdjustmentModel.default
+        corrupted.wbScaleVersion = 7
+        let xml = XMPSerializer.serialize(model: corrupted, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"papp:WbScaleVersion="2""#))
+        XCTAssertFalse(xml.contains(#"papp:WbScaleVersion="7""#))
+    }
+
     /// Real-file round trip through the sidecar store: a pre-#1756
     /// Maple-authored `.xmp` on disk loads as version 1, and a re-save of
     /// that model writes an explicit `papp:WbScaleVersion="1"` so the

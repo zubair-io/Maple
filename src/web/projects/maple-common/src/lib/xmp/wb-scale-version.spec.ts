@@ -123,4 +123,30 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(reparsed.temperature).toBe(6282);
     expect(reparsed.tint).toBe(-44);
   });
+
+  it('detects the papp namespace on an OUTER element, not just rdf:Description', () => {
+    // raw-core and the Swift parser record `xmlns:papp`/`papp:` from ANY
+    // element; a writer that declares the namespace on `x:xmpmeta` is
+    // still Maple-authored and its unstamped explicit WB must read as V1.
+    const xml = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/photo/1.0/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    crs:Temperature="6282" crs:Tint="-44">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`;
+    const { model } = parser.parseAdjustmentModel(xml);
+    expect(model.wbScaleVersion).toBe(1);
+  });
+
+  it('clamps an out-of-range wbScaleVersion to 2 at write time', () => {
+    // raw-core's parser hard-fails on an unknown stamp — a corrupted model
+    // field must never produce an unparseable sidecar.
+    const m = { ...defaultAdjustmentModel(), temperature: 5500, wbScaleVersion: 7 };
+    const xml = serializer.serialize(m);
+    expect(xml).toContain('papp:WbScaleVersion="2"');
+  });
 });
