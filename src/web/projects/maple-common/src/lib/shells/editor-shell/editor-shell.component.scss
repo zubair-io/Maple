@@ -59,7 +59,7 @@
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: calc(100vw - 96px);
+  max-width: calc(100vw - 32px);
   height: 44px;
   display: flex;
   align-items: center;
@@ -75,6 +75,7 @@
   padding: 0 8px;
 
   @media (min-width: 768px) {
+    max-width: calc(100vw - 96px);
     background: var(--pro-glass-bg-heavy);
     backdrop-filter: var(--pro-glass-blur-heavy);
     -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
@@ -112,7 +113,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
+  max-width: min(200px, 40vw);
   flex-shrink: 1;
 }
 
