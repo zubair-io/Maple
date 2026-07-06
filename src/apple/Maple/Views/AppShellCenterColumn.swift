@@ -34,6 +34,14 @@ struct AppShellCenterColumn: View {
     /// `FullImageView` via `isFullImage` and never enters the desktop
     /// `.editing` mode — is unchanged.
     var useEditor: Bool = false
+    /// When true (and `isFullImage`) the image surface is the fast static
+    /// `PreviewView` (Fast Preview §1) rather than an editor. Takes precedence
+    /// over `useEditor` / the legacy `FullImageView`. Unlike those, Preview
+    /// keys off `browseVM.selectedAsset` (an `AssetRef`) and does NOT require a
+    /// resolved `selectedSession` — it mounts no render pipeline. Defaults to
+    /// `false`; only the Mac/iPad pane shell sets it (the iPhone shell pushes
+    /// `PreviewDestination` onto its own NavigationStack instead).
+    var usePreview: Bool = false
     let selectedSession: EditSession?
     let cloudTimelineVM: CloudTimelineViewModel?
     let cloudTimelineThumbClient: CloudThumbClient?
@@ -71,6 +79,15 @@ struct AppShellCenterColumn: View {
     /// S5 EditorView Info affordance (reveals the DetailPanel column).
     /// Only used when `useEditor` is true; defaults to no-op. #815.
     var onEditorInfo: () -> Void = {}
+    /// Preview's Edit button — flip the pane shell into the editor
+    /// (`mode = .editing`). Only used when `usePreview` is true; defaults to
+    /// no-op. Fast Preview §1.
+    var onPreviewEdit: (AssetRef) -> Void = { _ in }
+    /// Preview's back button — return to the browse grid (`mode = .browse`).
+    /// Distinct from `onEditorDismiss` (which returns the EDITOR to Preview,
+    /// per the spec's `grid → Preview → Editor` back stack). Only used when
+    /// `usePreview` is true. Fast Preview §1.
+    var onPreviewDismiss: () -> Void = {}
     /// Called when the user taps "Merge to Panorama…" from the BrowseGrid
     /// multi-select action bar (M2, #1236). nil suppresses the bar.
     var onMergePanorama: (() -> Void)? = nil
@@ -84,7 +101,25 @@ struct AppShellCenterColumn: View {
         // mockup, these are two different center views — not a
         // side-by-side. Double-click on a thumbnail flips the mode.
         if isFullImage {
-            if let session = selectedSession {
+            if usePreview {
+                // Fast static Preview surface (Fast Preview §1). Keys off the
+                // browse VM's selected AssetRef — NOT a resolved session — so
+                // it never boots a render. Prev/next + filmstrip drive
+                // `browseVM.selectedID`; Edit flips the shell to `.editing`.
+                if let previewAsset = browseVM.selectedAsset {
+                    PreviewView(
+                        asset: previewAsset,
+                        assets: browseVM.assets,
+                        source: browseVM.currentSource,
+                        sessions: $sessions,
+                        onDismiss: onPreviewDismiss,
+                        onEdit: onPreviewEdit,
+                        onSelectAsset: { asset in browseVM.selectedID = asset.id }
+                    )
+                } else {
+                    Color.clear.onAppear { onFullImageFallback() }
+                }
+            } else if let session = selectedSession {
                 if useEditor {
                     // S5 EditorView in the Mac/iPad pane shell (#815).
                     // Hosted by `EditorSessionHost` so the `EditorState`
