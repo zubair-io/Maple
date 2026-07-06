@@ -463,10 +463,9 @@ export async function ensureIndexes(): Promise<void> {
   // mistake. One-shot.
   if (!(await migrationApplied(db, 'reset-describe-dead-vision-parse-2026-05-21'))) {
     try {
-      const enumFields =
-        'scene_type|time_of_day|lighting|weather|composition|shot_type|indoor_outdoor';
+      const enumFields = 'scene_type|time_of_day|lighting|weather|composition|shot_type';
       const nullableFields =
-        'subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type|indoor_outdoor';
+        'subjects|colors|notable_objects|time_of_day|scene_type|lighting|weather|mood|composition|shot_type';
       const res = await db.collection('assets').updateMany(
         {
           'stages.describe.dead': true,

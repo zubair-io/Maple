@@ -1,5 +1,5 @@
 /**
- * Coercion helpers used by `parse-vision-json.ts` to normalise qwen2.5-vl
+ * Coercion helpers used by `parse-vision-json.ts` to normalise qwen
  * field values before validation. Split out from the orchestrator so it
  * stays under the file-size budget (#114).
  *
@@ -143,20 +143,21 @@ export function coerceTextVisible(v: unknown): string | null | typeof COERCE_FAI
   return COERCE_FAIL;
 }
 
-/** Coerce nudity_detected variants to boolean, defaulting to false if null/missing. */
-export function coerceNudityDetected(v: unknown): boolean | typeof COERCE_FAIL {
-  if (typeof v === 'boolean') return v;
-  if (v === null || v === undefined) return false;
-  if (typeof v === 'number') {
-    if (v === 0) return false;
-    if (v === 1) return true;
-    return COERCE_FAIL;
-  }
-  if (typeof v === 'string') {
-    const norm = v.trim().toLowerCase();
-    if (norm === 'true' || norm === 'yes' || norm === '1') return true;
-    if (norm === 'false' || norm === 'no' || norm === '0' || norm === '') return false;
-    return COERCE_FAIL;
-  }
-  return COERCE_FAIL;
+/** Coerce a `nudity` value to the v5 ladder (`none | suggestive |
+ * explicit`). Grammar-constrained decode makes a degenerate input (a
+ * boolean, a number, an out-of-enum string) near-impossible on Ollama
+ * >= 0.5, but this stays as defense in depth for older deploys and other
+ * providers. Legacy boolean `true` (the pre-v5 `nudity_detected` shape)
+ * maps to `'explicit'` — the old field's own semantics, preserved for any
+ * caller that still hands this coercer a raw boolean; `false`/null/
+ * missing/unrecognised all collapse to `'none'`, matching this file's
+ * least-informative-default convention. */
+export function coerceNudity(v: unknown): 'none' | 'suggestive' | 'explicit' {
+  if (v === true) return 'explicit';
+  if (typeof v !== 'string') return 'none';
+  const norm = v.trim().toLowerCase();
+  if (norm === 'explicit') return 'explicit';
+  if (norm === 'suggestive') return 'suggestive';
+  if (norm === 'none') return 'none';
+  return 'none';
 }

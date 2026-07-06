@@ -1,9 +1,12 @@
 // InfoVisionComponent — Self-Hosted enrichment "Vision" section.
 //
-// Read-only structured visual classification emitted by the qwen2.5-vl
+// Read-only structured visual classification emitted by the qwen3-vl
 // describe stage (subjects, scene/setting/activity/shot-type chips,
 // mood/composition/time/lighting/weather secondary row, notable
-// objects, colors, OCR text). No edit / requeue UI: the describe-stage
+// objects, colors, OCR text). Prompt v5's screenshot short-circuit nulls
+// scene_type/shot_type/composition/time_of_day/lighting/weather on
+// screenshots, so every one of those chips is gated on a populated
+// value in the template. No edit / requeue UI: the describe-stage
 // requeue already lives on the Description section directly above.
 
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
