@@ -62,7 +62,11 @@ export class EditorPageComponent {
   });
 
   protected onDismiss(): void {
-    void this.router.navigate(['/library']);
+    // Return to Preview for the current asset so Back lands where the user
+    // came from (Preview → Edit → Back), rather than always bouncing to the
+    // library grid.
+    const id = this.assetId();
+    void this.router.navigate(id ? ['/view', id] : ['/library']);
   }
 
   protected onInfo(): void {
