@@ -19,7 +19,7 @@ struct AppShellToolbar: ToolbarContent {
     /// True when AppShell is in the legacy Full-image mode (vs. Browse).
     /// Drives the window-toolbar Back chevron + Export. In the S5
     /// `.editing` mode this is FALSE — the `EditorView`'s own
-    /// `EditorHeader` owns back/share/title, so the window toolbar must
+    /// `PillHeader` owns back/share/title, so the window toolbar must
     /// not duplicate them (#815).
     let isFullImage: Bool
     /// True when AppShell's center surface owns its own chrome (the S5

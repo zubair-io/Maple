@@ -26,8 +26,9 @@
 //
 // All existing canvas logic (CanvasZoomHost, GPU/CPU leaf, crop overlay,
 // ValueChipOverlay, wheel nudge, zoom toolbar) is preserved unchanged.
-// EditorHeader, DragBar, and ToolPillRow are kept as files (their previews
-// and tests remain valid) but are no longer used in this layout.
+// The header is `PillHeader` (frosted content-width pill); `DragBar` and
+// `ToolPillRow` are kept as files (their previews and tests remain valid)
+// but are no longer used in this layout.
 //
 // The chrome view structs each live in their own sibling file (the
 // codebase convention — one view per file): PillHeader.swift,

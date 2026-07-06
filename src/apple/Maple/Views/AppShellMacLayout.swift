@@ -149,7 +149,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
         } detail: {
             centerColumn
-                // The EditorView's own EditorHeader shows the filename, so
+                // The EditorView's own PillHeader shows the filename, so
                 // suppress the navigation title to avoid a duplicate
                 // (notably the inline title on iPad).
                 .navigationTitle("")
