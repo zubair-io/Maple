@@ -21,6 +21,10 @@ struct PillHeader: View {
     let onInfo: () -> Void
     let showBeforeAfter: Bool
 
+    /// Drives the responsive filename cap — tighter on a narrow (compact)
+    /// phone so a long name can't crowd the pill's icon buttons.
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+
     var body: some View {
         HStack(spacing: 10) {
             // Back
@@ -34,15 +38,16 @@ struct PillHeader: View {
             .accessibilityLabel("Back")
             .accessibilityIdentifier("editor-back")
 
-            // Filename — capped at 200pt so a pathologically long name
-            // truncates (middle) rather than overflowing; the pill's own
+            // Filename — capped responsively (200pt on iPad/Mac, 150pt on a
+            // narrow iPhone) so a pathologically long name truncates (middle)
+            // rather than crowding the pill's icon buttons; the pill's own
             // `fixedSize` (below) keeps it content-width for normal names.
             Text(state.session.asset.displayName)
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(ProTokens.text)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: 200)
+                .frame(maxWidth: PreviewViewVM.filenameMaxWidth(isCompact: hSizeClass == .compact))
                 .accessibilityIdentifier("editor-filename")
 
             // Before/after toggle — shown only when there are edits
