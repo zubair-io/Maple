@@ -23,7 +23,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
+import { SearchComponent, SearchResult, SearchScope, viewRouteCommands } from '@maple-common';
 
 @Component({
   selector: 'maple-search-page',
@@ -69,11 +69,11 @@ export class SearchPageComponent implements AfterViewInit {
   }
 
   protected onPhotoTap(r: SearchResult): void {
-    // S5 (#625): route results to the responsive Editor shell at
-    // /library/editor/:id. Note: Self-Hosted search returns `fs:<absPath>`
-    // ids; fs: cold-load/hydration in the responsive editor is a follow-up
-    // (#625) and not yet implemented.
-    void this.router.navigate(['/library/editor', r.id]);
+    // Web Preview Surface Task 6c: route results to the fast Preview surface
+    // at /view/:slug/**. Self-Hosted search returns `fs:<absPath>` ids;
+    // viewRouteCommands() passes those through as a single :slug segment and
+    // PreviewShellComponent resolves them via the self-hosted-synth path.
+    void this.router.navigate(viewRouteCommands(r.id));
   }
 
   protected onFilters(payload: { query: string; scope: SearchScope }): void {

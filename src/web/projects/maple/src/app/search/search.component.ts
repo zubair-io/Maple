@@ -45,6 +45,7 @@ import {
   SearchService,
   SearchSort,
   errorMessage,
+  viewRouteCommands,
 } from '@maple-common';
 import {
   COLOR_LABELS,
@@ -462,9 +463,9 @@ export class SearchComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ── Result clicks → editor ───────────────────────────────────────────────
+  // ── Result clicks → Preview ───────────────────────────────────────────────
   openResult(r: ResultViewModel): void {
-    void this.router.navigate(['/library/editor', r.id]);
+    void this.router.navigate(viewRouteCommands(r.id));
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────
