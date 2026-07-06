@@ -54,7 +54,16 @@ public actor RenderedPreviewCache {
     // alone (#370 commit) is not enough — the preview cache reads from
     // its own disk store and would otherwise keep serving pre-#370
     // output indefinitely after app update.
-    private let viewTransformVersion: UInt32 = 5
+    // v6 (2026-07-06, #1801): paired with DecodedBufferCache rustVersion=5.
+    // Catches up on three unbumped pipeline-output changes: #1756 (sidecar
+    // WB re-interpreted in the camera calibration frame), #1774 (Auto 2.0
+    // default profile flip — default-look output changed on every image),
+    // and #1783 (decode bakes at strip-XMP 6500/0 + SliderFrame-anchored
+    // per-tick WB delta). Previews cached before those changes embed the
+    // old look and, uninvalidated, short-circuit the pipeline — devices
+    // kept showing pre-fix output (the persistent TestFlight band/pink)
+    // no matter which build was installed.
+    private let viewTransformVersion: UInt32 = 6
 
     // MARK: - Configure
 
