@@ -401,12 +401,15 @@ describe('thumb handler — resets cf-thumb-sync stage state on rewrite', () => 
       cf_thumb_synced_at: '2026-01-01T00:00:00.000Z',
       stages: {
         ...doc.stages,
+        // Seeded as dead-lettered with a stale error, to confirm the reset
+        // clears last_error/processed_at too, not just version/dead/attempts
+        // — matching reArmCacheStages()'s full-reset shape.
         'cf-thumb-sync': {
           version: 1,
-          attempts: 0,
-          last_error: null,
+          attempts: 5,
+          last_error: 'R2 upload failed (500): stale error from a prior run',
           processed_at: '2026-01-01T00:00:00.000Z',
-          dead: false,
+          dead: true,
         },
       },
     } as never);
@@ -416,10 +419,23 @@ describe('thumb handler — resets cf-thumb-sync stage state on rewrite', () => 
 
     const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);
     const syncState = (
-      saved as { stages?: Record<string, { version: number; dead: boolean; attempts: number }> }
+      saved as {
+        stages?: Record<
+          string,
+          {
+            version: number;
+            dead: boolean;
+            attempts: number;
+            last_error: string | null;
+            processed_at: string | null;
+          }
+        >;
+      }
     )?.stages?.['cf-thumb-sync'];
     expect(syncState?.version).toBe(0);
     expect(syncState?.dead).toBe(false);
     expect(syncState?.attempts).toBe(0);
+    expect(syncState?.last_error).toBeNull();
+    expect(syncState?.processed_at).toBeNull();
   });
 });
