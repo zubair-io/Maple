@@ -89,19 +89,24 @@ public struct GridCellOverlays: Sendable, Hashable {
     public var isVideo: Bool = false
     /// Phone vs. desktop badge layout.
     public var style: OverlayStyle = .phone
+    /// True when `CullingState.hidden == true` — dims the thumbnail and shows
+    /// the "HIDDEN" badge (see `PhotoThumbnailCell`).
+    public var hidden: Bool = false
 
     public init(
         rating: Int = 0,
         flag: CullFlag? = nil,
         sync: SyncBadge? = nil,
         isVideo: Bool = false,
-        style: OverlayStyle = .phone
+        style: OverlayStyle = .phone,
+        hidden: Bool = false
     ) {
         self.rating = rating
         self.flag = flag
         self.sync = sync
         self.isVideo = isVideo
         self.style = style
+        self.hidden = hidden
     }
 }
 
