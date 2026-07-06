@@ -14,4 +14,40 @@
       <img class="preview-img preview-img--full" [src]="p" alt="" />
     }
   </div>
+
+  <div class="action-bar" role="toolbar" aria-label="Preview actions">
+    <button class="action-btn" aria-label="Flag" (click)="flagOpen.set(!flagOpen())">
+      <maple-icon name="flag" [size]="18" /> <span>Flag</span>
+    </button>
+    <button class="action-btn action-btn--primary" aria-label="Edit" (click)="edit()">
+      <maple-icon name="edit" [size]="18" /> <span>Edit</span>
+    </button>
+    <button class="action-btn" aria-label="Info" (click)="infoOpen.set(true)">
+      <maple-icon name="info" [size]="18" /> <span>Info</span>
+    </button>
+  </div>
+
+  @if (flagOpen()) {
+    <div class="flag-popover"><app-rating-flags-row [asset]="state.focusedAsset()" /></div>
+  }
+
+  @if (isTabletPlus()) {
+    @if (infoOpen()) {
+      <div class="info-pane">
+        <app-info-panel
+          [asset]="state.focusedAsset()"
+          [insideSheet]="false"
+          (close)="infoOpen.set(false)"
+        />
+      </div>
+    }
+  } @else {
+    <app-bottom-sheet [(isOpen)]="infoOpen">
+      <app-info-panel
+        [asset]="state.focusedAsset()"
+        [insideSheet]="true"
+        (close)="infoOpen.set(false)"
+      />
+    </app-bottom-sheet>
+  }
 </div>

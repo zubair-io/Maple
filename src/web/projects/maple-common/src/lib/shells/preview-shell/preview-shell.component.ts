@@ -9,8 +9,9 @@
 // (see editor-shell.component.ts) so slug/fs/imported deep-links resolve
 // identically between /edit/:slug/** and /view/:slug/**.
 //
-// Scope for this task: header (back + filename) + fit-to-screen image only.
-// Flag/Edit/Info bar, swipe/arrows, and filmstrip land in later tasks.
+// Scope for this task: header (back + filename) + fit-to-screen image +
+// Flag/Edit/Info bottom bar (#Web Preview Surface Task 4). Swipe/arrows and
+// filmstrip land in later tasks.
 
 import {
   ChangeDetectionStrategy,
@@ -26,6 +27,10 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import type { Asset, AssetId } from '../../models/asset';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { RatingFlagsRowComponent } from '../../info/rating-flags-row.component';
+import { InfoPanelComponent } from '../../info/info-panel.component';
+import { BottomSheetComponent } from '../bottom-sheet.component';
+import { LayoutService } from '../../layout-service';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
@@ -33,7 +38,7 @@ import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/rout
 @Component({
   selector: 'preview-shell',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MapleIconComponent, RatingFlagsRowComponent, InfoPanelComponent, BottomSheetComponent],
   templateUrl: './preview-shell.component.html',
   styleUrl: './preview-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -42,11 +47,23 @@ export class PreviewShellComponent implements OnDestroy {
   state = inject(LibraryStateService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private layoutService = inject(LayoutService);
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
   private unsubThumb?: () => void;
   private unsubPreview?: () => void;
+
+  /** Flag popover open/closed (Flag button in the bottom action bar). */
+  readonly flagOpen = signal(false);
+  /** Info sheet/pane open/closed (Info button in the bottom action bar). */
+  readonly infoOpen = signal(false);
+
+  /** True at the tablet/desktop breakpoint — the shared `LayoutService`
+   * signal every shell reads (see root-shell.component.ts). Below this,
+   * Info renders in the phone `<app-bottom-sheet>`; at/above it, Info
+   * renders as a right-side pane inline in the template. */
+  readonly isTabletPlus = computed(() => this.layoutService.layout() !== 'phone');
 
   readonly assetName = computed<string>(() => {
     const a = this.state.focusedAsset();

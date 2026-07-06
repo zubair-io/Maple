@@ -6,10 +6,15 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi } from 'vitest';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { signal } from '@angular/core';
 import { of } from 'rxjs';
 
 import { PreviewShellComponent } from './preview-shell.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LIBRARY_BACKEND } from '../../api/library-backend.token';
+import { BunApiBackendService } from '../../api/bun-api-backend.service';
+import { editRouteCommands } from '../../addressing/route-address';
+import type { Asset } from '../../models/asset';
 
 interface Synth {
   id: string;
@@ -81,6 +86,73 @@ function setup(opts: {
   };
 }
 
+const STUB_ASSET: Asset = {
+  id: 'library:2026/a.jpg',
+  filename: '2026/a.jpg',
+  folderId: 'folder-1',
+  rating: 0,
+  flag: 'unflagged',
+  colorLabel: null,
+  thumbnailGradient: '',
+  aspectRatio: 1.5,
+};
+
+/** Full-template fixture (via `TestBed.createComponent`) for the bottom
+ * action bar — needs `LIBRARY_BACKEND` + `BunApiBackendService` stubs
+ * because `<app-info-panel>` (imported for the Info sheet/pane) pulls in
+ * `<app-info-enrichment>` and `<app-info-histogram>`, which inject those
+ * services. Mirrors info-panel.component.spec.ts's fake-service pattern. */
+function setupFixture(opts: { navigate?: ReturnType<typeof vi.fn> } = {}) {
+  const navigate = opts.navigate ?? vi.fn();
+  const state = {
+    backend: 'self-hosted',
+    assets: () => [{ id: STUB_ASSET.id, filename: STUB_ASSET.filename }],
+    assetsInSelectedFolder: () => [],
+    focusedAsset: signal<Asset | null>(STUB_ASSET),
+    focusedAssetId: signal<string | undefined>(STUB_ASSET.id),
+    selectAsset: vi.fn(),
+    openSelfHostedSubfolder: vi.fn(),
+    hydrateSelfHostedFsAsset: vi.fn(() => null),
+    subscribeThumbUrl: vi.fn(() => () => {}),
+    subscribePreviewUrl: vi.fn(() => () => {}),
+    flushPendingXmpWrites: vi.fn(),
+    setFlag: vi.fn(),
+    setRating: vi.fn(),
+    apiIdFor: vi.fn().mockReturnValue(undefined),
+  };
+  const route = {
+    url: of([]),
+    snapshot: { paramMap: convertToParamMap({}), url: [] },
+  };
+  const fakeBunApi = {
+    getWorkerStatus: vi.fn().mockReturnValue(of({ stages: [] })),
+    getAssetDetails: vi.fn(),
+    setAssetPlaceOverride: vi.fn(),
+    setAssetDescriptionOverride: vi.fn(),
+    requeueEnrichmentStage: vi.fn(),
+    getHistogram: vi
+      .fn()
+      .mockReturnValue(
+        of({ r: new Array(256).fill(0), g: new Array(256).fill(0), b: new Array(256).fill(0) }),
+      ),
+  };
+
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    imports: [PreviewShellComponent],
+    providers: [
+      { provide: ActivatedRoute, useValue: route },
+      { provide: Router, useValue: { navigate } },
+      { provide: LibraryStateService, useValue: state },
+      { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
+      { provide: BunApiBackendService, useValue: fakeBunApi },
+    ],
+  });
+  const fixture = TestBed.createComponent(PreviewShellComponent);
+  fixture.detectChanges();
+  return { fixture, navigate, state };
+}
+
 describe('PreviewShellComponent', () => {
   it('mounts and resolves the route asset into focusedAsset via selectAsset', () => {
     const { comp, selectAsset } = setup({
@@ -135,5 +207,48 @@ describe('PreviewShellComponent', () => {
     expect(hydrateSelfHostedFsAsset).toHaveBeenCalledWith('fs:/srv/photos/x.jpg');
     expect(selectAsset).toHaveBeenCalledWith('fs:/srv/photos/x.jpg');
     expect(openSelfHostedSubfolder).not.toHaveBeenCalled();
+  });
+
+  // ── Flag/Edit/Info bottom bar (#Web Preview Surface Task 4) ─────────────
+
+  it('renders the bottom action bar with three labelled controls', () => {
+    const { fixture } = setupFixture();
+    const el = fixture.nativeElement as HTMLElement;
+    const bar = el.querySelector('.action-bar');
+    expect(bar).not.toBeNull();
+    expect(bar!.querySelector('[aria-label="Flag"]')).not.toBeNull();
+    expect(bar!.querySelector('[aria-label="Edit"]')).not.toBeNull();
+    expect(bar!.querySelector('[aria-label="Info"]')).not.toBeNull();
+  });
+
+  it('Edit navigates via editRouteCommands for the focused asset id', () => {
+    const { fixture, navigate } = setupFixture();
+    const el = fixture.nativeElement as HTMLElement;
+    const editBtn = el.querySelector('[aria-label="Edit"]') as HTMLButtonElement;
+    editBtn.click();
+    expect(navigate).toHaveBeenCalledWith(editRouteCommands(STUB_ASSET.id));
+  });
+
+  it('Flag click toggles flagOpen and shows the rating/flags popover', () => {
+    const { fixture } = setupFixture();
+    const comp = fixture.componentInstance;
+    expect(comp.flagOpen()).toBe(false);
+    const el = fixture.nativeElement as HTMLElement;
+    const flagBtn = el.querySelector('[aria-label="Flag"]') as HTMLButtonElement;
+    flagBtn.click();
+    fixture.detectChanges();
+    expect(comp.flagOpen()).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.flag-popover')).not.toBeNull();
+  });
+
+  it('Info click sets infoOpen to true', () => {
+    const { fixture } = setupFixture();
+    const comp = fixture.componentInstance;
+    expect(comp.infoOpen()).toBe(false);
+    const el = fixture.nativeElement as HTMLElement;
+    const infoBtn = el.querySelector('[aria-label="Info"]') as HTMLButtonElement;
+    infoBtn.click();
+    fixture.detectChanges();
+    expect(comp.infoOpen()).toBe(true);
   });
 });
