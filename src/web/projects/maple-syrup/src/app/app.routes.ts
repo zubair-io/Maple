@@ -4,6 +4,7 @@ import {
   EditorPageComponent,
   EditorShellComponent,
   PhoneSettingsStubComponent,
+  PreviewShellComponent,
   ProtocolHandlerComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
@@ -23,6 +24,13 @@ const baseRoutes: Routes = [
     path: 'edit/:slug',
     children: [{ path: '**', component: EditorShellComponent }],
   },
+  // Web Preview Surface Task 3 — /view/:slug/** deep-links into a fast,
+  // static-image preview (grid thumbnail → display preview, no canvas/WASM).
+  {
+    path: 'view/:slug',
+    children: [{ path: '**', component: PreviewShellComponent }],
+  },
+  { path: 'view', component: PreviewShellComponent },
   // Responsive-program S1a (#597) / S2 (#623) / S5 (#625) / S7 (#622)
   // — phone-tier tab routes shared with RootShellComponent. The Library
   // tab renders the responsive grid; loupe redirects to the S5 Editor
