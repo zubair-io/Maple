@@ -42,7 +42,13 @@ import {
   type StageResult,
 } from '../run-stage.ts';
 
-/** Reset `cf-thumb-sync`'s stage state to unprocessed. Best-effort — a
+/** Reset `cf-thumb-sync`'s stage state to unprocessed — the full reset
+ * shape (`version`/`attempts`/`last_error`/`processed_at`/`dead`), matching
+ * `reArmCacheStages()` in `workers/dedupe.helpers.ts`. Clearing
+ * `last_error`/`processed_at` alongside `version`/`dead`/`attempts` matters:
+ * a stage that previously dead-lettered or errored on this asset would
+ * otherwise keep showing that stale error in the Settings → Workers UI even
+ * though the reset means it's about to be retried clean. Best-effort — a
  * failure here just means that stage catches up on its own next poll once
  * whatever transient issue clears, same as the thumb stage's own retry
  * path; it must never fail the thumb write itself. Mirrors the
@@ -56,8 +62,10 @@ async function resetCfThumbSyncVersion(imageId: ImageDoc['_id']): Promise<void> 
       {
         $set: {
           'stages.cf-thumb-sync.version': 0,
-          'stages.cf-thumb-sync.dead': false,
           'stages.cf-thumb-sync.attempts': 0,
+          'stages.cf-thumb-sync.last_error': null,
+          'stages.cf-thumb-sync.processed_at': null,
+          'stages.cf-thumb-sync.dead': false,
         },
       },
     );

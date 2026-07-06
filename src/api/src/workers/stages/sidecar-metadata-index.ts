@@ -193,7 +193,11 @@ export async function sidecarMetadataIndexHandler(
   // (`stages.*.version` is the "already handled" signal for every stage,
   // including terminal skips), so without this reset an un-hidden asset
   // would never get its thumbnail mirrored to R2 again. Mirrors this same
-  // function's own GPS-change → geocode-reset precedent below.
+  // function's own GPS-change → geocode-reset precedent below. Full reset
+  // shape (also clearing `last_error`/`processed_at`), matching
+  // `reArmCacheStages()` in `workers/dedupe.helpers.ts` — otherwise a
+  // previously dead-lettered/errored cf-thumb-sync run would keep showing
+  // that stale error in Settings → Workers even after this reset.
   if (priorHidden && !finalHidden) {
     const images = await coll();
     await images.updateOne(
@@ -201,8 +205,10 @@ export async function sidecarMetadataIndexHandler(
       {
         $set: {
           'stages.cf-thumb-sync.version': 0,
-          'stages.cf-thumb-sync.dead': false,
           'stages.cf-thumb-sync.attempts': 0,
+          'stages.cf-thumb-sync.last_error': null,
+          'stages.cf-thumb-sync.processed_at': null,
+          'stages.cf-thumb-sync.dead': false,
         },
       },
     );
