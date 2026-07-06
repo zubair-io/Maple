@@ -111,99 +111,18 @@ describe('CloudflareComponent', () => {
     // any unexpected request (including a jwt-secret call) had fired.
   });
 
-  describe('backfill panel', () => {
-    async function loadComplete(): Promise<void> {
-      fixture.detectChanges();
-      http.expectOne('/api/cloudflare/config').flush({ ...CONFIG, enabled: true });
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-    }
-
-    it('shows a disabled hint instead of the sync button when config is incomplete', async () => {
-      await load(); // CONFIG has enabled: false
-      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-      expect(text).toContain('Enable uploads and save valid credentials');
-      expect(
-        Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).some((b) =>
-          b.textContent?.includes('Sync existing thumbnails'),
-        ),
-      ).toBe(false);
-    });
-
-    it('queues a backfill job and polls its status once config is complete', async () => {
-      await loadComplete();
-      const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
-      const syncBtn = buttons.find((b) => b.textContent?.includes('Sync existing thumbnails'));
-      expect(syncBtn).toBeTruthy();
-      syncBtn!.click();
-      fixture.detectChanges();
-
-      const create = http.expectOne('/api/cloudflare/backfill');
-      expect(create.request.method).toBe('POST');
-      create.flush({ id: 'job1' });
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      const poll = http.expectOne('/api/cloudflare/backfill/job1');
-      expect(poll.request.method).toBe('GET');
-      poll.flush({
-        id: 'job1',
-        status: 'running',
-        progress: { current: 3, total: 10 },
-        result: null,
-        error: null,
-        cancel_requested: false,
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-      });
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Syncing 3 / 10');
-
-      // Stop the still-armed poll interval so it can't fire an unexpected
-      // request after this test's HttpTestingController.verify() runs.
-      fixture.destroy();
-    });
-
-    it('shows the done summary and stops polling once the job completes', async () => {
-      await loadComplete();
-      const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
-      const syncBtn = buttons.find((b) => b.textContent?.includes('Sync existing thumbnails'));
-      syncBtn!.click();
-      fixture.detectChanges();
-
-      http.expectOne('/api/cloudflare/backfill').flush({ id: 'job2' });
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      http.expectOne('/api/cloudflare/backfill/job2').flush({
-        id: 'job2',
-        status: 'done',
-        progress: { current: 5, total: 5 },
-        result: { successCount: 4, skippedCount: 1, failedCount: 0, failures: [] },
-        error: null,
-        cancel_requested: false,
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-      });
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-      expect(text).toContain('Done — 4 uploaded, 1 skipped, 0 failed.');
-      // A completed job leaves the sync button visible again (isRunning() is
-      // false), rather than stuck showing a progress bar.
-      expect(
-        Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button')).some((b) =>
-          b.textContent?.includes('Sync existing thumbnails'),
-        ),
-      ).toBe(true);
-    });
+  it('points to Settings → Workers for syncing thumbnails, with no trigger of its own', async () => {
+    await load();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('cf-thumb-sync');
+    const workersLink = el.querySelector('a[href="/settings/workers"]');
+    expect(workersLink).toBeTruthy();
+    // No backfill/sync endpoints exist anymore — HttpTestingController's
+    // afterEach http.verify() would fail this test if one fired.
+    expect(
+      Array.from(el.querySelectorAll('button')).some((b) =>
+        b.textContent?.includes('Sync existing thumbnails'),
+      ),
+    ).toBe(false);
   });
 });
