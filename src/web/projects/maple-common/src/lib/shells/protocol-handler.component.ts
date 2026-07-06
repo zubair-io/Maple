@@ -12,8 +12,8 @@
 // future deep-link service will normalise both forms.
 //
 // Supported targets:
-//   web+maple://image/<id>            →  /library/editor/<id>
-//   maple://image/<id>                →  /library/editor/<id>
+//   web+maple://image/<id>            →  /view/<id>
+//   maple://image/<id>                →  /view/<id>
 //   maple://browse/<slug>[/<relPath>] →  /browse/:slug/**  (M2, #1327)
 //   maple://edit/<slug>/<relPath>     →  /edit/:slug/**    (M2, #1327)
 //
@@ -77,7 +77,7 @@ export function parseProtocolUrl(raw: string | null): string[] | null {
   const pathSegs = parsed.pathname.split('/').filter(Boolean);
 
   if (host === 'image' && pathSegs.length > 0) {
-    return ['/library/editor', decodeURIComponent(pathSegs.join('/'))];
+    return ['/view', decodeURIComponent(pathSegs.join('/'))];
   }
 
   if ((host === 'browse' || host === 'edit') && pathSegs.length > 0) {
