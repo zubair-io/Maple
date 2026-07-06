@@ -274,6 +274,101 @@ export class LibraryCache {
     if (subs) for (const cb of subs) cb(url);
   }
 
+  // ── Preview (best display still) ────────────────────────────────────────────
+
+  /**
+   * Bounded LRU backing store for preview (embedded 1280px) blob URLs.
+   * Reuses ThumbLruCache — same shape, same revoke-on-evict/clearAll contract,
+   * just a separate keyspace so a preview load never evicts a thumbnail.
+   */
+  private readonly previewLru = new ThumbLruCache(500);
+
+  /** In-flight preview loads (id → Promise), same dedup contract as thumbs. */
+  private readonly previewLoadingIds = new Set<AssetId>();
+
+  /**
+   * Preview-URL subscribers, keyed by asset id. Same lifecycle contract as
+   * {@link thumbSubscribers}: owned by the component that calls
+   * {@link subscribePreviewUrl}, so it dies with the tile/panel and never
+   * accumulates orphans for ids that are no longer displayed.
+   */
+  private readonly previewSubscribers = new Map<AssetId, Set<(url: string | undefined) => void>>();
+
+  /**
+   * Subscribe to preview-URL changes for `id` — the best available _still_ for
+   * display (interim: full data-layer support lands in a later slice). Mirrors
+   * {@link subscribeThumbUrl} exactly except for how the URL is resolved:
+   *
+   *   - Self-Hosted M2 `slug:relPath` asset → the authed `/api/preview/:slug/*`
+   *     blob URL (embedded 1280px), fetched via `LibrarySource.previewBlob` —
+   *     the same auth/blob-URL machinery `subscribeThumbUrl` uses for
+   *     `/api/thumb`, just the preview route. Exclude legacy `fs:<absPath>`
+   *     ids — they also contain ':' but have no slug:relPath address to parse.
+   *   - Every other id (Hosted-web / imported / `fs:` ids) → delegate straight
+   *     to `subscribeThumbUrl`; there's no richer preview source for those
+   *     backends yet, so the thumbnail is the best still available today.
+   *
+   * Invokes `cb` immediately with the current URL (warm-cache paints at once),
+   * then again whenever it changes. Returns an unsubscribe fn.
+   */
+  subscribePreviewUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
+    const isSelfHostedAddress =
+      this.store.backend === 'self-hosted' &&
+      typeof id === 'string' &&
+      id.includes(':') &&
+      !id.startsWith('fs:');
+
+    if (!isSelfHostedAddress) {
+      return this.subscribeThumbUrl(id, cb);
+    }
+
+    let subs = this.previewSubscribers.get(id);
+    if (!subs) {
+      subs = new Set();
+      this.previewSubscribers.set(id, subs);
+    }
+    subs.add(cb);
+    cb(this.previewLru.get(id));
+    this._ensurePreviewUrl(id);
+    return () => {
+      const s = this.previewSubscribers.get(id);
+      if (!s) return;
+      s.delete(cb);
+      if (s.size === 0) this.previewSubscribers.delete(id);
+    };
+  }
+
+  private notifyPreviewSubscribers(id: AssetId, url: string | undefined): void {
+    const subs = this.previewSubscribers.get(id);
+    if (subs) for (const cb of subs) cb(url);
+  }
+
+  private cachePreviewUrl(id: AssetId, url: string): void {
+    this.previewLru.set(id, url, (evictedId) =>
+      this.notifyPreviewSubscribers(evictedId as AssetId, undefined),
+    );
+    this.notifyPreviewSubscribers(id, url);
+  }
+
+  /** Idempotently load the preview blob URL for a Self-Hosted slug:relPath id. */
+  private _ensurePreviewUrl(id: AssetId): void {
+    if (this.previewLru.get(id) !== undefined) return;
+    if (this.previewLoadingIds.has(id)) return;
+    this.previewLoadingIds.add(id);
+    void this._loadPreviewInternal(id).finally(() => this.previewLoadingIds.delete(id));
+  }
+
+  private async _loadPreviewInternal(id: AssetId): Promise<void> {
+    try {
+      const blob = await this.librarySource.previewBlob(parseAddress(id as string));
+      if (blob) this.cachePreviewUrl(id, URL.createObjectURL(blob));
+      // null = no preview yet (e.g. still indexing) — leave uncached so a
+      // later trigger (re-subscribe) can retry.
+    } catch (err) {
+      console.warn('[state] preview load failed for', id, err);
+    }
+  }
+
   // ── Reset ──────────────────────────────────────────────────────────────────
 
   /** Clear all in-memory state. Called on folder switch. */
@@ -301,6 +396,10 @@ export class LibraryCache {
     // folder switch reclaims that memory instead of letting it accumulate for
     // the whole session.
     this.fsBrowse.clearThumbCache();
+    // Preview cache/subscribers: same hard-reset treatment as thumbnails above.
+    this.previewLru.clearAll();
+    for (const subs of this.previewSubscribers.values()) for (const cb of subs) cb(undefined);
+    this.previewSubscribers.clear();
   }
 
   // ── Direct cache primitives (used by fetch / imports) ─────────────────────
