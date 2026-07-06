@@ -136,3 +136,54 @@ describe('AuthService ignores an unknown native_callback scheme (#856)', () => {
     expect(TestBed.inject(AuthService).isNativeShell).toBe(false);
   });
 });
+
+describe('AuthService LAN handoff', () => {
+  let auth: AuthService;
+  let ctrl: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    auth = TestBed.inject(AuthService);
+    ctrl = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => ctrl.verify());
+
+  it('issueLanHandoffCode returns the minted code', async () => {
+    const p = auth.issueLanHandoffCode();
+    ctrl.expectOne('/api/auth/lan-handoff').flush({ code: 'CODE123' });
+    expect(await p).toBe('CODE123');
+  });
+
+  it('issueLanHandoffCode returns null on failure rather than throwing', async () => {
+    const p = auth.issueLanHandoffCode();
+    ctrl
+      .expectOne('/api/auth/lan-handoff')
+      .flush({ error: 'no bearer' }, { status: 401, statusText: 'Unauthorized' });
+    expect(await p).toBeNull();
+  });
+
+  it('redeemLanHandoff applies the returned session and reports success', async () => {
+    const p = auth.redeemLanHandoff('CODE123');
+    const req = ctrl.expectOne('/api/auth/lan-handoff/redeem');
+    expect(req.request.body).toEqual({ code: 'CODE123' });
+    req.flush({
+      access_token: 'AT-lan',
+      user: { id: 'u1', email: 'a@b.c', role: 'owner' },
+    });
+    expect(await p).toBe(true);
+    expect(auth.bearer).toBe('AT-lan');
+    expect(auth.user()).toEqual({ id: 'u1', email: 'a@b.c', role: 'owner' });
+  });
+
+  it('redeemLanHandoff reports failure on an invalid/expired code and applies nothing', async () => {
+    const p = auth.redeemLanHandoff('bad-code');
+    ctrl
+      .expectOne('/api/auth/lan-handoff/redeem')
+      .flush({ error: 'invalid or expired code' }, { status: 400, statusText: 'Bad Request' });
+    expect(await p).toBe(false);
+    expect(auth.bearer).toBeNull();
+  });
+});

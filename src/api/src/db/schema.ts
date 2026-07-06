@@ -1195,6 +1195,27 @@ export interface NativeAuthCodeDoc {
 export type NativeAuthCodeWithId = WithId<NativeAuthCodeDoc>;
 
 // ---------------------------------------------------------------------------
+// LAN handoff one-time code — a signed-in web session (on the public URL)
+// mints this so the SAME browser can redeem it on the server's LAN address
+// without repeating the WebAuthn ceremony (which requires a secure context
+// the LAN's plain-HTTP origin can't provide). No PKCE: unlike the native
+// flow, there is no separate side-channel to keep a verifier out of the
+// redirect URL here (both origins are the same browser tab), so a bare
+// single-use, short-TTL code carries the same guarantee a code+verifier
+// pair would.
+// ---------------------------------------------------------------------------
+
+export interface LanHandoffCodeDoc {
+  code_hash: string; // sha256(raw code), hex
+  user_id: ObjectId;
+  device_label: string;
+  created_at: string;
+  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
+  consumed_at: string | null;
+}
+export type LanHandoffCodeWithId = WithId<LanHandoffCodeDoc>;
+
+// ---------------------------------------------------------------------------
 // PhotoKit backup
 // ---------------------------------------------------------------------------
 

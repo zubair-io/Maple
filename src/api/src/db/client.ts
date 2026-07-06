@@ -37,6 +37,7 @@ import type {
   RefreshTokenDoc,
   ChallengeDoc,
   NativeAuthCodeDoc,
+  LanHandoffCodeDoc,
   BackupSessionDoc,
   UploadSessionDoc,
   AssetChangeDoc,
@@ -160,6 +161,9 @@ export async function challengesCollection(): Promise<Collection<ChallengeDoc>> 
 }
 export async function nativeAuthCodesCollection(): Promise<Collection<NativeAuthCodeDoc>> {
   return (await getDb()).collection<NativeAuthCodeDoc>('native_auth_codes');
+}
+export async function lanHandoffCodesCollection(): Promise<Collection<LanHandoffCodeDoc>> {
+  return (await getDb()).collection<LanHandoffCodeDoc>('lan_handoff_codes');
 }
 export async function peopleCollection(): Promise<Collection<PersonDoc>> {
   return (await getDb()).collection<PersonDoc>('people');
@@ -1410,6 +1414,10 @@ export async function ensureIndexes(): Promise<void> {
   const nativeCodes = await nativeAuthCodesCollection();
   await nativeCodes.createIndex({ code_hash: 1 }, { unique: true });
   await nativeCodes.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
+
+  const lanHandoffCodes = await lanHandoffCodesCollection();
+  await lanHandoffCodes.createIndex({ code_hash: 1 }, { unique: true });
+  await lanHandoffCodes.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
 
   // people: case-insensitive unique on `name` so a duplicate name is impossible
   // at the DB level. The `renamePerson` repo method merges before it would
