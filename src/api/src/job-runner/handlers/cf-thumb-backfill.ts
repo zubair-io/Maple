@@ -2,8 +2,13 @@
  * `cf_thumb_backfill` job handler (#1757 sub-issue 4).
  *
  * Payload: `{}` — no input. The job always operates on every asset
- * currently selected by the `cf_thumb_pending` index (indexed, not yet
- * mirrored to R2): `{ cf_thumb_synced_at: null, maple_id: { $gt: '' } }`.
+ * currently selected by `PENDING_FILTER` below (indexed, not yet mirrored to
+ * R2, and not hidden — see the live-upload hook's comment in
+ * `workers/stages/thumb.ts` for why hidden assets are excluded from R2
+ * entirely). The `hidden` clause isn't covered by the `cf_thumb_pending`
+ * index (`{ cf_thumb_synced_at: 1, maple_id: 1 }`), so it's applied as an
+ * in-memory filter over the already-narrow index scan rather than a
+ * collection scan — acceptable since hidden assets are a small minority.
  * The route layer (`routes/cloudflare.ts`) refuses to create the job unless
  * `isCloudflareConfigComplete()` at creation time, but config could still be
  * disabled mid-run by the operator — this handler re-checks periodically so
@@ -59,7 +64,11 @@ const UPLOAD_RETRY_BASE_MS = 500;
 // detail list is bounded.
 const MAX_RECORDED_FAILURES = 100;
 
-const PENDING_FILTER = { cf_thumb_synced_at: null, maple_id: { $gt: '' } } as const;
+const PENDING_FILTER = {
+  cf_thumb_synced_at: null,
+  maple_id: { $gt: '' },
+  hidden: { $ne: true },
+} as const;
 
 interface CfThumbBackfillResult {
   successCount: number;
