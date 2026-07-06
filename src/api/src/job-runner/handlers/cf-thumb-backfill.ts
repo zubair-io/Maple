@@ -5,9 +5,11 @@
  * currently selected by `PENDING_FILTER` below (indexed, not yet mirrored to
  * R2, and not hidden — see the live-upload hook's comment in
  * `workers/stages/thumb.ts` for why hidden assets are excluded from R2
- * entirely). The `hidden` clause isn't covered by the `cf_thumb_pending`
- * index (`{ cf_thumb_synced_at: 1, maple_id: 1 }`), so it's applied as an
- * in-memory filter over the already-narrow index scan rather than a
+ * entirely). The `hidden` clause is part of the Mongo query itself
+ * (`find`/`countDocuments` both take the full `PENDING_FILTER`), but it
+ * isn't covered by the `cf_thumb_pending` index
+ * (`{ cf_thumb_synced_at: 1, maple_id: 1 }`), so MongoDB applies it as a
+ * FETCH-stage filter over the already-narrow index scan rather than a
  * collection scan — acceptable since hidden assets are a small minority.
  * The route layer (`routes/cloudflare.ts`) refuses to create the job unless
  * `isCloudflareConfigComplete()` at creation time, but config could still be
