@@ -11,7 +11,12 @@
 
 import { computed, type Signal, type WritableSignal } from '@angular/core';
 import { Router } from '@angular/router';
-import { type ApiPersonDetail, type ApiPersonFace, PeopleStore } from '@maple-common';
+import {
+  type ApiPersonDetail,
+  type ApiPersonFace,
+  PeopleStore,
+  viewRouteCommands,
+} from '@maple-common';
 import { errorMessage, faceKey, type Tone } from './people.vm';
 
 export interface PeopleDetailDeps {
@@ -56,10 +61,10 @@ export class PeopleDetailController {
     }
   }
 
-  // ── Open in editor (Feature 2) ────────────────────────────────────────
+  // ── Open in Preview (Feature 2) ────────────────────────────────────────
 
   openInEditor(face: ApiPersonFace): void {
-    void this.deps.router.navigate(['/library/editor', face.assetId]);
+    void this.deps.router.navigate(viewRouteCommands(face.assetId));
   }
 
   // ── Infinite scroll (Feature 3) ───────────────────────────────────────
