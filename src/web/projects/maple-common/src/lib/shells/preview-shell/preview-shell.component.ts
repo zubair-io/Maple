@@ -9,10 +9,10 @@
 // (see editor-shell.component.ts) so slug/fs/imported deep-links resolve
 // identically between /edit/:slug/** and /view/:slug/**.
 //
-// Scope for this task: header (back + filename) + fit-to-screen image +
-// Flag/Edit/Info bottom bar (#Web Preview Surface Task 4) + prev/next
-// navigation via swipe/arrow-keys + rating/flag shortcuts (#Web Preview
-// Surface Task 5). Filmstrip lands in a later task.
+// Surface contents: header (back + filename) + fit-to-screen image +
+// left filmstrip (routeMode "view") + Flag/Edit/Info bottom bar + prev/next
+// navigation via swipe/arrow-keys + rating/flag shortcuts. Edit points at the
+// feature-complete S5 editor until the canvas-first migration lands (#1807).
 
 import {
   ChangeDetectionStrategy,
