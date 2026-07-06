@@ -13,12 +13,13 @@ import {
 } from './enrichment-config.repo.ts';
 
 describe('QWEN_VL_OLLAMA_TAG — pinned literal', () => {
-  // Hyphen vs no-hyphen burned us once (PR #182 follow-up): the Qwen team
-  // names it `qwen2.5-vl` but Ollama's library publishes it as
-  // `qwen2.5vl` (no hyphen between "5" and "vl"). Pinning the literal so
-  // a future rename to the HuggingFace form 404s in CI instead of in prod.
+  // Hyphen vs no-hyphen burned us once (PR #182 follow-up) for the qwen2.5
+  // generation: the Qwen team names it `qwen2.5-vl` but Ollama's library
+  // published it as `qwen2.5vl` (no hyphen). The qwen3 generation reverses
+  // this — Ollama's tag IS dashed (`qwen3-vl:8b`). Pinning the literal so
+  // a future rename doesn't 404 in CI instead of in prod.
   it("matches Ollama's library tag exactly", () => {
-    expect(QWEN_VL_OLLAMA_TAG).toBe('qwen2.5vl:7b');
+    expect(QWEN_VL_OLLAMA_TAG).toBe('qwen3-vl:8b');
   });
 
   it('is the default for the Ollama provider', () => {
