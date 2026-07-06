@@ -68,7 +68,6 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!mongoReachable) return;
   await db!.collection('app_settings').deleteMany({});
-  await db!.collection('jobs').deleteMany({});
 });
 
 afterEach(() => {
@@ -113,32 +112,6 @@ async function put(
         authorization: `Bearer ${jwt}`,
       },
       body: JSON.stringify(body),
-    }),
-  );
-  return {
-    status: res.status,
-    body: res.status === 204 ? null : await res.json(),
-  };
-}
-
-async function post(path: string, jwt: string): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
-    new Request(`http://localhost${path}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${jwt}` },
-    }),
-  );
-  return {
-    status: res.status,
-    body: res.status === 204 ? null : await res.json(),
-  };
-}
-
-async function del(path: string, jwt: string): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
-    new Request(`http://localhost${path}`, {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${jwt}` },
     }),
   );
   return {
@@ -275,131 +248,5 @@ describe('POST /api/cloudflare/test', () => {
     const body = (await res.json()) as { ok: boolean; error: string };
     expect(body.ok).toBe(false);
     expect(body.error).toMatch(/401/);
-  });
-});
-
-describe('POST /api/cloudflare/backfill', () => {
-  it('rejects when config is not enabled/complete', async () => {
-    if (!mongoReachable) return;
-    const r = await post('/api/cloudflare/backfill', ownerJwt);
-    expect(r.status).toBe(409);
-  });
-
-  it('rejects a member-role token with 403', async () => {
-    if (!mongoReachable) return;
-    const r = await post('/api/cloudflare/backfill', memberJwt);
-    expect(r.status).toBe(403);
-  });
-
-  it('queues a cf_thumb_backfill job once config is complete', async () => {
-    if (!mongoReachable) return;
-    stubFetch(200);
-    await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
-    const r = await post('/api/cloudflare/backfill', ownerJwt);
-    expect(r.status).toBe(201);
-    const { id } = r.body as { id: string };
-    expect(ObjectId.isValid(id)).toBe(true);
-    const doc = await db!.collection('jobs').findOne({ _id: new ObjectId(id) });
-    expect(doc?.kind).toBe('cf_thumb_backfill');
-    expect(doc?.status).toBe('queued');
-  });
-
-  it('rejects a second concurrent backfill with 409 and the existing job id', async () => {
-    if (!mongoReachable) return;
-    stubFetch(200);
-    await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
-    const first = await post('/api/cloudflare/backfill', ownerJwt);
-    expect(first.status).toBe(201);
-    const { id: firstId } = first.body as { id: string };
-
-    const second = await post('/api/cloudflare/backfill', ownerJwt);
-    expect(second.status).toBe(409);
-    expect((second.body as { jobId: string }).jobId).toBe(firstId);
-  });
-
-  it('allows a new backfill once the prior one is no longer queued/running', async () => {
-    if (!mongoReachable) return;
-    stubFetch(200);
-    await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
-    const first = await post('/api/cloudflare/backfill', ownerJwt);
-    const { id: firstId } = first.body as { id: string };
-    await db!
-      .collection('jobs')
-      .updateOne({ _id: new ObjectId(firstId) }, { $set: { status: 'done' } });
-
-    const second = await post('/api/cloudflare/backfill', ownerJwt);
-    expect(second.status).toBe(201);
-  });
-});
-
-describe('GET /api/cloudflare/backfill/:id', () => {
-  it('returns 404 for an id belonging to a different job kind', async () => {
-    if (!mongoReachable) return;
-    const { insertedId } = await db!.collection('jobs').insertOne({
-      kind: 'pano_stitch',
-      status: 'queued',
-      payload: {},
-      progress: { current: 0, total: 0 },
-      result: null,
-      error: null,
-      locked_by: null,
-      lease_expires_at: null,
-      cancel_requested: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as never);
-    const r = await get(`/api/cloudflare/backfill/${insertedId.toHexString()}`, ownerJwt);
-    expect(r.status).toBe(404);
-  });
-
-  it('returns the job view for a cf_thumb_backfill job', async () => {
-    if (!mongoReachable) return;
-    stubFetch(200);
-    await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
-    const created = await post('/api/cloudflare/backfill', ownerJwt);
-    const { id } = created.body as { id: string };
-    const r = await get(`/api/cloudflare/backfill/${id}`, ownerJwt);
-    expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ id, status: 'queued' });
-  });
-
-  it('rejects a member-role token with 403', async () => {
-    if (!mongoReachable) return;
-    const r = await get(`/api/cloudflare/backfill/${new ObjectId().toHexString()}`, memberJwt);
-    expect(r.status).toBe(403);
-  });
-});
-
-describe('DELETE /api/cloudflare/backfill/:id', () => {
-  it('flips cancel_requested on an in-flight cf_thumb_backfill job', async () => {
-    if (!mongoReachable) return;
-    stubFetch(200);
-    await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
-    const created = await post('/api/cloudflare/backfill', ownerJwt);
-    const { id } = created.body as { id: string };
-    const r = await del(`/api/cloudflare/backfill/${id}`, ownerJwt);
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ ok: true });
-    const doc = await db!.collection('jobs').findOne({ _id: new ObjectId(id) });
-    expect(doc?.cancel_requested).toBe(true);
-  });
-
-  it('returns 404 for an id belonging to a different job kind', async () => {
-    if (!mongoReachable) return;
-    const { insertedId } = await db!.collection('jobs').insertOne({
-      kind: 'pano_stitch',
-      status: 'queued',
-      payload: {},
-      progress: { current: 0, total: 0 },
-      result: null,
-      error: null,
-      locked_by: null,
-      lease_expires_at: null,
-      cancel_requested: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as never);
-    const r = await del(`/api/cloudflare/backfill/${insertedId.toHexString()}`, ownerJwt);
-    expect(r.status).toBe(404);
   });
 });

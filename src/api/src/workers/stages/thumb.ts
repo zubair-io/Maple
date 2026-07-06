@@ -20,22 +20,20 @@
  *     `hash` predecessor was retired in the drop-abs-path-2026-05-21
  *     migration; discover writes sha1_head + maple_id inline at insert so
  *     the new cache-key dependency is satisfied before this stage runs.
+ *
+ * Mirroring the written thumbnail to Cloudflare R2 is NOT done here — it's
+ * the independent `cf-thumb-sync` stage (`stages/cf-thumb-sync.ts`), which
+ * depends on this one. Every rewrite here resets that stage's own version
+ * back to 0 (see `resetCfThumbSyncVersion` below) so a re-render — most
+ * notably a `targetVersion` bump like the v2 orientation fix — re-triggers
+ * a fresh R2 upload instead of leaving a stale copy cached at the edge.
  */
-import { readFile } from 'node:fs/promises';
+import { assetsCollection } from '../../db/client.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
-import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import {
-  isCloudflareConfigComplete,
-  loadCloudflareConfig,
-  resolveCloudflareConfig,
-} from '../../cloudflare/cloudflare-config.repo.ts';
-import { uploadThumbToR2 } from '../../cloudflare/r2-client.ts';
-import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
-import { getDb } from '../../db/client.ts';
-import { child as childLogger } from '../../log.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   defineStage,
   runStage,
@@ -44,59 +42,27 @@ import {
   type StageResult,
 } from '../run-stage.ts';
 
-const log = childLogger('workers/stages/thumb');
-
-/** Upper bound on how long the stage will wait for the Cloudflare upload
- * before giving up and moving on. A bounded await (not blind fire-and-
- * forget) so an in-flight upload isn't silently lost if the process exits
- * mid-request — but short enough that an R2 outage can't meaningfully slow
- * the indexer, whose thumb-stage concurrency is already only 2. Passed as
- * an `AbortSignal` into the fetch itself (not just raced against it) so a
- * stalled request is actually cancelled — sockets/TLS state don't leak
- * into the background once the stage moves on. */
-const CF_UPLOAD_TIMEOUT_MS = 5_000;
-
-/**
- * Best-effort mirror of a freshly-written thumbnail to Cloudflare R2. Never
- * throws — a failure here must not fail the thumb stage itself; an
- * asset whose upload didn't land simply stays selected by the
- * `cf_thumb_pending` index until the backfill job (sub-issue 4) catches it.
- *
- * Hidden assets (`hidden: true` — manual or AI nudity flag, see
- * `AssetDoc.hidden` in `db/schema.ts`) are never uploaded: a Cloudflare
- * Worker edge cache has no per-request auth check beyond "is this a valid
- * Maple bearer token," so anything in R2 is reachable by any authenticated
- * user for as long as it sits there, unlike the origin route which can
- * layer additional checks later. A thumbnail that later becomes visible
- * again picks up the live-upload hook on its next re-render, or gets
- * caught by the backfill job in the meantime.
- */
-async function maybeUploadThumbToCloudflare(image: ImageDoc, thumbPath: string): Promise<void> {
-  if (!image.maple_id) return;
-  if (image.hidden === true) return;
-  const dbConfig = await loadCloudflareConfig();
-  const config = resolveCloudflareConfig(dbConfig);
-  if (!isCloudflareConfigComplete(config)) return;
-
-  const primary = assetPrimaryFileInfo(image);
-  if (!primary) return;
-  const idToSlug = await loadLibraryIdToSlug();
-  const slug = idToSlug.get(primary.library_id.toHexString());
-  if (!slug) return;
-
-  const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
+/** Reset `cf-thumb-sync`'s stage state to unprocessed. Best-effort — a
+ * failure here just means that stage catches up on its own next poll once
+ * whatever transient issue clears, same as the thumb stage's own retry
+ * path; it must never fail the thumb write itself. Mirrors the
+ * cross-stage-reset precedent in `sidecar-metadata-index.ts` (GPS change
+ * → reset `stages.geocode`). */
+async function resetCfThumbSyncVersion(imageId: ImageDoc['_id']): Promise<void> {
   try {
-    const bytes = await readFile(thumbPath);
-    await uploadThumbToR2(config, key, bytes, AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS));
-    const db = await getDb();
-    await db
-      .collection('assets')
-      .updateOne({ _id: image._id }, { $set: { cf_thumb_synced_at: new Date().toISOString() } });
-  } catch (err) {
-    log.warn(
-      { assetId: image._id.toHexString(), key, err: err instanceof Error ? err.message : err },
-      'cloudflare thumb upload failed — will retry via backfill job',
+    const assets = await assetsCollection();
+    await assets.updateOne(
+      { _id: imageId },
+      {
+        $set: {
+          'stages.cf-thumb-sync.version': 0,
+          'stages.cf-thumb-sync.dead': false,
+          'stages.cf-thumb-sync.attempts': 0,
+        },
+      },
     );
+  } catch {
+    // Best-effort — see doc comment above.
   }
 }
 
@@ -158,7 +124,7 @@ const thumbStage = defineStage({
     // fileinfo[0].path, maple_id) via `resolveThumbPathForAsset`, so a stored
     // `thumb_path` would be dead, redundant data. `{ wrote: true }` marks the
     // stage done without patching any asset field.
-    await maybeUploadThumbToCloudflare(image, thumbPath);
+    await resetCfThumbSyncVersion(image._id);
     return { wrote: true };
   },
 });

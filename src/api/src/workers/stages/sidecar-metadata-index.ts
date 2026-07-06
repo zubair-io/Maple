@@ -187,6 +187,27 @@ export async function sidecarMetadataIndexHandler(
     await cleanupR2ThumbForHiddenAsset(image);
   }
 
+  // The inverse transition — explicitly un-hidden — resets `cf-thumb-sync`'s
+  // stage state so the pipeline picks it back up: that stage's own
+  // `{ skip: 'hidden' }` marks itself permanently done for a hidden asset
+  // (`stages.*.version` is the "already handled" signal for every stage,
+  // including terminal skips), so without this reset an un-hidden asset
+  // would never get its thumbnail mirrored to R2 again. Mirrors this same
+  // function's own GPS-change → geocode-reset precedent below.
+  if (priorHidden && !finalHidden) {
+    const images = await coll();
+    await images.updateOne(
+      { _id: image._id },
+      {
+        $set: {
+          'stages.cf-thumb-sync.version': 0,
+          'stages.cf-thumb-sync.dead': false,
+          'stages.cf-thumb-sync.attempts': 0,
+        },
+      },
+    );
+  }
+
   // 7. If GPS changed, reset geocode stage to trigger re-run.
   const oldGps = image.metadata_override?.gps
     ? {

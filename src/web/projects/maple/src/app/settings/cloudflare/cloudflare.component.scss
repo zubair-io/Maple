@@ -265,65 +265,9 @@
       padding: 1px 4px;
       border-radius: 3px;
     }
-  }
-}
 
-// Backfill ("Sync existing thumbnails") panel
-.backfill-panel {
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 0.5px solid var(--color-border);
-}
-
-.backfill-disabled-hint {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  margin: 0;
-}
-
-.backfill-controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.backfill-status {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.backfill-summary {
-  font-size: 12px;
-  color: var(--color-text-main);
-}
-
-.backfill-progress-track {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--color-border);
-  overflow: hidden;
-  position: relative;
-}
-
-.backfill-progress-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--color-accent, #0066cc);
-  transition: width 400ms ease;
-}
-
-.backfill-progress-indeterminate {
-  width: 40%;
-  animation: backfill-slide 1.4s ease-in-out infinite;
-}
-
-@keyframes backfill-slide {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(250%);
+    a {
+      color: var(--color-accent, #0066cc);
+    }
   }
 }

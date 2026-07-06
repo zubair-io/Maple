@@ -30,6 +30,7 @@ import { startDescribeStage } from './stages/describe.ts';
 import { startGeocodeStage } from './stages/geocode.ts';
 import { startMeiliStage } from './stages/meili.ts';
 import { startSidecarMetadataIndexStage } from './stages/sidecar-metadata-index.ts';
+import { startCfThumbSyncStage } from './stages/cf-thumb-sync.ts';
 
 const log = childLogger('workers:orchestrator');
 
@@ -43,6 +44,7 @@ const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHand
   ['geocode', startGeocodeStage],
   ['meili', startMeiliStage],
   ['sidecar-metadata-index', startSidecarMetadataIndexStage],
+  ['cf-thumb-sync', startCfThumbSyncStage],
 ];
 
 const handles = new Map<string, RunStageHandle>();
@@ -96,7 +98,7 @@ async function attemptStart(
  * for a bounded retry in the background; the other stages still come up.
  *
  * Pre-registers all stages with the registry first so `GET /api/workers/status`
- * always returns the full set of 9 entries — even when a stage's `bootConfig()`
+ * always returns the full set of 10 entries — even when a stage's `bootConfig()`
  * is still mid-retry. Otherwise a slow-booting stage (Mongo blip, ONNX model
  * missing) silently vanishes from the API surface until it succeeds, which
  * regresses the old multi-process supervisor's contract.
