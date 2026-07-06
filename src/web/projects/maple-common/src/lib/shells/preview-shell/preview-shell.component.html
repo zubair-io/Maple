@@ -6,7 +6,11 @@
     <span class="top-name">{{ assetName() }}</span>
   </div>
 
-  <div class="preview-image-wrap">
+  <div
+    class="preview-image-wrap"
+    (pointerdown)="onImagePointerDown($event)"
+    (pointerup)="onImagePointerUp($event)"
+  >
     @if (thumbUrl(); as t) {
       <img class="preview-img preview-img--thumb" [src]="t" alt="" />
     }

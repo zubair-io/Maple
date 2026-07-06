@@ -10,12 +10,14 @@
 // identically between /edit/:slug/** and /view/:slug/**.
 //
 // Scope for this task: header (back + filename) + fit-to-screen image +
-// Flag/Edit/Info bottom bar (#Web Preview Surface Task 4). Swipe/arrows and
-// filmstrip land in later tasks.
+// Flag/Edit/Info bottom bar (#Web Preview Surface Task 4) + prev/next
+// navigation via swipe/arrow-keys + rating/flag shortcuts (#Web Preview
+// Surface Task 5). Filmstrip lands in a later task.
 
 import {
   ChangeDetectionStrategy,
   Component,
+  HostListener,
   OnDestroy,
   computed,
   effect,
@@ -33,7 +35,16 @@ import { BottomSheetComponent } from '../bottom-sheet.component';
 import { LayoutService } from '../../layout-service';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
-import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
+import {
+  routeSegmentsToAddress,
+  editRouteCommands,
+  viewRouteCommands,
+} from '../../addressing/route-address';
+import { previewKeyAction } from './preview-shell-keyboard';
+
+/** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
+ * `.preview-image-wrap` counts as a prev/next gesture rather than a tap. */
+const SWIPE_THRESHOLD_PX = 40;
 
 @Component({
   selector: 'preview-shell',
@@ -58,6 +69,10 @@ export class PreviewShellComponent implements OnDestroy {
   readonly flagOpen = signal(false);
   /** Info sheet/pane open/closed (Info button in the bottom action bar). */
   readonly infoOpen = signal(false);
+
+  /** Pointer position at the last `pointerdown` on `.preview-image-wrap`,
+   * used to classify the matching `pointerup` as a horizontal swipe. */
+  private swipeStart: { x: number; y: number } | null = null;
 
   /** True at the tablet/desktop breakpoint — the shared `LayoutService`
    * signal every shell reads (see root-shell.component.ts). Below this,
@@ -99,6 +114,77 @@ export class PreviewShellComponent implements OnDestroy {
   edit(): void {
     const id = this.state.focusedAssetId();
     if (id) void this.router.navigate(editRouteCommands(id));
+  }
+
+  // ── Prev/next navigation (swipe + arrow keys) ────────────────────────────
+
+  goNext(): void {
+    this.state.focusNext();
+    const id = this.state.focusedAssetId();
+    if (id) void this.router.navigate(viewRouteCommands(id));
+  }
+
+  goPrev(): void {
+    this.state.focusPrev();
+    const id = this.state.focusedAssetId();
+    if (id) void this.router.navigate(viewRouteCommands(id));
+  }
+
+  // ── Keyboard shortcuts (nav + rating + flag) ─────────────────────────────
+
+  @HostListener('document:keydown', ['$event'])
+  onKeydown(e: KeyboardEvent): void {
+    // Skip when focus is in a text input or textarea (mirrors browse-shell).
+    const target = e.target as HTMLElement;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable
+    )
+      return;
+
+    const action = previewKeyAction(e.key);
+    if (!action) return;
+
+    switch (action.kind) {
+      case 'next':
+        this.goNext();
+        break;
+      case 'prev':
+        this.goPrev();
+        break;
+      case 'rating': {
+        const id = this.state.focusedAssetId();
+        if (id) this.state.setRating(id, action.value);
+        break;
+      }
+      case 'flag': {
+        const id = this.state.focusedAssetId();
+        if (id) this.state.setFlag(id, action.flag);
+        break;
+      }
+    }
+    e.preventDefault();
+  }
+
+  // ── Touch swipe (prev/next) ──────────────────────────────────────────────
+
+  onImagePointerDown(e: PointerEvent): void {
+    this.swipeStart = { x: e.clientX, y: e.clientY };
+  }
+
+  onImagePointerUp(e: PointerEvent): void {
+    const start = this.swipeStart;
+    this.swipeStart = null;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) <= SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
+    if (dx > 0) {
+      this.goPrev();
+    } else {
+      this.goNext();
+    }
   }
 
   // ── Route address resolution (copied verbatim from EditorShellComponent) ──

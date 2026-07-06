@@ -13,7 +13,7 @@ import { PreviewShellComponent } from './preview-shell.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { BunApiBackendService } from '../../api/bun-api-backend.service';
-import { editRouteCommands } from '../../addressing/route-address';
+import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import type { Asset } from '../../models/asset';
 
 interface Synth {
@@ -37,6 +37,10 @@ function setup(opts: {
   const hydrateSelfHostedFsAsset = vi.fn(opts.hydrate ?? (() => null));
   const subscribeThumbUrl = vi.fn(() => () => {});
   const subscribePreviewUrl = vi.fn(() => () => {});
+  const focusNext = vi.fn();
+  const focusPrev = vi.fn();
+  const setRating = vi.fn();
+  const setFlag = vi.fn();
 
   const urlSegments = (opts.segments ?? []).map((p) => ({ path: p }));
   const route = {
@@ -58,6 +62,10 @@ function setup(opts: {
     subscribeThumbUrl,
     subscribePreviewUrl,
     flushPendingXmpWrites: vi.fn(),
+    focusNext,
+    focusPrev,
+    setRating,
+    setFlag,
   };
 
   TestBed.resetTestingModule();
@@ -83,6 +91,10 @@ function setup(opts: {
     subscribeThumbUrl,
     subscribePreviewUrl,
     navigate,
+    focusNext,
+    focusPrev,
+    setRating,
+    setFlag,
   };
 }
 
@@ -118,6 +130,8 @@ function setupFixture(opts: { navigate?: ReturnType<typeof vi.fn> } = {}) {
     flushPendingXmpWrites: vi.fn(),
     setFlag: vi.fn(),
     setRating: vi.fn(),
+    focusNext: vi.fn(),
+    focusPrev: vi.fn(),
     apiIdFor: vi.fn().mockReturnValue(undefined),
   };
   const route = {
@@ -250,5 +264,182 @@ describe('PreviewShellComponent', () => {
     infoBtn.click();
     fixture.detectChanges();
     expect(comp.infoOpen()).toBe(true);
+  });
+
+  // ── Prev/next navigation + keyboard shortcuts (#Web Preview Surface Task 5) ─
+
+  it('goNext() calls focusNext then navigates to the newly focused asset', () => {
+    const { comp, focusNext, navigate } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/b.jpg',
+    });
+    comp.goNext();
+    expect(focusNext).toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith(viewRouteCommands('library:2026/b.jpg'));
+  });
+
+  it('goPrev() calls focusPrev then navigates to the newly focused asset', () => {
+    const { comp, focusPrev, navigate } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/z.jpg',
+    });
+    comp.goPrev();
+    expect(focusPrev).toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith(viewRouteCommands('library:2026/z.jpg'));
+  });
+
+  it('goNext()/goPrev() do not navigate when there is no focused asset', () => {
+    const { comp, focusNext, focusPrev, navigate } = setup({
+      slug: null,
+      segments: [],
+      focusedAssetId: null,
+    });
+    navigate.mockClear();
+    comp.goNext();
+    comp.goPrev();
+    expect(focusNext).toHaveBeenCalled();
+    expect(focusPrev).toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('ArrowRight/ArrowLeft keydown navigates next/prev', () => {
+    const { comp, focusNext, focusPrev } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/a.jpg',
+    });
+    const right = new KeyboardEvent('keydown', { key: 'ArrowRight' });
+    Object.defineProperty(right, 'target', { value: document.body });
+    comp.onKeydown(right);
+    expect(focusNext).toHaveBeenCalledTimes(1);
+
+    const left = new KeyboardEvent('keydown', { key: 'ArrowLeft' });
+    Object.defineProperty(left, 'target', { value: document.body });
+    comp.onKeydown(left);
+    expect(focusPrev).toHaveBeenCalledTimes(1);
+  });
+
+  it('rating keydown (1-5, 0) calls setRating on the focused asset', () => {
+    const { comp, setRating } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/a.jpg',
+    });
+    const three = new KeyboardEvent('keydown', { key: '3' });
+    Object.defineProperty(three, 'target', { value: document.body });
+    comp.onKeydown(three);
+    expect(setRating).toHaveBeenCalledWith('library:2026/a.jpg', 3);
+
+    const zero = new KeyboardEvent('keydown', { key: '0' });
+    Object.defineProperty(zero, 'target', { value: document.body });
+    comp.onKeydown(zero);
+    expect(setRating).toHaveBeenCalledWith('library:2026/a.jpg', 0);
+  });
+
+  it('flag keydown (p/x/u) calls setFlag on the focused asset', () => {
+    const { comp, setFlag } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/a.jpg',
+    });
+    const p = new KeyboardEvent('keydown', { key: 'p' });
+    Object.defineProperty(p, 'target', { value: document.body });
+    comp.onKeydown(p);
+    expect(setFlag).toHaveBeenCalledWith('library:2026/a.jpg', 'pick');
+
+    const x = new KeyboardEvent('keydown', { key: 'x' });
+    Object.defineProperty(x, 'target', { value: document.body });
+    comp.onKeydown(x);
+    expect(setFlag).toHaveBeenCalledWith('library:2026/a.jpg', 'reject');
+
+    const u = new KeyboardEvent('keydown', { key: 'u' });
+    Object.defineProperty(u, 'target', { value: document.body });
+    comp.onKeydown(u);
+    expect(setFlag).toHaveBeenCalledWith('library:2026/a.jpg', 'unflagged');
+  });
+
+  it('skips keydown handling when focus is in an input element', () => {
+    const { comp, focusNext, setRating } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/a.jpg',
+    });
+    const input = document.createElement('input');
+    const evt = new KeyboardEvent('keydown', { key: 'ArrowRight' });
+    Object.defineProperty(evt, 'target', { value: input });
+    comp.onKeydown(evt);
+    expect(focusNext).not.toHaveBeenCalled();
+
+    const ratingEvt = new KeyboardEvent('keydown', { key: '3' });
+    Object.defineProperty(ratingEvt, 'target', { value: input });
+    comp.onKeydown(ratingEvt);
+    expect(setRating).not.toHaveBeenCalled();
+  });
+
+  it('ignores unmapped keys without navigating or mutating state', () => {
+    const { comp, focusNext, focusPrev, setRating, setFlag } = setup({
+      slug: 'library',
+      segments: ['2026', 'a.jpg'],
+      assets: [{ id: 'library:2026/a.jpg', filename: '2026/a.jpg' }],
+      focusedAssetId: 'library:2026/a.jpg',
+    });
+    const evt = new KeyboardEvent('keydown', { key: 'q' });
+    Object.defineProperty(evt, 'target', { value: document.body });
+    comp.onKeydown(evt);
+    expect(focusNext).not.toHaveBeenCalled();
+    expect(focusPrev).not.toHaveBeenCalled();
+    expect(setRating).not.toHaveBeenCalled();
+    expect(setFlag).not.toHaveBeenCalled();
+  });
+
+  // ── Swipe gesture on .preview-image-wrap ─────────────────────────────────
+
+  it('a leftward swipe past the threshold calls goNext', () => {
+    const { fixture, navigate } = setupFixture();
+    const comp = fixture.componentInstance;
+    const goNextSpy = vi.spyOn(comp, 'goNext');
+    comp.onImagePointerDown({ clientX: 300, clientY: 100 } as PointerEvent);
+    comp.onImagePointerUp({ clientX: 240, clientY: 105 } as PointerEvent);
+    expect(goNextSpy).toHaveBeenCalled();
+    void navigate; // navigate assertions covered by goNext/goPrev unit tests above
+  });
+
+  it('a rightward swipe past the threshold calls goPrev', () => {
+    const { fixture } = setupFixture();
+    const comp = fixture.componentInstance;
+    const goPrevSpy = vi.spyOn(comp, 'goPrev');
+    comp.onImagePointerDown({ clientX: 100, clientY: 100 } as PointerEvent);
+    comp.onImagePointerUp({ clientX: 170, clientY: 95 } as PointerEvent);
+    expect(goPrevSpy).toHaveBeenCalled();
+  });
+
+  it('a short drag under the threshold does not navigate', () => {
+    const { fixture } = setupFixture();
+    const comp = fixture.componentInstance;
+    const goNextSpy = vi.spyOn(comp, 'goNext');
+    const goPrevSpy = vi.spyOn(comp, 'goPrev');
+    comp.onImagePointerDown({ clientX: 100, clientY: 100 } as PointerEvent);
+    comp.onImagePointerUp({ clientX: 115, clientY: 100 } as PointerEvent);
+    expect(goNextSpy).not.toHaveBeenCalled();
+    expect(goPrevSpy).not.toHaveBeenCalled();
+  });
+
+  it('a mostly-vertical drag past the horizontal threshold does not navigate', () => {
+    const { fixture } = setupFixture();
+    const comp = fixture.componentInstance;
+    const goNextSpy = vi.spyOn(comp, 'goNext');
+    const goPrevSpy = vi.spyOn(comp, 'goPrev');
+    comp.onImagePointerDown({ clientX: 100, clientY: 100 } as PointerEvent);
+    comp.onImagePointerUp({ clientX: 150, clientY: 200 } as PointerEvent);
+    expect(goNextSpy).not.toHaveBeenCalled();
+    expect(goPrevSpy).not.toHaveBeenCalled();
   });
 });
