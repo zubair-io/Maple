@@ -23,7 +23,7 @@ import { parseAddress, formatAddress } from '../../addressing/maple-address';
 import {
   routeSegmentsToAddress,
   addressToRouteSegments,
-  editRouteCommands,
+  viewRouteCommands,
 } from '../../addressing/route-address';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
@@ -312,9 +312,9 @@ export class BrowseShellComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Enter on focused asset — navigate to editor
+    // Enter on focused asset — navigate to Preview
     if (e.key === 'Enter' && fid) {
-      void this.router.navigate(editRouteCommands(fid));
+      void this.router.navigate(viewRouteCommands(fid));
       e.preventDefault();
       return;
     }
