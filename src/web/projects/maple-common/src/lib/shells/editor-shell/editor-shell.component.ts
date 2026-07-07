@@ -10,6 +10,15 @@
 // previous 3-column shell — only the layout / chrome layer changed.
 //
 // Curve panel: glass card that opens/closes via the Curve dock entry (#1540).
+// Crop panel: glass card that opens while the Crop dock entry is armed
+// (#1813) — hosts the shared `CropToolbarComponent`/`CropSessionService` also
+// used by the S5 editor (`EditorComponent`, #638), so a crop commits through
+// the identical AdjustmentModel.crop path on both editors. The interactive
+// crop rectangle is the shared `CropOverlayComponent`, already mounted
+// inside `ImageCanvasComponent` (which both editors embed) and gated on
+// `CropSessionService.active` — no per-editor overlay wiring needed. Tablet/
+// desktop only today: the phone dock's Crop entry ships disabled in #1811
+// and is flipped on in a follow-up once both land.
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
 // Desktop opts out of auto-recede.
@@ -44,12 +53,14 @@ import { ToolDockComponent } from '../../components/editor/tool-dock.component';
 import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
+import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
 import { handleEditorKeydown } from './editor-shell-keyboard';
 import {
   type ToolGroup,
+  type ToolId,
   TOOL_GROUP_DISPLAY,
   TOOL_DISPLAY,
   displayRange,
@@ -74,6 +85,7 @@ const RECEDE_IDLE_MS = 3000;
     ValueHudComponent,
     ToneCurveComponent,
     WbPadComponent,
+    CropToolbarComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
@@ -121,6 +133,16 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /** Currently active tool group (mirrors EditorStateService). */
   readonly activeGroup = computed<ToolGroup>(() => this.editorState.armedGroup());
+
+  /** Currently armed tool (mirrors EditorStateService) — drives the dock's
+   *  specific-tool highlight (Crop) and the crop-toolbar panel visibility. */
+  readonly activeTool = computed<ToolId>(() => this.editorState.armedTool());
+
+  /** True while the Crop tool is armed (#1813) — mounts the crop toolbar
+   *  panel next to the dock. The interactive crop rectangle itself is drawn
+   *  by `CropOverlayComponent`, already mounted inside `editor-image-canvas`
+   *  (shared with the S5 editor) and gated on the same `CropSessionService`. */
+  readonly cropArmed = computed<boolean>(() => this.editorState.armedTool() === 'crop');
 
   /** True when the viewport is tablet/desktop (≥768px). */
   readonly isTabletPlus = signal<boolean>(false);
@@ -367,6 +389,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onGroupChange(group: ToolGroup): void {
     this.editorState.armGroup(group);
+    this.editorState.haptic('switch');
+  }
+
+  /** Arm a specific dock tool (currently only Crop — #1813). Matches the S5
+   *  editor's crop pill (`ToolPillRowComponent.select`): tapping always arms;
+   *  exiting crop is an explicit action (the crop toolbar's Done button),
+   *  not a second tap on the dock entry. */
+  onToolChange(tool: ToolId): void {
+    this.editorState.armTool(tool);
     this.editorState.haptic('switch');
   }
 

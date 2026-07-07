@@ -308,3 +308,33 @@
   background: var(--pro-border);
   margin: 0 10px;
 }
+
+// ── Crop panel (#1813 — glass card hosting the shared `app-crop-toolbar`) ──
+// Same anchor position as the curve panel. `app-crop-toolbar` styles itself
+// off `--maple-*` custom properties (with hardcoded-blue fallbacks, since
+// `--maple-*` is never defined globally — see crop-toolbar.component.scss);
+// bridging them to this shell's `--pro-*` tokens here keeps the reused S5
+// component on-theme in the canvas-first shell without touching the shared
+// component's styles (which would affect the S5 editor too).
+.crop-panel {
+  --maple-accent: var(--pro-accent);
+  --maple-border: var(--pro-glass-border);
+  --maple-surface-alt: rgba(255, 255, 255, 0.04);
+  --maple-text-muted: var(--pro-text-muted);
+  --maple-text-main: var(--pro-text);
+  --maple-font-mono: ui-monospace, monospace;
+
+  position: absolute;
+  right: 64px; // just left of the dock column
+  top: 50%;
+  transform: translateY(-50%);
+  width: 260px;
+  background: var(--pro-glass-bg-heavy);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+  -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  border-radius: var(--pro-glass-radius-card-desktop);
+  overflow: hidden;
+  pointer-events: auto;
+}

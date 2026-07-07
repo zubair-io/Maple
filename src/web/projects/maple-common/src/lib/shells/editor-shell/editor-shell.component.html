@@ -74,8 +74,10 @@
       <div class="tool-dock-anchor">
         <pro-tool-dock
           [activeGroup]="activeGroup()"
+          [activeTool]="activeTool()"
           [curveOpen]="curveOpen()"
           (groupChange)="onGroupChange($event)"
+          (toolChange)="onToolChange($event)"
           (curvePanelToggle)="onCurvePanelToggle()"
         />
 
@@ -87,13 +89,31 @@
             <pro-wb-pad />
           </div>
         }
+
+        <!-- Crop panel (#1813) — glass card hosting the shared crop toolbar
+             (aspect presets + straighten + reset/done). The interactive crop
+             rectangle itself is the shared `editor-crop-overlay`, already
+             mounted inside `editor-image-canvas` and gated on the same
+             `CropSessionService.active` this panel's visibility mirrors. -->
+        @if (cropArmed()) {
+          <div class="crop-panel">
+            <app-crop-toolbar />
+          </div>
+        }
       </div>
     }
 
     <!-- ── Bottom control card ────────────────────────────────────── -->
-    <div class="control-card-anchor">
-      <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
-    </div>
+    <!-- Hidden while cropping: its living sliders are for the `detail` group
+         (sharpen/noise/colorNR), which armGroup('detail') via armTool('crop')
+         would otherwise show alongside — the crop toolbar (in the dock-side
+         panel above) is the only control surface while armed, matching the
+         S5 editor swapping its drag-bar area for the crop toolbar. -->
+    @if (!cropArmed()) {
+      <div class="control-card-anchor">
+        <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
+      </div>
+    }
 
     <!-- Phone Curve trigger + sheet deferred to #1569 (no phone affordance opens curveOpen yet) -->
   </div>
