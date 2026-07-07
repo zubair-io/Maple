@@ -1,7 +1,7 @@
 // AppShellMacLayout.swift — Mac/iPad NavigationSplitView layout, lifted
 // out of AppShell.swift as part of the multi-PR split tracked in #123
-// (slice 4). The BrowseGrid / CloudTimelineView / FullImageView switch
-// was further extracted to `AppShellCenterColumn` in slice 5 (so the
+// (slice 4). The BrowseGrid / CloudTimelineView / editor switch was
+// further extracted to `AppShellCenterColumn` in slice 5 (so the
 // iPhone NavigationStack and the Mac NavigationSplitView share one
 // definition).
 //
@@ -21,26 +21,20 @@ import SwiftUI
 import MapleCore
 
 struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
-    /// True iff an image is open (either editor mode). Read-only — the
-    /// back chevron in `AppShellToolbar` writes `mode = .browse` via its
+    /// True iff an image is open (either Preview or the S5 editor). Read-only
+    /// — the back chevron in `AppShellToolbar` writes `mode = .browse` via its
     /// `onBack` closure on AppShell. Drives the three-column (DetailPanel)
     /// layout vs the two-column browse layout.
     let isFullImage: Bool
-    /// When true the center column renders the S5 `EditorView`; otherwise
-    /// the legacy `FullImageView` (#815). Only meaningful while
-    /// `isFullImage` is true. Always false on the iPhone path (this layout
-    /// is the Mac/iPad pane shell only).
-    let useEditor: Bool
     /// When true the center column renders the fast static `PreviewView`
     /// (Fast Preview §1) — a two-leg split (sidebar + full-bleed preview, no
-    /// inspector; Preview owns its own Flag/Info surfaces). Takes precedence
-    /// over `useEditor`. Only meaningful while `isFullImage` is true.
+    /// inspector; Preview owns its own Flag/Info surfaces) — rather than the
+    /// S5 `EditorView`. Only meaningful while `isFullImage` is true.
     let usePreview: Bool
     @Binding var columnVisibility: NavigationSplitViewVisibility
     /// Whether the S5 editor's Info inspector is shown (#875 item 2). Only
-    /// meaningful when `useEditor` is true — drives `.inspector(isPresented:)`
-    /// on the editor's center column. The legacy `FullImageView` path keeps
-    /// its always-visible `detail:` column instead.
+    /// meaningful when `isFullImage` is true and `usePreview` is false —
+    /// drives `.inspector(isPresented:)` on the editor's center column.
     @Binding var editorDetailVisible: Bool
     let libraryTitle: String
     let selectedSession: EditSession?
@@ -110,10 +104,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     private var fullImage: some View {
         if usePreview {
             previewFullImage
-        } else if useEditor {
-            editorFullImage
         } else {
-            legacyFullImage
+            editorFullImage
         }
     }
 
@@ -158,28 +150,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
                     DetailPanel(session: selectedSession)
                         // `.inspectorColumnWidth` is the inspector analogue
                         // of `navigationSplitViewColumnWidth` — clamps the
-                        // Info rail to a sensible width (matches the macOS
-                        // range `DetailPanelWidth` used for the column).
+                        // Info rail to a sensible macOS width.
                         .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
                 }
-        }
-        .navigationSplitViewStyle(.balanced)
-    }
-
-    /// Legacy `FullImageView` pane shell — unchanged three-column layout
-    /// with the always-visible Info `detail:` column (#815).
-    private var legacyFullImage: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar()
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
-        } content: {
-            centerColumn
-                .navigationSplitViewColumnWidth(min: 300, ideal: 520)
-                .navigationTitle(selectedSession?.asset.displayName ?? "Image")
-                .toolbar { toolbarContent() }
-        } detail: {
-            DetailPanel(session: selectedSession)
-                .modifier(DetailPanelWidth())
         }
         .navigationSplitViewStyle(.balanced)
     }
@@ -199,7 +172,6 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     private var centerColumn: AppShellCenterColumn {
         AppShellCenterColumn(
             isFullImage: isFullImage,
-            useEditor: useEditor,
             usePreview: usePreview,
             selectedSession: selectedSession,
             cloudTimelineVM: cloudTimelineVM,

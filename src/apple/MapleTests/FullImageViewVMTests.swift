@@ -2,12 +2,15 @@
 // in `Maple/Views/FullImageView+VM.swift`.
 //
 // Lives in the MapleTests Xcode target (not MapleCore) because `FullImageViewVM`
-// is declared in the app target — that's where the view + its VM sibling live
-// (per the `+VM.swift` co-location pattern). MapleTests is host-targeted on
-// Maple Exposure.app, so `@testable import Maple_Exposure` is the standard way
-// to reach app-target types from a test bundle. The app target's product name
-// is "Maple Exposure", so its Swift module name is `Maple_Exposure` (spaces
-// become underscores).
+// is declared in the app target. Originally the co-located sibling of the
+// legacy `FullImageView` (per the `+VM.swift` co-location pattern);
+// `FullImageView` itself was retired in #1807, but `shouldPresentViaGpuCanvas`
+// is still exercised by `EditorView` (`EditorView+Canvas.swift`), so these
+// tests stayed. MapleTests is host-targeted on Maple Exposure.app, so
+// `@testable import Maple_Exposure` is the standard way to reach app-target
+// types from a test bundle. The app target's product name is "Maple
+// Exposure", so its Swift module name is `Maple_Exposure` (spaces become
+// underscores).
 //
 // Focus: the GPU-live canvas branch gates on `flagEnabled && !showingOriginal`
 // only. Both RAW and non-RAW assets take the GPU branch — #1331 extended the

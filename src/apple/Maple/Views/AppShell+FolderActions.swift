@@ -156,9 +156,10 @@ extension AppShell {
         // NavigationStack, NOT the pane-shell `mode`. Push `.preview` onto that
         // stack (same target as a grid tap) so deep-link / document-open
         // actually surface the photo — `mode = .preview` alone would leave the
-        // grid on screen because `AppShellIPhoneShell` renders the center image
-        // surface for `mode == .fullImage` only. Reset the stack first so an
-        // in-flight editor push is replaced, not stacked under, the new open.
+        // grid on screen because `AppShellIPhoneShell` never consumes `mode`
+        // to pick the center surface; only the `libraryPath` push does. Reset
+        // the stack first so an in-flight editor push is replaced, not
+        // stacked under, the new open.
         if MapleShellKind.current == .phoneTab {
             libraryPath = [.preview(asset)]
             return

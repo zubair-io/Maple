@@ -703,7 +703,7 @@ final class DeepZoomTileRenderingTests: XCTestCase {
 
     /// `updateTileVisibleRegion` writes through to `viewportSourceRect`
     /// and `pixelScale`. Smoke test for the public API EditSession
-    /// exposes to FullImageView.
+    /// exposes to `CanvasZoomController`.
     @MainActor
     func testEditSessionUpdateTileVisibleRegionPersists() {
         let tmp = URL(fileURLWithPath: "/tmp/maple_session_smoke.dng")

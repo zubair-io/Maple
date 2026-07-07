@@ -3,7 +3,7 @@
 //
 // Lifted out of AppShell.swift / AppShellMacLayout.swift as part of the
 // multi-PR split tracked in #123 (slice 5, final). Pre-slice-5 the same
-// BrowseGrid / CloudTimelineView / FullImageView switch lived once in
+// BrowseGrid / CloudTimelineView / editor switch lived once in
 // `AppShellMacLayout.centerColumn` and once in `AppShell.iPhoneMain`,
 // drifting independently. Centralising it means only one place renders
 // the three center views, and only one set of bindings + callbacks
@@ -24,23 +24,20 @@ struct AppShellCenterColumn: View {
     /// regressing desktop behaviour in this PR.
     @Environment(\.mapleLayout) private var layout
 
-    /// True iff an image is open (either editor mode). The view renders
-    /// an image surface in that case; otherwise it renders the explorer
-    /// grid (or the cloud timeline, when one is active).
+    /// True iff an image is open (either the Fast Preview surface or the S5
+    /// editor). The view renders an image surface in that case; otherwise it
+    /// renders the explorer grid (or the cloud timeline, when one is active).
+    /// Always `false` on the iPhone shell, which pushes `PreviewDestination` /
+    /// `EditorDestination` onto its own `NavigationStack` instead of routing
+    /// through this flag.
     let isFullImage: Bool
-    /// When true (and `isFullImage`) the image surface is the S5
-    /// `EditorView`; otherwise the legacy `FullImageView` (#815).
-    /// Defaults to `false` so the iPhone shell — which renders
-    /// `FullImageView` via `isFullImage` and never enters the desktop
-    /// `.editing` mode — is unchanged.
-    var useEditor: Bool = false
     /// When true (and `isFullImage`) the image surface is the fast static
-    /// `PreviewView` (Fast Preview §1) rather than an editor. Takes precedence
-    /// over `useEditor` / the legacy `FullImageView`. Unlike those, Preview
-    /// keys off `browseVM.selectedAsset` (an `AssetRef`) and does NOT require a
-    /// resolved `selectedSession` — it mounts no render pipeline. Defaults to
-    /// `false`; only the Mac/iPad pane shell sets it (the iPhone shell pushes
-    /// `PreviewDestination` onto its own NavigationStack instead).
+    /// `PreviewView` (Fast Preview §1) rather than the S5 editor. Unlike the
+    /// editor, Preview keys off `browseVM.selectedAsset` (an `AssetRef`) and
+    /// does NOT require a resolved `selectedSession` — it mounts no render
+    /// pipeline. Defaults to `false`; only the Mac/iPad pane shell sets it
+    /// (the iPhone shell pushes `PreviewDestination` onto its own
+    /// NavigationStack instead).
     var usePreview: Bool = false
     let selectedSession: EditSession?
     let cloudTimelineVM: CloudTimelineViewModel?
@@ -69,15 +66,16 @@ struct AppShellCenterColumn: View {
     let onPrimeSession: (AssetRef) -> Void
     /// Recover from a vanished selection by flipping back to Browse.
     let onFullImageFallback: () -> Void
-    /// S5 EditorView dismiss (back to browse). Only used when
-    /// `useEditor` is true; defaults to no-op so the iPhone shell needn't
-    /// supply it. #815.
+    /// S5 EditorView dismiss (back to browse). Only used when `isFullImage`
+    /// is true and `usePreview` is false; defaults to no-op so the iPhone
+    /// shell needn't supply it. #815.
     var onEditorDismiss: () -> Void = {}
-    /// S5 EditorView share affordance. Only used when `useEditor` is
-    /// true; defaults to no-op. #815.
+    /// S5 EditorView share affordance. Only used when `isFullImage` is true
+    /// and `usePreview` is false; defaults to no-op. #815.
     var onEditorShare: () -> Void = {}
-    /// S5 EditorView Info affordance (reveals the DetailPanel column).
-    /// Only used when `useEditor` is true; defaults to no-op. #815.
+    /// S5 EditorView Info affordance (reveals the DetailPanel column). Only
+    /// used when `isFullImage` is true and `usePreview` is false; defaults to
+    /// no-op. #815.
     var onEditorInfo: () -> Void = {}
     /// Preview's Edit button — flip the pane shell into the editor
     /// (`mode = .editing`). Only used when `usePreview` is true; defaults to
@@ -97,8 +95,8 @@ struct AppShellCenterColumn: View {
 
     var body: some View {
         // The center column switches between the explorer grid (browse
-        // mode) and the full-image editor (fullImage mode). Per the
-        // mockup, these are two different center views — not a
+        // mode) and the full-image surface (Preview or the S5 editor). Per
+        // the mockup, these are two different center views — not a
         // side-by-side. Double-click on a thumbnail flips the mode.
         if isFullImage {
             if usePreview {
@@ -120,26 +118,22 @@ struct AppShellCenterColumn: View {
                     Color.clear.onAppear { onFullImageFallback() }
                 }
             } else if let session = selectedSession {
-                if useEditor {
-                    // S5 EditorView in the Mac/iPad pane shell (#815).
-                    // Hosted by `EditorSessionHost` so the `EditorState`
-                    // lives in `@State` for the editor's lifetime — building
-                    // it inline would reset armed-tool / fine-mode on every
-                    // SwiftUI re-render. The filmstrip is wired from the
-                    // browse VM's current asset list so siblings are
-                    // tappable, matching the editor's filmstrip contract.
-                    EditorSessionHost(
-                        session: session,
-                        filmstripAssets: browseVM.assets,
-                        filmstripSource: browseVM.currentSource,
-                        onDismiss: onEditorDismiss,
-                        onShare: onEditorShare,
-                        onInfo: onEditorInfo,
-                        onSelectAsset: onOpenEditor
-                    )
-                } else {
-                    FullImageView(session: session)
-                }
+                // S5 EditorView in the Mac/iPad pane shell (#815). Hosted by
+                // `EditorSessionHost` so the `EditorState` lives in `@State`
+                // for the editor's lifetime — building it inline would reset
+                // armed-tool / fine-mode on every SwiftUI re-render. The
+                // filmstrip is wired from the browse VM's current asset list
+                // so siblings are tappable, matching the editor's filmstrip
+                // contract.
+                EditorSessionHost(
+                    session: session,
+                    filmstripAssets: browseVM.assets,
+                    filmstripSource: browseVM.currentSource,
+                    onDismiss: onEditorDismiss,
+                    onShare: onEditorShare,
+                    onInfo: onEditorInfo,
+                    onSelectAsset: onOpenEditor
+                )
             } else {
                 // Fallback — if the session vanished while editing,
                 // drop back to browse.

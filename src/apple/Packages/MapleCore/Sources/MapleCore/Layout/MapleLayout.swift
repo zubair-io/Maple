@@ -7,9 +7,9 @@
 //                        .tablet 768-1024pt, .desktop >1024pt). Width-based.
 //
 // New code routes all idiom checks through `MapleShellKind.current` so
-// the platform call is made exactly once per process. One legacy call
-// site remains in `src/apple/Maple/Views/DetailPanelWidth.swift`, pending
-// migration in a follow-up.
+// the platform call is made exactly once per process. The one legacy call
+// site (`src/apple/Maple/Views/DetailPanelWidth.swift`) was deleted along
+// with the rest of the legacy `FullImageView` pane shell in #1807.
 //
 // SwiftUI Environment plumbing for `MapleLayout` lives in the app target
 // (`src/apple/Maple/Views/MapleLayoutEnvironment.swift`) so this module
