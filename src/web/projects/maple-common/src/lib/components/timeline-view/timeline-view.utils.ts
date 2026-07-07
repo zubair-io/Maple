@@ -64,10 +64,7 @@ export function foldPage(
     const d = new Date(r.captured_at);
     const year = d.getUTCFullYear();
     const month = d.getUTCMonth() + 1;
-    // Construct the year/month folder path to use as the prefix for folderNameFor
-    const normalizedPrefix = prefix.endsWith('/') ? prefix : prefix + '/';
-    const yearMonthPrefix = `${normalizedPrefix}${year}/`;
-    const folderName = folderNameFor(r.abs_path, yearMonthPrefix);
+    const folderName = folderNameFor(r.abs_path, prefix);
     const thumbUrl = thumbCache.get(r.abs_path) ?? null;
     const vm: PhotoVm = { ...r, thumbUrl };
 

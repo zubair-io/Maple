@@ -94,10 +94,10 @@ describe('foldPage', () => {
 
   it('does not mutate a snapshot taken from a prior fold', () => {
     const page0 = [makeResult('a', '/Lib/2026/a.dng', '2026-05-10T00:00:00.000Z')];
-    const afterPage0 = foldPage([], page0, '/Lib/', new Map());
+    const afterPage0 = foldPage([], page0, '/Lib/2026/', new Map());
     const snapshotMonth = afterPage0[0]!.months[0]!;
     const page1 = [makeResult('b', '/Lib/2026/b.dng', '2026-05-01T00:00:00.000Z')];
-    foldPage(afterPage0, page1, '/Lib/', new Map());
+    foldPage(afterPage0, page1, '/Lib/2026/', new Map());
     expect(snapshotMonth.groups.get('.')).toHaveLength(1);
   });
 
@@ -108,16 +108,28 @@ describe('foldPage', () => {
   });
 
   it('seeds thumbUrl from the thumb cache when present', () => {
+    // Prefix reaches all the way to the scoped folder itself, so the photo
+    // is directly in scope (bucket '.') rather than under a subfolder —
+    // keep this prefix in sync with the photo's own parent directory, or
+    // the assertion below targets the wrong folder-group key.
     const r = makeResult('a', '/Lib/2026/a.dng', '2026-05-10T00:00:00.000Z');
     const cache = new Map([['/Lib/2026/a.dng', 'blob:cached']]);
-    const years = foldPage([], [r], '/Lib/', cache);
+    const years = foldPage([], [r], '/Lib/2026/', cache);
     expect(years[0]!.months[0]!.groups.get('.')![0]!.thumbUrl).toBe('blob:cached');
   });
 
   it('leaves thumbUrl null when the thumb cache has no entry', () => {
     const r = makeResult('a', '/Lib/2026/a.dng', '2026-05-10T00:00:00.000Z');
-    const years = foldPage([], [r], '/Lib/', new Map());
+    const years = foldPage([], [r], '/Lib/2026/', new Map());
     expect(years[0]!.months[0]!.groups.get('.')![0]!.thumbUrl).toBeNull();
+  });
+
+  it('groups by the real folder name even when it looks like a year that does not match the photo', () => {
+    // Regression test: folderNameFor must use the literal scope prefix,
+    // never a synthetic prefix derived from the photo's own capture year.
+    const r = makeResult('a', '/Lib/2019-trip/photo.dng', '2026-05-10T00:00:00.000Z');
+    const years = foldPage([], [r], '/Lib/', new Map());
+    expect(years[0]!.months[0]!.groups.has('2019-trip')).toBe(true);
   });
 });
 
@@ -125,7 +137,7 @@ describe('buildGroups', () => {
   it('sorts folder groups by most-recent photo descending', () => {
     const older = makeResult('a', '/Lib/2026/old-folder/a.dng', '2026-05-01T00:00:00.000Z');
     const newer = makeResult('b', '/Lib/2026/new-folder/b.dng', '2026-05-15T00:00:00.000Z');
-    const years = foldPage([], [newer, older], '/Lib/', new Map());
+    const years = foldPage([], [newer, older], '/Lib/2026/', new Map());
     const groups = buildGroups(years[0]!.months[0]!);
     expect(groups.map((g) => g.folderName)).toEqual(['new-folder', 'old-folder']);
   });
