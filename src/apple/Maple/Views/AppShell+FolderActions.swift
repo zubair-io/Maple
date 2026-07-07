@@ -131,10 +131,14 @@ extension AppShell {
         openSubFolder(url: url, rootBookmark: bookmark)
     }
 
-    /// Tap on an image cell. Switches the center column to the editor with
-    /// that asset as the active session. `imageOpenMode` resolves to the
-    /// S5 `EditorView` (`.editing`) on Mac/iPad and the legacy
-    /// `FullImageView` (`.fullImage`) on iPhone (#815).
+    /// Open an image from a NON-tap path (deep link, document open). Grid taps
+    /// don't route through here — the grids call the shell-provided open
+    /// callback directly (iPhone pushes `.preview` onto its NavigationStack;
+    /// the pane shell flips `mode`). This method mirrors that split so a
+    /// deep-link / document-open lands the photo the same way a tap would.
+    ///
+    /// Fast Preview §1: opening now targets the fast static Preview surface
+    /// (`.preview`), not the editor directly.
     @MainActor
     func openEditor(for asset: AssetRef) {
         // Make sure the session exists (usually pre-created by primeSessions…).
@@ -147,6 +151,20 @@ extension AppShell {
             Task { await session.loadSidecar() }
         }
         browseVM.selectedID = asset.id
+        #if os(iOS)
+        // iPhone: the shell renders images via the Library tab's
+        // NavigationStack, NOT the pane-shell `mode`. Push `.preview` onto that
+        // stack (same target as a grid tap) so deep-link / document-open
+        // actually surface the photo — `mode = .preview` alone would leave the
+        // grid on screen because `AppShellIPhoneShell` renders the center image
+        // surface for `mode == .fullImage` only. Reset the stack first so an
+        // in-flight editor push is replaced, not stacked under, the new open.
+        if MapleShellKind.current == .phoneTab {
+            libraryPath = [.preview(asset)]
+            return
+        }
+        #endif
+        // Mac/iPad pane shell: flip the center column to the Preview surface.
         mode = imageOpenMode
     }
 
