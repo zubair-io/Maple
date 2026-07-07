@@ -40,7 +40,7 @@ Entirely unchanged. `params()` already deliberately excludes `page`/`limit`/`sor
 3. Track `total` from the response and `loaded` (running count of results folded so far) to know when pagination is exhausted (`loaded >= total`).
 4. Render the accumulated groups directly. There is no pre-declared bucket list and no placeholder-height estimate for unloaded content — the rendered list simply ends where loaded data ends, and grows as more pages arrive. This is the standard infinite-scroll pattern.
 5. A sentinel element after the last rendered group, observed by one `IntersectionObserver`, triggers fetching `page + 1` when it scrolls into view — guarded by an in-flight boolean and `loaded < total`. This single observer replaces the per-month fetch-margin `IntersectionObserver` and the `MAX_CONCURRENT_MONTH_FETCHES` concurrency queue.
-6. DOM virtualization of offscreen months (dropping `<img>` tags to a placeholder `div` once a month's section leaves the viewport, to avoid mounting thousands of nodes) is kept, using the existing visibility `IntersectionObserver` technique — but the placeholder height for a collapsed month is now the section's *actual measured height* (captured once via `ResizeObserver` before it collapses), not an estimate derived from a bucket count, since by the time a month exists in the DOM its true photo count is already known.
+6. DOM virtualization of offscreen months (dropping `<img>` tags to a placeholder `div` once a month's section leaves the viewport, to avoid mounting thousands of nodes) is kept, using the existing visibility `IntersectionObserver` technique — but the placeholder height for a collapsed month is now the section's _actual measured height_ (captured once via `ResizeObserver` before it collapses), not an estimate derived from a bucket count, since by the time a month exists in the DOM its true photo count is already known.
 
 ### Removed
 
@@ -56,7 +56,7 @@ A failed page fetch sets a `pageError` signal, rendered as a retry affordance at
 
 ### Testing
 
-- `timeline-state.service.spec.ts`: no behavioral changes expected beyond asserting `params()` includes `sort: 'captured_desc'`.
+- `timeline-state.service.spec.ts`: no changes expected — `params()` is untouched by this project (see State section above); `sort: 'captured_desc'` is asserted on the `SearchService.search()` call itself, in `timeline-view.component.spec.ts`.
 - `timeline-view.component.spec.ts`: rewritten around the new flow — stub `SearchService.search` to return paged fixtures; assert page-0 renders the correct Year/Month headers; assert scrolling the sentinel into view fetches page 1 and extends the right month group; assert a page whose results span a month boundary splits into two groups correctly; assert retry-on-error re-fetches the same page rather than reloading everything; assert a filter change mid-fetch drops the stale response via the generation counter.
 - Manual verification in the dev server: select a folder whose only photos are from years ago (the original reported symptom) and confirm it renders immediately with no month-by-month walk — page 0 is the content, in whatever month it actually falls.
 

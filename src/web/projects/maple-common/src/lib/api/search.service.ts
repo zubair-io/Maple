@@ -212,9 +212,11 @@ export class SearchService {
   }
 
   /** GET /api/search/buckets — year/month aggregation over the same filter
-   * set (page/limit/sort are ignored server-side). Used by the Timeline
-   * view to pre-size the virtual scroller and render the right-rail
-   * scrubber without fetching every photo first. */
+   * set (page/limit/sort are ignored server-side). The web Timeline view
+   * no longer calls this — it fetches a single sorted `/api/search` query
+   * and buckets client-side (see `timeline-view.utils.ts`). The route and
+   * this method stay for Apple's Maple Cloud sync feature
+   * (`CloudTimelineViewModel`), which still depends on the aggregation. */
   buckets(params: Omit<SearchParams, 'page' | 'limit' | 'sort'>): Observable<TimelineBuckets> {
     return this.http.get<TimelineBuckets>(`${this.base}/search/buckets`, {
       params: paramsFrom(params),
