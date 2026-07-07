@@ -1,7 +1,10 @@
 // ToolDockComponent — vertical glass icon column on tablet/desktop (#1535).
-// 10 icons: Light · Color · Curve · Effects · Detail · Crop · Presets · Optics · Mask · Heal.
+// 11 icons: Light · Color · HSL · Curve · Effects · Detail · Crop · Presets · Optics · Mask · Heal.
 // Light / Color / Effects / Detail switch the active ToolGroup.
 // Curve opens the tone-curve panel (M2 #1540).
+// HSL arms the HSL tool directly (canvas-first HSL port, epic #1807 slice 4;
+// reuses SubParamRowComponent/DragBarComponent/ValueChipComponent verbatim
+// from the S5 editor, #1112).
 // Crop arms the Crop tool directly (#1813 — canvas-first crop port; reuses
 // CropSessionService/CropOverlayComponent/CropToolbarComponent from the S5
 // editor, #638).
@@ -38,6 +41,12 @@ export interface DockEntry {
 const DOCK_ENTRIES: DockEntry[] = [
   { id: 'light', icon: 'tool-exposure', label: 'Light', group: 'light' },
   { id: 'color', icon: 'tool-tint', label: 'Color', group: 'color' },
+  // HSL: arms the HSL tool directly (canvas-first port, epic #1807 slice 4).
+  // Mounts the shared SubParamRowComponent (chip selector) + DragBarComponent
+  // + ValueChipComponent — same (tool, subParam) arming machinery the S5
+  // editor's HSL pill uses, so a hue/sat/lum edit writes the identical
+  // AdjustmentModel field on both editors.
+  { id: 'hsl', icon: 'tool-hsl', label: 'HSL', tool: 'hsl' },
   // Curve: enabled in #1540 (web M2 — tone curve + WB pad)
   { id: 'curve', icon: 'tool-contrast', label: 'Curve', panel: true },
   { id: 'effects', icon: 'tool-vignette', label: 'Effects', group: 'effects' },

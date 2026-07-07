@@ -377,3 +377,60 @@
     min-height: 0;
   }
 }
+
+// ── HSL panel (epic #1807 slice 4 — glass card hosting the shared chip
+// selector + drag bar + value chip) ─────────────────────────────────────────
+// Same anchor position as the curve/crop/presets panels (mutually exclusive
+// with all three — see `onPresetsPanelToggle`/`onCurvePanelToggle`/
+// `onToolChange`). `app-sub-param-row` / `app-drag-bar` / `app-value-chip`
+// style themselves off `--mpl-*` custom properties (with hardcoded-orange
+// fallbacks, since `--mpl-*` is never defined globally — see
+// sub-param-row.component.scss / drag-bar.component.scss /
+// value-chip.component.scss) plus the globally-defined `--color-*` design
+// tokens (tokens.scss), which already resolve correctly here. Bridging the
+// `--mpl-*` set to this shell's `--pro-*` tokens keeps the reused S5
+// components on-theme in the canvas-first shell without touching their
+// shared styles (which would affect the S5 editor too) — same pattern as the
+// `--mpl-*` bridge on `.presets-panel` above.
+.hsl-panel {
+  --mpl-primary: var(--pro-accent);
+  --mpl-text-main: var(--pro-text);
+  --mpl-surface-alt: rgba(255, 255, 255, 0.04);
+
+  position: absolute;
+  right: 64px; // just left of the dock column
+  top: 50%;
+  transform: translateY(-50%);
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0;
+  background: var(--pro-glass-bg-heavy);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+  -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  border-radius: var(--pro-glass-radius-card-desktop);
+  pointer-events: auto;
+
+  app-value-chip {
+    pointer-events: none;
+  }
+
+  // The shared chip row (sub-param-row.component.scss) lays its 8-per-row
+  // chips out with `display: flex` and no wrap — full-bleed in the S5
+  // editor's column, but tighter here at a fixed panel width. Its host is
+  // `display: contents` (deliberately, so it stays byte-identical for
+  // single-param tools), so the width/scroll constraint has to live on a
+  // wrapper div rather than the element itself.
+  .hsl-panel-chips {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  app-drag-bar {
+    width: 100%;
+  }
+}

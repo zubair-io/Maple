@@ -23,8 +23,17 @@
 // (#1815) — hosts the shared `PresetsPanelComponent`, also used by the S5
 // editor (#1115), so apply/save/delete route through the identical
 // `PresetsService` / `EditorStateService.applyPreset` path on both editors.
-// Presets, Curve, and Crop all share the same panel anchor and are mutually
-// exclusive (see `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`).
+// HSL panel: glass card that opens while the HSL dock entry is armed (epic
+// #1807 slice 4) — hosts the shared `SubParamRowComponent` (chip selector)
+// + `DragBarComponent` + `ValueChipComponent`, the same generic multi-param
+// (tool, subParam) arming machinery the S5 editor's HSL pill uses (#1112),
+// so a hue/sat/lum edit writes the identical `AdjustmentModel` field on both
+// editors. HSL has no single primary drag-bar field (24 sub-params across
+// 3 rows), so — like Crop — it does not appear in the control card's living-
+// slider grid; the control card hides entirely while HSL is armed.
+// Presets, Curve, Crop, and HSL all share the same panel anchor and are
+// mutually exclusive (see `onPresetsPanelToggle`/`onCurvePanelToggle`/
+// `onToolChange`).
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
 // Desktop opts out of auto-recede.
@@ -61,6 +70,9 @@ import { ToneCurveComponent } from '../../components/develop/tone-curve.componen
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
 import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
+import { SubParamRowComponent } from '../../editor/sub-param-row.component';
+import { DragBarComponent } from '../../editor/drag-bar.component';
+import { ValueChipComponent } from '../../editor/value-chip.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
@@ -94,6 +106,9 @@ const RECEDE_IDLE_MS = 3000;
     WbPadComponent,
     CropToolbarComponent,
     PresetsPanelComponent,
+    SubParamRowComponent,
+    DragBarComponent,
+    ValueChipComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
@@ -151,6 +166,13 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  by `CropOverlayComponent`, already mounted inside `editor-image-canvas`
    *  (shared with the S5 editor) and gated on the same `CropSessionService`. */
   readonly cropArmed = computed<boolean>(() => this.editorState.armedTool() === 'crop');
+
+  /** True while the HSL tool is armed (epic #1807 slice 4) — mounts the HSL
+   *  panel (chip selector + drag bar + value chip) next to the dock, the
+   *  same shared multi-param editing surface the S5 editor uses for its HSL
+   *  pill (#1112). HSL has no canvas overlay of its own — unlike Crop, it
+   *  only needs the panel. */
+  readonly hslArmed = computed<boolean>(() => this.editorState.armedTool() === 'hsl');
 
   /** True when the viewport is tablet/desktop (≥768px). */
   readonly isTabletPlus = signal<boolean>(false);
@@ -405,15 +427,16 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Arm a specific dock tool (currently only Crop — #1813). Matches the S5
-   *  editor's crop pill (`ToolPillRowComponent.select`): tapping always arms;
-   *  exiting crop is an explicit action (the crop toolbar's Done button),
-   *  not a second tap on the dock entry. Crop, Curve, and Presets share the
-   *  same panel anchor and are mutually exclusive — arming Crop closes the
-   *  curve and presets panels so no two can ever render on top of each other
-   *  (crop wins while armed). */
+  /** Arm a specific dock tool (Crop — #1813 — or HSL — epic #1807 slice 4).
+   *  Matches the S5 editor's pill row (`ToolPillRowComponent.select`):
+   *  tapping always arms; exiting crop is an explicit action (the crop
+   *  toolbar's Done button), not a second tap on the dock entry — HSL has no
+   *  such action and simply stays armed until another tool is picked. Crop,
+   *  HSL, Curve, and Presets share the same panel anchor and are mutually
+   *  exclusive — arming Crop or HSL closes the curve and presets panels so
+   *  no two can ever render on top of each other (the newly-armed tool wins). */
   onToolChange(tool: ToolId): void {
-    if (tool === 'crop') {
+    if (tool === 'crop' || tool === 'hsl') {
       this.curveOpen.set(false);
       this.presetsOpen.set(false);
     }
@@ -421,22 +444,23 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editorState.haptic('switch');
   }
 
-  /** Toggle the curve panel. No-op while Crop is armed: the crop toolbar owns
-   *  the shared panel anchor, so Curve can't open over it. Opening Curve also
+  /** Toggle the curve panel. No-op while Crop or HSL is armed: both own the
+   *  shared panel anchor, so Curve can't open over either. Opening Curve also
    *  closes Presets, since they share the same anchor too (the mutual-
    *  exclusion half that keeps the panels from overlapping — the other
-   *  halves are `onToolChange` closing curve/presets when Crop arms, and
+   *  halves are `onToolChange` closing curve/presets when Crop/HSL arms, and
    *  `onPresetsPanelToggle` closing curve when Presets opens). */
   onCurvePanelToggle(): void {
-    if (this.cropArmed()) return;
+    if (this.cropArmed() || this.hslArmed()) return;
     this.presetsOpen.set(false);
     this.curveOpen.update((v) => !v);
   }
 
-  /** Toggle the presets panel (#1815). No-op while Crop is armed, and closes
-   *  Curve if open — same shared-anchor mutual exclusion as Curve/Crop. */
+  /** Toggle the presets panel (#1815). No-op while Crop or HSL is armed, and
+   *  closes Curve if open — same shared-anchor mutual exclusion as
+   *  Curve/Crop/HSL. */
   onPresetsPanelToggle(): void {
-    if (this.cropArmed()) return;
+    if (this.cropArmed() || this.hslArmed()) return;
     this.curveOpen.set(false);
     this.presetsOpen.update((v) => !v);
   }

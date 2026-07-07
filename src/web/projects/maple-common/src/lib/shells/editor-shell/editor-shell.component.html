@@ -112,6 +112,21 @@
             <app-presets-panel (applied)="presetsOpen.set(false)" />
           </div>
         }
+
+        <!-- HSL panel (epic #1807 slice 4) — glass card hosting the shared
+             chip selector + drag bar + value chip. The same (tool, subParam)
+             arming machinery the S5 editor's HSL pill uses (#1112): tapping a
+             chip arms a hue/sat/lum band, the drag bar/value chip then read
+             and write that band's AdjustmentModel field. -->
+        @if (hslArmed()) {
+          <div class="hsl-panel">
+            <app-value-chip />
+            <div class="hsl-panel-chips">
+              <app-sub-param-row />
+            </div>
+            <app-drag-bar />
+          </div>
+        }
       </div>
     }
 
@@ -120,8 +135,12 @@
          (sharpen/noise/colorNR), which armGroup('detail') via armTool('crop')
          would otherwise show alongside — the crop toolbar (in the dock-side
          panel above) is the only control surface while armed, matching the
-         S5 editor swapping its drag-bar area for the crop toolbar. -->
-    @if (!cropArmed()) {
+         S5 editor swapping its drag-bar area for the crop toolbar. Hidden
+         while HSL is armed for the same reason: HSL has no single primary
+         drag-bar field (24 sub-params, control-card.component.ts's
+         SLIDER_TOOLS deliberately excludes it), so the HSL panel above is
+         the only control surface while armed. -->
+    @if (!cropArmed() && !hslArmed()) {
       <div class="control-card-anchor">
         <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
       </div>
