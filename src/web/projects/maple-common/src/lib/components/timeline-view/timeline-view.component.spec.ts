@@ -110,6 +110,7 @@ describe('TimelineViewComponent', () => {
     library.registeredFolders.set([
       {
         id: 'lib-1',
+        slug: 'lib',
         path: '/Lib',
         label: 'Lib',
         last_scan: null,
@@ -120,7 +121,7 @@ describe('TimelineViewComponent', () => {
     library.sidebarTree.set([
       {
         kind: 'folder',
-        id: 'fs:/Lib',
+        id: 'lib:',
         label: 'Lib',
         count: null,
         absPath: '/Lib',
@@ -137,7 +138,7 @@ describe('TimelineViewComponent', () => {
   });
 
   it('renders Year + Month headers with counts after buckets resolve', async () => {
-    library.selectedSourceId.set('fs:/Lib');
+    library.selectedSourceId.set('lib:');
     const fixture = TestBed.createComponent(TimelineViewComponent);
     fixture.detectChanges();
     // Buckets fetch is debounced 250 ms.
@@ -168,7 +169,7 @@ describe('TimelineViewComponent', () => {
   });
 
   it('shows the untimed-photos hint banner when untimed_count > 0', async () => {
-    library.selectedSourceId.set('fs:/Lib');
+    library.selectedSourceId.set('lib:');
     const fixture = TestBed.createComponent(TimelineViewComponent);
     fixture.detectChanges();
     await new Promise((r) => setTimeout(r, 300));
@@ -177,7 +178,7 @@ describe('TimelineViewComponent', () => {
   });
 
   it('wires IntersectionObserver against the live #scrollContainer (not a stale ref)', async () => {
-    library.selectedSourceId.set('fs:/Lib');
+    library.selectedSourceId.set('lib:');
     const fixture = TestBed.createComponent(TimelineViewComponent);
     fixture.detectChanges();
 
@@ -213,7 +214,7 @@ describe('TimelineViewComponent', () => {
   });
 
   it('refetches buckets when a filter signal changes (debounced)', async () => {
-    library.selectedSourceId.set('fs:/Lib');
+    library.selectedSourceId.set('lib:');
     const fixture = TestBed.createComponent(TimelineViewComponent);
     fixture.detectChanges();
     await new Promise((r) => setTimeout(r, 300));
