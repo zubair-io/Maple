@@ -59,6 +59,7 @@ export const MOVIE_EXTS = new Set<string>([
   '.mxf',
   '.mkv',
   '.webm',
+  '.3gp',
   '.3g2',
   '.flv',
   '.vob',
