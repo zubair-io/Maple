@@ -51,6 +51,8 @@ import {
   COLOR_LABELS,
   ColorValue,
   FlagValue,
+  HIDDEN_OPTIONS,
+  HiddenValue,
   PAGE_SIZE,
   PresetKind,
   ResultViewModel,
@@ -65,6 +67,7 @@ import {
   parseColor,
   parseCsvSet,
   parseFlag,
+  parseHidden,
   parseRating,
   parseSceneType,
   parseScreenshot,
@@ -126,6 +129,7 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly isScreenshot = computed<ScreenshotValue>(() =>
     parseScreenshot(this.query()?.get('isScreenshot')),
   );
+  readonly hidden = computed<HiddenValue>(() => parseHidden(this.query()?.get('hidden')));
   readonly sort = computed<SearchSort>(() => parseSort(this.query()?.get('sort')));
 
   /** Set of selected extensions, parsed from the comma-separated `ext` param. */
@@ -152,6 +156,7 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly sortOptions = SORT_OPTIONS;
   readonly colorOptions = COLOR_LABELS;
   readonly sceneTypeOptions = SCENE_TYPE_OPTIONS;
+  readonly hiddenOptions = HIDDEN_OPTIONS;
   readonly stars = [1, 2, 3, 4, 5];
 
   /** True when any structured filter (i.e. anything besides q) is set. */
@@ -249,6 +254,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       activity: this.activity(),
       subjects: this.subjectsSelected(),
       isScreenshot: this.isScreenshot(),
+      hidden: this.hidden(),
       sort: this.sort(),
     });
   }
@@ -360,6 +366,10 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   setIsScreenshot(value: ScreenshotValue): void {
     this.patchQueryParams({ isScreenshot: value, page: null });
+  }
+
+  setHidden(value: HiddenValue): void {
+    this.patchQueryParams({ hidden: value || null, page: null });
   }
 
   /** Quick date presets — write the from/to params directly. */
