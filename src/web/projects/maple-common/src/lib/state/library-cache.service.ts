@@ -26,6 +26,7 @@ import { sha256Prefix16 } from '../maple-cache/sha';
 import { LibraryStore } from './library-store.service';
 import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source';
 import { parseAddress } from '../addressing/maple-address';
+import { BlobUrlChannel } from './blob-url-channel';
 
 // ── LRU cache ─────────────────────────────────────────────────────────────────
 
@@ -85,15 +86,12 @@ export class LruCache {
 // ── Thumbnail LRU cache ───────────────────────────────────────────────────────
 
 /**
- * Count-bounded LRU cache for thumbnail URLs (blob: or plain HTTPS strings).
+ * Count-bounded LRU cache for thumbnail-ish URLs (blob: or plain HTTPS strings).
  * Uses Map insertion order as a recency queue (delete-and-reinsert on access).
  * Revokes `blob:` URLs when entries are evicted or the cache is cleared so
  * Blob bytes are freed promptly rather than waiting for a folder switch.
- *
- * Default capacity: 500 thumbnails. At 10-30 kB each this stays well inside
- * a comfortable memory envelope even on a 5,000-image folder. Folder switch
- * used to wipe the entire map; with this LRU, recently-viewed thumbnails from
- * the previous folder stay warm until displaced by newer ones (M2, #1327).
+ * Folder switch used to wipe the entire map; with this LRU, recently-viewed
+ * entries from the previous folder stay warm until displaced (M2, #1327).
  */
 export class ThumbLruCache {
   private readonly entries = new Map<string, string>();
@@ -214,102 +212,68 @@ export class LibraryCache {
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
   /**
-   * Bounded LRU backing store for thumbnail URLs.
-   * Capacity: 500 entries. Entries are evicted (and blob URLs revoked)
-   * as new thumbnails arrive so the cache self-trims across folder
-   * navigation instead of needing a full wipe on each switch (M2, #1327).
+   * Subscriber/LRU/in-flight-load channel backing thumbnail URLs. Capacity:
+   * 500 entries — at 10-30 kB each, comfortable even for a 5,000-image
+   * folder. Entries evict (and revoke) as new thumbnails arrive, self-trimming
+   * across folder navigation instead of needing a full wipe (M2, #1327).
+   *
+   * The reactive SIGNAL for a subscribed id lives in the tile component
+   * (asset-thumb / library-cell), so the live-subscriber count tracks the
+   * *rendered* tiles and can't accumulate orphans — the leak in #1363/#1359.
    */
-  private readonly thumbLru = new ThumbLruCache(500);
+  private readonly thumbChannel = new BlobUrlChannel<AssetId>(500);
 
   /**
    * Signal view of the thumbnail URL map. Components read this reactively;
-   * `cacheThumbnailUrl` keeps it in sync with `thumbLru` after every mutation.
+   * `cacheThumbnailUrl` keeps it in sync with `thumbChannel` after every mutation.
    */
   readonly thumbnailUrls = signal<Map<AssetId, string>>(new Map());
 
-  /** In-flight thumbnail loads (id → Promise) so concurrent callers from
-   * the grid + filmstrip share a single network request per asset. */
+  /** Test-only reach-through: exposes the channel's per-id subscriber count. */
+  private get thumbSubscribers(): { size: number } {
+    return { size: this.thumbChannel.subscriberCount };
+  }
+
+  /**
+   * In-flight `ensureThumbnailUrl` loads, so concurrent grid + filmstrip
+   * callers share one request per asset. Separate from `thumbChannel`'s own
+   * dedup because `_loadThumbInternal` is a multi-branch loader with an
+   * `onThumbWritten` side effect, not `BlobUrlChannel.ensure()`'s simple shape.
+   */
   private readonly thumbLoadingIds = new Set<AssetId>();
 
   /**
-   * Thumbnail-URL subscribers, keyed by asset id. The reactive SIGNAL lives in
-   * the tile component (asset-thumb / library-cell), which owns its lifecycle —
-   * so it dies with the tile and the live-signal count tracks the *rendered*
-   * tiles: the viewport under the browse grid's virtual scroll, or the rendered
-   * set in a plain `@for` host like the Library grid. Either way it can never
-   * accumulate orphans for ids that scrolled away or never loaded — the leak in
-   * #1363/#1359. Here we keep only the component's setter callback and push the
-   * URL to it on load (`cacheThumbnailUrl`) and on eviction; each id's set is
-   * dropped as soon as its last subscriber unsubscribes, so this map dies with
-   * the tiles too. The bytes/URLs themselves stay in the central, count-bounded
-   * `thumbLru`.
-   */
-  private readonly thumbSubscribers = new Map<AssetId, Set<(url: string | undefined) => void>>();
-
-  /**
    * Subscribe a tile to thumbnail-URL changes for `id`. Invokes `cb` immediately
-   * with the current URL (warm-cache tiles paint at once), then again whenever it
-   * changes (load completes, or the LRU evicts it → `undefined`). Returns an
-   * unsubscribe fn; the caller (component) calls it on destroy / asset-input
-   * change, which is what bounds the live-signal count to the viewport.
+   * with the current URL, then again whenever it changes (load completes, or
+   * the LRU evicts it → `undefined`). Returns an unsubscribe fn; the caller
+   * calls it on destroy / asset-input change, bounding the live-subscriber
+   * count to the viewport.
    */
   subscribeThumbUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
-    let subs = this.thumbSubscribers.get(id);
-    if (!subs) {
-      subs = new Set();
-      this.thumbSubscribers.set(id, subs);
-    }
-    subs.add(cb);
-    cb(this.thumbLru.get(id));
-    return () => {
-      const s = this.thumbSubscribers.get(id);
-      if (!s) return;
-      s.delete(cb);
-      if (s.size === 0) this.thumbSubscribers.delete(id);
-    };
-  }
-
-  private notifyThumbSubscribers(id: AssetId, url: string | undefined): void {
-    const subs = this.thumbSubscribers.get(id);
-    if (subs) for (const cb of subs) cb(url);
+    return this.thumbChannel.subscribe(id, cb);
   }
 
   // ── Preview (best display still) ────────────────────────────────────────────
 
   /**
-   * Bounded LRU backing store for preview (embedded 1280px) blob URLs.
-   * Reuses ThumbLruCache — same shape, same revoke-on-evict/clearAll contract,
-   * just a separate keyspace so a preview load never evicts a thumbnail.
+   * Subscriber/LRU/in-flight-load channel backing preview (embedded 1280px)
+   * blob URLs. Same shape as {@link thumbChannel}, separate keyspace so a
+   * preview load never evicts a thumbnail.
+   *
+   * Capacity: 64 — far lower than the 500-entry thumbnail cap, because
+   * preview JPEGs are 1280px stills (hundreds of kB to a few MB each) vs
+   * ~10-30 kB thumbnails: 500 resident previews would be a multi-hundred-MB
+   * footprint, unacceptable on mobile. 64 keeps a generous window warm instead.
    */
-  private readonly previewLru = new ThumbLruCache(500);
-
-  /** In-flight preview loads (id → Promise), same dedup contract as thumbs. */
-  private readonly previewLoadingIds = new Set<AssetId>();
+  private readonly previewChannel = new BlobUrlChannel<AssetId>(64);
 
   /**
-   * Preview-URL subscribers, keyed by asset id. Same lifecycle contract as
-   * {@link thumbSubscribers}: owned by the component that calls
-   * {@link subscribePreviewUrl}, so it dies with the tile/panel and never
-   * accumulates orphans for ids that are no longer displayed.
-   */
-  private readonly previewSubscribers = new Map<AssetId, Set<(url: string | undefined) => void>>();
-
-  /**
-   * Subscribe to preview-URL changes for `id` — the best available _still_ for
-   * display (interim: full data-layer support lands in a later slice). Mirrors
-   * {@link subscribeThumbUrl} exactly except for how the URL is resolved:
-   *
-   *   - Self-Hosted M2 `slug:relPath` asset → the authed `/api/preview/:slug/*`
-   *     blob URL (embedded 1280px), fetched via `LibrarySource.previewBlob` —
-   *     the same auth/blob-URL machinery `subscribeThumbUrl` uses for
-   *     `/api/thumb`, just the preview route. Exclude legacy `fs:<absPath>`
-   *     ids — they also contain ':' but have no slug:relPath address to parse.
-   *   - Every other id (Hosted-web / imported / `fs:` ids) → delegate straight
-   *     to `subscribeThumbUrl`; there's no richer preview source for those
-   *     backends yet, so the thumbnail is the best still available today.
-   *
-   * Invokes `cb` immediately with the current URL (warm-cache paints at once),
-   * then again whenever it changes. Returns an unsubscribe fn.
+   * Subscribe to preview-URL changes for `id` — the best available _still_.
+   * Mirrors {@link subscribeThumbUrl} except: a Self-Hosted M2 `slug:relPath`
+   * asset resolves via the authed `/api/preview/:slug/*` blob URL
+   * (`LibrarySource.previewBlob`; excludes legacy `fs:<absPath>` ids, which
+   * also contain ':' but have no address to parse) — every other id delegates
+   * straight to `subscribeThumbUrl` since there's no richer preview source yet.
    */
   subscribePreviewUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
     const isSelfHostedAddress =
@@ -322,51 +286,11 @@ export class LibraryCache {
       return this.subscribeThumbUrl(id, cb);
     }
 
-    let subs = this.previewSubscribers.get(id);
-    if (!subs) {
-      subs = new Set();
-      this.previewSubscribers.set(id, subs);
-    }
-    subs.add(cb);
-    cb(this.previewLru.get(id));
-    this._ensurePreviewUrl(id);
-    return () => {
-      const s = this.previewSubscribers.get(id);
-      if (!s) return;
-      s.delete(cb);
-      if (s.size === 0) this.previewSubscribers.delete(id);
-    };
-  }
-
-  private notifyPreviewSubscribers(id: AssetId, url: string | undefined): void {
-    const subs = this.previewSubscribers.get(id);
-    if (subs) for (const cb of subs) cb(url);
-  }
-
-  private cachePreviewUrl(id: AssetId, url: string): void {
-    this.previewLru.set(id, url, (evictedId) =>
-      this.notifyPreviewSubscribers(evictedId as AssetId, undefined),
+    const unsubscribe = this.previewChannel.subscribe(id, cb);
+    this.previewChannel.ensure(id, (assetId) =>
+      this.librarySource.previewBlob(parseAddress(assetId as string)),
     );
-    this.notifyPreviewSubscribers(id, url);
-  }
-
-  /** Idempotently load the preview blob URL for a Self-Hosted slug:relPath id. */
-  private _ensurePreviewUrl(id: AssetId): void {
-    if (this.previewLru.get(id) !== undefined) return;
-    if (this.previewLoadingIds.has(id)) return;
-    this.previewLoadingIds.add(id);
-    void this._loadPreviewInternal(id).finally(() => this.previewLoadingIds.delete(id));
-  }
-
-  private async _loadPreviewInternal(id: AssetId): Promise<void> {
-    try {
-      const blob = await this.librarySource.previewBlob(parseAddress(id as string));
-      if (blob) this.cachePreviewUrl(id, URL.createObjectURL(blob));
-      // null = no preview yet (e.g. still indexing) — leave uncached so a
-      // later trigger (re-subscribe) can retry.
-    } catch (err) {
-      console.warn('[state] preview load failed for', id, err);
-    }
+    return unsubscribe;
   }
 
   // ── Reset ──────────────────────────────────────────────────────────────────
@@ -376,30 +300,19 @@ export class LibraryCache {
     this.byteCache.clear();
     this.fileHandles.clear();
     this.legacyBytes.clear();
-    // Revoke all thumbnail blob URLs via the LRU (it guards on `blob:` itself)
-    // then reset the signal so components clear their view. This is the
-    // hard-reset path (sign-out / forced wipe); the LRU evicts old entries
-    // automatically during normal browsing so most folder switches no longer
+    // Revoke all thumbnail blob URLs and notify subscribers via the channel.
+    // Hard-reset path (sign-out / forced wipe); the LRU evicts old entries
+    // automatically during normal browsing so most folder switches don't
     // need a full wipe.
-    this.thumbLru.clearAll();
+    this.thumbChannel.clearAll();
     this.thumbnailUrls.set(new Map());
-    // Hard-reset path (sign-out / forced wipe): push `undefined` to every
-    // subscriber so any still-mounted tile blanks its view, then drop the
-    // registry. A tile re-subscribes only when its asset input next changes
-    // (e.g. the grid re-renders for a new folder) — the sign-out case tears the
-    // tiles down anyway, so nothing is left stranded. Normal folder switches
-    // don't call this; the LRU evicts stale entries on its own.
-    for (const subs of this.thumbSubscribers.values()) for (const cb of subs) cb(undefined);
-    this.thumbSubscribers.clear();
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
     // folder switch reclaims that memory instead of letting it accumulate for
     // the whole session.
     this.fsBrowse.clearThumbCache();
     // Preview cache/subscribers: same hard-reset treatment as thumbnails above.
-    this.previewLru.clearAll();
-    for (const subs of this.previewSubscribers.values()) for (const cb of subs) cb(undefined);
-    this.previewSubscribers.clear();
+    this.previewChannel.clearAll();
   }
 
   // ── Direct cache primitives (used by fetch / imports) ─────────────────────
@@ -562,26 +475,21 @@ export class LibraryCache {
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
   cacheThumbnailUrl(id: AssetId, url: string): void {
-    // On LRU eviction, push `undefined` to that id's subscribers so a still-
-    // mounted tile clears its (now-revoked) blob URL instead of showing a dead one.
-    this.thumbLru.set(id, url, (evictedId) =>
-      this.notifyThumbSubscribers(evictedId as AssetId, undefined),
-    );
+    // The channel handles LRU insertion + eviction notification + this id's
+    // subscriber notification (granular: only tiles showing this id repaint).
+    this.thumbChannel.cacheUrl(id, url);
     // Publish a new Map snapshot for `thumbnailUrls()` consumers (the
     // ensureThumbnailUrl short-circuit check). The LRU may have evicted (and
     // revoked) the oldest entry before inserting, so the snapshot stays
-    // consistent with the LRU.
-    this.thumbnailUrls.set(this.thumbLru.toMap() as Map<AssetId, string>);
-    // Push the new URL to THIS id's subscribed tiles — granular: only tiles
-    // showing this id repaint, not every tile on screen.
-    this.notifyThumbSubscribers(id, url);
+    // consistent with the channel.
+    this.thumbnailUrls.set(this.thumbChannel.toMap());
   }
 
   thumbnailUrlFor(id: AssetId): string | undefined {
     // Non-reactive point read of the current URL, for imperative callers. Tiles
     // get reactive updates via `subscribeThumbUrl` (their own component-owned
     // signal), not by reading this inside a computed.
-    return this.thumbLru.get(id);
+    return this.thumbChannel.get(id);
   }
 
   /** Idempotently load the blob-URL thumbnail for one asset. Both
