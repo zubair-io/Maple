@@ -213,6 +213,16 @@ struct AppShell: View {
     /// `@State` — only the snapped flag crosses the boundary, since the
     /// hamburger button in `iPhoneMain` writes it directly.
     @State private var isDrawerOpen: Bool = false
+
+    /// The iPhone Library tab's NavigationStack path (Fast Preview §1).
+    /// Hoisted here from `PhoneTabShell` (and passed back down as a binding)
+    /// so the non-tap image-open paths — deep link + document open, which run
+    /// in `AppShell` extensions and can't reach `PhoneTabShell`'s private
+    /// state — can push `.preview(asset)` onto the SAME stack a grid tap uses,
+    /// instead of the pane-shell `mode` flip that the iPhone shell doesn't
+    /// render. Default-internal (not `private`) so `openEditor` /
+    /// `consumePendingDeepLink` / `consumePendingOpenedDocument` can append.
+    @State var libraryPath: [LibraryDestination] = []
     #endif
 
     /// Set when the user selects a cloud library in Timeline view mode;
@@ -712,6 +722,7 @@ struct AppShell: View {
     @ViewBuilder
     private var phoneTabShell: some View {
         PhoneTabShell(
+            libraryPath: $libraryPath,
             isDrawerOpen: $isDrawerOpen,
             mode: mode,
             selectedSession: selectedSession,
