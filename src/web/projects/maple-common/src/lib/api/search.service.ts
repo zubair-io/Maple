@@ -81,6 +81,10 @@ export interface SearchResult {
   /** "fs:" + abs_path — keys the editor cold-load + asset-grid the same way the
    * filesystem-browse path does. */
   id: string;
+  /** `slug:relPath` address — the only address form the batch-metadata
+   * endpoints (`fetchSnapshots`, `batchApply`) accept. `null` when the
+   * asset's primary library has no registered slug. */
+  address: string | null;
   _id: string;
   folder_id: string;
   abs_path: string;
