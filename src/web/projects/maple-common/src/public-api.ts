@@ -191,7 +191,6 @@ export * from './lib/deep-link/deep-link.service';
 export * from './lib/state/timeline-state.service';
 export * from './lib/components/timeline-view/timeline-view.component';
 export * from './lib/components/timeline-view/timeline-filter-row.component';
-export * from './lib/components/timeline-view/timeline-scrubber.component';
 
 // S7 (#622) — Search experience (phone tab content + tablet/desktop overlay).
 export * from './lib/search/search-types';
