@@ -257,10 +257,10 @@ struct EditorView: View {
             // Pinned to the top edge and does NOT recede with the chrome (no
             // chromeOpacity) so the in-flight full-res render of a big RAW
             // stays legible — the instant embedded preview otherwise looks
-            // "done" with no sign the real image is still resolving. Same
-            // visibility contract as FullImageView: shows from open until the
-            // full-quality frame publishes (`isResolvingFirstFrame`, cleared
-            // only once `!isFullQualityDecoding` on both CPU and GPU paths). #1658
+            // "done" with no sign the real image is still resolving. Shows
+            // from open until the full-quality frame publishes
+            // (`isResolvingFirstFrame`, cleared only once
+            // `!isFullQualityDecoding` on both CPU and GPU paths). #1658
             if EditSession.shouldShowLoadingIndicator(
                 isResolvingFirstFrame: state.session.isResolvingFirstFrame,
                 isRendering: state.session.isRendering,
@@ -279,6 +279,12 @@ struct EditorView: View {
                 .frame(maxWidth: .infinity)
                 .allowsHitTesting(false)
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            // GPU frame-time HUD — validation-only (gpu build +
+            // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
+            // from the legacy FullImageView when it was retired (#1807).
+            frameTimeHud
         }
         // Full-bleed editor (#4 follow-up): on regular size class (Mac/iPad)
         // pull the content into the top safe-area inset left over from the
@@ -412,7 +418,7 @@ struct EditorView: View {
             }
             // Before/after "BEFORE" badge — surfaced while the session is
             // showing the original (the canvas itself falls back to the
-            // placeholder, matching FullImageView's contract).
+            // placeholder).
             if state.session.showingOriginal {
                 VStack {
                     Spacer()

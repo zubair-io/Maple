@@ -1,9 +1,14 @@
-// FullImageView+VM.swift — Pure-function view-model helpers for FullImageView.
+// FullImageView+VM.swift — Pure-function canvas view-model helpers.
 //
-// Co-located sibling of FullImageView.swift. Holds derivations and formatters
-// that take typed inputs and return typed outputs — no SwiftUI, no @State,
-// no gestures. The view file calls these helpers and feeds the returned
-// values back into its body + gesture closures.
+// Originally the co-located `+VM.swift` sibling of the legacy `FullImageView`
+// (retired in #1807). `EditorView` (`EditorView+Canvas.swift`, `PillHeader`)
+// and the shared `CanvasZoomHost` now consume the same helpers — the
+// `FullImageViewVM` namespace + filename stayed as-is rather than a
+// mechanical rename across every call site, since nothing about the name is
+// load-bearing beyond "the shared canvas VM helpers." Holds derivations and
+// formatters that take typed inputs and return typed outputs — no SwiftUI,
+// no @State, no gestures. Callers feed the returned values back into their
+// body + gesture closures.
 //
 // Pattern (issue #192): every SwiftUI view with non-trivial derivation gets
 // a sibling `+VM.swift` whose contents are unit-testable in isolation. To
@@ -19,8 +24,9 @@ import Foundation
 
 // MARK: - FullImageViewVM
 
-/// Namespace for pure FullImageView derivations. A caseless enum keeps the
-/// helpers grouped without ever being instantiated. All members are static.
+/// Namespace for the shared canvas-derivation helpers (zoom labels, canvas
+/// sentinels, GPU/CPU path selection). A caseless enum keeps the helpers
+/// grouped without ever being instantiated. All members are static.
 enum FullImageViewVM {
 
     // MARK: - Zoom indicator (HUD)
@@ -54,14 +60,6 @@ enum FullImageViewVM {
     /// public contract — do not rename without updating the harness.
     static func canvasAccessibilityID(isRendering: Bool, hasPreview: Bool) -> String {
         (!isRendering && hasPreview) ? "canvas-render-ready" : "canvas-rendering"
-    }
-
-    /// True when the inline `ProgressView` spinner should be visible. The
-    /// rule is "only while we have no preview yet" — slider ticks keep
-    /// `isRendering == true` for tens of ms each, and flashing a spinner
-    /// on every tick is worse than no spinner at all.
-    static func shouldShowRenderIndicator(isRendering: Bool, hasPreview: Bool) -> Bool {
-        isRendering && !hasPreview
     }
 
     // MARK: - Canvas path selection (GPU live vs CPU)
@@ -105,17 +103,4 @@ enum FullImageViewVM {
     // threshold, pinch / step / explicit-zoom clamps, pan accumulation)
     // moved to `MapleCore.CanvasZoomModel` in #1099 so the shared canvas
     // host, the editor, and the unit tests source one implementation.
-
-    // MARK: - Viewport conversion
-
-    /// Converts a SwiftUI viewport size (points) into real screen pixels
-    /// using the environment's `displayScale`. The pipeline targets pixels
-    /// — points only make sense at the SwiftUI boundary — so the view does
-    /// this conversion once and passes the pixel-size onward.
-    static func viewportInPixels(viewport: CGSize, displayScale: CGFloat) -> CGSize {
-        CGSize(
-            width: viewport.width * displayScale,
-            height: viewport.height * displayScale
-        )
-    }
 }

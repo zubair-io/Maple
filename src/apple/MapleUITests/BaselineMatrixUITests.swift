@@ -194,9 +194,9 @@ final class BaselineMatrixUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        // Wait for the explicit `canvas-render-ready` signal —
-        // FullImageView's CIImageView wrapper now exposes a single
-        // accessibility leaf with that identifier. The same element's
+        // Wait for the explicit `canvas-render-ready` signal — EditorView's
+        // canvas leaf (`CanvasImageView` / `GpuLiveCanvasView`) exposes a
+        // single accessibility leaf with that identifier. The same element's
         // frame matches the canvas content area, so we can use it
         // for both the wait AND the crop. `.descendants(matching: .any)`
         // because `.accessibilityElement()` on a SwiftUI view can

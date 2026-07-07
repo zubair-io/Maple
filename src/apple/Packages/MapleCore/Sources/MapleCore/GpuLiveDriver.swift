@@ -89,8 +89,8 @@ public final class GpuLiveDriver {
     /// (#1053). The driver records every REAL present's elapsed ms here (cancelled
     /// presents return `nil` and are skipped), but ONLY when `GpuHudFlag.isEnabled`
     /// — so a gpu build with the HUD off does zero extra work on the render path.
-    /// `@Observable`, so `FullImageView`'s overlay re-renders as frames land.
-    /// Owned by the driver (the natural recorder); the view reads it via
+    /// `@Observable`, so `GpuFrameTimeHud` re-renders as frames land. Owned
+    /// by the driver (the natural recorder); the view reads it via
     /// `session.gpuLiveDriver?.frameStats`.
     public let frameStats = GpuFrameTimeStats()
 
