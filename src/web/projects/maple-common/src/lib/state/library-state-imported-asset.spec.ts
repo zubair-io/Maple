@@ -104,6 +104,7 @@ describe('isSupportedRaw', () => {
       'x3f',
       '3fr',
       'mef',
+      'erf',
       'fff',
       'dcr',
       'mos',

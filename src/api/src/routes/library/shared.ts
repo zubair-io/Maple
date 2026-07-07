@@ -34,7 +34,6 @@ const MIME_BY_EXT: Record<string, string> = {
   mef: 'image/x-mamiya-mef',
   erf: 'image/x-epson-erf',
   mrw: 'image/x-minolta-mrw',
-  raw: 'image/x-panasonic-raw',
   fff: 'image/x-hasselblad-fff',
   avif: 'image/avif',
 };
