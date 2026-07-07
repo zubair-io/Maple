@@ -64,8 +64,12 @@ struct PreviewDestination: View {
             }
         )
         .task(id: asset.id) {
-            // Land on the pushed asset; a re-push of a different asset re-seeds.
-            if shownID == nil { shownID = asset.id }
+            // Land on the pushed asset. `.task(id:)` only fires on an actual
+            // `asset.id` change (or initial appearance), so this is safe to run
+            // unconditionally — a guard would leave `shownID` stale if the
+            // parent re-pushed a different asset while this view was still on
+            // screen (jules review).
+            shownID = asset.id
         }
     }
 }
