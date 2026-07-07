@@ -18,6 +18,12 @@ export interface SearchResultPHLink {
 
 export interface SearchResult {
   id: string;
+  /** `slug:relPath` address for the metadata-snapshot/batch-apply endpoints
+   * (`/api/metadata/snapshots`, `/api/xmp/batch`), which only understand the
+   * unified addressing scheme — the legacy `id` field above predates that
+   * migration and is not a valid input to those endpoints. `null` when the
+   * asset's primary library has no registered slug. */
+  address: string | null;
   _id: string;
   folder_id: string;
   abs_path: string;
@@ -55,6 +61,7 @@ export interface SearchResult {
 export function projectAsset(
   d: AssetDoc & { _id: ObjectId },
   libraries: ReadonlyMap<string, string>,
+  idToSlug: ReadonlyMap<string, string>,
 ): SearchResult {
   const exif = d.exif ?? null;
   const camera =
@@ -65,11 +72,17 @@ export function projectAsset(
   const absPath = assetAbsPath(d, libraries) ?? '';
   const folderId = primary?.library_id.toHexString() ?? '';
   const filename = primary?.filename ?? '';
+  const slug = primary ? (idToSlug.get(primary.library_id.toHexString()) ?? null) : null;
+  const address =
+    slug && primary
+      ? `${slug}:${primary.path ? `${primary.path}/${primary.filename}` : primary.filename}`
+      : null;
   const result: SearchResult = {
     // The editor's id format is `fs:<absPath>` (matches Hosted's
     // browser-FS-Access keys); keeping the same shape here lets the FE
     // route a search hit straight into the editor.
     id: `fs:${absPath}`,
+    address,
     _id: d._id.toHexString(),
     folder_id: folderId,
     abs_path: absPath,
