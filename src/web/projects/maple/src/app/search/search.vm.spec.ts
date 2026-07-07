@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import type { SearchFacets, SearchResult } from '@maple-common';
 import {
   COLOR_LABELS,
+  HIDDEN_OPTIONS,
   PAGE_SIZE,
   SCENE_TYPE_OPTIONS,
   SORT_LABEL,
@@ -21,6 +22,7 @@ import {
   parseColor,
   parseCsvSet,
   parseFlag,
+  parseHidden,
   parseRating,
   parseSceneType,
   parseScreenshot,
@@ -70,6 +72,11 @@ describe('constants', () => {
 
   it('COLOR_LABELS leads with the empty/Any option and a transparent swatch', () => {
     expect(COLOR_LABELS[0]).toEqual({ value: '', label: 'Any', swatch: 'transparent' });
+  });
+
+  it('HIDDEN_OPTIONS leads with the default "hide hidden" option', () => {
+    expect(HIDDEN_OPTIONS[0]).toEqual({ value: '', label: 'Hide hidden' });
+    expect(HIDDEN_OPTIONS.map((o) => o.value)).toEqual(['', 'all', 'only']);
   });
 });
 
@@ -156,6 +163,21 @@ describe('parseScreenshot', () => {
     expect(parseScreenshot(null)).toBe('');
     expect(parseScreenshot('TRUE')).toBe('');
     expect(parseScreenshot('1')).toBe('');
+  });
+});
+
+describe('parseHidden', () => {
+  it('accepts the two non-default literals', () => {
+    expect(parseHidden('all')).toBe('all');
+    expect(parseHidden('only')).toBe('only');
+  });
+
+  it('falls back to "" (hide hidden, the default) for anything else', () => {
+    expect(parseHidden(null)).toBe('');
+    expect(parseHidden(undefined)).toBe('');
+    expect(parseHidden('')).toBe('');
+    expect(parseHidden('ALL')).toBe('');
+    expect(parseHidden('garbage')).toBe('');
   });
 });
 
@@ -305,6 +327,7 @@ describe('buildSearchParams', () => {
       activity: '',
       subjects: new Set<string>(),
       isScreenshot: '' as const,
+      hidden: '' as const,
       sort: 'captured_desc' as const,
     };
   }
@@ -362,6 +385,12 @@ describe('buildSearchParams', () => {
     expect(buildSearchParams({ ...emptyState(), isScreenshot: 'true' }).isScreenshot).toBe(true);
     expect(buildSearchParams({ ...emptyState(), isScreenshot: 'false' }).isScreenshot).toBe(false);
     expect(buildSearchParams({ ...emptyState(), isScreenshot: '' }).isScreenshot).toBeUndefined();
+  });
+
+  it('maps the tri-state hidden filter to the backend param / undefined', () => {
+    expect(buildSearchParams({ ...emptyState(), hidden: 'all' }).hidden).toBe('all');
+    expect(buildSearchParams({ ...emptyState(), hidden: 'only' }).hidden).toBe('only');
+    expect(buildSearchParams({ ...emptyState(), hidden: '' }).hidden).toBeUndefined();
   });
 });
 
