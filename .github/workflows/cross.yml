@@ -11,6 +11,7 @@
 #   * fallow-audit-web      — fallow audit (dead code / complexity / dupes) over
 #                             src/web, scoped to files changed vs the merge base.
 #                             Per #1829.
+#   * fallow-audit-api      — same, over src/api (Bun/Elysia backend). Per #1829.
 #   * gitleaks              — installed direct from GitHub releases; scans only
 #                             the commits this PR/push introduces (#839).
 #
@@ -291,6 +292,46 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
         run: ./node_modules/.bin/fallow audit --base "origin/${BASE_REF}"
+
+  fallow-audit-api:
+    name: fallow-audit-api (dead code / complexity / dupes, changed files)
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge base so fallow can scope its
+          # audit to files changed in this PR/push (same rationale as
+          # format-check above).
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Fetch base branch
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+      - name: Install API devDeps (provides fallow)
+        working-directory: src/api
+        run: HOME=/tmp/xbun bun install --frozen-lockfile
+
+      # `fallow audit` scopes dead-code/complexity/dupes analysis to files
+      # changed vs the merge base and gates (exit 1) only on findings the
+      # changeset itself introduces — pre-existing issues are reported but
+      # don't fail the build. src/api/.fallowrc.json declares the Bun
+      # child-process entry points (worker-main.ts, *.child.ts, etc.) that
+      # Bun.spawn wires up via dynamic string paths — invisible to static
+      # analysis without them. See #1829.
+      - name: fallow audit (changed files only)
+        working-directory: src/api
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: HOME=/tmp/xbun ./node_modules/.bin/fallow audit --base "origin/${BASE_REF}"
 
   gitleaks:
     name: gitleaks (PR commits)
