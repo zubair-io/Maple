@@ -61,6 +61,7 @@
     "@angular/compiler-cli": "^21.2.0",
     "@compodoc/compodoc": "^1.2.1",
     "@playwright/test": "^1.59.1",
+    "@socketsecurity/bun-security-scanner": "1.1.2",
     "@storybook/addon-a11y": "^10.4.0",
     "@storybook/addon-docs": "^10.4.0",
     "@storybook/angular": "^10.4.0",
