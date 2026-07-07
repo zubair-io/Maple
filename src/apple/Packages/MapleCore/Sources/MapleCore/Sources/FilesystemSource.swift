@@ -257,7 +257,8 @@ public enum RAWExtensions {
         "arw", "srf", "sr2", "rw2", "raf",
         "orf", "pef", "dcs", "raw", "rwl",
         "mrw", "erf", "3fr", "fff", "iiq",
-        "cap", "tif", "tiff",
+        "cap", "tif", "tiff", "srw", "x3f",
+        "mef",
     ]
 }
 

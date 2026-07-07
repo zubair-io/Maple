@@ -53,6 +53,8 @@ export const SUPPORTED_EXTS = new Set([
   '.mef',
   '.erf',
   '.mrw',
+  '.raw',
+  '.fff',
   // Bitmap formats decoded via sharp / heic-convert
   '.jpg',
   '.jpeg',
