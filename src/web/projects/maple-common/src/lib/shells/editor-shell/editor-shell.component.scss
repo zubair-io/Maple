@@ -232,10 +232,12 @@
 }
 
 // ── Phone CARD editor (#1807) ───────────────────────────────────────────────
-// Bottom horizontal tool dock — full-width, pinned to the bottom edge.
+// Bottom horizontal tool dock — full-width, pinned to the bottom edge. The
+// safe-area inset (`--safe-area-inset-bottom`, from safe-area.scss) lifts it
+// clear of the home indicator on notched devices / PWA standalone.
 .phone-dock-anchor {
   position: absolute;
-  bottom: 10px;
+  bottom: calc(10px + var(--safe-area-inset-bottom));
   left: 12px;
   right: 12px;
   pointer-events: auto;
@@ -244,19 +246,24 @@
 // Flyout slider card — floats just above the dock. Its own `closed` input
 // (driven by phoneCardOpen()) hides the card contents; this anchor keeps
 // the reserved space so opening/closing doesn't reflow the dock underneath.
+// Adds the same safe-area inset as the dock so both shift up together and the
+// card never collides with the home indicator.
 .phone-card-anchor {
   position: absolute;
-  bottom: 78px; // clears the 44px dock + its 10px inset + a gap
+  bottom: calc(
+    78px + var(--safe-area-inset-bottom)
+  ); // clears the 44px dock + its 10px inset + a gap
   left: 12px;
   right: 12px;
   pointer-events: auto;
 }
 
 // Curve panel (tone curve + WB pad) on phone — same content as tablet/desktop
-// (#1569), floats above the dock like the flyout card.
+// (#1569), floats above the dock like the flyout card. Shares the flyout card's
+// safe-area inset so it stays fully visible above the home indicator.
 .phone-curve-panel {
   position: absolute;
-  bottom: 78px;
+  bottom: calc(78px + var(--safe-area-inset-bottom));
   left: 12px;
   right: 12px;
   pointer-events: auto;
