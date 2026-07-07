@@ -35,8 +35,10 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// surface, `.edit` → `EditorDestination → EditorView` (Fast Preview §1;
     /// S5 #625/#791). Each destination's back button calls `dismiss()`, which
     /// pops this path. A typed `[LibraryDestination]` (Hashable) keeps push/pop
-    /// trivial vs. a type-erased `NavigationPath`.
-    @State private var libraryPath: [LibraryDestination] = []
+    /// trivial vs. a type-erased `NavigationPath`. Owned by `AppShell` (bound
+    /// in) so the deep-link / document-open image-open paths can push onto the
+    /// same stack a grid tap uses.
+    @Binding var libraryPath: [LibraryDestination]
 
     /// Live text for the Search tab's native `.searchable` field (the
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
