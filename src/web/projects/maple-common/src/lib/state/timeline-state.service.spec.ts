@@ -42,12 +42,15 @@ describe('TimelineStateService', () => {
     timeline = TestBed.inject(TimelineStateService);
     library = TestBed.inject(LibraryStateService);
     // The Timeline scopes its server query to the registered library that
-    // owns the selection (longest path-prefix match), and sends the prefix
-    // RELATIVE to that library root. Register `/Lib` so the derived params
-    // can resolve a library id + relative prefix.
+    // owns the selection, matched by the selected node's `slug:relPath`
+    // address (the canonical post-M2 addressing scheme — plain `fs:<absPath>`
+    // ids are the retired pre-M2 form). Lazy-loaded subfolder nodes don't
+    // carry their own `absPath` in production, so this fixture deliberately
+    // omits it on everything but the library root to match reality.
     library.registeredFolders.set([
       {
         id: 'lib-1',
+        slug: 'lib',
         path: '/Lib',
         label: 'Lib',
         last_scan: null,
@@ -58,34 +61,31 @@ describe('TimelineStateService', () => {
     library.sidebarTree.set([
       {
         kind: 'folder',
-        id: 'fs:/Lib',
+        id: 'lib:',
         label: 'Lib',
         count: null,
         absPath: '/Lib',
         children: [
           {
             kind: 'folder',
-            id: 'fs:/Lib/2026',
+            id: 'lib:2026',
             label: '2026',
             count: null,
-            absPath: '/Lib/2026',
           },
           {
             // Sibling that shares the leading prefix — used to verify the
             // trailing-slash normalisation prevents accidental matches.
             kind: 'folder',
-            id: 'fs:/Lib/2026-archive',
+            id: 'lib:2026-archive',
             label: '2026-archive',
             count: null,
-            absPath: '/Lib/2026-archive',
           },
           {
-            // Already has trailing slash — must not double-up.
+            // relPath already carries a trailing slash — must not double-up.
             kind: 'folder',
-            id: 'fs:/Lib/with-slash/',
+            id: 'lib:with-slash/',
             label: 'with-slash',
             count: null,
-            absPath: '/Lib/with-slash/',
           },
         ],
       },
@@ -110,34 +110,54 @@ describe('TimelineStateService', () => {
       expect(timeline.pathPrefix()).toBeNull();
     });
 
+    it('resolves the library root itself', () => {
+      library.selectedSourceId.set('lib:');
+      expect(timeline.pathPrefix()).toBe('/Lib/');
+    });
+
     it('appends a trailing slash when missing', () => {
-      library.selectedSourceId.set('fs:/Lib/2026');
+      library.selectedSourceId.set('lib:2026');
       expect(timeline.pathPrefix()).toBe('/Lib/2026/');
     });
 
     it('does not double up existing trailing slashes', () => {
-      library.selectedSourceId.set('fs:/Lib/with-slash/');
+      library.selectedSourceId.set('lib:with-slash/');
       expect(timeline.pathPrefix()).toBe('/Lib/with-slash/');
     });
 
     it('walks recursively into children', () => {
-      library.selectedSourceId.set('fs:/Lib/2026-archive');
+      library.selectedSourceId.set('lib:2026-archive');
       expect(timeline.pathPrefix()).toBe('/Lib/2026-archive/');
     });
 
     it('keeps `/Lib/2026` from matching `/Lib/2026-archive` paths via trailing slash', () => {
-      library.selectedSourceId.set('fs:/Lib/2026');
+      library.selectedSourceId.set('lib:2026');
       // The trailing-slash normalisation is the load-bearing guard.
       // /Lib/2026/photo.dng matches `^/Lib/2026/` — /Lib/2026-archive/photo.dng does not.
       expect(timeline.pathPrefix()).toBe('/Lib/2026/');
       expect('/Lib/2026/photo.dng'.startsWith(timeline.pathPrefix()!)).toBe(true);
       expect('/Lib/2026-archive/photo.dng'.startsWith(timeline.pathPrefix()!)).toBe(false);
     });
+
+    it('resolves against a pre-M1 library that has no slug, via id fallback', () => {
+      library.registeredFolders.set([
+        {
+          id: 'lib',
+          path: '/Lib',
+          label: 'Lib',
+          last_scan: null,
+          file_count: 0,
+          created_at: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+      library.selectedSourceId.set('lib:2026');
+      expect(timeline.pathPrefix()).toBe('/Lib/2026/');
+    });
   });
 
   describe('params', () => {
     beforeEach(() => {
-      library.selectedSourceId.set('fs:/Lib/2026');
+      library.selectedSourceId.set('lib:2026');
     });
 
     it('returns null when no path scope is selected', () => {
@@ -156,7 +176,7 @@ describe('TimelineStateService', () => {
     });
 
     it('omits pathPrefix but keeps libraryId when the library root itself is selected', () => {
-      library.selectedSourceId.set('fs:/Lib');
+      library.selectedSourceId.set('lib:');
       const p = timeline.params();
       expect(p).not.toBeNull();
       expect(p!.pathPrefix).toBeUndefined();

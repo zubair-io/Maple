@@ -22,6 +22,7 @@ import { LibraryStateService } from './library-state.service';
 import { SidebarEntry } from '../models/folder';
 import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
 import { SearchParams } from '../api/search.service';
+import { parseAddress } from '../addressing/maple-address';
 
 export type TimelineFlag = '' | 'pick' | 'reject';
 export type TimelineColor = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
@@ -52,45 +53,64 @@ export class TimelineStateService {
   readonly from = signal<string>('');
   readonly to = signal<string>('');
 
-  // ── Derived: pathPrefix from selected sidebar entry ──────────────────────
+  // ── Derived: address of the selected sidebar entry, if it's a folder ─────
   /**
    * Walks the sidebar tree to find the entry whose id === selectedSourceId
-   * and returns its absPath, normalised with a trailing slash so an anchored
-   * regex match doesn't accidentally include sibling folders whose names
-   * share a prefix (e.g. `/Lib/2026` matching `/Lib/2026-archive`).
+   * and, when it's a filesystem folder node, parses its id as a `slug:relPath`
+   * MapleAddress (the canonical post-M2 addressing scheme — see
+   * `../addressing/maple-address`). Node ids for non-folder kinds (smart
+   * collections, albums, section headers) aren't guaranteed colon-free, so
+   * the `kind === 'folder'` check guards against misparsing one as an address.
    *
    * Returns null when nothing is selected or the selected node isn't a
-   * filesystem-backed entry — the Timeline view shows an empty state.
+   * filesystem-backed folder — the Timeline view shows an empty state.
    */
-  readonly pathPrefix = computed<string | null>(() => {
+  private readonly selectedFolderAddress = computed(() => {
     const id = this.state.selectedSourceId();
     if (!id) return null;
     const found = this._findEntry(this.state.sidebarTree(), id);
-    if (!found?.absPath) return null;
-    return found.absPath.endsWith('/') ? found.absPath : `${found.absPath}/`;
+    if (!found || found.kind !== 'folder' || !id.includes(':')) return null;
+    try {
+      return parseAddress(id);
+    } catch {
+      return null;
+    }
   });
 
   // ── Derived: registered library that owns the current selection ──────────
   /**
-   * Longest path-prefix match of the absolute selection against the
-   * registered libraries. Drives both the `libraryId` scope and the
-   * library-relative `pathPrefix` (the server matches `fileinfo.path`, which
-   * is the directory RELATIVE to the library root — see below). Returns null
-   * when nothing filesystem-backed is selected or the library list hasn't
-   * loaded yet.
+   * Matches the selected address's `slug` against the registered libraries
+   * (falling back to `id` for pre-M1 servers with no `slug` field — the same
+   * pattern used in `library-fetch.service.ts`). Returns null when nothing
+   * filesystem-backed is selected or the library list hasn't loaded yet.
    */
   private readonly owningLibrary = computed<ApiFolder | null>(() => {
-    const prefix = this.pathPrefix();
-    if (!prefix) return null;
-    const abs = prefix.replace(/\/+$/, '');
-    let best: ApiFolder | null = null;
-    for (const f of this.state.registeredFolders()) {
-      const root = f.path.replace(/\/+$/, '');
-      if (abs === root || abs.startsWith(root + '/')) {
-        if (!best || root.length > best.path.replace(/\/+$/, '').length) best = f;
-      }
-    }
-    return best;
+    const addr = this.selectedFolderAddress();
+    if (!addr) return null;
+    return (
+      this.state.registeredFolders().find((f) => f.slug === addr.slug || f.id === addr.slug) ??
+      null
+    );
+  });
+
+  // ── Derived: pathPrefix from selected sidebar entry ──────────────────────
+  /**
+   * Absolute filesystem path of the current selection, normalised with a
+   * trailing slash so an anchored match against `PhotoVm.abs_path` doesn't
+   * accidentally include sibling folders whose names share a prefix (e.g.
+   * `/Lib/2026` matching `/Lib/2026-archive`). Reconstructed from the owning
+   * library's absolute root path + the address's relative path, since
+   * lazy-loaded subfolder nodes don't carry their own `absPath` (only
+   * library roots do — `absPath` is a legacy field kept for other consumers).
+   */
+  readonly pathPrefix = computed<string | null>(() => {
+    const addr = this.selectedFolderAddress();
+    if (!addr) return null;
+    const owning = this.owningLibrary();
+    if (!owning) return null;
+    const root = owning.path.replace(/\/+$/, '');
+    const rel = addr.relPath.replace(/^\/+/, '').replace(/\/+$/, '');
+    return rel.length > 0 ? `${root}/${rel}/` : `${root}/`;
   });
 
   // ── Derived: params bag for SearchService.search / .buckets ──────────────
@@ -109,14 +129,12 @@ export class TimelineStateService {
    * `2026` can't accidentally match a same-named folder in another library.
    */
   readonly params = computed<Omit<SearchParams, 'page' | 'limit' | 'sort'> | null>(() => {
-    const prefix = this.pathPrefix();
-    if (!prefix) return null;
+    const addr = this.selectedFolderAddress();
+    if (!addr) return null;
     const owning = this.owningLibrary();
     if (!owning) return null;
 
-    const root = owning.path.replace(/\/+$/, '');
-    const abs = prefix.replace(/\/+$/, '');
-    const rel = abs === root ? '' : abs.slice(root.length).replace(/^\/+/, '');
+    const rel = addr.relPath.replace(/^\/+/, '').replace(/\/+$/, '');
 
     const q = this.state.searchQuery().trim();
     const minR = this.minRating();
