@@ -2,10 +2,11 @@
 // S7 (#622) search experience in the Self-Hosted (maple) app.
 //
 // Wraps `<app-search>` from maple-common and wires it into the app
-// router: photo taps push to `/library/editor/<id>` (the Editor shell),
-// and the "See all" button leaves the user on the same page (no filtered grid
-// view yet — that lands as part of S7 follow-up or as a redirect into
-// the existing rich filter page at `/search/advanced`).
+// router: photo taps push to `/view/<id>` (the fast Preview surface,
+// Web Preview Surface Task 6c), and the "See all" button leaves the user
+// on the same page (no filtered grid view yet — that lands as part of S7
+// follow-up or as a redirect into the existing rich filter page at
+// `/search/advanced`).
 //
 // On mount the component reads two query params off the route:
 //   - `?q=<query>` — the search term the browse-shell toolbar and the S1b
@@ -23,7 +24,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
+import { SearchComponent, SearchResult, SearchScope, viewRouteCommands } from '@maple-common';
 
 @Component({
   selector: 'maple-search-page',
@@ -69,11 +70,11 @@ export class SearchPageComponent implements AfterViewInit {
   }
 
   protected onPhotoTap(r: SearchResult): void {
-    // S5 (#625): route results to the responsive Editor shell at
-    // /library/editor/:id. Note: Self-Hosted search returns `fs:<absPath>`
-    // ids; fs: cold-load/hydration in the responsive editor is a follow-up
-    // (#625) and not yet implemented.
-    void this.router.navigate(['/library/editor', r.id]);
+    // Web Preview Surface Task 6c: route results to the fast Preview surface
+    // at /view/:slug/**. Self-Hosted search returns `fs:<absPath>` ids;
+    // viewRouteCommands() passes those through as a single :slug segment and
+    // PreviewShellComponent resolves them via the self-hosted-synth path.
+    void this.router.navigate(viewRouteCommands(r.id));
   }
 
   protected onFilters(payload: { query: string; scope: SearchScope }): void {

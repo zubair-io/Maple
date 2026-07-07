@@ -212,6 +212,11 @@ export class LibraryStateService {
     return this.cache_.subscribeThumbUrl(id, cb);
   }
 
+  /** Subscribe to preview (best display-still) URL changes for `id`; see LibraryCache. */
+  subscribePreviewUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
+    return this.cache_.subscribePreviewUrl(id, cb);
+  }
+
   ensureThumbnailUrl(asset: Asset): void {
     this.cache_.ensureThumbnailUrl(asset, (id, sha) => this.fetch_.updateIndexThumb(id, sha));
   }

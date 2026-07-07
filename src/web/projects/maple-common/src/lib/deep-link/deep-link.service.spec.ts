@@ -27,10 +27,10 @@ describe('DeepLinkService', () => {
   // Apple and by PWA protocol_handlers on Chromium.
   // ---------------------------------------------------------------
 
-  it('routes maple://image/{id} to /library/editor/{id}', () => {
+  it('routes maple://image/{id} to /view/{id}', () => {
     service.resolve('maple://image/abc123');
     expect(router.navigate).toHaveBeenCalledTimes(1);
-    expect(router.navigate).toHaveBeenCalledWith(['/library/editor', 'abc123']);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'abc123']);
   });
 
   it('routes maple://source/{id} to /library?source={id}', () => {
@@ -43,7 +43,14 @@ describe('DeepLinkService', () => {
 
   it('accepts a URL instance as well as a string', () => {
     service.resolve(new URL('maple://image/xyz'));
-    expect(router.navigate).toHaveBeenCalledWith(['/library/editor', 'xyz']);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'xyz']);
+  });
+
+  it('splits a slug:relPath id into /view/:slug/** segments (viewRouteCommands, not a single collapsed segment)', () => {
+    // A raw ['/view', id] here would put the WHOLE 'lib:2026/a.jpg' id into the
+    // :slug route param (relPath empty), breaking cold-load resolution.
+    service.resolve('maple://image/lib:2026/a.jpg');
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'lib', '2026', 'a.jpg']);
   });
 
   // ---------------------------------------------------------------
@@ -55,12 +62,17 @@ describe('DeepLinkService', () => {
   it('unwraps the protocol_handlers wrapping (/library/editor/<encoded maple://>)', () => {
     const wrapped = `/library/editor/${encodeURIComponent('maple://image/abc')}`;
     service.resolve(`http://localhost${wrapped}`);
-    expect(router.navigate).toHaveBeenCalledWith(['/library/editor', 'abc']);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'abc']);
   });
 
-  it('routes ?image=… to /library/editor/{id}', () => {
+  it('routes ?image=… to /view/{id}', () => {
     service.resolve('http://localhost/library?image=foo');
-    expect(router.navigate).toHaveBeenCalledWith(['/library/editor', 'foo']);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'foo']);
+  });
+
+  it('routes ?image=<slug:relPath> to split /view/:slug/** segments', () => {
+    service.resolve('http://localhost/library?image=lib:2026/a.jpg');
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'lib', '2026', 'a.jpg']);
   });
 
   it('routes ?source=… to /library?source={id}', () => {

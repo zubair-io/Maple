@@ -12,8 +12,8 @@
 // future deep-link service will normalise both forms.
 //
 // Supported targets:
-//   web+maple://image/<id>            →  /library/editor/<id>
-//   maple://image/<id>                →  /library/editor/<id>
+//   web+maple://image/<id>            →  /view/<id> (or /view/:slug/** for a slug:relPath id)
+//   maple://image/<id>                →  /view/<id> (or /view/:slug/** for a slug:relPath id)
 //   maple://browse/<slug>[/<relPath>] →  /browse/:slug/**  (M2, #1327)
 //   maple://edit/<slug>/<relPath>     →  /edit/:slug/**    (M2, #1327)
 //
@@ -23,6 +23,8 @@
 
 import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+
+import { viewRouteCommands } from '../addressing/route-address';
 
 @Component({
   selector: 'app-protocol-handler',
@@ -77,7 +79,7 @@ export function parseProtocolUrl(raw: string | null): string[] | null {
   const pathSegs = parsed.pathname.split('/').filter(Boolean);
 
   if (host === 'image' && pathSegs.length > 0) {
-    return ['/library/editor', decodeURIComponent(pathSegs.join('/'))];
+    return viewRouteCommands(decodeURIComponent(pathSegs.join('/')));
   }
 
   if ((host === 'browse' || host === 'edit') && pathSegs.length > 0) {

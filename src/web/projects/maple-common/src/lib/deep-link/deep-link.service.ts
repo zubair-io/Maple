@@ -9,7 +9,7 @@
 // Same routes as Apple — keeps the two platforms shoulder-to-shoulder
 // per the spec's "shared DeepLinkResolver" goal:
 //
-//   • maple://image/{id}                       ↔ /library/editor/{id}
+//   • maple://image/{id}                       ↔ /view/{id} (or /view/:slug/** for a slug:relPath id)
 //   • maple://source/{id}                      ↔ /library?source={id}
 //   • maple://browse/{slug}[/{...relPath}]     ↔ /browse/:slug/**  (M2, #1327)
 //   • maple://edit/{slug}/{...relPath}         ↔ /edit/:slug/**    (M2, #1327)
@@ -23,6 +23,8 @@
 
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
+
+import { viewRouteCommands } from '../addressing/route-address';
 
 @Injectable({ providedIn: 'root' })
 export class DeepLinkService {
@@ -70,7 +72,7 @@ export class DeepLinkService {
     const image = u.searchParams.get('image');
     const source = u.searchParams.get('source');
     if (image) {
-      this.router.navigate(['/library/editor', image]);
+      this.router.navigate(viewRouteCommands(image));
     } else if (source) {
       this.router.navigate(['/library'], { queryParams: { source } });
     }
@@ -87,7 +89,7 @@ export class DeepLinkService {
       // Phone-tier route: the id is the full path (may include slug:relPath)
       const id = pathSegs.join('/');
       if (!id) return;
-      this.router.navigate(['/library/editor', id]);
+      this.router.navigate(viewRouteCommands(id));
     } else if (host === 'source') {
       const id = pathSegs[0];
       if (!id) return;

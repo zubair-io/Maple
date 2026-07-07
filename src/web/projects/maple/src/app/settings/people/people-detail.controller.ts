@@ -1,5 +1,5 @@
 // PeopleDetailController — plain-TS controller for the detail-view face
-// actions on the `/settings/people/:id` page: set-as-cover, open-in-editor,
+// actions on the `/settings/people/:id` page: set-as-cover, open-in-preview,
 // and infinite-scroll pagination.
 //
 // Extracted from `PeopleComponent` to satisfy the 600-LOC file budget,
@@ -11,7 +11,12 @@
 
 import { computed, type Signal, type WritableSignal } from '@angular/core';
 import { Router } from '@angular/router';
-import { type ApiPersonDetail, type ApiPersonFace, PeopleStore } from '@maple-common';
+import {
+  type ApiPersonDetail,
+  type ApiPersonFace,
+  PeopleStore,
+  viewRouteCommands,
+} from '@maple-common';
 import { errorMessage, faceKey, type Tone } from './people.vm';
 
 export interface PeopleDetailDeps {
@@ -56,10 +61,10 @@ export class PeopleDetailController {
     }
   }
 
-  // ── Open in editor (Feature 2) ────────────────────────────────────────
+  // ── Open in Preview (Feature 2) ────────────────────────────────────────
 
-  openInEditor(face: ApiPersonFace): void {
-    void this.deps.router.navigate(['/library/editor', face.assetId]);
+  openInPreview(face: ApiPersonFace): void {
+    void this.deps.router.navigate(viewRouteCommands(face.assetId));
   }
 
   // ── Infinite scroll (Feature 3) ───────────────────────────────────────

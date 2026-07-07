@@ -1,55 +1,76 @@
 <!-- ControlCard — floating glass bottom card with group chips + living sliders -->
-<div class="card" [class.card--peek]="isPeek()">
-  <!-- Grab handle — real button so it's keyboard-focusable (Enter/Space toggle) -->
-  <button class="grab-handle" (click)="toggleCardState()" aria-label="Toggle panel">
-    <div class="grab-bar"></div>
-  </button>
+<!-- Phone (#1807): chip row is replaced by a close button; `closed` hides the card -->
+@if (!phone() || !closed()) {
+  <div class="card" [class.card--peek]="isPeek()" [class.card--phone]="phone()">
+    <!-- Grab handle — real button so it's keyboard-focusable (Enter/Space toggle) -->
+    <button class="grab-handle" (click)="toggleCardState()" aria-label="Toggle panel">
+      <div class="grab-bar"></div>
+    </button>
 
-  <!-- Header row: group chips + reset button -->
-  <div class="card-header">
-    <!-- Group chips -->
-    <div class="group-chips" role="tablist" aria-label="Tool groups">
-      @for (group of allGroups; track group) {
+    <!-- Header row: group chips (tablet/desktop) or group label + close (phone) -->
+    <div class="card-header">
+      @if (phone()) {
+        <!-- Phone: the bottom tool dock owns group selection — show the active
+             group's name instead of a redundant chip row. -->
+        <span class="phone-group-label">{{ groupLabel(activeGroup()) }}</span>
+      } @else {
+        <div class="group-chips" role="tablist" aria-label="Tool groups">
+          @for (group of allGroups; track group) {
+            <button
+              class="group-chip"
+              [class.group-chip--active]="group === activeGroup()"
+              role="tab"
+              [attr.aria-selected]="group === activeGroup()"
+              (click)="groupChange.emit(group)"
+            >
+              {{ groupLabel(group) }}
+            </button>
+          }
+        </div>
+      }
+
+      <!-- Reset group button -->
+      <button
+        class="reset-btn"
+        title="Reset {{ groupLabel(activeGroup()) }}"
+        aria-label="Reset {{ groupLabel(activeGroup()) }} adjustments"
+        (click)="resetGroup()"
+      >
+        <maple-icon name="revert" [size]="13" color="var(--pro-text-muted)" />
+      </button>
+
+      @if (phone()) {
+        <!-- Close button — collapses the flyout back to just the dock. -->
         <button
-          class="group-chip"
-          [class.group-chip--active]="group === activeGroup()"
-          role="tab"
-          [attr.aria-selected]="group === activeGroup()"
-          (click)="groupChange.emit(group)"
+          class="close-btn"
+          title="Close panel"
+          aria-label="Close panel"
+          (click)="onCloseClick()"
         >
-          {{ groupLabel(group) }}
+          <maple-icon name="clear-circle-fill" [size]="16" color="var(--pro-text-muted)" />
         </button>
       }
     </div>
 
-    <!-- Reset group button -->
-    <button
-      class="reset-btn"
-      title="Reset {{ groupLabel(activeGroup()) }}"
-      aria-label="Reset {{ groupLabel(activeGroup()) }} adjustments"
-      (click)="resetGroup()"
-    >
-      <maple-icon name="revert" [size]="13" color="var(--pro-text-muted)" />
-    </button>
+    <!-- Slider grid (hidden in peek mode) -->
+    @if (!isPeek()) {
+      <div class="slider-grid">
+        @for (tool of slidersFor(activeGroup()); track tool) {
+          <pro-living-slider
+            [attr.aria-label]="labelFor(tool)"
+            [label]="labelFor(tool)"
+            [value]="valueFor(tool)"
+            [min]="minFor(tool)"
+            [max]="maxFor(tool)"
+            [step]="stepFor(tool)"
+            [gradient]="gradientFor(tool)"
+            [bipolar]="bipolarFor(tool)"
+            [defaultValue]="defaultFor(tool)"
+            (valueChange)="onSliderChange(tool, $event)"
+            (resetRequest)="onSliderReset(tool)"
+          />
+        }
+      </div>
+    }
   </div>
-
-  <!-- Slider grid (hidden in peek mode) -->
-  @if (!isPeek()) {
-    <div class="slider-grid">
-      @for (tool of slidersFor(activeGroup()); track tool) {
-        <pro-living-slider
-          [label]="labelFor(tool)"
-          [value]="valueFor(tool)"
-          [min]="minFor(tool)"
-          [max]="maxFor(tool)"
-          [step]="stepFor(tool)"
-          [gradient]="gradientFor(tool)"
-          [bipolar]="bipolarFor(tool)"
-          [defaultValue]="defaultFor(tool)"
-          (valueChange)="onSliderChange(tool, $event)"
-          (resetRequest)="onSliderReset(tool)"
-        />
-      }
-    </div>
-  }
-</div>
+}

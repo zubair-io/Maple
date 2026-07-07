@@ -35,17 +35,28 @@ describe('parseProtocolUrl', () => {
   });
 
   it('parses web+maple://image/<id>', () => {
-    expect(parseProtocolUrl('web+maple://image/abc123')).toEqual(['/library/editor', 'abc123']);
+    expect(parseProtocolUrl('web+maple://image/abc123')).toEqual(['/view', 'abc123']);
   });
 
   it('parses bare maple://image/<id> (iOS scheme)', () => {
-    expect(parseProtocolUrl('maple://image/xyz')).toEqual(['/library/editor', 'xyz']);
+    expect(parseProtocolUrl('maple://image/xyz')).toEqual(['/view', 'xyz']);
   });
 
   it('decodes percent-encoded ids', () => {
     expect(parseProtocolUrl('web+maple://image/fs%3A%2Ffoo%2Fbar.dng')).toEqual([
-      '/library/editor',
+      '/view',
       'fs:/foo/bar.dng',
+    ]);
+  });
+
+  it('splits a slug:relPath image id into /view/:slug/** segments (viewRouteCommands, not a single collapsed segment)', () => {
+    // A raw ['/view', id] here would put the WHOLE 'lib:2026/a.jpg' id into the
+    // :slug route param (relPath empty), breaking cold-load resolution.
+    expect(parseProtocolUrl('web+maple://image/lib:2026/a.jpg')).toEqual([
+      '/view',
+      'lib',
+      '2026',
+      'a.jpg',
     ]);
   });
 
@@ -107,7 +118,7 @@ describe('ProtocolHandlerComponent', () => {
         provideRouter([
           { path: 'protocol-handler', component: ProtocolHandlerComponent },
           { path: 'library', component: StubComponent },
-          { path: 'library/editor/:id', component: StubComponent },
+          { path: 'view/:id', component: StubComponent },
         ]),
       ],
     }).compileComponents();
@@ -127,11 +138,8 @@ describe('ProtocolHandlerComponent', () => {
     expect(router.url).toBe(finalUrl);
   }
 
-  it('redirects to /library/editor/<id> for a valid web+maple URL', async () => {
-    await expectRedirectTo(
-      '/protocol-handler?url=web%2Bmaple%3A%2F%2Fimage%2Fabc',
-      '/library/editor/abc',
-    );
+  it('redirects to /view/<id> for a valid web+maple URL', async () => {
+    await expectRedirectTo('/protocol-handler?url=web%2Bmaple%3A%2F%2Fimage%2Fabc', '/view/abc');
   });
 
   it('falls back to /library when the url param is missing', async () => {

@@ -34,6 +34,7 @@ export type MapleIconName =
   | 'zoom-out'
   | 'split'
   | 'export'
+  | 'edit'
   | 'eyedrop'
   | 'map-pin'
   | 'camera'
@@ -182,6 +183,12 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   'zoom-out': [circle(7, 7, 4), path('M10 10l3 3M5 7h4')],
   split: [rect(2.5, 3.5, 11, 9, 1), path('M8 3.5v9')],
   export: [path('M8 2.5v8M5 5.5l3-3 3 3M3 11v2a1 1 0 001 1h8a1 1 0 001-1v-2')],
+  // Pencil — reuses the proven glyph from `SettingsIconName`'s 'edit' case
+  // (projects/maple/src/app/settings/settings-icon.component.ts) so the two
+  // icon systems draw the same pencil rather than diverging designs. Used
+  // for "open this photo in the editor" affordances (Preview bottom bar's
+  // Edit button, #Web Preview Surface Task 4).
+  edit: [path('M3 13l1-3 7-7 2 2-7 7-3 1zM10 4l2 2')],
   eyedrop: [
     path('M11 2.5l2.5 2.5-1.5 1.5L10.5 5l-5.5 5.5L3 12l-.5 1.5 1.5-.5 1.5-1.5L11 6l-1-1 1.5-1.5z'),
   ],

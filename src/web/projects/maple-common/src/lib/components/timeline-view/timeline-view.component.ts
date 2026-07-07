@@ -45,7 +45,7 @@ import {
 } from '../../api/search.service';
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { Asset } from '../../models/asset';
-import { editRouteCommands } from '../../addressing/route-address';
+import { viewRouteCommands } from '../../addressing/route-address';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TimelineStateService } from '../../state/timeline-state.service';
 import { TimelineFilterRowComponent } from './timeline-filter-row.component';
@@ -661,7 +661,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   onPhotoDblClick(p: PhotoVm): void {
     this._hydrate(p);
     this.state.selectAsset(p.id);
-    void this.router.navigate(editRouteCommands(p.id));
+    void this.router.navigate(viewRouteCommands(p.id));
   }
 
   /** Project a Timeline search hit into the `assets` signal so the detail

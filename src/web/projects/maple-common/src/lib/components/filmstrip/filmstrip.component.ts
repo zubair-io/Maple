@@ -12,12 +12,13 @@ import {
   ViewChildren,
   effect,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { Asset } from '../../models/asset';
-import { editRouteCommands } from '../../addressing/route-address';
+import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 
@@ -43,6 +44,12 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   /** Collapse toggle — hides the thumbnails, leaving the FILMSTRIP header. */
   readonly collapsed = signal(false);
+
+  /** Which route family `select()` navigates into: the editor (`'edit'`,
+   * default — unchanged behavior for the existing editor filmstrip) or the
+   * fast Preview surface (`'view'`, used when this filmstrip is embedded in
+   * `PreviewShellComponent`). */
+  readonly routeMode = input<'edit' | 'view'>('edit');
 
   thumbH(asset: Asset): number {
     const w = 102; // strip width - 2*4 padding
@@ -71,6 +78,8 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   select(asset: Asset): void {
     this.state.selectAsset(asset.id);
-    void this.router.navigate(editRouteCommands(asset.id));
+    const cmds =
+      this.routeMode() === 'view' ? viewRouteCommands(asset.id) : editRouteCommands(asset.id);
+    void this.router.navigate(cmds);
   }
 }

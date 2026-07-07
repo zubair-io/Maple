@@ -1,7 +1,16 @@
 // ControlCardComponent — floating glass card at bottom of canvas (#1535).
-// Contains: group chip row (active = accent28 fill + accent border) +
-// living-slider column (1 col phone / 2 col tablet+desktop) for the
-// active group. Grab handle collapses between peek (chips only) and full.
+//
+// Tablet/desktop: group chip row (active = accent28 fill + accent border) +
+// living-slider column (2-col) for the active group. Grab handle collapses
+// between peek (chips only) and full.
+//
+// Phone (#1807 — CARD editor): the horizontal tool dock now owns group
+// selection, so the chip row is suppressed (`phone` input); the card is
+// instead a closeable flyout driven by the `closed` input — closed hides the
+// whole card and leaves only the dock visible. A close button replaces the
+// chip row's role of dismissing the panel; the grab handle still toggles
+// full/peek for a one-handed "peek at the group name" affordance.
+//
 // Reset button in header zeroes the visible group.
 // Per-slider double-click zeroes that one slider (handled via resetRequest).
 
@@ -58,17 +67,35 @@ export class ControlCardComponent {
   // ── Inputs ────────────────────────────────────────────────────────────
   /** Currently active tool group. */
   activeGroup = input.required<ToolGroup>();
+  /**
+   * Phone layout (#1807): suppresses the text group-chip row (the bottom
+   * tool dock now owns group selection) and shows a close button instead.
+   */
+  phone = input<boolean>(false);
+  /**
+   * Phone-only: the card is fully hidden, leaving just the dock. Driven by
+   * the shell from dock taps — the card itself doesn't own open/closed
+   * because opening is triggered by the dock, which lives outside this
+   * component. Ignored (card always shown) when `phone` is false.
+   */
+  closed = input<boolean>(false);
 
   // ── Outputs ───────────────────────────────────────────────────────────
   /** Fired when user taps a group chip. */
   groupChange = output<ToolGroup>();
+  /** Fired when the user taps the phone close button. */
+  closeRequest = output<void>();
 
-  // ── Card collapse state ────────────────────────────────────────────────
+  // ── Card collapse state (tablet/desktop grab-handle peek) ──────────────
   readonly cardState = signal<CardState>('full');
   readonly isPeek = computed(() => this.cardState() === 'peek');
 
   toggleCardState(): void {
     this.cardState.update((s) => (s === 'full' ? 'peek' : 'full'));
+  }
+
+  onCloseClick(): void {
+    this.closeRequest.emit();
   }
 
   // ── Data helpers ──────────────────────────────────────────────────────

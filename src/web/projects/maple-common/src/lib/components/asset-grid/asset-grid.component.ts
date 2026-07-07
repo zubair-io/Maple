@@ -27,7 +27,7 @@ import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { parseAddress } from '../../addressing/maple-address';
-import { editRouteCommands } from '../../addressing/route-address';
+import { viewRouteCommands } from '../../addressing/route-address';
 
 export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
@@ -147,10 +147,10 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   onThumbDblClick(asset: Asset): void {
     this.state.selectAsset(asset.id);
-    // Split the slug:relPath id into /edit/:slug/** segments — passing the whole
-    // id as one segment makes the editor resolve a bogus address and bounce back
+    // Split the slug:relPath id into /view/:slug/** segments — passing the whole
+    // id as one segment makes Preview resolve a bogus address and bounce back
     // to Browse.
-    void this.router.navigate(editRouteCommands(asset.id));
+    void this.router.navigate(viewRouteCommands(asset.id));
   }
 
   onFolderTileClick(folder: GridFolderItem): void {

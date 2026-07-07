@@ -29,6 +29,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { Asset } from '../models/asset';
+import { viewRouteCommands } from '../addressing/route-address';
 import { BrowsePreferencesService, CullFilter } from '../state/browse-preferences.service';
 import { LibrarySelection } from '../state/library-selection.service';
 import { FilterChipsComponent } from './filter-chips.component';
@@ -91,9 +92,10 @@ export class LibraryGridComponent {
 
   onCellTap(asset: Asset): void {
     this.selection.selectAsset(asset.id);
-    // S5 (#625): tapping a Library cell pushes straight to the responsive
-    // Editor — the editor canvas IS the full-image view (no intermediate
-    // loupe). See docs/design/responsive-program/s5-editor.md §"User Flow".
-    void this.router.navigate(['/library/editor', asset.id]);
+    // Task 6b (Web Preview Surface): tapping a Library cell opens the fast
+    // Preview surface — the editor canvas is no longer the first stop after
+    // a tap. Edit still enters the full responsive Editor from there. See
+    // docs/design/responsive-program/s5-editor.md §"User Flow".
+    void this.router.navigate(viewRouteCommands(asset.id));
   }
 }

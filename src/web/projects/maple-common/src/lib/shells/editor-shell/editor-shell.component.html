@@ -50,6 +50,32 @@
         <maple-icon name="split" [size]="16" color="var(--pro-text-muted)" />
       </button>
 
+      <!-- Undo (long-press → redo) — mirrors the S5 editor's header button. -->
+      <button
+        class="top-icon-btn"
+        title="Undo (⌘Z) / hold for Redo (⌘⇧Z)"
+        aria-label="Undo"
+        data-testid="editor-shell-undo"
+        [disabled]="!editorState.canUndo() && !editorState.canRedo()"
+        (pointerdown)="onUndoPointerDown($event)"
+        (pointerup)="onUndoPointerUp()"
+        (pointercancel)="onUndoPointerCancel()"
+      >
+        <maple-icon name="undo-uturn" [size]="16" color="var(--pro-text-muted)" />
+      </button>
+
+      <!-- Info -->
+      <button
+        class="top-icon-btn"
+        [class.top-icon-btn--active]="infoOpen()"
+        title="Info"
+        aria-label="Info"
+        data-testid="editor-shell-info"
+        (click)="infoOpen.update((v) => !v)"
+      >
+        <maple-icon name="info" [size]="16" color="var(--pro-text-muted)" />
+      </button>
+
       <!-- Export -->
       <button
         class="export-btn"
@@ -74,9 +100,13 @@
       <div class="tool-dock-anchor">
         <pro-tool-dock
           [activeGroup]="activeGroup()"
+          [activeTool]="activeTool()"
           [curveOpen]="curveOpen()"
+          [presetsOpen]="presetsOpen()"
           (groupChange)="onGroupChange($event)"
+          (toolChange)="onToolChange($event)"
           (curvePanelToggle)="onCurvePanelToggle()"
+          (presetsPanelToggle)="onPresetsPanelToggle()"
         />
 
         <!-- Curve panel (tone curve + WB pad) — glass card, tablet/desktop only -->
@@ -87,15 +117,133 @@
             <pro-wb-pad />
           </div>
         }
+
+        <!-- Crop panel (#1813) — glass card hosting the shared crop toolbar
+             (aspect presets + straighten + reset/done). The interactive crop
+             rectangle itself is the shared `editor-crop-overlay`, already
+             mounted inside `editor-image-canvas` and gated on the same
+             `CropSessionService.active` this panel's visibility mirrors. -->
+        @if (cropArmed()) {
+          <div class="crop-panel">
+            <app-crop-toolbar />
+          </div>
+        }
+
+        <!-- Presets panel (#1815) — glass card hosting the shared
+             `app-presets-panel` (list/save/apply/delete). Applying a preset
+             routes through the identical `PresetsService`/
+             `EditorStateService.applyPreset` path the S5 editor uses. -->
+        @if (presetsOpen()) {
+          <div class="presets-panel">
+            <app-presets-panel (applied)="presetsOpen.set(false)" />
+          </div>
+        }
+
+        <!-- HSL panel (epic #1807 slice 4) — glass card hosting the shared
+             chip selector + drag bar + value chip. The same (tool, subParam)
+             arming machinery the S5 editor's HSL pill uses (#1112): tapping a
+             chip arms a hue/sat/lum band, the drag bar/value chip then read
+             and write that band's AdjustmentModel field. -->
+        @if (hslArmed()) {
+          <div class="hsl-panel">
+            <app-value-chip />
+            <div class="hsl-panel-chips">
+              <app-sub-param-row />
+            </div>
+            <app-drag-bar />
+          </div>
+        }
+      </div>
+
+      <!-- ── Tablet/desktop bottom control card ─────────────────── -->
+      <!-- Hidden while cropping: its living sliders are for the `detail`
+           group (sharpen/noise/colorNR), which armGroup('detail') via
+           armTool('crop') would otherwise show alongside — the crop toolbar
+           (in the dock-side panel above) is the only control surface while
+           armed, matching the S5 editor swapping its drag-bar area for the
+           crop toolbar. Hidden while HSL is armed for the same reason: HSL
+           has no single primary drag-bar field (24 sub-params,
+           control-card.component.ts's SLIDER_TOOLS deliberately excludes
+           it), so the HSL panel above is the only control surface while
+           armed. -->
+      @if (!cropArmed() && !hslArmed()) {
+        <div class="control-card-anchor">
+          <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
+        </div>
+      }
+    } @else {
+      <!-- ── Phone CARD editor (#1807): flyout card + bottom dock ──── -->
+
+      <!-- Flyout slider card — floats above the dock, closeable. Hidden
+           while Crop/HSL is armed for the same reason as the tablet/desktop
+           control card above: both own the phone flyout anchor while armed
+           (crop/HSL panels below), so the group slider card can't also show. -->
+      @if (!cropArmed() && !hslArmed()) {
+        <div class="phone-card-anchor">
+          <pro-control-card
+            [activeGroup]="activeGroup()"
+            [phone]="true"
+            [closed]="!phoneCardOpen()"
+            (groupChange)="onGroupChange($event)"
+            (closeRequest)="closePhoneCard()"
+          />
+        </div>
+      }
+
+      <!-- Curve panel (tone curve + WB pad) — same content as tablet/desktop,
+           floats above the dock like the phone control card (#1569). -->
+      @if (curveOpen()) {
+        <div class="phone-curve-panel">
+          <pro-tone-curve />
+          <div class="curve-panel-divider"></div>
+          <pro-wb-pad />
+        </div>
+      }
+
+      <!-- Crop panel (#1813) — same shared crop toolbar as tablet/desktop,
+           floats above the dock like the phone curve panel. -->
+      @if (cropArmed()) {
+        <div class="phone-crop-panel">
+          <app-crop-toolbar />
+        </div>
+      }
+
+      <!-- Presets panel (#1815) — same shared presets panel as
+           tablet/desktop, floats above the dock like the phone curve panel. -->
+      @if (presetsOpen()) {
+        <div class="phone-presets-panel">
+          <app-presets-panel (applied)="presetsOpen.set(false)" />
+        </div>
+      }
+
+      <!-- HSL panel (epic #1807 slice 4) — same shared chip selector + drag
+           bar + value chip as tablet/desktop, floats above the dock like the
+           phone curve panel. -->
+      @if (hslArmed()) {
+        <div class="phone-hsl-panel">
+          <app-value-chip />
+          <div class="hsl-panel-chips">
+            <app-sub-param-row />
+          </div>
+          <app-drag-bar />
+        </div>
+      }
+
+      <!-- Bottom horizontal tool dock -->
+      <div class="phone-dock-anchor">
+        <pro-tool-dock
+          orientation="horizontal"
+          [activeGroup]="activeGroup()"
+          [activeTool]="activeTool()"
+          [curveOpen]="curveOpen()"
+          [presetsOpen]="presetsOpen()"
+          (groupChange)="onPhoneDockGroupChange($event)"
+          (toolChange)="onPhoneToolChange($event)"
+          (curvePanelToggle)="onPhoneCurvePanelToggle()"
+          (presetsPanelToggle)="onPhonePresetsPanelToggle()"
+        />
       </div>
     }
-
-    <!-- ── Bottom control card ────────────────────────────────────── -->
-    <div class="control-card-anchor">
-      <pro-control-card [activeGroup]="activeGroup()" (groupChange)="onGroupChange($event)" />
-    </div>
-
-    <!-- Phone Curve trigger + sheet deferred to #1569 (no phone affordance opens curveOpen yet) -->
   </div>
 
   <!-- ── Value HUD (always visible layer, fades with its own signal) ── -->
@@ -107,4 +255,27 @@
       [progress]="hudProgress()"
     />
   </div>
+
+  <!-- ── Info (epic #1807 slice 5) — bottom sheet on phone, right-side pane
+       on tablet/desktop. Same split PreviewShellComponent uses for its Info
+       surface. -->
+  @if (isTabletPlus()) {
+    @if (infoOpen()) {
+      <div class="info-pane">
+        <app-info-panel
+          [asset]="state.focusedAsset()"
+          [insideSheet]="false"
+          (close)="infoOpen.set(false)"
+        />
+      </div>
+    }
+  } @else {
+    <app-bottom-sheet [(isOpen)]="infoOpen">
+      <app-info-panel
+        [asset]="state.focusedAsset()"
+        [insideSheet]="true"
+        (close)="infoOpen.set(false)"
+      />
+    </app-bottom-sheet>
+  }
 </div>

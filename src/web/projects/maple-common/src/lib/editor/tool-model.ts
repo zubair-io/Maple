@@ -108,9 +108,10 @@ export function groupOf(tool: ToolId): ToolGroup {
 // Crop (#638) stays in the stub set so the DRAG BAR rejects writes, but it is
 // fully interactive via the canvas crop overlay (the pill arms crop mode; the
 // overlay + crop toolbar drive `model.crop`).
-// Presets left the stub list at #1115: the pill opens the presets
-// sheet/popover (see EditorComponent) — it has no drag-bar value, so
-// `fieldFor` stays null and the value pipe is inert.
+// Presets left the stub list at #1115: the pill (retired S5 editor) / dock
+// entry (canvas-first editor, #1815) opens the presets sheet/popover/panel —
+// it has no drag-bar value, so `fieldFor` stays null and the value pipe is
+// inert.
 const STUB_TOOLS = new Set<ToolId>(['crop']);
 
 export function isWired(tool: ToolId): boolean {

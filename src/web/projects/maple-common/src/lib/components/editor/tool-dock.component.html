@@ -1,6 +1,11 @@
-<!-- ToolDock — vertical glass column, 8 icons -->
-<nav class="dock" role="navigation" aria-label="Editor tools">
-  @for (entry of entries; track entry.id) {
+<!-- ToolDock — glass column (vertical) or bar (horizontal, phone) -->
+<nav
+  class="dock"
+  [class.dock--horizontal]="orientation() === 'horizontal'"
+  role="navigation"
+  aria-label="Editor tools"
+>
+  @for (entry of entries(); track entry.id) {
     <button
       class="dock-btn"
       [class.dock-btn--active]="isActive(entry)"

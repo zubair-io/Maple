@@ -28,14 +28,14 @@ export function routeSegmentsToAddress(slug: string, segments: string[]): MapleA
 }
 
 /**
- * Convert a MapleAddress into Router.navigate() segments for browsing or editing.
+ * Convert a MapleAddress into Router.navigate() segments for browsing, editing, or viewing.
  *
  * @param a - the address to navigate to
- * @param mode - 'browse' (default) or 'edit'
+ * @param mode - 'browse' (default), 'edit', or 'view'
  */
 export function addressToRouteSegments(
   a: MapleAddress,
-  mode: 'browse' | 'edit' = 'browse',
+  mode: 'browse' | 'edit' | 'view' = 'browse',
 ): string[] {
   const base = `/${mode}`;
   const relParts = a.relPath ? a.relPath.split('/') : [];
@@ -66,4 +66,31 @@ export function editRouteCommands(id: string): string[] {
   // than emit an empty `/edit//foo` route segment. (parseAddress never throws.)
   if (!addr.slug) return ['/edit', id];
   return addressToRouteSegments(addr, 'edit');
+}
+
+/**
+ * Router.navigate() commands to open an asset id in the fast Preview surface.
+ *
+ * Mirrors editRouteCommands() exactly, but routes to `/view/:slug/**` instead.
+ * The `/view/:slug/**` route expects the slug and the relPath as SEPARATE
+ * segments. A MapleAddress id is a single `slug:relPath` string, so passing
+ * `['/view', id]` puts the WHOLE id into `:slug` (relPath empty) — the preview
+ * then resolves a bogus address, finds no asset, and bounces back to Browse.
+ * Split the address into its segments instead.
+ *
+ * Legacy `fs:<absPath>` ids (Self-Hosted search results, cold-load) and any id
+ * without a colon are NOT MapleAddresses — pass them through as a single segment.
+ * `PreviewShellComponent` detects an `fs:` `:slug` and hydrates it via the
+ * FS-walk cold-load path.
+ */
+export function viewRouteCommands(id: string): string[] {
+  // `fs:` ids contain ':' but aren't addresses; ids without ':' aren't either.
+  if (id.startsWith('fs:') || !id.includes(':')) {
+    return ['/view', id];
+  }
+  const addr = parseAddress(id);
+  // A malformed id like ':foo' parses to an empty slug — pass it through rather
+  // than emit an empty `/view//foo` route segment. (parseAddress never throws.)
+  if (!addr.slug) return ['/view', id];
+  return addressToRouteSegments(addr, 'view');
 }

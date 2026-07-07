@@ -1,8 +1,8 @@
 import { Routes } from '@angular/router';
 import {
   BrowseShellComponent,
-  EditorPageComponent,
   EditorShellComponent,
+  PreviewShellComponent,
   ProtocolHandlerComponent,
   authGuard,
 } from '@maple-common';
@@ -36,18 +36,27 @@ export const routes: Routes = [
     canActivate: [authGuard],
     children: [{ path: '**', component: EditorShellComponent }],
   },
+  // Web Preview Surface Task 3 — /view/:slug/** deep-links into a fast,
+  // static-image preview (grid thumbnail → display preview, no canvas/WASM).
+  {
+    path: 'view/:slug',
+    canActivate: [authGuard],
+    children: [{ path: '**', component: PreviewShellComponent }],
+  },
+  { path: 'view', canActivate: [authGuard], component: PreviewShellComponent },
   // Responsive-program S1a (#597) — phone-tier tab routes. The same
   // router serves both shells; RootShellComponent picks which wrapper
   // to render based on LayoutService.layout(). On phone the bottom-nav
   // links point at `/library`, `/search`, `/settings`; the loupe and
   // editor entries are placeholders that S4 / S5 will replace.
   { path: 'library', canActivate: [authGuard], component: LibraryPageComponent },
-  // S2 (#623) / S5 (#625): the loupe sub-route is gone — the Editor
-  // canvas IS the full-image view (per PR #619 spec drop). Loupe
-  // bookmarks redirect into the S5 Editor; the editor sub-route is
-  // wired directly to EditorPageComponent for the stacked #652 work.
-  { path: 'library/loupe/:id', redirectTo: 'library/editor/:id' },
-  { path: 'library/editor/:id', canActivate: [authGuard], component: EditorPageComponent },
+  // S2 (#623) / S5 (#625): the loupe sub-route is gone — the Editor canvas
+  // IS the full-image view (per PR #619 spec drop). The S5 editor itself was
+  // retired once the canvas-first editor reached feature parity (epic
+  // #1807) — loupe bookmarks now redirect to Preview (`/view/:id`), which is
+  // the sole entry point into an asset; Preview's own Edit action reaches
+  // the canvas-first editor (`/edit/:slug/**` above).
+  { path: 'library/loupe/:id', redirectTo: 'view/:id' },
   // PWA `protocol_handlers` landing route — see manifest.webmanifest and
   // ProtocolHandlerComponent. The browser substitutes the entire
   // `web+maple://…` URL into `?url=…` (percent-encoded); the component

@@ -7,9 +7,9 @@
 //
 // Result thumbnails come from `FilesystemBrowseService.getThumbBlobUrl`
 // (same blob-URL cache the browse grid uses), and clicking a result
-// navigates to `/library/editor/<id>`. Note: Self-Hosted search returns
-// `fs:<absPath>` ids; the responsive editor's `fs:` cold-load/hydration
-// path is a follow-up (#625) and not yet implemented.
+// navigates to `/view/<id>` (the fast Preview surface, Web Preview Surface
+// Task 6c). Self-Hosted search returns `fs:<absPath>` ids, which
+// `PreviewShellComponent` resolves via the self-hosted-synth path.
 //
 // Pure derivation (param coercion, CSV-set plumbing, active-filter
 // predicate, date-preset math, `currentParams` builder, label helpers,
@@ -45,6 +45,7 @@ import {
   SearchService,
   SearchSort,
   errorMessage,
+  viewRouteCommands,
 } from '@maple-common';
 import {
   COLOR_LABELS,
@@ -462,9 +463,9 @@ export class SearchComponent implements OnInit, OnDestroy {
     }
   }
 
-  // ── Result clicks → editor ───────────────────────────────────────────────
+  // ── Result clicks → Preview ───────────────────────────────────────────────
   openResult(r: ResultViewModel): void {
-    void this.router.navigate(['/library/editor', r.id]);
+    void this.router.navigate(viewRouteCommands(r.id));
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────

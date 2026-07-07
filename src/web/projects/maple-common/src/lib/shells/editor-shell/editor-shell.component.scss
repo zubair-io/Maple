@@ -59,7 +59,7 @@
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: calc(100vw - 96px);
+  max-width: calc(100vw - 32px);
   height: 44px;
   display: flex;
   align-items: center;
@@ -75,6 +75,7 @@
   padding: 0 8px;
 
   @media (min-width: 768px) {
+    max-width: calc(100vw - 96px);
     background: var(--pro-glass-bg-heavy);
     backdrop-filter: var(--pro-glass-blur-heavy);
     -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
@@ -112,7 +113,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
+  max-width: min(200px, 40vw);
   flex-shrink: 1;
 }
 
@@ -219,20 +220,151 @@
   pointer-events: auto;
 }
 
-// ── Bottom control card anchor ─────────────────────────────────────────────
+// ── Bottom control card anchor (tablet/desktop only — phone: below) ────────
 .control-card-anchor {
   position: absolute;
   bottom: 0;
-  left: 0;
-  right: 0;
   pointer-events: auto;
 
-  @media (min-width: 768px) {
-    // Centered between the left filmstrip rail and the right tool dock (#1564).
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
-    width: min(860px, calc(100vw - 320px));
+  // Centered between the left filmstrip rail and the right tool dock (#1564).
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(860px, calc(100vw - 320px));
+}
+
+// ── Phone CARD editor (#1807) ───────────────────────────────────────────────
+// Bottom horizontal tool dock — full-width, pinned to the bottom edge. The
+// safe-area inset (`--safe-area-inset-bottom`, from safe-area.scss) lifts it
+// clear of the home indicator on notched devices / PWA standalone.
+.phone-dock-anchor {
+  position: absolute;
+  bottom: calc(10px + var(--safe-area-inset-bottom));
+  left: 12px;
+  right: 12px;
+  pointer-events: auto;
+}
+
+// Flyout slider card — floats just above the dock. Its own `closed` input
+// (driven by phoneCardOpen()) hides the card contents; this anchor keeps
+// the reserved space so opening/closing doesn't reflow the dock underneath.
+// Adds the same safe-area inset as the dock so both shift up together and the
+// card never collides with the home indicator.
+.phone-card-anchor {
+  position: absolute;
+  bottom: calc(
+    78px + var(--safe-area-inset-bottom)
+  ); // clears the 44px dock + its 10px inset + a gap
+  left: 12px;
+  right: 12px;
+  pointer-events: auto;
+}
+
+// Shared placeholder for the phone flyout panels (curve/crop/presets/HSL) —
+// same bottom-anchored, full-width glass card geometry, extended rather than
+// repeated per panel to stay under the component style budget (CONTRIBUTING.md).
+%phone-flyout-panel {
+  position: absolute;
+  bottom: calc(78px + var(--safe-area-inset-bottom));
+  left: 12px;
+  right: 12px;
+  pointer-events: auto;
+
+  background: var(--pro-glass-bg);
+  backdrop-filter: var(--pro-glass-blur);
+  -webkit-backdrop-filter: var(--pro-glass-blur);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  border-radius: var(--pro-glass-radius-card);
+}
+
+// Shared `--maple-*` → `--pro-*` bridge for the reused S5 `app-crop-toolbar`
+// (hardcoded-blue fallbacks in crop-toolbar.component.scss otherwise, since
+// `--maple-*` is never defined globally). Extended by both the tablet/desktop
+// and phone crop panels.
+%crop-toolbar-theme-bridge {
+  --maple-accent: var(--pro-accent);
+  --maple-border: var(--pro-glass-border);
+  --maple-surface-alt: rgba(255, 255, 255, 0.04);
+  --maple-text-muted: var(--pro-text-muted);
+  --maple-text-main: var(--pro-text);
+  --maple-font-mono: ui-monospace, monospace;
+}
+
+// Shared `--mpl-*` → `--pro-*` bridge for the reused S5 presets/HSL
+// components (hardcoded fallbacks otherwise, since `--mpl-*` is never
+// defined globally). Extended by both the tablet/desktop and phone
+// presets/HSL panels.
+%mpl-theme-bridge {
+  --mpl-primary: var(--pro-accent);
+  --mpl-text-main: var(--pro-text);
+  --mpl-surface-alt: rgba(255, 255, 255, 0.04);
+}
+
+// Curve panel (tone curve + WB pad) on phone — same content as tablet/desktop
+// (#1569), floats above the dock like the flyout card. Shares the flyout card's
+// safe-area inset so it stays fully visible above the home indicator.
+.phone-curve-panel {
+  @extend %phone-flyout-panel;
+  overflow: hidden;
+}
+
+// Crop panel (#1813) on phone — same shared `app-crop-toolbar` as
+// tablet/desktop (`.crop-panel` below), floats above the dock like the phone
+// curve panel above.
+.phone-crop-panel {
+  @extend %phone-flyout-panel;
+  @extend %crop-toolbar-theme-bridge;
+  overflow: hidden;
+}
+
+// Presets panel (#1815) on phone — same shared `app-presets-panel` as
+// tablet/desktop (`.presets-panel` below), floats above the dock like the
+// phone curve panel above.
+.phone-presets-panel {
+  @extend %phone-flyout-panel;
+  @extend %mpl-theme-bridge;
+  max-height: min(360px, calc(100dvh - 200px));
+  overflow: hidden;
+
+  // Flex column, not `height: 100%` on the child — same rationale as
+  // `.presets-panel` above (the container only has `max-height`, so a
+  // percentage height on the child is inert).
+  display: flex;
+  flex-direction: column;
+
+  app-presets-panel {
+    display: block;
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+// HSL panel (epic #1807 slice 4) on phone — same shared chip selector + drag
+// bar + value chip as tablet/desktop (`.hsl-panel` below), floats above the
+// dock like the phone curve panel above.
+.phone-hsl-panel {
+  @extend %phone-flyout-panel;
+  @extend %mpl-theme-bridge;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0;
+
+  app-value-chip {
+    pointer-events: none;
+  }
+
+  // Same wrapper-scroll rationale as `.hsl-panel .hsl-panel-chips` below —
+  // the shared chip row's host is `display: contents`, so the width/scroll
+  // constraint has to live on a wrapper div rather than the element itself.
+  .hsl-panel-chips {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  app-drag-bar {
+    width: 100%;
   }
 }
 
@@ -286,25 +418,150 @@
   }
 }
 
-// ── Curve panel (tablet/desktop — glass card to the left of dock) ──────────
-.curve-panel {
+// Shared placeholder for the tablet/desktop dock-side panels (curve/crop/
+// presets/HSL) — same anchor position to the left of the vertical dock,
+// extended rather than repeated per panel to stay under the component style
+// budget (CONTRIBUTING.md). All four are mutually exclusive (see
+// `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`) except Curve,
+// whose exclusivity is documented on its own rule below.
+%dock-side-panel {
   position: absolute;
   right: 64px; // just left of the dock column
   top: 50%;
   transform: translateY(-50%);
-  width: 240px;
   background: var(--pro-glass-bg-heavy);
   backdrop-filter: var(--pro-glass-blur-heavy);
   -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
   border: 0.5px solid var(--pro-glass-border);
   box-shadow: var(--pro-glass-shadow);
   border-radius: var(--pro-glass-radius-card-desktop);
-  overflow: hidden;
   pointer-events: auto;
+}
+
+// ── Curve panel (tablet/desktop — glass card to the left of dock) ──────────
+.curve-panel {
+  @extend %dock-side-panel;
+  width: 240px;
+  overflow: hidden;
 }
 
 .curve-panel-divider {
   height: 0.5px;
   background: var(--pro-border);
   margin: 0 10px;
+}
+
+// ── Crop panel (#1813 — glass card hosting the shared `app-crop-toolbar`) ──
+// Same anchor position as the curve panel. `app-crop-toolbar` styles itself
+// off `--maple-*` custom properties (with hardcoded-blue fallbacks, since
+// `--maple-*` is never defined globally — see crop-toolbar.component.scss);
+// bridging them (`%crop-toolbar-theme-bridge`, defined above) to this shell's
+// `--pro-*` tokens keeps the reused S5 component on-theme in the canvas-first
+// shell without touching the shared component's styles (which would affect
+// the S5 editor too).
+.crop-panel {
+  @extend %dock-side-panel;
+  @extend %crop-toolbar-theme-bridge;
+  width: 260px;
+  overflow: hidden;
+}
+
+// ── Presets panel (#1815 — glass card hosting the shared `app-presets-panel`) ──
+// Same anchor position as the curve/crop panels. `app-presets-panel` styles
+// itself off `--mpl-*` custom properties (with hardcoded fallbacks, since
+// `--mpl-*` is never defined globally — see presets-panel.component.scss)
+// plus the globally-defined `--color-*` design tokens (tokens.scss), which
+// already resolve correctly here. Bridging the `--mpl-*` set
+// (`%mpl-theme-bridge`, defined above) keeps the reused S5 component on-theme
+// without touching the shared component's styles (which would affect the S5
+// editor too).
+.presets-panel {
+  @extend %dock-side-panel;
+  @extend %mpl-theme-bridge;
+  width: 280px;
+  max-height: min(480px, calc(100vh - 120px));
+  overflow: hidden;
+
+  // Flex column, not `height: 100%` on the child: the panel is absolutely
+  // positioned with only `max-height` (no `height`), so its computed height
+  // is content's `auto` — a percentage height on the child can't resolve
+  // against that and is inert (#1816 review). `flex: 1` sizes the child to
+  // whatever height the flex container actually ends up with instead.
+  display: flex;
+  flex-direction: column;
+
+  app-presets-panel {
+    display: block;
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+// ── HSL panel (epic #1807 slice 4 — glass card hosting the shared chip
+// selector + drag bar + value chip) ─────────────────────────────────────────
+// Same anchor position as the curve/crop/presets panels. `app-sub-param-row`
+// / `app-drag-bar` / `app-value-chip` style themselves off `--mpl-*` custom
+// properties (with hardcoded-orange fallbacks, since `--mpl-*` is never
+// defined globally — see sub-param-row.component.scss /
+// drag-bar.component.scss / value-chip.component.scss) plus the globally-
+// defined `--color-*` design tokens (tokens.scss), which already resolve
+// correctly here. Bridging the `--mpl-*` set (`%mpl-theme-bridge`, defined
+// above) keeps the reused S5 components on-theme without touching their
+// shared styles (which would affect the S5 editor too).
+.hsl-panel {
+  @extend %dock-side-panel;
+  @extend %mpl-theme-bridge;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0;
+
+  app-value-chip {
+    pointer-events: none;
+  }
+
+  // The shared chip row (sub-param-row.component.scss) lays its 8-per-row
+  // chips out with `display: flex` and no wrap — full-bleed in the S5
+  // editor's column, but tighter here at a fixed panel width. Its host is
+  // `display: contents` (deliberately, so it stays byte-identical for
+  // single-param tools), so the width/scroll constraint has to live on a
+  // wrapper div rather than the element itself.
+  .hsl-panel-chips {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  app-drag-bar {
+    width: 100%;
+  }
+}
+
+// ── Info pane (epic #1807 slice 5 — tablet/desktop right-side pane) ────────
+// Bottom-sheet presentation on phone is handled entirely by
+// `app-bottom-sheet`'s own styles; this only covers the tablet/desktop split.
+// Full-height, glass-edged strip anchored to the right — distinct from the
+// floating curve/crop/presets/HSL panel anchor (Info is not part of that
+// mutually-exclusive group and can be open alongside any of them).
+.info-pane {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  // Offset left of the tool dock (dock anchor `right: 12px` + ~58px of glass
+  // column) — an unconditional `right: 0` here painted the pane OVER the
+  // dock (`.info-pane` is z-index 15, `.chrome-layer`/the dock is 10), making
+  // the dock invisible and unclickable while Info is open (#1816 review).
+  // `right: 64px` matches the curve/crop/presets/HSL side panels' anchor.
+  right: 64px;
+  width: min(340px, 30vw);
+  z-index: 15;
+  pointer-events: auto;
+  background: var(--pro-glass-bg-heavy);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+  -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+  border-left: 0.5px solid var(--pro-glass-border);
+  border-right: 0.5px solid var(--pro-glass-border);
+  border-radius: var(--pro-glass-radius-card-desktop);
+  overflow-y: auto;
 }
