@@ -162,8 +162,8 @@ extension AppShell {
     /// renders cleanly. Delegates to `AppShell.dismissAllTransientUI()`
     /// (defined in `AppShell.swift`) — the canonical helper can touch
     /// the `private` state vars (`showSettings`, `showExport`,
-    /// `iPhoneInfoSheet`, `isDrawerOpen`) that this extension can't
-    /// see. Per spec §2 warm-launch behavior.
+    /// `isDrawerOpen`) that this extension can't see. Per spec §2
+    /// warm-launch behavior.
     @MainActor
     private func dismissAnyActiveSheet() {
         dismissAllTransientUI()

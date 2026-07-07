@@ -30,7 +30,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     let mode: AppShell.Mode
     let selectedSession: EditSession?
     let libraryTitle: String
-    @Binding var iPhoneInfoSheet: Bool
 
     let cloudTimelineVM: CloudTimelineViewModel?
     let cloudTimelineThumbClient: CloudThumbClient?
@@ -68,7 +67,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             mode: mode,
             selectedSession: selectedSession,
             libraryTitle: libraryTitle,
-            iPhoneInfoSheet: $iPhoneInfoSheet,
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,

@@ -3,10 +3,10 @@
 //
 // What's in here:
 //   • `AppShellIPhoneShell` — the Library tab's center column + its
-//     iPhone-specific toolbar items, plus the Info sheet that hangs off
-//     it. The LIBRARY drawer that overlays the whole tab view (footer +
-//     top bar, full device height) is hosted one level up in
-//     `PhoneTabShell` (#692); this struct just renders the center column.
+//     iPhone-specific toolbar items. The LIBRARY drawer that overlays the
+//     whole tab view (footer + top bar, full device height) is hosted one
+//     level up in `PhoneTabShell` (#692); this struct just renders the
+//     center column.
 //
 // Responsive-program S1a (#597): Settings used to be a modal sheet
 // presented from this shell. Settings is now a top-level tab in
@@ -18,17 +18,20 @@
 //
 // State surface: the iPhone shell takes a pre-built `sharedSidebar`
 // (`AppShellSidebar`) plus the same bindings + closures the Mac shell
-// gets, and one iPhone-only flag (`iPhoneInfoSheet` for the Info
-// detail sheet). Wiring the iPhone-only toolbar items (hamburger +
-// Info) is delegated to `AppShellIPhoneToolbar`; the shared Browse
-// content is taken as a `toolbarContent` builder so the call site can
-// hand in `browseToolbarContent` unchanged.
+// gets. Wiring the iPhone-only toolbar item (hamburger) is delegated
+// to `AppShellIPhoneToolbar`; the shared Browse content is taken as a
+// `toolbarContent` builder so the call site can hand in
+// `browseToolbarContent` unchanged.
 //
 // This shell's center column only ever renders Browse — Preview and the S5
 // editor are reached by pushing onto the Library tab's `NavigationStack`
 // instead (`PhoneLibraryView`'s `.navigationDestination`), not by flipping
 // `AppShell.mode`. The legacy `.fullImage` full-image loupe (the one mode
-// this struct DID key off `mode` for) was retired in #1807.
+// this struct DID key off `mode` for) was retired in #1807, and the
+// trailing-toolbar Info sheet that hung off it was removed in the #1826
+// follow-up — `PreviewView` and the S5 editor (`EditorDestination`) each
+// ship their own Info affordance now, reached via the Library tab's
+// NavigationStack.
 
 #if os(iOS)
 import SwiftUI
@@ -43,15 +46,10 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     /// Preview / editor are pushed onto the Library tab's NavigationStack
     /// instead, so `mode` never reaches `.preview` / `.editing` here.
     let mode: AppShell.Mode
-    /// Active EditSession used by the Info sheet's DetailPanel.
+    /// Active EditSession forwarded to `AppShellCenterColumn`.
     let selectedSession: EditSession?
     /// Title shown in the navigation bar.
     let libraryTitle: String
-
-    // Info sheet — iPhone surfaces DetailPanel via a trailing-toolbar Info
-    // button → modal sheet, since the iPhone shell can't accommodate a
-    // right-hand inspector column.
-    @Binding var iPhoneInfoSheet: Bool
 
     // Center-column state — forwarded straight to `AppShellCenterColumn`.
     let cloudTimelineVM: CloudTimelineViewModel?
@@ -91,18 +89,6 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
         // its toolbar; the surrounding `PhoneTabShell` provides the per-tab
         // NavigationStack and the drawer.
         iPhoneMain
-        .sheet(isPresented: $iPhoneInfoSheet) {
-            NavigationStack {
-                DetailPanel(session: selectedSession)
-                    .navigationTitle("Info")
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { iPhoneInfoSheet = false }
-                        }
-                    }
-            }
-            .presentationDetents([.medium, .large])
-        }
         // Settings sheet dropped in responsive-program S1a (#597) — Settings
         // is now a top-level tab in PhoneTabShell.
     }
@@ -140,9 +126,7 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
         .toolbar {
             AppShellIPhoneToolbar(
                 isBrowse: mode == .browse,
-                isFullImage: false,
-                isDrawerOpen: $isDrawerOpen,
-                onInfo: { iPhoneInfoSheet = true }
+                isDrawerOpen: $isDrawerOpen
             )
             toolbarContent()
         }
