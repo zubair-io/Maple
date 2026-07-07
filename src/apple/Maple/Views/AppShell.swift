@@ -161,9 +161,9 @@ struct AppShell: View {
 
     /// True when an image surface is open (`.preview` or `.editing`) — i.e.
     /// the center column is showing an image, not the browse grid. The
-    /// Mac/iPad three-column layout, the toolbar's back/export affordances,
-    /// and the navigation title all key off "is an image open?", which both
-    /// answer yes to.
+    /// Mac/iPad three-column layout and the navigation title key off "is an
+    /// image open?", which both answer yes to. (Back/export affordances now
+    /// live inside Preview/Editor, not the window toolbar.)
     var isImageOpen: Bool { mode == .preview || mode == .editing }
 
     /// Mode to enter when the user opens an image from the grid. Fast Preview
