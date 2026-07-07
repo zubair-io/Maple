@@ -233,6 +233,13 @@ export const RAW_EXTENSIONS = new Set<string>([
   'rw2',
   'pef',
   'srw',
+  'x3f',
+  '3fr',
+  'mef',
+  'erf',
+  'mrw',
+  'raw',
+  'fff',
 ]);
 
 /** Non-RAW bitmap extensions decoded via sharp / heic-convert (lowercase, no

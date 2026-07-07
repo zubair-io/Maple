@@ -29,6 +29,14 @@ const MIME_BY_EXT: Record<string, string> = {
   rw2: 'image/x-panasonic-rw2',
   pef: 'image/x-pentax-pef',
   srw: 'image/x-samsung-srw',
+  x3f: 'image/x-sigma-x3f',
+  '3fr': 'image/x-hasselblad-3fr',
+  mef: 'image/x-mamiya-mef',
+  erf: 'image/x-epson-erf',
+  mrw: 'image/x-minolta-mrw',
+  raw: 'image/x-panasonic-raw',
+  fff: 'image/x-hasselblad-fff',
+  avif: 'image/avif',
 };
 
 export function mimeForExt(ext: string): string {

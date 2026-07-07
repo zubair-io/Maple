@@ -1,0 +1,25 @@
+# Expanded file-type indexing
+
+## Background
+
+The user asked Maple to index a broader set of file types: additional RAW photo formats (`cr2`, `dng`, `3fr`, `raw`, `orf`, `fff`, `eip`), video containers (`mp4`, `mov`, `m4v`, `mts`, `insv`, `insp`, `mxf`, `braw`, `3g2`, `3gp`, `flv`, `avi`, `vob`, `mpg`, `wmv`, `f4v`), editable-master/other images (`psd`, `psb`, `afphoto`, `ai`, `hdr`), and audio (`mp3`, `wav`, `m4a`, `aac`).
+
+A research pass across the API (Bun), Apple (Swift), Angular (web), and Rust core layers found that "which extensions Maple recognizes" is not single-sourced anywhere. At least eight independently hand-maintained extension lists already exist and have already drifted from one another before this ticket touches anything — `fs/browse.ts`'s `RAW_EXTENSIONS` (10 formats) versus `indexer/thumbnailer.ts` / `indexer/previewer.ts` / `workers/discover/types.ts`'s `RAW_EXTS` (15 formats, missing from the first), `routes/folders.ts`'s own `SUPPORTED_EXTS` (image-only, no video, name-collides with the discover-stage set of the same name), `imports/scan.ts`'s `MOVIE_EXTS` (has `.mxf`, nothing else does), and `routes/library/shared.ts`'s `MIME_BY_EXT` (missing five RAW vendor formats and `.avif`). Swift and Angular each have their own independent RAW/video sets that are documented as intentionally hand-mirrored rather than codegen'd.
+
+Decode-capability reality also varies a lot by format. Rawler (the vendored Rust RAW decoder) already handles `cr2`, `dng`, `3fr`, `raw`, `orf`, and `fff` — those just need to reach every extension list. `eip` (Phase One) has no rawler support at all; a real decoder would be new low-level work. `braw` (Blackmagic RAW) and `afphoto` (Affinity Photo) have no public format specification anywhere, so a real decoder is not achievable. `ai` is normally a PDF/vector container rather than a raster image, so "thumbnail" means rasterizing a PDF page, a different problem from the photo/video pipeline. `psd`/`psb`/`hdr` have no decoder in Maple today but do have public specs and existing open-source parsers to build from. Audio (`mp3`/`wav`/`m4a`/`aac`) is a wholly new asset category — Maple has no audio pipeline, grid treatment, or metadata model today.
+
+The user has decided: build real pixel decode + thumbnails wherever that's achievable, and treat the four genuinely blocked formats (`eip`, `braw`, `afphoto`, `ai`) plus all of audio as metadata-only stubs — visible in the library with filename/size/date, no thumbnail, no editing — while separate tickets track real decode work for the ones worth pursuing later (`eip` in particular, since a decoder is buildable in principle, unlike `braw`/`afphoto`).
+
+## Milestones
+
+**M0 — Consolidate and propagate the already-decodable RAW/video extensions.** Fix the pre-existing drift across the eight extension lists (bring `fs/browse.ts`'s `RAW_EXTENSIONS`, `routes/library/shared.ts`'s `MIME_BY_EXT`, and Apple/Angular's independent lists up to the superset already used by the indexer/thumbnailer/previewer), then add `raw` and confirm `fff` reaches every list it's currently missing from. No new decoder work — everything in this milestone is already supported by rawler. Reduces the number of places a future format addition has to touch, which every later milestone benefits from.
+
+**M1 — New video containers, metadata-only.** Add `mxf` (propagate to the lists missing it), `3g2`, `flv`, `vob`, `mpg`, `wmv`, `f4v` as indexer-eligible video containers with poster-frame thumbnail + duration/codec metadata via the existing ffprobe-based path, no pixel-level editing. Investigate `insv`/`insp` (Insta360) as a follow-up within this milestone once their actual container structure is confirmed — they may need extra unwrapping beyond plain MP4 parsing for the 360° framing.
+
+**M2 — New raster decode stage for psd/psb/hdr.** A genuinely new decode path (not extension-list plumbing): parse Photoshop's PSD/PSB layer format and Radiance HDR, produce a flattened raster + thumbnail. This is real engineering work comparable in shape to adding a new RAW-decoder branch, not a one-line list edit.
+
+**M3 — Metadata-only stubs for blocked formats and audio.** `eip`, `braw`, `afphoto`, `ai` get indexer eligibility with a stub icon/badge and no thumbnail; audio (`mp3`, `wav`, `m4a`, `aac`) gets the same treatment as a new but minimal asset kind. Each of the four blocked image formats gets its own follow-up ticket for real decode work where that's worth pursuing (`eip` only, per the above) so this milestone doesn't quietly become the final word on them.
+
+## Sequencing
+
+M0 has no dependency on the others and is the highest-leverage first step since it removes existing drift that would otherwise make M1–M3 riskier to land on top of. M1 and M2 are independent of each other and could be worked in parallel. M3's stub mechanism (the "known type, no thumbnail" library-grid treatment) is shared infrastructure that M1's fallback path for `insv`/`insp` (if they turn out not to be readable) could also lean on, so it's worth sequencing M3's stub-rendering piece before or alongside M1's Insta360 investigation.
