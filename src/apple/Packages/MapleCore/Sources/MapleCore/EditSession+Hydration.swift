@@ -38,9 +38,9 @@ extension EditSession {
         // to `ensureRenderStarted()`. Reading the canonical sensor dims
         // builds a `CIRAWFilter` per asset; running it for every
         // session in the browse grid trips a long stall on iPad with
-        // many fixtures. Native dims are only consumed by FullImageView
-        // (canvas frame, fit math), so the read can wait until the
-        // user actually opens the asset.
+        // many fixtures. Native dims are only consumed by the canvas
+        // (frame, fit math), so the read can wait until the user
+        // actually opens the asset.
         if let url = asset.primaryURL {
             if let asShot = ImageMetadataReader.readAsShotWB(from: url) {
                 self.asShotCCT = asShot.temperature
@@ -254,11 +254,11 @@ extension EditSession {
     /// upgrades as better sources land.
     func openAssetPipelineAsync() async {
         // Re-entrancy guard: `ensureRenderStarted()` fires from several sites
-        // (FullImageView.onAppear / EditorView / GpuLiveCanvasView layout). A
-        // second concurrent cold-open run would double-decode AND could clear
-        // the indicator flag while the first decode is still in flight. The
-        // MainActor serializes this synchronous prefix, so check-then-set is
-        // atomic. #1201 review.
+        // (EditorView.task / GpuLiveCanvasView layout). A second concurrent
+        // cold-open run would double-decode AND could clear the indicator
+        // flag while the first decode is still in flight. The MainActor
+        // serializes this synchronous prefix, so check-then-set is atomic.
+        // #1201 review.
         guard !isFullQualityDecoding else { return }
         // The full-quality decode is now in flight; the loading indicator stays
         // up until it lands (not just until the sub-second preview presents).

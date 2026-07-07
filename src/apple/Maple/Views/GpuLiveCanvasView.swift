@@ -2,8 +2,8 @@
 // presenting into a CAMetalLayer (epic #925, P4b-apple / #1028).
 //
 // Runtime-gated: used only when `GpuLiveFlag.isEnabled` (default on /
-// `MAPLE_GPU_LIVE != 0`). With the flag off, `FullImageView` shows the CPU
-// `CIImageView` path byte-for-byte.
+// `MAPLE_GPU_LIVE != 0`). With the flag off, `EditorView` shows the CPU
+// `CanvasImageView` path byte-for-byte.
 //
 // ## Role — host + register, the scheduler presents
 //
@@ -23,8 +23,8 @@
 // `surface_dims == image_dims`, and the driver uploads the decoded buffer at the
 // viewport-sized fast-phase target, so the canvas must request the SAME size the
 // session's `fastTargetSize` resolves to. We drive the session's `previewSize`
-// from the same pixel bounds (as the CPU `FullImageView` does), so the decode
-// target and the layer size agree.
+// from the same pixel bounds (as the CPU `CanvasImageView` path does), so the
+// decode target and the layer size agree.
 //
 // Colour space: the chain outputs sRGB-primary, gamma-encoded pixels, so the
 // layer is tagged sRGB (#1512) and CoreAnimation converts sRGB → the display's
