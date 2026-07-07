@@ -73,6 +73,9 @@ import { PresetsPanelComponent } from '../../editor/presets/presets-panel.compon
 import { SubParamRowComponent } from '../../editor/sub-param-row.component';
 import { DragBarComponent } from '../../editor/drag-bar.component';
 import { ValueChipComponent } from '../../editor/value-chip.component';
+import { InfoPanelComponent } from '../../info/info-panel.component';
+import { BottomSheetComponent } from '../bottom-sheet.component';
+import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
@@ -109,6 +112,8 @@ const RECEDE_IDLE_MS = 3000;
     SubParamRowComponent,
     DragBarComponent,
     ValueChipComponent,
+    InfoPanelComponent,
+    BottomSheetComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
@@ -122,6 +127,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private ngZone = inject(NgZone);
+  private tabBar = inject(TabBarVisibilityService);
 
   @ViewChild('canvasWrap') canvasWrapRef?: ElementRef<HTMLElement>;
   @ViewChild(ControlCardComponent) controlCard?: ControlCardComponent;
@@ -187,6 +193,13 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`). */
   readonly presetsOpen = signal<boolean>(false);
 
+  /** True when the Info sheet/pane is open (epic #1807 slice 5). Bottom
+   *  sheet on phone, right-side pane on tablet/desktop — same split
+   *  `PreviewShellComponent` uses for its Info surface. Info has its own
+   *  anchor (not the shared curve/crop/presets/HSL one), so it does not
+   *  participate in that mutual-exclusion group. */
+  readonly infoOpen = signal<boolean>(false);
+
   // Chrome recede
   readonly chromeState = signal<ChromeState>('full');
   private _recedeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -227,6 +240,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   private _pointerMoveBound: ((e: PointerEvent) => void) | null = null;
 
   ngOnInit(): void {
+    this.tabBar.hidden.set(true);
     this.applyRouteAddress();
     this._setupResponsive();
   }
@@ -236,10 +250,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.tabBar.hidden.set(false);
     this._clearRecedeTimer();
     this._clearHudTimer();
     this._ro?.disconnect();
     this._cleanupScrub();
+    if (this._undoLongPressTimer) {
+      clearTimeout(this._undoLongPressTimer);
+      this._undoLongPressTimer = null;
+    }
     if (this._pointerMoveBound) {
       document.removeEventListener('pointermove', this._pointerMoveBound);
       this._pointerMoveBound = null;
@@ -463,6 +482,35 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.cropArmed() || this.hslArmed()) return;
     this.curveOpen.set(false);
     this.presetsOpen.update((v) => !v);
+  }
+
+  // ── Undo / redo (top bar) ──────────────────────────────────────────────
+  // Long-press → redo, tap → undo. Mirrors the S5 editor's header button
+  // (`editor-header.component.ts`) so both editors share the same gesture.
+  private _undoLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+  private _undoLongPressed = false;
+
+  onUndoPointerDown(): void {
+    this._undoLongPressed = false;
+    this._undoLongPressTimer = setTimeout(() => {
+      this._undoLongPressed = true;
+      this.editorState.redo();
+    }, 500);
+  }
+
+  onUndoPointerUp(): void {
+    if (this._undoLongPressTimer) {
+      clearTimeout(this._undoLongPressTimer);
+      this._undoLongPressTimer = null;
+    }
+    if (!this._undoLongPressed) this.editorState.undo();
+  }
+
+  onUndoPointerCancel(): void {
+    if (this._undoLongPressTimer) {
+      clearTimeout(this._undoLongPressTimer);
+      this._undoLongPressTimer = null;
+    }
   }
 
   // ── Current adjustment (for histogram) ────────────────────────────────

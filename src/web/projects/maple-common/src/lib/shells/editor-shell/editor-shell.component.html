@@ -50,6 +50,32 @@
         <maple-icon name="split" [size]="16" color="var(--pro-text-muted)" />
       </button>
 
+      <!-- Undo (long-press → redo) — mirrors the S5 editor's header button. -->
+      <button
+        class="top-icon-btn"
+        title="Undo (⌘Z) / hold for Redo (⌘⇧Z)"
+        aria-label="Undo"
+        data-testid="editor-shell-undo"
+        [disabled]="!editorState.canUndo() && !editorState.canRedo()"
+        (pointerdown)="onUndoPointerDown()"
+        (pointerup)="onUndoPointerUp()"
+        (pointercancel)="onUndoPointerCancel()"
+      >
+        <maple-icon name="undo-uturn" [size]="16" color="var(--pro-text-muted)" />
+      </button>
+
+      <!-- Info -->
+      <button
+        class="top-icon-btn"
+        [class.top-icon-btn--active]="infoOpen()"
+        title="Info"
+        aria-label="Info"
+        data-testid="editor-shell-info"
+        (click)="infoOpen.update((v) => !v)"
+      >
+        <maple-icon name="info" [size]="16" color="var(--pro-text-muted)" />
+      </button>
+
       <!-- Export -->
       <button
         class="export-btn"
@@ -158,4 +184,27 @@
       [progress]="hudProgress()"
     />
   </div>
+
+  <!-- ── Info (epic #1807 slice 5) — bottom sheet on phone, right-side pane
+       on tablet/desktop. Same split PreviewShellComponent uses for its Info
+       surface. -->
+  @if (isTabletPlus()) {
+    @if (infoOpen()) {
+      <div class="info-pane">
+        <app-info-panel
+          [asset]="state.focusedAsset()"
+          [insideSheet]="false"
+          (close)="infoOpen.set(false)"
+        />
+      </div>
+    }
+  } @else {
+    <app-bottom-sheet [(isOpen)]="infoOpen">
+      <app-info-panel
+        [asset]="state.focusedAsset()"
+        [insideSheet]="true"
+        (close)="infoOpen.set(false)"
+      />
+    </app-bottom-sheet>
+  }
 </div>
