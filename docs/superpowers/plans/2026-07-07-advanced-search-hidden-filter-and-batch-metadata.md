@@ -21,14 +21,17 @@
 ## File Structure
 
 **Backend (`src/api/src/routes/search/`):**
+
 - Modify `project.ts` — add `address: string | null` to `SearchResult`, extend `projectAsset()` to accept an `idToSlug` map and compute the address.
 - Modify `list.ts` — load `loadLibraryIdToSlug()` at both `projectAsset()` call sites and pass it through.
 - Create `project.test.ts` — pure unit tests for the new address computation (no Mongo).
 
 **Frontend (`src/web/projects/maple-common/src/lib/api/`):**
+
 - Modify `search.service.ts` — add `address: string | null` to the `SearchResult` interface.
 
 **Frontend (`src/web/projects/maple/src/app/search/`):**
+
 - Modify `search.vm.ts` — add `HiddenValue` type, `parseHidden()`, `HIDDEN_OPTIONS`, extend `SearchFormState`/`buildSearchParams()`.
 - Modify `search.vm.spec.ts` — cover the new pure functions.
 - Modify `search.component.ts` — add the `hidden` computed signal + `setHidden()`; add selection state (`selectedIds`, `toggleSelect`, `selectAllLoaded`, `clearSelection`), batch-metadata dialog state (`batchMetaDialogVisible`, `batchMetaAssetSnapshots`), `onEditMetadata()`, `onBatchMetaDismiss()`.
@@ -39,10 +42,12 @@
 ### Task 1: Backend — `address` field on `SearchResult`
 
 **Files:**
+
 - Modify: `src/api/src/routes/search/project.ts`
 - Test: `src/api/src/routes/search/project.test.ts` (new)
 
 **Interfaces:**
+
 - Consumes: `loadLibraryIdToSlug(): Promise<ReadonlyMap<string, string>>` (already exists, `src/api/src/indexer/libraries.cache.ts:82`); `assetPrimaryFileInfo(asset): FileInfo | null` (already imported in `project.ts`).
 - Produces: `projectAsset(d, libs, idToSlug): SearchResult` — new third parameter `idToSlug: ReadonlyMap<string, string>`; `SearchResult.address: string | null`. Task 2 and Task 4 depend on this exact signature and field name.
 
@@ -93,7 +98,11 @@ describe('projectAsset — address field', () => {
   it('handles a library-root file (empty relPath directory)', () => {
     const doc = fixtureDoc({
       fileinfo: [
-        { path: '', filename: 'IMG_0002.dng', library_id: new ObjectId('507f1f77bcf86cd799439011') },
+        {
+          path: '',
+          filename: 'IMG_0002.dng',
+          library_id: new ObjectId('507f1f77bcf86cd799439011'),
+        },
       ],
     });
     const libs = new Map<string, string>();
@@ -196,10 +205,12 @@ git commit -m "feat(api): add slug:relPath address field to search results"
 ### Task 2: Backend — thread `idToSlug` through the search route
 
 **Files:**
+
 - Modify: `src/api/src/routes/search/list.ts:150-151` and `:187-188`
 - Test: reuses Task 1's tests plus the existing search integration tests (run as verification, not new tests — this task has no new pure logic, only wiring two existing call sites to Task 1's new parameter).
 
 **Interfaces:**
+
 - Consumes: `loadLibraryIdToSlug()` (`src/api/src/indexer/libraries.cache.ts:82`), `projectAsset(d, libs, idToSlug)` from Task 1.
 - Produces: both `/api/search` response code paths (Meilisearch hit path and the Mongo `$text`/filter path) now populate `address` on every result.
 
@@ -214,9 +225,9 @@ import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.c
 Change line 150-151:
 
 ```typescript
-        const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
-        const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
-        const results = ordered.map((d) => projectAsset(d, libs, idToSlug));
+const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
+const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
+const results = ordered.map((d) => projectAsset(d, libs, idToSlug));
 ```
 
 - [ ] **Step 2: Update the Mongo filter path**
@@ -224,9 +235,9 @@ Change line 150-151:
 Change line 187-188:
 
 ```typescript
-    const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
-    const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
-    const results = docs.map((d) => projectAsset(d as AssetDoc & { _id: ObjectId }, libs, idToSlug));
+const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
+const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
+const results = docs.map((d) => projectAsset(d as AssetDoc & { _id: ObjectId }, libs, idToSlug));
 ```
 
 - [ ] **Step 3: Typecheck and run the existing search test suite**
@@ -249,9 +260,11 @@ git commit -m "feat(api): populate search result address at both query paths"
 ### Task 3: Frontend — expose `address` on the client `SearchResult`
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/api/search.service.ts`
 
 **Interfaces:**
+
 - Consumes: Task 2's API response shape (already includes `address` once Tasks 1-2 land; this task just types it).
 - Produces: `SearchResult.address: string | null`, consumed by Task 6 (`onEditMetadata()`).
 
@@ -260,11 +273,11 @@ git commit -m "feat(api): populate search result address at both query paths"
 In `src/web/projects/maple-common/src/lib/api/search.service.ts`, in the `SearchResult` interface (around line 80-104), add directly after the `id: string;` line:
 
 ```typescript
-  id: string;
-  /** `slug:relPath` address — the only address form the batch-metadata
-   * endpoints (`fetchSnapshots`, `batchApply`) accept. `null` when the
-   * asset's primary library has no registered slug. */
-  address: string | null;
+id: string;
+/** `slug:relPath` address — the only address form the batch-metadata
+ * endpoints (`fetchSnapshots`, `batchApply`) accept. `null` when the
+ * asset's primary library has no registered slug. */
+address: string | null;
 ```
 
 - [ ] **Step 2: Typecheck**
@@ -284,10 +297,12 @@ git commit -m "feat(web): type the search result address field"
 ### Task 4: Frontend — hidden filter pure logic (`search.vm.ts`)
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/search/search.vm.ts`
 - Modify: `src/web/projects/maple/src/app/search/search.vm.spec.ts`
 
 **Interfaces:**
+
 - Consumes: nothing new — pure TypeScript, same shape as the existing `parseScreenshot`/`ScreenshotValue` pattern already in this file.
 - Produces: `HiddenValue` type, `parseHidden()`, `HIDDEN_OPTIONS`, `SearchFormState.hidden`, `buildSearchParams().hidden`. Task 5 consumes all four by name.
 
@@ -315,20 +330,20 @@ describe('parseHidden', () => {
 Add `HIDDEN_OPTIONS` import to the top `import { ... } from './search.vm';` block and a constants test in the `describe('constants', ...)` block (after the `COLOR_LABELS` test, around line 73):
 
 ```typescript
-  it('HIDDEN_OPTIONS leads with the default "hide hidden" option', () => {
-    expect(HIDDEN_OPTIONS[0]).toEqual({ value: '', label: 'Hide hidden' });
-    expect(HIDDEN_OPTIONS.map((o) => o.value)).toEqual(['', 'all', 'only']);
-  });
+it('HIDDEN_OPTIONS leads with the default "hide hidden" option', () => {
+  expect(HIDDEN_OPTIONS[0]).toEqual({ value: '', label: 'Hide hidden' });
+  expect(HIDDEN_OPTIONS.map((o) => o.value)).toEqual(['', 'all', 'only']);
+});
 ```
 
 Add `hidden` to `emptyState()` in the `describe('buildSearchParams', ...)` block (line 286-310) and a new test after the existing `isScreenshot` mapping test (after line 365):
 
 ```typescript
-  it('maps the tri-state hidden filter to the backend param / undefined', () => {
-    expect(buildSearchParams({ ...emptyState(), hidden: 'all' }).hidden).toBe('all');
-    expect(buildSearchParams({ ...emptyState(), hidden: 'only' }).hidden).toBe('only');
-    expect(buildSearchParams({ ...emptyState(), hidden: '' }).hidden).toBeUndefined();
-  });
+it('maps the tri-state hidden filter to the backend param / undefined', () => {
+  expect(buildSearchParams({ ...emptyState(), hidden: 'all' }).hidden).toBe('all');
+  expect(buildSearchParams({ ...emptyState(), hidden: 'only' }).hidden).toBe('only');
+  expect(buildSearchParams({ ...emptyState(), hidden: '' }).hidden).toBeUndefined();
+});
 ```
 
 (`emptyState()` needs `hidden: '' as const,` added alongside the existing `isScreenshot: '' as const,` line so every other `buildSearchParams` test in the file keeps compiling.)
@@ -373,9 +388,9 @@ export const HIDDEN_OPTIONS: ReadonlyArray<{ value: HiddenValue; label: string }
 Add `hidden: HiddenValue;` to `SearchFormState` (after `isScreenshot: ScreenshotValue;`, line 231):
 
 ```typescript
-  isScreenshot: ScreenshotValue;
-  hidden: HiddenValue;
-  sort: SearchSort;
+isScreenshot: ScreenshotValue;
+hidden: HiddenValue;
+sort: SearchSort;
 ```
 
 Add the mapping in `buildSearchParams()` (after the `isScreenshot` line, 263):
@@ -403,10 +418,12 @@ git commit -m "feat(web): add hidden-filter pure logic to search view model"
 ### Task 5: Frontend — wire the hidden filter into the component + template
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/search/search.component.ts`
 - Modify: `src/web/projects/maple/src/app/search/search.component.html`
 
 **Interfaces:**
+
 - Consumes: `HiddenValue`, `parseHidden`, `HIDDEN_OPTIONS` from Task 4.
 - Produces: `hidden` computed signal, `setHidden()` method — no other task depends on these by name (leaf of the hidden-filter slice).
 
@@ -447,28 +464,29 @@ Add the setter next to `setIsScreenshot` (after line 363):
 In `search.component.html`, add a new section directly after the "Screenshot tri-state" section (after line 254, before the "ISO" section):
 
 ```html
-      <!-- Hidden tri-state -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Hidden
-        </h3>
-        <select
-          class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
-          [value]="hidden()"
-          (change)="setHidden($any($event.target).value)"
-          aria-label="Hidden images"
-        >
-          @for (o of hiddenOptions; track o.value) {
-            <option [value]="o.value">{{ o.label }}</option>
-          }
-        </select>
-      </section>
+<!-- Hidden tri-state -->
+<section class="mb-[18px]">
+  <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+    Hidden
+  </h3>
+  <select
+    class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
+    [value]="hidden()"
+    (change)="setHidden($any($event.target).value)"
+    aria-label="Hidden images"
+  >
+    @for (o of hiddenOptions; track o.value) {
+    <option [value]="o.value">{{ o.label }}</option>
+    }
+  </select>
+</section>
 ```
 
 - [ ] **Step 3: Manual verification in the dev server**
 
 Run: `cd src/web && bun x ng serve maple` (skip if already running)
 Navigate to `/search/advanced`. Confirm:
+
 - The "Hidden" dropdown appears with "Hide hidden" / "Show all" / "Hidden only" options.
 - Selecting "Hidden only" adds `?hidden=only` to the URL and the request re-fires (network tab shows `/api/search?...&hidden=only`).
 - Selecting "Hide hidden" removes the `hidden` param from the URL entirely.
@@ -485,10 +503,12 @@ git commit -m "feat(web): add hidden-image filter to advanced search"
 ### Task 6: Frontend — selection state + Batch Metadata editor wiring
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/search/search.component.ts`
 - Modify: `src/web/projects/maple/src/app/search/search.component.html`
 
 **Interfaces:**
+
 - Consumes: `BatchMetadataService`, `BatchMetadataPanelComponent`, `AssetMetadataSnapshot` (all barrel-exported from `@maple-common`); `SearchResult.address` from Task 3.
 - Produces: `selectedIds`, `toggleSelect()`, `selectAllLoaded()`, `clearSelection()`, `batchMetaDialogVisible`, `batchMetaAssetSnapshots`, `onEditMetadata()`, `onBatchMetaDismiss()` — leaf of the batch-editor slice, nothing downstream depends on these.
 
@@ -552,17 +572,17 @@ Add after `openResult()` (after line 469):
 In the constructor's `effect()` (lines 197-209), add `this.clearSelection();` after the existing `untracked(...)` block, before `this.scheduleSearch();`:
 
 ```typescript
-    effect(() => {
-      const m = this.query();
-      if (!m) return;
-      const urlQ = m.get('q') ?? '';
-      untracked(() => {
-        if (urlQ !== this.qInput()) this.qInput.set(urlQ);
-      });
-      this.clearSelection();
-      this.scheduleSearch();
-      this.scheduleFacets();
-    });
+effect(() => {
+  const m = this.query();
+  if (!m) return;
+  const urlQ = m.get('q') ?? '';
+  untracked(() => {
+    if (urlQ !== this.qInput()) this.qInput.set(urlQ);
+  });
+  this.clearSelection();
+  this.scheduleSearch();
+  this.scheduleFacets();
+});
 ```
 
 - [ ] **Step 4: Add the batch metadata dialog handlers**
@@ -603,109 +623,107 @@ Add after `clearSelection()`:
 In `search.component.html`, add a selection toolbar right after the closing `</header>` (after line 58), before the `<div class="flex min-h-0 flex-1">` results/sidebar row:
 
 ```html
-  @if (selectedCount() > 0) {
-    <div
-      class="flex h-9 flex-shrink-0 items-center gap-3 border-b-[0.5px] border-border bg-surface-alt px-4 text-[12px] text-text-main"
-    >
-      <span>{{ selectedCount() }} selected</span>
-      <button
-        type="button"
-        class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
-        (click)="selectAllLoaded()"
-      >
-        Select all (loaded)
-      </button>
-      <button
-        type="button"
-        class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
-        (click)="onEditMetadata()"
-      >
-        Edit metadata…
-      </button>
-      <button
-        type="button"
-        class="ml-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
-        (click)="clearSelection()"
-      >
-        Clear
-      </button>
-    </div>
-  }
+@if (selectedCount() > 0) {
+<div
+  class="flex h-9 flex-shrink-0 items-center gap-3 border-b-[0.5px] border-border bg-surface-alt px-4 text-[12px] text-text-main"
+>
+  <span>{{ selectedCount() }} selected</span>
+  <button
+    type="button"
+    class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
+    (click)="selectAllLoaded()"
+  >
+    Select all (loaded)
+  </button>
+  <button
+    type="button"
+    class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
+    (click)="onEditMetadata()"
+  >
+    Edit metadata…
+  </button>
+  <button
+    type="button"
+    class="ml-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
+    (click)="clearSelection()"
+  >
+    Clear
+  </button>
+</div>
+}
 ```
 
 Add a checkbox to each result card. The card is currently a `<button>` (lines 510-550) — nesting an `<input type="checkbox">` inside a native `<button>` is invalid HTML (browsers hoist it out and behavior becomes inconsistent), so change the card element from `<button>` to a `<div>` with a click handler and keyboard support:
 
 ```html
-      <div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
-        @for (r of results(); track trackResult($index, r)) {
-          <div
-            class="group relative flex cursor-pointer flex-col gap-1.5 rounded-md border-[0.5px] border-border bg-surface p-1.5 text-left text-text-main transition-[background,border-color] duration-[120ms] hover:border-text-muted hover:bg-surface-alt"
-            role="button"
-            tabindex="0"
-            (click)="openResult(r)"
-            (keydown.enter)="openResult(r)"
-            [attr.aria-label]="'Open ' + r.filename"
-          >
-            <input
-              type="checkbox"
-              class="absolute left-2 top-2 z-10 h-4 w-4 cursor-pointer"
-              [checked]="selectedIds().has(r.id)"
-              [attr.aria-label]="'Select ' + r.filename"
-              (click)="$event.stopPropagation()"
-              (change)="toggleSelect(r.id)"
-            />
-            <div class="relative aspect-[3/2] overflow-hidden rounded bg-image-canvas">
-              @if (r.thumbUrl) {
-                <img
-                  class="block h-full w-full object-cover"
-                  [src]="r.thumbUrl"
-                  [alt]="r.filename"
-                  loading="lazy"
-                  decoding="async"
-                />
-              } @else if (r.thumbLoading) {
-                <div class="skeleton h-full w-full"></div>
-              }
-              @if (r.rating > 0) {
-                <div
-                  class="absolute bottom-1 right-1 flex gap-px rounded-[3px] bg-black/55 px-1 py-0.5"
-                >
-                  @for (s of stars; track s) {
-                    <maple-icon
-                      [name]="s <= r.rating ? 'star-filled' : 'star'"
-                      [size]="9"
-                      [color]="s <= r.rating ? 'var(--color-star)' : 'rgba(255,255,255,0.35)'"
-                    />
-                  }
-                </div>
-              }
-            </div>
-            <div class="flex flex-col gap-0.5 px-1 pb-0.5">
-              <span class="overflow-hidden text-ellipsis whitespace-nowrap text-[12px]">{{
-                r.filename
-              }}</span>
-              @if (r.captured_at) {
-                <span class="text-[11px] text-text-muted">{{ r.captured_at | slice: 0 : 10 }}</span>
-              }
-            </div>
-          </div>
+<div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+  @for (r of results(); track trackResult($index, r)) {
+  <div
+    class="group relative flex cursor-pointer flex-col gap-1.5 rounded-md border-[0.5px] border-border bg-surface p-1.5 text-left text-text-main transition-[background,border-color] duration-[120ms] hover:border-text-muted hover:bg-surface-alt"
+    role="button"
+    tabindex="0"
+    (click)="openResult(r)"
+    (keydown.enter)="openResult(r)"
+    [attr.aria-label]="'Open ' + r.filename"
+  >
+    <input
+      type="checkbox"
+      class="absolute left-2 top-2 z-10 h-4 w-4 cursor-pointer"
+      [checked]="selectedIds().has(r.id)"
+      [attr.aria-label]="'Select ' + r.filename"
+      (click)="$event.stopPropagation()"
+      (change)="toggleSelect(r.id)"
+    />
+    <div class="relative aspect-[3/2] overflow-hidden rounded bg-image-canvas">
+      @if (r.thumbUrl) {
+      <img
+        class="block h-full w-full object-cover"
+        [src]="r.thumbUrl"
+        [alt]="r.filename"
+        loading="lazy"
+        decoding="async"
+      />
+      } @else if (r.thumbLoading) {
+      <div class="skeleton h-full w-full"></div>
+      } @if (r.rating > 0) {
+      <div class="absolute bottom-1 right-1 flex gap-px rounded-[3px] bg-black/55 px-1 py-0.5">
+        @for (s of stars; track s) {
+        <maple-icon
+          [name]="s <= r.rating ? 'star-filled' : 'star'"
+          [size]="9"
+          [color]="s <= r.rating ? 'var(--color-star)' : 'rgba(255,255,255,0.35)'"
+        />
         }
       </div>
+      }
+    </div>
+    <div class="flex flex-col gap-0.5 px-1 pb-0.5">
+      <span class="overflow-hidden text-ellipsis whitespace-nowrap text-[12px]"
+        >{{ r.filename }}</span
+      >
+      @if (r.captured_at) {
+      <span class="text-[11px] text-text-muted">{{ r.captured_at | slice: 0 : 10 }}</span>
+      }
+    </div>
+  </div>
+  }
+</div>
 ```
 
 Add the panel at the very end of the template, right before the closing `</div>` of the root element (after line 571, before line 572):
 
 ```html
-  <app-batch-metadata-panel
-    [visible]="batchMetaDialogVisible()"
-    [assetSnapshots]="batchMetaAssetSnapshots()"
-    (dismiss)="onBatchMetaDismiss()"
-  />
+<app-batch-metadata-panel
+  [visible]="batchMetaDialogVisible()"
+  [assetSnapshots]="batchMetaAssetSnapshots()"
+  (dismiss)="onBatchMetaDismiss()"
+/>
 ```
 
 - [ ] **Step 6: Manual verification in the dev server**
 
 With the dev server running (`bun x ng serve maple`) and a self-hosted API + at least one indexed asset with a registered library slug:
+
 1. Navigate to `/search/advanced`, run a query that returns results.
 2. Click a result's checkbox — confirm the toolbar appears with "1 selected" and clicking the checkbox did NOT navigate to Preview.
 3. Click "Select all (loaded)" — confirm the count matches the currently-rendered result count, not the total server-side match count.
