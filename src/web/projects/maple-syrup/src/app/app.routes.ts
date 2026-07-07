@@ -1,9 +1,9 @@
 import { Routes } from '@angular/router';
 import {
   BrowseShellComponent,
-  EditorPageComponent,
   EditorShellComponent,
   PhoneSettingsStubComponent,
+  PreviewShellComponent,
   ProtocolHandlerComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
@@ -23,14 +23,22 @@ const baseRoutes: Routes = [
     path: 'edit/:slug',
     children: [{ path: '**', component: EditorShellComponent }],
   },
+  // Web Preview Surface Task 3 — /view/:slug/** deep-links into a fast,
+  // static-image preview (grid thumbnail → display preview, no canvas/WASM).
+  {
+    path: 'view/:slug',
+    children: [{ path: '**', component: PreviewShellComponent }],
+  },
+  { path: 'view', component: PreviewShellComponent },
   // Responsive-program S1a (#597) / S2 (#623) / S5 (#625) / S7 (#622)
   // — phone-tier tab routes shared with RootShellComponent. The Library
-  // tab renders the responsive grid; loupe redirects to the S5 Editor
-  // (S4 dropped per #619 — the Editor canvas IS the full-image view);
-  // search is the lazy-loaded S7 page.
+  // tab renders the responsive grid; loupe redirects to Preview
+  // (S4 dropped per #619 — the Editor canvas IS the full-image view; the S5
+  // editor itself was retired once the canvas-first editor reached feature
+  // parity, epic #1807 — Preview's own Edit action reaches it via
+  // `/edit/:slug/**` above); search is the lazy-loaded S7 page.
   { path: 'library', component: LibraryPageComponent },
-  { path: 'library/loupe/:id', redirectTo: 'library/editor/:id' },
-  { path: 'library/editor/:id', component: EditorPageComponent },
+  { path: 'library/loupe/:id', redirectTo: 'view/:id' },
   // PWA `protocol_handlers` landing route — see manifest.webmanifest and
   // ProtocolHandlerComponent. The browser substitutes the entire
   // `web+maple://…` URL into `?url=…` (percent-encoded); the component

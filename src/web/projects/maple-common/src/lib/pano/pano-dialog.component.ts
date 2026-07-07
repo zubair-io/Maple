@@ -36,6 +36,7 @@ import {
   PanoJobView,
 } from '../api/pano.service';
 import { LibraryStateService } from '../state/library-state.service';
+import { viewRouteCommands } from '../addressing/route-address';
 
 type DialogPhase =
   | 'idle'
@@ -263,7 +264,7 @@ export class PanoDialogComponent implements OnDestroy {
     const j = this.job();
     const assetId = j?.result?.outputAssetId;
     if (assetId) {
-      void this.router.navigate(['/library/editor', assetId]);
+      void this.router.navigate(viewRouteCommands(assetId));
     }
     this.dismiss.emit();
   }
