@@ -338,7 +338,17 @@ cd src/web && bunx vitest run projects/maple-common/src/lib/components/timeline-
 
 Expected: PASS — all 11 tests green.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Format with Prettier**
+
+```bash
+cd src/web && bun x prettier --write \
+  projects/maple-common/src/lib/components/timeline-view/timeline-view.utils.ts \
+  projects/maple-common/src/lib/components/timeline-view/timeline-view.utils.spec.ts
+```
+
+Expected: files reformatted in place (or left unchanged if already compliant) — this repo's CI `format-check` gate requires every changed `.ts` file to be Prettier-clean.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.utils.ts \
