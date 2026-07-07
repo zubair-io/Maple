@@ -27,12 +27,17 @@ A related, previously-unclear point: Browse and Advanced Search return different
 
 ## Non-goals
 
-- No backend/API changes — `hidden` filter param and `/api/metadata/snapshots` + `/api/xmp/batch` already support everything needed.
 - No change to Browse's folder route or its hidden-image behavior.
 - No cross-page (server-side) "select all matching results" — selection is explicitly scoped to what's already loaded in the browser, to avoid an accidental bulk edit across an unseen result set.
 - No single-asset context-menu metadata edit for search results — only the existing multi-select batch flow.
 
 ## Design
+
+### Backend prerequisite: a resolvable address on search results
+
+Investigation during planning found that `/api/search` results only carry a legacy `id: "fs:" + abs_path` field (`project.ts:72`). The metadata-snapshot/batch-apply endpoints the Batch Metadata editor depends on (`/api/metadata/snapshots`, `/api/xmp/batch`) resolve addresses via `resolveAddressString()`, which only understands the unified `slug:relPath` scheme (`src/api/src/library/address.ts`) — it treats anything before the first colon as a library slug, so an `"fs:..."` id resolves to the (nonexistent) slug `"fs"` and silently returns an empty metadata snapshot for every asset. Reusing the legacy `id` for the batch editor would ship a feature that opens successfully but is empty/broken.
+
+The fix is small and already precedented: `people.repo.ts` computes the same `slug:relPath` address for cover-asset thumbnails via `loadLibraryIdToSlug()` (`src/api/src/indexer/libraries.cache.ts:82`) + `fileinfo.path`/`fileinfo.filename`. `projectAsset()` (`project.ts`) gains an `address: string | null` field computed the same way, and `list.ts` passes the id→slug map through at both of its `projectAsset()` call sites. See the implementation plan for the exact diff.
 
 ### Hidden filter
 
