@@ -20,6 +20,7 @@ public enum SidecarPath {
     /// rarely changes, and is not part of the color/schema single-sourcing.
     public static let videoExtensions: Set<String> = [
         "mov", "mp4", "m4v", "avi", "mkv", "webm", "mts", "m2ts", "3gp",
+        "mxf", "3g2", "flv", "vob", "mpg", "wmv", "f4v",
     ]
 
     /// True when `url`'s path extension names a recognised video container.
