@@ -187,7 +187,9 @@ export const listRoute = new Elysia().get(
 
     const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
     const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
-    const results = docs.map((d) => projectAsset(d as AssetDoc & { _id: ObjectId }, libs, idToSlug));
+    const results = docs.map((d) =>
+      projectAsset(d as AssetDoc & { _id: ObjectId }, libs, idToSlug),
+    );
     return { total, page, limit, results };
   },
   { query: SearchQueryT },
