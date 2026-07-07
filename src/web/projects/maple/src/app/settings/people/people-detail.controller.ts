@@ -1,5 +1,5 @@
 // PeopleDetailController — plain-TS controller for the detail-view face
-// actions on the `/settings/people/:id` page: set-as-cover, open-in-editor,
+// actions on the `/settings/people/:id` page: set-as-cover, open-in-preview,
 // and infinite-scroll pagination.
 //
 // Extracted from `PeopleComponent` to satisfy the 600-LOC file budget,
@@ -63,7 +63,7 @@ export class PeopleDetailController {
 
   // ── Open in Preview (Feature 2) ────────────────────────────────────────
 
-  openInEditor(face: ApiPersonFace): void {
+  openInPreview(face: ApiPersonFace): void {
     void this.deps.router.navigate(viewRouteCommands(face.assetId));
   }
 
