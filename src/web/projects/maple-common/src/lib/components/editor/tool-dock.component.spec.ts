@@ -73,3 +73,76 @@ describe('ToolDockComponent — Crop entry (#1813)', () => {
     expect(button('Detail').classList.contains('dock-btn--active')).toBe(false);
   });
 });
+
+// ── Presets entry (#1815) ────────────────────────────────────────────────
+// Presets is a second `panel: true` entry alongside Curve — this locks down
+// that generalizing the dock's panel mechanism (previously hardcoded to
+// `entry.id === 'curve'`) didn't cross-wire the two panels' toggle outputs
+// or active-highlight state.
+describe('ToolDockComponent — Presets entry (#1815)', () => {
+  let fixture: ComponentFixture<ToolDockComponent>;
+
+  function render(curveOpen: boolean, presetsOpen: boolean): void {
+    fixture = TestBed.createComponent(ToolDockComponent);
+    fixture.componentRef.setInput('activeGroup', 'light');
+    fixture.componentRef.setInput('activeTool', 'exposure');
+    fixture.componentRef.setInput('curveOpen', curveOpen);
+    fixture.componentRef.setInput('presetsOpen', presetsOpen);
+    fixture.detectChanges();
+  }
+
+  function button(label: string): HTMLButtonElement {
+    const btn = fixture.nativeElement.querySelector(
+      `button[aria-label="${label}"]`,
+    ) as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    return btn!;
+  }
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ imports: [ToolDockComponent] });
+  });
+
+  it('renders an enabled Presets entry', () => {
+    render(false, false);
+    expect(button('Presets').disabled).toBe(false);
+  });
+
+  it('clicking Presets emits presetsPanelToggle, not curvePanelToggle', () => {
+    render(false, false);
+    let presetsToggled = 0;
+    let curveToggled = 0;
+    fixture.componentInstance.presetsPanelToggle.subscribe(() => presetsToggled++);
+    fixture.componentInstance.curvePanelToggle.subscribe(() => curveToggled++);
+
+    button('Presets').click();
+
+    expect(presetsToggled).toBe(1);
+    expect(curveToggled).toBe(0);
+  });
+
+  it('clicking Curve still emits only curvePanelToggle', () => {
+    render(false, false);
+    let presetsToggled = 0;
+    let curveToggled = 0;
+    fixture.componentInstance.presetsPanelToggle.subscribe(() => presetsToggled++);
+    fixture.componentInstance.curvePanelToggle.subscribe(() => curveToggled++);
+
+    button('Curve').click();
+
+    expect(curveToggled).toBe(1);
+    expect(presetsToggled).toBe(0);
+  });
+
+  it('Presets highlights only from presetsOpen — Curve is independent', () => {
+    render(true, false);
+    expect(button('Curve').classList.contains('dock-btn--active')).toBe(true);
+    expect(button('Presets').classList.contains('dock-btn--active')).toBe(false);
+  });
+
+  it('Curve highlights only from curveOpen — Presets is independent', () => {
+    render(false, true);
+    expect(button('Presets').classList.contains('dock-btn--active')).toBe(true);
+    expect(button('Curve').classList.contains('dock-btn--active')).toBe(false);
+  });
+});

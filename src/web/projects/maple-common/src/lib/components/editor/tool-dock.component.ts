@@ -1,10 +1,12 @@
 // ToolDockComponent — vertical glass icon column on tablet/desktop (#1535).
-// 9 icons: Light · Color · Curve · Effects · Detail · Crop · Optics · Mask · Heal.
+// 10 icons: Light · Color · Curve · Effects · Detail · Crop · Presets · Optics · Mask · Heal.
 // Light / Color / Effects / Detail switch the active ToolGroup.
 // Curve opens the tone-curve panel (M2 #1540).
 // Crop arms the Crop tool directly (#1813 — canvas-first crop port; reuses
 // CropSessionService/CropOverlayComponent/CropToolbarComponent from the S5
 // editor, #638).
+// Presets opens the presets panel (#1815 — canvas-first presets port; reuses
+// PresetsPanelComponent/PresetsService verbatim from the S5 editor, #1115).
 // Optics / Mask / Heal are visibly disabled with a tooltip + code
 // comment referencing the milestone ticket — NOT fake panels (CLAUDE.md #6).
 
@@ -44,6 +46,10 @@ const DOCK_ENTRIES: DockEntry[] = [
   // over the canvas + the shared crop toolbar (aspect/straighten/reset/done) —
   // same CropSessionService the S5 editor uses, so output is byte-identical.
   { id: 'crop', icon: 'tool-crop', label: 'Crop', tool: 'crop' },
+  // Presets: opens the presets panel (#1815). Mounts the shared
+  // PresetsPanelComponent (list/save/apply/delete) — same PresetsService +
+  // EditorStateService.applyPreset the S5 editor uses.
+  { id: 'presets', icon: 'tool-presets', label: 'Presets', panel: true },
   // Optics: out of v0.1 scope — tracked in epic #1534.
   { id: 'optics', icon: 'zoom-in', label: 'Optics', disabled: true, ticket: '#1534' },
   // Mask: coming in #1541 (web M3 — masking). No masking exists yet; a fake
@@ -78,17 +84,35 @@ export class ToolDockComponent {
   activeTool = input<ToolId | null>(null);
   /** True when the curve panel is open. */
   curveOpen = input<boolean>(false);
+  /** True when the presets panel is open (#1815). */
+  presetsOpen = input<boolean>(false);
   /** Fired when the user taps an enabled group entry. */
   groupChange = output<ToolGroup>();
   /** Fired when the user taps a specific-tool entry (e.g. Crop). */
   toolChange = output<ToolId>();
   /** Fired when user taps the Curve entry (toggle). */
   curvePanelToggle = output<void>();
+  /** Fired when user taps the Presets entry (toggle, #1815). */
+  presetsPanelToggle = output<void>();
 
   readonly entries = DOCK_ENTRIES;
 
+  /** Whether a given `panel: true` entry's panel is currently open — keyed
+   *  by entry id so a second panel entry (Presets, #1815) doesn't need its
+   *  own branch in `isActive`/`onEntryClick`. */
+  private panelOpenFor(entry: DockEntry): boolean {
+    switch (entry.id) {
+      case 'curve':
+        return this.curveOpen();
+      case 'presets':
+        return this.presetsOpen();
+      default:
+        return false;
+    }
+  }
+
   isActive(entry: DockEntry): boolean {
-    if (entry.panel) return entry.id === 'curve' && this.curveOpen();
+    if (entry.panel) return this.panelOpenFor(entry);
     if (entry.tool) return entry.tool === this.activeTool();
     const armed = this.activeTool();
     if (armed != null && DOCK_TOOL_IDS.has(armed)) return false;
@@ -98,7 +122,11 @@ export class ToolDockComponent {
   onEntryClick(entry: DockEntry): void {
     if (entry.disabled) return;
     if (entry.panel) {
-      this.curvePanelToggle.emit();
+      if (entry.id === 'presets') {
+        this.presetsPanelToggle.emit();
+      } else {
+        this.curvePanelToggle.emit();
+      }
       return;
     }
     if (entry.tool) {

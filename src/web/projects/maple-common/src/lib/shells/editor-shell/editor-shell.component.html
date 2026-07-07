@@ -76,9 +76,11 @@
           [activeGroup]="activeGroup()"
           [activeTool]="activeTool()"
           [curveOpen]="curveOpen()"
+          [presetsOpen]="presetsOpen()"
           (groupChange)="onGroupChange($event)"
           (toolChange)="onToolChange($event)"
           (curvePanelToggle)="onCurvePanelToggle()"
+          (presetsPanelToggle)="onPresetsPanelToggle()"
         />
 
         <!-- Curve panel (tone curve + WB pad) — glass card, tablet/desktop only -->
@@ -98,6 +100,16 @@
         @if (cropArmed()) {
           <div class="crop-panel">
             <app-crop-toolbar />
+          </div>
+        }
+
+        <!-- Presets panel (#1815) — glass card hosting the shared
+             `app-presets-panel` (list/save/apply/delete). Applying a preset
+             routes through the identical `PresetsService`/
+             `EditorStateService.applyPreset` path the S5 editor uses. -->
+        @if (presetsOpen()) {
+          <div class="presets-panel">
+            <app-presets-panel (applied)="presetsOpen.set(false)" />
           </div>
         }
       </div>

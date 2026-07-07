@@ -338,3 +338,42 @@
   overflow: hidden;
   pointer-events: auto;
 }
+
+// ── Presets panel (#1815 — glass card hosting the shared `app-presets-panel`) ──
+// Same anchor position as the curve/crop panels (mutually exclusive with
+// both — see `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`).
+// `app-presets-panel` styles itself off `--mpl-*` custom properties (with
+// hardcoded fallbacks, since `--mpl-*` is never defined globally — see
+// presets-panel.component.scss) plus the globally-defined `--color-*` design
+// tokens (tokens.scss), which already resolve correctly here. Bridging the
+// `--mpl-*` set to this shell's `--pro-*` tokens keeps the reused S5
+// component on-theme in the canvas-first shell without touching the shared
+// component's styles (which would affect the S5 editor too) — same pattern
+// as the `--maple-*` bridge on `.crop-panel` above, just a different
+// namespace (presets-panel uses `--mpl-*`, crop-toolbar uses `--maple-*`).
+.presets-panel {
+  --mpl-primary: var(--pro-accent);
+  --mpl-text-main: var(--pro-text);
+  --mpl-surface-alt: rgba(255, 255, 255, 0.04);
+
+  position: absolute;
+  right: 64px; // just left of the dock column
+  top: 50%;
+  transform: translateY(-50%);
+  width: 280px;
+  max-height: min(480px, calc(100vh - 120px));
+  background: var(--pro-glass-bg-heavy);
+  backdrop-filter: var(--pro-glass-blur-heavy);
+  -webkit-backdrop-filter: var(--pro-glass-blur-heavy);
+  border: 0.5px solid var(--pro-glass-border);
+  box-shadow: var(--pro-glass-shadow);
+  border-radius: var(--pro-glass-radius-card-desktop);
+  overflow: hidden;
+  pointer-events: auto;
+
+  app-presets-panel {
+    display: block;
+    height: 100%;
+    min-height: 0;
+  }
+}

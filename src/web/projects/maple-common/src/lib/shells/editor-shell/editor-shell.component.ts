@@ -19,6 +19,12 @@
 // `CropSessionService.active` — no per-editor overlay wiring needed. Tablet/
 // desktop only today: the phone dock's Crop entry ships disabled in #1811
 // and is flipped on in a follow-up once both land.
+// Presets panel: glass card that opens/closes via the Presets dock entry
+// (#1815) — hosts the shared `PresetsPanelComponent`, also used by the S5
+// editor (#1115), so apply/save/delete route through the identical
+// `PresetsService` / `EditorStateService.applyPreset` path on both editors.
+// Presets, Curve, and Crop all share the same panel anchor and are mutually
+// exclusive (see `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`).
 // Canvas scrub: horizontal drag at fit-zoom moves the armed tool at 0.5:1.
 // Chrome recede: dims to 30% after 3s idle; restores on pointer move (180ms).
 // Desktop opts out of auto-recede.
@@ -54,6 +60,7 @@ import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { CropToolbarComponent } from '../../editor/crop-toolbar.component';
+import { PresetsPanelComponent } from '../../editor/presets/presets-panel.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
 import { formatAddress, parseAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
@@ -86,6 +93,7 @@ const RECEDE_IDLE_MS = 3000;
     ToneCurveComponent,
     WbPadComponent,
     CropToolbarComponent,
+    PresetsPanelComponent,
   ],
   styleUrl: './editor-shell.component.scss',
   templateUrl: './editor-shell.component.html',
@@ -151,6 +159,11 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /** True when the curve panel (tone curve + WB pad) is open (#1540). */
   readonly curveOpen = signal<boolean>(false);
+
+  /** True when the presets panel is open (#1815). Shares the same panel
+   *  anchor as curve/crop — mutually exclusive with both (see
+   *  `onPresetsPanelToggle`/`onCurvePanelToggle`/`onToolChange`). */
+  readonly presetsOpen = signal<boolean>(false);
 
   // Chrome recede
   readonly chromeState = signal<ChromeState>('full');
@@ -395,22 +408,37 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Arm a specific dock tool (currently only Crop — #1813). Matches the S5
    *  editor's crop pill (`ToolPillRowComponent.select`): tapping always arms;
    *  exiting crop is an explicit action (the crop toolbar's Done button),
-   *  not a second tap on the dock entry. Crop and Curve share the same panel
-   *  anchor and are mutually exclusive — arming Crop closes the curve panel so
-   *  the two can never render on top of each other (crop wins while armed). */
+   *  not a second tap on the dock entry. Crop, Curve, and Presets share the
+   *  same panel anchor and are mutually exclusive — arming Crop closes the
+   *  curve and presets panels so no two can ever render on top of each other
+   *  (crop wins while armed). */
   onToolChange(tool: ToolId): void {
-    if (tool === 'crop') this.curveOpen.set(false);
+    if (tool === 'crop') {
+      this.curveOpen.set(false);
+      this.presetsOpen.set(false);
+    }
     this.editorState.armTool(tool);
     this.editorState.haptic('switch');
   }
 
   /** Toggle the curve panel. No-op while Crop is armed: the crop toolbar owns
-   *  the shared panel anchor, so Curve can't open over it (the mutual-exclusion
-   *  half that keeps the panels from overlapping — the other half is
-   *  `onToolChange` closing curve when Crop arms). */
+   *  the shared panel anchor, so Curve can't open over it. Opening Curve also
+   *  closes Presets, since they share the same anchor too (the mutual-
+   *  exclusion half that keeps the panels from overlapping — the other
+   *  halves are `onToolChange` closing curve/presets when Crop arms, and
+   *  `onPresetsPanelToggle` closing curve when Presets opens). */
   onCurvePanelToggle(): void {
     if (this.cropArmed()) return;
+    this.presetsOpen.set(false);
     this.curveOpen.update((v) => !v);
+  }
+
+  /** Toggle the presets panel (#1815). No-op while Crop is armed, and closes
+   *  Curve if open — same shared-anchor mutual exclusion as Curve/Crop. */
+  onPresetsPanelToggle(): void {
+    if (this.cropArmed()) return;
+    this.curveOpen.set(false);
+    this.presetsOpen.update((v) => !v);
   }
 
   // ── Current adjustment (for histogram) ────────────────────────────────
