@@ -15,7 +15,13 @@
       <img class="preview-img preview-img--thumb" [src]="t" alt="" />
     }
     @if (previewUrl(); as p) {
-      <img class="preview-img preview-img--full" [src]="p" alt="" />
+      <!-- subscribePreviewUrl() falls through to the thumbnail URL for
+           non-self-hosted / non-address ids, in which case previewUrl()
+           equals thumbUrl() — skip the redundant stacked <img> (and its
+           decode/paint cost) and let the thumb crossfade stand alone. -->
+      @if (p !== thumbUrl()) {
+        <img class="preview-img preview-img--full" [src]="p" alt="" />
+      }
     }
   </div>
 
