@@ -88,8 +88,7 @@ export class TimelineStateService {
     const addr = this.selectedFolderAddress();
     if (!addr) return null;
     return (
-      this.state.registeredFolders().find((f) => f.slug === addr.slug || f.id === addr.slug) ??
-      null
+      this.state.registeredFolders().find((f) => f.slug === addr.slug || f.id === addr.slug) ?? null
     );
   });
 
