@@ -253,6 +253,23 @@
         </select>
       </section>
 
+      <!-- Hidden tri-state -->
+      <section class="mb-[18px]">
+        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
+          Hidden
+        </h3>
+        <select
+          class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
+          [value]="hidden()"
+          (change)="setHidden($any($event.target).value)"
+          aria-label="Hidden images"
+        >
+          @for (o of hiddenOptions; track o.value) {
+            <option [value]="o.value">{{ o.label }}</option>
+          }
+        </select>
+      </section>
+
       <!-- ISO -->
       <section class="mb-[18px]">
         <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
