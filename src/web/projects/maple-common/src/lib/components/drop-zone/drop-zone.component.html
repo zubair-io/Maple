@@ -1,16 +1,33 @@
 <!-- Import toolbar row -->
-<div class="flex h-8 flex-shrink-0 items-center gap-2 border-b-[0.5px] border-border bg-surface px-2.5">
+<div
+  class="flex h-8 flex-shrink-0 items-center gap-2 border-b-[0.5px] border-border bg-surface px-2.5"
+>
   <!-- FS Access "Open folder" button (Chromium only) -->
   @if (folderAccess.hasFsAccess) {
-    <button class="import-btn primary flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-primary bg-primary-dim px-2.5 text-[11px] text-primary transition-[background] duration-[120ms]" (click)="openFolder()" type="button" [disabled]="opening()">
+    <button
+      class="import-btn primary flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-primary bg-primary-dim px-2.5 text-[11px] text-primary transition-[background] duration-[120ms]"
+      (click)="openFolder()"
+      type="button"
+      [disabled]="opening()"
+    >
       {{ opening() ? 'Opening...' : 'Open folder' }}
     </button>
     <div class="h-[18px] w-px bg-border"></div>
   }
 
   <!-- Legacy import buttons (always available as fallback / one-off imports) -->
-  <button class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover" (click)="filePicker.click()" type="button">+ Import files</button>
-  <button class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover" (click)="folderPicker.click()" type="button">
+  <button
+    class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover"
+    (click)="filePicker.click()"
+    type="button"
+  >
+    + Import files
+  </button>
+  <button
+    class="flex h-[22px] cursor-pointer items-center gap-[5px] rounded border-[0.5px] border-border bg-surface-alt px-2.5 text-[11px] text-text-main transition-[background] duration-[120ms] hover:bg-surface-hover"
+    (click)="folderPicker.click()"
+    type="button"
+  >
     {{ folderAccess.hasFsAccess ? 'Import folder (legacy)' : 'Import folder' }}
   </button>
 
@@ -29,7 +46,7 @@
     #filePicker
     type="file"
     multiple
-    accept=".dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.pef,.srw,.3fr,.fff,.dcr,.mos,.iiq,.mrw,.raw"
+    accept=".dng,.cr2,.cr3,.nef,.arw,.raf,.orf,.rw2,.pef,.srw,.x3f,.3fr,.mef,.fff,.dcr,.mos,.iiq,.mrw,.raw"
     (change)="onFileInputChange($event)"
   />
   <input #folderPicker type="file" multiple webkitdirectory (change)="onFileInputChange($event)" />
@@ -37,15 +54,29 @@
 
 <!-- Read-only banner: shown when folder was opened without write permission -->
 @if (showReadOnlyBanner()) {
-  <div class="readonly-banner flex h-7 flex-shrink-0 items-center gap-2 border-b-[0.5px] px-2.5 text-[11px]">
+  <div
+    class="readonly-banner flex h-7 flex-shrink-0 items-center gap-2 border-b-[0.5px] px-2.5 text-[11px]"
+  >
     <span>Read-only — grant write access to save edits and cache thumbnails.</span>
-    <button class="grant-btn h-[18px] cursor-pointer rounded-[3px] border-[0.5px] px-2 text-[10px]" (click)="requestWrite()" type="button">Grant write access</button>
+    <button
+      class="grant-btn h-[18px] cursor-pointer rounded-[3px] border-[0.5px] px-2 text-[10px]"
+      (click)="requestWrite()"
+      type="button"
+    >
+      Grant write access
+    </button>
   </div>
 }
 
 <!-- Drag-over overlay -->
 @if (dragOver()) {
-  <div class="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center bg-black/65">
-    <div class="rounded-xl border-2 border-dashed border-primary px-[60px] py-10 text-center text-[15px] tracking-[0.02em] text-primary">Drop RAW files to import</div>
+  <div
+    class="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center bg-black/65"
+  >
+    <div
+      class="rounded-xl border-2 border-dashed border-primary px-[60px] py-10 text-center text-[15px] tracking-[0.02em] text-primary"
+    >
+      Drop RAW files to import
+    </div>
   </div>
 }
