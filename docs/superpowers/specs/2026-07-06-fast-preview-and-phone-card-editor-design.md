@@ -42,7 +42,7 @@ Three coordinated changes, all on both platforms:
 
 - No change to the editor's color pipeline, parity harness, or render math.
 - No change to the VLM `preview` stage's embedded 1280 px artifact (the vision model must keep
-  seeing the *undeveloped* embedded preview).
+  seeing the _undeveloped_ embedded preview).
 - No new masking/optics/heal tools — disabled dock entries stay disabled per existing
   convention (CLAUDE.md #6).
 - Zoom/pan inside Preview is out of scope; zoom lives in the editor. Preview is a fit-to-screen
@@ -69,7 +69,7 @@ control-variant scaffolding. `EditorHeader` filename is `.lineLimit(1)
 `InfoPanelView` / `RatingFlagsRow` (iPhone sheet, Mac/iPad right column). Layout: `MapleShellKind`
 (phoneTab vs pane, by idiom); `MapleLayout` (phone <768 / tablet ≤1024 / desktop, by width);
 `horizontalSizeClass` compact/regular inside `EditorView`. **No swipe/arrow prev-next image
-navigation exists on either platform** (arrow keys in the editor switch tool *groups*).
+navigation exists on either platform** (arrow keys in the editor switch tool _groups_).
 
 On **both** platforms, opening a photo goes straight to the live editor — there is no preview
 step, the phone editor has no bottom tool dock and its card does not collapse, and there is no
@@ -214,6 +214,7 @@ within a track are ordered; the header fix and phone-card slice do not depend on
 data layer.
 
 **Web track**
+
 - W1 — display-preview data layer (self-hosted `display-preview` stage + serve route; Hosted-web
   IndexedDB developed-preview cache).
 - W2 — `PreviewShellComponent` + `/view` route + `viewRouteCommands` repointing + Flag/Edit/Info
@@ -221,9 +222,10 @@ data layer.
 - W3 — phone card editor (horizontal `ToolDock` + collapsible `ControlCard` flyout).
 
 **Apple track**
+
 - A1 — display-preview disk cache (developed render, sidecar-versioned, parity-gated).
 - A2 — `PreviewView` (+VM) + navigation (iPhone push / Mac-iPad `Mode.preview`) + Flag/Edit/Info
-  + filmstrip + swipe/arrow navigation + header max-width.
+  - filmstrip + swipe/arrow navigation + header max-width.
 - A3 — phone card editor (`FlyoutSliderPanel` + horizontal `ToolDock` + `MobileControlBar` on
   compact).
 
