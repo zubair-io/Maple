@@ -5,8 +5,8 @@
 // `pixelScale >= 1.0` and `EditSession.deepZoomEnabled` is on.
 //
 // Pure-math helper `computeVisibleSourceRect` stays static + nonisolated
-// so off-main callers (FullImageView at construction time, the unit-test
-// suite) can use it without an actor hop.
+// so off-main callers (`CanvasZoomController` at construction time, the
+// unit-test suite) can use it without an actor hop.
 
 import Foundation
 import CoreImage
@@ -15,7 +15,7 @@ import CoreImage
 extension EditSession {
     // MARK: - Public deep-zoom API
 
-    /// FullImageView calls this from the magnification gesture, the
+    /// `CanvasZoomController` calls this from the magnification gesture, the
     /// ⌘1/⌘=/⌘- toolbar shortcuts, and (on macOS) the Cmd+scroll
     /// handler. Updates the visible source-pixel rect for the tile
     /// manager and the live `pixelScale`. When `zoom` changes
@@ -176,7 +176,7 @@ extension EditSession {
     /// down). `displayScale` is points → real pixels.
     ///
     /// Thin forwarder around `CanvasMath.visibleSourceRect`; kept on
-    /// `EditSession` so existing call sites (`FullImageView`,
+    /// `EditSession` so existing call sites (`CanvasZoomController`,
     /// `EditSessionDeepZoomTests`) don't have to thread the value type
     /// in just to read this one rect. The actual math lives in
     /// `CanvasMath` (Ticket 10 item I).
@@ -191,7 +191,7 @@ extension EditSession {
     /// pre-resolves `pixelScale` to a non-zero value via
     /// `effectivePixelScale` before calling here.
     ///
-    /// `nonisolated` so callers (`FullImageView` at construction time,
+    /// `nonisolated` so callers (`CanvasZoomController` at construction time,
     /// `MapleCoreTests` off-main) can invoke it without an actor hop.
     nonisolated public static func computeVisibleSourceRect(
         viewport: CGSize,

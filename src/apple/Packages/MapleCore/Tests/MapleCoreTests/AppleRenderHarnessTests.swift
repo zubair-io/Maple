@@ -19,7 +19,7 @@
 //   `ImageEditPipeline.init` CIContext uses, and rasterises through a
 //   sRGB `RGBA8` `createCGImage` boundary so the resulting PNG matches
 //   what the canvas would land on a sRGB display. (The live canvas
-//   `CIImageView` ships P3 16-bit; we keep this harness on sRGB 8-bit so
+//   `CanvasImageView` ships P3 16-bit; we keep this harness on sRGB 8-bit so
 //   it diffs directly against the calibration references, which are the
 //   same shape.)
 //
@@ -37,7 +37,7 @@
 // Cross-references:
 //   src/scripts/calibrate_color_pipeline.sh                (Rust-side gate)
 //   src/scripts/apple_render_diff.py                       (per-region + matrix solver)
-//   src/apple/Maple/Views/FullImageView.swift:441-467      (live canvas CIContext config)
+//   src/apple/Maple/Views/CanvasImageView.swift:15-46      (live canvas CIContext config)
 //   src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift
 //   src/apple/MapleUITests/Helpers/CIEDE2000.swift         (sister CIEDE2000 port)
 

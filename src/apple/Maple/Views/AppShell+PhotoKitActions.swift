@@ -98,8 +98,8 @@ extension AppShell {
     ///
     /// Synchronous + throwing: the only failable call is `PhotoKitSource()`.
     /// Shared by the Mac / iPad `openLocalPhotoKitAsset` (flips
-    /// `mode = .fullImage`) and the iPhone tap that pushes the S5 editor onto
-    /// the Library tab's `NavigationStack` (#809).
+    /// `mode = imageOpenMode`, i.e. `.preview`) and the iPhone tap that pushes
+    /// the S5 editor onto the Library tab's `NavigationStack` (#809).
     @MainActor
     func prepareLocalPhotoKitSession(_ ref: ImageRef) throws -> AssetRef {
         let source = try PhotoKitSource()
@@ -121,11 +121,11 @@ extension AppShell {
         return assetRef
     }
 
-    /// Open a `.localOnly` PhotoKit cell in the editor. Mac / iPad pane-shell
-    /// entry point — flips `mode` to the in-pane editor (`imageOpenMode`
-    /// resolves to the S5 `EditorView` on Mac/iPad, #815). iPhone routes the
-    /// same tap to the S5 `EditorView` via the Library tab's `NavigationStack`
-    /// push instead (#809) and never calls this.
+    /// Open a `.localOnly` PhotoKit cell. Mac / iPad pane-shell entry point —
+    /// flips `mode` to `imageOpenMode` (the Fast Preview `.preview` surface,
+    /// #815). iPhone routes the same tap to the S5 `EditorView` via the
+    /// Library tab's `NavigationStack` push instead (#809) and never calls
+    /// this.
     @MainActor
     func openLocalPhotoKitAsset(_ ref: ImageRef) {
         do {

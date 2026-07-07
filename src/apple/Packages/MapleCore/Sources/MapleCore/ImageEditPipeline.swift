@@ -974,9 +974,10 @@ public actor ImageEditPipeline {
     ///      image (see Task 4 Step 4.0a).
     ///
     /// The Rec.2020->sRGB encode happens at the `CIContext.createCGImage`
-    /// call site in `FullImageView.CIImageView` (forced to sRGB output
-    /// by Task 4 Step 4.0b). The encode is therefore exactly once,
-    /// outside the development chain, and deterministic.
+    /// call site in the live canvas view (originally `FullImageView`'s
+    /// `CIImageView`, now `CanvasImageView`; forced to sRGB output by Task 4
+    /// Step 4.0b). The encode is therefore exactly once, outside the
+    /// development chain, and deterministic.
     ///
     /// `model` is reserved for future plans (Plan 2 ports the development
     /// chain). In Plan 1 only `model.contrast` is consumed (it modulates

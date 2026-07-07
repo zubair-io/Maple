@@ -29,10 +29,15 @@ struct AppShellIPhoneToolbar: ToolbarContent {
     /// (Per open question 5 in the iPhone-drawer design doc, the drawer is
     /// unreachable from the viewer, so the button is hidden in Full-image.)
     let isBrowse: Bool
-    /// True when AppShell is in Full-image mode — gates the trailing Info
-    /// button. The DetailPanel is suppressed entirely in Browse on iPhone
-    /// (sidecar info belongs to the editor view), so the button has no
-    /// reason to exist there.
+    /// Gates the trailing Info button (→ `AppShellIPhoneShell`'s
+    /// `iPhoneInfoSheet`). Always `false` since #1807 retired the legacy
+    /// `Mode.fullImage` surface this toolbar used to key off — `PreviewView`
+    /// and the S5 editor each ship their own Info affordance now
+    /// (`PreviewView.showInfo` / `EditorDestination`'s `onInfo`), reached via
+    /// the Library tab's `NavigationStack` push rather than this shell's
+    /// toolbar. The parameter and `iPhoneInfoSheet` are left in place
+    /// (rather than torn out here) pending a follow-up that traces every
+    /// `EditorDestination` Info path before deleting the sheet.
     let isFullImage: Bool
     /// Drawer-snapped state; the hamburger writes this with a spring
     /// animation. The drawer's own internal `@State` handles the slide;

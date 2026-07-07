@@ -35,8 +35,8 @@ extension EditorView {
     /// True when the host should render the canvas leaf (vs the
     /// placeholder).  The GPU layer mounts immediately; the CPU leaf
     /// needs a published preview AND `!showingOriginal` — the
-    /// before/after "original" view falls back to the placeholder, the
-    /// same contract `FullImageView` enforces (review #1).
+    /// before/after "original" view falls back to the placeholder
+    /// (review #1).
     var canvasIsReady: Bool {
         useGpuCanvas || (!state.session.showingOriginal && state.session.renderedPreview != nil)
     }
@@ -95,8 +95,7 @@ extension EditorView {
             )
         } else if let preview = state.session.showingOriginal ? nil : state.session.renderedPreview {
             // CPU path — suppressed while showing the original (review #1),
-            // so the before/after toggle falls back to the placeholder
-            // exactly as FullImageView does.
+            // so the before/after toggle falls back to the placeholder.
             CanvasImageView(image: preview)
                 .accessibilityElement(children: .ignore)
                 // See the GPU branch: label + value materialize the element
@@ -124,6 +123,24 @@ extension EditorView {
             .overlay { downloadOverlay }
             .padding(12)
             .accessibilityIdentifier("editor-canvas-placeholder")
+    }
+
+    // MARK: - GPU frame-time HUD (validation-only overlay)
+
+    /// The GPU frame-time HUD overlay (#1053). Renders the HUD only when the GPU
+    /// live path is active AND the HUD sub-flag is on (`MAPLE_GPU_HUD=1`); an
+    /// `EmptyView` otherwise. Ported from the legacy `FullImageView` when it was
+    /// retired in #1807 — this is the only on-device way to confirm a slider
+    /// tick renders inside the 16ms budget (device logs aren't capturable on
+    /// the paired Artemis), so the editor needed its own mount point.
+    @ViewBuilder
+    var frameTimeHud: some View {
+        if GpuLiveFlag.isEnabled, GpuHudFlag.isEnabled,
+           let stats = state.session.gpuLiveDriver?.frameStats {
+            GpuFrameTimeHud(stats: stats)
+        } else {
+            EmptyView()
+        }
     }
 
     /// "4.2 MB / 12 MB" or "4.2 MB" when the total is unknown. Adaptive units

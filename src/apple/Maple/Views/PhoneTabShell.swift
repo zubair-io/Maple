@@ -73,11 +73,11 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     // Cloud Timeline / Search (and merged-PhotoKit) taps. On iPhone these
     // build the asset's `EditSession` and RETURN its `AssetRef` (#809) so the
     // shell can push the S5 `EditorView` via this tab's `NavigationStack` —
-    // exactly like a `LibraryGrid` cell tap — instead of AppShell flipping to
-    // the legacy `mode = .fullImage` FullImageView (no adjustment controls).
-    // A `nil` return means resolution failed (e.g. PhotoKit unavailable) and
-    // nothing is pushed. Mac / iPad keep the `mode`-flip handlers (they have
-    // no NavigationStack) — that wiring is unchanged in `AppShell.macShell`.
+    // exactly like a `LibraryGrid` cell tap — instead of AppShell flipping
+    // `mode` the way the Mac/iPad pane shell does. A `nil` return means
+    // resolution failed (e.g. PhotoKit unavailable) and nothing is pushed.
+    // Mac / iPad keep the `mode`-flip handlers (they have no NavigationStack)
+    // — that wiring is unchanged in `AppShell.macShell`.
     let onSelectCloudAsset: (SearchAsset, URL) -> AssetRef?
     let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> AssetRef?

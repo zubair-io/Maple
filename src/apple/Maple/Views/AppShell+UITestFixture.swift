@@ -6,11 +6,11 @@
 // launch environment variable; when present we seed the grid with that
 // single asset and flip directly into the S5 editor (`.editing`) so the
 // test can wait on the `canvas-render-ready` accessibility identifier the
-// EditorView canvas publishes. On macOS the pane shell renders
-// `EditorView` in its center column for `.editing` (`useEditor == true`,
-// #816). The UITest harness was migrated off `.fullImage` to the S5
-// `.editing`/EditorView canvas in #820; the legacy `FullImageView` /
-// `Mode.fullImage` path remains until the golden validation lands.
+// EditorView canvas publishes. On macOS the pane shell renders `EditorView`
+// in its center column for `.editing` (#816). The UITest harness was
+// migrated off the legacy `FullImageView` loupe to the S5 `.editing`/
+// EditorView canvas in #820; `FullImageView` / `Mode.fullImage` itself was
+// retired in #1807 once nothing else referenced it.
 // The branch skips `restoreLastSource()` entirely — the harness wants a
 // known empty starting state. See
 // `.archived-plans/plans/2026-04-25-xcuitest-visual-harness.md`.

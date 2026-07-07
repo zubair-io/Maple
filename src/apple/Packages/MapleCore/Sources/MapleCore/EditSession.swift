@@ -286,9 +286,10 @@ public final class EditSession {
     ///     the user sees image detail at actual resolution, not an
     ///     upscaled low-res preview.
     ///
-    /// Set by `FullImageView` from its magnification gesture and toolbar
-    /// buttons. Triggers a refine render when it changes (pan-only doesn't
-    /// touch this, so panning doesn't re-render).
+    /// Set by `CanvasZoomController` (shared by the S5 editor and, formerly,
+    /// the legacy `FullImageView`) from the magnification gesture and zoom
+    /// toolbar buttons. Triggers a refine render when it changes (pan-only
+    /// doesn't touch this, so panning doesn't re-render).
     public var pixelScale: CGFloat = 0 {
         didSet {
             guard pixelScale != oldValue else { return }
@@ -341,7 +342,7 @@ public final class EditSession {
     /// allocates nothing and the CPU + Metal path runs unchanged. Owns the
     /// per-dims `GpuLiveSession` + the registered `CAMetalLayer`;
     /// `decodeAndRender` drives it instead of publishing a `CIImage`, and
-    /// `FullImageView` registers its canvas layer into it.
+    /// `GpuLiveCanvasView` registers its canvas layer into it.
     @ObservationIgnored public lazy var gpuLiveDriver: GpuLiveDriver? =
         GpuLiveFlag.isEnabled ? GpuLiveDriver() : nil
 
@@ -377,23 +378,23 @@ public final class EditSession {
     /// `CloudByteDownloadBox`) and for sourceless assets without a URL.
     @ObservationIgnored var fileProviderObserver: FileProviderDownloadObserver?
 
-    /// Visible region in oriented full-image source-pixel coords. Set
-    /// by `FullImageView` via `updateTileVisibleRegion(viewport:zoom:)`.
+    /// Visible region in oriented full-image source-pixel coords. Set by
+    /// `CanvasZoomController` via `updateTileVisibleRegion(viewport:zoom:)`.
     /// `_scheduleRefine`'s deep-zoom branch reads this when targeting
     /// the tile manager. `.zero` disables the deep-zoom branch.
     public internal(set) var viewportSourceRect: CGRect = .zero
 
-    /// Viewport size in real pixels — set by FullImageView. Used as the fast
-    /// phase's target size so the filter chain runs at viewport resolution
-    /// rather than native resolution.
+    /// Viewport size in real pixels — set by `GpuLiveCanvasView` /
+    /// `CanvasZoomController`. Used as the fast phase's target size so the
+    /// filter chain runs at viewport resolution rather than native resolution.
     public var previewSize: CGSize = .zero {
         didSet {
             guard previewSize != oldValue else { return }
             // First-time mount: we went from .zero to a real size. The first
-            // render (usually triggered by `ensureRenderStarted()` before
-            // FullImageView mounted) used the zero target and produced
-            // nothing visible. Re-kick the fast phase against the real
-            // viewport so the image appears immediately; refine follows.
+            // render (usually triggered by `ensureRenderStarted()` before the
+            // canvas mounted) used the zero target and produced nothing
+            // visible. Re-kick the fast phase against the real viewport so
+            // the image appears immediately; refine follows.
             if oldValue == .zero {
                 _scheduleRender(phase: .fast)
             } else {

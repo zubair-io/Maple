@@ -25,7 +25,7 @@
 //     means the metadata seed hasn't fired yet — see `imageExtent` for
 //     how derived properties handle that case.
 //   • `pixelScale` follows the same convention as today's
-//     `EditSession.pixelScale` / `FullImageView.pixelScale`:
+//     `EditSession.pixelScale` / `CanvasZoomModel.pixelScale`:
 //       – 0   = fit-to-viewport (resolved by `effectivePixelScale`)
 //       – 1.0 = pixel-perfect (one image px = one real screen px)
 //       – >1  = zoomed in beyond native
@@ -71,7 +71,7 @@ public struct CanvasMath: Sendable, Equatable {
     // MARK: - Derived: image extent
 
     /// `nativeImageSize` if known, otherwise `nil`. Used by
-    /// `FullImageView.body` to gate the canvas branch — without a
+    /// `EditorView`'s canvas composer to gate the canvas branch — without a
     /// trustworthy native size, fit math anchors to a smaller buffer
     /// (embedded JPEG, sized-FFI output) and "100%" mis-renders.
     public var imageExtent: CGSize? {

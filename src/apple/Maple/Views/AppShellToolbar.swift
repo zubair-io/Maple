@@ -1,4 +1,4 @@
-// AppShellToolbar.swift — Browse/Full-image toolbar content for AppShell.
+// AppShellToolbar.swift — Browse-mode toolbar content for AppShell.
 // Extracted from AppShell.swift as part of the multi-PR AppShell split
 // (#123, slice 2).
 //
@@ -7,32 +7,29 @@
 // risk inventory flags state-widening as a hazard), this sibling
 // `ToolbarContent` takes explicit parameters — bools for the read-only
 // flags, a binding for the grid display-mode toggle, and closures for
-// every action. `Mode` stays private to AppShell; we only need
-// `isFullImage` here.
+// every action. `Mode` stays private to AppShell; we only need `isEditing`
+// here.
+//
+// The legacy Full-image mode's Back chevron + Export toolbar items were
+// retired in #1807 along with `FullImageView` / `Mode.fullImage` — both the
+// S5 editor (`PillHeader`) and the Fast-Preview surface ship their own
+// back/share chrome, so the window toolbar never needs to duplicate them.
 
 import SwiftUI
 import MapleCore
 
-// MARK: - Browse / Full-image toolbar
+// MARK: - Browse toolbar
 
 struct AppShellToolbar: ToolbarContent {
-    /// True when AppShell is in the legacy Full-image mode (vs. Browse).
-    /// Drives the window-toolbar Back chevron + Export. In the S5
-    /// `.editing` mode this is FALSE — the `EditorView`'s own
-    /// `PillHeader` owns back/share/title, so the window toolbar must
-    /// not duplicate them (#815).
-    let isFullImage: Bool
     /// True when AppShell's center surface owns its own chrome (the S5
     /// `.editing` editor OR the Fast-Preview `.preview` surface, Mac/iPad
     /// pane shell). Those views render their own header (back + filename),
     /// so the window toolbar suppresses every browse-specific control (grid
-    /// fill/fit, select, cloud view-mode) AND the legacy full-image controls
-    /// (back/export) — only the persistent Library/Search/Settings group
-    /// survives, so the sidebar can still be toggled. Always false on iPhone
-    /// (it never enters these pane-shell modes).
+    /// fill/fit, select, cloud view-mode) — only the persistent
+    /// Library/Search/Settings group survives, so the sidebar can still be
+    /// toggled. Always false on iPhone (it never enters these pane-shell
+    /// modes).
     var isEditing: Bool = false
-    /// True when an `EditSession` is selected — gates the Export button.
-    let hasSelection: Bool
     /// True on the compact (iPhone) shell, where Library / Search / Settings
     /// live in the bottom tab bar. Desktop (Mac / iPad) renders them as a
     /// trailing toolbar group instead.
@@ -51,16 +48,12 @@ struct AppShellToolbar: ToolbarContent {
     let cloudViewMode: CloudViewMode
     /// Grid fill/fit toggle — toolbar both reads (icon) and writes (tap).
     @Binding var browseDisplayMode: GridDisplayMode
-    /// Tapped when the user hits the Back chevron in Full-image mode.
-    let onBack: () -> Void
     /// Desktop only — opens the cloud search view (the "Search" button).
     let onOpenSearch: () -> Void
     /// Switch the current cloud library between Timeline and Folder view.
     /// Wired to `AppShell.setCloudViewMode`. Only invoked from the trailing
     /// toggle, which is shown only when `isCloudLibrary` is true.
     let onSetCloudViewMode: (CloudViewMode) -> Void
-    /// Tapped when the user hits Export (also keyboard ⌘E).
-    let onExport: () -> Void
     /// Triggered by the hidden ⌘O keyboard shortcut.
     let onOpenFolder: () -> Void
     /// Tapped when the user hits the Settings gear (also ⌘, on macOS).
@@ -69,33 +62,20 @@ struct AppShellToolbar: ToolbarContent {
     /// Drives the "Select" / "Done" toolbar toggle.
     var isSelecting: Bool = false
     /// Tapped when the user hits the "Select" / "Done" multi-select toggle.
-    /// nil hides the button (Full-image and edit modes).
+    /// nil hides the button (edit mode).
     var onToggleSelect: (() -> Void)? = nil
 
     var body: some ToolbarContent {
-        // `.navigation` placement lands on the LEADING edge of the title
-        // bar (right of the sidebar-toggle, left of the title); the
-        // header controls that follow use `.primaryAction` (TRAILING edge)
-        // per the #782 UX request — only the Back chevron stays leading.
-        // Back chevron — Full-image only. The library-search magnifying glass
-        // was removed in #692; search is now a top-level destination (bottom
-        // tab on iPhone, the trailing Library/Search/Settings group on desktop).
-        if isFullImage {
-            ToolbarItem(placement: .navigation) {
-                Button("Back", systemImage: "chevron.left") {
-                    onBack()
-                }
-                .keyboardShortcut(.escape, modifiers: [])
-                .accessibilityLabel("Back to Library")
-            }
-        }
+        // `.primaryAction` lands on the TRAILING edge of the title bar per
+        // the #782 UX request — header controls cluster on the right rather
+        // than across the title bar. The library-search magnifying glass was
+        // removed in #692; search is now a top-level destination (bottom tab
+        // on iPhone, the trailing Library/Search/Settings group on desktop).
+        //
         // Grid fill/fit toggle — only relevant in browse mode. Persists for
         // the session via @State on AppShell. The button shows the OPPOSITE
         // icon as the action target (see `GridDisplayMode.toggleIconName`).
-        // Lives on the TRAILING edge (`.primaryAction`) per the #782 UX
-        // request — grid display + cloud view-mode controls cluster on the
-        // right of the header, not next to the menu button.
-        if !isFullImage && !isEditing {
+        if !isEditing {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     browseDisplayMode = browseDisplayMode.toggled
@@ -107,12 +87,12 @@ struct AppShellToolbar: ToolbarContent {
                 .accessibilityIdentifier("browse-grid-display-mode-toggle")
             }
         }
-        // Multi-select toggle (M1, #1236) — Browse mode only, not in edit /
-        // full-image. Shows a checkbox icon ("Select") when idle, "Done" when
-        // active. The checkbox glyph (checkmark.square) matches the Material
+        // Multi-select toggle (M1, #1236) — Browse mode only, not in edit.
+        // Shows a checkbox icon ("Select") when idle, "Done" when active. The
+        // checkbox glyph (checkmark.square) matches the Material
         // select_check_box semantics requested in the design spec. Only
         // rendered when the parent provides the `onToggleSelect` closure.
-        if !isFullImage && !isEditing, let onToggleSelect {
+        if !isEditing, let onToggleSelect {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     onToggleSelect()
@@ -135,21 +115,9 @@ struct AppShellToolbar: ToolbarContent {
         // (#782) so it sits to the right of the fill/fit control. Tapping
         // re-routes the current library through the chosen view mode via
         // `AppShell.setCloudViewMode`.
-        if !isFullImage && !isEditing && isCloudLibrary {
+        if !isEditing && isCloudLibrary {
             ToolbarItem(placement: .primaryAction) {
                 cloudViewModeToggle
-            }
-        }
-        // Export / share — Full-image only (you share the photo you're
-        // viewing). Removed from the Browse header (#782); on the trailing
-        // edge alongside the other header controls.
-        if isFullImage {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Export", systemImage: "square.and.arrow.up") {
-                    onExport()
-                }
-                .disabled(!hasSelection)
-                .keyboardShortcut("e", modifiers: .command)
             }
         }
         // ⌘O keyboard shortcut — desktop only. Omitted on the compact (iPhone)

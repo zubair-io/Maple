@@ -4,7 +4,9 @@
 // Runtime-gated: the overlay only appears when BOTH the GPU live path is active
 // (`GpuLiveFlag.isEnabled`, default on / `MAPLE_GPU_LIVE != 0`) AND the HUD
 // sub-flag is on (`GpuHudFlag.isEnabled`, `MAPLE_GPU_HUD=1`) — a validation-only
-// surface, off in normal use (`FullImageView`'s `frameTimeHud()` is `EmptyView`).
+// surface, off in normal use (`EditorView`'s `frameTimeHud` is `EmptyView`).
+// Originally mounted by the legacy `FullImageView`; ported to `EditorView`
+// (`EditorView+Canvas.swift`) when `FullImageView` was retired (#1807).
 //
 // ## Role — make the 16ms validation objective
 //

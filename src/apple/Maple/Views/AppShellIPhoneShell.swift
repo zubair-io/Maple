@@ -20,9 +20,15 @@
 // (`AppShellSidebar`) plus the same bindings + closures the Mac shell
 // gets, and one iPhone-only flag (`iPhoneInfoSheet` for the Info
 // detail sheet). Wiring the iPhone-only toolbar items (hamburger +
-// Info) is delegated to `AppShellIPhoneToolbar`; the shared Browse/
-// Full-image content is taken as a `toolbarContent` builder so the
-// call site can hand in `browseToolbarContent` unchanged.
+// Info) is delegated to `AppShellIPhoneToolbar`; the shared Browse
+// content is taken as a `toolbarContent` builder so the call site can
+// hand in `browseToolbarContent` unchanged.
+//
+// This shell's center column only ever renders Browse — Preview and the S5
+// editor are reached by pushing onto the Library tab's `NavigationStack`
+// instead (`PhoneLibraryView`'s `.navigationDestination`), not by flipping
+// `AppShell.mode`. The legacy `.fullImage` full-image loupe (the one mode
+// this struct DID key off `mode` for) was retired in #1807.
 
 #if os(iOS)
 import SwiftUI
@@ -32,14 +38,14 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     /// Drawer-snapped state; the hamburger writes this with a spring
     /// animation, the drawer reads it to decide rest-state.
     @Binding var isDrawerOpen: Bool
-    /// Browse vs. Full-image — read straight off AppShell, forwarded to
-    /// the drawer (which gates edge-open on it) and used to drive the
-    /// nav-bar title + iPhone-only toolbar item visibility.
+    /// Read straight off AppShell, forwarded to the drawer (which gates
+    /// edge-open on `.browse`). This shell's own content is always Browse —
+    /// Preview / editor are pushed onto the Library tab's NavigationStack
+    /// instead, so `mode` never reaches `.preview` / `.editing` here.
     let mode: AppShell.Mode
-    /// Active EditSession used by the Info sheet's DetailPanel and as the
-    /// source of the Full-image title.
+    /// Active EditSession used by the Info sheet's DetailPanel.
     let selectedSession: EditSession?
-    /// Browse-mode title — shown in the navigation bar when not in Full-image.
+    /// Title shown in the navigation bar.
     let libraryTitle: String
 
     // Info sheet — iPhone surfaces DetailPanel via a trailing-toolbar Info
@@ -104,7 +110,9 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     @ViewBuilder
     private var iPhoneMain: some View {
         AppShellCenterColumn(
-            isFullImage: mode == .fullImage,
+            // Always Browse — see the file header. `AppShellCenterColumn`'s
+            // Preview / editor branches are unreachable from this shell.
+            isFullImage: false,
             selectedSession: selectedSession,
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
@@ -127,14 +135,12 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata
         )
-        .navigationTitle(mode == .fullImage
-                         ? (selectedSession?.asset.displayName ?? "Image")
-                         : libraryTitle)
+        .navigationTitle(libraryTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             AppShellIPhoneToolbar(
                 isBrowse: mode == .browse,
-                isFullImage: mode == .fullImage,
+                isFullImage: false,
                 isDrawerOpen: $isDrawerOpen,
                 onInfo: { iPhoneInfoSheet = true }
             )

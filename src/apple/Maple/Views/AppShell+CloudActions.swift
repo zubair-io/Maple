@@ -387,8 +387,9 @@ extension AppShell {
     ///
     /// This is the asset-resolution half of opening a cloud asset, shared by
     /// both editor entry points:
-    ///   • Mac / iPad (`openCloudAsset`) flips `mode = .fullImage` and renders
-    ///     the legacy `FullImageView` from the returned ref.
+    ///   • Mac / iPad (`openCloudAsset`) flips `mode = imageOpenMode`
+    ///     (`.preview`, Fast Preview §1) and renders the Preview surface from
+    ///     the returned ref.
     ///   • iPhone (#809) appends the returned ref to the Library tab's
     ///     `NavigationStack` path so `EditorDestination → EditorView` (S5)
     ///     opens with adjustment controls — reusing the session created here,
