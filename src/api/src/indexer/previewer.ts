@@ -47,6 +47,8 @@ const RAW_EXTS = new Set([
   '.mef',
   '.erf',
   '.mrw',
+  '.raw',
+  '.fff',
 ]);
 
 /** Long-edge target in pixels. Picked to balance VLM accuracy against
