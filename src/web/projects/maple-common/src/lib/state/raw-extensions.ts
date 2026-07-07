@@ -22,6 +22,7 @@ export const SUPPORTED_RAW_EXTENSIONS = new Set([
   'x3f',
   '3fr',
   'mef',
+  'erf',
   'fff',
   'dcr',
   'mos',
