@@ -31,7 +31,7 @@ When a selected folder or library's newest photo is much older than the current 
 
 ### State (`TimelineStateService`)
 
-Unchanged except adding `sort: 'captured_desc'` to the params bag returned by `params()`. The `pathPrefix`/`owningLibrary`/folder-address-resolution logic shipped in the prior fix (#1823/#1824) is untouched — this project only changes how `TimelineViewComponent` consumes `params()`.
+Entirely unchanged. `params()` already deliberately excludes `page`/`limit`/`sort` (`Omit<SearchParams, 'page' | 'limit' | 'sort'>`) — those are appended at the call site, matching how the old `_fetchMonth` already appended `sort`/`limit` itself. `sort: 'captured_desc'` is added the same way, at the single remaining `SearchService.search()` call site in `TimelineViewComponent`. The `pathPrefix`/`owningLibrary`/folder-address-resolution logic shipped in the prior fix (#1823/#1824) is untouched.
 
 ### Component (`TimelineViewComponent`) data flow
 
