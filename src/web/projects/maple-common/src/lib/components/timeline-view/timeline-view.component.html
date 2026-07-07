@@ -6,182 +6,143 @@
       Pick a library or folder to see a timeline.
     </div>
   } @else {
-    <!-- The scrollContainer is mounted whenever a path scope exists.
-         Loading / error / empty / untimed-hint render as banners INSIDE
-         it so the IntersectionObserver's root never gets unmounted. -->
-    @if (untimedHint(); as hint) {
-      <div
-        class="flex h-7 flex-shrink-0 items-center justify-center border-b-[0.5px] border-border bg-surface px-3 text-[11px] text-text-muted"
-      >
-        {{ hint }}
-      </div>
-    }
-
-    <div class="flex min-h-0 flex-1">
-      <div class="timeline-scroll flex-1 overflow-y-auto" #scrollContainer>
-        @if (bucketsError(); as err) {
-          <div
-            class="flex h-full items-center justify-center px-3 text-center text-[12px] text-error-text"
+    <!-- The scrollContainer is mounted whenever a path scope exists, so the
+         IntersectionObservers' root never gets unmounted mid-fetch. -->
+    <div class="timeline-scroll flex-1 overflow-y-auto" #scrollContainer>
+      @if (pageError(); as err) {
+        <div
+          class="flex flex-col items-center justify-center gap-2 px-3 py-8 text-center text-[12px] text-error-text"
+        >
+          <span>{{ err }}</span>
+          <button
+            type="button"
+            class="cursor-pointer rounded border-[0.5px] border-border bg-surface-hover px-2 py-1 text-text-main hover:border-text-muted"
+            (click)="retryPage()"
           >
-            {{ err }}
-          </div>
-        } @else if (bucketsLoading() && !buckets()) {
-          <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
-            Loading timeline…
-          </div>
-        } @else if (isEmpty()) {
-          <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
-            No photos in this scope match your filters.
-          </div>
-        } @else {
-          @for (y of years(); track trackYear($index, y)) {
-            <div class="year-group">
+            Retry
+          </button>
+        </div>
+      } @else if (pageLoading() && years().length === 0) {
+        <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
+          Loading timeline…
+        </div>
+      } @else if (isEmpty()) {
+        <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
+          No photos in this scope match your filters.
+        </div>
+      } @else {
+        @for (y of years(); track trackYear($index, y)) {
+          <div class="year-group">
+            <div
+              class="sticky top-0 z-10 flex h-11 items-end border-b-[0.5px] border-border bg-bg px-3 pb-1 text-[20px] font-semibold text-text-main"
+            >
+              {{ y.year }}
+              <span class="ml-2 text-[11px] font-normal text-text-muted">
+                {{ y.count }} photo{{ y.count === 1 ? '' : 's' }}
+              </span>
+            </div>
+
+            @for (m of y.months; track trackMonth($index, m)) {
               <div
-                class="sticky top-0 z-10 flex h-11 items-end border-b-[0.5px] border-border bg-bg px-3 pb-1 text-[20px] font-semibold text-text-main"
+                class="month-section"
+                [attr.data-year]="m.year"
+                [attr.data-month]="m.month"
+                [appTimelineRegisterMonth]="registerMonthSection"
               >
-                {{ y.year }}
-                <span class="ml-2 text-[11px] font-normal text-text-muted">
-                  {{ y.count }} photo{{ y.count === 1 ? '' : 's' }}
-                </span>
-              </div>
-
-              @for (m of y.months; track trackMonth($index, m)) {
                 <div
-                  class="month-section"
-                  [attr.data-year]="m.bucket.year"
-                  [attr.data-month]="m.bucket.month"
-                  [appTimelineRegisterMonth]="registerMonthSection"
+                  class="sticky top-11 z-[9] flex h-8 items-center border-b-[0.5px] border-border bg-bg px-4 text-[13px] font-medium text-text-main"
                 >
-                  <div
-                    class="sticky top-11 z-[9] flex h-8 items-center border-b-[0.5px] border-border bg-bg px-4 text-[13px] font-medium text-text-main"
-                  >
-                    {{ monthLabel(m.bucket.month) }}
-                    <span class="ml-2 text-[11px] font-normal text-text-muted">{{
-                      m.bucket.count
-                    }}</span>
-                  </div>
+                  {{ monthLabel(m.month) }}
+                  <span class="ml-2 text-[11px] font-normal text-text-muted">{{ m.count }}</span>
+                </div>
 
-                  @if (m.data?.error; as err) {
-                    <div
-                      class="flex h-[140px] flex-col items-center justify-center gap-2 px-4 text-center text-[11px] text-error-text"
-                    >
-                      <span
-                        >Couldn't load {{ monthLabel(m.bucket.month) }} {{ m.bucket.year }}:
-                        {{ err }}</span
-                      >
+                @if (!m.isVisible) {
+                  <!-- Off-screen placeholder — preserves scroll height
+                       without mounting any <img>/<button>s. Height is this
+                       section's own last-measured height, not an estimate. -->
+                  <div [style.height.px]="m.placeholderHeight" aria-hidden="true"></div>
+                } @else {
+                  @for (g of m.groups; track trackGroup($index, g)) {
+                    <div class="folder-group">
                       <button
                         type="button"
-                        class="cursor-pointer rounded border-[0.5px] border-border bg-surface-hover px-2 py-1 text-text-main hover:border-text-muted"
-                        (click)="retryMonth(m.bucket.year, m.bucket.month)"
+                        class="folder-group-header flex h-6 w-full items-center px-3 text-left text-[11px] uppercase tracking-[0.05em] text-text-muted hover:text-text-main"
+                        [attr.aria-expanded]="!isCollapsed(m.year, m.month, g.folderName)"
+                        (click)="toggleGroup(m.year, m.month, g.folderName)"
                       >
-                        Retry
-                      </button>
-                    </div>
-                  } @else if (m.groups.length === 0) {
-                    <!-- min-h-screen on each pre-data month means only ~1
-                         month fits in the viewport during the initial
-                         load. Stops 5+ months from all firing the
-                         IntersectionObserver at once. The height
-                         collapses to the real content as soon as
-                         `m.groups` arrives. -->
-                    <div
-                      class="flex min-h-screen items-center justify-center text-[11px] text-text-muted"
-                    >
-                      Loading {{ monthLabel(m.bucket.month) }} {{ m.bucket.year }}…
-                    </div>
-                  } @else if (!m.isVisible) {
-                    <!-- Off-screen placeholder — preserves scroll height
-                         without mounting any <img>/<button>s. -->
-                    <div [style.height.px]="m.placeholderHeight" aria-hidden="true"></div>
-                  } @else {
-                    @for (g of m.groups; track trackGroup($index, g)) {
-                      <div class="folder-group">
-                        <button
-                          type="button"
-                          class="folder-group-header flex h-6 w-full items-center px-3 text-left text-[11px] uppercase tracking-[0.05em] text-text-muted hover:text-text-main"
-                          [attr.aria-expanded]="
-                            !isCollapsed(m.bucket.year, m.bucket.month, g.folderName)
-                          "
-                          (click)="toggleGroup(m.bucket.year, m.bucket.month, g.folderName)"
+                        <span
+                          class="mr-1.5 inline-block h-2.5 w-2.5 transition-transform duration-[120ms]"
+                          [class.rotate-90]="!isCollapsed(m.year, m.month, g.folderName)"
+                          aria-hidden="true"
                         >
-                          <span
-                            class="mr-1.5 inline-block h-2.5 w-2.5 transition-transform duration-[120ms]"
-                            [class.rotate-90]="
-                              !isCollapsed(m.bucket.year, m.bucket.month, g.folderName)
-                            "
-                            aria-hidden="true"
-                          >
-                            <!-- Chevron-right SVG; rotates 90° when expanded -->
-                            <svg
-                              viewBox="0 0 10 10"
-                              class="block h-full w-full"
-                              fill="currentColor"
+                          <!-- Chevron-right SVG; rotates 90° when expanded -->
+                          <svg viewBox="0 0 10 10" class="block h-full w-full" fill="currentColor">
+                            <path d="M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z" />
+                          </svg>
+                        </span>
+                        {{ folderGroupLabel(g.folderName) }}
+                        <span class="ml-2 normal-case tracking-normal"
+                          >({{ g.photos.length }})</span
+                        >
+                      </button>
+                      @if (!isCollapsed(m.year, m.month, g.folderName)) {
+                        <div class="flex flex-wrap gap-1 px-4 pb-2">
+                          @for (p of g.photos; track trackPhoto($index, p)) {
+                            <button
+                              type="button"
+                              class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
+                              [class.is-selected]="state.focusedAssetId() === p.id"
+                              [class.dimmed]="p.hidden"
+                              [attr.aria-label]="p.filename"
+                              (click)="onPhotoClick(p, $event)"
+                              (dblclick)="onPhotoDblClick(p)"
                             >
-                              <path d="M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z" />
-                            </svg>
-                          </span>
-                          {{ folderGroupLabel(g.folderName) }}
-                          <span class="ml-2 normal-case tracking-normal"
-                            >({{ g.photos.length }})</span
-                          >
-                        </button>
-                        @if (!isCollapsed(m.bucket.year, m.bucket.month, g.folderName)) {
-                          <div class="flex flex-wrap gap-1 px-4 pb-2">
-                            @for (p of g.photos; track trackPhoto($index, p)) {
-                              <button
-                                type="button"
-                                class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
-                                [class.is-selected]="state.focusedAssetId() === p.id"
-                                [class.dimmed]="p.hidden"
-                                [attr.aria-label]="p.filename"
-                                (click)="onPhotoClick(p, $event)"
-                                (dblclick)="onPhotoDblClick(p)"
-                              >
-                                @if (p.thumbUrl) {
-                                  <img
-                                    class="block h-full w-full object-cover"
-                                    [src]="p.thumbUrl"
-                                    alt=""
-                                    loading="lazy"
-                                    decoding="async"
-                                  />
-                                }
-                                @if (p.hidden) {
-                                  <div
-                                    class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
-                                  >
-                                    HIDDEN
-                                  </div>
-                                }
-                                @if (p.rating > 0) {
-                                  <div
-                                    class="absolute bottom-1 right-1 rounded bg-black/45 px-1 py-0.5 text-[10px] text-white backdrop-blur-[4px]"
-                                  >
-                                    {{ p.rating }}★
-                                  </div>
-                                }
-                              </button>
-                            }
-                          </div>
-                        }
-                      </div>
-                    }
-                    @if (m.data?.loading) {
-                      <div
-                        class="flex h-6 items-center px-5 text-[10px] uppercase tracking-[0.05em] text-text-muted"
-                      >
-                        Loading more…
-                      </div>
-                    }
+                              @if (p.thumbUrl) {
+                                <img
+                                  class="block h-full w-full object-cover"
+                                  [src]="p.thumbUrl"
+                                  alt=""
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              }
+                              @if (p.hidden) {
+                                <div
+                                  class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
+                                >
+                                  HIDDEN
+                                </div>
+                              }
+                              @if (p.rating > 0) {
+                                <div
+                                  class="absolute bottom-1 right-1 rounded bg-black/45 px-1 py-0.5 text-[10px] text-white backdrop-blur-[4px]"
+                                >
+                                  {{ p.rating }}★
+                                </div>
+                              }
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
                   }
-                </div>
-              }
-            </div>
-          }
+                }
+              </div>
+            }
+          </div>
         }
-      </div>
 
-      <app-timeline-scrubber [buckets]="scrubberBuckets()" (jumpTo)="onScrubberJump($event)" />
+        @if (!isDone()) {
+          <div
+            class="flex h-10 items-center justify-center text-[10px] uppercase tracking-[0.05em] text-text-muted"
+            [appTimelineRegisterMonth]="registerSentinel"
+          >
+            @if (pageLoading()) {
+              Loading more…
+            }
+          </div>
+        }
+      }
     </div>
   }
 </div>

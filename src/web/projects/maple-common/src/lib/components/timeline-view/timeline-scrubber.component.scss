@@ -1,7 +1,0 @@
-// Scrubber cells — minimum tap target enforced via :host child rule rather
-// than Tailwind utilities so the proportional [style.height] inline binding
-// can still drive the individual cell sizing.
-
-:host {
-  display: block;
-}
