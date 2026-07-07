@@ -72,6 +72,13 @@ export const SUPPORTED_EXTS = new Set([
   '.mts',
   '.m2ts',
   '.3gp',
+  '.mxf',
+  '.3g2',
+  '.flv',
+  '.vob',
+  '.mpg',
+  '.wmv',
+  '.f4v',
 ]);
 
 /**

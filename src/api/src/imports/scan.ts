@@ -59,6 +59,12 @@ export const MOVIE_EXTS = new Set<string>([
   '.mxf',
   '.mkv',
   '.webm',
+  '.3g2',
+  '.flv',
+  '.vob',
+  '.mpg',
+  '.wmv',
+  '.f4v',
 ]);
 
 interface RawFile {
