@@ -1290,6 +1290,8 @@ const SUPPORTED_EXTS = new Set([
   '.mef',
   '.erf',
   '.mrw',
+  '.raw',
+  '.fff',
   '.jpg',
   '.jpeg',
   '.tif',

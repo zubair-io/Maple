@@ -46,6 +46,8 @@ const RAW_EXTS = new Set([
   '.mef',
   '.erf',
   '.mrw',
+  '.raw',
+  '.fff',
 ]);
 
 const THUMB_LONG_EDGE_PX = 512;
