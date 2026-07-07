@@ -395,13 +395,21 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Arm a specific dock tool (currently only Crop — #1813). Matches the S5
    *  editor's crop pill (`ToolPillRowComponent.select`): tapping always arms;
    *  exiting crop is an explicit action (the crop toolbar's Done button),
-   *  not a second tap on the dock entry. */
+   *  not a second tap on the dock entry. Crop and Curve share the same panel
+   *  anchor and are mutually exclusive — arming Crop closes the curve panel so
+   *  the two can never render on top of each other (crop wins while armed). */
   onToolChange(tool: ToolId): void {
+    if (tool === 'crop') this.curveOpen.set(false);
     this.editorState.armTool(tool);
     this.editorState.haptic('switch');
   }
 
+  /** Toggle the curve panel. No-op while Crop is armed: the crop toolbar owns
+   *  the shared panel anchor, so Curve can't open over it (the mutual-exclusion
+   *  half that keeps the panels from overlapping — the other half is
+   *  `onToolChange` closing curve when Crop arms). */
   onCurvePanelToggle(): void {
+    if (this.cropArmed()) return;
     this.curveOpen.update((v) => !v);
   }
 

@@ -163,6 +163,18 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
     return btn!;
   }
 
+  function curveDockButton(): HTMLButtonElement {
+    const btn = fixture.nativeElement.querySelector(
+      'pro-tool-dock button[aria-label="Curve"]',
+    ) as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    return btn!;
+  }
+
+  function curvePanel(): Element | null {
+    return fixture.nativeElement.querySelector('.curve-panel');
+  }
+
   it('dock renders a Crop entry with an accessible label', () => {
     const btn = cropDockButton();
     expect(btn.disabled).toBe(false);
@@ -275,5 +287,39 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
     fixture.detectChanges();
 
     expect(isIdentityCrop(modelFor(ASSET_ID)().crop)).toBe(true);
+  });
+
+  // ── Curve / Crop mutual exclusion (#1814 Copilot review) ─────────────────
+  // Both panels share the same absolute anchor (`right: 64px; top: 50%`), so
+  // they must never render at once. Crop wins while armed.
+
+  it('arming Crop closes an open curve panel', () => {
+    // Open the curve panel first.
+    curveDockButton().click();
+    fixture.detectChanges();
+    expect(curvePanel()).not.toBeNull();
+
+    // Arming Crop must auto-close it so the two panels can't overlap.
+    cropDockButton().click();
+    fixture.detectChanges();
+
+    expect(curvePanel()).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="crop-toolbar"]')).not.toBeNull();
+  });
+
+  it('toggling Curve while cropping is a no-op — the curve panel never opens over the crop toolbar', () => {
+    cropDockButton().click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="crop-toolbar"]')).not.toBeNull();
+    expect(curvePanel()).toBeNull();
+
+    // Tapping Curve while crop is armed must not open the curve panel.
+    curveDockButton().click();
+    fixture.detectChanges();
+
+    expect(curvePanel()).toBeNull();
+    // Crop is still armed + its toolbar still shown (Curve didn't disturb it).
+    expect(TestBed.inject(EditorStateService).armedTool()).toBe('crop');
+    expect(fixture.nativeElement.querySelector('[data-testid="crop-toolbar"]')).not.toBeNull();
   });
 });
