@@ -21,10 +21,10 @@ import SwiftUI
 import MapleCore
 
 struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
-    /// True iff an image is open (either Preview or the S5 editor). Read-only
-    /// — the back chevron in `AppShellToolbar` writes `mode = .browse` via its
-    /// `onBack` closure on AppShell. Drives the three-column (DetailPanel)
-    /// layout vs the two-column browse layout.
+    /// True iff an image is open (either Preview or the editor). Read-only —
+    /// Preview and the editor own their own back affordances now (the old
+    /// `AppShellToolbar` back chevron was removed with `FullImageView`). Drives
+    /// the three-column (DetailPanel) layout vs the two-column browse layout.
     let isFullImage: Bool
     /// When true the center column renders the fast static `PreviewView`
     /// (Fast Preview §1) — a two-leg split (sidebar + full-bleed preview, no
