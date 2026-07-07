@@ -46,6 +46,7 @@ export const SCENE_TYPE_OPTIONS: ReadonlyArray<{ value: SearchSceneType; label: 
 export type ColorValue = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
 export type FlagValue = '' | 'pick' | 'reject' | 'none';
 export type ScreenshotValue = '' | 'true' | 'false';
+export type HiddenValue = '' | 'all' | 'only';
 
 export const COLOR_LABELS: ReadonlyArray<{
   value: ColorValue;
@@ -58,6 +59,16 @@ export const COLOR_LABELS: ReadonlyArray<{
   { value: 'green', label: 'Green', swatch: '#22c55e' },
   { value: 'blue', label: 'Blue', swatch: '#3b82f6' },
   { value: 'purple', label: 'Purple', swatch: '#a855f7' },
+];
+
+/** Tri-state hidden-image filter. The backend only has two explicit modes
+ * (`all`, `only`) — `''` sends no param, which is today's implicit
+ * exclude-hidden default, spelled out here so the control isn't ambiguous
+ * about what it's filtering. */
+export const HIDDEN_OPTIONS: ReadonlyArray<{ value: HiddenValue; label: string }> = [
+  { value: '', label: 'Hide hidden' },
+  { value: 'all', label: 'Show all' },
+  { value: 'only', label: 'Hidden only' },
 ];
 
 /** Pre-shaped `{value,label}[]` for the sort `<select>`. The component
@@ -121,6 +132,10 @@ export function parseColor(v: string | null | undefined): ColorValue {
 
 export function parseScreenshot(v: string | null | undefined): ScreenshotValue {
   return v === 'true' || v === 'false' ? v : '';
+}
+
+export function parseHidden(v: string | null | undefined): HiddenValue {
+  return v === 'all' || v === 'only' ? v : '';
 }
 
 export function parseSort(v: string | null | undefined): SearchSort {
@@ -229,6 +244,7 @@ export interface SearchFormState {
   activity: string;
   subjects: ReadonlySet<string>;
   isScreenshot: ScreenshotValue;
+  hidden: HiddenValue;
   sort: SearchSort;
 }
 
@@ -261,6 +277,7 @@ export function buildSearchParams(s: SearchFormState): SearchParams {
     activity: s.activity || undefined,
     subjects: s.subjects.size > 0 ? Array.from(s.subjects) : undefined,
     isScreenshot: s.isScreenshot === 'true' ? true : s.isScreenshot === 'false' ? false : undefined,
+    hidden: s.hidden === 'all' || s.hidden === 'only' ? s.hidden : undefined,
     sort: s.sort,
   };
 }
