@@ -54,6 +54,27 @@ let _client: MongoClient | null = null;
 let _db: Db | null = null;
 let _connectPromise: Promise<Db> | null = null;
 
+// Test-only: when set (by src/api/test-setup.ts, a `bun test` preload —
+// see bunfig.toml), `closeDb()` detaches the shared singleton instead of
+// force-closing it. See the comment on `closeDb()` for why: ~113 test files
+// call `closeDb()` in their own beforeEach/afterAll to force `getDb()` to
+// reconnect against a per-file TEST_DB, but `bun test` runs every file's
+// hooks in one shared process against this one module-level client. A
+// force-close while another file's fire-and-forget background write (e.g.
+// `fs/browse.ts`'s `enqueueBrowseIndex`) is still in flight interrupts that
+// write and fails the *next* file's hook with "client was closed" — a
+// different file each run, depending on scheduling. Detaching instead of
+// closing lets any such orphaned in-flight operation finish naturally
+// against the old (still-open) client while `getDb()` moves on to a fresh
+// connection for the next file. Never set outside the test preload; prod
+// shutdown (`src/index.ts`) always takes the real-close path.
+let _testDetachOnly = false;
+
+/** Test-only setter — called exactly once, from the `bun test` preload. */
+export function _setTestDetachOnly(value: boolean): void {
+  _testDetachOnly = value;
+}
+
 /**
  * Returns a connected Db instance. Connects lazily on first call.
  * Throws a descriptive error if MongoDB is unreachable.
@@ -1535,11 +1556,25 @@ export async function ensureIndexes(): Promise<void> {
 
 /** Gracefully close the connection (call on server shutdown). */
 export async function closeDb(): Promise<void> {
-  if (_client) {
-    await _client.close(true);
+  if (!_client) return;
+
+  // Test mode: detach the singleton (so the next getDb() reconnects fresh
+  // against whatever TEST_DB the calling test file just configured) without
+  // force-closing the old client's sockets. See `_setTestDetachOnly` above.
+  // Deliberately NOT awaited on the old client — a pending force-close would
+  // reintroduce the exact race this exists to avoid, and an orphaned
+  // MongoClient with no pending work is cheap to leave for GC within one
+  // `bun test` process.
+  if (_testDetachOnly) {
     _client = null;
     _db = null;
     _connectPromise = null;
-    log.info('connection closed');
+    return;
   }
+
+  await _client.close(true);
+  _client = null;
+  _db = null;
+  _connectPromise = null;
+  log.info('connection closed');
 }
