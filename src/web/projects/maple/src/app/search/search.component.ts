@@ -31,7 +31,7 @@ import {
 import { ActivatedRoute, Params, Router } from '@angular/router';
 import { SlicePipe } from '@angular/common';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import {
   ApiFolder,
   AssetMetadataSnapshot,
@@ -205,6 +205,12 @@ export class SearchComponent implements OnInit, OnDestroy {
    * here instead of re-hitting the network. Lives for the page session. */
   private searchCache = new Map<string, SearchResponse>();
 
+  /** In-flight `fetchSnapshots` subscription for the batch metadata panel.
+   * Torn down on re-invocation and on dismiss (mirrors
+   * `browse-shell.component.ts`'s `onEditMetadata`/`onBatchMetaDismiss`) so a
+   * rapid double-click can't race two fetches into `batchMetaAssetSnapshots`. */
+  private fetchSnapshotsSub: Subscription | null = null;
+
   constructor() {
     // URL → request. Refires whenever the query map changes. Sync the qInput
     // signal to the URL value when it changes externally (e.g. cleared via
@@ -240,6 +246,7 @@ export class SearchComponent implements OnInit, OnDestroy {
     if (this.qInputDebounce !== null) clearTimeout(this.qInputDebounce);
     if (this.searchDebounce !== null) clearTimeout(this.searchDebounce);
     if (this.facetsDebounce !== null) clearTimeout(this.facetsDebounce);
+    this.fetchSnapshotsSub?.unsubscribe();
   }
 
   // ── URL helpers ──────────────────────────────────────────────────────────
@@ -516,7 +523,8 @@ export class SearchComponent implements OnInit, OnDestroy {
       .filter((a): a is string => a !== null);
     if (addresses.length === 0) return;
 
-    this.batchMetadataService.fetchSnapshots(addresses).subscribe({
+    this.fetchSnapshotsSub?.unsubscribe();
+    this.fetchSnapshotsSub = this.batchMetadataService.fetchSnapshots(addresses).subscribe({
       next: (snapshots) => {
         this.batchMetaAssetSnapshots.set(snapshots);
         this.batchMetaDialogVisible.set(true);
@@ -528,9 +536,16 @@ export class SearchComponent implements OnInit, OnDestroy {
   }
 
   onBatchMetaDismiss(): void {
+    this.fetchSnapshotsSub?.unsubscribe();
+    this.fetchSnapshotsSub = null;
     this.batchMetaDialogVisible.set(false);
     this.batchMetaAssetSnapshots.set([]);
     this.clearSelection();
+    // Editing metadata (e.g. toggling `hidden`) doesn't change any URL/search
+    // param, so `runSearch`'s cache key is identical before and after the
+    // edit — clear it so the post-dismiss refresh actually re-fetches instead
+    // of replaying the stale, pre-edit cached response.
+    this.searchCache.clear();
     void this.runSearch(/*append*/ false);
   }
 
