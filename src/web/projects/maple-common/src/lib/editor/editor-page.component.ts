@@ -8,6 +8,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 
+import { viewRouteCommands } from '../addressing/route-address';
 import { LibraryStateService } from '../state/library-state.service';
 import { EditorComponent } from './editor.component';
 
@@ -66,7 +67,7 @@ export class EditorPageComponent {
     // came from (Preview → Edit → Back), rather than always bouncing to the
     // library grid.
     const id = this.assetId();
-    void this.router.navigate(id ? ['/view', id] : ['/library']);
+    void this.router.navigate(id ? viewRouteCommands(id) : ['/library']);
   }
 
   protected onInfo(): void {

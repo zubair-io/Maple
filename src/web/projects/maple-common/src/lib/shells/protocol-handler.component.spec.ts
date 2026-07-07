@@ -49,6 +49,17 @@ describe('parseProtocolUrl', () => {
     ]);
   });
 
+  it('splits a slug:relPath image id into /view/:slug/** segments (viewRouteCommands, not a single collapsed segment)', () => {
+    // A raw ['/view', id] here would put the WHOLE 'lib:2026/a.jpg' id into the
+    // :slug route param (relPath empty), breaking cold-load resolution.
+    expect(parseProtocolUrl('web+maple://image/lib:2026/a.jpg')).toEqual([
+      '/view',
+      'lib',
+      '2026',
+      'a.jpg',
+    ]);
+  });
+
   // M2 path-based routing (#1327): browse + edit deep-links using MapleAddress
   // grammar (slug:relPath). The protocol handler maps:
   //   maple://browse/<slug>/<...relPath segments>  →  /browse/:slug/**

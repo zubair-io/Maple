@@ -46,6 +46,13 @@ describe('DeepLinkService', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/view', 'xyz']);
   });
 
+  it('splits a slug:relPath id into /view/:slug/** segments (viewRouteCommands, not a single collapsed segment)', () => {
+    // A raw ['/view', id] here would put the WHOLE 'lib:2026/a.jpg' id into the
+    // :slug route param (relPath empty), breaking cold-load resolution.
+    service.resolve('maple://image/lib:2026/a.jpg');
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'lib', '2026', 'a.jpg']);
+  });
+
   // ---------------------------------------------------------------
   // HTTPS query forms — what PWA protocol_handlers delivers after
   // expansion (`%s` is URL-encoded), and what in-app callers send
@@ -61,6 +68,11 @@ describe('DeepLinkService', () => {
   it('routes ?image=… to /view/{id}', () => {
     service.resolve('http://localhost/library?image=foo');
     expect(router.navigate).toHaveBeenCalledWith(['/view', 'foo']);
+  });
+
+  it('routes ?image=<slug:relPath> to split /view/:slug/** segments', () => {
+    service.resolve('http://localhost/library?image=lib:2026/a.jpg');
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'lib', '2026', 'a.jpg']);
   });
 
   it('routes ?source=… to /library?source={id}', () => {
