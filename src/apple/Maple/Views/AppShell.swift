@@ -180,16 +180,6 @@ struct AppShell: View {
     // toolbar button below).
     @State private var browseDisplayMode: GridDisplayMode = .fill
 
-    #if os(iOS)
-    /// Whether the Info detail-panel sheet is up on iPhone. The macOS /
-    /// iPad shell shows DetailPanel as a right-hand column in Full-image
-    /// mode; iPhone surfaces the same panel via a trailing-toolbar button
-    /// → modal sheet so the main content can stay full-width. The button
-    /// (and therefore this sheet) is only reachable in Full-image mode —
-    /// Browse drops the panel entirely.
-    @State private var iPhoneInfoSheet: Bool = false
-    #endif
-
     /// Observable singleton that captures incoming `maple://` URLs at
     /// the `MapleApp` scene level. SwiftUI's `.onChange(of:)` only
     /// re-evaluates an `@Observable` property when SOME view in the
@@ -719,7 +709,6 @@ struct AppShell: View {
             mode: mode,
             selectedSession: selectedSession,
             libraryTitle: libraryTitle,
-            iPhoneInfoSheet: $iPhoneInfoSheet,
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
@@ -800,11 +789,10 @@ struct AppShell: View {
     /// Reset every transient piece of UI (sheets + iPhone drawer)
     /// so a deep-link destination renders cleanly. Lives here, not
     /// in `AppShell+DeepLink.swift`, because several of the state
-    /// vars below (`showSettings`, `showExport`, `iPhoneInfoSheet`,
-    /// `isDrawerOpen`) are `private` to this file — keeping the
-    /// helper internal-but-file-local lets the extension delegate
-    /// without widening their access. Per spec §2 warm-launch
-    /// behavior.
+    /// vars below (`showSettings`, `showExport`, `isDrawerOpen`) are
+    /// `private` to this file — keeping the helper internal-but-
+    /// file-local lets the extension delegate without widening their
+    /// access. Per spec §2 warm-launch behavior.
     @MainActor
     func dismissAllTransientUI() {
         showSMBSheet = false
@@ -813,7 +801,6 @@ struct AppShell: View {
         settingsInitialTab = nil
         showExport = false
         #if os(iOS)
-        iPhoneInfoSheet = false
         isDrawerOpen = false
         #endif
     }
