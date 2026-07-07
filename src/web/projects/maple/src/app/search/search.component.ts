@@ -34,6 +34,9 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
 import {
   ApiFolder,
+  AssetMetadataSnapshot,
+  BatchMetadataPanelComponent,
+  BatchMetadataService,
   BunApiBackendService,
   FilesystemBrowseService,
   MapleIconComponent,
@@ -82,7 +85,7 @@ import {
 @Component({
   standalone: true,
   selector: 'maple-search',
-  imports: [MapleIconComponent, SlicePipe],
+  imports: [MapleIconComponent, SlicePipe, BatchMetadataPanelComponent],
   templateUrl: './search.component.html',
   styleUrl: './search.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,6 +96,7 @@ export class SearchComponent implements OnInit, OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly fs = inject(FilesystemBrowseService);
   private readonly search = inject(SearchService);
+  private readonly batchMetadataService = inject(BatchMetadataService);
 
   // ── URL → params signal ──────────────────────────────────────────────────
   // Single source of truth. UI reads from these signals, mutations write to
@@ -152,6 +156,12 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly loading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
 
+  readonly selectedIds = signal<ReadonlySet<string>>(new Set());
+  readonly batchMetaDialogVisible = signal(false);
+  readonly batchMetaAssetSnapshots = signal<AssetMetadataSnapshot[]>([]);
+
+  readonly selectedCount = computed(() => this.selectedIds().size);
+
   // ── Derived view-model bits ──────────────────────────────────────────────
   readonly sortOptions = SORT_OPTIONS;
   readonly colorOptions = COLOR_LABELS;
@@ -209,6 +219,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       untracked(() => {
         if (urlQ !== this.qInput()) this.qInput.set(urlQ);
       });
+      this.clearSelection();
       this.scheduleSearch();
       this.scheduleFacets();
     });
@@ -476,6 +487,51 @@ export class SearchComponent implements OnInit, OnDestroy {
   // ── Result clicks → Preview ───────────────────────────────────────────────
   openResult(r: ResultViewModel): void {
     void this.router.navigate(viewRouteCommands(r.id));
+  }
+
+  // ── Selection ─────────────────────────────────────────────────────────────
+  toggleSelect(id: string): void {
+    this.selectedIds.update((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  selectAllLoaded(): void {
+    this.selectedIds.set(new Set(this.results().map((r) => r.id)));
+  }
+
+  clearSelection(): void {
+    this.selectedIds.set(new Set());
+  }
+
+  // ── Batch metadata dialog ────────────────────────────────────────────────
+  onEditMetadata(): void {
+    const ids = this.selectedIds();
+    const addresses = this.results()
+      .filter((r) => ids.has(r.id))
+      .map((r) => r.address)
+      .filter((a): a is string => a !== null);
+    if (addresses.length === 0) return;
+
+    this.batchMetadataService.fetchSnapshots(addresses).subscribe({
+      next: (snapshots) => {
+        this.batchMetaAssetSnapshots.set(snapshots);
+        this.batchMetaDialogVisible.set(true);
+      },
+      error: () => {
+        this.error.set('Could not load metadata for the selected results.');
+      },
+    });
+  }
+
+  onBatchMetaDismiss(): void {
+    this.batchMetaDialogVisible.set(false);
+    this.batchMetaAssetSnapshots.set([]);
+    this.clearSelection();
+    void this.runSearch(/*append*/ false);
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────
