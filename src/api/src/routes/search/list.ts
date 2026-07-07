@@ -12,7 +12,7 @@ import { Elysia } from 'elysia';
 import type { ObjectId } from 'mongodb';
 import type { Filter, Sort } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import type { AssetDoc } from '../../db/schema.ts';
@@ -148,7 +148,8 @@ export const listRoute = new Elysia().get(
           if (d) ordered.push(d);
         }
         const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
-        const results = ordered.map((d) => projectAsset(d, libs));
+        const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
+        const results = ordered.map((d) => projectAsset(d, libs, idToSlug));
         return {
           total: meiliResult.estimatedTotal,
           page,
@@ -185,7 +186,8 @@ export const listRoute = new Elysia().get(
     ]);
 
     const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
-    const results = docs.map((d) => projectAsset(d as AssetDoc & { _id: ObjectId }, libs));
+    const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
+    const results = docs.map((d) => projectAsset(d as AssetDoc & { _id: ObjectId }, libs, idToSlug));
     return { total, page, limit, results };
   },
   { query: SearchQueryT },
