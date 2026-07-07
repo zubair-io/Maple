@@ -94,8 +94,15 @@ struct PreviewView: View {
                 // as a left rail — a horizontal strip in a left column would
                 // need a separate vertical component. (Divergence from the
                 // "left filmstrip" wording noted in the design doc.)
+                //
+                // The prev/next swipe is scoped to the IMAGE area only — NOT the
+                // whole container — so it doesn't compete with `FilmstripView`'s
+                // own horizontal `ScrollView` (a container-wide DragGesture would
+                // swallow the filmstrip's horizontal drags and make it
+                // un-scrollable). Copilot review #1810.
                 imageBody
                     .padding(.horizontal, isRegular ? 16 : 8)
+                    .gesture(swipeGesture)
 
                 FilmstripView(
                     assets: assets,
@@ -116,15 +123,12 @@ struct PreviewView: View {
             }
         }
         // Keyboard prev/next (desktop). `.focusable()` makes the surface a key
-        // target; the arrow handlers move selection through the folder.
+        // target; the arrow handlers move selection through the folder. (The
+        // touch prev/next swipe is attached to `imageBody` above, not here, so
+        // it doesn't steal the filmstrip's horizontal scroll.)
         .focusable(isRegular)
         .onKeyPress(.leftArrow) { stepPrevious(); return .handled }
         .onKeyPress(.rightArrow) { stepNext(); return .handled }
-        // Touch prev/next — a horizontal swipe past the threshold. The gesture
-        // is on the whole surface (not just the image) so the whole viewport is
-        // swipeable; the classification (threshold + horizontal dominance) is
-        // in the VM.
-        .gesture(swipeGesture)
         // Drop the primed Flag/Info session when the shown asset changes
         // (swipe / arrow / filmstrip) so a re-open primes against the new
         // asset rather than reusing the previous one's session.
@@ -333,8 +337,12 @@ private struct PreviewImage: View {
         // Already showing this source — nothing to do.
         if loadedID == id, jpegData != nil { return }
         let data = await provider.thumbnail(for: source)
-        // Stale-guard: a newer `.task(id:)` may have superseded us mid-flight.
-        guard !Task.isCancelled, sourceID == id else { return }
+        // Stale-guard: a newer `.task(id:)` supersedes and cancels this one on
+        // an id change, so `!Task.isCancelled` is the real check. (`sourceID`
+        // is derived from the view's `source` prop; a re-created struct with a
+        // new source runs its own fresh task, so a value compare here would be
+        // redundant.) Copilot review #1810.
+        guard !Task.isCancelled else { return }
         withAnimation(.easeInOut(duration: 0.18)) {
             jpegData = data
             loadedID = id
