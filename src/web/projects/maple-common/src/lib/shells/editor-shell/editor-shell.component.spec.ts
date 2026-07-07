@@ -118,3 +118,73 @@ describe('EditorShellComponent.applyRouteAddress', () => {
     );
   });
 });
+
+// Phone CARD editor (#1807): the bottom horizontal dock arms a group AND
+// opens the flyout control card; tapping the active group's icon again (or
+// the card's own close button) closes it. Only one flyout — slider card or
+// curve panel — is open at a time since both float in the same anchor slot.
+describe('EditorShellComponent — phone dock wiring (#1807)', () => {
+  it('tapping a group icon arms that group and opens the flyout card', () => {
+    const { comp } = setup({ slug: null });
+    expect(comp.phoneCardOpen()).toBe(false);
+
+    comp.onPhoneDockGroupChange('color');
+
+    expect(comp.activeGroup()).toBe('color');
+    expect(comp.phoneCardOpen()).toBe(true);
+  });
+
+  it('tapping the already-active group icon again closes the flyout card', () => {
+    const { comp } = setup({ slug: null });
+    comp.onPhoneDockGroupChange('light');
+    expect(comp.phoneCardOpen()).toBe(true);
+
+    comp.onPhoneDockGroupChange('light');
+
+    expect(comp.phoneCardOpen()).toBe(false);
+    // Group stays armed — closing the flyout doesn't reset the selection.
+    expect(comp.activeGroup()).toBe('light');
+  });
+
+  it('tapping a different group while the card is open re-arms without closing', () => {
+    const { comp } = setup({ slug: null });
+    comp.onPhoneDockGroupChange('light');
+    comp.onPhoneDockGroupChange('effects');
+
+    expect(comp.activeGroup()).toBe('effects');
+    expect(comp.phoneCardOpen()).toBe(true);
+  });
+
+  it('closePhoneCard() closes the flyout without changing the armed group', () => {
+    const { comp } = setup({ slug: null });
+    comp.onPhoneDockGroupChange('detail');
+
+    comp.closePhoneCard();
+
+    expect(comp.phoneCardOpen()).toBe(false);
+    expect(comp.activeGroup()).toBe('detail');
+  });
+
+  it('onPhoneCurvePanelToggle() opens the curve panel and closes the slider flyout', () => {
+    const { comp } = setup({ slug: null });
+    comp.onPhoneDockGroupChange('light');
+    expect(comp.phoneCardOpen()).toBe(true);
+
+    comp.onPhoneCurvePanelToggle();
+
+    expect(comp.curveOpen()).toBe(true);
+    expect(comp.phoneCardOpen()).toBe(false);
+  });
+
+  it('onPhoneDockGroupChange() closes an open curve panel before opening the slider flyout', () => {
+    const { comp } = setup({ slug: null });
+    comp.onPhoneCurvePanelToggle();
+    expect(comp.curveOpen()).toBe(true);
+
+    comp.onPhoneDockGroupChange('color');
+
+    expect(comp.curveOpen()).toBe(false);
+    expect(comp.phoneCardOpen()).toBe(true);
+    expect(comp.activeGroup()).toBe('color');
+  });
+});

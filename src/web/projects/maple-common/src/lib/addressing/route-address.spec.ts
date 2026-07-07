@@ -4,7 +4,12 @@
 // MapleAddress. No Angular router required (pure function test).
 
 import { describe, it, expect } from 'vitest';
-import { routeSegmentsToAddress, addressToRouteSegments, editRouteCommands } from './route-address';
+import {
+  routeSegmentsToAddress,
+  addressToRouteSegments,
+  editRouteCommands,
+  viewRouteCommands,
+} from './route-address';
 
 describe('routeSegmentsToAddress', () => {
   it('converts slug + relPath segments to MapleAddress', () => {
@@ -98,5 +103,24 @@ describe('editRouteCommands', () => {
     // parseAddress(':foo') → { slug: '', relPath: 'foo' }; splitting that would
     // emit ['/edit', '', 'foo']. Guard it to a single-segment passthrough.
     expect(editRouteCommands(':foo')).toEqual(['/edit', ':foo']);
+  });
+});
+
+describe('viewRouteCommands', () => {
+  it('splits a slug:relPath id into /view segments', () => {
+    expect(viewRouteCommands('lib1:2024/a.dng')).toEqual(['/view', 'lib1', '2024', 'a.dng']);
+  });
+  it('passes fs: ids through as a single segment', () => {
+    expect(viewRouteCommands('fs:/abs/a.dng')).toEqual(['/view', 'fs:/abs/a.dng']);
+  });
+  it('passes colon-less ids through', () => {
+    expect(viewRouteCommands('imported-123')).toEqual(['/view', 'imported-123']);
+  });
+  it('addressToRouteSegments supports view mode', () => {
+    expect(addressToRouteSegments({ slug: 'lib1', relPath: 'a.dng' }, 'view')).toEqual([
+      '/view',
+      'lib1',
+      'a.dng',
+    ]);
   });
 });

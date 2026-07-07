@@ -15,7 +15,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult } from '@maple-common';
+import { SearchComponent, SearchResult, viewRouteCommands } from '@maple-common';
 
 @Component({
   selector: 'maple-syrup-search-page',
@@ -55,10 +55,10 @@ export class SearchPageComponent implements AfterViewInit {
   }
 
   protected onPhotoTap(r: SearchResult): void {
-    // S5 (#625): route results to the responsive Editor shell at
-    // /library/editor/:id. Note: if/when Hosted search begins returning
-    // real results, fs: id cold-load/hydration in the responsive editor
-    // will need to land first (#625).
-    void this.router.navigate(['/library/editor', r.id]);
+    // Web Preview Surface Task 6c: route results to the fast Preview surface
+    // at /view/:slug/**. Note: if/when Hosted search begins returning real
+    // results, fs: id cold-load/hydration in Preview will need to land
+    // first (#625).
+    void this.router.navigate(viewRouteCommands(r.id));
   }
 }

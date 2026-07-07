@@ -1,10 +1,11 @@
 // presets-panel.component.ts — presets list + save/apply/delete (#1115).
 //
-// Shared content for both presentations of the presets pill: projected
-// into the S1c bottom sheet on phone/tablet and into a popover card on
-// desktop (see EditorComponent). Lists built-ins (read-only) and user
-// presets; applying routes through `EditorStateService.applyPreset`
-// (sparse merge → ONE undo entry → existing debounced sidecar save).
+// Shared content mounted by both editors: the retired S5 editor's presets
+// pill (bottom sheet on phone/tablet, popover card on desktop) and the
+// canvas-first editor's Presets dock panel (`EditorShellComponent`, #1815).
+// Lists built-ins (read-only) and user presets; applying routes through
+// `EditorStateService.applyPreset` (sparse merge → ONE undo entry →
+// existing debounced sidecar save).
 //
 // Delete is two-step: the trash affordance flips the row into an inline
 // "Delete?" confirm — no native confirm() dialogs.
