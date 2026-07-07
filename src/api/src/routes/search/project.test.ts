@@ -40,7 +40,11 @@ describe('projectAsset — address field', () => {
   it('handles a library-root file (empty relPath directory)', () => {
     const doc = fixtureDoc({
       fileinfo: [
-        { path: '', filename: 'IMG_0002.dng', library_id: new ObjectId('507f1f77bcf86cd799439011') },
+        {
+          path: '',
+          filename: 'IMG_0002.dng',
+          library_id: new ObjectId('507f1f77bcf86cd799439011'),
+        },
       ],
     });
     const libs = new Map<string, string>();
