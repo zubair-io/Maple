@@ -2,11 +2,15 @@
 #
 # Cross-cutting CI that runs on every PR and push to `main`. Per #114.
 #
-# Five jobs:
+# Jobs:
 #   * format-check          — Prettier --check on the tracked source tree.
+#   * oxlint-api             — oxlint over src/api (correctness + fs-import guardrail).
 #   * file-budget           — bash tools/check-file-budget.sh (LOC ceiling).
 #   * allowlist-shrinks-only — PR-only; fails if tools/budget-allowlist.txt grew.
 #   * codegen-drift         — fails if generated cross-platform constants are stale.
+#   * fallow-audit-web      — fallow audit (dead code / complexity / dupes) over
+#                             src/web, scoped to files changed vs the merge base.
+#                             Per #1829.
 #   * gitleaks              — installed direct from GitHub releases; scans only
 #                             the commits this PR/push introduces (#839).
 #
@@ -250,6 +254,43 @@ jobs:
             echo "::error::codegen outputs are out of date. Run 'bash tools/codegen.sh' and commit the result."
             exit 1
           fi
+
+  fallow-audit-web:
+    name: fallow-audit-web (dead code / complexity / dupes, changed files)
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge base so fallow can scope its
+          # audit to files changed in this PR/push (same rationale as
+          # format-check above).
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Fetch base branch
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: |
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+      - name: Install web devDeps (provides fallow)
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+
+      # `fallow audit` scopes dead-code/complexity/dupes analysis to files
+      # changed vs the merge base and gates (exit 1) only on findings the
+      # changeset itself introduces — pre-existing issues are reported but
+      # don't fail the build. See #1829.
+      - name: fallow audit (changed files only)
+        working-directory: src/web
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: ./node_modules/.bin/fallow audit --base "origin/${BASE_REF}"
 
   gitleaks:
     name: gitleaks (PR commits)
