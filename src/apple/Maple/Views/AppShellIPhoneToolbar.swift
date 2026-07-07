@@ -2,19 +2,26 @@
 // Extracted from AppShell.swift as the final piece of the multi-PR
 // AppShell split (#123, slice 6 of 6).
 //
-// Surface notes: the iPhone shell layers two iPhone-only buttons on top of
+// Surface notes: the iPhone shell layers one iPhone-only button on top of
 // the shared `AppShellToolbar` content — a leading hamburger that opens
-// the LibrarySidebar drawer (browse mode only) and a trailing Info button
-// that surfaces the DetailPanel sheet (full-image mode only). Both are
-// pure `ToolbarContent`, so the caller composes them inside the same
-// `.toolbar { … }` block as the shared content via `@ToolbarContentBuilder`:
+// the LibrarySidebar drawer (browse mode only). It's pure `ToolbarContent`,
+// so the caller composes it inside the same `.toolbar { … }` block as the
+// shared content via `@ToolbarContentBuilder`:
 //
 //     .toolbar {
 //         AppShellIPhoneToolbar(...)
 //         browseToolbarContent
 //     }
 //
-// Keeping these as a separate `ToolbarContent` (rather than passing
+// (This used to also carry a trailing Info button that surfaced the
+// DetailPanel sheet in the legacy `Mode.fullImage` full-image loupe. That
+// mode was retired in #1807, which made the Info button unreachable —
+// `PreviewView` and the S5 editor (`EditorDestination`) each ship their own
+// Info affordance now, reached via the Library tab's NavigationStack — so
+// the button and the `isFullImage` param that gated it were removed in the
+// #1826 follow-up.)
+//
+// Keeping this as a separate `ToolbarContent` (rather than passing
 // `browseToolbarContent` in as a parameter) avoids the awkward
 // "ToolbarContent taking another ToolbarContent" generic shape and keeps
 // the seam narrow.
@@ -29,23 +36,10 @@ struct AppShellIPhoneToolbar: ToolbarContent {
     /// (Per open question 5 in the iPhone-drawer design doc, the drawer is
     /// unreachable from the viewer, so the button is hidden in Full-image.)
     let isBrowse: Bool
-    /// Gates the trailing Info button (→ `AppShellIPhoneShell`'s
-    /// `iPhoneInfoSheet`). Always `false` since #1807 retired the legacy
-    /// `Mode.fullImage` surface this toolbar used to key off — `PreviewView`
-    /// and the S5 editor each ship their own Info affordance now
-    /// (`PreviewView.showInfo` / `EditorDestination`'s `onInfo`), reached via
-    /// the Library tab's `NavigationStack` push rather than this shell's
-    /// toolbar. The parameter and `iPhoneInfoSheet` are left in place
-    /// (rather than torn out here) pending a follow-up that traces every
-    /// `EditorDestination` Info path before deleting the sheet.
-    let isFullImage: Bool
     /// Drawer-snapped state; the hamburger writes this with a spring
     /// animation. The drawer's own internal `@State` handles the slide;
     /// only this flag crosses the AppShell boundary.
     @Binding var isDrawerOpen: Bool
-    /// Tapped when the user hits the Info button. AppShell flips its own
-    /// `iPhoneInfoSheet` flag inside the closure.
-    let onInfo: () -> Void
 
     var body: some ToolbarContent {
         // Hamburger only meaningful in browse mode (per open question 5:
@@ -62,17 +56,6 @@ struct AppShellIPhoneToolbar: ToolbarContent {
                         .font(.system(size: 17, weight: .semibold))
                 }
                 .accessibilityLabel("Library")
-            }
-        }
-        // Info button reaches the DetailPanel sheet; only meaningful in
-        // Full-image mode (the panel is suppressed entirely in Browse —
-        // sidecar info belongs to the editor view).
-        if isFullImage {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: onInfo) {
-                    Image(systemName: "info.circle")
-                }
-                .accessibilityLabel("Info")
             }
         }
         // Settings gear is provided by `AppShellToolbar` — don't duplicate
