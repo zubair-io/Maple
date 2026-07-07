@@ -57,6 +57,35 @@
     </button>
   </header>
 
+  @if (selectedCount() > 0) {
+    <div
+      class="flex h-9 flex-shrink-0 items-center gap-3 border-b-[0.5px] border-border bg-surface-alt px-4 text-[12px] text-text-main"
+    >
+      <span>{{ selectedCount() }} selected</span>
+      <button
+        type="button"
+        class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
+        (click)="selectAllLoaded()"
+      >
+        Select all (loaded)
+      </button>
+      <button
+        type="button"
+        class="cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
+        (click)="onEditMetadata()"
+      >
+        Edit metadata…
+      </button>
+      <button
+        type="button"
+        class="ml-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2.5 py-1 text-[11px] hover:bg-surface-hover"
+        (click)="clearSelection()"
+      >
+        Clear
+      </button>
+    </div>
+  }
+
   <div class="flex min-h-0 flex-1">
     <!-- Filter sidebar -->
     <aside
@@ -524,12 +553,22 @@
 
       <div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
         @for (r of results(); track trackResult($index, r)) {
-          <button
-            type="button"
-            class="group flex cursor-pointer flex-col gap-1.5 rounded-md border-[0.5px] border-border bg-surface p-1.5 text-left text-text-main transition-[background,border-color] duration-[120ms] hover:border-text-muted hover:bg-surface-alt"
+          <div
+            class="group relative flex cursor-pointer flex-col gap-1.5 rounded-md border-[0.5px] border-border bg-surface p-1.5 text-left text-text-main transition-[background,border-color] duration-[120ms] hover:border-text-muted hover:bg-surface-alt"
+            role="button"
+            tabindex="0"
             (click)="openResult(r)"
+            (keydown.enter)="openResult(r)"
             [attr.aria-label]="'Open ' + r.filename"
           >
+            <input
+              type="checkbox"
+              class="absolute left-2 top-2 z-10 h-4 w-4 cursor-pointer"
+              [checked]="selectedIds().has(r.id)"
+              [attr.aria-label]="'Select ' + r.filename"
+              (click)="$event.stopPropagation()"
+              (change)="toggleSelect(r.id)"
+            />
             <div class="relative aspect-[3/2] overflow-hidden rounded bg-image-canvas">
               @if (r.thumbUrl) {
                 <img
@@ -564,7 +603,7 @@
                 <span class="text-[11px] text-text-muted">{{ r.captured_at | slice: 0 : 10 }}</span>
               }
             </div>
-          </button>
+          </div>
         }
       </div>
 
@@ -586,4 +625,10 @@
       }
     </main>
   </div>
+
+  <app-batch-metadata-panel
+    [visible]="batchMetaDialogVisible()"
+    [assetSnapshots]="batchMetaAssetSnapshots()"
+    (dismiss)="onBatchMetaDismiss()"
+  />
 </div>
