@@ -91,6 +91,8 @@ export * from './lib/api/people.store';
 // P7: Unified SPA shells + all components (moved from browse + editor apps)
 export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
+// Web Preview Surface Task 3 — fast static-image preview (no canvas/WASM).
+export * from './lib/shells/preview-shell/preview-shell.component';
 // S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
 export * from './lib/shells/bottom-sheet.component';
 
@@ -135,20 +137,18 @@ export * from './lib/info/info-vision.component';
 export * from './lib/info/info-faces.component';
 export * from './lib/info/enrichment-status-badge.component';
 
-// S5 (#625) — Editor (shell + drag bar + tool model + placeholder glyphs).
+// S5 (#625) — Editor shell was retired once the canvas-first editor reached
+// feature parity (epic #1807); the shared drag bar / tool model / sub-param
+// machinery below lives on, now consumed only by the canvas-first editor
+// (`EditorShellComponent`, `shells/editor-shell/`).
 export * from './lib/editor/tool-model';
 export * from './lib/editor/tool-sub-param';
 export * from './lib/editor/tool-glyph';
 export * from './lib/editor/drag-bar-math';
 export * from './lib/editor/editor-state.service';
 export * from './lib/editor/drag-bar.component';
-export * from './lib/editor/editor-header.component';
 export * from './lib/editor/value-chip.component';
-export * from './lib/editor/group-tabs.component';
 export * from './lib/editor/sub-param-row.component';
-export * from './lib/editor/tool-pill-row.component';
-export * from './lib/editor/editor.component';
-export * from './lib/editor/editor-page.component';
 
 // Presets (#1115, spec §10.7) — sparse-model storage + apply/save UI.
 export * from './lib/editor/presets/preset-model';
