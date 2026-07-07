@@ -2,8 +2,30 @@
 // Extracted from the component to keep editor-shell.component.ts under the
 // per-file LOC budget. Operates on the live component via its public surface;
 // `import type` keeps this a type-only (no runtime) dependency on the shell.
+//
+// Save / undo / redo / cycle-tool shortcuts (epic #1807 slice 5) are ported
+// verbatim from the S5 editor's `editor.component.ts` `onKey` handler so both
+// editors share the same muscle memory. B's bare `0` (reset armed tool) is
+// NOT ported here — A's `0` already does something else (clear rating, see
+// below), and that binding is real, working, and came first in this shell.
 import type { EditorShellComponent } from './editor-shell.component';
-import type { ToolGroup } from '../../editor/tool-model';
+import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from '../../editor/tool-model';
+
+/** Cycle the armed tool within its group; shift cycles the group. Verbatim
+ * port of the S5 editor's `_nudgeTool` (`editor.component.ts`). */
+function nudgeTool(shell: EditorShellComponent, direction: 1 | -1, byGroup: boolean): void {
+  if (byGroup) {
+    const groups: readonly ToolGroup[] = ['light', 'color', 'effects', 'detail'];
+    const i = groups.indexOf(shell.editorState.armedGroup());
+    const next = groups[(i + direction + groups.length) % groups.length];
+    shell.onGroupChange(next);
+    return;
+  }
+  const tools: readonly ToolId[] = TOOLS_IN_GROUP[groupOf(shell.editorState.armedTool())];
+  const i = tools.indexOf(shell.editorState.armedTool());
+  const next = tools[(i + direction + tools.length) % tools.length];
+  shell.onToolChange(next);
+}
 
 /**
  * Pro editor keyboard shortcuts (spec §13). Bound from the shell's
@@ -20,11 +42,36 @@ export function handleEditorKeydown(shell: EditorShellComponent, e: KeyboardEven
     return;
 
   const fid = shell.state.focusedAssetId();
+  const meta = e.metaKey || e.ctrlKey;
 
   // Esc — back to browse
   if (e.key === 'Escape') {
     shell.goBack();
     e.preventDefault();
+    return;
+  }
+
+  // ⌘S / Ctrl+S — flush pending XMP writes now (mirrors the S5 editor).
+  // Excludes ⌘⌥S (toggle sidebar, handled below) via the `!e.altKey` guard.
+  if (meta && !e.altKey && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault();
+    void shell.state.flushPendingXmpWrites();
+    return;
+  }
+
+  // ⌘Z / Ctrl+Z — undo. ⌘⇧Z / Ctrl+Shift+Z — redo. Mirrors the S5 editor.
+  if (meta && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault();
+    if (e.shiftKey) shell.editorState.redo();
+    else shell.editorState.undo();
+    return;
+  }
+
+  // [ / ] — cycle the armed tool within its group; Shift cycles the group.
+  // Mirrors the S5 editor's `_nudgeTool`.
+  if (e.key === '[' || e.key === ']') {
+    e.preventDefault();
+    nudgeTool(shell, e.key === ']' ? 1 : -1, e.shiftKey);
     return;
   }
 
@@ -59,8 +106,6 @@ export function handleEditorKeydown(shell: EditorShellComponent, e: KeyboardEven
     e.preventDefault();
     return;
   }
-
-  const meta = e.metaKey || e.ctrlKey;
 
   // 1–4: switch tool group (bare, no meta)
   if (!meta && ['1', '2', '3', '4'].includes(e.key)) {
