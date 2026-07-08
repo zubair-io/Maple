@@ -19,12 +19,20 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
+import { decodeHdrToneMapped, decodePsdComposite } from './psd-hdr-decode.ts';
 
 // The SHARP_EXTENSIONS allowlist moved to `fs/browse.ts` (a light module with
 // no renderer deps) so routes like `/api/fs/raw` can import the gate without
 // pulling in `sharp` / `heic-convert`. Re-exported here so existing
 // `thumbs/render.ts` importers keep working unchanged. (#782)
 export { SHARP_EXTENSIONS } from '../fs/browse.ts';
+
+// PSD/PSB (Photoshop) and Radiance HDR are not sharp-native formats — they
+// need a first-pass decode (via `ag-psd` / `hdr`) into a plain RGBA8 raster
+// before sharp can resize + JPEG-encode them. Parallel to `SHARP_EXTENSIONS`
+// but a distinct set: sharp itself cannot open these bytes at all. See
+// `fs/browse.ts`'s `PSD_HDR_EXTENSIONS` for the canonical allowlist re-export.
+export { PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 
 /**
  * Input options handed to every `sharp()` decode in this module.
@@ -79,6 +87,44 @@ export async function renderHeicThumbToFile(
 }
 
 /**
+ * PSD/PSB/HDR chain: decode to a flattened RGBA8 raster via `ag-psd` / `hdr`
+ * (see `psd-hdr-decode.ts`), then hand that raster to sharp's `raw` input
+ * mode for the exact same resize + mozjpeg-encode path every other bitmap
+ * format uses below. No EXIF orientation tag exists for these formats (PSD
+ * has no rotation metadata sharp recognizes; Radiance HDR has none at all),
+ * so `.rotate()` is a harmless no-op here rather than a real fix-up.
+ *
+ * Called by `renderImageThumbToFile` for the PSD/PSB/HDR branch. Lives inside
+ * the `imgdecode.child.ts` isolated process so a malformed file can only
+ * crash this child.
+ *
+ * Throws on decode/encode/IO failure.
+ */
+export async function renderPsdOrHdrThumbToFile(
+  srcPath: string,
+  thumbPath: string,
+  sizePx: number,
+  ext: string,
+  quality = 82,
+): Promise<void> {
+  const inputBuffer = await readFile(srcPath);
+  const raster =
+    ext === 'hdr'
+      ? await decodeHdrToneMapped(new Uint8Array(inputBuffer))
+      : decodePsdComposite(new Uint8Array(inputBuffer));
+
+  const buf = await sharp(raster.data, {
+    raw: { width: raster.width, height: raster.height, channels: 4 },
+  })
+    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality, mozjpeg: true })
+    .toBuffer();
+  const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+  await writeFile(tmp, buf);
+  await rename(tmp, thumbPath);
+}
+
+/**
  * Render `srcPath` to `thumbPath` as a JPEG with the long edge ≤ `sizePx`.
  * Atomic: writes to `<thumbPath>.<pid>.tmp` first, then renames so a crash
  * mid-write never leaves a half-written cache file. Caller is responsible
@@ -104,6 +150,11 @@ export async function renderImageThumbToFile(
     // `imgdecode.child.ts` this is already an isolated process — no event-loop
     // blocking concern. The old Worker-thread indirection via heic-pool is gone.
     await renderHeicThumbToFile(srcPath, thumbPath, sizePx, quality);
+    return true;
+  }
+
+  if (ext === 'psd' || ext === 'psb' || ext === 'hdr') {
+    await renderPsdOrHdrThumbToFile(srcPath, thumbPath, sizePx, ext, quality);
     return true;
   }
 
