@@ -20,6 +20,7 @@ import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
 import { RAW_EXTENSIONS } from '../fs/browse.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
+import { STUB_IMAGE_EXTENSIONS, AUDIO_EXTENSIONS } from '../fs/browse.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
 import { listPairedSidecars } from '../fs/xmp.ts';
@@ -246,7 +247,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const MAX_SLUG_ATTEMPTS = 5;
       for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
         const takenSlugs = await coll
-          .find({ slug: { $exists: true } } as never, { projection: { slug: 1 } })
+          .find({ slug: { $exists: true } } as never, {
+            projection: { slug: 1 },
+          })
           .toArray()
           .then(
             (rows) =>
@@ -264,7 +267,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           } as never);
           break; // success
         } catch (err) {
-          const mongoErr = err as { code?: number; keyPattern?: Record<string, unknown> };
+          const mongoErr = err as {
+            code?: number;
+            keyPattern?: Record<string, unknown>;
+          };
           if (mongoErr.code === 11000 && mongoErr.keyPattern?.['slug'] !== undefined) {
             // Concurrent insert claimed the same slug — retry with fresh taken-set.
             log.warn({ attempt, slug: slug! }, 'slug duplicate-key on insert, retrying');
@@ -275,7 +281,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       }
       if (!insertResult) {
         set.status = 500;
-        return { error: 'Could not mint a unique slug after retries; please try again' };
+        return {
+          error: 'Could not mint a unique slug after retries; please try again',
+        };
       }
 
       const id = insertResult.insertedId.toHexString();
@@ -529,11 +537,19 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const dot = filename.lastIndexOf('.');
       const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : '';
       // Any file type may be uploaded and stored on disk so the File
-      // Provider can sync everything. Only image files get an `AssetDoc`
-      // — the catalog stays image-only. Everything else (video, documents,
-      // extensionless files) is stored + synced but never indexed.
+      // Provider can sync everything. Only image/video/stub/audio files get
+      // an `AssetDoc` — the catalog stays media-only. Everything else
+      // (documents, archives, extensionless files) is stored + synced but
+      // never indexed. Stub images (eip/braw/afphoto/ai) and audio
+      // (mp3/wav/m4a/aac, #1835) get an AssetDoc too — metadata-only, no
+      // thumbnail — so an uploaded stub/audio file is indexed rather than
+      // silently stored-but-uncataloged.
       const isMedia =
-        RAW_EXTENSIONS.has(ext) || SHARP_EXTENSIONS.has(ext) || PSD_HDR_EXTENSIONS.has(ext);
+        RAW_EXTENSIONS.has(ext) ||
+        SHARP_EXTENSIONS.has(ext) ||
+        PSD_HDR_EXTENSIONS.has(ext) ||
+        STUB_IMAGE_EXTENSIONS.has(ext) ||
+        AUDIO_EXTENSIONS.has(ext);
 
       const absPath = nodePath.join(folder.path, target);
 
@@ -1274,7 +1290,15 @@ export function buildTrashListFilter(
   };
 }
 
-/** Supported image extensions (lowercase with leading dot). */
+/** Supported image extensions (lowercase with leading dot). Pre-filter for
+ * `scanFolderAndDiscover` below — cheap to skip an unsupported file here
+ * rather than calling `handleEvent` (which is itself gated by the canonical
+ * `SUPPORTED_EXTS` in `workers/discover/types.ts`) and having it no-op.
+ * Note: this list has drifted narrower than the canonical one (missing
+ * video/psd/psb/hdr) — out of scope to reconcile here; adding the #1835
+ * metadata-only stub/audio formats so a newly-registered folder containing
+ * them gets those files indexed on the initial scan, not just via the live
+ * file watcher. */
 const SUPPORTED_EXTS = new Set([
   '.dng',
   '.cr2',
@@ -1299,6 +1323,15 @@ const SUPPORTED_EXTS = new Set([
   '.tiff',
   '.heic',
   '.heif',
+  // Metadata-only stub images + audio (#1835) — see media-types.ts.
+  '.eip',
+  '.braw',
+  '.afphoto',
+  '.ai',
+  '.mp3',
+  '.wav',
+  '.m4a',
+  '.aac',
 ]);
 
 /**

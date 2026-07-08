@@ -198,7 +198,7 @@ describe('preview handler — bitmap path', () => {
     expect(stat2.mtimeMs).toBe(stat1.mtimeMs);
   });
 
-  it("returns { skip: 'video-file' } for a .MOV and writes no preview", async () => {
+  it("returns { skip: 'stub-file' } for a .MOV and writes no preview", async () => {
     // A video container can land in a mixed-media library. The handler must
     // skip it rather than fall through to the copy-as-is path, which would
     // leave raw .MOV bytes under a .jpg name for the describe stage to ship
@@ -210,7 +210,7 @@ describe('preview handler — bitmap path', () => {
     // default would collide with previews other tests in this block wrote.
     const doc = makeDoc(file, libraryId, dir, 'e'.repeat(32));
     const result = await previewStage.handler(doc as never, {} as never);
-    expect((result as { skip: string }).skip).toBe('video-file');
+    expect((result as { skip: string }).skip).toBe('stub-file');
 
     // No preview artefact was produced — assert the stat rejects with ENOENT
     // specifically, so an unexpected error (permissions, transient FS) fails
@@ -228,6 +228,40 @@ describe('preview handler — bitmap path', () => {
     );
     expect(err?.code).toBe('ENOENT');
   });
+
+  it.each([
+    ['scan.eip', 'f'.repeat(32)],
+    ['session.braw', '1'.repeat(32)],
+    ['project.afphoto', '2'.repeat(32)],
+    ['logo.ai', '3'.repeat(32)],
+    ['track.mp3', '4'.repeat(32)],
+    ['voice.wav', '5'.repeat(32)],
+    ['memo.m4a', '6'.repeat(32)],
+    ['song.aac', '7'.repeat(32)],
+  ])(
+    "returns { skip: 'stub-file' } for %s (#1835 metadata-only stub/audio) and writes no preview",
+    async (filename, mapleId) => {
+      const file = path.join(dir, filename as string);
+      await writeFile(file, Buffer.from('not a real decodable file'));
+
+      const doc = makeDoc(file, libraryId, dir, mapleId as string);
+      const result = await previewStage.handler(doc as never, {} as never);
+      expect((result as { skip: string }).skip).toBe('stub-file');
+
+      const previewPath = cachePathForAsset(
+        doc as never,
+        new Map([[libraryId.toHexString(), dir]]),
+        'previews',
+        PREVIEW_SIZE_KEY,
+      );
+      expect(previewPath).not.toBeNull();
+      const err = await stat(previewPath as string).then(
+        () => null,
+        (e: NodeJS.ErrnoException) => e,
+      );
+      expect(err?.code).toBe('ENOENT');
+    },
+  );
 
   it('marks the stage wrote for a RAW when the FFI is unavailable (soft pass)', async () => {
     // Mirrors the thumb stage test: the handler must never throw when the
