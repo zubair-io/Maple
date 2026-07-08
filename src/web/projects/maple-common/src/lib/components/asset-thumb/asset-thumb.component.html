@@ -1,5 +1,6 @@
 @let a = asset();
 @let url = thumbUrl();
+@let noPreviewBadge = noPreviewBadgeLabel();
 <div
   class="thumb relative h-full w-full flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] bg-cover bg-center outline-none"
   [class.selected]="selected()"
@@ -26,6 +27,17 @@
       class="absolute left-[5px] top-[5px] flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
     >
       HIDDEN
+    </div>
+  }
+
+  @if (!url && noPreviewBadge && variant() === 'grid') {
+    <div
+      [class]="
+        (a.hidden ? 'top-[22px] ' : 'top-[5px] ') +
+        'absolute left-[5px] flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-white/20 bg-black/60 backdrop-blur-[4px] text-[8px] font-semibold text-white'
+      "
+    >
+      {{ noPreviewBadge }}
     </div>
   }
 
