@@ -15,8 +15,8 @@ import type { Asset, AssetId } from '../../models/asset';
 
 type ThumbCb = (url: string | undefined) => void;
 
-function makeAsset(id: string): Asset {
-  return { id: id as AssetId, filename: 'a.jpg' } as Asset;
+function makeAsset(id: string, filename = 'a.jpg'): Asset {
+  return { id: id as AssetId, filename } as Asset;
 }
 
 describe('AssetThumbComponent — component-owned thumbnail signal', () => {
@@ -97,5 +97,67 @@ describe('AssetThumbComponent — component-owned thumbnail signal', () => {
     fixture.detectChanges();
     fixture.destroy();
     expect(unsubCount).toBe(1);
+  });
+});
+
+describe('AssetThumbComponent — no-preview badge', () => {
+  function configure(subscribeThumbUrl: (id: AssetId, cb: ThumbCb) => () => void) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            ensureThumbnailUrl: () => {},
+            subscribeThumbUrl,
+          },
+        },
+      ],
+    });
+  }
+
+  function syncStub(initial: string | undefined = undefined) {
+    return (_id: AssetId, cb: ThumbCb): (() => void) => {
+      cb(initial);
+      return () => {};
+    };
+  }
+
+  function render(filename: string, thumbUrl: string | undefined = undefined) {
+    configure(syncStub(thumbUrl));
+    const fixture = TestBed.createComponent(AssetThumbComponent);
+    fixture.componentRef.setInput('asset', makeAsset('lib:x', filename));
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('renders the uppercased extension badge for a stub image with no thumbnail', () => {
+    const fixture = render('scan.eip');
+    expect(fixture.nativeElement.textContent).toContain('EIP');
+  });
+
+  it('renders the badge for an audio file with no thumbnail', () => {
+    const fixture = render('track.mp3');
+    expect(fixture.nativeElement.textContent).toContain('MP3');
+  });
+
+  it('renders the badge for a video file with no thumbnail', () => {
+    const fixture = render('clip.mov');
+    expect(fixture.nativeElement.textContent).toContain('MOV');
+  });
+
+  it('does not render a badge for a normal photo with no thumbnail yet', () => {
+    const fixture = render('IMG_0001.jpg');
+    expect(fixture.nativeElement.textContent).not.toContain('JPG');
+  });
+
+  it('does not render a badge for a RAW file with no thumbnail yet', () => {
+    const fixture = render('IMG_0001.dng');
+    expect(fixture.nativeElement.textContent).not.toContain('DNG');
+  });
+
+  it('does not render the badge once a thumbnail resolves, even for a stub extension', () => {
+    const fixture = render('scan.eip', 'blob:loaded');
+    expect(fixture.nativeElement.textContent).not.toContain('EIP');
   });
 });
