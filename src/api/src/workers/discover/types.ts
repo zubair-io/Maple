@@ -84,6 +84,17 @@ export const SUPPORTED_EXTS = new Set([
   '.mpg',
   '.wmv',
   '.f4v',
+  // Metadata-only stub images — no realistic decode path (see #1835).
+  // Indexed for filename/size/date only; never thumbnailed/EXIF'd/described.
+  '.eip',
+  '.braw',
+  '.afphoto',
+  '.ai',
+  // Audio — a wholly new asset category, metadata-only (see #1835).
+  '.mp3',
+  '.wav',
+  '.m4a',
+  '.aac',
 ]);
 
 /**

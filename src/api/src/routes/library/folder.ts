@@ -21,7 +21,11 @@ import { readdir } from 'node:fs/promises';
 import { parseAddressPath, resolveAddress } from '../../library/address.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { child as childLogger } from '../../log.ts';
-import { IMAGE_EXTENSIONS_SET, parseWildcardSegments } from './shared.ts';
+import {
+  IMAGE_EXTENSIONS_SET,
+  STUB_AND_AUDIO_EXTENSIONS_SET,
+  parseWildcardSegments,
+} from './shared.ts';
 import { handleEvent } from '../../workers/discover/index.ts';
 
 const log = childLogger('routes/library/folder');
@@ -126,7 +130,11 @@ async function buildFolderListing(slug: string, wildcard: string): Promise<Respo
     // Match the fileinfo entry on BOTH library_id and path so a deduplicated
     // asset surfaces its filename for THIS folder only.
     const fi = (
-      row.fileinfo as Array<{ filename: string; path: string; library_id: unknown }>
+      row.fileinfo as Array<{
+        filename: string;
+        path: string;
+        library_id: unknown;
+      }>
     ).find((f) => String(f.library_id) === libraryId.toHexString() && f.path === relPath);
     if (!fi) continue;
     catalogFilenames.add(fi.filename);
@@ -149,11 +157,19 @@ async function buildFolderListing(slug: string, wildcard: string): Promise<Respo
   for (const entry of diskEntries) {
     if (entry.isDirectory) continue;
     const ext = path.extname(entry.name).toLowerCase().replace(/^\./, '');
-    if (!IMAGE_EXTENSIONS_SET.has(ext)) continue;
+    // Metadata-only stub images (eip/braw/afphoto/ai) and audio (#1835) get
+    // an AssetDoc too (see routes/folders.ts's isMedia check), so they
+    // belong in this listing the same way unindexed images do.
+    if (!IMAGE_EXTENSIONS_SET.has(ext) && !STUB_AND_AUDIO_EXTENSIONS_SET.has(ext)) continue;
     if (catalogFilenames.has(entry.name)) continue;
     const fileAddress =
       relPath === '' ? `${slug}:${entry.name}` : `${slug}:${relPath}/${entry.name}`;
-    images.push({ name: entry.name, address: fileAddress, mapleId: null, indexed: false });
+    images.push({
+      name: entry.name,
+      address: fileAddress,
+      mapleId: null,
+      indexed: false,
+    });
     hasUnindexed = true;
   }
 

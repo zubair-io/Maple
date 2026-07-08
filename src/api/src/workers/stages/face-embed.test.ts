@@ -139,7 +139,7 @@ function stageAsset(
 }
 
 describe('faceEmbedHandler — video files', () => {
-  it('skips a video asset as { skip: video-file } without invoking the recognizer', async () => {
+  it('skips a video asset as { skip: stub-file } without invoking the recognizer', async () => {
     const { root, libraryId } = setup();
     try {
       // Shared loadThumbBytes guard: a .mov/.mp4 thumb is the raw video
@@ -151,7 +151,36 @@ describe('faceEmbedHandler — video files', () => {
       const detector = recordingDetector(new Error('recognizer must not run on a video asset'));
       setDefaultFaceDetectorForTests(detector);
       const result = await faceEmbedHandler(doc, noopCtx);
-      expect((result as { skip: string }).skip).toBe('video-file');
+      expect((result as { skip: string }).skip).toBe('stub-file');
+      expect(detector.embedded).toHaveLength(0);
+    } finally {
+      teardown();
+    }
+  });
+});
+
+describe('faceEmbedHandler — metadata-only stub images and audio (#1835)', () => {
+  it.each([
+    'scan.eip',
+    'session.braw',
+    'project.afphoto',
+    'logo.ai',
+    'track.mp3',
+    'voice.wav',
+    'memo.m4a',
+    'song.aac',
+  ])('skips %s as { skip: stub-file } without invoking the recognizer', async (filename) => {
+    const { root, libraryId } = setup();
+    try {
+      const { doc, thumbPath } = stageAsset(root, libraryId, filename, [fakeFace()]);
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, 'not-a-real-thumb');
+      const detector = recordingDetector(
+        new Error('recognizer must not run on a stub/audio asset'),
+      );
+      setDefaultFaceDetectorForTests(detector);
+      const result = await faceEmbedHandler(doc, noopCtx);
+      expect((result as { skip: string }).skip).toBe('stub-file');
       expect(detector.embedded).toHaveLength(0);
     } finally {
       teardown();

@@ -268,6 +268,18 @@ export const SHARP_EXTENSIONS = new Set<string>([
  * these formats without that decode step. */
 export const PSD_HDR_EXTENSIONS = new Set<string>(['psd', 'psb', 'hdr']);
 
+/** Image-like formats with no realistic decode path (see #1835): eip
+ * (Phase One, no rawler support), braw (Blackmagic RAW, proprietary
+ * SDK-gated), afphoto (Affinity Photo, no public spec), ai (Illustrator, a
+ * PDF/vector container rather than a raster image). Metadata-only stubs —
+ * indexed for filename/size/date, never thumbnailed/decoded. */
+export const STUB_IMAGE_EXTENSIONS = new Set<string>(['eip', 'braw', 'afphoto', 'ai']);
+
+/** Audio formats (lowercase, no dot) — a wholly new asset category (see
+ * #1835). Metadata-only stubs, same as `STUB_IMAGE_EXTENSIONS`: indexed for
+ * filename/size/date, never thumbnailed/decoded. */
+export const AUDIO_EXTENSIONS = new Set<string>(['mp3', 'wav', 'm4a', 'aac']);
+
 /** All image extensions surfaced by the directory listing. Union of RAWs
  * (decoded via FFI), bitmap formats (decoded via sharp/heic-convert), and
  * PSD/PSB/HDR (decoded via ag-psd/hdr then sharp). Kept in sync with the
@@ -297,6 +309,48 @@ const VIDEO_EXTENSIONS = new Set<string>([
   'wmv',
   'f4v',
 ]);
+
+/** Which non-decodable-but-listable bucket an extension falls into, if any.
+ * `null` for a plain decodable image extension (`IMAGE_EXTENSIONS`) or an
+ * extension recognised by none of the listing buckets. Shared by
+ * `listDirContents` and `listDirFast` so the video/stub/audio classification
+ * used to flag an `ImageChild`/`FastImageChild` entry can't drift between the
+ * two listing paths (see #1835). */
+function classifyMediaKind(ext: string): 'isVideo' | 'isStub' | 'isAudio' | null {
+  if (VIDEO_EXTENSIONS.has(ext)) return 'isVideo';
+  if (STUB_IMAGE_EXTENSIONS.has(ext)) return 'isStub';
+  if (AUDIO_EXTENSIONS.has(ext)) return 'isAudio';
+  return null;
+}
+
+/** True when `ext` belongs in the `images[]` listing bucket — a decodable
+ * image, or any of the video/stub/audio kinds `classifyMediaKind` recognises.
+ * Shared by `listDirContents` and `listDirFast`. */
+function isListableMediaExt(ext: string): boolean {
+  return IMAGE_EXTENSIONS.has(ext) || classifyMediaKind(ext) !== null;
+}
+
+/** Build the pushed `images[]` entry (shared shape between `ImageChild` and
+ * `FastImageChild`) for a listed file, attaching the `isVideo`/`isStub`/
+ * `isAudio` flag `classifyMediaKind` returns, if any. */
+function buildMediaListItem(
+  name: string,
+  childReal: string,
+  st: { size: number; mtime: Date },
+  ext: string,
+): { name: string; path: string; size: number; mtime: string; ext: string } & Partial<
+  Record<'isVideo' | 'isStub' | 'isAudio', true>
+> {
+  const kind = classifyMediaKind(ext);
+  return {
+    name,
+    path: childReal,
+    size: st.size,
+    mtime: st.mtime.toISOString(),
+    ext,
+    ...(kind !== null ? { [kind]: true } : {}),
+  };
+}
 
 /**
  * Match a sidecar filename and return the filename of the primary it pairs to.
@@ -349,6 +403,12 @@ export interface ImageChild extends DirChild {
   exif?: AssetExif | null;
   /** True when the file is a video container (e.g. .mov, .mp4). */
   isVideo?: true;
+  /** True when the file is a metadata-only stub image with no decoder (e.g.
+   * .eip, .braw, .afphoto, .ai). See #1835. */
+  isStub?: true;
+  /** True when the file is an audio format (e.g. .mp3, .wav, .m4a, .aac).
+   * See #1835. */
+  isAudio?: true;
 }
 
 export interface SidecarChild {
@@ -598,23 +658,8 @@ export async function listDirContents(
     } else if (st.isFile()) {
       const dot = name.lastIndexOf('.');
       const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
-      if (ext !== '' && IMAGE_EXTENSIONS.has(ext)) {
-        images.push({
-          name,
-          path: childReal,
-          size: st.size,
-          mtime: st.mtime.toISOString(),
-          ext,
-        });
-      } else if (ext !== '' && VIDEO_EXTENSIONS.has(ext)) {
-        images.push({
-          name,
-          path: childReal,
-          size: st.size,
-          mtime: st.mtime.toISOString(),
-          ext,
-          isVideo: true,
-        });
+      if (ext !== '' && isListableMediaExt(ext)) {
+        images.push(buildMediaListItem(name, childReal, st, ext));
       } else if (ext === 'xmp') {
         sidecarRaw.push({
           name,
@@ -772,6 +817,12 @@ export interface FastImageChild extends DirChild {
   ext: string; // lowercase, no dot
   /** True when the file is a video container (e.g. .mov, .mp4). */
   isVideo?: true;
+  /** True when the file is a metadata-only stub image with no decoder (e.g.
+   * .eip, .braw, .afphoto, .ai). See #1835. */
+  isStub?: true;
+  /** True when the file is an audio format (e.g. .mp3, .wav, .m4a, .aac).
+   * See #1835. */
+  isAudio?: true;
 }
 
 export interface FastDirContents {
@@ -832,7 +883,10 @@ export async function listDirFast(
     try {
       offset = decodeCursor(opts.cursor);
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
     if (offset > CURSOR_MAX_OFFSET) {
       return { ok: false, error: `cursor offset too large: ${offset}` };
@@ -879,23 +933,8 @@ export async function listDirFast(
       const dot = name.lastIndexOf('.');
       if (dot < 0) continue;
       const ext = name.slice(dot + 1).toLowerCase();
-      if (IMAGE_EXTENSIONS.has(ext)) {
-        images.push({
-          name,
-          path: childReal,
-          size: st.size,
-          mtime: st.mtime.toISOString(),
-          ext,
-        });
-      } else if (VIDEO_EXTENSIONS.has(ext)) {
-        images.push({
-          name,
-          path: childReal,
-          size: st.size,
-          mtime: st.mtime.toISOString(),
-          ext,
-          isVideo: true,
-        });
+      if (isListableMediaExt(ext)) {
+        images.push(buildMediaListItem(name, childReal, st, ext));
       }
     }
   }
