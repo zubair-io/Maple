@@ -446,15 +446,31 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   }
 
   // ── Thumbnail loading ────────────────────────────────────────────────────
+  // `_fetchPage` eagerly loads thumbs for every result, and the visibility
+  // observer loads them again for whatever just scrolled into view — so the
+  // same abs_path can be requested twice before the first request resolves.
+  // `thumbInFlight` dedupes those into a single network request; the entry
+  // is cleared in `finally` so a failed request can be retried later.
+  private thumbInFlight = new Map<string, Promise<string>>();
+
   private async _loadThumb(p: PhotoVm): Promise<void> {
     if (p.thumbUrl) return;
     if (this.thumbCache.has(p.abs_path)) return;
+    const inFlight = this.thumbInFlight.get(p.abs_path);
+    if (inFlight) {
+      await inFlight.catch(() => {});
+      return;
+    }
+    const request = this.fsBrowse.getThumbBlobUrl(p.abs_path, 512);
+    this.thumbInFlight.set(p.abs_path, request);
     try {
-      const url = await this.fsBrowse.getThumbBlobUrl(p.abs_path, 512);
+      const url = await request;
       this.thumbCache.set(p.abs_path, url);
       this._years.update((years) => this._withThumbUrl(years, p.abs_path, url));
     } catch {
       // Silent — gradient placeholder stays.
+    } finally {
+      this.thumbInFlight.delete(p.abs_path);
     }
   }
 

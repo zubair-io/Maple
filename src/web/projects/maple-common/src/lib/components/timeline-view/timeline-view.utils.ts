@@ -116,9 +116,14 @@ function maxCapturedTime(photos: PhotoVm[]): number {
 }
 
 /** Render-ready folder groups for one month, sorted by each folder's most
- * recent photo (descending) — matches the original per-month behaviour. */
+ * recent photo (descending) — matches the original per-month behaviour.
+ * Each folder's max captured time is computed once up front rather than
+ * inside the sort comparator, which would otherwise re-scan every folder's
+ * photos on every comparison. */
 export function buildGroups(m: MonthGroup): Array<{ folderName: string; photos: PhotoVm[] }> {
+  const maxTimeByFolder = new Map<string, number>();
+  for (const [name, photos] of m.groups) maxTimeByFolder.set(name, maxCapturedTime(photos));
   const names = Array.from(m.groups.keys());
-  names.sort((a, b) => maxCapturedTime(m.groups.get(b)!) - maxCapturedTime(m.groups.get(a)!));
+  names.sort((a, b) => maxTimeByFolder.get(b)! - maxTimeByFolder.get(a)!);
   return names.map((folderName) => ({ folderName, photos: m.groups.get(folderName)! }));
 }
