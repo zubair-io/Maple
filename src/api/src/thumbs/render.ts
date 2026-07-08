@@ -84,9 +84,9 @@ export async function renderHeicThumbToFile(
  * PSD/PSB/HDR chain: decode to a flattened RGBA8 raster via `ag-psd` / `hdr`
  * (see `psd-hdr-decode.ts`), then hand that raster to sharp's `raw` input
  * mode for the exact same resize + mozjpeg-encode path every other bitmap
- * format uses below. No EXIF orientation tag exists for these formats (PSD
- * has no rotation metadata sharp recognizes; Radiance HDR has none at all),
- * so `.rotate()` is a harmless no-op here rather than a real fix-up.
+ * format uses below. These formats carry no EXIF orientation metadata (and
+ * sharp's raw-input path has no metadata to interpret), so we intentionally
+ * do not call `.rotate()` here.
  *
  * Called by `renderImageThumbToFile` for the PSD/PSB/HDR branch. Lives inside
  * the `imgdecode.child.ts` isolated process so a malformed file can only

@@ -49,7 +49,6 @@
 import { readPsd, initializeCanvas } from 'ag-psd';
 // `hdr` ships no type declarations; its default export is a CJS object
 // `{ loader, utils }` per README/source (`lib/hdr.js`).
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 import HDR from 'hdr';
 import { Readable } from 'node:stream';
 
