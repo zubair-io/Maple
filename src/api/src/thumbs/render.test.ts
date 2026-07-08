@@ -4,10 +4,27 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
+import { writePsdBuffer } from 'ag-psd';
 import { renderImageThumbToFile, renderHeicThumbToFile } from './render.ts';
 
 // `import.meta.dir` is src/api/src/thumbs; fixture lives under src/api/tests/fixtures.
 const FIXTURE_HEIC = path.resolve(import.meta.dir, '..', '..', 'tests', 'fixtures', 'sample.heic');
+const FIXTURE_HDR = path.resolve(import.meta.dir, '..', '..', 'tests', 'fixtures', 'sample.hdr');
+
+/** Same synthetic-PSD builder as `psd-hdr-decode.test.ts` — duplicated rather
+ * than imported since it's a 15-line test fixture helper, not shared
+ * production code. */
+function buildSyntheticPsd(width: number, height: number, rgba: [number, number, number, number]) {
+  const data = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    data[i * 4 + 0] = rgba[0];
+    data[i * 4 + 1] = rgba[1];
+    data[i * 4 + 2] = rgba[2];
+    data[i * 4 + 3] = rgba[3];
+  }
+  const psd = { width, height, imageData: { data, width, height }, children: [] };
+  return new Uint8Array(writePsdBuffer(psd as never, { generateThumbnail: false }));
+}
 
 async function fixturePresent(p: string): Promise<boolean> {
   try {
@@ -100,6 +117,31 @@ describe('renderImageThumbToFile', () => {
     const meta = await sharp(out).metadata();
     expect(meta.format).toBe('jpeg');
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(1280);
+  });
+
+  it('dispatches PSD through the ag-psd decode branch to a bounded JPEG thumb', async () => {
+    const src = path.join(dir, 'x.psd');
+    const out = path.join(dir, 'x_256.jpg');
+    await writeFile(src, buildSyntheticPsd(64, 48, [200, 60, 30, 255]));
+
+    const ok = await renderImageThumbToFile(src, out, 256, 'psd');
+    expect(ok).toBe(true);
+
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('jpeg');
+    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(256);
+  });
+
+  it('dispatches HDR through the tone-mapping decode branch to a bounded JPEG thumb (fixture-gated)', async () => {
+    if (!(await fixturePresent(FIXTURE_HDR))) return; // fixture missing → soft pass
+    const out = path.join(dir, 'hdr_256.jpg');
+
+    const ok = await renderImageThumbToFile(FIXTURE_HDR, out, 256, 'hdr');
+    expect(ok).toBe(true);
+
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('jpeg');
+    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(256);
   });
 
   // The regression this file exists for: large single-strip TIFFs were

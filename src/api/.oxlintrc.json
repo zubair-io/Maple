@@ -61,6 +61,7 @@
         "src/routes/fs.etag.test.ts",
         "src/routes/static_ui.ts",
         "src/thumbs/apply-orientation.test.ts",
+        "src/thumbs/psd-hdr-decode.test.ts",
         "src/workers/migration/restructure-fs.ts",
         "src/auth/jwt-bootstrap.ts",
         "src/backup/config.ts",
