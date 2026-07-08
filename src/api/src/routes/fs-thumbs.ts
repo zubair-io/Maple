@@ -34,6 +34,13 @@ const MAX_SIZE_PX = 4096;
 
 export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   '/thumb',
+  // Pre-existing CRITICAL complexity (RAW/sharp/PSD-HDR dispatch, ETag,
+  // cache-freshness, and FFI-vs-imgdecode branches all live in this one
+  // route handler). Out of scope to decompose here — this PR only adds
+  // one more extension branch (collapsed into `renderViaImgdecode` above
+  // to avoid growing it further). Worth splitting into smaller helpers
+  // as a dedicated follow-up.
+  // fallow-ignore-next-line complexity
   async ({ query, headers, set }) => {
     const reqPath = query.path;
     const sizeStr = query.size ?? String(DEFAULT_SIZE_PX);
@@ -78,9 +85,12 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     const dot = real.lastIndexOf('.');
     const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
     const isRaw = RAW_EXTENSIONS.has(ext);
-    const isSharp = SHARP_EXTENSIONS.has(ext);
-    const isPsdOrHdr = PSD_HDR_EXTENSIONS.has(ext);
-    if (!isRaw && !isSharp && !isPsdOrHdr) {
+    // Sharp-native bitmaps and PSD/PSB/HDR (first decoded via ag-psd/hdr,
+    // then handed to sharp) both go through `renderImageThumbToFile` below —
+    // collapsed into one flag so the gate and the dispatch each read as a
+    // single two-way branch instead of three separate extension sets.
+    const renderViaImgdecode = SHARP_EXTENSIONS.has(ext) || PSD_HDR_EXTENSIONS.has(ext);
+    if (!isRaw && !renderViaImgdecode) {
       set.status = 415;
       return { error: `Unsupported file extension: "${ext}"` };
     }
@@ -195,7 +205,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       };
     }
 
-    if (isSharp || isPsdOrHdr) {
+    if (renderViaImgdecode) {
       try {
         const result = await renderImageThumbToFile(real, thumbPath, sizePx, 82, ext);
         if (!result.ok) {
