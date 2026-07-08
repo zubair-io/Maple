@@ -65,6 +65,7 @@ class StubSearchService {
 function makeResult(id: string, filename: string): SearchResult {
   return {
     id: `fs:/path/${id}`,
+    address: null,
     _id: id,
     folder_id: 'f1',
     abs_path: `/path/${filename}`,
@@ -418,6 +419,7 @@ describe('search-types helpers', () => {
   it('derives top hits from results head', () => {
     const r = [1, 2, 3, 4, 5].map((i) => ({
       id: `id${i}`,
+      address: null,
       _id: `${i}`,
       folder_id: 'f',
       abs_path: `/p/${i}`,

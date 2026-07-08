@@ -547,6 +547,10 @@ export class SearchComponent implements OnInit, OnDestroy {
     // of replaying the stale, pre-edit cached response.
     this.searchCache.clear();
     void this.runSearch(/*append*/ false);
+    // Facets (camera/lens/activity counts, ISO range, etc.) can also go
+    // stale after an edit that changes a faceted field (hidden, rating,
+    // flag) — refresh them alongside the results.
+    void this.runFacets();
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────
