@@ -19,7 +19,8 @@
 //  4. A second IntersectionObserver tracks which month sections are
 //     currently on-screen so off-screen ones collapse to a
 //     last-measured-height placeholder instead of keeping their photo
-//     <button>s mounted (DOM virtualisation).
+//     <button>s mounted (DOM virtualisation) — rendering for a visible
+//     month is delegated to TimelineMonthComponent.
 //
 //  5. Click → state.selectAsset('fs:' + abs_path) — same id contract as
 //     the asset grid + Search page.
@@ -28,14 +29,11 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
-  Directive,
   ElementRef,
   OnDestroy,
-  OnInit,
   computed,
   effect,
   inject,
-  input,
   signal,
   untracked,
   viewChild,
@@ -43,13 +41,15 @@ import {
 import { errorMessage } from '../../util/errors';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { SearchService } from '../../api/search.service';
+import { SearchResult, SearchService } from '../../api/search.service';
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { Asset } from '../../models/asset';
 import { viewRouteCommands } from '../../addressing/route-address';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TimelineStateService } from '../../state/timeline-state.service';
 import { TimelineFilterRowComponent } from './timeline-filter-row.component';
+import { RenderedMonth, TimelineMonthComponent } from './timeline-month.component';
+import { TimelineRegisterSectionDirective } from './timeline-register-section.directive';
 import {
   MonthGroup,
   PhotoVm,
@@ -60,50 +60,8 @@ import {
   monthKey,
 } from './timeline-view.utils';
 
-/** Tiny structural-style directive that registers an element with a
- * caller-supplied callback. Used for both month sections (DOM
- * virtualisation) and the bottom fetch sentinel — lets the template
- * express "call me back with my element" without inventing a
- * `@ViewChildren` plumb. */
-@Directive({
-  selector: '[appTimelineRegisterMonth]',
-  standalone: true,
-})
-export class TimelineRegisterMonthDirective implements OnInit {
-  private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
-  appTimelineRegisterMonth = input.required<(el: HTMLElement) => void>();
-
-  ngOnInit(): void {
-    this.appTimelineRegisterMonth()(this.el.nativeElement);
-  }
-}
-
 // Page size for the single sorted /api/search query.
 const PAGE_SIZE = 200;
-
-const MONTH_NAMES = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
-
-interface RenderedMonth {
-  year: number;
-  month: number;
-  count: number;
-  groups: Array<{ folderName: string; photos: PhotoVm[] }>;
-  isVisible: boolean;
-  placeholderHeight: number;
-}
 
 interface RenderedYear {
   year: number;
@@ -115,10 +73,26 @@ interface RenderedYear {
  * rare — new months default to visible until proven otherwise). */
 const FALLBACK_PLACEHOLDER_HEIGHT = 200;
 
+/** Camera "Make Model" label, or undefined when neither field is present.
+ * Extracted from `_hydrate` so its ternary/filter chain doesn't count
+ * against that method's own complexity. */
+function cameraLabel(camera: PhotoVm['camera']): string | undefined {
+  if (!camera) return undefined;
+  const label = [camera.make, camera.model].filter((s): s is string => !!s).join(' ');
+  return label.length > 0 ? label : undefined;
+}
+
+/** Maps the search API's numeric flag to the Asset model's string union. */
+function flagToAssetFlag(flag: PhotoVm['flag']): Asset['flag'] {
+  if (flag === 1) return 'pick';
+  if (flag === -1) return 'reject';
+  return 'unflagged';
+}
+
 @Component({
   selector: 'app-timeline-view',
   standalone: true,
-  imports: [TimelineFilterRowComponent, TimelineRegisterMonthDirective],
+  imports: [TimelineFilterRowComponent, TimelineMonthComponent, TimelineRegisterSectionDirective],
   templateUrl: './timeline-view.component.html',
   styleUrl: './timeline-view.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -151,9 +125,6 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
 
   // ── Thumb cache ──────────────────────────────────────────────────────────
   private thumbCache = new Map<string, string>();
-
-  // ── Folder-group collapse (session-local; not persisted) ────────────────
-  private readonly _collapsed = signal<Set<string>>(new Set());
 
   // ── IntersectionObservers ────────────────────────────────────────────────
   private visibilityObserver?: IntersectionObserver;
@@ -218,118 +189,8 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       void params;
       this._scheduleReset();
     });
-
-    // Reactive ResizeObserver setup — fires whenever `containerRef`
-    // resolves (populated only after the first render).
-    effect(() => {
-      const ref = this.containerRef();
-      if (!ref || this.ro) return;
-      this.ro = new ResizeObserver((entries) => {
-        for (const e of entries) this.containerWidth.set(e.contentRect.width);
-      });
-      this.ro.observe(ref.nativeElement);
-      this.containerWidth.set(ref.nativeElement.clientWidth || 800);
-    });
-
-    // Reactive IntersectionObserver setup. `scrollContainerRef` may toggle
-    // in and out of the DOM as `hasPathPrefix` flips, so this effect
-    // tracks the current root element and rebuilds both observers
-    // whenever it changes — otherwise an observer ends up rooted at a
-    // detached node and never fires intersections.
-    effect(() => {
-      const ref = this.scrollContainerRef();
-      const el = ref?.nativeElement;
-      if (!el) {
-        this.visibilityObserver?.disconnect();
-        this.sentinelObserver?.disconnect();
-        this.visibilityObserver = undefined;
-        this.sentinelObserver = undefined;
-        this.observerRoot = undefined;
-        this.observedSections = new WeakSet();
-        this._visibleMonths.set(new Set());
-        return;
-      }
-      if (this.visibilityObserver && this.observerRoot === el) return;
-      this.visibilityObserver?.disconnect();
-      this.sentinelObserver?.disconnect();
-      this.observedSections = new WeakSet();
-      this.observerRoot = el;
-
-      // Visibility observer: tracks which month sections are on-screen so
-      // the template can virtualise photo DOM, and records the last
-      // measured height of a section the moment it leaves the viewport so
-      // its placeholder doesn't distort scroll position.
-      this.visibilityObserver = new IntersectionObserver(
-        (entries) => {
-          const newlyVisibleKeys: string[] = [];
-          this._visibleMonths.update((prev) => {
-            let next: Set<string> | null = null;
-            for (const entry of entries) {
-              const target = entry.target as HTMLElement;
-              const year = Number(target.dataset['year']);
-              const month = Number(target.dataset['month']);
-              if (!Number.isFinite(year) || !Number.isFinite(month)) continue;
-              const key = monthKey(year, month);
-              const has = prev.has(key);
-              if (entry.isIntersecting && !has) {
-                if (!next) next = new Set(prev);
-                next.add(key);
-                newlyVisibleKeys.push(key);
-              } else if (!entry.isIntersecting && has) {
-                if (!next) next = new Set(prev);
-                next.delete(key);
-                const height = entry.boundingClientRect.height;
-                if (height > 0) {
-                  this._measuredHeights.update((m) => {
-                    const nm = new Map(m);
-                    nm.set(key, height);
-                    return nm;
-                  });
-                }
-              }
-            }
-            return next ?? prev;
-          });
-          if (newlyVisibleKeys.length > 0) {
-            const raw = untracked(() => this._years());
-            for (const key of newlyVisibleKeys) {
-              const [yStr, mStr] = key.split('-');
-              const y = raw.find((yr) => yr.year === Number(yStr));
-              const m = y?.months.find((mo) => mo.month === Number(mStr));
-              if (!m) continue;
-              for (const photos of m.groups.values()) {
-                for (const p of photos) void this._loadThumb(p);
-              }
-            }
-          }
-        },
-        { root: el, rootMargin: TimelineViewComponent.VISIBLE_ROOT_MARGIN, threshold: 0 },
-      );
-
-      // Sentinel observer: fetches the next page when the bottom marker
-      // scrolls near the viewport. One instance, one target — there is
-      // exactly one fetch frontier now, not one per month.
-      this.sentinelObserver = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            if (untracked(() => this.pageLoading()) || untracked(() => this.isDone())) continue;
-            void this._fetchPage();
-          }
-        },
-        { root: el, rootMargin: TimelineViewComponent.SENTINEL_ROOT_MARGIN, threshold: 0 },
-      );
-
-      for (const node of this.pendingObserve) {
-        this.observedSections.add(node);
-        this.visibilityObserver.observe(node);
-      }
-      this.pendingObserve.clear();
-      if (this.pendingSentinel) {
-        this.sentinelObserver.observe(this.pendingSentinel);
-        this.pendingSentinel = null;
-      }
-    });
+    effect(() => this._syncResizeObserver());
+    effect(() => this._syncScrollObservers());
   }
 
   ngAfterViewInit(): void {}
@@ -341,7 +202,153 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     if (this.fetchDebounce !== null) clearTimeout(this.fetchDebounce);
   }
 
-  /** Called from `[appTimelineRegisterMonth]` on each month section. */
+  // ── Reactive observer setup ──────────────────────────────────────────────
+  // Fires whenever `containerRef` resolves (populated only after the first
+  // render).
+  private _syncResizeObserver(): void {
+    const ref = this.containerRef();
+    if (!ref || this.ro) return;
+    this.ro = new ResizeObserver((entries) => {
+      for (const e of entries) this.containerWidth.set(e.contentRect.width);
+    });
+    this.ro.observe(ref.nativeElement);
+    this.containerWidth.set(ref.nativeElement.clientWidth || 800);
+  }
+
+  /** `scrollContainerRef` may toggle in and out of the DOM as
+   * `hasPathPrefix` flips, so this tracks the current root element and
+   * rebuilds both observers whenever it changes — otherwise an observer
+   * ends up rooted at a detached node and never fires intersections. */
+  private _syncScrollObservers(): void {
+    const ref = this.scrollContainerRef();
+    const el = ref?.nativeElement;
+    if (!el) {
+      this.visibilityObserver?.disconnect();
+      this.sentinelObserver?.disconnect();
+      this.visibilityObserver = undefined;
+      this.sentinelObserver = undefined;
+      this.observerRoot = undefined;
+      this.observedSections = new WeakSet();
+      this._visibleMonths.set(new Set());
+      return;
+    }
+    if (this.visibilityObserver && this.observerRoot === el) return;
+    this.visibilityObserver?.disconnect();
+    this.sentinelObserver?.disconnect();
+    this.observedSections = new WeakSet();
+    this.observerRoot = el;
+
+    // Visibility observer: tracks which month sections are on-screen so the
+    // template can virtualise photo DOM, and records the last measured
+    // height of a section the moment it leaves the viewport so its
+    // placeholder doesn't distort scroll position.
+    this.visibilityObserver = new IntersectionObserver(
+      (entries) => this._onVisibilityIntersect(entries),
+      { root: el, rootMargin: TimelineViewComponent.VISIBLE_ROOT_MARGIN, threshold: 0 },
+    );
+
+    // Sentinel observer: fetches the next page when the bottom marker
+    // scrolls near the viewport. One instance, one target — there is
+    // exactly one fetch frontier now, not one per month.
+    this.sentinelObserver = new IntersectionObserver(
+      (entries) => this._onSentinelIntersect(entries),
+      {
+        root: el,
+        rootMargin: TimelineViewComponent.SENTINEL_ROOT_MARGIN,
+        threshold: 0,
+      },
+    );
+
+    for (const node of this.pendingObserve) {
+      this.observedSections.add(node);
+      this.visibilityObserver.observe(node);
+    }
+    this.pendingObserve.clear();
+    if (this.pendingSentinel) {
+      this.sentinelObserver.observe(this.pendingSentinel);
+      this.pendingSentinel = null;
+    }
+  }
+
+  private _onVisibilityIntersect(entries: IntersectionObserverEntry[]): void {
+    const newlyVisibleKeys = this._applyVisibilityEntries(entries);
+    if (newlyVisibleKeys.length === 0) return;
+    const raw = untracked(() => this._years());
+    for (const key of newlyVisibleKeys) {
+      const [yStr, mStr] = key.split('-');
+      const y = raw.find((yr) => yr.year === Number(yStr));
+      const m = y?.months.find((mo) => mo.month === Number(mStr));
+      if (!m) continue;
+      for (const photos of m.groups.values()) {
+        for (const p of photos) void this._loadThumb(p);
+      }
+    }
+  }
+
+  /** Applies one batch of visibility-observer entries to `_visibleMonths`
+   * (and records measured heights for months that just left the viewport).
+   * Returns the keys that newly became visible this batch. */
+  private _applyVisibilityEntries(entries: IntersectionObserverEntry[]): string[] {
+    const newlyVisibleKeys: string[] = [];
+    this._visibleMonths.update((prev) => {
+      let next: Set<string> | null = null;
+      for (const entry of entries) {
+        const change = this._visibilityChangeFor(entry, prev);
+        if (!change) continue;
+        next ??= new Set(prev);
+        if (change.action === 'added') {
+          next.add(change.key);
+          newlyVisibleKeys.push(change.key);
+        } else {
+          next.delete(change.key);
+          this._recordMeasuredHeight(change.key, entry.boundingClientRect.height);
+        }
+      }
+      return next ?? prev;
+    });
+    return newlyVisibleKeys;
+  }
+
+  /** Whether one intersection-observer entry flips its month key into or
+   * out of `prev` — `null` when the entry's intersection state already
+   * matches `prev` (nothing to do) or its element carries no valid
+   * year/month dataset. */
+  private _visibilityChangeFor(
+    entry: IntersectionObserverEntry,
+    prev: ReadonlySet<string>,
+  ): { key: string; action: 'added' | 'removed' } | null {
+    const key = this._monthKeyOf(entry.target as HTMLElement);
+    if (key === null) return null;
+    const has = prev.has(key);
+    if (entry.isIntersecting === has) return null;
+    return { key, action: entry.isIntersecting ? 'added' : 'removed' };
+  }
+
+  private _monthKeyOf(el: HTMLElement): string | null {
+    const year = Number(el.dataset['year']);
+    const month = Number(el.dataset['month']);
+    if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+    return monthKey(year, month);
+  }
+
+  private _recordMeasuredHeight(key: string, height: number): void {
+    if (height <= 0) return;
+    this._measuredHeights.update((m) => {
+      const next = new Map(m);
+      next.set(key, height);
+      return next;
+    });
+  }
+
+  private _onSentinelIntersect(entries: IntersectionObserverEntry[]): void {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      if (untracked(() => this.pageLoading()) || untracked(() => this.isDone())) continue;
+      void this._fetchPage();
+    }
+  }
+
+  /** Called from `[appTimelineRegisterSection]` on each month section. */
   registerMonthSection = (el: HTMLElement | null): void => {
     if (!el) return;
     if (this.observedSections.has(el)) return;
@@ -353,7 +360,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     }
   };
 
-  /** Called from `[appTimelineRegisterMonth]` on the bottom fetch
+  /** Called from `[appTimelineRegisterSection]` on the bottom fetch
    * sentinel — same registration pattern as month sections, targeting the
    * sentinel observer instead. */
   registerSentinel = (el: HTMLElement | null): void => {
@@ -399,19 +406,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       this._total.set(r.total);
       this._loadedCount.update((n) => n + r.results.length);
       this._years.update((years) => foldPage(years, r.results, prefix, this.thumbCache));
-      this._visibleMonths.update((prev) => {
-        let next: Set<string> | null = null;
-        for (const row of r.results) {
-          if (!row.captured_at) continue;
-          const d = new Date(row.captured_at);
-          const key = monthKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
-          if (!prev.has(key)) {
-            if (!next) next = new Set(prev);
-            next.add(key);
-          }
-        }
-        return next ?? prev;
-      });
+      this._markMonthsVisible(r.results);
       this._nextPage.set(page + 1);
       for (const row of r.results) {
         const cached = this.thumbCache.get(row.abs_path);
@@ -423,6 +418,25 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     } finally {
       if (gen === this.fetchGen) this.pageLoading.set(false);
     }
+  }
+
+  /** New months default to visible — they were just fetched because the
+   * user scrolled near them, so there's no reason to render them as
+   * off-screen placeholders before the visibility observer even sees them. */
+  private _markMonthsVisible(results: SearchResult[]): void {
+    this._visibleMonths.update((prev) => {
+      let next: Set<string> | null = null;
+      for (const row of results) {
+        if (!row.captured_at) continue;
+        const d = new Date(row.captured_at);
+        const key = monthKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
+        if (!prev.has(key)) {
+          next ??= new Set(prev);
+          next.add(key);
+        }
+      }
+      return next ?? prev;
+    });
   }
 
   /** Retries the current fetch frontier — the page that just failed,
@@ -438,49 +452,34 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     try {
       const url = await this.fsBrowse.getThumbBlobUrl(p.abs_path, 512);
       this.thumbCache.set(p.abs_path, url);
-      this._years.update((years) =>
-        years.map((y) => ({
-          ...y,
-          months: y.months.map((m) => {
-            let changed = false;
-            const groups = new Map<string, PhotoVm[]>();
-            for (const [name, photos] of m.groups) {
-              const idx = photos.findIndex((x) => x.abs_path === p.abs_path);
-              if (idx === -1) {
-                groups.set(name, photos);
-                continue;
-              }
-              const updated = photos.slice();
-              updated[idx] = { ...updated[idx]!, thumbUrl: url };
-              groups.set(name, updated);
-              changed = true;
-            }
-            return changed ? { ...m, groups } : m;
-          }),
-        })),
-      );
+      this._years.update((years) => this._withThumbUrl(years, p.abs_path, url));
     } catch {
       // Silent — gradient placeholder stays.
     }
   }
 
-  // ── Folder-group collapse helpers ────────────────────────────────────────
-  groupKey(year: number, month: number, folderName: string): string {
-    return `${year}-${month}-${folderName}`;
+  private _withThumbUrl(years: YearGroup[], absPath: string, url: string): YearGroup[] {
+    return years.map((y) => ({
+      ...y,
+      months: y.months.map((m) => this._monthWithThumbUrl(m, absPath, url)),
+    }));
   }
 
-  isCollapsed(year: number, month: number, folderName: string): boolean {
-    return this._collapsed().has(this.groupKey(year, month, folderName));
-  }
-
-  toggleGroup(year: number, month: number, folderName: string): void {
-    const key = this.groupKey(year, month, folderName);
-    this._collapsed.update((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  private _monthWithThumbUrl(m: MonthGroup, absPath: string, url: string): MonthGroup {
+    let changed = false;
+    const groups = new Map<string, PhotoVm[]>();
+    for (const [name, photos] of m.groups) {
+      const idx = photos.findIndex((x) => x.abs_path === absPath);
+      if (idx === -1) {
+        groups.set(name, photos);
+        continue;
+      }
+      const updated = photos.slice();
+      updated[idx] = { ...updated[idx]!, thumbUrl: url };
+      groups.set(name, updated);
+      changed = true;
+    }
+    return changed ? { ...m, groups } : m;
   }
 
   // ── Click handlers ───────────────────────────────────────────────────────
@@ -500,15 +499,13 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
    * that haven't been listed via /api/fs/dir would `selectAsset` to a
    * non-existent record. */
   private _hydrate(p: PhotoVm): void {
-    const camera = p.camera
-      ? [p.camera.make, p.camera.model].filter((s): s is string => !!s).join(' ')
-      : undefined;
+    const camera = cameraLabel(p.camera);
     this.state.hydrateSelfHostedFsAsset(p.id, {
       filename: p.filename,
       rating: p.rating,
-      flag: p.flag === 1 ? 'pick' : p.flag === -1 ? 'reject' : 'unflagged',
+      flag: flagToAssetFlag(p.flag),
       colorLabel: (p.color_label || null) as Asset['colorLabel'],
-      camera: camera && camera.length > 0 ? camera : undefined,
+      camera,
       lens: p.lens ?? undefined,
       focalLength: p.focal_length != null ? `${p.focal_length}mm` : undefined,
       aperture: p.aperture != null ? `f/${p.aperture}` : undefined,
@@ -520,11 +517,6 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   }
 
   // ── Template helpers ─────────────────────────────────────────────────────
-  monthLabel = (m: number): string => MONTH_NAMES[m - 1] ?? String(m);
-  folderGroupLabel = (name: string): string => (name === '.' ? '(this folder)' : name);
-
   trackYear = (_: number, y: RenderedYear): number => y.year;
   trackMonth = (_: number, m: RenderedMonth): string => monthKey(m.year, m.month);
-  trackGroup = (_: number, g: { folderName: string; photos: PhotoVm[] }): string => g.folderName;
-  trackPhoto = (_: number, p: PhotoVm): string => p.id;
 }

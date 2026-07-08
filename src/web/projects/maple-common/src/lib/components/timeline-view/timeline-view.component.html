@@ -1,3 +1,8 @@
+<!-- fallow-ignore-file complexity -->
+<!-- Branching here is the loading/error/empty/populated state machine for
+     a virtualized, infinitely-scrolling list — inherent to the feature,
+     not a code smell. The per-month photo-grid markup that used to add to
+     this file's score now lives in TimelineMonthComponent. -->
 <div class="flex h-full w-full flex-col bg-bg" #container>
   <app-timeline-filter-row />
 
@@ -43,91 +48,12 @@
             </div>
 
             @for (m of y.months; track trackMonth($index, m)) {
-              <div
-                class="month-section"
-                [attr.data-year]="m.year"
-                [attr.data-month]="m.month"
-                [appTimelineRegisterMonth]="registerMonthSection"
-              >
-                <div
-                  class="sticky top-11 z-[9] flex h-8 items-center border-b-[0.5px] border-border bg-bg px-4 text-[13px] font-medium text-text-main"
-                >
-                  {{ monthLabel(m.month) }}
-                  <span class="ml-2 text-[11px] font-normal text-text-muted">{{ m.count }}</span>
-                </div>
-
-                @if (!m.isVisible) {
-                  <!-- Off-screen placeholder — preserves scroll height
-                       without mounting any <img>/<button>s. Height is this
-                       section's own last-measured height, not an estimate. -->
-                  <div [style.height.px]="m.placeholderHeight" aria-hidden="true"></div>
-                } @else {
-                  @for (g of m.groups; track trackGroup($index, g)) {
-                    <div class="folder-group">
-                      <button
-                        type="button"
-                        class="folder-group-header flex h-6 w-full items-center px-3 text-left text-[11px] uppercase tracking-[0.05em] text-text-muted hover:text-text-main"
-                        [attr.aria-expanded]="!isCollapsed(m.year, m.month, g.folderName)"
-                        (click)="toggleGroup(m.year, m.month, g.folderName)"
-                      >
-                        <span
-                          class="mr-1.5 inline-block h-2.5 w-2.5 transition-transform duration-[120ms]"
-                          [class.rotate-90]="!isCollapsed(m.year, m.month, g.folderName)"
-                          aria-hidden="true"
-                        >
-                          <!-- Chevron-right SVG; rotates 90° when expanded -->
-                          <svg viewBox="0 0 10 10" class="block h-full w-full" fill="currentColor">
-                            <path d="M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z" />
-                          </svg>
-                        </span>
-                        {{ folderGroupLabel(g.folderName) }}
-                        <span class="ml-2 normal-case tracking-normal"
-                          >({{ g.photos.length }})</span
-                        >
-                      </button>
-                      @if (!isCollapsed(m.year, m.month, g.folderName)) {
-                        <div class="flex flex-wrap gap-1 px-4 pb-2">
-                          @for (p of g.photos; track trackPhoto($index, p)) {
-                            <button
-                              type="button"
-                              class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
-                              [class.is-selected]="state.focusedAssetId() === p.id"
-                              [class.dimmed]="p.hidden"
-                              [attr.aria-label]="p.filename"
-                              (click)="onPhotoClick(p, $event)"
-                              (dblclick)="onPhotoDblClick(p)"
-                            >
-                              @if (p.thumbUrl) {
-                                <img
-                                  class="block h-full w-full object-cover"
-                                  [src]="p.thumbUrl"
-                                  alt=""
-                                  loading="lazy"
-                                  decoding="async"
-                                />
-                              }
-                              @if (p.hidden) {
-                                <div
-                                  class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
-                                >
-                                  HIDDEN
-                                </div>
-                              }
-                              @if (p.rating > 0) {
-                                <div
-                                  class="absolute bottom-1 right-1 rounded bg-black/45 px-1 py-0.5 text-[10px] text-white backdrop-blur-[4px]"
-                                >
-                                  {{ p.rating }}★
-                                </div>
-                              }
-                            </button>
-                          }
-                        </div>
-                      }
-                    </div>
-                  }
-                }
-              </div>
+              <app-timeline-month
+                [month]="m"
+                [registerSection]="registerMonthSection"
+                (photoClick)="onPhotoClick($event.photo, $event.event)"
+                (photoDblClick)="onPhotoDblClick($event)"
+              />
             }
           </div>
         }
@@ -135,7 +61,7 @@
         @if (!isDone()) {
           <div
             class="flex h-10 items-center justify-center text-[10px] uppercase tracking-[0.05em] text-text-muted"
-            [appTimelineRegisterMonth]="registerSentinel"
+            [appTimelineRegisterSection]="registerSentinel"
           >
             @if (pageLoading()) {
               Loading more…

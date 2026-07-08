@@ -135,20 +135,6 @@ export interface SearchFacets {
   is_screenshot: { true: number; false: number; unknown: number };
 }
 
-/** One year/month aggregation row from /api/search/buckets. */
-export interface TimelineBucket {
-  year: number;
-  month: number;
-  count: number;
-}
-
-/** Response shape from /api/search/buckets. */
-export interface TimelineBuckets {
-  total: number;
-  buckets: TimelineBucket[];
-  untimed_count: number;
-}
-
 /** Build HttpParams from a SearchParams object, skipping undefined / empty
  * values so the server sees exactly the params the user set. */
 function paramsFrom(p: SearchParams): HttpParams {
@@ -211,15 +197,10 @@ export class SearchService {
     });
   }
 
-  /** GET /api/search/buckets — year/month aggregation over the same filter
-   * set (page/limit/sort are ignored server-side). The web Timeline view
-   * no longer calls this — it fetches a single sorted `/api/search` query
-   * and buckets client-side (see `timeline-view.utils.ts`). The route and
-   * this method stay for Apple's Maple Cloud sync feature
-   * (`CloudTimelineViewModel`), which still depends on the aggregation. */
-  buckets(params: Omit<SearchParams, 'page' | 'limit' | 'sort'>): Observable<TimelineBuckets> {
-    return this.http.get<TimelineBuckets>(`${this.base}/search/buckets`, {
-      params: paramsFrom(params),
-    });
-  }
+  // Note: this client does not wrap GET /api/search/buckets. The web
+  // Timeline view fetches a single sorted /api/search query and buckets
+  // client-side instead (see timeline-view.utils.ts); the route itself is
+  // untouched and still serves Apple's Maple Cloud sync feature
+  // (CloudTimelineViewModel), which calls it directly over HTTP rather
+  // than through this TypeScript client.
 }
