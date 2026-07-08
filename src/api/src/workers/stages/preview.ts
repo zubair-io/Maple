@@ -23,7 +23,7 @@
 import { generatePreview, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isVideoFilename } from '../../indexer/media-types.ts';
+import { isNoPreviewFilename } from '../../indexer/media-types.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
@@ -48,14 +48,15 @@ const previewStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
-    // Video containers have no still frame to render. Without this guard the
+    // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
+    // audio have no still frame to render. Without this guard the
     // fall-through in `generatePreview` copies the source bytes verbatim,
-    // leaving a ".jpg" preview that is really raw .MOV data — which the
+    // leaving a ".jpg" preview that is really raw non-image data — which the
     // describe stage would then ship to the vision model. Skip terminally;
     // the describe stage carries the same guard as defense in depth.
     const primary = assetPrimaryFileInfo(image as never);
-    if (primary && isVideoFilename(primary.filename)) {
-      return { skip: 'video-file' };
+    if (primary && isNoPreviewFilename(primary.filename)) {
+      return { skip: 'stub-file' };
     }
 
     // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup

@@ -3,13 +3,30 @@
  */
 
 import { stat } from 'node:fs/promises';
-import { RAW_EXTENSIONS, SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../../fs/browse.ts';
+import {
+  RAW_EXTENSIONS,
+  SHARP_EXTENSIONS,
+  PSD_HDR_EXTENSIONS,
+  STUB_IMAGE_EXTENSIONS,
+  AUDIO_EXTENSIONS,
+} from '../../fs/browse.ts';
 
 /** Union of all image extensions surfaced by library routes. */
 export const IMAGE_EXTENSIONS_SET = new Set<string>([
   ...RAW_EXTENSIONS,
   ...SHARP_EXTENSIONS,
   ...PSD_HDR_EXTENSIONS,
+]);
+
+/** Union of the #1835 metadata-only formats (stub images with no decoder,
+ * plus audio) — surfaced in folder/image listings and streamable via
+ * `/api/image/:slug/*` (original-bytes passthrough), but deliberately kept
+ * out of `IMAGE_EXTENSIONS_SET`: that set gates routes that assume
+ * *decodable raster bytes* (see `library/image.ts`'s 415 check), and none of
+ * these formats are decodable. */
+export const STUB_AND_AUDIO_EXTENSIONS_SET = new Set<string>([
+  ...STUB_IMAGE_EXTENSIONS,
+  ...AUDIO_EXTENSIONS,
 ]);
 
 /** Map of lowercase extension → MIME type for Content-Type headers. */
@@ -46,6 +63,19 @@ const MIME_BY_EXT: Record<string, string> = {
   // the PSD type rather than falling back to application/octet-stream.
   psb: 'image/vnd.adobe.photoshop',
   hdr: 'image/vnd.radiance',
+  // Audio (#1835) — IANA-registered types.
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  // Metadata-only stub images (#1835) — no registered MIME exists for
+  // eip/braw/afphoto; fall back to the generic binary type. `ai` files are
+  // normally a PDF/vector container (Illustrator), so `application/postscript`
+  // is the closest IANA-registered type rather than octet-stream.
+  eip: 'application/octet-stream',
+  braw: 'application/octet-stream',
+  afphoto: 'application/octet-stream',
+  ai: 'application/postscript',
 };
 
 export function mimeForExt(ext: string): string {

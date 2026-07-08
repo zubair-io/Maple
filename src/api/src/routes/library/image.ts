@@ -14,6 +14,7 @@ import {
   safeStat,
   extOf,
   IMAGE_EXTENSIONS_SET,
+  STUB_AND_AUDIO_EXTENSIONS_SET,
   parseWildcardSegments,
 } from './shared.ts';
 
@@ -38,7 +39,13 @@ export const imageRoutes = new Elysia().get(
     const filename = path.basename(absPath);
     const ext = extOf(filename);
 
-    if (!IMAGE_EXTENSIONS_SET.has(ext)) {
+    // Metadata-only stub images (eip/braw/afphoto/ai) and audio (#1835) have
+    // no decoder, but this route just streams original bytes through — a
+    // legitimate operation for downloading a stub file or playing back
+    // audio, so it's allowed here even though these extensions aren't in
+    // IMAGE_EXTENSIONS_SET (which gates routes that assume decodable raster
+    // bytes).
+    if (!IMAGE_EXTENSIONS_SET.has(ext) && !STUB_AND_AUDIO_EXTENSIONS_SET.has(ext)) {
       set.status = 415;
       return { error: `Unsupported file extension: "${ext}"` };
     }

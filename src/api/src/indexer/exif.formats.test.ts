@@ -55,6 +55,22 @@ describe('readExif — format routing', () => {
     expect(await readExif(file)).toBeNull();
   });
 
+  it('returns null (no throw) for metadata-only stub image formats (#1835)', async () => {
+    for (const ext of ['eip', 'braw', 'afphoto', 'ai']) {
+      const file = path.join(dir, `stub.${ext}`);
+      await writeFile(file, Buffer.from([0x00, 0x01, 0x02, 0x03]));
+      expect(await readExif(file)).toBeNull();
+    }
+  });
+
+  it('returns null (no throw) for audio formats (#1835)', async () => {
+    for (const ext of ['mp3', 'wav', 'm4a', 'aac']) {
+      const file = path.join(dir, `track.${ext}`);
+      await writeFile(file, Buffer.from([0x00, 0x01, 0x02, 0x03]));
+      expect(await readExif(file)).toBeNull();
+    }
+  });
+
   it('parses EXIF out of a .webp via the RIFF walker', async () => {
     const file = path.join(dir, 'IMG_5368.WEBP');
     await writeFile(file, buildWebp(makeTiff('Apple')));

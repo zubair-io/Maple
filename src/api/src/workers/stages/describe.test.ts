@@ -364,7 +364,7 @@ describe('describeHandler — preview missing', () => {
 });
 
 describe('describeHandler — video files are not described', () => {
-  it("returns { skip: 'video-file' } for a .MOV without calling the provider", async () => {
+  it("returns { skip: 'stub-file' } for a .MOV without calling the provider", async () => {
     const absPath = join(tmpRoot, 'IMG_3087.MOV');
     // Stage a preview on disk so we prove the skip fires on extension alone,
     // not because the preview is missing.
@@ -381,7 +381,7 @@ describe('describeHandler — video files are not described', () => {
     setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen3-vl:8b' });
 
     const result = await describeHandler(doc, fakeCtx);
-    expect((result as { skip: string }).skip).toBe('video-file');
+    expect((result as { skip: string }).skip).toBe('stub-file');
     expect(called).toBe(false);
   });
 
@@ -391,7 +391,27 @@ describe('describeHandler — video files are not described', () => {
     const provider = mockProvider(new Error('must not run'));
     setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen3-vl:8b' });
     const result = await describeHandler(doc, fakeCtx);
-    expect((result as { skip: string }).skip).toBe('video-file');
+    expect((result as { skip: string }).skip).toBe('stub-file');
+  });
+});
+
+describe('describeHandler — metadata-only stub images and audio are not described (#1835)', () => {
+  it.each([
+    'scan.eip',
+    'session.braw',
+    'project.afphoto',
+    'logo.ai',
+    'track.mp3',
+    'voice.wav',
+    'memo.m4a',
+    'song.aac',
+  ])("returns { skip: 'stub-file' } for %s without calling the provider", async (filename) => {
+    const absPath = join(tmpRoot, filename);
+    const doc = stageDoc(absPath);
+    const provider = mockProvider(new Error('provider should not be called'));
+    setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen3-vl:8b' });
+    const result = await describeHandler(doc, fakeCtx);
+    expect((result as { skip: string }).skip).toBe('stub-file');
   });
 });
 

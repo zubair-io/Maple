@@ -32,7 +32,7 @@ import { assetsCollection } from '../../db/client.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isVideoFilename } from '../../indexer/media-types.ts';
+import { isNoPreviewFilename } from '../../indexer/media-types.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   defineStage,
@@ -95,14 +95,16 @@ const thumbStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
-    // Video containers have no still frame to thumbnail. Without this guard the
-    // fall-through in `generateThumb` (`copyImageAsThumb`) copies the source
-    // bytes verbatim to `<maple_id>.jpg`, so `/api/thumb/...` would then serve
-    // 200 image/jpeg with raw .MOV/.MP4 bytes — a broken <img> in the grid.
-    // Skip terminally; the preview/describe/face stages carry the same guard.
+    // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
+    // audio (mp3/wav/m4a/aac) have no still frame to thumbnail. Without this
+    // guard the fall-through in `generateThumb` (`copyImageAsThumb`) copies
+    // the source bytes verbatim to `<maple_id>.jpg`, so `/api/thumb/...`
+    // would then serve 200 image/jpeg with raw non-image bytes — a broken
+    // <img> in the grid. Skip terminally; the preview/describe/face stages
+    // carry the same guard.
     const primary = assetPrimaryFileInfo(image as unknown as ImageDoc);
-    if (primary && isVideoFilename(primary.filename)) {
-      return { skip: 'video-file' };
+    if (primary && isNoPreviewFilename(primary.filename)) {
+      return { skip: 'stub-file' };
     }
 
     // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup

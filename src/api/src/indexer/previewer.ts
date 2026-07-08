@@ -28,6 +28,7 @@ import * as fs from 'node:fs/promises';
 import { cachePathFor } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
+import { isNoPreviewFilename } from './media-types.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -104,6 +105,19 @@ export async function generatePreview(
     }
   } catch {
     // missing or source vanished — proceed (downstream stages will skip if needed)
+  }
+
+  // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
+  // audio have no still frame — the `copyImageAsPreview` fall-through below
+  // would otherwise copy the raw source bytes to a `.jpg`-named preview,
+  // which the describe stage would then ship to the vision model as if it
+  // were a real image. Bail before the copy; the describe/preview stage
+  // handlers carry the same guard as defense in depth.
+  if (isNoPreviewFilename(absPath)) {
+    _failed++;
+    log.warn({ absPath }, 'skipped: no still frame to preview');
+    logTotals();
+    return;
   }
 
   let ok = false;
