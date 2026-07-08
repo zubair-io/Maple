@@ -15,6 +15,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -24,6 +25,7 @@ import {
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset } from '../../models/asset';
 import { LibraryStateService } from '../../state/library-state.service';
+import { noPreviewBadgeLabel as computeNoPreviewBadgeLabel } from '../../state/no-preview-extensions';
 
 export type AssetThumbVariant = 'grid' | 'filmstrip';
 
@@ -64,6 +66,15 @@ export class AssetThumbComponent {
    * the host virtualizes, e.g. the browse grid; the rendered set otherwise) and
    * never accumulates orphans. No central signal map to leak (#1363/#1359). */
   readonly thumbUrl = signal<string | undefined>(undefined);
+
+  /** Uppercased extension (e.g. "MP3", "EIP", "MOV") when this asset is a
+   * recognised no-preview format, else undefined — drives the "no preview
+   * available" pill in the template. Computed from the filename alone so
+   * it works the same in Hosted and Self-Hosted modes (see
+   * no-preview-extensions.ts). */
+  readonly noPreviewBadgeLabel = computed(
+    () => computeNoPreviewBadgeLabel(this.asset().filename) ?? undefined,
+  );
 
   constructor() {
     // Kick off the load and subscribe to this asset's thumbnail URL. `effect`'s
