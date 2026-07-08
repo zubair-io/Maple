@@ -31,7 +31,13 @@ export function monthKey(year: number, month: number): string {
 
 /** Splits an absolute path into the folder name immediately under `prefix`.
  * A photo directly inside the scoped folder (no further subfolder) buckets
- * under '.'. */
+ * under '.'.
+ *
+ * `.startsWith(prefix)` is a safe anchored match (not a bare substring
+ * check susceptible to `/Lib` matching `/Lib-old`) because every caller —
+ * `TimelineStateService.pathPrefix` — always normalises `prefix` with a
+ * trailing slash before it reaches here, so `/Lib/` cannot match
+ * `/Lib-old/...`. */
 export function folderNameFor(absPath: string, prefix: string): string {
   const rest = absPath.startsWith(prefix) ? absPath.slice(prefix.length) : absPath;
   const segments = rest.split('/').filter((s) => s.length > 0);
