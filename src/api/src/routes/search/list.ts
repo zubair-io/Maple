@@ -147,8 +147,10 @@ export const listRoute = new Elysia().get(
           const d = byId.get(id);
           if (d) ordered.push(d);
         }
-        const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
-        const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
+        const [libs, idToSlug] = await Promise.all([
+          loadLibraryRoots().catch(() => new Map<string, string>()),
+          loadLibraryIdToSlug().catch(() => new Map<string, string>()),
+        ]);
         const results = ordered.map((d) => projectAsset(d, libs, idToSlug));
         return {
           total: meiliResult.estimatedTotal,
@@ -185,8 +187,10 @@ export const listRoute = new Elysia().get(
       coll.countDocuments(finalFilter),
     ]);
 
-    const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
-    const idToSlug = await loadLibraryIdToSlug().catch(() => new Map<string, string>());
+    const [libs, idToSlug] = await Promise.all([
+      loadLibraryRoots().catch(() => new Map<string, string>()),
+      loadLibraryIdToSlug().catch(() => new Map<string, string>()),
+    ]);
     const results = docs.map((d) =>
       projectAsset(d as AssetDoc & { _id: ObjectId }, libs, idToSlug),
     );
