@@ -517,11 +517,20 @@ export class SearchComponent implements OnInit, OnDestroy {
   // ── Batch metadata dialog ────────────────────────────────────────────────
   onEditMetadata(): void {
     const ids = this.selectedIds();
-    const addresses = this.results()
-      .filter((r) => ids.has(r.id))
-      .map((r) => r.address)
-      .filter((a): a is string => a !== null);
+    const selected = this.results().filter((r) => ids.has(r.id));
+    const addresses = selected.map((r) => r.address).filter((a): a is string => a !== null);
     if (addresses.length === 0) return;
+
+    // Assets whose library has no registered slug can't be resolved to a
+    // batch-editable address (see the `address` field's doc comment on
+    // SearchResult) — surface that they were silently excluded rather than
+    // letting the user believe every selected result was edited.
+    const skipped = selected.length - addresses.length;
+    this.error.set(
+      skipped > 0
+        ? `${skipped} selected result${skipped === 1 ? '' : 's'} could not be edited (unregistered library) and ${skipped === 1 ? 'was' : 'were'} skipped.`
+        : null,
+    );
 
     this.fetchSnapshotsSub?.unsubscribe();
     this.fetchSnapshotsSub = this.batchMetadataService.fetchSnapshots(addresses).subscribe({
