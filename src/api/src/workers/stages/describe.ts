@@ -35,7 +35,7 @@ import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isVideoFilename } from '../../indexer/media-types.ts';
+import { isNoPreviewFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import {
   type DescribeProvider,
@@ -120,18 +120,19 @@ export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
 }
 
 export async function describeHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
-  // Video containers have no still frame for the vision model to caption.
-  // They reach this stage because the library can hold mixed media (the
-  // backup-ingest route has no extension allowlist), and the preview stage's
-  // last-resort path copies the source bytes verbatim — so the "preview" on
-  // disk is the raw .MOV, not a JPEG. Handing that to Ollama wastes an
-  // inference slot at best and OOMs / 500s the server at worst (the symptom
-  // that surfaced this bug). Skip terminally, before resolving deps or
-  // touching disk. `skip` writes version = targetVersion, so the row is
-  // marked done and never reclaimed.
+  // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
+  // audio have no still frame for the vision model to caption. They reach
+  // this stage because the library can hold mixed media (the backup-ingest
+  // route has no extension allowlist), and the preview stage's last-resort
+  // path copies the source bytes verbatim — so the "preview" on disk is the
+  // raw source, not a JPEG. Handing that to Ollama wastes an inference slot
+  // at best and OOMs / 500s the server at worst (the symptom that surfaced
+  // this bug for video). Skip terminally, before resolving deps or touching
+  // disk. `skip` writes version = targetVersion, so the row is marked done
+  // and never reclaimed.
   const primary = assetPrimaryFileInfo(image);
-  if (primary && isVideoFilename(primary.filename)) {
-    return { skip: 'video-file' };
+  if (primary && isNoPreviewFilename(primary.filename)) {
+    return { skip: 'stub-file' };
   }
 
   const { provider, systemPrompt, model } = await getDeps();
