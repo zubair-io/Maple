@@ -19,20 +19,14 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
-import { decodeHdrToneMapped, decodePsdComposite } from './psd-hdr-decode.ts';
+import { decodePsdComposite } from './psd-hdr-decode.ts';
+import { decodeHdrIsolated } from './hdr-decode-isolated.ts';
 
 // The SHARP_EXTENSIONS allowlist moved to `fs/browse.ts` (a light module with
 // no renderer deps) so routes like `/api/fs/raw` can import the gate without
 // pulling in `sharp` / `heic-convert`. Re-exported here so existing
 // `thumbs/render.ts` importers keep working unchanged. (#782)
 export { SHARP_EXTENSIONS } from '../fs/browse.ts';
-
-// PSD/PSB (Photoshop) and Radiance HDR are not sharp-native formats — they
-// need a first-pass decode (via `ag-psd` / `hdr`) into a plain RGBA8 raster
-// before sharp can resize + JPEG-encode them. Parallel to `SHARP_EXTENSIONS`
-// but a distinct set: sharp itself cannot open these bytes at all. See
-// `fs/browse.ts`'s `PSD_HDR_EXTENSIONS` for the canonical allowlist re-export.
-export { PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 
 /**
  * Input options handed to every `sharp()` decode in this module.
@@ -96,11 +90,23 @@ export async function renderHeicThumbToFile(
  *
  * Called by `renderImageThumbToFile` for the PSD/PSB/HDR branch. Lives inside
  * the `imgdecode.child.ts` isolated process so a malformed file can only
- * crash this child.
+ * crash this child. Not exported — unlike `renderHeicThumbToFile` (which a
+ * dedicated fixture-gated test in `render.test.ts` calls directly), this
+ * path's decode logic is already unit-tested in isolation in
+ * `psd-hdr-decode.test.ts`, so only the dispatch through
+ * `renderImageThumbToFile` needs covering here.
+ *
+ * HDR specifically decodes via `decodeHdrIsolated` — a fresh CHILD-OF-THIS-
+ * CHILD process per call, not the in-process `decodeHdrToneMapped` — because
+ * the `hdr` package cannot safely decode more than one real file per process
+ * (see `psd-hdr-decode.ts`'s module doc). This `imgdecode` child already
+ * outlives many requests across every other format, so calling that function
+ * directly here would hang the second HDR file ever requested. PSD/PSB have
+ * no such bug and decode in-process via `decodePsdComposite` same as before.
  *
  * Throws on decode/encode/IO failure.
  */
-export async function renderPsdOrHdrThumbToFile(
+async function renderPsdOrHdrThumbToFile(
   srcPath: string,
   thumbPath: string,
   sizePx: number,
@@ -110,7 +116,7 @@ export async function renderPsdOrHdrThumbToFile(
   const inputBuffer = await readFile(srcPath);
   const raster =
     ext === 'hdr'
-      ? await decodeHdrToneMapped(new Uint8Array(inputBuffer))
+      ? await decodeHdrIsolated(new Uint8Array(inputBuffer))
       : decodePsdComposite(new Uint8Array(inputBuffer));
 
   const buf = await sharp(raster.data, {
