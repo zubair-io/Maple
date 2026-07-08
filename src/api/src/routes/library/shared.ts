@@ -3,10 +3,14 @@
  */
 
 import { stat } from 'node:fs/promises';
-import { RAW_EXTENSIONS, SHARP_EXTENSIONS } from '../../fs/browse.ts';
+import { RAW_EXTENSIONS, SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../../fs/browse.ts';
 
 /** Union of all image extensions surfaced by library routes. */
-export const IMAGE_EXTENSIONS_SET = new Set<string>([...RAW_EXTENSIONS, ...SHARP_EXTENSIONS]);
+export const IMAGE_EXTENSIONS_SET = new Set<string>([
+  ...RAW_EXTENSIONS,
+  ...SHARP_EXTENSIONS,
+  ...PSD_HDR_EXTENSIONS,
+]);
 
 /** Map of lowercase extension → MIME type for Content-Type headers. */
 const MIME_BY_EXT: Record<string, string> = {
@@ -36,6 +40,12 @@ const MIME_BY_EXT: Record<string, string> = {
   mrw: 'image/x-minolta-mrw',
   fff: 'image/x-hasselblad-fff',
   avif: 'image/avif',
+  psd: 'image/vnd.adobe.photoshop',
+  // No registered PSB-specific MIME type exists; PSB is Photoshop's own
+  // "Large Document Format" variant of the same 8BPS container, so reuse
+  // the PSD type rather than falling back to application/octet-stream.
+  psb: 'image/vnd.adobe.photoshop',
+  hdr: 'image/vnd.radiance',
 };
 
 export function mimeForExt(ext: string): string {

@@ -19,7 +19,7 @@ import { foldersCollection, assetsCollection } from '../db/client.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
 import { RAW_EXTENSIONS } from '../fs/browse.ts';
-import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
 import { listPairedSidecars } from '../fs/xmp.ts';
@@ -532,7 +532,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // Provider can sync everything. Only image files get an `AssetDoc`
       // — the catalog stays image-only. Everything else (video, documents,
       // extensionless files) is stored + synced but never indexed.
-      const isMedia = RAW_EXTENSIONS.has(ext) || SHARP_EXTENSIONS.has(ext);
+      const isMedia =
+        RAW_EXTENSIONS.has(ext) || SHARP_EXTENSIONS.has(ext) || PSD_HDR_EXTENSIONS.has(ext);
 
       const absPath = nodePath.join(folder.path, target);
 

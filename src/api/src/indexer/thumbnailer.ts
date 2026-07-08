@@ -14,6 +14,11 @@
  * straight through — that worked for JPGs (just oversized) but produced
  * un-renderable HEIC bytes with a `.jpg` extension.
  *
+ * For PSD / PSB (Photoshop) and Radiance HDR: first-pass decoded to a
+ * flattened RGBA8 raster via `ag-psd` / `hdr` (see
+ * `thumbs/psd-hdr-decode.ts`), then resized + JPEG-encoded through the same
+ * sharp path as the bitmap formats above.
+ *
  * If libraw_ffi is unavailable (Linux without the .so), RAW thumbs are
  * logged as deferred and skipped gracefully — the rest of the pipeline
  * still advances.
@@ -23,7 +28,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { child as childLogger } from '../log.ts';
@@ -107,7 +112,7 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   let ok = false;
   if (RAW_EXTS.has(ext)) {
     ok = await renderRawThumbToFile(absPath, thumbPath);
-  } else if (SHARP_EXTENSIONS.has(extNoDot)) {
+  } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     ok = await renderBitmapThumbToFile(absPath, thumbPath, extNoDot);
   } else {
     // Unknown format — fall back to copy so something is at the path

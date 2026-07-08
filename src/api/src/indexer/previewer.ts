@@ -14,6 +14,8 @@
  * the VLM, which gracefully handles smaller inputs.
  *
  * For non-RAW files: same sharp + heic-convert pipeline as the thumb path.
+ * PSD/PSB/HDR route through the same `ag-psd`/`hdr` decode + sharp resize
+ * chain as `thumbnailer.ts` (see `thumbs/psd-hdr-decode.ts`).
  *
  * If libraw_ffi is unavailable (Linux without the .so), RAW previews are
  * logged as deferred and skipped — the rest of the pipeline still
@@ -25,7 +27,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { cachePathFor } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -107,7 +109,7 @@ export async function generatePreview(
   let ok = false;
   if (RAW_EXTS.has(ext)) {
     ok = await renderRawPreviewToFile(absPath, previewPath);
-  } else if (SHARP_EXTENSIONS.has(extNoDot)) {
+  } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     ok = await renderBitmapPreviewToFile(absPath, previewPath, extNoDot);
   } else {
     // Unknown format — copy as-is so the describe stage has something to
