@@ -47,8 +47,16 @@ final class NonRawSupportTests: XCTestCase {
         XCTAssertTrue(union.contains("heic"))
         XCTAssertTrue(union.contains("jpg"))
         XCTAssertTrue(union.contains("png"))
-        // Should be exactly the union — no extras.
-        XCTAssertEqual(union, RAWExtensions.all.union(NonRawImageExtensions.all).union(VideoExtensions.all))
+        // Should be exactly the union — no extras. (Stub/audio extensions
+        // are covered by AssetRefStubAudioTests.testSupportedImageExtensionsIncludesStubAndAudio.)
+        XCTAssertEqual(
+            union,
+            RAWExtensions.all
+                .union(NonRawImageExtensions.all)
+                .union(VideoExtensions.all)
+                .union(StubExtensions.all)
+                .union(AudioExtensions.all)
+        )
     }
 
     // MARK: AssetRef.isRaw — extension-based
