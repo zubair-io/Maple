@@ -265,6 +265,74 @@ describe('TimelineViewComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('2026');
   });
 
+  it('keeps already-loaded months on screen when a later page fails', async () => {
+    let calls = 0;
+    searchStub.search = vi.fn((p: SearchParams) => {
+      searchStub.searchCalls.push(p);
+      calls++;
+      if (calls === 1) {
+        return of({
+          total: 2,
+          page: 0,
+          limit: 200,
+          results: [makeResult('a', '/Lib/2026/a.dng', '2026-05-20T00:00:00.000Z')],
+        });
+      }
+      throw new Error('network down');
+    });
+    library.selectedSourceId.set('lib:');
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 300));
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 0));
+    fixture.detectChanges();
+
+    const sentinelEl = ioObservedTargets.find((el) => !el.dataset['year']);
+    const sentinelCallback = ioCalls[1]!.callbacks;
+    sentinelCallback(
+      [{ isIntersecting: true, target: sentinelEl! } as unknown as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    fixture.detectChanges();
+
+    const html = fixture.nativeElement.textContent as string;
+    // Page 0's month is still rendered — a page-1 failure must not wipe it.
+    expect(html).toContain('2026');
+    expect(html).toContain('network down');
+  });
+
+  it('dedupes concurrent thumb requests for the same photo', async () => {
+    library.selectedSourceId.set('lib:');
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+
+    let resolveThumb!: (url: string) => void;
+    const fsBrowse = TestBed.inject(FilesystemBrowseService) as unknown as FsBrowseStub;
+    fsBrowse.getThumbBlobUrl = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveThumb = resolve;
+        }),
+    );
+
+    const photo = { ...makeResult('a', '/Lib/2026/a.dng', '2026-05-20T00:00:00.000Z') };
+    // Simulates the real race: _fetchPage's own thumb-load loop and the
+    // visibility observer's "newly visible" loop can both call _loadThumb
+    // for the same photo before the first request resolves.
+    const comp = fixture.componentInstance as unknown as {
+      _loadThumb(p: typeof photo & { thumbUrl: string | null }): Promise<void>;
+    };
+    const p1 = comp._loadThumb({ ...photo, thumbUrl: null });
+    const p2 = comp._loadThumb({ ...photo, thumbUrl: null });
+    resolveThumb('blob:one');
+    await p1;
+    await p2;
+
+    expect(fsBrowse.getThumbBlobUrl).toHaveBeenCalledTimes(1);
+  });
+
   it('wires both observers against the live #scrollContainer, not a stale ref', async () => {
     searchStub.pages = [
       {
