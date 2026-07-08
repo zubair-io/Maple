@@ -3,12 +3,17 @@
  * new M2 formats (#1834, part of the file-type-coverage epic #1831).
  *
  * Both formats decode to a plain RGBA8 raster in memory; the caller (in
- * `render.ts`, itself only ever loaded inside the isolated `imgdecode.child.ts`
- * process) feeds that raster into `sharp` via its `raw` input mode, reusing
- * the exact same resize/JPEG-encode path as every other bitmap format. No
- * layer-aware editing, no color management beyond a literal channel copy for
- * PSD and a simple tone-map for HDR — this is a library-browsing thumbnail,
- * not the scene-linear RAW pipeline documented in docs/architecture.md.
+ * `render.ts`) feeds that raster into `sharp` via its `raw` input mode,
+ * reusing the exact same resize/JPEG-encode path as every other bitmap
+ * format. No layer-aware editing, no color management beyond a literal
+ * channel copy for PSD and a simple tone-map for HDR — this is a
+ * library-browsing thumbnail, not the scene-linear RAW pipeline documented
+ * in docs/architecture.md.
+ *
+ * PSD decode runs in-process inside the persistent `imgdecode.child.ts`
+ * (same as every other bitmap format). HDR decode does NOT — see this
+ * file's `decodeHdrToneMapped` doc and `hdr-decode.child.ts` for why it
+ * needs its own one-shot child process per call instead.
  *
  * PSD/PSB: via `ag-psd`, reading only the merged/composite image
  * (`useImageData: true`, `skipLayerImageData: true` — full layer-aware access
@@ -179,6 +184,33 @@ function reinhard(x: number): number {
  * covered — that's a genuine gap in the `hdr` package with no clean
  * workaround short of forking it; out of scope for this ticket, called out
  * here for visibility.
+ *
+ * Separately, and much more severely: `hdr` cannot safely decode more than
+ * ONE file per process lifetime. Empirically confirmed (not a concurrency
+ * artifact — reproduced with two decodes run strictly sequentially, no
+ * overlap): a second `decodeHdrToneMapped` call in the same process hangs
+ * forever, specifically when the file has real RLE-compressed multi-scanline
+ * data (a trivial 1x1 synthetic buffer can be decoded repeatedly without
+ * issue, which is why this didn't surface until a real committed fixture was
+ * exercised twice). A `globalThis`-keyed serializing queue was tried first
+ * and did NOT help — the corruption isn't from two decodes racing each
+ * other, it survives even with the second call starting well after the
+ * first fully resolved. Whatever module-level state `hdr` mutates during a
+ * real multi-scanline decode, it never resets it, and a second call the
+ * library was never written to expect walks straight into the wreckage.
+ *
+ * There is no clean in-process fix short of forking the library. Given
+ * `imgdecode-pool.ts` runs ONE persistent child for every thumbnail request
+ * for the process's entire lifetime, calling this function from inside that
+ * child would hang the SECOND HDR file Maple ever tries to thumbnail — and
+ * likely every request queued behind it in that same child. Callers MUST
+ * NOT call `decodeHdrToneMapped` from the persistent imgdecode child; use
+ * the one-shot, spawn-per-call isolation in `hdr-decode.child.ts` /
+ * `decodeHdrIsolated` (in `hdr-decode-isolated.ts`) instead, which guarantees
+ * every process instance decodes exactly once before exiting. This function
+ * itself remains exported (and independently unit-tested) because that
+ * isolated child needs something to call — just never call it more than
+ * once per process outside of that isolation boundary.
  */
 const RADIANCE_HEADER_RE = /^#\?(RADIANCE|RGBE)\r?\n/;
 const RADIANCE_DIMENSION_RE = /[+-][XY]\s+\d+\s+[+-][XY]\s+\d+/;
@@ -198,6 +230,10 @@ function looksLikeRadianceHdr(buf: Uint8Array): boolean {
  * `load`/`error` events. Rejects immediately, before touching the library,
  * for input that doesn't even look like Radiance HDR — see
  * `looksLikeRadianceHdr` for why that pre-check exists.
+ *
+ * CALL AT MOST ONCE PER PROCESS — see the module doc above `RADIANCE_HEADER_RE`
+ * for why. Production code must go through the per-call process isolation in
+ * `hdr-decode-isolated.ts`, never straight through this export.
  */
 export async function decodeHdrToneMapped(buf: Uint8Array): Promise<DecodedRaster> {
   if (!looksLikeRadianceHdr(buf)) {
@@ -205,7 +241,6 @@ export async function decodeHdrToneMapped(buf: Uint8Array): Promise<DecodedRaste
       'psd-hdr-decode: not a recognizable Radiance HDR file (missing header/dimension line)',
     );
   }
-
   const loader = new HDR.loader();
 
   const result = await new Promise<{ width: number; height: number; data: Float32Array }>(
