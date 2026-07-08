@@ -14,11 +14,13 @@
     <!-- The scrollContainer is mounted whenever a path scope exists, so the
          IntersectionObservers' root never gets unmounted mid-fetch. -->
     <div class="timeline-scroll flex-1 overflow-y-auto" #scrollContainer>
-      @if (pageError(); as err) {
+      @if (pageError() && years().length === 0) {
+        <!-- Page 0 itself failed — nothing loaded yet, so the error panel
+             is the only thing to show. -->
         <div
           class="flex flex-col items-center justify-center gap-2 px-3 py-8 text-center text-[12px] text-error-text"
         >
-          <span>{{ err }}</span>
+          <span>{{ pageError() }}</span>
           <button
             type="button"
             class="cursor-pointer rounded border-[0.5px] border-border bg-surface-hover px-2 py-1 text-text-main hover:border-text-muted"
@@ -58,7 +60,23 @@
           </div>
         }
 
-        @if (!isDone()) {
+        @if (pageError(); as err) {
+          <!-- A later page failed — every already-loaded year/month stays
+               on screen; the retry affordance replaces the fetch-more
+               sentinel at the bottom instead of hiding the whole list. -->
+          <div
+            class="flex flex-col items-center justify-center gap-2 px-3 py-4 text-center text-[11px] text-error-text"
+          >
+            <span>{{ err }}</span>
+            <button
+              type="button"
+              class="cursor-pointer rounded border-[0.5px] border-border bg-surface-hover px-2 py-1 text-text-main hover:border-text-muted"
+              (click)="retryPage()"
+            >
+              Retry
+            </button>
+          </div>
+        } @else if (!isDone()) {
           <div
             class="flex h-10 items-center justify-center text-[10px] uppercase tracking-[0.05em] text-text-muted"
             [appTimelineRegisterSection]="registerSentinel"
