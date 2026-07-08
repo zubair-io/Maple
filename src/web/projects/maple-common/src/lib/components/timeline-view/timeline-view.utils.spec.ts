@@ -15,7 +15,7 @@ import {
 function makeResult(id: string, absPath: string, capturedAt: string | null): SearchResult {
   return {
     id,
-    address: `slug:${absPath}`,
+    address: null,
     _id: id,
     folder_id: 'f1',
     abs_path: absPath,
