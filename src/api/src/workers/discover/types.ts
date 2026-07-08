@@ -62,6 +62,11 @@ export const SUPPORTED_EXTS = new Set([
   '.tiff',
   '.heic',
   '.heif',
+  // Photoshop PSD/PSB + Radiance HDR — flattened composite raster decoded
+  // via ag-psd / hdr, then sharp (see thumbs/psd-hdr-decode.ts)
+  '.psd',
+  '.psb',
+  '.hdr',
   // Video containers — metadata-only indexing via video-metadata.ts
   '.mov',
   '.mp4',

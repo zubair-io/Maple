@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from '../fs/browse.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { child as childLogger } from '../log.ts';
@@ -72,13 +72,15 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     }
 
     // Extension gate — RAW formats go through the FFI pipeline; common
-    // bitmap formats (JPG/HEIC/PNG/WEBP/TIFF/AVIF) go through sharp.
-    // Anything else 415s so the FFI never blocks on a 50 GB Word doc.
+    // bitmap formats (JPG/HEIC/PNG/WEBP/TIFF/AVIF) go through sharp; PSD/PSB/HDR
+    // go through ag-psd/hdr then sharp. Anything else 415s so the FFI never
+    // blocks on a 50 GB Word doc.
     const dot = real.lastIndexOf('.');
     const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
     const isRaw = RAW_EXTENSIONS.has(ext);
     const isSharp = SHARP_EXTENSIONS.has(ext);
-    if (!isRaw && !isSharp) {
+    const isPsdOrHdr = PSD_HDR_EXTENSIONS.has(ext);
+    if (!isRaw && !isSharp && !isPsdOrHdr) {
       set.status = 415;
       return { error: `Unsupported file extension: "${ext}"` };
     }
@@ -193,7 +195,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       };
     }
 
-    if (isSharp) {
+    if (isSharp || isPsdOrHdr) {
       try {
         const result = await renderImageThumbToFile(real, thumbPath, sizePx, 82, ext);
         if (!result.ok) {

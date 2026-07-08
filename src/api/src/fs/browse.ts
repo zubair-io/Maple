@@ -259,10 +259,24 @@ export const SHARP_EXTENSIONS = new Set<string>([
   'avif',
 ]);
 
+/** Photoshop PSD/PSB and Radiance HDR (lowercase, no dot). Not RAW (no
+ * libraw FFI support) and not sharp-native (sharp can't decode these bytes
+ * on its own) — they get a first-pass decode via `ag-psd` / `hdr` into a
+ * flattened RGBA8 raster before sharp resizes + JPEG-encodes it. See
+ * `thumbs/psd-hdr-decode.ts`. Kept as its own set, parallel to
+ * `SHARP_EXTENSIONS`, rather than folded into it, since sharp cannot open
+ * these formats without that decode step. */
+export const PSD_HDR_EXTENSIONS = new Set<string>(['psd', 'psb', 'hdr']);
+
 /** All image extensions surfaced by the directory listing. Union of RAWs
- * (decoded via FFI) and bitmap formats (decoded via sharp/heic-convert).
- * Kept in sync with the thumb endpoint's extension gate. */
-const IMAGE_EXTENSIONS = new Set<string>([...RAW_EXTENSIONS, ...SHARP_EXTENSIONS]);
+ * (decoded via FFI), bitmap formats (decoded via sharp/heic-convert), and
+ * PSD/PSB/HDR (decoded via ag-psd/hdr then sharp). Kept in sync with the
+ * thumb endpoint's extension gate. */
+const IMAGE_EXTENSIONS = new Set<string>([
+  ...RAW_EXTENSIONS,
+  ...SHARP_EXTENSIONS,
+  ...PSD_HDR_EXTENSIONS,
+]);
 
 /** Video container extensions surfaced in the listing alongside images (lowercase, no dot). */
 const VIDEO_EXTENSIONS = new Set<string>([
