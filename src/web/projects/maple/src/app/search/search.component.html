@@ -568,6 +568,8 @@
               [checked]="selectedIds().has(r.id)"
               [attr.aria-label]="'Select ' + r.filename"
               (click)="$event.stopPropagation()"
+              (keydown.enter)="$event.stopPropagation()"
+              (keydown.space)="$event.stopPropagation()"
               (change)="toggleSelect(r.id)"
             />
             <div class="relative aspect-[3/2] overflow-hidden rounded bg-image-canvas">
