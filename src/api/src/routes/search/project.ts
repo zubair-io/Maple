@@ -6,7 +6,7 @@
  */
 
 import type { ObjectId } from 'mongodb';
-import type { AssetDoc, Place } from '../../db/schema.ts';
+import type { AssetDoc, FileInfo, Place } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 
 export interface SearchResultPHLink {
@@ -58,6 +58,20 @@ export interface SearchResult {
   hidden?: boolean;
 }
 
+/**
+ * Compute the `slug:relPath` address for an asset's primary file location.
+ * `null` when there's no primary file, or its library has no registered slug.
+ */
+export function computeAddress(
+  primary: FileInfo | null,
+  idToSlug: ReadonlyMap<string, string>,
+): string | null {
+  if (!primary) return null;
+  const slug = idToSlug.get(primary.library_id.toHexString());
+  if (!slug) return null;
+  return `${slug}:${primary.path ? `${primary.path}/${primary.filename}` : primary.filename}`;
+}
+
 export function projectAsset(
   d: AssetDoc & { _id: ObjectId },
   libraries: ReadonlyMap<string, string>,
@@ -72,11 +86,7 @@ export function projectAsset(
   const absPath = assetAbsPath(d, libraries) ?? '';
   const folderId = primary?.library_id.toHexString() ?? '';
   const filename = primary?.filename ?? '';
-  const slug = primary ? (idToSlug.get(primary.library_id.toHexString()) ?? null) : null;
-  const address =
-    slug && primary
-      ? `${slug}:${primary.path ? `${primary.path}/${primary.filename}` : primary.filename}`
-      : null;
+  const address = computeAddress(primary, idToSlug);
   const result: SearchResult = {
     // The editor's id format is `fs:<absPath>` (matches Hosted's
     // browser-FS-Access keys); keeping the same shape here lets the FE
