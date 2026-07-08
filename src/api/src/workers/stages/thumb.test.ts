@@ -143,7 +143,7 @@ describe('thumb handler — bitmap path', () => {
     expect(s.size).toBeGreaterThan(0);
   });
 
-  it("returns { skip: 'video-file' } for a .MOV and writes no thumb", async () => {
+  it("returns { skip: 'stub-file' } for a .MOV and writes no thumb", async () => {
     // A video container can land in a mixed-media library and (post-#1638) is
     // a selectable asset. The handler must skip it rather than fall through to
     // `copyImageAsThumb`, which would copy the raw .MOV bytes to `<id>.jpg` —
@@ -155,7 +155,7 @@ describe('thumb handler — bitmap path', () => {
     // Unique maple_id — the thumb cache path is keyed on it.
     const doc = makeDoc(file, libraryId, dir, null, '9'.repeat(32));
     const result = await thumbStage.handler(doc as never, {} as never);
-    expect((result as { skip: string }).skip).toBe('video-file');
+    expect((result as { skip: string }).skip).toBe('stub-file');
 
     // No thumb artefact was produced — assert the stat rejects with ENOENT
     // specifically, so an unexpected error fails the test loudly instead of
@@ -171,6 +171,38 @@ describe('thumb handler — bitmap path', () => {
     );
     expect(err?.code).toBe('ENOENT');
   });
+
+  it.each([
+    ['scan.eip', 'a1'.repeat(16)],
+    ['session.braw', 'a2'.repeat(16)],
+    ['project.afphoto', 'a3'.repeat(16)],
+    ['logo.ai', 'a4'.repeat(16)],
+    ['track.mp3', 'a5'.repeat(16)],
+    ['voice.wav', 'a6'.repeat(16)],
+    ['memo.m4a', 'a7'.repeat(16)],
+    ['song.aac', 'a8'.repeat(16)],
+  ])(
+    "returns { skip: 'stub-file' } for %s (#1835 metadata-only stub/audio) and writes no thumb",
+    async (filename, mapleId) => {
+      const file = path.join(dir, filename as string);
+      await writeFile(file, Buffer.from('not a real decodable file'));
+
+      const doc = makeDoc(file, libraryId, dir, null, mapleId as string);
+      const result = await thumbStage.handler(doc as never, {} as never);
+      expect((result as { skip: string }).skip).toBe('stub-file');
+
+      const thumbPath = resolveThumbPathForAsset(
+        doc as never,
+        new Map([[libraryId.toHexString(), dir]]),
+      );
+      expect(thumbPath).not.toBeNull();
+      const err = await stat(thumbPath as string).then(
+        () => null,
+        (e: NodeJS.ErrnoException) => e,
+      );
+      expect(err?.code).toBe('ENOENT');
+    },
+  );
 
   it('produces an upright thumb regardless of EXIF orientation tag', async () => {
     const file = path.join(dir, 'rotated.jpg');

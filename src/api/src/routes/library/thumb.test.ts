@@ -195,6 +195,37 @@ describe('GET /thumb/:slug/*', () => {
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
   });
 
+  test.each(['scan.eip', 'session.braw', 'project.afphoto', 'logo.ai'])(
+    'returns 404 (never a 200 image) for an un-indexed stub image on disk (%s, #1835)',
+    async (filename) => {
+      if (!mongoReachable) return;
+      // Metadata-only stub images have no decoder: the route must 404 rather
+      // than fall through to generation (which would otherwise copy the raw
+      // source bytes to a .jpg and serve 200 image/jpeg garbage).
+      const src = path.join(tmpDir, filename);
+      await writeFile(src, 'fake-stub-bytes');
+
+      const res = await app.handle(new Request(`http://localhost/thumb/thumblib/${filename}`));
+      expect(res.status).toBe(404);
+      expect(res.status).not.toBe(200);
+      expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+    },
+  );
+
+  test.each(['track.mp3', 'voice.wav', 'memo.m4a', 'song.aac'])(
+    'returns 404 (never a 200 image) for an un-indexed audio file on disk (%s, #1835)',
+    async (filename) => {
+      if (!mongoReachable) return;
+      const src = path.join(tmpDir, filename);
+      await writeFile(src, 'fake-audio-bytes');
+
+      const res = await app.handle(new Request(`http://localhost/thumb/thumblib/${filename}`));
+      expect(res.status).toBe(404);
+      expect(res.status).not.toBe(200);
+      expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+    },
+  );
+
   test('returns 304 when ETag matches If-None-Match', async () => {
     if (!mongoReachable) return;
     const mapleId = new ObjectId().toHexString();

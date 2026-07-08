@@ -16,7 +16,7 @@ import type { AssetExif } from '../db/schema.ts';
 import exifr from 'exifr';
 import { readHeicExifTiff } from './heic-exif.ts';
 import { readWebpExifTiff } from './webp-exif.ts';
-import { VIDEO_EXTS } from './media-types.ts';
+import { VIDEO_EXTS, STUB_IMAGE_EXTS, AUDIO_EXTS } from './media-types.ts';
 import { readVideoMetadata } from './video-metadata.ts';
 
 /** HEIC/HEIF containers — exifr's `canHandle` rejects modern (>50-byte ftyp)
@@ -38,12 +38,16 @@ const WEBP_EXTS = new Set(['.webp']);
  * return null without attempting a parse — terminal and warning-free, the
  * expected "this kind of file simply has no camera metadata" outcome.
  *
- * Two buckets:
+ * Three buckets:
  *   - Video containers — never carried EXIF the exif stage reads.
  *   - Raster formats exifr has no parser for and that in practice carry no
  *     usable EXIF: animated/static GIF (incl. the `*-ANIMATION.gif` Motion
  *     Photo exports) and BMP. (WebP is handled above; PNG is parsed by exifr
  *     directly and is deliberately NOT here.)
+ *   - Stub-image and audio formats (#1835) — eip/braw/afphoto/ai have no
+ *     rawler/sharp decode path, and mp3/wav/m4a/aac are a wholly new asset
+ *     category with no EXIF concept at all. exifr has no parser for any of
+ *     these; attempting a parse would throw "Unknown file format".
  */
 const NO_EXIF_EXTS = new Set([
   // Video containers — never carried EXIF the exif stage reads. Sourced from
@@ -53,6 +57,10 @@ const NO_EXIF_EXTS = new Set([
   // Raster formats with no usable EXIF and no exifr parser
   '.gif',
   '.bmp',
+  // Metadata-only stub images + audio (#1835) — sourced from media-types.ts
+  // so the exif stage can't drift from the thumb/preview/describe guards.
+  ...STUB_IMAGE_EXTS,
+  ...AUDIO_EXTS,
 ]);
 
 /**
