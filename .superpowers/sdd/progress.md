@@ -16,7 +16,8 @@ Final whole-branch review (opus, base 0dc9d5827): found 1 Important (stale searc
 Task 7: complete — issue #1847 (Files board), PR #1848 opened (main <- claude/lucid-bohr-d47e55). ALL TASKS DONE.
 
 PR #1848 CI + bot review round: Jules + Copilot both flagged the checkbox keydown-bubbling bug (fixed f0a6279/PR follow-up); Copilot additionally caught stale facets not refreshed on batch-dismiss (fixed); CI red on 3 checks after push:
+
 - web-test (Maple-common): REAL — maple-common's sibling SearchComponent spec fixtures predated the `address` field, TS2741. Fixed both fixture sites (search.component.spec.ts).
 - fallow-audit-api complexity: projectAsset (62 lines) and listRoute (164 lines) over threshold. Extracted computeAddress() helper from projectAsset (now 58 lines, lower cyclomatic). listRoute's 164 lines / cyclomatic 23 predates this PR (added only ~4 lines via Promise.all) — NOT refactored, flagged to user as pre-existing debt, out of scope for this feature.
-- fallow-audit-api unused deps (7, all @opentelemetry/*/meilisearch): pre-existing, unrelated to any file this PR touches — not actionable here.
+- fallow-audit-api unused deps (7, all @opentelemetry/\*/meilisearch): pre-existing, unrelated to any file this PR touches — not actionable here.
 - jules/review: re-run pending after push.
