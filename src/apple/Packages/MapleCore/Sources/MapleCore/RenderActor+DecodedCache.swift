@@ -49,7 +49,10 @@ extension RenderActor {
         // or produce garbage. `AssetRef.isRaw` already returns false for video;
         // this is the single chokepoint all open/render dispatch funnels
         // through, so guarding here covers every entry point.
-        if asset.isVideo {
+        //
+        // Same treatment for stub images (eip/braw/afphoto/ai) and audio
+        // (mp3/wav/m4a/aac, #1835) — metadata-only, no pixels to decode.
+        if asset.isVideo || asset.isStub || asset.isAudio {
             return nil
         }
         let wantsFull = (target == nil)

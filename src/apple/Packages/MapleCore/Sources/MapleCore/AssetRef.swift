@@ -108,16 +108,39 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         return SidecarPath.isVideo(primaryURL)
     }
 
+    /// True when this asset is a metadata-only "stub" image format with no
+    /// realistic decode path — `eip`, `braw`, `afphoto`, `ai` (see #1835).
+    /// These are indexer-eligible (filename/size/date visible in the grid)
+    /// but have no thumbnail and must never reach the RAW or non-RAW
+    /// decoders. URL-less refs (PhotoKit/SelfHosted) are never stub: those
+    /// sources don't surface these formats through this path.
+    public var isStub: Bool {
+        guard let primaryURL else { return false }
+        return StubExtensions.all.contains(primaryURL.pathExtension.lowercased())
+    }
+
+    /// True when this asset is a standalone audio file — `mp3`, `wav`,
+    /// `m4a`, `aac` (see #1835). A wholly new asset category: same
+    /// metadata-only treatment as `isStub` — no thumbnail, no decode
+    /// attempt. URL-less refs are never audio.
+    public var isAudio: Bool {
+        guard let primaryURL else { return false }
+        return AudioExtensions.all.contains(primaryURL.pathExtension.lowercased())
+    }
+
     /// True when the asset should route through the Rust RAW decode path
     /// (rawler → DCP → demosaic → scene-linear chain). False routes through
     /// the Apple non-RAW path (`CGImageSource` → embedded ICC → scene-linear
     /// chain that skips the WB calibration / DCP / demosaic stages).
     ///
     /// Detection order:
-    ///   1. `explicitIsRaw` — sources that know their format up front.
-    ///   2. Extension on `primaryURL` — e.g. `dng` is RAW, `heic` is non-RAW.
-    ///   3. `hintExtension` — when no URL is available.
-    ///   4. Default: RAW. Maintains historical behaviour for PhotoKit/
+    ///   1. `isVideo` — never RAW.
+    ///   2. `isStub` / `isAudio` — metadata-only formats with no decode path
+    ///      at all; never RAW.
+    ///   3. `explicitIsRaw` — sources that know their format up front.
+    ///   4. Extension on `primaryURL` — e.g. `dng` is RAW, `heic` is non-RAW.
+    ///   5. `hintExtension` — when no URL is available.
+    ///   6. Default: RAW. Maintains historical behaviour for PhotoKit/
     ///      SelfHosted refs that haven't been classified yet.
     ///
     /// `dng` is RAW even though ImageIO can also decode it — iPhone ProRAW
@@ -128,6 +151,14 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         // A video has no still frame; the render/open path no-ops on `isVideo`
         // (this guard is the last line of defense if a caller forgets to).
         if isVideo {
+            return false
+        }
+        // Stub images (eip/braw/afphoto/ai) and audio (mp3/wav/m4a/aac) have
+        // NO decode path at all — short-circuit before the "assume RAW"
+        // fallback below would otherwise misroute them into the libraw
+        // decoder. Checked before `explicitIsRaw` for the same reason video
+        // is: no source should be able to force these onto the RAW path.
+        if isStub || isAudio {
             return false
         }
         if let explicitIsRaw {

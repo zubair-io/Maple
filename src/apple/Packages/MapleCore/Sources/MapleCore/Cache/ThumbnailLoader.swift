@@ -151,6 +151,17 @@ public actor ThumbnailLoader {
                 return data
             }
 
+            // STUB / AUDIO PATH — metadata-only formats with no decode path
+            // at all (eip/braw/afphoto/ai stub images, mp3/wav/m4a/aac audio;
+            // #1835). No thumbnail is generated — the grid shows filename/
+            // size/date with a generic stub badge instead. Short-circuits
+            // BEFORE the embedded-preview / Rust-develop paths below so these
+            // never reach ImageIO or libraw.
+            let ext = assetURL.pathExtension.lowercased()
+            if StubExtensions.all.contains(ext) || AudioExtensions.all.contains(ext) {
+                return nil
+            }
+
             // FAST PATH — read the embedded JPEG preview via ImageIO.
             // DNGs (and most camera RAWs) carry a ~1920 px preview; ImageIO
             // extracts + resamples it at the target size in 5-50 ms per

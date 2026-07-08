@@ -291,17 +291,45 @@ public enum VideoExtensions {
     public static let all: Set<String> = SidecarPath.videoExtensions
 }
 
+// MARK: - StubExtensions
+
+/// Image-like formats with no realistic decode path today (epic #1831,
+/// ticket #1835): `eip` (Phase One — no rawler support), `braw` (Blackmagic
+/// RAW — proprietary SDK-gated, no open decoder), `afphoto` (Affinity Photo
+/// — no public spec), `ai` (Illustrator — a PDF/vector container, not a
+/// raster image). Mirrors the API's `STUB_IMAGE_EXTS` in
+/// `src/api/src/indexer/media-types.ts`. These are indexer-eligible
+/// metadata-only stubs: filename/size/date are shown in the grid, but there
+/// is no thumbnail, preview, or RAW/non-RAW decode attempt.
+public enum StubExtensions {
+    public static let all: Set<String> = ["eip", "braw", "afphoto", "ai"]
+}
+
+// MARK: - AudioExtensions
+
+/// Audio formats — a wholly new asset category for Maple (epic #1831,
+/// ticket #1835). Mirrors the API's `AUDIO_EXTS` in
+/// `src/api/src/indexer/media-types.ts`. Indexed as metadata-only stubs: no
+/// thumbnail, no decode attempt, but visible in the grid with filename/size/
+/// date.
+public enum AudioExtensions {
+    public static let all: Set<String> = ["mp3", "wav", "m4a", "aac"]
+}
+
 // MARK: - SupportedImageExtensions
 
 public enum SupportedImageExtensions {
     /// Union of `RAWExtensions.all` + `NonRawImageExtensions.all` +
-    /// `VideoExtensions.all` — what the LISTING phase (folder enumeration,
-    /// fileImporter content types, drag-and-drop) accepts. The OPEN phase
-    /// still branches on the extension to dispatch to the right decoder;
-    /// only the listing gate uses this union.
+    /// `VideoExtensions.all` + `StubExtensions.all` + `AudioExtensions.all`
+    /// — what the LISTING phase (folder enumeration, fileImporter content
+    /// types, drag-and-drop) accepts. The OPEN phase still branches on the
+    /// extension to dispatch to the right decoder (or no-op for stub/audio/
+    /// video); only the listing gate uses this union.
     public static let all: Set<String> = RAWExtensions.all
         .union(NonRawImageExtensions.all)
         .union(VideoExtensions.all)
+        .union(StubExtensions.all)
+        .union(AudioExtensions.all)
 }
 
 // MARK: - macOS folder picker helper

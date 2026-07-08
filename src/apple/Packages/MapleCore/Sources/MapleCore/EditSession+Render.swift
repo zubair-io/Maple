@@ -316,7 +316,11 @@ extension EditSession {
         // is never reached), but the non-RAW path would still hand the .mov to
         // CGImageSource. This is the single body all render phases (fast/refine/
         // renderFull) funnel through, so guarding here covers every entry point.
-        if self.asset.isVideo {
+        //
+        // Stub images (eip/braw/afphoto/ai) and audio (mp3/wav/m4a/aac, #1835)
+        // get the same treatment: metadata-only, no pixels to develop, no
+        // decode attempt of any kind.
+        if self.asset.isVideo || self.asset.isStub || self.asset.isAudio {
             isRendering = false
             return
         }
