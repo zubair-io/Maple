@@ -1,6 +1,6 @@
 # Timeline Single-Query Client-Side Bucketing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan is implemented task-by-task, typically via the subagent-driven-development or executing-plans workflow, with each step tracked via its checkbox (`- [ ]`).
 
 **Goal:** Replace the web Timeline view's two-stage fetch (`/api/search/buckets` aggregation + per-month `/api/search` page fetch) with a single sorted, paginated `/api/search` query whose Year → Month → folder grouping is computed entirely client-side as pages load.
 
@@ -8,14 +8,14 @@
 
 **Tech Stack:** Angular 21 standalone components, signals, RxJS `firstValueFrom`, Vitest.
 
-## Global Constraints
+## Scope boundaries
 
-- No changes to `GET /api/search` or `GET /api/search/buckets` on the server — this is a client-only change (see spec's Non-goals).
-- No changes to `TimelineStateService` — its `params()`/`pathPrefix()` contract (fixed in #1823/#1824) is reused as-is; `sort: 'captured_desc'` is added at the `SearchService.search()` call site in the component, matching how `sort`/`limit`/`page` were already appended at call sites before this change (the old `_fetchMonth` did the same for `sort`/`limit`).
-- `TimelineScrubberComponent` is deleted entirely — no replacement UI element for scrubbing/jump-to-month.
-- The "N untimed photos hidden" banner is removed — no replacement count query.
-- Preserve every other visible behavior: Year/Month headers with counts, per-month folder sub-grouping with collapse/expand, photo click/double-click, thumbnail loading, DOM virtualization of offscreen months.
-- Format with Prettier before committing (`bun run format` from `src/web`, or `bun x prettier --write <files>`), matching this repo's CI `format-check` gate.
+- Neither `GET /api/search` nor `GET /api/search/buckets` changes on the server — this plan is a client-only change (see the design spec's Non-goals).
+- `TimelineStateService` is unchanged — its `params()`/`pathPrefix()` contract (fixed in #1823/#1824) is reused as-is; `sort: 'captured_desc'` is added at the `SearchService.search()` call site in the component, matching how `sort`/`limit`/`page` were already appended at call sites before this change (the old `_fetchMonth` did the same for `sort`/`limit`).
+- `TimelineScrubberComponent` is deleted entirely, with no replacement UI element for scrubbing/jump-to-month.
+- The "N untimed photos hidden" banner is removed, with no replacement count query.
+- Every other visible behavior is preserved: Year/Month headers with counts, per-month folder sub-grouping with collapse/expand, photo click/double-click, thumbnail loading, DOM virtualization of offscreen months.
+- Each task's changes are Prettier-formatted before its commit, matching this repo's CI `format-check` gate.
 
 ---
 
@@ -38,10 +38,12 @@
 ## Task 1: Client-side grouping utilities
 
 **Files:**
+
 - Create: `src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.utils.ts`
 - Test: `src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.utils.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `SearchResult` from `../../api/search.service` (existing type — `id`, `_id`, `folder_id`, `abs_path`, `filename`, `size`, `mtime`, `captured_at`, `camera`, `lens`, `iso`, `aperture`, `shutter`, `focal_length`, `rating`, `flag`, `color_label`, `has_xmp?`, `hidden?`).
 - Produces (used by Task 2):
   - `interface PhotoVm extends SearchResult { thumbUrl: string | null }`
@@ -64,13 +66,15 @@ Create `src/web/projects/maple-common/src/lib/components/timeline-view/timeline-
 
 import { describe, it, expect } from 'vitest';
 import { SearchResult } from '../../api/search.service';
-import { buildGroups, countInMonth, foldPage, folderNameFor, monthKey } from './timeline-view.utils';
+import {
+  buildGroups,
+  countInMonth,
+  foldPage,
+  folderNameFor,
+  monthKey,
+} from './timeline-view.utils';
 
-function makeResult(
-  id: string,
-  absPath: string,
-  capturedAt: string | null,
-): SearchResult {
+function makeResult(id: string, absPath: string, capturedAt: string | null): SearchResult {
   return {
     id,
     _id: id,
@@ -255,7 +259,13 @@ export function monthKey(year: number, month: number): string {
 
 /** Splits an absolute path into the folder name immediately under `prefix`.
  * A photo directly inside the scoped folder (no further subfolder) buckets
- * under '.'. */
+ * under '.'.
+ *
+ * `.startsWith(prefix)` is a safe anchored match, not a bare substring
+ * check susceptible to `/Lib` matching `/Lib-old`, because every caller —
+ * `TimelineStateService.pathPrefix` — always normalises `prefix` with a
+ * trailing slash before it reaches here, so `/Lib/` cannot match
+ * `/Lib-old/...`. */
 export function folderNameFor(absPath: string, prefix: string): string {
   const rest = absPath.startsWith(prefix) ? absPath.slice(prefix.length) : absPath;
   const segments = rest.split('/').filter((s) => s.length > 0);
@@ -338,7 +348,10 @@ function maxCapturedTime(photos: PhotoVm[]): number {
 export function buildGroups(m: MonthGroup): Array<{ folderName: string; photos: PhotoVm[] }> {
   const names = Array.from(m.groups.keys());
   names.sort((a, b) => maxCapturedTime(m.groups.get(b)!) - maxCapturedTime(m.groups.get(a)!));
-  return names.map((folderName) => ({ folderName, photos: m.groups.get(folderName)! }));
+  return names.map((folderName) => ({
+    folderName,
+    photos: m.groups.get(folderName)!,
+  }));
 }
 ```
 
@@ -373,6 +386,7 @@ git commit -m "feat(web): add pure client-side Year/Month folding utilities for 
 ## Task 2: Rewrite TimelineViewComponent to single-query pagination, remove the scrubber
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.component.ts`
 - Modify: `src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.component.html`
 - Modify: `src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.component.spec.ts`
@@ -382,6 +396,7 @@ git commit -m "feat(web): add pure client-side Year/Month folding utilities for 
 - Modify: `src/web/projects/maple-common/src/public-api.ts`
 
 **Interfaces:**
+
 - Consumes: `PhotoVm`, `MonthGroup`, `YearGroup`, `monthKey`, `foldPage`, `countInMonth`, `buildGroups` from `./timeline-view.utils` (Task 1). `TimelineStateService.params()` / `.pathPrefix()` (unchanged, existing). `SearchService.search()` (existing — unchanged signature).
 - Produces: `TimelineViewComponent` keeps its existing public surface used elsewhere (`registerMonthSection`, `onPhotoClick`, `onPhotoDblClick`, `groupKey`/`isCollapsed`/`toggleGroup`, `monthLabel`/`folderGroupLabel`, `trackYear`/`trackMonth`/`trackGroup`/`trackPhoto`) plus new: `registerSentinel(el: HTMLElement | null): void`, `retryPage(): void`, `pageLoading: WritableSignal<boolean>`, `pageError: WritableSignal<string | null>`, `isDone: Signal<boolean>`. Removed: `buckets`, `bucketsLoading`, `bucketsError`, `untimedHint`, `scrubberBuckets`, `onScrubberJump`, `retryMonth`.
 
@@ -697,7 +712,11 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
             }
           }
         },
-        { root: el, rootMargin: TimelineViewComponent.VISIBLE_ROOT_MARGIN, threshold: 0 },
+        {
+          root: el,
+          rootMargin: TimelineViewComponent.VISIBLE_ROOT_MARGIN,
+          threshold: 0,
+        },
       );
 
       // Sentinel observer: fetches the next page when the bottom marker
@@ -711,7 +730,11 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
             void this._fetchPage();
           }
         },
-        { root: el, rootMargin: TimelineViewComponent.SENTINEL_ROOT_MARGIN, threshold: 0 },
+        {
+          root: el,
+          rootMargin: TimelineViewComponent.SENTINEL_ROOT_MARGIN,
+          threshold: 0,
+        },
       );
 
       for (const node of this.pendingObserve) {
@@ -787,7 +810,12 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     this.pageError.set(null);
     try {
       const r = await firstValueFrom(
-        this.search.search({ ...params, sort: 'captured_desc', page, limit: PAGE_SIZE }),
+        this.search.search({
+          ...params,
+          sort: 'captured_desc',
+          page,
+          limit: PAGE_SIZE,
+        }),
       );
       if (gen !== this.fetchGen) return;
       this._total.set(r.total);
@@ -933,148 +961,136 @@ Replace the entire contents of `src/web/projects/maple-common/src/lib/components
   <app-timeline-filter-row />
 
   @if (!hasPathPrefix()) {
-    <div class="flex flex-1 items-center justify-center text-[12px] text-text-muted">
-      Pick a library or folder to see a timeline.
-    </div>
+  <div class="flex flex-1 items-center justify-center text-[12px] text-text-muted">
+    Pick a library or folder to see a timeline.
+  </div>
   } @else {
-    <!-- The scrollContainer is mounted whenever a path scope exists, so the
+  <!-- The scrollContainer is mounted whenever a path scope exists, so the
          IntersectionObservers' root never gets unmounted mid-fetch. -->
-    <div class="timeline-scroll flex-1 overflow-y-auto" #scrollContainer>
-      @if (pageError(); as err) {
+  <div class="timeline-scroll flex-1 overflow-y-auto" #scrollContainer>
+    @if (pageError(); as err) {
+    <div
+      class="flex flex-col items-center justify-center gap-2 px-3 py-8 text-center text-[12px] text-error-text"
+    >
+      <span>{{ err }}</span>
+      <button
+        type="button"
+        class="cursor-pointer rounded border-[0.5px] border-border bg-surface-hover px-2 py-1 text-text-main hover:border-text-muted"
+        (click)="retryPage()"
+      >
+        Retry
+      </button>
+    </div>
+    } @else if (pageLoading() && years().length === 0) {
+    <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
+      Loading timeline…
+    </div>
+    } @else if (isEmpty()) {
+    <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
+      No photos in this scope match your filters.
+    </div>
+    } @else { @for (y of years(); track trackYear($index, y)) {
+    <div class="year-group">
+      <div
+        class="sticky top-0 z-10 flex h-11 items-end border-b-[0.5px] border-border bg-bg px-3 pb-1 text-[20px] font-semibold text-text-main"
+      >
+        {{ y.year }}
+        <span class="ml-2 text-[11px] font-normal text-text-muted">
+          {{ y.count }} photo{{ y.count === 1 ? '' : 's' }}
+        </span>
+      </div>
+
+      @for (m of y.months; track trackMonth($index, m)) {
+      <div
+        class="month-section"
+        [attr.data-year]="m.year"
+        [attr.data-month]="m.month"
+        [appTimelineRegisterMonth]="registerMonthSection"
+      >
         <div
-          class="flex flex-col items-center justify-center gap-2 px-3 py-8 text-center text-[12px] text-error-text"
+          class="sticky top-11 z-[9] flex h-8 items-center border-b-[0.5px] border-border bg-bg px-4 text-[13px] font-medium text-text-main"
         >
-          <span>{{ err }}</span>
-          <button
-            type="button"
-            class="cursor-pointer rounded border-[0.5px] border-border bg-surface-hover px-2 py-1 text-text-main hover:border-text-muted"
-            (click)="retryPage()"
-          >
-            Retry
-          </button>
+          {{ monthLabel(m.month) }}
+          <span class="ml-2 text-[11px] font-normal text-text-muted">{{ m.count }}</span>
         </div>
-      } @else if (pageLoading() && years().length === 0) {
-        <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
-          Loading timeline…
-        </div>
-      } @else if (isEmpty()) {
-        <div class="flex h-full items-center justify-center text-[12px] text-text-muted">
-          No photos in this scope match your filters.
-        </div>
-      } @else {
-        @for (y of years(); track trackYear($index, y)) {
-          <div class="year-group">
-            <div
-              class="sticky top-0 z-10 flex h-11 items-end border-b-[0.5px] border-border bg-bg px-3 pb-1 text-[20px] font-semibold text-text-main"
-            >
-              {{ y.year }}
-              <span class="ml-2 text-[11px] font-normal text-text-muted">
-                {{ y.count }} photo{{ y.count === 1 ? '' : 's' }}
-              </span>
-            </div>
 
-            @for (m of y.months; track trackMonth($index, m)) {
-              <div
-                class="month-section"
-                [attr.data-year]="m.year"
-                [attr.data-month]="m.month"
-                [appTimelineRegisterMonth]="registerMonthSection"
-              >
-                <div
-                  class="sticky top-11 z-[9] flex h-8 items-center border-b-[0.5px] border-border bg-bg px-4 text-[13px] font-medium text-text-main"
-                >
-                  {{ monthLabel(m.month) }}
-                  <span class="ml-2 text-[11px] font-normal text-text-muted">{{ m.count }}</span>
-                </div>
-
-                @if (!m.isVisible) {
-                  <!-- Off-screen placeholder — preserves scroll height
+        @if (!m.isVisible) {
+        <!-- Off-screen placeholder — preserves scroll height
                        without mounting any <img>/<button>s. Height is this
                        section's own last-measured height, not an estimate. -->
-                  <div [style.height.px]="m.placeholderHeight" aria-hidden="true"></div>
-                } @else {
-                  @for (g of m.groups; track trackGroup($index, g)) {
-                    <div class="folder-group">
-                      <button
-                        type="button"
-                        class="folder-group-header flex h-6 w-full items-center px-3 text-left text-[11px] uppercase tracking-[0.05em] text-text-muted hover:text-text-main"
-                        [attr.aria-expanded]="!isCollapsed(m.year, m.month, g.folderName)"
-                        (click)="toggleGroup(m.year, m.month, g.folderName)"
-                      >
-                        <span
-                          class="mr-1.5 inline-block h-2.5 w-2.5 transition-transform duration-[120ms]"
-                          [class.rotate-90]="!isCollapsed(m.year, m.month, g.folderName)"
-                          aria-hidden="true"
-                        >
-                          <!-- Chevron-right SVG; rotates 90° when expanded -->
-                          <svg viewBox="0 0 10 10" class="block h-full w-full" fill="currentColor">
-                            <path d="M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z" />
-                          </svg>
-                        </span>
-                        {{ folderGroupLabel(g.folderName) }}
-                        <span class="ml-2 normal-case tracking-normal"
-                          >({{ g.photos.length }})</span
-                        >
-                      </button>
-                      @if (!isCollapsed(m.year, m.month, g.folderName)) {
-                        <div class="flex flex-wrap gap-1 px-4 pb-2">
-                          @for (p of g.photos; track trackPhoto($index, p)) {
-                            <button
-                              type="button"
-                              class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
-                              [class.is-selected]="state.focusedAssetId() === p.id"
-                              [class.dimmed]="p.hidden"
-                              [attr.aria-label]="p.filename"
-                              (click)="onPhotoClick(p, $event)"
-                              (dblclick)="onPhotoDblClick(p)"
-                            >
-                              @if (p.thumbUrl) {
-                                <img
-                                  class="block h-full w-full object-cover"
-                                  [src]="p.thumbUrl"
-                                  alt=""
-                                  loading="lazy"
-                                  decoding="async"
-                                />
-                              }
-                              @if (p.hidden) {
-                                <div
-                                  class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
-                                >
-                                  HIDDEN
-                                </div>
-                              }
-                              @if (p.rating > 0) {
-                                <div
-                                  class="absolute bottom-1 right-1 rounded bg-black/45 px-1 py-0.5 text-[10px] text-white backdrop-blur-[4px]"
-                                >
-                                  {{ p.rating }}★
-                                </div>
-                              }
-                            </button>
-                          }
-                        </div>
-                      }
-                    </div>
-                  }
-                }
-              </div>
-            }
-          </div>
-        }
-
-        @if (!isDone()) {
-          <div
-            class="flex h-10 items-center justify-center text-[10px] uppercase tracking-[0.05em] text-text-muted"
-            [appTimelineRegisterMonth]="registerSentinel"
+        <div [style.height.px]="m.placeholderHeight" aria-hidden="true"></div>
+        } @else { @for (g of m.groups; track trackGroup($index, g)) {
+        <div class="folder-group">
+          <button
+            type="button"
+            class="folder-group-header flex h-6 w-full items-center px-3 text-left text-[11px] uppercase tracking-[0.05em] text-text-muted hover:text-text-main"
+            [attr.aria-expanded]="!isCollapsed(m.year, m.month, g.folderName)"
+            (click)="toggleGroup(m.year, m.month, g.folderName)"
           >
-            @if (pageLoading()) {
-              Loading more…
+            <span
+              class="mr-1.5 inline-block h-2.5 w-2.5 transition-transform duration-[120ms]"
+              [class.rotate-90]="!isCollapsed(m.year, m.month, g.folderName)"
+              aria-hidden="true"
+            >
+              <!-- Chevron-right SVG; rotates 90° when expanded -->
+              <svg viewBox="0 0 10 10" class="block h-full w-full" fill="currentColor">
+                <path d="M3 1.5L6.5 5L3 8.5L4 9.5L8.5 5L4 0.5L3 1.5Z" />
+              </svg>
+            </span>
+            {{ folderGroupLabel(g.folderName) }}
+            <span class="ml-2 normal-case tracking-normal">({{ g.photos.length }})</span>
+          </button>
+          @if (!isCollapsed(m.year, m.month, g.folderName)) {
+          <div class="flex flex-wrap gap-1 px-4 pb-2">
+            @for (p of g.photos; track trackPhoto($index, p)) {
+            <button
+              type="button"
+              class="timeline-photo relative h-[140px] w-[140px] flex-shrink-0 cursor-pointer overflow-hidden rounded-sm border-[0.5px] border-border bg-surface-hover transition-[border-color] duration-[120ms] hover:border-primary"
+              [class.is-selected]="state.focusedAssetId() === p.id"
+              [class.dimmed]="p.hidden"
+              [attr.aria-label]="p.filename"
+              (click)="onPhotoClick(p, $event)"
+              (dblclick)="onPhotoDblClick(p)"
+            >
+              @if (p.thumbUrl) {
+              <img
+                class="block h-full w-full object-cover"
+                [src]="p.thumbUrl"
+                alt=""
+                loading="lazy"
+                decoding="async"
+              />
+              } @if (p.hidden) {
+              <div
+                class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
+              >
+                HIDDEN
+              </div>
+              } @if (p.rating > 0) {
+              <div
+                class="absolute bottom-1 right-1 rounded bg-black/45 px-1 py-0.5 text-[10px] text-white backdrop-blur-[4px]"
+              >
+                {{ p.rating }}★
+              </div>
+              }
+            </button>
             }
           </div>
-        }
+          }
+        </div>
+        } }
+      </div>
       }
     </div>
+    } @if (!isDone()) {
+    <div
+      class="flex h-10 items-center justify-center text-[10px] uppercase tracking-[0.05em] text-text-muted"
+      [appTimelineRegisterMonth]="registerSentinel"
+    >
+      @if (pageLoading()) { Loading more… }
+    </div>
+    } }
+  </div>
   }
 </div>
 ```
@@ -1114,7 +1130,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TimelineViewComponent } from './timeline-view.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TimelineStateService } from '../../state/timeline-state.service';
-import { SearchService, SearchParams, SearchResponse, SearchResult } from '../../api/search.service';
+import {
+  SearchService,
+  SearchParams,
+  SearchResponse,
+  SearchResult,
+} from '../../api/search.service';
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { API_BASE_URL } from '../../api/api-base-url.token';
@@ -1155,7 +1176,12 @@ class SearchStub {
   search = vi.fn((p: SearchParams) => {
     this.searchCalls.push(p);
     const page = p.page ?? 0;
-    const resp = this.pages[page] ?? { total: 0, page, limit: p.limit ?? 200, results: [] };
+    const resp = this.pages[page] ?? {
+      total: 0,
+      page,
+      limit: p.limit ?? 200,
+      results: [],
+    };
     return of(resp);
   });
   facets = vi.fn(() => of({}));
@@ -1174,7 +1200,10 @@ describe('TimelineViewComponent', () => {
   // intersection callbacks (there's no real IntersectionObserver in
   // jsdom). visibilityObserver is constructed first, sentinelObserver
   // second — `ioCalls[1]` is always the sentinel one.
-  let ioCalls: Array<{ root: Element | null; callbacks: IntersectionObserverCallback }> = [];
+  let ioCalls: Array<{
+    root: Element | null;
+    callbacks: IntersectionObserverCallback;
+  }> = [];
   let ioObservedTargets: HTMLElement[] = [];
 
   beforeEach(() => {
@@ -1182,7 +1211,10 @@ describe('TimelineViewComponent', () => {
     ioObservedTargets = [];
     const ioStub = class {
       constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
-        ioCalls.push({ root: (options?.root as Element | null) ?? null, callbacks: callback });
+        ioCalls.push({
+          root: (options?.root as Element | null) ?? null,
+          callbacks: callback,
+        });
       }
       observe(t: Element): void {
         ioObservedTargets.push(t as HTMLElement);
@@ -1225,7 +1257,13 @@ describe('TimelineViewComponent', () => {
       },
     ]);
     library.sidebarTree.set([
-      { kind: 'folder', id: 'lib:', label: 'Lib', count: null, absPath: '/Lib' },
+      {
+        kind: 'folder',
+        id: 'lib:',
+        label: 'Lib',
+        count: null,
+        absPath: '/Lib',
+      },
     ]);
   });
 
@@ -1321,7 +1359,12 @@ describe('TimelineViewComponent', () => {
     expect(sentinelEl).toBeDefined();
     const sentinelCallback = ioCalls[1]!.callbacks;
     sentinelCallback(
-      [{ isIntersecting: true, target: sentinelEl } as IntersectionObserverEntry],
+      [
+        {
+          isIntersecting: true,
+          target: sentinelEl,
+        } as IntersectionObserverEntry,
+      ],
       {} as IntersectionObserver,
     );
     await new Promise((r) => setTimeout(r, 0));
@@ -1441,7 +1484,7 @@ grep -rn "TimelineScrubberComponent\|timeline-scrubber\|SearchService.*buckets\|
   projects/maple-common/src/lib/components/timeline-view/ projects/maple-common/src/public-api.ts
 ```
 
-Expected: the `grep` prints nothing (no remaining references). If `SearchService.buckets()` itself (the method in `search.service.ts`) shows up, that's fine and expected to stay — only Timeline's *usage* of it must be gone.
+Expected: the `grep` prints nothing (no remaining references). If `SearchService.buckets()` itself (the method in `search.service.ts`) shows up, that's fine and expected to stay — only Timeline's _usage_ of it must be gone.
 
 - [ ] **Step 8: Commit**
 
