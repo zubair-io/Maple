@@ -48,7 +48,6 @@ import {
 import { DamagedPanelService } from './damaged-panel.service';
 import { MigrationPanelService } from './migration-panel.service';
 import { ImportsPanelService } from './imports-panel.service';
-import { HiddenAlertsPanelService } from './hidden-alerts-panel.service';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { SettingsRowComponent } from '../settings-row.component';
@@ -93,12 +92,7 @@ import {
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
-  providers: [
-    DamagedPanelService,
-    MigrationPanelService,
-    ImportsPanelService,
-    HiddenAlertsPanelService,
-  ],
+  providers: [DamagedPanelService, MigrationPanelService, ImportsPanelService],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkersComponent implements OnInit, OnDestroy {
@@ -106,7 +100,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly damaged = inject(DamagedPanelService);
   protected readonly migration = inject(MigrationPanelService);
   protected readonly imports = inject(ImportsPanelService);
-  protected readonly hiddenAlertsPanel = inject(HiddenAlertsPanelService);
   private readonly api = inject(WorkersApiService);
   private readonly events = inject(WorkerEventsService);
   private readonly enrichmentApi = inject(BunApiBackendService);
@@ -165,7 +158,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     // (keeps this component under the file-size budget).
     this.migration.startPolling();
     this.imports.startPolling();
-    this.hiddenAlertsPanel.fetch();
   }
 
   private fetchReaperPruneWindow(): void {

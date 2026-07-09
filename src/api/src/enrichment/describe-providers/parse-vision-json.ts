@@ -54,7 +54,6 @@ import {
   COERCE_FAIL,
   coerceEnum,
   coerceIsScreenshot,
-  coerceNudity,
   coerceTextVisible,
   unwrapEnum,
 } from './parse-vision-json-coerce.ts';
@@ -104,12 +103,6 @@ export function parseVisionJson(raw: string): VisionDoc {
       'is_screenshot',
     );
   }
-
-  // nudity has no COERCE_FAIL path — grammar-constrained decode makes a
-  // degenerate value near-impossible on modern Ollama, and this field is
-  // always classifiable, so an unrecognised input falls back to 'none'
-  // (see coerceNudity) rather than dead-lettering the whole row.
-  const nudity = coerceNudity(obj.nudity);
 
   const caption = asString(obj.caption);
   if (caption === null) {
@@ -252,6 +245,6 @@ export function parseVisionJson(raw: string): VisionDoc {
     notable_objects,
     shot_type: shot_type as VisionDoc['shot_type'],
     is_screenshot,
-    nudity,
+    nudity: 'none',
   };
 }
