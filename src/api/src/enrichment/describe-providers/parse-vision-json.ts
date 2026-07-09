@@ -61,11 +61,11 @@ import {
 // Re-export the public surface so existing import sites
 // (`./parse-vision-json.ts`) keep working unchanged.
 export { VisionParseError, strippedRawFor } from './parse-vision-json-errors.ts';
-export type { VisionParseReason } from './parse-vision-json-errors.ts';
 export { VISION_DOC_JSON_SCHEMA } from './parse-vision-json-enums.ts';
 
 /** Parse a model response into a typed `VisionDoc`. Throws
  * `VisionParseError` on any deviation from the schema. */
+// fallow-ignore-next-line complexity
 export function parseVisionJson(raw: string): VisionDoc {
   if (raw.length === 0) {
     throw new VisionParseError('empty-response', 'raw response was empty', raw);
