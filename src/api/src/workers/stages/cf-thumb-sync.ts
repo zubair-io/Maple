@@ -27,8 +27,9 @@
  * validity, so anything in R2 is fetchable by any authenticated user for as
  * long as it's there. An asset that's ALREADY synced when it becomes hidden
  * is handled separately by `cloudflare/hidden-cleanup.ts` (active deletion,
- * hooked into every write path that can flip `hidden` to `true`) — this
- * stage only ever adds to R2, never removes.
+ * hooked into every write path that can flip `hidden` to `true`) — as a
+ * safeguard, this stage also proactively deletes the edge copy if it
+ * processes a hidden asset that carries a sync timestamp.
  *
  * Retry/backoff and dead-lettering are entirely `run-stage.ts`'s generic
  * job — this handler just throws on failure (mirrors `geocode.ts`), rather
@@ -69,6 +70,8 @@ const cfThumbSyncStage = defineStage({
   // fallow-ignore-next-line complexity
   handler: async (image): Promise<StageResult> => {
     if (image.hidden === true) {
+      // Safeguard: if this asset is hidden but somehow still has an R2 sync timestamp
+      // (e.g. from a failed or bypassed initial cleanup transition), actively tear it down.
       if (image.cf_thumb_synced_at) {
         await cleanupR2ThumbForHiddenAsset(image);
       }
