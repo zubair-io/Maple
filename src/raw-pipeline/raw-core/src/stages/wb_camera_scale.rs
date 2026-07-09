@@ -45,10 +45,10 @@
 //!    `G-norm(cm_for_cct(T₂) · target_xyz(T₂, t₂)) = n₂` — fixed-point on
 //!    the frame CM (the same self-consistency `compute_as_shot_cct`
 //!    iterates), nearest-point-on-locus for `T₂`, perpendicular uv
-//!    projection (the `tint_sign_positive_v = false` axis
+//!    projection (the `tint_sign_positive_v = true` axis, #1875 —
 //!    `camera_wb_gain`'s forward map displaces along) for `t₂`. The tint
 //!    is deliberately NOT clamped to the slider's ±100 UI range: a real
-//!    camera's neutral can project beyond it (H2D-39 as-shot ≈ +144), and
+//!    camera's neutral can project beyond it (H2D-39 as-shot ≈ −144), and
 //!    preserving the authored look wins over slider cosmetics.
 //!
 //! Only sidecars with an explicit authored Temperature/Tint component
@@ -83,7 +83,18 @@ pub fn resolve_target_versioned(
     let needs_conversion =
         model.wb_scale_version == WbScaleVersion::V1 && (model.temperature_seen || model.tint_seen);
     if !needs_conversion {
-        return super::resolve_target(model, frame);
+        let (t, tint) = super::resolve_target(model, frame);
+        // V2-authored tint (#1875): the #1756–#1875 scale's tint axis was
+        // inverted vs ACR; negating the authored value re-expresses it in
+        // the V3 (ACR-direction) axis so the authored look is preserved.
+        // Mirrors `white_balance::resolve_wb`'s V2 branch (the fallback
+        // tier's resolver) so the two tiers can't drift. Only explicit
+        // authored tint converts — the As-Shot sentinel and presets never
+        // set `tint_seen`.
+        if model.wb_scale_version == WbScaleVersion::V2 && model.tint_seen {
+            return (t, -tint);
+        }
+        return (t, tint);
     }
     convert_v1_target(model, frame, profile, as_shot_neutral)
         .unwrap_or_else(|| super::resolve_target(model, frame))
@@ -112,7 +123,13 @@ fn convert_v1_target(
     let w_old = match model.wb_method {
         WbMethod::Cat16 => white_balance::wb_cat16_matrix(t1, tint1).mul_vec(w),
         WbMethod::DiagonalRec2020 => {
-            let g = white_balance::wb_gains(t1, tint1);
+            // The HISTORIC diagonal path interpreted tint on the `false`
+            // axis (pre-#1875). Reconstructing the authored V1 look
+            // requires that historic interpretation, so this branch keeps
+            // its own legacy gains rather than the (now ACR-direction)
+            // `wb_gains`. Negating tint reproduces the old axis exactly —
+            // the two orientations are the same line with opposite sign.
+            let g = white_balance::wb_gains(t1, -tint1);
             [w[0] * g[0], w[1] * g[1], w[2] * g[2]]
         }
     };
@@ -139,8 +156,8 @@ fn convert_v1_target(
 /// Forward: `n(T, tint) = cm_for_cct(T) · target_xyz(T, tint)`, where
 /// `target_xyz` is the Hernández-Andrés locus point at `T` displaced by
 /// `tint · TINT_UV_SCALE` along the perpendicular axis
-/// (`tint_sign_positive_v = false`). The inversion fixed-points on the
-/// frame CM (dual-calibration frames re-interpolate at `T`), takes `T` as
+/// (`tint_sign_positive_v = true`, the ACR direction — #1875). The
+/// inversion fixed-points on the frame CM (dual-calibration frames re-interpolate at `T`), takes `T` as
 /// the nearest-locus parameter of the implied chromaticity (where the
 /// residual is purely perpendicular — the same condition the forward
 /// displacement satisfies), and reads `tint` off the perpendicular
@@ -168,7 +185,9 @@ fn invert_frame_target(frame: &SliderFrame, n_target: [f32; 3]) -> Option<(f32, 
     let (u, v) = uv_for(cct)?;
     let (cx, cy) = cct_to_xy(cct);
     let (cu, cv) = xy_to_uv(cx, cy);
-    let (perp_u, perp_v) = tint_perpendicular_axis(cct, false);
+    // The ACR-convention axis (`true`, #1875) — must stay the exact
+    // inverse of `wb_camera::target_xyz`'s forward displacement.
+    let (perp_u, perp_v) = tint_perpendicular_axis(cct, true);
     let tint = ((u - cu) * perp_u + (v - cv) * perp_v) / TINT_UV_SCALE;
     if !cct.is_finite() || !tint.is_finite() {
         return None;
@@ -206,7 +225,7 @@ fn nearest_locus_cct(u: f32, v: f32) -> f32 {
 #[cfg(test)]
 fn forward_frame_target(frame: &SliderFrame, temperature: f32, tint: f32) -> [f32; 3] {
     let (x, y) = cct_to_xy(temperature);
-    let (tx, ty) = white_balance::apply_tint_perpendicular(x, y, temperature, tint, false);
+    let (tx, ty) = white_balance::apply_tint_perpendicular(x, y, temperature, tint, true);
     let xyz = white_balance::xy_to_xyz(tx, ty, 1.0);
     frame.cm_for_cct(temperature).mul_vec(xyz)
 }

@@ -1,17 +1,19 @@
 // wb-scale-version.spec.ts — XMP round-trip for the WB slider-scale
-// version stamp (#1780).
+// version stamp (#1780/#1875).
 //
 // Mirrors the Swift tests in
-// `src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPSerializationTests.swift`
+// `src/apple/Packages/MapleCore/Tests/MapleCoreTests/WbScaleVersionTests.swift`
 // and the Rust tests in `raw-core/src/xmp/tests_wb_scale.rs`:
 //
 //  - explicit `papp:WbScaleVersion` stamp wins;
 //  - Maple-authored sidecar (papp namespace present) with no stamp is
 //    version 1 (pre-#1756 scale);
 //  - non-Maple sidecar (no papp namespace — ACR/Lightroom-authored) is
-//    version 2 (ACR's own scale, which #1756 adopted);
-//  - the serializer stamps the model's version whenever it writes an
-//    explicit Temperature/Tint, and omits the stamp otherwise.
+//    version 3 (ACR's own convention, which V3 matches, #1875);
+//  - a V2 stamp (the #1756–#1875 scale, tint axis inverted vs ACR)
+//    load-normalizes: authored tint negates and the model becomes 3;
+//  - the serializer stamps the model's version ({1, 3}) whenever it
+//    writes an explicit Temperature/Tint, and omits the stamp otherwise.
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -68,16 +70,33 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(model.tint).toBe(-44);
   });
 
-  it('reads an ACR-authored sidecar (no papp namespace) as version 2', () => {
+  it('reads an ACR-authored sidecar (no papp namespace) as version 3', () => {
+    // ACR's crs:Tint is already in the V3 direction — passes through.
     const xml = acrSidecar(`crs:Temperature="5500" crs:Tint="10"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(2);
+    expect(model.wbScaleVersion).toBe(3);
+    expect(model.tint).toBe(10);
   });
 
   it('honours an explicit stamp over the authorship heuristic', () => {
+    // A V2 stamp beats the V1 heuristic, then load-normalizes to 3 (no
+    // authored tint here, so no negation).
     const xml = mapleSidecar(`crs:Temperature="5700" papp:WbScaleVersion="2"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(2);
+    expect(model.wbScaleVersion).toBe(3);
+    expect(model.tint).toBeUndefined();
+  });
+
+  it('negates a V2-authored tint into the V3 axis on load (#1875)', () => {
+    // The V2 scale's tint axis was inverted vs ACR: a V2 sidecar's
+    // authored +50 (a green-ward look when written) must load as −50 in
+    // the V3 axis so the rendered look is preserved, and the model
+    // normalizes to version 3 for every re-save.
+    const xml = mapleSidecar(`crs:Temperature="5700" crs:Tint="50" papp:WbScaleVersion="2"`);
+    const { model } = parser.parseAdjustmentModel(xml);
+    expect(model.wbScaleVersion).toBe(3);
+    expect(model.tint).toBe(-50);
+    expect(model.temperature).toBe(5700);
   });
 
   it('keeps the stamp out of the passthrough bucket', () => {
@@ -86,20 +105,20 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(passthrough.unknownAttributes.some((a) => a.name === 'papp:WbScaleVersion')).toBe(false);
   });
 
-  it('defaults a fresh model to version 2', () => {
-    expect(defaultAdjustmentModel().wbScaleVersion).toBe(2);
+  it('defaults a fresh model to version 3', () => {
+    expect(defaultAdjustmentModel().wbScaleVersion).toBe(3);
   });
 
-  it('stamps version 2 when a fresh model writes an explicit temperature', () => {
+  it('stamps version 3 when a fresh model writes an explicit temperature', () => {
     const m = { ...defaultAdjustmentModel(), temperature: 5200 };
     const xml = serializer.serialize(m);
-    expect(xml).toContain('papp:WbScaleVersion="2"');
+    expect(xml).toContain('papp:WbScaleVersion="3"');
   });
 
-  it('stamps version 2 for a tint-only explicit WB', () => {
+  it('stamps version 3 for a tint-only explicit WB', () => {
     const m = { ...defaultAdjustmentModel(), tint: -30 };
     const xml = serializer.serialize(m);
-    expect(xml).toContain('papp:WbScaleVersion="2"');
+    expect(xml).toContain('papp:WbScaleVersion="3"');
   });
 
   it('omits the stamp when temperature and tint are at defaults', () => {
@@ -142,11 +161,11 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(model.wbScaleVersion).toBe(1);
   });
 
-  it('clamps an out-of-range wbScaleVersion to 2 at write time', () => {
+  it('clamps an out-of-range wbScaleVersion to 3 at write time', () => {
     // raw-core's parser hard-fails on an unknown stamp — a corrupted model
     // field must never produce an unparseable sidecar.
     const m = { ...defaultAdjustmentModel(), temperature: 5500, wbScaleVersion: 7 };
     const xml = serializer.serialize(m);
-    expect(xml).toContain('papp:WbScaleVersion="2"');
+    expect(xml).toContain('papp:WbScaleVersion="3"');
   });
 });

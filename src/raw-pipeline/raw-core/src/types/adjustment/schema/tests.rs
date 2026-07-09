@@ -298,9 +298,9 @@ fn schema_matches_struct() {
     );
     assert_eq!(
         wb_scale_version,
-        super::super::WbScaleVersion::V2,
-        "AdjustmentModel::default().wb_scale_version must be V2 (fresh models \
-         author in the #1756 slider-frame scale)"
+        super::super::WbScaleVersion::V3,
+        "AdjustmentModel::default().wb_scale_version must be V3 (fresh models \
+         author in the #1875 ACR-direction slider-frame scale)"
     );
 }
 

@@ -257,12 +257,13 @@ pub fn estimate_tint_from_scene_xyz(xyz: Vec3, cct: f32) -> f32 {
 
     let (cx, cy) = super::white_balance::cct_to_xy(cct);
     let (cu, cv) = xy_to_uv(cx, cy);
-    // SLIDER convention (`tint_sign_positive_v = false`) — the axis
-    // `wb_camera::target_xyz`/`white_balance::wb_gains` consume when they
-    // turn `model.tint` back into a chromaticity. Pre-#1870 this projected
-    // onto the opposite (`true`) axis, so every calibrated body's seeded
-    // As-Shot init rendered with a 2×|tint| spurious cast.
-    let (perp_u, perp_v) = tint_perpendicular_axis(cct, false);
+    // ACR convention (`tint_sign_positive_v = true`, #1875) — the same
+    // axis `wb_camera::target_xyz`/`white_balance::wb_gains`/
+    // `wb_cat16_matrix` consume when they turn `model.tint` back into a
+    // chromaticity. The invariant is ESTIMATOR AXIS == RENDER AXIS: any
+    // mismatch makes the seeded As-Shot init render with a 2×|tint|
+    // spurious cast (#1870's pink init was exactly that).
+    let (perp_u, perp_v) = tint_perpendicular_axis(cct, true);
     // (u0,v0) - (cu,cv) is the displacement FROM the CCT's locus point TO
     // the measured chromaticity; its scalar projection onto the unit
     // perpendicular axis recovers the signed `tint * TINT_UV_SCALE` the
@@ -468,14 +469,14 @@ mod tests {
 
     /// Forward-map a (CCT, tint) pair to a scene-white XYZ through the SAME
     /// model `estimate_tint_from_scene_xyz` inverts: `cct_to_xy` +
-    /// `apply_tint_perpendicular` (slider convention — `tint_sign_positive_v
-    /// = false`, matching the estimator's projection axis, #1870), then to
+    /// `apply_tint_perpendicular` (ACR convention — `tint_sign_positive_v
+    /// = true`, matching the estimator's projection axis, #1875), then to
     /// XYZ Y-normalized to 1. This is the forward half of the round-trip
     /// property, independent of `wb_gains`/CAT16 matrix math entirely — it
     /// only exercises the chromaticity geometry the estimator itself uses.
     fn forward_scene_white_xyz(cct: f32, tint: f32) -> Vec3 {
         let (x, y) = cct_to_xy(cct);
-        let (sx, sy) = apply_tint_perpendicular(x, y, cct, tint, false);
+        let (sx, sy) = apply_tint_perpendicular(x, y, cct, tint, true);
         xy_to_xyz(sx, sy, 1.0)
     }
 

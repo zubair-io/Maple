@@ -68,18 +68,19 @@ export class XmpSerializerService {
       }
     }
 
-    // WB scale stamp (#1780): whenever an explicit Temperature/Tint was
-    // emitted above, stamp the scale those numbers are expressed in.
-    // Re-emits the version the model was loaded with (1 for pre-#1756
-    // sidecars, 2 for fresh models) so a V1 sidecar's stored values keep
-    // their meaning across saves. Mirrors the Swift writer; raw-core's
-    // parser gives the stamp precedence over the papp-authorship
-    // heuristic.
+    // WB scale stamp (#1780/#1875): whenever an explicit Temperature/Tint
+    // was emitted above, stamp the scale those numbers are expressed in.
+    // V1 re-emits as 1 (raw-core converts at develop, so stored V1 values
+    // keep their meaning across saves); everything else emits 3 — the
+    // parse normalizes V2 models to V3 at load, so a non-1 model always
+    // holds V3 (ACR tint direction) values. Mirrors the Swift writer;
+    // raw-core's parser gives the stamp precedence over the
+    // papp-authorship heuristic.
     if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
-      // Clamp to {1, 2} (default 2): raw-core's parser hard-fails on an
-      // unknown stamp value, so a corrupted/out-of-range model field must
-      // never reach the sidecar.
-      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 2}"`);
+      // Clamp to {1, 3}: raw-core's parser hard-fails on an unknown stamp
+      // value, so a corrupted/out-of-range model field must never reach
+      // the sidecar.
+      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 3}"`);
     }
 
     // DisplayLookCurve (#371; retired in #443) — the field is a no-op

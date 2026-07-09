@@ -94,15 +94,18 @@ export interface AdjustmentModel extends GeneratedAdjustmentModel {
   whiteBalancePreset: WhiteBalancePreset;
   crop: Crop;
   /**
-   * WB slider-scale version of this model's temperature/tint (#1780).
+   * WB slider-scale version of this model's temperature/tint (#1780/#1875).
    * `1` = pre-#1756 scale (post-DCP CAT16, 6500 K identity) — raw-core
-   * converts on use; `2` = ACR calibration-frame scale (current). Parsed
-   * from `papp:WbScaleVersion` (absent stamp on a Maple-authored sidecar
-   * means `1`; non-Maple sidecars are `2`), re-stamped verbatim whenever
-   * an explicit Temperature/Tint is written so a V1 sidecar's stored
-   * values keep their meaning across saves. Fresh models author in the
-   * current scale. Internal parse-state (like raw-core's
-   * `wb_scale_version`) — not part of the generated codegen schema.
+   * converts on use; `3` = ACR calibration-frame scale with the ACR tint
+   * direction (current). `2` (the #1756–#1875 scale, tint axis inverted vs
+   * ACR) never survives a parse: the loader negates authored tint and
+   * normalizes the model to `3`. Parsed from `papp:WbScaleVersion` (absent
+   * stamp on a Maple-authored sidecar means `1`; non-Maple sidecars are
+   * `3`), re-stamped as {1, 3} whenever an explicit Temperature/Tint is
+   * written so a V1 sidecar's stored values keep their meaning across
+   * saves. Fresh models author in the current scale. Internal parse-state
+   * (like raw-core's `wb_scale_version`) — not part of the generated
+   * codegen schema.
    */
   wbScaleVersion: number;
 }
@@ -112,7 +115,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     ...defaultGeneratedAdjustmentModel(),
     whiteBalancePreset: 'As Shot',
     crop: defaultCrop(),
-    wbScaleVersion: 2,
+    wbScaleVersion: 3,
   };
 }
 

@@ -45,16 +45,31 @@ public struct XMPParser {
         }
         m = delegate.model
         c = delegate.culling
-        // WB scale versioning (#1780), resolved at document level: an
-        // explicit `papp:WbScaleVersion` stamp wins; otherwise a document
-        // carrying the Maple `papp:` namespace AND an explicit authored
-        // `crs:Temperature`/`crs:Tint` predates the versioning
+        // WB scale versioning (#1780/#1875), resolved at document level:
+        // an explicit `papp:WbScaleVersion` stamp wins; otherwise a
+        // document carrying the Maple `papp:` namespace AND an explicit
+        // authored `crs:Temperature`/`crs:Tint` predates the versioning
         // (pre-#1756 scale, 1). Everything else — no `papp:` namespace
-        // (ACR/Lightroom-authored, always in ACR's own slider scale) or
-        // no authored WB (nothing to convert) — is 2. Mirrors raw-core's
-        // `xmp::parse`.
+        // (ACR/Lightroom-authored, expressed in ACR's own convention,
+        // which V3 matches) or no authored WB (nothing to convert) — is
+        // 3. Mirrors raw-core's `xmp::parse`.
         let unstampedIsV1 = delegate.sawPappNamespace && delegate.sawExplicitWb
-        m.wbScaleVersion = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 2)
+        let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 3)
+        // V2 → V3 load-normalization (#1875): the #1756–#1875 scale's tint
+        // axis was inverted vs ACR, so a V2-authored crs:Tint encodes the
+        // opposite displacement in the V3 axis. Negating at load keeps the
+        // in-memory model (slider display, FFI live params, autosave)
+        // uniformly V3 while preserving the authored look. Only an
+        // explicitly authored crs:Tint negates — preset-resolved tints were
+        // never expressed in the inverted scale.
+        if version == 2 {
+            if delegate.sawAuthoredTint {
+                m.tint = -m.tint
+            }
+            m.wbScaleVersion = 3
+        } else {
+            m.wbScaleVersion = version
+        }
         return (m, c)
     }
 
@@ -101,6 +116,10 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     /// `XMPParser.parse` after the walk; mirrors raw-core's `xmp::parse`.
     var sawPappNamespace: Bool = false
     var sawExplicitWb: Bool = false
+    /// Whether an explicit `crs:Tint` ATTRIBUTE was authored anywhere in
+    /// the document (#1875) — the V2→V3 negation applies only to authored
+    /// tint, never to a preset-resolved value.
+    var sawAuthoredTint: Bool = false
     var wbScaleStamp: Int? = nil
 
     /// `dc:subject` is the only XMP element that isn't an attribute on
@@ -148,8 +167,11 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         if attributeDict["crs:Temperature"] != nil || attributeDict["crs:Tint"] != nil {
             sawExplicitWb = true
         }
+        if attributeDict["crs:Tint"] != nil {
+            sawAuthoredTint = true
+        }
         if let stamp = attributeDict["papp:WbScaleVersion"], let v = Int(stamp),
-           v == 1 || v == 2 {
+           (1...3).contains(v) {
             wbScaleStamp = v
         }
 

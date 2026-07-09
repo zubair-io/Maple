@@ -77,28 +77,36 @@ impl Default for WhiteBalancePreset {
 ///   chain converts these into the V2 frame on use
 ///   (`stages::wb_camera::resolve_target_versioned`) so the rendered look
 ///   authored under the old scale is preserved.
-/// - [`WbScaleVersion::V2`] — the #1756 scale. Values are slider-frame
-///   coordinates and pass through unconverted.
+/// - [`WbScaleVersion::V2`] — the #1756 scale: slider-frame coordinates,
+///   but with the tint AXIS inverted relative to ACR (#1875 — dragging
+///   toward the gradient's green end rendered magenta). Explicit authored
+///   tint is negated on use so the authored look is preserved.
+/// - [`WbScaleVersion::V3`] — the #1875 scale: slider-frame coordinates
+///   with the tint axis in the ACR direction (tint+ = magenta image, the
+///   direction the slider gradient and `crs:Tint` promise). Values pass
+///   through unconverted.
 ///
 /// Parse rule (see `xmp::parse`): an explicit `papp:WbScaleVersion`
 /// attribute wins; otherwise a document that carries the Maple `papp:`
 /// namespace (every Maple writer declares it) AND an explicit authored
 /// `crs:Temperature`/`crs:Tint` predates this versioning and is V1.
 /// Everything else — no `papp:` namespace at all (ACR/Lightroom-authored,
-/// always expressed in ACR's own scale, the exact scale #1756 adopted) or
-/// no authored WB (nothing to convert) — is V2. Default (no sidecar) is
-/// V2.
+/// always expressed in ACR's own convention, which V3 matches) or no
+/// authored WB (nothing to convert) — is V3. Default (no sidecar) is V3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WbScaleVersion {
     /// Pre-#1756 Maple scale: post-DCP CAT16, identity at 6500 K / 0.
     V1,
-    /// #1756 scale: ACR calibration-frame slider coordinates.
+    /// #1756 scale: ACR calibration-frame slider coordinates with the
+    /// tint axis inverted vs ACR (#1875).
     V2,
+    /// #1875 scale: calibration-frame coordinates, ACR tint direction.
+    V3,
 }
 
 impl Default for WbScaleVersion {
     fn default() -> Self {
-        Self::V2
+        Self::V3
     }
 }
 

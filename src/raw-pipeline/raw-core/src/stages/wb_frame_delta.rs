@@ -88,10 +88,11 @@ pub struct SliderFrameExport {
     pub scene_cct: f32,
     /// As-shot tint in THIS frame (`estimate_tint_from_scene_xyz` at
     /// `scene_cct` — the same estimate `dcp::estimate_as_shot_cct_tint`
-    /// hands the app for slider hydration), in the SLIDER convention
-    /// (`tint_sign_positive_v = false` — the axis `camera_wb_gain`
-    /// consumes, #1870). May sit at the ±150 rail for bodies whose
-    /// as-shot chromaticity is extremely far off the locus.
+    /// hands the app for slider hydration), in the ACR convention
+    /// (`tint_sign_positive_v = true` — the axis `camera_wb_gain`
+    /// consumes, #1875). May sit at the ±150 rail for bodies whose
+    /// as-shot chromaticity is extremely far off the locus (H2D-39
+    /// as-shot ≈ −143.5).
     pub as_shot_tint: f32,
 }
 
@@ -231,12 +232,12 @@ fn generic_cat16_delta(target: (f32, f32), decoded: (f32, f32)) -> Matrix3 {
 
 /// The frame's camera→Rec.2020 transform (module doc): the DCP Bradford
 /// fallback shape, built entirely from frame data. `w_frame` inverts the
-/// tint estimator — displace along the SAME slider-convention
-/// (`tint_sign_positive_v = false`) perpendicular axis
-/// `estimate_tint_from_scene_xyz` projects onto (#1870).
+/// tint estimator — displace along the SAME ACR-convention
+/// (`tint_sign_positive_v = true`, #1875) perpendicular axis
+/// `estimate_tint_from_scene_xyz` projects onto.
 fn frame_to_rec2020(frame: &SliderFrame, scene_cct: f32, as_shot_tint: f32) -> Option<Matrix3> {
     let (lx, ly) = cct_to_xy(scene_cct);
-    let (wx, wy) = apply_tint_perpendicular(lx, ly, scene_cct, as_shot_tint, false);
+    let (wx, wy) = apply_tint_perpendicular(lx, ly, scene_cct, as_shot_tint, true);
     let w_frame = xy_to_xyz(wx, wy, 1.0);
     let inv_pro = M_PRO_TO_XYZ_D50.inverse()?;
     let cam_to_xyz = frame.cm_as_shot.inverse()?;
