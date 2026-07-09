@@ -176,12 +176,16 @@ public final class EditSession {
     public var sidecarError: Error?
 
     /// True once the wgpu live path has PRESENTED at least one frame into the
-    /// canvas `CAMetalLayer` for this session. The GPU path presents directly
+    /// CURRENT canvas `CAMetalLayer`. The GPU path presents directly
     /// to the layer and never assigns `renderedPreview`, so the loading
     /// indicator and the canvas-ready sentinel cannot use `renderedPreview != nil`
     /// to know the GPU canvas has content (hydration also seeds `renderedPreview`
-    /// early). Monotonic per session — a new image is a new `EditSession`, so
-    /// this resets to `false` naturally. Set in `presentViaGpuLive`. See #1069.
+    /// early). Set in `presentViaGpuLive`; RESET by the canvas controller's
+    /// first-register block whenever a fresh `CAMetalLayer` mounts (#1878) —
+    /// the session survives editor⇄preview round trips in AppShell's session
+    /// store, but a re-entry creates a new, blank layer that this flag must
+    /// describe (left set, the re-entry render kicks short-circuit and the
+    /// CPU backdrop stays hidden: the black-canvas-on-reopen bug). See #1069.
     public var gpuFramePresented: Bool = false
 
     /// True once a wgpu present has THROWN for this session (#1769). Views gate

@@ -520,7 +520,16 @@ struct AppShell: View {
             // the Library toggle).
             // Fast Preview §1: the editor's back returns to Preview, not
             // straight to the grid (`grid → Preview → Editor` back stack).
-            onEditorDismiss: { mode = .preview },
+            // #1879: the GPU-live present path never runs the CPU publish
+            // tail that refreshes `ThumbnailDiskCache`, so without this
+            // one-shot readback the Preview view (which paints from the
+            // thumbnail pipeline) keeps showing the pre-edit render.
+            onEditorDismiss: {
+                if let id = browseVM.selectedID, let session = sessions[id] {
+                    session.refreshThumbnailFromCurrentGpuFrame()
+                }
+                mode = .preview
+            },
             onEditorShare: { showExport = true },
             // Toggle the editor's Info inspector (#875 item 2). On the pane
             // shell the info surface is the right-hand inspector, shown via
