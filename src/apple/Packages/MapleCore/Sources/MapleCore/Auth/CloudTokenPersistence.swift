@@ -28,4 +28,14 @@ public enum CloudTokenPersistence {
     try? TokenStore.save(tokens, server: server)
     Task { await FileProviderDomainController().mirrorTokens(serverURL: server) }
   }
+
+  /// Clear `server`'s tokens from the app Keychain AND the mirrored File Provider
+  /// store — the symmetric counterpart to `persistRotated`. A forced sign-out
+  /// that cleared only the app Keychain would leave the extension polling with
+  /// stale mirrored credentials until it independently failed; `mirrorTokens`
+  /// with an empty `TokenStore` removes the shared copy too.
+  public static func clear(server: URL) {
+    TokenStore.clear(server: server)
+    Task { await FileProviderDomainController().mirrorTokens(serverURL: server) }
+  }
 }
