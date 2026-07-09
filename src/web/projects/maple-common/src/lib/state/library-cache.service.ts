@@ -1,161 +1,45 @@
 // Library cache — LRU of raw RAW bytes + thumbnail blob URLs.
-//
 // All on-demand reads funnel through here so callers can `await` without
-// re-implementing dedup, eviction, or backend branching. Reads pull from:
-//   - the LRU (cache hit, instant)
-//   - the legacy in-memory map (drag-drop imports without FS Access)
-//   - the M2 slug:relPath path (`LibrarySource.imageBlob` → `/api/image/:slug/*`)
-//   - the Self-Hosted legacy abs-path fallback (`/api/fs/raw?path=…`)
-//   - the Self-Hosted Mongo asset path (`api.getRawBytes(apiId)`)
-//   - the Hosted FS Access folder handle (`entry.getFile()`)
-//
-// Thumbnails: idempotent loader that fetches once per asset, caches the
-// resulting blob URL, and writes through to the `.maple/thumbs/` on-disk
-// cache on Hosted.
+// re-implementing dedup, eviction, or backend branching.
 
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, effect } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId } from '../models/asset';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { FilesystemBrowseService, type DownloadProgress } from '../api/filesystem-browse.service';
-import { FolderEntry } from '../folder-access/folder-access.types';
+import { FolderEntry, MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { imageDataToBitmap, resizeBitmapToCanvas, canvasToBlob } from '../raw-pipeline/image-utils';
 import { sha256Prefix16 } from '../maple-cache/sha';
 import { LibraryStore } from './library-store.service';
+import { LibrarySelection } from './library-selection.service';
 import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source';
 import { parseAddress } from '../addressing/maple-address';
 import { BlobUrlChannel } from './blob-url-channel';
-
-// ── LRU cache ─────────────────────────────────────────────────────────────────
-
-/**
- * Simple LRU cache keyed by AssetId, evicting by total byte count.
- * Uses Map insertion order as a recency queue (delete-and-reinsert on access).
- */
-export class LruCache {
-  private entries = new Map<AssetId, Uint8Array>();
-  private totalBytes = 0;
-
-  constructor(private readonly maxBytes: number) {}
-
-  get(id: AssetId): Uint8Array | undefined {
-    const v = this.entries.get(id);
-    if (v) {
-      // Refresh recency by reinserting at the end.
-      this.entries.delete(id);
-      this.entries.set(id, v);
-    }
-    return v;
-  }
-
-  set(id: AssetId, bytes: Uint8Array): void {
-    if (this.entries.has(id)) {
-      this.totalBytes -= this.entries.get(id)!.byteLength;
-      this.entries.delete(id);
-    }
-    this.entries.set(id, bytes);
-    this.totalBytes += bytes.byteLength;
-    this._evict();
-  }
-
-  delete(id: AssetId): void {
-    const v = this.entries.get(id);
-    if (v) {
-      this.totalBytes -= v.byteLength;
-      this.entries.delete(id);
-    }
-  }
-
-  clear(): void {
-    this.entries.clear();
-    this.totalBytes = 0;
-  }
-
-  private _evict(): void {
-    while (this.totalBytes > this.maxBytes && this.entries.size > 1) {
-      const oldest = this.entries.keys().next().value as AssetId;
-      const removed = this.entries.get(oldest)!;
-      this.entries.delete(oldest);
-      this.totalBytes -= removed.byteLength;
-    }
-  }
-}
-
-// ── Thumbnail LRU cache ───────────────────────────────────────────────────────
-
-/**
- * Count-bounded LRU cache for thumbnail-ish URLs (blob: or plain HTTPS strings).
- * Uses Map insertion order as a recency queue (delete-and-reinsert on access).
- * Revokes `blob:` URLs when entries are evicted or the cache is cleared so
- * Blob bytes are freed promptly rather than waiting for a folder switch.
- * Folder switch used to wipe the entire map; with this LRU, recently-viewed
- * entries from the previous folder stay warm until displaced (M2, #1327).
- */
-export class ThumbLruCache {
-  private readonly entries = new Map<string, string>();
-
-  constructor(private readonly maxCount: number) {}
-
-  get size(): number {
-    return this.entries.size;
-  }
-
-  get(id: string): string | undefined {
-    const v = this.entries.get(id);
-    if (v !== undefined) {
-      // Refresh recency by reinserting at the end.
-      this.entries.delete(id);
-      this.entries.set(id, v);
-    }
-    return v;
-  }
-
-  set(id: string, url: string, onEvict?: (evictedId: string) => void): void {
-    if (this.entries.has(id)) {
-      // Revoke the previous blob: URL before replacing so we don't leak
-      // the old Blob object — the caller won't hold a reference to it.
-      const prev = this.entries.get(id)!;
-      if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-      this.entries.delete(id);
-    }
-    this.entries.set(id, url);
-    this._evict(onEvict);
-  }
-
-  /** Revoke all blob URLs and empty the cache. */
-  clearAll(): void {
-    for (const url of this.entries.values()) {
-      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
-    }
-    this.entries.clear();
-  }
-
-  /** Snapshot as a plain Map for the Angular signal. */
-  toMap(): Map<string, string> {
-    return new Map(this.entries);
-  }
-
-  private _evict(onEvict?: (evictedId: string) => void): void {
-    while (this.entries.size > this.maxCount) {
-      const oldest = this.entries.keys().next().value as string;
-      const url = this.entries.get(oldest)!;
-      this.entries.delete(oldest);
-      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
-      onEvict?.(oldest);
-    }
-  }
-}
+import { LruCache, ThumbLruCache } from './lru-cache';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
   private readonly store = inject(LibraryStore);
+  private readonly selection = inject(LibrarySelection);
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
+
+  private _lastSelectedSourceId = this.selection.selectedSourceId();
+
+  constructor() {
+    effect(() => {
+      const current = this.selection.selectedSourceId();
+      if (current !== this._lastSelectedSourceId) {
+        this._lastSelectedSourceId = current;
+        this._clearQueue();
+      }
+    });
+  }
 
   /**
    * LRU cache: at most 1 GB of RAW bytes resident in memory.
@@ -240,7 +124,18 @@ export class LibraryCache {
    * dedup because `_loadThumbInternal` is a multi-branch loader with an
    * `onThumbWritten` side effect, not `BlobUrlChannel.ensure()`'s simple shape.
    */
-  private readonly thumbLoadingIds = new Set<AssetId>();
+  private readonly thumbLoadingTokens = new Map<AssetId, { token: symbol; sourceId: string }>();
+
+  // ── Thumbnail load queue ──────────────────────────────────────────────────
+  private static readonly MAX_CONCURRENT_THUMB_LOADS = 4;
+  private _inflightThumbLoads = 0;
+  private readonly _thumbLoadQueue: Array<{
+    asset: Asset;
+    sourceId: string;
+    onThumbWritten?: (id: AssetId, sha: string) => void;
+    resolve: () => void;
+    reject: (err: any) => void;
+  }> = [];
 
   /**
    * Subscribe a tile to thumbnail-URL changes for `id`. Invokes `cb` immediately
@@ -311,6 +206,10 @@ export class LibraryCache {
     // folder switch reclaims that memory instead of letting it accumulate for
     // the whole session.
     this.fsBrowse.clearThumbCache();
+
+    // Reset the thumbnail load queue (leave _inflightThumbLoads alone so it settles naturally)
+    this._clearQueue();
+
     // Preview cache/subscribers: same hard-reset treatment as thumbnails above.
     this.previewChannel.clearAll();
   }
@@ -409,58 +308,62 @@ export class LibraryCache {
     }
   }
 
+  private _isM2Asset(id: AssetId): boolean {
+    return typeof id === 'string' && id.includes(':') && !id.startsWith('fs:');
+  }
+
+  private async _readM2Bytes(id: AssetId): Promise<Uint8Array> {
+    try {
+      const blob = await this.librarySource.imageBlob(
+        parseAddress(id),
+        this.makeProgressCallback(id),
+      );
+      return new Uint8Array(await blob.arrayBuffer());
+    } catch (err) {
+      const fsAbsPath = this.store.assetAbsPaths.get(id);
+      if (!fsAbsPath) throw err;
+      return this._readFsBytes(fsAbsPath, id);
+    }
+  }
+
+  private async _readFsBytes(fsAbsPath: string, id: AssetId): Promise<Uint8Array> {
+    const buf = await this.fsBrowse.getRawBytes(fsAbsPath, this.makeProgressCallback(id));
+    return new Uint8Array(buf);
+  }
+
+  private async _readSelfHostedBytes(id: AssetId): Promise<Uint8Array> {
+    const apiId = this.store.apiAssetIds.get(id);
+    if (!apiId) throw new Error(`bytesForAsset: no api id for asset ${id}`);
+    const buf = await firstValueFrom(this.api.getRawBytes(apiId, this.makeProgressCallback(id)));
+    return new Uint8Array(buf);
+  }
+
+  private async _readFsAccessBytes(id: AssetId): Promise<Uint8Array> {
+    const entry = this.fileHandles.get(id);
+    if (!entry) throw new Error(`bytesForAsset: no handle for asset ${id}`);
+    const file = await entry.getFile();
+    return new Uint8Array(await file.arrayBuffer());
+  }
+
   private async _doReadBytes(id: AssetId): Promise<Uint8Array> {
     // Legacy in-memory path (drag-drop imports without FS Access).
     const legacy = this.legacyBytes.get(id);
     if (legacy) return legacy;
 
-    // M2 slug:relPath asset → original bytes via the authed LibrarySource.
-    // HttpLibrarySource (Self-Hosted) hits GET /api/image with the bearer;
-    // FsAccessLibrarySource (Hosted) walks the FileSystemDirectoryHandle.
-    // M2 assets are address-keyed with no absPath/apiId/file-handle, so without
-    // this branch they fell through to the apiId path and threw `no api id`,
-    // leaving the editor unable to open any address-keyed image. Mirrors the M2
-    // thumb branch in _loadThumbInternal. Exclude legacy `fs:<absPath>` ids —
-    // they also contain ':' but resolve via the assetAbsPaths FS-walk below.
-    if (typeof id === 'string' && id.includes(':') && !id.startsWith('fs:')) {
-      try {
-        const blob = await this.librarySource.imageBlob(
-          parseAddress(id),
-          this.makeProgressCallback(id),
-        );
-        return new Uint8Array(await blob.arrayBuffer());
-      } catch (err) {
-        // Fall through to the legacy abs-path path below if imageBlob fails
-        // (e.g. asset listed via old absPath-keyed scan before M2 addresses
-        // propagate). This keeps the editor working during the transition.
-        const fsAbsPath = this.store.assetAbsPaths.get(id);
-        if (!fsAbsPath) throw err;
-        const buf = await this.fsBrowse.getRawBytes(fsAbsPath, this.makeProgressCallback(id));
-        return new Uint8Array(buf);
-      }
+    if (this._isM2Asset(id)) {
+      return this._readM2Bytes(id);
     }
+
     const fsAbsPath = this.store.assetAbsPaths.get(id);
     if (fsAbsPath) {
-      const buf = await this.fsBrowse.getRawBytes(fsAbsPath, this.makeProgressCallback(id));
-      return new Uint8Array(buf);
+      return this._readFsBytes(fsAbsPath, id);
     }
 
-    // Self-Hosted: fetch bytes from the Bun API by Mongo asset id.
     if (this.store.backend === 'self-hosted') {
-      const apiId = this.store.apiAssetIds.get(id);
-      if (!apiId) throw new Error(`bytesForAsset: no api id for asset ${id}`);
-      // firstValueFrom: imperative-boundary escape hatch. The LRU cache contract
-      // is `Promise<Uint8Array>`; callers `await bytesForAsset(...)`. Keeping the
-      // observable flow here would force every caller to resubscribe.
-      const buf = await firstValueFrom(this.api.getRawBytes(apiId, this.makeProgressCallback(id)));
-      return new Uint8Array(buf);
+      return this._readSelfHostedBytes(id);
     }
 
-    // FS Access / fallback handle path.
-    const entry = this.fileHandles.get(id);
-    if (!entry) throw new Error(`bytesForAsset: no handle for asset ${id}`);
-    const file = await entry.getFile();
-    return new Uint8Array(await file.arrayBuffer());
+    return this._readFsAccessBytes(id);
   }
 
   /**
@@ -499,24 +402,174 @@ export class LibraryCache {
    * extra network round-trips.
    *
    * Single source of truth for all thumbnail acquisition paths:
-   *   - **Self-Hosted FS-walk** (`asset.absPath`) → `/api/fs/thumb` via
-   *     `FilesystemBrowseService.getThumbBlobUrl`. Server-rendered, fast.
-   *   - **Self-Hosted Mongo asset** (`apiAssetIds` map populated for legacy
-   *     callers that came in via `/api/folders/{id}/assets`) → `api.getThumb`.
-   *   - **Hosted with FS Access folder** → read `.maple/thumbs/<sha>.jpg`
-   *     from disk. Falls back to client-side WASM decode + write-through.
-   *
-   * Errors are swallowed and logged — the gradient placeholder stays
-   * visible. The entry stays out of `thumbnailUrls`, so a future trigger
-   * can retry. */
+   * Swallows errors and logs them — the gradient placeholder stays visible.
+   * The entry stays out of `thumbnailUrls`, so a future trigger can retry. */
   ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId, sha: string) => void): void {
     if (!asset) return;
     if (this.thumbnailUrls().has(asset.id)) return;
-    if (this.thumbLoadingIds.has(asset.id)) return;
-    this.thumbLoadingIds.add(asset.id);
-    void this._loadThumbInternal(asset, onThumbWritten).finally(() =>
-      this.thumbLoadingIds.delete(asset.id),
-    );
+    if (this.thumbLoadingTokens.has(asset.id)) return;
+
+    const token = Symbol('thumb-load');
+    const sourceId = this.selection.selectedSourceId();
+    this.thumbLoadingTokens.set(asset.id, { token, sourceId });
+
+    void this._ensureThumbnailUrlInternal(asset, onThumbWritten)
+      .catch((err) => {
+        console.warn('[state] ensureThumbnailUrl failed:', err?.message || err);
+      })
+      .finally(() => {
+        if (this.thumbLoadingTokens.get(asset.id)?.token === token) {
+          this.thumbLoadingTokens.delete(asset.id);
+        }
+      });
+  }
+
+  private _clearQueue(): void {
+    for (const item of this._thumbLoadQueue) {
+      try {
+        item.reject(new Error('Queue cleared'));
+      } catch (err) {
+        // Ignore if already resolved/rejected
+      }
+    }
+    this._thumbLoadQueue.length = 0;
+    this.thumbLoadingTokens.clear();
+  }
+
+  private _purgeQueueForStaleSource(currentSourceId: string): void {
+    // 1. Clear loading tokens for other source IDs
+    for (const [assetId, entry] of this.thumbLoadingTokens.entries()) {
+      if (entry.sourceId !== currentSourceId) {
+        this.thumbLoadingTokens.delete(assetId);
+      }
+    }
+
+    // 2. Reject and filter queue items that do not match the current source ID
+    const toKeep: typeof this._thumbLoadQueue = [];
+    for (const item of this._thumbLoadQueue) {
+      if (item.sourceId === currentSourceId) {
+        toKeep.push(item);
+      } else {
+        try {
+          item.reject(new Error('Queue cleared'));
+        } catch (err) {
+          // ignore
+        }
+      }
+    }
+    this._thumbLoadQueue.length = 0;
+    this._thumbLoadQueue.push(...toKeep);
+  }
+
+  private async _tryReadCachedThumb(folder: MapleFolderHandle, asset: Asset): Promise<boolean> {
+    try {
+      const sha = await sha256Prefix16(asset.filename);
+      const cached = await this.cache.readThumb(folder, sha);
+      if (cached) {
+        this.cacheThumbnailUrl(asset.id, URL.createObjectURL(cached));
+        return true;
+      }
+    } catch (err) {
+      console.warn('[state] thumb cache read failed for', asset.filename, err);
+    }
+    return false;
+  }
+
+  private async _ensureThumbnailUrlInternal(
+    asset: Asset,
+    onThumbWritten?: (id: AssetId, sha: string) => void,
+  ): Promise<void> {
+    // 1. Hosted: try the .maple/thumbs/ on-disk cache first (local IndexedDB lookup, no network).
+    if (this.store.backend !== 'self-hosted') {
+      const folder = this.store.currentFolder();
+      if (folder && (await this._tryReadCachedThumb(folder, asset))) {
+        return;
+      }
+    }
+
+    // 2. Cache miss, or Self-Hosted backend: enqueue for network download/decode.
+    await this._enqueueThumbNetworkLoad(asset, onThumbWritten);
+  }
+
+  private _enqueueThumbNetworkLoad(
+    asset: Asset,
+    onThumbWritten?: (id: AssetId, sha: string) => void,
+  ): Promise<void> {
+    const sourceId = this.selection.selectedSourceId();
+    return new Promise<void>((resolve, reject) => {
+      this._thumbLoadQueue.push({ asset, sourceId, onThumbWritten, resolve, reject });
+      this._processNextThumbLoad();
+    });
+  }
+
+  private _processNextThumbLoad(): void {
+    if (this._inflightThumbLoads >= LibraryCache.MAX_CONCURRENT_THUMB_LOADS) {
+      return;
+    }
+    const next = this._thumbLoadQueue.shift();
+    if (!next) {
+      return;
+    }
+    this._inflightThumbLoads++;
+    void this._loadThumbInternal(next.asset, next.onThumbWritten)
+      .then(next.resolve, next.reject)
+      .finally(() => {
+        this._inflightThumbLoads--;
+        this._processNextThumbLoad();
+      });
+  }
+
+  private async _loadSelfHostedThumb(asset: Asset): Promise<void> {
+    // 0. Self-Hosted M2 slug:relPath asset → /api/thumb via the authed
+    //    LibrarySource (HttpClient attaches the bearer).
+    if (this._isM2Asset(asset.id)) {
+      const blob = await this.librarySource.thumbBlob(parseAddress(asset.id));
+      if (blob) {
+        this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
+        return;
+      }
+    }
+
+    // 1. Self-Hosted FS-walk: server renders + caches the JPEG.
+    if (asset.absPath) {
+      const url = await this.fsBrowse.getThumbBlobUrl(asset.absPath, 512);
+      this.cacheThumbnailUrl(asset.id, url);
+      return;
+    }
+
+    // 2. Self-Hosted Mongo asset (older grid mounts that resolved an apiId).
+    const apiId = this.store.apiAssetIds.get(asset.id);
+    if (!apiId) return;
+    const blob = await firstValueFrom(this.api.getThumb(apiId));
+    this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
+  }
+
+  private async _loadHostedThumb(
+    asset: Asset,
+    onThumbWritten?: (id: AssetId, sha: string) => void,
+  ): Promise<void> {
+    const folder = this.store.currentFolder();
+    // Hosted decode fallback: pull bytes, run them through the WASM
+    // pipeline, encode to JPEG, store, and write through to the
+    // .maple/ cache.
+    let bytes: Uint8Array;
+    try {
+      bytes = await this.bytesForAsset(asset.id);
+    } catch {
+      return; // mock asset / no source — gradient stays.
+    }
+    const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
+    const decoded = await this.pipeline.decode(bytes, ext);
+    this.store.updateAssetDimensions(asset.id, decoded.width, decoded.height);
+    const bitmap = await imageDataToBitmap(decoded);
+    const canvas = await resizeBitmapToCanvas(bitmap, 512);
+    bitmap.close();
+    const blob = await canvasToBlob(canvas);
+    this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
+    if (folder?.write) {
+      const sha = await sha256Prefix16(asset.filename);
+      void this.cache.writeThumb(folder, sha, blob).then(() => onThumbWritten?.(asset.id, sha));
+    }
   }
 
   private async _loadThumbInternal(
@@ -524,73 +577,10 @@ export class LibraryCache {
     onThumbWritten?: (id: AssetId, sha: string) => void,
   ): Promise<void> {
     try {
-      // 0. Self-Hosted M2 slug:relPath asset → /api/thumb via the authed
-      //    LibrarySource (HttpClient attaches the bearer). M2 assets are
-      //    address-keyed with no absPath/apiId, so without this they fell
-      //    through every branch and showed no thumbnail. Exclude legacy
-      //    `fs:<absPath>` ids — they also contain ':' but must use the absPath
-      //    FS-walk branch below.
-      if (
-        this.store.backend === 'self-hosted' &&
-        typeof asset.id === 'string' &&
-        asset.id.includes(':') &&
-        !asset.id.startsWith('fs:')
-      ) {
-        const blob = await this.librarySource.thumbBlob(parseAddress(asset.id));
-        if (blob) {
-          this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
-          return;
-        }
-        // null = no thumb yet; fall through to the branches below.
-      }
-
-      // 1. Self-Hosted FS-walk: server renders + caches the JPEG.
-      if (this.store.backend === 'self-hosted' && asset.absPath) {
-        const url = await this.fsBrowse.getThumbBlobUrl(asset.absPath, 512);
-        this.cacheThumbnailUrl(asset.id, url);
-        return;
-      }
-
-      // 2. Self-Hosted Mongo asset (older grid mounts that resolved an apiId).
       if (this.store.backend === 'self-hosted') {
-        const apiId = this.store.apiAssetIds.get(asset.id);
-        if (!apiId) return;
-        const blob = await firstValueFrom(this.api.getThumb(apiId));
-        this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
-        return;
-      }
-
-      // 3. Hosted: try the .maple/thumbs/ on-disk cache first.
-      const folder = this.store.currentFolder();
-      if (folder) {
-        const sha = await sha256Prefix16(asset.filename);
-        const cached = await this.cache.readThumb(folder, sha);
-        if (cached) {
-          this.cacheThumbnailUrl(asset.id, URL.createObjectURL(cached));
-          return;
-        }
-      }
-
-      // 4. Hosted decode fallback: pull bytes, run them through the WASM
-      //    pipeline, encode to JPEG, store, and write through to the
-      //    .maple/ cache so future sessions hit branch 3 instead.
-      let bytes: Uint8Array;
-      try {
-        bytes = await this.bytesForAsset(asset.id);
-      } catch {
-        return; // mock asset / no source — gradient stays.
-      }
-      const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
-      const decoded = await this.pipeline.decode(bytes, ext);
-      this.store.updateAssetDimensions(asset.id, decoded.width, decoded.height);
-      const bitmap = await imageDataToBitmap(decoded);
-      const canvas = await resizeBitmapToCanvas(bitmap, 512);
-      bitmap.close();
-      const blob = await canvasToBlob(canvas);
-      this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
-      if (folder?.write) {
-        const sha = await sha256Prefix16(asset.filename);
-        void this.cache.writeThumb(folder, sha, blob).then(() => onThumbWritten?.(asset.id, sha));
+        await this._loadSelfHostedThumb(asset);
+      } else {
+        await this._loadHostedThumb(asset, onThumbWritten);
       }
     } catch (err) {
       console.warn('[state] thumb load failed for', asset.filename, err);
