@@ -388,6 +388,11 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         return { error: 'rate limited' };
       }
       const cookieRaw = cookie.maple_refresh?.value as string | undefined;
+      // Body auth is the native (Apple) path: no cookie jar, tokens live in the
+      // Keychain, so the rotated refresh token MUST come back in the body — the
+      // cookie is invisible to it. Cookie auth is the web path (#857): the token
+      // rides the rotated httpOnly cookie and never touches the JSON body.
+      const usedBodyToken = typeof body.refresh_token === 'string' && body.refresh_token.length > 0;
       const raw: string | undefined = body.refresh_token ?? cookieRaw;
       if (!raw) {
         set.status = 401;
@@ -424,7 +429,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           maxAge: REFRESH_TTL_SECONDS,
         });
       }
-      return { access_token };
+      return usedBodyToken ? { access_token, refresh_token: fresh.raw } : { access_token };
     },
     { body: t.Object({ refresh_token: t.Optional(t.String()) }) },
   )
