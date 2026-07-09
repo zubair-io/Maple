@@ -114,6 +114,20 @@ final class GpuLiveCanvasController {
         if !didRegister {
             didRegister = true
             driver.register(layer: layer)
+            // Re-entry contract (#1878): this controller (and its
+            // CAMetalLayer) is created fresh on EVERY editor mount, while
+            // the EditSession — including `gpuFramePresented` — survives in
+            // AppShell's session store across editor⇄preview round trips.
+            // A surviving `gpuFramePresented == true` describes the OLD,
+            // torn-down layer; left set, every re-entry render kick
+            // short-circuits (`kickRenderAfterGpuCanvasMount`'s
+            // `!gpuFramePresented` guard) AND the CPU backdrop stays
+            // hidden (`showCpuBackdrop` reads it), so the fresh blank
+            // layer stays black forever. Reset it here — "no frame has
+            // been presented into the CURRENT layer yet" — so the kick
+            // below schedules a real present and the backdrop covers the
+            // gap until it lands.
+            session.gpuFramePresented = false
             // Push the viewport so the decode target (and thus the GPU upload /
             // the layer drawable) resolve to this size, then kick the first
             // render — subsequent frames ride the scheduler on edits.
