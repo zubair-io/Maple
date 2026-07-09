@@ -21,11 +21,27 @@ struct LivingSliderRow: View {
     @Bindable var state: EditorState
     let tool: Tool
 
-    private var range: ClosedRange<Double> {
-        ToolValueMapping.displayRange(for: tool) ?? (0...100)
+    /// The armed sub-param when it belongs to THIS row's tool (#1876).
+    /// Selecting a pill in `SubParamRow` arms a (tool, subParam) pair on
+    /// `EditorState`; the slider must then read/write THAT pair's field.
+    /// Pre-#1876 this row ignored `armedSubParam` entirely and always
+    /// bound through the tool-level `ToolValueMapping` — so all of Split
+    /// Tone's Hue/Sat pills (and Vignette Feather, Grain Size/Roughness,
+    /// Sharpen Radius/Detail/Masking) silently drove the tool's PRIMARY
+    /// field instead of their own.
+    private var armedSub: ToolSubParam? {
+        guard state.armedTool == tool else { return nil }
+        return state.armedSubParam
     }
 
-    private var defaultValue: Double { ToolValueMapping.defaultDisplayValue(for: tool) }
+    private var range: ClosedRange<Double> {
+        if let sub = armedSub { return sub.range }
+        return ToolValueMapping.displayRange(for: tool) ?? (0...100)
+    }
+
+    private var defaultValue: Double {
+        armedSub?.defaultDisplayValue ?? ToolValueMapping.defaultDisplayValue(for: tool)
+    }
 
     /// Bipolar when the canonical default sits at (≈) the range midpoint
     /// AND the range extends below it — i.e. a symmetric ±value tool that
@@ -47,14 +63,27 @@ struct LivingSliderRow: View {
         }
     }
 
-    /// Reads/writes the tool's field directly through the model.  Arms the
-    /// tool on first write so the value chip + tool dock follow the drag.
+    /// Reads/writes the armed (tool, subParam) pair's field when a
+    /// sub-param pill is selected for this tool, else the tool's primary
+    /// field — routed through `EditorState`'s sub-aware value pipe
+    /// (#1876), the same already-tested path `DragBar`/`wheelNudge` use.
+    /// Arms the tool on first write so the value chip + tool dock follow
+    /// the drag.
     private var valueBinding: Binding<Double> {
         Binding(
-            get: { ToolValueMapping.currentDisplayValue(state.session.model, tool: tool) },
+            get: {
+                if let sub = armedSub {
+                    return state.session.model[keyPath: sub.keyPath]
+                }
+                return ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
+            },
             set: { newVal in
                 if state.armedTool != tool { state.arm(tool: tool) }
-                ToolValueMapping.apply(newVal, to: &state.session.model, tool: tool)
+                if armedSub != nil {
+                    state.setArmedDisplayValue(newVal)
+                } else {
+                    ToolValueMapping.apply(newVal, to: &state.session.model, tool: tool)
+                }
             }
         )
     }
