@@ -54,7 +54,6 @@ let _client: MongoClient | null = null;
 let _db: Db | null = null;
 let _connectPromise: Promise<Db> | null = null;
 
-
 /**
  * Returns a connected Db instance. Connects lazily on first call.
  * Throws a descriptive error if MongoDB is unreachable.
