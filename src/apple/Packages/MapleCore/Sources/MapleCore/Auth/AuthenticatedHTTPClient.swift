@@ -80,7 +80,6 @@ public actor AuthenticatedHTTPClient {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       onSignOut(); return (data, resp)
     }
-    onTokensRefreshed(fresh)
     Self.logRequest(request, attempt: 2)
     let retried = try await dataOnce(request: inject(request, tokens: fresh))
     Self.logResponse(retried.1, data: retried.0, request: request)
@@ -103,6 +102,9 @@ public actor AuthenticatedHTTPClient {
   /// already a defensive catch upstream so the change won't silently
   /// break, but the contract here is "URLError = transport."
   private func refresh(refresh refreshToken: String) async throws -> AuthTokens {
+    // Awaiters coalescing onto an in-flight refresh return the shared result
+    // WITHOUT persisting — only the owner (below) calls `onTokensRefreshed`, so
+    // N concurrent 401s produce exactly one Keychain write + mirror, not N.
     if let t = inflightRefresh { return try await t.value }
     let task = Task { () throws -> AuthTokens in
       var req = URLRequest(url: server.appending(path: "/api/auth/refresh"))
@@ -122,7 +124,9 @@ public actor AuthenticatedHTTPClient {
     }
     inflightRefresh = task
     defer { inflightRefresh = nil }
-    return try await task.value
+    let tokens = try await task.value
+    onTokensRefreshed(tokens)
+    return tokens
   }
 
   /// Returns a copy of `req` with the current access token injected as a
@@ -153,7 +157,6 @@ public actor AuthenticatedHTTPClient {
     }
     cloudHTTPLogger.info("access token within expiry skew — proactive refresh")
     guard let fresh = try? await refresh(refresh: current.refresh) else { return current }
-    onTokensRefreshed(fresh)
     return fresh
   }
 
@@ -217,7 +220,6 @@ public actor AuthenticatedHTTPClient {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       onSignOut(); return (payload, resp)
     }
-    onTokensRefreshed(fresh)
     Self.logRequest(request, attempt: 2)
     injected = inject(request, tokens: fresh)
     (payload, resp) = try await block(injected)
@@ -254,7 +256,6 @@ public actor AuthenticatedHTTPClient {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       onSignOut(); return (data, resp)
     }
-    onTokensRefreshed(fresh)
     Self.logRequest(request, attempt: 2)
     let retried = try await urlSession.upload(for: inject(request, tokens: fresh), fromFile: fileURL)
     Self.logResponse(retried.1, data: retried.0, request: request)

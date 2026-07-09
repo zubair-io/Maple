@@ -126,6 +126,36 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
     XCTAssertEqual(refreshCount, 0)
   }
 
+  func testPersistsRotatedTokensOncePerRefreshUnderConcurrency() async throws {
+    // Three concurrent requests all 401 and coalesce onto one refresh. The
+    // rotated pair must be persisted exactly ONCE — not once per awaiter — so we
+    // don't fan out redundant Keychain writes and File-Provider mirror tasks for
+    // the same tokens.
+    StubURLProtocol.register()
+    defer { StubURLProtocol.reset() }
+    StubURLProtocol.handler = { req in
+      if req.url!.path == "/api/auth/refresh" {
+        return (200, Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8), [:])
+      }
+      let auth = req.value(forHTTPHeaderField: "Authorization")
+      return (auth == "Bearer A2") ? (200, Data("{}".utf8), [:]) : (401, Data("{}".utf8), [:])
+    }
+    var current = AuthTokens(access: "A1", refresh: "R1")
+    var persistCount = 0
+    let session = TestURLSession.make()
+    let client = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!, urlSession: session,
+      tokensProvider: { current },
+      onTokensRefreshed: { current = $0; persistCount += 1 },
+      onSignOut: {}
+    )
+    async let r1 = client.data(for: URLRequest(url: URL(string: "https://x.test/api/a")!))
+    async let r2 = client.data(for: URLRequest(url: URL(string: "https://x.test/api/b")!))
+    async let r3 = client.data(for: URLRequest(url: URL(string: "https://x.test/api/c")!))
+    _ = try await (r1, r2, r3)
+    XCTAssertEqual(persistCount, 1)
+  }
+
   /// Minimal JWT (unsigned) carrying an `exp` claim `seconds` from now. The
   /// client only base64url-decodes the payload to read `exp`; it never verifies
   /// the signature (it holds no secret), so a placeholder signature is fine.
