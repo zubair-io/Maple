@@ -52,7 +52,7 @@ public actor AuthenticatedHTTPClient {
 
   public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    let (data, resp) = try await dataOnce(request: inject(request, tokens: tokensProvider()))
+    let (data, resp) = try await dataOnce(request: inject(request, tokens: await tokensForRequest()))
     Self.logResponse(resp, data: data, request: request)
 
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (data, resp) }
@@ -111,9 +111,14 @@ public actor AuthenticatedHTTPClient {
       req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": refreshToken])
       let (data, resp) = try await urlSession.data(for: req)
       guard (resp as! HTTPURLResponse).statusCode == 200 else { throw RefreshRejected() }
-      struct R: Decodable { let access_token: String; let refresh_token: String }
+      // The rotated refresh token rides the JSON body for native (Keychain)
+      // clients — we have no cookie jar. `refresh_token` is decoded as optional
+      // purely as a safety net: a server that ever omits it (e.g. legacy
+      // cookie-only rotation) must not make the decode throw and escalate into a
+      // sign-out. When absent we keep the token we presented.
+      struct R: Decodable { let access_token: String; let refresh_token: String? }
       let r = try JSONDecoder().decode(R.self, from: data)
-      return AuthTokens(access: r.access_token, refresh: r.refresh_token)
+      return AuthTokens(access: r.access_token, refresh: r.refresh_token ?? refreshToken)
     }
     inflightRefresh = task
     defer { inflightRefresh = nil }
@@ -123,10 +128,55 @@ public actor AuthenticatedHTTPClient {
   /// Returns a copy of `req` with the current access token injected as a
   /// Bearer Authorization header. Public so callers that bypass `data(for:)`
   /// — notably `URLSession.download(for:)` paths — can still authenticate.
-  /// Token snapshot is taken inside the actor, so concurrent refreshes
-  /// don't mid-flight swap the token on a single inject call.
+  /// Proactively refreshes an already-expired token first (see
+  /// `tokensForRequest`), so a token snapshot handed to a caller that can't
+  /// retry-on-401 is still live.
   public func inject(_ req: URLRequest) async -> URLRequest {
-    inject(req, tokens: tokensProvider())
+    inject(req, tokens: await tokensForRequest())
+  }
+
+  /// Seconds of clock skew: refresh proactively when the access token is within
+  /// this window of (or already past) its `exp`, so we don't dispatch a request
+  /// we already know the server will 401. The reactive 401 path below remains
+  /// the safety net for tokens the server rejects early.
+  private static let proactiveRefreshSkew: TimeInterval = 60
+
+  /// The freshest tokens to sign the next request with. If the current access
+  /// token is expired (within skew), refresh once — single-flight — and persist
+  /// the rotation before returning it. Any refresh failure falls back to the
+  /// current tokens: a transient proactive-refresh failure must never block the
+  /// request or sign the user out; the reactive 401 handler covers that case.
+  private func tokensForRequest() async -> AuthTokens? {
+    guard let current = tokensProvider() else { return nil }
+    guard Self.accessTokenIsExpired(current.access, skew: Self.proactiveRefreshSkew) else {
+      return current
+    }
+    cloudHTTPLogger.info("access token within expiry skew — proactive refresh")
+    guard let fresh = try? await refresh(refresh: current.refresh) else { return current }
+    onTokensRefreshed(fresh)
+    return fresh
+  }
+
+  /// True when the JWT's `exp` claim is within `skew` seconds of now (or past).
+  /// Returns false for any token whose payload can't be parsed for a numeric
+  /// `exp` — an opaque/legacy token is left to the reactive 401 path rather than
+  /// eagerly refreshed. Signature is NOT verified (the client holds no secret);
+  /// `exp` is advisory scheduling only, and the server re-validates every token.
+  static func accessTokenIsExpired(_ jwt: String, skew: TimeInterval) -> Bool {
+    let parts = jwt.split(separator: ".")
+    guard parts.count >= 2,
+          let payload = base64URLDecode(String(parts[1])),
+          let obj = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+          let exp = (obj["exp"] as? NSNumber)?.doubleValue
+    else { return false }
+    return Date().timeIntervalSince1970 + skew >= exp
+  }
+
+  private static func base64URLDecode(_ s: String) -> Data? {
+    var b = s.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    let remainder = b.count % 4
+    if remainder != 0 { b += String(repeating: "=", count: 4 - remainder) }
+    return Data(base64Encoded: b)
   }
 
   private func inject(_ req: URLRequest, tokens: AuthTokens?) -> URLRequest {
@@ -149,7 +199,7 @@ public actor AuthenticatedHTTPClient {
     _ block: (URLRequest) async throws -> (T, URLResponse)
   ) async throws -> (T, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    var injected = inject(request, tokens: tokensProvider())
+    var injected = inject(request, tokens: await tokensForRequest())
     var (payload, resp) = try await block(injected)
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (payload, resp) }
 
@@ -184,7 +234,7 @@ public actor AuthenticatedHTTPClient {
   /// extension's drag-in upload path.
   public func upload(for request: URLRequest, fromFile fileURL: URL) async throws -> (Data, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    let signed = inject(request, tokens: tokensProvider())
+    let signed = inject(request, tokens: await tokensForRequest())
     let (data, resp) = try await urlSession.upload(for: signed, fromFile: fileURL)
     Self.logResponse(resp, data: data, request: request)
 

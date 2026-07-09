@@ -38,7 +38,8 @@ func makeBackupTransport(server: URL) -> AuthorizingTransport {
         server: server,
         urlSession: .shared,
         tokensProvider: { try? TokenStore.load(server: server) },
-        onTokensRefreshed: { try? TokenStore.save($0, server: server) },
+        // Mirror rotations into the File Provider store too — see CloudTokenPersistence.
+        onTokensRefreshed: { CloudTokenPersistence.persistRotated($0, server: server) },
         onSignOut: { TokenStore.clear(server: server) })
     return { try await client.data(for: $0) }
 }

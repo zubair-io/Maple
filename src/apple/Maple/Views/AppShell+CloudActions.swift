@@ -34,7 +34,11 @@ extension AppShell {
             server: server,
             urlSession: .shared,
             tokensProvider: { try? TokenStore.load(server: server) },
-            onTokensRefreshed: { try? TokenStore.save($0, server: server) },
+            // Save AND mirror to the File Provider extension's shared store on
+            // every rotation, so a background extension never refreshes with a
+            // superseded token (→ server reuse-detection → family revoked →
+            // sign-out). See CloudTokenPersistence.
+            onTokensRefreshed: { CloudTokenPersistence.persistRotated($0, server: server) },
             // A request 401'd and its refresh was rejected — the refresh token
             // is dead. Drive the OBSERVABLE AuthSession to signed-out (which
             // also clears the Keychain) rather than clearing the Keychain alone.
