@@ -142,11 +142,13 @@
 //! [`apply`]'s own identity short-circuit only recognizes ONE reference
 //! point, `(frame.scene_cct, 0.0)` — insufficient here because a real
 //! camera's as-shot chromaticity can sit far enough off the blackbody
-//! locus that no `(temperature, tint)` pair within the slider's ±100 tint
-//! range reaches it at all (measured on a real Hasselblad H2D-39 bundle
-//! profile: the true as-shot point's diagonal-convention tint projects to
-//! +144, clamped to +100 — `apply` literally cannot reach identity for
-//! that model shape via its single fixed reference point). [`apply_delta`]
+//! locus that reaching it needs a large tint (measured on a real
+//! Hasselblad H2D-39 bundle profile: the true as-shot point's
+//! slider-convention tint projects to +143.5 — representable since #1870
+//! widened the range to ACR's ±150, but under the historical ±100 clamp
+//! `apply` literally could not reach identity for that model shape via
+//! its single fixed reference point, and float rounding of a seeded pair
+//! still lands off the exact short-circuit). [`apply_delta`]
 //! solves this the same way `white_balance::apply_delta` does for the
 //! post-DCP path: compare the TARGET's gain against the DECODED ANCHOR's
 //! own gain (both computed by the same [`camera_wb_gain`]), so a target
