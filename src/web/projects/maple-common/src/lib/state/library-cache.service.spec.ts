@@ -10,10 +10,13 @@
 // gradually as new thumbnails arrive (M2, #1327).
 
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 
-import { LibraryCache, ThumbLruCache } from './library-cache.service';
+import { LibraryCache } from './library-cache.service';
+import { ThumbLruCache } from './lru-cache';
 import { LibraryStore } from './library-store.service';
+import { LibrarySelection } from './library-selection.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
@@ -37,6 +40,7 @@ describe('LibraryCache — thumbnail object-URL lifecycle', () => {
       providers: [
         LibraryCache,
         { provide: LibraryStore, useValue: {} },
+        { provide: LibrarySelection, useValue: { selectedSourceId: signal('') } },
         { provide: BunApiBackendService, useValue: {} },
         { provide: FilesystemBrowseService, useValue: { clearThumbCache } },
         { provide: MapleCacheService, useValue: {} },
@@ -104,6 +108,7 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
       providers: [
         LibraryCache,
         { provide: LibraryStore, useValue: { backend: 'self-hosted' } },
+        { provide: LibrarySelection, useValue: { selectedSourceId: signal('') } },
         { provide: BunApiBackendService, useValue: {} },
         { provide: FilesystemBrowseService, useValue: fsBrowse },
         { provide: MapleCacheService, useValue: {} },
@@ -141,6 +146,126 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
     expect(thumbBlob).not.toHaveBeenCalled();
     expect(getThumbBlobUrl).toHaveBeenCalled();
   });
+
+  it('limits concurrent network thumbnail loads to 4', async () => {
+    const resolvePromises: ((b: Blob) => void)[] = [];
+    const thumbBlob = vi.fn(
+      () =>
+        new Promise<Blob>((r) => {
+          resolvePromises.push(r);
+        }),
+    );
+    const svc = setup({ thumbBlob });
+
+    // Trigger 6 thumbnail requests
+    for (let i = 0; i < 6; i++) {
+      svc.ensureThumbnailUrl({
+        id: `lib:2026/img_${i}.jpg`,
+        filename: `img_${i}.jpg`,
+      } as unknown as Asset);
+    }
+
+    // Settle microtasks so enqueuing and processing starts
+    await settle();
+
+    // Only 4 should be active concurrently
+    expect(thumbBlob).toHaveBeenCalledTimes(4);
+
+    // Resolve one of them
+    resolvePromises[0](new Blob(['x'], { type: 'image/jpeg' }));
+    await settle();
+
+    // The next one in queue should start
+    expect(thumbBlob).toHaveBeenCalledTimes(5);
+
+    // Resolve the rest
+    for (let i = 1; i < resolvePromises.length; i++) {
+      resolvePromises[i](new Blob(['x'], { type: 'image/jpeg' }));
+    }
+    await settle();
+    expect(thumbBlob).toHaveBeenCalledTimes(6);
+  });
+
+  it('bypasses the concurrency queue for Hosted cache hits', async () => {
+    const readThumb = vi.fn(async () => new Blob(['x'], { type: 'image/jpeg' }));
+    const thumbBlob = vi.fn(async () => new Blob());
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        {
+          provide: LibraryStore,
+          useValue: {
+            backend: 'hosted',
+            currentFolder: () => ({ write: true }),
+            updateAssetDimensions: vi.fn(),
+          },
+        },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: {} },
+        { provide: MapleCacheService, useValue: { readThumb } },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: { thumbBlob } },
+      ],
+    });
+    const svc = TestBed.inject(LibraryCache);
+
+    // Trigger 6 cache-hit thumbnail requests
+    for (let i = 0; i < 6; i++) {
+      svc.ensureThumbnailUrl({
+        id: `lib:2026/img_${i}.jpg`,
+        filename: `img_${i}.jpg`,
+      } as unknown as Asset);
+    }
+
+    await settle();
+
+    // Since they are cache hits, they should all complete immediately without enqueuing in the network queue.
+    expect(readThumb).toHaveBeenCalledTimes(6);
+    expect(thumbBlob).not.toHaveBeenCalled();
+    for (let i = 0; i < 6; i++) {
+      expect(svc.thumbnailUrlFor(`lib:2026/img_${i}.jpg` as AssetId)).toBe('blob:m2-thumb');
+    }
+  });
+
+  it('clears the queue and loading states when the selected folder/source ID changes', async () => {
+    const selectedSourceId = signal('lib:folder_a');
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        { provide: LibraryStore, useValue: { backend: 'self-hosted' } },
+        { provide: LibrarySelection, useValue: { selectedSourceId } },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: {} },
+        { provide: MapleCacheService, useValue: {} },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(() => new Promise(() => {})) } }, // never resolves
+      ],
+    });
+    const svc = TestBed.inject(LibraryCache);
+
+    // Trigger enqueuing of a thumbnail
+    for (let i = 0; i < 6; i++) {
+      svc.ensureThumbnailUrl({
+        id: `lib:folder_a/img_${i}.jpg`,
+        filename: `img_${i}.jpg`,
+      } as unknown as Asset);
+    }
+    await settle();
+
+    // Check that we have 2 items enqueued in the queue (cap is 4)
+    expect((svc as any)._thumbLoadQueue.length).toBe(2);
+    expect((svc as any).thumbLoadingTokens.size).toBe(6);
+
+    // Now change the folder selection!
+    selectedSourceId.set('lib:folder_b');
+    await settle();
+
+    // The queue and loading states should be completely cleared!
+    expect((svc as any)._thumbLoadQueue.length).toBe(0);
+    expect((svc as any).thumbLoadingTokens.size).toBe(0);
+  });
 });
 
 describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => {
@@ -159,6 +284,7 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
             ...store,
           },
         },
+        { provide: LibrarySelection, useValue: { selectedSourceId: signal('') } },
         { provide: BunApiBackendService, useValue: {} },
         { provide: FilesystemBrowseService, useValue: {} },
         { provide: MapleCacheService, useValue: {} },
@@ -201,6 +327,7 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
             findAsset: () => undefined,
           },
         },
+        { provide: LibrarySelection, useValue: { selectedSourceId: signal('') } },
         { provide: BunApiBackendService, useValue: {} },
         { provide: FilesystemBrowseService, useValue: { getRawBytes } },
         { provide: MapleCacheService, useValue: {} },
@@ -228,6 +355,7 @@ describe('LibraryCache — thumbnail subscriptions (component-owned signals)', (
       providers: [
         LibraryCache,
         { provide: LibraryStore, useValue: {} },
+        { provide: LibrarySelection, useValue: { selectedSourceId: signal('') } },
         { provide: BunApiBackendService, useValue: {} },
         { provide: FilesystemBrowseService, useValue: {} },
         { provide: MapleCacheService, useValue: {} },
