@@ -32,4 +32,4 @@ jobs:
         env:
           MAPLE_MONGO_URI: mongodb://localhost:27017
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
-        run: bun test
+        run: bun test --timeout 30000

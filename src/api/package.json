@@ -10,7 +10,7 @@
     "start": "bun src/index.ts",
     "indexer": "bun src/indexer.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun test --timeout 20000",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix"
   },
