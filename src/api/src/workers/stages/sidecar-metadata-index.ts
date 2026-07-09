@@ -61,6 +61,7 @@ function gpsChanged(
 // Stage handler
 // ---------------------------------------------------------------------------
 
+// fallow-ignore-next-line complexity
 export async function sidecarMetadataIndexHandler(
   image: ImageDoc,
   ctx: StageContext,

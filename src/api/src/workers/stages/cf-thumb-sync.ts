@@ -66,6 +66,7 @@ const cfThumbSyncStage = defineStage({
     pausedOnFirstBoot: true,
     last_seen_target_version: 0,
   },
+  // fallow-ignore-next-line complexity
   handler: async (image): Promise<StageResult> => {
     if (image.hidden === true) {
       if (image.cf_thumb_synced_at) {

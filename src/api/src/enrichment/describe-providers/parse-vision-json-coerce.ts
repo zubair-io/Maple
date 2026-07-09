@@ -20,13 +20,13 @@ export const COERCE_FAIL = Symbol('coerce-fail');
  * "the input was a string but not in the allowed set / synonym map"
  * (bad-enum). Lets the call site preserve the error-reason taxonomy
  * dead-letter triage groups on. */
-export const COERCE_FAIL_TYPE = Symbol('coerce-fail-type');
+const COERCE_FAIL_TYPE = Symbol('coerce-fail-type');
 
 export function asString(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
 }
 
-export function asStringArray(v: unknown): string[] | null {
+function asStringArray(v: unknown): string[] | null {
   if (!Array.isArray(v)) return null;
   const out: string[] = [];
   for (const x of v) {
@@ -129,6 +129,7 @@ export function unwrapEnum(
  * regions are visible (signs + a license plate). Join with newlines —
  * downstream consumers treat the field as opaque multi-line text. Empty
  * array, empty string, null, and undefined all collapse to null. */
+// fallow-ignore-next-line complexity
 export function coerceTextVisible(v: unknown): string | null | typeof COERCE_FAIL {
   if (v === null || v === undefined) return null;
   if (typeof v === 'string') return v.length === 0 ? null : v;

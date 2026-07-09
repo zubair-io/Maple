@@ -34,7 +34,7 @@ import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isNoPreviewFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import {
@@ -54,7 +54,6 @@ import {
   VISION_DOC_JSON_SCHEMA,
 } from '../../enrichment/describe-providers/parse-vision-json.ts';
 import { PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
-import { coll } from '../../indexer/images.repo.ts';
 
 /**
  * Prompt version stamped on both `description_meta.prompt_version` and
@@ -113,6 +112,7 @@ export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
   _deps = deps;
 }
 
+// fallow-ignore-next-line complexity
 export async function describeHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
   // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
   // audio have no still frame for the vision model to caption. They reach
@@ -149,7 +149,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // libraries loaded fine, but the asset has no fileinfo[0] or its library
   // is unregistered.
   const libs = await loadLibraryRoots();
-  const absPath = assetAbsPath(image, libs);
+
   const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
   if (!previewPath) {
     return { skip: 'no-resolvable-location' };

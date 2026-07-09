@@ -66,6 +66,7 @@ describe('cf-thumb-sync stage', () => {
       fileinfo: [{ path: relDir, filename, library_id: libId, deleted_at: null }],
       maple_id: mapleId,
       hidden: opts?.hidden ?? false,
+      cf_thumb_synced_at: null as string | null,
     };
   }
 
@@ -157,7 +158,7 @@ describe('cf-thumb-sync stage', () => {
       return new Response('', { status: 200 });
     }) as unknown as typeof fetch;
     const asset = await makeAsset('hidden-synced.jpg', 's'.repeat(32), { hidden: true });
-    (asset as any).cf_thumb_synced_at = '2026-01-01T00:00:00.000Z';
+    asset.cf_thumb_synced_at = '2026-01-01T00:00:00.000Z';
 
     const result = await cfThumbSyncStage.handler(asset as never, {} as never);
     expect(result).toEqual({ skip: 'hidden' });
