@@ -41,12 +41,6 @@ import {
   type DescribeProvider,
   getDescribeProvider,
 } from '../../enrichment/describe-providers/index.ts';
-import { writeHiddenMarker } from '../../fs/hidden-marker.ts';
-import { findBurstSiblings } from '../../enrichment/burst-siblings.ts';
-import {
-  cleanupR2ThumbForHiddenAsset,
-  cleanupR2ThumbsForHiddenAssets,
-} from '../../cloudflare/hidden-cleanup.ts';
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
@@ -256,95 +250,6 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     }
   }
 
-  // Nudity auto-hide safety net. Gated on the asset's own manual override:
-  // a user who explicitly unhid this asset (metadata_override.hidden ===
-  // false) must not have that choice silently reverted the next time this
-  // stage re-runs (retry, re-import, or a future prompt-version bump) and
-  // the vision verdict still/again says explicit. Only an absent or `true`
-  // override lets the AI verdict (re)assert the hide. `'suggestive'` never
-  // hides — that preserves the pre-v5 boolean's semantics, under which
-  // only "contains nudity" (now `'explicit'`) triggered the auto-hide.
-  const userExplicitlyUnhid = image.metadata_override?.hidden === false;
-  const wasAlreadyHidden = image.hidden === true;
-  if (vision.nudity === 'explicit' && !userExplicitlyUnhid) {
-    patch.hidden = true;
-    // Only stamp hidden_reason/hidden_ack on a genuinely NEW hide. Without
-    // the `!wasAlreadyHidden` guard, every re-run of this stage (retry,
-    // re-import, a future prompt-version bump) would reset hidden_ack back
-    // to false for an asset the operator already reviewed and acknowledged,
-    // making the "newly hidden" alert reappear for something that isn't new.
-    if (image.hidden_reason !== 'manual' && !wasAlreadyHidden) {
-      patch.hidden_reason = 'nudity';
-      patch.hidden_ack = false;
-    }
-
-    // Call writeHiddenMarker on the main asset
-    if (absPath) {
-      await writeHiddenMarker(absPath);
-    }
-
-    // Burst propagation: if it wasn't already hidden
-    if (!wasAlreadyHidden) {
-      // Newly hidden — any thumbnail already mirrored to R2 must come down;
-      // see cloudflare/hidden-cleanup.ts for why. Best-effort/non-throwing.
-      await cleanupR2ThumbForHiddenAsset(image);
-
-      try {
-        const assets = await coll();
-        const siblings = await findBurstSiblings(assets, image);
-        if (siblings.length > 0) {
-          const siblingIds = siblings.map((s) => s._id);
-          await assets.updateMany(
-            {
-              _id: { $in: siblingIds },
-              hidden: { $ne: true },
-              'metadata_override.hidden': { $ne: false },
-            },
-            {
-              $set: {
-                hidden: true,
-                hidden_reason: 'nudity-burst',
-                hidden_ack: false,
-              },
-            },
-          );
-
-          // Same R2 cleanup as the primary asset, for exactly the siblings
-          // the updateMany above actually flipped to hidden (re-applying
-          // its own filter in memory — the siblings array already holds
-          // full docs, so no extra read is needed to know which qualify).
-          await cleanupR2ThumbsForHiddenAssets(
-            siblings.filter(
-              (sib) => sib.hidden !== true && sib.metadata_override?.hidden !== false,
-            ),
-          );
-
-          // Write hidden markers for siblings — a manually-unhidden sibling
-          // (metadata_override.hidden === false) is excluded from the DB
-          // update above, but its marker is left alone too, so DB and disk
-          // stay consistent for it.
-          await Promise.all(
-            siblings
-              .filter((sib) => sib.metadata_override?.hidden !== false)
-              .map((sib) => {
-                const sibAbsPath = assetAbsPath(sib, libs);
-                return sibAbsPath ? writeHiddenMarker(sibAbsPath) : Promise.resolve();
-              }),
-          );
-          ctx.log.info(
-            { assetId: image._id.toHexString(), siblingCount: siblings.length },
-            'describe: propagated nudity-hide to burst siblings',
-          );
-        }
-      } catch (err) {
-        ctx.log.warn(
-          { assetId: image._id.toHexString(), err: err instanceof Error ? err.message : err },
-          'describe: burst sibling propagation failed',
-        );
-      }
-    }
-  }
-
   return { patch };
 }
 
@@ -373,9 +278,9 @@ const describeStage = defineStage({
   // 5) — classification-first field order, `nudity` ladder replacing
   // `nudity_detected`, screenshot short-circuit nulling every scene
   // field, verbatim OCR transcription, and `indoor_outdoor` dropped from
-  // the schema. Bumping forces the entire library to re-caption under the
-  // new model + prompt.
-  targetVersion: 6,
+  // the schema.
+  // v7: remove nudity classification and auto-hide logic (prompt v6)
+  targetVersion: 7,
   dependsOn: ['preview'],
   defaults: {
     concurrency: 2,
