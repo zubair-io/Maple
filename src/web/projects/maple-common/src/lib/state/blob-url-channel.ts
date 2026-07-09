@@ -12,7 +12,7 @@
 // Reuses ThumbLruCache (blob revocation on evict/clearAll) as the backing
 // store — this class only adds the subscriber/loading-set layer on top.
 
-import { ThumbLruCache } from './library-cache.service';
+import { ThumbLruCache } from './lru-cache';
 
 export class BlobUrlChannel<TId extends string> {
   private readonly lru: ThumbLruCache;
