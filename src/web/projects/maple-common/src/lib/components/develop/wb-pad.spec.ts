@@ -31,12 +31,12 @@ describe('xToTemp / tempToX', () => {
 });
 
 describe('yToTint / tintToY', () => {
-  it('y=0 → -100 (green)', () => {
-    expect(yToTint(0)).toBe(-100);
+  it('y=0 → -150 (green)', () => {
+    expect(yToTint(0)).toBe(-150);
   });
 
-  it('y=1 → +100 (magenta)', () => {
-    expect(yToTint(1)).toBe(100);
+  it('y=1 → +150 (magenta)', () => {
+    expect(yToTint(1)).toBe(150);
   });
 
   it('y=0.5 → 0 (neutral)', () => {
@@ -69,7 +69,7 @@ describe('rgbToWb', () => {
     const { temperature, tint } = rgbToWb(255, 1, 1);
     expect(temperature).toBeLessThanOrEqual(12000);
     expect(temperature).toBeGreaterThanOrEqual(2000);
-    expect(tint).toBeLessThanOrEqual(100);
-    expect(tint).toBeGreaterThanOrEqual(-100);
+    expect(tint).toBeLessThanOrEqual(150);
+    expect(tint).toBeGreaterThanOrEqual(-150);
   });
 });

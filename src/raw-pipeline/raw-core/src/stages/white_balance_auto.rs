@@ -257,21 +257,31 @@ pub fn estimate_tint_from_scene_xyz(xyz: Vec3, cct: f32) -> f32 {
 
     let (cx, cy) = super::white_balance::cct_to_xy(cct);
     let (cu, cv) = xy_to_uv(cx, cy);
-    let (perp_u, perp_v) = tint_perpendicular_axis(cct, true);
+    // The SLIDER convention's axis (`tint_sign_positive_v = false`) — the
+    // same axis `wb_camera::target_xyz` and `white_balance::wb_gains`
+    // displace along when they turn `model.tint` back into a chromaticity.
+    // This estimate's whole purpose is producing values those forward paths
+    // consume (the As-Shot slider seed, the tile-refine decoded anchor), so
+    // it must project onto THEIR axis: pre-#1870 it projected onto the
+    // opposite (`true`) axis, and every calibrated body's seeded As-Shot
+    // init rendered with a 2×|tint| spurious cast — a heavy pink on
+    // test_0002 (H2D-39), whose as-shot tint also sat past the old rail.
+    let (perp_u, perp_v) = tint_perpendicular_axis(cct, false);
     // (u0,v0) - (cu,cv) is the displacement FROM the CCT's locus point TO
     // the measured chromaticity; its scalar projection onto the unit
     // perpendicular axis recovers the signed `tint * TINT_UV_SCALE` the
-    // forward path (`apply_tint_perpendicular`) would apply to land exactly
-    // on the measured point when starting from this same CCT.
+    // forward path (`apply_tint_perpendicular`, same `false` axis) would
+    // apply to land exactly on the measured point when starting from this
+    // same CCT.
     let du = u0 - cu;
     let dv = v0 - cv;
     let projected = du * perp_u + dv * perp_v;
-    // Clamped to the slider's authored range, matching every other tint
-    // computation in this module. Reaching the clamp here is a real answer
-    // from the geometry (a scene white very far from this CCT's locus
-    // point), not a failure — so, unlike the degenerate-XYZ branch above,
-    // it is NOT diagnosed.
-    (projected / TINT_UV_SCALE).clamp(-100.0, 100.0)
+    // Clamped to the slider's authored range (±150 — ACR's own crs:Tint
+    // span, #1870). Reaching the clamp here is a real answer from the
+    // geometry (a scene white very far from this CCT's locus point), not a
+    // failure — so, unlike the degenerate-XYZ branch above, it is NOT
+    // diagnosed.
+    (projected / TINT_UV_SCALE).clamp(-150.0, 150.0)
 }
 
 #[cfg(test)]
@@ -462,14 +472,14 @@ mod tests {
 
     /// Forward-map a (CCT, tint) pair to a scene-white XYZ through the SAME
     /// model `estimate_tint_from_scene_xyz` inverts: `cct_to_xy` +
-    /// `apply_tint_perpendicular` (CAT16 convention — `tint_sign_positive_v
-    /// = true`, matching the estimator's projection axis), then to XYZ
-    /// Y-normalized to 1. This is the forward half of the round-trip
+    /// `apply_tint_perpendicular` (slider convention — `tint_sign_positive_v
+    /// = false`, matching the estimator's projection axis, #1870), then to
+    /// XYZ Y-normalized to 1. This is the forward half of the round-trip
     /// property, independent of `wb_gains`/CAT16 matrix math entirely — it
     /// only exercises the chromaticity geometry the estimator itself uses.
     fn forward_scene_white_xyz(cct: f32, tint: f32) -> Vec3 {
         let (x, y) = cct_to_xy(cct);
-        let (sx, sy) = apply_tint_perpendicular(x, y, cct, tint, true);
+        let (sx, sy) = apply_tint_perpendicular(x, y, cct, tint, false);
         xy_to_xyz(sx, sy, 1.0)
     }
 

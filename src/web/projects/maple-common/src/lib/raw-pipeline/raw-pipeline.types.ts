@@ -54,7 +54,7 @@ export interface DecodeSuccess {
   nativeHeight: number;
   /** Camera "As Shot" CCT in Kelvin (rawler-derived). */
   asShotTemperature: number;
-  /** Camera "As Shot" tint in slider units (-100..100). */
+  /** Camera "As Shot" tint in slider units (-150..150 — ACR's crs:Tint span, #1870). */
   asShotTint: number;
 }
 
@@ -306,7 +306,7 @@ export interface DecodeSceneLinearSuccess {
   fp16Rgba: ArrayBuffer;
   /** Camera "As Shot" CCT in Kelvin (rawler-derived). */
   asShotTemperature: number;
-  /** Camera "As Shot" tint in slider units (-100..100). */
+  /** Camera "As Shot" tint in slider units (-150..150 — ACR's crs:Tint span, #1870). */
   asShotTint: number;
 }
 

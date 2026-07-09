@@ -1,7 +1,7 @@
 // WbPadComponent — 2-D white balance pad widget (#1540, Pro Editor M2).
 //
 // X-axis: temperature [2000..12000 K] (blue→amber left→right).
-// Y-axis: tint [-100..100] (green→magenta bottom→top).
+// Y-axis: tint [-150..150] (green→magenta bottom→top; ACR's crs:Tint span, #1870).
 //
 // The pad fill is a CSS gradient composition of both axes so the puck
 // position reads as a colour.

@@ -12,8 +12,8 @@
     <editor-slider
       label="Tint"
       [value]="adj().tint"
-      [min]="-100"
-      [max]="100"
+      [min]="tintRange[0]"
+      [max]="tintRange[1]"
       (valueChange)="patch('tint', $event)"
     />
   }

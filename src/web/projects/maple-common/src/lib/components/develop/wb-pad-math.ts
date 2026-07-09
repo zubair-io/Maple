@@ -1,10 +1,12 @@
 // wb-pad-math.ts — pure math for the WB pad widget (#1540).
 // No Angular dependencies — importable by both the component and unit tests.
 
-const TEMP_MIN = 2000;
-const TEMP_MAX = 12000;
-const TINT_MIN = -100;
-const TINT_MAX = 100;
+import { ADJUSTMENT_RANGES } from '../../generated/adjustment-model.generated';
+
+const TEMP_MIN = ADJUSTMENT_RANGES.temperature[0];
+const TEMP_MAX = ADJUSTMENT_RANGES.temperature[1];
+const TINT_MIN = ADJUSTMENT_RANGES.tint[0];
+const TINT_MAX = ADJUSTMENT_RANGES.tint[1];
 
 /** Map pad X [0..1] → temperature K. */
 export function xToTemp(x: number): number {

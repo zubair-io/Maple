@@ -90,8 +90,8 @@ extension AdjustmentModel {
 
     /// White balance correlated color temperature in Kelvin.
     public static let temperatureRange: ClosedRange<Double> = 2000.0...12000.0
-    /// White balance green/magenta tint.
-    public static let tintRange: ClosedRange<Double> = -100.0...100.0
+    /// White balance green/magenta tint. Range matches ACR's crs:Tint span (#1870).
+    public static let tintRange: ClosedRange<Double> = -150.0...150.0
     /// Linear exposure in EV stops applied in scene-linear.
     public static let exposureRange: ClosedRange<Double> = -4.0...4.0
     /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics).
