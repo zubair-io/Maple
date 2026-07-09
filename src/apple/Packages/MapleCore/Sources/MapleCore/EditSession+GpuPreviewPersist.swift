@@ -65,6 +65,48 @@ extension EditSession {
         }
     }
 
+    /// Refresh the browse/Preview thumbnail from the CURRENT GPU frame (#1879).
+    /// The GPU-live present path returns from `decodeAndRender` before the CPU
+    /// publish tail ever runs, so GPU-live edits never reach
+    /// `ThumbnailLoader.updateThumbnailFromRender` — `ThumbnailDiskCache` keeps
+    /// the import-time thumbnail and the Preview ("Full Image") view shows the
+    /// ORIGINAL render after edits. Called on editor dismiss: ONE
+    /// utility-priority readback per editor exit, never per slider tick (the
+    /// same cost profile as `persistGpuFrameToPreviewCache`'s cold-open
+    /// one-shot). No-op when the GPU path never presented for this canvas (the
+    /// CPU publish tail already refreshes the thumbnail on every refine) or
+    /// without a driver / asset URL.
+    public func refreshThumbnailFromCurrentGpuFrame() {
+        guard gpuFramePresented,
+              let driver = gpuLiveDriver,
+              let url = asset.primaryURL else { return }
+        let liveModel = model
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Same anchor contract as `presentViaGpuLive` /
+            // `persistGpuFrameToPreviewCache`: the readback re-runs the chain
+            // the live present just drew, so WB must anchor identically.
+            let resolvedIsRaw =
+                await self.renderActor.resolvedIsRaw(for: self.asset.id) ?? self.asset.isRaw
+            let liveWbFrame = resolvedIsRaw ? self.wbSliderFrame : nil
+            let anchor = self.wbDeltaAnchor
+            let cct = resolvedIsRaw ? (anchor?.temperature ?? self.asShotCCT) : 6500.0
+            let tint = resolvedIsRaw ? (anchor?.tint ?? self.asShotTint) : 0.0
+            guard let frame = await driver.renderCurrentFrameBytes(
+                model: liveModel,
+                asShotCCT: cct,
+                asShotTint: tint,
+                wbFrame: liveWbFrame
+            ) else { return }
+            Task.detached(priority: .utility) {
+                guard let image = Self.ciImageFromGpuRgb(
+                    frame.bytes, width: frame.width, height: frame.height
+                ) else { return }
+                await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
+            }
+        }
+    }
+
     /// Wrap the GPU chain's `width·height·3` u8 RGB readback (the canonical
     /// `dither_and_quantize` layout — sRGB-primary gamma-encoded, since the live
     /// params hardcode `target_primaries = 0`) into a CIImage for the preview
