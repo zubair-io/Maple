@@ -82,6 +82,54 @@ describe('body-based refresh (native Apple client)', () => {
     expect(res2.status).toBe(200);
   });
 
+  it('an empty body refresh_token falls back to the cookie instead of 401ing', async () => {
+    const uid = await seedUser();
+    const { raw: r1 } = await issueRefreshToken(uid, 'web-device');
+
+    // A client that sends `refresh_token: ""` in the body but authenticates via
+    // the cookie must not be rejected — the empty body token is "no body token".
+    const res = await app.handle(
+      new Request('http://localhost/api/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.4',
+          cookie: `maple_refresh=${r1}`,
+        },
+        body: JSON.stringify({ refresh_token: '' }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { access_token?: string; refresh_token?: string };
+    expect(body.access_token).toBeDefined();
+    expect(body.refresh_token).toBeUndefined();
+    expect(res.headers.get('set-cookie') ?? '').toContain('maple_refresh=');
+  });
+
+  it('when both a body token and a cookie are sent, rotates the body token and leaves the cookie untouched', async () => {
+    const uid = await seedUser();
+    const { raw: r1 } = await issueRefreshToken(uid, 'native-device');
+
+    const res = await app.handle(
+      new Request('http://localhost/api/auth/refresh', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.5',
+          cookie: 'maple_refresh=some-other-token',
+        },
+        body: JSON.stringify({ refresh_token: r1 }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { refresh_token?: string };
+    // Rotated the BODY token (returned in the body)…
+    expect(body.refresh_token).toBeDefined();
+    expect(body.refresh_token).not.toBe(r1);
+    // …and did NOT overwrite the unrelated cookie with a body-family successor.
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
   it('cookie-based refresh still omits refresh_token from the body (#857)', async () => {
     const uid = await seedUser();
     const { raw: r1 } = await issueRefreshToken(uid, 'web-device');

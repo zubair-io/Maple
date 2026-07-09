@@ -392,8 +392,11 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       // Keychain, so the rotated refresh token MUST come back in the body — the
       // cookie is invisible to it. Cookie auth is the web path (#857): the token
       // rides the rotated httpOnly cookie and never touches the JSON body.
-      const usedBodyToken = typeof body.refresh_token === 'string' && body.refresh_token.length > 0;
-      const raw: string | undefined = body.refresh_token ?? cookieRaw;
+      // Normalize first: an empty/whitespace body token is "no body token", so a
+      // client that sends `refresh_token: ""` still falls back to its cookie.
+      const bodyToken = body.refresh_token?.trim() || undefined;
+      const usedBodyToken = bodyToken !== undefined;
+      const raw: string | undefined = bodyToken ?? cookieRaw;
       if (!raw) {
         set.status = 401;
         return { error: 'no refresh token' };
@@ -418,8 +421,10 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         },
         jwtSecret(),
       );
-      // Re-set the cookie if the request used cookie auth.
-      if (cookieRaw) {
+      // Re-set the cookie only when the refresh was authenticated via the cookie
+      // (not when a body token took precedence) — otherwise a request carrying
+      // both would overwrite the cookie with a successor of an unrelated family.
+      if (cookieRaw && !usedBodyToken) {
         cookie.maple_refresh.set({
           value: fresh.raw,
           httpOnly: true,
