@@ -218,7 +218,11 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
       } as unknown as Asset);
     }
 
-    await settle();
+    // Wait for all 6 cache-hit thumbnail loads to complete (which is async due to Web Crypto / SHA key derivation).
+    const start = Date.now();
+    while (svc.thumbnailUrls().size < 6 && Date.now() - start < 1000) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
 
     // Since they are cache hits, they should all complete immediately without enqueuing in the network queue.
     expect(readThumb).toHaveBeenCalledTimes(6);
