@@ -1,4 +1,0 @@
-[test]
-# Runs once before any test file, in the single process `bun test` shares
-# across every file. See test-setup.ts for what it does and why.
-preload = ["./test-setup.ts"]
