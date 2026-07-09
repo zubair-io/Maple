@@ -19,7 +19,7 @@ public enum ToolValueMapping {
         switch tool {
         case .exposure: return -4.0...4.0    // EV
         case .temp:     return 2000...12000  // K
-        case .tint:     return -100...100
+        case .tint:     return AdjustmentModel.tintRange // ±150, ACR's crs:Tint span (#1870)
         case .brightness,
              .contrast, .highlights, .shadows, .whites, .blacks,
              .vibrance, .saturation,

@@ -20,7 +20,7 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
     exposure: [-4, 4],
     brightness: [-100, 100],
     temp: [2000, 12000],
-    tint: [-100, 100],
+    tint: [-150, 150], // ACR's crs:Tint span (#1870)
     contrast: [-100, 100],
     highlights: [-100, 100],
     shadows: [-100, 100],

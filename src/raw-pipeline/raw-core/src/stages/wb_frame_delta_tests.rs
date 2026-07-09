@@ -153,3 +153,98 @@ fn resolve_on_test_0002_exports_the_bundle_frame() {
     );
     assert!(export.as_shot_tint.is_finite());
 }
+
+// ---- as-shot tint export ↔ slider forward-model consistency (#1870) ----
+//
+// The exported `as_shot_tint` seeds the app's Tint slider on a fresh open,
+// and every calibrated-tier render path interprets that slider through
+// `wb_camera::camera_wb_gain` (the `tint_sign_positive_v = false` axis).
+// The export is only a correct As-Shot seed if the develop at the seeded
+// pair is a WB no-op — i.e. `camera_wb_gain(frame, asn, scene_cct,
+// as_shot_tint) ≈ [1, 1, 1]`. Pre-#1870 the estimate was projected on the
+// OPPOSITE axis (and clamped at ±100), so the seeded init rendered a
+// visible cast on every calibrated body — a heavy pink on test_0002, whose
+// true frame-convention as-shot tint (+143.5) also sits past the old rail.
+
+use crate::stages::wb_camera::camera_wb_gain;
+use crate::stages::white_balance::{apply_tint_perpendicular, cct_to_xy, xy_to_xyz};
+use crate::stages::white_balance_auto::estimate_tint_from_scene_xyz;
+
+/// The camera-native `AsShotNeutral` the synthetic frame's sensor would
+/// report for an illuminant displaced `tint_true` (slider convention —
+/// the `false` axis `camera_wb_gain` consumes) off the locus at the
+/// frame's own `scene_cct`.
+fn as_shot_neutral_at_tint(export: &SliderFrameExport, tint_true: f32) -> [f32; 3] {
+    let (lx, ly) = cct_to_xy(export.scene_cct);
+    let (wx, wy) = apply_tint_perpendicular(lx, ly, export.scene_cct, tint_true, false);
+    let xyz = xy_to_xyz(wx, wy, 1.0);
+    export.to_frame().cm_as_shot.mul_vec(xyz)
+}
+
+/// Estimate + unity-gain check for one true tint value.
+fn assert_estimate_nulls_gain(tint_true: f32) {
+    let export = synthetic_frame();
+    let frame = export.to_frame();
+    let asn = as_shot_neutral_at_tint(&export, tint_true);
+    let est = estimate_tint_from_scene_xyz(frame.scene_illuminant_xyz(asn), export.scene_cct);
+    assert!(
+        (est - tint_true).abs() <= 2.0,
+        "estimate must be in the slider convention: true tint {tint_true}, estimated {est}"
+    );
+    let gain = camera_wb_gain(&frame, asn, export.scene_cct, est);
+    for (c, g) in gain.iter().enumerate() {
+        assert!(
+            (g - 1.0).abs() < 5e-3,
+            "develop at the seeded pair must be a WB no-op: tint_true={tint_true} est={est} gain[{c}]={g}"
+        );
+    }
+}
+
+#[test]
+fn as_shot_tint_estimate_nulls_camera_wb_gain_in_range() {
+    for &t in &[-80.0_f32, -40.0, 0.0, 40.0, 80.0] {
+        assert_estimate_nulls_gain(t);
+    }
+}
+
+#[test]
+fn as_shot_tint_estimate_nulls_camera_wb_gain_past_the_old_rail() {
+    // The H2D-39 shape: a true as-shot tint past the old ±100 clamp but
+    // inside the authored ±150 range (ACR's own crs:Tint span).
+    assert_estimate_nulls_gain(143.5);
+    assert_estimate_nulls_gain(-143.5);
+}
+
+/// Fixture-gated (#1870): the real test_0002 body's exported as-shot tint
+/// must null the camera gain — the As-Shot init render is a WB no-op.
+/// Pre-fix this exported −100 (opposite axis, railed) and the init render
+/// carried a [1.18, 1.0, 1.23] gain: the reported pink cast.
+#[test]
+#[cfg_attr(
+    not(feature = "fixtures"),
+    ignore = "needs test-fixtures/raws (fixtures feature)"
+)]
+fn test_0002_as_shot_tint_export_is_a_wb_no_op() {
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read test_0002.dng");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode test_0002");
+    let profile = crate::color::dcp::profile_for(&raw).expect("profile");
+    let export = SliderFrameExport::resolve(&raw, &profile);
+    assert!(
+        (export.as_shot_tint - 143.5).abs() < 3.0,
+        "H2D-39 as-shot tint in the slider convention is ≈ +143.5, got {}",
+        export.as_shot_tint
+    );
+    let gain = camera_wb_gain(
+        &export.to_frame(),
+        raw.as_shot_neutral,
+        export.scene_cct,
+        export.as_shot_tint,
+    );
+    for (c, g) in gain.iter().enumerate() {
+        assert!(
+            (g - 1.0).abs() < 5e-3,
+            "as-shot init must be a WB no-op, gain[{c}]={g}"
+        );
+    }
+}
