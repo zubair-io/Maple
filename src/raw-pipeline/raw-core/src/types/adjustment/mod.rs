@@ -163,7 +163,7 @@ pub use render_enums::{Profile, ToneCurveMode, WbScaleVersion, WhiteBalancePrese
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdjustmentModel {
     pub temperature: f32, // 2000..12000, default 6500
-    pub tint: f32,        // -100..100, default 0
+    pub tint: f32,        // -150..150 (ACR's crs:Tint span, #1870), default 0
     /// True when `crs:Temperature` was explicitly present in the parsed XMP
     /// sidecar. False for the default model (no sidecar) and for sidecars that
     /// carry `crs:WhiteBalance="Custom"` with only `crs:Tint` set (tint-only

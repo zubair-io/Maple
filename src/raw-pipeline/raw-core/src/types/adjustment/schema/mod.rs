@@ -37,10 +37,10 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     FieldSpec {
         name: "tint",
         kind: FieldKind::F32,
-        range: (-100.0, 100.0),
+        range: (-150.0, 150.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "White balance green/magenta tint.",
+        doc: "White balance green/magenta tint. Range matches ACR's crs:Tint span (#1870).",
     },
     FieldSpec {
         name: "wb_method",
