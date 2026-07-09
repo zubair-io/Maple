@@ -27,7 +27,7 @@ export type HotPixelSuppressionMode = 'Off' | 'On';
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
-  /** White balance green/magenta tint. Range: [-100.0, 100.0]. */
+  /** White balance green/magenta tint. Range matches ACR's crs:Tint span (#1870). Range: [-150.0, 150.0]. */
   tint: number;
   /** User white-balance method (ticket #431). 'Cat16' performs proper chromatic adaptation in CAT16 cone space (default); 'DiagonalRec2020' is the legacy per-channel diagonal-gain path retained for parity A/B. */
   wbMethod: WbMethod;
@@ -170,7 +170,7 @@ export interface GeneratedAdjustmentModel {
 /** Canonical `[min, max]` range for each scalar field, generated from raw-core. */
 export const ADJUSTMENT_RANGES = {
   temperature: [2000.0, 12000.0] as const,
-  tint: [-100.0, 100.0] as const,
+  tint: [-150.0, 150.0] as const,
   exposure: [-4.0, 4.0] as const,
   brightness: [-100.0, 100.0] as const,
   contrast: [-100.0, 100.0] as const,
