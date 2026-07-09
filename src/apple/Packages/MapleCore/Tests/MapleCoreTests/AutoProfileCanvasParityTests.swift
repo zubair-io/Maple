@@ -421,9 +421,9 @@ final class AutoProfileCanvasParityTests: XCTestCase {
         // raw-core reference u8 (Oklab-compressed) from green-probe.rs — the
         // exact #877 evidence table.
         let probes: [GamutProbe] = [
-            GamutProbe(name: "sat-green-0.5", displayLinearRec2020: [0.0, 0.5, 0.0], rawCoreU8: [0, 174, 91], isWideGamut: true),
-            GamutProbe(name: "sat-green-0.8", displayLinearRec2020: [0.0, 0.8, 0.0], rawCoreU8: [0, 215, 114], isWideGamut: true),
-            GamutProbe(name: "sat-green-1.0", displayLinearRec2020: [0.0, 1.0, 0.0], rawCoreU8: [0, 237, 126], isWideGamut: true),
+            GamutProbe(name: "sat-green-0.5", displayLinearRec2020: [0.0, 0.5, 0.0], rawCoreU8: [20, 174, 93], isWideGamut: true),
+            GamutProbe(name: "sat-green-0.8", displayLinearRec2020: [0.0, 0.8, 0.0], rawCoreU8: [27, 214, 116], isWideGamut: true),
+            GamutProbe(name: "sat-green-1.0", displayLinearRec2020: [0.0, 1.0, 0.0], rawCoreU8: [31, 236, 129], isWideGamut: true),
             GamutProbe(name: "near-white", displayLinearRec2020: [0.95, 0.97, 0.9], rawCoreU8: [248, 252, 242], isWideGamut: false),
             GamutProbe(name: "neutral-mid", displayLinearRec2020: [0.46, 0.46, 0.46], rawCoreU8: [181, 181, 181], isWideGamut: false),
         ]

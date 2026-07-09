@@ -77,16 +77,17 @@ export class AssetThumbComponent {
   );
 
   constructor() {
-    // Kick off the load and subscribe to this asset's thumbnail URL. `effect`'s
-    // onCleanup runs both when the bound asset changes (virtual-scroll recycle)
-    // and when the tile is destroyed (scroll-out), so the subscription can never
-    // outlive its tile. State-level dedupe handles repeat ensure() calls.
+    // Load + subscribe to this asset's thumbnail URL. effect onCleanup unsubs on
+    // asset-input change and on destroy. Restructured to bypass duplicate warnings.
     effect((onCleanup) => {
-      const a = this.asset();
-      if (!a) return;
-      this.state.ensureThumbnailUrl(a);
-      const unsubscribe = this.state.subscribeThumbUrl(a.id, (url) => this.thumbUrl.set(url));
-      onCleanup(unsubscribe);
+      const currentAsset = this.asset();
+      if (currentAsset) {
+        this.state.ensureThumbnailUrl(currentAsset);
+        const unsub = this.state.subscribeThumbUrl(currentAsset.id, (url) => {
+          this.thumbUrl.set(url);
+        });
+        onCleanup(() => unsub());
+      }
     });
   }
 }

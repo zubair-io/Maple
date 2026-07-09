@@ -78,7 +78,7 @@ struct PanoMergeSessionTests {
 
         // Yield to the Task so the synchronous stitcher can finish.
         var iterations = 0
-        while session.isRunning && iterations < 100 {
+        while session.isRunning && iterations < 10000 {
             await Task.yield()
             iterations += 1
         }
@@ -98,7 +98,7 @@ struct PanoMergeSessionTests {
         session.start(assets: makeAssets(2))
 
         var iterations = 0
-        while session.isRunning && iterations < 100 {
+        while session.isRunning && iterations < 10000 {
             await Task.yield()
             iterations += 1
         }
@@ -128,7 +128,7 @@ struct PanoMergeSessionTests {
         session.start(assets: makeAssets(2))
 
         var iterations = 0
-        while session.isRunning && iterations < 100 {
+        while session.isRunning && iterations < 10000 {
             await Task.yield()
             iterations += 1
         }

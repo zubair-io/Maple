@@ -17,7 +17,7 @@
  * that field is only populated in Self-Hosted fs-walk browse mode, not the
  * content-addressed Hosted library path, so a filename-based check is the
  * one that works uniformly across both. */
-export const VIDEO_EXTENSIONS = new Set([
+const VIDEO_EXTENSIONS = new Set([
   'mov',
   'mp4',
   'm4v',
@@ -40,11 +40,11 @@ export const VIDEO_EXTENSIONS = new Set([
  * Blackmagic RAW, Affinity Photo, Illustrator). Indexed as metadata-only
  * stubs — filename/size/date show up in the grid, but there's never a
  * thumbnail to load. */
-export const STUB_IMAGE_EXTENSIONS = new Set(['eip', 'braw', 'afphoto', 'ai']);
+const STUB_IMAGE_EXTENSIONS = new Set(['eip', 'braw', 'afphoto', 'ai']);
 
 /** Audio formats. Indexed as metadata-only stubs alongside the stub image
  * formats — same "never a thumbnail" story. */
-export const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac']);
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac']);
 
 /**
  * Returns the uppercased extension (no dot) when `filename` is a recognised
