@@ -151,21 +151,9 @@ export async function sidecarMetadataIndexHandler(
       : nativeIsScreenshot;
 
   // Hidden precedence: an explicit user override always wins. Absent an
-  // override, the effective value is `priorHidden || nativeHidden` —
-  // deliberately one-directional (see AssetDoc.hidden doc comment). A
-  // describe-stage re-run whose vision verdict is no longer `'explicit'`
-  // must never silently un-hide an asset a user hid manually, or one a
-  // prior AI pass correctly flagged; only an explicit override (hidden
-  // false here) can clear it. `'suggestive'` does not hide — only
-  // `'explicit'` maps to the old boolean's "contains nudity" semantics.
-  // Stale v4 rows (pre-nudity-ladder) carry `nudity_detected` instead of
-  // `nudity`; fall back to it until the targetVersion-6 re-run rewrites them.
+  // override, the effective value is the prior hidden status.
   const priorHidden = image.hidden === true;
-  const nativeHidden = image.vision
-    ? (image.vision.nudity ?? (image.vision.nudity_detected === true ? 'explicit' : 'none')) ===
-      'explicit'
-    : false;
-  const finalHidden = override.hidden ?? (priorHidden || nativeHidden);
+  const finalHidden = override.hidden ?? priorHidden;
   patch['hidden'] = finalHidden;
 
   if (override.hidden === true) {

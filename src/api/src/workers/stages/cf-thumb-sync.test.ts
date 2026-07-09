@@ -147,6 +147,24 @@ describe('cf-thumb-sync stage', () => {
     expect(fetchCalled).toBe(false);
   });
 
+  it('cleans up R2 if a hidden asset is marked as synced', async () => {
+    if (!mongoReachable) return;
+    let fetchCalled = false;
+    let fetchMethod = '';
+    globalThis.fetch = (async (input, init) => {
+      fetchCalled = true;
+      fetchMethod = input instanceof Request ? input.method : (init?.method ?? 'GET');
+      return new Response('', { status: 200 });
+    }) as unknown as typeof fetch;
+    const asset = await makeAsset('hidden-synced.jpg', 's'.repeat(32), { hidden: true });
+    (asset as any).cf_thumb_synced_at = '2026-01-01T00:00:00.000Z';
+
+    const result = await cfThumbSyncStage.handler(asset as never, {} as never);
+    expect(result).toEqual({ skip: 'hidden' });
+    expect(fetchCalled).toBe(true);
+    expect(fetchMethod).toBe('DELETE');
+  });
+
   it('skips terminally (no-thumb) when the thumbnail has not been generated yet', async () => {
     if (!mongoReachable) return;
     stubFetch(200);

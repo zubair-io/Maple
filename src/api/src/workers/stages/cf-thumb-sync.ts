@@ -46,6 +46,7 @@ import {
 } from '../../cloudflare/cloudflare-config.repo.ts';
 import { uploadThumbToR2 } from '../../cloudflare/r2-client.ts';
 import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
+import { cleanupR2ThumbForHiddenAsset } from '../../cloudflare/hidden-cleanup.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 /** Bounds a single upload attempt's wall-clock — `run-stage.ts` retries the
@@ -66,7 +67,12 @@ const cfThumbSyncStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
-    if (image.hidden === true) return { skip: 'hidden' };
+    if (image.hidden === true) {
+      if (image.cf_thumb_synced_at) {
+        await cleanupR2ThumbForHiddenAsset(image);
+      }
+      return { skip: 'hidden' };
+    }
 
     const dbConfig = await loadCloudflareConfig();
     const config = resolveCloudflareConfig(dbConfig);

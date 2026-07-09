@@ -64,7 +64,6 @@ export const ALLOWED_SHOT_TYPE = new Set([
   'nature',
   'event',
 ]);
-export const ALLOWED_NUDITY = new Set(['none', 'suggestive', 'explicit']);
 
 /** Per-enum synonym maps. qwen regularly emits values that are
  * semantically equivalent to one of the allowed enum values but not
@@ -167,15 +166,14 @@ export const ENUM_DEFAULTS = {
  *
  * PROPERTY ORDER IS SIGNIFICANT — DO NOT ALPHABETIZE. Ollama's
  * grammar-constrained decode emits object properties in the order they
- * appear in this schema, and prompt v5's entire design rests on
- * classifying `is_screenshot` and `nudity` before the model commits to a
- * `caption` or any scene field, so those two fields must stay first.
+ * appear in this schema, and prompt v6's design rests on
+ * classifying `is_screenshot` before the model commits to a
+ * `caption` or any scene field, so that field must stay first.
  */
 export const VISION_DOC_JSON_SCHEMA = {
   type: 'object',
   properties: {
     is_screenshot: { type: 'boolean' },
-    nudity: { type: 'string', enum: [...ALLOWED_NUDITY] },
     caption: { type: 'string', minLength: 1 },
     subjects: { type: ['array', 'null'], items: { type: 'string' } },
     scene_type: { type: ['string', 'null'], enum: [...ALLOWED_SCENE_TYPE, null] },
@@ -193,7 +191,6 @@ export const VISION_DOC_JSON_SCHEMA = {
   },
   required: [
     'is_screenshot',
-    'nudity',
     'caption',
     'subjects',
     'scene_type',

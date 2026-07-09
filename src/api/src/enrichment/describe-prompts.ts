@@ -64,7 +64,6 @@ export const DEFAULT_DESCRIBE_VISION_PROMPT = `You are indexing a personal photo
 
 {
   "is_screenshot":   "boolean — true when this image is a screen capture of a phone, computer, or app UI (including cropped screenshots and screenshots-of-screenshots); false for photographs, including photos OF screens",
-  "nudity":          "none | suggestive | explicit",
   "caption":         "1-2 sentence search-oriented description. Do not begin with 'This image shows', 'The image depicts', or similar. Lead with the subject and action, then setting. Include distinctive searchable details: clothing colors, number of people, animal breeds, landmarks, vehicle types.",
   "subjects":        ["subject types present: person, child, adult, dog, cat, bird, building, vehicle, landscape, food, plant, etc."],
   "scene_type":      "indoor | outdoor | aerial | macro | studio | mixed",
@@ -81,9 +80,6 @@ export const DEFAULT_DESCRIBE_VISION_PROMPT = `You are indexing a personal photo
   "shot_type":       "action | static | candid | posed | architectural | nature | event"
 }
 
-Definitions:
-- "nudity" is "explicit" when exposed genitals, exposed buttocks, or exposed female breasts/nipples are visible — including in art, on statues, or on a screen within the image. "suggestive" means sexualized posing or underwear/lingerie-focused framing without exposure. "none" covers everything else, including swimwear, shirtless men, and ordinary bath or beach family photos.
-
 Rules:
 - Decide "is_screenshot" first. If true: set "scene_type", "setting", "activity", "time_of_day", "lighting", "weather", "composition", and "shot_type" to null; name the app or website in "caption"; transcribe the main on-screen text in "text_visible".
 - Return null when you cannot identify a field; never invent a value.
@@ -91,10 +87,10 @@ Rules:
 - Output JSON only. No prose before or after the JSON object.
 
 Example output for an ordinary photo:
-{"is_screenshot": false, "nudity": "none", "caption": "A girl in a blue jersey kicks a football across a wet grass pitch while two teammates run behind her.", "subjects": ["child", "person"], "scene_type": "outdoor", "setting": "sports field", "activity": "playing football", "time_of_day": "afternoon", "lighting": "natural", "weather": "cloudy", "mood": "energetic", "colors": ["green", "blue", "white"], "composition": "wide shot", "text_visible": null, "notable_objects": ["football", "goal net"], "shot_type": "action"}
+{"is_screenshot": false, "caption": "A girl in a blue jersey kicks a football across a wet grass pitch while two teammates run behind her.", "subjects": ["child", "person"], "scene_type": "outdoor", "setting": "sports field", "activity": "playing football", "time_of_day": "afternoon", "lighting": "natural", "weather": "cloudy", "mood": "energetic", "colors": ["green", "blue", "white"], "composition": "wide shot", "text_visible": null, "notable_objects": ["football", "goal net"], "shot_type": "action"}
 
 Example output for a screenshot:
-{"is_screenshot": true, "nudity": "none", "caption": "Screenshot of a maps navigation app showing a driving route to Portland with a 42-minute ETA.", "subjects": [], "scene_type": null, "setting": null, "activity": null, "time_of_day": null, "lighting": null, "weather": null, "mood": null, "colors": ["white", "blue"], "composition": null, "text_visible": "42 min\\n28 miles\\nFastest route to Portland", "notable_objects": ["map"], "shot_type": null}`;
+{"is_screenshot": true, "caption": "Screenshot of a maps navigation app showing a driving route to Portland with a 42-minute ETA.", "subjects": [], "scene_type": null, "setting": null, "activity": null, "time_of_day": null, "lighting": null, "weather": null, "mood": null, "colors": ["white", "blue"], "composition": null, "text_visible": "42 min\\n28 miles\\nFastest route to Portland", "notable_objects": ["map"], "shot_type": null}`;
 
 /**
  * `prompt_version` to stamp on `vision_meta` rows produced with
@@ -110,5 +106,6 @@ Example output for a screenshot:
  *       (none|suggestive|explicit), screenshot short-circuit, verbatim
  *       OCR for text_visible, drops indoor_outdoor, removes candid from
  *       composition; ships with the qwen3-vl:8b default
+ *   6 — v6: remove nudity classification and auto-hide logic
  */
-export const DESCRIBE_VISION_PROMPT_VERSION = 5;
+export const DESCRIBE_VISION_PROMPT_VERSION = 6;

@@ -7,7 +7,6 @@ import {
 
 const VALID = {
   is_screenshot: false,
-  nudity: 'none',
   caption: 'A child in a white lacrosse uniform sprints across a green field.',
   subjects: ['person', 'child', 'athlete'],
   scene_type: 'outdoor',
@@ -207,44 +206,6 @@ describe('parseVisionJson — rejection paths', () => {
     const v = { ...VALID, is_screenshot: true };
     const out = parseVisionJson(JSON.stringify(v));
     expect(out.is_screenshot).toBe(true);
-  });
-
-  it('defaults nudity to none when missing', () => {
-    const v = { ...VALID } as any;
-    delete v.nudity;
-    const out = parseVisionJson(JSON.stringify(v));
-    expect(out.nudity).toBe('none');
-  });
-
-  it('accepts the three nudity ladder values verbatim', () => {
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: 'none' })).nudity).toBe('none');
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: 'suggestive' })).nudity).toBe(
-      'suggestive',
-    );
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: 'explicit' })).nudity).toBe(
-      'explicit',
-    );
-  });
-
-  it('trims + lowercases nudity before lookup', () => {
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: '  EXPLICIT  ' })).nudity).toBe(
-      'explicit',
-    );
-  });
-
-  it('never throws on nudity — degenerate inputs fall back to none, except legacy boolean true', () => {
-    // Legacy pre-v5 shape: a bare `true` (the old `nudity_detected` boolean)
-    // maps to 'explicit', matching the old field's own semantics.
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: true })).nudity).toBe('explicit');
-    // Everything else uninterpretable collapses to the least-informative
-    // default rather than dead-lettering the row — nudity is always
-    // classifiable, and grammar-constrained decode makes a degenerate
-    // value near-impossible on modern Ollama, so this is defense in depth.
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: false })).nudity).toBe('none');
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: null })).nudity).toBe('none');
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: 'maybe' })).nudity).toBe('none');
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: 1 })).nudity).toBe('none');
-    expect(parseVisionJson(JSON.stringify({ ...VALID, nudity: {} })).nudity).toBe('none');
   });
 
   it('joins text_visible string[] into a newline-separated string', () => {
@@ -454,7 +415,6 @@ describe('parseVisionJson — rejection paths', () => {
 describe('prompt ↔ parser cross-check', () => {
   const REQUIRED_KEYS = [
     'is_screenshot',
-    'nudity',
     'caption',
     'subjects',
     'scene_type',
@@ -479,8 +439,8 @@ describe('prompt ↔ parser cross-check', () => {
     });
   }
 
-  it('DESCRIBE_VISION_PROMPT_VERSION is 5 (qwen3-vl classification-first prompt)', () => {
-    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(5);
+  it('DESCRIBE_VISION_PROMPT_VERSION is 6 (remove nudity and auto-hide prompt)', () => {
+    expect(DESCRIBE_VISION_PROMPT_VERSION).toBe(6);
   });
 });
 
@@ -495,7 +455,6 @@ describe('parseVisionJson — every enum is honoured', () => {
     ['weather', ['clear', 'cloudy', 'rainy', 'snowy', 'foggy', 'indoor', 'unknown']],
     ['composition', ['wide shot', 'close-up', 'portrait', 'landscape', 'aerial', 'macro']],
     ['shot_type', ['action', 'static', 'candid', 'posed', 'architectural', 'nature', 'event']],
-    ['nudity', ['none', 'suggestive', 'explicit']],
   ];
 
   for (const [field, allowed] of enumCases) {
