@@ -144,7 +144,7 @@
 //! camera's as-shot chromaticity can sit far enough off the blackbody
 //! locus that reaching it needs a large tint (measured on a real
 //! Hasselblad H2D-39 bundle profile: the true as-shot point's
-//! slider-convention tint projects to +143.5 — representable since #1870
+//! ACR-convention tint projects to −143.5 — representable since #1870
 //! widened the range to ACR's ±150, but under the historical ±100 clamp
 //! `apply` literally could not reach identity for that model shape via
 //! its single fixed reference point, and float rounding of a seeded pair
@@ -263,9 +263,9 @@ fn g_normalize(v: [f32; 3]) -> [f32; 3] {
 ///
 /// Uses the same CIE 1960 uv-perpendicular-to-locus axis as
 /// `stages::white_balance::wb_gains` (`apply_tint_perpendicular`,
-/// `tint_sign_positive_v = false`) — NOT a crude linear `y -= tint *
-/// 0.001` offset off the locus. Matching `wb_gains`'s axis exactly matters
-/// here specifically because `wb_gains`'s inverse,
+/// `tint_sign_positive_v = true` — the ACR direction, #1875) — NOT a crude
+/// linear `y -= tint * 0.001` offset off the locus. Matching `wb_gains`'s
+/// axis exactly matters here specifically because `wb_gains`'s inverse,
 /// `color::dcp::estimate_as_shot_cct_tint` /
 /// `white_balance_auto::estimate_tint_from_scene_xyz`, is what recovers a
 /// camera's as-shot `(cct, tint)` pair for the tile-refine delta-anchor
@@ -275,12 +275,13 @@ fn g_normalize(v: [f32; 3]) -> [f32; 3] {
 /// mismatched convention produces (measured: a linear-offset axis put a
 /// real fixture's as-shot tint at the -100 clamp rail and rendered a
 /// [1.47, 1.0, 1.63] gain at what should have been the as-shot identity
-/// point). Same sign convention as `wb_gains`: positive tint moves the
-/// source chromaticity toward magenta (lower `y`-ish, precisely "lower v
-/// in uv") so the corrective gain pushes the rendered image toward green.
+/// point). Same sign convention as `wb_gains` and `wb_cat16_matrix`
+/// (#1875): positive tint moves the source chromaticity toward green
+/// (higher v in uv), so the corrective gain pushes the rendered image
+/// toward MAGENTA — the slider-gradient/ACR direction.
 fn target_xyz(temperature: f32, tint: f32) -> [f32; 3] {
     let (x, y) = cct_to_xy(temperature);
-    let (tx, ty) = apply_tint_perpendicular(x, y, temperature, tint, false);
+    let (tx, ty) = apply_tint_perpendicular(x, y, temperature, tint, true);
     xy_to_xyz(tx, ty, 1.0)
 }
 
@@ -399,7 +400,7 @@ pub fn apply(
 /// chromaticity can sit far enough off the blackbody locus that its
 /// diagonal-convention tint (see [`target_xyz`]'s doc) exceeds the ±100
 /// slider range entirely (measured on a real Hasselblad H2D-39 bundle
-/// profile: the true as-shot tint projects to +144, clamped to +100 by
+/// profile: the true as-shot tint magnitude projects to 144, clamped to 100 by
 /// `estimate_tint_from_scene_xyz` before any sign-convention difference
 /// even enters). An app that hydrates `model.temperature`/`model.tint`
 /// to the camera's own estimated as-shot `(cct, tint)` (rather than

@@ -100,6 +100,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                         stamp = Some(match value.as_ref() {
                             "1" => WbScaleVersion::V1,
                             "2" => WbScaleVersion::V2,
+                            "3" => WbScaleVersion::V3,
                             other => {
                                 return Err(Error::Xmp(format!(
                                     "unknown WbScaleVersion: {}",
@@ -124,10 +125,17 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
         }
     }
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
+    // Unstamped, non-Maple (or WB-less) documents are V3 (#1875): an
+    // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention
+    // (tint+ = magenta image), which IS the V3 render direction — so it
+    // passes through unconverted. (These parsed as V2 between #1780 and
+    // #1875, when V2 was believed direction-identical to ACR; it wasn't —
+    // V2's tint axis was inverted — so the V2 tag now exists solely to
+    // preserve the look of Maple-authored V2 sidecars via tint negation.)
     model.wb_scale_version = stamp.unwrap_or(if unstamped_is_v1 {
         WbScaleVersion::V1
     } else {
-        WbScaleVersion::V2
+        WbScaleVersion::V3
     });
     Ok(model)
 }

@@ -18,15 +18,16 @@ extension XMPSerializer {
         var attrs: [(String, String)] = [
             ("crs:Temperature",          String(format: "%.0f", model.temperature)),
             ("crs:Tint",                 String(format: "%.0f", model.tint)),
-            // WB scale stamp (#1780): this serializer always writes explicit
-            // Temperature/Tint, so the scale those numbers are expressed in
-            // is always stamped alongside them. Re-emits the version the
-            // model was loaded with (1 for pre-#1756 sidecars, 2 for fresh
-            // models) so a V1 sidecar's stored values keep their meaning
-            // across saves. Clamped to {1, 2} (default 2): raw-core's
-            // parser hard-fails on an unknown stamp, so a corrupted model
-            // field must never reach the sidecar.
-            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 2)),
+            // WB scale stamp (#1780/#1875): this serializer always writes
+            // explicit Temperature/Tint, so the scale those numbers are
+            // expressed in is always stamped alongside them. V1 re-emits
+            // as 1 (raw-core converts at develop, so stored V1 values keep
+            // their meaning across saves); everything else emits 3 — the
+            // parse normalizes V2 models to V3 at load, so a non-1 model
+            // always holds V3 (ACR tint direction) values. Clamped to
+            // {1, 3}: raw-core's parser hard-fails on an unknown stamp,
+            // so a corrupted model field must never reach the sidecar.
+            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 3)),
             ("crs:Exposure2012",         fmtF(model.exposure)),
             ("crs:Contrast2012",         String(format: "%.0f", model.contrast)),
             ("crs:Highlights2012",       String(format: "%.0f", model.highlights)),

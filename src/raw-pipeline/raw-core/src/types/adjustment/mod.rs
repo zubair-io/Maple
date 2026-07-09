@@ -181,10 +181,12 @@ pub struct AdjustmentModel {
     /// `DiagonalRec2020` keeps the pre-#431 von-Kries diagonal gains.
     pub wb_method: WbMethod,
     /// WB slider-scale version of the sidecar's stored temperature/tint
-    /// (#1780). `V1` = pre-#1756 post-DCP CAT16 scale (converted on use by
-    /// `stages::wb_camera::resolve_target_versioned`); `V2` = ACR
-    /// calibration-frame scale (pass-through). Set by the XMP parser from
-    /// `papp:WbScaleVersion` / the Maple-authorship heuristic; default `V2`.
+    /// (#1780/#1875). `V1` = pre-#1756 post-DCP CAT16 scale (converted on
+    /// use by `stages::wb_camera::resolve_target_versioned`); `V2` = the
+    /// #1756–#1875 scale (tint axis inverted vs ACR — authored tint is
+    /// negated on use); `V3` = ACR calibration-frame scale, ACR tint
+    /// direction (pass-through). Set by the XMP parser from
+    /// `papp:WbScaleVersion` / the Maple-authorship heuristic; default `V3`.
     /// Not part of the codegen schema — internal parse-state, like
     /// `temperature_seen`.
     pub wb_scale_version: WbScaleVersion,
@@ -434,7 +436,7 @@ impl Default for AdjustmentModel {
             temperature_seen: false,
             tint_seen: false,
             wb_method: WbMethod::Cat16,
-            wb_scale_version: WbScaleVersion::V2,
+            wb_scale_version: WbScaleVersion::V3,
             exposure: 0.0,
             brightness: 0.0,
             contrast: 0.0,

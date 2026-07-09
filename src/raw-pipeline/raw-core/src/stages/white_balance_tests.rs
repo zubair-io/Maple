@@ -81,11 +81,11 @@ fn non_default_mutates_pixels() {
 }
 
 #[test]
-fn legacy_diagonal_negative_tint_adds_magenta() {
-    // Legacy `DiagonalRec2020` path: tint sign was inverted vs the
-    // reference renderer, so tint=-100 produces a magenta image.
-    // The CAT16 default flips this — see `cat16_tint_plus_adds_magenta`
-    // below for the corrected convention.
+fn legacy_diagonal_negative_tint_adds_green() {
+    // `DiagonalRec2020` path, ACR direction (#1875): tint=-100 produces a
+    // GREEN image, same convention as the CAT16 default (see
+    // `cat16_tint_plus_adds_magenta` below) — the two methods no longer
+    // disagree about direction.
     let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
     for p in &mut img.pixels {
         *p = [0.3, 0.3, 0.3];
@@ -93,16 +93,16 @@ fn legacy_diagonal_negative_tint_adds_magenta() {
     apply(&mut img, 6500.0, -100.0, WbMethod::DiagonalRec2020);
     for p in &img.pixels {
         assert!(
-            p[0] > p[1],
-            "R should exceed G for legacy-diagonal magenta tint, got R={} G={}",
-            p[0],
-            p[1]
+            p[1] > p[0],
+            "G should exceed R for diagonal green (negative) tint, got G={} R={}",
+            p[1],
+            p[0]
         );
         assert!(
-            p[2] > p[1],
-            "B should exceed G for legacy-diagonal magenta tint, got B={} G={}",
-            p[2],
-            p[1]
+            p[1] > p[2],
+            "G should exceed B for diagonal green (negative) tint, got G={} B={}",
+            p[1],
+            p[2]
         );
     }
 }
@@ -146,9 +146,9 @@ fn extreme_cool_50000k_warms_strongly() {
 }
 
 #[test]
-fn legacy_diagonal_positive_tint_adds_green() {
-    // Legacy `DiagonalRec2020` path: tint+100 (sign-inverted vs the
-    // reference renderer) drops R and B below G, producing a green image.
+fn legacy_diagonal_positive_tint_adds_magenta() {
+    // `DiagonalRec2020` path, ACR direction (#1875): tint=+100 lifts R and
+    // B above G, producing a magenta image — matching the CAT16 default.
     let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
     for p in &mut img.pixels {
         *p = [0.3, 0.3, 0.3];
@@ -156,16 +156,16 @@ fn legacy_diagonal_positive_tint_adds_green() {
     apply(&mut img, 6500.0, 100.0, WbMethod::DiagonalRec2020);
     for p in &img.pixels {
         assert!(
-            p[1] > p[0],
-            "G should exceed R for legacy-diagonal green tint, got G={} R={}",
-            p[1],
-            p[0]
+            p[0] > p[1],
+            "R should exceed G for diagonal magenta (positive) tint, got R={} G={}",
+            p[0],
+            p[1]
         );
         assert!(
-            p[1] > p[2],
-            "G should exceed B for legacy-diagonal green tint, got G={} B={}",
-            p[1],
-            p[2]
+            p[2] > p[1],
+            "B should exceed G for diagonal magenta (positive) tint, got B={} G={}",
+            p[2],
+            p[1]
         );
     }
 }

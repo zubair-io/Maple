@@ -158,25 +158,27 @@ fn resolve_on_test_0002_exports_the_bundle_frame() {
 //
 // The exported `as_shot_tint` seeds the app's Tint slider on a fresh open,
 // and every calibrated-tier render path interprets that slider through
-// `wb_camera::camera_wb_gain` (the `tint_sign_positive_v = false` axis).
+// `wb_camera::camera_wb_gain` (the `tint_sign_positive_v = true` axis —
+// ACR direction, #1875).
 // The export is only a correct As-Shot seed if the develop at the seeded
 // pair is a WB no-op — i.e. `camera_wb_gain(frame, asn, scene_cct,
 // as_shot_tint) ≈ [1, 1, 1]`. Pre-#1870 the estimate was projected on the
 // OPPOSITE axis (and clamped at ±100), so the seeded init rendered a
 // visible cast on every calibrated body — a heavy pink on test_0002, whose
-// true frame-convention as-shot tint (+143.5) also sits past the old rail.
+// true frame-convention as-shot tint (≈ −143.5 in the ACR-direction axis)
+// also sits past the old ±100 rail.
 
 use crate::stages::wb_camera::camera_wb_gain;
 use crate::stages::white_balance::{apply_tint_perpendicular, cct_to_xy, xy_to_xyz};
 use crate::stages::white_balance_auto::estimate_tint_from_scene_xyz;
 
 /// The camera-native `AsShotNeutral` the synthetic frame's sensor would
-/// report for an illuminant displaced `tint_true` (slider convention —
-/// the `false` axis `camera_wb_gain` consumes) off the locus at the
+/// report for an illuminant displaced `tint_true` (ACR convention —
+/// the `true` axis `camera_wb_gain` consumes, #1875) off the locus at the
 /// frame's own `scene_cct`.
 fn as_shot_neutral_at_tint(export: &SliderFrameExport, tint_true: f32) -> [f32; 3] {
     let (lx, ly) = cct_to_xy(export.scene_cct);
-    let (wx, wy) = apply_tint_perpendicular(lx, ly, export.scene_cct, tint_true, false);
+    let (wx, wy) = apply_tint_perpendicular(lx, ly, export.scene_cct, tint_true, true);
     let xyz = xy_to_xyz(wx, wy, 1.0);
     export.to_frame().cm_as_shot.mul_vec(xyz)
 }
@@ -215,10 +217,12 @@ fn as_shot_tint_estimate_nulls_camera_wb_gain_past_the_old_rail() {
     assert_estimate_nulls_gain(-143.5);
 }
 
-/// Fixture-gated (#1870): the real test_0002 body's exported as-shot tint
-/// must null the camera gain — the As-Shot init render is a WB no-op.
-/// Pre-fix this exported −100 (opposite axis, railed) and the init render
-/// carried a [1.18, 1.0, 1.23] gain: the reported pink cast.
+/// Fixture-gated (#1870/#1875): the real test_0002 body's exported as-shot
+/// tint must null the camera gain — the As-Shot init render is a WB no-op.
+/// Pre-#1870 this exported −100 (railed) while the render axis disagreed,
+/// and the init carried a [1.18, 1.0, 1.23] gain: the reported pink cast.
+/// #1875 flipped estimator AND render to the ACR axis together, so the
+/// value is now ≈ −143.5 and unity still holds.
 #[test]
 #[cfg_attr(
     not(feature = "fixtures"),
@@ -231,8 +235,8 @@ fn test_0002_as_shot_tint_export_is_a_wb_no_op() {
     let profile = crate::color::dcp::profile_for(&raw).expect("profile");
     let export = SliderFrameExport::resolve(&raw, &profile);
     assert!(
-        (export.as_shot_tint - 143.5).abs() < 3.0,
-        "H2D-39 as-shot tint in the slider convention is ≈ +143.5, got {}",
+        (export.as_shot_tint - (-143.5)).abs() < 3.0,
+        "H2D-39 as-shot tint in the ACR-direction convention is ≈ −143.5, got {}",
         export.as_shot_tint
     );
     let gain = camera_wb_gain(

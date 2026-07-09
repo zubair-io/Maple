@@ -114,14 +114,16 @@ fn uv_to_xy(u: f32, v: f32) -> (f32, f32) {
 /// same sign as `tint_sign_convention_v_positive` (caller-supplied), so each
 /// path preserves its documented user-facing direction:
 ///
-/// - **CAT16 path**: `tint > 0` must move the source GREENER (v↑ in uv ≈
-///   greenish direction at 6500 K), producing a MAGENTA image after
-///   adaptation. Pass `tint_sign_positive_v = true`.
-/// - **Diagonal path**: `tint > 0` moves source in the GREEN direction, so
-///   gain = D65/source pushes image GREEN. This path has an inverted sign:
-///   subtract tint from y historically, which at 6500 K moves uv v downward
-///   for positive tint (toward magenta source / green image). Pass
-///   `tint_sign_positive_v = false`.
+/// - **Every model-facing path (#1875)**: `tint > 0` must move the SOURCE
+///   greener (v↑ in uv), producing a MAGENTA image after correction — the
+///   ACR/slider-gradient direction. Pass `tint_sign_positive_v = true`.
+///   This covers `wb_cat16_matrix`, `wb_gains`, `wb_camera::target_xyz`,
+///   the frame-delta conjugation basis, and the as-shot estimator's
+///   inverse projection.
+/// - The `false` orientation (v↓ for positive tint — image goes GREEN) is
+///   the historic pre-#1875 axis of the diagonal/camera-frame paths; it
+///   survives only via tint NEGATION when reconstructing V1/V2-authored
+///   looks (`WbScaleVersion` migration), never as a live axis argument.
 ///
 /// The scale constant `TINT_UV_SCALE` was fitted to ACR references; see its
 /// declaration above.
@@ -219,16 +221,19 @@ pub(crate) fn tint_perpendicular_axis(cct: f32, tint_sign_positive_v: bool) -> (
 /// temperature_min (2000K) rendered red/magenta on Maple where the reference renderer
 /// produced blue. Fix flipped the ratio direction.
 pub fn wb_gains(temperature: f32, tint: f32) -> Vec3 {
-    // The reference renderer's tint semantics: positive tint = GREEN image,
-    // negative tint = MAGENTA image. To produce a green image shift via the
-    // gain path (gain = D65/source), the source must be displaced toward
-    // MAGENTA (i.e. the v-component of the perpendicular displacement must be
-    // negative for positive tint). Pass `tint_sign_positive_v = false` so the
-    // perpendicular direction has a negative v-component, moving the source
-    // toward lower v (≈magenta), which makes gain = D65/source push the image
-    // greener.
+    // The reference renderer's tint semantics (#1875): positive tint =
+    // MAGENTA image, negative tint = GREEN image — the direction the
+    // slider gradient (green left, magenta right) and ACR's own crs:Tint
+    // both promise, and the direction `wb_cat16_matrix`'s
+    // `tint_plus_pushes_magenta` contract test pins. To push the image
+    // magenta via the gain path (gain = D65/source), the source must be
+    // displaced toward GREEN (v↑) — pass `tint_sign_positive_v = true`.
+    // (This path historically used the `false` axis, rendering every
+    // authored tint with the opposite direction from the CAT16 path and
+    // from ACR; V2-authored sidecars are re-interpreted via
+    // `WbScaleVersion` so their look is preserved.)
     let (x, y) = cct_to_xy(temperature);
-    let (sx, sy) = apply_tint_perpendicular(x, y, temperature, tint, false);
+    let (sx, sy) = apply_tint_perpendicular(x, y, temperature, tint, true);
     let xyz_source = xy_to_xyz(sx, sy, 1.0);
     let source_rec2020 = M_XYZ_D65_TO_REC2020.mul_vec(xyz_source);
     let d65_rec2020 = M_XYZ_D65_TO_REC2020.mul_vec(XYZ_D65);
@@ -496,6 +501,15 @@ pub fn resolve_wb(model: &crate::xmp::AdjustmentModel) -> (f32, f32) {
     // the seen flags in the first place.
     let effective_tint = if model.temperature_seen && !model.tint_seen {
         0.0
+    } else if model.tint_seen && model.wb_scale_version == crate::xmp::WbScaleVersion::V2 {
+        // V2-authored tint (#1875): the #1756–#1875 scale interpreted the
+        // tint axis inverted vs ACR, so a V2 sidecar's authored value
+        // encodes the OPPOSITE displacement in today's (V3, ACR-direction)
+        // axis. Negating preserves the authored look exactly — the two
+        // axis orientations are the same line with opposite sign. Applies
+        // only to explicit authored tint: presets and defaults were never
+        // expressed in the inverted scale.
+        -model.tint
     } else {
         model.tint
     };

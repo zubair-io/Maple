@@ -365,22 +365,30 @@ export class XmpParserService {
     let cropRight: number | undefined;
     let cropAngle: number | undefined;
 
-    // WB scale versioning (#1780), resolved at document level: an explicit
-    // `papp:WbScaleVersion` stamp wins; otherwise a document carrying the
-    // Maple `papp:` namespace (declaration or attribute — every Maple
-    // writer declares it unconditionally) AND an explicit authored
-    // `crs:Temperature`/`crs:Tint` predates the versioning (pre-#1756
-    // scale, 1). Everything else — no `papp:` namespace at all
-    // (ACR/Lightroom-authored, always expressed in ACR's own slider
-    // scale) or no authored WB (nothing to convert) — is 2. Mirrors
+    // WB scale versioning (#1780/#1875), resolved at document level: an
+    // explicit `papp:WbScaleVersion` stamp wins; otherwise a document
+    // carrying the Maple `papp:` namespace (declaration or attribute —
+    // every Maple writer declares it unconditionally) AND an explicit
+    // authored `crs:Temperature`/`crs:Tint` predates the versioning
+    // (pre-#1756 scale, 1). Everything else — no `papp:` namespace at all
+    // (ACR/Lightroom-authored, expressed in ACR's own convention, which
+    // V3 matches) or no authored WB (nothing to convert) — is 3. Mirrors
     // raw-core's `xmp::parse` and the Swift `XMPParser`. The prefix (not
     // a URI) is the discriminator because the three Maple writers
     // historically bound `papp` to different URIs.
     const sawExplicitWb =
       desc.getAttribute('crs:Temperature') !== null || desc.getAttribute('crs:Tint') !== null;
+    const sawAuthoredTint = desc.getAttribute('crs:Tint') !== null;
     const stampRaw = desc.getAttribute('papp:WbScaleVersion');
-    const stamp = stampRaw === '1' ? 1 : stampRaw === '2' ? 2 : undefined;
-    model.wbScaleVersion = stamp ?? (sawPappAnywhere && sawExplicitWb ? 1 : 2);
+    const stamp = stampRaw === '1' ? 1 : stampRaw === '2' ? 2 : stampRaw === '3' ? 3 : undefined;
+    const version = stamp ?? (sawPappAnywhere && sawExplicitWb ? 1 : 3);
+    // V2 → V3 load-normalization (#1875): the #1756–#1875 scale's tint
+    // axis was inverted vs ACR, so a V2-authored crs:Tint encodes the
+    // opposite displacement in the V3 axis. Negate at load (applied after
+    // the attribute walk below) and normalize the model to V3 so the
+    // in-memory model and every re-serialize are uniformly V3.
+    const negateAuthoredTintForV2 = version === 2 && sawAuthoredTint;
+    model.wbScaleVersion = version === 2 ? 3 : version;
 
     // Pass 1: walk attributes, applying canonical fields and remembering
     // legacy-aliased attributes for a second pass.
@@ -509,6 +517,15 @@ export class XmpParserService {
       if (!Number.isNaN(parsed)) {
         model[alias.modelKey] = parsed;
       }
+    }
+
+    // V2 → V3 tint negation (#1875) — after the walk so it applies to the
+    // final parsed value. Only an explicitly authored crs:Tint negates;
+    // preset-resolved tints were never expressed in the inverted scale.
+    // (`model` is Partial; an authored crs:Tint guarantees the field was
+    // populated by the walk, but a malformed value may have been dropped.)
+    if (negateAuthoredTintForV2 && model.tint !== undefined) {
+      model.tint = -model.tint;
     }
 
     // Emit `crop` only when any field came through; angle alone is enough
