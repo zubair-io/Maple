@@ -158,7 +158,9 @@ fn frame_inversion_recovers_off_slider_range_tints_unclamped() {
 // ── resolve_target_versioned dispatch ─────────────────────────────────────
 
 #[test]
-fn v2_explicit_values_pass_through_unconverted() {
+fn v2_explicit_tint_negates_into_the_v3_axis() {
+    // #1875: the V2 scale's tint axis was inverted vs ACR; the authored
+    // value re-expresses in V3 by negation (temperature untouched).
     let frame = single_cm_frame(5200.0);
     let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
     let model = AdjustmentModel {
@@ -167,8 +169,23 @@ fn v2_explicit_values_pass_through_unconverted() {
     };
     assert_eq!(
         resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
+        (5000.0, -10.0),
+        "V2-authored tint must negate into the V3 (ACR-direction) axis"
+    );
+}
+
+#[test]
+fn v3_explicit_values_pass_through_unconverted() {
+    let frame = single_cm_frame(5200.0);
+    let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
+    let model = AdjustmentModel {
+        wb_scale_version: WbScaleVersion::V3,
+        ..v1_model(5000.0, 10.0)
+    };
+    assert_eq!(
+        resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
         (5000.0, 10.0),
-        "V2 models must resolve exactly like resolve_target"
+        "V3 models must resolve exactly like resolve_target"
     );
 }
 

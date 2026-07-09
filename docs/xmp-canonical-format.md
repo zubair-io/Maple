@@ -280,37 +280,46 @@ Ticket #456 separated the legacy alias from the new canonical key, and
   `captureSharpeningSigmaSeen`, TypeScript's `canonicallyApplied` set)
   so the rule is source-order independent.
 
-## WB slider-scale versioning (#1756, #1780)
+## WB slider-scale versioning (#1756, #1780, #1875)
 
 PR #1756 changed what stored `crs:Temperature` / `crs:Tint` numbers MEAN:
 they are now interpreted in ACR's calibration frame
 (`raw-core stages::wb_camera::SliderFrame`, identity at the image's as-shot
 CCT) instead of the pre-#1756 post-DCP CAT16 scale (identity at
-6500 K / tint 0). That is a schema-semantics change, versioned on the
-sidecar:
+6500 K / tint 0). #1875 then fixed the tint AXIS of that frame scale: the
+#1756–#1875 interpretation rendered positive tint green-ward — the
+opposite of ACR's convention (and of the slider gradient), where positive
+tint pushes the image toward magenta. Both are schema-semantics changes,
+versioned on the sidecar:
 
-- **Stamp:** `papp:WbScaleVersion` — `"1"` (pre-#1756 scale) or `"2"`
-  (ACR calibration-frame scale). Both the Swift and TypeScript writers
-  emit the stamp whenever they write an explicit `crs:Temperature` /
-  `crs:Tint` (the Swift writer emits those unconditionally, so it always
-  stamps), carrying the version the model was loaded with — a version-1
-  sidecar re-saves as version 1 so its stored numbers keep their meaning.
-  Fresh models are version 2.
+- **Stamp:** `papp:WbScaleVersion` — `"1"` (pre-#1756 scale), `"2"`
+  (#1756–#1875 frame scale, tint axis inverted vs ACR), or `"3"`
+  (frame scale, ACR tint direction — current). Both the Swift and
+  TypeScript writers emit the stamp whenever they write an explicit
+  `crs:Temperature` / `crs:Tint` (the Swift writer emits those
+  unconditionally, so it always stamps). A version-1 sidecar re-saves as
+  version 1 so its stored numbers keep their meaning; everything else is
+  written as version 3 — the Swift and TS parsers normalize a loaded V2
+  model to V3 (negating an explicitly authored `crs:Tint`, which
+  preserves the authored look exactly since the two axis orientations are
+  the same line with opposite sign). Fresh models are version 3.
 - **Absent stamp:** decided by authorship. A document that carries the
   Maple `papp:` namespace (every Maple writer declares it unconditionally
   — the _prefix_ is the discriminator, since the three writers bind it to
   different URIs) AND an explicit `crs:Temperature`/`crs:Tint` predates
-  the versioning and reads as **1**. Everything else reads as **2**: a
-  document with no `papp:` namespace at all (ACR/Lightroom-authored) was
-  always expressed in ACR's own slider scale — exactly the scale #1756
-  adopted — and a document with no authored WB has nothing to convert
-  (as-shot renders identically on either scale).
-- **Conversion happens in raw-core only** (`wb_camera::
-resolve_target_versioned`): version-1 values with an explicit authored
-  Temperature/Tint are re-expressed in the version-2 frame at develop
-  time so the rendered look is preserved; the stored numbers are never
-  rewritten. Sidecars without an explicit Temperature/Tint follow as-shot
-  on both scales and are untouched.
+  the versioning and reads as **1**. Everything else reads as **3**: a
+  document with no `papp:` namespace at all (ACR/Lightroom-authored) is
+  expressed in ACR's own convention — which V3 matches — and a document
+  with no authored WB has nothing to convert (as-shot renders identically
+  on every scale).
+- **Conversion happens in raw-core** (`wb_camera::resolve_target_versioned`
+  for the calibrated tiers, `white_balance::resolve_wb` for the fallback
+  tier): version-1 values with an explicit authored Temperature/Tint are
+  re-expressed in the current frame at develop time, and version-2
+  authored tints are negated into the V3 axis, so the rendered look is
+  preserved; the stored numbers are never rewritten by raw-core. (The
+  Swift/TS loaders additionally normalize V2 → V3 in-memory so slider
+  display, live render params, and re-saves are uniformly V3.)
 - All three parsers (Rust `xmp::parse`, Swift `XMPParser`, TS
   `XmpParserService`) implement the same stamp-else-heuristic rule, and
   the platform models carry the version (`wb_scale_version` /

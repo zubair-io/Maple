@@ -150,15 +150,17 @@ public enum HotPixelSuppressionMode: String, Codable, Sendable, Hashable, CaseIt
 public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // White balance
     public var temperature: Double      // 2000..12000, default 6500
-    public var tint: Double             // -100..100, default 0
-    /// WB slider-scale version of this model's temperature/tint (#1780).
+    public var tint: Double             // -150..150 (ACR's crs:Tint span, #1870), default 0
+    /// WB slider-scale version of this model's temperature/tint (#1780/#1875).
     /// `1` = pre-#1756 scale (post-DCP CAT16, 6500 K identity) — raw-core
-    /// converts on use; `2` = ACR calibration-frame scale (current).
-    /// Parsed from `papp:WbScaleVersion` (absent stamp on a Maple-authored
-    /// sidecar means `1`; non-Maple sidecars are `2`), re-stamped verbatim
-    /// on write so a V1 sidecar's stored values keep their meaning across
-    /// saves. Fresh models author in the current scale.
-    public var wbScaleVersion: Int      // 1 | 2, default 2
+    /// converts on use; `3` = ACR calibration-frame scale with the ACR tint
+    /// direction (current). `2` (the #1756–#1875 scale, tint axis inverted
+    /// vs ACR) never survives a parse: the loader negates authored tint and
+    /// normalizes the model to `3`. Parsed from `papp:WbScaleVersion`
+    /// (absent stamp on a Maple-authored sidecar means `1`; non-Maple
+    /// sidecars are `3`), re-stamped on write as {1, 3}. Fresh models
+    /// author in the current scale.
+    public var wbScaleVersion: Int      // 1 | 3, default 3
 
     // Basic tone
     public var exposure: Double         // -4..+4 EV, default 0
@@ -325,7 +327,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
-        wbScaleVersion: Int = 2,
+        wbScaleVersion: Int = 3,
         exposure: Double = 0,
         brightness: Double = 0,
         contrast: Double = 0,

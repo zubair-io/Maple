@@ -37,11 +37,11 @@ fn acr_doc(attrs: &str) -> String {
 }
 
 #[test]
-fn default_model_is_v2() {
+fn default_model_is_v3() {
     assert_eq!(
         AdjustmentModel::default().wb_scale_version,
-        WbScaleVersion::V2,
-        "fresh models author in the current (frame) scale"
+        WbScaleVersion::V3,
+        "fresh models author in the current (ACR-direction) scale"
     );
 }
 
@@ -67,11 +67,12 @@ fn maple_authorship_detected_from_papp_attribute_without_declaration() {
 }
 
 #[test]
-fn acr_authored_without_papp_is_v2() {
+fn acr_authored_without_papp_is_v3() {
     // ACR/Lightroom-authored sidecars never carry the Maple namespace and
-    // were always expressed in ACR's own slider scale — V2 semantics.
+    // are expressed in ACR's own convention — which is V3's (tint+ =
+    // magenta image, #1875) — so they pass through unconverted.
     let m = parse(&acr_doc(r#"crs:Temperature="5500" crs:Tint="10""#)).unwrap();
-    assert_eq!(m.wb_scale_version, WbScaleVersion::V2);
+    assert_eq!(m.wb_scale_version, WbScaleVersion::V3);
     assert!(m.temperature_seen && m.tint_seen);
 }
 
@@ -96,8 +97,18 @@ fn explicit_stamp_1_round_trips_v1() {
 }
 
 #[test]
+fn explicit_stamp_3_is_v3() {
+    let m = parse(&maple_doc(
+        r#"crs:Temperature="5520" crs:Tint="-144" papp:WbScaleVersion="3""#,
+    ))
+    .unwrap();
+    assert_eq!(m.wb_scale_version, WbScaleVersion::V3);
+    assert_eq!(m.tint, -144.0);
+}
+
+#[test]
 fn unknown_stamp_value_is_an_error() {
-    let err = parse(&maple_doc(r#"papp:WbScaleVersion="3""#)).unwrap_err();
+    let err = parse(&maple_doc(r#"papp:WbScaleVersion="4""#)).unwrap_err();
     assert!(
         err.to_string().contains("WbScaleVersion"),
         "unexpected error: {err}"
@@ -105,14 +116,14 @@ fn unknown_stamp_value_is_an_error() {
 }
 
 #[test]
-fn maple_doc_without_explicit_wb_is_v2() {
+fn maple_doc_without_explicit_wb_is_v3() {
     // No authored Temperature/Tint = nothing to convert (the develop
     // chain's As-Shot seeding applies on either scale), so the version
-    // heuristic deliberately leaves the model at the V2 default — this is
+    // heuristic deliberately leaves the model at the V3 default — this is
     // also what keeps a full-default serialize→parse round trip equal to
     // `AdjustmentModel::default()`.
     let m = parse(&maple_doc(r#"crs:Exposure2012="0.5""#)).unwrap();
-    assert_eq!(m.wb_scale_version, WbScaleVersion::V2);
+    assert_eq!(m.wb_scale_version, WbScaleVersion::V3);
     assert!(!m.temperature_seen && !m.tint_seen);
     assert_eq!((m.temperature, m.tint), (6500.0, 0.0));
 }
