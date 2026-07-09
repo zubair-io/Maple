@@ -24,7 +24,7 @@
 /** Canonical `[min, max]` range per numeric schema field (snake_case). */
 export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, number]>> = {
   temperature: [2000.0, 12000.0],
-  tint: [-100.0, 100.0],
+  tint: [-150.0, 150.0], // ACR's crs:Tint span (#1870)
   exposure: [-4.0, 4.0],
   contrast: [-100.0, 100.0],
   brightness: [-100.0, 100.0],

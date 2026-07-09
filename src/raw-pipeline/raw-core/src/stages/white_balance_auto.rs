@@ -257,15 +257,11 @@ pub fn estimate_tint_from_scene_xyz(xyz: Vec3, cct: f32) -> f32 {
 
     let (cx, cy) = super::white_balance::cct_to_xy(cct);
     let (cu, cv) = xy_to_uv(cx, cy);
-    // The SLIDER convention's axis (`tint_sign_positive_v = false`) — the
-    // same axis `wb_camera::target_xyz` and `white_balance::wb_gains`
-    // displace along when they turn `model.tint` back into a chromaticity.
-    // This estimate's whole purpose is producing values those forward paths
-    // consume (the As-Shot slider seed, the tile-refine decoded anchor), so
-    // it must project onto THEIR axis: pre-#1870 it projected onto the
-    // opposite (`true`) axis, and every calibrated body's seeded As-Shot
-    // init rendered with a 2×|tint| spurious cast — a heavy pink on
-    // test_0002 (H2D-39), whose as-shot tint also sat past the old rail.
+    // SLIDER convention (`tint_sign_positive_v = false`) — the axis
+    // `wb_camera::target_xyz`/`white_balance::wb_gains` consume when they
+    // turn `model.tint` back into a chromaticity. Pre-#1870 this projected
+    // onto the opposite (`true`) axis, so every calibrated body's seeded
+    // As-Shot init rendered with a 2×|tint| spurious cast.
     let (perp_u, perp_v) = tint_perpendicular_axis(cct, false);
     // (u0,v0) - (cu,cv) is the displacement FROM the CCT's locus point TO
     // the measured chromaticity; its scalar projection onto the unit
