@@ -190,9 +190,27 @@ final class RenderActorTests: XCTestCase {
             "Quality.full must carry raw value 0 to match the Rust FFI (0 => RenderQuality::Full)")
     }
 
+    /// The production default (#940): with no `MAPLE_AMAZE` override and no
+    /// UserDefaults key written, AMaZE is ON. (The tiled kernel from #1887
+    /// made it cost-equivalent to bilinear, so the flag is a kill switch,
+    /// not an opt-in.)
+    func testAmazeFlagDefaultsToEnabled() throws {
+        guard ProcessInfo.processInfo.environment["MAPLE_AMAZE"] == nil else {
+            throw XCTSkip("MAPLE_AMAZE override present in this runner; default not observable")
+        }
+        let saved = UserDefaults.standard.object(forKey: AmazeFlag.defaultsKey)
+        UserDefaults.standard.removeObject(forKey: AmazeFlag.defaultsKey)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: AmazeFlag.defaultsKey) }
+        }
+        XCTAssertTrue(
+            AmazeFlag.isEnabled,
+            "AMaZE must be ON by default (#940); the Settings toggle / MAPLE_AMAZE=0 are the kill switches")
+    }
+
     /// Export path (`renderForExport`) quality is flag-gated (#940):
-    ///   • AmazeFlag OFF (default) → `.full` (bilinear, production default).
-    ///   • AmazeFlag ON            → `.amaze`.
+    ///   • AmazeFlag ON (default)      → `.amaze`.
+    ///   • AmazeFlag OFF (kill switch) → `.full` (bilinear).
     /// The test checks both branches by reading `AmazeFlag.isEnabled` rather
     /// than hard-coding `.amaze`, so it stays green regardless of the
     /// UserDefaults / `MAPLE_AMAZE` state in the test runner environment.
@@ -215,8 +233,8 @@ final class RenderActorTests: XCTestCase {
 
     /// Refine path (full-resolution `sharedDecode` in `RenderActor+DecodedCache`)
     /// is flag-gated (#940). Fast phase is always `.preview` — unaffected.
-    ///   • AmazeFlag OFF (default) → refine uses `.full` (bilinear).
-    ///   • AmazeFlag ON            → refine uses `.amaze`.
+    ///   • AmazeFlag ON (default)      → refine uses `.amaze`.
+    ///   • AmazeFlag OFF (kill switch) → refine uses `.full` (bilinear).
     func testRefinePathUsesAmazeQuality() {
         let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
         let fastQuality   = PipelineRenderer.Quality.preview
