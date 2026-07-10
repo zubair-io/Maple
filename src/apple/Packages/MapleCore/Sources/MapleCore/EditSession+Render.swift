@@ -190,7 +190,6 @@ extension EditSession {
         let m = model
         adoptDecodedWbFrame(cachedWbFrame) // #1781: decode-bake anchor below
         let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
-        let priorPreview = renderedPreview
         // Auto Profile (#812) — resolve/cache the per-image cube off the
         // synchronous chain block, mirroring `decodeAndRender`. The editor
         // decode path develops at `.preview` (RenderActor's sharedDecode +
@@ -248,13 +247,26 @@ extension EditSession {
             return
         }
 
+        // Underlay = the preview on screen NOW, not a capture from before the
+        // detached materialise: a fast pass may have published a newer full
+        // render mid-flight, and compositing over the pre-await snapshot would
+        // clobber it with stale-tone pixels outside the patch (#1881).
+        let underlay = renderedPreview
         let composite = compositeWithPreviewUnderlay(
-            materialised, underlay: priorPreview, canvasSize: canvasSize
+            materialised, underlay: underlay, canvasSize: canvasSize
+        )
+        // The patch only counts as a full render when it covers the whole
+        // canvas — a viewport-sized patch leaves underlay pixels (possibly
+        // rendered under an older model) visible outside its rect, and that
+        // mixed image must never be persisted or pushed to the thumbnail.
+        let coversCanvas = materialised.extent.contains(
+            CGRect(origin: .zero, size: canvasSize).insetBy(dx: 1, dy: 1)
         )
         renderedPreview = composite
+        previewIsFullRender = coversCanvas
         renderError = nil
 
-        if let url = asset.primaryURL {
+        if coversCanvas, let url = asset.primaryURL {
             Task.detached(priority: .utility) { [composite] in
                 await ThumbnailLoader.shared.updateThumbnailFromRender(composite, for: url)
             }
@@ -502,6 +514,7 @@ extension EditSession {
                 }
             }
             renderedPreview = displayImage
+            previewIsFullRender = true
             renderError = nil
             editSessionLogger.debug(
                 "decodeAndRender published preview gen=\(gen ?? 0) extent=\(displayImage.extent.width)x\(displayImage.extent.height)"
