@@ -83,15 +83,15 @@ actor NativeDetailRenderer {
         var bakedModel = RawCoreBridge.stripAppleGPUStages(model)
         bakedModel.profile = model.profile
         bakedModel.look = .default
+        let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+        let accessing = scope.startAccessingSecurityScopedResource()
+        defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+
         let key = HandleKey(
             url: url,
             sourceMtime: Self.modificationDate(for: url),
             bakedModel: bakedModel
         )
-
-        let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-        let accessing = scope.startAccessingSecurityScopedResource()
-        defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
         // The Rust tile ABI accepts display-oriented source coordinates and
         // applies the RAW's EXIF orientation internally. Keep this rect in the

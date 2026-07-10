@@ -9,6 +9,10 @@ extension EditSession {
     /// flight. Pure pan/zoom refines intentionally do not bump the main render
     /// generation, so this independent token is the stale-work guard.
     func clearNativeDetailPreview() {
+        if nativeDetailInFlightID != nil {
+            nativeDetailInFlightID = nil
+            isRendering = false
+        }
         nativeDetailRequestID &+= 1
         nativeDetailPreview = nil
         nativeDetailSourceRect = .zero
@@ -32,6 +36,7 @@ extension EditSession {
 
         nativeDetailRequestID &+= 1
         let requestID = nativeDetailRequestID
+        nativeDetailInFlightID = requestID
         let m = model
         let pipeline = self.pipeline
         let renderer = nativeDetailRenderer
@@ -48,7 +53,10 @@ extension EditSession {
         renderPhase = .refine
         isRendering = true
         defer {
-            if requestID == nativeDetailRequestID { isRendering = false }
+            if nativeDetailInFlightID == requestID {
+                nativeDetailInFlightID = nil
+                isRendering = false
+            }
         }
 
         let signpostID = editSessionSignposter.makeSignpostID()

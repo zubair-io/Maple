@@ -347,7 +347,7 @@ public final class EditSession {
     /// prevents an older visible-region result from publishing after a pan,
     /// resize, model change, or return to fit.
     @ObservationIgnored var nativeDetailRequestID: UInt64 = 0
-
+    @ObservationIgnored var nativeDetailInFlightID: UInt64?
     /// Per-session render actor (issue #194). Slice 2 moved the decoded-
     /// image cache + `sharedDecode` / `coalescedRefineDecode` /
     /// `renderForExport` behind this boundary. Slice 3 moves the
