@@ -19,12 +19,12 @@
 //     render so the first frame lands — subsequent frames are driven by slider
 //     edits / zoom through the existing two-phase scheduler.
 //
-// The drawable size is set from the host view's pixel bounds. The present asserts
-// `surface_dims == image_dims`, and the driver uploads the decoded buffer at the
-// viewport-sized fast-phase target, so the canvas must request the SAME size the
-// session's `fastTargetSize` resolves to. We drive the session's `previewSize`
-// from the same pixel bounds (as the CPU `CanvasImageView` path does), so the
-// decode target and the layer size agree.
+// `CanvasZoomHost` owns the viewport and is the ONLY writer of
+// `session.previewSize`. This leaf is framed as the full displayed image; at
+// 100% its bounds can be sensor-sized even though most of it is clipped by the
+// viewport. Treating those leaf bounds as the viewport requests a full-sensor
+// decode. The controller therefore registers the layer only; wgpu configures a
+// viewport-sized drawable and CoreAnimation scales it across the image leaf.
 //
 // Colour space: the chain outputs sRGB-primary, gamma-encoded pixels, so the
 // layer is tagged sRGB (#1512) and CoreAnimation converts sRGB → the display's
@@ -51,7 +51,6 @@ final class GpuLiveCanvasController {
     let layer = CAMetalLayer()
     private weak var session: EditSession?
     private var didRegister = false
-    private var lastPixelSize: CGSize = .zero
 
     init() {
         layer.pixelFormat = .bgra8Unorm
@@ -81,10 +80,9 @@ final class GpuLiveCanvasController {
         self.session = session
     }
 
-    /// Track the host view's pixel bounds (driving the decode `previewSize`),
-    /// register the layer with the driver on first sizing, and kick the initial
-    /// render. Called from the host view's `layout()` / `layoutSubviews()`,
-    /// where bounds are authoritative.
+    /// Register the layer on first non-degenerate layout and kick the initial
+    /// render. The bounds belong to the zoomed image leaf, not the clipped
+    /// viewport, so they must never be written into `session.previewSize`.
     ///
     /// SINGLE-WRITER CONTRACT (#1769): this controller does NOT write
     /// `layer.drawableSize` — wgpu's `surface.configure` owns it (it sets the
@@ -100,16 +98,6 @@ final class GpuLiveCanvasController {
     /// configured drawable size) tracks the canvas as before.
     func layoutAndPresent(pixelWidth: CGFloat, pixelHeight: CGFloat) {
         guard pixelWidth >= 1, pixelHeight >= 1 else { return }
-        // Round to integer pixels BEFORE propagating to `previewSize` — the
-        // decode target and the wgpu surface must resolve from the same
-        // integers (fractional bounds like 913.5 would round differently in
-        // `prescaledExtent`; the #1240 lesson).
-        let w = pixelWidth.rounded()
-        let h = pixelHeight.rounded()
-        let size = CGSize(width: w, height: h)
-        if size != lastPixelSize {
-            lastPixelSize = size
-        }
         guard let session, let driver = session.gpuLiveDriver else { return }
         if !didRegister {
             didRegister = true
@@ -128,10 +116,9 @@ final class GpuLiveCanvasController {
             // below schedules a real present and the backdrop covers the
             // gap until it lands.
             session.gpuFramePresented = false
-            // Push the viewport so the decode target (and thus the GPU upload /
-            // the layer drawable) resolve to this size, then kick the first
-            // render — subsequent frames ride the scheduler on edits.
-            session.previewSize = size
+            // CanvasZoomHost has already (or will imminently) pushed the real
+            // clipped viewport. Kick the first render without overwriting it
+            // with this potentially sensor-sized leaf.
             session.ensureRenderStarted()
             // Cloud / sourceless cold-open follow-up (#1362): when the canvas
             // doesn't have `nativeImageSize` until the decode publishes, the
@@ -142,10 +129,6 @@ final class GpuLiveCanvasController {
             // render against the now-registered layer so the GPU path engages
             // and the chip flips immediately.
             session.kickRenderAfterGpuCanvasMount()
-        } else if size != session.previewSize {
-            // A resize re-targets the decode (and re-opens the upload-once
-            // session at the new dims) via the scheduler's refine path.
-            session.previewSize = size
         }
     }
 }

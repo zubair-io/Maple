@@ -27,14 +27,17 @@ extension EditSession {
     public func updateTileVisibleRegion(viewport: CGRect, zoom: CGFloat) {
         let prevRect = viewportSourceRect
         let prevZoom = pixelScale
+        let rectChanged = !prevRect.equalTo(viewport)
+        // Pure pan does not touch pixelScale, so invalidate the old native
+        // detail patch here before its source region moves off-screen.
+        if rectChanged { clearNativeDetailPreview() }
         viewportSourceRect = viewport
         pixelScale = zoom  // didSet on pixelScale will reschedule when changed
         // If zoom didn't change but the viewport rect did (pure pan),
         // pixelScale.didSet won't fire — kick a refine here. Use a
         // small tolerance so a sub-pixel jitter doesn't trigger a
         // reschedule storm during a pinch.
-        if abs(zoom - prevZoom) <= 0.01,
-           !prevRect.equalTo(viewport) {
+        if abs(zoom - prevZoom) <= 0.01, rectChanged {
             _scheduleRefine()
         }
     }
