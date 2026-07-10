@@ -472,12 +472,24 @@ public struct XMPSerializer {
 
     // MARK: - Public serializer
 
+    /// Serialize a full adjustment sidecar. This is the persisted-save entry
+    /// point — it always authors white balance. The decode-XMP path that
+    /// needs As-Shot omission uses the internal `omitWhiteBalance` overload
+    /// below, kept off this public surface so a sidecar-save call site can
+    /// never accidentally drop authored WB (#1883, Copilot).
+    public static func serialize(model: AdjustmentModel, culling: CullingState) -> String {
+        serialize(model: model, culling: culling, omitWhiteBalance: false)
+    }
+
     /// `omitWhiteBalance` (#1883): decode-XMP-only mode — see `_buildAttrs`.
-    /// Sidecar SAVES must use the default `false`.
-    public static func serialize(
+    /// `internal` (no default) so only in-module callers — `RawCoreBridge`'s
+    /// decode temp-XMP and the parity test — can request WB omission
+    /// intentionally; every persisted save routes through the public two-arg
+    /// form above, which always authors WB.
+    static func serialize(
         model: AdjustmentModel,
         culling: CullingState,
-        omitWhiteBalance: Bool = false
+        omitWhiteBalance: Bool
     ) -> String {
         let attrs = _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
