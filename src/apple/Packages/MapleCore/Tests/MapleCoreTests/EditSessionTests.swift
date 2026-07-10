@@ -113,6 +113,11 @@ final class EditSessionTests: XCTestCase {
             session.pixelScale = 0  // fit mode
             session.renderedPreview = CIImage(color: .red)
                 .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+            // Simulate a completed fast pass: only full-canvas renders of
+            // the current model are persistable (#1881). Without this the
+            // seeded buffer counts as a cold-open seed and the persist
+            // path (correctly) refuses to bake it.
+            session.previewIsFullRender = true
         }
 
         // Trigger persist via the public render path. This kicks
@@ -134,6 +139,44 @@ final class EditSessionTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTAssertFalse(files.isEmpty, "RenderedPreviewCache should have written a file under .maple/previews")
+    }
+
+    /// #1881 — a preview that is NOT a completed full-canvas render of the
+    /// current model (a cold-open seed, or a viewport patch composited over
+    /// an older underlay) must never reach `RenderedPreviewCache`. Baking
+    /// such a mixed-provenance image writes a hard tone seam that every
+    /// subsequent cold open re-displays until a full render overwrites it.
+    func testPersistSkipsPreviewThatIsNotAFullRender() async throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        await RenderedPreviewCache.shared.configure(folderURL: tmp)
+
+        let assetURL = tmp.appendingPathComponent("test.dng")
+        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+
+        let session = await EditSession(asset: AssetRef(url: assetURL))
+        await MainActor.run {
+            session.previewSize = CGSize(width: 800, height: 600)
+            session.renderedPreview = CIImage(color: .red)
+                .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+            // Default is false; set explicitly to document the contract
+            // under test: seed / composite provenance blocks persistence.
+            session.previewIsFullRender = false
+            session.persistCurrentPreviewToCache()
+        }
+
+        // The persist path (when it fires) is a debounce + detached write;
+        // give it more than enough time to appear before asserting absence.
+        try await Task.sleep(for: .milliseconds(700))
+        let mapleDir = tmp.appendingPathComponent(".maple/previews")
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: mapleDir.path)) ?? []
+        XCTAssertTrue(
+            files.isEmpty,
+            "A non-full-render preview must not be persisted to RenderedPreviewCache (#1881); found \(files)"
+        )
     }
 
     /// On a cold open (no `.maple/previews` cache hit), the embedded JPEG
