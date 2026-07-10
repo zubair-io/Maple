@@ -303,9 +303,19 @@ extension EditSession {
         // auto_exposure-Off-when-Auto decision matches the buffer the Auto
         // cube will be applied over (and the decode cache keys on it).
         let openProfile = self.model.profile
+        // Cold open is a display decode, not export prep. Always give the
+        // shared decoder a bounded target: the physical viewport when mounted,
+        // or the pipeline's ~2 MP fallback before layout. Omitting this target
+        // selected the unsized Full/AMaZE path and eagerly allocated a complete
+        // 100 MP RGBAf frame while the user was still at zoom-to-fit.
+        let openTarget = ImageEditPipeline.decodeTarget(
+            phase: .fast,
+            targetSize: fastTargetSize
+        )
         let rustTask: Task<Void, Never> = Task { [weak self] in
             _ = await actor.sharedDecode(
                 asset: openedAsset,
+                target: openTarget,
                 profile: openProfile,
                 normalize: { [weak self] image, asset in
                     guard let self else { return image }
