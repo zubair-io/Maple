@@ -193,10 +193,16 @@ pub(crate) fn develop_prefix_rgba(
 ) -> Result<(Vec<f32>, u32, u32, AdjustmentModel), String> {
     let ae_mode = effective_ae_mode(model, raw, ext);
     let prefix_model = stripped_prefix_model(model, ae_mode);
+    // AMaZE by default (#940): this develop runs once per live-session open
+    // (the GPU keeps the uploaded frame; per-tick edits are uniform pushes),
+    // so the demosaic upgrade is a per-open cost, not per-tick. With the
+    // `parallel` wasm feature + crossOriginIsolated the tiled kernel (#1887)
+    // costs the same as bilinear; single-threaded fallbacks pay the serial
+    // kernel once per open.
     let scene = develop_scene_linear_sized_from_raw_with_quality(
         raw_img,
         &prefix_model,
-        RenderQuality::Full,
+        RenderQuality::Amaze,
         max_long_edge,
     )
     .map_err(|e| e.to_string())?;
@@ -229,6 +235,10 @@ fn fit_profile_artifacts(
     model: &AdjustmentModel,
 ) -> (Vec<f32>, usize, Vec<f32>) {
     let (curve, lut) = match model.profile {
+        // Deliberately `Full` (not AMaZE, #940): the fit compares a
+        // downscaled develop against the embedded JPEG to derive a global
+        // tone curve — demosaic quality cannot move that fit, and the
+        // cheaper develop keeps the (bytes-keyed, cached) fit fast.
         Profile::Auto => fit_auto_profile_from_raw(
             raw_img,
             model,

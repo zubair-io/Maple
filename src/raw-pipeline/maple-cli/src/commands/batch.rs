@@ -1,7 +1,7 @@
 //! `maple-cli batch` — render every case in a JSON manifest. The end-to-end
 //! color-pipeline harness (`src/scripts/test_color_pipeline.sh`) drives this
-//! command. Uses bilinear Full demosaic (`DemosaicChoice::Full`) by default —
-//! pass `--demosaic amaze` to enable AMaZE for highest quality on Bayer images.
+//! command. Uses the AMaZE demosaic by default (#940) — pass
+//! `--demosaic full` for the pre-#940 bilinear behaviour.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -38,6 +38,7 @@ pub fn run(
     out_dir: &Path,
     filter: Option<&str>,
     profile: ProfileChoice,
+    demosaic: DemosaicChoice,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let manifest: Manifest = serde_json::from_str(&std::fs::read_to_string(manifest_path)?)?;
     std::fs::create_dir_all(out_dir)?;
@@ -57,7 +58,7 @@ pub fn run(
             &out_png,
             None,
             92,
-            DemosaicChoice::Full,
+            demosaic,
             profile,
         ) {
             Ok(_) => {

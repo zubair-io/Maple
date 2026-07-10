@@ -315,7 +315,9 @@ struct SettingsView: View {
 }
 
 private struct GeneralSettingsTab: View {
-    @AppStorage(AmazeFlag.defaultsKey) private var useAmaze: Bool = false
+    // Default mirrors `AmazeFlag.isEnabled` (ON since #940) so the toggle
+    // reads correctly before the key is ever written.
+    @AppStorage(AmazeFlag.defaultsKey) private var useAmaze: Bool = true
     // Control-panel layout variant for the Pro Editor canvas-first shell.
     // Bound to the same @AppStorage key EditorView reads so toggling here
     // flips the editor layout immediately.
@@ -336,11 +338,11 @@ private struct GeneralSettingsTab: View {
                 .accessibilityLabel("Pro Editor control panel layout")
                 .accessibilityIdentifier("general.settings.proControlVariant")
             }
-            Section("Experimental") {
+            Section("Rendering") {
                 Toggle(isOn: $useAmaze) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("AMaZE demosaic")
-                        Text("Higher-quality demosaic on the full-res preview and export; slower.")
+                        Text("Highest-quality demosaic on the full-res preview and export. Turn off to fall back to bilinear.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

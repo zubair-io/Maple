@@ -13,13 +13,13 @@ pub enum OutputFormat {
     Tiff,
 }
 
-/// Demosaic / `RenderQuality` choice exposed on the CLI. `Full` is the
-/// default and matches the historical `maple-cli render` behaviour
-/// (Hamilton-Adams when compiled with `high-quality-demosaic`, bilinear
-/// otherwise) — the parity harnesses depend on this default. `Amaze`
-/// switches to the AMaZE demosaic for finer-detail / moiré-resistant
-/// renders. `Preview` exists for symmetry with the FFI/tile path so a
-/// user can generate a half-res candidate from the CLI.
+/// Demosaic / `RenderQuality` choice exposed on the CLI. `Amaze` is the
+/// default since #940 (the tiled kernel from #1887 made it as fast as
+/// bilinear), matching the refine/export selection on all platforms; the
+/// parity budgets are baselined against it. `Full` keeps the pre-#940
+/// behaviour (Hamilton-Adams when compiled with `high-quality-demosaic`,
+/// bilinear otherwise). `Preview` exists for symmetry with the FFI/tile
+/// path so a user can generate a half-res candidate from the CLI.
 #[derive(ValueEnum, Clone, Copy, Debug)]
 pub enum DemosaicChoice {
     Preview,
