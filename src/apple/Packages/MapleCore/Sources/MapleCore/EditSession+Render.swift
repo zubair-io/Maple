@@ -266,7 +266,9 @@ extension EditSession {
         previewIsFullRender = coversCanvas
         renderError = nil
 
-        if coversCanvas, let url = asset.primaryURL {
+        // `!isFullQualityDecoding` mirrors the persist gate: a refine off the
+        // seeded decode would push camera-JPEG-derived pixels to the thumbnail.
+        if coversCanvas, !isFullQualityDecoding, let url = asset.primaryURL {
             Task.detached(priority: .utility) { [composite] in
                 await ThumbnailLoader.shared.updateThumbnailFromRender(composite, for: url)
             }
@@ -533,7 +535,11 @@ extension EditSession {
                 )
             }
 
-            if phase == .refine, let url = asset.primaryURL {
+            // `!isFullQualityDecoding` mirrors the persist gate (#1881): a
+            // refine that ran off the seeded decode would push camera-JPEG-
+            // derived pixels to the thumbnail; the decode's completion re-kicks
+            // a render, so the thumbnail still refreshes from real pixels.
+            if phase == .refine, !isFullQualityDecoding, let url = asset.primaryURL {
                 // Use the cropped `displayImage` so the browse thumbnail +
                 // rendered-preview cache reflect what the user sees (#638).
                 let thumbSource = displayImage
