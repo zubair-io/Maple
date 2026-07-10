@@ -37,6 +37,18 @@ extension EditSession {
         nativeDetailRequestID &+= 1
         let requestID = nativeDetailRequestID
         nativeDetailInFlightID = requestID
+        // The rendering flag must flip in the same MainActor slice as the
+        // in-flight token, BEFORE the first suspension: an invalidation that
+        // lands mid-await clears `isRendering` and nils the token, and this
+        // request's defer then must not re-assert either one.
+        renderPhase = .refine
+        isRendering = true
+        defer {
+            if nativeDetailInFlightID == requestID {
+                nativeDetailInFlightID = nil
+                isRendering = false
+            }
+        }
         let m = model
         let pipeline = self.pipeline
         let renderer = nativeDetailRenderer
@@ -49,15 +61,6 @@ extension EditSession {
         let decodedTint = snapshot.wbFrame?.isPresent == true
             ? WbSliderFrame.decodeBakeAnchor.tint
             : asShot?.tint
-
-        renderPhase = .refine
-        isRendering = true
-        defer {
-            if nativeDetailInFlightID == requestID {
-                nativeDetailInFlightID = nil
-                isRendering = false
-            }
-        }
 
         let signpostID = editSessionSignposter.makeSignpostID()
         let signpostState = editSessionSignposter.beginInterval(
