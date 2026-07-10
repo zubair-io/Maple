@@ -97,7 +97,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         // drawer reads it, slides over everything, and dims the tab view.
         AppShellIPhoneDrawer(
             isDrawerOpen: $isDrawerOpen,
-            mode: mode,
+            // The drawer owns the edge swipe only at the root. Deeper screens
+            // leave it to NavigationStack, producing Edit → Preview → Browse.
+            mode: libraryPath.isEmpty ? .browse : .preview,
             mainContent: { tabView },
             sidebarContent: sidebar
         )

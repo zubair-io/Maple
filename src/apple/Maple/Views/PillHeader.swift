@@ -21,35 +21,12 @@ struct PillHeader: View {
     let onInfo: () -> Void
     let showBeforeAfter: Bool
 
-    /// Drives the responsive filename cap — tighter on a narrow (compact)
-    /// phone so a long name can't crowd the pill's icon buttons.
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-
     var body: some View {
-        HStack(spacing: 10) {
-            // Back
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(ProTokens.text)
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            .accessibilityIdentifier("editor-back")
-
-            // Filename — capped responsively (200pt on iPad/Mac, 150pt on a
-            // narrow iPhone) so a pathologically long name truncates (middle)
-            // rather than crowding the pill's icon buttons; the pill's own
-            // `fixedSize` (below) keeps it content-width for normal names.
-            Text(state.session.asset.displayName)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(ProTokens.text)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: PreviewViewVM.filenameMaxWidth(isCompact: hSizeClass == .compact))
-                .accessibilityIdentifier("editor-filename")
-
+        FloatingImageHeader(
+            displayName: state.session.asset.displayName,
+            identifierPrefix: "editor",
+            onBack: onBack
+        ) {
             // Before/after toggle — shown only when there are edits
             if showBeforeAfter {
                 Button {
@@ -136,12 +113,6 @@ struct PillHeader: View {
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("editor-pill-render-path")
         }
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        // Hug content horizontally so a short filename keeps the pill
-        // content-width; the filename's own maxWidth: 200 truncates long names.
-        .fixedSize(horizontal: true, vertical: false)
-        .background(ProTokens.bg.opacity(ProGlass.opacity), in: Capsule())
         .accessibilityIdentifier("editor-pill-header")
     }
 }
