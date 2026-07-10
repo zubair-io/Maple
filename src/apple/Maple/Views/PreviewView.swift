@@ -73,7 +73,6 @@ struct PreviewView: View {
     /// The session backing the Flag / Info surfaces. Primed on tap (never
     /// during `body`) so opening Preview to look at a photo costs nothing.
     @State private var flagInfoSession: EditSession?
-    @State private var dragOffset: CGFloat = 0
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -98,7 +97,6 @@ struct PreviewView: View {
                 // un-scrollable). Copilot review #1810.
                 imageBody
                     .padding(.horizontal, isRegular ? 16 : 8)
-                    .gesture(swipeGesture)
 
                 FilmstripView(
                     assets: assets,
@@ -164,39 +162,32 @@ struct PreviewView: View {
     /// The fit-to-screen still. Purely a `PreviewImage` (thumbnail-cache
     /// backed) — no canvas, no zoom, no session.
     private var imageBody: some View {
-        GeometryReader { proxy in
-            HStack(spacing: 0) {
-                carouselImage(previousAsset)
-                carouselImage(asset)
-                carouselImage(nextAsset)
+        TabView(selection: pageSelection) {
+            ForEach(assets, id: \.id) { item in
+                PreviewImage(
+                    source: PreviewViewVM.thumbnailSource(for: item, source: source),
+                    provider: provider
+                )
+                .tag(item.id)
             }
-            .frame(width: proxy.size.width * 3, height: proxy.size.height)
-            .offset(x: -proxy.size.width + dragOffset)
-            .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.9), value: dragOffset)
         }
+        .tabViewStyle(.page(indexDisplayMode: .never))
         .accessibilityIdentifier("preview-image")
     }
 
-    @ViewBuilder
-    private func carouselImage(_ item: AssetRef?) -> some View {
-        if let item {
-            PreviewImage(
-                source: PreviewViewVM.thumbnailSource(for: item, source: source),
-                provider: provider
-            )
-        } else {
-            Color.clear
-        }
-    }
-
-    private var previousAsset: AssetRef? {
-        guard let id = PreviewViewVM.previousID(before: asset.id, in: orderedIDs) else { return nil }
-        return assets.first { $0.id == id }
-    }
-
-    private var nextAsset: AssetRef? {
-        guard let id = PreviewViewVM.nextID(after: asset.id, in: orderedIDs) else { return nil }
-        return assets.first { $0.id == id }
+    /// Native page selection is driven by the parent's canonical asset. The
+    /// setter fires only after the system pager commits a page, avoiding the
+    /// old hand-rolled offset/selection race that visibly snapped mid-swipe.
+    private var pageSelection: Binding<AssetRef.ID> {
+        Binding(
+            get: { asset.id },
+            set: { id in
+                guard id != asset.id,
+                      let selected = assets.first(where: { $0.id == id })
+                else { return }
+                onSelectAsset(selected)
+            }
+        )
     }
 
     /// One provider for the whole Preview lifetime. Local-only is correct here:
@@ -243,27 +234,6 @@ struct PreviewView: View {
         onSelectAsset(prev)
     }
 
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 20)
-            .onChanged { value in
-                // Preserve the NavigationStack's interactive-pop gesture.
-                guard value.startLocation.x > 20,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
-                dragOffset = value.translation.width
-            }
-            .onEnded { value in
-                guard value.startLocation.x > 20 else { dragOffset = 0; return }
-                switch PreviewViewVM.swipeStep(
-                    dx: value.translation.width,
-                    dy: value.translation.height
-                ) {
-                case .next: stepNext()
-                case .previous: stepPrevious()
-                case nil: break
-                }
-                dragOffset = 0
-            }
-    }
 }
 
 // MARK: - PreviewImage
