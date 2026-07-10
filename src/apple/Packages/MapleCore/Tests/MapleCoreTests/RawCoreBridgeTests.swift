@@ -145,4 +145,31 @@ final class RawCoreBridgeTests: XCTestCase {
             XCTFail("temp URL was never captured")
         }
     }
+
+    func test_withStrippedModelXMP_uses_live_model_and_cleans_up() throws {
+        var original = sampleModel()
+        original.profile = .auto
+        var expected = RawCoreBridge.stripAppleGPUStages(original)
+        expected.profile = .neutral
+        expected.look = .default
+
+        var capturedTemp: URL?
+        try RawCoreBridge.withStrippedModelXMP(
+            original,
+            profileOverride: .neutral
+        ) { tempURL in
+            capturedTemp = tempURL
+            guard let tempURL else {
+                return XCTFail("live-model strip must produce a temp XMP")
+            }
+            let xml = try String(contentsOf: tempURL, encoding: .utf8)
+            let (parsed, _) = try XMPParser.parse(xml)
+            XCTAssertEqual(parsed, expected)
+        }
+
+        guard let capturedTemp else {
+            return XCTFail("temp URL was never captured")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: capturedTemp.path))
+    }
 }
