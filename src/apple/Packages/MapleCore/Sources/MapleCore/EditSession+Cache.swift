@@ -42,6 +42,11 @@ extension EditSession {
         // refine starts from a clean slate against the fresh decode.
         let mgr = tileManager
         Task { await mgr?.clear() }
+        // #1881 — the on-screen preview now predates the invalidation cause
+        // (sidecar reload, paste-adjustments, external XMP edit). Until the
+        // re-render publishes, a refine-skip persist would write OLD-model
+        // pixels under the NEW sidecar-mtime cache key.
+        previewIsFullRender = false
     }
 
     // MARK: - Preview cache persistence
@@ -58,10 +63,23 @@ extension EditSession {
     /// underlay may predate the current model (e.g. an exposure change), so
     /// baking the composite writes a hard tone seam that every subsequent
     /// cold open then re-displays (#1881).
-    func persistCurrentPreviewToCache() {
+    ///
+    /// `!isFullQualityDecoding` closes the cold-open seed window: seeds are
+    /// planted into the DECODED-image cache too, so a fast render during that
+    /// window is a full-canvas render of chain(upscaled embedded JPEG), not of
+    /// the real decode — plausible pixels, wrong provenance. The decode's
+    /// completion re-kicks a render, so the cache still gets populated once
+    /// real pixels exist.
+    ///
+    /// Returns whether a persist was actually scheduled, so tests can assert
+    /// the provenance gate synchronously instead of sleeping and probing the
+    /// disk for a write that must never happen.
+    @discardableResult
+    func persistCurrentPreviewToCache() -> Bool {
         guard previewIsFullRender,
+              !isFullQualityDecoding,
               let url = asset.primaryURL,
-              let preview = renderedPreview else { return }
+              let preview = renderedPreview else { return false }
         let capturedImage = preview
         let capturedWidth = Int(max(previewSize.width, 1))
         Task.detached(priority: .utility) {
@@ -69,6 +87,7 @@ extension EditSession {
                 capturedImage, for: url, screenWidth: capturedWidth
             )
         }
+        return true
     }
 
 }

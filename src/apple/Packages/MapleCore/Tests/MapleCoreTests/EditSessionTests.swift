@@ -158,25 +158,29 @@ final class EditSessionTests: XCTestCase {
         try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
 
         let session = await EditSession(asset: AssetRef(url: assetURL))
-        await MainActor.run {
+        let scheduled = await MainActor.run {
             session.previewSize = CGSize(width: 800, height: 600)
             session.renderedPreview = CIImage(color: .red)
                 .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
             // Default is false; set explicitly to document the contract
             // under test: seed / composite provenance blocks persistence.
             session.previewIsFullRender = false
-            session.persistCurrentPreviewToCache()
+            return session.persistCurrentPreviewToCache()
         }
-
-        // The persist path (when it fires) is a debounce + detached write;
-        // give it more than enough time to appear before asserting absence.
-        try await Task.sleep(for: .milliseconds(700))
-        let mapleDir = tmp.appendingPathComponent(".maple/previews")
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: mapleDir.path)) ?? []
-        XCTAssertTrue(
-            files.isEmpty,
-            "A non-full-render preview must not be persisted to RenderedPreviewCache (#1881); found \(files)"
+        // Deterministic: the gate refuses BEFORE spawning the detached write,
+        // so the returned Bool is the whole story — no sleep-and-probe.
+        XCTAssertFalse(
+            scheduled,
+            "A non-full-render preview must not be persisted to RenderedPreviewCache (#1881)"
         )
+
+        // And the positive control on the same session: flipping the flag is
+        // the only change that may allow a persist to schedule.
+        let scheduledWhenFull = await MainActor.run {
+            session.previewIsFullRender = true
+            return session.persistCurrentPreviewToCache()
+        }
+        XCTAssertTrue(scheduledWhenFull, "A full render with a valid URL must persist")
     }
 
     /// On a cold open (no `.maple/previews` cache hit), the embedded JPEG
