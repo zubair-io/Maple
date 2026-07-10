@@ -714,6 +714,30 @@ public struct PipelineRenderer: Sendable {
         }
     }
 
+    /// Open a RAW handle from the live in-memory adjustment model. The model
+    /// is stripped to the decode-baked fields before serialization, matching
+    /// the whole-image Apple decode contract without waiting for the
+    /// debounced XMP sidecar write to land.
+    public static func openRawHandle(
+        rawPath: URL,
+        model: AdjustmentModel,
+        profileOverride: Profile? = nil
+    ) throws -> MapleRawHandle {
+        try RawCoreBridge.withStrippedModelXMP(
+            model,
+            profileOverride: profileOverride
+        ) { strippedXMP in
+            try rawPath.withPathCString { rawCStr in
+                if let strippedXMP {
+                    return try strippedXMP.withPathCString { xmpCStr in
+                        try _openRawHandle(rawCStr: rawCStr, xmpCStr: xmpCStr)
+                    }
+                }
+                return try _openRawHandle(rawCStr: rawCStr, xmpCStr: nil)
+            }
+        }
+    }
+
     /// Bytes-variant of `openRawHandle` — for sources that don't expose
     /// a filesystem URL (PhotoKit, network-source codepaths). `hint` is
     /// the extension without the leading dot (e.g. `"dng"`).
@@ -746,9 +770,10 @@ public struct PipelineRenderer: Sendable {
     }
 
     /// Render a tile against an existing handle. The source rectangle
-    /// is in pre-orientation mosaic coordinates; the returned tile is
-    /// in oriented full-image coordinate space (matches the unsized
-    /// scene-linear FFI's output convention). Output is fp16 RGBA in
+    /// is in display-oriented full-image coordinates; the Rust tile entry
+    /// maps it into sensor axes and applies EXIF orientation internally.
+    /// The returned tile is in the same oriented coordinate space (matching
+    /// the unsized scene-linear FFI's output convention). Output is fp16 RGBA in
     /// Rec.2020 scene-linear, alpha = 1.0.
     ///
     /// Throws `PipelineError.renderFailed`. Notable codes (mirroring the

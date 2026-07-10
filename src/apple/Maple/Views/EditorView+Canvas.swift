@@ -11,6 +11,7 @@
 // across the file boundary.
 
 import SwiftUI
+import CoreImage
 import MapleCore
 
 extension EditorView {
@@ -66,6 +67,7 @@ extension EditorView {
                     CanvasImageView(image: preview)
                         .allowsHitTesting(false)
                 }
+                nativeDetailOverlay
             }
             .accessibilityElement(children: .ignore)
             // The label is REQUIRED for the element to exist on iOS at all: a
@@ -96,7 +98,10 @@ extension EditorView {
         } else if let preview = state.session.showingOriginal ? nil : state.session.renderedPreview {
             // CPU path — suppressed while showing the original (review #1),
             // so the before/after toggle falls back to the placeholder.
-            CanvasImageView(image: preview)
+            ZStack {
+                CanvasImageView(image: preview)
+                nativeDetailOverlay
+            }
                 .accessibilityElement(children: .ignore)
                 // See the GPU branch: label + value materialize the element
                 // and carry the ready sentinel on iOS (#1769).
@@ -113,6 +118,22 @@ extension EditorView {
                         hasPreview: state.session.renderedPreview != nil
                     )
                 )
+        }
+    }
+
+    @ViewBuilder
+    private var nativeDetailOverlay: some View {
+        if !state.session.showingOriginal,
+           state.session.pixelScale >= 1,
+           let image = state.session.nativeDetailPreview,
+           !state.session.nativeDetailSourceRect.isEmpty,
+           state.session.nativeImageSize.width > 0,
+           state.session.nativeImageSize.height > 0 {
+            NativeDetailOverlay(
+                image: image,
+                sourceRect: state.session.nativeDetailSourceRect,
+                sourceSize: state.session.nativeImageSize
+            )
         }
     }
 
@@ -211,5 +232,31 @@ extension EditorView {
             }
             .padding(24)
         }
+    }
+}
+
+/// Places a small native-resolution patch inside the full-image canvas leaf.
+/// `sourceRect` is top-left-oriented source geometry, matching the zoom
+/// controller; SwiftUI's geometry is top-left-oriented too, so placement is a
+/// direct normalized mapping. The parent host clips this leaf to the viewport.
+private struct NativeDetailOverlay: View {
+    let image: CIImage
+    let sourceRect: CGRect
+    let sourceSize: CGSize
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let width = size.width * sourceRect.width / sourceSize.width
+            let height = size.height * sourceRect.height / sourceSize.height
+            let centerX = size.width * sourceRect.midX / sourceSize.width
+            let centerY = size.height * sourceRect.midY / sourceSize.height
+
+            CanvasImageView(image: image)
+                .frame(width: width, height: height)
+                .position(x: centerX, y: centerY)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

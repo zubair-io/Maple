@@ -202,18 +202,50 @@ public enum RawCoreBridge {
             stripped = stripAppleGPUStages(AdjustmentModel())
             culling = CullingState()
         }
-        if let profileOverride {
-            stripped.profile = profileOverride
-            // Guard the serialize→parse round-trip: the serializer omits
-            // `papp:Profile` for `.auto`, and raw-core then MIGRATES a
-            // `papp:Look="Neutral"` into `Profile::Neutral` (legacy #536
-            // migration, gated on no explicit `papp:Profile`). A
-            // Look=Neutral sidecar would therefore silently flip our Auto
-            // override back to Neutral on the decode side. The Look field
-            // is a retired no-op (#443) and the pre-AgX decode never reads
-            // it, so neutralise it here so the override is the sole signal.
-            stripped.look = .default
-        }
+        applyProfileOverride(profileOverride, to: &stripped)
+        return try withTemporaryXMP(model: stripped, culling: culling, body: body)
+    }
+
+    /// Variant of `withStrippedXMP` for renderers that must use the live
+    /// in-memory model instead of waiting for the debounced sidecar write.
+    /// The RAW-handle tile path uses this once when it opens a handle, then
+    /// reuses the parsed stripped model for every visible-region render.
+    public static func withStrippedModelXMP<T>(
+        _ model: AdjustmentModel,
+        profileOverride: Profile? = nil,
+        body: (URL?) throws -> T
+    ) throws -> T {
+        var stripped = stripAppleGPUStages(model)
+        applyProfileOverride(profileOverride, to: &stripped)
+        return try withTemporaryXMP(
+            model: stripped,
+            culling: CullingState(),
+            body: body
+        )
+    }
+
+    private static func applyProfileOverride(
+        _ profileOverride: Profile?,
+        to model: inout AdjustmentModel
+    ) {
+        guard let profileOverride else { return }
+        model.profile = profileOverride
+        // Guard the serialize→parse round-trip: the serializer omits
+        // `papp:Profile` for `.auto`, and raw-core then MIGRATES a
+        // `papp:Look="Neutral"` into `Profile::Neutral` (legacy #536
+        // migration, gated on no explicit `papp:Profile`). A
+        // Look=Neutral sidecar would therefore silently flip our Auto
+        // override back to Neutral on the decode side. The Look field
+        // is a retired no-op (#443) and the pre-AgX decode never reads
+        // it, so neutralise it here so the override is the sole signal.
+        model.look = .default
+    }
+
+    private static func withTemporaryXMP<T>(
+        model: AdjustmentModel,
+        culling: CullingState,
+        body: (URL?) throws -> T
+    ) throws -> T {
         // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
         // decode; the Apple chain re-applies it live as a delta". Since
         // #1726's camera-space WB, writing an EXPLICIT crs:Temperature=6500
@@ -223,7 +255,11 @@ public enum RawCoreBridge {
         // image. Omitting the WB attributes keeps both flags false, which
         // is the As-Shot resolution on BOTH WB stages — the same semantics
         // `PipelineRenderer.render(xmpPath: nil)` gets from an absent model.
-        let xml = XMPSerializer.serialize(model: stripped, culling: culling, omitWhiteBalance: true)
+        // This applies to BOTH decode temp-XMP writers: the sidecar-derived
+        // `withStrippedXMP` and the live-model `withStrippedModelXMP` (the
+        // native-detail tile path re-applies WB live through the decoded
+        // temperature/tint anchors, exactly like the whole-image chain).
+        let xml = XMPSerializer.serialize(model: model, culling: culling, omitWhiteBalance: true)
         // Unique temp file name — UUID avoids collision across concurrent
         // renders, and the .xmp suffix keeps the extension intact so any
         // downstream extension-based dispatching still sees an XMP.

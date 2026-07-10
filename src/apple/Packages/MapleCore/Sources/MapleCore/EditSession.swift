@@ -73,6 +73,10 @@ public final class EditSession {
             editSessionLogger.debug(
                 "model changed — exposure=\(self.model.exposure, format: .fixed(precision: 2)) contrast=\(self.model.contrast, format: .fixed(precision: 0)) temp=\(self.model.temperature, format: .fixed(precision: 0))"
             )
+            // A settled native-detail patch represents the previous model.
+            // Remove it immediately so it cannot cover the responsive GPU
+            // frame with stale pixels while the 150 ms refine debounce runs.
+            clearNativeDetailPreview()
             // Crop-edit fast path (#638): while the Crop tool is armed the
             // canvas renders UNCROPPED and a handle drag mutates ONLY
             // `model.crop`. Re-rendering on every drag frame would be pure
@@ -168,6 +172,12 @@ public final class EditSession {
     // MARK: Render output
 
     public var renderedPreview: CIImage?
+    /// Display-encoded, native-resolution pixels for the currently visible
+    /// source rectangle at 100%+. Kept separate from `renderedPreview` so the
+    /// canvas can place this small patch over either the GPU or CPU base without
+    /// rasterizing a full-sensor `CGImage`.
+    public var nativeDetailPreview: CIImage?
+    public internal(set) var nativeDetailSourceRect: CGRect = .zero
     /// True only when `renderedPreview` is a COMPLETED full-canvas render of
     /// the current model. False for cold-open seeds (cached JPEG, embedded
     /// JPEG, `.maple` sidecar preview) and for progressive composites that
@@ -263,6 +273,7 @@ public final class EditSession {
         didSet {
             guard cropEditingActive != oldValue else { return }
             guard !isHydratingInitialState else { return }
+            clearNativeDetailPreview()
             // A new image is a new session, so this only fires on a genuine
             // arm/disarm. Re-render so the canvas reflects the cropped vs.
             // uncropped state, and re-push the zoom geometry so fit math
@@ -308,6 +319,7 @@ public final class EditSession {
     public var pixelScale: CGFloat = 0 {
         didSet {
             guard pixelScale != oldValue else { return }
+            clearNativeDetailPreview()
             _scheduleRefine()
         }
     }
@@ -329,6 +341,12 @@ public final class EditSession {
     // MARK: Internals (shared across EditSession+* extensions)
 
     @ObservationIgnored let pipeline: ImageEditPipeline
+    @ObservationIgnored let nativeDetailRenderer: NativeDetailRenderer
+    /// Independent freshness token for native-detail work. Refine scheduling
+    /// does not bump the main render generation on pure pan/zoom, so this token
+    /// prevents an older visible-region result from publishing after a pan,
+    /// resize, model change, or return to fit.
+    @ObservationIgnored var nativeDetailRequestID: UInt64 = 0
 
     /// Per-session render actor (issue #194). Slice 2 moved the decoded-
     /// image cache + `sharedDecode` / `coalescedRefineDecode` /
@@ -405,6 +423,7 @@ public final class EditSession {
     public var previewSize: CGSize = .zero {
         didSet {
             guard previewSize != oldValue else { return }
+            clearNativeDetailPreview()
             // First-time mount: we went from .zero to a real size. The first
             // render (usually triggered by `ensureRenderStarted()` before the
             // canvas mounted) used the zero target and produced nothing
@@ -473,6 +492,7 @@ public final class EditSession {
         self.downloadProgress = downloadProgress
         let pipeline = ImageEditPipeline()
         self.pipeline = pipeline
+        self.nativeDetailRenderer = NativeDetailRenderer()
         self.renderActor = RenderActor(pipeline: pipeline)
         if let url = asset.primaryURL {
             // Local-file asset — write to the .xmp sidecar next to the RAW.
