@@ -63,6 +63,7 @@ struct PreviewDestination: View {
                 onSelectionChanged(next)
             }
         )
+        .stackBackSwipe { dismiss() }
         .task(id: asset.id) {
             // Land on the pushed asset. `.task(id:)` only fires on an actual
             // `asset.id` change (or initial appearance), so this is safe to run

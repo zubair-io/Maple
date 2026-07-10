@@ -53,6 +53,7 @@ struct EditorDestination: View {
                 Color.clear
             }
         }
+        .stackBackSwipe { dismiss() }
         .task(id: asset.id) {
             // Build (or reuse) the EditSession + EditorState. `EditSession.init`
             // is synchronous — sidecar / as-shot WB load lazily on first render
