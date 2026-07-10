@@ -193,12 +193,13 @@ pub(crate) fn develop_prefix_rgba(
 ) -> Result<(Vec<f32>, u32, u32, AdjustmentModel), String> {
     let ae_mode = effective_ae_mode(model, raw, ext);
     let prefix_model = stripped_prefix_model(model, ae_mode);
-    // AMaZE by default (#940): this develop runs once per live-session open
-    // (the GPU keeps the uploaded frame; per-tick edits are uniform pushes),
-    // so the demosaic upgrade is a per-open cost, not per-tick. With the
-    // `parallel` wasm feature + crossOriginIsolated the tiled kernel (#1887)
-    // costs the same as bilinear; single-threaded fallbacks pay the serial
-    // kernel once per open.
+    // AMaZE by default (#940): this develop runs at live-session open and
+    // again only when a prefix-affecting field changes (highlight recovery,
+    // pins, decode-upstream settings — see `WebLiveSession`'s prefix-model
+    // cache); the hot-path sliders re-run GPU stages only and never reach
+    // it. With the `parallel` wasm feature + crossOriginIsolated the tiled
+    // kernel (#1887) costs the same as bilinear; single-threaded fallbacks
+    // pay the serial kernel at the same (open / prefix-change) cadence.
     let scene = develop_scene_linear_sized_from_raw_with_quality(
         raw_img,
         &prefix_model,

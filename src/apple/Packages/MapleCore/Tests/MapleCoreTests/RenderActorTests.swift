@@ -216,12 +216,12 @@ final class RenderActorTests: XCTestCase {
     /// UserDefaults / `MAPLE_AMAZE` state in the test runner environment.
     func testExportPathUsesAmazeQuality() async {
         let expectedQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
-        // Flag OFF (default): must select .full (bilinear).
-        // Flag ON:            must select .amaze.
+        // Flag ON (default):        must select .amaze.
+        // Flag OFF (kill switch):   must select .full (bilinear).
         // Either way the value must be one of the two non-preview choices.
         XCTAssertTrue(
             expectedQuality == .full || expectedQuality == .amaze,
-            "export path quality must be .full (flag OFF) or .amaze (flag ON); got \(expectedQuality)")
+            "export path quality must be .amaze (flag ON) or .full (flag OFF); got \(expectedQuality)")
         if AmazeFlag.isEnabled {
             XCTAssertEqual(expectedQuality.rawValue, 2,
                 "export path with flag ON must map to AMaZE (raw value 2)")
