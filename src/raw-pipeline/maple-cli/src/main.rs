@@ -42,11 +42,12 @@ enum Cmd {
         /// JPEG quality 1..100 (default 92). Ignored for PNG/TIFF.
         #[arg(long, default_value_t = 92)]
         quality: u8,
-        /// Demosaic algorithm: `full` (default — Hamilton-Adams or bilinear
-        /// per cargo features), `amaze` (higher-quality, slower), or
-        /// `preview` (half-res quad). The default keeps the historical
-        /// `maple-cli render` behaviour the parity harnesses depend on.
-        #[arg(long, value_enum, default_value_t = DemosaicChoice::Full)]
+        /// Demosaic algorithm: `amaze` (default since #940 — highest
+        /// quality, tiled + parallel), `full` (Hamilton-Adams or bilinear
+        /// per cargo features; the pre-#940 default), or `preview`
+        /// (half-res quad). The parity budgets are baselined against the
+        /// AMaZE default.
+        #[arg(long, value_enum, default_value_t = DemosaicChoice::Amaze)]
         demosaic: DemosaicChoice,
         /// Auto Profile override (#537). `xmp` (default) honours the
         /// sidecar's `papp:Profile`; `auto` and `neutral` force the
@@ -76,6 +77,9 @@ enum Cmd {
         /// `neutral` to keep the gate measuring ACR fidelity.
         #[arg(long, value_enum, default_value_t = ProfileChoice::Xmp)]
         profile: ProfileChoice,
+        /// Demosaic algorithm for every case (same choices as `render`).
+        #[arg(long, value_enum, default_value_t = DemosaicChoice::Amaze)]
+        demosaic: DemosaicChoice,
     },
     /// Compare two PNGs via compare_images.py; print JSON; exit non-zero if
     /// --budget is set and mean ΔE exceeds it.
@@ -304,11 +308,13 @@ fn main() -> ExitCode {
             out_dir,
             cases_filter,
             profile,
+            demosaic,
         } => run_or_exit(commands::batch::run(
             &manifest,
             &out_dir,
             cases_filter.as_deref(),
             profile,
+            demosaic,
         )),
         Cmd::Diff {
             candidate,

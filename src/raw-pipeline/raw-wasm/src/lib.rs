@@ -218,10 +218,10 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
         &raw_img,
         &model,
-        // Export/display path: bilinear Full by default. AMaZE is opt-in via
-        // the Apple AmazeFlag / CLI --demosaic amaze. Web live path deferred
-        // — see render_bytes_scene_linear (#846/#321).
-        raw_core::pipeline::RenderQuality::Full,
+        // Export/display path: AMaZE by default (#940) — cost-equivalent to
+        // bilinear since the tiled kernel (#1887) and matches the Apple
+        // refine/export selection.
+        raw_core::pipeline::RenderQuality::Amaze,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
@@ -288,9 +288,8 @@ pub fn render_bytes_sized(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        // Export path: bilinear Full by default. AMaZE is opt-in via
-        // AmazeFlag (Apple) or CLI --demosaic amaze.
-        raw_core::pipeline::RenderQuality::Full
+        // Full-quality path: AMaZE by default (#940).
+        raw_core::pipeline::RenderQuality::Amaze
     };
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
@@ -437,10 +436,11 @@ pub fn render_bytes_scene_linear(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        // Export path: bilinear Full by default. AMaZE is opt-in via
-        // AmazeFlag (Apple) or CLI --demosaic amaze.
-        // Web live/interactive path deferred (#846 / #321).
-        raw_core::pipeline::RenderQuality::Full
+        // Refine / full-quality develop: AMaZE by default (#940). This runs
+        // once per image open (the GPU-live session keeps the developed
+        // frame; edits re-run GPU stages only), so the cost is not on the
+        // slider-tick path.
+        raw_core::pipeline::RenderQuality::Amaze
     };
     let (w, h, fp16_rgba) =
         raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)
@@ -505,10 +505,11 @@ pub fn render_bytes_scene_linear_sized(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        // Export path: bilinear Full by default. AMaZE is opt-in via
-        // AmazeFlag (Apple) or CLI --demosaic amaze.
-        // Web live path deferred (#846/#321).
-        raw_core::pipeline::RenderQuality::Full
+        // Refine / full-quality develop: AMaZE by default (#940). This runs
+        // once per image open (the GPU-live session keeps the developed
+        // frame; edits re-run GPU stages only), so the cost is not on the
+        // slider-tick path.
+        raw_core::pipeline::RenderQuality::Amaze
     };
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
     let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
