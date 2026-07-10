@@ -214,7 +214,16 @@ public enum RawCoreBridge {
             // it, so neutralise it here so the override is the sole signal.
             stripped.look = .default
         }
-        let xml = XMPSerializer.serialize(model: stripped, culling: culling)
+        // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
+        // decode; the Apple chain re-applies it live as a delta". Since
+        // #1726's camera-space WB, writing an EXPLICIT crs:Temperature=6500
+        // crs:Tint=0 parses as an authored Custom WB (temperature_seen /
+        // tint_seen true) and retargets the camera-space stage to D65 —
+        // diverging from the CPU reference's As-Shot no-op on the same
+        // image. Omitting the WB attributes keeps both flags false, which
+        // is the As-Shot resolution on BOTH WB stages — the same semantics
+        // `PipelineRenderer.render(xmpPath: nil)` gets from an absent model.
+        let xml = XMPSerializer.serialize(model: stripped, culling: culling, omitWhiteBalance: true)
         // Unique temp file name — UUID avoids collision across concurrent
         // renders, and the .xmp suffix keeps the extension intact so any
         // downstream extension-based dispatching still sees an XMP.

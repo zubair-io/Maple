@@ -450,6 +450,32 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertNotNil(parsed.gpsLatitude)
     }
 
+    // MARK: - omitWhiteBalance decode-XMP mode (#1883)
+
+    /// The Apple decode temp-XMP (`RawCoreBridge.withStrippedXMP`) must
+    /// present WB as NOT AUTHORED: since #1726's camera-space WB, an
+    /// explicit `crs:Temperature="6500" crs:Tint="0"` parses as a Custom WB
+    /// dialed to D65 (a camera-space retarget), while absent attributes
+    /// resolve As-Shot — the semantics the CPU reference gets from an
+    /// absent model. This pins the omission so a future serializer change
+    /// can't silently re-poison the Apple decode (17-band Auto-parity
+    /// divergence, #1883).
+    func testSerializeOmitWhiteBalanceDropsWBAttrsOnly() {
+        let model = AdjustmentModel.default
+        let xml = XMPSerializer.serialize(
+            model: model, culling: CullingState(), omitWhiteBalance: true)
+        XCTAssertFalse(xml.contains("crs:Temperature"), "decode XMP must not author Temperature")
+        XCTAssertFalse(xml.contains("crs:Tint"), "decode XMP must not author Tint")
+        XCTAssertFalse(xml.contains("papp:WbScaleVersion"), "no WB values → no scale stamp")
+        // Everything else still serializes — the strip only concerns WB.
+        XCTAssertTrue(xml.contains("crs:Exposure2012"), "non-WB adjustments must persist")
+
+        // And the default (save) path is unchanged: WB is always authored.
+        let saved = XMPSerializer.serialize(model: model, culling: CullingState())
+        XCTAssertTrue(saved.contains("crs:Temperature"), "sidecar saves must author WB")
+        XCTAssertTrue(saved.contains("papp:WbScaleVersion"), "sidecar saves stamp the WB scale")
+    }
+
     // MARK: - Helpers
 
     private func xmp(attrs: String) -> String {
