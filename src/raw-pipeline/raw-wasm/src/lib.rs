@@ -246,7 +246,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
 ///
 /// `quality_preview = true` runs the half-res Preview demosaic (the web
 /// fast-phase cost profile, matching Apple's editor first paint); `false`
-/// runs Full (the refine phase). `max_long_edge` must be > 0.
+/// runs AMaZE (the refine phase; the full-quality default since #940).
+/// `max_long_edge` must be > 0.
 ///
 /// The returned [`MapleRender`] carries the sized buffer in `width`/`height`
 /// and the NATIVE oriented dims in `full_width`/`full_height`
