@@ -73,6 +73,7 @@ struct PreviewView: View {
     /// The session backing the Flag / Info surfaces. Primed on tap (never
     /// during `body`) so opening Preview to look at a photo costs nothing.
     @State private var flagInfoSession: EditSession?
+    @State private var dragOffset: CGFloat = 0
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -83,11 +84,6 @@ struct PreviewView: View {
             ProTokens.canvas.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                PreviewHeader(
-                    displayName: asset.displayName,
-                    onBack: onDismiss
-                )
-
                 // Body: fit-to-screen still. `FilmstripView` is the shared
                 // HORIZONTAL strip (spec §4 mandates reusing it), so it sits as
                 // a band above the action bar on every size class rather than
@@ -121,6 +117,14 @@ struct PreviewView: View {
                     onInfo: { flagInfoSession = ensureFlagSession(); showInfo = true }
                 )
             }
+        }
+        .overlay(alignment: .top) {
+            FloatingImageHeader(
+                displayName: asset.displayName,
+                identifierPrefix: "preview",
+                onBack: onDismiss
+            ) { EmptyView() }
+            .padding(.top, 8)
         }
         // Keyboard prev/next (desktop). `.focusable()` makes the surface a key
         // target; the arrow handlers move selection through the folder. (The
@@ -160,12 +164,39 @@ struct PreviewView: View {
     /// The fit-to-screen still. Purely a `PreviewImage` (thumbnail-cache
     /// backed) — no canvas, no zoom, no session.
     private var imageBody: some View {
-        PreviewImage(
-            source: PreviewViewVM.thumbnailSource(for: asset, source: source),
-            provider: provider
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                carouselImage(previousAsset)
+                carouselImage(asset)
+                carouselImage(nextAsset)
+            }
+            .frame(width: proxy.size.width * 3, height: proxy.size.height)
+            .offset(x: -proxy.size.width + dragOffset)
+            .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.9), value: dragOffset)
+        }
         .accessibilityIdentifier("preview-image")
+    }
+
+    @ViewBuilder
+    private func carouselImage(_ item: AssetRef?) -> some View {
+        if let item {
+            PreviewImage(
+                source: PreviewViewVM.thumbnailSource(for: item, source: source),
+                provider: provider
+            )
+        } else {
+            Color.clear
+        }
+    }
+
+    private var previousAsset: AssetRef? {
+        guard let id = PreviewViewVM.previousID(before: asset.id, in: orderedIDs) else { return nil }
+        return assets.first { $0.id == id }
+    }
+
+    private var nextAsset: AssetRef? {
+        guard let id = PreviewViewVM.nextID(after: asset.id, in: orderedIDs) else { return nil }
+        return assets.first { $0.id == id }
     }
 
     /// One provider for the whole Preview lifetime. Local-only is correct here:
@@ -214,7 +245,14 @@ struct PreviewView: View {
 
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                // Preserve the NavigationStack's interactive-pop gesture.
+                guard value.startLocation.x > 20,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                dragOffset = value.translation.width
+            }
             .onEnded { value in
+                guard value.startLocation.x > 20 else { dragOffset = 0; return }
                 switch PreviewViewVM.swipeStep(
                     dx: value.translation.width,
                     dy: value.translation.height
@@ -223,56 +261,8 @@ struct PreviewView: View {
                 case .previous: stepPrevious()
                 case nil: break
                 }
+                dragOffset = 0
             }
-    }
-}
-
-// MARK: - PreviewHeader
-
-/// Preview's 44pt header — back · filename · (histogram placeholder). The
-/// filename is capped via `PreviewViewVM.filenameMaxWidth` (responsive: 200pt
-/// on iPad/Mac, 150pt on a narrow iPhone) with middle-truncation, so a
-/// pathologically long name can never push the header off-screen (spec §6) —
-/// the same cap `PillHeader` applies in the editor.
-private struct PreviewHeader: View {
-    let displayName: String
-    let onBack: () -> Void
-
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(ProTokens.text)
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            .accessibilityIdentifier("preview-back")
-
-            Text(displayName)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(ProTokens.text)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: PreviewViewVM.filenameMaxWidth(isCompact: hSizeClass == .compact))
-                .layoutPriority(1)
-                .accessibilityIdentifier("preview-filename")
-
-            Spacer(minLength: 0)
-
-            // Histogram is spec §4 "optional" and needs render/luma data the
-            // Preview surface deliberately never computes (that would boot the
-            // pipeline it exists to avoid). Left out of v1 rather than faked;
-            // if the display-preview data layer (§3 / A1) later exposes a cheap
-            // histogram off the cached JPEG, it slots in here.
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 44)
-        .background(ProTokens.bg)
-        .accessibilityIdentifier("preview-header")
     }
 }
 
