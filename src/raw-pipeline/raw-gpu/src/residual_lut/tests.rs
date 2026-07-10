@@ -180,6 +180,77 @@ fn wgsl_residual_lut_matches_cpu_oracle_within_1e_4() {
     }
 }
 
+/// >cap 2-D dispatch regression (#1881): with more than 65535 workgroups
+/// `encode_simple` tiles the dispatch into a 2-D grid (`gy > 1`). The buggy
+/// 1-D index (`gid.x` alone) addressed only the first 65535*64 pixels and
+/// left every later pixel UNWRITTEN in the output ping-pong buffer — on a
+/// 2880x2160 GPU-live preview under profile=auto that painted a hard tone
+/// seam at row ~1456 and got persisted into the rendered-preview cache. The
+/// fixed index (`gid.y * ng.x * 64u + gid.x`) reaches every pixel. Uses a
+/// 2176x2176-equivalent buffer (4,734,976 px → 73,984 groups → gx=65535,
+/// gy=2) so the high-index tile is exercised; on small buffers the old and
+/// new indices coincide and the other parity tests pass regardless.
+#[test]
+fn wgsl_residual_lut_matches_cpu_oracle_above_dispatch_cap() {
+    let pixel_count: usize = 2176 * 2176;
+    let groups = (pixel_count as u32).div_ceil(64);
+    let gx = groups.min(65535);
+    let gy = groups.div_ceil(gx);
+    assert!(groups > 65535, "buffer must exceed the 65535-group 1-D cap");
+    assert!(
+        gy > 1,
+        "dispatch must tile into 2-D (gy>1), got gy={gy}, gx={gx}"
+    );
+
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    // Fill the buffer with a repeating spread of the branch-covering probe
+    // pixels so the high-index tile sees the same interpolation branches as
+    // the low one.
+    let probe = lut_rgba();
+    let input: Vec<f32> = (0..pixel_count * 4)
+        .map(|i| probe[i % probe.len()])
+        .collect();
+
+    let lut = fitted_residual_lut(49);
+    let mut cpu = input.clone();
+    apply_residual_lut(&mut cpu, &lut.data, lut.size);
+
+    let img = GpuImage::upload(&ctx, &input, 2176, 2176);
+    let runner = ChainRunner::new(&ctx, &img);
+    let gpu = runner.run_blocking(&[&ResidualLutPass {
+        size: lut.size,
+        data: lut.data.clone(),
+    }]);
+
+    // Track the worst diff AND its location so a regression that only misses
+    // the gy==1 tile (high pixel indices) is unmistakable.
+    let (max_diff, worst_idx) = cpu
+        .iter()
+        .zip(&gpu)
+        .enumerate()
+        .map(|(idx, (a, b))| ((a - b).abs(), idx))
+        .fold(
+            (0.0_f32, 0usize),
+            |(m, mi), (d, idx)| {
+                if d > m {
+                    (d, idx)
+                } else {
+                    (m, mi)
+                }
+            },
+        );
+    eprintln!(
+        ">CAP PARITY pixels={pixel_count} gx={gx} gy={gy}: \
+         max abs diff = {max_diff:e} at flat idx {worst_idx} (px {})",
+        worst_idx / 4
+    );
+    assert!(
+        max_diff < 1e-4,
+        "above-cap GPU vs CPU max abs diff {max_diff} exceeds 1e-4 (worst at px {})",
+        worst_idx / 4
+    );
+}
+
 /// An identity LUT is a near-passthrough on the GPU within `[0, 1]` (where each
 /// tetrahedral sample of the identity grid reproduces its input). Guards against an
 /// index-order bug in `((b*N+g)*N+r)` that would skew even a true identity grid.

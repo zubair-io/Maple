@@ -56,13 +56,6 @@ extension EditSession {
         let visible = viewportSourceRect
         let zoom = pixelScale
         let assetRef = self.asset
-        // Capture the current preview as a fallback for transparent
-        // regions of the tile composite. Without it, unloaded portions
-        // of the canvas render as BLACK (CGImage from a CIImage with
-        // transparent regions over an sRGB workspace fills with black,
-        // not preview content). User reported "image goes to black"
-        // when the deep-zoom composite published.
-        let existingPreview = renderedPreview
         do {
             let composite = try await mgr.update(
                 asset: assetRef,
@@ -76,13 +69,20 @@ extension EditSession {
                 // Composite the tile-canvas OVER an upscaled version of
                 // the existing preview. Tiles cover the visible viewport;
                 // the upscaled preview fills everything else (blurry but
-                // not black). As more tiles land, more of the canvas
-                // becomes pixel-perfect — the rest stays preview-quality.
+                // not black — CGImage from a CIImage with transparent
+                // regions over an sRGB workspace fills with black). Read
+                // the underlay NOW, post-await: a fast pass may have
+                // published a newer full render while the tile fetch was
+                // in flight, and compositing over a pre-await capture
+                // would clobber it with stale-tone pixels (#1881).
                 renderedPreview = compositeWithPreviewUnderlay(
                     composite,
-                    underlay: existingPreview,
+                    underlay: renderedPreview,
                     canvasSize: nativeImageSize
                 )
+                // Tiles cover the viewport only; everything else is
+                // upscaled underlay of unknown vintage. Never persistable.
+                previewIsFullRender = false
             }
             renderError = nil
         } catch {

@@ -168,6 +168,15 @@ public final class EditSession {
     // MARK: Render output
 
     public var renderedPreview: CIImage?
+    /// True only when `renderedPreview` is a COMPLETED full-canvas render of
+    /// the current model. False for cold-open seeds (cached JPEG, embedded
+    /// JPEG, `.maple` sidecar preview) and for progressive composites that
+    /// stitch a fresh viewport patch over an older underlay (visible-region
+    /// refine, deep-zoom tiles). `persistCurrentPreviewToCache` gates on this:
+    /// persisting a seed or a mixed-provenance composite bakes a tone seam
+    /// into `RenderedPreviewCache` + the browse thumbnail that then reappears
+    /// on every cold open until a full render overwrites it (#1881).
+    var previewIsFullRender: Bool = false
     public var renderPhase: RenderPhase = .fast
     public var isRendering: Bool = false
     /// Last render error, if any. Views can surface a banner when non-nil.

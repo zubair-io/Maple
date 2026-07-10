@@ -52,8 +52,15 @@ extension EditSession {
     /// refine-skip branch in `_scheduleRefine` — without the latter,
     /// fit-to-window opens (the most common case) never populate the
     /// cache and every cold re-open redoes the Rust pipeline.
+    ///
+    /// Persists only when `previewIsFullRender` — a cold-open seed or a
+    /// patch-over-underlay composite must never reach the disk cache: the
+    /// underlay may predate the current model (e.g. an exposure change), so
+    /// baking the composite writes a hard tone seam that every subsequent
+    /// cold open then re-displays (#1881).
     func persistCurrentPreviewToCache() {
-        guard let url = asset.primaryURL,
+        guard previewIsFullRender,
+              let url = asset.primaryURL,
               let preview = renderedPreview else { return }
         let capturedImage = preview
         let capturedWidth = Int(max(previewSize.width, 1))

@@ -110,8 +110,12 @@ fn lut_sample(rgb: vec3<f32>, n: u32) -> vec3<f32> {
 }
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    // 2-D dispatch index (#1881): encode_simple splits big images into
+    // (gx ≤ 65535, gy) workgroup tiles. The 1-D `gid.x` index left every
+    // pixel past 65535*64 (row ~1456 of a 2880-wide preview) unwritten in
+    // the output ping-pong buffer — a hard tone seam under profile=auto.
+    let i = gid.y * ng.x * 64u + gid.x;
     if (i >= params.count) {
         return;
     }

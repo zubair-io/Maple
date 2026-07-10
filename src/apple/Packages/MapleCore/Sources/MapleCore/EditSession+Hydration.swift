@@ -481,6 +481,7 @@ extension EditSession {
         // wrote a better cache and we'd be downgrading the visible
         // preview for no reason.
         renderedPreview = cached
+        previewIsFullRender = false
         editSessionLogger.debug(
             "cached preview seeded decode extent=\(cached.extent.width)x\(cached.extent.height)"
         )
@@ -508,6 +509,7 @@ extension EditSession {
         )
         guard accepted else { return false }
         renderedPreview = ci
+        previewIsFullRender = false
         editSessionSignposter.emitEvent("embedded paint")
         editSessionLogger.debug(
             "embedded preview seeded decode extent=\(ci.extent.width)x\(ci.extent.height)"
@@ -537,6 +539,7 @@ extension EditSession {
         )
         guard accepted else { return false }
         renderedPreview = ci
+        previewIsFullRender = false
         editSessionSignposter.emitEvent("maple sidecar preview paint")
         editSessionLogger.debug(
             "maple sidecar preview seeded decode extent=\(ci.extent.width)x\(ci.extent.height)"
