@@ -99,7 +99,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
             isDrawerOpen: $isDrawerOpen,
             // The drawer owns the edge swipe only at the root. Deeper screens
             // leave it to NavigationStack, producing Edit → Preview → Browse.
-            mode: libraryPath.isEmpty ? .browse : .preview,
+            mode: activeTab == "library" && libraryPath.isEmpty ? .browse : .preview,
             mainContent: { tabView },
             sidebarContent: sidebar
         )

@@ -2,7 +2,7 @@
 
 import SwiftUI
 
-/// Restores interactive stack-style back navigation for destinations whose
+/// Restores edge-swipe back navigation for destinations whose
 /// custom floating header requires the system navigation bar to be hidden.
 /// The edge-only start guard keeps this distinct from Preview's carousel and
 /// the Editor's canvas/tool gestures.

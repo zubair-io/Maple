@@ -161,7 +161,9 @@ struct PreviewView: View {
 
     /// The fit-to-screen still. Purely a `PreviewImage` (thumbnail-cache
     /// backed) — no canvas, no zoom, no session.
+    @ViewBuilder
     private var imageBody: some View {
+        #if os(iOS)
         TabView(selection: pageSelection) {
             ForEach(assets, id: \.id) { item in
                 PreviewImage(
@@ -173,8 +175,18 @@ struct PreviewView: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .accessibilityIdentifier("preview-image")
+        #else
+        // PageTabViewStyle is an iOS/iPadOS interaction. macOS keeps the
+        // lightweight current image and uses the existing left/right keys.
+        PreviewImage(
+            source: PreviewViewVM.thumbnailSource(for: asset, source: source),
+            provider: provider
+        )
+        .accessibilityIdentifier("preview-image")
+        #endif
     }
 
+    #if os(iOS)
     /// Native page selection is driven by the parent's canonical asset. The
     /// setter fires only after the system pager commits a page, avoiding the
     /// old hand-rolled offset/selection race that visibly snapped mid-swipe.
@@ -189,6 +201,7 @@ struct PreviewView: View {
             }
         )
     }
+    #endif
 
     /// One provider for the whole Preview lifetime. Local-only is correct here:
     /// cloud/self-hosted assets thread their `source` through the
