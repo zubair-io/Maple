@@ -156,7 +156,14 @@ extension AutoProfileCanvasParityTests {
             let cpuAuto = try PipelineRenderer.render(rawPath: rawURL, xmpPath: nil, quality: .full)
             var neutralModel = AdjustmentModel.default
             neutralModel.profile = .neutral
-            let neutralXML = XMPSerializer.serialize(model: neutralModel, culling: CullingState())
+            // omitWhiteBalance (#1883): this sidecar means "Neutral profile,
+            // As-Shot WB". Writing the default model's literal 6500/0 became
+            // an AUTHORED Custom WB (a camera-space D65 retarget) when #1726
+            // introduced the temperature_seen/tint_seen resolution — absent
+            // attributes are how a sidecar says As-Shot, matching the
+            // `xmpPath: nil` Auto reference above.
+            let neutralXML = XMPSerializer.serialize(
+                model: neutralModel, culling: CullingState(), omitWhiteBalance: true)
             let neutralXMP = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("maple-neutral-\(UUID().uuidString).xmp")
             try neutralXML.write(to: neutralXMP, atomically: true, encoding: .utf8)

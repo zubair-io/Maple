@@ -14,11 +14,24 @@ extension XMPSerializer {
     /// "Red"/"Rejected" — all XML-safe without escaping).
     /// Called from both `serialize(model:culling:)` and the metadata overload
     /// so metadata attrs can be appended natively.
-    static func _buildAttrs(model: AdjustmentModel, culling: CullingState) -> [(String, String)] {
-        var attrs: [(String, String)] = [
+    ///
+    /// `omitWhiteBalance` (#1883): skip `crs:Temperature` / `crs:Tint` /
+    /// `papp:WbScaleVersion` so raw-core parses the document with
+    /// `temperature_seen`/`tint_seen` FALSE — As-Shot semantics. Used ONLY
+    /// by `RawCoreBridge.withStrippedXMP`'s decode temp-XMP: since #1726's
+    /// camera-space WB, an EXPLICIT 6500/0 means "Custom WB dialed to D65"
+    /// (a camera-space retarget), while the Apple decode contract needs the
+    /// As-Shot no-op that the CPU reference gets from an absent model. Real
+    /// sidecar saves must never set this — authored WB always persists.
+    static func _buildAttrs(
+        model: AdjustmentModel,
+        culling: CullingState,
+        omitWhiteBalance: Bool = false
+    ) -> [(String, String)] {
+        let wbAttrs: [(String, String)] = omitWhiteBalance ? [] : [
             ("crs:Temperature",          String(format: "%.0f", model.temperature)),
             ("crs:Tint",                 String(format: "%.0f", model.tint)),
-            // WB scale stamp (#1780/#1875): this serializer always writes
+            // WB scale stamp (#1780/#1875): every sidecar save writes
             // explicit Temperature/Tint, so the scale those numbers are
             // expressed in is always stamped alongside them. V1 re-emits
             // as 1 (raw-core converts at develop, so stored V1 values keep
@@ -28,6 +41,8 @@ extension XMPSerializer {
             // {1, 3}: raw-core's parser hard-fails on an unknown stamp,
             // so a corrupted model field must never reach the sidecar.
             ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 3)),
+        ]
+        var attrs: [(String, String)] = wbAttrs + [
             ("crs:Exposure2012",         fmtF(model.exposure)),
             ("crs:Contrast2012",         String(format: "%.0f", model.contrast)),
             ("crs:Highlights2012",       String(format: "%.0f", model.highlights)),

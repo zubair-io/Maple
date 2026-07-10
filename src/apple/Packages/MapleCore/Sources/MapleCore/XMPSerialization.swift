@@ -472,8 +472,14 @@ public struct XMPSerializer {
 
     // MARK: - Public serializer
 
-    public static func serialize(model: AdjustmentModel, culling: CullingState) -> String {
-        let attrs = _buildAttrs(model: model, culling: culling)
+    /// `omitWhiteBalance` (#1883): decode-XMP-only mode — see `_buildAttrs`.
+    /// Sidecar SAVES must use the default `false`.
+    public static func serialize(
+        model: AdjustmentModel,
+        culling: CullingState,
+        omitWhiteBalance: Bool = false
+    ) -> String {
+        let attrs = _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
         let (dcNamespace, keywordsBlock) = _buildKeywordsBlock(culling: culling)
 
