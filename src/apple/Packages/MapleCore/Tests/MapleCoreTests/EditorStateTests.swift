@@ -67,10 +67,13 @@ final class EditorStateTests: XCTestCase {
         state.setArmedInternalValue(100)
         XCTAssertEqual(state.session.model.exposure, 4.0, accuracy: 1e-9)
 
-        // Tint: internal -50 → display -50 (1:1 for symmetric ±100 tools).
+        // Tint: internal -50 → display -75. #1870 widened tint's display
+        // range from the original ±100 to ACR's crs:Tint span (±150,
+        // `AdjustmentModel.tintRange`), so tint is no longer 1:1 like the
+        // other symmetric ±100 tools: internal v maps to (v/100)*150.
         state.arm(tool: .tint)
         state.setArmedInternalValue(-50)
-        XCTAssertEqual(state.session.model.tint, -50, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.tint, -75, accuracy: 1e-9)
 
         // Temp: internal +50 → display 9250 K (6500 + 0.5*(12000-6500)).
         state.arm(tool: .temp)
@@ -320,7 +323,10 @@ final class EditorStateTests: XCTestCase {
         state.arm(tool: .tint)
         state.wheelNudge(steps: 3, unit: 1, at: t0.addingTimeInterval(0.1))
         XCTAssertEqual(session.model.contrast, 5, accuracy: 1e-9)
-        XCTAssertEqual(session.model.tint, 3, accuracy: 1e-9)
+        // Tint maps internal units through its ±150 display range (#1870:
+        // AdjustmentModel.tintRange widened from ±100), so 3 internal
+        // steps land at 4.5, not 3.
+        XCTAssertEqual(session.model.tint, 4.5, accuracy: 1e-9)
         // First undo unwinds ONLY the tint nudge…
         state.undo()
         XCTAssertEqual(session.model.tint, 0, accuracy: 1e-9)
@@ -346,7 +352,10 @@ final class EditorStateTests: XCTestCase {
         state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(0.2))
         state.undo()
         XCTAssertEqual(session.model.contrast, 1, accuracy: 1e-9)
-        XCTAssertEqual(session.model.tint, 1, accuracy: 1e-9)
+        // Tint maps internal units through its ±150 display range (#1870:
+        // `AdjustmentModel.tintRange` widened from ±100), so 1 internal
+        // step lands at 1.5, not 1.
+        XCTAssertEqual(session.model.tint, 1.5, accuracy: 1e-9)
         state.undo()
         XCTAssertEqual(session.model.tint, 0, accuracy: 1e-9)
         state.undo()
