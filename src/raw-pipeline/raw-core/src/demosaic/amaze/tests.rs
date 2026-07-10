@@ -191,35 +191,36 @@ fn amaze_smooth_gradient_has_no_tile_seams() {
     // as a step at x or y ∈ {128, 256}.
     let mosaic = gradient_mosaic(300, 300);
     let out = amaze(&mosaic, CfaPattern::Rggb);
-    let g = |x: usize, y: usize| out.pixels[y * 300 + x][1];
+    let px = |x: usize, y: usize, ch: usize| out.pixels[y * 300 + x][ch];
     for &seam in &[128usize, 256] {
-        for y in 20..280 {
+        // `k` sweeps the full length of each seam: the y-coordinate along
+        // the vertical (column) seam at x == seam, and the x-coordinate
+        // along the horizontal (row) seam at y == seam.
+        for k in 20..280 {
             for ch in 0..3 {
-                let a = out.pixels[y * 300 + seam - 1][ch];
-                let b = out.pixels[y * 300 + seam][ch];
-                let c = out.pixels[y * 300 + seam + 1][ch];
-                let second_diff = (a - 2.0 * b + c).abs();
+                let (a, b, c) = (px(seam - 1, k, ch), px(seam, k, ch), px(seam + 1, k, ch));
                 assert!(
-                    second_diff < 5e-3,
+                    (a - 2.0 * b + c).abs() < 5e-3,
                     "column seam at x={} y={} ch={}: {} {} {}",
                     seam,
-                    y,
+                    k,
+                    ch,
+                    a,
+                    b,
+                    c
+                );
+                let (a, b, c) = (px(k, seam - 1, ch), px(k, seam, ch), px(k, seam + 1, ch));
+                assert!(
+                    (a - 2.0 * b + c).abs() < 5e-3,
+                    "row seam at y={} x={} ch={}: {} {} {}",
+                    seam,
+                    k,
                     ch,
                     a,
                     b,
                     c
                 );
             }
-            let (a, b, c) = (g(y, seam - 1), g(y, seam), g(y, seam + 1));
-            assert!(
-                (a - 2.0 * b + c).abs() < 5e-3,
-                "row seam at y={} x={}: {} {} {}",
-                seam,
-                y,
-                a,
-                b,
-                c
-            );
         }
     }
 }
