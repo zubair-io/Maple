@@ -43,4 +43,3 @@ struct FloatingImageHeader<Trailing: View>: View {
         .accessibilityIdentifier("\(identifierPrefix)-header")
     }
 }
-
