@@ -107,6 +107,31 @@ actor ThumbnailProvider {
         }
     }
 
+    /// Lazily load a display-sized image after the fast thumbnail is visible.
+    /// This deliberately bypasses the thumbnail caches: those are keyed for
+    /// grid-sized pixels and must never be polluted with a larger variant.
+    func preview(for source: ThumbnailSource, maxDimension: CGFloat = 2_048) async -> Data? {
+        switch source.resolvedBackend() {
+        case .thumbnailLoader(let ref, let box):
+            guard let imageSource = box?.source else { return nil }
+            let imageRef = ImageRef(
+                id: ref.stableID ?? ref.primaryURL?.path ?? ref.id.uuidString,
+                displayName: ref.displayName,
+                url: ref.primaryURL,
+                scopeParentURL: ref.scopeParentURL
+            )
+            return try? await imageSource.preview(for: imageRef)
+        case .cloudThumb(let absPath, _):
+            guard let client = thumbClient else { return nil }
+            return try? await client.thumb(absPath: absPath, size: Int(maxDimension))
+        case .photoKit(let localID):
+            return await Self.fetchPhotoKitPreview(
+                localID: localID,
+                maxDimension: maxDimension
+            )
+        }
+    }
+
     // MARK: - Synchronous cache peek (M1 scale-zoom)
 
     /// Synchronous, non-awaiting peek into the in-memory thumbnail cache.
@@ -203,6 +228,39 @@ private extension ThumbnailProvider {
                 guard latch.tryFire() else { return }
                 guard let image else { cont.resume(returning: nil); return }
                 cont.resume(returning: jpegBytes(from: image))
+            }
+        }
+    }
+
+    static func fetchPhotoKitPreview(localID: String, maxDimension: CGFloat) async -> Data? {
+        guard let phAsset = PHAsset
+            .fetchAssets(withLocalIdentifiers: [localID], options: nil)
+            .firstObject else { return nil }
+
+        return await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.resizeMode = .exact
+            options.isNetworkAccessAllowed = true
+            options.isSynchronous = false
+
+            PHImageManager.default().requestImage(
+                for: phAsset,
+                targetSize: CGSize(width: maxDimension, height: maxDimension),
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                guard (info?[PHImageResultIsDegradedKey] as? Bool) != true,
+                      (info?[PHImageCancelledKey] as? Bool) != true,
+                      (info?[PHImageErrorKey] as? Error) == nil,
+                      let image
+                else {
+                    if (info?[PHImageResultIsDegradedKey] as? Bool) != true {
+                        continuation.resume(returning: nil)
+                    }
+                    return
+                }
+                continuation.resume(returning: jpegBytes(from: image))
             }
         }
     }
