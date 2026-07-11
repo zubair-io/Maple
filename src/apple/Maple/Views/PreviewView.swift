@@ -511,8 +511,9 @@ private struct InfoPresentation: ViewModifier {
             content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
                 InfoPanelView(
                     session: session,
-                    isInsideSheet: false,
-                    showsCullingAndHistogram: false
+                    isInsideSheet: true,
+                    showsCullingAndHistogram: false,
+                    onClose: { isPresented = false }
                 )
                     .frame(width: 320, height: 480)
                     .background(MapleTokens.sidebar)
