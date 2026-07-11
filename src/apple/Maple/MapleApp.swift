@@ -432,13 +432,9 @@ private struct SelfHostedSettingsTab: View {
             }
         }
         .padding(24)
-        .task {
+        .task(id: registry.servers) {
             refreshSignedIn()
             await refreshLocalAddresses()
-        }
-        .onChange(of: registry.servers) { _, _ in
-            refreshSignedIn()
-            Task { await refreshLocalAddresses() }
         }
         .sheet(item: $sheetTarget) { target in
             AddMapleCloudSheet(
@@ -489,8 +485,13 @@ private struct SelfHostedSettingsTab: View {
     }
 
     private func refreshLocalAddresses() async {
-        for server in registry.servers {
-            await localNetwork.resolve(identity: server)
+        await withTaskGroup(of: Void.self) { group in
+            for server in registry.servers {
+                group.addTask {
+                    guard !Task.isCancelled else { return }
+                    await localNetwork.resolve(identity: server)
+                }
+            }
         }
     }
 
