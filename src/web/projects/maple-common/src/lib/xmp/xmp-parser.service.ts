@@ -23,7 +23,7 @@ import type {
   Profile,
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
-import { resolveWbScaleVersion } from './xmp-wb-scale';
+import { resolveWbScaleVersion, inferredWbPresetForAuthoredPair } from './xmp-wb-scale';
 import {
   gpsFromXmp,
   altitudeFromXmp,
@@ -503,24 +503,18 @@ export class XmpParserService {
     // V2 → V3 tint negation (#1875) — after the walk so it applies to the
     // final parsed value. Only an explicitly authored crs:Tint negates;
     // preset-resolved tints were never expressed in the inverted scale.
-    // (`model` is Partial; an authored crs:Tint guarantees the field was
-    // populated by the walk, but a malformed value may have been dropped.)
+    // (The `model.tint` guard covers malformed values the walk dropped.)
     if (wbScale.negateAuthoredTint && model.tint !== undefined) {
       model.tint = -model.tint;
     }
 
-    // An authored crs:Temperature/crs:Tint with no crs:WhiteBalance attribute
-    // is a Custom WB — the same rule raw-core's parser encodes via its
-    // `temperature_seen`/`tint_seen` flags. Recording 'Custom' here keeps the
-    // serializer's As-Shot gate (#1892) from dropping those authored values
-    // on the next save (sidecars written before the gate never stamped a
-    // preset alongside slider edits).
-    if (
-      model.whiteBalancePreset === undefined &&
-      (canonicallyApplied.has('temperature') || canonicallyApplied.has('tint'))
-    ) {
-      model.whiteBalancePreset = 'Custom';
-    }
+    // Authored WB with no crs:WhiteBalance is a Custom WB (#1892) — see
+    // `inferredWbPresetForAuthoredPair`'s doc for the full rationale.
+    const inferred = inferredWbPresetForAuthoredPair(
+      model.whiteBalancePreset,
+      canonicallyApplied.has('temperature') || canonicallyApplied.has('tint'),
+    );
+    if (inferred) model.whiteBalancePreset = inferred;
 
     // Emit `crop` only when any field came through; angle alone is enough
     // (pure straighten). Identity default is applied for absent fields.
