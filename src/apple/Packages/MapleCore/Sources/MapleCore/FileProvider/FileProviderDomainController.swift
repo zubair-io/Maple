@@ -31,10 +31,7 @@ public actor FileProviderDomainController {
         config.save(.init(domainIdentifier: identifier.rawValue,
                           displayName: displayName,
                           serverURL: serverURL))
-        let tokensStore = FileProviderTokensStore()
-        if let tokens = (try? TokenStore.load(server: serverURL)) ?? nil {
-            tokensStore.save(tokens, domain: identifier.rawValue)
-        } else {
+        if ((try? TokenStore.load(server: serverURL)) ?? nil) == nil {
             log.warning("no app-wide tokens found for \(serverURL.absoluteString, privacy: .public) — extension will be unauthenticated until next sign-in")
         }
         do {
@@ -42,7 +39,6 @@ public actor FileProviderDomainController {
         } catch {
             // Roll back the partial state so the user can retry cleanly.
             config.remove(domain: identifier.rawValue)
-            tokensStore.remove(domain: identifier.rawValue)
             log.error("NSFileProviderManager.add failed; rolled back config + tokens: \(error.localizedDescription, privacy: .public)")
             throw error
         }
@@ -70,7 +66,6 @@ public actor FileProviderDomainController {
             log.error("NSFileProviderManager teardown failed for \(domainIdentifier, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         config.remove(domain: domainIdentifier)
-        FileProviderTokensStore().remove(domain: domainIdentifier)
         log.info("cleared local state for domain \(domainIdentifier, privacy: .public)")
         if let teardownError { throw teardownError }
     }
@@ -126,22 +121,9 @@ public actor FileProviderDomainController {
         return orphans
     }
 
-    /// Mirrors tokens from the app-wide `TokenStore` into the shared
-    /// `FileProviderTokensStore` for any registered domain matching `serverURL`.
-    /// No-op if no domain is registered for that URL.
-    /// Call this on sign-in and on every main-app token refresh so the
-    /// extension stays authenticated. (Extension-initiated refreshes are not
-    /// mirrored back — the user re-signs-in to recover after that edge case.)
+    /// Compatibility no-op for callers compiled around the former mirrored
+    /// store. All processes now access `TokenStore`'s single shared item.
     public func mirrorTokens(serverURL: URL) {
-        guard let domainID = Self.domainIdentifier(for: serverURL) else { return }
-        guard config.load(domain: domainID) != nil else { return }
-        let tokensStore = FileProviderTokensStore()
-        if let tokens = (try? TokenStore.load(server: serverURL)) ?? nil {
-            tokensStore.save(tokens, domain: domainID)
-            log.info("mirrored tokens for domain \(domainID, privacy: .public)")
-        } else {
-            tokensStore.remove(domain: domainID)
-            log.info("cleared mirrored tokens for domain \(domainID, privacy: .public)")
-        }
+        _ = serverURL
     }
 }
