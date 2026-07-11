@@ -1,4 +1,5 @@
 pub mod dcp;
+pub mod dng_temperature;
 pub mod hsm;
 pub mod illuminant;
 pub mod matrices;
