@@ -36,7 +36,10 @@ struct LibraryGrid: View {
                 displayMode: displayMode,
                 selection: vm.selectedID.map { Set([$0]) } ?? [],
                 transitionNamespace: transitionNamespace,
-                onAppearItem: { asset in onPrimeSession(asset) },
+                onAppearItem: { asset in
+                    onPrimeSession(asset)
+                    Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
+                },
                 onTap: { asset in
                     vm.selectedID = asset.id
                     #if canImport(UIKit)
