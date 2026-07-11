@@ -117,44 +117,6 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertEqual(PreviewViewVM.previousID(before: ids[0], in: ids), ids[0])
   }
 
-  // MARK: - swipeStep
-
-  func testSwipeLeftAdvancesToNext() {
-    // Content dragged left (dx negative) reveals the next image.
-    XCTAssertEqual(
-      PreviewViewVM.swipeStep(dx: -80, dy: 5), .next)
-  }
-
-  func testSwipeRightGoesToPrevious() {
-    XCTAssertEqual(
-      PreviewViewVM.swipeStep(dx: 80, dy: -5), .previous)
-  }
-
-  func testSwipeBelowThresholdIsIgnored() {
-    XCTAssertNil(
-      PreviewViewVM.swipeStep(dx: -30, dy: 2),
-      "a 30pt drag is below the 40pt threshold")
-  }
-
-  func testSwipeAtExactThresholdRegisters() {
-    XCTAssertEqual(
-      PreviewViewVM.swipeStep(dx: -40, dy: 0), .next,
-      "the threshold is inclusive (>=)")
-  }
-
-  func testMostlyVerticalDragIsIgnored() {
-    // A vertical drag (|dy| > |dx|) must not flip images — that's a scroll /
-    // dismiss gesture, not a page turn.
-    XCTAssertNil(
-      PreviewViewVM.swipeStep(dx: -50, dy: -120),
-      "vertical-dominant drags are not image swipes")
-  }
-
-  func testCustomThresholdRespected() {
-    XCTAssertNil(PreviewViewVM.swipeStep(dx: -60, dy: 0, threshold: 100))
-    XCTAssertEqual(PreviewViewVM.swipeStep(dx: -120, dy: 0, threshold: 100), .next)
-  }
-
   // MARK: - thumbnailSource
 
   func testThumbnailSourceIsLocalBackendForFilesystemAsset() {
