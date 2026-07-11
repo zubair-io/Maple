@@ -359,6 +359,7 @@ private struct GeneralSettingsTab: View {
 /// ones.
 private struct SelfHostedSettingsTab: View {
     @State private var registry = CloudServerRegistry.shared
+    @State private var localNetwork = LocalNetworkResolver.shared
     /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(host)`
     /// for a per-server "Sign In" (#1381).
     @State private var sheetTarget: AddCloudSheetTarget?
@@ -395,6 +396,7 @@ private struct SelfHostedSettingsTab: View {
                                 Text(url.absoluteString)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                localAddressStatus(for: url)
                             }
                             Spacer()
                             // Signed out (token cleared by a failed refresh, or
@@ -430,8 +432,14 @@ private struct SelfHostedSettingsTab: View {
             }
         }
         .padding(24)
-        .task { refreshSignedIn() }
-        .onChange(of: registry.servers) { _, _ in refreshSignedIn() }
+        .task {
+            refreshSignedIn()
+            await refreshLocalAddresses()
+        }
+        .onChange(of: registry.servers) { _, _ in
+            refreshSignedIn()
+            Task { await refreshLocalAddresses() }
+        }
         .sheet(item: $sheetTarget) { target in
             AddMapleCloudSheet(
                 prefilledDomain: target.prefill,
@@ -454,6 +462,35 @@ private struct SelfHostedSettingsTab: View {
                     }
                 }
             )
+        }
+    }
+
+    @ViewBuilder
+    private func localAddressStatus(for server: URL) -> some View {
+        if let status = localNetwork.status(for: server) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(status.isConnectedLocally ? Color.green : Color.secondary)
+                    .frame(width: 7, height: 7)
+                if let localURL = status.localURL {
+                    Text("\(localURL.absoluteString) · \(status.isConnectedLocally ? "Connected locally" : "Not connected locally")")
+                } else {
+                    Text("No local address available")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(status.isConnectedLocally ? .primary : .secondary)
+            .accessibilityElement(children: .combine)
+        } else {
+            Text("Checking local address…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func refreshLocalAddresses() async {
+        for server in registry.servers {
+            await localNetwork.resolve(identity: server)
         }
     }
 
