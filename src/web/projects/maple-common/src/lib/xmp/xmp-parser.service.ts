@@ -510,10 +510,7 @@ export class XmpParserService {
 
     // Authored WB with no crs:WhiteBalance is a Custom WB (#1892) — see
     // `inferredWbPresetForAuthoredPair`'s doc for the full rationale.
-    const inferred = inferredWbPresetForAuthoredPair(
-      model.whiteBalancePreset,
-      canonicallyApplied.has('temperature') || canonicallyApplied.has('tint'),
-    );
+    const inferred = inferredWbPresetForAuthoredPair(model.whiteBalancePreset, canonicallyApplied);
     if (inferred) model.whiteBalancePreset = inferred;
 
     // Emit `crop` only when any field came through; angle alone is enough
