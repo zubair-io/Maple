@@ -126,14 +126,12 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
 
     private func popPreviewWithoutAnimation() {
         guard !libraryPath.isEmpty else { return }
-        UIView.setAnimationsEnabled(false)
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            _ = libraryPath.removeLast()
-        }
-        DispatchQueue.main.async {
-            UIView.setAnimationsEnabled(true)
+        UIView.performWithoutAnimation {
+            withTransaction(transaction) {
+                _ = libraryPath.removeLast()
+            }
         }
     }
 }

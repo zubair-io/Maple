@@ -66,7 +66,10 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard imageView.image != nil else { return }
-        if imageView.frame.size != scrollView.bounds.size {
+        // Zoom changes the transformed frame, but not bounds. Comparing the
+        // frame here treated every pinch as a layout-size change and could
+        // reset zoom state on the next layout pass.
+        if imageView.bounds.size != scrollView.bounds.size {
             imageView.frame = CGRect(origin: .zero, size: scrollView.bounds.size)
             scrollView.contentSize = scrollView.bounds.size
             scrollView.minimumZoomScale = 1

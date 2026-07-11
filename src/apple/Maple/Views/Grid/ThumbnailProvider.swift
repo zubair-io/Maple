@@ -244,20 +244,30 @@ private extension ThumbnailProvider {
             options.isNetworkAccessAllowed = true
             options.isSynchronous = false
 
+            // High-quality requests normally call back once, but guard the
+            // continuation defensively so cancellation or an unexpected
+            // second callback can never hang or trap the awaiting task.
+            final class Latch: @unchecked Sendable {
+                let lock = NSLock(); var fired = false
+                func tryFire() -> Bool {
+                    lock.lock(); defer { lock.unlock() }
+                    if fired { return false }; fired = true; return true
+                }
+            }
+            let latch = Latch()
+
             PHImageManager.default().requestImage(
                 for: phAsset,
                 targetSize: CGSize(width: maxDimension, height: maxDimension),
                 contentMode: .aspectFit,
                 options: options
             ) { image, info in
-                guard (info?[PHImageResultIsDegradedKey] as? Bool) != true,
-                      (info?[PHImageCancelledKey] as? Bool) != true,
+                guard latch.tryFire() else { return }
+                guard (info?[PHImageCancelledKey] as? Bool) != true,
                       (info?[PHImageErrorKey] as? Error) == nil,
                       let image
                 else {
-                    if (info?[PHImageResultIsDegradedKey] as? Bool) != true {
-                        continuation.resume(returning: nil)
-                    }
+                    continuation.resume(returning: nil)
                     return
                 }
                 continuation.resume(returning: jpegBytes(from: image))
