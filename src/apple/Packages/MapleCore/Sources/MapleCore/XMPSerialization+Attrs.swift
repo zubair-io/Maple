@@ -29,24 +29,25 @@ extension XMPSerializer {
         omitWhiteBalance: Bool = false
     ) -> [(String, String)] {
         let wbAttrs: [(String, String)] = omitWhiteBalance ? [] : [
-            // Fractional-preserving (fmtWb): normalized tints are
-            // non-integer post-#1893 (a V3-authored −144 loads as −43.2),
-            // and the frame-hydrated as-shot temperature is fractional
-            // too — integer rounding here shifted the stored WB on every
-            // re-save, drifting the rendered look.
+            // Fractional-preserving (fmtWb): normalized WB pairs are
+            // non-integer post-#1893/#1894 (a V3-authored −144 loads as a
+            // fractional V5 pair), and the frame-hydrated as-shot
+            // temperature is fractional too — integer rounding here
+            // shifted the stored WB on every re-save, drifting the
+            // rendered look.
             ("crs:Temperature",          fmtWb(model.temperature)),
             ("crs:Tint",                 fmtWb(model.tint)),
-            // WB scale stamp (#1780/#1875/#1893): every sidecar save
+            // WB scale stamp (#1780/#1875/#1893/#1894): every sidecar save
             // writes explicit Temperature/Tint, so the scale those numbers
             // are expressed in is always stamped alongside them. V1
             // re-emits as 1 (raw-core converts at develop, so stored V1
             // values keep their meaning across saves); everything else
-            // emits 4 — the parse normalizes V2/V3 models to V4 at load,
-            // so a non-1 model always holds V4 (ACR tint direction AND
-            // kTintScale magnitude) values. Clamped to {1, 4}: raw-core's
-            // parser hard-fails on an unknown stamp, so a corrupted model
-            // field must never reach the sidecar.
-            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 4)),
+            // emits 5 — the parse normalizes V2/V3/V4 models to V5
+            // (Robertson-native) at load, so a non-1 model always holds V5
+            // values. Clamped to {1, 5}: raw-core's parser hard-fails on an
+            // unknown stamp, so a corrupted model field must never reach
+            // the sidecar.
+            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 5)),
         ]
         var attrs: [(String, String)] = wbAttrs + [
             ("crs:Exposure2012",         fmtF(model.exposure)),

@@ -23,7 +23,11 @@ import type {
   Profile,
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
-import { resolveWbScaleVersion, inferredWbPresetForAuthoredPair } from './xmp-wb-scale';
+import {
+  resolveWbScaleVersion,
+  authoredPairToV5,
+  inferredWbPresetForAuthoredPair,
+} from './xmp-wb-scale';
 import {
   gpsFromXmp,
   altitudeFromXmp,
@@ -366,8 +370,7 @@ export class XmpParserService {
     let cropRight: number | undefined;
     let cropAngle: number | undefined;
 
-    // WB scale versioning (#1780/#1875) — resolution rule + V2→V3
-    // normalization rationale live in `xmp-wb-scale.ts`.
+    // WB scale versioning (#1780/#1875/#1894) — rationale in `xmp-wb-scale.ts`.
     const wbScale = resolveWbScaleVersion(desc, sawPappAnywhere);
     model.wbScaleVersion = wbScale.modelVersion;
 
@@ -500,13 +503,26 @@ export class XmpParserService {
       }
     }
 
-    // V2/V3 → V4 tint load-normalization (#1875 axis, #1893 scale) —
-    // after the walk so it applies to the final parsed value. Only an
-    // explicitly authored crs:Tint converts; preset-resolved tints were
-    // never expressed in the legacy axis/scale. (The `model.tint` guard
-    // covers malformed values the walk dropped.)
-    if (wbScale.authoredTintFactor !== 1 && model.tint !== undefined) {
-      model.tint = model.tint * wbScale.authoredTintFactor;
+    // V2/V3/V4 → V5 joint-pair load-normalization (#1894, rationale in
+    // `xmp-wb-scale.ts`) — after the walk, only for an explicitly authored
+    // crs:Temperature/crs:Tint. The gate is `canonicallyApplied` (the
+    // attribute-presence record, the analogue of Swift's `sawExplicitWb`
+    // and raw-core's `temperature_seen`/`tint_seen`) rather than a
+    // field-undefined check, so it cannot silently break if this Partial
+    // model ever gains default-initialized fields (PR #1901 review).
+    // Absent components use the defaults (6500/0, ACR's absent-tint
+    // convention) as conversion input; V1 round-trips unconverted
+    // (raw-core converts it at develop, needing the calibration frame).
+    const wbAuthored =
+      canonicallyApplied.has('temperature') || canonicallyApplied.has('tint');
+    if (wbScale.sourceVersion !== 1 && wbAuthored) {
+      const [convertedTemperature, convertedTint] = authoredPairToV5(
+        model.temperature ?? 6500.0,
+        model.tint ?? 0.0,
+        wbScale.sourceVersion,
+      );
+      model.temperature = convertedTemperature;
+      model.tint = convertedTint;
     }
 
     // Authored WB with no crs:WhiteBalance is a Custom WB (#1892) — see

@@ -4,6 +4,7 @@ use super::*;
 use crate::color::illuminant::Illuminant;
 use crate::math::Matrix3;
 use crate::stages::wb_camera::camera_wb_gain;
+use crate::stages::white_balance::xy_to_uv;
 
 /// Canon EOS 5D Mark III D65 CM2 — same realistic stand-in
 /// `wb_camera_tests.rs` uses (real-world-shaped math, not a toy diagonal).
@@ -95,35 +96,49 @@ fn chromaticity(v: [f32; 3]) -> (f32, f32) {
 
 #[test]
 fn frame_inversion_round_trips_the_forward_map() {
-    // The inversion must reproduce exactly the (T, tint) whose
-    // `camera_wb_gain` forward projection generated the target neutral —
-    // that equality is what makes the converted pair render the intended
-    // gain. Exercised on both frame shapes across the slider range.
+    // The inversion must reproduce (to within Robertson's own documented
+    // precision — see below) the (T, tint) whose `camera_wb_gain` forward
+    // projection generated the target neutral — that near-equality is what
+    // makes the converted pair render close to the intended gain.
+    // Exercised on both frame shapes across the slider range.
     for frame in [single_cm_frame(5200.0), dual_cm_frame(5200.0)] {
         for &t in &[2400.0_f32, 3200.0, 5500.0, 6500.0, 8000.0, 11000.0] {
             for &tint in &[-80.0_f32, -44.0, 0.0, 25.0, 90.0] {
                 let n = forward_frame_target(&frame, t, tint);
                 let (t2, tint2) = invert_frame_target(&frame, n).expect("inversion must succeed");
-                // Kelvin sanity: nearest-point-on-locus vs the forward
-                // perpendicular differ by a curvature term that grows with
-                // |tint| and CCT (measured ≈2 K at 11000 K / −80), so the
-                // Kelvin bound is deliberately loose…
+                // Kelvin round trip is tight (measured worst case here:
+                // 0.08 K at 6500 K/tint 25) — the fixed point on the frame
+                // CM converges to < 0.5 K by construction, and the
+                // Robertson isotherm read is a direct function of the
+                // converged xy, not an independent search.
                 assert!(
-                    (t2 - t).abs() < 10.0,
+                    (t2 - t).abs() < 1.0,
                     "T round trip: {t} K / tint {tint} came back {t2} K"
                 );
+                // Tint round trip is looser: `invert_frame_target` reads
+                // `(cct, tint)` off `xy_to_temp_tint` at EACH fixed-point
+                // iterate, so a temperature that lands near a TEMP_TABLE
+                // breakpoint (#1894's dng_temperature doc: "bounded ~1.2
+                // tint-unit round-trip discontinuities at table
+                // breakpoints") inherits that discontinuity — measured
+                // worst case here is 1.19 at 8000 K/tint 90, which sits
+                // exactly at the documented bound. 1.5 gives headroom
+                // without masking a real regression (e.g. a sign flip,
+                // which would be off by ~2×tint, not a fraction of a unit).
                 assert!(
-                    (tint2 - tint).abs() < 0.5,
+                    (tint2 - tint).abs() < 1.5,
                     "tint round trip: {t} K / tint {tint} came back {tint2}"
                 );
-                // …because the property that actually matters is that the
-                // recovered pair reprojects to the SAME target neutral —
-                // that is what makes the converted render's gain equal the
-                // old interpretation's. Assert it in uv (8.5e-5 uv ≈ 0.25
-                // tint units at the #1893 kTintScale — the fixed point
-                // converges at 0.5 K, which moves the locus anchor ~1e-5 uv
-                // at the warm end, and the curvature term grows with the
-                // 3.33×-larger uv displacements the ACR scale spans).
+                // The property that actually matters for rendering is that
+                // the recovered pair reprojects to the SAME target neutral
+                // — that is what makes the converted render's gain equal
+                // the old interpretation's, even where the (T, tint)
+                // LABEL itself shifted by a table-breakpoint discontinuity.
+                // Measured worst case: 3.98e-4 uv at 8000 K (the same
+                // breakpoint the tint bound above accounts for) —
+                // 3.98e-4 uv × 3000 (kTintScale) ≈ 1.19 tint-equivalent
+                // units, consistent with that same documented bound. 5e-4
+                // gives headroom.
                 let n2 = forward_frame_target(&frame, t2, tint2);
                 let uv = |v: [f32; 3], cct: f32| {
                     let inv = frame.cm_for_cct(cct).inverse().unwrap();
@@ -135,7 +150,7 @@ fn frame_inversion_round_trips_the_forward_map() {
                 let (u_b, v_b) = uv(n2, t2);
                 let dist = ((u_a - u_b).powi(2) + (v_a - v_b).powi(2)).sqrt();
                 assert!(
-                    dist < 8.5e-5,
+                    dist < 5e-4,
                     "reprojection drift {dist} uv at {t} K / tint {tint} (came back {t2} K / {tint2})"
                 );
             }
@@ -159,54 +174,99 @@ fn frame_inversion_recovers_off_slider_range_tints_unclamped() {
 
 // ── resolve_target_versioned dispatch ─────────────────────────────────────
 
+/// #1894 shared derivation for the ≤V4 joint-pair conversion tests below:
+/// independently replays `authored_pair_to_v5`'s two documented steps
+/// (evaluate on the legacy Hernández-Andrés locus at the version's
+/// axis/magnitude, invert through Robertson) using the lower-level
+/// primitives directly, rather than calling `authored_pair_to_v5` (or
+/// hardcoding its observed output) — so each test demonstrates WHY its
+/// expected pair is what it is, not just THAT `resolve_target_versioned`
+/// happens to agree with a black-box helper.
+fn expected_v5_from_legacy(temperature: f32, legacy_tint: f32) -> (f32, f32) {
+    let (x, y) = white_balance::legacy_slider_source_xy(temperature, legacy_tint);
+    crate::color::dng_temperature::xy_to_temp_tint(x, y)
+}
+
 #[test]
-fn v2_explicit_tint_negates_and_rescales_into_the_v4_scale() {
-    // #1875 axis + #1893 scale: the V2 scale's tint axis was inverted vs
-    // ACR and its magnitude was 1e-4 uv per unit; the authored value
-    // re-expresses in V4 by negation AND the 0.3 rescale (temperature
-    // untouched).
+fn v2_explicit_pair_converts_jointly_through_v5_robertson_mapping() {
+    // #1894: the camera-space resolver converts the FULL (temperature,
+    // tint) pair jointly through physical chromaticity, not a tint-only
+    // magnitude rescale (the pre-#1894 V4 behavior). V2's legacy scale is
+    // ACR-inverted-axis at the 1e-4 uv-per-unit magnitude, so its tint
+    // negates AND rescales by `TINT_SCALE_V3_TO_V4` (0.3) BEFORE
+    // evaluating the legacy (Hernández-Andrés + perpendicular) locus — the
+    // authored temperature moves too, because that locus differs from
+    // Robertson's blackbody locus the result is inverted through.
     let frame = single_cm_frame(5200.0);
     let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
     let model = AdjustmentModel {
         wb_scale_version: WbScaleVersion::V2,
         ..v1_model(5000.0, 10.0)
     };
+    let expected = expected_v5_from_legacy(5000.0, -10.0 * white_balance::TINT_SCALE_V3_TO_V4);
     assert_eq!(
         resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
-        (5000.0, -10.0 * white_balance::TINT_SCALE_V3_TO_V4),
-        "V2-authored tint must negate and rescale into the V4 axis/scale"
+        expected,
+        "V2-authored pair must convert jointly through the legacy-locus→Robertson round trip"
     );
 }
 
 #[test]
-fn v3_explicit_tint_rescales_into_the_v4_scale() {
-    // #1893: V3 is the ACR direction at the legacy 1e-4 magnitude — the
-    // authored value rescales by 0.3 so its uv displacement is preserved.
+fn v3_explicit_pair_converts_jointly_through_v5_robertson_mapping() {
+    // #1894: V3 is the ACR direction already, at the legacy 1e-4
+    // magnitude — its tint rescales by 0.3 (no negation) before the same
+    // legacy-locus→Robertson round trip as V2.
     let frame = single_cm_frame(5200.0);
     let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
     let model = AdjustmentModel {
         wb_scale_version: WbScaleVersion::V3,
         ..v1_model(5000.0, 10.0)
     };
+    let expected = expected_v5_from_legacy(5000.0, 10.0 * white_balance::TINT_SCALE_V3_TO_V4);
     assert_eq!(
         resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
-        (5000.0, 10.0 * white_balance::TINT_SCALE_V3_TO_V4),
-        "V3-authored tint must rescale into the V4 scale"
+        expected,
+        "V3-authored pair must convert jointly through the legacy-locus→Robertson round trip"
     );
 }
 
 #[test]
-fn v4_explicit_values_pass_through_unconverted() {
+fn v4_explicit_pair_converts_through_v5_robertson_mapping() {
+    // #1894: V4 already has ACR's direction AND magnitude (kTintScale),
+    // but was evaluated on the legacy Hernández-Andrés locus rather than
+    // Robertson (#1893's map, never shipped in a release) — so its tint
+    // passes into the legacy locus UNRESCALED, and only the final
+    // locus→Robertson inversion moves the pair. This is why V4 is no
+    // longer a straight pass-through (unlike V5 itself).
     let frame = single_cm_frame(5200.0);
     let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
     let model = AdjustmentModel {
         wb_scale_version: WbScaleVersion::V4,
         ..v1_model(5000.0, 10.0)
     };
+    let expected = expected_v5_from_legacy(5000.0, 10.0);
+    assert_eq!(
+        resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
+        expected,
+        "V4-authored pair must convert through the legacy-locus→Robertson round trip"
+    );
+}
+
+#[test]
+fn v5_explicit_pair_passes_through_unconverted() {
+    // #1894: V5 is the Robertson-native scale itself — `authored_pair_to_v5`
+    // is an identity for it, so `resolve_target_versioned` must return the
+    // authored pair verbatim (the same contract V4 had pre-#1894).
+    let frame = single_cm_frame(5200.0);
+    let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
+    let model = AdjustmentModel {
+        wb_scale_version: WbScaleVersion::V5,
+        ..v1_model(5000.0, 10.0)
+    };
     assert_eq!(
         resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
         (5000.0, 10.0),
-        "V4 models must resolve exactly like resolve_target"
+        "V5 models must resolve exactly like resolve_target"
     );
 }
 

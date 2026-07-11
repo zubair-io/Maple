@@ -86,20 +86,38 @@ impl Default for WhiteBalancePreset {
 ///   direction the slider gradient and `crs:Tint` promise), at the legacy
 ///   1e-4 uv-per-unit magnitude. Authored tint rescales on use (#1893).
 /// - [`WbScaleVersion::V4`] — the #1893 scale: ACR direction and ACR
-///   magnitude (`kTintScale`). Values pass through unconverted.
+///   magnitude (`kTintScale`), evaluated on the Hernández-Andrés daylight
+///   locus (`white_balance::legacy_slider_source_xy`). Never shipped in a
+///   release; its arm exists only for dev-window sidecars written between
+///   #1893 and #1894.
+/// - [`WbScaleVersion::V5`] — the #1894 scale: Robertson-native. A slider
+///   pair is interpreted via `color::dng_temperature` — the exact mapping
+///   ACR's own displayed temperature/tint pair uses — instead of the
+///   Hernández-Andrés locus every earlier version evaluated on. This is
+///   the new default and the ACR-authorship heuristic's verdict: ACR's
+///   displayed WB values are natively Robertson, so an ACR/Lightroom
+///   sidecar (no `papp:` namespace) is V5 without conversion. Values pass
+///   through unconverted.
 ///
-/// Explicit authored tints convert via
-/// `white_balance::authored_tint_to_v4`, shared by both develop-tier
-/// resolvers (`white_balance::resolve_wb`,
-/// `wb_camera::resolve_target_versioned`).
+/// Explicit authored tints convert via `white_balance::authored_tint_to_v4`
+/// (the fallback/legacy-locus tier — `white_balance::resolve_wb`) or
+/// `white_balance::authored_pair_to_v5` (the camera-space tiers —
+/// `wb_camera::resolve_target_versioned`), each shared by its tier's own
+/// resolvers so they cannot drift. `authored_pair_to_v5` re-expresses ≤V4
+/// pairs jointly through physical chromaticity: evaluate the pair on the
+/// legacy locus at its version's axis/magnitude, then invert through
+/// Robertson — so even a temperature-only authored value can move (legacy
+/// (6500, 0) ≈ Robertson (6470, +10), the same physical point named in
+/// ACR's coordinates).
 ///
 /// Parse rule (see `xmp::parse`): an explicit `papp:WbScaleVersion`
 /// attribute wins; otherwise a document that carries the Maple `papp:`
 /// namespace (every Maple writer declares it) AND an explicit authored
 /// `crs:Temperature`/`crs:Tint` predates this versioning and is V1.
 /// Everything else — no `papp:` namespace at all (ACR/Lightroom-authored,
-/// always expressed in ACR's own convention, which V4 matches exactly) or
-/// no authored WB (nothing to convert) — is V4. Default (no sidecar) is V4.
+/// always expressed in ACR's own convention, which V5's Robertson mapping
+/// matches exactly) or no authored WB (nothing to convert) — is V5.
+/// Default (no sidecar) is V5.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WbScaleVersion {
     /// Pre-#1756 Maple scale: post-DCP CAT16, identity at 6500 K / 0.
@@ -113,15 +131,20 @@ pub enum WbScaleVersion {
     V3,
     /// #1893 scale: calibration-frame coordinates, ACR tint direction,
     /// ACR's own tint magnitude (`dng_temperature.cpp` `kTintScale` —
-    /// 1/3000 uv per unit, `white_balance::TINT_UV_SCALE`). This is what
-    /// `crs:Tint` means in an ACR-authored sidecar, so ACR values render
-    /// at full strength. Values pass through unconverted.
+    /// 1/3000 uv per unit, `white_balance::TINT_UV_SCALE`), evaluated on
+    /// the legacy Hernández-Andrés locus. Never shipped in a release.
     V4,
+    /// #1894 scale: Robertson-native — a slider `(temperature, tint)` pair
+    /// means EXACTLY what ACR's own displayed pair means, via
+    /// `color::dng_temperature`. This is what `crs:Tint`/`crs:Temperature`
+    /// mean in an ACR-authored sidecar (and in a fresh Maple model), so
+    /// values pass through unconverted.
+    V5,
 }
 
 impl Default for WbScaleVersion {
     fn default() -> Self {
-        Self::V4
+        Self::V5
     }
 }
 

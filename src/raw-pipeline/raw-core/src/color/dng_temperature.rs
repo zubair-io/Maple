@@ -323,4 +323,95 @@ mod tests {
         );
         assert!((tint - -53.1).abs() < 2.0, "expected ~-53.1 tint, got {tint}");
     }
+
+    /// Not a correctness assertion — this test ALWAYS passes. It exists to
+    /// deterministically emit `/tmp/wb_v5_golden_vectors.json`, a fixed
+    /// grid of inputs/outputs from this Rust reference implementation
+    /// (single source of truth) for the TS and Swift #1894 ports (design
+    /// comment item 8) to pin their own outputs against — cross-language
+    /// ports must reproduce these numbers bit-for-bit-close, not merely
+    /// "look right" in each language's own test suite.
+    ///
+    /// Three sections:
+    /// - `temp_tint_to_xy`: 24 `(temperature, tint)` → `(x, y)` samples,
+    ///   the 8 temperatures × 3 tints the design comment specifies.
+    /// - `xy_to_temp_tint`: the INVERSE of each of those same 24 samples —
+    ///   feeding each sample's own `(x, y)` back through `xy_to_temp_tint`
+    ///   — so a port can validate both directions against the same grid
+    ///   without needing a second, independently-chosen set of xy inputs.
+    /// - `authored_pair_to_v5`: 12 `(version, temperature, tint)` →
+    ///   `(out_temperature, out_tint)` samples, the 4 legacy versions ×
+    ///   3 pairs the design comment specifies, covering the joint
+    ///   legacy-locus → Robertson conversion every TS/Swift parser must
+    ///   also implement so a V1–V4 sidecar load-normalizes identically to
+    ///   Rust's `xmp::parse`.
+    ///
+    /// All numeric fields are written as `f64` (Rust's `f32` values
+    /// widened losslessly) so a receiving JSON parser — which has no f32
+    /// type — reads back the EXACT bit pattern this Rust build produced,
+    /// not a value re-rounded to fewer significant digits.
+    #[test]
+    fn golden_vectors_for_cross_language_ports() {
+        let temps: [f32; 8] = [2200.0, 2856.0, 4000.0, 5000.0, 6500.0, 8000.0, 12000.0, 20000.0];
+        let tints: [f32; 3] = [-90.0, 0.0, 40.0];
+
+        let mut forward = Vec::new();
+        let mut inverse = Vec::new();
+        for &temp in &temps {
+            for &tint in &tints {
+                let (x, y) = temp_tint_to_xy(temp, tint);
+                forward.push(serde_json::json!({
+                    "temp": temp as f64,
+                    "tint": tint as f64,
+                    "x": x as f64,
+                    "y": y as f64,
+                }));
+                let (round_temp, round_tint) = xy_to_temp_tint(x, y);
+                inverse.push(serde_json::json!({
+                    "x": x as f64,
+                    "y": y as f64,
+                    "temp": round_temp as f64,
+                    "tint": round_tint as f64,
+                }));
+            }
+        }
+
+        // `authored_pair_to_v5` lives in `stages::white_balance` (#1894),
+        // not this module — called here (not reimplemented) per this
+        // module's own "call them, don't reimplement" contract, exactly
+        // like every other consumer of this port.
+        use crate::stages::white_balance::authored_pair_to_v5;
+        use crate::xmp::WbScaleVersion;
+        let versions = [
+            ("V1", WbScaleVersion::V1),
+            ("V2", WbScaleVersion::V2),
+            ("V3", WbScaleVersion::V3),
+            ("V4", WbScaleVersion::V4),
+        ];
+        let pairs: [(f32, f32); 3] = [(6500.0, 0.0), (5000.0, 10.0), (3200.0, -44.0)];
+        let mut authored = Vec::new();
+        for &(label, version) in &versions {
+            for &(temp, tint) in &pairs {
+                let (out_temp, out_tint) = authored_pair_to_v5(temp, tint, version);
+                authored.push(serde_json::json!({
+                    "version": label,
+                    "temp": temp as f64,
+                    "tint": tint as f64,
+                    "out_temp": out_temp as f64,
+                    "out_tint": out_tint as f64,
+                }));
+            }
+        }
+
+        let doc = serde_json::json!({
+            "temp_tint_to_xy": forward,
+            "xy_to_temp_tint": inverse,
+            "authored_pair_to_v5": authored,
+        });
+        std::fs::write(
+            "/tmp/wb_v5_golden_vectors.json",
+            serde_json::to_string_pretty(&doc).expect("serialize golden vectors"),
+        )
+        .expect("write /tmp/wb_v5_golden_vectors.json");
+    }
 }

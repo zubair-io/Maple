@@ -436,7 +436,7 @@ impl Default for AdjustmentModel {
             temperature_seen: false,
             tint_seen: false,
             wb_method: WbMethod::Cat16,
-            wb_scale_version: WbScaleVersion::V4,
+            wb_scale_version: WbScaleVersion::V5,
             exposure: 0.0,
             brightness: 0.0,
             contrast: 0.0,

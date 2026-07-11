@@ -238,10 +238,14 @@ pub fn wb_gains(temperature: f32, tint: f32) -> Vec3 {
     // `tint_plus_pushes_magenta` contract test pins. To push the image
     // magenta via the gain path (gain = D65/source), the source must be
     // displaced toward GREEN (v↑) — pass `tint_sign_positive_v = true`.
-    // (This path historically used the `false` axis, rendering every
-    // authored tint with the opposite direction from the CAT16 path and
-    // from ACR; V2-authored sidecars are re-interpreted via
-    // `WbScaleVersion` so their look is preserved.)
+    //
+    // This FALLBACK-TIER map deliberately stays on the Hernández-Andrés
+    // daylight locus (not #1894's Robertson value mapping): its identity
+    // anchor is the numeric (6500, 0) ≈ D65, which sits ON the daylight
+    // locus — the Robertson blackbody locus reads that anchor ~10 tint
+    // units away, which would put a discontinuity at the tier's identity.
+    // Uncalibrated bodies have no ACR references, so there is no parity
+    // to gain; see `slider_source_xy` for the calibrated-tier mapping.
     let (x, y) = cct_to_xy(temperature);
     let (sx, sy) = apply_tint_perpendicular(x, y, temperature, tint, true);
     let xyz_source = xy_to_xyz(sx, sy, 1.0);
@@ -295,7 +299,8 @@ pub fn wb_cat16_matrix(temperature: f32, tint: f32) -> Matrix3 {
     // tint > 0 = magenta image = greener source: the perpendicular displacement
     // must move toward higher v (≈green direction in uv) for positive tint.
     // Pass `tint_sign_positive_v = true` so the chosen perpendicular has a
-    // positive v-component, displacing the source toward green.
+    // positive v-component, displacing the source toward green. Stays on
+    // the legacy daylight-locus map — see `wb_gains`'s fallback-tier note.
     let (x, y) = cct_to_xy(temperature);
     let (sx, sy) = apply_tint_perpendicular(x, y, temperature, tint, true);
     let xyz_source = xy_to_xyz(sx, sy, 1.0);
@@ -513,8 +518,12 @@ pub fn resolve_wb(model: &crate::xmp::AdjustmentModel) -> (f32, f32) {
         0.0
     } else if model.tint_seen {
         // Version-authored tint conversion — applies ONLY to explicit
-        // authored tint: presets and defaults were always expressed in the
-        // current (ACR-convention) axis and scale.
+        // authored tint. This fallback-tier resolver converts in the VALUE
+        // domain only (magnitude/axis — the #1893 rule): the tier's render
+        // map never changed loci, so a magnitude rescale preserves its
+        // history exactly. The camera-space tiers convert the full pair
+        // through physical chromaticity instead (`authored_pair_to_v5`,
+        // used by `wb_camera::resolve_target_versioned`).
         authored_tint_to_v4(model.tint, model.wb_scale_version)
     } else {
         model.tint
@@ -522,31 +531,35 @@ pub fn resolve_wb(model: &crate::xmp::AdjustmentModel) -> (f32, f32) {
     (effective_temperature, effective_tint)
 }
 
-/// Re-express an explicitly-authored `crs:Tint` value in the current (V4)
-/// axis + scale (#1875 direction, #1893 scale), preserving the uv
-/// displacement it encoded when written:
-///
-/// - **V1/V3** — ACR-direction axis at the legacy 1e-4 uv-per-unit scale
-///   (V1's post-DCP CAT16 model displaced the same `tint × 1e-4` uv):
-///   scale by [`TINT_SCALE_V3_TO_V4`] (0.3).
-/// - **V2** — the #1756–#1875 scale interpreted the tint AXIS inverted vs
-///   ACR (dragging toward the gradient's green end rendered magenta), at
-///   the same 1e-4 scale: negate AND scale — the two axis orientations are
-///   the same line with opposite sign.
-/// - **V4** — ACR direction at ACR's `kTintScale` (1/3000 uv per unit,
-///   [`TINT_UV_SCALE`]): passes through.
-///
-/// Shared by [`resolve_wb`] (the post-DCP CAT16/diagonal fallback tier) and
-/// `wb_camera::resolve_target_versioned` (the camera-space tiers) so the
-/// two resolvers cannot drift.
+/// Legacy value-domain tint conversion (#1893) for the fallback tier: a
+/// magnitude rescale (V2 also negates) into the kTintScale units the
+/// legacy map displaces by. V4 and V5 tints share the kTintScale
+/// magnitude, so both pass through — the tier interprets them on its own
+/// (legacy-locus) map; see `wb_gains`'s fallback-tier note.
 pub(crate) fn authored_tint_to_v4(tint: f32, version: crate::xmp::WbScaleVersion) -> f32 {
     use crate::xmp::WbScaleVersion as V;
     match version {
         V::V1 | V::V3 => tint * TINT_SCALE_V3_TO_V4,
         V::V2 => -tint * TINT_SCALE_V3_TO_V4,
-        V::V4 => tint,
+        V::V4 | V::V5 => tint,
     }
 }
+
+// The V5 (#1894) Robertson slider-value mapping + the legacy-to-V5
+// authored-pair conversion. Sibling file per the 600-LOC budget (same
+// `#[path]` split pattern as `wb_camera_scale.rs`); re-exported so callers
+// keep addressing these as `white_balance::slider_source_xy` etc.
+#[path = "white_balance_v5.rs"]
+mod v5;
+
+pub(crate) use v5::{authored_pair_to_v5, slider_source_xy};
+// `legacy_slider_source_xy` has no non-test caller outside this sibling
+// (`authored_pair_to_v5` calls it directly within `white_balance_v5.rs`);
+// gated so a plain `cargo check` doesn't warn about an import only the
+// `#[cfg(test)]` `wb_camera_scale_tests.rs` uses (mirroring the
+// first-principles derivation there).
+#[cfg(test)]
+pub(crate) use v5::legacy_slider_source_xy;
 
 // Tests live in the siblings `white_balance_tests.rs` (gain/CAT16 math) and
 // `white_balance_resolve_tests.rs` (the `resolve_wb` resolution table +

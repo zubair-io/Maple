@@ -183,7 +183,7 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-use super::white_balance::{apply_tint_perpendicular, cct_to_xy, xy_to_xyz};
+use super::white_balance::{slider_source_xy, xy_to_xyz};
 
 #[path = "wb_camera_frame.rs"]
 mod frame;
@@ -260,27 +260,25 @@ fn g_normalize(v: [f32; 3]) -> [f32; 3] {
 
 /// Target chromaticity XYZ (Y=1) for the user's `(temperature, tint)`.
 ///
-/// Uses the same CIE 1960 uv-perpendicular-to-locus axis as
-/// `stages::white_balance::wb_gains` (`apply_tint_perpendicular`,
-/// `tint_sign_positive_v = true` — the ACR direction, #1875) — NOT a crude
-/// linear `y -= tint * 0.001` offset off the locus. Matching `wb_gains`'s
-/// axis exactly matters here specifically because `wb_gains`'s inverse,
-/// `color::dcp::estimate_as_shot_cct_tint` /
-/// `white_balance_auto::estimate_tint_from_scene_xyz`, is what recovers a
-/// camera's as-shot `(cct, tint)` pair for the tile-refine delta-anchor
-/// contract (`pipeline::tile::develop`'s `decoded_wb_anchor`) — a
-/// round-trip through a DIFFERENT tint axis than the one that produced the
-/// estimate would reintroduce exactly the kind of large, spurious cast a
-/// mismatched convention produces (measured: a linear-offset axis put a
-/// real fixture's as-shot tint at the -100 clamp rail and rendered a
-/// [1.47, 1.0, 1.63] gain at what should have been the as-shot identity
-/// point). Same sign convention as `wb_gains` and `wb_cat16_matrix`
-/// (#1875): positive tint moves the source chromaticity toward green
-/// (higher v in uv), so the corrective gain pushes the rendered image
-/// toward MAGENTA — the slider-gradient/ACR direction.
+/// Uses [`slider_source_xy`] (#1894) — the Robertson isotherm mapping via
+/// `color::dng_temperature`, the exact table ACR's own displayed slider
+/// pair is defined on — NOT the legacy Hernández-Andrés locus +
+/// perpendicular-uv-displacement construction this function used before
+/// #1894. Matching the estimator's mapping exactly matters here
+/// specifically because the inverse, `color::dcp::estimate_as_shot_cct_tint`,
+/// is what recovers a camera's as-shot `(cct, tint)` pair for the
+/// tile-refine delta-anchor contract (`pipeline::tile::develop`'s
+/// `decoded_wb_anchor`) — a round-trip through a DIFFERENT mapping than
+/// the one that produced the estimate would reintroduce exactly the kind
+/// of large, spurious cast a mismatched convention produces (the #1870
+/// estimator/render inverse invariant). `slider_source_xy`'s sign
+/// convention matches `wb_gains`/`wb_cat16_matrix` (#1875): positive tint
+/// moves the source chromaticity toward green (higher CIE xy `y` at fixed
+/// temperature — see `dng_temperature`'s sign-convention note), so the
+/// corrective gain pushes the rendered image toward MAGENTA — the
+/// slider-gradient/ACR direction.
 fn target_xyz(temperature: f32, tint: f32) -> [f32; 3] {
-    let (x, y) = cct_to_xy(temperature);
-    let (tx, ty) = apply_tint_perpendicular(x, y, temperature, tint, true);
+    let (tx, ty) = slider_source_xy(temperature, tint);
     xy_to_xyz(tx, ty, 1.0)
 }
 

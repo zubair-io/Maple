@@ -44,13 +44,27 @@
 //! 6. Invert the slider-frame parameterisation: find `(T₂, t₂)` with
 //!    `G-norm(cm_for_cct(T₂) · target_xyz(T₂, t₂)) = n₂` — fixed-point on
 //!    the frame CM (the same self-consistency `compute_as_shot_cct`
-//!    iterates), nearest-point-on-locus for `T₂`, perpendicular uv
-//!    projection (the `tint_sign_positive_v = true` axis, #1875 —
-//!    `camera_wb_gain`'s forward map displaces along) for `t₂`. The tint
-//!    is deliberately NOT clamped to the slider's UI range: preserving
-//!    the authored look wins over slider cosmetics. (Under the pre-#1893
-//!    1e-4 scale the H2D-39 as-shot projected to ≈ −144; at the ACR
-//!    `kTintScale` it is ≈ −53, comfortably in range.)
+//!    iterates), reading BOTH `T₂` and `t₂` jointly off the implied
+//!    chromaticity via `color::dng_temperature::xy_to_temp_tint` (#1894 —
+//!    the Robertson isotherm solve, not a nearest-point-on-Hernández-Andrés-
+//!    locus search) at each iterate, so the converged pair lands in the
+//!    same V5 domain `target_xyz`'s forward map consumes. The tint is
+//!    deliberately NOT clamped to the slider's UI range: preserving the
+//!    authored look wins over slider cosmetics. (The H2D-39 as-shot
+//!    projects to ≈ −53 at the ACR `kTintScale`, comfortably in range.)
+//!
+//! This module converts V1 sidecars into the V2 CAMERA-SPACE FRAME (step
+//! 6's fixed point on `cm_for_cct`) — a coordinate-system migration,
+//! independent of and upstream from the #1894 VALUE-MAPPING migration
+//! (V4→V5, `white_balance::authored_pair_to_v5`) that
+//! `resolve_target_versioned` applies afterward for every non-V1 pair,
+//! including the `(T₂, t₂)` this module just produced when its own
+//! `wb_scale_version` tag isn't already V5. Step 6 itself, though, targets
+//! V5 directly (rather than V2-in-the-legacy-locus followed by a second
+//! V2→V5 hop) because the physical target neutral `n₂` it inverts is
+//! locus-agnostic — there is only one Robertson-consistent `(T₂, t₂)` that
+//! projects to it, and finding that pair directly is both simpler and
+//! avoids compounding two lossy round-trips.
 //!
 //! Only sidecars with an explicit authored Temperature/Tint component
 //! convert (`temperature_seen || tint_seen`); everything else — As-Shot,
@@ -65,39 +79,44 @@ use crate::{
 };
 
 use super::SliderFrame;
-use crate::stages::white_balance::{
-    self, cct_to_xy, tint_perpendicular_axis, xy_to_uv, TINT_UV_SCALE,
-};
+use crate::stages::white_balance;
 
-/// Version-aware wrapper over [`super::resolve_target`]: V4 models (and
+/// Version-aware wrapper over [`super::resolve_target`]: V5 models (and
 /// older models with no explicit authored WB) resolve exactly as before;
-/// V2/V3 models with an explicit authored tint re-express it in the V4
-/// axis + scale ([`white_balance::authored_tint_to_v4`] — the same
-/// conversion the fallback tier's `resolve_wb` applies, so the two tiers
-/// can't drift); V1 models with an explicit `crs:Temperature`/`crs:Tint`
-/// convert through the module-doc pipeline. Falls back to the plain
-/// resolver if the conversion hits a degenerate matrix (defensive; real
-/// profiles are invertible).
+/// V2/V3/V4 models with an explicit authored temperature and/or tint
+/// re-express the PAIR jointly in the V5 Robertson mapping
+/// ([`white_balance::authored_pair_to_v5`] (#1894) — the same conversion
+/// the fallback tier's `resolve_wb` applies to its own legacy-locus scale,
+/// so the two tiers can't drift); V1 models with an explicit
+/// `crs:Temperature`/`crs:Tint` convert through the module-doc pipeline.
+/// Falls back to the plain resolver if the conversion hits a degenerate
+/// matrix (defensive; real profiles are invertible).
 pub fn resolve_target_versioned(
     model: &AdjustmentModel,
     frame: &SliderFrame,
     profile: &DcpProfile,
     as_shot_neutral: [f32; 3],
 ) -> (f32, f32) {
-    let needs_conversion =
+    let needs_v1_conversion =
         model.wb_scale_version == WbScaleVersion::V1 && (model.temperature_seen || model.tint_seen);
-    if !needs_conversion {
-        let (t, tint) = super::resolve_target(model, frame);
-        // Version-authored tint conversion (#1875 axis, #1893 scale).
-        // Only explicit authored tint converts — the As-Shot sentinel and
-        // presets never set `tint_seen` and are V4-native.
-        if model.tint_seen {
-            return (t, white_balance::authored_tint_to_v4(tint, model.wb_scale_version));
-        }
-        return (t, tint);
+    if needs_v1_conversion {
+        return convert_v1_target(model, frame, profile, as_shot_neutral)
+            .unwrap_or_else(|| super::resolve_target(model, frame));
     }
-    convert_v1_target(model, frame, profile, as_shot_neutral)
-        .unwrap_or_else(|| super::resolve_target(model, frame))
+    let (t, tint) = super::resolve_target(model, frame);
+    // Version-authored PAIR conversion (#1894): the camera-space tiers
+    // convert temperature and tint jointly through physical chromaticity
+    // (`authored_pair_to_v5`), not a tint-only magnitude rescale — the
+    // legacy map's locus (Hernández-Andrés) differs from Robertson's
+    // (blackbody), so even a temperature-only authored value can move
+    // (see `authored_pair_to_v5`'s doc). Gated on EITHER flag — the
+    // #1893-era gate (`tint_seen` alone) missed the temperature-only row.
+    // The As-Shot sentinel and named presets never set either `_seen` flag
+    // and are already V5-native, so they skip this branch untouched.
+    if model.temperature_seen || model.tint_seen {
+        return white_balance::authored_pair_to_v5(t, tint, model.wb_scale_version);
+    }
+    (t, tint)
 }
 
 /// Steps 1–5 of the module-doc conversion: effective V1 pair → old
@@ -154,78 +173,56 @@ fn convert_v1_target(
 /// whose frame-projected target neutral is `n_target` (up to scale).
 ///
 /// Forward: `n(T, tint) = cm_for_cct(T) · target_xyz(T, tint)`, where
-/// `target_xyz` is the Hernández-Andrés locus point at `T` displaced by
-/// `tint · TINT_UV_SCALE` along the perpendicular axis
-/// (`tint_sign_positive_v = true`, the ACR direction — #1875). The
-/// inversion fixed-points on the frame CM (dual-calibration frames re-interpolate at `T`), takes `T` as
-/// the nearest-locus parameter of the implied chromaticity (where the
-/// residual is purely perpendicular — the same condition the forward
-/// displacement satisfies), and reads `tint` off the perpendicular
-/// projection. Unclamped by design; see the module doc.
+/// `target_xyz` is [`super::target_xyz`]'s #1894 Robertson mapping
+/// (`white_balance::slider_source_xy` — `color::dng_temperature`'s
+/// isotherm table, the same table ACR's own displayed slider pair is
+/// defined on). The inversion fixed-points on the frame CM
+/// (dual-calibration frames re-interpolate at `T`): at each iterate,
+/// `inv(cm_for_cct(T)) · n_target` gives the implied scene chromaticity
+/// xy, and `dng_temperature::xy_to_temp_tint` reads BOTH the next `T` and
+/// the `tint` off that xy jointly (Robertson's isotherm distance, not a
+/// nearest-point-on-Hernández-Andrés-locus search) — so the fixed point's
+/// `(T, tint)` is a V5-domain pair by construction, matching
+/// `resolve_target_versioned`'s other conversion path
+/// (`white_balance::authored_pair_to_v5`). Unclamped by design; see the
+/// module doc.
 fn invert_frame_target(frame: &SliderFrame, n_target: [f32; 3]) -> Option<(f32, f32)> {
-    let uv_for = |cct: f32| -> Option<(f32, f32)> {
+    let xy_for = |cct: f32| -> Option<(f32, f32)> {
         let inv = frame.cm_for_cct(cct).inverse()?;
         let xyz = inv.mul_vec(n_target);
         let sum = xyz[0] + xyz[1] + xyz[2];
         if !sum.is_finite() || sum < 1e-6 {
             return None;
         }
-        Some(xy_to_uv(xyz[0] / sum, xyz[1] / sum))
+        Some((xyz[0] / sum, xyz[1] / sum))
     };
     let mut cct = frame.scene_cct;
+    let mut tint = 0.0_f32;
     for _ in 0..12 {
-        let (u, v) = uv_for(cct)?;
-        let next = nearest_locus_cct(u, v);
-        let converged = (next - cct).abs() < 0.5;
-        cct = next;
+        let (x, y) = xy_for(cct)?;
+        let (next_cct, next_tint) = crate::color::dng_temperature::xy_to_temp_tint(x, y);
+        let converged = (next_cct - cct).abs() < 0.5;
+        cct = next_cct;
+        tint = next_tint;
         if converged {
             break;
         }
     }
-    let (u, v) = uv_for(cct)?;
-    let (cx, cy) = cct_to_xy(cct);
-    let (cu, cv) = xy_to_uv(cx, cy);
-    // The ACR-convention axis (`true`, #1875) — must stay the exact
-    // inverse of `wb_camera::target_xyz`'s forward displacement.
-    let (perp_u, perp_v) = tint_perpendicular_axis(cct, true);
-    let tint = ((u - cu) * perp_u + (v - cv) * perp_v) / TINT_UV_SCALE;
     if !cct.is_finite() || !tint.is_finite() {
         return None;
     }
     Some((cct, tint))
 }
 
-/// Nearest-point-on-Planckian-locus CCT for a CIE 1960 uv chromaticity —
-/// ternary search over reciprocal CCT (mired; the locus is traversed
-/// near-uniformly there) on the squared uv distance, over the same
-/// [2000 K, 25000 K] domain `cct_to_xy` clamps to.
-fn nearest_locus_cct(u: f32, v: f32) -> f32 {
-    let dist2 = |cct: f32| {
-        let (x, y) = cct_to_xy(cct);
-        let (lu, lv) = xy_to_uv(x, y);
-        (u - lu) * (u - lu) + (v - lv) * (v - lv)
-    };
-    let mut lo = 1.0e6 / 25000.0;
-    let mut hi = 1.0e6 / 2000.0;
-    for _ in 0..60 {
-        let m1 = lo + (hi - lo) / 3.0;
-        let m2 = hi - (hi - lo) / 3.0;
-        if dist2(1.0e6 / m1) <= dist2(1.0e6 / m2) {
-            hi = m2;
-        } else {
-            lo = m1;
-        }
-    }
-    1.0e6 / ((lo + hi) * 0.5)
-}
-
 /// Test-only forward map: the target camera neutral `camera_wb_gain`
 /// projects through the frame CM, so the round-trip tests can exercise
-/// [`invert_frame_target`] against the exact forward definition.
+/// [`invert_frame_target`] against the exact forward definition —
+/// [`super::target_xyz`]'s #1894 Robertson mapping, matched here via
+/// `white_balance::slider_source_xy` (the same function `target_xyz`
+/// calls) rather than duplicating the isotherm math.
 #[cfg(test)]
 fn forward_frame_target(frame: &SliderFrame, temperature: f32, tint: f32) -> [f32; 3] {
-    let (x, y) = cct_to_xy(temperature);
-    let (tx, ty) = white_balance::apply_tint_perpendicular(x, y, temperature, tint, true);
+    let (tx, ty) = white_balance::slider_source_xy(temperature, tint);
     let xyz = white_balance::xy_to_xyz(tx, ty, 1.0);
     frame.cm_for_cct(temperature).mul_vec(xyz)
 }

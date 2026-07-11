@@ -94,18 +94,21 @@ export interface AdjustmentModel extends GeneratedAdjustmentModel {
   whiteBalancePreset: WhiteBalancePreset;
   crop: Crop;
   /**
-   * WB slider-scale version of this model's temperature/tint (#1780/#1875).
-   * `1` = pre-#1756 scale (post-DCP CAT16, 6500 K identity) — raw-core
-   * converts on use; `3` = ACR calibration-frame scale with the ACR tint
-   * direction (current). `2` (the #1756–#1875 scale, tint axis inverted vs
-   * ACR) never survives a parse: the loader negates authored tint and
-   * normalizes the model to `3`. Parsed from `papp:WbScaleVersion` (absent
-   * stamp on a Maple-authored sidecar means `1`; non-Maple sidecars are
-   * `3`), re-stamped as {1, 3} whenever an explicit Temperature/Tint is
-   * written so a V1 sidecar's stored values keep their meaning across
-   * saves. Fresh models author in the current scale. Internal parse-state
-   * (like raw-core's `wb_scale_version`) — not part of the generated
-   * codegen schema.
+   * WB slider-scale version of this model's temperature/tint
+   * (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
+   * 6500 K identity) — raw-core converts on use; `5` = the Robertson
+   * isotherm mapping (`wb-dng-temperature.ts`) that reproduces exactly
+   * what ACR displays on its own sliders (current). `2`/`3`/`4` (earlier
+   * legacy/dev-window scales) never survive a parse: the loader jointly
+   * re-expresses the authored `(temperature, tint)` pair through the
+   * physical chromaticity it encoded (`authoredPairToV5`) and normalizes
+   * the model to `5`. Parsed from `papp:WbScaleVersion` (absent stamp on a
+   * Maple-authored sidecar means `1`; non-Maple sidecars are `5`),
+   * re-stamped as {1, 5} whenever an explicit Temperature/Tint is written
+   * so a V1 sidecar's stored values keep their meaning across saves. Fresh
+   * models author in the current scale. Internal parse-state (like
+   * raw-core's `wb_scale_version`) — not part of the generated codegen
+   * schema.
    */
   wbScaleVersion: number;
 }
@@ -115,7 +118,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     ...defaultGeneratedAdjustmentModel(),
     whiteBalancePreset: 'As Shot',
     crop: defaultCrop(),
-    wbScaleVersion: 4,
+    wbScaleVersion: 5,
   };
 }
 

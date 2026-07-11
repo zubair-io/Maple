@@ -33,11 +33,6 @@ import Foundation
 public struct XMPParser {
     private init() {}
 
-    /// Legacy (V2/V3, 1e-4 uv per unit) → V4 (ACR `kTintScale`, 1/3000 uv
-    /// per unit) tint multiplier — mirrors raw-core's `TINT_SCALE_V3_TO_V4`
-    /// (#1893).
-    static let tintScaleV3ToV4 = 0.3
-
     public static func parse(_ xml: String) throws -> (AdjustmentModel, CullingState) {
         var m = AdjustmentModel()
         var c = CullingState()
@@ -50,35 +45,39 @@ public struct XMPParser {
         }
         m = delegate.model
         c = delegate.culling
-        // WB scale versioning (#1780/#1875/#1893), resolved at document
-        // level: an explicit `papp:WbScaleVersion` stamp wins; otherwise a
-        // document carrying the Maple `papp:` namespace AND an explicit
-        // authored `crs:Temperature`/`crs:Tint` predates the versioning
-        // (pre-#1756 scale, 1). Everything else — no `papp:` namespace
-        // (ACR/Lightroom-authored, expressed in ACR's own convention,
-        // which V4 matches exactly: the #1875 direction AND the #1893
-        // kTintScale magnitude) or no authored WB (nothing to convert) —
-        // is 4. Mirrors raw-core's `xmp::parse`.
+        // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
+        // document level: an explicit `papp:WbScaleVersion` stamp wins;
+        // otherwise a document carrying the Maple `papp:` namespace AND an
+        // explicit authored `crs:Temperature`/`crs:Tint` predates the
+        // versioning (pre-#1756 scale, 1). Everything else — no `papp:`
+        // namespace (ACR/Lightroom-authored, expressed in ACR's own
+        // Robertson convention, which V5 matches exactly) or no authored WB
+        // (nothing to convert) — is 5. Mirrors raw-core's `xmp::parse`.
         let unstampedIsV1 = delegate.sawPappNamespace && delegate.sawExplicitWb
-        let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 4)
-        // V2/V3 → V4 load-normalization (#1875 axis, #1893 scale): the
-        // legacy scales' tint magnitude was 1e-4 uv per unit — ACR's
-        // kTintScale (1/3000 uv per unit, V4) is 3.33x larger, so a legacy
-        // tint's displacement re-expresses in V4 by the 0.3 factor
-        // (negated as well for V2, whose axis was inverted vs ACR).
-        // Converting at load keeps the in-memory model (slider display,
-        // FFI live params, autosave) uniformly V4 while preserving the
-        // authored look. Only an explicitly authored crs:Tint converts —
-        // preset-resolved tints were never expressed in the legacy scales.
-        // V1 deliberately does NOT load-normalize: its conversion needs
-        // the image's calibration frame, so raw-core converts it at
-        // develop and the sidecar round-trips as V1.
-        if version == 2 || version == 3 {
-            if delegate.sawAuthoredTint {
-                let factor = version == 2 ? -Self.tintScaleV3ToV4 : Self.tintScaleV3ToV4
-                m.tint = m.tint * factor
+        let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 5)
+        // V2/V3/V4 → V5 load-normalization (#1894 Robertson mapping): the
+        // legacy scales (Hernández-Andrés daylight locus, at either the
+        // legacy 1e-4 uv-per-unit magnitude for V1/V2/V3 or ACR's kTintScale
+        // magnitude for V4) evaluate a different locus than V5's Robertson
+        // isotherms — so re-expressing an authored pair means converting
+        // the PAIR jointly through physical chromaticity
+        // (`WbDngTemperature.authoredPairToV5`), not a tint-only magnitude
+        // rescale. Even a temperature-only authored value moves slightly in
+        // both components (the two loci diverge), so this is gated on
+        // `sawExplicitWb` (temperature OR tint authored), not tint alone.
+        // Converting at load keeps the in-memory model (slider display, FFI
+        // live params, autosave) uniformly V5 while preserving the
+        // authored look. V1 deliberately does NOT load-normalize: its
+        // conversion needs the image's calibration frame, so raw-core
+        // converts it at develop and the sidecar round-trips as V1.
+        if version == 2 || version == 3 || version == 4 {
+            if delegate.sawExplicitWb {
+                let (t, ti) = WbDngTemperature.authoredPairToV5(
+                    temperature: m.temperature, tint: m.tint, version: version)
+                m.temperature = t
+                m.tint = ti
             }
-            m.wbScaleVersion = 4
+            m.wbScaleVersion = 5
         } else {
             m.wbScaleVersion = version
         }
@@ -128,10 +127,6 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     /// `XMPParser.parse` after the walk; mirrors raw-core's `xmp::parse`.
     var sawPappNamespace: Bool = false
     var sawExplicitWb: Bool = false
-    /// Whether an explicit `crs:Tint` ATTRIBUTE was authored anywhere in
-    /// the document (#1875) — the V2→V3 negation applies only to authored
-    /// tint, never to a preset-resolved value.
-    var sawAuthoredTint: Bool = false
     var wbScaleStamp: Int? = nil
 
     /// `dc:subject` is the only XMP element that isn't an attribute on
@@ -179,11 +174,8 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         if attributeDict["crs:Temperature"] != nil || attributeDict["crs:Tint"] != nil {
             sawExplicitWb = true
         }
-        if attributeDict["crs:Tint"] != nil {
-            sawAuthoredTint = true
-        }
         if let stamp = attributeDict["papp:WbScaleVersion"], let v = Int(stamp),
-           (1...4).contains(v) {
+           (1...5).contains(v) {
             wbScaleStamp = v
         }
 

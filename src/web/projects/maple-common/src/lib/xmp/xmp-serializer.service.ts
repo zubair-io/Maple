@@ -205,15 +205,15 @@ export class XmpSerializerService {
    * 'Custom' (LibraryStore.setAdjustment) or a named preset, both of which
    * serialize the pair.
    *
-   * WB scale stamp (#1780/#1875/#1893): whenever an explicit
+   * WB scale stamp (#1780/#1875/#1893/#1894): whenever an explicit
    * Temperature/Tint is emitted, the scale those numbers are expressed in
    * rides along. V1 re-emits as 1 (raw-core converts at develop, so stored
-   * V1 values keep their meaning across saves); everything else emits 4 —
-   * the parse normalizes V2/V3 models to V4 at load, so a non-1 model
-   * always holds V4 (ACR tint direction AND kTintScale magnitude) values.
-   * Clamped to {1, 4}: raw-core's parser hard-fails on an unknown stamp,
-   * so a corrupted/out-of-range model field must never reach the sidecar.
-   * Mirrors the Swift writer.
+   * V1 values keep their meaning across saves); everything else emits 5 —
+   * the parse normalizes V2/V3/V4 models to V5 at load, so a non-1 model
+   * always holds V5 (Robertson-native) values. Clamped to {1, 5}:
+   * raw-core's parser hard-fails on an unknown stamp, so a corrupted/
+   * out-of-range model field must never reach the sidecar. Mirrors the
+   * Swift writer.
    */
   private _adjustmentParts(model: AdjustmentModel): string[] {
     const parts: string[] = [];
@@ -228,7 +228,7 @@ export class XmpSerializerService {
     parts.push(...fieldParts);
 
     if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
-      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 4}"`);
+      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 5}"`);
     }
 
     return parts;

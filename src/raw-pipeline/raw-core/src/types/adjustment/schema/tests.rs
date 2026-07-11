@@ -298,9 +298,9 @@ fn schema_matches_struct() {
     );
     assert_eq!(
         wb_scale_version,
-        super::super::WbScaleVersion::V4,
-        "AdjustmentModel::default().wb_scale_version must be V4 (fresh models \
-         author in the #1893 ACR-direction, kTintScale slider-frame scale)"
+        super::super::WbScaleVersion::V5,
+        "AdjustmentModel::default().wb_scale_version must be V5 (fresh models \
+         author in the #1894 Robertson-native slider-frame scale)"
     );
 }
 

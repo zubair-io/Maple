@@ -458,8 +458,16 @@ pub(crate) fn interpolate_cm(
 ///   - guess CCT
 ///   - interpolate CM → XYZ_from_camera
 ///   - XYZ = inv(CM) * wb_neutral
-///   - xy → CCT via McCamy's formula
+///   - xy → CCT via the Robertson (1968) isotherm solve (#1894)
 ///   - repeat
+///
+/// Pre-#1894 this last step used McCamy's cubic polynomial approximation —
+/// a DIFFERENT curve fit than the one ACR itself uses to derive its
+/// displayed slider CCT (`color::dng_temperature`, the DNG SDK's own
+/// Robertson port). Swapping to the same table makes every consumer of
+/// this function's result (`SliderFrame::scene_cct`, `DcpProfile::scene_cct`,
+/// `estimate_as_shot_cct_tint`) Robertson-consistent with the value ACR
+/// itself would display for the same `wb_neutral`/calibration pair.
 pub(crate) fn compute_as_shot_cct(
     wb_neutral: [f32; 3],
     m_cold: Matrix3,
@@ -486,9 +494,7 @@ pub(crate) fn compute_as_shot_cct(
         }
         let x = xyz[0] / sum;
         let y = xyz[1] / sum;
-        // McCamy's formula for CCT from xy.
-        let n = (x - 0.3320) / (0.1858 - y);
-        cct = 437.0 * n.powi(3) + 3601.0 * n.powi(2) + 6861.0 * n + 5517.0;
+        cct = crate::color::dng_temperature::xy_to_temp_tint(x, y).0;
         cct = cct.clamp(2000.0, 15000.0);
     }
     cct
@@ -758,11 +764,18 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// test_0000 7471.6 K-vs-5507.7 K measurement), so the estimate moved with
 /// it.
 ///
-/// CCT is `frame.scene_cct` — the same `compute_as_shot_cct`
-/// camera-matrix-consistent iteration the render resolver runs, evaluated
-/// on the frame's calibration. Tint needs the SAME xy point that iteration
-/// converged on: `inv(frame CM at scene_cct) · raw.as_shot_neutral`,
-/// normalized to Y=1 (`SliderFrame::scene_illuminant_xyz`). This is
+/// CCT and tint are now (#1894) a JOINT pair read off the SAME xy point:
+/// `inv(frame CM at scene_cct) · raw.as_shot_neutral`, normalized to Y=1
+/// (`SliderFrame::scene_illuminant_xyz`), fed through
+/// `color::dng_temperature::xy_to_temp_tint` — the exact Robertson
+/// isotherm solve ACR itself uses to derive its displayed
+/// temperature/tint pair. This replaces the pre-#1894 split computation
+/// (CCT from `frame.scene_cct`'s `compute_as_shot_cct` iteration, tint from
+/// the SEPARATE `white_balance_auto::estimate_tint_from_scene_xyz`
+/// Hernández-Andrés-locus projection evaluated AT that CCT): reading both
+/// components from one Robertson solve means the reported pair is exactly
+/// what ACR would display for this same scene illuminant, rather than a
+/// CCT from one curve fit paired with a tint from another. This is
 /// deliberately **not** `profile.scene_white_xyz` — that field is
 /// `inv(color_matrix) · (1,1,1)` whenever `wb_already_baked` (true for
 /// every non-LinearRaw Bayer source), which represents where a
@@ -771,17 +784,31 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// (measured on test_0000.DNG: xy≈(0.387, 0.260), ~0.09 uv units off ANY
 /// locus point — 10× the whole tint slider's ±100 range).
 ///
+/// `white_balance_auto::estimate_tint_from_scene_xyz` (the Hernández-Andrés
+/// perpendicular-projection tint estimator this function used before
+/// #1894) stays in place for its OTHER caller, the auto-WB grey-world
+/// estimator (`white_balance_auto::neutral_to_temp_tint`'s sibling path),
+/// which has no camera calibration matrix to derive a Robertson-consistent
+/// xy from and must stay on the generic locus model.
+///
 /// `profile_for` never returns `Err` in practice (every resolver tier
 /// constructs `Ok`); the `Result` is threaded through here so callers that
 /// already handle `profile_for`'s signature don't need a second error path.
 pub fn estimate_as_shot_cct_tint(raw: &RawImage) -> crate::Result<(f32, f32)> {
     let profile = profile_for(raw)?;
     let frame = crate::stages::wb_camera::SliderFrame::resolve(raw, &profile);
-    let tint = crate::stages::white_balance_auto::estimate_tint_from_scene_xyz(
-        frame.scene_illuminant_xyz(raw.as_shot_neutral),
-        frame.scene_cct,
-    );
-    Ok((frame.scene_cct, tint))
+    let xyz = frame.scene_illuminant_xyz(raw.as_shot_neutral);
+    let sum = xyz[0] + xyz[1] + xyz[2];
+    let (x, y) = if sum.is_finite() && sum > 1e-6 {
+        (xyz[0] / sum, xyz[1] / sum)
+    } else {
+        // Degenerate scene-illuminant XYZ (e.g. a malformed calibration):
+        // fall back to the frame's own as-shot-CCT locus point at zero
+        // tint rather than feeding a non-finite xy into the Robertson
+        // solve.
+        crate::color::dng_temperature::temp_tint_to_xy(frame.scene_cct, 0.0)
+    };
+    Ok(crate::color::dng_temperature::xy_to_temp_tint(x, y))
 }
 
 /// Same lookup as [`profile_for`], but also returns the [`ProfileSource`]

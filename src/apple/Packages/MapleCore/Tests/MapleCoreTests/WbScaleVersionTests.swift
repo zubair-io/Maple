@@ -1,5 +1,5 @@
 // WbScaleVersionTests.swift — WB slider-scale versioning
-// (#1780/#1875/#1893).
+// (#1780/#1875/#1893/#1894).
 //
 // Mirrors the Rust tests in `raw-core/src/xmp/tests_wb_scale.rs` and the
 // web tests in `maple-common/src/lib/xmp/wb-scale-version.spec.ts`:
@@ -8,14 +8,15 @@
 //  - Maple-authored sidecar (papp namespace present) with no stamp is
 //    version 1 (pre-#1756 scale);
 //  - non-Maple sidecar (no papp namespace — ACR/Lightroom-authored) is
-//    version 4 (ACR's own convention: the #1875 direction and the #1893
-//    kTintScale magnitude);
-//  - V2/V3 stamps (the legacy 1e-4-magnitude scales; V2's tint axis was
-//    also inverted vs ACR) load-normalize: authored tint rescales by 0.3
-//    (negating for V2) and the model becomes V4;
+//    version 5 (ACR's own convention: the Robertson `dng_temperature`
+//    mapping ACR's slider natively evaluates, #1894);
+//  - V2/V3/V4 stamps (the legacy Hernández-Andrés daylight-locus scales)
+//    load-normalize: the authored `(temperature, tint)` PAIR converts
+//    jointly through physical chromaticity
+//    (`WbDngTemperature.authoredPairToV5`) and the model becomes V5;
 //  - the serializer always stamps (it always writes explicit
-//    Temperature/Tint) as {1, 4}, so a V1 sidecar's stored values keep
-//    their meaning across saves and everything else is V4.
+//    Temperature/Tint) as {1, 5}, so a V1 sidecar's stored values keep
+//    their meaning across saves and everything else is V5.
 //
 // Sidecar-layer rule: no mocks — the store round-trip below goes through
 // real `.xmp` files in a temp directory.
@@ -53,9 +54,9 @@ final class WbScaleVersionTests: XCTestCase {
         """
     }
 
-    func testDefaultModelIsVersion4() {
-        XCTAssertEqual(AdjustmentModel.default.wbScaleVersion, 4,
-                       "fresh models author in the current (ACR direction + kTintScale) scale")
+    func testDefaultModelIsVersion5() {
+        XCTAssertEqual(AdjustmentModel.default.wbScaleVersion, 5,
+                       "fresh models author in the current (Robertson, #1894) scale")
     }
 
     func testMapleAuthoredWithoutStampParsesAsVersion1() throws {
@@ -66,52 +67,62 @@ final class WbScaleVersionTests: XCTestCase {
         XCTAssertEqual(m.tint, -44)
     }
 
-    func testAcrAuthoredWithoutPappParsesAsVersion4() throws {
-        // ACR's crs:Tint is already in the V4 direction AND magnitude —
-        // passes through unconverted (#1893).
+    func testAcrAuthoredWithoutPappParsesAsVersion5() throws {
+        // ACR's crs:Tint is already expressed in ACR's own Robertson
+        // convention — passes through unconverted (#1894).
         let (m, _) = try XMPParser.parse(
             acrSidecar(#"crs:Temperature="5500" crs:Tint="10""#))
-        XCTAssertEqual(m.wbScaleVersion, 4)
+        XCTAssertEqual(m.wbScaleVersion, 5)
         XCTAssertEqual(m.tint, 10)
     }
 
     func testExplicitStampWinsOverHeuristic() throws {
         // A V2 stamp wins over the V1 authorship heuristic, then
-        // load-normalizes to 4 (no authored tint here, so no conversion).
+        // load-normalizes to 5. The pair converts jointly even though only
+        // temperature was authored (#1894: the legacy and Robertson loci
+        // diverge, so a temperature-only value still moves) — pinned
+        // against the Rust reference's `authored_pair_to_v5(5700, 0, V2)`.
         let (m, _) = try XMPParser.parse(
             mapleSidecar(#"crs:Temperature="5700" papp:WbScaleVersion="2""#))
-        XCTAssertEqual(m.wbScaleVersion, 4)
-        XCTAssertEqual(m.tint, 0)
+        XCTAssertEqual(m.wbScaleVersion, 5)
+        XCTAssertEqual(m.temperature, 5697.007, accuracy: 0.05)
+        XCTAssertEqual(m.tint, 11.083624, accuracy: 0.005)
     }
 
-    func testV2AuthoredTintNegatesAndRescalesIntoV4OnLoad() throws {
-        // #1875 axis + #1893 scale: a V2 sidecar's authored +50 (a
-        // green-ward look when written, at the 1e-4 magnitude) must load
-        // as -50 x 0.3 = -15 in the V4 (kTintScale) scale so the rendered
-        // look is preserved, and the model normalizes to version 4 for
-        // every re-save.
+    func testV2AuthoredPairConvertsJointlyIntoV5OnLoad() throws {
+        // #1894: a V2 sidecar's authored pair converts through the legacy
+        // (negated + 0.3-rescaled) locus map and back through Robertson —
+        // pinned against the Rust reference's
+        // `authored_pair_to_v5(5700, 50, V2)`.
         let (m, _) = try XMPParser.parse(
             mapleSidecar(#"crs:Temperature="5700" crs:Tint="50" papp:WbScaleVersion="2""#))
-        XCTAssertEqual(m.wbScaleVersion, 4)
-        XCTAssertEqual(m.tint, -15.0, accuracy: 1e-9)
-        XCTAssertEqual(m.temperature, 5700)
+        XCTAssertEqual(m.wbScaleVersion, 5)
+        XCTAssertEqual(m.temperature, 5696.3936, accuracy: 0.05)
+        XCTAssertEqual(m.tint, -3.9181564, accuracy: 0.005)
     }
 
-    func testV3AuthoredTintRescalesIntoV4OnLoad() throws {
-        // #1893: V3 is the ACR direction at the legacy 1e-4 magnitude —
-        // the authored value rescales by 0.3 so its uv displacement is
-        // preserved.
+    func testV3AuthoredPairConvertsJointlyIntoV5OnLoad() throws {
+        // #1894: V3 is the ACR-direction legacy scale at the 1e-4
+        // magnitude — pinned against the Rust reference's
+        // `authored_pair_to_v5(5520, -144, V3)`.
         let (m, _) = try XMPParser.parse(
             mapleSidecar(#"crs:Temperature="5520" crs:Tint="-144" papp:WbScaleVersion="3""#))
-        XCTAssertEqual(m.wbScaleVersion, 4)
-        XCTAssertEqual(m.tint, -43.2, accuracy: 1e-9)
+        XCTAssertEqual(m.wbScaleVersion, 5)
+        XCTAssertEqual(m.temperature, 5526.068, accuracy: 0.05)
+        XCTAssertEqual(m.tint, -32.580647, accuracy: 0.005)
     }
 
-    func testV4StampedTintPassesThroughUnconverted() throws {
+    func testV4AuthoredPairConvertsJointlyIntoV5OnLoad() throws {
+        // #1894: V4 kept ACR's kTintScale magnitude but still evaluated the
+        // legacy Hernández-Andrés locus (#1893) — it no longer passes
+        // through unconverted now that V5 evaluates Robertson instead;
+        // pinned against the Rust reference's
+        // `authored_pair_to_v5(5520, -53, V4)`.
         let (m, _) = try XMPParser.parse(
             mapleSidecar(#"crs:Temperature="5520" crs:Tint="-53" papp:WbScaleVersion="4""#))
-        XCTAssertEqual(m.wbScaleVersion, 4)
-        XCTAssertEqual(m.tint, -53)
+        XCTAssertEqual(m.wbScaleVersion, 5)
+        XCTAssertEqual(m.temperature, 5526.5674, accuracy: 0.05)
+        XCTAssertEqual(m.tint, -42.379494, accuracy: 0.005)
     }
 
     func testNormalizedFractionalTintSurvivesResaveExactly() throws {
@@ -151,7 +162,7 @@ final class WbScaleVersionTests: XCTestCase {
         // This serializer writes explicit Temperature/Tint unconditionally,
         // so the stamp rides along unconditionally too.
         let fresh = XMPSerializer.serialize(model: .default, culling: CullingState())
-        XCTAssertTrue(fresh.contains(#"papp:WbScaleVersion="4""#))
+        XCTAssertTrue(fresh.contains(#"papp:WbScaleVersion="5""#))
 
         var v1 = AdjustmentModel.default
         v1.temperature = 6282
@@ -164,14 +175,14 @@ final class WbScaleVersionTests: XCTestCase {
         )
     }
 
-    func testSerializerClampsOutOfRangeVersionTo4() {
+    func testSerializerClampsOutOfRangeVersionTo5() {
         // raw-core's parser hard-fails on an unknown stamp — a corrupted
         // model field must never produce an unparseable sidecar.
         var corrupted = AdjustmentModel.default
-        corrupted.wbScaleVersion = 7
+        corrupted.wbScaleVersion = 9
         let xml = XMPSerializer.serialize(model: corrupted, culling: CullingState())
-        XCTAssertTrue(xml.contains(#"papp:WbScaleVersion="4""#))
-        XCTAssertFalse(xml.contains(#"papp:WbScaleVersion="7""#))
+        XCTAssertTrue(xml.contains(#"papp:WbScaleVersion="5""#))
+        XCTAssertFalse(xml.contains(#"papp:WbScaleVersion="9""#))
     }
 
     /// Real-file round trip through the sidecar store: a pre-#1756
