@@ -91,27 +91,6 @@ enum PreviewViewVM {
         return wraps ? orderedIDs.last : nil
     }
 
-    // MARK: - Swipe gesture classification (spec §4)
-
-    /// Classifies a completed drag translation into a prev/next step, or
-    /// `nil` when the gesture doesn't qualify. Extracted so the ~40pt
-    /// threshold + horizontal-dominance rule (|dx| > |dy|) are tested
-    /// without a live gesture.
-    ///
-    /// A left drag (`dx < 0`) advances to the NEXT image (content moves left,
-    /// revealing what's to the right — the standard photo-viewer convention);
-    /// a right drag goes to the PREVIOUS image.
-    enum SwipeStep: Equatable { case next, previous }
-
-    static func swipeStep(
-        dx: CGFloat,
-        dy: CGFloat,
-        threshold: CGFloat = 40
-    ) -> SwipeStep? {
-        guard abs(dx) >= threshold, abs(dx) > abs(dy) else { return nil }
-        return dx < 0 ? .next : .previous
-    }
-
     // MARK: - Image-source selection (spec §2)
 
     /// Which cached image PreviewView paints. The Preview display path is
