@@ -231,15 +231,20 @@ public actor AuthenticatedHTTPClient {
     let path = directory.appendingPathComponent("\(stableServerHash(server)).lock").path
     let descriptor = Darwin.open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw AuthenticationError.temporarilyUnavailable }
+    var acquired = false
+    defer {
+      if !acquired { Darwin.close(descriptor) }
+    }
     for _ in 0..<200 {
-      if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return descriptor }
+      if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+        acquired = true
+        return descriptor
+      }
       guard errno == EWOULDBLOCK else {
-        Darwin.close(descriptor)
         throw AuthenticationError.temporarilyUnavailable
       }
       try await Task.sleep(nanoseconds: 50_000_000)
     }
-    Darwin.close(descriptor)
     throw AuthenticationError.temporarilyUnavailable
     #else
     return -1
