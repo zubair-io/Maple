@@ -30,6 +30,12 @@ public struct LocalAddressReport: Decodable, Sendable {
   public let scheme: String?
 }
 
+/// The latest LAN discovery result for a registered server.
+public struct LocalNetworkStatus: Equatable, Sendable {
+  public let localURL: URL?
+  public let isConnectedLocally: Bool
+}
+
 /// Stateless, process-independent resolution logic — no caching, no actor
 /// isolation, callable from the main app AND `MapleBackupAgent` (a separate
 /// process with no access to the foreground app's in-memory cache).
@@ -44,13 +50,21 @@ public enum LocalNetworkResolving {
     probeTimeout: TimeInterval = 1.5,
     session: URLSession = .shared
   ) async -> URL {
+    await resolveStatus(identity: identity, probeTimeout: probeTimeout, session: session).effectiveURL
+  }
+
+  static func resolveStatus(
+    identity: URL,
+    probeTimeout: TimeInterval = 1.5,
+    session: URLSession = .shared
+  ) async -> (effectiveURL: URL, status: LocalNetworkStatus) {
     guard let report = await fetchReport(url: identity.appending(path: "/api/network/local-address"), session: session),
           report.available,
           let ip = report.ip,
           let port = report.port,
           let candidate = URL(string: "\(report.scheme ?? "http")://\(ip):\(port)")
     else {
-      return identity
+      return (identity, LocalNetworkStatus(localURL: nil, isConnectedLocally: false))
     }
     // Reachability probe: re-hit the SAME report endpoint, but at the
     // candidate origin, and require it to answer with a matching
@@ -68,9 +82,9 @@ public enum LocalNetworkResolving {
       confirmed.ip == ip,
       confirmed.port == port
     else {
-      return identity
+      return (identity, LocalNetworkStatus(localURL: candidate, isConnectedLocally: false))
     }
-    return candidate
+    return (candidate, LocalNetworkStatus(localURL: candidate, isConnectedLocally: true))
   }
 
   private static func fetchReport(
@@ -95,6 +109,7 @@ public final class LocalNetworkResolver {
   public static let shared = LocalNetworkResolver()
 
   private var resolved: [String: URL] = [:]
+  private var statuses: [String: LocalNetworkStatus] = [:]
 
   public init() {}
 
@@ -105,11 +120,17 @@ public final class LocalNetworkResolver {
     resolved[identity.absoluteString] ?? identity
   }
 
+  /// Latest discovery state, or nil while this server has not yet been checked.
+  public func status(for identity: URL) -> LocalNetworkStatus? {
+    statuses[identity.absoluteString]
+  }
+
   /// Runs the resolution for `identity` and caches the result. Safe to call
   /// repeatedly (e.g. on every app launch) — each call re-probes fresh.
   /// `session` defaults to `.shared`; tests inject a stubbed session.
   public func resolve(identity: URL, session: URLSession = .shared) async {
-    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
-    resolved[identity.absoluteString] = effective
+    let result = await LocalNetworkResolving.resolveStatus(identity: identity, session: session)
+    resolved[identity.absoluteString] = result.effectiveURL
+    statuses[identity.absoluteString] = result.status
   }
 }

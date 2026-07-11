@@ -108,6 +108,23 @@ final class LocalNetworkResolverTests: XCTestCase {
     let resolver = LocalNetworkResolver()
     await resolver.resolve(identity: identity, session: session)
     XCTAssertEqual(resolver.effectiveURL(for: identity), identity)
+    XCTAssertEqual(resolver.status(for: identity), LocalNetworkStatus(localURL: nil, isConnectedLocally: false))
+  }
+
+  @MainActor
+  func test_localNetworkResolver_status_keepsReportedAddress_whenProbeFails() async {
+    nonisolated(unsafe) var callCount = 0
+    let session = URLSession.stubbedSequence { req in
+      callCount += 1
+      let body = #"{"available":true,"ip":"10.0.0.8","port":3000,"scheme":"http"}"#
+      let status = callCount == 1 ? 200 : 503
+      return (Data(body.utf8), HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!)
+    }
+    let resolver = LocalNetworkResolver()
+    await resolver.resolve(identity: identity, session: session)
+    XCTAssertEqual(
+      resolver.status(for: identity),
+      LocalNetworkStatus(localURL: URL(string: "http://10.0.0.8:3000"), isConnectedLocally: false))
   }
 
   private static func okResponse(for req: URLRequest) -> HTTPURLResponse {
