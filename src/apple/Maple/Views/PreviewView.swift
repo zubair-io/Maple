@@ -73,6 +73,10 @@ struct PreviewView: View {
     /// The session backing the Flag / Info surfaces. Primed on tap (never
     /// during `body`) so opening Preview to look at a photo costs nothing.
     @State private var flagInfoSession: EditSession?
+    /// Pager-owned selection. Binding the TabView directly to the parent's
+    /// `asset.id` rebuilds Preview at the page-commit boundary and interrupts
+    /// UIKit's in-flight transition (especially visible with PhotoKit pages).
+    @State private var pageID: AssetRef.ID?
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -135,6 +139,14 @@ struct PreviewView: View {
         // (swipe / arrow / filmstrip) so a re-open primes against the new
         // asset rather than reusing the previous one's session.
         .onChange(of: asset.id) { _, _ in flagInfoSession = nil }
+        .onChange(of: asset.id) { _, newID in
+            // External selection (filmstrip / keyboard) follows the parent;
+            // a pager-originated update is already at this id and is a no-op.
+            if pageID != newID { pageID = newID }
+        }
+        .onAppear {
+            if pageID == nil { pageID = asset.id }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("preview-view")
         // Flag: popover (regular) / bottom sheet (compact). Both reuse the
@@ -192,11 +204,11 @@ struct PreviewView: View {
     /// old hand-rolled offset/selection race that visibly snapped mid-swipe.
     private var pageSelection: Binding<AssetRef.ID> {
         Binding(
-            get: { asset.id },
+            get: { pageID ?? asset.id },
             set: { id in
-                guard id != asset.id,
-                      let selected = assets.first(where: { $0.id == id })
-                else { return }
+                guard pageID != id else { return }
+                pageID = id
+                guard let selected = assets.first(where: { $0.id == id }) else { return }
                 onSelectAsset(selected)
             }
         )
