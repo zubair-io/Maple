@@ -265,7 +265,10 @@ private struct PreviewImage: View {
     let source: ThumbnailSource
     let provider: ThumbnailProvider
 
-    @State private var jpegData: Data?
+    /// Display-ready pixels. JPEG decoding must never happen in `body`: when a
+    /// PhotoKit request completes during an interactive page transition, doing
+    /// ImageIO decode there blocks the main thread and visibly stalls the pager.
+    @State private var decodedImage: CGImage?
     @State private var loadedID: String?
 
     /// Stable identity for the current source — drives `.task(id:)` reload and
@@ -280,19 +283,17 @@ private struct PreviewImage: View {
 
     var body: some View {
         ZStack {
-            if let data = jpegData, let cg = ThumbnailImage.cgImage(from: data) {
+            if let cg = decodedImage {
                 #if os(macOS)
                 Image(nsImage: NSImage(cgImage: cg, size: .zero))
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .transition(.opacity)
                 #else
                 Image(uiImage: UIImage(cgImage: cg))
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .transition(.opacity)
                 #endif
             } else {
                 // No blank canvas — a neutral placeholder while the (already
@@ -308,18 +309,19 @@ private struct PreviewImage: View {
 
     private func load(for id: String) async {
         // Already showing this source — nothing to do.
-        if loadedID == id, jpegData != nil { return }
-        let data = await provider.thumbnail(for: source)
+        if loadedID == id, decodedImage != nil { return }
+        guard let data = await provider.thumbnail(for: source) else { return }
+        let image = await Task.detached(priority: .userInitiated) {
+            ThumbnailImage.cgImage(from: data)
+        }.value
         // Stale-guard: a newer `.task(id:)` supersedes and cancels this one on
         // an id change, so `!Task.isCancelled` is the real check. (`sourceID`
         // is derived from the view's `source` prop; a re-created struct with a
         // new source runs its own fresh task, so a value compare here would be
         // redundant.) Copilot review #1810.
         guard !Task.isCancelled else { return }
-        withAnimation(.easeInOut(duration: 0.18)) {
-            jpegData = data
-            loadedID = id
-        }
+        decodedImage = image
+        loadedID = id
     }
 }
 
