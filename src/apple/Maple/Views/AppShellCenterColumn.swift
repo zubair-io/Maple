@@ -54,6 +54,7 @@ struct AppShellCenterColumn: View {
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
+    var previewTransitionNamespace: Namespace.ID? = nil
 
     // Center-column callbacks — forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
@@ -179,6 +180,7 @@ struct AppShellCenterColumn: View {
                         source: browseVM.currentSource,
                         sessions: $sessions,
                         displayMode: $browseDisplayMode,
+                        transitionNamespace: previewTransitionNamespace,
                         onOpenEditor: onOpenEditor,
                         onPrimeSession: onPrimeSession,
                         onNavigateFolder: onNavigateFolder
