@@ -56,7 +56,8 @@ export function resolveWbScaleVersion(desc: Element, sawPappAnywhere: boolean): 
  */
 export function inferredWbPresetForAuthoredPair(
   parsedPreset: string | undefined,
-  authoredTemperatureOrTint: boolean,
+  appliedModelKeys: ReadonlySet<string>,
 ): 'Custom' | undefined {
-  return parsedPreset === undefined && authoredTemperatureOrTint ? 'Custom' : undefined;
+  const authoredPair = appliedModelKeys.has('temperature') || appliedModelKeys.has('tint');
+  return parsedPreset === undefined && authoredPair ? 'Custom' : undefined;
 }
