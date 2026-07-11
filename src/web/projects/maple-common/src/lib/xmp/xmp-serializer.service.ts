@@ -56,9 +56,19 @@ export class XmpSerializerService {
       parts.push(`${WB_PRESET_FIELD.xmpKey}="${this._escapeAttr(model.whiteBalancePreset)}"`);
     }
 
+    // An As-Shot model's temperature/tint are the camera's display seed
+    // (`seedAsShotWhiteBalance`), not authored values — emitting them would
+    // demote the render's exact As-Shot sentinel (absent crs:Temperature/
+    // crs:Tint) into a float-rounded explicit target and pollute the sidecar
+    // with estimator output (#1892). Any real WB edit flips the preset to
+    // 'Custom' (LibraryStoreService.setAdjustment) or a named preset, both
+    // of which serialize the pair below.
+    const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
+
     // Numeric adjustment fields — emit only when they differ from the default.
     const emittedKeys = new Set<string>();
     for (const f of ADJUSTMENT_FIELDS) {
+      if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
       const value = model[f.modelKey];
       if (value === undefined || value === null) continue;
       const defaultVal = f.defaultValue(model);

@@ -509,6 +509,19 @@ export class XmpParserService {
       model.tint = -model.tint;
     }
 
+    // An authored crs:Temperature/crs:Tint with no crs:WhiteBalance attribute
+    // is a Custom WB — the same rule raw-core's parser encodes via its
+    // `temperature_seen`/`tint_seen` flags. Recording 'Custom' here keeps the
+    // serializer's As-Shot gate (#1892) from dropping those authored values
+    // on the next save (sidecars written before the gate never stamped a
+    // preset alongside slider edits).
+    if (
+      model.whiteBalancePreset === undefined &&
+      (canonicallyApplied.has('temperature') || canonicallyApplied.has('tint'))
+    ) {
+      model.whiteBalancePreset = 'Custom';
+    }
+
     // Emit `crop` only when any field came through; angle alone is enough
     // (pure straighten). Identity default is applied for absent fields.
     if (

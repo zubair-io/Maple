@@ -114,25 +114,18 @@ pub struct WebLiveSession {
     as_shot_tint: f32,
 }
 
-/// Parse the XMP model with the SAME fresh-open WB substitution `render_bytes` /
-/// `render_bytes_gpu` apply: a brand-new import (no XMP) renders at the camera's
-/// As-Shot WB, not the 6500K default. Shared by `open` + `render` so a session
-/// behaves identically to the one-shot path at every tick.
-fn parse_model_with_as_shot_wb(
-    xmp: &Option<String>,
-    as_shot_temperature: f32,
-    as_shot_tint: f32,
-) -> Result<AdjustmentModel, String> {
-    let fresh_open = xmp.is_none();
-    let mut model = match xmp {
-        Some(x) => raw_core::xmp::parse(x).map_err(|e| e.to_string())?,
-        None => AdjustmentModel::default(),
-    };
-    if fresh_open {
-        model.temperature = as_shot_temperature;
-        model.tint = as_shot_tint;
+/// Parse the XMP model with the SAME fresh-open contract as `render_bytes` /
+/// `render_bytes_gpu` (#1892): a brand-new import (no XMP) stays at
+/// `AdjustmentModel::default()`, whose untouched `(6500, 0)` WB is both the
+/// As-Shot sentinel for the develop prefix and the identity point of the live
+/// chain's absolute WB matrix — so a fresh open presents the as-shot-balanced
+/// buffer unshifted. Shared by `open` + `render` so a session behaves
+/// identically to the one-shot path at every tick.
+fn parse_model(xmp: &Option<String>) -> Result<AdjustmentModel, String> {
+    match xmp {
+        Some(x) => raw_core::xmp::parse(x).map_err(|e| e.to_string()),
+        None => Ok(AdjustmentModel::default()),
     }
-    Ok(model)
 }
 
 #[wasm_bindgen]
@@ -166,14 +159,11 @@ impl WebLiveSession {
         let raw_img =
             raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-        // As-shot derivation + fresh-open WB substitution — IDENTICAL to
-        // `render_bytes` / `render_bytes_gpu`.
-        let as_shot_temperature = raw_img
-            .as_shot_cct
-            .unwrap_or_else(|| crate::estimate_cct_from_neutral(raw_img.as_shot_neutral));
-        let as_shot_tint = 0.0_f32;
-        let model = parse_model_with_as_shot_wb(&xmp, as_shot_temperature, as_shot_tint)
-            .map_err(|e| JsError::new(&e))?;
+        // As-shot derivation — IDENTICAL to `render_bytes` / `render_bytes_gpu`
+        // (#1892): display-only slider seed; the model itself stays at the
+        // parse result (default on a fresh open).
+        let (as_shot_temperature, as_shot_tint) = crate::as_shot_wb(&raw_img);
+        let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
 
         // Context BEFORE develop: the effective develop target clamps to this
         // device's texture cap (#1080, composing with #1079's adapter-clamped
@@ -242,8 +232,7 @@ impl WebLiveSession {
     /// (always present after `open`; `None` is treated as a fresh As-Shot import).
     #[wasm_bindgen]
     pub async fn render(&mut self, xmp: Option<String>) -> Result<String, JsError> {
-        let model = parse_model_with_as_shot_wb(&xmp, self.as_shot_temperature, self.as_shot_tint)
-            .map_err(|e| JsError::new(&e))?;
+        let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
 
         // Re-develop + re-upload iff the prefix model changed. The hot-path sliders
         // are zeroed in the prefix, so a WB/tone/vibrance/… tick takes the cheap
@@ -313,14 +302,16 @@ impl WebLiveSession {
             .map_err(|e| JsError::new(&e))
     }
 
-    /// Camera-side "As Shot" CCT in Kelvin (rawler-derived) — same value the
-    /// one-shot paths return in [`MapleRender`].
+    /// Camera "As Shot" CCT in Kelvin, in the WB slider frame
+    /// (`dcp::estimate_as_shot_cct_tint`, #1892) — same value the one-shot
+    /// paths return in [`MapleRender`]. Display-only slider seed.
     #[wasm_bindgen(getter, js_name = asShotTemperature)]
     pub fn as_shot_temperature(&self) -> f32 {
         self.as_shot_temperature
     }
 
-    /// Camera-side "As Shot" tint in slider units.
+    /// Camera "As Shot" tint in slider units (±150), from the same
+    /// frame-consistent estimate. Display-only slider seed.
     #[wasm_bindgen(getter, js_name = asShotTint)]
     pub fn as_shot_tint(&self) -> f32 {
         self.as_shot_tint
