@@ -88,13 +88,12 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
             log.notice("domain config missing for \(domainID, privacy: .public) — falling back")
             throw Self.fallbackError("domain config missing")
         }
-        let tokensStore = FileProviderTokensStore()
         let http = AuthenticatedHTTPClient(
             server: cfg.serverURL,
             urlSession: urlSession,
-            tokensProvider: { tokensStore.load(domain: domainID) },
-            onTokensRefreshed: { tokensStore.save($0, domain: domainID) },
-            onSignOut: { tokensStore.remove(domain: domainID) }
+            tokensProvider: { try? TokenStore.load(server: cfg.serverURL) },
+            onTokensRefreshed: { try? TokenStore.save($0, server: cfg.serverURL) },
+            onSignOut: { TokenStore.clear(server: cfg.serverURL) }
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
 

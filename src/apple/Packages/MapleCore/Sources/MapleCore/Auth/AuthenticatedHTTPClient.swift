@@ -1,6 +1,9 @@
 // src/apple/Packages/MapleCore/Sources/MapleCore/Auth/AuthenticatedHTTPClient.swift
 import Foundation
 import OSLog
+#if canImport(Darwin)
+import Darwin
+#endif
 
 /// Logger for the cloud HTTP layer. View live in Xcode's debug console
 /// or via Console.app filtering on subsystem `app.justmaple.aperture.cloud`
@@ -81,9 +84,12 @@ public actor AuthenticatedHTTPClient {
       // don't silently sign the user out the moment that refactor lands.
       cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
       throw e
+    } catch RefreshFailure.terminal {
+      cloudHTTPLogger.error("token refresh terminally rejected")
+      onSignOut(); return (data, resp)
     } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
-      onSignOut(); return (data, resp)
+      throw AuthenticationError.temporarilyUnavailable
     }
     Self.logRequest(request, attempt: 2)
     let retried = try await dataOnce(request: inject(request, tokens: fresh))
@@ -95,7 +101,10 @@ public actor AuthenticatedHTTPClient {
   /// returns a non-200 response. We use a distinct error type from
   /// URLError so the caller can tell "refresh said no" (sign-out is
   /// correct) from "refresh couldn't reach the server" (keep tokens).
-  private struct RefreshRejected: Error {}
+  private enum RefreshFailure: Error {
+    case terminal
+    case transient
+  }
 
   /// Hits `/api/auth/refresh` directly through `urlSession`, NOT through
   /// `AuthClient` — by contract, transport failures here surface as a
@@ -112,12 +121,22 @@ public actor AuthenticatedHTTPClient {
     // N concurrent 401s produce exactly one Keychain write + mirror, not N.
     if let t = inflightRefresh { return try await t.value }
     let task = Task { () throws -> AuthTokens in
+      let lock = try Self.acquireRefreshLock(server: server)
+      defer { Self.releaseRefreshLock(lock) }
+      // A different Apple process may have rotated while this process waited
+      // for the App Group lock. Adopt that generation instead of replaying the
+      // predecessor refresh token.
+      if let latest = tokensProvider(), latest.refresh != refreshToken {
+        return latest
+      }
       var req = URLRequest(url: server.appending(path: "/api/auth/refresh"))
       req.httpMethod = "POST"
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
       req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": refreshToken])
       let (data, resp) = try await urlSession.data(for: req)
-      guard (resp as! HTTPURLResponse).statusCode == 200 else { throw RefreshRejected() }
+      guard let http = resp as? HTTPURLResponse else { throw RefreshFailure.transient }
+      if http.statusCode == 401 { throw RefreshFailure.terminal }
+      guard http.statusCode == 200 else { throw RefreshFailure.transient }
       // The rotated refresh token rides the JSON body for native (Keychain)
       // clients — we have no cookie jar. `refresh_token` is decoded as optional
       // purely as a safety net: a server that ever omits it (e.g. legacy
@@ -140,9 +159,8 @@ public actor AuthenticatedHTTPClient {
   /// Proactively refreshes an already-expired token first (see
   /// `tokensForRequest`), so a token snapshot handed to a caller that can't
   /// retry-on-401 is still live.
-  public func inject(_ req: URLRequest) async -> URLRequest {
-    guard let tokens = try? await requiredTokensForRequest() else { return req }
-    return inject(req, tokens: tokens)
+  public func inject(_ req: URLRequest) async throws -> URLRequest {
+    inject(req, tokens: try await requiredTokensForRequest())
   }
 
   /// Seconds of clock skew: refresh proactively when the access token is within
@@ -178,10 +196,50 @@ public actor AuthenticatedHTTPClient {
     } catch let error as URLError {
       cloudHTTPLogger.error("proactive refresh unavailable: \(error.localizedDescription, privacy: .public)")
       throw AuthenticationError.temporarilyUnavailable
+    } catch RefreshFailure.terminal {
+      onSignOut()
+      throw AuthenticationError.notAuthenticated
     } catch {
       cloudHTTPLogger.error("proactive refresh rejected: \(error.localizedDescription, privacy: .public)")
       throw error
     }
+  }
+
+  private static func acquireRefreshLock(server: URL) throws -> Int32 {
+    #if canImport(Darwin)
+    let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: "group.app.justmaple.aperture"
+    ) ?? FileManager.default.temporaryDirectory
+    let directory = container.appendingPathComponent("AuthLocks", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let path = directory.appendingPathComponent("\(stableServerHash(server)).lock").path
+    let descriptor = Darwin.open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else { throw AuthenticationError.temporarilyUnavailable }
+    guard flock(descriptor, LOCK_EX) == 0 else {
+      Darwin.close(descriptor)
+      throw AuthenticationError.temporarilyUnavailable
+    }
+    return descriptor
+    #else
+    return -1
+    #endif
+  }
+
+  private static func releaseRefreshLock(_ descriptor: Int32) {
+    #if canImport(Darwin)
+    guard descriptor >= 0 else { return }
+    flock(descriptor, LOCK_UN)
+    Darwin.close(descriptor)
+    #endif
+  }
+
+  private static func stableServerHash(_ server: URL) -> String {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in server.absoluteString.utf8 {
+      hash ^= UInt64(byte)
+      hash &*= 1_099_511_628_211
+    }
+    return String(hash, radix: 16)
   }
 
   /// True when the JWT's `exp` claim is within `skew` seconds of now (or past).
@@ -240,9 +298,12 @@ public actor AuthenticatedHTTPClient {
     } catch let e as AuthClientError where e.isNetworkFailure {
       cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
       throw e
+    } catch RefreshFailure.terminal {
+      cloudHTTPLogger.error("token refresh terminally rejected")
+      onSignOut(); return (payload, resp)
     } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
-      onSignOut(); return (payload, resp)
+      throw AuthenticationError.temporarilyUnavailable
     }
     Self.logRequest(request, attempt: 2)
     injected = inject(request, tokens: fresh)
@@ -276,9 +337,12 @@ public actor AuthenticatedHTTPClient {
     } catch let e as AuthClientError where e.isNetworkFailure {
       cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
       throw e
+    } catch RefreshFailure.terminal {
+      cloudHTTPLogger.error("token refresh terminally rejected")
+      onSignOut(); return (data, resp)
     } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
-      onSignOut(); return (data, resp)
+      throw AuthenticationError.temporarilyUnavailable
     }
     Self.logRequest(request, attempt: 2)
     let retried = try await urlSession.upload(for: inject(request, tokens: fresh), fromFile: fileURL)
