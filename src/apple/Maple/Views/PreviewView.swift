@@ -79,8 +79,6 @@ struct PreviewView: View {
     /// Positive vertical travel for the interactive pull-down dismissal.
     @State private var dismissTranslation: CGFloat = 0
     @State private var isDismissing = false
-    @State private var isImageAtFit = true
-    @State private var isImagePinching = false
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -109,7 +107,6 @@ struct PreviewView: View {
                     .padding(.horizontal, isRegular ? 16 : 8)
                     .offset(y: dismissTranslation)
                     .scaleEffect(dismissScale)
-                    .simultaneousGesture(dismissGesture)
 
                 FilmstripView(
                     assets: assets,
@@ -183,10 +180,8 @@ struct PreviewView: View {
             source: source,
             provider: provider,
             onSelectAsset: onSelectAsset,
-            onZoomStateChanged: { isAtFit, isPinching in
-                isImageAtFit = isAtFit
-                isImagePinching = isPinching
-            }
+            onDismissDragChanged: updateDismissDrag,
+            onDismissDragEnded: finishDismissDrag
         )
         .accessibilityIdentifier("preview-image")
         #else
@@ -254,35 +249,31 @@ struct PreviewView: View {
         max(0.35, 1 - Double(dismissTranslation / 500))
     }
 
-    private var dismissGesture: some Gesture {
-        DragGesture(minimumDistance: 8, coordinateSpace: .local)
-            .onChanged { value in
-                guard !isDismissing, isImageAtFit, !isImagePinching,
-                      value.translation.height > 0,
-                      value.translation.height > abs(value.translation.width)
-                else { return }
-                dismissTranslation = value.translation.height
-            }
-            .onEnded { value in
-                guard !isDismissing, isImageAtFit, !isImagePinching else {
-                    dismissTranslation = 0
-                    return
-                }
-                let wasVertical = value.translation.height > 0
-                    && value.translation.height > abs(value.translation.width)
-                let shouldDismiss = wasVertical
-                    && (value.translation.height > 120
-                        || value.predictedEndTranslation.height > 240)
+    private func updateDismissDrag(_ translation: CGSize) {
+        guard !isDismissing,
+              translation.height > 0,
+              translation.height > abs(translation.width) else { return }
+        dismissTranslation = translation.height
+    }
 
-                if shouldDismiss {
-                    isDismissing = true
-                    onDismiss()
-                } else {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                        dismissTranslation = 0
-                    }
-                }
+    private func finishDismissDrag(_ translation: CGSize, _ velocity: CGSize) {
+        guard !isDismissing else {
+            dismissTranslation = 0
+            return
+        }
+        let wasVertical = translation.height > 0
+            && translation.height > abs(translation.width)
+        let shouldDismiss = wasVertical
+            && (translation.height > 120 || velocity.height > 700)
+
+        if shouldDismiss {
+            isDismissing = true
+            onDismiss()
+        } else {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                dismissTranslation = 0
             }
+        }
     }
 
 }
@@ -301,7 +292,8 @@ private struct PreviewPager: UIViewControllerRepresentable {
     let source: (any ImageSource)?
     let provider: ThumbnailProvider
     let onSelectAsset: (AssetRef) -> Void
-    let onZoomStateChanged: (Bool, Bool) -> Void
+    let onDismissDragChanged: (CGSize) -> Void
+    let onDismissDragEnded: (CGSize, CGSize) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -310,17 +302,29 @@ private struct PreviewPager: UIViewControllerRepresentable {
             transitionStyle: .scroll,
             navigationOrientation: .horizontal
         )
+        pager.view.backgroundColor = UIColor(MapleTokens.bg)
         context.coordinator.configure(
             assets: assets,
             source: source,
             provider: provider,
             onSelectAsset: onSelectAsset,
-            onZoomStateChanged: onZoomStateChanged
+            onDismissDragChanged: onDismissDragChanged,
+            onDismissDragEnded: onDismissDragEnded
         )
+        let dismissPan = UIPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleDismissPan(_:))
+        )
+        dismissPan.maximumNumberOfTouches = 1
+        dismissPan.cancelsTouchesInView = false
+        dismissPan.delegate = context.coordinator
+        pager.view.addGestureRecognizer(dismissPan)
+        context.coordinator.pager = pager
         pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
         if let initial = context.coordinator.controller(for: asset.id) {
             pager.setViewControllers([initial], direction: .forward, animated: false)
+            initial.setRefinementActive(true)
             context.coordinator.prune(around: asset.id)
         }
         return pager
@@ -332,7 +336,8 @@ private struct PreviewPager: UIViewControllerRepresentable {
             source: source,
             provider: provider,
             onSelectAsset: onSelectAsset,
-            onZoomStateChanged: onZoomStateChanged
+            onDismissDragChanged: onDismissDragChanged,
+            onDismissDragEnded: onDismissDragEnded
         )
         guard let target = context.coordinator.controller(for: asset.id),
               pager.viewControllers?.first !== target else { return }
@@ -341,18 +346,21 @@ private struct PreviewPager: UIViewControllerRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+    final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate,
+        UIGestureRecognizerDelegate {
         private var assets: [AssetRef] = []
         private var assetIndexByID: [AssetRef.ID: Int] = [:]
         private var assetFingerprint = AssetFingerprint.empty
         /// Lazily materialized page window. Never build one hosting controller
         /// per asset: "All Photos" can contain tens of thousands of items.
-        private var controllers: [Int: UIHostingController<AnyView>] = [:]
+        private var controllers: [Int: PreviewZoomController] = [:]
         private var controllerIndices: [ObjectIdentifier: Int] = [:]
         private var source: (any ImageSource)?
         private var provider: ThumbnailProvider?
         private var onSelectAsset: ((AssetRef) -> Void)?
-        private var onZoomStateChanged: ((Bool, Bool) -> Void)?
+        private var onDismissDragChanged: ((CGSize) -> Void)?
+        private var onDismissDragEnded: ((CGSize, CGSize) -> Void)?
+        weak var pager: UIPageViewController?
 
         private struct AssetFingerprint: Equatable {
             let count: Int
@@ -379,10 +387,12 @@ private struct PreviewPager: UIViewControllerRepresentable {
             source: (any ImageSource)?,
             provider: ThumbnailProvider,
             onSelectAsset: @escaping (AssetRef) -> Void,
-            onZoomStateChanged: @escaping (Bool, Bool) -> Void
+            onDismissDragChanged: @escaping (CGSize) -> Void,
+            onDismissDragEnded: @escaping (CGSize, CGSize) -> Void
         ) {
             self.onSelectAsset = onSelectAsset
-            self.onZoomStateChanged = onZoomStateChanged
+            self.onDismissDragChanged = onDismissDragChanged
+            self.onDismissDragEnded = onDismissDragEnded
             self.source = source
             self.provider = provider
             let fingerprint = AssetFingerprint(assets)
@@ -396,24 +406,47 @@ private struct PreviewPager: UIViewControllerRepresentable {
             controllerIndices.removeAll(keepingCapacity: true)
         }
 
-        func controller(for id: AssetRef.ID) -> UIHostingController<AnyView>? {
+        @objc func handleDismissPan(_ recognizer: UIPanGestureRecognizer) {
+            guard let visible = pager?.viewControllers?.first as? PreviewZoomController,
+                  visible.isAtFitZoom else {
+                if recognizer.state == .ended || recognizer.state == .cancelled {
+                    onDismissDragEnded?(.zero, .zero)
+                }
+                return
+            }
+            let point = recognizer.translation(in: recognizer.view)
+            let translation = CGSize(width: point.x, height: point.y)
+            switch recognizer.state {
+            case .changed:
+                onDismissDragChanged?(translation)
+            case .ended, .cancelled, .failed:
+                let velocityPoint = recognizer.velocity(in: recognizer.view)
+                let velocity = CGSize(width: velocityPoint.x, height: velocityPoint.y)
+                onDismissDragEnded?(translation, velocity)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool { true }
+
+        func controller(for id: AssetRef.ID) -> PreviewZoomController? {
             guard let index = assetIndexByID[id] else { return nil }
             return controller(at: index)
         }
 
-        private func controller(at index: Int) -> UIHostingController<AnyView>? {
+        private func controller(at index: Int) -> PreviewZoomController? {
             guard assets.indices.contains(index), let provider else { return nil }
             if let existing = controllers[index] { return existing }
             let item = assets[index]
-            let controller = UIHostingController(rootView: AnyView(
-                PreviewImage(
-                    source: PreviewViewVM.thumbnailSource(for: item, source: source),
-                    provider: provider,
-                    onZoomStateChanged: { [weak self] isAtFit, isPinching in
-                        self?.onZoomStateChanged?(isAtFit, isPinching)
-                    }
-                )
-            ))
+            let controller = PreviewZoomController(
+                assetID: item.id,
+                source: PreviewViewVM.thumbnailSource(for: item, source: source),
+                provider: provider
+            )
             controllers[index] = controller
             controllerIndices[ObjectIdentifier(controller)] = index
             return controller
@@ -463,13 +496,26 @@ private struct PreviewPager: UIViewControllerRepresentable {
             previousViewControllers: [UIViewController],
             transitionCompleted completed: Bool
         ) {
-            guard finished, completed,
-                  let visible = pageViewController.viewControllers?.first,
+            guard finished else { return }
+            if !completed {
+                (pageViewController.viewControllers?.first as? PreviewZoomController)?
+                    .setRefinementActive(true)
+                return
+            }
+            guard let visible = pageViewController.viewControllers?.first,
                   let index = index(of: visible) else { return }
             let selected = assets[index]
             prune(around: selected.id)
-            onZoomStateChanged?(true, false)
+            (visible as? PreviewZoomController)?.setRefinementActive(true)
             onSelectAsset?(selected)
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            willTransitionTo pendingViewControllers: [UIViewController]
+        ) {
+            (pageViewController.viewControllers?.first as? PreviewZoomController)?
+                .setRefinementActive(false)
         }
     }
 }
@@ -537,6 +583,7 @@ private struct PreviewImage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MapleTokens.bg)
         .clipped()
         .simultaneousGesture(pinchGesture)
         .task(id: sourceID) { await load(for: sourceID) }
@@ -602,29 +649,24 @@ private struct PreviewActionBar: View {
     let onInfo: () -> Void
 
     var body: some View {
-        HStack(spacing: 24) {
-            barButton(
+        HStack(spacing: 0) {
+            groupedButton(
                 label: "Flag", systemImage: "flag",
-                identifier: "preview-flag", action: onFlag)
+                identifier: "preview-flag", action: onFlag
+            )
 
-            Button(action: onEdit) {
-                HStack(spacing: 6) {
-                    Image(systemName: "slider.horizontal.3")
-                    Text("Edit").font(.system(size: 13, weight: .semibold))
-                }
-                .foregroundStyle(ProTokens.text)
-                .padding(.horizontal, 20)
-                .frame(height: 36)
-                .background(ProTokens.accent, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Edit")
-            .accessibilityIdentifier("preview-edit")
+            groupedButton(
+                label: "Edit", systemImage: "slider.horizontal.3",
+                identifier: "preview-edit", isPrimary: true, action: onEdit
+            )
 
-            barButton(
+            groupedButton(
                 label: "Info", systemImage: "info.circle",
-                identifier: "preview-info", action: onInfo)
+                identifier: "preview-info", action: onInfo
+            )
         }
+        .padding(4)
+        .modifier(PreviewActionGlass())
         .padding(.horizontal, 16)
         .frame(height: 56)
         .frame(maxWidth: .infinity)
@@ -632,22 +674,34 @@ private struct PreviewActionBar: View {
         .accessibilityIdentifier("preview-action-bar")
     }
 
-    private func barButton(
+    private func groupedButton(
         label: String, systemImage: String, identifier: String,
+        isPrimary: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 2) {
-                Image(systemName: systemImage).font(.system(size: 16))
-                Text(label).font(.system(size: 10))
-            }
-            .foregroundStyle(ProTokens.textMuted)
-            .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Rectangle())
+            Label(label, systemImage: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isPrimary ? Color.white : MapleTokens.primary)
+                .frame(minWidth: 96, minHeight: 44)
+                .background(
+                    isPrimary ? MapleTokens.primary : Color.clear,
+                    in: Capsule()
+                )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
+    }
+}
+
+private struct PreviewActionGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.glassEffect(.regular.interactive(), in: .capsule)
+        #else
+        content.background(.ultraThinMaterial, in: Capsule())
+        #endif
     }
 }
 
@@ -695,23 +749,22 @@ private struct InfoPresentation: ViewModifier {
     func body(content: Content) -> some View {
         if isRegular {
             content.popover(isPresented: $isPresented, arrowEdge: .bottom) {
-                InfoPanelView(session: session, isInsideSheet: false)
+                InfoPanelView(
+                    session: session,
+                    isInsideSheet: false,
+                    showsCullingAndHistogram: false
+                )
                     .frame(width: 320, height: 480)
                     .background(MapleTokens.sidebar)
             }
         } else {
             #if os(iOS)
             content.sheet(isPresented: $isPresented) {
-                NavigationStack {
-                    InfoPanelView(session: session, isInsideSheet: true)
-                        .navigationTitle("Info")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button("Done") { isPresented = false }
-                            }
-                        }
-                }
+                InfoPanelView(
+                    session: session,
+                    isInsideSheet: false,
+                    showsCullingAndHistogram: false
+                )
                 .presentationDetents([.medium, .large])
             }
             #else
