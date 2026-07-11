@@ -76,6 +76,9 @@ struct PreviewView: View {
     /// The session backing the Flag / Info surfaces. Primed on tap (never
     /// during `body`) so opening Preview to look at a photo costs nothing.
     @State private var flagInfoSession: EditSession?
+    /// Positive vertical travel for the interactive pull-down dismissal.
+    @State private var dismissTranslation: CGFloat = 0
+    @State private var isDismissing = false
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -83,7 +86,9 @@ struct PreviewView: View {
 
     var body: some View {
         ZStack {
-            ProTokens.canvas.ignoresSafeArea()
+            ProTokens.canvas
+                .opacity(dismissBackgroundOpacity)
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Body: fit-to-screen still. `FilmstripView` is the shared
@@ -100,6 +105,9 @@ struct PreviewView: View {
                 // un-scrollable). Copilot review #1810.
                 imageBody
                     .padding(.horizontal, isRegular ? 16 : 8)
+                    .offset(y: dismissTranslation)
+                    .scaleEffect(dismissScale)
+                    .simultaneousGesture(dismissGesture)
 
                 FilmstripView(
                     assets: assets,
@@ -228,6 +236,44 @@ struct PreviewView: View {
               let prev = assets.first(where: { $0.id == id })
         else { return }
         onSelectAsset(prev)
+    }
+
+    // MARK: - Pull-down dismissal
+
+    private var dismissScale: CGFloat {
+        max(0.88, 1 - dismissTranslation / 1_200)
+    }
+
+    private var dismissBackgroundOpacity: Double {
+        max(0.35, 1 - Double(dismissTranslation / 500))
+    }
+
+    private var dismissGesture: some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .local)
+            .onChanged { value in
+                guard !isDismissing,
+                      value.translation.height > 0,
+                      value.translation.height > abs(value.translation.width)
+                else { return }
+                dismissTranslation = value.translation.height
+            }
+            .onEnded { value in
+                guard !isDismissing else { return }
+                let wasVertical = value.translation.height > 0
+                    && value.translation.height > abs(value.translation.width)
+                let shouldDismiss = wasVertical
+                    && (value.translation.height > 120
+                        || value.predictedEndTranslation.height > 240)
+
+                if shouldDismiss {
+                    isDismissing = true
+                    onDismiss()
+                } else {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                        dismissTranslation = 0
+                    }
+                }
+            }
     }
 
 }
