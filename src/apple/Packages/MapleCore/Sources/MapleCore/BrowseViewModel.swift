@@ -110,6 +110,12 @@ public final class BrowseViewModel {
     /// stale in-flight tasks check the captured generation before mutating
     /// `assets` / `selectedID`.
     @ObservationIgnored private var loadGeneration: UInt64 = 0
+    @ObservationIgnored private var pagedPhotoKitSource: PhotoKitSource?
+    @ObservationIgnored private var photoKitNextOffset = 0
+    @ObservationIgnored private var photoKitTotalCount = 0
+    @ObservationIgnored private var isLoadingPhotoKitPage = false
+    private static let photoKitPageSize = 42
+    private static let photoKitPrefetchDistance = 15
 
     public var selectedAsset: AssetRef? {
         assets.first { $0.id == selectedID }
@@ -268,6 +274,73 @@ public final class BrowseViewModel {
             guard gen == loadGeneration else { return }
             loadError = error
         }
+    }
+
+    /// Publish two phone screens immediately, then retain PhotoKit's lazy
+    /// fetch result as the backing store for scroll-driven paging.
+    public func loadPhotoKitSource(_ source: PhotoKitSource) async {
+        loadGeneration &+= 1
+        let gen = loadGeneration
+        isLoading = true
+        pagedPhotoKitSource = source
+        photoKitNextOffset = 0
+        photoKitTotalCount = 0
+        isLoadingPhotoKitPage = false
+        defer { if gen == loadGeneration { isLoading = false } }
+
+        do {
+            async let total = source.imageCount()
+            async let firstPage = source.images(offset: 0, limit: Self.photoKitPageSize)
+            let (count, refs) = try await (total, firstPage)
+            guard gen == loadGeneration else { return }
+            assets = refs.map { makeAssetRef($0, source: source) }
+            photoKitNextOffset = refs.count
+            photoKitTotalCount = count
+            subfolders = []
+            selectedID = nil
+            currentSource = source
+            loadError = nil
+            photosAuthNeeded = false
+        } catch {
+            guard gen == loadGeneration else { return }
+            loadError = error
+        }
+    }
+
+    public func loadMorePhotoKitIfNeeded(appearing id: AssetRef.ID) async {
+        guard currentSource is PhotoKitSource,
+              let source = pagedPhotoKitSource,
+              !isLoadingPhotoKitPage,
+              photoKitNextOffset < photoKitTotalCount,
+              let index = assets.firstIndex(where: { $0.id == id }),
+              index >= max(0, assets.count - Self.photoKitPrefetchDistance) else { return }
+
+        isLoadingPhotoKitPage = true
+        let gen = loadGeneration
+        let offset = photoKitNextOffset
+        defer { if gen == loadGeneration { isLoadingPhotoKitPage = false } }
+        do {
+            let refs = try await source.images(offset: offset, limit: Self.photoKitPageSize)
+            guard gen == loadGeneration else { return }
+            assets.append(contentsOf: refs.map { makeAssetRef($0, source: source) })
+            photoKitNextOffset += refs.count
+        } catch {
+            guard gen == loadGeneration else { return }
+            loadError = error
+        }
+    }
+
+    private func makeAssetRef(_ ref: ImageRef, source: any ImageSource) -> AssetRef {
+        if let url = ref.url {
+            return AssetRef(url: url, scopeParentURL: ref.scopeParentURL)
+        }
+        let ext = (ref.displayName as NSString).pathExtension.lowercased()
+        return AssetRef(
+            displayName: ref.displayName,
+            hintExtension: ext.isEmpty ? nil : ext,
+            stableID: ref.id,
+            bytesProvider: { [source, ref] in try await source.rawBytes(for: ref) }
+        )
     }
 
     // MARK: - Merged PhotoKit + Cloud timeline

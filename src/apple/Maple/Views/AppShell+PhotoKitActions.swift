@@ -67,7 +67,7 @@ extension AppShell {
                 // (where the user is browsing the backup destination), not
                 // here. Keep mergedCloudSource nil for consistency.
                 mergedCloudSource = nil
-                await browseVM.loadSource(source)
+                await browseVM.loadPhotoKitSource(source)
                 SourceSelectionStore.save(.photoKitFilter(filter))
             } catch {
                 browseVM.loadError = error

@@ -392,6 +392,35 @@ extension PhotoKitSource: ImageSource {
         return refs
     }
 
+    /// Return a bounded window without materializing the complete Photos
+    /// library. `PHFetchResult` remains the lazy backing store.
+    public func images(offset: Int, limit: Int) async throws -> [ImageRef] {
+        if fetchResult == nil, let filter = lastFilter {
+            try await fetchAssets(for: filter)
+        }
+        guard let result = fetchResult else { throw PhotoKitError.notFetched }
+        let lower = max(0, offset)
+        let upper = min(result.count, lower + max(0, limit))
+        guard lower < upper else { return [] }
+        return (lower..<upper).map { index in
+            let asset = result.object(at: index)
+            return ImageRef(
+                id: asset.localIdentifier,
+                displayName: asset.localIdentifier,
+                url: nil,
+                captureDate: asset.creationDate
+            )
+        }
+    }
+
+    public func imageCount() async throws -> Int {
+        if fetchResult == nil, let filter = lastFilter {
+            try await fetchAssets(for: filter)
+        }
+        guard let result = fetchResult else { throw PhotoKitError.notFetched }
+        return result.count
+    }
+
     /// PhotoKit fast path — request a 256-px thumbnail via
     /// `PHImageManager.requestImage` and JPEG-encode at q=0.82. Without this,
     /// `ThumbnailLoader` falls through to rendering each tile from the full

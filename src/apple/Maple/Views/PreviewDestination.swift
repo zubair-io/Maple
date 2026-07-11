@@ -31,6 +31,7 @@ struct PreviewDestination: View {
     /// Browse source for sourceless thumbnail resolution (cloud / PhotoKit).
     let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
+    let onClose: () -> Void
 
     /// Push the editor for `asset` onto the same NavigationStack. Wired by
     /// `PhoneLibraryView` to append `.edit(asset)` to `libraryPath`.
@@ -39,12 +40,12 @@ struct PreviewDestination: View {
     /// the grid + a subsequent editor open track the visible asset.
     let onSelectionChanged: (AssetRef) -> Void
 
-    @Environment(\.dismiss) private var dismiss
-
     /// The id currently shown — starts at the pushed `asset`, moves on
     /// swipe / arrow / filmstrip. Kept local so prev/next never pushes a new
     /// stack entry (spec §4: navigation swaps the preview in place).
     @State private var shownID: AssetRef.ID?
+    @State private var isPresented = false
+    @State private var isClosing = false
 
     private var shownAsset: AssetRef {
         assets.first { $0.id == shownID } ?? asset
@@ -56,13 +57,20 @@ struct PreviewDestination: View {
             assets: assets,
             source: source,
             sessions: $sessions,
-            onDismiss: { dismiss() },
+            onDismiss: close,
             onEdit: onEdit,
             onSelectAsset: { next in
                 shownID = next.id
                 onSelectionChanged(next)
             }
         )
+        .scaleEffect(isPresented ? 1 : 0.88)
+        .opacity(isPresented ? 1 : 0)
+        .onAppear {
+            withAnimation(.smooth(duration: 0.28)) {
+                isPresented = true
+            }
+        }
         .task(id: asset.id) {
             // Land on the pushed asset. `.task(id:)` only fires on an actual
             // `asset.id` change (or initial appearance), so this is safe to run
@@ -70,6 +78,18 @@ struct PreviewDestination: View {
             // parent re-pushed a different asset while this view was still on
             // screen (jules review).
             shownID = asset.id
+        }
+    }
+
+    private func close() {
+        guard !isClosing else { return }
+        isClosing = true
+        withAnimation(.smooth(duration: 0.22)) {
+            isPresented = false
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
+            onClose()
         }
     }
 }

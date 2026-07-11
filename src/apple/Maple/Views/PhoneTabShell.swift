@@ -136,7 +136,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // (incl. its CloudSidecarStore) created during resolution.
                     onSelectCloudAsset: { asset, server in
                         if let ref = onSelectCloudAsset(asset, server) {
-                            libraryPath.append(.preview(ref))
+                            pushPreview(ref)
                         }
                     },
                     onCloseSearch: onCloseSearch,
@@ -144,7 +144,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // push as cloud assets (#809).
                     onSelectLocalAsset: { ref in
                         if let assetRef = onSelectLocalAsset(ref) {
-                            libraryPath.append(.preview(assetRef))
+                            pushPreview(assetRef)
                         }
                     },
                     onGrantPhotosAccess: onGrantPhotosAccess,
@@ -156,7 +156,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // tab bar is hidden on push (#791). The AppShell-provided
                     // `onOpenEditor` (mode flip) stays in use by the
                     // tablet/desktop pane shell, which has no NavigationStack.
-                    onOpenEditor: { asset in libraryPath.append(.preview(asset)) },
+                    onOpenEditor: pushPreview,
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback,
                     onMergePanorama: onMergePanorama,
@@ -191,6 +191,16 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         // behaviour the Search screen used to fake with a custom pill.
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(MapleTokens.primary)
+    }
+
+    /// Preview supplies its own non-interactive scale/fade presentation. Turn
+    /// off NavigationStack's horizontal push so the two animations never mix.
+    private func pushPreview(_ asset: AssetRef) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            libraryPath.append(.preview(asset))
+        }
     }
 }
 
