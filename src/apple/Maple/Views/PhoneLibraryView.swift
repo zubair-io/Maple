@@ -24,6 +24,7 @@
 
 import SwiftUI
 import MapleCore
+import UIKit
 
 struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     @Namespace private var previewTransition
@@ -110,16 +111,29 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
                         assets: browseVM.assets.contains(ref) ? browseVM.assets : [ref],
                         source: browseVM.currentSource,
                         sessions: $sessions,
+                        onClose: popPreviewWithoutAnimation,
                         onEdit: { asset in libraryPath.append(.edit(asset)) },
                         onSelectionChanged: { asset in browseVM.selectedID = asset.id }
                     )
-                    .navigationTransition(.zoom(sourceID: ref.id, in: previewTransition))
                 case .edit(let ref):
                     EditorDestination(asset: ref, sessions: $sessions)
                 }
             }
             .toolbar(.hidden, for: .tabBar)
             .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    private func popPreviewWithoutAnimation() {
+        guard !libraryPath.isEmpty else { return }
+        UIView.setAnimationsEnabled(false)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            _ = libraryPath.removeLast()
+        }
+        DispatchQueue.main.async {
+            UIView.setAnimationsEnabled(true)
         }
     }
 }

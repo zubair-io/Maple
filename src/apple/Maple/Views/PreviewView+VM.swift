@@ -103,15 +103,19 @@ enum PreviewViewVM {
     /// than collapsing them) keeps the swap seam ready for A1 to fill and keeps
     /// this selection unit-testable.
     ///
-    /// Returns `.local(asset, source:)` for every asset — that case routes to
-    /// `ThumbnailLoader.shared.load(for:from:)`, which itself dispatches on
-    /// whether the asset has a `primaryURL` (filesystem) or is sourceless
-    /// (PhotoKit / self-hosted, resolved via the threaded `source`). No new
-    /// backend, no new cache.
+    /// PhotoKit must route explicitly through `.photoKit`: its generic
+    /// `ImageSource.preview(for:)` intentionally returns nil, while the app-side
+    /// PhotoKit backend supports size-aware display and zoom refinement.
+    /// Other sources retain the shared `.local`/ThumbnailLoader route.
     static func thumbnailSource(
         for asset: AssetRef,
         source: (any ImageSource)?
     ) -> ThumbnailSource {
-        .local(asset, source: source.map(ImageSourceBox.init))
+        if asset.primaryURL == nil,
+           source is PhotoKitSource,
+           let localID = asset.stableID {
+            return .photoKit(localID: localID)
+        }
+        return .local(asset, source: source.map(ImageSourceBox.init))
     }
 }
