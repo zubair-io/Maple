@@ -40,6 +40,9 @@ describe('XMP numeric round-trip', () => {
     ADJUSTMENT_FIELDS.forEach((f, i) => {
       writable[f.modelKey] = i + 1;
     });
+    // The temperature/tint values here are authored, not the As-Shot display
+    // seed — mark the model Custom or the serializer omits them (#1892).
+    (writable as unknown as AdjustmentModel).whiteBalancePreset = 'Custom';
     const out = roundTrip(writable as unknown as AdjustmentModel);
     ADJUSTMENT_FIELDS.forEach((f, i) => {
       expect(out[f.modelKey]).toBe(i + 1);

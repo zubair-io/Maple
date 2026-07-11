@@ -32,9 +32,16 @@ export class WhiteBalanceSectionComponent {
   onPreset(sel: WbPresetSelection): void {
     const id = this.assetId();
     if (!id) return;
+    // 'As Shot' renders via the sentinel (temperature/tint omitted from the
+    // sidecar — #1892), so restore the sliders to the camera's seeded
+    // display pair; leaving the previous Custom values visible would show
+    // numbers the render no longer uses.
+    const asShot = sel.preset === 'As Shot' ? this.state.asShotWbFor(id) : undefined;
+    const temperature = sel.temperature ?? asShot?.temperature ?? null;
+    const tint = sel.tint ?? asShot?.tint ?? null;
     const patch: Record<string, unknown> = { whiteBalancePreset: sel.preset };
-    if (sel.temperature !== null) patch['temperature'] = sel.temperature;
-    if (sel.tint !== null) patch['tint'] = sel.tint;
+    if (temperature !== null) patch['temperature'] = temperature;
+    if (tint !== null) patch['tint'] = tint;
     this.state.updateAdjustment(id, patch as never);
   }
 }

@@ -110,13 +110,19 @@ describe('XMP WbScaleVersion (#1780)', () => {
   });
 
   it('stamps version 3 when a fresh model writes an explicit temperature', () => {
-    const m = { ...defaultAdjustmentModel(), temperature: 5200 };
+    // 'Custom' marks the pair as authored — an As-Shot model's values are
+    // the camera display seed and are omitted entirely (#1892).
+    const m = {
+      ...defaultAdjustmentModel(),
+      temperature: 5200,
+      whiteBalancePreset: 'Custom' as const,
+    };
     const xml = serializer.serialize(m);
     expect(xml).toContain('papp:WbScaleVersion="3"');
   });
 
   it('stamps version 3 for a tint-only explicit WB', () => {
-    const m = { ...defaultAdjustmentModel(), tint: -30 };
+    const m = { ...defaultAdjustmentModel(), tint: -30, whiteBalancePreset: 'Custom' as const };
     const xml = serializer.serialize(m);
     expect(xml).toContain('papp:WbScaleVersion="3"');
   });
@@ -164,7 +170,12 @@ describe('XMP WbScaleVersion (#1780)', () => {
   it('clamps an out-of-range wbScaleVersion to 3 at write time', () => {
     // raw-core's parser hard-fails on an unknown stamp — a corrupted model
     // field must never produce an unparseable sidecar.
-    const m = { ...defaultAdjustmentModel(), temperature: 5500, wbScaleVersion: 7 };
+    const m = {
+      ...defaultAdjustmentModel(),
+      temperature: 5500,
+      wbScaleVersion: 7,
+      whiteBalancePreset: 'Custom' as const,
+    };
     const xml = serializer.serialize(m);
     expect(xml).toContain('papp:WbScaleVersion="3"');
   });

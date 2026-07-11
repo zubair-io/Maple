@@ -244,10 +244,22 @@ export class LibraryStore {
   }
 
   setAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
+    // A temperature/tint value in the patch WITHOUT an explicit preset is a
+    // user WB edit — leave 'As Shot' for it and the serializer would drop
+    // the pair on save (an As-Shot model's temperature/tint are the camera
+    // display seed, not authored values — see XmpSerializerService). Callers
+    // that mean a preset state (RESET, the WB pills, a parsed sidecar's full
+    // model) always carry whiteBalancePreset in the patch themselves.
+    const wbEdited =
+      (patch.temperature !== undefined || patch.tint !== undefined) &&
+      patch.whiteBalancePreset === undefined;
+    const effective: Partial<AdjustmentModel> = wbEdited
+      ? { ...patch, whiteBalancePreset: 'Custom' }
+      : patch;
     this.adjustmentModels.update((map) => {
       const next = new Map(map);
       const current = next.get(id) ?? defaultAdjustmentModel();
-      next.set(id, { ...current, ...patch });
+      next.set(id, { ...current, ...effective });
       return next;
     });
   }

@@ -147,30 +147,50 @@ impl MapleRender {
     pub fn take_rgb(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.rgb)
     }
-    /// Camera-side "As Shot" correlated colour temperature in Kelvin, as
-    /// determined by rawler from the RAW metadata. When the RAW lacks an
-    /// explicit CCT we fall back to 6500K (D65) so callers always get a
-    /// usable value.
+    /// Camera "As Shot" correlated colour temperature in Kelvin, in the WB
+    /// slider frame (`dcp::estimate_as_shot_cct_tint` — the temperature at
+    /// which the WB stage is an identity for this image). Seeds the UI's
+    /// Temperature slider on a fresh open; display-only (#1892).
     #[wasm_bindgen(getter)]
     pub fn as_shot_temperature(&self) -> f32 {
         self.as_shot_temperature
     }
-    /// "As Shot" tint in Maple's slider units (-100 .. 100). Approximated
-    /// from the camera's AsShotNeutral (blue vs red skew). 0 when the RAW
-    /// does not expose enough information.
+    /// Camera "As Shot" tint in slider units (±150, ACR's span), from the
+    /// same frame-consistent estimate as `as_shot_temperature`. Seeds the
+    /// UI's Tint slider on a fresh open; display-only (#1892).
     #[wasm_bindgen(getter)]
     pub fn as_shot_tint(&self) -> f32 {
         self.as_shot_tint
     }
 }
 
-/// Rough CCT estimator from a green-normalised AsShotNeutral (R, 1, B).
+/// As-shot `(temperature, tint)` in the WB SLIDER FRAME — the pair the app's
+/// WB sliders display for an untouched image (#1892).
 ///
-/// Delegates to `raw_core::stages::white_balance::estimate_cct_from_neutral`
-/// — single-sourced there so WASM, FFI, and tests all use the same math.
-/// The behaviour is unchanged: anchors log2(B/R) = 0 → 5500K, ±1 → ±2500K.
-fn estimate_cct_from_neutral(as_shot_neutral: [f32; 3]) -> f32 {
-    raw_core::stages::white_balance::estimate_cct_from_neutral(as_shot_neutral)
+/// Delegates to `raw_core::color::dcp::estimate_as_shot_cct_tint`, the same
+/// frame-consistent estimate the Apple decode export (#1781) hydrates
+/// sliders from: `SliderFrame::scene_cct` plus the perpendicular-axis tint
+/// projection of the scene illuminant — NOT the old log2(B/R) heuristic,
+/// which on off-locus bodies disagreed with the render's identity point by
+/// thousands of Kelvin and the whole tint range (test_0002, H2D-39: 7625 K /
+/// 0 vs the frame's 5520 K / −144.4).
+///
+/// This value is for DISPLAY seeding only — the render paths leave a fresh
+/// open at `AdjustmentModel::default()` so `wb_camera::resolve_target`'s
+/// As-Shot sentinel makes the develop an exact no-op; pushing the estimate
+/// into the model would round-trip it through the explicit-target math
+/// instead (see `resolve_target`'s doc).
+///
+/// The estimator's `Result` is never `Err` in practice (every profile
+/// resolver tier constructs `Ok`); the fallback keeps this total without a
+/// second error path.
+pub(crate) fn as_shot_wb(raw_img: &raw_core::image::RawImage) -> (f32, f32) {
+    raw_core::color::dcp::estimate_as_shot_cct_tint(raw_img).unwrap_or_else(|_| {
+        (
+            raw_core::stages::white_balance::estimate_cct_from_neutral(raw_img.as_shot_neutral),
+            0.0,
+        )
+    })
 }
 
 /// Render a RAW from bytes (WASM-friendly — no filesystem path needed).
@@ -179,41 +199,27 @@ fn estimate_cct_from_neutral(as_shot_neutral: [f32; 3]) -> f32 {
 /// rawler can disambiguate formats when magic is ambiguous.
 ///
 /// `xmp` is optional XMP sidecar content as a UTF-8 string (not a path).
-/// When `xmp` is `None` we assume the caller is opening a brand-new RAW
-/// (no prior user adjustments) and substitute the camera's AsShotNeutral-
-/// derived white balance for Maple's 6500K default — otherwise every fresh
-/// import would render with a strong colour cast before the user has
-/// touched the Temperature slider.
+/// When `xmp` is `None` the caller is opening a brand-new RAW (no prior
+/// user adjustments): the model stays at `AdjustmentModel::default()`, whose
+/// untouched `(6500, 0)` pair is `wb_camera::resolve_target`'s As-Shot
+/// sentinel — the develop resolves it to the slider frame's own as-shot
+/// point and white balance is an exact no-op. The frame-consistent as-shot
+/// estimate rides the return value (`as_shot_temperature`/`as_shot_tint`)
+/// purely so the UI can seed its sliders; it is deliberately NOT written
+/// into the model, which would demote the exact sentinel into a
+/// float-rounded explicit target (#1892 — the pre-fix push used a crude
+/// log2(B/R) heuristic and shifted every fresh open).
 #[wasm_bindgen]
 pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleRender, JsError> {
     let raw_img =
         raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    // rawler 0.7 doesn't surface AsShotTemperature, so `as_shot_cct` is
-    // always None today. Fall back to estimating the CCT from the camera's
-    // AsShotNeutral reading — same signal the reference renderer uses when the DNG lacks a
-    // baked Kelvin tag.
-    let as_shot_temperature = raw_img
-        .as_shot_cct
-        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
-    // Tint is best left at 0 on cold open — deriving it from a single
-    // neutral reading without the camera's DCP hue map misleads the slider.
-    // The user can nudge it manually once the temperature is in the ballpark.
-    let as_shot_tint = 0.0_f32;
+    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
 
-    let fresh_open = xmp.is_none();
-    let mut model = match xmp {
+    let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
         None => xmp_mod::AdjustmentModel::default(),
     };
-    // Fresh open (no sidecar) → render at the camera's As Shot WB, not the
-    // 6500K default the struct carries. User edits always come in through
-    // `xmp = Some(..)` once they've moved a slider, so this branch only
-    // kicks in for a first-render cold open.
-    if fresh_open {
-        model.temperature = as_shot_temperature;
-        model.tint = as_shot_tint;
-    }
 
     let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
         &raw_img,
@@ -269,22 +275,15 @@ pub fn render_bytes_sized(
     let raw_img =
         raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    // As-shot derivation + fresh-open WB substitution — IDENTICAL to
-    // `render_bytes` so a sized cold open seeds the same sliders.
-    let as_shot_temperature = raw_img
-        .as_shot_cct
-        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
-    let as_shot_tint = 0.0_f32;
+    // As-shot derivation — IDENTICAL to `render_bytes` so a sized cold open
+    // seeds the same sliders. Display-only; a fresh open renders at the
+    // As-Shot sentinel, never at a pushed pair (#1892 — see `render_bytes`).
+    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
 
-    let fresh_open = xmp.is_none();
-    let mut model = match xmp {
+    let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
         None => xmp_mod::AdjustmentModel::default(),
     };
-    if fresh_open {
-        model.temperature = as_shot_temperature;
-        model.tint = as_shot_tint;
-    }
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -397,8 +396,8 @@ impl MapleSceneLinearRender {
 /// Pre-AgX, pre-Rec.2020->sRGB — the caller (Plan 3 M2 GLSL chain) is
 /// expected to apply the AgX view transform and gamut convert before
 /// display. **Mirrors the legacy `render_bytes` semantics** for the
-/// non-rendering arguments (`ext`, `xmp`, fresh-open WB substitution)
-/// but returns fp16 instead of sRGB u8.
+/// non-rendering arguments (`ext`, `xmp`, the fresh-open As-Shot-sentinel
+/// contract — #1892) but returns fp16 instead of sRGB u8.
 ///
 /// `quality_preview = true` runs the half-res Preview pipeline; `false`
 /// runs AMaZE for the export path. Web live/preview keeps Preview; AMaZE
@@ -416,23 +415,14 @@ pub fn render_bytes_scene_linear(
     let raw_img =
         raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    // Same as_shot derivation as the legacy entry — rawler 0.7 still doesn't
-    // surface AsShotTemperature, so we estimate from AsShotNeutral and pass
-    // tint through as 0 on cold open. See raw-wasm/src/lib.rs:106-112.
-    let as_shot_temperature = raw_img
-        .as_shot_cct
-        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
-    let as_shot_tint = 0.0_f32;
+    // Same as-shot derivation as the legacy entry (#1892) — display-only; a
+    // fresh open renders at the As-Shot sentinel, never at a pushed pair.
+    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
 
-    let fresh_open = xmp.is_none();
-    let mut model = match xmp {
+    let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
         None => xmp_mod::AdjustmentModel::default(),
     };
-    if fresh_open {
-        model.temperature = as_shot_temperature;
-        model.tint = as_shot_tint;
-    }
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -486,22 +476,14 @@ pub fn render_bytes_scene_linear_sized(
     let raw_img =
         raw_core::decode::decode_bytes(raw, ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    // Same as_shot derivation + fresh-open WB substitution as the full-size
-    // entry — see `render_bytes_scene_linear`.
-    let as_shot_temperature = raw_img
-        .as_shot_cct
-        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
-    let as_shot_tint = 0.0_f32;
+    // Same as-shot derivation as the full-size entry — see
+    // `render_bytes_scene_linear` (#1892: display-only, no model push).
+    let (as_shot_temperature, as_shot_tint) = as_shot_wb(&raw_img);
 
-    let fresh_open = xmp.is_none();
-    let mut model = match xmp {
+    let model = match xmp {
         Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
         None => xmp_mod::AdjustmentModel::default(),
     };
-    if fresh_open {
-        model.temperature = as_shot_temperature;
-        model.tint = as_shot_tint;
-    }
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview

@@ -392,23 +392,16 @@ pub async fn render_bytes_gpu(
     let raw_img =
         raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
 
-    // As-shot derivation + fresh-open WB substitution — IDENTICAL to
-    // `render_bytes` (see crate::render_bytes for the rationale), so the GPU
-    // path's white balance on a cold open matches the CPU path's.
-    let as_shot_temperature = raw_img
-        .as_shot_cct
-        .unwrap_or_else(|| crate::estimate_cct_from_neutral(raw_img.as_shot_neutral));
-    let as_shot_tint = 0.0_f32;
+    // As-shot derivation — IDENTICAL to `render_bytes` (see its doc for the
+    // #1892 rationale), so the GPU path's cold-open white balance matches the
+    // CPU path's: display-only estimate, fresh open renders at the default
+    // model (identity WB matrix over the as-shot-balanced prefix buffer).
+    let (as_shot_temperature, as_shot_tint) = crate::as_shot_wb(&raw_img);
 
-    let fresh_open = xmp.is_none();
-    let mut model = match &xmp {
+    let model = match &xmp {
         Some(x) => raw_core::xmp::parse(x).map_err(|e| JsError::new(&e.to_string()))?,
         None => AdjustmentModel::default(),
     };
-    if fresh_open {
-        model.temperature = as_shot_temperature;
-        model.tint = as_shot_tint;
-    }
 
     let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model, max_long_edge)
         .await

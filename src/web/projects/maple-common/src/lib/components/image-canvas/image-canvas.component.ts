@@ -535,8 +535,13 @@ export class ImageCanvasComponent
         params[6] = model.blacks;
         params[7] = model.vibrance;
         params[8] = model.saturation;
-        params[9] = model.temperature;
-        params[10] = model.tint;
+        // An As-Shot model's temperature/tint are the camera display seed,
+        // not an edit — the live chain's WB matrix is absolute (identity at
+        // 6500/0 over the as-shot-balanced buffer), so send the identity
+        // pair, mirroring the serializer's As-Shot omission (#1892).
+        const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
+        params[9] = wbIsAsShot ? 6500 : model.temperature;
+        params[10] = wbIsAsShot ? 0 : model.tint;
         params[11] = model.clarity;
         params[12] = model.texture;
         params[13] = model.dehaze;
