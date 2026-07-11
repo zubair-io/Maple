@@ -31,16 +31,17 @@ extension XMPSerializer {
         let wbAttrs: [(String, String)] = omitWhiteBalance ? [] : [
             ("crs:Temperature",          String(format: "%.0f", model.temperature)),
             ("crs:Tint",                 String(format: "%.0f", model.tint)),
-            // WB scale stamp (#1780/#1875): every sidecar save writes
-            // explicit Temperature/Tint, so the scale those numbers are
-            // expressed in is always stamped alongside them. V1 re-emits
-            // as 1 (raw-core converts at develop, so stored V1 values keep
-            // their meaning across saves); everything else emits 3 — the
-            // parse normalizes V2 models to V3 at load, so a non-1 model
-            // always holds V3 (ACR tint direction) values. Clamped to
-            // {1, 3}: raw-core's parser hard-fails on an unknown stamp,
-            // so a corrupted model field must never reach the sidecar.
-            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 3)),
+            // WB scale stamp (#1780/#1875/#1893): every sidecar save
+            // writes explicit Temperature/Tint, so the scale those numbers
+            // are expressed in is always stamped alongside them. V1
+            // re-emits as 1 (raw-core converts at develop, so stored V1
+            // values keep their meaning across saves); everything else
+            // emits 4 — the parse normalizes V2/V3 models to V4 at load,
+            // so a non-1 model always holds V4 (ACR tint direction AND
+            // kTintScale magnitude) values. Clamped to {1, 4}: raw-core's
+            // parser hard-fails on an unknown stamp, so a corrupted model
+            // field must never reach the sidecar.
+            ("papp:WbScaleVersion",      String(model.wbScaleVersion == 1 ? 1 : 4)),
         ]
         var attrs: [(String, String)] = wbAttrs + [
             ("crs:Exposure2012",         fmtF(model.exposure)),

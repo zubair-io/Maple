@@ -144,11 +144,10 @@
 //! camera's as-shot chromaticity can sit far enough off the blackbody
 //! locus that reaching it needs a large tint (measured on a real
 //! Hasselblad H2D-39 bundle profile: the true as-shot point's
-//! ACR-convention tint projects to −143.5 — representable since #1870
-//! widened the range to ACR's ±150, but under the historical ±100 clamp
-//! `apply` literally could not reach identity for that model shape via
-//! its single fixed reference point, and float rounding of a seeded pair
-//! still lands off the exact short-circuit). [`apply_delta`]
+//! ACR-convention tint projects to ≈ −53 at the ACR `kTintScale` (#1893;
+//! −143.5 under the pre-#1893 1e-4 scale, which under the historical
+//! ±100 clamp `apply` literally could not reach), and float rounding of
+//! a seeded pair still lands off the exact short-circuit). [`apply_delta`]
 //! solves this the same way `white_balance::apply_delta` does for the
 //! post-DCP path: compare the TARGET's gain against the DECODED ANCHOR's
 //! own gain (both computed by the same [`camera_wb_gain`]), so a target
@@ -398,11 +397,10 @@ pub fn apply(
 /// [`apply`]'s own identity short-circuit only recognizes ONE reference
 /// point — `(frame.scene_cct, 0.0)` — and a real camera's as-shot
 /// chromaticity can sit far enough off the blackbody locus that its
-/// diagonal-convention tint (see [`target_xyz`]'s doc) exceeds the ±100
-/// slider range entirely (measured on a real Hasselblad H2D-39 bundle
-/// profile: the true as-shot tint magnitude projects to 144, clamped to 100 by
-/// `estimate_tint_from_scene_xyz` before any sign-convention difference
-/// even enters). An app that hydrates `model.temperature`/`model.tint`
+/// tint (see [`target_xyz`]'s doc) is large (measured on a real
+/// Hasselblad H2D-39 bundle profile: ≈ 53 at the ACR `kTintScale`
+/// (#1893); 144 under the pre-#1893 1e-4 scale, which exceeded the
+/// historical ±100 clamp entirely). An app that hydrates `model.temperature`/`model.tint`
 /// to the camera's own estimated as-shot `(cct, tint)` (rather than
 /// leaving the model at the literal numeric default, which is what
 /// [`resolve_target`]'s As-Shot seeding is FOR) needs a decoded/live

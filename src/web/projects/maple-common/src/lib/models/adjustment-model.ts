@@ -115,7 +115,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     ...defaultGeneratedAdjustmentModel(),
     whiteBalancePreset: 'As Shot',
     crop: defaultCrop(),
-    wbScaleVersion: 3,
+    wbScaleVersion: 4,
   };
 }
 
