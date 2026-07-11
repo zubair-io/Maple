@@ -35,6 +35,9 @@
 
 import SwiftUI
 import MapleCore
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - PreviewView
 
@@ -73,10 +76,6 @@ struct PreviewView: View {
     /// The session backing the Flag / Info surfaces. Primed on tap (never
     /// during `body`) so opening Preview to look at a photo costs nothing.
     @State private var flagInfoSession: EditSession?
-    /// Pager-owned selection. Binding the TabView directly to the parent's
-    /// `asset.id` rebuilds Preview at the page-commit boundary and interrupts
-    /// UIKit's in-flight transition (especially visible with PhotoKit pages).
-    @State private var pageID: AssetRef.ID?
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -139,14 +138,6 @@ struct PreviewView: View {
         // (swipe / arrow / filmstrip) so a re-open primes against the new
         // asset rather than reusing the previous one's session.
         .onChange(of: asset.id) { _, _ in flagInfoSession = nil }
-        .onChange(of: asset.id) { _, newID in
-            // External selection (filmstrip / keyboard) follows the parent;
-            // a pager-originated update is already at this id and is a no-op.
-            if pageID != newID { pageID = newID }
-        }
-        .onAppear {
-            if pageID == nil { pageID = asset.id }
-        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("preview-view")
         // Flag: popover (regular) / bottom sheet (compact). Both reuse the
@@ -176,16 +167,13 @@ struct PreviewView: View {
     @ViewBuilder
     private var imageBody: some View {
         #if os(iOS)
-        TabView(selection: pageSelection) {
-            ForEach(assets, id: \.id) { item in
-                PreviewImage(
-                    source: PreviewViewVM.thumbnailSource(for: item, source: source),
-                    provider: provider
-                )
-                .tag(item.id)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
+        PreviewPager(
+            asset: asset,
+            assets: assets,
+            source: source,
+            provider: provider,
+            onSelectAsset: onSelectAsset
+        )
         .accessibilityIdentifier("preview-image")
         #else
         // PageTabViewStyle is an iOS/iPadOS interaction. macOS keeps the
@@ -197,23 +185,6 @@ struct PreviewView: View {
         .accessibilityIdentifier("preview-image")
         #endif
     }
-
-    #if os(iOS)
-    /// Native page selection is driven by the parent's canonical asset. The
-    /// setter fires only after the system pager commits a page, avoiding the
-    /// old hand-rolled offset/selection race that visibly snapped mid-swipe.
-    private var pageSelection: Binding<AssetRef.ID> {
-        Binding(
-            get: { pageID ?? asset.id },
-            set: { id in
-                guard pageID != id else { return }
-                pageID = id
-                guard let selected = assets.first(where: { $0.id == id }) else { return }
-                onSelectAsset(selected)
-            }
-        )
-    }
-    #endif
 
     /// One provider for the whole Preview lifetime. Local-only is correct here:
     /// cloud/self-hosted assets thread their `source` through the
@@ -260,6 +231,184 @@ struct PreviewView: View {
     }
 
 }
+
+#if os(iOS)
+// MARK: - UIKit preview pager
+
+/// A page controller that does not expose UIKit's 50%-crossing selection as a
+/// SwiftUI binding. `TabView(selection:)` rewrites that binding every time a
+/// scrub crosses the midpoint, causing SwiftUI to reconcile the whole Preview
+/// repeatedly. This wrapper publishes only after UIKit reports a completed
+/// transition, so midpoint scrubbing remains entirely inside UIKit.
+private struct PreviewPager: UIViewControllerRepresentable {
+    let asset: AssetRef
+    let assets: [AssetRef]
+    let source: (any ImageSource)?
+    let provider: ThumbnailProvider
+    let onSelectAsset: (AssetRef) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIViewController(context: Context) -> UIPageViewController {
+        let pager = UIPageViewController(
+            transitionStyle: .scroll,
+            navigationOrientation: .horizontal
+        )
+        context.coordinator.configure(
+            assets: assets,
+            source: source,
+            provider: provider,
+            onSelectAsset: onSelectAsset
+        )
+        pager.dataSource = context.coordinator
+        pager.delegate = context.coordinator
+        if let initial = context.coordinator.controller(for: asset.id) {
+            pager.setViewControllers([initial], direction: .forward, animated: false)
+            context.coordinator.prune(around: asset.id)
+        }
+        return pager
+    }
+
+    func updateUIViewController(_ pager: UIPageViewController, context: Context) {
+        context.coordinator.configure(
+            assets: assets,
+            source: source,
+            provider: provider,
+            onSelectAsset: onSelectAsset
+        )
+        guard let target = context.coordinator.controller(for: asset.id),
+              pager.viewControllers?.first !== target else { return }
+        pager.setViewControllers([target], direction: .forward, animated: false)
+        context.coordinator.prune(around: asset.id)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+        private var assets: [AssetRef] = []
+        private var assetIndexByID: [AssetRef.ID: Int] = [:]
+        private var assetFingerprint = AssetFingerprint.empty
+        /// Lazily materialized page window. Never build one hosting controller
+        /// per asset: "All Photos" can contain tens of thousands of items.
+        private var controllers: [Int: UIHostingController<AnyView>] = [:]
+        private var controllerIndices: [ObjectIdentifier: Int] = [:]
+        private var source: (any ImageSource)?
+        private var provider: ThumbnailProvider?
+        private var onSelectAsset: ((AssetRef) -> Void)?
+
+        private struct AssetFingerprint: Equatable {
+            let count: Int
+            let firstID: AssetRef.ID?
+            let lastID: AssetRef.ID?
+
+            static let empty = AssetFingerprint(count: 0, firstID: nil, lastID: nil)
+
+            init(_ assets: [AssetRef]) {
+                count = assets.count
+                firstID = assets.first?.id
+                lastID = assets.last?.id
+            }
+
+            private init(count: Int, firstID: AssetRef.ID?, lastID: AssetRef.ID?) {
+                self.count = count
+                self.firstID = firstID
+                self.lastID = lastID
+            }
+        }
+
+        func configure(
+            assets: [AssetRef],
+            source: (any ImageSource)?,
+            provider: ThumbnailProvider,
+            onSelectAsset: @escaping (AssetRef) -> Void
+        ) {
+            self.onSelectAsset = onSelectAsset
+            self.source = source
+            self.provider = provider
+            let fingerprint = AssetFingerprint(assets)
+            guard fingerprint != assetFingerprint else { return }
+            assetFingerprint = fingerprint
+            self.assets = assets
+            assetIndexByID = Dictionary(
+                uniqueKeysWithValues: assets.enumerated().map { ($1.id, $0) }
+            )
+            controllers.removeAll(keepingCapacity: true)
+            controllerIndices.removeAll(keepingCapacity: true)
+        }
+
+        func controller(for id: AssetRef.ID) -> UIHostingController<AnyView>? {
+            guard let index = assetIndexByID[id] else { return nil }
+            return controller(at: index)
+        }
+
+        private func controller(at index: Int) -> UIHostingController<AnyView>? {
+            guard assets.indices.contains(index), let provider else { return nil }
+            if let existing = controllers[index] { return existing }
+            let item = assets[index]
+            let controller = UIHostingController(rootView: AnyView(
+                PreviewImage(
+                    source: PreviewViewVM.thumbnailSource(for: item, source: source),
+                    provider: provider
+                )
+            ))
+            controllers[index] = controller
+            controllerIndices[ObjectIdentifier(controller)] = index
+            return controller
+        }
+
+        private func index(of controller: UIViewController) -> Int? {
+            controllerIndices[ObjectIdentifier(controller)]
+        }
+
+        /// Retain only the visible page and its immediate wrapped neighbors.
+        /// UIKit may ask for both neighbors during an interactive scrub; three
+        /// controllers are sufficient regardless of library size.
+        func prune(around id: AssetRef.ID) {
+            guard assets.count > 1,
+                  let index = assetIndexByID[id] else { return }
+            let keep = Set([
+                index,
+                (index - 1 + assets.count) % assets.count,
+                (index + 1) % assets.count
+            ])
+            for cachedIndex in Array(controllers.keys) where !keep.contains(cachedIndex) {
+                if let removed = controllers.removeValue(forKey: cachedIndex) {
+                    controllerIndices.removeValue(forKey: ObjectIdentifier(removed))
+                }
+            }
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            viewControllerBefore viewController: UIViewController
+        ) -> UIViewController? {
+            guard assets.count > 1, let index = index(of: viewController) else { return nil }
+            return controller(at: (index - 1 + assets.count) % assets.count)
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            viewControllerAfter viewController: UIViewController
+        ) -> UIViewController? {
+            guard assets.count > 1, let index = index(of: viewController) else { return nil }
+            return controller(at: (index + 1) % assets.count)
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            didFinishAnimating finished: Bool,
+            previousViewControllers: [UIViewController],
+            transitionCompleted completed: Bool
+        ) {
+            guard finished, completed,
+                  let visible = pageViewController.viewControllers?.first,
+                  let index = index(of: visible) else { return }
+            let selected = assets[index]
+            prune(around: selected.id)
+            onSelectAsset?(selected)
+        }
+    }
+}
+#endif
 
 // MARK: - PreviewImage
 
