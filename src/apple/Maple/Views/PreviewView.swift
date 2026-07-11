@@ -79,6 +79,8 @@ struct PreviewView: View {
     /// Positive vertical travel for the interactive pull-down dismissal.
     @State private var dismissTranslation: CGFloat = 0
     @State private var isDismissing = false
+    @State private var isImageAtFit = true
+    @State private var isImagePinching = false
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -180,7 +182,11 @@ struct PreviewView: View {
             assets: assets,
             source: source,
             provider: provider,
-            onSelectAsset: onSelectAsset
+            onSelectAsset: onSelectAsset,
+            onZoomStateChanged: { isAtFit, isPinching in
+                isImageAtFit = isAtFit
+                isImagePinching = isPinching
+            }
         )
         .accessibilityIdentifier("preview-image")
         #else
@@ -251,14 +257,17 @@ struct PreviewView: View {
     private var dismissGesture: some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: .local)
             .onChanged { value in
-                guard !isDismissing,
+                guard !isDismissing, isImageAtFit, !isImagePinching,
                       value.translation.height > 0,
                       value.translation.height > abs(value.translation.width)
                 else { return }
                 dismissTranslation = value.translation.height
             }
             .onEnded { value in
-                guard !isDismissing else { return }
+                guard !isDismissing, isImageAtFit, !isImagePinching else {
+                    dismissTranslation = 0
+                    return
+                }
                 let wasVertical = value.translation.height > 0
                     && value.translation.height > abs(value.translation.width)
                 let shouldDismiss = wasVertical
@@ -292,6 +301,7 @@ private struct PreviewPager: UIViewControllerRepresentable {
     let source: (any ImageSource)?
     let provider: ThumbnailProvider
     let onSelectAsset: (AssetRef) -> Void
+    let onZoomStateChanged: (Bool, Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -304,7 +314,8 @@ private struct PreviewPager: UIViewControllerRepresentable {
             assets: assets,
             source: source,
             provider: provider,
-            onSelectAsset: onSelectAsset
+            onSelectAsset: onSelectAsset,
+            onZoomStateChanged: onZoomStateChanged
         )
         pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
@@ -320,7 +331,8 @@ private struct PreviewPager: UIViewControllerRepresentable {
             assets: assets,
             source: source,
             provider: provider,
-            onSelectAsset: onSelectAsset
+            onSelectAsset: onSelectAsset,
+            onZoomStateChanged: onZoomStateChanged
         )
         guard let target = context.coordinator.controller(for: asset.id),
               pager.viewControllers?.first !== target else { return }
@@ -340,6 +352,7 @@ private struct PreviewPager: UIViewControllerRepresentable {
         private var source: (any ImageSource)?
         private var provider: ThumbnailProvider?
         private var onSelectAsset: ((AssetRef) -> Void)?
+        private var onZoomStateChanged: ((Bool, Bool) -> Void)?
 
         private struct AssetFingerprint: Equatable {
             let count: Int
@@ -365,9 +378,11 @@ private struct PreviewPager: UIViewControllerRepresentable {
             assets: [AssetRef],
             source: (any ImageSource)?,
             provider: ThumbnailProvider,
-            onSelectAsset: @escaping (AssetRef) -> Void
+            onSelectAsset: @escaping (AssetRef) -> Void,
+            onZoomStateChanged: @escaping (Bool, Bool) -> Void
         ) {
             self.onSelectAsset = onSelectAsset
+            self.onZoomStateChanged = onZoomStateChanged
             self.source = source
             self.provider = provider
             let fingerprint = AssetFingerprint(assets)
@@ -393,7 +408,10 @@ private struct PreviewPager: UIViewControllerRepresentable {
             let controller = UIHostingController(rootView: AnyView(
                 PreviewImage(
                     source: PreviewViewVM.thumbnailSource(for: item, source: source),
-                    provider: provider
+                    provider: provider,
+                    onZoomStateChanged: { [weak self] isAtFit, isPinching in
+                        self?.onZoomStateChanged?(isAtFit, isPinching)
+                    }
                 )
             ))
             controllers[index] = controller
@@ -450,6 +468,7 @@ private struct PreviewPager: UIViewControllerRepresentable {
                   let index = index(of: visible) else { return }
             let selected = assets[index]
             prune(around: selected.id)
+            onZoomStateChanged?(true, false)
             onSelectAsset?(selected)
         }
     }
@@ -471,6 +490,7 @@ private struct PreviewPager: UIViewControllerRepresentable {
 private struct PreviewImage: View {
     let source: ThumbnailSource
     let provider: ThumbnailProvider
+    var onZoomStateChanged: (Bool, Bool) -> Void = { _, _ in }
 
     /// Display-ready pixels. JPEG decoding must never happen in `body`: when a
     /// PhotoKit request completes during an interactive page transition, doing
@@ -520,7 +540,10 @@ private struct PreviewImage: View {
         .clipped()
         .simultaneousGesture(pinchGesture)
         .task(id: sourceID) { await load(for: sourceID) }
-        .onChange(of: sourceID) { _, _ in zoomScale = 1 }
+        .onChange(of: sourceID) { _, _ in
+            zoomScale = 1
+            onZoomStateChanged(true, false)
+        }
     }
 
     private func load(for id: String) async {
@@ -556,11 +579,15 @@ private struct PreviewImage: View {
 
     private var pinchGesture: some Gesture {
         MagnifyGesture()
+            .onChanged { _ in
+                onZoomStateChanged(false, true)
+            }
             .updating($pinchScale) { value, state, _ in
                 state = value.magnification
             }
             .onEnded { value in
                 zoomScale = min(6, max(1, zoomScale * value.magnification))
+                onZoomStateChanged(zoomScale == 1, false)
             }
     }
 }
