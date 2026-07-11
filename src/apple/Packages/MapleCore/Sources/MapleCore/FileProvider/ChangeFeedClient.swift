@@ -13,7 +13,7 @@ import OSLog
 
 final class ChangeFeedClient {
     private let server: URL
-    private let tokensProvider: @Sendable () -> AuthTokens?
+    private let http: AuthenticatedHTTPClient
     private let cursorStore: ChangeCursorStore
     private let domainID: String
     private let onEvent: @Sendable (AssetChange) async -> Void
@@ -33,14 +33,14 @@ final class ChangeFeedClient {
     private var task: Task<Void, Never>?
 
     init(server: URL,
-         tokensProvider: @escaping @Sendable () -> AuthTokens?,
+         http: AuthenticatedHTTPClient,
          cursorStore: ChangeCursorStore,
          domainID: String,
          catalog: RemoteCatalog? = nil,
          onEvent: @escaping @Sendable (AssetChange) async -> Void,
          onStaleCursor: (@Sendable (Int64) async -> Void)? = nil) {
         self.server = server
-        self.tokensProvider = tokensProvider
+        self.http = http
         self.cursorStore = cursorStore
         self.domainID = domainID
         self.catalog = catalog
@@ -123,11 +123,9 @@ final class ChangeFeedClient {
         var req = URLRequest(url: comps.url!)
         req.timeoutInterval = 0  // indefinite — SSE
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        if let tok = tokensProvider() {
-            req.setValue("Bearer \(tok.access)", forHTTPHeaderField: "Authorization")
+        let (bytes, resp) = try await http.refreshIfNeededAndRetry(request: req) { signed in
+            try await URLSession.shared.bytes(for: signed)
         }
-
-        let (bytes, resp) = try await URLSession.shared.bytes(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
         if code == 409 {
             // Server tells us our cursor is below the buffer floor.

@@ -28,6 +28,7 @@
 		E3DD94902FB55723009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948F2FB55723009392B4 /* MapleBackup */; };
 		EBA6500530BFEA35449C6FE3 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D23B0EDD7DF1B168C777B68 /* QuickLookUI.framework */; };
 		E3DD94D12FB50E55009392B4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E3DD94D02FB50E55009392B4 /* LaunchScreen.storyboard */; platformFilters = (ios, ); };
+		A11A00010000000000000905 /* PhotoKitAssetReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11A00020000000000000905 /* PhotoKitAssetReader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -115,6 +116,7 @@
 		E471E86FF6276852A3960D14 /* FileProvider.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FileProvider.framework; path = System/Library/Frameworks/FileProvider.framework; sourceTree = SDKROOT; };
 		EC6472D425AC44A1388478EF /* MapleFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MapleFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3DD94D02FB50E55009392B4 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A11A00020000000000000905 /* PhotoKitAssetReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Maple/Backup/PhotoKitAssetReader.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -661,6 +663,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A11A00010000000000000905 /* PhotoKitAssetReader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

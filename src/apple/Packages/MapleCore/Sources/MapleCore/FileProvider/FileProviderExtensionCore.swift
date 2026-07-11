@@ -59,15 +59,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
         }
-        let tokensStore = FileProviderTokensStore()
         let session = URLSession(configuration: .default)
         let domainID = domain.identifier.rawValue
         let http = AuthenticatedHTTPClient(
             server: cfg.serverURL,
             urlSession: session,
-            tokensProvider: { tokensStore.load(domain: domainID) },
-            onTokensRefreshed: { tokensStore.save($0, domain: domainID) },
-            onSignOut: { tokensStore.remove(domain: domainID) }
+            tokensProvider: { try? TokenStore.load(server: cfg.serverURL) },
+            onTokensRefreshed: { try? TokenStore.save($0, server: cfg.serverURL) },
+            onSignOut: { TokenStore.clear(server: cfg.serverURL) }
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
         let resolvedWorkingSet = WorkingSet(capacity: 20_000)
@@ -104,7 +103,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // host app and we don't want to hold a stale snapshot.
         self.changeFeed = ChangeFeedClient(
             server: cfg.serverURL,
-            tokensProvider: { tokensStore.load(domain: domainID) },
+            http: http,
             cursorStore: resolvedCursorStore,
             domainID: domainID,
             catalog: catalog,
@@ -135,7 +134,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: cfg.serverURL)
             await catalog.updateServer(effective)
         }
-        let hasTokens = tokensStore.load(domain: domainID) != nil
+        let hasTokens = ((try? TokenStore.load(server: cfg.serverURL)) ?? nil) != nil
         log.notice("init domain=\(domain.identifier.rawValue, privacy: .public) serverURL=\(cfg.serverURL.absoluteString, privacy: .public) hasTokens=\(hasTokens, privacy: .public) device=\(resolvedDeviceName, privacy: .public)")
         if !hasTokens {
             log.error("EXTENSION HAS NO AUTH TOKENS — host app must be signed in for this server. Open Maple, sign in, then the extension will pick them up on next launch.")

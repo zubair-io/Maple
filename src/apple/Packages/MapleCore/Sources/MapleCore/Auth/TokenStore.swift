@@ -24,14 +24,37 @@ public enum TokenStore {
   /// platforms use the same keychain with the same semantics. It's the
   /// default on iOS, so this is a no-op there and corrective on macOS.
   private static func baseQuery(server: URL) -> [String: Any] {
-    [
+    var query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: server.absoluteString,
-      kSecAttrAccessGroup as String: accessGroup,
       kSecUseDataProtectionKeychain as String: true,
     ]
+    // SwiftPM test runners are not signed with Maple's access-group
+    // entitlement. Only request the shared group when the current executable
+    // actually carries it; shipping app/extension/agent targets all do.
+    if processHasSharedAccessGroup {
+      query[kSecAttrAccessGroup as String] = accessGroup
+    }
+    return query
   }
+
+  private static let processHasSharedAccessGroup: Bool = {
+    #if os(macOS)
+    guard let task = SecTaskCreateFromSelf(nil),
+          let value = SecTaskCopyValueForEntitlement(
+            task,
+            "keychain-access-groups" as CFString,
+            nil
+          ) as? [String]
+    else { return false }
+    return value.contains(accessGroup)
+    #else
+    // iOS-family app and extension targets are always signed with the shared
+    // access group; SecTask entitlement inspection is unavailable there.
+    return true
+    #endif
+  }()
 
   public static func save(_ tokens: AuthTokens, server: URL) throws {
     let data = try JSONEncoder().encode(tokens)

@@ -2,7 +2,7 @@ import XCTest
 @testable import MapleCore
 
 final class AuthenticatedHTTPClientInjectTests: XCTestCase {
-  func testInjectAddsBearerHeader() async {
+  func testInjectAddsBearerHeader() async throws {
     let client = AuthenticatedHTTPClient(
       server: URL(string: "https://x.test")!,
       urlSession: TestURLSession.make(),
@@ -10,7 +10,7 @@ final class AuthenticatedHTTPClientInjectTests: XCTestCase {
       onSignOut: {}
     )
     let req = URLRequest(url: URL(string: "https://x.test/api/folders")!)
-    let injected = await client.inject(req)
+    let injected = try await client.inject(req)
     XCTAssertEqual(injected.value(forHTTPHeaderField: "Authorization"), "Bearer A1")
   }
 
@@ -22,8 +22,14 @@ final class AuthenticatedHTTPClientInjectTests: XCTestCase {
       onSignOut: {}
     )
     let req = URLRequest(url: URL(string: "https://x.test/api/folders")!)
-    let injected = await client.inject(req)
-    XCTAssertNil(injected.value(forHTTPHeaderField: "Authorization"))
+    do {
+      _ = try await client.inject(req)
+      XCTFail("expected local authentication failure")
+    } catch let error as AuthenticatedHTTPClient.AuthenticationError {
+      XCTAssertEqual(error, .notAuthenticated)
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
   }
 
   func testRefreshIfNeededAndRetryReturnsOnSuccess() async throws {
