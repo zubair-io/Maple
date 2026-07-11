@@ -1158,6 +1158,8 @@ export interface RefreshTokenDoc {
    * it. Reuse detection and logout revoke a family (one device), not the whole
    * user. Optional only for tokens issued before family tracking. */
   family_id?: ObjectId;
+  /** Set on every member when logout/reuse deliberately revokes the family. */
+  family_revoked_at?: string;
 }
 export type RefreshTokenWithId = WithId<RefreshTokenDoc>;
 

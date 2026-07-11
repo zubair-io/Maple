@@ -112,11 +112,13 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
   // 2. Not live — classify.
   const row = await c.findOne({ token_hash: oldHash });
   if (!row) throw new RefreshError('unknown_token', 'unknown refresh token');
-  if (row.revoked_at === null)
-    throw new RefreshError('token_expired', 'refresh token expired');
+  if (row.revoked_at === null) throw new RefreshError('token_expired', 'refresh token expired');
 
   // 3/4. Revoked + within grace.
   if (now.getTime() - new Date(row.revoked_at).getTime() <= REFRESH_GRACE_MS) {
+    if (row.family_revoked_at) {
+      throw new RefreshError('reuse_detected', 'refresh token family revoked');
+    }
     const live = row.family_id
       ? await c.findOne({ family_id: row.family_id, revoked_at: null })
       : null;
@@ -124,10 +126,8 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
       // Benign lost-response / concurrent retry of a just-rotated token.
       return await issueRefreshToken(row.user_id, row.device_label, row.family_id);
     }
-    // Family is dead (logout / reuse-revoked) or a sub-ms concurrent CAS hasn't
-    // inserted its successor yet — reject WITHOUT revoking (don't kill a racing
-    // successor). The client retries and self-heals; a logged-out family stays
-    // logged out.
+    // A winning CAS linked its successor but has not inserted it yet. The
+    // family has not been deliberately revoked, so this is transient.
     throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
   }
 
@@ -144,9 +144,11 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
 /** Revoke every live token in a family (one device's rotation lineage). */
 export async function revokeFamily(familyId: ObjectId): Promise<void> {
   const c = await refreshTokensCollection();
+  const revokedAt = new Date().toISOString();
+  await c.updateMany({ family_id: familyId }, { $set: { family_revoked_at: revokedAt } });
   await c.updateMany(
     { family_id: familyId, revoked_at: null },
-    { $set: { revoked_at: new Date().toISOString() } },
+    { $set: { revoked_at: revokedAt } },
   );
 }
 
@@ -161,7 +163,11 @@ export async function revokeFamilyByToken(rawToken: string): Promise<void> {
   if (row.family_id) {
     await revokeFamily(row.family_id);
   } else {
-    await c.updateOne({ _id: row._id }, { $set: { revoked_at: new Date().toISOString() } });
+    const revokedAt = new Date().toISOString();
+    await c.updateOne(
+      { _id: row._id },
+      { $set: { revoked_at: revokedAt, family_revoked_at: revokedAt } },
+    );
   }
 }
 
@@ -174,10 +180,9 @@ export async function revokeFamilyByToken(rawToken: string): Promise<void> {
  */
 export async function revokeChain(userId: ObjectId): Promise<void> {
   const c = await refreshTokensCollection();
-  await c.updateMany(
-    { user_id: userId, revoked_at: null },
-    { $set: { revoked_at: new Date().toISOString() } },
-  );
+  const revokedAt = new Date().toISOString();
+  await c.updateMany({ user_id: userId }, { $set: { family_revoked_at: revokedAt } });
+  await c.updateMany({ user_id: userId, revoked_at: null }, { $set: { revoked_at: revokedAt } });
 }
 
 /** Revoke a single token by its raw value. */

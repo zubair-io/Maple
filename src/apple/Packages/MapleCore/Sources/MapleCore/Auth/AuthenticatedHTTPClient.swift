@@ -121,18 +121,25 @@ public actor AuthenticatedHTTPClient {
     // N concurrent 401s produce exactly one Keychain write + mirror, not N.
     if let t = inflightRefresh { return try await t.value }
     let task = Task { () throws -> AuthTokens in
-      let lock = try Self.acquireRefreshLock(server: server)
+      let lock = try await Self.acquireRefreshLock(server: server)
       defer { Self.releaseRefreshLock(lock) }
       // A different Apple process may have rotated while this process waited
       // for the App Group lock. Adopt that generation instead of replaying the
       // predecessor refresh token.
+      var effectiveRefreshToken = refreshToken
       if let latest = tokensProvider(), latest.refresh != refreshToken {
-        return latest
+        if !Self.accessTokenIsExpired(latest.access, skew: 0) {
+          return latest
+        }
+        // The other process rotated long enough ago that its access token is
+        // already expired too. Refresh from that newer generation, never the
+        // predecessor this process originally read.
+        effectiveRefreshToken = latest.refresh
       }
       var req = URLRequest(url: server.appending(path: "/api/auth/refresh"))
       req.httpMethod = "POST"
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": refreshToken])
+      req.httpBody = try JSONSerialization.data(withJSONObject: ["refresh_token": effectiveRefreshToken])
       let (data, resp) = try await urlSession.data(for: req)
       guard let http = resp as? HTTPURLResponse else { throw RefreshFailure.transient }
       if http.statusCode == 401 { throw RefreshFailure.terminal }
@@ -144,7 +151,7 @@ public actor AuthenticatedHTTPClient {
       // sign-out. When absent we keep the token we presented.
       struct R: Decodable { let access_token: String; let refresh_token: String? }
       let r = try JSONDecoder().decode(R.self, from: data)
-      return AuthTokens(access: r.access_token, refresh: r.refresh_token ?? refreshToken)
+      return AuthTokens(access: r.access_token, refresh: r.refresh_token ?? effectiveRefreshToken)
     }
     inflightRefresh = task
     defer { inflightRefresh = nil }
@@ -201,25 +208,39 @@ public actor AuthenticatedHTTPClient {
       throw AuthenticationError.notAuthenticated
     } catch {
       cloudHTTPLogger.error("proactive refresh rejected: \(error.localizedDescription, privacy: .public)")
-      throw error
+      throw AuthenticationError.temporarilyUnavailable
     }
   }
 
-  private static func acquireRefreshLock(server: URL) throws -> Int32 {
+  private static func acquireRefreshLock(server: URL) async throws -> Int32 {
     #if canImport(Darwin)
-    let container = FileManager.default.containerURL(
+    let sharedContainer = FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: "group.app.justmaple.aperture"
-    ) ?? FileManager.default.temporaryDirectory
+    )
+    let container: URL
+    if let sharedContainer {
+      container = sharedContainer
+    } else if NSClassFromString("XCTestCase") != nil {
+      container = FileManager.default.temporaryDirectory
+    } else {
+      cloudHTTPLogger.fault("shared App Group container unavailable; refusing unsafe refresh")
+      throw AuthenticationError.temporarilyUnavailable
+    }
     let directory = container.appendingPathComponent("AuthLocks", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let path = directory.appendingPathComponent("\(stableServerHash(server)).lock").path
     let descriptor = Darwin.open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw AuthenticationError.temporarilyUnavailable }
-    guard flock(descriptor, LOCK_EX) == 0 else {
-      Darwin.close(descriptor)
-      throw AuthenticationError.temporarilyUnavailable
+    for _ in 0..<200 {
+      if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return descriptor }
+      guard errno == EWOULDBLOCK else {
+        Darwin.close(descriptor)
+        throw AuthenticationError.temporarilyUnavailable
+      }
+      try await Task.sleep(nanoseconds: 50_000_000)
     }
-    return descriptor
+    Darwin.close(descriptor)
+    throw AuthenticationError.temporarilyUnavailable
     #else
     return -1
     #endif

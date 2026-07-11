@@ -134,7 +134,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: cfg.serverURL)
             await catalog.updateServer(effective)
         }
-        let hasTokens = ((try? TokenStore.load(server: cfg.serverURL)) ?? nil) != nil
+        let hasTokens = (try? TokenStore.load(server: cfg.serverURL)) != nil
         log.notice("init domain=\(domain.identifier.rawValue, privacy: .public) serverURL=\(cfg.serverURL.absoluteString, privacy: .public) hasTokens=\(hasTokens, privacy: .public) device=\(resolvedDeviceName, privacy: .public)")
         if !hasTokens {
             log.error("EXTENSION HAS NO AUTH TOKENS — host app must be signed in for this server. Open Maple, sign in, then the extension will pick them up on next launch.")
