@@ -7,6 +7,22 @@ export interface IssuedRefresh {
   userId: ObjectId;
 }
 
+export type RefreshErrorCode =
+  | 'unknown_token'
+  | 'token_expired'
+  | 'rotation_conflict'
+  | 'reuse_detected';
+
+export class RefreshError extends Error {
+  constructor(
+    public readonly code: RefreshErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RefreshError';
+  }
+}
+
 /**
  * Lost-response / concurrent-rotation grace window (#858).
  *
@@ -95,8 +111,9 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
 
   // 2. Not live — classify.
   const row = await c.findOne({ token_hash: oldHash });
-  if (!row) throw new Error('unknown refresh token');
-  if (row.revoked_at === null) throw new Error('refresh token expired');
+  if (!row) throw new RefreshError('unknown_token', 'unknown refresh token');
+  if (row.revoked_at === null)
+    throw new RefreshError('token_expired', 'refresh token expired');
 
   // 3/4. Revoked + within grace.
   if (now.getTime() - new Date(row.revoked_at).getTime() <= REFRESH_GRACE_MS) {
@@ -111,7 +128,7 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
     // inserted its successor yet — reject WITHOUT revoking (don't kill a racing
     // successor). The client retries and self-heals; a logged-out family stays
     // logged out.
-    throw new Error('refresh token rotation conflict');
+    throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
   }
 
   // 5. Revoked + outside grace → genuine reuse → kill this device's family.
@@ -121,7 +138,7 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
     // Legacy token issued before family tracking — fall back to per-user.
     await revokeChain(row.user_id);
   }
-  throw new Error('refresh token reuse detected — family revoked');
+  throw new RefreshError('reuse_detected', 'refresh token reuse detected — family revoked');
 }
 
 /** Revoke every live token in a family (one device's rotation lineage). */
