@@ -128,14 +128,25 @@ fn apply_delta_rec2020_matches_the_matrix() {
 }
 
 /// Fixture-gated: the export resolved from the real test_0002 body must
-/// carry the bundle frame (dual endpoints, scene_cct ≈ 5520 K) and a
-/// present flag — the exact values the #1781 seam analysis measured.
+/// now (#1894 item 6) carry the SINGLE EMBEDDED CM frame — not the bundle
+/// — because `SliderFrame::resolve` accepts a lone non-identity embedded
+/// `ColorMatrix` instead of falling through to the render profile.
+/// test_0002 (H2D-39) ships exactly one embedded CM (tagged D65,
+/// cct-of-tag 6504); its `scene_cct` is the direct (non-iterative)
+/// Robertson solve at that CM: `inv(cm) · as_shot_neutral` normalizes to
+/// xy ≈ (0.35445, 0.33086), and
+/// `dng_temperature::xy_to_temp_tint` of that point is ≈ 4522.4 K —
+/// measured directly against this fixture (`wb_1894_acceptance_probe`
+/// during #1894 development; NOT the bundle's 5520 K this test asserted
+/// pre-#1894, nor the McCamy-based 4539.8 K the pre-#1894 embedded-frame
+/// investigation quoted — Robertson's isotherm search is a materially
+/// different curve fit from both).
 #[test]
 #[cfg_attr(
     not(feature = "fixtures"),
     ignore = "needs test-fixtures/raws (fixtures feature)"
 )]
-fn resolve_on_test_0002_exports_the_bundle_frame() {
+fn resolve_on_test_0002_exports_the_single_embedded_cm_frame() {
     let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read test_0002.dng");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode test_0002");
@@ -143,13 +154,13 @@ fn resolve_on_test_0002_exports_the_bundle_frame() {
     let export = SliderFrameExport::resolve(&raw, &profile);
     assert!(export.is_present());
     assert!(
-        (export.scene_cct - 5520.0).abs() < 5.0,
-        "scene_cct {} != bundle frame 5520",
+        (export.scene_cct - 4522.4).abs() < 5.0,
+        "scene_cct {} != single embedded CM frame's Robertson solve ≈ 4522.4",
         export.scene_cct
     );
     assert!(
-        export.cct_warm - export.cct_cold >= 1.0,
-        "bundle profile should export dual endpoints"
+        export.cct_warm - export.cct_cold < 1.0,
+        "a single embedded CM must export as a degenerate (non-dual) pair, not the bundle's endpoints"
     );
     assert!(export.as_shot_tint.is_finite());
 }
@@ -164,33 +175,47 @@ fn resolve_on_test_0002_exports_the_bundle_frame() {
 // pair is a WB no-op — i.e. `camera_wb_gain(frame, asn, scene_cct,
 // as_shot_tint) ≈ [1, 1, 1]`. Pre-#1870 the estimate was projected on the
 // OPPOSITE axis (and clamped at ±100), so the seeded init rendered a
-// visible cast on every calibrated body — a heavy pink on test_0002, whose
-// true frame-convention as-shot tint (≈ −143.5 in the ACR-direction axis)
-// also sits past the old ±100 rail.
+// visible cast on every calibrated body. #1894 moved BOTH the estimate
+// (`SliderFrameExport::resolve`, via `super::robertson_as_shot_tint`) and
+// the render's forward map (`wb_camera::target_xyz`, via
+// `slider_source_xy`) onto the Robertson mapping together, so the
+// estimator/render invariant this test pins holds under the new mapping
+// exactly as it did under the old one.
 
 use crate::stages::wb_camera::camera_wb_gain;
-use crate::stages::white_balance::{apply_tint_perpendicular, cct_to_xy, xy_to_xyz};
-use crate::stages::white_balance_auto::estimate_tint_from_scene_xyz;
+use crate::stages::white_balance::{slider_source_xy, xy_to_xyz};
 
 /// The camera-native `AsShotNeutral` the synthetic frame's sensor would
 /// report for an illuminant displaced `tint_true` (ACR convention —
 /// the `true` axis `camera_wb_gain` consumes, #1875) off the locus at the
-/// frame's own `scene_cct`.
+/// frame's own `scene_cct`, via the #1894 Robertson mapping
+/// (`slider_source_xy` — the same forward map `wb_camera::target_xyz`
+/// uses) rather than the legacy Hernández-Andrés perpendicular
+/// displacement.
 fn as_shot_neutral_at_tint(export: &SliderFrameExport, tint_true: f32) -> [f32; 3] {
-    let (lx, ly) = cct_to_xy(export.scene_cct);
-    let (wx, wy) = apply_tint_perpendicular(lx, ly, export.scene_cct, tint_true, true);
+    let (wx, wy) = slider_source_xy(export.scene_cct, tint_true);
     let xyz = xy_to_xyz(wx, wy, 1.0);
     export.to_frame().cm_as_shot.mul_vec(xyz)
 }
 
-/// Estimate + unity-gain check for one true tint value.
+/// Estimate + unity-gain check for one true tint value. The estimate comes
+/// from [`super::robertson_as_shot_tint`] — the SAME function
+/// `SliderFrameExport::resolve` calls to populate `as_shot_tint` — so this
+/// exercises the real production estimator, not a reimplementation of it.
 fn assert_estimate_nulls_gain(tint_true: f32) {
     let export = synthetic_frame();
     let frame = export.to_frame();
     let asn = as_shot_neutral_at_tint(&export, tint_true);
-    let est = estimate_tint_from_scene_xyz(frame.scene_illuminant_xyz(asn), export.scene_cct);
+    let est = super::robertson_as_shot_tint(&frame, asn);
+    // Robertson round trip through one forward (`slider_source_xy`) + one
+    // inverse (`xy_to_temp_tint`) hop at a FIXED cct is tight — no
+    // fixed-point iteration is involved here (unlike
+    // `wb_camera_scale::invert_frame_target`), so table-breakpoint
+    // discontinuities don't compound; `dng_temperature`'s own
+    // `round_trip_temp_tint_through_xy` test uses the same 1.5-unit bound
+    // for exactly this single-hop shape.
     assert!(
-        (est - tint_true).abs() <= 2.0,
+        (est - tint_true).abs() <= 1.5,
         "estimate must be in the slider convention: true tint {tint_true}, estimated {est}"
     );
     let gain = camera_wb_gain(&frame, asn, export.scene_cct, est);
@@ -217,12 +242,25 @@ fn as_shot_tint_estimate_nulls_camera_wb_gain_past_the_old_rail() {
     assert_estimate_nulls_gain(-143.5);
 }
 
-/// Fixture-gated (#1870/#1875): the real test_0002 body's exported as-shot
-/// tint must null the camera gain — the As-Shot init render is a WB no-op.
-/// Pre-#1870 this exported −100 (railed) while the render axis disagreed,
-/// and the init carried a [1.18, 1.0, 1.23] gain: the reported pink cast.
-/// #1875 flipped estimator AND render to the ACR axis together, so the
-/// value is now ≈ −143.5 and unity still holds.
+/// Fixture-gated (#1870/#1875/#1894): the real test_0002 body's exported
+/// as-shot tint must null the camera gain — the As-Shot init render is a
+/// WB no-op — regardless of which value-mapping curve produced the
+/// number. The unity-gain property is a SELF-consistency invariant
+/// (estimator and render share `robertson_as_shot_tint`/`slider_source_xy`,
+/// #1894) and holds independent of the specific `(cct, tint)` the mapping
+/// produces.
+///
+/// The as-shot tint VALUE itself moved twice since #1875's −143.5
+/// (measured on the pre-#1894 BUNDLE frame, 1e-4-uv-per-unit scale): first
+/// #1893's kTintScale rescale (−143.5 × 0.3 ≈ −43, though the bundle
+/// frame's exact projection differs slightly), and then #1894 item 6
+/// switched this fixture onto the single EMBEDDED CM frame (not the
+/// bundle) with the Robertson mapping. The current value, ≈ −43.79,
+/// was measured directly against this fixture during #1894 development
+/// (`wb_1894_acceptance_probe`) — it is NOT independently re-derived from
+/// a closed-form formula here (the isotherm-table search has no closed
+/// form), so this assertion pins the CURRENT measured output rather than
+/// a value computed from first principles in-comment.
 #[test]
 #[cfg_attr(
     not(feature = "fixtures"),
@@ -235,8 +273,8 @@ fn test_0002_as_shot_tint_export_is_a_wb_no_op() {
     let profile = crate::color::dcp::profile_for(&raw).expect("profile");
     let export = SliderFrameExport::resolve(&raw, &profile);
     assert!(
-        (export.as_shot_tint - (-143.5)).abs() < 3.0,
-        "H2D-39 as-shot tint in the ACR-direction convention is ≈ −143.5, got {}",
+        (export.as_shot_tint - (-43.79)).abs() < 3.0,
+        "H2D-39 as-shot tint (single embedded CM, Robertson) is ≈ −43.79, got {}",
         export.as_shot_tint
     );
     let gain = camera_wb_gain(

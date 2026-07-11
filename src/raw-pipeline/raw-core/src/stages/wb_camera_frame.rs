@@ -32,6 +32,34 @@ use crate::{
 /// pre-#1727 post-DCP CAT16 path's constant ≈28-mired error on the same
 /// body (its fixed 6500 K anchor vs ACR's 5508 K) is the same phenomenon
 /// from the other side.
+///
+/// ## Single embedded CM (#1894)
+///
+/// A DNG that ships exactly one non-identity embedded `ColorMatrix` IS now
+/// accepted as its own slider frame (`endpoints: None`, `cm_as_shot` = the
+/// single CM, `scene_cct` from the Robertson solve at that CM — see
+/// [`Self::resolve`]'s single-CM arm). Before #1894 this case fell through
+/// to the render-profile frame instead: the original measurement backing
+/// that choice (test_0002, H2D-39 — single embedded CM read a 4539.8 K
+/// as-shot vs the bundle's 5520.0 K, and anchoring on the embedded reading
+/// moved AWAY from the ACR references on balance) was confounded by two
+/// bugs fixed since: the tint scale was 3.33× too small (#1893, so any
+/// off-locus embedded-CM as-shot railed toward the slider's clamp instead
+/// of landing where ACR displays it), and the CCT solve was McCamy's
+/// polynomial rather than Robertson (#1894, a different curve than the one
+/// ACR itself derives its displayed CCT from). With both fixed,
+/// `dcp::estimate_as_shot_cct_tint(test_0002)` in the single-CM embedded
+/// frame measures 4522.4 K / −43.79 tint — within 100 K of ACR's displayed
+/// 4450 K, but 9.2 tint units off ACR's displayed −53 (measured directly
+/// against this fixture during #1894 development; NOT independently
+/// re-verified against a fresh ACR reading here). The legacy
+/// McCamy+Hernández-Andrés estimate on this SAME embedded-CM xy point
+/// gives 4539.8 K / −53.1 — near-exact agreement with ACR's number — so
+/// the residual gap is a real, measured divergence between the Robertson
+/// and legacy curve fits at this specific (far off-locus) chromaticity,
+/// not a bug in the glue code wiring this frame together: the Robertson
+/// solve here is a self-consistent round trip (`temp_tint_to_xy` of the
+/// result reproduces the measured xy to ~1e-4).
 pub struct SliderFrame {
     /// Dual-illuminant endpoints `(m_cold, cct_cold, m_warm, cct_warm)`
     /// when the frame has two calibrations; `None` for a single-CM frame.
@@ -47,18 +75,16 @@ pub struct SliderFrame {
 impl SliderFrame {
     /// Resolve the slider frame for a source: the DNG's own embedded
     /// (non-identity — ticket #424's guarantee applies here too)
-    /// dual-illuminant `ColorMatrix` PAIR when it ships one, else the
-    /// resolved render profile's calibration.
+    /// dual-illuminant `ColorMatrix` PAIR when it ships one, a single
+    /// embedded non-identity CM when it ships exactly that (#1894, see the
+    /// struct doc's "Single embedded CM" section), else the resolved
+    /// render profile's calibration.
     ///
-    /// The dual-pair requirement is deliberate: ACR's slider→neutral
+    /// The dual-pair case additionally interpolates: ACR's slider→neutral
     /// mapping (`dng_color_spec.cpp::SetWhiteXY`) is built on the
-    /// reciprocal-CCT interpolation BETWEEN two calibrations — that
-    /// interpolation is what makes the scale camera-specific. A DNG that
-    /// ships a single CM has no interpolation model to define a scale
-    /// with, and empirically (test_0002, H2D-39, single embedded CM at a
-    /// 4539.8 K frame reading vs the bundle's 5520.0 K) anchoring on it
-    /// moves AWAY from the ACR references on balance — so single-CM
-    /// sources stay on the render profile's frame. Vendor RAW formats
+    /// reciprocal-CCT interpolation BETWEEN two calibrations when a DNG
+    /// ships two — that interpolation is what makes the scale
+    /// camera-specific across the whole slider range. Vendor RAW formats
     /// never populate `raw.color_matrices` at all (decode.rs § 8 gates on
     /// DNG-shaped sources), so they always land on the profile branch —
     /// which is ACR's frame for them as well, since the bundle ships the
@@ -96,10 +122,27 @@ impl SliderFrame {
                     scene_cct,
                 }
             }
-            // No usable embedded pair: the render profile IS the slider
-            // frame (bundle for vendor RAW and single-CM DNGs, embedded
-            // for the EmbeddedFull/EmbeddedCmOnly tiers — where profile
-            // and frame coincide by construction).
+            // Single embedded non-identity CM (#1894): its own frame, no
+            // interpolation model (nothing to interpolate between — a
+            // single fixed CM needs no `compute_as_shot_cct` iteration,
+            // and feeding it `interpolate_cm` with equal cold/warm
+            // endpoints would divide by zero in the reciprocal-CCT `t`),
+            // and `scene_cct` from a direct Robertson solve at that one
+            // CM: `inv(m_single) · as_shot_neutral`, normalized to xy, fed
+            // through `dng_temperature::xy_to_temp_tint`.
+            [(_, m_single)] => {
+                let scene_cct =
+                    single_cm_robertson_cct(*m_single, raw.as_shot_neutral, profile.scene_cct);
+                SliderFrame {
+                    endpoints: None,
+                    cm_as_shot: *m_single,
+                    scene_cct,
+                }
+            }
+            // No usable embedded calibration at all: the render profile IS
+            // the slider frame (bundle for vendor RAW, embedded for the
+            // EmbeddedFull/EmbeddedCmOnly tiers — where profile and frame
+            // coincide by construction).
             _ => SliderFrame {
                 endpoints: profile
                     .cm_endpoints
@@ -140,4 +183,26 @@ impl SliderFrame {
             })
             .unwrap_or(crate::color::matrices::XYZ_D65)
     }
+}
+
+/// Direct (non-iterative) Robertson as-shot CCT for a single fixed
+/// calibration matrix (#1894): `inv(cm) · as_shot_neutral`, normalized to
+/// xy, fed through `dng_temperature::xy_to_temp_tint`. No fixed-point
+/// iteration is needed here (unlike the dual-endpoint
+/// `dcp::compute_as_shot_cct`) because a single CM's projection doesn't
+/// depend on the CCT being solved for. Falls back to `fallback` (the
+/// render profile's own `scene_cct`) on a singular matrix or a degenerate
+/// (non-finite / near-zero-sum) projected XYZ — defensive; a real
+/// embedded calibration is invertible and produces a physically valid
+/// neutral.
+fn single_cm_robertson_cct(cm: Matrix3, as_shot_neutral: [f32; 3], fallback: f32) -> f32 {
+    let Some(inv) = cm.inverse() else {
+        return fallback;
+    };
+    let xyz = inv.mul_vec(as_shot_neutral);
+    let sum = xyz[0] + xyz[1] + xyz[2];
+    if !sum.is_finite() || sum < 1e-6 {
+        return fallback;
+    }
+    crate::color::dng_temperature::xy_to_temp_tint(xyz[0] / sum, xyz[1] / sum).0
 }
