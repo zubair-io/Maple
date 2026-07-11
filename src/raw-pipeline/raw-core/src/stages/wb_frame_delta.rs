@@ -64,9 +64,7 @@ use crate::{
 };
 
 use super::{camera_wb_gain, SliderFrame};
-use crate::stages::white_balance::{
-    apply_tint_perpendicular, cct_to_xy, wb_cat16_matrix, xy_to_xyz,
-};
+use crate::stages::white_balance::{wb_cat16_matrix, xy_to_xyz};
 
 /// Plain-data export of a resolved [`SliderFrame`] + the frame's as-shot
 /// tint, shaped for flat-float FFI transport (#1781). All-zero (see
@@ -115,10 +113,14 @@ impl SliderFrameExport {
     /// `raw-ffi::scene_linear_f32::wb_frame_export`.
     pub fn resolve(raw: &RawImage, profile: &DcpProfile) -> SliderFrameExport {
         let frame = SliderFrame::resolve(raw, profile);
-        let as_shot_tint = crate::stages::white_balance_auto::estimate_tint_from_scene_xyz(
-            frame.scene_illuminant_xyz(raw.as_shot_neutral),
-            frame.scene_cct,
-        );
+        // #1894: the SAME Robertson mapping the frame's own `scene_cct`
+        // now derives from (`dcp::compute_as_shot_cct` /
+        // `SliderFrame::resolve`'s single-CM arm) — not the separate
+        // Hernández-Andrés perpendicular-projection estimator this used
+        // pre-#1894. `frame_to_rec2020` below reconstructs `w_frame` from
+        // this SAME pair via `slider_source_xy`, so estimator and
+        // reconstruction share one mapping (the #1870 invariant).
+        let as_shot_tint = robertson_as_shot_tint(&frame, raw.as_shot_neutral);
         match frame.endpoints {
             Some((m_cold, cct_cold, m_warm, cct_warm)) => SliderFrameExport {
                 m_cold,
@@ -230,14 +232,28 @@ fn generic_cat16_delta(target: (f32, f32), decoded: (f32, f32)) -> Matrix3 {
     }
 }
 
+/// #1894: the same Robertson mapping [`SliderFrameExport::resolve`] reads
+/// `as_shot_tint` off of (`dng_temperature::xy_to_temp_tint`), applied to
+/// the frame's own scene-illuminant xy — the estimator half of the #1870
+/// invariant this module's `frame_to_rec2020` must invert exactly.
+fn robertson_as_shot_tint(frame: &SliderFrame, as_shot_neutral: [f32; 3]) -> f32 {
+    let xyz = frame.scene_illuminant_xyz(as_shot_neutral);
+    let sum = xyz[0] + xyz[1] + xyz[2];
+    if !sum.is_finite() || sum < 1e-6 {
+        return 0.0;
+    }
+    crate::color::dng_temperature::xy_to_temp_tint(xyz[0] / sum, xyz[1] / sum).1
+}
+
 /// The frame's camera→Rec.2020 transform (module doc): the DCP Bradford
-/// fallback shape, built entirely from frame data. `w_frame` inverts the
-/// tint estimator — displace along the SAME ACR-convention
-/// (`tint_sign_positive_v = true`, #1875) perpendicular axis
-/// `estimate_tint_from_scene_xyz` projects onto.
+/// fallback shape, built entirely from frame data. `w_frame` reconstructs
+/// the frame's as-shot white from `(scene_cct, as_shot_tint)` via
+/// [`crate::stages::white_balance::slider_source_xy`] (#1894, Robertson) —
+/// the SAME mapping [`robertson_as_shot_tint`] read `as_shot_tint` off of,
+/// so this is the exact inverse of the estimator half above (the #1870
+/// estimator/render invariant).
 fn frame_to_rec2020(frame: &SliderFrame, scene_cct: f32, as_shot_tint: f32) -> Option<Matrix3> {
-    let (lx, ly) = cct_to_xy(scene_cct);
-    let (wx, wy) = apply_tint_perpendicular(lx, ly, scene_cct, as_shot_tint, true);
+    let (wx, wy) = crate::stages::white_balance::slider_source_xy(scene_cct, as_shot_tint);
     let w_frame = xy_to_xyz(wx, wy, 1.0);
     let inv_pro = M_PRO_TO_XYZ_D50.inverse()?;
     let cam_to_xyz = frame.cm_as_shot.inverse()?;

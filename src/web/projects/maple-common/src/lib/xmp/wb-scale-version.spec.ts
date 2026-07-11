@@ -1,5 +1,5 @@
 // wb-scale-version.spec.ts — XMP round-trip for the WB slider-scale
-// version stamp (#1780/#1875).
+// version stamp (#1780/#1875/#1893/#1894).
 //
 // Mirrors the Swift tests in
 // `src/apple/Packages/MapleCore/Tests/MapleCoreTests/WbScaleVersionTests.swift`
@@ -9,11 +9,16 @@
 //  - Maple-authored sidecar (papp namespace present) with no stamp is
 //    version 1 (pre-#1756 scale);
 //  - non-Maple sidecar (no papp namespace — ACR/Lightroom-authored) is
-//    version 3 (ACR's own convention, which V3 matches, #1875);
-//  - a V2 stamp (the #1756–#1875 scale, tint axis inverted vs ACR)
-//    load-normalizes: authored tint negates and the model becomes 3;
-//  - the serializer stamps the model's version ({1, 3}) whenever it
+//    version 5 (the Robertson mapping, #1894 — ACR's own convention);
+//  - a V2/V3/V4 stamp load-normalizes: the authored `(temperature, tint)`
+//    pair converts JOINTLY through `authoredPairToV5` (physical
+//    chromaticity, not a scalar tint multiply) and the model becomes 5;
+//  - the serializer stamps the model's version ({1, 5}) whenever it
 //    writes an explicit Temperature/Tint, and omits the stamp otherwise.
+//
+// Expected converted values below are cross-checked against the golden
+// vectors generated from the Rust `authored_pair_to_v5` reference (see
+// `wb-dng-temperature.spec.ts`) at the same tolerance (0.05 K / 0.005 tint).
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -70,50 +75,65 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(model.tint).toBe(-44);
   });
 
-  it('reads an ACR-authored sidecar (no papp namespace) as version 4', () => {
-    // ACR's crs:Tint is already in the V4 direction AND magnitude
-    // (kTintScale, #1893) — passes through unconverted.
+  it('reads an ACR-authored sidecar (no papp namespace) as version 5', () => {
+    // ACR's crs:Temperature/crs:Tint are already expressed in the
+    // Robertson (V5, #1894) convention — pass through unconverted.
     const xml = acrSidecar(`crs:Temperature="5500" crs:Tint="10"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(4);
+    expect(model.wbScaleVersion).toBe(5);
+    expect(model.temperature).toBe(5500);
     expect(model.tint).toBe(10);
   });
 
   it('honours an explicit stamp over the authorship heuristic', () => {
-    // A V2 stamp beats the V1 heuristic, then load-normalizes to 4 (no
-    // authored tint here, so no conversion).
+    // A V2 stamp beats the V1 heuristic, then load-normalizes to 5. No
+    // tint was authored (absent-tint convention: 0), but the pair
+    // conversion is JOINT (#1894) — an authored temperature alone still
+    // moves both components, so `tint` is no longer undefined afterward.
     const xml = mapleSidecar(`crs:Temperature="5700" papp:WbScaleVersion="2"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(4);
-    expect(model.tint).toBeUndefined();
+    expect(model.wbScaleVersion).toBe(5);
+    expect(model.temperature).toBeCloseTo(5697.0, 1);
+    expect(model.tint).toBeCloseTo(11.08, 2);
   });
 
-  it('negates AND rescales a V2-authored tint into the V4 scale on load (#1875/#1893)', () => {
+  it('converts a V2-authored pair jointly into V5 on load (#1875/#1893/#1894)', () => {
     // The V2 scale's tint axis was inverted vs ACR at the legacy 1e-4
-    // magnitude: a V2 sidecar's authored +50 (a green-ward look when
-    // written) must load as -50 x 0.3 = -15 in the V4 (kTintScale) scale
-    // so the rendered look is preserved, and the model normalizes to
-    // version 4 for every re-save.
+    // magnitude, evaluated on the Hernández-Andrés locus. Both temperature
+    // and tint move when re-expressed in the V5 (Robertson) coordinates of
+    // the same physical chromaticity.
     const xml = mapleSidecar(`crs:Temperature="5700" crs:Tint="50" papp:WbScaleVersion="2"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(4);
-    expect(model.tint).toBeCloseTo(-15, 5);
-    expect(model.temperature).toBe(5700);
+    expect(model.wbScaleVersion).toBe(5);
+    expect(model.temperature).toBeCloseTo(5696.39, 1);
+    expect(model.tint).toBeCloseTo(-3.92, 2);
   });
 
-  it('rescales a V3-authored tint into the V4 scale on load (#1893)', () => {
-    // V3 is the ACR direction at the legacy 1e-4 magnitude — the authored
-    // value rescales by 0.3 so its uv displacement is preserved.
+  it('converts a V3-authored pair jointly into V5 on load (#1893/#1894)', () => {
+    // V3 is the ACR direction at the legacy 1e-4 magnitude, legacy locus.
     const xml = mapleSidecar(`crs:Temperature="5520" crs:Tint="-144" papp:WbScaleVersion="3"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(4);
-    expect(model.tint).toBeCloseTo(-43.2, 4);
+    expect(model.wbScaleVersion).toBe(5);
+    expect(model.temperature).toBeCloseTo(5526.09, 1);
+    expect(model.tint).toBeCloseTo(-32.58, 2);
   });
 
-  it('passes a V4-stamped tint through unconverted', () => {
+  it('converts a V4-authored pair jointly into V5 on load (#1894)', () => {
+    // V4 shares V5's tint magnitude/axis but evaluated on the legacy
+    // (Hernández-Andrés) locus rather than Robertson — never shipped in a
+    // release, but a dev-window sidecar must still load-normalize.
     const xml = mapleSidecar(`crs:Temperature="5520" crs:Tint="-53" papp:WbScaleVersion="4"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(4);
+    expect(model.wbScaleVersion).toBe(5);
+    expect(model.temperature).toBeCloseTo(5526.6, 1);
+    expect(model.tint).toBeCloseTo(-42.38, 2);
+  });
+
+  it('passes a V5-stamped pair through unconverted', () => {
+    const xml = mapleSidecar(`crs:Temperature="5520" crs:Tint="-53" papp:WbScaleVersion="5"`);
+    const { model } = parser.parseAdjustmentModel(xml);
+    expect(model.wbScaleVersion).toBe(5);
+    expect(model.temperature).toBe(5520);
     expect(model.tint).toBe(-53);
   });
 
@@ -123,11 +143,11 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(passthrough.unknownAttributes.some((a) => a.name === 'papp:WbScaleVersion')).toBe(false);
   });
 
-  it('defaults a fresh model to version 4', () => {
-    expect(defaultAdjustmentModel().wbScaleVersion).toBe(4);
+  it('defaults a fresh model to version 5', () => {
+    expect(defaultAdjustmentModel().wbScaleVersion).toBe(5);
   });
 
-  it('stamps version 4 when a fresh model writes an explicit temperature', () => {
+  it('stamps version 5 when a fresh model writes an explicit temperature', () => {
     // 'Custom' marks the pair as authored — an As-Shot model's values are
     // the camera display seed and are omitted entirely (#1892).
     const m = {
@@ -136,13 +156,13 @@ describe('XMP WbScaleVersion (#1780)', () => {
       whiteBalancePreset: 'Custom' as const,
     };
     const xml = serializer.serialize(m);
-    expect(xml).toContain('papp:WbScaleVersion="4"');
+    expect(xml).toContain('papp:WbScaleVersion="5"');
   });
 
-  it('stamps version 4 for a tint-only explicit WB', () => {
+  it('stamps version 5 for a tint-only explicit WB', () => {
     const m = { ...defaultAdjustmentModel(), tint: -30, whiteBalancePreset: 'Custom' as const };
     const xml = serializer.serialize(m);
-    expect(xml).toContain('papp:WbScaleVersion="4"');
+    expect(xml).toContain('papp:WbScaleVersion="5"');
   });
 
   it('omits the stamp when temperature and tint are at defaults', () => {
@@ -154,8 +174,8 @@ describe('XMP WbScaleVersion (#1780)', () => {
   it('round-trips a V1 sidecar as V1 — a re-save must not silently upgrade the scale', () => {
     // Load a pre-#1756 Maple sidecar (no stamp → version 1), re-serialize,
     // and parse the output again: the values must still be tagged V1 so
-    // raw-core keeps converting them. Upgrading to 2 without converting
-    // the numbers would reintroduce exactly the #1780 pink cast.
+    // raw-core keeps converting them. Upgrading without converting the
+    // numbers would reintroduce exactly the #1780 pink cast.
     const original = mapleSidecar(`crs:Temperature="6282" crs:Tint="-44"`);
     const { model: parsed, passthrough } = parser.parseAdjustmentModel(original);
     const merged = { ...defaultAdjustmentModel(), ...parsed };
@@ -185,7 +205,7 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(model.wbScaleVersion).toBe(1);
   });
 
-  it('clamps an out-of-range wbScaleVersion to 4 at write time', () => {
+  it('clamps an out-of-range wbScaleVersion to 5 at write time', () => {
     // raw-core's parser hard-fails on an unknown stamp — a corrupted model
     // field must never produce an unparseable sidecar.
     const m = {
@@ -195,6 +215,6 @@ describe('XMP WbScaleVersion (#1780)', () => {
       whiteBalancePreset: 'Custom' as const,
     };
     const xml = serializer.serialize(m);
-    expect(xml).toContain('papp:WbScaleVersion="4"');
+    expect(xml).toContain('papp:WbScaleVersion="5"');
   });
 });
