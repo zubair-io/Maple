@@ -86,7 +86,7 @@ struct PreviewView: View {
 
     var body: some View {
         ZStack {
-            ProTokens.canvas
+            MapleTokens.bg
                 .opacity(dismissBackgroundOpacity)
                 .ignoresSafeArea()
 
@@ -477,6 +477,8 @@ private struct PreviewImage: View {
     /// ImageIO decode there blocks the main thread and visibly stalls the pager.
     @State private var decodedImage: CGImage?
     @State private var loadedID: String?
+    @State private var zoomScale: CGFloat = 1
+    @GestureState private var pinchScale: CGFloat = 1
 
     /// Stable identity for the current source — drives `.task(id:)` reload and
     /// the stale-guard. `ThumbnailSource` isn't Hashable (it carries an
@@ -491,17 +493,21 @@ private struct PreviewImage: View {
     var body: some View {
         ZStack {
             if let cg = decodedImage {
-                #if os(macOS)
-                Image(nsImage: NSImage(cgImage: cg, size: .zero))
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                #else
-                Image(uiImage: UIImage(cgImage: cg))
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                #endif
+                Group {
+                    #if os(macOS)
+                    Image(nsImage: NSImage(cgImage: cg, size: .zero))
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                    #else
+                    Image(uiImage: UIImage(cgImage: cg))
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                    #endif
+                }
+                .scaleEffect(effectiveZoom)
+                .animation(.interactiveSpring(response: 0.25, dampingFraction: 0.86), value: zoomScale)
             } else {
                 // No blank canvas — a neutral placeholder while the (already
                 // cached, usually instant) thumbnail resolves.
@@ -511,7 +517,10 @@ private struct PreviewImage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .simultaneousGesture(pinchGesture)
         .task(id: sourceID) { await load(for: sourceID) }
+        .onChange(of: sourceID) { _, _ in zoomScale = 1 }
     }
 
     private func load(for id: String) async {
@@ -529,6 +538,30 @@ private struct PreviewImage: View {
         guard !Task.isCancelled else { return }
         decodedImage = image
         loadedID = id
+
+        // The tiny cached image owns first paint. Once it is on screen, ask
+        // the source for display-sized pixels and swap them in only if this
+        // page is still current.
+        guard let previewData = await provider.preview(for: source) else { return }
+        let enhanced = await Task.detached(priority: .utility) {
+            ThumbnailImage.cgImage(from: previewData)
+        }.value
+        guard !Task.isCancelled, let enhanced else { return }
+        decodedImage = enhanced
+    }
+
+    private var effectiveZoom: CGFloat {
+        min(6, max(1, zoomScale * pinchScale))
+    }
+
+    private var pinchGesture: some Gesture {
+        MagnifyGesture()
+            .updating($pinchScale) { value, state, _ in
+                state = value.magnification
+            }
+            .onEnded { value in
+                zoomScale = min(6, max(1, zoomScale * value.magnification))
+            }
     }
 }
 
