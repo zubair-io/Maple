@@ -17,6 +17,7 @@ struct LibraryGrid: View {
     let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Binding var displayMode: GridDisplayMode
+    let transitionNamespace: Namespace.ID?
 
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
@@ -34,6 +35,7 @@ struct LibraryGrid: View {
                 provider: provider,
                 displayMode: displayMode,
                 selection: vm.selectedID.map { Set([$0]) } ?? [],
+                transitionNamespace: transitionNamespace,
                 onAppearItem: { asset in onPrimeSession(asset) },
                 onTap: { asset in
                     vm.selectedID = asset.id

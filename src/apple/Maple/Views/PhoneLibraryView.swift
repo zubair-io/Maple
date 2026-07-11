@@ -26,6 +26,7 @@ import SwiftUI
 import MapleCore
 
 struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
+    @Namespace private var previewTransition
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -77,6 +78,7 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
+            previewTransitionNamespace: previewTransition,
             toolbarContent: toolbarContent,
             onSelectCloudAsset: onSelectCloudAsset,
             onCloseSearch: onCloseSearch,
@@ -111,6 +113,7 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
                         onEdit: { asset in libraryPath.append(.edit(asset)) },
                         onSelectionChanged: { asset in browseVM.selectedID = asset.id }
                     )
+                    .navigationTransition(.zoom(sourceID: ref.id, in: previewTransition))
                 case .edit(let ref):
                     EditorDestination(asset: ref, sessions: $sessions)
                 }
