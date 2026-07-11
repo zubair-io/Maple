@@ -223,25 +223,38 @@ export class XmpSerializerService {
     }
 
     const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
-
-    // Numeric adjustment fields — emit only when they differ from the default.
-    const emittedKeys = new Set<string>();
-    for (const f of ADJUSTMENT_FIELDS) {
-      if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
-      const value = model[f.modelKey];
-      if (value === undefined || value === null) continue;
-      const defaultVal = f.defaultValue(model);
-      if (value !== defaultVal) {
-        parts.push(`${f.xmpKey}="${f.serialize(value)}"`);
-        emittedKeys.add(f.xmpKey);
-      }
-    }
+    const { fieldParts, emittedKeys } = this._numericFieldParts(model, wbIsAsShot);
+    parts.push(...fieldParts);
 
     if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
       parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 3}"`);
     }
 
     return parts;
+  }
+
+  /**
+   * Numeric adjustment fields — emitted only when they differ from the
+   * default. `wbIsAsShot` skips temperature/tint entirely (the display
+   * seed — see `_adjustmentParts`'s doc). `emittedKeys` lets the caller
+   * decide whether the WB scale stamp must ride along.
+   */
+  private _numericFieldParts(
+    model: AdjustmentModel,
+    wbIsAsShot: boolean,
+  ): { fieldParts: string[]; emittedKeys: Set<string> } {
+    const fieldParts: string[] = [];
+    const emittedKeys = new Set<string>();
+    for (const f of ADJUSTMENT_FIELDS) {
+      if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
+      const value = model[f.modelKey];
+      if (value === undefined || value === null) continue;
+      if (value !== f.defaultValue(model)) {
+        fieldParts.push(`${f.xmpKey}="${f.serialize(value)}"`);
+        emittedKeys.add(f.xmpKey);
+      }
+    }
+    return { fieldParts, emittedKeys };
   }
 
   /**
