@@ -34,6 +34,11 @@ public struct LocalAddressReport: Decodable, Sendable {
 public struct LocalNetworkStatus: Equatable, Sendable {
   public let localURL: URL?
   public let isConnectedLocally: Bool
+
+  public init(localURL: URL?, isConnectedLocally: Bool) {
+    self.localURL = localURL
+    self.isConnectedLocally = isConnectedLocally
+  }
 }
 
 /// Stateless, process-independent resolution logic — no caching, no actor
