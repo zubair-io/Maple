@@ -51,47 +51,7 @@ export class XmpSerializerService {
     parts.push('crs:ProcessVersion="11.0"');
     parts.push('crs:HasSettings="True"');
 
-    // WhiteBalance preset (string field — emit unless "As Shot").
-    if (model.whiteBalancePreset && model.whiteBalancePreset !== 'As Shot') {
-      parts.push(`${WB_PRESET_FIELD.xmpKey}="${this._escapeAttr(model.whiteBalancePreset)}"`);
-    }
-
-    // An As-Shot model's temperature/tint are the camera's display seed
-    // (`seedAsShotWhiteBalance`), not authored values — emitting them would
-    // demote the render's exact As-Shot sentinel (absent crs:Temperature/
-    // crs:Tint) into a float-rounded explicit target and pollute the sidecar
-    // with estimator output (#1892). Any real WB edit flips the preset to
-    // 'Custom' (LibraryStoreService.setAdjustment) or a named preset, both
-    // of which serialize the pair below.
-    const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
-
-    // Numeric adjustment fields — emit only when they differ from the default.
-    const emittedKeys = new Set<string>();
-    for (const f of ADJUSTMENT_FIELDS) {
-      if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
-      const value = model[f.modelKey];
-      if (value === undefined || value === null) continue;
-      const defaultVal = f.defaultValue(model);
-      if (value !== defaultVal) {
-        parts.push(`${f.xmpKey}="${f.serialize(value)}"`);
-        emittedKeys.add(f.xmpKey);
-      }
-    }
-
-    // WB scale stamp (#1780/#1875): whenever an explicit Temperature/Tint
-    // was emitted above, stamp the scale those numbers are expressed in.
-    // V1 re-emits as 1 (raw-core converts at develop, so stored V1 values
-    // keep their meaning across saves); everything else emits 3 — the
-    // parse normalizes V2 models to V3 at load, so a non-1 model always
-    // holds V3 (ACR tint direction) values. Mirrors the Swift writer;
-    // raw-core's parser gives the stamp precedence over the
-    // papp-authorship heuristic.
-    if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
-      // Clamp to {1, 3}: raw-core's parser hard-fails on an unknown stamp
-      // value, so a corrupted/out-of-range model field must never reach
-      // the sidecar.
-      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 3}"`);
-    }
+    parts.push(...this._adjustmentParts(model));
 
     // DisplayLookCurve (#371; retired in #443) — the field is a no-op
     // post-#443 but the attribute is still emitted on non-default values
@@ -232,6 +192,56 @@ export class XmpSerializerService {
       '</x:xmpmeta>',
       '<?xpacket end="w"?>',
     ].join('\n');
+  }
+
+  /**
+   * WhiteBalance preset + numeric adjustment fields + the WB scale stamp.
+   *
+   * An As-Shot model's temperature/tint are the camera's display seed
+   * (`seedAsShotWhiteBalance`), not authored values — emitting them would
+   * demote the render's exact As-Shot sentinel (absent crs:Temperature/
+   * crs:Tint) into a float-rounded explicit target and pollute the sidecar
+   * with estimator output (#1892). Any real WB edit flips the preset to
+   * 'Custom' (LibraryStore.setAdjustment) or a named preset, both of which
+   * serialize the pair.
+   *
+   * WB scale stamp (#1780/#1875): whenever an explicit Temperature/Tint is
+   * emitted, the scale those numbers are expressed in rides along. V1
+   * re-emits as 1 (raw-core converts at develop, so stored V1 values keep
+   * their meaning across saves); everything else emits 3 — the parse
+   * normalizes V2 models to V3 at load, so a non-1 model always holds V3
+   * (ACR tint direction) values. Clamped to {1, 3}: raw-core's parser
+   * hard-fails on an unknown stamp, so a corrupted/out-of-range model
+   * field must never reach the sidecar. Mirrors the Swift writer.
+   */
+  private _adjustmentParts(model: AdjustmentModel): string[] {
+    const parts: string[] = [];
+
+    // WhiteBalance preset (string field — emit unless "As Shot").
+    if (model.whiteBalancePreset && model.whiteBalancePreset !== 'As Shot') {
+      parts.push(`${WB_PRESET_FIELD.xmpKey}="${this._escapeAttr(model.whiteBalancePreset)}"`);
+    }
+
+    const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
+
+    // Numeric adjustment fields — emit only when they differ from the default.
+    const emittedKeys = new Set<string>();
+    for (const f of ADJUSTMENT_FIELDS) {
+      if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
+      const value = model[f.modelKey];
+      if (value === undefined || value === null) continue;
+      const defaultVal = f.defaultValue(model);
+      if (value !== defaultVal) {
+        parts.push(`${f.xmpKey}="${f.serialize(value)}"`);
+        emittedKeys.add(f.xmpKey);
+      }
+    }
+
+    if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
+      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 3}"`);
+    }
+
+    return parts;
   }
 
   /**
