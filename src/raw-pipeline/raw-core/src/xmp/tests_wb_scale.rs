@@ -37,11 +37,11 @@ fn acr_doc(attrs: &str) -> String {
 }
 
 #[test]
-fn default_model_is_v3() {
+fn default_model_is_v4() {
     assert_eq!(
         AdjustmentModel::default().wb_scale_version,
-        WbScaleVersion::V3,
-        "fresh models author in the current (ACR-direction) scale"
+        WbScaleVersion::V4,
+        "fresh models author in the current (ACR direction + kTintScale) scale"
     );
 }
 
@@ -67,12 +67,14 @@ fn maple_authorship_detected_from_papp_attribute_without_declaration() {
 }
 
 #[test]
-fn acr_authored_without_papp_is_v3() {
+fn acr_authored_without_papp_is_v4() {
     // ACR/Lightroom-authored sidecars never carry the Maple namespace and
-    // are expressed in ACR's own convention — which is V3's (tint+ =
-    // magenta image, #1875) — so they pass through unconverted.
+    // are expressed in ACR's own convention — the V4 direction (#1875) AND
+    // magnitude (kTintScale, #1893) — so they pass through unconverted.
+    // (They classified as V3 between #1875 and #1893, which under-applied
+    // ACR tints 3.33x.)
     let m = parse(&acr_doc(r#"crs:Temperature="5500" crs:Tint="10""#)).unwrap();
-    assert_eq!(m.wb_scale_version, WbScaleVersion::V3);
+    assert_eq!(m.wb_scale_version, WbScaleVersion::V4);
     assert!(m.temperature_seen && m.tint_seen);
 }
 
@@ -107,8 +109,18 @@ fn explicit_stamp_3_is_v3() {
 }
 
 #[test]
+fn explicit_stamp_4_is_v4() {
+    let m = parse(&maple_doc(
+        r#"crs:Temperature="5520" crs:Tint="-53" papp:WbScaleVersion="4""#,
+    ))
+    .unwrap();
+    assert_eq!(m.wb_scale_version, WbScaleVersion::V4);
+    assert_eq!(m.tint, -53.0);
+}
+
+#[test]
 fn unknown_stamp_value_is_an_error() {
-    let err = parse(&maple_doc(r#"papp:WbScaleVersion="4""#)).unwrap_err();
+    let err = parse(&maple_doc(r#"papp:WbScaleVersion="5""#)).unwrap_err();
     assert!(
         err.to_string().contains("WbScaleVersion"),
         "unexpected error: {err}"
@@ -116,14 +128,14 @@ fn unknown_stamp_value_is_an_error() {
 }
 
 #[test]
-fn maple_doc_without_explicit_wb_is_v3() {
+fn maple_doc_without_explicit_wb_is_v4() {
     // No authored Temperature/Tint = nothing to convert (the develop
     // chain's As-Shot seeding applies on either scale), so the version
-    // heuristic deliberately leaves the model at the V3 default — this is
+    // heuristic deliberately leaves the model at the V4 default — this is
     // also what keeps a full-default serialize→parse round trip equal to
     // `AdjustmentModel::default()`.
     let m = parse(&maple_doc(r#"crs:Exposure2012="0.5""#)).unwrap();
-    assert_eq!(m.wb_scale_version, WbScaleVersion::V3);
+    assert_eq!(m.wb_scale_version, WbScaleVersion::V4);
     assert!(!m.temperature_seen && !m.tint_seen);
     assert_eq!((m.temperature, m.tint), (6500.0, 0.0));
 }

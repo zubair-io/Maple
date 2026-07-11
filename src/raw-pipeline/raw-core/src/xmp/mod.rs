@@ -40,7 +40,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // predates the versioning (pre-#1756 scale, V1); everything else — a
     // document with no `papp:` namespace at all (ACR/Lightroom-authored,
     // always expressed in ACR's own slider scale) or one with no authored
-    // WB (nothing to convert; scale-agnostic) — is V2.
+    // WB (nothing to convert; scale-agnostic) — is V4 (#1893).
     let mut papp_seen = false;
     let mut stamp: Option<WbScaleVersion> = None;
 
@@ -101,6 +101,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                             "1" => WbScaleVersion::V1,
                             "2" => WbScaleVersion::V2,
                             "3" => WbScaleVersion::V3,
+                            "4" => WbScaleVersion::V4,
                             other => {
                                 return Err(Error::Xmp(format!(
                                     "unknown WbScaleVersion: {}",
@@ -125,17 +126,18 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
         }
     }
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
-    // Unstamped, non-Maple (or WB-less) documents are V3 (#1875): an
+    // Unstamped, non-Maple (or WB-less) documents are V4 (#1893): an
     // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention
-    // (tint+ = magenta image), which IS the V3 render direction — so it
-    // passes through unconverted. (These parsed as V2 between #1780 and
-    // #1875, when V2 was believed direction-identical to ACR; it wasn't —
-    // V2's tint axis was inverted — so the V2 tag now exists solely to
-    // preserve the look of Maple-authored V2 sidecars via tint negation.)
+    // — the V4 direction (#1875) AND the V4 magnitude (kTintScale, 1/3000
+    // uv per unit) — so it passes through unconverted. (These parsed as V3
+    // between #1875 and #1893, when the direction was matched but the
+    // legacy 1e-4 magnitude under-applied ACR tints 3.33×; the V3 tag now
+    // exists to preserve the look of Maple-authored V3 sidecars via the
+    // TINT_SCALE_V3_TO_V4 rescale, exactly like V2's negation before it.)
     model.wb_scale_version = stamp.unwrap_or(if unstamped_is_v1 {
         WbScaleVersion::V1
     } else {
-        WbScaleVersion::V3
+        WbScaleVersion::V4
     });
     Ok(model)
 }

@@ -7,20 +7,30 @@ use crate::{
 use std::sync::OnceLock;
 
 /// Scale factor (uv units per tint unit) for the perpendicular-to-locus
-/// tint displacement: tint ±150 spans ±0.015 uv perpendicular to the locus
-/// (~19% of the 2000–25000 K locus range in uv), matching the rawpy / LibRaw
-/// convention of 0.0001 uv per tint unit.
+/// tint displacement: ACR's own scale, `dng_temperature.cpp`'s
+/// `kTintScale = -3000` — 1 tint unit = 1/3000 ≈ 3.333e-4 uv, so the
+/// slider's ±150 span covers ±0.05 uv (#1893).
 ///
-/// The available ACR tint references (test_0000/0006/0013 tint_max/tint_min)
-/// turned out to carry no usable tint-scale signal — they're byte-identical
-/// to each other (≤1 LSB at 8-bit), since ACR resolves tint-only XMPs to the
-/// DNG's as-shot CCT with no differentiating tint. A sweep from 0.5e-4 to
-/// 3e-4 against those references is therefore monotone-increasing in ΔE with
-/// no in-range minimum (any non-zero tint reads as drift). The value is kept
-/// at the analytically-derived 1e-4 rather than 0 (which would make tint a
-/// no-op). Re-fit once tint references exist that set both `crs:Temperature`
-/// and `crs:Tint` (#1725).
-pub(crate) const TINT_UV_SCALE: f32 = 1e-4;
+/// History: this was 1e-4 (the rawpy/LibRaw convention) through #1892,
+/// because the ACR tint-only references (test_0000/0006/0013
+/// tint_max/tint_min) are degenerate — byte-identical to each other, since
+/// ACR resolves tint-only XMPs to the DNG's as-shot CCT — so the scale
+/// could not be fitted from them and the #1725 re-fit was deferred. The
+/// missing calibration signal turned out to be ACR's DISPLAYED as-shot
+/// pair: on test_0002 (H2D-39) ACR shows tint −53 for an as-shot point
+/// measured at −0.01771 uv off the locus in the embedded-CM frame —
+/// −53.1 at 1/3000, −177 at 1e-4. Exact match at the DNG SDK constant.
+///
+/// Values authored under the old scale are versioned (`WbScaleVersion`,
+/// ≤ V3) and convert via [`TINT_SCALE_V3_TO_V4`] on use, so stored
+/// sidecars keep rendering the look they were authored to.
+pub(crate) const TINT_UV_SCALE: f32 = 1.0 / 3000.0;
+
+/// Multiplier converting a tint value authored under the legacy 1e-4
+/// uv-per-unit scale (`WbScaleVersion` ≤ V3) into the V4 (ACR `kTintScale`,
+/// [`TINT_UV_SCALE`]) scale, preserving the authored uv displacement:
+/// `1e-4 / (1/3000) = 0.3` (#1893).
+pub(crate) const TINT_SCALE_V3_TO_V4: f32 = 1e-4 * 3000.0;
 
 /// Re-export the auto-WB estimators that live in the sibling
 /// `white_balance_auto` module so existing call sites at
@@ -501,19 +511,41 @@ pub fn resolve_wb(model: &crate::xmp::AdjustmentModel) -> (f32, f32) {
     // the seen flags in the first place.
     let effective_tint = if model.temperature_seen && !model.tint_seen {
         0.0
-    } else if model.tint_seen && model.wb_scale_version == crate::xmp::WbScaleVersion::V2 {
-        // V2-authored tint (#1875): the #1756–#1875 scale interpreted the
-        // tint axis inverted vs ACR, so a V2 sidecar's authored value
-        // encodes the OPPOSITE displacement in today's (V3, ACR-direction)
-        // axis. Negating preserves the authored look exactly — the two
-        // axis orientations are the same line with opposite sign. Applies
-        // only to explicit authored tint: presets and defaults were never
-        // expressed in the inverted scale.
-        -model.tint
+    } else if model.tint_seen {
+        // Version-authored tint conversion — applies ONLY to explicit
+        // authored tint: presets and defaults were always expressed in the
+        // current (ACR-convention) axis and scale.
+        authored_tint_to_v4(model.tint, model.wb_scale_version)
     } else {
         model.tint
     };
     (effective_temperature, effective_tint)
+}
+
+/// Re-express an explicitly-authored `crs:Tint` value in the current (V4)
+/// axis + scale (#1875 direction, #1893 scale), preserving the uv
+/// displacement it encoded when written:
+///
+/// - **V1/V3** — ACR-direction axis at the legacy 1e-4 uv-per-unit scale
+///   (V1's post-DCP CAT16 model displaced the same `tint × 1e-4` uv):
+///   scale by [`TINT_SCALE_V3_TO_V4`] (0.3).
+/// - **V2** — the #1756–#1875 scale interpreted the tint AXIS inverted vs
+///   ACR (dragging toward the gradient's green end rendered magenta), at
+///   the same 1e-4 scale: negate AND scale — the two axis orientations are
+///   the same line with opposite sign.
+/// - **V4** — ACR direction at ACR's `kTintScale` (1/3000 uv per unit,
+///   [`TINT_UV_SCALE`]): passes through.
+///
+/// Shared by [`resolve_wb`] (the post-DCP CAT16/diagonal fallback tier) and
+/// `wb_camera::resolve_target_versioned` (the camera-space tiers) so the
+/// two resolvers cannot drift.
+pub(crate) fn authored_tint_to_v4(tint: f32, version: crate::xmp::WbScaleVersion) -> f32 {
+    use crate::xmp::WbScaleVersion as V;
+    match version {
+        V::V1 | V::V3 => tint * TINT_SCALE_V3_TO_V4,
+        V::V2 => -tint * TINT_SCALE_V3_TO_V4,
+        V::V4 => tint,
+    }
 }
 
 // Tests live in the sibling `white_balance_tests.rs` so this file stays under the

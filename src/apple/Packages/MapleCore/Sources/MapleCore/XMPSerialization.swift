@@ -33,6 +33,11 @@ import Foundation
 public struct XMPParser {
     private init() {}
 
+    /// Legacy (V2/V3, 1e-4 uv per unit) → V4 (ACR `kTintScale`, 1/3000 uv
+    /// per unit) tint multiplier — mirrors raw-core's `TINT_SCALE_V3_TO_V4`
+    /// (#1893).
+    static let tintScaleV3ToV4 = 0.3
+
     public static func parse(_ xml: String) throws -> (AdjustmentModel, CullingState) {
         var m = AdjustmentModel()
         var c = CullingState()
@@ -45,28 +50,35 @@ public struct XMPParser {
         }
         m = delegate.model
         c = delegate.culling
-        // WB scale versioning (#1780/#1875), resolved at document level:
-        // an explicit `papp:WbScaleVersion` stamp wins; otherwise a
+        // WB scale versioning (#1780/#1875/#1893), resolved at document
+        // level: an explicit `papp:WbScaleVersion` stamp wins; otherwise a
         // document carrying the Maple `papp:` namespace AND an explicit
         // authored `crs:Temperature`/`crs:Tint` predates the versioning
         // (pre-#1756 scale, 1). Everything else — no `papp:` namespace
         // (ACR/Lightroom-authored, expressed in ACR's own convention,
-        // which V3 matches) or no authored WB (nothing to convert) — is
-        // 3. Mirrors raw-core's `xmp::parse`.
+        // which V4 matches exactly: the #1875 direction AND the #1893
+        // kTintScale magnitude) or no authored WB (nothing to convert) —
+        // is 4. Mirrors raw-core's `xmp::parse`.
         let unstampedIsV1 = delegate.sawPappNamespace && delegate.sawExplicitWb
-        let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 3)
-        // V2 → V3 load-normalization (#1875): the #1756–#1875 scale's tint
-        // axis was inverted vs ACR, so a V2-authored crs:Tint encodes the
-        // opposite displacement in the V3 axis. Negating at load keeps the
-        // in-memory model (slider display, FFI live params, autosave)
-        // uniformly V3 while preserving the authored look. Only an
-        // explicitly authored crs:Tint negates — preset-resolved tints were
-        // never expressed in the inverted scale.
-        if version == 2 {
+        let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 4)
+        // V2/V3 → V4 load-normalization (#1875 axis, #1893 scale): the
+        // legacy scales' tint magnitude was 1e-4 uv per unit — ACR's
+        // kTintScale (1/3000 uv per unit, V4) is 3.33x larger, so a legacy
+        // tint's displacement re-expresses in V4 by the 0.3 factor
+        // (negated as well for V2, whose axis was inverted vs ACR).
+        // Converting at load keeps the in-memory model (slider display,
+        // FFI live params, autosave) uniformly V4 while preserving the
+        // authored look. Only an explicitly authored crs:Tint converts —
+        // preset-resolved tints were never expressed in the legacy scales.
+        // V1 deliberately does NOT load-normalize: its conversion needs
+        // the image's calibration frame, so raw-core converts it at
+        // develop and the sidecar round-trips as V1.
+        if version == 2 || version == 3 {
             if delegate.sawAuthoredTint {
-                m.tint = -m.tint
+                let factor = version == 2 ? -Self.tintScaleV3ToV4 : Self.tintScaleV3ToV4
+                m.tint = m.tint * factor
             }
-            m.wbScaleVersion = 3
+            m.wbScaleVersion = 4
         } else {
             m.wbScaleVersion = version
         }
@@ -171,7 +183,7 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             sawAuthoredTint = true
         }
         if let stamp = attributeDict["papp:WbScaleVersion"], let v = Int(stamp),
-           (1...3).contains(v) {
+           (1...4).contains(v) {
             wbScaleStamp = v
         }
 

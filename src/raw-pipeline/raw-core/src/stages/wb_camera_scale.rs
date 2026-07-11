@@ -47,9 +47,10 @@
 //!    iterates), nearest-point-on-locus for `T₂`, perpendicular uv
 //!    projection (the `tint_sign_positive_v = true` axis, #1875 —
 //!    `camera_wb_gain`'s forward map displaces along) for `t₂`. The tint
-//!    is deliberately NOT clamped to the slider's ±100 UI range: a real
-//!    camera's neutral can project beyond it (H2D-39 as-shot ≈ −144), and
-//!    preserving the authored look wins over slider cosmetics.
+//!    is deliberately NOT clamped to the slider's UI range: preserving
+//!    the authored look wins over slider cosmetics. (Under the pre-#1893
+//!    1e-4 scale the H2D-39 as-shot projected to ≈ −144; at the ACR
+//!    `kTintScale` it is ≈ −53, comfortably in range.)
 //!
 //! Only sidecars with an explicit authored Temperature/Tint component
 //! convert (`temperature_seen || tint_seen`); everything else — As-Shot,
@@ -68,12 +69,15 @@ use crate::stages::white_balance::{
     self, cct_to_xy, tint_perpendicular_axis, xy_to_uv, TINT_UV_SCALE,
 };
 
-/// Version-aware wrapper over [`super::resolve_target`]: V2 models (and V1
-/// models with no explicit authored WB) resolve exactly as before; V1
-/// models with an explicit `crs:Temperature`/`crs:Tint` convert through
-/// the module-doc pipeline. Falls back to the plain resolver if the
-/// conversion hits a degenerate matrix (defensive; real profiles are
-/// invertible).
+/// Version-aware wrapper over [`super::resolve_target`]: V4 models (and
+/// older models with no explicit authored WB) resolve exactly as before;
+/// V2/V3 models with an explicit authored tint re-express it in the V4
+/// axis + scale ([`white_balance::authored_tint_to_v4`] — the same
+/// conversion the fallback tier's `resolve_wb` applies, so the two tiers
+/// can't drift); V1 models with an explicit `crs:Temperature`/`crs:Tint`
+/// convert through the module-doc pipeline. Falls back to the plain
+/// resolver if the conversion hits a degenerate matrix (defensive; real
+/// profiles are invertible).
 pub fn resolve_target_versioned(
     model: &AdjustmentModel,
     frame: &SliderFrame,
@@ -84,15 +88,11 @@ pub fn resolve_target_versioned(
         model.wb_scale_version == WbScaleVersion::V1 && (model.temperature_seen || model.tint_seen);
     if !needs_conversion {
         let (t, tint) = super::resolve_target(model, frame);
-        // V2-authored tint (#1875): the #1756–#1875 scale's tint axis was
-        // inverted vs ACR; negating the authored value re-expresses it in
-        // the V3 (ACR-direction) axis so the authored look is preserved.
-        // Mirrors `white_balance::resolve_wb`'s V2 branch (the fallback
-        // tier's resolver) so the two tiers can't drift. Only explicit
-        // authored tint converts — the As-Shot sentinel and presets never
-        // set `tint_seen`.
-        if model.wb_scale_version == WbScaleVersion::V2 && model.tint_seen {
-            return (t, -tint);
+        // Version-authored tint conversion (#1875 axis, #1893 scale).
+        // Only explicit authored tint converts — the As-Shot sentinel and
+        // presets never set `tint_seen` and are V4-native.
+        if model.tint_seen {
+            return (t, white_balance::authored_tint_to_v4(tint, model.wb_scale_version));
         }
         return (t, tint);
     }

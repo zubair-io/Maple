@@ -500,12 +500,13 @@ export class XmpParserService {
       }
     }
 
-    // V2 → V3 tint negation (#1875) — after the walk so it applies to the
-    // final parsed value. Only an explicitly authored crs:Tint negates;
-    // preset-resolved tints were never expressed in the inverted scale.
-    // (The `model.tint` guard covers malformed values the walk dropped.)
-    if (wbScale.negateAuthoredTint && model.tint !== undefined) {
-      model.tint = -model.tint;
+    // V2/V3 → V4 tint load-normalization (#1875 axis, #1893 scale) —
+    // after the walk so it applies to the final parsed value. Only an
+    // explicitly authored crs:Tint converts; preset-resolved tints were
+    // never expressed in the legacy axis/scale. (The `model.tint` guard
+    // covers malformed values the walk dropped.)
+    if (wbScale.authoredTintFactor !== 1 && model.tint !== undefined) {
+      model.tint = model.tint * wbScale.authoredTintFactor;
     }
 
     // Authored WB with no crs:WhiteBalance is a Custom WB (#1892) — see

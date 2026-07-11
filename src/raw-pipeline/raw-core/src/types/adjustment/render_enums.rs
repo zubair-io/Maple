@@ -80,33 +80,48 @@ impl Default for WhiteBalancePreset {
 /// - [`WbScaleVersion::V2`] — the #1756 scale: slider-frame coordinates,
 ///   but with the tint AXIS inverted relative to ACR (#1875 — dragging
 ///   toward the gradient's green end rendered magenta). Explicit authored
-///   tint is negated on use so the authored look is preserved.
+///   tint is negated AND rescaled on use so the authored look is preserved.
 /// - [`WbScaleVersion::V3`] — the #1875 scale: slider-frame coordinates
 ///   with the tint axis in the ACR direction (tint+ = magenta image, the
-///   direction the slider gradient and `crs:Tint` promise). Values pass
-///   through unconverted.
+///   direction the slider gradient and `crs:Tint` promise), at the legacy
+///   1e-4 uv-per-unit magnitude. Authored tint rescales on use (#1893).
+/// - [`WbScaleVersion::V4`] — the #1893 scale: ACR direction and ACR
+///   magnitude (`kTintScale`). Values pass through unconverted.
+///
+/// Explicit authored tints convert via
+/// `white_balance::authored_tint_to_v4`, shared by both develop-tier
+/// resolvers (`white_balance::resolve_wb`,
+/// `wb_camera::resolve_target_versioned`).
 ///
 /// Parse rule (see `xmp::parse`): an explicit `papp:WbScaleVersion`
 /// attribute wins; otherwise a document that carries the Maple `papp:`
 /// namespace (every Maple writer declares it) AND an explicit authored
 /// `crs:Temperature`/`crs:Tint` predates this versioning and is V1.
 /// Everything else — no `papp:` namespace at all (ACR/Lightroom-authored,
-/// always expressed in ACR's own convention, which V3 matches) or no
-/// authored WB (nothing to convert) — is V3. Default (no sidecar) is V3.
+/// always expressed in ACR's own convention, which V4 matches exactly) or
+/// no authored WB (nothing to convert) — is V4. Default (no sidecar) is V4.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WbScaleVersion {
     /// Pre-#1756 Maple scale: post-DCP CAT16, identity at 6500 K / 0.
     V1,
     /// #1756 scale: ACR calibration-frame slider coordinates with the
-    /// tint axis inverted vs ACR (#1875).
+    /// tint axis inverted vs ACR (#1875), 1e-4 uv per tint unit.
     V2,
-    /// #1875 scale: calibration-frame coordinates, ACR tint direction.
+    /// #1875 scale: calibration-frame coordinates, ACR tint direction,
+    /// legacy 1e-4 uv per tint unit. Authored tint scales by
+    /// `white_balance::TINT_SCALE_V3_TO_V4` (0.3) on use (#1893).
     V3,
+    /// #1893 scale: calibration-frame coordinates, ACR tint direction,
+    /// ACR's own tint magnitude (`dng_temperature.cpp` `kTintScale` —
+    /// 1/3000 uv per unit, `white_balance::TINT_UV_SCALE`). This is what
+    /// `crs:Tint` means in an ACR-authored sidecar, so ACR values render
+    /// at full strength. Values pass through unconverted.
+    V4,
 }
 
 impl Default for WbScaleVersion {
     fn default() -> Self {
-        Self::V3
+        Self::V4
     }
 }
 
