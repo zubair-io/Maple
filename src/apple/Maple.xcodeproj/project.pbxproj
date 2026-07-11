@@ -1256,6 +1256,7 @@
 		E3DD94872FB50E55009392B4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MapleBackupAgent/MapleBackupAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1273,6 +1274,7 @@
 		E3DD94882FB50E55009392B4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MapleBackupAgent/MapleBackupAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = YES;

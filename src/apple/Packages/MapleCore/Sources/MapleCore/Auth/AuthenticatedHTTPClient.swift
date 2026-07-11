@@ -12,6 +12,10 @@ let cloudHTTPLogger = Logger(
 )
 
 public actor AuthenticatedHTTPClient {
+  public enum AuthenticationError: Error, Equatable {
+    case notAuthenticated
+    case temporarilyUnavailable
+  }
   private let server: URL
   private let urlSession: URLSession
   private let tokensProvider: () -> AuthTokens?
@@ -52,7 +56,8 @@ public actor AuthenticatedHTTPClient {
 
   public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    let (data, resp) = try await dataOnce(request: inject(request, tokens: await tokensForRequest()))
+    let tokens = try await requiredTokensForRequest()
+    let (data, resp) = try await dataOnce(request: inject(request, tokens: tokens))
     Self.logResponse(resp, data: data, request: request)
 
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (data, resp) }
@@ -136,7 +141,8 @@ public actor AuthenticatedHTTPClient {
   /// `tokensForRequest`), so a token snapshot handed to a caller that can't
   /// retry-on-401 is still live.
   public func inject(_ req: URLRequest) async -> URLRequest {
-    inject(req, tokens: await tokensForRequest())
+    guard let tokens = try? await requiredTokensForRequest() else { return req }
+    return inject(req, tokens: tokens)
   }
 
   /// Seconds of clock skew: refresh proactively when the access token is within
@@ -158,6 +164,24 @@ public actor AuthenticatedHTTPClient {
     cloudHTTPLogger.info("access token within expiry skew — proactive refresh")
     guard let fresh = try? await refresh(refresh: current.refresh) else { return current }
     return fresh
+  }
+
+  private func requiredTokensForRequest() async throws -> AuthTokens {
+    guard let current = tokensProvider() else {
+      throw AuthenticationError.notAuthenticated
+    }
+    guard Self.accessTokenIsExpired(current.access, skew: Self.proactiveRefreshSkew) else {
+      return current
+    }
+    do {
+      return try await refresh(refresh: current.refresh)
+    } catch let error as URLError {
+      cloudHTTPLogger.error("proactive refresh unavailable: \(error.localizedDescription, privacy: .public)")
+      throw AuthenticationError.temporarilyUnavailable
+    } catch {
+      cloudHTTPLogger.error("proactive refresh rejected: \(error.localizedDescription, privacy: .public)")
+      throw error
+    }
   }
 
   /// True when the JWT's `exp` claim is within `skew` seconds of now (or past).
@@ -202,7 +226,7 @@ public actor AuthenticatedHTTPClient {
     _ block: (URLRequest) async throws -> (T, URLResponse)
   ) async throws -> (T, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    var injected = inject(request, tokens: await tokensForRequest())
+    var injected = inject(request, tokens: try await requiredTokensForRequest())
     var (payload, resp) = try await block(injected)
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (payload, resp) }
 
@@ -236,7 +260,7 @@ public actor AuthenticatedHTTPClient {
   /// extension's drag-in upload path.
   public func upload(for request: URLRequest, fromFile fileURL: URL) async throws -> (Data, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    let signed = inject(request, tokens: await tokensForRequest())
+    let signed = inject(request, tokens: try await requiredTokensForRequest())
     let (data, resp) = try await urlSession.upload(for: signed, fromFile: fileURL)
     Self.logResponse(resp, data: data, request: request)
 

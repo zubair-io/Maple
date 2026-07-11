@@ -10,6 +10,7 @@ public struct AuthTokens: Codable, Equatable, Sendable {
 
 public enum TokenStore {
   private static let service = "app.justmaple.maple.auth"
+  public static let accessGroup = "QREP66JW5U.app.justmaple.aperture.shared"
 
   /// Base query shared by save/load/clear. `kSecUseDataProtectionKeychain`
   /// is the load-bearing bit: iOS uses the data-protection keychain by
@@ -27,6 +28,7 @@ public enum TokenStore {
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: server.absoluteString,
+      kSecAttrAccessGroup as String: accessGroup,
       kSecUseDataProtectionKeychain as String: true,
     ]
   }
@@ -65,13 +67,5 @@ public enum TokenStore {
 
   public static func clear(server: URL) {
     SecItemDelete(baseQuery(server: server) as CFDictionary)
-    #if os(macOS)
-    // Also wipe any token a pre-fix macOS build wrote to the legacy file
-    // keychain (without kSecUseDataProtectionKeychain), so sign-out / remove
-    // leaves no credential remnant behind. No-op once the legacy item is gone.
-    var legacy = baseQuery(server: server)
-    legacy[kSecUseDataProtectionKeychain as String] = false
-    SecItemDelete(legacy as CFDictionary)
-    #endif
   }
 }

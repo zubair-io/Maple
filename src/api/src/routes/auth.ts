@@ -20,6 +20,7 @@ import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
 import {
   issueRefreshToken,
+  RefreshError,
   rotateRefreshToken,
   revokeFamilyByToken,
 } from '../auth/refresh_store.ts';
@@ -405,8 +406,13 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       try {
         fresh = await rotateRefreshToken(raw);
       } catch (err) {
-        set.status = 401;
-        return { error: (err as Error).message };
+        if (err instanceof RefreshError) {
+          set.status = err.code === 'rotation_conflict' ? 409 : 401;
+          return { error: err.message, error_code: err.code };
+        }
+        console.error('refresh rotation failed', err);
+        set.status = 503;
+        return { error: 'refresh temporarily unavailable' };
       }
       const user = await (await usersCollection()).findOne({ _id: fresh.userId });
       if (!user) {
