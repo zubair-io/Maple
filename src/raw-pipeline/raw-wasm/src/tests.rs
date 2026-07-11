@@ -198,10 +198,48 @@ fn render_bytes_sized_caps_long_edge_and_matches_as_shot_seed() {
     assert_eq!((sized.full_width(), sized.full_height()), (nw, nh));
 
     // As-Shot derivation must match the full-size entry bit-for-bit (the
-    // sized cold open seeds the same WB sliders).
-    let expected_cct = raw_img
-        .as_shot_cct
-        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
+    // sized cold open seeds the same WB sliders) — the slider-frame
+    // estimate, not the retired log2(B/R) heuristic (#1892).
+    let (expected_cct, expected_tint) = as_shot_wb(&raw_img);
     assert_eq!(sized.as_shot_temperature(), expected_cct);
-    assert_eq!(sized.as_shot_tint(), 0.0);
+    assert_eq!(sized.as_shot_tint(), expected_tint);
+    // test_0002 (H2D-39) sits far off the Planckian locus — the estimate
+    // must carry a real tint, where the old heuristic hard-coded 0.
+    assert!(
+        expected_tint.abs() > 1.0,
+        "frame-consistent as-shot tint should be non-zero for this fixture, got {expected_tint}"
+    );
+}
+
+/// #1892: a fresh open (no XMP) must develop IDENTICALLY to an explicit
+/// `crs:WhiteBalance="As Shot"` sidecar — both resolve to the As-Shot
+/// sentinel; neither pushes the display estimate into the model. Pre-#1892
+/// the fresh open substituted a heuristic CCT as an explicit target and the
+/// two differed.
+///
+/// Compared on the SCENE-LINEAR entry (where white balance lives), not the
+/// display entry: the display tail's Auto Profile fit shares a bytes-keyed
+/// cache across render qualities, so concurrent tests rendering this same
+/// fixture at a different quality can swap the cached fit between the two
+/// renders and flake a display-byte compare (#924's sharing tradeoff).
+#[test]
+fn render_bytes_scene_linear_fresh_open_matches_as_shot_xmp() {
+    let Some(path) = fixture_path() else { return };
+    let bytes = std::fs::read(&path).expect("read fixture");
+    let cap = 512u32;
+    let fresh = render_bytes_scene_linear_sized(&bytes, "dng", None, true, cap)
+        .expect("fresh-open develop");
+    let as_shot_xmp = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:WhiteBalance="As Shot"/>
+</rdf:RDF></x:xmpmeta>
+<?xpacket end="w"?>"#;
+    let explicit =
+        render_bytes_scene_linear_sized(&bytes, "dng", Some(as_shot_xmp.to_string()), true, cap)
+            .expect("as-shot XMP develop");
+    assert_eq!(
+        fresh.fp16_rgba(),
+        explicit.fp16_rgba(),
+        "fresh open and explicit As-Shot XMP must develop byte-identically"
+    );
 }
