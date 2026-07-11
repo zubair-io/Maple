@@ -152,17 +152,20 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var temperature: Double      // 2000..12000, default 6500
     public var tint: Double             // -150..150 (ACR's crs:Tint span, #1870), default 0
     /// WB slider-scale version of this model's temperature/tint
-    /// (#1780/#1875/#1893). `1` = pre-#1756 scale (post-DCP CAT16, 6500 K
-    /// identity) — raw-core converts on use; `4` = ACR calibration-frame
-    /// scale with the ACR tint direction AND ACR's kTintScale magnitude
-    /// (current). `2`/`3` (the legacy 1e-4-magnitude scales; `2` also had
-    /// the tint axis inverted vs ACR) never survive a parse: the loader
-    /// rescales authored tint by 0.3 (negating for `2`) and normalizes the
-    /// model to `4`. Parsed from `papp:WbScaleVersion` (absent stamp on a
-    /// Maple-authored sidecar means `1`; non-Maple sidecars are `4`),
-    /// re-stamped on write as {1, 4}. Fresh models author in the current
-    /// scale.
-    public var wbScaleVersion: Int      // 1 | 4, default 4
+    /// (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
+    /// 6500 K identity) — raw-core converts on use; `5` = the Robertson
+    /// (DNG SDK `dng_temperature`) mapping ACR's own slider displays
+    /// natively (current). `2`/`3`/`4` (the legacy Hernández-Andrés
+    /// daylight-locus scales — `2`/`3` at the 1e-4-magnitude, with `2`'s
+    /// tint axis also inverted vs ACR; `4` at ACR's kTintScale magnitude
+    /// but still the legacy locus, #1893) never survive a parse: the
+    /// loader re-expresses the authored `(temperature, tint)` PAIR jointly
+    /// through physical chromaticity (`WbDngTemperature.authoredPairToV5`)
+    /// and normalizes the model to `5`. Parsed from `papp:WbScaleVersion`
+    /// (absent stamp on a Maple-authored sidecar means `1`; non-Maple
+    /// sidecars are `5`), re-stamped on write as {1, 5}. Fresh models
+    /// author in the current scale.
+    public var wbScaleVersion: Int      // 1 | 5, default 5
 
     // Basic tone
     public var exposure: Double         // -4..+4 EV, default 0
@@ -329,7 +332,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
-        wbScaleVersion: Int = 4,
+        wbScaleVersion: Int = 5,
         exposure: Double = 0,
         brightness: Double = 0,
         contrast: Double = 0,

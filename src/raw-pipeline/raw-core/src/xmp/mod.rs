@@ -40,7 +40,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     // predates the versioning (pre-#1756 scale, V1); everything else — a
     // document with no `papp:` namespace at all (ACR/Lightroom-authored,
     // always expressed in ACR's own slider scale) or one with no authored
-    // WB (nothing to convert; scale-agnostic) — is V4 (#1893).
+    // WB (nothing to convert; scale-agnostic) — is V5 (#1894).
     let mut papp_seen = false;
     let mut stamp: Option<WbScaleVersion> = None;
 
@@ -102,6 +102,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                             "2" => WbScaleVersion::V2,
                             "3" => WbScaleVersion::V3,
                             "4" => WbScaleVersion::V4,
+                            "5" => WbScaleVersion::V5,
                             other => {
                                 return Err(Error::Xmp(format!(
                                     "unknown WbScaleVersion: {}",
@@ -126,18 +127,20 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
         }
     }
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
-    // Unstamped, non-Maple (or WB-less) documents are V4 (#1893): an
-    // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention
-    // — the V4 direction (#1875) AND the V4 magnitude (kTintScale, 1/3000
-    // uv per unit) — so it passes through unconverted. (These parsed as V3
-    // between #1875 and #1893, when the direction was matched but the
-    // legacy 1e-4 magnitude under-applied ACR tints 3.33×; the V3 tag now
-    // exists to preserve the look of Maple-authored V3 sidecars via the
-    // TINT_SCALE_V3_TO_V4 rescale, exactly like V2's negation before it.)
+    // Unstamped, non-Maple (or WB-less) documents are V5 (#1894): an
+    // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention,
+    // which IS the Robertson mapping V5 evaluates on — ACR derives its
+    // displayed temperature/tint pair from exactly this table — so it
+    // passes through unconverted. (These parsed as V4 between #1893 and
+    // #1894, when the direction and magnitude were matched but the
+    // evaluation locus was still the legacy Hernández-Andrés curve rather
+    // than Robertson; the V4 tag now exists solely to preserve the look of
+    // any dev-window V4 sidecar via `authored_pair_to_v5`'s joint
+    // chromaticity round-trip, the same role V2/V3 play for their scales.)
     model.wb_scale_version = stamp.unwrap_or(if unstamped_is_v1 {
         WbScaleVersion::V1
     } else {
-        WbScaleVersion::V4
+        WbScaleVersion::V5
     });
     Ok(model)
 }
