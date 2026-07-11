@@ -43,3 +43,20 @@ export function resolveWbScaleVersion(desc: Element, sawPappAnywhere: boolean): 
     negateAuthoredTint: version === 2 && sawAuthoredTint,
   };
 }
+
+/**
+ * WB preset a parsed model should carry when the sidecar authored a
+ * `crs:Temperature`/`crs:Tint` but no `crs:WhiteBalance` attribute: that is
+ * a Custom WB — the same rule raw-core's parser encodes via its
+ * `temperature_seen`/`tint_seen` flags. Recording 'Custom' keeps the
+ * serializer's As-Shot gate (#1892) from dropping those authored values on
+ * the next save (sidecars written before the gate never stamped a preset
+ * alongside slider edits). Returns `undefined` when nothing should change:
+ * an explicit preset was parsed, or no WB fields were authored.
+ */
+export function inferredWbPresetForAuthoredPair(
+  parsedPreset: string | undefined,
+  authoredTemperatureOrTint: boolean,
+): 'Custom' | undefined {
+  return parsedPreset === undefined && authoredTemperatureOrTint ? 'Custom' : undefined;
+}

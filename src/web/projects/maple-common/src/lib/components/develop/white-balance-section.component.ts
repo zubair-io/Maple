@@ -7,6 +7,27 @@ import { MapleCollapsibleComponent } from '../../collapsible/maple-collapsible.c
 import { EditorSliderComponent } from './slider.component';
 import { WbPresetPillsComponent, WbPresetSelection } from './wb-preset-pills.component';
 
+/**
+ * The adjustment patch a WB preset selection produces. Named presets carry
+ * their own pair; 'As Shot' restores the camera's seeded display pair
+ * (`asShot`) — it renders via the sentinel (temperature/tint omitted from
+ * the sidecar, #1892), so leaving the previous Custom values visible would
+ * show numbers the render no longer uses. A pair component that is neither
+ * in the preset nor in the seed stays untouched.
+ */
+function wbPresetPatch(
+  sel: WbPresetSelection,
+  asShot: { temperature: number; tint: number } | undefined,
+): Record<string, unknown> {
+  const temperature = sel.temperature ?? asShot?.temperature;
+  const tint = sel.tint ?? asShot?.tint;
+  return {
+    whiteBalancePreset: sel.preset,
+    ...(temperature !== undefined && { temperature }),
+    ...(tint !== undefined && { tint }),
+  };
+}
+
 @Component({
   selector: 'editor-white-balance-section',
   standalone: true,
@@ -32,16 +53,7 @@ export class WhiteBalanceSectionComponent {
   onPreset(sel: WbPresetSelection): void {
     const id = this.assetId();
     if (!id) return;
-    // 'As Shot' renders via the sentinel (temperature/tint omitted from the
-    // sidecar — #1892), so restore the sliders to the camera's seeded
-    // display pair; leaving the previous Custom values visible would show
-    // numbers the render no longer uses.
     const asShot = sel.preset === 'As Shot' ? this.state.asShotWbFor(id) : undefined;
-    const temperature = sel.temperature ?? asShot?.temperature ?? null;
-    const tint = sel.tint ?? asShot?.tint ?? null;
-    const patch: Record<string, unknown> = { whiteBalancePreset: sel.preset };
-    if (temperature !== null) patch['temperature'] = temperature;
-    if (tint !== null) patch['tint'] = tint;
-    this.state.updateAdjustment(id, patch as never);
+    this.state.updateAdjustment(id, wbPresetPatch(sel, asShot) as never);
   }
 }
