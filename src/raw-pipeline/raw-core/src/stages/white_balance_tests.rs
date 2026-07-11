@@ -449,6 +449,31 @@ fn resolve_wb_both_seen_passes_through() {
     assert_eq!(tnt, 25.0, "tint must pass through when tint_seen=true");
 }
 
+/// Version-authored tint conversion (#1875 axis, #1893 scale): an authored
+/// tint stamped with a pre-V4 `WbScaleVersion` re-expresses in the V4
+/// axis + scale, preserving the uv displacement it encoded when written.
+/// Presets and defaults never set `tint_seen` and are untouched (covered
+/// by the neither-seen tests below).
+#[test]
+fn resolve_wb_versioned_authored_tint_converts_to_v4() {
+    use crate::xmp::WbScaleVersion as V;
+    let model_at = |version: V| crate::xmp::AdjustmentModel {
+        temperature: 4500.0,
+        tint: 25.0,
+        temperature_seen: true,
+        tint_seen: true,
+        wb_scale_version: version,
+        ..Default::default()
+    };
+    // V1/V3: ACR direction at the legacy 1e-4 scale → ×0.3.
+    assert_eq!(resolve_wb(&model_at(V::V1)).1, 25.0 * TINT_SCALE_V3_TO_V4);
+    assert_eq!(resolve_wb(&model_at(V::V3)).1, 25.0 * TINT_SCALE_V3_TO_V4);
+    // V2: inverted axis at the legacy scale → negate AND ×0.3.
+    assert_eq!(resolve_wb(&model_at(V::V2)).1, -25.0 * TINT_SCALE_V3_TO_V4);
+    // V4: current scale → passthrough.
+    assert_eq!(resolve_wb(&model_at(V::V4)).1, 25.0);
+}
+
 /// (true, false) — XMP temperature-only Custom WB: temperature passes
 /// through, tint resolves to 0 (neutral, the ACR 'absent tint' value).
 #[test]

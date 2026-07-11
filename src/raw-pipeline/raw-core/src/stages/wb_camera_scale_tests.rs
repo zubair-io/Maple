@@ -119,9 +119,11 @@ fn frame_inversion_round_trips_the_forward_map() {
                 // …because the property that actually matters is that the
                 // recovered pair reprojects to the SAME target neutral —
                 // that is what makes the converted render's gain equal the
-                // old interpretation's. Assert it in uv (2.5e-5 uv ≈ 0.25
-                // tint units — the fixed point converges at 0.5 K, which
-                // moves the locus anchor ~1e-5 uv at the warm end).
+                // old interpretation's. Assert it in uv (8.5e-5 uv ≈ 0.25
+                // tint units at the #1893 kTintScale — the fixed point
+                // converges at 0.5 K, which moves the locus anchor ~1e-5 uv
+                // at the warm end, and the curvature term grows with the
+                // 3.33×-larger uv displacements the ACR scale spans).
                 let n2 = forward_frame_target(&frame, t2, tint2);
                 let uv = |v: [f32; 3], cct: f32| {
                     let inv = frame.cm_for_cct(cct).inverse().unwrap();
@@ -133,7 +135,7 @@ fn frame_inversion_round_trips_the_forward_map() {
                 let (u_b, v_b) = uv(n2, t2);
                 let dist = ((u_a - u_b).powi(2) + (v_a - v_b).powi(2)).sqrt();
                 assert!(
-                    dist < 2.5e-5,
+                    dist < 8.5e-5,
                     "reprojection drift {dist} uv at {t} K / tint {tint} (came back {t2} K / {tint2})"
                 );
             }
@@ -158,9 +160,11 @@ fn frame_inversion_recovers_off_slider_range_tints_unclamped() {
 // ── resolve_target_versioned dispatch ─────────────────────────────────────
 
 #[test]
-fn v2_explicit_tint_negates_into_the_v3_axis() {
-    // #1875: the V2 scale's tint axis was inverted vs ACR; the authored
-    // value re-expresses in V3 by negation (temperature untouched).
+fn v2_explicit_tint_negates_and_rescales_into_the_v4_scale() {
+    // #1875 axis + #1893 scale: the V2 scale's tint axis was inverted vs
+    // ACR and its magnitude was 1e-4 uv per unit; the authored value
+    // re-expresses in V4 by negation AND the 0.3 rescale (temperature
+    // untouched).
     let frame = single_cm_frame(5200.0);
     let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
     let model = AdjustmentModel {
@@ -169,13 +173,15 @@ fn v2_explicit_tint_negates_into_the_v3_axis() {
     };
     assert_eq!(
         resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
-        (5000.0, -10.0),
-        "V2-authored tint must negate into the V3 (ACR-direction) axis"
+        (5000.0, -10.0 * white_balance::TINT_SCALE_V3_TO_V4),
+        "V2-authored tint must negate and rescale into the V4 axis/scale"
     );
 }
 
 #[test]
-fn v3_explicit_values_pass_through_unconverted() {
+fn v3_explicit_tint_rescales_into_the_v4_scale() {
+    // #1893: V3 is the ACR direction at the legacy 1e-4 magnitude — the
+    // authored value rescales by 0.3 so its uv displacement is preserved.
     let frame = single_cm_frame(5200.0);
     let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
     let model = AdjustmentModel {
@@ -184,8 +190,23 @@ fn v3_explicit_values_pass_through_unconverted() {
     };
     assert_eq!(
         resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
+        (5000.0, 10.0 * white_balance::TINT_SCALE_V3_TO_V4),
+        "V3-authored tint must rescale into the V4 scale"
+    );
+}
+
+#[test]
+fn v4_explicit_values_pass_through_unconverted() {
+    let frame = single_cm_frame(5200.0);
+    let profile = test_profile(5200.0, [0.6, 1.0, 0.55]);
+    let model = AdjustmentModel {
+        wb_scale_version: WbScaleVersion::V4,
+        ..v1_model(5000.0, 10.0)
+    };
+    assert_eq!(
+        resolve_target_versioned(&model, &frame, &profile, [0.6, 1.0, 0.55]),
         (5000.0, 10.0),
-        "V3 models must resolve exactly like resolve_target"
+        "V4 models must resolve exactly like resolve_target"
     );
 }
 
@@ -237,7 +258,14 @@ fn v1_conversion_preserves_the_old_rendered_white() {
         let (t2, tint2) = resolve_target_versioned(&model, &frame, &profile, asn);
         // Old rendered white: post-DCP CAT16 cast applied to the as-shot
         // white (identical to what `white_balance::apply` did pre-#1756).
-        let w_old = white_balance::wb_cat16_matrix(t1, tint1).mul_vec(w);
+        // The V1 value's displacement was `tint × 1e-4` uv; today's CAT16
+        // math displaces at the kTintScale, so the historic cast is
+        // reproduced by feeding it the V4-rescaled tint (#1893).
+        let w_old = white_balance::wb_cat16_matrix(
+            t1,
+            tint1 * white_balance::TINT_SCALE_V3_TO_V4,
+        )
+        .mul_vec(w);
         // New rendered white: camera gain for the converted pair, rendered
         // through the same linear DCP transform.
         let g = camera_wb_gain(&frame, asn, t2, tint2);
@@ -293,9 +321,14 @@ fn test_0002_v1_sidecar_converts_to_the_old_interpretations_gain() {
     );
 
     // First-principles expectation: the old CAT16 cast expressed as a
-    // G-normalised camera gain through the real profile's D.
+    // G-normalised camera gain through the real profile's D. The V1
+    // tint's historic displacement reproduces via the V4 rescale (#1893).
     let d = dcp::camera_to_rec2020_matrix(&profile).expect("D");
-    let w_old = white_balance::wb_cat16_matrix(6282.0, -44.0).mul_vec(d.mul_vec([1.0, 1.0, 1.0]));
+    let w_old = white_balance::wb_cat16_matrix(
+        6282.0,
+        -44.0 * white_balance::TINT_SCALE_V3_TO_V4,
+    )
+    .mul_vec(d.mul_vec([1.0, 1.0, 1.0]));
     let g_raw = d.inverse().expect("D invertible").mul_vec(w_old);
     let expected = [g_raw[0] / g_raw[1], 1.0, g_raw[2] / g_raw[1]];
 
