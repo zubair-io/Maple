@@ -51,7 +51,7 @@ public struct FileProviderTokensStore: Sendable {
         SecItemDelete(base as CFDictionary)
         var add = base
         add[kSecValueData] = data
-        add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
+        add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(add as CFDictionary, nil)
         if status != errSecSuccess {
             keychainLogger.error("SecItemAdd failed for domain \(domain, privacy: .public): OSStatus \(status)")
