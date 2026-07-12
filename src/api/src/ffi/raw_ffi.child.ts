@@ -56,6 +56,25 @@ function handle(req: FfiRequest): FfiResponse {
     };
   }
 
+  if (req.type === 'renderDevelop') {
+    // Full develop with the sidecar applied → JPEG to disk. Like renderThumb,
+    // the heavy pixel buffer never crosses the FFI/IPC boundary — Rust writes
+    // the file and we return only ok/error.
+    const ok = ffi.renderDevelopJpegToFile(
+      req.rawPath,
+      req.xmpPath ?? null,
+      req.outPath,
+      req.maxPx,
+      req.quality,
+    );
+    return {
+      type: 'renderDevelop',
+      id: req.id,
+      ok,
+      error: ok ? undefined : 'render-failed (see child stderr)',
+    };
+  }
+
   // histogram — render-with-xmp + bin entirely in Rust; only the 3×256 counts
   // (~3 KB) come back across the FFI boundary into a JS-owned buffer (no pixel
   // buffer ever crosses), then across IPC. See `maple_histogram_file`.

@@ -34,7 +34,20 @@ export interface HistogramRequest {
   xmpPath: string | null;
 }
 
-export type FfiRequest = RenderThumbRequest | HistogramRequest;
+/** Develop a RAW with its XMP applied and write the JPEG to disk (#1950). The
+ *  DEVELOPED counterpart to `renderThumb` (which extracts the embedded preview
+ *  and applies no adjustments). `xmpPath` null → neutral develop. */
+export interface RenderDevelopRequest {
+  type: 'renderDevelop';
+  id: number;
+  rawPath: string;
+  xmpPath: string | null;
+  outPath: string;
+  maxPx: number;
+  quality: number;
+}
+
+export type FfiRequest = RenderThumbRequest | HistogramRequest | RenderDevelopRequest;
 
 export interface RenderThumbResponse {
   type: 'renderThumb';
@@ -51,4 +64,11 @@ export interface HistogramResponse {
   error?: string;
 }
 
-export type FfiResponse = RenderThumbResponse | HistogramResponse;
+export interface RenderDevelopResponse {
+  type: 'renderDevelop';
+  id: number;
+  ok: boolean;
+  error?: string;
+}
+
+export type FfiResponse = RenderThumbResponse | HistogramResponse | RenderDevelopResponse;
