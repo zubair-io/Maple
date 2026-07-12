@@ -70,7 +70,9 @@ pub struct SliderFrame {
     /// As-shot CCT in THIS frame — the temperature at which the slider is
     /// an identity for this image.
     pub scene_cct: f32,
-    /// The RENDER PROFILE's camera→XYZ calibration (`profile.color_matrix`)
+    /// The RENDER PROFILE's XYZ→camera calibration (`profile.color_matrix`,
+    /// same convention as the value-frame CMs — inverted to camera→XYZ in
+    /// the delta)
     /// — the basis the developed buffer actually lives in. Distinct from
     /// `cm_as_shot` (the VALUE frame, ACR's slider scale) for embedded-CM
     /// bodies whose value frame differs from the bundle render profile
