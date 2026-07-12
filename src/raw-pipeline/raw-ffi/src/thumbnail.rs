@@ -103,7 +103,7 @@ fn bake_orientation(
 /// ratio, never upscaling. Triangle filter: cheap and visually fine for
 /// grid thumbs; Lanczos would be sharper but ~3× slower with no
 /// perceptible win at 512px.
-fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::DynamicImage {
+pub(crate) fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::DynamicImage {
     use image::GenericImageView;
     let (w, h) = img.dimensions();
     let long_edge = w.max(h);

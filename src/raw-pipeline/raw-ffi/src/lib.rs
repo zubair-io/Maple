@@ -99,6 +99,10 @@ pub use pano::{
 pub use pano::maple_pano_ort_selftest;
 // Re-exported for the pano integration tests that read it after a failed stitch.
 pub use error::maple_last_error;
+// Re-exported so the `render_develop_jpeg` integration test (#1950) can call
+// the developed-preview extern directly; the `#[no_mangle]` C-ABI export is
+// unaffected either way.
+pub use render::maple_render_develop_jpeg_to_file;
 
 // Tests are split per-topic so each file stays well under the 600-LOC
 // per-file budget; the `#[path]` references keep them as plain siblings
