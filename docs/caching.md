@@ -6,13 +6,13 @@ Maple has five distinct cache layers, each serving a different access pattern. T
 
 ## Cache Layers at a Glance
 
-| #   | Cache                  | Location                                | Format         | Lifetime                         | Purpose                                       |
-| --- | ---------------------- | --------------------------------------- | -------------- | -------------------------------- | --------------------------------------------- |
-| 1   | In-memory thumbnails   | `ThumbnailLoader.memoryCache`           | `CGImage`      | App session                      | Instant grid cell rendering                   |
-| 2   | On-disk thumbnails     | `.maple/thumbs/` next to photos         | JPEG q=0.8     | Travels with photos              | Survives app restarts, external drive moves   |
-| 3   | Rendered preview cache | `.maple/previews/` next to photos       | JPEG q=0.90    | Travels with photos; 20-entry memory front | Instant cold-open of previously-edited images |
-| 4   | Decoded CIImage        | `EditSession.decodedImage`              | CIImage (lazy) | Single editing session           | Avoids re-decoding RAW on every slider change |
-| 5   | SMB file data          | `EditSession.cachedFileData`            | Raw `Data`     | Single editing session           | Avoids re-downloading ~35MB over network      |
+| #   | Cache                  | Location                          | Format         | Lifetime                                   | Purpose                                       |
+| --- | ---------------------- | --------------------------------- | -------------- | ------------------------------------------ | --------------------------------------------- |
+| 1   | In-memory thumbnails   | `ThumbnailLoader.memoryCache`     | `CGImage`      | App session                                | Instant grid cell rendering                   |
+| 2   | On-disk thumbnails     | `.maple/thumbs/` next to photos   | JPEG q=0.8     | Travels with photos                        | Survives app restarts, external drive moves   |
+| 3   | Rendered preview cache | `.maple/previews/` next to photos | JPEG q=0.90    | Travels with photos; 20-entry memory front | Instant cold-open of previously-edited images |
+| 4   | Decoded CIImage        | `EditSession.decodedImage`        | CIImage (lazy) | Single editing session                     | Avoids re-decoding RAW on every slider change |
+| 5   | SMB file data          | `EditSession.cachedFileData`      | Raw `Data`     | Single editing session                     | Avoids re-downloading ~35MB over network      |
 
 ---
 
