@@ -74,7 +74,7 @@ ThumbnailLoader (actor)
 
 Implemented by `RenderedPreviewCache` (`src/apple/.../Cache/RenderedPreviewCache.swift`). Stored **next to the photos** in the same `.maple/` folder as the thumbnail cache (§2) — not the OS cache directory — so a developed preview travels with the images when the folder is copied to another Mac or drive. The folder is set per open folder via `configure(folderURL:)`.
 
-**Key:** `MD5( "{MD5(primary_url)[0:16]}_{primary_mtime_ms}_{sidecar_mtime_ms}_{screen_width}_v{view_transform_version}" )`, one `.jpg` per key. The five components:
+**Key:** `"{urlHash}_{variantHash}.jpg"`, where `urlHash = SHA256(primary_url)`'s first 16 hex chars and `variantHash = SHA256( "{primary_mtime_ms}_{sidecar_mtime_ms}_{screen_width}_v{view_transform_version}" )`'s first 16 bytes (32 hex chars). The `urlHash` is kept as a literal prefix (not folded into `variantHash`) so `invalidate(assetURL:)` can match every screen-width variant of an asset by prefix. The five components:
 
 - `primary_url` hash — identifies the asset.
 - `primary_mtime_ms` — the primary RAW's own modification time. The JPEG is rendered from those pixels, so a bytes change that leaves the sidecar untouched (re-import, external sync, filesystem restore) must miss (#1928).
