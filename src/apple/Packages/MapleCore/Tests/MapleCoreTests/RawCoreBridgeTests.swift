@@ -17,11 +17,16 @@ final class RawCoreBridgeTests: XCTestCase {
             temperature: 5200,
             tint: 8,
             exposure: 1.5,
+            brightness: 22,
             contrast: 25,
             highlights: -40,
             shadows: 30,
             whites: 12,
             blacks: -15,
+            parametricHighlights: 10,
+            parametricLights: -8,
+            parametricDarks: 6,
+            parametricShadows: -12,
             vibrance: 20,
             saturation: -10,
             clarity: 35,
@@ -35,6 +40,40 @@ final class RawCoreBridgeTests: XCTestCase {
             captureSharpeningSigma: 1.5,
             nrLuminance: 18,
             nrColor: 33,
+            vignetteAmount: -30,
+            vignetteFeather: 70,
+            grainAmount: 40,
+            grainSize: 35,
+            grainRoughness: 80,
+            splitToneShadowHue: 210,
+            splitToneShadowSaturation: 40,
+            splitToneHighlightHue: 60,
+            splitToneHighlightSaturation: 30,
+            splitToneBalance: 25,
+            hueAdjustmentRed: 11,
+            hueAdjustmentOrange: -12,
+            hueAdjustmentYellow: 13,
+            hueAdjustmentGreen: -14,
+            hueAdjustmentAqua: 15,
+            hueAdjustmentBlue: -16,
+            hueAdjustmentPurple: 17,
+            hueAdjustmentMagenta: -18,
+            saturationAdjustmentRed: 21,
+            saturationAdjustmentOrange: -22,
+            saturationAdjustmentYellow: 23,
+            saturationAdjustmentGreen: -24,
+            saturationAdjustmentAqua: 25,
+            saturationAdjustmentBlue: -26,
+            saturationAdjustmentPurple: 27,
+            saturationAdjustmentMagenta: -28,
+            luminanceAdjustmentRed: 31,
+            luminanceAdjustmentOrange: -32,
+            luminanceAdjustmentYellow: 33,
+            luminanceAdjustmentGreen: -34,
+            luminanceAdjustmentAqua: 35,
+            luminanceAdjustmentBlue: -36,
+            luminanceAdjustmentPurple: 37,
+            luminanceAdjustmentMagenta: -38,
             highlightRecovery: .blend
         )
     }
@@ -45,19 +84,58 @@ final class RawCoreBridgeTests: XCTestCase {
         // White balance
         XCTAssertEqual(stripped.temperature, d.temperature)
         XCTAssertEqual(stripped.tint, d.tint)
-        // Scene tone controls + AgX contrast
+        // Scene tone controls + AgX contrast. brightness (#1102) is a
+        // scene_tone_controls input the decode AND chain both bake — #1916
+        // added it to the strip.
         XCTAssertEqual(stripped.exposure, d.exposure)
+        XCTAssertEqual(stripped.brightness, d.brightness)
         XCTAssertEqual(stripped.contrast, d.contrast)
         XCTAssertEqual(stripped.highlights, d.highlights)
         XCTAssertEqual(stripped.shadows, d.shadows)
         XCTAssertEqual(stripped.whites, d.whites)
         XCTAssertEqual(stripped.blacks, d.blacks)
+        // Parametric tone curve (#273) — tone_curves stage, run by both
+        // decode and chain (#1916 added it to the strip).
+        XCTAssertEqual(stripped.parametricHighlights, d.parametricHighlights)
+        XCTAssertEqual(stripped.parametricLights, d.parametricLights)
+        XCTAssertEqual(stripped.parametricDarks, d.parametricDarks)
+        XCTAssertEqual(stripped.parametricShadows, d.parametricShadows)
         // Presence
         XCTAssertEqual(stripped.vibrance, d.vibrance)
         XCTAssertEqual(stripped.saturation, d.saturation)
         XCTAssertEqual(stripped.clarity, d.clarity)
         XCTAssertEqual(stripped.texture, d.texture)
         XCTAssertEqual(stripped.dehaze, d.dehaze)
+        // HSL 8-band hue/sat/lum (#1112) — hsl stage, run by both decode
+        // and chain (#1916 added all 24 bands to the strip).
+        XCTAssertEqual(stripped.hueAdjustmentRed, d.hueAdjustmentRed)
+        XCTAssertEqual(stripped.hueAdjustmentOrange, d.hueAdjustmentOrange)
+        XCTAssertEqual(stripped.hueAdjustmentYellow, d.hueAdjustmentYellow)
+        XCTAssertEqual(stripped.hueAdjustmentGreen, d.hueAdjustmentGreen)
+        XCTAssertEqual(stripped.hueAdjustmentAqua, d.hueAdjustmentAqua)
+        XCTAssertEqual(stripped.hueAdjustmentBlue, d.hueAdjustmentBlue)
+        XCTAssertEqual(stripped.hueAdjustmentPurple, d.hueAdjustmentPurple)
+        XCTAssertEqual(stripped.hueAdjustmentMagenta, d.hueAdjustmentMagenta)
+        XCTAssertEqual(stripped.saturationAdjustmentRed, d.saturationAdjustmentRed)
+        XCTAssertEqual(stripped.saturationAdjustmentOrange, d.saturationAdjustmentOrange)
+        XCTAssertEqual(stripped.saturationAdjustmentYellow, d.saturationAdjustmentYellow)
+        XCTAssertEqual(stripped.saturationAdjustmentGreen, d.saturationAdjustmentGreen)
+        XCTAssertEqual(stripped.saturationAdjustmentAqua, d.saturationAdjustmentAqua)
+        XCTAssertEqual(stripped.saturationAdjustmentBlue, d.saturationAdjustmentBlue)
+        XCTAssertEqual(stripped.saturationAdjustmentPurple, d.saturationAdjustmentPurple)
+        XCTAssertEqual(stripped.saturationAdjustmentMagenta, d.saturationAdjustmentMagenta)
+        XCTAssertEqual(stripped.luminanceAdjustmentRed, d.luminanceAdjustmentRed)
+        XCTAssertEqual(stripped.luminanceAdjustmentOrange, d.luminanceAdjustmentOrange)
+        XCTAssertEqual(stripped.luminanceAdjustmentYellow, d.luminanceAdjustmentYellow)
+        XCTAssertEqual(stripped.luminanceAdjustmentGreen, d.luminanceAdjustmentGreen)
+        XCTAssertEqual(stripped.luminanceAdjustmentAqua, d.luminanceAdjustmentAqua)
+        XCTAssertEqual(stripped.luminanceAdjustmentBlue, d.luminanceAdjustmentBlue)
+        XCTAssertEqual(stripped.luminanceAdjustmentPurple, d.luminanceAdjustmentPurple)
+        XCTAssertEqual(stripped.luminanceAdjustmentMagenta, d.luminanceAdjustmentMagenta)
+        // Vignette (#1109) — vignette stage, run by both decode and chain.
+        // amount 0 short-circuits the stage; feather rides to its 50 default.
+        XCTAssertEqual(stripped.vignetteAmount, d.vignetteAmount)
+        XCTAssertEqual(stripped.vignetteFeather, d.vignetteFeather)
         // Noise reduction. nrLuminance default is 0, so the strip leaving
         // it at the default also leaves it at 0 (decode early-exits).
         XCTAssertEqual(stripped.nrLuminance, d.nrLuminance)
@@ -96,6 +174,21 @@ final class RawCoreBridgeTests: XCTestCase {
         // the FFI decode.
         XCTAssertEqual(stripped.captureSharpeningAmount, original.captureSharpeningAmount)
         XCTAssertEqual(stripped.captureSharpeningSigma, original.captureSharpeningSigma)
+        // split_tone (#1111) and grain (#1110) run only POST-AgX; the Apple
+        // decode stops at scene-linear (pre-AgX), so even though the temp XMP
+        // carries these values the decode never applies them — there is
+        // nothing to double-apply. Stripping them would be pointless (and
+        // misleading), so the strip leaves them untouched; they still shape
+        // the live chain output, so they belong in the SceneLinearChainCache
+        // key instead.
+        XCTAssertEqual(stripped.splitToneShadowHue, original.splitToneShadowHue)
+        XCTAssertEqual(stripped.splitToneShadowSaturation, original.splitToneShadowSaturation)
+        XCTAssertEqual(stripped.splitToneHighlightHue, original.splitToneHighlightHue)
+        XCTAssertEqual(stripped.splitToneHighlightSaturation, original.splitToneHighlightSaturation)
+        XCTAssertEqual(stripped.splitToneBalance, original.splitToneBalance)
+        XCTAssertEqual(stripped.grainAmount, original.grainAmount)
+        XCTAssertEqual(stripped.grainSize, original.grainSize)
+        XCTAssertEqual(stripped.grainRoughness, original.grainRoughness)
     }
 
     func test_strip_is_idempotent() {
