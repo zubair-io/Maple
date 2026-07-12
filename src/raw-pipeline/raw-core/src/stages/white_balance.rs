@@ -548,8 +548,13 @@ pub(crate) fn authored_tint_to_v4(tint: f32, version: crate::xmp::WbScaleVersion
     }
 }
 
-// Tests live in the sibling `white_balance_tests.rs` so this file stays under the
-// 600-LOC budget (same `#[path]` split pattern as `stages/nlm.rs`).
+// Tests live in the siblings `white_balance_tests.rs` (gain/CAT16 math) and
+// `white_balance_resolve_tests.rs` (the `resolve_wb` resolution table +
+// version conversions) so every file stays under the 600-LOC budget (same
+// `#[path]` split pattern as `stages/nlm.rs`).
 #[cfg(test)]
 #[path = "white_balance_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "white_balance_resolve_tests.rs"]
+mod resolve_tests;

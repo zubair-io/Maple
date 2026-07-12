@@ -31,9 +31,17 @@ extension XMPSerializer {
     /// stored WB on every re-save, drifting the rendered look.
     static func fmtWb(_ v: Double) -> String {
         let rounded = (v * 100).rounded() / 100
-        return rounded == rounded.rounded()
-            ? String(format: "%.0f", rounded)
-            : String(format: "%g", rounded)
+        if rounded == rounded.rounded() {
+            return String(format: "%.0f", rounded)
+        }
+        // %.2f then trim one trailing zero — NOT %g, whose default 6
+        // significant digits silently truncates large fractional
+        // temperatures (11500.25 → "11500.2"; PR #1900 review). The
+        // integer branch above means the result never ends in ".00", so
+        // at most one zero needs trimming and no bare trailing dot can
+        // survive.
+        let two = String(format: "%.2f", rounded)
+        return two.hasSuffix("0") ? String(two.dropLast()) : two
     }
 
     /// Minimal XML 1.0 text-content escaping — only `&`, `<`, `>` are
