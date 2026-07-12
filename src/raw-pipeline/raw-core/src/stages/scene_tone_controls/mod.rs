@@ -74,6 +74,40 @@ pub(crate) const H_W1: f32 = 1.0;
 /// skies.
 pub(crate) const H_GAIN_EV: f32 = 0.7;
 
+// ----------------------------------------------------------------------
+// Whites / blacks monotonicity bounds (#1918). Same methodology as the
+// shadows/highlights gain caps above: keep d(out)/d(in) > 0 across the
+// full documented ±100 slider range so a reachable slider setting can't
+// invert local tonal ordering (a solarization band in gradients).
+// ----------------------------------------------------------------------
+
+/// Whites negative-gain floor. The whites point-op is
+/// `T(Y) = Y · (1 + a · smoothstep(0.5, 1.0, Y))`, so
+/// `T'(Y) = 1 + a · M(Y)` with `M(Y) = s(Y) + Y·s'(Y)`; `M` peaks at
+/// `M_max ≈ 2.9716` (Y ≈ 0.820). `T'` goes negative once `a < −1/M_max ≈
+/// −0.3365`, i.e. at `whites ≈ −67` (`a = whites/200`) — inside the ±100
+/// range. Positive `a` is unconditionally monotone (`M ≥ 0`), so only the
+/// negative side is floored; the effective gain saturates at `−0.32`
+/// (≈5 % margin) for `whites < −64` instead of solarizing.
+pub(crate) const WHITES_MIN_GAIN: f32 = 0.32;
+
+/// Blacks negative-crush smoothstep edge — the toe weight is
+/// `w = 1 − smoothstep(0, B_CRUSH_EDGE, Y)`. The multiplicative crush
+/// `Y · (1 + b·w)` (`b = blacks/100 ∈ [−1, 0]`) is already monotone at this
+/// 0.2 edge, so it is unchanged from the pre-#1918 stage.
+pub(crate) const B_CRUSH_EDGE: f32 = 0.2;
+
+/// Blacks positive-lift smoothstep edge. The additive lift
+/// `T(Y) = Y + c·(1 − smoothstep(0, B_LIFT_EDGE, Y))` (`c = blacks/400 ∈
+/// [0, 0.25]`) has `T'(Y) = 1 − c · s'(Y)` with `max s'(Y) = 1.5/E` at
+/// `Y = E/2`; it goes negative once `c · 1.5/E > 1`. At the pre-#1918 edge
+/// `E = 0.2` that happens at `blacks ≈ +53` (inside ±100). Widening to
+/// `0.40` keeps `T'_min = 1 − 0.25·1.5/0.40 = 0.0625 > 0` at the full
+/// `blacks = +100` lift (≈6 % margin) while preserving both the `Y = 0`
+/// lift endpoint (`w(0) = 1` regardless of `E`) and the midtone pin at
+/// `Y = 0.40` (`w(0.40) = 0`).
+pub(crate) const B_LIFT_EDGE: f32 = 0.40;
+
 /// Detail-mask blur scale: σ = SH_MASK_SIGMA_REF_PX · longEdge /
 /// SH_MASK_REF_LONG_EDGE — the same long-edge convention the spec assigns to
 /// resolution-dependent radii, so fast-phase, refine, and export agree.
@@ -256,8 +290,10 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     let h_expand = 1.0 + 2.0 * h_amount.abs(); // ≥ 1, used by the h < 0 branch
                                                // Shadows (#1103): see `shadows_mult`.
     let s_amount = model.shadows / 100.0;
-    // Whites: smoothstep-weighted upper-end gain (see step 4).
-    let w_amount = model.whites / 200.0;
+    // Whites: smoothstep-weighted upper-end gain (see step 4). The negative
+    // side is floored at the monotonicity bound (#1918, WHITES_MIN_GAIN);
+    // positive gain is unconditionally monotone and passes through unclamped.
+    let w_amount = (model.whites / 200.0).max(-WHITES_MIN_GAIN);
     // Blacks: smoothstep-weighted toe (see step 5). The amount has two
     // shapes depending on sign — see comment block at the call site.
     let b_amount = model.blacks / 100.0; // -1..+1
@@ -365,13 +401,19 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             if apply_blacks {
                 let y_old =
                     LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
-                let w = 1.0 - smoothstep(0.0, 0.2, y_old);
                 if b_amount < 0.0 {
+                    // Crush: multiplicative, toe weight over the 0.2 edge
+                    // (already monotone — unchanged, #1918).
+                    let w = 1.0 - smoothstep(0.0, B_CRUSH_EDGE, y_old);
                     let factor = 1.0 + b_amount * w;
                     p[0] *= factor;
                     p[1] *= factor;
                     p[2] *= factor;
                 } else {
+                    // Lift: additive, toe weight over the WIDER 0.40 edge so the
+                    // transfer stays monotone at the full +100 lift (#1918). The
+                    // Y=0 lift endpoint and the Y=0.40 midtone pin are preserved.
+                    let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, y_old);
                     let delta = b_add_pos * w;
                     if y_old > 1e-6 {
                         let y_new = y_old + delta;

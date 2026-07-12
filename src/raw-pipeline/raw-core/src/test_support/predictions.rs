@@ -83,31 +83,34 @@ pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
 }
 
 /// scene_tone_controls::apply, step 4. Parametric upper-end curve
-/// (Ticket #267) — smoothstep-weighted gain near diffuse white.
+/// (Ticket #267) — smoothstep-weighted gain near diffuse white. The
+/// negative gain is floored at the monotonicity bound (#1918,
+/// `WHITES_MIN_GAIN` in the stage); positive gain passes through.
 pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
     if w_slider.abs() < 1e-3 {
         return scene;
     }
     let w = smoothstep(0.5, 1.0, scene);
-    let w_gain = 1.0 + (w_slider / 200.0) * w;
+    let w_gain = 1.0 + (w_slider / 200.0).max(-0.32) * w;
     scene * w_gain
 }
 
 /// scene_tone_controls::apply, step 5. Parametric toe curve (Ticket #268)
-/// — smoothstep-weighted near zero, identity above ~Y=0.2. Branch on
-/// sign of slider: negative crushes multiplicatively (no negative
-/// scene values possible); positive lifts additively (matches the
-/// legacy zero-input lift semantics).
+/// — smoothstep-weighted near zero. Branch on sign of slider: negative
+/// crushes multiplicatively over the 0.2 edge (no negative scene values
+/// possible); positive lifts additively over the WIDER 0.40 edge, kept
+/// monotone at the full +100 lift (#1918, `B_LIFT_EDGE` in the stage).
 pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
     if b_slider.abs() < 1e-3 {
         return scene;
     }
-    let w = 1.0 - smoothstep(0.0, 0.2, scene);
     if b_slider < 0.0 {
+        let w = 1.0 - smoothstep(0.0, 0.2, scene);
         let b_amount = b_slider / 100.0; // -1..0
         let factor = 1.0 + b_amount * w;
         scene * factor
     } else {
+        let w = 1.0 - smoothstep(0.0, 0.40, scene);
         let delta = (b_slider / 400.0) * w;
         scene + delta
     }
