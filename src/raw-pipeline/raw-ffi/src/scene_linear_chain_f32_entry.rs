@@ -131,19 +131,19 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
 
     // WB slider frame (#1781) — same RAW-shape gate as the fp16 sibling; an
     // absent frame (zeros) keeps the legacy generic CAT16 delta bit-identical.
-    let wb_frame = wb_frame_from_flat(
-        &p.wb_frame_m_cold,
-        p.wb_frame_cct_cold,
-        &p.wb_frame_m_warm,
-        p.wb_frame_cct_warm,
-        if p.input_shape == 0 {
+    let wb_frame = wb_frame_from_flat(&WbFrameFlat {
+        m_cold: &p.wb_frame_m_cold,
+        cct_cold: p.wb_frame_cct_cold,
+        m_warm: &p.wb_frame_m_warm,
+        cct_warm: p.wb_frame_cct_warm,
+        scene_cct: if p.input_shape == 0 {
             p.wb_frame_scene_cct
         } else {
             0.0
         },
-        p.wb_frame_as_shot_tint,
-        &p.wb_frame_render_cm,
-    );
+        as_shot_tint: p.wb_frame_as_shot_tint,
+        render_cm: &p.wb_frame_render_cm,
+    });
 
     let opts = raw_core::pipeline::ChainOptions {
         decoded_temp,
