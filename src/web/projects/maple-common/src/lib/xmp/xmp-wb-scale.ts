@@ -245,3 +245,46 @@ export function inferredWbPresetForAuthoredPair(
   const authoredPair = appliedModelKeys.has('temperature') || appliedModelKeys.has('tint');
   return parsedPreset === undefined && authoredPair ? 'Custom' : undefined;
 }
+
+/** The slice of the parser's Partial model that WB normalization touches. */
+interface ParsedWbFields {
+  temperature?: number;
+  tint?: number;
+  whiteBalancePreset?: string;
+}
+
+/**
+ * Post-attribute-walk WB normalization for the parser (mutates the
+ * parser's Partial model in place, matching its walk's mutation style):
+ *
+ * 1. **V2/V3/V4 → V5 joint-pair load-normalization (#1894)** — only for an
+ *    explicitly authored `crs:Temperature`/`crs:Tint`. The gate is
+ *    `appliedModelKeys` (the attribute-presence record, the analogue of
+ *    Swift's `sawExplicitWb` and raw-core's `temperature_seen`/`tint_seen`)
+ *    rather than a field-undefined check, so it cannot silently break if
+ *    the Partial model ever gains default-initialized fields (PR #1901
+ *    review). Absent components use the defaults (6500/0, ACR's
+ *    absent-tint convention) as conversion input; V1 round-trips
+ *    unconverted (raw-core converts it at develop, needing the image's
+ *    calibration frame).
+ * 2. **Custom-preset inference (#1892)** — see
+ *    [`inferredWbPresetForAuthoredPair`]'s doc.
+ */
+export function normalizeParsedWb(
+  model: ParsedWbFields,
+  appliedModelKeys: ReadonlySet<string>,
+  wbScale: WbScaleResolution,
+): void {
+  const wbAuthored = appliedModelKeys.has('temperature') || appliedModelKeys.has('tint');
+  if (wbScale.sourceVersion !== 1 && wbAuthored) {
+    const [temperature, tint] = authoredPairToV5(
+      model.temperature ?? 6500.0,
+      model.tint ?? 0.0,
+      wbScale.sourceVersion,
+    );
+    model.temperature = temperature;
+    model.tint = tint;
+  }
+  const inferred = inferredWbPresetForAuthoredPair(model.whiteBalancePreset, appliedModelKeys);
+  if (inferred) model.whiteBalancePreset = inferred;
+}

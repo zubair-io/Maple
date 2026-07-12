@@ -23,11 +23,7 @@ import type {
   Profile,
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
-import {
-  resolveWbScaleVersion,
-  authoredPairToV5,
-  inferredWbPresetForAuthoredPair,
-} from './xmp-wb-scale';
+import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
 import {
   gpsFromXmp,
   altitudeFromXmp,
@@ -503,31 +499,12 @@ export class XmpParserService {
       }
     }
 
-    // V2/V3/V4 → V5 joint-pair load-normalization (#1894, rationale in
-    // `xmp-wb-scale.ts`) — after the walk, only for an explicitly authored
-    // crs:Temperature/crs:Tint. The gate is `canonicallyApplied` (the
-    // attribute-presence record, the analogue of Swift's `sawExplicitWb`
-    // and raw-core's `temperature_seen`/`tint_seen`) rather than a
-    // field-undefined check, so it cannot silently break if this Partial
-    // model ever gains default-initialized fields (PR #1901 review).
-    // Absent components use the defaults (6500/0, ACR's absent-tint
-    // convention) as conversion input; V1 round-trips unconverted
-    // (raw-core converts it at develop, needing the calibration frame).
-    const wbAuthored = canonicallyApplied.has('temperature') || canonicallyApplied.has('tint');
-    if (wbScale.sourceVersion !== 1 && wbAuthored) {
-      const [convertedTemperature, convertedTint] = authoredPairToV5(
-        model.temperature ?? 6500.0,
-        model.tint ?? 0.0,
-        wbScale.sourceVersion,
-      );
-      model.temperature = convertedTemperature;
-      model.tint = convertedTint;
-    }
-
-    // Authored WB with no crs:WhiteBalance is a Custom WB (#1892) — see
-    // `inferredWbPresetForAuthoredPair`'s doc for the full rationale.
-    const inferred = inferredWbPresetForAuthoredPair(model.whiteBalancePreset, canonicallyApplied);
-    if (inferred) model.whiteBalancePreset = inferred;
+    // Post-walk WB load-normalization + Custom-preset inference — see
+    // `normalizeParsedWb`'s doc in `xmp-wb-scale.ts` for the full
+    // rationale (V2/V3/V4 → V5 joint-pair conversion gated on the
+    // attribute-presence record, and the #1892 authored-pair → 'Custom'
+    // inference).
+    normalizeParsedWb(model, canonicallyApplied, wbScale);
 
     // Emit `crop` only when any field came through; angle alone is enough
     // (pure straighten). Identity default is applied for absent fields.
