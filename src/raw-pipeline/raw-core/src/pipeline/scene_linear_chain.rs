@@ -8,9 +8,9 @@
 //! fp16 RGBA.
 //!
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
-//! → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
-//! `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`
-//! → `split_tone` → `grain` (the AgX + display tail runs when
+//! → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
+//! `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance`
+//! → `agx` → `split_tone` → `grain` (the AgX + display tail runs when
 //! `skip_agx == false`).
 //!
 //! **Deliberately omits** `sharpen` and `nr_color` — those two stay on
@@ -89,9 +89,9 @@ impl Default for ChainOptions<'_> {
 /// scene-linear Rec.2020 buffer.
 ///
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
-/// → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
-/// `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`
-/// → `split_tone` → `grain` (AgX + the display-linear stages skipped
+/// → `tone_curves` → `vibrance` → `saturation` → `hsl` → `clarity` →
+/// `texture` → `dehaze` → `local_adjustments` → `vignette` → `nr_luminance`
+/// → `agx` → `split_tone` → `grain` (AgX + the display-linear stages skipped
 /// together on the non-RAW path).
 ///
 /// **Deliberately omits** `sharpen` and `nr_color`. Those two stages are

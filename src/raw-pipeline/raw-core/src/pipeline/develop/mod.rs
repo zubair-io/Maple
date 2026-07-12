@@ -14,9 +14,9 @@
 //!    dropped the Adobe aesthetic layers PLT/PTC),
 //! 7. ProfileGainTableMap (when present),
 //! 8. damped per-image auto-exposure,
-//! 9. white-balance, scene-tone-controls, vibrance, saturation, clarity,
-//!    texture, dehaze, local-adjustments, vignette, sharpen, nr_luminance,
-//!    nr_color.
+//! 9. white-balance, scene-tone-controls, vibrance, saturation, hsl,
+//!    clarity, texture, dehaze, local-adjustments, vignette, sharpen,
+//!    nr_luminance, nr_color.
 //!
 //! `develop_scene_linear_sized_from_raw_with_quality` is the
 //! early-downsample variant (ticket 06 § Milestone 3): demosaic →
@@ -58,7 +58,7 @@ pub(super) use geometry::{crop_to_default, effective_quality_divisor};
 /// Stages: linearize, demosaic, baseline_exposure, highlight_recovery,
 /// dcp::profile_for + dcp::apply (camera RGB → SceneLinearRec2020),
 /// white_balance, scene_tone_controls, tone_curves, vibrance, saturation,
-/// clarity, texture, dehaze, sharpen, nr_luminance, nr_color.
+/// hsl, clarity, texture, dehaze, sharpen, nr_luminance, nr_color.
 /// Non-cancellable wrapper — forwards to
 /// [`develop_scene_linear_from_raw_with_quality_cancellable`] with a
 /// never-cancel token. Every existing caller (CLI, WASM, the legacy FFI

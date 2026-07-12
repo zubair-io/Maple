@@ -159,19 +159,21 @@ pub fn srgb_gamma_encode(img: &mut Image) {
     img.space = ColorSpace::DisplayEncodedSrgb;
 }
 
-/// 8×8 Bayer-dithered quantise from sRGB-encoded f32 → packed `u8` RGB.
+/// Blue-noise-dithered quantise from sRGB-encoded f32 → packed `u8` RGB.
 ///
 /// Input must be sRGB-gamma-encoded (via [`srgb_gamma_encode`]) and in
 /// `[0, 1]`. Returns a flat row-major `Vec<u8>` of length `3 * w * h`.
 ///
-/// Dithering (#441): adds an 8×8 Bayer-matrix `[-0.5, +0.5)` LSB
-/// offset to `v * 255` before the round. The offset is positional —
-/// `dither::bayer_offset_lsb((i % w) as u32, (i / w) as u32)` — so
-/// the same input image always produces the same output (no
-/// randomness). The mean offset across the 8×8 tile is exactly 0, so
-/// flat-colour regions stay on their u8 plateau ±1 LSB while smooth
+/// Dithering (#441): adds a `[-0.5, +0.5)` LSB offset to `v * 255` before
+/// the round, sampled from a 64×64 blue-noise mask — the offset is
+/// positional, `dither::blue_noise_offset_lsb((i % w) as u32, (i / w) as
+/// u32)` (tiling the mask across the image), so the same input always
+/// produces the same output (no randomness). The mask's mean offset is
+/// ~0, so flat-colour regions stay on their u8 plateau ±1 LSB while smooth
 /// gradients pick up enough sub-LSB variance that the eye reads the
-/// quantization error as noise instead of contour bands.
+/// quantization error as noise instead of contour bands. Blue noise
+/// concentrates that variance in high spatial frequencies, so it is less
+/// visible than an ordered Bayer pattern.
 pub fn dither_and_quantize(img: &mut Image) -> Vec<u8> {
     img.assert_space(ColorSpace::DisplayEncodedSrgb);
     let w = img.width as usize;
@@ -196,7 +198,7 @@ pub fn dither_and_quantize(img: &mut Image) -> Vec<u8> {
 }
 
 /// Final encode: display-linear sRGB → u8 RGB via piecewise gamma +
-/// Bayer-dithered quantize. Returns a flat row-major `Vec<u8>` of
+/// blue-noise-dithered quantize. Returns a flat row-major `Vec<u8>` of
 /// length 3 * w * h.
 ///
 /// Thin wrapper over [`srgb_gamma_encode`] + [`dither_and_quantize`].

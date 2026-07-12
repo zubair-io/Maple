@@ -268,8 +268,11 @@ pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
 
 /// Soft-floor: when any channel goes below 0 post-DCP (out-of-gamut camera
 /// color in Rec.2020), pull all three channels up uniformly by the deficit.
-/// Preserves hue (R/G/B ratios) while moving the pixel into the renderable
-/// part of the gamut.
+/// A uniform additive lift preserves the channel *differences* (max−min,
+/// mid−min), so it preserves HSV hue exactly — but NOT the R/G/B *ratios*
+/// (those shift as every channel moves by the same absolute amount). This
+/// moves the pixel into the renderable part of the gamut while keeping its
+/// hue angle fixed.
 ///
 /// Without this, AgX downstream clamps negatives to its `AGX_MIN_EV` floor
 /// (~0.00018), so the displayed image loses blue/red where the scene had
