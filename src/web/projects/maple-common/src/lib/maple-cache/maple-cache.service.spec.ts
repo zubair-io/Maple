@@ -10,6 +10,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { MapleCacheService, THUMB_PIPELINE_VERSION } from './maple-cache.service';
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 
@@ -96,5 +97,23 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
   it('readThumb returns null when no cached thumb exists', async () => {
     const blob = await svc.readThumb(folder(), SHA);
     expect(blob).toBeNull();
+  });
+});
+
+describe('THUMB_PIPELINE_VERSION is the single-sourced pipeline-output version (#1926)', () => {
+  it('tracks the codegen PIPELINE_OUTPUT_VERSION exactly', () => {
+    // The thumb marker is the develop-pipeline-output version, single-sourced
+    // in raw-core and mirrored into TypeScript by codegen. Guarding equality
+    // here is what makes "bump PIPELINE_OUTPUT_VERSION" propagate to the thumb
+    // cache key: a bump moves THUMB_PIPELINE_VERSION ahead of every existing
+    // `.jpg.v` marker, so previously-developed thumbs re-develop (the
+    // stale-marker miss covered in the suite above). If this ever drifts back
+    // to a hand-maintained local integer, this fails.
+    expect(THUMB_PIPELINE_VERSION).toBe(PIPELINE_OUTPUT_VERSION);
+  });
+
+  it('is a positive integer (unset sentinel 0 is reserved)', () => {
+    expect(Number.isInteger(PIPELINE_OUTPUT_VERSION)).toBe(true);
+    expect(PIPELINE_OUTPUT_VERSION).toBeGreaterThanOrEqual(1);
   });
 });

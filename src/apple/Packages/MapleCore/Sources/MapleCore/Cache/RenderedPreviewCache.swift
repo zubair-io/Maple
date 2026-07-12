@@ -1,10 +1,18 @@
 // RenderedPreviewCache.swift — Per-asset JPEG preview cache.
 //
 // Key components (per spec § 05):
-//   primaryURL hash (MD5)
+//   primaryURL hash
+//   primary mtime (the RAW file's own last-modified timestamp, #1928)
 //   sidecar mtime (XMP last-modified timestamp)
 //   screen size (integer width class)
-//   viewTransformVersion (bumped on any pipeline-output change)
+//   viewTransformVersion  — the local Apple bump lineage (history below)
+//   pipelineOutputVersion — the single, codegen-sourced cross-platform
+//                           develop-pipeline-output version (#1926)
+//
+// Both version fields are bumped on a pipeline-output change; going forward
+// the canonical bump point is raw-core's `PIPELINE_OUTPUT_VERSION` (mirrored
+// here as `AdjustmentModel.pipelineOutputVersion`), which the Web thumb cache
+// keys on too — see docs/pipeline-output-version.md.
 //
 // Storage: .maple/previews/<key>.jpg
 // Entries are invalidated on any key component change.
@@ -75,6 +83,14 @@ public actor RenderedPreviewCache {
     // test_0002 as a ~1000 K cool/cyan cast) stays key-valid at v6 and
     // short-circuits the pipeline forever; the same failure mode as v6's
     // #1801 entry.
+    //
+    // #1926: this hand-maintained per-cache integer is the drift-prone pattern
+    // the codegen-sourced `AdjustmentModel.pipelineOutputVersion` supersedes.
+    // Both are now folded into the key (see `variantToken`); `viewTransformVersion`
+    // is retained for the documented lineage above, but new pipeline-output
+    // changes bump raw-core's single-sourced `PIPELINE_OUTPUT_VERSION` instead
+    // — one constant that invalidates this cache and the Web thumb cache
+    // together, so a raw-core output change can no longer ship uninvalidated.
     private let viewTransformVersion: UInt32 = 7
 
     // MARK: - Configure
@@ -170,8 +186,31 @@ public actor RenderedPreviewCache {
     private func cacheKey(for url: URL, screenWidth: Int) -> String {
         let primaryMtime = mtimeString(forPath: url.path)
         let sidecarMtime = mtimeString(forPath: SidecarPath.sidecarURL(for: url).path)
-        let variant = sha256Prefix("\(primaryMtime)_\(sidecarMtime)_\(screenWidth)_v\(viewTransformVersion)")
+        let variant = sha256Prefix(
+            Self.variantToken(
+                primaryMtime: primaryMtime,
+                sidecarMtime: sidecarMtime,
+                screenWidth: screenWidth,
+                viewTransformVersion: viewTransformVersion,
+                pipelineOutputVersion: AdjustmentModel.pipelineOutputVersion))
         return "\(urlHash(url.path))_\(variant)"
+    }
+
+    /// The pre-hash variant token folded into the cache key. Kept `internal`
+    /// (not `private`) and `static` so the key contract — in particular that
+    /// the develop-pipeline output version participates and that bumping it
+    /// changes the key — is unit-testable via `@testable`. The
+    /// `pv<pipelineOutputVersion>` field is the single, codegen-sourced
+    /// `AdjustmentModel.pipelineOutputVersion` (#1926): bumping it in raw-core
+    /// changes this token, hence the hashed key, hence invalidates every entry.
+    static func variantToken(
+        primaryMtime: String,
+        sidecarMtime: String,
+        screenWidth: Int,
+        viewTransformVersion: UInt32,
+        pipelineOutputVersion: UInt32
+    ) -> String {
+        "\(primaryMtime)_\(sidecarMtime)_\(screenWidth)_v\(viewTransformVersion)_pv\(pipelineOutputVersion)"
     }
 
     /// Millisecond mtime of the file at `path`, or `"0"` when it doesn't

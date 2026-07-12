@@ -10,20 +10,26 @@ import { Injectable, inject } from '@angular/core';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from './maple-cache.types';
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 
 /**
  * Pipeline version the Hosted thumb cache was developed at (#1927). Unlike
  * Apple's 256-px thumbnails (embedded-JPEG extraction, pipeline-independent),
  * a Hosted thumb is a full WASM develop through the raw-core/AgX chain
  * (`RawPipelineService.decode` with no XMP), so a raw-core/view-transform
- * change alters its pixels. Bump this whenever such a change lands so
- * previously-cached Hosted thumbs re-develop instead of serving stale.
+ * change alters its pixels. When such a change lands, the develop pipeline's
+ * output version is bumped and previously-cached Hosted thumbs re-develop
+ * instead of serving stale.
  *
- * This mirrors Apple's hand-maintained `RenderedPreviewCache.viewTransformVersion`
- * — a per-cache constant bumped on pixel-output changes, not a codegen value
- * (the Rust codegen emits no version to TS today).
+ * Sourced from the single, codegen-generated `PIPELINE_OUTPUT_VERSION` (#1926)
+ * — the one monotonic develop-pipeline-output version single-sourced in
+ * raw-core and mirrored into TypeScript and Swift. This replaces the
+ * hand-maintained per-cache integer this used to be: a raw-core author now
+ * bumps one constant and both this thumb cache and Apple's rendered-preview
+ * cache (`RenderedPreviewCache`) invalidate together. See
+ * `docs/pipeline-output-version.md`.
  */
-export const THUMB_PIPELINE_VERSION = 1;
+export const THUMB_PIPELINE_VERSION = PIPELINE_OUTPUT_VERSION;
 
 @Injectable({ providedIn: 'root' })
 export class MapleCacheService {

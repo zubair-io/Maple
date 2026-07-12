@@ -2,6 +2,8 @@
 
 Maple has five distinct cache layers, each serving a different access pattern. Together they ensure that browsing is instant, editing is responsive, and reopening a previously-edited image shows pixels in ~0ms.
 
+Every cache that stores a _rendered_ artifact shares one invalidation signal: `PIPELINE_OUTPUT_VERSION`, a single monotonic version of the develop pipeline's output that is single-sourced in raw-core and mirrored into Swift and TypeScript by codegen. Each rendered-output cache folds it into its key, so that one bump in raw-core invalidates stale entries across every platform at once. Two caches key on it today — the Web Hosted thumbnail cache (#1927, via `THUMB_PIPELINE_VERSION`) and Apple's rendered-preview cache (#1928, §3 below) — replacing the hand-maintained per-cache version integers those used to carry. See `docs/pipeline-output-version.md` for the bump policy and how it relates to `wb_scale_version`.
+
 ---
 
 ## Cache Layers at a Glance
@@ -74,13 +76,14 @@ ThumbnailLoader (actor)
 
 Implemented by `RenderedPreviewCache` (`src/apple/.../Cache/RenderedPreviewCache.swift`). Stored **next to the photos** in the same `.maple/` folder as the thumbnail cache (§2) — not the OS cache directory — so a developed preview travels with the images when the folder is copied to another Mac or drive. The folder is set per open folder via `configure(folderURL:)`.
 
-**Key:** `"{urlHash}_{variantHash}.jpg"`, where `urlHash = SHA256(primary_url)`'s first 16 hex chars and `variantHash = SHA256( "{primary_mtime_ms}_{sidecar_mtime_ms}_{screen_width}_v{view_transform_version}" )`'s first 16 bytes (32 hex chars). The `urlHash` is kept as a literal prefix (not folded into `variantHash`) so `invalidate(assetURL:)` can match every screen-width variant of an asset by prefix. The five components:
+**Key:** `"{urlHash}_{variantHash}.jpg"`, where `urlHash = SHA256(primary_url)`'s first 16 hex chars and `variantHash = SHA256( "{primary_mtime_ms}_{sidecar_mtime_ms}_{screen_width}_v{view_transform_version}_pv{pipeline_output_version}" )`'s first 16 bytes (32 hex chars). The `urlHash` is kept as a literal prefix (not folded into `variantHash`) so `invalidate(assetURL:)` can match every screen-width variant of an asset by prefix. The six components:
 
 - `primary_url` hash — identifies the asset.
 - `primary_mtime_ms` — the primary RAW's own modification time. The JPEG is rendered from those pixels, so a bytes change that leaves the sidecar untouched (re-import, external sync, filesystem restore) must miss (#1928).
 - `sidecar_mtime_ms` — the `.xmp` sidecar's modification time; `"0"` when absent. This is the **adjustment-version proxy** — any slider change rewrites the sidecar, bumping its mtime and thus the key, so a stale-adjustment entry is never served. There is no separate adjustment-JSON hash.
 - `screen_width` — the size bucket. Previews are cached at **viewport resolution** (the fast-preview / fit target), not refined zoom resolution, so files stay small (~hundreds of KB) and match what cold-open shows.
-- `view_transform_version` — a monotonic constant bumped on any pipeline-output change (AgX/LUT/calibration). Bumping it invalidates every entry after a color-math change; the current value and its history are documented inline in `RenderedPreviewCache.swift`.
+- `view_transform_version` — the local Apple bump lineage: a per-instance constant whose value and bump history are documented inline in `RenderedPreviewCache.swift`.
+- `pipeline_output_version` — the single, codegen-sourced `PIPELINE_OUTPUT_VERSION` (#1926), mirrored into Swift as `AdjustmentModel.pipelineOutputVersion` and into TypeScript for the Web thumb cache. This is the canonical bump point going forward: a raw-core pipeline-output change bumps this one constant and invalidates this cache and the Web thumb cache together (`_pv{version}` in the token).
 
 **Format:** JPEG, quality 0.90, sRGB, encoded via `CIContext.jpegRepresentation` (always opaque — avoids the ImageIO "AlphaPremulLast" warning that fires when writing CGImages with alpha to JPEG).
 
