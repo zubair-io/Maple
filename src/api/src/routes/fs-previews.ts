@@ -23,7 +23,7 @@
 // `resolveJailedFile` preamble in fs-jail.ts.
 
 import { Elysia, t } from 'elysia';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { isUnderRoot } from '../fs/browse.ts';
@@ -31,7 +31,7 @@ import { cachePathFor, cachePathForAsset } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { generatePreview, PREVIEW_SIZE_KEY } from '../indexer/previewer.ts';
 import { isDbConnected } from '../db/client.ts';
-import { findAssetByAddress } from './library/shared.ts';
+import { findAssetByAddress, developedPreviewResponse } from './library/shared.ts';
 import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -67,32 +67,22 @@ export function libraryAddressFor(
  * legacy path rather than failing the request.
  */
 async function resolvePreviewCachePath(real: string): Promise<string> {
-  // Only consult the DB when the process already holds a live connection
-  // (the server connects at boot). Attempting a lookup while Mongo is down
-  // would eat the driver's 5 s server-selection timeout on EVERY request
-  // before falling back — the legacy path can serve immediately instead
+  const legacy = () => cachePathFor(real, 'previews', PREVIEW_SIZE_KEY);
+  // `lookupAssetByReal` is a no-op when Mongo isn't connected — attempting a
+  // lookup while it's down would eat the driver's 5 s server-selection timeout
+  // on EVERY request; the legacy basename path serves immediately instead
   // (Copilot review, PR #1907).
-  if (!isDbConnected()) {
-    return cachePathFor(real, 'previews', PREVIEW_SIZE_KEY);
-  }
   try {
-    const libs = await loadLibraryRoots();
-    const addr = libraryAddressFor(real, libs);
-    if (addr) {
-      const asset = await findAssetByAddress(
-        new ObjectId(addr.libraryIdHex),
-        addr.relDir,
-        addr.filename,
+    const asset = await lookupAssetByReal(real);
+    if (asset?.maple_id) {
+      const libs = await loadLibraryRoots();
+      const contentAddressed = cachePathForAsset(
+        { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
+        libs,
+        'previews',
+        PREVIEW_SIZE_KEY,
       );
-      if (asset?.maple_id) {
-        const contentAddressed = cachePathForAsset(
-          { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
-          libs,
-          'previews',
-          PREVIEW_SIZE_KEY,
-        );
-        if (contentAddressed) return contentAddressed;
-      }
+      if (contentAddressed) return contentAddressed;
     }
   } catch (err) {
     log.debug(
@@ -100,53 +90,18 @@ async function resolvePreviewCachePath(real: string): Promise<string> {
       'asset lookup failed; using legacy basename-keyed preview path',
     );
   }
-  return cachePathFor(real, 'previews', PREVIEW_SIZE_KEY);
+  return legacy();
 }
 
-/**
- * Developed preview for an EDITED asset (#1950): when the `display-preview`
- * stage has rendered `<maple_id>_dev_<sidecar_ver>.jpg`, return its path + an
- * ETag that folds in `sidecar_ver` (so a new edit busts client caches — the
- * source RAW's mtime does NOT change on edit, since edits go to the sidecar).
- * Returns null when the asset is unedited, un-indexed, the DB is down, or the
- * developed file hasn't been rendered yet — the caller then serves the
- * embedded preview. Never develops synchronously here (that's the background
- * stage's job); a full develop would block the request for seconds-to-minutes.
- */
-async function resolveDevelopedPreview(
-  real: string,
-  srcMtimeMs: number,
-  srcSize: number,
-): Promise<{ path: string; etag: string } | null> {
+/** Look up the indexed asset for a symlink-resolved path, or null (un-indexed
+ * / DB down / no matching library). Shared by the developed-preview branch and
+ * `resolvePreviewCachePath`. */
+async function lookupAssetByReal(real: string) {
   if (!isDbConnected()) return null;
-  try {
-    const libs = await loadLibraryRoots();
-    const addr = libraryAddressFor(real, libs);
-    if (!addr) return null;
-    const asset = await findAssetByAddress(
-      new ObjectId(addr.libraryIdHex),
-      addr.relDir,
-      addr.filename,
-    );
-    if (!asset?.maple_id || !asset.has_xmp) return null;
-    const sidecarVer = (asset.sidecar_ver as number | undefined) ?? 0;
-    const devPath = cachePathForAsset(
-      { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
-      libs,
-      'previews',
-      `dev_${sidecarVer}`,
-    );
-    if (!devPath) return null;
-    const st = await stat(devPath).catch(() => null);
-    if (!st) return null;
-    return { path: devPath, etag: `"${Math.floor(srcMtimeMs)}-${srcSize}-dev${sidecarVer}"` };
-  } catch (err) {
-    log.debug(
-      { real, err: err instanceof Error ? err.message : err },
-      'developed-preview lookup failed; falling back to embedded',
-    );
-    return null;
-  }
+  const libs = await loadLibraryRoots();
+  const addr = libraryAddressFor(real, libs);
+  if (!addr) return null;
+  return findAssetByAddress(new ObjectId(addr.libraryIdHex), addr.relDir, addr.filename);
 }
 
 export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
@@ -160,25 +115,21 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     const { real, stat: srcStat } = resolved;
 
     // Prefer the developed preview for edited assets; fall back to embedded.
-    const developed = await resolveDevelopedPreview(
-      real,
-      Number(srcStat.mtimeMs),
-      Number(srcStat.size),
-    );
-    if (developed) {
-      const dev304 = notModifiedResponse(headers['if-none-match'], developed.etag, CACHE_CONTROL);
-      if (dev304) return dev304;
-      const devBytes = await readFile(developed.path).catch(() => null);
-      if (devBytes) {
-        return new Response(devBytes as unknown as BodyInit, {
-          status: 200,
-          headers: {
-            'Content-Type': 'image/jpeg',
-            'Cache-Control': CACHE_CONTROL,
-            ETag: developed.etag,
-          },
-        });
-      }
+    // The ETag folds in `sidecar_ver` (the RAW's mtime doesn't change on edit,
+    // so the source ETag alone would be stale across edits).
+    const asset = await lookupAssetByReal(real).catch(() => null);
+    if (asset) {
+      const libs = await loadLibraryRoots();
+      const ver = (asset.sidecar_ver as number | undefined) ?? 0;
+      const devEtag = `"${Math.floor(Number(srcStat.mtimeMs))}-${Number(srcStat.size)}-dev${ver}"`;
+      const developed = await developedPreviewResponse(
+        asset,
+        libs,
+        devEtag,
+        CACHE_CONTROL,
+        headers['if-none-match'],
+      );
+      if (developed) return developed;
     }
 
     const etag = sourceETag(srcStat);

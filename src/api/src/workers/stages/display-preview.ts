@@ -26,7 +26,6 @@ import { cachePathForAsset, xmpSidecarPath } from '../../fs/xmp.ts';
 import { isNoPreviewFilename } from '../../indexer/media-types.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { ffiPool } from '../../ffi/ffi-pool.ts';
-import { PREVIEW_LONG_EDGE_PX } from '../../indexer/previewer.ts';
 import {
   defineStage,
   runStage,
@@ -34,6 +33,13 @@ import {
   type RunStageHandle,
   type StageResult,
 } from '../run-stage.ts';
+
+/** Long-edge target for the developed preview. Matches the embedded `preview`
+ * stage's 1280 px (`previewer.PREVIEW_LONG_EDGE_PX`); defined locally rather
+ * than imported to avoid a manifest → stage → previewer → browse → manifest
+ * import cycle (the embedded stages tolerate that cycle; a new stage shouldn't
+ * add another instance of it). */
+const DISPLAY_PREVIEW_LONG_EDGE_PX = 1280;
 
 /** Size-key stem for a developed preview cache file: `dev_<sidecar_ver>`. */
 export function developedPreviewSizeKey(sidecarVer: number | undefined): string {
@@ -101,7 +107,7 @@ const displayPreviewStage = defineStage({
       absPath,
       xmpPath,
       devPath,
-      PREVIEW_LONG_EDGE_PX,
+      DISPLAY_PREVIEW_LONG_EDGE_PX,
       85,
     );
     if (!ok) {

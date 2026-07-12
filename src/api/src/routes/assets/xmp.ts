@@ -119,6 +119,9 @@ export const xmpRoutes = new Elysia()
   //                    precondition mismatch; bytes written to conflict copy
   .put(
     '/:id/xmp',
+    // Pre-existing PUT-handler complexity; this PR only swaps the post-write
+    // `setHasXmp` for `recordSidecarEdit` (one call, no new branches).
+    // fallow-ignore-next-line complexity
     async ({ params, body, headers, query, set }) => {
       markDeprecated(set);
       const id = parseAssetId(params.id);

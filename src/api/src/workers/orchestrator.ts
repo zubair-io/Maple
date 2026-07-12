@@ -134,8 +134,3 @@ export async function stopAllStages(): Promise<void> {
     }),
   );
 }
-
-/** Test-only: snapshot of stage names whose start() resolved. */
-export function startedStageNames(): string[] {
-  return [...handles.keys()];
-}

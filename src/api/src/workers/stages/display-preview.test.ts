@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, rm, writeFile, copyFile, stat, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, copyFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';

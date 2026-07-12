@@ -23,6 +23,7 @@ import {
   IMMUTABLE_CACHE,
   findAssetByAddress,
   parseWildcardSegments,
+  developedPreviewResponse,
 } from './shared.ts';
 
 const log = childLogger('routes/library/preview');
@@ -31,6 +32,10 @@ const PREVIEW_SIZE = '1280';
 
 export const previewRoutes = new Elysia().get(
   '/preview/:slug/*',
+  // Pre-existing M1-route complexity (wildcard parse, address resolve,
+  // indexing-202, ETag/304, on-demand generate + serve). This PR adds only a
+  // thin developed-preview branch (one `developedPreviewResponse` helper call).
+  // fallow-ignore-next-line complexity
   async ({ params, headers, set }) => {
     const slug = params.slug;
     const wildcard = (params as Record<string, string>)['*'] ?? '';
@@ -76,42 +81,17 @@ export const previewRoutes = new Elysia().get(
     // Developed preview for edited assets (#1950): when the `display-preview`
     // stage has rendered `<maple_id>_dev_<sidecar_ver>.jpg`, serve that — it
     // reflects the sidecar's edits, unlike the embedded 1280 preview below.
-    // We never synchronously develop in the request path (a full develop is
-    // seconds-to-minutes); the background stage populates it, and the embedded
-    // preview covers the gap until it lands. ETag folds in `sidecar_ver` so a
-    // new edit busts client caches.
-    if (asset.has_xmp) {
-      const sidecarVer = (asset.sidecar_ver as number | undefined) ?? 0;
-      const devPath = cachePathForAsset(
-        { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
-        libs,
-        'previews',
-        `dev_${sidecarVer}`,
-      );
-      if (devPath) {
-        const devEtag = `"${asset.maple_id}_dev_${sidecarVer}"`;
-        if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, devEtag)) {
-          return new Response(null, {
-            status: 304,
-            headers: { ETag: devEtag, 'Cache-Control': IMMUTABLE_CACHE },
-          });
-        }
-        const devSt = await safeStat(devPath);
-        if (devSt) {
-          const devBytes = await safeReadBytes(devPath);
-          if (devBytes) {
-            return new Response(devBytes as unknown as BodyInit, {
-              status: 200,
-              headers: {
-                'Content-Type': 'image/jpeg',
-                ETag: devEtag,
-                'Cache-Control': IMMUTABLE_CACHE,
-              },
-            });
-          }
-        }
-      }
-    }
+    // ETag folds in `sidecar_ver` so a new edit busts client caches. Null →
+    // unedited or not-yet-rendered; fall through to the embedded preview.
+    const sidecarVer = (asset.sidecar_ver as number | undefined) ?? 0;
+    const developed = await developedPreviewResponse(
+      asset,
+      libs,
+      `"${asset.maple_id}_dev_${sidecarVer}"`,
+      IMMUTABLE_CACHE,
+      ifNoneMatch,
+    );
+    if (developed) return developed;
 
     const etag = `"${asset.maple_id}_${PREVIEW_SIZE}"`;
     if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {

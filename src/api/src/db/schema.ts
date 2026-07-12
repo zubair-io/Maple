@@ -83,7 +83,6 @@ export interface FolderDoc {
   mirrors?: MirrorLocation[];
 }
 
-export type FolderWithId = WithId<FolderDoc>;
 
 // ---------------------------------------------------------------------------
 // Asset
@@ -895,7 +894,9 @@ export type PersonWithId = WithId<PersonDoc>;
  * upsert seeds every stage with this shape on insert; readers fall back to it
  * when an old row pre-dates the `enrichment` subdocument.
  */
-export function pendingStageState(): EnrichmentStageState {
+// Internal to this module (the stage-skeleton seeders below); fallow flags it
+// as an unused export because nothing outside schema.ts imports it (#1950).
+function pendingStageState(): EnrichmentStageState {
   return {
     done_at: null,
     locked_by: null,
@@ -948,7 +949,6 @@ export interface IndexerTaskDoc {
   updated_at: string;
 }
 
-export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
 
 // ---------------------------------------------------------------------------
 // JobRunner — sibling subsystem to the indexer pipeline for user-triggered
@@ -1086,7 +1086,6 @@ export interface ImportFileDoc extends ImportFileEntry {
   idx: number;
 }
 
-export type ImportFileWithId = WithId<ImportFileDoc>;
 
 // ---------------------------------------------------------------------------
 // Discover frontier (resumable directory walk)
@@ -1105,7 +1104,6 @@ export interface DiscoverFrontierDoc {
   claimed_at: number | null; // ms epoch lease; null = free
   enqueued_at: number;
 }
-export type DiscoverFrontierWithId = WithId<DiscoverFrontierDoc>;
 
 // ---------------------------------------------------------------------------
 // User
@@ -1119,7 +1117,6 @@ export interface UserDoc {
   created_at: string;
   last_seen_at: string | null;
 }
-export type UserWithId = WithId<UserDoc>;
 
 // ---------------------------------------------------------------------------
 // Credential (one user → many passkeys)
@@ -1135,7 +1132,6 @@ export interface CredentialDoc {
   created_at: string;
   last_used_at: string | null;
 }
-export type CredentialWithId = WithId<CredentialDoc>;
 
 // ---------------------------------------------------------------------------
 // Invite
@@ -1148,7 +1144,6 @@ export interface InviteDoc {
   expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   consumed_at: string | null;
 }
-export type InviteWithId = WithId<InviteDoc>;
 
 // ---------------------------------------------------------------------------
 // Refresh token
@@ -1169,7 +1164,6 @@ export interface RefreshTokenDoc {
   /** Set on every member when logout/reuse deliberately revokes the family. */
   family_revoked_at?: string;
 }
-export type RefreshTokenWithId = WithId<RefreshTokenDoc>;
 
 // ---------------------------------------------------------------------------
 // WebAuthn challenge (5-min TTL)
@@ -1185,7 +1179,6 @@ export interface ChallengeDoc {
   invite_code: string | null;
   expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
 }
-export type ChallengeWithId = WithId<ChallengeDoc>;
 
 // ---------------------------------------------------------------------------
 // Native one-time auth code (#856) — PKCE code-exchange for the Apple shell,
@@ -1202,7 +1195,6 @@ export interface NativeAuthCodeDoc {
   expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   consumed_at: string | null;
 }
-export type NativeAuthCodeWithId = WithId<NativeAuthCodeDoc>;
 
 // ---------------------------------------------------------------------------
 // LAN handoff one-time code — a signed-in web session (on the public URL)
@@ -1223,7 +1215,6 @@ export interface LanHandoffCodeDoc {
   expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   consumed_at: string | null;
 }
-export type LanHandoffCodeWithId = WithId<LanHandoffCodeDoc>;
 
 // ---------------------------------------------------------------------------
 // PhotoKit backup
@@ -1284,7 +1275,6 @@ export interface UploadSessionDoc {
   phasset_cloud_id?: string;
 }
 
-export type UploadSessionWithId = WithId<UploadSessionDoc>;
 
 /** Per-device, per-library progress summary. NOT TTL-pruned — backup
  * sessions are kept indefinitely so the device can report cumulative state. */
@@ -1299,7 +1289,6 @@ export interface BackupSessionDoc {
   failed_count: number;
 }
 
-export type BackupSessionWithId = WithId<BackupSessionDoc>;
 
 // ---------------------------------------------------------------------------
 // Asset change feed (Phase 5b — File Provider push channel)
@@ -1354,7 +1343,6 @@ export interface ServerStateDoc {
   value?: string;
 }
 
-export type ServerStateWithId = WithId<ServerStateDoc>;
 
 // ---------------------------------------------------------------------------
 // Metadata override (#1580 — Batch Metadata M1)

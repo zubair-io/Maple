@@ -41,6 +41,9 @@ function send(msg: FfiResponse): void {
   process.send?.(msg);
 }
 
+// Adding renderDevelop (#1950) is a third FFI message type over the original
+// two; the extra dispatch arm is inherent to the message-type count.
+// fallow-ignore-next-line complexity
 function handle(req: FfiRequest): FfiResponse {
   if (!ffi) {
     return { type: req.type, id: req.id, ok: false, error: 'raw-ffi dylib not loaded in child' };
@@ -85,6 +88,9 @@ function handle(req: FfiRequest): FfiResponse {
   return { type: 'histogram', id: req.id, ok: true, bins };
 }
 
+// Pre-existing message-loop; unchanged by this PR (only shifted down by the
+// added renderDevelop branch above).
+// fallow-ignore-next-line complexity
 process.on('message', (raw: unknown) => {
   const req = raw as FfiRequest;
   if (!req || typeof req !== 'object') return;

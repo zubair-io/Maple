@@ -148,13 +148,12 @@ class FfiWorkerPool {
     this.dispatch();
   }
 
-  /** Render a RAW thumbnail to disk. Returns true on success, false on a soft
-   * failure. Rejects only on hard infra errors (worker crash, dylib missing). */
-  async renderThumbnailJpegToFile(
-    rawPath: string,
-    outPath: string,
-    maxPx: number,
-    quality = 82,
+  /** Shared enqueue for the two `_to_file` render requests (renderThumb /
+   * renderDevelop): both return an ok/error boolean and share the same
+   * dispatch/promise plumbing. `payload` carries the type-specific fields. */
+  private renderToFile(
+    type: 'renderThumb' | 'renderDevelop',
+    payload: Record<string, unknown>,
   ): Promise<boolean> {
     if (!this.available()) {
       throw new Error('ffi-pool: raw-ffi dylib not available');
@@ -163,9 +162,9 @@ class FfiWorkerPool {
     return new Promise<boolean>((resolve, reject) => {
       this.enqueue({
         id,
-        post: (w) => w.postMessage({ type: 'renderThumb', id, rawPath, outPath, maxPx, quality }),
+        post: (w) => w.postMessage({ type, id, ...payload }),
         onResponse: (msg) => {
-          if (msg.type !== 'renderThumb') return false;
+          if (msg.type !== type) return false;
           if (msg.ok) resolve(true);
           else if (msg.error) reject(new Error(msg.error));
           else resolve(false);
@@ -174,6 +173,17 @@ class FfiWorkerPool {
         onError: reject,
       });
     });
+  }
+
+  /** Render a RAW thumbnail to disk. Returns true on success, false on a soft
+   * failure. Rejects only on hard infra errors (worker crash, dylib missing). */
+  async renderThumbnailJpegToFile(
+    rawPath: string,
+    outPath: string,
+    maxPx: number,
+    quality = 82,
+  ): Promise<boolean> {
+    return this.renderToFile('renderThumb', { rawPath, outPath, maxPx, quality });
   }
 
   /** Develop a RAW with `xmpPath` applied (null = neutral) and write the JPEG
@@ -187,25 +197,7 @@ class FfiWorkerPool {
     maxPx: number,
     quality = 82,
   ): Promise<boolean> {
-    if (!this.available()) {
-      throw new Error('ffi-pool: raw-ffi dylib not available');
-    }
-    const id = this.nextId++;
-    return new Promise<boolean>((resolve, reject) => {
-      this.enqueue({
-        id,
-        post: (w) =>
-          w.postMessage({ type: 'renderDevelop', id, rawPath, xmpPath, outPath, maxPx, quality }),
-        onResponse: (msg) => {
-          if (msg.type !== 'renderDevelop') return false;
-          if (msg.ok) resolve(true);
-          else if (msg.error) reject(new Error(msg.error));
-          else resolve(false);
-          return true;
-        },
-        onError: reject,
-      });
-    });
+    return this.renderToFile('renderDevelop', { rawPath, xmpPath, outPath, maxPx, quality });
   }
 
   /**
