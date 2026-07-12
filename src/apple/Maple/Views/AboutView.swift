@@ -23,10 +23,6 @@ struct AboutView: View {
         }
         .formStyle(.grouped)
         .mapleSettingsBackground()
-        .navigationTitle("About")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 }
 
