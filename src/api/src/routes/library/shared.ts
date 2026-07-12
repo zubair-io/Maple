@@ -10,6 +10,9 @@ import {
   STUB_IMAGE_EXTENSIONS,
   AUDIO_EXTENSIONS,
 } from '../../fs/browse.ts';
+import { cachePathForAsset } from '../../fs/xmp.ts';
+import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
+import type { AssetDoc } from '../../db/schema.ts';
 
 /** Union of all image extensions surfaced by library routes. */
 export const IMAGE_EXTENSIONS_SET = new Set<string>([
@@ -105,6 +108,42 @@ export async function safeReadBytes(p: string): Promise<Uint8Array | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Developed-preview response for an EDITED asset (#1950). When the
+ * `display-preview` stage has rendered `<maple_id>_dev_<sidecar_ver>.jpg`,
+ * returns a 200 serving it (or a 304 on a matching `ifNoneMatch`). Returns
+ * null when the asset is unedited / un-indexed or the developed file isn't on
+ * disk yet — the caller then serves the embedded preview. Shared by both
+ * preview routes so neither carries the branch inline. `etag` is caller-
+ * supplied (each route folds `sidecar_ver` in differently) and `cacheControl`
+ * is echoed on both 200 and 304. Never develops here — that's the background
+ * stage's job (a full develop is seconds-to-minutes).
+ */
+export async function developedPreviewResponse(
+  asset: Pick<AssetDoc, 'maple_id' | 'fileinfo' | 'has_xmp' | 'sidecar_ver'>,
+  libs: ReadonlyMap<string, string>,
+  etag: string,
+  cacheControl: string,
+  ifNoneMatch: unknown,
+): Promise<Response | null> {
+  if (!asset.has_xmp || !asset.maple_id) return null;
+  // `dev_<sidecar_ver>` mirrors `developedPreviewSizeKey` in the stage.
+  const devPath = cachePathForAsset(asset, libs, 'previews', `dev_${asset.sidecar_ver ?? 0}`);
+  if (!devPath || !(await safeStat(devPath))) return null;
+  if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
+    return new Response(null, {
+      status: 304,
+      headers: { ETag: etag, 'Cache-Control': cacheControl },
+    });
+  }
+  const bytes = await safeReadBytes(devPath);
+  if (!bytes) return null;
+  return new Response(bytes as unknown as BodyInit, {
+    status: 200,
+    headers: { 'Content-Type': 'image/jpeg', ETag: etag, 'Cache-Control': cacheControl },
+  });
 }
 
 /**
