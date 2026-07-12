@@ -53,6 +53,7 @@ mod handle;
 mod id;
 mod model;
 mod render;
+mod render_develop;
 mod scene_linear;
 mod scene_linear_chain;
 mod scene_linear_f32;
@@ -102,7 +103,7 @@ pub use error::maple_last_error;
 // Re-exported so the `render_develop_jpeg` integration test (#1950) can call
 // the developed-preview extern directly; the `#[no_mangle]` C-ABI export is
 // unaffected either way.
-pub use render::maple_render_develop_jpeg_to_file;
+pub use render_develop::maple_render_develop_jpeg_to_file;
 
 // Tests are split per-topic so each file stays well under the 600-LOC
 // per-file budget; the `#[path]` references keep them as plain siblings
