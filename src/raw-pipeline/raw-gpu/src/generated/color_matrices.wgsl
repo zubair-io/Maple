@@ -27,6 +27,14 @@ fn mul_srgb_to_p3(v: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(dot(M_SRGB_TO_P3_R0, v), dot(M_SRGB_TO_P3_R1, v), dot(M_SRGB_TO_P3_R2, v));
 }
 
+// Inverse of M_SRGB_TO_P3: linear Display P3 -> linear sRGB.
+const M_P3_TO_SRGB_R0: vec3<f32> = vec3<f32>(1.2249401f, -0.2249401f, 0.0f);
+const M_P3_TO_SRGB_R1: vec3<f32> = vec3<f32>(-0.04205695f, 1.0420569f, -0.0f);
+const M_P3_TO_SRGB_R2: vec3<f32> = vec3<f32>(-0.019637514f, -0.07863601f, 1.0982736f);
+fn mul_p3_to_srgb(v: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(dot(M_P3_TO_SRGB_R0, v), dot(M_P3_TO_SRGB_R1, v), dot(M_P3_TO_SRGB_R2, v));
+}
+
 // Ottosson M1: linear sRGB -> LMS.
 const M1_SRGB_TO_LMS_R0: vec3<f32> = vec3<f32>(0.41222146f, 0.53633255f, 0.05144599f);
 const M1_SRGB_TO_LMS_R1: vec3<f32> = vec3<f32>(0.2119035f, 0.6806995f, 0.10739696f);
