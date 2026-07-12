@@ -356,6 +356,61 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             .filter(|s| !s.is_empty())
     });
 
+    // ── 8·pre. AnalogBalance × CameraCalibration (DNG per-unit calibration) ─
+    // The DNG color pipeline defines an individual camera unit's XYZ→camera
+    // transform as `AnalogBalance × CameraCalibrationN × ColorMatrixN` (Adobe
+    // DNG SDK `dng_color_spec.cpp`: `fColorMatrixN = fAnalogBalance *
+    // fCameraCalibrationN * fColorMatrixN`). `CameraCalibrationN` maps the
+    // reference camera's native space to THIS individual unit's native space,
+    // and `AnalogBalance` is the per-channel gain baked into the stored raw
+    // values. For all but a handful of bodies both tags are the identity
+    // matrix — vendors only populate them for per-unit-calibrated backs
+    // (mostly medium-format) — so the fold below is an exact no-op there and
+    // leaves every mass-produced body and every fixture byte-for-byte
+    // unchanged (multiplying by the exact identity in f32 is lossless).
+    //
+    // We read them once and fold them into the per-illuminant ColorMatrix (§8)
+    // and ForwardMatrix (§8b) so the rest of the pipeline keeps operating on a
+    // single "camera→…" matrix per illuminant with no hot-path changes.
+    let analog_balance = root_ifd
+        .as_ref()
+        .and_then(|ifd| read_analog_balance(ifd.as_ref()))
+        .unwrap_or(Matrix3::IDENTITY);
+    // `CameraCalibrationN` keyed by its paired `CalibrationIlluminantN` so the
+    // fold picks the right calibration per CM/FM illuminant. Identity when the
+    // tag is absent or not a plain 3×3 (RGBE 4×4 backs are out of scope).
+    let camera_calibration: HashMap<CoreIlluminant, Matrix3> = {
+        let mut map = HashMap::new();
+        if let Some(ifd) = root_ifd.as_ref() {
+            let read_cc =
+                |cc_tag: DngTag, illum_tag: DngTag| -> Option<(CoreIlluminant, Matrix3)> {
+                    let m = read_camera_calibration_3x3(ifd.as_ref(), cc_tag)?;
+                    let illum_code = ifd.as_ref().get_entry(illum_tag)?.value.force_u16(0);
+                    Some((exif_illuminant_to_core(illum_code), m))
+                };
+            if let Some((illum, m)) =
+                read_cc(DngTag::CameraCalibration1, DngTag::CalibrationIlluminant1)
+            {
+                map.insert(illum, m);
+            }
+            if let Some((illum, m)) =
+                read_cc(DngTag::CameraCalibration2, DngTag::CalibrationIlluminant2)
+            {
+                map.insert(illum, m);
+            }
+        }
+        map
+    };
+    // `diag(AnalogBalance) × CameraCalibrationN` for one illuminant — the
+    // reference→individual correction. Identity when neither tag is present.
+    let individual_correction = |illum: CoreIlluminant| -> Matrix3 {
+        let cc = camera_calibration
+            .get(&illum)
+            .copied()
+            .unwrap_or(Matrix3::IDENTITY);
+        analog_balance.mul_mat(&cc)
+    };
+
     // ── 8. Color matrices (XYZ → Camera) per illuminant ──────────────────
     // Collect all per-illuminant calibration matrices into our HashMap.
     // `FlatColorMatrix` is a `Vec<f32>` in row-major order. The DNG spec
@@ -385,11 +440,16 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                 continue;
             }
             let core_illum = rawler_illuminant_to_core(rawler_illum);
-            let m = Matrix3([
+            let cm = Matrix3([
                 [flat[0], flat[1], flat[2]],
                 [flat[3], flat[4], flat[5]],
                 [flat[6], flat[7], flat[8]],
             ]);
+            // Fold the per-unit calibration in (§8·pre): store the individual
+            // camera's `AnalogBalance × CameraCalibrationN × ColorMatrixN`, so
+            // `inv(CM)` downstream maps THIS unit's native RGB → XYZ. Exactly
+            // `CM` when the calibration tags are identity/absent.
+            let m = individual_correction(core_illum).mul_mat(&cm);
             // If multiple rawler illuminants map to the same CoreIlluminant,
             // keep the first insertion (HashMap::entry().or_insert semantics).
             map.entry(core_illum).or_insert(m);
@@ -430,15 +490,29 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                     let illum = exif_illuminant_to_core(illum_code);
                     Some((illum, m))
                 };
+            // ForwardMatrix maps *reference* white-balanced camera RGB →
+            // XYZ-D50, but the sensor buffer is *individual* camera RGB. Fold
+            // `individualToReference = inv(diag(AB) × CameraCalibrationN)` into
+            // FM so it consumes this unit's RGB directly — matching the DNG SDK
+            // `fCameraToPCS = forwardMatrix * Invert(refCameraWhite) *
+            // individualToReference`. Exactly `FM` when the calibration is
+            // identity (i.e. every FM-shipping body today — Apple etc.), so no
+            // fixture moves; a singular correction leaves FM untouched.
+            let fold_i2r = |illum: CoreIlluminant, fm: Matrix3| -> Matrix3 {
+                match individual_correction(illum).inverse() {
+                    Some(i2r) => fm.mul_mat(&i2r),
+                    None => fm,
+                }
+            };
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1)
             {
-                map.insert(illum, m);
+                map.insert(illum, fold_i2r(illum, m));
             }
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix2, DngTag::CalibrationIlluminant2)
             {
-                map.insert(illum, m);
+                map.insert(illum, fold_i2r(illum, m));
             }
         }
         map
@@ -712,6 +786,42 @@ fn read_floats(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> Option<Vec<f32>
     Some(out)
 }
 
+/// Read `AnalogBalance` (tag 50727) as a diagonal [`Matrix3`]. The tag is an
+/// N-vector of per-channel gains applied to the stored raw values (DNG spec
+/// § "AnalogBalance"); we take the first three (R, G, B), ignoring a 4th
+/// (E/W) channel on RGBE backs. `None` when the tag is absent or has fewer
+/// than three components, so the caller defaults to identity.
+fn read_analog_balance(ifd: &rawler::formats::tiff::IFD) -> Option<Matrix3> {
+    let g = read_floats(ifd, DngTag::AnalogBalance)?;
+    if g.len() < 3 {
+        return None;
+    }
+    Some(Matrix3([
+        [g[0], 0.0, 0.0],
+        [0.0, g[1], 0.0],
+        [0.0, 0.0, g[2]],
+    ]))
+}
+
+/// Read a `CameraCalibration1`/`CameraCalibration2` tag as a 3×3 [`Matrix3`]
+/// (reference-camera → individual-camera native). Requires *exactly* nine
+/// components: a 3-channel camera stores a 3×3, while a 4-channel RGBE back
+/// stores a 4×4 whose first nine floats are NOT the top-left 3×3 (row stride
+/// 4), so those are deliberately skipped (returns `None` → identity). Real
+/// bodies overwhelmingly ship identity here; a non-identity value only appears
+/// on per-unit-calibrated backs.
+fn read_camera_calibration_3x3(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> Option<Matrix3> {
+    let f = read_floats(ifd, tag)?;
+    if f.len() != 9 {
+        return None;
+    }
+    Some(Matrix3([
+        [f[0], f[1], f[2]],
+        [f[3], f[4], f[5]],
+        [f[6], f[7], f[8]],
+    ]))
+}
+
 /// Read a single LONG encoding tag (0 = Linear, 1 = sRGB). Defaults to
 /// Linear per DNG 1.6 § 6.6.4 when absent.
 fn read_encoding(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> crate::color::hsm::HsmEncoding {
@@ -906,6 +1016,93 @@ mod tests {
             decode_bytes(&dng.write_to_bytes(), "dng").is_err(),
             "a 0×8 DNG must fail decode with an error"
         );
+    }
+
+    fn assert_matrix_close(got: &Matrix3, want: &Matrix3, eps: f32, label: &str) {
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!(
+                    (got.0[i][j] - want.0[i][j]).abs() <= eps,
+                    "{label}: element [{i}][{j}] = {} expected {} (eps {eps})",
+                    got.0[i][j],
+                    want.0[i][j],
+                );
+            }
+        }
+    }
+
+    /// #1947: a per-unit-calibrated body ships non-identity `AnalogBalance`
+    /// and `CameraCalibrationN`. Decode must fold them into the stored matrices
+    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera) and
+    /// `FM' = FM × inv(diag(AB) × CC)` (individual → reference before FM).
+    #[test]
+    fn decode_folds_analog_balance_and_camera_calibration() {
+        use crate::test_support::synth_dng::SyntheticGreyDng;
+
+        // Arbitrary invertible, clearly non-identity inputs.
+        let cm = Matrix3([[0.90, 0.10, 0.00], [0.05, 0.85, 0.10], [0.00, 0.15, 0.95]]);
+        let fm = Matrix3([[0.60, 0.20, 0.15], [0.30, 0.70, 0.00], [0.00, 0.05, 0.80]]);
+        let cc = Matrix3([[1.02, 0.01, 0.00], [0.00, 0.99, 0.03], [0.01, 0.00, 1.01]]);
+        let ab = [1.05f32, 1.00, 0.98];
+        let ab_diag = Matrix3([[ab[0], 0.0, 0.0], [0.0, ab[1], 0.0], [0.0, 0.0, ab[2]]]);
+
+        let dng = SyntheticGreyDng {
+            color_matrix_1_override: Some(cm.0),
+            forward_matrix_1: Some(fm.0),
+            camera_calibration_1_override: Some(cc.0),
+            analog_balance_override: Some(ab),
+            ..Default::default()
+        };
+        let raw = decode_bytes(&dng.write_to_bytes(), "dng").expect("decode synthetic DNG");
+
+        // Default CalibrationIlluminant1 is D65 (code 21).
+        let correction = ab_diag.mul_mat(&cc); // diag(AB) × CC
+        let want_cm = correction.mul_mat(&cm); // diag(AB) × CC × CM
+        let got_cm = raw
+            .color_matrices
+            .get(&CoreIlluminant::D65)
+            .expect("D65 color matrix present");
+        // Tags round-trip through 1e-6 rationals; allow a loose fp tolerance.
+        assert_matrix_close(got_cm, &want_cm, 1e-3, "folded ColorMatrix");
+
+        let want_fm = fm.mul_mat(&correction.inverse().expect("correction invertible"));
+        let got_fm = raw
+            .forward_matrices
+            .get(&CoreIlluminant::D65)
+            .expect("D65 forward matrix present");
+        assert_matrix_close(got_fm, &want_fm, 1e-3, "folded ForwardMatrix");
+    }
+
+    /// #1947 safety: with the calibration tags at their default identity (the
+    /// case for every mass-produced body and every fixture), the fold is an
+    /// exact no-op — the stored matrices equal the file's ColorMatrix /
+    /// ForwardMatrix. This is what guarantees the change moves no fixture.
+    #[test]
+    fn decode_identity_calibration_is_a_no_op() {
+        use crate::test_support::synth_dng::SyntheticGreyDng;
+
+        let cm = Matrix3([[0.90, 0.10, 0.00], [0.05, 0.85, 0.10], [0.00, 0.15, 0.95]]);
+        let fm = Matrix3([[0.60, 0.20, 0.15], [0.30, 0.70, 0.00], [0.00, 0.05, 0.80]]);
+
+        let dng = SyntheticGreyDng {
+            color_matrix_1_override: Some(cm.0),
+            forward_matrix_1: Some(fm.0),
+            // camera_calibration_1_override / analog_balance_override left None
+            // → identity tags written by the synth writer.
+            ..Default::default()
+        };
+        let raw = decode_bytes(&dng.write_to_bytes(), "dng").expect("decode synthetic DNG");
+
+        let got_cm = raw
+            .color_matrices
+            .get(&CoreIlluminant::D65)
+            .expect("D65 color matrix present");
+        assert_matrix_close(got_cm, &cm, 1e-3, "identity-fold ColorMatrix");
+        let got_fm = raw
+            .forward_matrices
+            .get(&CoreIlluminant::D65)
+            .expect("D65 forward matrix present");
+        assert_matrix_close(got_fm, &fm, 1e-3, "identity-fold ForwardMatrix");
     }
 
     #[test]
