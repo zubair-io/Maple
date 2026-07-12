@@ -99,30 +99,32 @@ const displayPreviewStage = defineStage({
 
     await fs.mkdir(path.dirname(devPath), { recursive: true });
 
-    const pool = ffiPool();
-    // An ENOENT on the original is tagged `missing_since` by the runner
-    // (`tagsMissingOnEnoent`); a soft render failure throws so the
-    // retry/dead-letter path handles it (`tagsDamagedOnDeadLetter`).
-    const ok = await pool.renderDevelopJpegToFile(
+    // `renderDevelopJpegToFile` REJECTS on any render failure (an ENOENT on
+    // the original is tagged `missing_since` by the runner via
+    // `tagsMissingOnEnoent`; anything else propagates to the retry /
+    // dead-letter path via `tagsDamagedOnDeadLetter`), so a plain await is
+    // enough — there is no soft-false to inspect.
+    await ffiPool().renderDevelopJpegToFile(
       absPath,
       xmpPath,
       devPath,
       DISPLAY_PREVIEW_LONG_EDGE_PX,
       85,
     );
-    if (!ok) {
-      throw new Error('display-preview: develop render failed');
-    }
     return { wrote: true };
   },
 });
 
+/** True iff `p` exists. Only ENOENT counts as "absent"; a permission/IO error
+ * (EACCES/EPERM/EMFILE/…) is surfaced so the stage retries rather than
+ * silently developing neutral over an edited asset's real sidecar. */
 async function fileExists(p: string): Promise<boolean> {
   try {
     await fs.stat(p);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw e;
   }
 }
 
