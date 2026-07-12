@@ -103,6 +103,10 @@ extension EditSession {
                     frame.bytes, width: frame.width, height: frame.height
                 ) else { return }
                 await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
+                // Keep the Preview screen's 1600 px display tier in lock-step
+                // with the thumbnail so its hi-res swap shows the edited
+                // pixels (ThumbnailLoader+DisplayPreview).
+                await ThumbnailLoader.shared.updateDisplayPreviewFromRender(image, for: url)
             }
         }
     }

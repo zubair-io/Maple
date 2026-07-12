@@ -470,6 +470,31 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     }
 
     public static let `default` = AdjustmentModel()
+
+    /// True when this model carries user adjustments that change the
+    /// rendered pixels, judged with the white-balance fields excluded.
+    ///
+    /// WB must be excluded because the Apple model carries no WB-method
+    /// field (see `GpuLiveParams`): on first open the editor seeds
+    /// `temperature`/`tint` with the image's as-shot values, so a
+    /// rating-only or flag-only sidecar save records non-default WB numbers
+    /// that do NOT represent an edit. Comparing against a baseline that
+    /// copies the WB fields treats those sidecars as visually unedited —
+    /// the common culling case — at the cost of also treating a WB-only
+    /// edit as unedited. Callers that gate derived-image generation on this
+    /// (the `.maple/previews` display tier in `ThumbnailLoader`) accept
+    /// that trade-off: a WB-only edit made in the local editor still gets a
+    /// correct display preview from the editor-exit render refresh; only a
+    /// WB-only edit arriving externally (synced sidecar, never rendered on
+    /// this device) slips through.
+    public var isVisuallyEditedBeyondWhiteBalance: Bool {
+        let baseline = AdjustmentModel(
+            temperature: temperature,
+            tint: tint,
+            wbScaleVersion: wbScaleVersion
+        )
+        return self != baseline
+    }
 }
 
 // MARK: - CullingState

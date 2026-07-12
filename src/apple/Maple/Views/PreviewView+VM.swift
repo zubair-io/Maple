@@ -96,12 +96,11 @@ enum PreviewViewVM {
     /// Which cached image PreviewView paints. The Preview display path is
     /// deliberately the SAME 256px thumbnail path the grid + filmstrip already
     /// use (`ThumbnailProvider` → `ThumbnailLoader.shared`), so opening a photo
-    /// never boots the render pipeline. A dedicated 1280px "display preview"
-    /// tier is spec §3 (slice A1) and does not exist on Apple yet — until it
-    /// lands there is one tier, so `thumbnail` and `displayPreview` resolve to
-    /// the same `ThumbnailSource`. Modelling the two stages explicitly (rather
-    /// than collapsing them) keeps the swap seam ready for A1 to fill and keeps
-    /// this selection unit-testable.
+    /// never boots the render pipeline. The display tier (spec §3, slice A1)
+    /// rides the same `ThumbnailSource`: `ThumbnailProvider.preview` dispatches
+    /// it per backend after the thumbnail paints (`.maple/previews` 1600 px for
+    /// URL-backed local assets, `/api/fs/preview` for Maple Cloud sources,
+    /// PHImageManager high-quality for PhotoKit).
     ///
     /// PhotoKit must route explicitly through `.photoKit`: its generic
     /// `ImageSource.preview(for:)` intentionally returns nil, while the app-side
