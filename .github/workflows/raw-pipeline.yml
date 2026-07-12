@@ -33,6 +33,7 @@ on:
       - 'test-fixtures/budgets.json'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/check_wgsl.sh'
       - 'src/scripts/compare_images.py'
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
@@ -51,6 +52,7 @@ on:
       - 'test-fixtures/budgets.json'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/check_wgsl.sh'
       - 'src/scripts/compare_images.py'
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
@@ -123,6 +125,73 @@ jobs:
       - name: cargo build --bin maple-cli --features pano (compile gate)
         working-directory: src/raw-pipeline
         run: cargo build --bin maple-cli --features pano
+
+  # GPU path gate (#1937). Before this job the GPU chain was untested in CI:
+  # no workflow built raw-ffi with `--features gpu`, `raw-gpu` never ran, and
+  # the WGSL kernels were only compiled by naga when a real GPU device
+  # compiled them (a local or Apple-side build) — a shader syntax/type error
+  # slipped straight through CI. This job closes all three gaps on a stock
+  # Linux runner:
+  #   1. `cargo build -p raw-ffi --features gpu` — the FFI GPU surface
+  #      (src/gpu.rs + src/gpu_live.rs) that delegates into raw-gpu/wgpu; a
+  #      compile-only gate needing no GPU.
+  #   2. `check_wgsl.sh` — naga's CPU WGSL front-end + validator over every
+  #      hand-written kernel (assembled with its generated headers, mirroring
+  #      the runtime concat). Needs no GPU. naga-cli is pinned to 23.0.0 to
+  #      match the naga 23.1.0 that wgpu 23.0.1 bundles (Cargo.lock), so the
+  #      gate matches the compiler the app actually runs.
+  #   3. `cargo test -p raw-gpu` — the AgX GPU-parity suite and every other
+  #      raw-gpu test, run against Mesa lavapipe (a software Vulkan adapter)
+  #      so they execute headless. GpuContext::new_blocking() `.expect()`s an
+  #      adapter, so without lavapipe these would panic; with it they run the
+  #      real wgpu pipeline.
+  raw-gpu:
+    name: raw-gpu (gpu build + WGSL validate + software-adapter tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: raw-gpu-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+
+      # 1. Compile gate — the raw-ffi GPU FFI surface + raw-gpu + wgpu. No GPU
+      #    required; this is what a bare `cargo build -p raw-ffi` (the
+      #    build-raw-ffi job) deliberately does NOT cover.
+      - name: cargo build -p raw-ffi --features gpu
+        working-directory: src/raw-pipeline
+        run: cargo build -p raw-ffi --features gpu
+
+      # 2. WGSL syntax/type gate — CPU-only naga validation. Pinned to the naga
+      #    version wgpu bundles so the gate mirrors the app's own compiler.
+      - name: Install naga-cli (pinned to wgpu 23's naga)
+        run: cargo install naga-cli --locked --version 23.0.0
+      - name: WGSL validate (check_wgsl.sh)
+        run: bash src/scripts/check_wgsl.sh
+
+      # 3. Runtime gate against a software Vulkan adapter. lavapipe (Mesa's
+      #    llvmpipe Vulkan) gives wgpu a headless adapter so the raw-gpu tests
+      #    run on a GPU-less runner — the same approach wgpu's own CI uses.
+      - name: Install Mesa lavapipe (software Vulkan)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            mesa-vulkan-drivers vulkan-tools libvulkan1
+      - name: Confirm a Vulkan adapter is present
+        run: vulkaninfo --summary || vulkaninfo | head -40
+      - name: cargo test -p raw-gpu (lavapipe software adapter)
+        working-directory: src/raw-pipeline
+        env:
+          # Force the Vulkan backend so wgpu selects lavapipe rather than a
+          # GL software path; VK_ICD_FILENAMES pins the lavapipe ICD.
+          WGPU_BACKEND: vulkan
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: cargo test -p raw-gpu
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
