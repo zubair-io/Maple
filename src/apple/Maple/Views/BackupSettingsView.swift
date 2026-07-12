@@ -62,6 +62,7 @@ struct BackupSettingsView: View {
         rootFolderPicker
         pathPreview
       }
+      .listRowBackground(MapleTokens.surface)
       Section("Inclusion") {
         Toggle("Live Photos", isOn: $settings.includeLivePhotos)
         Toggle("Videos", isOn: $settings.includeVideos)
@@ -69,13 +70,16 @@ struct BackupSettingsView: View {
         Toggle("iCloud Shared Library", isOn: $settings.includeSharedLibrary)
         Toggle("Shared Albums", isOn: $settings.includeSharedAlbums)
       }
+      .listRowBackground(MapleTokens.surface)
       Section("Network") {
         Toggle("Wi-Fi only", isOn: $settings.wifiOnly)
       }
+      .listRowBackground(MapleTokens.surface)
       if hasStarted {
         Section("Status") {
           BackupStatusPanel()
         }
+        .listRowBackground(MapleTokens.surface)
       }
       Section {
         Button {
@@ -122,6 +126,7 @@ struct BackupSettingsView: View {
       }
     }
     .formStyle(.grouped)
+    .mapleSettingsBackground()
     .task(id: settings.serverURL) {
       await reloadLibraries()
     }
@@ -155,7 +160,7 @@ struct BackupSettingsView: View {
   @ViewBuilder
   private var serverPicker: some View {
     if registry.servers.isEmpty {
-      Text("No servers paired. Switch to the Cloud tab to add one.")
+      Text("No servers paired. Go to Settings → Cloud to add one.")
         .font(.callout)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("backup.noServers")

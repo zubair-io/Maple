@@ -199,6 +199,28 @@ extension Color {
     }
 }
 
+// MARK: - Maple Settings form styling
+
+extension View {
+    /// Replaces a `Form`/`List`'s default system grouped background with
+    /// `MapleTokens.bg` so pushed iPhone Settings sub-screens
+    /// (`GeneralSettingsTab`, `BackupSettingsView`, `PanoSettingsView`, …)
+    /// match `PhoneSettingsView`'s root list instead of the OS's cooler
+    /// gray. Responsive-program S8 follow-up (#1903). No-op on macOS —
+    /// the Mac `SettingsView` modal keeps its native system appearance
+    /// per docs/design/responsive-program/s8-settings.md §2 ("Tablet /
+    /// Desktop unchanged").
+    func mapleSettingsBackground() -> some View {
+        #if os(iOS)
+        self
+            .scrollContentBackground(.hidden)
+            .background(MapleTokens.bg)
+        #else
+        self
+        #endif
+    }
+}
+
 // MARK: - StarView
 
 public struct StarView: View {

@@ -29,6 +29,7 @@ struct ObservabilitySettingsTab: View {
       Section("Server") {
         serverPicker
       }
+      .listRowBackground(MapleTokens.surface)
       Section("Telemetry") {
         Toggle("Send telemetry from this device", isOn: $settings.enabled)
           .accessibilityIdentifier("observability.enabled")
@@ -36,6 +37,7 @@ struct ObservabilitySettingsTab: View {
           .font(.caption)
           .foregroundStyle(.secondary)
       }
+      .listRowBackground(MapleTokens.surface)
       statusSection
       Section {
         Button {
@@ -55,6 +57,7 @@ struct ObservabilitySettingsTab: View {
       }
     }
     .formStyle(.grouped)
+    .mapleSettingsBackground()
     .onChange(of: settings.serverURL) { _, _ in
       // Server selection takes effect immediately (load cache + bootstrap +
       // kick refresh through the controller) AND is persisted.
@@ -72,7 +75,7 @@ struct ObservabilitySettingsTab: View {
   @ViewBuilder
   private var serverPicker: some View {
     if registry.servers.isEmpty {
-      Text("No servers paired. Switch to the Cloud tab to add one.")
+      Text("No servers paired. Go to Settings → Cloud to add one.")
         .font(.callout)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("observability.noServers")
@@ -176,6 +179,7 @@ struct ObservabilitySettingsTab: View {
             .accessibilityIdentifier("observability.status.error")
         }
       }
+      .listRowBackground(MapleTokens.surface)
     }
   }
 
