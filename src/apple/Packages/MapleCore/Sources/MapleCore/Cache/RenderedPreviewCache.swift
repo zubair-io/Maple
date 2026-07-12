@@ -134,10 +134,11 @@ public actor RenderedPreviewCache {
     // MARK: - Invalidate
 
     /// Remove all cached entries for an asset (call after sidecar write).
+    /// Matches every screen-width variant by the `"{urlHash}_"` key prefix —
+    /// see `cacheKey` for why the urlHash is a literal prefix.
     public func invalidate(assetURL: URL) {
         guard let dir = cacheDir else { return }
-        // Remove all screen-width variants
-        let prefix = urlHash(assetURL.path)
+        let prefix = "\(urlHash(assetURL.path))_"
         memCache = memCache.filter { !$0.key.hasPrefix(prefix) }
         let files = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
         for f in files where f.hasPrefix(prefix) {
@@ -147,21 +148,36 @@ public actor RenderedPreviewCache {
 
     // MARK: - Cache key
 
-    // Plan 1 v2 Task 8: rendered-preview cache writes from the sized scene-
-    // linear path key on size — the key tuple's existing
-    // `(urlHash, sidecar mtime, screenWidth, viewTransformVersion)` is
-    // sufficient because `screenWidth` is the size bucket (per ticket 06
-    // § Product Requirements 5). The rest of the cache contract (mtime,
-    // sidecar mtime, view transform version) is unchanged.
+    // Key components: `(urlHash, primaryMtime, sidecarMtime, screenWidth,
+    // viewTransformVersion)`. `screenWidth` is the size bucket (per ticket 06
+    // § Product Requirements 5); `viewTransformVersion` invalidates on any
+    // pipeline-output change.
+    //
+    // `primaryMtime` (#1928): the cached JPEG is rendered FROM the primary
+    // RAW's pixels, so a change to those pixels that leaves the sidecar
+    // untouched — re-import, external sync tool, filesystem restore — must
+    // still miss. Keying only on `sidecarMtime` would serve a preview
+    // developed from the old bytes under an identical key. `DecodedBufferCache`
+    // (the pre-adjustment sibling) already keys on the primary mtime; this
+    // brings the post-adjustment cache to parity.
+    // The key is `"{urlHash}_{md5(variant)}"` — the per-asset `urlHash` is
+    // kept as a literal prefix (not folded into the outer hash) so
+    // `invalidate(assetURL:)` can find every screen-width variant of an asset
+    // by prefix. Hashing the whole tuple into one opaque digest, as this did
+    // before, left `invalidate` unable to match any on-disk filename (it was a
+    // silent no-op — masked only because a sidecar/mtime change already bumps
+    // the key on the next lookup).
     private func cacheKey(for url: URL, screenWidth: Int) -> String {
-        let sidecarMtime = sidecarMtimeString(for: url)
-        let components = "\(urlHash(url.path))_\(sidecarMtime)_\(screenWidth)_v\(viewTransformVersion)"
-        return md5(components)
+        let primaryMtime = mtimeString(forPath: url.path)
+        let sidecarMtime = mtimeString(forPath: SidecarPath.sidecarURL(for: url).path)
+        let variant = md5("\(primaryMtime)_\(sidecarMtime)_\(screenWidth)_v\(viewTransformVersion)")
+        return "\(urlHash(url.path))_\(variant)"
     }
 
-    private func sidecarMtimeString(for assetURL: URL) -> String {
-        let sidecar = SidecarPath.sidecarURL(for: assetURL)
-        guard let attrs = try? fm.attributesOfItem(atPath: sidecar.path),
+    /// Millisecond mtime of the file at `path`, or `"0"` when it doesn't
+    /// exist / is unreadable (a missing sidecar is the common `"0"` case).
+    private func mtimeString(forPath path: String) -> String {
+        guard let attrs = try? fm.attributesOfItem(atPath: path),
               let mtime = attrs[.modificationDate] as? Date else { return "0" }
         return String(Int64(mtime.timeIntervalSince1970 * 1000))
     }
