@@ -1,19 +1,28 @@
 //! Display-encode stage — a P2 view-transform WGSL port (epic #925 / #990).
 //!
-//! Mirrors the vibrance template. Ports `raw_core::view::encode::rec2020_to_srgb`
-//! (#438): the linear-Rec.2020 → linear-sRGB matrix followed by a hue-preserving
+//! Mirrors the vibrance template. The GPU kernel + parity tests track
+//! `raw_core::view::encode::rec2020_to_display` (#438 / #1337 / #1921): the
+//! linear-Rec.2020 → linear-display-primary matrix followed by a hue-preserving
 //! Oklab soft gamut compression at constant `L` (#1621 — a Reinhard soft-knee
 //! that rolls chroma off below the hull rather than hard-clipping onto it).
-//! This is the f32 → f32 display-encode step ONLY — it does NOT include the
-//! sRGB gamma encode or the dither/quantize-to-u8 step (those are
-//! format-changing output steps, outside the scene/display f32 chain).
+//! Both target primaries are supported — sRGB (`target_primaries = 0`) and
+//! Display P3 (`target_primaries = 1`); as of #1921 each rotates into its target
+//! primaries first, then compresses against that target's hull. This is the
+//! f32 → f32 display-encode step ONLY — it does NOT include the sRGB gamma
+//! encode or the dither/quantize-to-u8 step (those are format-changing output
+//! steps, outside the scene/display f32 chain).
 //!
 //! Three pieces (the per-stage template):
-//! 1. [`apply_display_encode`] — the CPU oracle: a faithful port of
-//!    `rec2020_to_srgb`'s per-pixel math (matrix + the sRGB-specialised
-//!    `compress_to_unit_cube_oklab`) over a flat RGBA f32 buffer.
-//! 2. [`DisplayEncodePass`] — the GPU-resident [`Pass`]; its kernel concatenates
-//!    the generated color matrices (it needs the Oklab + Rec.2020/sRGB helpers).
+//! 1. [`apply_display_encode`] — the CPU oracle, **sRGB-only**: a faithful port
+//!    of `rec2020_to_display(.., Srgb)`'s per-pixel math (matrix + the
+//!    sRGB-specialised `compress_to_unit_cube_oklab`) over a flat RGBA f32
+//!    buffer. It is a convenience oracle for the sRGB path; the P3 path is
+//!    validated against the real raw-core stage directly in the parity test
+//!    (piece 3), not through this helper.
+//! 2. [`DisplayEncodePass`] — the GPU-resident [`Pass`], **both primaries**; its
+//!    kernel concatenates the generated color matrices and selects sRGB vs P3 on
+//!    the `target_primaries` uniform (it needs the Oklab + Rec.2020/sRGB/P3
+//!    helpers, including the `M_P3_TO_SRGB` inverse for the P3 hull test).
 //! 3. The headless parity tests (in `#[cfg(test)] mod tests`) — GPU vs
 //!    `raw_core::view::encode::rec2020_to_display` (the real stage, via the
 //!    test-only raw-core dev-dep) `< 1e-4`, for BOTH target primaries: sRGB
@@ -22,16 +31,19 @@
 //!    fast-path, the near-boundary soft-knee, and the out-of-gamut compression
 //!    path, plus a dense (L × hue × chroma) sweep.
 //!
-//! ## Oracle color math (sRGB-only Oklab pair)
+//! ## CPU-oracle color math (sRGB-only Oklab pair)
 //!
-//! raw-gpu has no non-test raw-core dependency, so the Oklab round-trip is a
-//! local copy — but specialised to the **sRGB-linear** working space (the matrix
-//! already lands the triple in linear sRGB, so re-applying the inner
-//! rec2020→srgb step would double-count). The matrix constants below are the
-//! same values `codegen` bakes into the WGSL kernel (single-sourced via
-//! `color::matrices::M_REC2020_TO_SRGB` and `color::oklab::{M1_SRGB_TO_LMS,
-//! M2_LMS_TO_LAB}` + `Matrix3::inverse()`). The parity test pins the GPU output
-//! to the canonical raw-core stage directly, so a transcription error here can't
+//! This section describes the [`apply_display_encode`] CPU oracle ONLY — the GPU
+//! kernel gets its matrices (including the P3 pair) from the generated
+//! `color_matrices.wgsl`, not from here. raw-gpu has no non-test raw-core
+//! dependency, so the oracle's Oklab round-trip is a local copy — specialised to
+//! the **sRGB-linear** working space (the matrix already lands the triple in
+//! linear sRGB, so re-applying the inner rec2020→srgb step would double-count).
+//! The matrix constants below are the same values `codegen` bakes into the WGSL
+//! kernel (single-sourced via `color::matrices::M_REC2020_TO_SRGB` and
+//! `color::oklab::{M1_SRGB_TO_LMS, M2_LMS_TO_LAB}` + `Matrix3::inverse()`). The
+//! parity test pins the GPU output to the canonical raw-core stage directly, so
+//! a transcription error here can't
 //! mask a kernel bug.
 
 use crate::chain::Pass;

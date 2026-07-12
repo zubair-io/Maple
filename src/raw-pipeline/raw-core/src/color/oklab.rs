@@ -1,9 +1,19 @@
 //! Oklab color space (Björn Ottosson, 2020). Perceptually uniform and
 //! gamut-invariant for chroma adjustments (spec § 3.7).
 //!
-//! Working space in raw-core is linear Rec.2020 D65; Oklab is defined
-//! against linear sRGB D65. Since both share D65, we route via the
-//! existing `M_REC2020_TO_SRGB` matrix and compose once.
+//! Oklab is defined against linear sRGB D65 (a fixed linear-sRGB → LMS
+//! transform), so a color's Oklab coordinate is primaries-independent — every
+//! working space reaches Oklab by first rotating into linear sRGB. This module
+//! provides one entry per working space, all sharing D65:
+//!
+//! - **Rec.2020** (raw-core's native working space): route via
+//!   `M_REC2020_TO_SRGB` — `rec2020_to_oklab` / `oklab_to_rec2020`.
+//! - **linear sRGB** (post-encode-matrix, the view tail): no extra rotation —
+//!   `srgb_linear_to_oklab` / `oklab_to_srgb_linear`.
+//! - **linear Display P3** (the P3 target of the display-encode tail, #1921):
+//!   rotate P3 ↔ sRGB with `M_SRGB_TO_P3` and its inverse around the sRGB
+//!   transform — `p3_linear_to_oklab` / `oklab_to_p3_linear`. This lets the P3
+//!   gamut compression test the P3 hull rather than the sRGB one.
 
 use crate::{
     color::matrices::{M_REC2020_TO_SRGB, M_SRGB_TO_P3},
