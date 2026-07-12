@@ -7,13 +7,28 @@
 // chain doesn't double-apply them) lives here.
 //
 // Architecture: `apply_scene_linear_chain` (Apple's hot path on every
-// slider tick) applies the FULL model — `scene_tone_controls`,
-// `vibrance`, `saturation`, `clarity`, `texture`, `dehaze`,
-// `nr_luminance`, AgX (contrast). If the decode **also** bakes those
-// fields with the live sidecar values, every chain-handled stage runs
-// twice and slider values double — exposure +3.68 EV becomes +7.36 EV,
-// AgX's highlight rolloff produces non-linear chroma distortion, and
-// the result on real images is a visible magenta cast.
+// slider tick) applies the FULL model — `white_balance` (delta),
+// `scene_tone_controls` (exposure + brightness + tone regions),
+// `tone_curves` (parametric), `vibrance`, `saturation`, `hsl` (8-band
+// hue/sat/lum), `clarity`, `texture`, `dehaze`, `local_adjustments`,
+// `vignette`, `nr_luminance`, then post-AgX `split_tone` + `grain`. Every
+// one of those scene-linear stages is ALSO baked by the FFI decode
+// (`develop_scene_linear_*`, which mirrors the same stage order up to but
+// not including AgX). If the decode bakes a chain-handled field with the
+// live sidecar value, that stage runs twice and the slider doubles —
+// exposure +3.68 EV becomes +7.36 EV, AgX's highlight rolloff produces
+// non-linear chroma distortion, and the result on real images is a
+// visible magenta cast. So the strip must zero EVERY scene-linear field
+// the decode bakes; the list below is the full current set (#1916 closed
+// the gap where brightness / parametric / HSL / vignette had grown into
+// the chain via #1102/#273/#1112/#1109 without the strip following).
+//
+// `split_tone` (#1111) and `grain` (#1110) are the exception: they run
+// only POST-AgX, and the Apple decode stops at scene-linear (pre-AgX), so
+// the decode never bakes them and there is nothing to double-apply. They
+// are neither stripped nor kept here — they simply never reach the decode.
+// (They DO influence the chain output, so they still belong in the
+// `SceneLinearChainCache` key — see `SceneLinearChainCache.make`.)
 //
 // Apple's Metal kernels also re-apply `sharpen` and `nr_color`
 // **after** the chain (`ImageEditPipeline.applySceneSharpen` +
@@ -44,10 +59,19 @@
 //     at temp=6500/tint=0 (its identity short-circuit). The post-DCP
 //     buffer is at D65 (= 6500K) by construction; the chain re-applies
 //     the user's full WB shift from this consistent reference.
-//   * `exposure`, `contrast`, `highlights`, `shadows`, `whites`,
-//     `blacks`  — scene_tone_controls + AgX contrast slope (defaults
-//     are identity → decode early-exits)
+//   * `exposure`, `brightness`, `contrast`, `highlights`, `shadows`,
+//     `whites`, `blacks`  — scene_tone_controls + AgX contrast slope
+//     (defaults are identity → decode early-exits). `brightness` (#1102)
+//     is the midtone-band gain inside scene_tone_controls.
+//   * `parametricHighlights`, `parametricLights`, `parametricDarks`,
+//     `parametricShadows` (#273) — the `tone_curves` stage, run by both
+//     decode and chain; all-zero is the identity short-circuit.
 //   * `vibrance`, `saturation`, `clarity`, `texture`, `dehaze` (ditto)
+//   * the 24 HSL bands `hueAdjustment*` / `saturationAdjustment*` /
+//     `luminanceAdjustment*` (#1112) — the `hsl` stage; all-zero is a
+//     bit-identical stage skip on both the decode and the chain.
+//   * `vignetteAmount`, `vignetteFeather` (#1109) — the `vignette` stage;
+//     amount 0 short-circuits it (feather returns to its 50 default).
 //   * `nrLuminance`                — chain applies it; default 0 → decode
 //     early-exits without forcing
 //   * `nrColor`, `sharpenAmount`   — Apple Metal re-applies post-chain;
@@ -97,19 +121,63 @@ public enum RawCoreBridge {
         // White balance — chain applies it from a D65 reference (see above).
         m.temperature = d.temperature
         m.tint = d.tint
-        // scene_tone_controls + AgX contrast
+        // scene_tone_controls (exposure + brightness + tone regions) + AgX
+        // contrast. brightness (#1102) is a midtone-band gain inside
+        // scene_tone_controls — the decode bakes it and the chain re-applies
+        // it, so it must be zeroed here like every other scene_tone control.
         m.exposure = d.exposure
+        m.brightness = d.brightness
         m.contrast = d.contrast
         m.highlights = d.highlights
         m.shadows = d.shadows
         m.whites = d.whites
         m.blacks = d.blacks
+        // Parametric tone curve (#273) — fed to the `tone_curves` stage,
+        // which BOTH the decode and the chain run. Left un-stripped they
+        // double-apply exactly like brightness, so zero all four regions.
+        m.parametricHighlights = d.parametricHighlights
+        m.parametricLights = d.parametricLights
+        m.parametricDarks = d.parametricDarks
+        m.parametricShadows = d.parametricShadows
         // Hue/sat/local-contrast/dehaze
         m.vibrance = d.vibrance
         m.saturation = d.saturation
         m.clarity = d.clarity
         m.texture = d.texture
         m.dehaze = d.dehaze
+        // HSL 8-band hue/sat/lum (#1112) — the `hsl` stage runs in both the
+        // decode and the chain (scene-linear Oklab, after saturation), so
+        // all 24 bands double-apply unless zeroed here.
+        m.hueAdjustmentRed = d.hueAdjustmentRed
+        m.hueAdjustmentOrange = d.hueAdjustmentOrange
+        m.hueAdjustmentYellow = d.hueAdjustmentYellow
+        m.hueAdjustmentGreen = d.hueAdjustmentGreen
+        m.hueAdjustmentAqua = d.hueAdjustmentAqua
+        m.hueAdjustmentBlue = d.hueAdjustmentBlue
+        m.hueAdjustmentPurple = d.hueAdjustmentPurple
+        m.hueAdjustmentMagenta = d.hueAdjustmentMagenta
+        m.saturationAdjustmentRed = d.saturationAdjustmentRed
+        m.saturationAdjustmentOrange = d.saturationAdjustmentOrange
+        m.saturationAdjustmentYellow = d.saturationAdjustmentYellow
+        m.saturationAdjustmentGreen = d.saturationAdjustmentGreen
+        m.saturationAdjustmentAqua = d.saturationAdjustmentAqua
+        m.saturationAdjustmentBlue = d.saturationAdjustmentBlue
+        m.saturationAdjustmentPurple = d.saturationAdjustmentPurple
+        m.saturationAdjustmentMagenta = d.saturationAdjustmentMagenta
+        m.luminanceAdjustmentRed = d.luminanceAdjustmentRed
+        m.luminanceAdjustmentOrange = d.luminanceAdjustmentOrange
+        m.luminanceAdjustmentYellow = d.luminanceAdjustmentYellow
+        m.luminanceAdjustmentGreen = d.luminanceAdjustmentGreen
+        m.luminanceAdjustmentAqua = d.luminanceAdjustmentAqua
+        m.luminanceAdjustmentBlue = d.luminanceAdjustmentBlue
+        m.luminanceAdjustmentPurple = d.luminanceAdjustmentPurple
+        m.luminanceAdjustmentMagenta = d.luminanceAdjustmentMagenta
+        // Vignette (#1109) — scene-linear radial gain, run in both the decode
+        // and the chain (after local adjustments, before the omitted sharpen).
+        // Zeroing amount short-circuits the stage; feather rides back to its
+        // default for a clean neutral reference.
+        m.vignetteAmount = d.vignetteAmount
+        m.vignetteFeather = d.vignetteFeather
         // Noise reduction (chain handles luminance; Metal handles color).
         // nrLuminance default is 0 → decode early-exits, so default is fine.
         m.nrLuminance = d.nrLuminance
