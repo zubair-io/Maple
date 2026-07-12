@@ -54,6 +54,7 @@ struct PanoSettingsView: View {
             resolutionOrderSection
         }
         .formStyle(.grouped)
+        .mapleSettingsBackground()
         .onChange(of: modelsDir) { _, _ in scheduleSave() }
         .onChange(of: ortDylibPath) { _, _ in scheduleSave() }
         .task { refreshStatus() }
@@ -89,6 +90,7 @@ struct PanoSettingsView: View {
         } header: {
             Text("Status")
         }
+        .listRowBackground(MapleTokens.surface)
     }
 
     // MARK: - Auto-provision action
@@ -241,6 +243,7 @@ struct PanoSettingsView: View {
                 .font(.caption2)
                 .foregroundStyle(Color(white: 0.5))
         }
+        .listRowBackground(MapleTokens.surface)
     }
 
     // MARK: - Resolution order section
@@ -266,6 +269,7 @@ struct PanoSettingsView: View {
         } header: {
             Text("Resolution Order")
         }
+        .listRowBackground(MapleTokens.surface)
     }
 
     // MARK: - Source tag helper

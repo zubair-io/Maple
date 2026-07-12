@@ -15,8 +15,9 @@
 // S2 (#623) swaps the center column for the responsive `LibraryGrid`
 // (chosen by AppShellCenterColumn based on the layout env), and the
 // `PhoneLibraryStub` wrapper has been renamed `PhoneLibraryView` now
-// that the stub text is gone. S7 fills PhoneSearchStub. S8 will
-// replace the embedded SettingsView with an iOS Settings-style List.
+// that the stub text is gone. S7 fills PhoneSearchStub. S8 (#1903)
+// replaces the embedded SettingsView with an iOS Settings-style List
+// (`PhoneSettingsView`).
 
 #if os(iOS)
 
@@ -177,11 +178,10 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
 
             Tab("Settings", systemImage: "gearshape", value: "settings") {
                 NavigationStack {
-                    // SettingsView is itself a TabView (General/Backup/Self
-                    // Hosted/Files) — embedding it inside the Settings tab's
-                    // NavigationStack yields nested tabs for S1a. S8 will
-                    // replace this with an iOS Settings-style List.
-                    SettingsView()
+                    // S8 (#1903): grouped List + push, replacing the S1a
+                    // placeholder that embedded SettingsView (itself a
+                    // TabView) and produced a nested footer tab bar.
+                    PhoneSettingsView()
                         .navigationTitle("Settings")
                         .navigationBarTitleDisplayMode(.inline)
                 }
