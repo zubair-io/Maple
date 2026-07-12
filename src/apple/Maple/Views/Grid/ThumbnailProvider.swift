@@ -110,20 +110,36 @@ actor ThumbnailProvider {
     /// Lazily load a display-sized image after the fast thumbnail is visible.
     /// This deliberately bypasses the thumbnail caches: those are keyed for
     /// grid-sized pixels and must never be polluted with a larger variant.
+    ///
+    /// Per-backend display tier:
+    ///   - local URL-backed: `.maple/previews/<key>_1600.jpg` next to the
+    ///     asset via `ThumbnailLoader.loadDisplayPreview` (generated from the
+    ///     embedded camera preview on first request).
+    ///   - sourceless local (cloud/self-hosted browse): the source's own
+    ///     `preview(for:)` — `CloudSource` serves the server-generated
+    ///     1280 px `/api/fs/preview` artifact.
+    ///   - cloud timeline: `CloudThumbClient.preview` → the same
+    ///     `/api/fs/preview` tier. (NOT `thumb(size:)` — the server keeps one
+    ///     mtime-checked thumb file per RAW, so a larger `size` request just
+    ///     returns the cached 512 px grid thumb.)
+    ///   - PhotoKit: `PHImageManager` high-quality request at `maxDimension`.
     func preview(for source: ThumbnailSource, maxDimension: CGFloat = 2_048) async -> Data? {
         switch source.resolvedBackend() {
         case .thumbnailLoader(let ref, let box):
+            if ref.primaryURL != nil {
+                return await ThumbnailLoader.shared.loadDisplayPreview(for: ref)
+            }
             guard let imageSource = box?.source else { return nil }
             let imageRef = ImageRef(
-                id: ref.stableID ?? ref.primaryURL?.path ?? ref.id.uuidString,
+                id: ref.stableID ?? ref.id.uuidString,
                 displayName: ref.displayName,
-                url: ref.primaryURL,
+                url: nil,
                 scopeParentURL: ref.scopeParentURL
             )
             return try? await imageSource.preview(for: imageRef)
         case .cloudThumb(let absPath, _):
             guard let client = thumbClient else { return nil }
-            return try? await client.thumb(absPath: absPath, size: Int(maxDimension))
+            return try? await client.preview(absPath: absPath)
         case .photoKit(let localID):
             return await Self.fetchPhotoKitPreview(
                 localID: localID,

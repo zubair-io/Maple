@@ -97,10 +97,15 @@ extension CloudSource: ImageSource {
     return try await getOrNilOn404(thumbURL)
   }
 
+  /// Display-resolution (1280 px long-edge) preview via `/api/fs/preview` —
+  /// the server generates it on demand into the folder's `.maple/previews/`
+  /// (shared with the indexer's preview stage artifact) and caches it there.
+  /// nil on 404/415 so the Preview screen keeps showing the thumbnail.
   public func preview(for ref: ImageRef) async throws -> Data? {
-    // /api/fs/* doesn't expose a separate preview-resolution endpoint.
-    // Callers fall back to thumb when preview is nil.
-    nil
+    let abs = Self.absPath(from: ref.id)
+    let previewURL = url("/api/fs/preview",
+                         query: [URLQueryItem(name: "path", value: abs)])
+    return try await getOrNilOn404(previewURL)
   }
 
   public func rawBytes(for ref: ImageRef) async throws -> Data {

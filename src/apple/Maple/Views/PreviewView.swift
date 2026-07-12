@@ -6,12 +6,13 @@
 // Edit button. The whole point is speed:
 //
 //   • It creates NO render pipeline. It mounts no interactive GPU/CPU canvas
-//     and no zoom controller. It paints a single cached JPEG through the SAME
+//     and no zoom controller. It paints a cached JPEG through the SAME
 //     `ThumbnailProvider` / `ThumbnailLoader` path the grid + filmstrip already
 //     use — so opening a photo paints in ~1 frame and never blocks on the RAW
-//     pipeline. (The dedicated 1280px "display preview" tier is spec §3 / slice
-//     A1 and does not exist on Apple yet; until it lands there is one image
-//     tier and no second swap.)
+//     pipeline. Once the thumbnail is on screen, `ThumbnailProvider.preview`
+//     swaps in the display tier (spec §3 / slice A1): `.maple/previews` 1600 px
+//     for local assets, `/api/fs/preview` 1280 px for Maple Cloud, PHImageManager
+//     high-quality for PhotoKit.
 //   • Flag + Info reuse the asset's already-primed `EditSession` (created
 //     lazily by the grid's `ensureSession`; `EditSession.init` allocates a
 //     pipeline object but does NOT decode or render — the heavy work is
