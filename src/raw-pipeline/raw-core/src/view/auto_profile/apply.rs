@@ -43,7 +43,9 @@ pub fn compress_input(x: f32) -> f32 {
 /// is likewise inert in `[0, 1]` display space — it only bites the
 /// scene-linear HDR values the curve previously consumed before AgX.
 pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
-    use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
+    use crate::color::oklab::{oklab_to_srgb_linear, srgb_linear_to_oklab};
+    use crate::view::agx_inverse::srgb_gamma_inv;
+    use crate::view::encode::srgb_gamma;
     let m = &curve.matrix;
     let identity = m == &IDENTITY_MATRIX;
     let chroma_boost = curve.chroma_boost;
@@ -82,8 +84,20 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
             // to correct residual hue cast (test_0010 yellow-green).
             // Both preserve L. Offset applies AFTER scale so it's a
             // true centroid shift not amplified by the boost.
-            let lab = rec2020_to_oklab([r2, g2, b2]);
-            // Bin by Rec.709 luma on the post-curve+matrix RGB to match
+            //
+            // #1948: `r2/g2/b2` here are `DisplayEncodedSrgb` — sRGB primaries,
+            // sRGB gamma (see the `apply_pipeline` fit-input contract) — but
+            // Oklab is defined on LINEAR light. Decode the gamma first, and use
+            // the linear-*sRGB* Oklab entry (`srgb_linear_to_oklab`, NOT
+            // `rec2020_to_oklab`, which would re-apply a Rec.2020→sRGB primary
+            // rotation the display buffer has already had), then re-encode after
+            // the correction. Only a non-identity chroma curve reaches this
+            // block (a persisted Auto-1.0 curve under the dev-only `MAPLE_AUTO1`
+            // hatch); the default #550 display fit zeroes these fields, so
+            // `apply_chroma` is false and this whole block is skipped.
+            let lin = [srgb_gamma_inv(r2), srgb_gamma_inv(g2), srgb_gamma_inv(b2)];
+            let lab = srgb_linear_to_oklab(lin);
+            // Bin by Rec.709 luma on the post-curve+matrix display RGB to match
             // the fit-time binning. Oklab L was misaligned (different
             // scale: Oklab L 0.79 ≈ Rec.709 luma 0.5). Piecewise-linear
             // interp over 5 anchors at Y=0/0.25/0.5/0.75/1.0.
@@ -100,10 +114,10 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
                 lab[1] * chroma_boost + chroma_off[0] + band_a_corr,
                 lab[2] * chroma_boost + chroma_off[1] + band_b_corr,
             ];
-            let back = oklab_to_rec2020(scaled);
-            r2 = back[0];
-            g2 = back[1];
-            b2 = back[2];
+            let back = oklab_to_srgb_linear(scaled);
+            r2 = srgb_gamma(back[0]);
+            g2 = srgb_gamma(back[1]);
+            b2 = srgb_gamma(back[2]);
         }
         chunk[0] = r2;
         chunk[1] = g2;
