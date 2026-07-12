@@ -513,8 +513,7 @@ export class XmpParserService {
     // Absent components use the defaults (6500/0, ACR's absent-tint
     // convention) as conversion input; V1 round-trips unconverted
     // (raw-core converts it at develop, needing the calibration frame).
-    const wbAuthored =
-      canonicallyApplied.has('temperature') || canonicallyApplied.has('tint');
+    const wbAuthored = canonicallyApplied.has('temperature') || canonicallyApplied.has('tint');
     if (wbScale.sourceVersion !== 1 && wbAuthored) {
       const [convertedTemperature, convertedTint] = authoredPairToV5(
         model.temperature ?? 6500.0,
