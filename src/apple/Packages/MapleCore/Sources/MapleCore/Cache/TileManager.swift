@@ -78,7 +78,12 @@ public actor TileManager {
     /// scene-linear chain or the view transform changes meaning. Plan 2
     /// landed at v2. v3 (#263): canonical Sobotka AgX with inset/outset
     /// matrices + real Jed Smith sigmoid (mid-gray 0.237 → 0.18).
-    public static let viewTransformVersion: UInt32 = 3
+    /// v4 (2026-07-12, #1904): the #1893/#1894 WB value-mapping series —
+    /// Robertson slider mapping, the Robertson-consistent frame/profile
+    /// CCT solve, and single-CM embedded-frame anchoring change the
+    /// scene-linear chain's WB meaning; paired with RenderedPreviewCache
+    /// viewTransformVersion=7 / DecodedBufferCache rustVersion=6.
+    public static let viewTransformVersion: UInt32 = 4
 
     private struct Entry {
         let image: CIImage
