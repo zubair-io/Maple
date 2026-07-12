@@ -22,6 +22,7 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 import { fsPreviewsRoutes, libraryAddressFor } from './fs-previews.ts';
 import { cachePathFor } from '../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { getDb } from '../db/client.ts';
 
 describe('libraryAddressFor', () => {
   const roots = new Map([['aaaaaaaaaaaaaaaaaaaaaaaa', '/lib/photos']]);
@@ -74,6 +75,11 @@ describe('GET /api/fs/preview', () => {
 
   beforeAll(async () => {
     mongo = await tryConnect();
+    // The route consults the DB only when the app's own client already holds
+    // a live connection (`isDbConnected()` guard — in production the server
+    // connects at boot). Mirror that here so the content-addressed path is
+    // exercised.
+    if (mongo) await getDb();
   });
 
   afterAll(async () => {
