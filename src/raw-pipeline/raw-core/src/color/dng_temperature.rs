@@ -13,13 +13,14 @@
 //! Ticket #1894: this module exists to reproduce the numbers ACR *displays*
 //! on its white-balance temperature/tint sliders. It is deliberately
 //! separate from [`crate::stages::white_balance`], which implements Maple's
-//! own scene-linear white-balance *render* path built on the
-//! Hernández-Andrés (1999) daylight/blackbody locus — a different curve
-//! fit, chosen for the render pipeline's own reasons and not required to
-//! agree numerically with ACR's slider labels. Use this module only to
-//! convert to/from the (K, tint) numbers a user reads off ACR (or the Maple
-//! UI's ACR-parity slider values); use `stages::white_balance` for the
-//! actual scene-linear illuminant correction applied to pixels.
+//! camera-space value mapping (`stages::white_balance::slider_source_xy`
+//! → `wb_camera::target_xyz`, the frame/estimator solves, and the
+//! per-tick frame delta) all evaluate THIS mapping since #1894, keeping
+//! slider values and renders inverse-consistent on the calibrated tiers.
+//! Only the uncalibrated CAT16/diagonal FALLBACK tier (`wb_gains` /
+//! `wb_cat16_matrix`) still evaluates the legacy Hernández-Andrés (1999)
+//! locus — see `wb_gains`'s fallback-tier note for why its D65-anchored
+//! identity must stay on the daylight locus.
 
 /// One row of the Robertson 1968 isotherm table.
 ///
@@ -409,7 +410,7 @@ mod tests {
             "authored_pair_to_v5": authored,
         });
         std::fs::write(
-            "/tmp/wb_v5_golden_vectors.json",
+            std::env::temp_dir().join("wb_v5_golden_vectors.json"),
             serde_json::to_string_pretty(&doc).expect("serialize golden vectors"),
         )
         .expect("write /tmp/wb_v5_golden_vectors.json");

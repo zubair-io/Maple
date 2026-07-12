@@ -48,9 +48,12 @@ pub(crate) fn legacy_slider_source_xy(temperature: f32, tint: f32) -> (f32, f32)
 /// (e.g. legacy (6500, 0) reads back ≈ (6470, +10) — the same physical
 /// chromaticity, named in ACR's coordinates).
 ///
-/// Shared by [`super::resolve_wb`] (the post-DCP CAT16/diagonal fallback
-/// tier) and `wb_camera::resolve_target_versioned` (the camera-space
-/// tiers) so the two resolvers cannot drift.
+/// Consumed by `wb_camera::resolve_target_versioned` (the camera-space
+/// tiers) and the TS/Swift parsers' load-normalization. The fallback
+/// tier's [`super::resolve_wb`] deliberately does NOT use it — that
+/// tier's render map stayed on the legacy locus, so it converts in the
+/// value domain only (`super::authored_tint_to_v4`); see `wb_gains`'s
+/// fallback-tier note.
 pub(crate) fn authored_pair_to_v5(
     temperature: f32,
     tint: f32,
