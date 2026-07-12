@@ -176,6 +176,38 @@ class FfiWorkerPool {
     });
   }
 
+  /** Develop a RAW with `xmpPath` applied (null = neutral) and write the JPEG
+   * to `outPath`. The developed counterpart to `renderThumbnailJpegToFile`
+   * (#1950). Returns true on success, false on a soft failure; rejects only on
+   * hard infra errors (child crash, dylib missing). */
+  async renderDevelopJpegToFile(
+    rawPath: string,
+    xmpPath: string | null,
+    outPath: string,
+    maxPx: number,
+    quality = 82,
+  ): Promise<boolean> {
+    if (!this.available()) {
+      throw new Error('ffi-pool: raw-ffi dylib not available');
+    }
+    const id = this.nextId++;
+    return new Promise<boolean>((resolve, reject) => {
+      this.enqueue({
+        id,
+        post: (w) =>
+          w.postMessage({ type: 'renderDevelop', id, rawPath, xmpPath, outPath, maxPx, quality }),
+        onResponse: (msg) => {
+          if (msg.type !== 'renderDevelop') return false;
+          if (msg.ok) resolve(true);
+          else if (msg.error) reject(new Error(msg.error));
+          else resolve(false);
+          return true;
+        },
+        onError: reject,
+      });
+    });
+  }
+
   /**
    * Render a RAW with `xmpPath`'s adjustments applied, bin the RGB888 output
    * into 3×256 channel histograms inside the worker, and return the bins.

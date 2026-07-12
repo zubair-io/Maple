@@ -557,6 +557,14 @@ export interface AssetDoc {
    * rows pre-date the flag; readers should treat missing as `false`. */
   has_xmp?: boolean;
   /**
+   * Monotonic sidecar-edit counter, incremented on every XMP write (#1950).
+   * The `display-preview` stage renders `.maple/previews/<maple_id>_dev_<N>.jpg`
+   * where N is this value, and the preview routes serve that same filename —
+   * so a new edit produces a new developed-preview file and orphans the old.
+   * Absent/`0` means no edit has been recorded (serve the embedded preview).
+   */
+  sidecar_ver?: number;
+  /**
    * Sparse user-edit overlay reconciled from the XMP sidecar by the
    * `sidecar-metadata-index` stage (#1580 — Batch Metadata M1). Absent until first
    * batch edit; `null` when the override has been reset.
