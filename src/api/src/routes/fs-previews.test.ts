@@ -22,7 +22,7 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 import { fsPreviewsRoutes, libraryAddressFor } from './fs-previews.ts';
 import { cachePathFor } from '../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import { getDb } from '../db/client.ts';
+import { getDb, closeDb } from '../db/client.ts';
 
 describe('libraryAddressFor', () => {
   const roots = new Map([['aaaaaaaaaaaaaaaaaaaaaaaa', '/lib/photos']]);
@@ -90,6 +90,9 @@ describe('GET /api/fs/preview', () => {
         .catch(() => {});
       await mongo.close().catch(() => {});
     }
+    // Also close the app's own client (opened via getDb() above) so no
+    // pooled connection outlives the suite.
+    await closeDb().catch(() => {});
   });
 
   beforeEach(async () => {
