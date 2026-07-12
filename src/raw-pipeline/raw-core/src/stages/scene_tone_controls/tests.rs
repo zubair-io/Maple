@@ -394,12 +394,74 @@ fn blacks_positive_lifts_uniformly_at_zero() {
 
 #[test]
 fn blacks_positive_leaves_midtones_alone() {
-    // Y ≥ 0.2 → smoothstep weight is 0 → identity.
+    // Y ≥ B_LIFT_EDGE (0.40) → smoothstep weight is 0 → identity. The lift
+    // edge was widened from 0.2 to 0.40 for monotonicity (#1918), so the pin
+    // is now exactly at Y = 0.40.
     let mut img = fresh_img([0.4, 0.4, 0.4]);
     let mut m = model_default();
     m.blacks = 100.0;
     apply(&mut img, &m);
     for &c in &img.pixels[0] {
         assert!((c - 0.4).abs() < 1e-6, "Y=0.4 should not move, got {}", c);
+    }
+}
+
+/// Build a 1-row image whose pixels are neutral greys stepping through
+/// `values` — a luma ramp. Whites/blacks are per-pixel point ops, so each
+/// pixel's output luma is `T(value)`; a monotone `T` must leave the ramp
+/// non-decreasing.
+fn grey_ramp(values: &[f32]) -> Image {
+    let mut img = Image::new(values.len() as u32, 1, ColorSpace::SceneLinearRec2020);
+    for (px, &v) in img.pixels.iter_mut().zip(values) {
+        *px = [v, v, v];
+    }
+    img
+}
+
+#[test]
+fn whites_negative_transfer_is_monotone_across_range() {
+    // #1918 — the whites point op `T(Y) = Y·(1 + a·smoothstep(0.5, 1.0, Y))`
+    // (a = whites/200) went non-monotone at whites ≈ −67, inverting local
+    // tonal order (a solarization band). Flooring the negative gain
+    // (WHITES_MIN_GAIN) keeps T monotone across the full range. Sweep a fine
+    // luma ramp (incl. the Y ≈ 0.82 danger zone) and assert non-decreasing.
+    let values: Vec<f32> = (0..=400).map(|i| i as f32 * 0.005).collect(); // 0.0 .. 2.0
+    for &whites in &[-67.0_f32, -100.0] {
+        let mut img = grey_ramp(&values);
+        let mut m = model_default();
+        m.whites = whites;
+        apply(&mut img, &m);
+        for w in img.pixels.windows(2) {
+            assert!(
+                w[1][0] >= w[0][0] - 1e-6,
+                "whites={whites}: non-monotone (solarization) at {} -> {}",
+                w[0][0],
+                w[1][0]
+            );
+        }
+    }
+}
+
+#[test]
+fn blacks_positive_transfer_is_monotone_across_range() {
+    // #1918 — the blacks additive lift `T(Y) = Y + (blacks/400)·(1 −
+    // smoothstep(0, edge, Y))` went non-monotone at blacks ≈ +53 with the old
+    // 0.2 edge. Widening to B_LIFT_EDGE (0.40) keeps T′(Y) > 0 at the full
+    // +100 lift. Sweep the shadow ramp (incl. the Y ≈ 0.1 danger zone) and
+    // assert non-decreasing.
+    let values: Vec<f32> = (0..=120).map(|i| i as f32 * 0.005).collect(); // 0.0 .. 0.6
+    for &blacks in &[53.0_f32, 100.0] {
+        let mut img = grey_ramp(&values);
+        let mut m = model_default();
+        m.blacks = blacks;
+        apply(&mut img, &m);
+        for w in img.pixels.windows(2) {
+            assert!(
+                w[1][0] >= w[0][0] - 1e-6,
+                "blacks={blacks}: non-monotone (solarization) at {} -> {}",
+                w[0][0],
+                w[1][0]
+            );
+        }
     }
 }
