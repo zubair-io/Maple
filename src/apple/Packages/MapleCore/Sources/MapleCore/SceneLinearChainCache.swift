@@ -26,16 +26,18 @@
 //     `@unchecked Sendable` for the CIImage payload — CIImage is a
 //     reference type and the value is published only under the lock.
 //
-//   • Hash uses `Hasher` over the 21 scene-linear fields plus the three
-//     FFI parameters (`decodedTemperature`, `decodedTint`, `skipAgX`).
-//     Float fields go through `bitPattern` so NaN / -0 hash consistently.
-//     Float NaN equality is excluded by design — the model is bounded by
-//     `AdjustmentModel`'s `[-100, 100]` etc ranges, NaN is unreachable in
-//     practice. The hash is intentionally over-inclusive on the scene-
-//     linear side: the four parametric* fields are listed in #661's spec
-//     even though `PipelineRenderer.makeParams` doesn't currently forward
-//     them; including them keeps the cache correct against a future FFI
-//     surface widening.
+//   • Hash uses `Hasher` over every scene-linear develop field the FFI
+//     chain applies (see `make(...)` for the exhaustive list), plus the
+//     three FFI parameters (`decodedTemperature`, `decodedTint`, `skipAgX`)
+//     and the WB slider frame. Float fields go through `bitPattern` so
+//     NaN / -0 hash consistently. Float NaN equality is excluded by design
+//     — the model is bounded by `AdjustmentModel`'s `[-100, 100]` etc
+//     ranges, NaN is unreachable in practice. The hash is intentionally
+//     over-inclusive on the scene-linear side (extra fields waste hits but
+//     never corrupt output); it must never be UNDER-inclusive. #1916 closed
+//     the under-inclusive gap where brightness / the 24 HSL bands / vignette
+//     / split-tone / grain had grown into the chain (#1102/#1112/#1109/
+//     #1111/#1110) without the key following.
 //
 // Correctness invariants:
 //
@@ -79,9 +81,10 @@ final class SceneLinearChainCache: @unchecked Sendable {
     /// extent the input CIImage was scaled to (fast vs refine pass).
     struct Key: Hashable {
         let assetID: UUID
-        /// `Hasher`-derived digest of the 21 scene-linear `AdjustmentModel`
-        /// fields plus `decodedTemperature` / `decodedTint` / `skipAgX`.
-        /// See `make(...)` for the field list.
+        /// `Hasher`-derived digest of every scene-linear `AdjustmentModel`
+        /// field the FFI chain applies, plus `decodedTemperature` /
+        /// `decodedTint` / `skipAgX` / the WB slider frame. See `make(...)`
+        /// for the exhaustive field list.
         let modelDigest: Int
         let width: Int
         let height: Int
@@ -131,10 +134,44 @@ final class SceneLinearChainCache: @unchecked Sendable {
 
     // MARK: - Hash construction
 
-    /// Build the model digest. Lists the 21 scene-linear inputs called
-    /// out in #661 plus the three FFI parameters. Sharpen / nr_color /
-    /// captureSharpening* are deliberately EXCLUDED — that's the whole
-    /// point of the cache.
+    /// Build the model digest. The digest covers EVERY scene-linear develop
+    /// field the FFI chain (`apply_scene_linear_chain`) applies, plus the
+    /// three FFI parameters and the WB slider frame. The exact membership,
+    /// in chain order (this list is the contract #1927/#1928 build on):
+    ///
+    ///   1. white_balance:  `temperature`, `tint`
+    ///   2. scene_tone:     `exposure`, `brightness`, `contrast`,
+    ///                      `highlights`, `shadows`, `whites`, `blacks`
+    ///   3. tone_curves:    `parametricHighlights`, `parametricLights`,
+    ///                      `parametricDarks`, `parametricShadows`
+    ///   4. presence:       `vibrance`, `saturation`
+    ///   5. hsl (24 bands): `hueAdjustment{Red…Magenta}`,
+    ///                      `saturationAdjustment{Red…Magenta}`,
+    ///                      `luminanceAdjustment{Red…Magenta}`
+    ///   6. local contrast: `clarity`, `texture`, `dehaze`
+    ///   7. vignette:       `vignetteAmount`, `vignetteFeather`
+    ///   8. noise:          `nrLuminance`
+    ///   9. split_tone:     `splitToneShadowHue`, `splitToneShadowSaturation`,
+    ///                      `splitToneHighlightHue`,
+    ///                      `splitToneHighlightSaturation`, `splitToneBalance`
+    ///  10. grain:          `grainAmount`, `grainSize`, `grainRoughness`
+    ///  11. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
+    ///  12. AgX flags:      `highlightRecovery`, `look`, `profile`
+    ///  13. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`
+    ///
+    /// Every scalar above is a `Double` folded in via `bitPattern`; the
+    /// enums (`highlightRecovery` / `look` / `profile`) and the `Bool`
+    /// (`skipAgX`) fold in via their `Hashable` conformance. The order is
+    /// fixed — `Hasher` is order-sensitive, so a reorder is a key change.
+    ///
+    /// Deliberately EXCLUDED — the post-FFI Metal sliders: `sharpenAmount`
+    /// / `sharpenRadius` / `sharpenDetail` / `sharpenMasking`, `nrColor`,
+    /// and `captureSharpeningAmount` / `captureSharpeningSigma`. Dragging one
+    /// of those hits the cache and re-runs only the Metal kernels — that's
+    /// the whole point. Fields the Swift `AdjustmentModel` does not mirror
+    /// (`local_adjustments`, the per-channel point `tone_curve*` arrays) are
+    /// absent here because they can never reach the Apple FFI decode; when
+    /// they land on Swift they must be added to this digest.
     ///
     /// `Float.bitPattern` is used so -0.0 / +0.0 hash to the same digest
     /// (they're equal under `==` and we want cache equality to follow
@@ -153,25 +190,83 @@ final class SceneLinearChainCache: @unchecked Sendable {
     ) -> Key {
         var h = Hasher()
 
-        // 21 scene-linear fields — spec list from #661 decision comment.
+        // Every scene-linear develop field the FFI chain
+        // (`apply_scene_linear_chain`) applies, in chain order. The chain
+        // and the decode share this stage list; a field that reaches the
+        // chain reaches the FFI output, so it MUST be here. The only develop
+        // knobs deliberately EXCLUDED are the post-FFI Metal ones — sharpen*
+        // / nrColor / captureSharpening* — which is the whole point of the
+        // cache. See `make(...)`'s doc for the exhaustive membership list.
+
+        // white_balance (delta) — temperature/tint plus the decoded
+        // baseline + wbFrame threaded through the FFI params below.
         h.combine(model.temperature.bitPattern)
         h.combine(model.tint.bitPattern)
+        // scene_tone_controls — exposure, brightness (#1102), contrast, and
+        // the four tone regions.
         h.combine(model.exposure.bitPattern)
+        h.combine(model.brightness.bitPattern)
         h.combine(model.contrast.bitPattern)
         h.combine(model.highlights.bitPattern)
         h.combine(model.shadows.bitPattern)
         h.combine(model.whites.bitPattern)
         h.combine(model.blacks.bitPattern)
+        // tone_curves — parametric four-region curve (#273).
         h.combine(model.parametricHighlights.bitPattern)
         h.combine(model.parametricLights.bitPattern)
         h.combine(model.parametricDarks.bitPattern)
         h.combine(model.parametricShadows.bitPattern)
+        // vibrance / saturation.
         h.combine(model.vibrance.bitPattern)
         h.combine(model.saturation.bitPattern)
+        // hsl — the 8-band hue/sat/lum grid (#1112), chain order = after
+        // saturation, before clarity.
+        h.combine(model.hueAdjustmentRed.bitPattern)
+        h.combine(model.hueAdjustmentOrange.bitPattern)
+        h.combine(model.hueAdjustmentYellow.bitPattern)
+        h.combine(model.hueAdjustmentGreen.bitPattern)
+        h.combine(model.hueAdjustmentAqua.bitPattern)
+        h.combine(model.hueAdjustmentBlue.bitPattern)
+        h.combine(model.hueAdjustmentPurple.bitPattern)
+        h.combine(model.hueAdjustmentMagenta.bitPattern)
+        h.combine(model.saturationAdjustmentRed.bitPattern)
+        h.combine(model.saturationAdjustmentOrange.bitPattern)
+        h.combine(model.saturationAdjustmentYellow.bitPattern)
+        h.combine(model.saturationAdjustmentGreen.bitPattern)
+        h.combine(model.saturationAdjustmentAqua.bitPattern)
+        h.combine(model.saturationAdjustmentBlue.bitPattern)
+        h.combine(model.saturationAdjustmentPurple.bitPattern)
+        h.combine(model.saturationAdjustmentMagenta.bitPattern)
+        h.combine(model.luminanceAdjustmentRed.bitPattern)
+        h.combine(model.luminanceAdjustmentOrange.bitPattern)
+        h.combine(model.luminanceAdjustmentYellow.bitPattern)
+        h.combine(model.luminanceAdjustmentGreen.bitPattern)
+        h.combine(model.luminanceAdjustmentAqua.bitPattern)
+        h.combine(model.luminanceAdjustmentBlue.bitPattern)
+        h.combine(model.luminanceAdjustmentPurple.bitPattern)
+        h.combine(model.luminanceAdjustmentMagenta.bitPattern)
+        // clarity / texture / dehaze.
         h.combine(model.clarity.bitPattern)
         h.combine(model.texture.bitPattern)
         h.combine(model.dehaze.bitPattern)
+        // vignette (#1109) — scene-linear radial gain, chain order = after
+        // dehaze/local-adjustments, before nr_luminance.
+        h.combine(model.vignetteAmount.bitPattern)
+        h.combine(model.vignetteFeather.bitPattern)
+        // nr_luminance (nr_color stays Metal-side, excluded above).
         h.combine(model.nrLuminance.bitPattern)
+        // Post-AgX display-domain stages — split_tone (#1111) then grain
+        // (#1110). Applied only when `skipAgX` is false; hashing them
+        // unconditionally is over-inclusive (safe) and keeps the key correct
+        // on the RAW path where they DO shape the output.
+        h.combine(model.splitToneShadowHue.bitPattern)
+        h.combine(model.splitToneShadowSaturation.bitPattern)
+        h.combine(model.splitToneHighlightHue.bitPattern)
+        h.combine(model.splitToneHighlightSaturation.bitPattern)
+        h.combine(model.splitToneBalance.bitPattern)
+        h.combine(model.grainAmount.bitPattern)
+        h.combine(model.grainSize.bitPattern)
+        h.combine(model.grainRoughness.bitPattern)
 
         // FFI parameters threaded through `applySceneLinearChainViaFFI`.
         h.combine(decodedTemperature.bitPattern)
