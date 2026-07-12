@@ -160,7 +160,7 @@ public actor RenderedPreviewCache {
     // developed from the old bytes under an identical key. `DecodedBufferCache`
     // (the pre-adjustment sibling) already keys on the primary mtime; this
     // brings the post-adjustment cache to parity.
-    // The key is `"{urlHash}_{md5(variant)}"` — the per-asset `urlHash` is
+    // The key is `"{urlHash}_{sha256Prefix(variant)}"` — the per-asset `urlHash` is
     // kept as a literal prefix (not folded into the outer hash) so
     // `invalidate(assetURL:)` can find every screen-width variant of an asset
     // by prefix. Hashing the whole tuple into one opaque digest, as this did
@@ -170,7 +170,7 @@ public actor RenderedPreviewCache {
     private func cacheKey(for url: URL, screenWidth: Int) -> String {
         let primaryMtime = mtimeString(forPath: url.path)
         let sidecarMtime = mtimeString(forPath: SidecarPath.sidecarURL(for: url).path)
-        let variant = md5("\(primaryMtime)_\(sidecarMtime)_\(screenWidth)_v\(viewTransformVersion)")
+        let variant = sha256Prefix("\(primaryMtime)_\(sidecarMtime)_\(screenWidth)_v\(viewTransformVersion)")
         return "\(urlHash(url.path))_\(variant)"
     }
 
@@ -182,7 +182,7 @@ public actor RenderedPreviewCache {
         return String(Int64(mtime.timeIntervalSince1970 * 1000))
     }
 
-    private func urlHash(_ path: String) -> String { md5(path).prefix(16).description }
+    private func urlHash(_ path: String) -> String { sha256Prefix(path).prefix(16).description }
 
     // MARK: - Eviction
 
@@ -197,7 +197,9 @@ public actor RenderedPreviewCache {
 
     // MARK: - Hash (SHA256 prefix for key stability)
 
-    private func md5(_ string: String) -> String {
+    /// The first 16 bytes of the string's SHA256, as 32 lowercase hex chars.
+    /// (`urlHash` further truncates the result to 16 hex chars.)
+    private func sha256Prefix(_ string: String) -> String {
         let digest = SHA256.hash(data: Data(string.utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
