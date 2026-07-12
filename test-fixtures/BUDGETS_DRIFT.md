@@ -351,17 +351,20 @@ together.
 
 ## post-#441 dithering
 
-`src/raw-pipeline/raw-core/src/view/encode.rs::quantize_u8` now adds an
-8×8 Bayer-matrix `[-0.5, +0.5)` LSB positional offset to every channel
-before the round-to-u8 step (eliminates 8-bit banding on smooth
-gradients per ticket #441). The Web AgX shader does the same
-inline before the canvas write.
+`src/raw-pipeline/raw-core/src/view/encode.rs::dither_and_quantize` now
+adds a `[-0.5, +0.5)` LSB positional offset to every channel before the
+round-to-u8 step (eliminates 8-bit banding on smooth gradients per ticket
+#441). The offset is sampled from a 64×64 blue-noise mask
+(`view/dither.rs::blue_noise_offset_lsb`, void-and-cluster generated) that
+tiles across the image. The Web AgX shader does the same inline before the
+canvas write.
 
-**Expected ΔE drift on `test_color_pipeline.sh`:** negligible. The
-offset has tile-mean exactly zero (every pair of cells `v` and `63-v`
-contributes equal-and-opposite offsets), so over any patch of ≥8×8
-pixels the dithered mean equals the un-dithered mean to floating-point
-noise. The maximum per-pixel ΔE perturbation is bounded by 1 LSB of u8
+**Expected ΔE drift on `test_color_pipeline.sh`:** negligible. The mask
+holds each value `0..=4095` exactly once and maps them via
+`(v + 0.5) / 4096 - 0.5`, so its tile-mean offset is exactly zero (no DC
+bias) and over any patch spanning the 64×64 tile the dithered mean equals
+the un-dithered mean to floating-point noise. The maximum per-pixel ΔE
+perturbation is bounded by 1 LSB of u8
 in display-encoded sRGB, which after sRGB-decode and conversion to Lab
 is well under 1 ΔE everywhere on the 0..255 axis. The harness rounds
 ΔE to 3 decimals and per-fixture budgets carry several units of
