@@ -63,6 +63,13 @@ export const STAGE_META: Record<string, StageMeta> = {
     enrichment: null,
     description: 'Builds 1280-px preview cache used by the editor and enrichment LLM.',
   },
+  'display-preview': {
+    id: 'display-preview',
+    group: 'Ingest',
+    icon: 'image',
+    enrichment: null,
+    description: 'Renders the developed 1280-px preview for edited assets (sidecar applied).',
+  },
   describe: {
     id: 'describe',
     group: 'Enrich',

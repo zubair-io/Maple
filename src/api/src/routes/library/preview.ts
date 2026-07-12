@@ -70,8 +70,50 @@ export const previewRoutes = new Elysia().get(
       return { status: 'indexing', message: 'Image not yet indexed; retry shortly' };
     }
 
-    const etag = `"${asset.maple_id}_${PREVIEW_SIZE}"`;
     const ifNoneMatch = headers['if-none-match'];
+    const libs = await loadLibraryRoots();
+
+    // Developed preview for edited assets (#1950): when the `display-preview`
+    // stage has rendered `<maple_id>_dev_<sidecar_ver>.jpg`, serve that — it
+    // reflects the sidecar's edits, unlike the embedded 1280 preview below.
+    // We never synchronously develop in the request path (a full develop is
+    // seconds-to-minutes); the background stage populates it, and the embedded
+    // preview covers the gap until it lands. ETag folds in `sidecar_ver` so a
+    // new edit busts client caches.
+    if (asset.has_xmp) {
+      const sidecarVer = (asset.sidecar_ver as number | undefined) ?? 0;
+      const devPath = cachePathForAsset(
+        { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
+        libs,
+        'previews',
+        `dev_${sidecarVer}`,
+      );
+      if (devPath) {
+        const devEtag = `"${asset.maple_id}_dev_${sidecarVer}"`;
+        if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, devEtag)) {
+          return new Response(null, {
+            status: 304,
+            headers: { ETag: devEtag, 'Cache-Control': IMMUTABLE_CACHE },
+          });
+        }
+        const devSt = await safeStat(devPath);
+        if (devSt) {
+          const devBytes = await safeReadBytes(devPath);
+          if (devBytes) {
+            return new Response(devBytes as unknown as BodyInit, {
+              status: 200,
+              headers: {
+                'Content-Type': 'image/jpeg',
+                ETag: devEtag,
+                'Cache-Control': IMMUTABLE_CACHE,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    const etag = `"${asset.maple_id}_${PREVIEW_SIZE}"`;
     if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
       return new Response(null, {
         status: 304,
@@ -79,7 +121,6 @@ export const previewRoutes = new Elysia().get(
       });
     }
 
-    const libs = await loadLibraryRoots();
     const previewPath = cachePathForAsset(
       { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
       libs,

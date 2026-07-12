@@ -13,6 +13,7 @@
 import exifStage from './exif.ts';
 import thumbStage from './thumb.ts';
 import previewStage from './preview.ts';
+import displayPreviewStage from './display-preview.ts';
 import faceDetectStage from './face-detect.ts';
 import faceEmbedStage from './face-embed.ts';
 import describeStage from './describe.ts';
@@ -25,6 +26,7 @@ export const stageManifest = [
   exifStage,
   thumbStage,
   previewStage,
+  displayPreviewStage,
   faceDetectStage,
   faceEmbedStage,
   describeStage,
@@ -38,6 +40,7 @@ export const ALL_STAGE_NAMES = [
   'exif',
   'thumb',
   'preview',
+  'display-preview',
   'face-detect',
   'face-embed',
   'describe',
