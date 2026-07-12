@@ -54,6 +54,7 @@ import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan
 import { accountRoutes } from './routes/auth-account.ts';
 import { fsRoutes } from './routes/fs.ts';
 import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
+import { fsPreviewsRoutes } from './routes/fs-previews.ts';
 import { searchRoutes } from './routes/search.ts';
 import { jobsRoutes } from './routes/jobs.ts';
 import { importsRoutes } from './routes/imports.ts';
@@ -229,6 +230,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(batchMetadataRoutes)
         .use(fsRoutes)
         .use(fsThumbsRoutes)
+        .use(fsPreviewsRoutes)
         .use(searchRoutes)
         .use(jobsRoutes)
         .use(importsRoutes)
