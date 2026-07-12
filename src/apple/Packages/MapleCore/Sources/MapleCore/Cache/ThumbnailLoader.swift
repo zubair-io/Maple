@@ -110,7 +110,13 @@ public actor ThumbnailLoader {
         // 2. Coalesce duplicate requests. If a prior call for the same URL
         //    is still in-flight, await its Task instead of starting a new
         //    one. Eliminates the ~30% wasted CPU during grid scroll+layout
-        //    churn where the same cell requests a thumb twice.
+        //    churn where the same cell requests a thumb twice. The check +
+        //    task creation + map insert below run with NO intervening
+        //    `await`, so no second caller can interleave and start a
+        //    duplicate; the decode-slot wait happens INSIDE the task (an
+        //    `await acquireDecodeSlot()` here would suspend the actor
+        //    mid-registration and reopen the race — the Jules finding on
+        //    PR #1907's display-preview path, same fix).
         let coalescingKey = ThumbnailDiskCache.cacheKey(for: assetURL)
         if let existing = inFlight[coalescingKey] {
             return await existing.value
@@ -122,85 +128,94 @@ public actor ThumbnailLoader {
         //    span of the FFI call so the mmap inside `std::fs::read` sees
         //    an active scope.
         let scope = scopeParentURL ?? assetURL.deletingLastPathComponent()
-        // Gate concurrent thumbs so the browse grid doesn't fire N decodes
-        // in parallel when the user opens a big folder.
-        await acquireDecodeSlot()
         let task = Task.detached(priority: .utility) { () -> Data? in
-            let accessing = scope.startAccessingSecurityScopedResource()
-            defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-
-            // ASSET-RELATIVE .maple/thumbs — render-time derivatives written
-            // next to the asset (e.g. a pano in Panoramas/) are found even when
-            // the singleton cache is configured for a different (parent) folder.
-            // (#1365.) The disk-cache hit at step 1 short-circuits before this,
-            // so RAWs in their own folder never pay for it.
-            let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
-            if FileManager.default.fileExists(atPath: relThumb.path),
-                let data = try? Data(contentsOf: relThumb)
-            {
-                await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-                return data
-            }
-
-            // VIDEO PATH — extract a poster frame via AVFoundation (#1642).
-            // Checked AFTER the .maple/thumbs cache lookup above so a pre-written
-            // poster is served from disk without touching AVFoundation again.
-            // Short-circuits BEFORE CGImageSourceCreateThumbnailAtIndex so video
-            // container bytes are never fed to ImageIO or libraw.
-            if SidecarPath.isVideo(assetURL) {
-                guard let data = await Self.posterJPEG(at: assetURL) else {
-                    logger.warning("video poster extraction failed for \(assetURL.lastPathComponent, privacy: .public)")
-                    return nil
-                }
-                logger.debug("video poster extracted for \(assetURL.lastPathComponent, privacy: .public)")
-                await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-                return data
-            }
-
-            // STUB / AUDIO PATH — metadata-only formats with no decode path
-            // at all (eip/braw/afphoto/ai stub images, mp3/wav/m4a/aac audio;
-            // #1835). No thumbnail is generated — the grid shows filename/
-            // size/date with a generic stub badge instead. Short-circuits
-            // BEFORE the embedded-preview / Rust-develop paths below so these
-            // never reach ImageIO or libraw.
-            let ext = assetURL.pathExtension.lowercased()
-            if StubExtensions.all.contains(ext) || AudioExtensions.all.contains(ext) {
-                return nil
-            }
-
-            // FAST PATH — read the embedded JPEG preview via ImageIO.
-            // DNGs (and most camera RAWs) carry a ~1920 px preview; ImageIO
-            // extracts + resamples it at the target size in 5-50 ms per
-            // image vs 300-500 ms for a full Rust develop.
-            let t0 = Date()
-            if let data = Self.embeddedPreviewJPEG(at: assetURL) {
-                let ms = Int(Date().timeIntervalSince(t0) * 1000)
-                logger.debug("thumb fast-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
-                await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-                return data
-            }
-            logger.warning("thumb fast-path MISS for \(assetURL.lastPathComponent, privacy: .public) — falling through to Rust develop")
-
-            // SLOW PATH — RAW has no embedded preview (rare). Fall back to a
-            // full develop + downscale. Same cost as before.
-            do {
-                let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
-                guard let data = Self.encodeJPEG(image, ctx: CIContext()) else {
-                    logger.warning("JPEG encode failed for \(assetURL.lastPathComponent, privacy: .public)")
-                    return nil
-                }
-                await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-                return data
-            } catch {
-                logger.error("pipeline render failed for \(assetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                return nil
-            }
+            // Gate concurrent thumbs so the browse grid doesn't fire N
+            // decodes in parallel when the user opens a big folder.
+            await self.acquireDecodeSlot()
+            let result = await Self.produceThumbnail(assetURL: assetURL, scope: scope)
+            await self.releaseDecodeSlot()
+            return result
         }
         inFlight[coalescingKey] = task
         let result = await task.value
         inFlight.removeValue(forKey: coalescingKey)
-        await releaseDecodeSlot()
         return result
+    }
+
+    /// The produce path behind the URL-keyed `load`: asset-relative
+    /// `.maple/thumbs`, video poster, stub/audio bail, embedded-preview fast
+    /// path, Rust-develop slow path. Runs on a detached task under the
+    /// decode-slot gate, with the security scope claimed for its full span.
+    private nonisolated static func produceThumbnail(assetURL: URL, scope: URL) async -> Data? {
+        let accessing = scope.startAccessingSecurityScopedResource()
+        defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+
+        // ASSET-RELATIVE .maple/thumbs — render-time derivatives written
+        // next to the asset (e.g. a pano in Panoramas/) are found even when
+        // the singleton cache is configured for a different (parent) folder.
+        // (#1365.) The disk-cache hit at step 1 short-circuits before this,
+        // so RAWs in their own folder never pay for it.
+        let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
+        if FileManager.default.fileExists(atPath: relThumb.path),
+            let data = try? Data(contentsOf: relThumb)
+        {
+            await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+            return data
+        }
+
+        // VIDEO PATH — extract a poster frame via AVFoundation (#1642).
+        // Checked AFTER the .maple/thumbs cache lookup above so a pre-written
+        // poster is served from disk without touching AVFoundation again.
+        // Short-circuits BEFORE CGImageSourceCreateThumbnailAtIndex so video
+        // container bytes are never fed to ImageIO or libraw.
+        if SidecarPath.isVideo(assetURL) {
+            guard let data = await posterJPEG(at: assetURL) else {
+                logger.warning("video poster extraction failed for \(assetURL.lastPathComponent, privacy: .public)")
+                return nil
+            }
+            logger.debug("video poster extracted for \(assetURL.lastPathComponent, privacy: .public)")
+            await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+            return data
+        }
+
+        // STUB / AUDIO PATH — metadata-only formats with no decode path
+        // at all (eip/braw/afphoto/ai stub images, mp3/wav/m4a/aac audio;
+        // #1835). No thumbnail is generated — the grid shows filename/
+        // size/date with a generic stub badge instead. Short-circuits
+        // BEFORE the embedded-preview / Rust-develop paths below so these
+        // never reach ImageIO or libraw.
+        let ext = assetURL.pathExtension.lowercased()
+        if StubExtensions.all.contains(ext) || AudioExtensions.all.contains(ext) {
+            return nil
+        }
+
+        // FAST PATH — read the embedded JPEG preview via ImageIO.
+        // DNGs (and most camera RAWs) carry a ~1920 px preview; ImageIO
+        // extracts + resamples it at the target size in 5-50 ms per
+        // image vs 300-500 ms for a full Rust develop.
+        let t0 = Date()
+        if let data = embeddedPreviewJPEG(at: assetURL) {
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            logger.debug("thumb fast-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
+            await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+            return data
+        }
+        logger.warning("thumb fast-path MISS for \(assetURL.lastPathComponent, privacy: .public) — falling through to Rust develop")
+
+        // SLOW PATH — RAW has no embedded preview (rare). Fall back to a
+        // full develop + downscale. Same cost as before.
+        do {
+            let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
+            guard let data = encodeJPEG(image, ctx: CIContext()) else {
+                logger.warning("JPEG encode failed for \(assetURL.lastPathComponent, privacy: .public)")
+                return nil
+            }
+            await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+            return data
+        } catch {
+            logger.error("pipeline render failed for \(assetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// Cancel every in-flight thumbnail load. Called by `AppShell` on folder
@@ -294,36 +309,61 @@ public actor ThumbnailLoader {
             return cached
         }
 
-        // 2. Source-provided thumbnail (server-rendered / PhotoKit fast path).
-        if let source, let stableID = asset.stableID {
-            // Reconstruct an ImageRef the source can dispatch on. We only
-            // need id+displayName; URL is unused for sourceless adapters.
-            let ref = ImageRef(id: stableID, displayName: asset.displayName)
-            if let bytes = (try? await source.thumb(for: ref)) ?? nil {
-                await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
-                return bytes
-            }
+        // 2. Coalesce duplicate requests, same no-await-between-check-and-
+        //    insert contract as the URL-keyed overload above (this path
+        //    previously had no coalescing at all: two cells requesting the
+        //    same PhotoKit/SelfHosted asset each ran their own fetch +
+        //    render). Namespaced so a stable id can never collide with the
+        //    URL overload's basename-hash keys.
+        let coalescingKey = "sourceless:" + key
+        if let existing = inFlight[coalescingKey] {
+            return await existing.value
         }
 
-        // 3. Fallback: pull RAW bytes through the asset's provider, render
-        //    via the Rust pipeline, encode JPEG, persist.
-        guard let provider = asset.bytesProvider else { return nil }
+        let stableID = asset.stableID
+        let displayName = asset.displayName
+        let provider = asset.bytesProvider
         let hint = asset.hintExtension ?? ""
-        await acquireDecodeSlot()
-        defer { Task { await releaseDecodeSlot() } }
-        return await Task.detached(priority: .utility) { () -> Data? in
-            do {
-                let bytes = try await provider()
-                let image = try PipelineRenderer.render(rawBytes: bytes, hint: hint, quality: .preview)
-                guard let data = Self.encodeJPEG(image, ctx: CIContext()) else {
+        let task = Task.detached(priority: .utility) { () -> Data? in
+            // Source-provided thumbnail (server-rendered / PhotoKit fast
+            // path). Network-bound, so not decode-slot gated. Reconstruct an
+            // ImageRef the source can dispatch on — only id+displayName are
+            // needed; URL is unused for sourceless adapters.
+            if let source, let stableID {
+                let ref = ImageRef(id: stableID, displayName: displayName)
+                if let bytes = (try? await source.thumb(for: ref)) ?? nil {
+                    await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
+                    return bytes
+                }
+            }
+
+            // Fallback: pull RAW bytes through the asset's provider, render
+            // via the Rust pipeline, encode JPEG, persist — under the
+            // decode-slot gate (acquired INSIDE the task; see the URL-keyed
+            // overload for why).
+            guard let provider else { return nil }
+            await self.acquireDecodeSlot()
+            let result: Data? = await {
+                do {
+                    let bytes = try await provider()
+                    let image = try PipelineRenderer.render(
+                        rawBytes: bytes, hint: hint, quality: .preview)
+                    guard let data = Self.encodeJPEG(image, ctx: CIContext()) else {
+                        return nil
+                    }
+                    await ThumbnailDiskCache.shared.storeThumbnailData(data, forKey: key)
+                    return data
+                } catch {
                     return nil
                 }
-                await ThumbnailDiskCache.shared.storeThumbnailData(data, forKey: key)
-                return data
-            } catch {
-                return nil
-            }
-        }.value
+            }()
+            await self.releaseDecodeSlot()
+            return result
+        }
+        inFlight[coalescingKey] = task
+        let result = await task.value
+        inFlight.removeValue(forKey: coalescingKey)
+        return result
     }
 
     // MARK: - Helpers
