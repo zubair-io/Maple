@@ -485,4 +485,3 @@ fn gpu_live_vs_develop_refine_seam_test_0002() {
         "frame path ({mean_a:.3}) must beat the generic path ({mean_b:.3})"
     );
 }
-

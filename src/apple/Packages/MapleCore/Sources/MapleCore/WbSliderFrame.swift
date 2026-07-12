@@ -39,7 +39,7 @@ public struct WbSliderFrame: Sendable, Equatable {
     /// The frame's as-shot tint (in-frame estimate; may sit at the ±100
     /// rail for bodies whose as-shot chromaticity is far off the locus).
     public let asShotTint: Float
-    /// The RENDER PROFILE's camera→XYZ CM (row-major 9 floats) — the
+    /// The RENDER PROFILE's CM (row-major 9 floats, XYZ→camera — the
     /// conjugation basis the GPU-live WB delta is built in (#1904 seam
     /// fix). Empty ⇒ absent; the Rust side then falls back to the value
     /// frame (pre-fix behaviour), so an un-populated frame stays sound.
