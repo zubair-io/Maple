@@ -7,25 +7,34 @@
 // chain doesn't double-apply them) lives here.
 //
 // Architecture: `apply_scene_linear_chain` (Apple's hot path on every
-// slider tick) applies the FULL model — `white_balance` (delta),
-// `scene_tone_controls` (exposure + brightness + tone regions),
-// `tone_curves` (parametric), `vibrance`, `saturation`, `hsl` (8-band
-// hue/sat/lum), `clarity`, `texture`, `dehaze`, `local_adjustments`,
-// `vignette`, `nr_luminance`, then post-AgX `split_tone` + `grain`. Every
-// one of those scene-linear stages is ALSO baked by the FFI decode
-// (`develop_scene_linear_*`, which mirrors the same stage order up to but
-// not including AgX). If the decode bakes a chain-handled field with the
-// live sidecar value, that stage runs twice and the slider doubles —
+// slider tick) re-applies every scene-linear stage that the Apple side can
+// forward — `white_balance` (delta), `scene_tone_controls` (exposure +
+// brightness + tone regions), `tone_curves` (parametric), `vibrance`,
+// `saturation`, `hsl` (8-band hue/sat/lum), `clarity`, `texture`,
+// `dehaze`, `vignette`, `nr_luminance`, then post-AgX `split_tone` +
+// `grain`. Each of those scene-linear stages is ALSO baked by the FFI
+// decode (`develop_scene_linear_*`, which mirrors the same stage order up
+// to but not including AgX). If the decode bakes a chain-handled field with
+// the live sidecar value, that stage runs twice and the slider doubles —
 // exposure +3.68 EV becomes +7.36 EV, AgX's highlight rolloff produces
-// non-linear chroma distortion, and the result on real images is a
-// visible magenta cast. So the strip must zero EVERY scene-linear field
-// the decode bakes; the list below is the full current set (#1916 closed
-// the gap where brightness / parametric / HSL / vignette had grown into
-// the chain via #1102/#273/#1112/#1109 without the strip following).
+// non-linear chroma distortion, and the result on real images is a visible
+// magenta cast. So the strip must zero EVERY scene-linear field the decode
+// bakes; the list below is the full current set (#1916 closed the gap where
+// brightness / parametric / HSL / vignette had grown into the chain via
+// #1102/#273/#1112/#1109 without the strip following).
 //
-// `split_tone` (#1111) and `grain` (#1110) are the exception: they run
-// only POST-AgX, and the Apple decode stops at scene-linear (pre-AgX), so
-// the decode never bakes them and there is nothing to double-apply. They
+// Two Rust-chain scene-linear stages are deliberately absent from that
+// list: `local_adjustments` (#280) and the per-channel point `tone_curve*`
+// arrays (#273 follow-up). The Swift `AdjustmentModel` does not mirror
+// either — `PipelineRenderer.makeParams` cannot forward a field the model
+// can't hold — so on the Apple path they are always empty/identity in both
+// the decode and the chain. There is nothing to strip and no double-apply.
+// When they land on the Swift model they must be added to the strip (and to
+// the `SceneLinearChainCache` key).
+//
+// `split_tone` (#1111) and `grain` (#1110) are a different exception: they
+// run only POST-AgX, and the Apple decode stops at scene-linear (pre-AgX),
+// so the decode never bakes them and there is nothing to double-apply. They
 // are neither stripped nor kept here — they simply never reach the decode.
 // (They DO influence the chain output, so they still belong in the
 // `SceneLinearChainCache` key — see `SceneLinearChainCache.make`.)
