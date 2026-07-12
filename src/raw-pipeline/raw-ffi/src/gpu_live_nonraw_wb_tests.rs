@@ -147,6 +147,7 @@ fn cpu_params_nonraw() -> MapleAdjustmentParams {
         wb_frame_cct_warm: 0.0,
         wb_frame_scene_cct: 0.0,
         wb_frame_as_shot_tint: 0.0,
+        wb_frame_render_cm: [0.0; 9],
     }
 }
 

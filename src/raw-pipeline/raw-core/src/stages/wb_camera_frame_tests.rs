@@ -54,6 +54,7 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
             scene_cct,
         ),
         scene_cct,
+        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     };
 
     // Frame pinned to the cold endpoint CM with no endpoints: at a 2000 K
@@ -63,6 +64,7 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
         endpoints: None,
         cm_as_shot: m_cold,
         scene_cct,
+        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     };
     let g_dual = camera_wb_gain(&dual, as_shot_neutral, 2000.0, 0.0);
     let g_cold = camera_wb_gain(&cold_pinned, as_shot_neutral, 2000.0, 0.0);
@@ -77,6 +79,7 @@ fn dual_illuminant_gain_uses_target_cct_interpolated_cm() {
         endpoints: None,
         cm_as_shot: dual.cm_as_shot,
         scene_cct,
+        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     };
     let g_fixed = camera_wb_gain(&fixed, as_shot_neutral, 2000.0, 0.0);
     assert!(
@@ -138,6 +141,7 @@ fn retargeted_render_profile_is_identity_at_frame_as_shot() {
         endpoints: None,
         cm_as_shot: m_warm,
         scene_cct: 4800.0,
+        render_cm: m_warm,
     };
 
     // As-shot target (frame's own scene_cct, tint 0): bit-identical

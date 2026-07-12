@@ -190,6 +190,10 @@ pub struct MapleSceneLinearBufferF32 {
     /// The frame's as-shot tint (in-frame estimate; may sit at the ±100 rail
     /// for bodies whose as-shot chromaticity is far off the Planckian locus).
     pub wb_frame_as_shot_tint: f32,
+    /// The RENDER PROFILE's camera→XYZ CM (row-major 3×3) — the
+    /// conjugation basis the post-DCP WB delta is built in (#1904
+    /// GPU-live seam fix). Zero ⇒ host predates the fix.
+    pub wb_frame_render_cm: [f32; 9],
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -210,6 +214,7 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_cct_warm: 0.0,
             wb_frame_scene_cct: 0.0,
             wb_frame_as_shot_tint: 0.0,
+            wb_frame_render_cm: [0.0; 9],
         }
     }
 }

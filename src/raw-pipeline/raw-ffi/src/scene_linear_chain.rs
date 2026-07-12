@@ -176,6 +176,10 @@ pub struct MapleAdjustmentParams {
     pub wb_frame_scene_cct: f32,
     /// The frame's as-shot tint (in-frame estimate).
     pub wb_frame_as_shot_tint: f32,
+    /// The RENDER PROFILE's camera→XYZ CM (row-major 3×3) — the
+    /// conjugation basis the post-DCP WB delta is built in (#1904
+    /// GPU-live seam fix). Zero ⇒ host predates the fix.
+    pub wb_frame_render_cm: [f32; 9],
 }
 
 /// Rebuild the raw-core [`raw_core::stages::wb_camera::SliderFrameExport`]
@@ -184,6 +188,7 @@ pub struct MapleAdjustmentParams {
 /// maps to `SliderFrameExport::ABSENT`, whose `is_present()` is false —
 /// consumers then keep the legacy generic-CAT16 path, and no unchecked
 /// host floats leak into the export.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn wb_frame_from_flat(
     m_cold: &[f32; 9],
     cct_cold: f32,
@@ -191,6 +196,7 @@ pub(crate) fn wb_frame_from_flat(
     cct_warm: f32,
     scene_cct: f32,
     as_shot_tint: f32,
+    render_cm: &[f32; 9],
 ) -> raw_core::stages::wb_camera::SliderFrameExport {
     if !(scene_cct.is_finite() && scene_cct > 0.0) {
         return raw_core::stages::wb_camera::SliderFrameExport::ABSENT;
@@ -205,6 +211,7 @@ pub(crate) fn wb_frame_from_flat(
         cct_warm,
         scene_cct,
         as_shot_tint,
+        render_cm: mat(render_cm),
     }
 }
 
@@ -405,6 +412,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
             0.0
         },
         p.wb_frame_as_shot_tint,
+        &p.wb_frame_render_cm,
     );
 
     let opts = raw_core::pipeline::ChainOptions {

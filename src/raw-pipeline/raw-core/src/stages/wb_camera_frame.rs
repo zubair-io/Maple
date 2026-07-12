@@ -70,6 +70,16 @@ pub struct SliderFrame {
     /// As-shot CCT in THIS frame — the temperature at which the slider is
     /// an identity for this image.
     pub scene_cct: f32,
+    /// The RENDER PROFILE's camera→XYZ calibration (`profile.color_matrix`)
+    /// — the basis the developed buffer actually lives in. Distinct from
+    /// `cm_as_shot` (the VALUE frame, ACR's slider scale) for embedded-CM
+    /// bodies whose value frame differs from the bundle render profile
+    /// (#1894). The GPU-live post-DCP delta conjugates the camera-space
+    /// gain through THIS, not the value frame — the physical as-shot white
+    /// it Bradford-adapts from is frame-independent, so only the CM (the
+    /// buffer's actual transform) must match the render profile (#1904
+    /// GPU-live seam fix).
+    pub(super) render_cm: Matrix3,
 }
 
 impl SliderFrame {
@@ -100,6 +110,8 @@ impl SliderFrame {
             entries.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
             entries
         };
+        // Render profile's conjugation basis — same for every branch. #1904.
+        let render_cm = profile.color_matrix;
         match entries.as_slice() {
             // Dual embedded calibration with distinct illuminants: the DNG
             // spec frame — reciprocal-CCT interpolation between the pair,
@@ -120,6 +132,7 @@ impl SliderFrame {
                         *m_cold, *cct_cold, *m_warm, *cct_warm, scene_cct,
                     ),
                     scene_cct,
+                    render_cm,
                 }
             }
             // Single embedded non-identity CM (#1894): its own frame, no
@@ -137,6 +150,7 @@ impl SliderFrame {
                     endpoints: None,
                     cm_as_shot: *m_single,
                     scene_cct,
+                    render_cm,
                 }
             }
             // No usable embedded calibration at all: the render profile IS
@@ -149,6 +163,7 @@ impl SliderFrame {
                     .map(|e| (e.m_cold, e.cct_cold, e.m_warm, e.cct_warm)),
                 cm_as_shot: profile.color_matrix,
                 scene_cct: profile.scene_cct,
+                render_cm,
             },
         }
     }
