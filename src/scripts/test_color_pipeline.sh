@@ -610,14 +610,220 @@ print(json.dumps(summary))
 sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY_AUTO
 
-# Aggregate exit: fail if either diff pass had breaches, errors, or zero
+# ----- 4. Detail pass: sharpen_*/nr_* cases at FULL resolution (#1936) ------
+# The 180 sharpen_*/nr_* cases in the manifest only ship a `full`-resolution
+# ACR reference — sharpening and noise-reduction are high-frequency effects
+# that are invisible at the `down` resolution the other slider cases use, so
+# ACR renders them at native res. The neutral/auto passes above use
+# PREFERRED_RES=down (strict, no `full` fallback — a full diff is ~10s vs ~50ms),
+# so every sharpen/nr case there hits `skipped_no_reference` and NONE of the two
+# always-on-by-default stages (sharpen_amount=40, nr_color=25) had any ACR-parity
+# coverage. This pass closes that gap: it reuses the neutral candidates already
+# rendered in pass 1 (maple-cli batch renders at native res, so the sharpen/nr
+# candidates are full-res already) and diffs them against the `full` references,
+# gated by the <fixture>/<case> budget keys in budgets.json (e.g.
+# test_0000/sharpen_amount_max). Scoped to sharpen/nr labels so the expensive
+# full-res diffs run only where a down reference genuinely doesn't exist.
+echo ""
+echo "test_color_pipeline: diffing sharpen/NR candidates vs ACR (full-res, #1936) ..."
+detail_exit=0
+python3 - "$MANIFEST" "$CANDIDATES_DIR" "$COMPARE_PY" "full" "$FILTER" "$BUDGETS" "$ALLOW_MISSING_BUDGET" "$ZONES" "$HUE_BINS" "" <<'PY_DETAIL' || detail_exit=$?
+import json
+import os
+import sys
+from collections import defaultdict
+from typing import Optional
+
+import numpy as np
+from PIL import Image
+import colour
+Image.MAX_IMAGE_PIXELS = None
+
+manifest_path, cand_dir, compare_py, preferred_res, name_filter, budgets_path, allow_missing, zones_flag, hue_bins_s, case_label_suffix = sys.argv[1:11]
+allow_missing = allow_missing not in ("", "0", "false", "False")
+zones_on = zones_flag not in ("", "0", "false", "False")
+hue_bins = int(hue_bins_s) if zones_on else 0
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(compare_py)))
+import compare_images
+
+with open(manifest_path) as f:
+    manifest = json.load(f)
+
+with open(budgets_path) as f:
+    budgets = json.load(f).get("fixtures", {})
+
+def budget_for(fixture: str, case: str) -> Optional[dict]:
+    return budgets.get(fixture, {}).get(case)
+
+def is_detail_case(name: str) -> bool:
+    """sharpen_*/nr_* cases — the full-res-only stages this pass gates."""
+    label = name.split("/", 1)[1] if "/" in name else name
+    return label.startswith("sharpen") or label.startswith("nr_")
+
+cases = manifest.get("cases", [])
+if name_filter:
+    cases = [c for c in cases if name_filter in c["name"]]
+# This pass only covers sharpen/nr cases (the only full-res-only cases).
+cases = [c for c in cases if is_detail_case(c["name"])]
+
+print(f"{'verd':<4} {'fixture':<12} {'case':<22} {'n_pix':>9}  "
+      f"{'mean':>6} {'p95':>6} {'max':>6}  "
+      f"{'bR':>8} {'bG':>8} {'bB':>8}")
+print("-" * 100)
+
+def pick_reference(outputs):
+    # Full-res: sharpen/nr cases only HAVE a `full` output.
+    by_res = {o["resolution"]: o for o in outputs}
+    if preferred_res in by_res and os.path.exists(by_res[preferred_res]["png"]):
+        return by_res[preferred_res]
+    return None
+
+per_fixture: dict = defaultdict(list)
+all_rows = []
+skipped_no_ref = 0
+skipped_no_cand = 0
+skipped_no_raw = 0
+errors = 0
+
+for case in sorted(cases, key=lambda c: c["name"]):
+    name = case["name"]
+    fixture, case_label_base = (name.split("/", 1) + [""])[:2]
+    case_label = case_label_base + case_label_suffix
+
+    if not os.path.exists(case["raw"]):
+        skipped_no_raw += 1
+        continue
+
+    flat = name.replace("/", "_")
+    cand_path = os.path.join(cand_dir, f"{flat}.png")
+    if not os.path.exists(cand_path):
+        skipped_no_cand += 1
+        continue
+
+    ref = pick_reference(case.get("outputs", []))
+    if ref is None:
+        skipped_no_ref += 1
+        continue
+    ref_path = ref["png"]
+
+    try:
+        metrics = compare_images.diff(cand_path, ref_path,
+                                      zones=zones_on, hue_bins=hue_bins)
+    except Exception as e:
+        print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
+              file=sys.stderr)
+        errors += 1
+        continue
+
+    row = {
+        "fixture": fixture,
+        "case": case_label,
+        "n_pixels": metrics["n_pixels"],
+        "mean": metrics["mean_deltaE"],
+        "p95": metrics["p95_deltaE"],
+        "max": metrics["max_deltaE"],
+        "bR": metrics["bias_r"],
+        "bG": metrics["bias_g"],
+        "bB": metrics["bias_b"],
+    }
+    all_rows.append(row)
+    per_fixture[fixture].append(row)
+
+    bud = budget_for(fixture, case_label)
+    breach: list = []
+    if bud is None:
+        if not allow_missing:
+            breach.append("no-budget-entry")
+    else:
+        if row["mean"] > bud["mean"]:
+            breach.append(f"mean {row['mean']:.2f}>{bud['mean']:.2f}")
+        if row["p95"]  > bud["p95"]:
+            breach.append(f"p95 {row['p95']:.2f}>{bud['p95']:.2f}")
+        if row["max"]  > bud["max"]:
+            breach.append(f"max {row['max']:.2f}>{bud['max']:.2f}")
+        for n, v in (("R", row["bR"]), ("G", row["bG"]), ("B", row["bB"])):
+            if abs(v) > bud["bias"]:
+                breach.append(f"bias_{n} {v:+.4f}>{bud['bias']:.4f}")
+    row["breach"] = breach
+
+    n_pix_str = f"{row['n_pixels'] / 1e6:5.2f}M" if row["n_pixels"] >= 1e6 else f"{row['n_pixels']:>8}"
+    verdict = "FAIL" if breach else "PASS"
+    extra   = ("  " + ", ".join(breach)) if breach else ""
+    print(f"{verdict} {fixture:<12} {case_label:<22} {n_pix_str:>9}  "
+          f"{row['mean']:6.2f} {row['p95']:6.2f} {row['max']:6.2f}  "
+          f"{row['bR']:+8.4f} {row['bG']:+8.4f} {row['bB']:+8.4f}{extra}")
+
+print("-" * 100)
+for fixture in sorted(per_fixture.keys()):
+    rows = per_fixture[fixture]
+    if not rows:
+        continue
+    n = len(rows)
+    mean_de = sum(r["mean"] for r in rows) / n
+    mean_bR = sum(r["bR"] for r in rows) / n
+    mean_bG = sum(r["bG"] for r in rows) / n
+    mean_bB = sum(r["bB"] for r in rows) / n
+    print(f"     {fixture:<12} {'(' + str(n) + ' cases)':<22} {'-':>9}  "
+          f"{mean_de:6.2f} {'-':>6} {'-':>6}  "
+          f"{mean_bR:+8.4f} {mean_bG:+8.4f} {mean_bB:+8.4f}")
+
+breach_count = sum(1 for r in all_rows if r.get("breach"))
+if all_rows:
+    n = len(all_rows)
+    grand_mean = sum(r["mean"] for r in all_rows) / n
+    grand_bR = sum(r["bR"] for r in all_rows) / n
+    grand_bG = sum(r["bG"] for r in all_rows) / n
+    grand_bB = sum(r["bB"] for r in all_rows) / n
+    print("=" * 100)
+    print(f"     {'GRAND':<12} {'(' + str(n) + ' cases)':<22} {'-':>9}  "
+          f"{grand_mean:6.2f} {'-':>6} {'-':>6}  "
+          f"{grand_bR:+8.4f} {grand_bG:+8.4f} {grand_bB:+8.4f}")
+    print()
+
+print(f"# stats: {len(all_rows)} compared, {breach_count} budget breach(es), "
+      f"{skipped_no_raw} skipped(no-raw), {skipped_no_cand} skipped(no-candidate), "
+      f"{skipped_no_ref} skipped(no-reference), {errors} errors")
+
+# Fail closed on zero comparisons (#1082), with the same nuance as the auto
+# pass: this pass only covers sharpen/nr cases, so a case-level FILTER that
+# matches none of them (e.g. "dehaze_max") legitimately leaves zero cases in
+# scope — a vacuous pass, not a failure (the neutral pass gates the filtered
+# cases). But if sharpen/nr cases ARE in scope and none compared, the gate was
+# a silent no-op and must fail.
+fail_no_comparisons = bool(cases) and len(all_rows) == 0
+if fail_no_comparisons:
+    print(f"FAIL: 0 of {len(cases)} matching sharpen/nr cases were compared "
+          f"({skipped_no_raw} no-raw, {skipped_no_cand} no-candidate, "
+          f"{skipped_no_ref} no-reference). Manifest + budgets exist, so "
+          "zero comparisons means broken fixture provisioning, not a pass (#1082).")
+elif not cases:
+    print("# note: no sharpen/nr manifest cases match the filter — detail pass "
+          "is vacuous (case-level FILTER); the neutral pass above is the gate.")
+
+summary = {
+    "profile": "detail-fullres",
+    "compared": len(all_rows),
+    "breaches": breach_count,
+    "skipped_no_raw": skipped_no_raw,
+    "skipped_no_candidate": skipped_no_cand,
+    "skipped_no_reference": skipped_no_ref,
+    "errors": errors,
+    "grand_mean_deltaE": (sum(r["mean"] for r in all_rows) / len(all_rows)) if all_rows else None,
+}
+print(json.dumps(summary))
+
+sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
+PY_DETAIL
+
+# Aggregate exit: fail if any diff pass had breaches, errors, or zero
 # comparisons (fail-closed, #1082). Batch exit codes are surfaced above and
 # echoed here for the log tail; they don't independently fail the gate —
 # partially-renderable fixture sets (e.g. unsupported X3F cases) are expected,
 # and a batch that produced nothing trips the compared==0 gate instead.
 echo ""
-echo "test_color_pipeline: batch exits: neutral=$batch_neutral_exit auto=$batch_auto_exit; diff passes: neutral=$neutral_exit auto=$auto_exit"
-if [[ "$neutral_exit" -ne 0 ]] || [[ "$auto_exit" -ne 0 ]]; then
+echo "test_color_pipeline: batch exits: neutral=$batch_neutral_exit auto=$batch_auto_exit; diff passes: neutral=$neutral_exit auto=$auto_exit detail=$detail_exit"
+if [[ "$neutral_exit" -ne 0 ]] || [[ "$auto_exit" -ne 0 ]] || [[ "$detail_exit" -ne 0 ]]; then
   exit 1
 fi
 exit 0
