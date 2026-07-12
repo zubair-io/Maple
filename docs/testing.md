@@ -44,6 +44,26 @@ cargo test -p raw-core --lib            # ~840 lib tests (70 ignored, fixture-ga
 cargo test -p raw-core --features test-support   # lib + integration, fixture-free
 ```
 
+### Developed-preview parity gate (API develop path)
+
+`src/raw-pipeline/raw-ffi/tests/develop_preview_parity.rs` (#1964) CIEDE2000-
+diffs the **API FFI developed 1280px preview** (`maple_render_develop_jpeg_to_file`,
+the self-hosted `display-preview` stage's extern) against the **reference
+develop** — the same `render_from_raw_with_quality_and_source` (AMaZE) that
+`maple-cli batch` runs, downscaled with the identical `resize_long_edge`. Both
+platforms develop through the shared `raw-core`, so the only expected delta is
+the candidate's JPEG q82 round-trip; a wider delta means a develop-path wiring
+regression (wrong demosaic, orientation double-bake, resize filter, or a
+mis-applied XMP model) that the `maple-cli`-vs-ACR and Apple-Metal gates don't
+cover. Reuses the single diff implementation (`compare_images.py`); budgets are
+inline one-way-ratchet constants. Skip-passes when the RAW fixture or
+`python3`+numpy/PIL are absent.
+
+```bash
+cd src/raw-pipeline
+cargo test -p raw-ffi --test develop_preview_parity -- --nocapture
+```
+
 ### CI
 
 `.github/workflows/raw-pipeline.yml` runs the **`rust-tests`** job

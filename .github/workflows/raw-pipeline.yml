@@ -107,6 +107,15 @@ jobs:
       - name: cargo test -p raw-ffi --lib
         working-directory: src/raw-pipeline
         run: cargo test -p raw-ffi --lib
+      # Developed-preview parity gate (#1964): compiles + runs the CIEDE2000
+      # cross-check of the FFI develop extern vs the raw-core reference. On CI
+      # it skip-passes (no gitignored RAW fixtures, no python numpy/PIL), so
+      # the value here is compile-rot coverage — the fixture+python run happens
+      # locally / on a fixture-provisioned machine. Shares the compile cache
+      # with the steps above.
+      - name: cargo test -p raw-ffi --test develop_preview_parity
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-ffi --test develop_preview_parity
       # Scoped fmt gate (#1247): raw-ffi files are now rustfmt-canonical; this
       # step ensures they stay that way so future `cargo fmt` runs are no-ops
       # and don't bloat files or trip the file-budget gate again. NOT a
