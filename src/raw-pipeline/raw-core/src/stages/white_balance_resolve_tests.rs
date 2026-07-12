@@ -52,8 +52,11 @@ fn resolve_wb_versioned_authored_tint_converts_to_v4() {
     assert_eq!(resolve_wb(&model_at(V::V3)).1, 25.0 * TINT_SCALE_V3_TO_V4);
     // V2: inverted axis at the legacy scale → negate AND ×0.3.
     assert_eq!(resolve_wb(&model_at(V::V2)).1, -25.0 * TINT_SCALE_V3_TO_V4);
-    // V4: current scale → passthrough.
+    // V4/V5: kTintScale magnitude → passthrough on this tier (the
+    // fallback tier's legacy-locus map reads both identically; the
+    // camera-space tiers convert V4's locus difference separately).
     assert_eq!(resolve_wb(&model_at(V::V4)).1, 25.0);
+    assert_eq!(resolve_wb(&model_at(V::V5)).1, 25.0);
 }
 
 /// (true, false) — XMP temperature-only Custom WB: temperature passes

@@ -97,6 +97,23 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(model.tint).toBeCloseTo(11.08, 2);
   });
 
+  it('leaves a WB-less V2/V3/V4-stamped sidecar untouched — no manufactured WB (#1901 review)', () => {
+    // The conversion gates on the ATTRIBUTE-PRESENCE record
+    // (`canonicallyApplied`, the analogue of Swift's `sawExplicitWb` and
+    // raw-core's seen-flags), not on model-field definedness. A stamped
+    // sidecar authoring no crs:Temperature/crs:Tint must parse with both
+    // components still undefined — running the pair conversion on the
+    // defaults would manufacture a WB adjustment out of nothing (the two
+    // loci differ even at 6500/0) and bake it in on the next save.
+    for (const stamp of ['2', '3', '4']) {
+      const xml = mapleSidecar(`crs:Exposure2012="0.5" papp:WbScaleVersion="${stamp}"`);
+      const { model } = parser.parseAdjustmentModel(xml);
+      expect(model.temperature, `stamp ${stamp}`).toBeUndefined();
+      expect(model.tint, `stamp ${stamp}`).toBeUndefined();
+      expect(model.wbScaleVersion).toBe(5);
+    }
+  });
+
   it('converts a V2-authored pair jointly into V5 on load (#1875/#1893/#1894)', () => {
     // The V2 scale's tint axis was inverted vs ACR at the legacy 1e-4
     // magnitude, evaluated on the Hernández-Andrés locus. Both temperature

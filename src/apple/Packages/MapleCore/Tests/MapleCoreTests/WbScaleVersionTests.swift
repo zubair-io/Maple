@@ -125,23 +125,34 @@ final class WbScaleVersionTests: XCTestCase {
         XCTAssertEqual(m.tint, -42.379494, accuracy: 0.005)
     }
 
-    func testNormalizedFractionalTintSurvivesResaveExactly() throws {
-        // PR #1900 review: the writer serialized crs:Tint with %.0f. A
-        // V3-authored −144 normalizes to −43.2 at load; integer rounding
-        // would store −43 on re-save and drift the rendered look on every
-        // save cycle. The fractional value must round-trip exactly, and
-        // integer values must keep the historical no-decimal output.
+    func testNormalizedFractionalPairSurvivesResaveStably() throws {
+        // PR #1900 review: the writer serialized WB with %.0f. A
+        // V3-authored (5520, −144) normalizes to the fractional V5 pair
+        // (5526.068, −32.5806…); integer rounding would shift the stored
+        // WB on every re-save and drift the rendered look. The wire format
+        // carries 2 decimals, and a SECOND save generation must be
+        // byte-stable (parse → save → parse → save reaches a fixed point
+        // after the first 2-decimal quantization).
         let (m, c) = try XMPParser.parse(
             mapleSidecar(#"crs:Temperature="5520" crs:Tint="-144" papp:WbScaleVersion="3""#))
-        XCTAssertEqual(m.tint, -43.2, accuracy: 1e-9)
+        XCTAssertEqual(m.tint, -32.580647, accuracy: 0.005)
         let resaved = XMPSerializer.serialize(model: m, culling: c)
-        XCTAssertTrue(resaved.contains(#"crs:Tint="-43.2""#),
+        XCTAssertTrue(resaved.contains(#"crs:Tint="-32.58""#),
                       "fractional tint must serialize without integer rounding")
-        XCTAssertTrue(resaved.contains(#"crs:Temperature="5520""#),
-                      "integer temperature keeps the no-decimal wire format")
-        let (reparsed, _) = try XMPParser.parse(resaved)
-        XCTAssertEqual(reparsed.tint, -43.2, accuracy: 1e-9)
-        XCTAssertEqual(reparsed.wbScaleVersion, 4)
+        // The converted temperature is fractional (≈5526.09); assert the
+        // wire form is fmtWb of the model value rather than pinning the
+        // last digit of the conversion itself (its own value is pinned by
+        // testV3AuthoredPairConvertsJointlyIntoV5OnLoad).
+        XCTAssertTrue(resaved.contains("crs:Temperature=\"\(XMPSerializer.fmtWb(m.temperature))\""),
+                      "fractional temperature must serialize without integer rounding")
+        XCTAssertNotEqual(XMPSerializer.fmtWb(m.temperature), "5526",
+                          "the converted temperature must not integer-round")
+        let (reparsed, c2) = try XMPParser.parse(resaved)
+        XCTAssertEqual(reparsed.wbScaleVersion, 5)
+        XCTAssertEqual(reparsed.tint, -32.58, accuracy: 1e-9)
+        let secondGeneration = XMPSerializer.serialize(model: reparsed, culling: c2)
+        XCTAssertTrue(secondGeneration.contains(#"crs:Tint="-32.58""#),
+                      "the 2-decimal quantization must be a save fixed point, not a drift")
     }
 
     func testFractionalTemperatureBeyondSixSignificantDigitsSurvives() {
