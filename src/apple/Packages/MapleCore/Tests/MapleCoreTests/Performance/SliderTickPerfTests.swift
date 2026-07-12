@@ -56,17 +56,16 @@
 //
 //   The bench prints a one-line summary to stderr with mean / p50 / p95 /
 //   max in ms, plus the per-tick split between processSceneLinear and the
-//   destination render. The XCTAssert gates on mean < `regressionCeilingMs`
-//   (250 ms today after #661 — set ~2× the observed mean to ride out CI
-//   scheduling jitter without flaking; see the doc comment on the
-//   constant). The bench additionally emits an `[slider-tick-perf]
-//   OVER-BUDGET` line to stderr when mean exceeds `specHardLimitMs` (50
-//   ms) — that's a report, not a failure, because the per-tick FFI
-//   round-trip floor currently lives above the spec hard limit. Closing
-//   that gap to the CLAUDE.md product invariant (16 ms target / 50 ms
-//   hard) is product work tracked separately; when the floor drops,
-//   ratchet the ceiling down in the same commit (one-way ratchet, per
-//   the spec policy).
+//   destination render. The XCTAssert gates on mean < `interimHardLimitMs`
+//   (150 ms — the enforced ceiling, ratcheting toward the 50 ms spec hard
+//   limit; see the doc comment on the constant and #1938/#1959). The bench
+//   additionally emits an `[slider-tick-perf] OVER-BUDGET` line to stderr
+//   when mean exceeds `specHardLimitMs` (50 ms) — that stays a report, not
+//   a failure, because the per-tick FFI round-trip floor still lives above
+//   the spec hard limit; the interim ceiling is what fails a genuine
+//   regression today. Closing the floor-to-spec gap (16 ms target / 50 ms
+//   hard) and ratcheting the interim down toward 50 ms is tracked in #1959
+//   (one-way ratchet, per the spec policy).
 //
 // Cross-references:
 //   docs/spec/05-performance.md § Target budgets, § Detailed timing decomposition
@@ -87,31 +86,37 @@ final class SliderTickPerfTests: XCTestCase {
 
     // MARK: - Configuration
 
-    /// Regression-detection ceiling. Ratcheted 350 → 250 ms in #661
-    /// when the single-entry FFI cache landed: the exposure-drag bench
-    /// still misses on every tick (exposure is in the cache key), so
-    /// the underlying processSceneLinear floor is unchanged — but the
-    /// previous 350 ms ceiling was set ~3× a ~115 ms observed mean as
-    /// jitter padding. With the cache plumbing in place a 250 ms
-    /// ceiling is still ~2× the observed mean, plenty of headroom for
-    /// CI scheduling jitter without flaking, and tight enough that a
-    /// 2× regression in `processSceneLinear` (the load-bearing call)
-    /// trips it.
+    /// The ENFORCED per-tick ceiling — an interim hard limit that
+    /// ratchets toward the `specHardLimitMs` (50 ms) documented in
+    /// CLAUDE.md, not the too-loose regression ceiling this bench used
+    /// before (#1938).
     ///
-    /// The sharpen-drag variant lives in
-    /// `SharpenSliderTickPerfTests` — that's where the cache actually
-    /// buys the per-tick savings.
+    /// History: 350 → 250 ms (#661) as a pure regression detector set
+    /// ~2–3× a ~115 ms observed mean for jitter padding. But 250 ms is
+    /// 5× the 50 ms spec hard limit — a render 5× over budget still
+    /// passed, so the assertion gave no signal against the actual
+    /// product invariant (#1938). Tightened to 150 ms here: still above
+    /// today's FFI-round-trip floor with margin (measured mean ~72 ms on
+    /// an M-series, ~115 ms on the #661 authorship machine; the render
+    /// phase itself is ~2 ms — the cost is the `processSceneLinear` FFI
+    /// readback + Rust CPU chain, not the GPU present), yet tight enough
+    /// that a ~2× regression from the floor trips it and anything near
+    /// the old 250 ms territory fails hard.
     ///
-    /// Bumped only when a deliberate pipeline change raises the floor
-    /// and we accept it; lowered when a perf win lands (the ratchet
-    /// direction the spec demands).
+    /// This is deliberately an INTERIM limit ABOVE the 50 ms spec: the
+    /// per-tick floor is currently above spec, so asserting 50 ms would
+    /// fail on real hardware. Driving the floor down and ratcheting this
+    /// toward 50 ms (one-way, per the spec policy — lowered in the same
+    /// commit that delivers each win, never raised without an accepted
+    /// pipeline change) is tracked in #1959. The `specHardLimitMs` /
+    /// `specTargetMs` numbers are still reported every run (and an
+    /// OVER-BUDGET line fires when the mean exceeds 50 ms) so the gap
+    /// stays visible.
     ///
-    /// The spec target (16 ms) / hard limit (50 ms) are both *below*
-    /// today's measured floor on the FFI round-trip path. Closing that
-    /// gap is tracked separately (see the follow-up ticket linked from
-    /// the PR body); this bench is the regression detector for whatever
-    /// the current floor is.
-    private static let regressionCeilingMs: Double = 250.0
+    /// The sharpen-drag variant lives in `SharpenSliderTickPerfTests` —
+    /// that's where the #661 FFI cache buys the per-tick savings and the
+    /// floor is already near spec (an 80 ms cache-hit ceiling).
+    private static let interimHardLimitMs: Double = 150.0
 
     // MARK: - Test entry
 
@@ -119,10 +124,10 @@ final class SliderTickPerfTests: XCTestCase {
     /// once, primes the CIContext (first render is warm-up), then loops
     /// `tickCount` times: mutate exposure → process scene-linear → force
     /// pixel evaluation. Reports mean / p50 / p95 / max in ms and gates
-    /// on `regressionCeilingMs` (the regression detector — well above
-    /// today's floor). The spec hard limit is reported as an
-    /// `OVER-BUDGET` stderr line when exceeded, but does not fail the
-    /// assertion — see the `regressionCeilingMs` doc-comment for why.
+    /// on `interimHardLimitMs` (the enforced ceiling, ratcheting toward
+    /// the 50 ms spec — see its doc-comment). The 50 ms spec hard limit
+    /// is additionally reported as an `OVER-BUDGET` stderr line when the
+    /// mean exceeds it, keeping the remaining gap visible (#1938/#1959).
     func testExposureSliderTick16ms() async throws {
         guard ProcessInfo.processInfo.environment["MAPLE_PERF"] == "1" else {
             throw XCTSkip(
@@ -273,7 +278,7 @@ final class SliderTickPerfTests: XCTestCase {
             format: "[slider-tick-perf] fixture=%@ ticks=%d viewport=%dx%d " +
                     "mean=%.2fms p50=%.2fms p95=%.2fms max=%.2fms " +
                     "(process=%.2fms render=%.2fms) " +
-                    "spec(target=%.0fms hard=%.0fms) ceiling=%.0fms",
+                    "spec(target=%.0fms hard=%.0fms) interim-hard=%.0fms",
             fixture,
             SliderTickPerfHarness.tickCount,
             Int(SliderTickPerfHarness.viewportSize.width),
@@ -282,25 +287,29 @@ final class SliderTickPerfTests: XCTestCase {
             meanProcess, meanRender,
             SliderTickPerfHarness.specTargetMs,
             SliderTickPerfHarness.specHardLimitMs,
-            Self.regressionCeilingMs
+            Self.interimHardLimitMs
         )
         FileHandle.standardError.write(Data((summary + "\n").utf8))
 
-        // 4. Gate on the regression ceiling. The spec target / hard
-        //    limit are reported but not asserted — see the
-        //    `regressionCeilingMs` doc-comment for why.
+        // 4. Gate on the interim hard limit (the enforced ceiling that
+        //    ratchets toward the 50 ms spec — see the `interimHardLimitMs`
+        //    doc-comment). The 50 ms spec hard limit / 16 ms target are
+        //    reported below and via the OVER-BUDGET line; the interim is
+        //    the assertion because the FFI floor is currently above spec.
         // Build the failure message from precomputed locals to keep the Swift
         // expression type-checker under its complexity ceiling (#565/#787).
         let meanTotalText = String(format: "%.2f", meanTotal)
-        let ceilingText = String(format: "%.0f", Self.regressionCeilingMs)
+        let ceilingText = String(format: "%.0f", Self.interimHardLimitMs)
+        let hardLimitText = String(format: "%.0f", SliderTickPerfHarness.specHardLimitMs)
         let regressionMessage =
             "Mean slider-tick time \(meanTotalText) ms " +
-            "exceeds the \(ceilingText) ms " +
-            "regression ceiling — bench is reporting a step change in cost. " +
-            "Investigate the per-tick path " +
-            "(processSceneLinear → applySceneLinearChainViaFFI is the load-bearing call)."
+            "exceeds the \(ceilingText) ms interim hard limit " +
+            "(ratcheting toward the \(hardLimitText) ms spec — #1959). " +
+            "Either a real per-tick regression, or the FFI floor moved: " +
+            "investigate processSceneLinear → applySceneLinearChainViaFFI " +
+            "(the load-bearing call) before relaxing the ceiling."
         XCTAssertLessThan(
-            meanTotal, Self.regressionCeilingMs,
+            meanTotal, Self.interimHardLimitMs,
             regressionMessage
         )
 
