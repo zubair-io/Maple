@@ -3,6 +3,10 @@
 //! predictor + production-code pair drifts together. See spec
 //! `.archived-plans/specs/2026-04-28-grey-card-adjustment-tests-design.md`.
 
+// Reference the stage's monotonicity-bound constants directly (#1918) so the
+// predictor can't drift from production if the bounds are retuned.
+use crate::stages::scene_tone_controls::{B_CRUSH_EDGE, B_LIFT_EDGE, WHITES_MIN_GAIN};
+
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -91,7 +95,7 @@ pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
         return scene;
     }
     let w = smoothstep(0.5, 1.0, scene);
-    let w_gain = 1.0 + (w_slider / 200.0).max(-0.32) * w;
+    let w_gain = 1.0 + (w_slider / 200.0).max(-WHITES_MIN_GAIN) * w;
     scene * w_gain
 }
 
@@ -105,12 +109,12 @@ pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
         return scene;
     }
     if b_slider < 0.0 {
-        let w = 1.0 - smoothstep(0.0, 0.2, scene);
+        let w = 1.0 - smoothstep(0.0, B_CRUSH_EDGE, scene);
         let b_amount = b_slider / 100.0; // -1..0
         let factor = 1.0 + b_amount * w;
         scene * factor
     } else {
-        let w = 1.0 - smoothstep(0.0, 0.40, scene);
+        let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, scene);
         let delta = (b_slider / 400.0) * w;
         scene + delta
     }
