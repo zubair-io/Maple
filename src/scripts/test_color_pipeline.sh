@@ -87,10 +87,31 @@ if [[ ! -f "$BUDGETS" ]]; then
   exit 0
 fi
 
-# Build maple-cli if missing. Honors caller-provided $MAPLE_CLI.
-MAPLE_CLI="${MAPLE_CLI:-$MAPLE_CLI_RELEASE}"
-if [[ ! -x "$MAPLE_CLI" ]]; then
-  echo "test_color_pipeline: building maple-cli (release) ..."
+# Build maple-cli, rebuilding whenever it is stale — not only when missing
+# (#1935). The old logic (`[[ ! -x "$MAPLE_CLI" ]]`) skipped the build entirely
+# whenever the binary existed, so a run against a several-days-stale prebuilt
+# binary silently reported results for OLD pipeline code with no signal that the
+# binary was out of date. cargo's own fingerprint already tracks every source
+# and Cargo input (the .rs / .bin / Cargo.lock / Cargo.toml set), so invoking
+# `cargo build` unconditionally is the authoritative staleness check: it rebuilds
+# iff an input moved and is a fast (~1s) no-op when the binary is current —
+# strictly more precise than the hand-rolled mtime/hash stamp build-xcframework.sh
+# needs (that stamp exists only because the .a → xcframework assembly happens
+# OUTSIDE cargo, so cargo can't see that step's staleness; here cargo IS the
+# whole build, so it can).
+#
+# A caller-pinned $MAPLE_CLI is treated as authoritative and used as-is (no
+# build) — that override is how a machine without a Rust toolchain, or a
+# deliberate A/B against a specific binary, opts out.
+if [[ -n "${MAPLE_CLI:-}" ]]; then
+  echo "test_color_pipeline: using caller-provided MAPLE_CLI=$MAPLE_CLI (no rebuild)"
+  if [[ ! -x "$MAPLE_CLI" ]]; then
+    err "MAPLE_CLI override is not an executable: $MAPLE_CLI"
+    exit 2
+  fi
+else
+  require_cmd cargo
+  echo "test_color_pipeline: building maple-cli (release; cargo rebuilds only if stale) ..."
   ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
   MAPLE_CLI="$MAPLE_CLI_RELEASE"
 fi
