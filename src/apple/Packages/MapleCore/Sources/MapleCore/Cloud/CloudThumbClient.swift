@@ -35,6 +35,24 @@ public actor CloudThumbClient {
     return data
   }
 
+  /// Returns JPEG bytes for the display-resolution (1280 px long-edge)
+  /// preview of `absPath` via `GET /api/fs/preview` — the tier the Preview
+  /// screen swaps in over the grid thumbnail. `/api/fs/thumb` cannot serve
+  /// this: it keeps ONE mtime-checked cache file per RAW, so a larger `size`
+  /// request just returns the cached 512 px grid thumb. Throws on non-2xx.
+  public func preview(absPath: String) async throws -> Data {
+    var c = URLComponents(url: server.appending(path: "/api/fs/preview"),
+                          resolvingAgainstBaseURL: false)!
+    c.queryItems = [URLQueryItem(name: "path", value: absPath)]
+    let (data, resp) = try await httpClient.data(for: URLRequest(url: c.url!))
+    if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+      throw NSError(domain: "CloudThumbClient",
+                    code: http.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? ""])
+    }
+    return data
+  }
+
   /// Sample client for SwiftUI `#Preview` blocks. Points at an unreachable
   /// example server so requests fail fast; cells fall back to placeholder
   /// imagery, which is what the preview wants to show anyway. Issue #139.

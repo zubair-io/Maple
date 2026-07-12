@@ -292,6 +292,10 @@ extension EditSession {
         if coversCanvas, !isFullQualityDecoding, let url = asset.primaryURL {
             Task.detached(priority: .utility) { [composite] in
                 await ThumbnailLoader.shared.updateThumbnailFromRender(composite, for: url)
+                // Keep the Preview screen's 1600 px display tier in lock-step
+                // with the thumbnail so its hi-res swap shows the edited
+                // pixels (ThumbnailLoader+DisplayPreview).
+                await ThumbnailLoader.shared.updateDisplayPreviewFromRender(composite, for: url)
             }
             persistCurrentPreviewToCache()
         }
@@ -566,6 +570,11 @@ extension EditSession {
                 let thumbSource = displayImage
                 Task.detached(priority: .utility) {
                     await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
+                    // Keep the Preview screen's 1600 px display tier in
+                    // lock-step with the thumbnail (ThumbnailLoader+
+                    // DisplayPreview).
+                    await ThumbnailLoader.shared.updateDisplayPreviewFromRender(
+                        thumbSource, for: url)
                 }
                 persistCurrentPreviewToCache()
             }

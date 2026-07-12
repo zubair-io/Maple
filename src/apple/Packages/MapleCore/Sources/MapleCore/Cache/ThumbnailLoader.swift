@@ -25,8 +25,9 @@ public actor ThumbnailLoader {
     public static let shared = ThumbnailLoader()
 
     /// Reused CIContext — creating one per call is expensive and pins GPU
-    /// memory for no reason.
-    private let ctx = CIContext()
+    /// memory for no reason. (Internal, not private: the display-preview
+    /// tier in `ThumbnailLoader+DisplayPreview.swift` shares it.)
+    let ctx = CIContext()
 
     /// Shared CIContext for the static encode paths (`posterJPEG`, etc.).
     /// `CIContext` is heavyweight to allocate and thread-safe to share, so the
@@ -54,15 +55,20 @@ public actor ThumbnailLoader {
     /// cells request the same thumbnail simultaneously (happens on scroll /
     /// layout churn), the second call awaits the first's Task instead of
     /// starting a duplicate decode. Major CPU win on large folders.
-    private var inFlight: [String: Task<Data?, Never>] = [:]
+    /// (Internal, not private: the display-preview tier in
+    /// `ThumbnailLoader+DisplayPreview.swift` coalesces through the same map
+    /// under a `"display-preview:"`-namespaced key.)
+    var inFlight: [String: Task<Data?, Never>] = [:]
 
     public init() {}
 
     // MARK: - Concurrency gate
 
     /// Wait until a decode slot is available; call `releaseDecodeSlot()`
-    /// exactly once after the FFI call completes.
-    fileprivate func acquireDecodeSlot() async {
+    /// exactly once after the FFI call completes. (Internal, not fileprivate:
+    /// the display-preview tier in `ThumbnailLoader+DisplayPreview.swift`
+    /// shares the same gate.)
+    func acquireDecodeSlot() async {
         if activeDecodes < Self.maxConcurrentDecodes {
             activeDecodes += 1
             return
@@ -73,7 +79,7 @@ public actor ThumbnailLoader {
         activeDecodes += 1
     }
 
-    fileprivate func releaseDecodeSlot() {
+    func releaseDecodeSlot() {
         activeDecodes -= 1
         if !waiters.isEmpty {
             let next = waiters.removeFirst()
@@ -252,8 +258,9 @@ public actor ThumbnailLoader {
         return jpegData(from: ci, ctx: CIContext())
     }
 
-    /// Encode a CIImage to JPEG at the spec quality (q = 0.82).
-    private static func jpegData(from ci: CIImage, ctx: CIContext) -> Data? {
+    /// Encode a CIImage to JPEG at the spec quality (q = 0.82). (Internal,
+    /// not private: shared by `ThumbnailLoader+DisplayPreview.swift`.)
+    static func jpegData(from ci: CIImage, ctx: CIContext) -> Data? {
         return ctx.jpegRepresentation(
             of: ci,
             colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
