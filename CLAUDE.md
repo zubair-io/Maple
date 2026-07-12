@@ -297,7 +297,7 @@ The `codegen-drift` CI job (`.github/workflows/cross.yml`) confirms the committe
 - **Cold image open (cached):** one frame (~35ms) from click to pixels.
 - **Cold image open (uncached):** 250–1000ms. Show progress.
 - **Two-phase rendering:** fast phase (viewport, screen-res, cancellable) → 150ms debounced refine phase (full image, full resolution).
-- **Five caches:** thumbnail memory, thumbnail disk, rendered-preview (keyed on `(primary_url, primary_mtime, sidecar_mtime, screen_size, adjustment_version, view_transform_version)`), decoded-image (session-scoped, in-memory), remote-source-bytes (for network shares). On web: IndexedDB + in-memory equivalents. See `docs/caching.md`.
+- **Five caches:** thumbnail memory, thumbnail disk, rendered-preview (keyed on `(primary_url, primary_mtime, sidecar_mtime, screen_size, view_transform_version)` — `sidecar_mtime` is the adjustment-version proxy, so any slider change bumps the key), decoded-image (session-scoped, in-memory), remote-source-bytes (for network shares). On web: IndexedDB + in-memory equivalents. See `docs/caching.md`.
 
 If a new feature adds allocation inside the render loop, it does not ship. If it adds a round-trip across the WASM boundary per slider tick, it does not ship. Budget first, optimize later only when profiling says so.
 
