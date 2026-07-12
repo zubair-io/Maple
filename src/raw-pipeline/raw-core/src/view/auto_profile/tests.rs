@@ -227,6 +227,65 @@ mod apply_tests {
         }
     }
 
+    /// #1948: the chroma branch must operate in LINEAR light. The fit buffer
+    /// is `DisplayEncodedSrgb` (sRGB primaries + gamma), so `apply_curve` must
+    /// gamma-decode, run the sRGB-primaries Oklab correction, then re-encode.
+    /// This pins that exact space handling: the expected value is computed by
+    /// replicating the intended linear-space pipeline, so a regression back to
+    /// `rec2020_to_oklab` on gamma-encoded values fails the test.
+    #[test]
+    fn chroma_boost_operates_in_linear_srgb_space() {
+        use crate::color::oklab::{oklab_to_srgb_linear, srgb_linear_to_oklab};
+        use crate::view::agx_inverse::srgb_gamma_inv;
+        use crate::view::encode::srgb_gamma;
+
+        // Identity channel curves + identity matrix, so only the chroma branch
+        // moves the pixel. A saturated, non-neutral display pixel exposes the
+        // primaries/gamma handling (a neutral gray is a fixed point of both).
+        let mut curve = ProfileCurve::identity();
+        curve.chroma_boost = 1.3;
+        let input = [0.80_f32, 0.20, 0.30];
+
+        // Expected: replicate the intended linear-sRGB Oklab round-trip. Channel
+        // curves/matrix are identity and inputs are below KNEE, so the pre-chroma
+        // RGB equals `input`.
+        let lin = [
+            srgb_gamma_inv(input[0]),
+            srgb_gamma_inv(input[1]),
+            srgb_gamma_inv(input[2]),
+        ];
+        let lab = srgb_linear_to_oklab(lin);
+        let scaled = [lab[0], lab[1] * 1.3, lab[2] * 1.3];
+        let back = oklab_to_srgb_linear(scaled);
+        let expected = [srgb_gamma(back[0]), srgb_gamma(back[1]), srgb_gamma(back[2])];
+
+        let mut rgb = input.to_vec();
+        apply_curve(&mut rgb, &curve);
+        for (got, want) in rgb.iter().zip(expected.iter()) {
+            assert!((got - want).abs() < 1e-5, "got {got} want {want}");
+        }
+        // Sanity: a positive chroma boost must actually raise the channel spread
+        // (a saturation proxy) versus the untouched input — proves the branch
+        // fired and pushed the color away from neutral rather than collapsing it.
+        let spread_in = input[0] - input[1];
+        let spread_out = rgb[0] - rgb[1];
+        assert!(spread_out > spread_in, "boost widened spread: {spread_in} -> {spread_out}");
+    }
+
+    /// #1948: a neutral gray has zero Oklab chroma, so any `chroma_boost` must
+    /// leave it exactly neutral (and, with no L offset, unchanged) — the branch
+    /// must not tint or shift a gray.
+    #[test]
+    fn chroma_boost_preserves_neutral_gray() {
+        let mut curve = ProfileCurve::identity();
+        curve.chroma_boost = 2.0;
+        let mut rgb: Vec<f32> = vec![0.5, 0.5, 0.5];
+        apply_curve(&mut rgb, &curve);
+        assert!((rgb[0] - 0.5).abs() < 1e-4, "r shifted: {}", rgb[0]);
+        assert!((rgb[1] - 0.5).abs() < 1e-4, "g shifted: {}", rgb[1]);
+        assert!((rgb[2] - 0.5).abs() < 1e-4, "b shifted: {}", rgb[2]);
+    }
+
     #[test]
     fn out_of_range_inputs_are_clamped() {
         let mut rgb: Vec<f32> = vec![-0.5, 1.5, 0.5];
