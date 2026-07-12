@@ -36,14 +36,17 @@ pub struct DcpProfile {
     /// white balanced camera values to XYZ chromatically adapted to D50",
     /// and `dng_color_spec.cpp:444-446` builds the full transform as
     /// `forwardMatrix × Invert(refCameraWhite.AsDiagonal()) ×
-    /// individualToReference`. With `AnalogBalance = CameraCalibration =
-    /// Identity` (Maple's universe), the chain collapses to
-    /// `FM × Diag(refCameraWhite)⁻¹ × camera_raw`. Maple's pipeline
-    /// pre-gains camera RGB by AsShotNeutral BEFORE DCP (see
-    /// `pipeline::develop` step 4), so by the time DCP runs the
-    /// `Diag(refCameraWhite)⁻¹ × camera_raw` term is already represented
-    /// in the buffer — DCP just needs `cam_to_pro = inv(M_pro_to_xyz_d50)
-    /// × FM` and emphatically does NOT compose FM with `inv(CM)`.
+    /// individualToReference`, where `individualToReference =
+    /// inv(AnalogBalance × CameraCalibration)`. Maple folds that
+    /// `individualToReference` term into this `forward_matrix` at decode
+    /// time (see `decode.rs` §8·pre / §8b), so for a per-unit-calibrated
+    /// back this field already carries `FM × inv(AB × CC)`; for the common
+    /// case (AB = CC = Identity — every FM-shipping body today) the fold is
+    /// an exact no-op and this is the raw ForwardMatrix. The remaining
+    /// `Diag(refCameraWhite)⁻¹ × camera_raw` term is represented by Maple's
+    /// AsShotNeutral pre-gain BEFORE DCP (see `pipeline::develop` step 4),
+    /// so DCP just needs `cam_to_pro = inv(M_pro_to_xyz_d50) × FM` and
+    /// emphatically does NOT compose FM with `inv(CM)`.
     ///
     /// Optional per DNG spec. When present and `wb_already_baked = true`,
     /// the FM path runs. When absent OR `wb_already_baked = false` (the
@@ -350,17 +353,20 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
     //   * **FM path (post-#354).** Per DNG SDK
     //     `dng_color_spec.cpp:444-446` the SDK builds `fCameraToPCS =
     //     forwardMatrix * Invert(refCameraWhite.AsDiagonal()) *
-    //     individualToReference`. With AnalogBalance = CameraCalibration
-    //     = Identity (Maple's universe), the chain reduces to `FM ×
-    //     Diag(refCameraWhite)⁻¹ × camera_raw`. Maple's pipeline already
-    //     divided camera RGB by AsShotNeutral upstream, so the buffer is
-    //     in the FM-input space — DCP just multiplies by FM (yielding
-    //     XYZ-D50) and then by `inv(M_pro_to_xyz_d50)` to land in
-    //     linear-ProPhoto-D50. Critically: FM is NOT composed with
-    //     `inv(CM)` (that double-rotates an already-white-balanced
-    //     buffer and was the pre-#354 bug that regressed bundle-canonical
-    //     FM application). See the field docstring on `forward_matrix`
-    //     for the full citation.
+    //     individualToReference` where `individualToReference =
+    //     inv(AnalogBalance × CameraCalibration)`. Maple folds the
+    //     `individualToReference` term into `profile.forward_matrix` at
+    //     decode (`decode.rs` §8·pre / §8b), so the chain here reduces to
+    //     `FM_folded × Diag(refCameraWhite)⁻¹ × camera_raw` — identical to
+    //     the raw FM whenever AB = CC = Identity (every FM-shipping body
+    //     today). Maple's pipeline already divided camera RGB by
+    //     AsShotNeutral upstream, so the buffer is in the FM-input space —
+    //     DCP just multiplies by FM (yielding XYZ-D50) and then by
+    //     `inv(M_pro_to_xyz_d50)` to land in linear-ProPhoto-D50.
+    //     Critically: FM is NOT composed with `inv(CM)` (that double-
+    //     rotates an already-white-balanced buffer and was the pre-#354 bug
+    //     that regressed bundle-canonical FM application). See the field
+    //     docstring on `forward_matrix` for the full citation.
     //   * **Non-FM / pre-gain-skipped path.** Either the profile has no
     //     FM (Bradford fallback per spec § 3.4 step 2) OR pre-gain was
     //     skipped because the source is 8-bit lossy LinearRaw (see
