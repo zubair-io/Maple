@@ -10,7 +10,7 @@ Maple has five distinct cache layers, each serving a different access pattern. T
 | --- | ---------------------- | --------------------------------------- | -------------- | -------------------------------- | --------------------------------------------- |
 | 1   | In-memory thumbnails   | `ThumbnailLoader.memoryCache`           | `CGImage`      | App session                      | Instant grid cell rendering                   |
 | 2   | On-disk thumbnails     | `.maple/thumbs/` next to photos         | JPEG q=0.8     | Travels with photos              | Survives app restarts, external drive moves   |
-| 3   | Rendered preview cache | `~/Library/Caches/MapleMaple/previews/` | JPEG q=0.85    | Until OS purge or 500MB eviction | Instant cold-open of previously-edited images |
+| 3   | Rendered preview cache | `.maple/previews/` next to photos       | JPEG q=0.90    | Travels with photos; 20-entry memory front | Instant cold-open of previously-edited images |
 | 4   | Decoded CIImage        | `EditSession.decodedImage`              | CIImage (lazy) | Single editing session           | Avoids re-decoding RAW on every slider change |
 | 5   | SMB file data          | `EditSession.cachedFileData`            | Raw `Data`     | Single editing session           | Avoids re-downloading ~35MB over network      |
 
@@ -66,27 +66,31 @@ ThumbnailLoader (actor)
 ## 3. Rendered Preview Disk Cache
 
 ```
-~/Library/Caches/MapleMaple/previews/
-  ├── a1b2c3d4e5f6g7h8.9i0j1k2l3m4n5o6.jpg
-  ├── p7q8r9s0t1u2v3w4.x5y6z7a8b9c0d1e2.jpg
+<photos>/.maple/previews/
+  ├── a1b2c3d4e5f6a7b8.jpg
+  ├── c9d0e1f2a3b4c5d6.jpg
   └── ...
 ```
 
-**Key:** `{SHA256(assetID)[0:16]}.{SHA256(adjustments_json)[0:16]}.jpg`
+Implemented by `RenderedPreviewCache` (`src/apple/.../Cache/RenderedPreviewCache.swift`). Stored **next to the photos** in the same `.maple/` folder as the thumbnail cache (§2) — not the OS cache directory — so a developed preview travels with the images when the folder is copied to another Mac or drive. The folder is set per open folder via `configure(folderURL:)`.
 
-The adjustment hash uses `JSONEncoder` with `.sortedKeys` so field order doesn't perturb the hash. Any slider change produces a different hash — stale entries are never served.
+**Key:** `MD5( "{MD5(primary_url)[0:16]}_{primary_mtime_ms}_{sidecar_mtime_ms}_{screen_width}_v{view_transform_version}" )`, one `.jpg` per key. The five components:
 
-**Format:** JPEG, quality 0.85, encoded via `CIContext.jpegRepresentation` (always opaque — avoids the ImageIO "AlphaPremulLast" warning that fires when writing CGImages with alpha to JPEG).
+- `primary_url` hash — identifies the asset.
+- `primary_mtime_ms` — the primary RAW's own modification time. The JPEG is rendered from those pixels, so a bytes change that leaves the sidecar untouched (re-import, external sync, filesystem restore) must miss (#1928).
+- `sidecar_mtime_ms` — the `.xmp` sidecar's modification time; `"0"` when absent. This is the **adjustment-version proxy** — any slider change rewrites the sidecar, bumping its mtime and thus the key, so a stale-adjustment entry is never served. There is no separate adjustment-JSON hash.
+- `screen_width` — the size bucket. Previews are cached at **viewport resolution** (the fast-preview / fit target), not refined zoom resolution, so files stay small (~hundreds of KB) and match what cold-open shows.
+- `view_transform_version` — a monotonic constant bumped on any pipeline-output change (AgX/LUT/calibration). Bumping it invalidates every entry after a color-math change; the current value and its history are documented inline in `RenderedPreviewCache.swift`.
 
-**Size:** Always cached at **viewport resolution** (the fast preview target), not the refined zoom resolution. This keeps files small (~hundreds of KB) and matches what the user sees on cold-open (fit mode).
+**Format:** JPEG, quality 0.90, sRGB, encoded via `CIContext.jpegRepresentation` (always opaque — avoids the ImageIO "AlphaPremulLast" warning that fires when writing CGImages with alpha to JPEG).
 
-**Read path:** `EditSession.beginEditing` → `previewCache.read(assetID:adjustments:)`. On a hit, `previewImage` is set immediately and the function returns — the user sees pixels in ~0ms. The RAW decode runs in the background via `scheduleBackgroundDecode()`.
+**Read path:** `EditSession` cold-open hydration → `RenderedPreviewCache.preview(for:screenWidth:)`. A hit (memory front, then disk) returns a `CIImage` that seeds the canvas immediately — the user sees pixels without waiting on the RAW decode, which runs in the background. On the GPU-live path the equivalent seed is written back by `persistGpuFrameToPreviewCache()` (#1665).
 
-**Write path:** `persistCurrentPreviewToCache()` fires after the refine pass completes (or after the fast pass when no refine is needed). The encode + write runs on a detached utility-priority task to avoid blocking the main thread.
+**Write path:** `storePreview(_:for:screenWidth:)` via `persistCurrentPreviewToCache()` (CPU path) or the one-shot GPU-frame readback (GPU-live path), after the refine render lands. The encode + write runs on a detached utility-priority task to avoid blocking the main thread.
 
-**Eviction:** 500MB byte budget. On each write, the cache scans the directory and deletes oldest-modification-date entries until under budget.
+**Memory front:** an in-process dictionary of up to 20 most-recent `(CIImage, storedAt)` entries sits in front of the disk store; it evicts the oldest once full. The on-disk `.jpg` files are **not** swept on a byte budget — they are invalidated by key change (below), and the `.maple/` folder is managed alongside the thumbnail cache.
 
-**Cache coherency:** Because the key includes the full adjustment hash, there is no explicit invalidation. Editing the image produces a new hash → new entry. Old entries are orphaned and eventually evicted by the byte-budget sweep.
+**Cache coherency:** no explicit content invalidation on edit — a slider change bumps `sidecar_mtime` (and a bytes change bumps `primary_mtime`), so the next lookup computes a new key and misses, landing on a fresh render. `invalidate(assetURL:)` exists for the explicit case (e.g. immediately after a sidecar write, before its mtime is observable) and removes every screen-width variant for the asset from both the memory front and disk.
 
 ---
 
