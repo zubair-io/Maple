@@ -220,6 +220,62 @@ jobs:
 
           echo "OK — allowlist did not grow (shrinks allowed)."
 
+  budgets-ratchet-shrinks-only:
+    name: budgets-ratchet-shrinks-only
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history back to the merge base of the PR (same rationale as
+          # allowlist-shrinks-only above). Harmless on push.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Always validate the checker's own logic (no fixtures / no merge base
+      # needed) so a regression in the gate itself is caught. Mirrors how
+      # rust-tests runs banding_check_test.py and pano_metrics.py --self-test.
+      - name: check_budget_ratchet self-test
+        run: python3 tools/check_budget_ratchet.py --self-test
+
+      # The ratchet diff is only meaningful on PRs (needs a merge base). On
+      # push to main there is no "base branch" to ratchet against — the
+      # self-test above still runs.
+      - name: Compute merge base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          # Fetch the base branch tip so `git merge-base` can find the true
+          # fork point (checkout@v4 with fetch-depth: 0 fetches commits, not
+          # always the named ref — be explicit).
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          echo "MERGE_BASE=${merge_base}" >> "$GITHUB_ENV"
+          echo "merge base: ${merge_base}"
+
+      - name: Enforce budgets.json one-way ratchet vs merge base
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          # If budgets.json didn't exist at the merge base (brand-new file),
+          # there is nothing to ratchet against — pass.
+          if ! git cat-file -e "${MERGE_BASE}:test-fixtures/budgets.json" 2>/dev/null; then
+            echo "::notice::test-fixtures/budgets.json did not exist at the merge base — nothing to ratchet, skipping."
+            exit 0
+          fi
+          base="$(mktemp)"
+          git show "${MERGE_BASE}:test-fixtures/budgets.json" > "$base"
+          # The script fails (exit 1) if any existing budget cell was raised
+          # or removed vs the base branch. New cells (added coverage) pass.
+          python3 tools/check_budget_ratchet.py --base "$base" --head test-fixtures/budgets.json
+          rm -f "$base"
+
   codegen-drift:
     name: codegen-drift (regenerated outputs are committed)
     runs-on: ubuntu-latest
