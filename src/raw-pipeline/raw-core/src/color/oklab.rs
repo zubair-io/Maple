@@ -6,7 +6,7 @@
 //! existing `M_REC2020_TO_SRGB` matrix and compose once.
 
 use crate::{
-    color::matrices::M_REC2020_TO_SRGB,
+    color::matrices::{M_REC2020_TO_SRGB, M_SRGB_TO_P3},
     math::{Matrix3, Vec3},
 };
 
@@ -105,6 +105,37 @@ pub fn oklab_to_srgb_linear(lab: Vec3) -> Vec3 {
         lms_cube[2] * lms_cube[2] * lms_cube[2],
     ];
     m1_inv.mul_vec(lms)
+}
+
+/// Cached inverse of `M_SRGB_TO_P3` (i.e. linear Display P3 → linear sRGB).
+/// Same rationale as [`oklab_inverse_matrices`]: computing the inverse once
+/// and handing out a reference is bit-for-bit identical to calling
+/// `Matrix3::inverse()` per pixel but avoids the cost on the hot view-tail.
+fn m_p3_to_srgb() -> &'static Matrix3 {
+    static CELL: std::sync::OnceLock<Matrix3> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| M_SRGB_TO_P3.inverse().expect("M_SRGB_TO_P3 is invertible"))
+}
+
+/// Linear Display P3 D65 → Oklab. Use when the input is already in linear
+/// Display P3 (the P3 target of the `display_encode` view-tail, #1921), so the
+/// gamut compression can test the **P3** unit cube rather than the sRGB one.
+///
+/// Oklab itself is primaries-independent (it is defined via a fixed
+/// linear-sRGB → LMS transform); representing a color's Oklab from a linear-P3
+/// triple simply requires first rotating P3 → sRGB, then reusing the sRGB
+/// LMS transform. So this is `srgb_linear_to_oklab(M_P3_TO_SRGB · rgb)`.
+pub fn p3_linear_to_oklab(rgb: Vec3) -> Vec3 {
+    srgb_linear_to_oklab(m_p3_to_srgb().mul_vec(rgb))
+}
+
+/// Inverse of [`p3_linear_to_oklab`]. Lands in linear Display P3 D65:
+/// `M_SRGB_TO_P3 · oklab_to_srgb_linear(lab)`. Pairs with `p3_linear_to_oklab`
+/// as a true round-trip on the neutral axis (both matrices map `[1,1,1]` to
+/// `[1,1,1]`, so `R = G = B` in → `R = G = B` out within fp precision), which
+/// is the precondition `compress_to_unit_cube_oklab` requires of its transform
+/// pair.
+pub fn oklab_to_p3_linear(lab: Vec3) -> Vec3 {
+    M_SRGB_TO_P3.mul_vec(oklab_to_srgb_linear(lab))
 }
 
 #[cfg(test)]
@@ -229,6 +260,60 @@ mod tests {
         let lab = srgb_linear_to_oklab([0.5, 0.5, 0.5]);
         assert!(lab[1].abs() < 1e-3, "a = {}", lab[1]);
         assert!(lab[2].abs() < 1e-3, "b = {}", lab[2]);
+    }
+
+    #[test]
+    fn p3_linear_round_trip_preserves_neutral_gray() {
+        // Precondition for the P3-hull gamut compression (#1921): neutrals must
+        // round-trip through Oklab in P3 working space without drifting off the
+        // R=G=B axis. `compress_to_unit_cube_oklab` requires this of its pair.
+        for v in [0.0f32, 0.05, 0.18, 0.5, 0.9, 1.0] {
+            let rgb = [v, v, v];
+            let lab = p3_linear_to_oklab(rgb);
+            let back = oklab_to_p3_linear(lab);
+            assert!(
+                approx(rgb, back, 1e-4),
+                "p3-linear neutral round trip drifted: {:?} -> {:?}",
+                rgb,
+                back
+            );
+            // Stays on the neutral axis.
+            assert!((back[0] - back[1]).abs() < 1e-4, "neutral drift G: {back:?}");
+            assert!((back[1] - back[2]).abs() < 1e-4, "neutral drift B: {back:?}");
+        }
+    }
+
+    #[test]
+    fn p3_linear_round_trip_preserves_saturated_color() {
+        // A saturated in-P3-gamut triple must survive the Oklab round-trip.
+        let rgb = [0.9f32, 0.05, 0.1];
+        let lab = p3_linear_to_oklab(rgb);
+        let back = oklab_to_p3_linear(lab);
+        assert!(
+            approx(rgb, back, 1e-4),
+            "p3-linear saturated round trip drifted: {:?} -> {:?}",
+            rgb,
+            back
+        );
+    }
+
+    #[test]
+    fn p3_linear_and_srgb_linear_oklab_agree_on_the_same_absolute_color() {
+        // Oklab is primaries-independent: a single absolute color expressed as
+        // a linear-sRGB triple and as the matching linear-P3 triple must land
+        // on the same Oklab coordinate. (This is what lets the P3 path reuse
+        // the sRGB-defined Oklab helpers via a primary rotation.)
+        use crate::color::matrices::M_SRGB_TO_P3;
+        let srgb = [0.6f32, 0.3, 0.15];
+        let p3 = M_SRGB_TO_P3.mul_vec(srgb);
+        let lab_via_srgb = srgb_linear_to_oklab(srgb);
+        let lab_via_p3 = p3_linear_to_oklab(p3);
+        assert!(
+            approx(lab_via_srgb, lab_via_p3, 1e-4),
+            "Oklab differs by representation: sRGB->{:?} vs P3->{:?}",
+            lab_via_srgb,
+            lab_via_p3
+        );
     }
 
     /// Lock down the matrix-inverse hoist: the cached inverses returned by

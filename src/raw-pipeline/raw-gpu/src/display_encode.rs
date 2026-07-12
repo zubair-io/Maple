@@ -14,11 +14,13 @@
 //!    `compress_to_unit_cube_oklab`) over a flat RGBA f32 buffer.
 //! 2. [`DisplayEncodePass`] — the GPU-resident [`Pass`]; its kernel concatenates
 //!    the generated color matrices (it needs the Oklab + Rec.2020/sRGB helpers).
-//! 3. The headless parity test (in `#[cfg(test)] mod tests`) — GPU vs
-//!    `raw_core::view::encode::rec2020_to_srgb` (the real stage, via the
-//!    test-only raw-core dev-dep) `< 1e-4`, on a buffer exercising the
-//!    in-gamut byte-identity fast-path, the near-boundary soft-knee, and the
-//!    out-of-gamut compression path, plus a dense (L × hue × chroma) sweep.
+//! 3. The headless parity tests (in `#[cfg(test)] mod tests`) — GPU vs
+//!    `raw_core::view::encode::rec2020_to_display` (the real stage, via the
+//!    test-only raw-core dev-dep) `< 1e-4`, for BOTH target primaries: sRGB
+//!    (`target_primaries = 0`) and Display P3 (`target_primaries = 1`, the
+//!    #1921 P3-hull path), on a buffer exercising the in-gamut byte-identity
+//!    fast-path, the near-boundary soft-knee, and the out-of-gamut compression
+//!    path, plus a dense (L × hue × chroma) sweep.
 //!
 //! ## Oracle color math (sRGB-only Oklab pair)
 //!
@@ -329,23 +331,32 @@ mod tests {
         buf
     }
 
-    /// Run `raw_core::view::encode::rec2020_to_srgb` on a flat interleaved RGBA
-    /// f32 buffer, returning a new buffer (alpha carried through). The input is
-    /// `DisplayLinearRec2020` (the space `rec2020_to_srgb` asserts). This is the
-    /// ticket's actual reference — the Rust stage itself.
-    fn raw_core_display_encode(buf: &[f32]) -> Vec<f32> {
+    /// Run `raw_core::view::encode::rec2020_to_display` on a flat interleaved
+    /// RGBA f32 buffer for the given target primaries, returning a new buffer
+    /// (alpha carried through). The input is `DisplayLinearRec2020` (the space
+    /// the stage asserts). This is the ticket's actual reference — the Rust
+    /// stage itself.
+    fn raw_core_display_encode_target(
+        buf: &[f32],
+        target: raw_core::view::encode::TargetPrimaries,
+    ) -> Vec<f32> {
         use raw_core::image::{ColorSpace, Image};
         let count = buf.len() / 4;
         let mut img = Image::new(count as u32, 1, ColorSpace::DisplayLinearRec2020);
         for (i, chunk) in buf.chunks_exact(4).enumerate() {
             img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
         }
-        raw_core::view::encode::rec2020_to_srgb(&mut img);
+        raw_core::view::encode::rec2020_to_display(&mut img, target);
         let mut out = Vec::with_capacity(buf.len());
         for (i, p) in img.pixels.iter().enumerate() {
             out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
         }
         out
+    }
+
+    /// sRGB convenience wrapper — the pre-#1921 reference used by the sRGB gates.
+    fn raw_core_display_encode(buf: &[f32]) -> Vec<f32> {
+        raw_core_display_encode_target(buf, raw_core::view::encode::TargetPrimaries::Srgb)
     }
 
     /// THE PARITY GATE (the ticket's contract): the WGSL display-encode kernel
@@ -376,6 +387,41 @@ mod tests {
         assert!(
             max_diff < 1e-4,
             "GPU vs raw-core rec2020_to_srgb max abs diff {max_diff} exceeds 1e-4"
+        );
+    }
+
+    /// P3 PARITY GATE (#1921): the WGSL display-encode kernel with
+    /// `target_primaries = 1` matches `raw_core::view::encode::rec2020_to_display`
+    /// with `TargetPrimaries::P3` — the corrected P3 path that rotates Rec.2020 →
+    /// linear P3 first, then gamut-compresses against the P3 hull. The buffer
+    /// includes pure Rec.2020 primaries (out of even the P3 gamut) plus the dense
+    /// L × hue × chroma sweep, so both the P3-hull bisection and the byte-identity
+    /// fast-path are exercised. Same 1e-4 tolerance as the sRGB gate (FMA-noise
+    /// floor).
+    #[test]
+    fn wgsl_display_encode_p3_matches_raw_core_stage_within_1e_4() {
+        let ctx = GpuContext::new_blocking().expect("gpu context");
+        let input = encode_buffer();
+        let count = (input.len() / 4) as u32;
+
+        let reference =
+            raw_core_display_encode_target(&input, raw_core::view::encode::TargetPrimaries::P3);
+
+        let img = GpuImage::upload(&ctx, &input, count, 1);
+        let runner = ChainRunner::new(&ctx, &img);
+        let gpu = runner.run_blocking(&[&DisplayEncodePass {
+            target_primaries: 1,
+        }]);
+
+        let max_diff = reference
+            .iter()
+            .zip(&gpu)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        eprintln!("PARITY vs raw-core rec2020_to_display(P3): max abs diff = {max_diff:e}");
+        assert!(
+            max_diff < 1e-4,
+            "GPU vs raw-core rec2020_to_display(P3) max abs diff {max_diff} exceeds 1e-4"
         );
     }
 

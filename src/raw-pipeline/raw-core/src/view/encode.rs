@@ -1,7 +1,9 @@
 use crate::{
     color::{
-        matrices::{M_REC2020_TO_SRGB, M_SRGB_TO_P3},
-        oklab::{oklab_to_srgb_linear, srgb_linear_to_oklab},
+        matrices::{M_REC2020_TO_P3, M_REC2020_TO_SRGB},
+        oklab::{
+            oklab_to_p3_linear, oklab_to_srgb_linear, p3_linear_to_oklab, srgb_linear_to_oklab,
+        },
         oklab_gamut::compress_to_unit_cube_oklab,
     },
     image::{ColorSpace, Image},
@@ -54,22 +56,29 @@ impl TargetPrimaries {
 ///
 /// ## Pipeline order
 ///
+/// Each path rotates the working triple into the **target** display primaries
+/// *first*, then gamut-compresses against that target's `[0, 1]^3` hull. This
+/// is the correctness fix in #1921: compressing to the sRGB hull before the P3
+/// rotation capped P3 output at sRGB gamut, so a P3-tagged export could never
+/// carry saturation beyond what sRGB expresses (contradicting #1337's intent).
+///
 /// **sRGB path (unchanged):**
 ///   1. Rec.2020 → linear sRGB (`M_REC2020_TO_SRGB`)
-///   2. Oklab gamut compress in linear sRGB (valid — helpers are sRGB-defined)
+///   2. Oklab gamut compress against the **sRGB** hull
+///      (`srgb_linear_to_oklab` / `oklab_to_srgb_linear`)
 ///
-/// **P3 path (corrected per #1337 review):**
-///   1. Rec.2020 → linear sRGB (`M_REC2020_TO_SRGB`)
-///   2. Oklab gamut compress in linear sRGB (same helpers — valid here)
-///   3. linear sRGB → Display P3 (`M_SRGB_TO_P3`) ← primary swap is the *last* step
+/// **P3 path (#1921):**
+///   1. Rec.2020 → linear Display P3 (`M_REC2020_TO_P3`)
+///   2. Oklab gamut compress against the **P3** hull
+///      (`p3_linear_to_oklab` / `oklab_to_p3_linear`)
 ///
-/// The gamut compression **must** happen in linear sRGB because the Oklab
-/// `srgb_linear_to_oklab` / `oklab_to_srgb_linear` helpers are calibrated
-/// against the sRGB-primary LMS cone matrix. Feeding linear P3 through them
-/// without this reorder gives wrong hue/chroma — the LMS matrix assumes sRGB
-/// primaries. By compressing in sRGB first then rotating to P3, both paths use
-/// the same validated Oklab round-trip, and the P3 primary swap is a simple
-/// matrix multiply with no gamut semantics.
+/// Oklab is primaries-independent — it is defined via a fixed linear-sRGB → LMS
+/// transform — so a color's Oklab coordinate is the same whichever RGB space
+/// represents it. The P3-space helpers simply rotate P3 → sRGB before that
+/// fixed LMS transform (and back on the way out), so both paths run the same
+/// validated Oklab round-trip while the **gamut test targets the correct hull**
+/// for the selected primaries. The only thing that differs between the two
+/// paths is which unit cube the compression asymptotes to.
 ///
 /// ## Byte-identity contracts
 ///
@@ -81,18 +90,20 @@ impl TargetPrimaries {
 /// zero-default), the sRGB path runs — no change for any existing caller.
 pub fn rec2020_to_display(img: &mut Image, target: TargetPrimaries) {
     img.assert_space(ColorSpace::DisplayLinearRec2020);
-    img.pixels.par_iter_mut().for_each(|p| {
-        // Step 1: Rec.2020 → linear sRGB (valid working space for Oklab).
-        let srgb = M_REC2020_TO_SRGB.mul_vec(*p);
-        // Step 2: Oklab gamut compress in linear sRGB (helpers are sRGB-defined).
-        let compressed =
-            compress_to_unit_cube_oklab(srgb, srgb_linear_to_oklab, oklab_to_srgb_linear);
-        // Step 3 (P3 only): rotate compressed sRGB primaries → P3 primaries.
-        *p = match target {
-            TargetPrimaries::Srgb => compressed,
-            TargetPrimaries::P3 => M_SRGB_TO_P3.mul_vec(compressed),
-        };
-    });
+    match target {
+        TargetPrimaries::Srgb => img.pixels.par_iter_mut().for_each(|p| {
+            // Rec.2020 → linear sRGB, then gamut-compress against the sRGB hull.
+            let srgb = M_REC2020_TO_SRGB.mul_vec(*p);
+            *p = compress_to_unit_cube_oklab(srgb, srgb_linear_to_oklab, oklab_to_srgb_linear);
+        }),
+        TargetPrimaries::P3 => img.pixels.par_iter_mut().for_each(|p| {
+            // Rec.2020 → linear Display P3, then gamut-compress against the
+            // *P3* hull (#1921). Rotating primaries before compressing is what
+            // lets P3 output reach saturation beyond the sRGB gamut.
+            let p3 = M_REC2020_TO_P3.mul_vec(*p);
+            *p = compress_to_unit_cube_oklab(p3, p3_linear_to_oklab, oklab_to_p3_linear);
+        }),
+    }
     // Tag the buffer with the primaries it actually carries. Both
     // `DisplayLinearSrgb` and `DisplayLinearP3` use the same OETF
     // (`srgb_gamma_encode`), so the gamma stage accepts both via
