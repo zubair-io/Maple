@@ -50,9 +50,7 @@ struct FileProviderSettingsViewIOS: View {
         .formStyle(.grouped)
         .mapleSettingsBackground()
         .navigationTitle("Files")
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .task { await model.reload() }
     }
 
