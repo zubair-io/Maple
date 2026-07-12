@@ -21,6 +21,21 @@ extension XMPSerializer {
         String(format: "%.6f", v)
     }
 
+    /// Format a WB slider value (`crs:Temperature` / `crs:Tint`),
+    /// preserving fractional precision: integers emit without decimals
+    /// (byte-stable with the historical `%.0f` output for the common
+    /// case), non-integers round to 2 decimals with trailing zeros
+    /// trimmed — mirroring the TS writer's `numericSerializer`. Needed
+    /// since #1893's V2/V3 → V4 load-normalization scales authored tints
+    /// by 0.3 (e.g. −144 → −43.2): integer rounding here would shift the
+    /// stored WB on every re-save, drifting the rendered look.
+    static func fmtWb(_ v: Double) -> String {
+        let rounded = (v * 100).rounded() / 100
+        return rounded == rounded.rounded()
+            ? String(format: "%.0f", rounded)
+            : String(format: "%g", rounded)
+    }
+
     /// Minimal XML 1.0 text-content escaping — only `&`, `<`, `>` are
     /// strictly required between tags. `"` and `'` are attribute-only.
     static func escapeXMLText(_ s: String) -> String {

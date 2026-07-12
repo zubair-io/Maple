@@ -29,8 +29,13 @@ extension XMPSerializer {
         omitWhiteBalance: Bool = false
     ) -> [(String, String)] {
         let wbAttrs: [(String, String)] = omitWhiteBalance ? [] : [
-            ("crs:Temperature",          String(format: "%.0f", model.temperature)),
-            ("crs:Tint",                 String(format: "%.0f", model.tint)),
+            // Fractional-preserving (fmtWb): normalized tints are
+            // non-integer post-#1893 (a V3-authored −144 loads as −43.2),
+            // and the frame-hydrated as-shot temperature is fractional
+            // too — integer rounding here shifted the stored WB on every
+            // re-save, drifting the rendered look.
+            ("crs:Temperature",          fmtWb(model.temperature)),
+            ("crs:Tint",                 fmtWb(model.tint)),
             // WB scale stamp (#1780/#1875/#1893): every sidecar save
             // writes explicit Temperature/Tint, so the scale those numbers
             // are expressed in is always stamped alongside them. V1

@@ -114,6 +114,25 @@ final class WbScaleVersionTests: XCTestCase {
         XCTAssertEqual(m.tint, -53)
     }
 
+    func testNormalizedFractionalTintSurvivesResaveExactly() throws {
+        // PR #1900 review: the writer serialized crs:Tint with %.0f. A
+        // V3-authored −144 normalizes to −43.2 at load; integer rounding
+        // would store −43 on re-save and drift the rendered look on every
+        // save cycle. The fractional value must round-trip exactly, and
+        // integer values must keep the historical no-decimal output.
+        let (m, c) = try XMPParser.parse(
+            mapleSidecar(#"crs:Temperature="5520" crs:Tint="-144" papp:WbScaleVersion="3""#))
+        XCTAssertEqual(m.tint, -43.2, accuracy: 1e-9)
+        let resaved = XMPSerializer.serialize(model: m, culling: c)
+        XCTAssertTrue(resaved.contains(#"crs:Tint="-43.2""#),
+                      "fractional tint must serialize without integer rounding")
+        XCTAssertTrue(resaved.contains(#"crs:Temperature="5520""#),
+                      "integer temperature keeps the no-decimal wire format")
+        let (reparsed, _) = try XMPParser.parse(resaved)
+        XCTAssertEqual(reparsed.tint, -43.2, accuracy: 1e-9)
+        XCTAssertEqual(reparsed.wbScaleVersion, 4)
+    }
+
     func testSerializerAlwaysStampsTheModelsVersion() {
         // This serializer writes explicit Temperature/Tint unconditionally,
         // so the stamp rides along unconditionally too.
