@@ -1183,10 +1183,18 @@ pub(crate) fn single_illuminant_profile(
     }
 }
 
-/// 8-line McCamy CCT estimate for the single-illuminant path.
+/// Scene CCT estimate for the single-CM / single-illuminant profile path.
 /// Takes a camera-matrix and `AsShotNeutral`, projects into xy chromaticity
-/// via `inv(cm)`, applies McCamy's cubic. Falls back to the calibration
-/// illuminant's CCT when the matrix is singular or sums to ~zero.
+/// via `inv(cm)`, and reads off the CCT with the DNG-SDK Robertson isotherm
+/// solve (`color::dng_temperature::xy_to_temp_tint`). Falls back to the
+/// calibration illuminant's CCT when the matrix is singular or sums to ~zero.
+///
+/// Pre-#1919 this used McCamy's cubic polynomial approximation — a different
+/// curve fit than the one ACR displays and the one #1894/#1901 migrated the
+/// dual-illuminant sibling (`compute_as_shot_cct`) to. Single-CM DNG bodies
+/// (the exact class #1894 added anchoring for) therefore got a McCamy CCT
+/// inconsistent with the Robertson mapping used everywhere else in the same
+/// series. This swaps to the same Robertson solve for consistency.
 fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) -> f32 {
     let cm_inv = match cm.inverse() {
         Some(inv) => inv,
@@ -1199,8 +1207,7 @@ fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) ->
     }
     let x = xyz[0] / sum;
     let y = xyz[1] / sum;
-    let n = (x - 0.3320) / (0.1858 - y);
-    let cct = 437.0 * n.powi(3) + 3601.0 * n.powi(2) + 6861.0 * n + 5517.0;
+    let cct = crate::color::dng_temperature::xy_to_temp_tint(x, y).0;
     cct.clamp(2000.0, 15000.0)
 }
 
@@ -1678,6 +1685,61 @@ mod tests {
         // Target above warm — t should clamp to 1 → m2.
         let hotter = interpolate_cm(m1, 2856.0, m2, 6504.0, 10000.0);
         assert_eq!(hotter.0[0][0], 2.0);
+    }
+
+    /// #1919 — the single-CM / single-illuminant scene-CCT path must read
+    /// CCT off the DNG-SDK Robertson isotherm solve
+    /// (`dng_temperature::xy_to_temp_tint`), the same mapping #1894/#1901
+    /// migrated the dual-illuminant sibling (`compute_as_shot_cct`) to — not
+    /// McCamy's cubic. `cm = IDENTITY` makes `inv(cm)·wb == wb`, so the
+    /// chromaticity fed to the CCT solve is exactly `wb`'s.
+    #[test]
+    fn scene_cct_single_reads_robertson_not_mccamy() {
+        let cm = Matrix3::IDENTITY;
+        // A neutral sitting well OFF the daylight locus (strong magenta tint),
+        // where McCamy's near-locus cubic and the Robertson projection diverge.
+        let wb = [0.31_f32, 0.26, 0.43];
+        let got = compute_scene_cct_single(cm, wb, 5000.0);
+
+        let sum = wb[0] + wb[1] + wb[2];
+        let (x, y) = (wb[0] / sum, wb[1] / sum);
+        let robertson = crate::color::dng_temperature::xy_to_temp_tint(x, y)
+            .0
+            .clamp(2000.0, 15000.0);
+        assert!(
+            (got - robertson).abs() < 1e-3,
+            "expected Robertson CCT {robertson}, got {got}"
+        );
+
+        // Prove the McCamy cubic is gone: at this chromaticity it lands on a
+        // materially different CCT, so a regression back to it would fail here.
+        let n = (x - 0.3320) / (0.1858 - y);
+        let mccamy =
+            (437.0 * n.powi(3) + 3601.0 * n.powi(2) + 6861.0 * n + 5517.0).clamp(2000.0, 15000.0);
+        assert!(
+            (got - mccamy).abs() > 50.0,
+            "single-CM CCT should diverge from McCamy {mccamy}, got {got}"
+        );
+    }
+
+    /// #1919 edge cases: a singular color matrix and a degenerate
+    /// (`temp <= 0` / zero-sum) chromaticity both fall back to the
+    /// calibration illuminant's CCT rather than producing a bogus solve.
+    #[test]
+    fn scene_cct_single_falls_back_on_degenerate_input() {
+        // Singular matrix (rank-deficient — rows identical) → no inverse.
+        let singular = Matrix3([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]);
+        assert_eq!(
+            compute_scene_cct_single(singular, [0.95, 1.0, 1.09], 5503.0),
+            5503.0
+        );
+
+        // Zero neutral → inv(cm)·wb sums to ~0 (the temp<=0 chromaticity
+        // guard) → fallback, no divide-by-zero into the CCT solve.
+        assert_eq!(
+            compute_scene_cct_single(Matrix3::IDENTITY, [0.0, 0.0, 0.0], 6504.0),
+            6504.0
+        );
     }
 
     /// #1727: `interpolated_profile` retains its calibration endpoints so
