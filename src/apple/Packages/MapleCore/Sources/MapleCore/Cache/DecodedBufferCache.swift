@@ -62,7 +62,17 @@ public actor DecodedBufferCache {
     // fresh from RAW — the exact live-vs-refine band reported on
     // TestFlight devices that carried pre-#1783 cache entries. #1756's
     // WB-frame change rode the same gap.
-    private let rustVersion: UInt32 = 5
+    //
+    // v6 (2026-07-12, #1904): paired with RenderedPreviewCache
+    // viewTransformVersion=7 and TileManager viewTransformVersion=4. The
+    // #1893/#1894 WB series changed the decode product: the frame/profile
+    // CCT solve moved to the Robertson mapping (shifts the FM retarget
+    // point for the develop), and single-CM DNGs now resolve their
+    // embedded calibration as the slider frame. A pre-#1894 buffer pairs
+    // a stale develop with per-tick deltas anchored on the NEW frame
+    // export — the mixed-anchor render (measured on test_0002 as a cyan
+    // cast at correct slider values) persists until this key rotates.
+    private let rustVersion: UInt32 = 6
 
     public init() {}
 

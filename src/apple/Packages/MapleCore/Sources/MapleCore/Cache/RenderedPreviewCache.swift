@@ -63,7 +63,19 @@ public actor RenderedPreviewCache {
     // old look and, uninvalidated, short-circuit the pipeline — devices
     // kept showing pre-fix output (the persistent TestFlight band/pink)
     // no matter which build was installed.
-    private let viewTransformVersion: UInt32 = 6
+    // v7 (2026-07-12, #1904): paired with DecodedBufferCache rustVersion=6
+    // and TileManager viewTransformVersion=4. The #1893/#1894 WB value-
+    // mapping series changed pipeline output: kTintScale magnitude, the
+    // Robertson slider mapping, the Robertson-consistent frame/profile CCT
+    // solve (moves the FM retarget point), and single-CM DNGs anchoring on
+    // their embedded calibration frame. Beyond the direct output shift, a
+    // preview persisted by a MIXED-version build during the series' dev
+    // window (new Swift + older xcframework interprets the new
+    // Robertson-domain slider values in the old frame — measured on
+    // test_0002 as a ~1000 K cool/cyan cast) stays key-valid at v6 and
+    // short-circuits the pipeline forever; the same failure mode as v6's
+    // #1801 entry.
+    private let viewTransformVersion: UInt32 = 7
 
     // MARK: - Configure
 
