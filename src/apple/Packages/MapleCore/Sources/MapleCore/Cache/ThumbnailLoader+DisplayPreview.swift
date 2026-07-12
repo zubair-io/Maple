@@ -84,7 +84,11 @@ extension ThumbnailLoader {
         }
         inFlight[coalescingKey] = task
         let result = await task.value
-        inFlight.removeValue(forKey: coalescingKey)
+        // Conditional removal — same `cancelAll()` re-registration edge as
+        // the two `load` paths in ThumbnailLoader.swift (Jules, PR #1911).
+        if inFlight[coalescingKey] == task {
+            inFlight.removeValue(forKey: coalescingKey)
+        }
         return result
     }
 

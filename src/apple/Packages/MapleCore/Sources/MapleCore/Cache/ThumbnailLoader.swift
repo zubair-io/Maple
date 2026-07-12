@@ -140,7 +140,13 @@ public actor ThumbnailLoader {
         }
         inFlight[coalescingKey] = task
         let result = await task.value
-        inFlight.removeValue(forKey: coalescingKey)
+        // Conditional removal: `cancelAll()` may have cleared the map and a
+        // NEWER task may already be registered under this key — evicting it
+        // here would silently break coalescing for that asset until the new
+        // task completes (Jules review, PR #1911).
+        if inFlight[coalescingKey] == task {
+            inFlight.removeValue(forKey: coalescingKey)
+        }
         return result
     }
 
@@ -364,7 +370,11 @@ public actor ThumbnailLoader {
         }
         inFlight[coalescingKey] = task
         let result = await task.value
-        inFlight.removeValue(forKey: coalescingKey)
+        // Conditional removal — same `cancelAll()` re-registration edge as
+        // the URL-keyed overload above.
+        if inFlight[coalescingKey] == task {
+            inFlight.removeValue(forKey: coalescingKey)
+        }
         return result
     }
 
