@@ -127,6 +127,29 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: previewURL.path))
     }
 
+    func testPreviewSupersededByNewerEditedSidecarIsNotServed() async throws {
+        let assetURL = try writeJPEG(named: "g.jpg", width: 2400, height: 1600)
+        // A camera-original preview exists, then a visually-edited sidecar
+        // arrives much later (e.g. synced from another device). The stale
+        // preview must not swap camera-original pixels over the edited state.
+        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+        try FileManager.default.createDirectory(
+            at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0xFF, 0xD8, 0x01, 0x02, 0xFF, 0xD9]).write(to: previewURL)
+        // Backdate the preview (and the asset, so the asset-mtime freshness
+        // gate stays satisfied) beyond the autosave slack.
+        let past = Date(timeIntervalSinceNow: -3_600)
+        try FileManager.default.setAttributes(
+            [.modificationDate: past], ofItemAtPath: previewURL.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: past], ofItemAtPath: assetURL.path)
+        try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
+
+        let data = await ThumbnailLoader.shared.loadDisplayPreview(
+            for: AssetRef(url: assetURL))
+        XCTAssertNil(data)
+    }
+
     func testEditedSidecarWithFreshRenderedTierServesIt() async throws {
         let assetURL = try writeJPEG(named: "e.jpg", width: 2400, height: 1600)
         try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))

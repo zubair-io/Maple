@@ -25,6 +25,12 @@ extension ThumbnailLoader {
     /// screen — while real embedded previews are ≥ 1024 on every modern body.
     private static let minUsefulEmbeddedLongEdge = 1_024
 
+    /// Shared CIContext for the nonisolated static encode path below —
+    /// `CIContext` is heavyweight to allocate and thread-safe to share
+    /// (mirrors `posterCIContext` in ThumbnailLoader.swift), so fast paging
+    /// never pays a per-encode context allocation.
+    private static let displayPreviewCIContext = CIContext()
+
     /// Display-resolution JPEG for a URL-backed asset — the Preview screen's
     /// second tier (the thumbnail paints first, this swaps in when it
     /// resolves).
@@ -57,7 +63,12 @@ extension ThumbnailLoader {
 
         // Coalesce duplicate requests (a pager scrub can ask for the same
         // page twice) under a namespaced key so it never collides with the
-        // 256 px thumbnail entries in the same map.
+        // 256 px thumbnail entries in the same map. The check + task creation
+        // + map insert below run with NO intervening `await`, so no second
+        // caller can interleave and start a duplicate; the decode-slot wait
+        // happens INSIDE the task instead of before the insert (which would
+        // suspend the actor mid-registration and reopen the race — Jules
+        // review, PR #1907).
         let coalescingKey = "display-preview:" + ThumbnailDiskCache.cacheKey(for: url)
         if let existing = inFlight[coalescingKey] {
             return await existing.value
@@ -65,31 +76,51 @@ extension ThumbnailLoader {
 
         let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
         let isRaw = asset.isRaw
-        await acquireDecodeSlot()
         let task = Task.detached(priority: .utility) { () -> Data? in
-            let accessing = scope.startAccessingSecurityScopedResource()
-            defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-
-            let previewURL = MapleSidecarPaths.previewURL(for: url)
-            if let cached = Self.freshDisplayPreviewData(previewURL: previewURL, assetURL: url) {
-                return cached
-            }
-            if Self.sidecarHasVisualEdits(assetURL: url) {
-                return nil
-            }
-            guard let data = Self.displayPreviewJPEG(at: url, isRaw: isRaw) else { return nil }
-            try? FileManager.default.createDirectory(
-                at: previewURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try? data.write(to: previewURL, options: .atomic)
-            return data
+            await self.acquireDecodeSlot()
+            let result = Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
+            await self.releaseDecodeSlot()
+            return result
         }
         inFlight[coalescingKey] = task
         let result = await task.value
         inFlight.removeValue(forKey: coalescingKey)
-        await releaseDecodeSlot()
         return result
+    }
+
+    /// The synchronous produce path: serve the fresh cached tier, gate on
+    /// visual edits, else generate from the embedded preview and persist.
+    /// Runs on a detached task under the decode-slot gate.
+    private nonisolated static func produceDisplayPreview(
+        url: URL, scope: URL, isRaw: Bool
+    ) -> Data? {
+        let accessing = scope.startAccessingSecurityScopedResource()
+        defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+
+        let previewURL = MapleSidecarPaths.previewURL(for: url)
+        if let cached = freshDisplayPreviewData(previewURL: previewURL, assetURL: url) {
+            return cached
+        }
+        if sidecarHasVisualEdits(assetURL: url) {
+            return nil
+        }
+        guard let data = displayPreviewJPEG(at: url, isRaw: isRaw) else { return nil }
+        try? FileManager.default.createDirectory(
+            at: previewURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: previewURL, options: .atomic)
+        return data
+    }
+
+    /// Refresh BOTH render-derived artifacts — the 256 px browse thumbnail
+    /// and the 1600 px display preview — from one rendered frame. The render-
+    /// publish paths (`EditSession+Render`, the #1879 GPU-exit readback) call
+    /// this so the two tiers stay in lock-step: an edited photo's Preview
+    /// swap must show the same EDITED pixels its thumbnail does.
+    public func updateDerivedImagesFromRender(_ rendered: CIImage, for assetURL: URL) async {
+        await updateThumbnailFromRender(rendered, for: assetURL)
+        await updateDisplayPreviewFromRender(rendered, for: assetURL)
     }
 
     /// Overwrite the on-disk display preview for `assetURL` with one rendered
@@ -112,11 +143,26 @@ extension ThumbnailLoader {
         try? data.write(to: previewURL, options: .atomic)
     }
 
-    /// Bytes of the cached display preview when it is at least as new as the
-    /// asset file; nil on a miss or a stale entry. (Staleness vs the SIDECAR
-    /// is deliberately not checked — the tier is refreshed by the render
-    /// paths on edit, exactly like the 256 px thumbnail, and the two must
-    /// stay consistent with each other.)
+    /// A sidecar may legitimately be a little newer than the preview the
+    /// editor wrote for it: the render-publish path writes the tier per
+    /// refine render, while the sidecar lands on the 750 ms debounced
+    /// autosave — so on editor exit the sidecar's mtime trails the preview's
+    /// by up to a couple of seconds. Within this window the preview is the
+    /// developed render OF that sidecar, not a stale artifact. An externally
+    /// synced edit (the case the staleness check below exists for) arrives
+    /// minutes-to-days later.
+    private static let sidecarAutosaveSlack: TimeInterval = 10
+
+    /// Bytes of the cached display preview when it is fresh; nil on a miss
+    /// or a stale entry. Fresh means:
+    ///   - at least as new as the asset file, AND
+    ///   - not superseded by a visually-edited sidecar written after it
+    ///     (beyond the autosave slack) — e.g. an edit synced from another
+    ///     device while a camera-original preview sits on disk. Serving that
+    ///     preview would swap camera-original pixels over an edited
+    ///     thumbnail (Copilot review, PR #1907). Suppressing the swap keeps
+    ///     the thumbnail — never wrong, just lower-res — until the render
+    ///     paths write a developed tier.
     private nonisolated static func freshDisplayPreviewData(
         previewURL: URL, assetURL: URL
     ) -> Data? {
@@ -130,6 +176,17 @@ extension ThumbnailLoader {
             .modificationDate
         ] as? Date
         guard assetMtime.map({ previewMtime >= $0 }) ?? true else { return nil }
+
+        let sidecarMtime = (try? fm.attributesOfItem(
+            atPath: SidecarPath.sidecarURL(for: assetURL).path))?[
+            .modificationDate
+        ] as? Date
+        let supersededByEdit = sidecarMtime.map {
+            $0.timeIntervalSince(previewMtime) > sidecarAutosaveSlack
+                && sidecarHasVisualEdits(assetURL: assetURL)
+        } ?? false
+        guard !supersededByEdit else { return nil }
+
         return try? Data(contentsOf: previewURL)
     }
 
@@ -176,6 +233,6 @@ extension ThumbnailLoader {
             return CGImageSourceCreateThumbnailAtIndex(src, 0, decodeOpts as CFDictionary)
         }()
         guard let cg = usable else { return nil }
-        return jpegData(from: CIImage(cgImage: cg), ctx: CIContext())
+        return jpegData(from: CIImage(cgImage: cg), ctx: displayPreviewCIContext)
     }
 }
