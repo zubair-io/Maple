@@ -182,36 +182,47 @@ pub struct MapleAdjustmentParams {
     pub wb_frame_render_cm: [f32; 9],
 }
 
+/// The flat `wb_frame_*` fields grouped for [`wb_frame_from_flat`] — the
+/// matrices borrowed from the caller's C params struct (`[f32; 9]` tail
+/// fields), the scalars by value. Grouping keeps the reconstruction under
+/// the repo's ≤5-parameter rule (CONTRIBUTING.md) instead of a
+/// `too_many_arguments` suppression.
+pub(crate) struct WbFrameFlat<'a> {
+    pub m_cold: &'a [f32; 9],
+    pub cct_cold: f32,
+    pub m_warm: &'a [f32; 9],
+    pub cct_warm: f32,
+    pub scene_cct: f32,
+    pub as_shot_tint: f32,
+    /// Render-profile CM (XYZ→camera) — the delta's conjugation basis
+    /// (#1965). All-zero ⇒ absent ⇒ `to_frame` falls back to the value
+    /// frame.
+    pub render_cm: &'a [f32; 9],
+}
+
 /// Rebuild the raw-core [`raw_core::stages::wb_camera::SliderFrameExport`]
-/// from the six flat `wb_frame_*` fields (#1781). An absent frame
+/// from the flat `wb_frame_*` fields (#1781). An absent frame
 /// (`scene_cct <= 0` or non-finite, e.g. a zero-initialised stale host)
 /// maps to `SliderFrameExport::ABSENT`, whose `is_present()` is false —
 /// consumers then keep the legacy generic-CAT16 path, and no unchecked
 /// host floats leak into the export.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn wb_frame_from_flat(
-    m_cold: &[f32; 9],
-    cct_cold: f32,
-    m_warm: &[f32; 9],
-    cct_warm: f32,
-    scene_cct: f32,
-    as_shot_tint: f32,
-    render_cm: &[f32; 9],
+    f: &WbFrameFlat,
 ) -> raw_core::stages::wb_camera::SliderFrameExport {
-    if !(scene_cct.is_finite() && scene_cct > 0.0) {
+    if !(f.scene_cct.is_finite() && f.scene_cct > 0.0) {
         return raw_core::stages::wb_camera::SliderFrameExport::ABSENT;
     }
     let mat = |m: &[f32; 9]| {
         raw_core::math::Matrix3([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]])
     };
     raw_core::stages::wb_camera::SliderFrameExport {
-        m_cold: mat(m_cold),
-        cct_cold,
-        m_warm: mat(m_warm),
-        cct_warm,
-        scene_cct,
-        as_shot_tint,
-        render_cm: mat(render_cm),
+        m_cold: mat(f.m_cold),
+        cct_cold: f.cct_cold,
+        m_warm: mat(f.m_warm),
+        cct_warm: f.cct_warm,
+        scene_cct: f.scene_cct,
+        as_shot_tint: f.as_shot_tint,
+        render_cm: mat(f.render_cm),
     }
 }
 
@@ -401,19 +412,19 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     // WB slider frame (#1781): RAW shapes only — a non-RAW buffer has no
     // camera calibration and its D65-anchored delta stays on the generic
     // path. An absent frame (zeros) is `!is_present()` ⇒ legacy behaviour.
-    let wb_frame = wb_frame_from_flat(
-        &p.wb_frame_m_cold,
-        p.wb_frame_cct_cold,
-        &p.wb_frame_m_warm,
-        p.wb_frame_cct_warm,
-        if p.input_shape == 0 {
+    let wb_frame = wb_frame_from_flat(&WbFrameFlat {
+        m_cold: &p.wb_frame_m_cold,
+        cct_cold: p.wb_frame_cct_cold,
+        m_warm: &p.wb_frame_m_warm,
+        cct_warm: p.wb_frame_cct_warm,
+        scene_cct: if p.input_shape == 0 {
             p.wb_frame_scene_cct
         } else {
             0.0
         },
-        p.wb_frame_as_shot_tint,
-        &p.wb_frame_render_cm,
-    );
+        as_shot_tint: p.wb_frame_as_shot_tint,
+        render_cm: &p.wb_frame_render_cm,
+    });
 
     let opts = raw_core::pipeline::ChainOptions {
         decoded_temp,
