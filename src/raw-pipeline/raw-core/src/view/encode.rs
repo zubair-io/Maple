@@ -179,8 +179,10 @@ pub fn srgb_gamma_encode(img: &mut Image) {
 /// the round, sampled from a 64×64 blue-noise mask — the offset is
 /// positional, `dither::blue_noise_offset_lsb((i % w) as u32, (i / w) as
 /// u32)` (tiling the mask across the image), so the same input always
-/// produces the same output (no randomness). The mask's mean offset is
-/// ~0, so flat-colour regions stay on their u8 plateau ±1 LSB while smooth
+/// produces the same output (no randomness). Each value `0..=4095` appears
+/// in the mask exactly once and maps via `(v + 0.5) / 4096 - 0.5`, so the
+/// mean offset is *exactly* 0 (no DC bias) — flat-colour regions stay on
+/// their u8 plateau ±1 LSB while smooth
 /// gradients pick up enough sub-LSB variance that the eye reads the
 /// quantization error as noise instead of contour bands. Blue noise
 /// concentrates that variance in high spatial frequencies, so it is less

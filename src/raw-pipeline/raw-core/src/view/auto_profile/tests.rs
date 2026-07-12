@@ -264,12 +264,23 @@ mod apply_tests {
         for (got, want) in rgb.iter().zip(expected.iter()) {
             assert!((got - want).abs() < 1e-5, "got {got} want {want}");
         }
-        // Sanity: a positive chroma boost must actually raise the channel spread
-        // (a saturation proxy) versus the untouched input — proves the branch
-        // fired and pushed the color away from neutral rather than collapsing it.
-        let spread_in = input[0] - input[1];
-        let spread_out = rgb[0] - rgb[1];
-        assert!(spread_out > spread_in, "boost widened spread: {spread_in} -> {spread_out}");
+        // Sanity: a positive chroma boost must raise the pixel's actual Oklab
+        // chroma magnitude (sqrt(a² + b²)) — the quantity the stage scales —
+        // versus the untouched input, proving the branch fired and pushed the
+        // color away from neutral rather than collapsing it. (A raw channel
+        // difference is not a reliable saturation proxy: the boost redistributes
+        // across channels, so it can shrink even when chroma grows.)
+        let oklab_chroma = |p: [f32; 3]| -> f32 {
+            let lab =
+                srgb_linear_to_oklab([srgb_gamma_inv(p[0]), srgb_gamma_inv(p[1]), srgb_gamma_inv(p[2])]);
+            (lab[1] * lab[1] + lab[2] * lab[2]).sqrt()
+        };
+        let chroma_in = oklab_chroma(input);
+        let chroma_out = oklab_chroma([rgb[0], rgb[1], rgb[2]]);
+        assert!(
+            chroma_out > chroma_in,
+            "chroma boost must increase Oklab chroma: {chroma_in} -> {chroma_out}"
+        );
     }
 
     /// #1948: a neutral gray has zero Oklab chroma, so any `chroma_boost` must
