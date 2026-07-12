@@ -237,8 +237,9 @@ export function resolveWbScaleVersion(desc: Element, sawPappAnywhere: boolean): 
  * the next save (sidecars written before the gate never stamped a preset
  * alongside slider edits). Returns `undefined` when nothing should change:
  * an explicit preset was parsed, or no WB fields were authored.
+ * Module-local: the parser reaches it through [`normalizeParsedWb`].
  */
-export function inferredWbPresetForAuthoredPair(
+function inferredWbPresetForAuthoredPair(
   parsedPreset: string | undefined,
   appliedModelKeys: ReadonlySet<string>,
 ): 'Custom' | undefined {
