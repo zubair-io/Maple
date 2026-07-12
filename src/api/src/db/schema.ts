@@ -83,7 +83,6 @@ export interface FolderDoc {
   mirrors?: MirrorLocation[];
 }
 
-
 // ---------------------------------------------------------------------------
 // Asset
 // ---------------------------------------------------------------------------
@@ -949,7 +948,6 @@ export interface IndexerTaskDoc {
   updated_at: string;
 }
 
-
 // ---------------------------------------------------------------------------
 // JobRunner — sibling subsystem to the indexer pipeline for user-triggered
 // long-running work (export, batch reprocess, …). See
@@ -1085,7 +1083,6 @@ export interface ImportFileDoc extends ImportFileEntry {
   import_id: ObjectId;
   idx: number;
 }
-
 
 // ---------------------------------------------------------------------------
 // Discover frontier (resumable directory walk)
@@ -1275,7 +1272,6 @@ export interface UploadSessionDoc {
   phasset_cloud_id?: string;
 }
 
-
 /** Per-device, per-library progress summary. NOT TTL-pruned — backup
  * sessions are kept indefinitely so the device can report cumulative state. */
 export interface BackupSessionDoc {
@@ -1288,7 +1284,6 @@ export interface BackupSessionDoc {
   uploaded_count: number;
   failed_count: number;
 }
-
 
 // ---------------------------------------------------------------------------
 // Asset change feed (Phase 5b — File Provider push channel)
@@ -1342,7 +1337,6 @@ export interface ServerStateDoc {
   /** For string-valued singletons (e.g. the `jwt_secret` row). */
   value?: string;
 }
-
 
 // ---------------------------------------------------------------------------
 // Metadata override (#1580 — Batch Metadata M1)
