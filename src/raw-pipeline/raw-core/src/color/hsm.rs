@@ -2,17 +2,22 @@
 //!
 //! Both tags ship a 3D LUT keyed on (hue, sat, val) with three outputs per
 //! lattice entry: hueDelta in degrees, satScale, valScale (all multiplicative
-//! except hueDelta which is additive on hue). The same algorithm applies for
-//! HSM and PLT — only the pipeline-stage differs:
+//! except hueDelta which is additive on hue). HSM and PLT share this table
+//! shape and the HSV-space correction model, but differ in two ways — the
+//! pipeline stage they run at AND the interpolation kernel:
 //!
-//! * **HSM** runs as part of the camera-RGB → working-RGB transform. The
-//!   "value" axis indexes the camera-RGB max channel (in either Linear or sRGB
-//!   space per `ProfileHueSatMapEncoding`). Two-illuminant profiles ship
+//! * **HSM** runs as part of the camera-RGB → working-RGB transform, via the
+//!   **trilinear** lookup in this module. The "value" axis indexes the
+//!   camera-RGB max channel (in either Linear or sRGB space per
+//!   `ProfileHueSatMapEncoding`). Two-illuminant profiles ship
 //!   `ProfileHueSatMapData1` + `ProfileHueSatMapData2` and must be
 //!   reciprocal-CCT lerped per spec § 6.6.5 — same shape as the calibration
 //!   matrix interpolation in `dcp::interpolate_cm`.
 //! * **PLT** runs after working-RGB is built (post-DCP, before user
-//!   adjustments). Single table; encoding via `ProfileLookTableEncoding`.
+//!   adjustments), via **tetrahedral** interpolation
+//!   (`dcp::apply_look_table` / `lookup_tetrahedral`), not the trilinear
+//!   kernel here. Single table; encoding via `ProfileLookTableEncoding`.
+//!   Currently dead pending #1691 Phase 2.
 //!
 //! ## RGB ↔ HSV
 //!

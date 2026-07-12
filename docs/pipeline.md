@@ -41,14 +41,15 @@ decode (rawler)  →  RawImage  (CFA mosaic, EXIF, DCP tags, AsShotNeutral, crop
   ├─ 17. tone_curves          (parametric + per-channel R/G/B curves — identity by default)
   ├─ 18. vibrance
   ├─ 19. saturation
-  ├─ 20. clarity              (midtone local contrast, large-radius unsharp)
-  ├─ 21. texture              (fine-detail local contrast, small-radius unsharp)
-  ├─ 22. dehaze
-  ├─ 23. local_adjustments    (#280; masked region edits — empty by default)
-  ├─ 24. vignette             (#1109; scene-linear radial gain)
-  ├─ 25. sharpen              (output sharpening; default amount 40)
-  ├─ 26. nr_luminance         (luminance noise reduction)
-  └─ 27. nr_color             (color noise reduction; default 25)
+  ├─ 20. hsl                  (#1112; 8-band per-hue H/S/L — identity by default)
+  ├─ 21. clarity              (midtone local contrast, large-radius unsharp)
+  ├─ 22. texture              (fine-detail local contrast, small-radius unsharp)
+  ├─ 23. dehaze
+  ├─ 24. local_adjustments    (#280; masked region edits — empty by default)
+  ├─ 25. vignette             (#1109; scene-linear radial gain)
+  ├─ 26. sharpen              (output sharpening; default amount 40)
+  ├─ 27. nr_luminance         (luminance noise reduction)
+  └─ 28. nr_color             (color noise reduction; default 25)
   │
   ▼
 Image in ColorSpace::SceneLinearRec2020  (unbounded f32, no clipping yet)
@@ -62,7 +63,7 @@ The expensive, model-independent work — decode, demosaic, DCP, the decode-time
 
 ```
 white_balance (delta) → scene_tone_controls → tone_curves → vibrance → saturation
-  → clarity → texture → dehaze → local_adjustments → vignette → nr_luminance
+  → hsl → clarity → texture → dehaze → local_adjustments → vignette → nr_luminance
   → [view tail: agx → split_tone → grain]
 ```
 
@@ -86,11 +87,13 @@ scene-linear Rec.2020 (unbounded)
   │  → display-linear Rec.2020 [0,1]
   ├─ split_tone (stages/split_tone.rs)   #1111; display-linear Oklab shadow/highlight tint
   ├─ grain (stages/grain.rs)             #1110; display-linear deterministic hash noise
+  ├─ display encode (view/encode.rs)     Rec.2020 → sRGB / display-P3 via the Oklab-aware
+  │                              rec2020_to_srgb (#877), then srgb_gamma_encode.
   ├─ Auto Profile (view/auto_profile/)   #536; per-image tone residual fit from the embedded
-  │                              JPEG preview, layered on top of AgX in display space (#550).
+  │                              JPEG preview, applied on the display-ENCODED sRGB buffer —
+  │                              i.e. AFTER rec2020_to_srgb + srgb_gamma_encode (#550).
   │                              Profile = "Auto" (default) or "Neutral" (AgX-only, no residual).
-  └─ display encode (view/encode.rs)     Rec.2020 → sRGB / display-P3 via the Oklab-aware
-                                 rec2020_to_srgb (#877), optional dither, quantize.
+  └─ dither + quantize (view/encode.rs)  optional blue-noise dither, then pack to 8-bit / fp16.
   │
   ▼
 display-encoded pixels (sRGB / display-P3, 8-bit or fp16)
