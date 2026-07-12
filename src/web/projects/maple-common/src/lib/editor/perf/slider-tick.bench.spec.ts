@@ -4,17 +4,22 @@
 // bench measures the live FFI-round-trip path that a slider drag triggers;
 // the web bench has a smaller scope by necessity:
 //
-//   1. The web editor's real per-tick render uses WebGL2, which is not
-//      available in the headless test runner. Anything that touches a GL
-//      context fails to compile (no canvas), so we cannot measure the GPU
-//      filter pass under `ng test`. A follow-up KTLO can add a Playwright-
-//      backed harness once the WebGL editor is wired up.
+//   1. The web editor's real per-tick render uses WASM + WebGPU, which are not
+//      available in the headless Vitest/jsdom runner. Anything that touches a
+//      GPU/GL/WASM render context fails to run (no canvas), so we cannot
+//      measure the render pass under `ng test`. The real render+present path is
+//      now covered by the Playwright benchmark
+//      `src/web/e2e/slider-tick-render.perf.spec.ts` (#1939), which drives an
+//      actual RAW through the live editor and times the worker's
+//      `maple:session-render` measures.
 //
-//   2. What we *can* measure today is the EditorStateService.setArmedDisplayValue
-//      → LibraryStateService.updateAdjustment → signal-update pipeline. That's
-//      the state plumbing every slider tick must traverse before the render
-//      kicks off. If we regress here (e.g. by introducing a synchronous
-//      diff-deep-clone on every patch), the GPU never even gets a chance.
+//   2. What THIS bench still covers — cheaply, on every `ng test` run — is the
+//      EditorStateService.setArmedDisplayValue → LibraryStateService.updateAdjustment
+//      → signal-update pipeline: the state plumbing every slider tick must
+//      traverse before the render kicks off. If we regress here (e.g. by
+//      introducing a synchronous diff-deep-clone on every patch), the GPU never
+//      even gets a chance. The two are complementary — this is the fast
+//      always-on state-pipe guard; the Playwright bench is the real render gate.
 //
 // File-naming note: this is `*.bench.spec.ts`, not `*.bench.ts`. The Angular
 // builder (`@angular/build:unit-test`) globs `*.spec.ts` via Vitest's standard
