@@ -285,13 +285,15 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                 });
             }
 
-            // Some DNGs are stored as f32 (linearised). Convert back to u16
-            // using the white level so downstream linearisation still works.
-            let scale = white_level as f32;
-            fdata
-                .iter()
-                .map(|&v| ((v * scale).round().clamp(0.0, u16::MAX as f32)) as u16)
-                .collect()
+            // Some DNGs are stored as f32 (linearised HDR — e.g. ACR/Lightroom
+            // HDR-Merge output, #459). Requantize into the u16 buffer the
+            // pipeline expects while preserving float precision AND over-white
+            // headroom, then adopt the anchored white so downstream
+            // linearisation still maps nominal white → 1.0. See #1917 and
+            // `requantize_float_samples`.
+            let (data, eff_white) = requantize_float_samples(&fdata, white_level);
+            white_level = eff_white;
+            data
         }
     };
 
@@ -763,6 +765,48 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
     }
 }
 
+/// u16 anchor for the nominal white point of float-format (`SampleFormat=3`)
+/// DNG samples. Anchoring nominal white at 2^14 keeps ~14 bits of below-white
+/// precision through the u16 requantization and leaves ~2 stops of over-white
+/// HDR headroom before the `u16::MAX` ceiling.
+const FLOAT_WHITE_ANCHOR: u32 = 16_384;
+
+/// Requantize float-format DNG samples into the u16 buffer the decode pipeline
+/// expects, preserving float precision AND over-white HDR headroom (#1917).
+///
+/// Float DNGs — e.g. ACR/Lightroom HDR-Merge output (#459) — are scene-linear
+/// floats whose nominal white is `white_level` (DNG spec default 1.0) and which
+/// legitimately carry over-white HDR headroom. The pre-#1917 code scaled by the
+/// raw metadata `white_level` and rounded to u16: for the float-default white of
+/// 1.0 (→ u32 1) that collapsed the whole image onto ~2 integer levels — 0.18
+/// mid-gray and 0.5 both round to 0 — annihilating float precision and the HDR
+/// headroom this format exists to carry, contradicting the scene-referred
+/// invariant ("nothing before the view transform clips").
+///
+/// Fix: anchor nominal white at [`FLOAT_WHITE_ANCHOR`] via an integer boost that
+/// only ever *raises* precision (never below the metadata white), and return
+/// that anchored value as the effective `white_level` so downstream
+/// `sensor_linearize` still maps nominal white → scene-linear 1.0. Values above
+/// nominal white are retained up to `u16::MAX` (~4× / 2 stops) rather than
+/// clipped at the white point.
+///
+/// Note: fully unbounded >1.0 headroom into the scene-linear buffer additionally
+/// requires relaxing the generic `linearize` `[0, 1]` clamp for float sources
+/// (and, for arbitrary headroom, an f32 raw lane — the u16 buffer caps in-lane
+/// headroom at 65535 regardless); that is out of scope for this decode-boundary
+/// fix, which eliminates the precision/headroom destruction at import.
+fn requantize_float_samples(fdata: &[f32], white_level: u32) -> (Vec<u16>, u32) {
+    let white = white_level.max(1);
+    let boost = (FLOAT_WHITE_ANCHOR / white).max(1);
+    let eff_white = white.saturating_mul(boost);
+    let scale = eff_white as f32;
+    let raw_data = fdata
+        .iter()
+        .map(|&v| (v * scale).round().clamp(0.0, u16::MAX as f32) as u16)
+        .collect();
+    (raw_data, eff_white)
+}
+
 /// Map an EXIF/DNG `CalibrationIlluminant` u16 code to our `CoreIlluminant`.
 /// Used to pair `ForwardMatrix1` / `ForwardMatrix2` with their illuminants
 /// during DNG decode (rawler doesn't expose FM directly, so we read the
@@ -890,6 +934,59 @@ mod tests {
         // Unknown / unsupported codes still degrade to D65.
         assert_eq!(exif_illuminant_to_core(0), CoreIlluminant::D65);
         assert_eq!(exif_illuminant_to_core(99), CoreIlluminant::D65);
+    }
+
+    /// Regression test for #1917 — float-format (SampleFormat=3) DNG samples,
+    /// e.g. ACR/Lightroom HDR-Merge output (#459), must survive import with
+    /// both their precision and their over-white HDR headroom intact. Pre-fix,
+    /// scaling by the DNG float-default white of 1.0 and rounding to u16
+    /// collapsed the whole image onto ~2 integer levels (0.18 mid-gray and 0.5
+    /// both → 0) and quantized the HDR headroom to death.
+    #[test]
+    fn float_samples_preserve_precision_and_hdr_headroom() {
+        // Float DNG default white = 1.0 (→ u32 1). Distinct sub-white values
+        // (mid-gray, half-white) plus an over-white HDR highlight.
+        let samples = [0.0_f32, 0.18, 0.5, 1.0, 2.5];
+        let (raw, eff_white) = requantize_float_samples(&samples, 1);
+
+        // White is anchored high, so nominal white maps back to 1.0 downstream.
+        assert_eq!(eff_white, FLOAT_WHITE_ANCHOR);
+        assert_eq!(raw[3], FLOAT_WHITE_ANCHOR as u16); // v = 1.0 → eff_white
+
+        // Precision: sub-white values stay DISTINCT and nonzero (pre-fix → 0).
+        assert_eq!(raw[0], 0);
+        assert!(raw[1] > 0, "0.18 mid-gray collapsed to 0: {}", raw[1]);
+        assert!(
+            raw[1] < raw[2],
+            "0.18 and 0.5 not distinguished: {} vs {}",
+            raw[1],
+            raw[2]
+        );
+
+        // Headroom: the over-white HDR value survives ABOVE the nominal-white
+        // anchor (not clipped down to white), within the u16 ceiling.
+        assert!(
+            raw[4] > raw[3],
+            "HDR value 2.5 clipped to white: {} vs anchor {}",
+            raw[4],
+            raw[3]
+        );
+        assert_eq!(raw[4], (2.5 * FLOAT_WHITE_ANCHOR as f32).round() as u16);
+
+        // Downstream normalization (raw / eff_white) recovers the float values.
+        let recovered = raw[1] as f32 / eff_white as f32;
+        assert!((recovered - 0.18).abs() < 1e-3, "recovered {recovered} != 0.18");
+    }
+
+    /// #1917 — when the metadata white is already high-precision (≥ the
+    /// anchor), the boost is a no-op: behavior matches a direct u16 scale.
+    #[test]
+    fn float_requantize_noop_when_white_already_high() {
+        let samples = [0.0_f32, 0.5, 1.0];
+        let (raw, eff_white) = requantize_float_samples(&samples, 65535);
+        assert_eq!(eff_white, 65535);
+        assert_eq!(raw[2], 65535); // v = 1.0 → white unchanged
+        assert_eq!(raw[1], (0.5 * 65535.0_f32).round() as u16);
     }
 
     /// Regression test for #1087 — malformed files declaring degenerate
