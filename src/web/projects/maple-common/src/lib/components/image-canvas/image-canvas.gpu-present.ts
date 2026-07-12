@@ -33,7 +33,7 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import type { AssetId } from '../../models/asset';
-import type { AdjustmentModel } from '../../models/adjustment-model';
+import { type AdjustmentModel, isDefaultAdjustment } from '../../models/adjustment-model';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -178,12 +178,14 @@ export class ImageCanvasGpuPresent {
 
         const encoder = device.createCommandEncoder();
         const renderPass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: context.getCurrentTexture().createView(),
-            clearValue: { r: 0.5, g: 0.75, b: 1.0, a: 1.0 },
-            loadOp: 'clear',
-            storeOp: 'store',
-          }],
+          colorAttachments: [
+            {
+              view: context.getCurrentTexture().createView(),
+              clearValue: { r: 0.5, g: 0.75, b: 1.0, a: 1.0 },
+              loadOp: 'clear',
+              storeOp: 'store',
+            },
+          ],
         });
         renderPass.end();
         device.queue.submit([encoder.finish()]);
@@ -254,6 +256,15 @@ export class ImageCanvasGpuPresent {
     try {
       const canvasEl = this.createCanvas();
       const offscreen = canvasEl.transferControlToOffscreen();
+      // #1915: open with the asset's actual sidecar so the FIRST presented frame
+      // reflects existing edits — not the no-edit default. A fresh import (default
+      // model, no sidecar) stays `undefined` to preserve the #1892 As-Shot seeding
+      // contract: the Rust side treats `None` as the As-Shot sentinel, and passing
+      // a serialized default instead could perturb that WB path.
+      const openModel = this.host.state.adjustmentFor(assetId)();
+      const openXmp = isDefaultAdjustment(openModel)
+        ? undefined
+        : this.host.serializeForRender(openModel);
       // Develop fit to the viewport (#1080): pass the wrap's long edge in real
       // pixels so the session never develops (or sizes a surface at) full sensor
       // res. The session pins this target for its lifetime; CSS scales the
@@ -262,7 +273,7 @@ export class ImageCanvasGpuPresent {
         offscreen,
         bytes,
         ext,
-        undefined,
+        openXmp,
         this.host.viewportTargetLongEdge(),
       );
 
