@@ -85,9 +85,11 @@ use crate::stages::white_balance;
 /// older models with no explicit authored WB) resolve exactly as before;
 /// V2/V3/V4 models with an explicit authored temperature and/or tint
 /// re-express the PAIR jointly in the V5 Robertson mapping
-/// ([`white_balance::authored_pair_to_v5`] (#1894) — the same conversion
-/// the fallback tier's `resolve_wb` applies to its own legacy-locus scale,
-/// so the two tiers can't drift); V1 models with an explicit
+/// ([`white_balance::authored_pair_to_v5`], #1894). The fallback tier's
+/// `resolve_wb` deliberately does NOT run this joint conversion — its
+/// render map never changed loci, so a value-domain tint rescale
+/// (`authored_tint_to_v4`) preserves its history exactly; see
+/// `wb_gains`'s fallback-tier note. V1 models with an explicit
 /// `crs:Temperature`/`crs:Tint` convert through the module-doc pipeline.
 /// Falls back to the plain resolver if the conversion hits a degenerate
 /// matrix (defensive; real profiles are invertible).
@@ -197,17 +199,22 @@ fn invert_frame_target(frame: &SliderFrame, n_target: [f32; 3]) -> Option<(f32, 
         Some((xyz[0] / sum, xyz[1] / sum))
     };
     let mut cct = frame.scene_cct;
-    let mut tint = 0.0_f32;
     for _ in 0..12 {
         let (x, y) = xy_for(cct)?;
-        let (next_cct, next_tint) = crate::color::dng_temperature::xy_to_temp_tint(x, y);
+        let (next_cct, _) = crate::color::dng_temperature::xy_to_temp_tint(x, y);
         let converged = (next_cct - cct).abs() < 0.5;
         cct = next_cct;
-        tint = next_tint;
         if converged {
             break;
         }
     }
+    // One final joint read AT the converged CCT's own CM: the loop's last
+    // pair was computed from the PREVIOUS iterate's implied chromaticity,
+    // so returning it directly would leave `(cct, tint)` up to the 0.5 K
+    // convergence threshold's CM shift out of self-consistency (PR #1901
+    // review).
+    let (x, y) = xy_for(cct)?;
+    let (cct, tint) = crate::color::dng_temperature::xy_to_temp_tint(x, y);
     if !cct.is_finite() || !tint.is_finite() {
         return None;
     }
