@@ -88,7 +88,12 @@ struct SelfHostedSettingsTab: View {
                     .keyboardShortcut("n", modifiers: .command)
             }
         }
+        #if os(macOS)
         .padding(24)
+        #else
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        #endif
         .mapleSettingsBackground()
         .task(id: registry.servers) {
             refreshSignedIn()
