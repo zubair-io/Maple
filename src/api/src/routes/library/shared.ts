@@ -186,6 +186,10 @@ export async function findAssetByAddress(libraryId: ObjectId, relPath: string, f
       projection: {
         maple_id: 1,
         fileinfo: 1,
+        // has_xmp + sidecar_ver drive the developed-preview branch in the
+        // preview routes (#1950): edited assets serve `_dev_<sidecar_ver>.jpg`.
+        has_xmp: 1,
+        sidecar_ver: 1,
       },
     },
   );
