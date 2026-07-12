@@ -20,7 +20,7 @@
 //! expected non-zero contributor is JPEG q82 quantization, so the budget is
 //! tight; a wide delta means a develop-path wiring bug.
 //!
-//! Skip-passes when the RAW fixture, `python3`, or numpy/PIL are absent (same
+//! Skip-passes when the RAW fixture, `python3`, or numpy/PIL/colour are absent (same
 //! pattern as `test_color_pipeline.sh`), so CI without the gitignored RAWs and
 //! without the color-harness Python deps stays green.
 //!
@@ -106,8 +106,11 @@ fn python_diff_available(script: &Path) -> bool {
     if !script.is_file() {
         return false;
     }
+    // compare_images.py imports numpy, PIL AND colour (the CIEDE2000 math).
+    // All three must be importable or the script errors at import — check the
+    // full set so a missing dep skip-passes instead of failing the gate.
     Command::new("python3")
-        .args(["-c", "import numpy, PIL"])
+        .args(["-c", "import numpy, PIL, colour"])
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
@@ -240,7 +243,7 @@ fn developed_preview_matches_reference_develop() {
     };
     let script = root.join("src/scripts/compare_images.py");
     if !python_diff_available(&script) {
-        eprintln!("develop_preview_parity: SKIP-PASS — python3 + numpy/PIL unavailable");
+        eprintln!("develop_preview_parity: SKIP-PASS — python3 + numpy/PIL/colour unavailable");
         return;
     }
     let raw = root.join("test-fixtures/raws/test_0002.dng");
