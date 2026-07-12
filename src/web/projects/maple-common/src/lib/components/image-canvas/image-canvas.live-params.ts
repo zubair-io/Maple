@@ -23,8 +23,45 @@
 import {
   type AdjustmentModel,
   defaultAdjustmentModel,
-  isDefaultAdjustment,
+  isIdentityCrop,
 } from '../../models/adjustment-model';
+
+// Computed ONCE at module load (never per render tick): the canonical default model
+// and the list of fields the fast path CANNOT carry. Excluded from that list are the
+// 19 scalar params it packs, `whiteBalancePreset` (a UI label ridden by
+// temperature/tint), `crop` (a nested object, compared structurally below),
+// `wbScaleVersion` (parse-state, not an edit), and `sharpenAmount`/`nrColor` (checked
+// explicitly against the prefix's zero, since their defaults are non-zero).
+const DEFAULT_MODEL = defaultAdjustmentModel();
+const FAST_PATH_OR_SPECIAL_KEYS = new Set<keyof AdjustmentModel>([
+  'exposure',
+  'brightness',
+  'contrast',
+  'highlights',
+  'shadows',
+  'whites',
+  'blacks',
+  'vibrance',
+  'saturation',
+  'temperature',
+  'tint',
+  'clarity',
+  'texture',
+  'dehaze',
+  'vignetteAmount',
+  'vignetteFeather',
+  'grainAmount',
+  'grainSize',
+  'grainRoughness',
+  'whiteBalancePreset',
+  'crop',
+  'wbScaleVersion',
+  'sharpenAmount',
+  'nrColor',
+]);
+const NON_FAST_PATH_KEYS = (Object.keys(DEFAULT_MODEL) as (keyof AdjustmentModel)[]).filter(
+  (k) => !FAST_PATH_OR_SPECIAL_KEYS.has(k),
+);
 
 /**
  * Whether the 19-scalar fast path (`WebLiveSession::render_with_params`) can
@@ -41,48 +78,24 @@ import {
  * dropped or stale edit — it too routes through the (still cheap, no re-develop)
  * full path.
  *
- * Comparing the remainder against the default model via the generic
- * `isDefaultAdjustment` means a NEW slider added to the schema is covered
- * automatically: it defaults to routing through the full path rather than being
- * silently dropped, so this class of bug can't recur.
+ * Runs on every GPU render tick, so it must not allocate (the CLAUDE.md render-loop
+ * invariant): the default model and the key list are module-level constants, and the
+ * body only reads fields. Iterating the default model's OWN keys still means a NEW
+ * slider added to the schema is covered automatically — it routes to the full path
+ * rather than being silently dropped, so this class of bug can't recur.
  */
 export function canUseLiveFastPath(model: AdjustmentModel): boolean {
   // The two prefix-zeroed chain sliders whose defaults are non-zero — the fast path
   // renders them at 0 regardless, so it's only faithful when the model wants 0.
   if (model.sharpenAmount !== 0 || model.nrColor !== 0) return false;
-
-  const d = defaultAdjustmentModel();
-  const scalarWildcarded: AdjustmentModel = {
-    ...model,
-    // Fields the params array carries — wildcard to default so they don't count as
-    // edits (any value is faithfully reproduced by the fast path).
-    exposure: d.exposure,
-    brightness: d.brightness,
-    contrast: d.contrast,
-    highlights: d.highlights,
-    shadows: d.shadows,
-    whites: d.whites,
-    blacks: d.blacks,
-    vibrance: d.vibrance,
-    saturation: d.saturation,
-    temperature: d.temperature,
-    tint: d.tint,
-    clarity: d.clarity,
-    texture: d.texture,
-    dehaze: d.dehaze,
-    vignetteAmount: d.vignetteAmount,
-    vignetteFeather: d.vignetteFeather,
-    grainAmount: d.grainAmount,
-    grainSize: d.grainSize,
-    grainRoughness: d.grainRoughness,
-    // The WB preset is a UI label carried through temperature/tint — wildcard it too.
-    whiteBalancePreset: d.whiteBalancePreset,
-    // Verified at the prefix zero above; wildcard so their non-zero DEFAULTS don't
-    // trip the generic default check below.
-    sharpenAmount: d.sharpenAmount,
-    nrColor: d.nrColor,
-  };
-  return isDefaultAdjustment(scalarWildcarded);
+  // `crop` is a nested object — compare structurally; a non-identity crop can't ride
+  // the fast path.
+  if (!isIdentityCrop(model.crop)) return false;
+  // Every other non-scalar field must equal its default.
+  for (const k of NON_FAST_PATH_KEYS) {
+    if (model[k] !== DEFAULT_MODEL[k]) return false;
+  }
+  return true;
 }
 
 /**
