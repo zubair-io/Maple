@@ -133,6 +133,20 @@ final class WbScaleVersionTests: XCTestCase {
         XCTAssertEqual(reparsed.wbScaleVersion, 4)
     }
 
+    func testFractionalTemperatureBeyondSixSignificantDigitsSurvives() {
+        // PR #1900 review (Jules): %g defaults to 6 significant digits, so
+        // an 11500.25 K fractional temperature would silently truncate to
+        // "11500.2" and drift on re-save. fmtWb must carry the full
+        // 2-decimal precision at any slider magnitude.
+        var m = AdjustmentModel.default
+        m.temperature = 11500.25
+        m.tint = -43.25
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"crs:Temperature="11500.25""#),
+                      "7-significant-digit fractional temperature must not truncate")
+        XCTAssertTrue(xml.contains(#"crs:Tint="-43.25""#))
+    }
+
     func testSerializerAlwaysStampsTheModelsVersion() {
         // This serializer writes explicit Temperature/Tint unconditionally,
         // so the stamp rides along unconditionally too.

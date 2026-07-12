@@ -25,8 +25,20 @@
 // and the sidecar round-trips as V1.
 
 /** Legacy (V2/V3, 1e-4 uv per unit) → V4 (`kTintScale`, 1/3000 uv per
- * unit) tint multiplier — mirrors raw-core's `TINT_SCALE_V3_TO_V4`. */
-export const TINT_SCALE_V3_TO_V4 = 0.3;
+ * unit) tint multiplier — mirrors raw-core's `TINT_SCALE_V3_TO_V4`. Module
+ * local: consumers act through `resolveWbScaleVersion`'s
+ * `authoredTintFactor`, never on the raw constant. */
+const TINT_SCALE_V3_TO_V4 = 0.3;
+
+/** Recognized `papp:WbScaleVersion` stamp values. Unknown values fall back
+ * to the authorship heuristic (matching Swift; raw-core hard-fails, which
+ * a lenient DOM-side reader deliberately does not mirror). */
+const KNOWN_STAMPS: ReadonlyMap<string, number> = new Map([
+  ['1', 1],
+  ['2', 2],
+  ['3', 3],
+  ['4', 4],
+]);
 
 export interface WbScaleResolution {
   /** The version to store on the model (never 2 or 3 — both normalize to 4). */
@@ -40,6 +52,13 @@ export interface WbScaleResolution {
   authoredTintFactor: number;
 }
 
+/** The `authoredTintFactor` for a resolved source version — see
+ * `WbScaleResolution`'s doc for the per-version meaning. */
+function tintFactorFor(version: number, sawAuthoredTint: boolean): number {
+  if (!sawAuthoredTint || version === 1 || version === 4) return 1;
+  return version === 2 ? -TINT_SCALE_V3_TO_V4 : TINT_SCALE_V3_TO_V4;
+}
+
 /**
  * Resolve the WB scale version for a parsed `rdf:Description` element.
  * `sawPappAnywhere` is the document-level Maple-authorship flag (any
@@ -49,27 +68,11 @@ export function resolveWbScaleVersion(desc: Element, sawPappAnywhere: boolean): 
   const sawExplicitWb =
     desc.getAttribute('crs:Temperature') !== null || desc.getAttribute('crs:Tint') !== null;
   const sawAuthoredTint = desc.getAttribute('crs:Tint') !== null;
-  const stampRaw = desc.getAttribute('papp:WbScaleVersion');
-  const stamp =
-    stampRaw === '1'
-      ? 1
-      : stampRaw === '2'
-        ? 2
-        : stampRaw === '3'
-          ? 3
-          : stampRaw === '4'
-            ? 4
-            : undefined;
+  const stamp = KNOWN_STAMPS.get(desc.getAttribute('papp:WbScaleVersion') ?? '');
   const version = stamp ?? (sawPappAnywhere && sawExplicitWb ? 1 : 4);
-  const factor =
-    !sawAuthoredTint || version === 1 || version === 4
-      ? 1
-      : version === 2
-        ? -TINT_SCALE_V3_TO_V4
-        : TINT_SCALE_V3_TO_V4;
   return {
     modelVersion: version === 2 || version === 3 ? 4 : version,
-    authoredTintFactor: factor,
+    authoredTintFactor: tintFactorFor(version, sawAuthoredTint),
   };
 }
 
