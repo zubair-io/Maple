@@ -92,7 +92,8 @@ pub struct SliderFrameExport {
     /// as-shot chromaticity is extremely far off the locus (H2D-39
     /// as-shot ≈ −143.5).
     pub as_shot_tint: f32,
-    /// The RENDER PROFILE's camera→XYZ CM (row-major XYZ→camera) — the
+    /// The RENDER PROFILE's CM (`profile.color_matrix`, row-major
+    /// XYZ→camera — inverted to camera→XYZ in `frame_to_rec2020`) — the
     /// conjugation basis `frame_to_rec2020` uses (#1904 seam fix). Zero ⇒
     /// host predates the fix; `to_frame` falls back to the value frame.
     pub render_cm: Matrix3,
