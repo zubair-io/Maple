@@ -192,6 +192,25 @@ export async function setHasXmp(
 }
 
 /**
+ * Record an XMP edit (#1950): mark `has_xmp`, bump the monotonic
+ * `sidecar_ver`, and re-arm the `display-preview` stage so it re-renders the
+ * developed preview for the new sidecar. One atomic update — a `$set` +
+ * `$inc`. The bumped `sidecar_ver` is what the stage and the preview routes
+ * both fold into the `_dev_<N>.jpg` cache filename, so an edit produces a new
+ * developed file and orphans the old.
+ */
+export async function recordSidecarEdit(id: ObjectId, dbOverride?: Db): Promise<UpdateResult> {
+  const c = await coll(dbOverride);
+  return c.updateOne(
+    { _id: id },
+    {
+      $set: { has_xmp: true, 'stages.display-preview.version': 0 },
+      $inc: { sidecar_ver: 1 },
+    },
+  );
+}
+
+/**
  * Set the manual `place` override and recompute `search_blob`
  * atomically (the worker stages do the same recomputation via the
  * shared aggregation expression). `place === null` clears the

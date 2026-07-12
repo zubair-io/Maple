@@ -49,7 +49,12 @@ import {
   deleteConflictSidecar,
 } from '../../fs/xmp.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
-import { findCoreInfoById, parseAssetId, setHasXmp } from '../../db/assets.repo.ts';
+import {
+  findCoreInfoById,
+  parseAssetId,
+  setHasXmp,
+  recordSidecarEdit,
+} from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 
@@ -191,9 +196,10 @@ export const xmpRoutes = new Elysia()
       }
       set.headers['Last-Modified'] = outcome.mtime.toUTCString();
       set.status = 204;
-      // Mark the asset as carrying an XMP sidecar so the working-set
-      // `has_xmp` filter can find it cheaply (Task B1).
-      await setHasXmp(id, true).catch(() => {});
+      // Mark the asset as carrying an XMP sidecar (working-set `has_xmp`
+      // filter, Task B1), bump `sidecar_ver`, and re-arm the display-preview
+      // stage so it re-renders the developed preview for this edit (#1950).
+      await recordSidecarEdit(id).catch(() => {});
       // Best-effort change-feed emit so the File Provider extension can
       // signal the OS to re-fetch this asset's sidecar.
       await recordAndPublishAssetChange({

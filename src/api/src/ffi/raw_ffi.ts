@@ -70,6 +70,18 @@ interface RawFfi {
   /** Extract an embedded RAW preview and write the JPEG directly to `outAbsPath`
    * (atomic via .tmp + rename). Avoids the bun:ffi `toBuffer` lifetime trap
    * that segfaults the JSC heap when Rust-allocated memory is later GC'd. */
+  /** Develop `rawAbsPath` with `xmpAbsPath`'s adjustments applied (null =
+   * neutral), downscale to `maxPx`, JPEG-encode, and write atomically to
+   * `outAbsPath`. The DEVELOPED counterpart to `renderThumbnailJpegToFile`
+   * (embedded-preview extraction, no adjustments) — used by the display-preview
+   * stage for edited assets (#1950). Same file-output rationale. */
+  renderDevelopJpegToFile(
+    rawAbsPath: string,
+    xmpAbsPath: string | null,
+    outAbsPath: string,
+    maxPx: number,
+    quality?: number,
+  ): boolean;
   renderThumbnailJpegToFile(
     rawAbsPath: string,
     outAbsPath: string,
@@ -148,6 +160,16 @@ function loadFfi(): RawFfi | null {
           FFIType.cstring, // out_path
           FFIType.u32, // max_px
           FFIType.u8, // quality
+        ],
+        returns: FFIType.i32,
+      },
+      maple_render_develop_jpeg_to_file: {
+        args: [
+          FFIType.cstring, // raw_path
+          FFIType.cstring, // xmp_path (nullable)
+          FFIType.u32, // max_px
+          FFIType.u8, // quality
+          FFIType.cstring, // out_path
         ],
         returns: FFIType.i32,
       },
@@ -264,6 +286,33 @@ function loadFfi(): RawFfi | null {
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
           log.error({ rc, err: errStr }, 'maple_render_thumbnail_jpeg_to_file failed');
+          return false;
+        }
+        return true;
+      },
+
+      renderDevelopJpegToFile(
+        rawAbsPath: string,
+        xmpAbsPath: string | null,
+        outAbsPath: string,
+        maxPx: number,
+        quality: number = 82,
+      ): boolean {
+        const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
+        // Nullable XMP: present → the sidecar's adjustments are applied
+        // (the whole point of the developed tier); null → neutral develop.
+        const xmpPathBuf = xmpAbsPath ? Buffer.from(xmpAbsPath + '\0', 'utf-8') : null;
+        const outPathBuf = Buffer.from(outAbsPath + '\0', 'utf-8');
+        const rc = lib.symbols.maple_render_develop_jpeg_to_file(
+          ptr(rawPathBuf),
+          xmpPathBuf ? ptr(xmpPathBuf) : null,
+          maxPx >>> 0,
+          quality & 0xff,
+          ptr(outPathBuf),
+        ) as number;
+        if (rc !== 0) {
+          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
+          log.error({ rc, err: errStr }, 'maple_render_develop_jpeg_to_file failed');
           return false;
         }
         return true;
