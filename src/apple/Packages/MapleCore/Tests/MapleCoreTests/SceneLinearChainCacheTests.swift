@@ -15,6 +15,7 @@
 //      don't go through the full pipeline (no fixtures required) so
 //      they run as part of the default `swift test` inner loop.
 
+import Foundation
 import XCTest
 import CoreImage
 @testable import MapleCore
@@ -92,6 +93,101 @@ final class SceneLinearChainCacheTests: XCTestCase {
                 "key must differ when \(label) changes — otherwise the cache returns stale pixels"
             )
         }
+    }
+
+    /// #1916 regression gate. Every field the FFI chain grew into after
+    /// #661's original 21-field list — brightness (#1102), the 24 HSL bands
+    /// (#1112), vignette (#1109), split-tone (#1111), grain (#1110) — was
+    /// silently absent from the digest, so dragging any of those sliders
+    /// returned a stale cached image (the slider "did nothing"). Each must
+    /// now invalidate the key.
+    ///
+    /// This drives the change through a REAL sidecar round-trip (serialize
+    /// to a `.xmp` on disk → `XMPParser.parse` → build the key from the
+    /// parsed model) rather than mutating an in-memory model, per the
+    /// project contract that the sidecar layer is never mocked (CLAUDE.md:
+    /// "XMP is the contract; mocks let bugs through"). It therefore also
+    /// proves each field survives serialize/parse on its way to the key.
+    ///
+    /// Values are integers so the serializer's `%.0f` formatting round-trips
+    /// exactly.
+    func testPreviouslyOmittedFieldsInvalidateKeyThroughSidecarRoundTrip() throws {
+        let id = UUID()
+        let base = try keyThroughSidecarRoundTrip(.default, assetID: id)
+
+        let mutations: [(String, (inout AdjustmentModel) -> Void)] = [
+            // scene_tone_controls
+            ("brightness", { $0.brightness = 40 }),
+            // vignette (#1109)
+            ("vignetteAmount", { $0.vignetteAmount = -30 }),
+            ("vignetteFeather", { $0.vignetteFeather = 70 }),
+            // grain (#1110) — post-AgX
+            ("grainAmount", { $0.grainAmount = 50 }),
+            ("grainSize", { $0.grainSize = 40 }),
+            ("grainRoughness", { $0.grainRoughness = 80 }),
+            // split-tone (#1111) — post-AgX
+            ("splitToneShadowHue", { $0.splitToneShadowHue = 210 }),
+            ("splitToneShadowSaturation", { $0.splitToneShadowSaturation = 40 }),
+            ("splitToneHighlightHue", { $0.splitToneHighlightHue = 60 }),
+            ("splitToneHighlightSaturation", { $0.splitToneHighlightSaturation = 30 }),
+            ("splitToneBalance", { $0.splitToneBalance = 25 }),
+            // hsl 8-band hue/sat/lum (#1112)
+            ("hueAdjustmentRed", { $0.hueAdjustmentRed = 30 }),
+            ("hueAdjustmentOrange", { $0.hueAdjustmentOrange = 30 }),
+            ("hueAdjustmentYellow", { $0.hueAdjustmentYellow = 30 }),
+            ("hueAdjustmentGreen", { $0.hueAdjustmentGreen = 30 }),
+            ("hueAdjustmentAqua", { $0.hueAdjustmentAqua = 30 }),
+            ("hueAdjustmentBlue", { $0.hueAdjustmentBlue = 30 }),
+            ("hueAdjustmentPurple", { $0.hueAdjustmentPurple = 30 }),
+            ("hueAdjustmentMagenta", { $0.hueAdjustmentMagenta = 30 }),
+            ("saturationAdjustmentRed", { $0.saturationAdjustmentRed = 30 }),
+            ("saturationAdjustmentOrange", { $0.saturationAdjustmentOrange = 30 }),
+            ("saturationAdjustmentYellow", { $0.saturationAdjustmentYellow = 30 }),
+            ("saturationAdjustmentGreen", { $0.saturationAdjustmentGreen = 30 }),
+            ("saturationAdjustmentAqua", { $0.saturationAdjustmentAqua = 30 }),
+            ("saturationAdjustmentBlue", { $0.saturationAdjustmentBlue = 30 }),
+            ("saturationAdjustmentPurple", { $0.saturationAdjustmentPurple = 30 }),
+            ("saturationAdjustmentMagenta", { $0.saturationAdjustmentMagenta = 30 }),
+            ("luminanceAdjustmentRed", { $0.luminanceAdjustmentRed = 30 }),
+            ("luminanceAdjustmentOrange", { $0.luminanceAdjustmentOrange = 30 }),
+            ("luminanceAdjustmentYellow", { $0.luminanceAdjustmentYellow = 30 }),
+            ("luminanceAdjustmentGreen", { $0.luminanceAdjustmentGreen = 30 }),
+            ("luminanceAdjustmentAqua", { $0.luminanceAdjustmentAqua = 30 }),
+            ("luminanceAdjustmentBlue", { $0.luminanceAdjustmentBlue = 30 }),
+            ("luminanceAdjustmentPurple", { $0.luminanceAdjustmentPurple = 30 }),
+            ("luminanceAdjustmentMagenta", { $0.luminanceAdjustmentMagenta = 30 }),
+        ]
+
+        for (label, mutate) in mutations {
+            var m = AdjustmentModel.default
+            mutate(&m)
+            let mutated = try keyThroughSidecarRoundTrip(m, assetID: id)
+            XCTAssertNotEqual(
+                base, mutated,
+                "cache key must change when \(label) changes — pre-#1916 it did not, so the slider returned stale cached pixels"
+            )
+        }
+    }
+
+    /// Serialize `model` to a real `.xmp` in the temp dir, read it back, and
+    /// build a cache key from the PARSED model. No sidecar mocking — the
+    /// bytes hit disk and go back through `XMPParser`.
+    private func keyThroughSidecarRoundTrip(
+        _ model: AdjustmentModel,
+        assetID: UUID
+    ) throws -> SceneLinearChainCache.Key {
+        let xml = XMPSerializer.serialize(model: model, culling: CullingState())
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scenelinearcache-rt-\(UUID().uuidString).xmp")
+        try xml.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let xmlBack = try String(contentsOf: url, encoding: .utf8)
+        let (parsed, _) = try XMPParser.parse(xmlBack)
+        return SceneLinearChainCache.make(
+            assetID: assetID, model: parsed,
+            decodedTemperature: 6500, decodedTint: 0,
+            skipAgX: false, width: 1920, height: 1080
+        )
     }
 
     /// The post-FFI sliders (sharpen* / nrColor / captureSharpening*)
