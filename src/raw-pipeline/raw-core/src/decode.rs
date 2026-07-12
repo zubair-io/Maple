@@ -769,15 +769,27 @@ fn rawler_illuminant_to_core(r: &RawlerIlluminant) -> CoreIlluminant {
 /// raw IFD entries).
 ///
 /// Codes per EXIF 2.32 / DNG spec § 3.4:
-/// 17 = Standard Light A, 21 = D65, 22 = D55, 23 = D50.
+/// 17 = Standard Light A, 20 = D55, 21 = D65, 22 = D75, 23 = D50.
+/// (Verified against the EXIF LightSource table / exiftool and the vendored
+/// `rawler` `Illuminant` enum — the pre-#1920 table dropped code 20 entirely
+/// and mislabeled 22 as D55, corrupting the reciprocal-CCT interpolation
+/// weight for any dual-illuminant DNG calibrated on D55 or D75.)
+///
+/// `CoreIlluminant` has no dedicated D75 variant, so code 22 maps to
+/// `Other(7504)` — D75's CIE CCT (~7504 K), which is what the downstream
+/// reciprocal-CCT lerp actually reads via `Illuminant::cct()`. This mirrors
+/// how `rawler_illuminant_to_core` already represents off-locus illuminants
+/// (Tungsten → `Other(3200)`).
+///
 /// Anything else degrades to D65 (matches `rawler_illuminant_to_core`'s
 /// fallback policy — keeps the dual-CM lerp path working when the DNG
 /// uses an exotic illuminant code).
 fn exif_illuminant_to_core(code: u16) -> CoreIlluminant {
     match code {
         17 => CoreIlluminant::StdA,
+        20 => CoreIlluminant::D55,
         21 => CoreIlluminant::D65,
-        22 => CoreIlluminant::D55,
+        22 => CoreIlluminant::Other(7504), // D75 (~7504 K); no dedicated D75 variant
         23 => CoreIlluminant::D50,
         _ => CoreIlluminant::D65,
     }
@@ -851,6 +863,33 @@ mod tests {
         })?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         decode_bytes(&bytes, ext)
+    }
+
+    /// Regression test for #1920 — the EXIF/DNG `CalibrationIlluminant`
+    /// numeric-code table used to pair `ForwardMatrix1/2` with their
+    /// illuminants. Pre-fix, code 20 (D55) had no arm and silently fell
+    /// through to D65, and code 22 was mislabeled D55 instead of D75 —
+    /// both corrupt the reciprocal-CCT interpolation weight. The correct
+    /// EXIF LightSource mapping is 17=A, 20=D55, 21=D65, 22=D75, 23=D50.
+    #[test]
+    fn exif_illuminant_codes_map_to_correct_illuminant() {
+        assert_eq!(exif_illuminant_to_core(17), CoreIlluminant::StdA);
+        assert_eq!(exif_illuminant_to_core(20), CoreIlluminant::D55);
+        assert_eq!(exif_illuminant_to_core(21), CoreIlluminant::D65);
+        assert_eq!(exif_illuminant_to_core(23), CoreIlluminant::D50);
+
+        // Code 22 = D75. `CoreIlluminant` has no D75 variant, so it maps to
+        // `Other(7504)` (D75's CIE CCT). What matters downstream is the CCT
+        // the reciprocal-CCT lerp reads — assert it, and that it is NOT the
+        // pre-fix D55 (~5503 K) it was wrongly collapsed to.
+        let d75 = exif_illuminant_to_core(22);
+        assert_eq!(d75, CoreIlluminant::Other(7504));
+        assert!((d75.cct() - 7504.0).abs() < 1.0, "D75 CCT was {}", d75.cct());
+        assert_ne!(d75, CoreIlluminant::D55);
+
+        // Unknown / unsupported codes still degrade to D65.
+        assert_eq!(exif_illuminant_to_core(0), CoreIlluminant::D65);
+        assert_eq!(exif_illuminant_to_core(99), CoreIlluminant::D65);
     }
 
     /// Regression test for #1087 — malformed files declaring degenerate
