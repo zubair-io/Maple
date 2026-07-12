@@ -38,6 +38,7 @@ import { CropSessionService } from '../crop-overlay/crop-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, displayDims, renderModelForCrop } from './image-canvas.crop';
 import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.render2d';
+import { canUseLiveFastPath, buildLiveParams } from './image-canvas.live-params';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -525,31 +526,11 @@ export class ImageCanvasComponent
       let params: Float32Array | undefined = undefined;
       if (a) {
         const model = this.state.adjustmentFor(a.id)();
-        params = new Float32Array(19);
-        params[0] = model.exposure;
-        params[1] = model.brightness;
-        params[2] = model.contrast;
-        params[3] = model.highlights;
-        params[4] = model.shadows;
-        params[5] = model.whites;
-        params[6] = model.blacks;
-        params[7] = model.vibrance;
-        params[8] = model.saturation;
-        // An As-Shot model's temperature/tint are the camera display seed,
-        // not an edit — the live chain's WB matrix is absolute (identity at
-        // 6500/0 over the as-shot-balanced buffer), so send the identity
-        // pair, mirroring the serializer's As-Shot omission (#1892).
-        const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
-        params[9] = wbIsAsShot ? 6500 : model.temperature;
-        params[10] = wbIsAsShot ? 0 : model.tint;
-        params[11] = model.clarity;
-        params[12] = model.texture;
-        params[13] = model.dehaze;
-        params[14] = model.vignetteAmount;
-        params[15] = model.vignetteFeather;
-        params[16] = model.grainAmount;
-        params[17] = model.grainSize;
-        params[18] = model.grainRoughness;
+        // #1914: only take the 19-scalar fast path when it can faithfully render
+        // the model. HSL / tone / split-tone / sharpen / NR / profile edits it
+        // can't carry leave `params` undefined, so `gpuPresent.render` routes
+        // through the full render(xmp) path instead of silently dropping them.
+        if (canUseLiveFastPath(model)) params = buildLiveParams(model);
       }
       // The helper presents to the OffscreenCanvas + stale-guards on `generation`,
       // returning whether to record the result (see its `render()` doc).
