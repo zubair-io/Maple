@@ -124,9 +124,9 @@ pub fn emit_wgsl() -> String {
         "Linear Rec.2020 -> linear Display P3 (SMPTE RP 431-2, D65 white point).",
         &M_REC2020_TO_P3,
     );
-    // linear sRGB → Display P3 — used by display_encode.wgsl (ticket #1337)
-    // for the corrected P3 path: compress in sRGB (where Oklab is defined),
-    // then rotate primaries to P3 with this matrix. Single-sourced from
+    // linear sRGB → Display P3 — used by display_encode.wgsl for the P3 path:
+    // the Oklab round-trip lands in linear sRGB, then this rotates the result
+    // into P3 primaries. Single-sourced from
     // raw-core/src/color/matrices.rs::M_SRGB_TO_P3.
     emit_matrix(
         &mut out,
@@ -134,6 +134,20 @@ pub fn emit_wgsl() -> String {
         "mul_srgb_to_p3",
         "Linear sRGB -> linear Display P3 (SMPTE RP 431-2, D65 white point).",
         &M_SRGB_TO_P3,
+    );
+    // linear Display P3 → linear sRGB — the inverse of M_SRGB_TO_P3, used by
+    // display_encode.wgsl's corrected P3 path (#1921): to test the P3 gamut
+    // hull in Oklab, a linear-P3 triple is first rotated to linear sRGB with
+    // this matrix, then run through the sRGB-defined Oklab transform. Computed
+    // via Matrix3::inverse() — bit-identical to raw-core's cached inverse
+    // (color::oklab::m_p3_to_srgb).
+    let m_p3_to_srgb = M_SRGB_TO_P3.inverse().expect("M_SRGB_TO_P3 is invertible");
+    emit_matrix(
+        &mut out,
+        "M_P3_TO_SRGB",
+        "mul_p3_to_srgb",
+        "Inverse of M_SRGB_TO_P3: linear Display P3 -> linear sRGB.",
+        &m_p3_to_srgb,
     );
     emit_matrix(
         &mut out,
@@ -183,14 +197,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn emits_banner_and_all_eight_matrices() {
+    fn emits_banner_and_all_nine_matrices() {
         let s = emit_wgsl();
         assert!(s.contains("DO NOT EDIT"));
-        // Three forward + three inverse + two P3 helpers (rec2020→p3, srgb→p3).
+        // Three forward + three inverse + three P3 helpers
+        // (rec2020→p3, srgb→p3, and the p3→srgb inverse for #1921).
         for f in [
             "fn mul_rec2020_to_srgb",
             "fn mul_rec2020_to_p3",
             "fn mul_srgb_to_p3",
+            "fn mul_p3_to_srgb",
             "fn mul_srgb_to_lms",
             "fn mul_lms_to_lab",
             "fn mul_lab_to_lms",
@@ -199,10 +215,10 @@ mod tests {
         ] {
             assert!(s.contains(f), "missing helper {f}");
         }
-        // Each matrix emits exactly three row consts → 24 total (8 matrices).
-        assert_eq!(s.matches("_R0: vec3<f32>").count(), 8);
-        assert_eq!(s.matches("_R1: vec3<f32>").count(), 8);
-        assert_eq!(s.matches("_R2: vec3<f32>").count(), 8);
+        // Each matrix emits exactly three row consts → 27 total (9 matrices).
+        assert_eq!(s.matches("_R0: vec3<f32>").count(), 9);
+        assert_eq!(s.matches("_R1: vec3<f32>").count(), 9);
+        assert_eq!(s.matches("_R2: vec3<f32>").count(), 9);
     }
 
     #[test]

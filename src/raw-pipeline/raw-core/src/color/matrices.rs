@@ -94,6 +94,12 @@ pub const M_REC2020_TO_SRGB: Matrix3 = Matrix3([
 /// Used by the `display_encode` view-tail when `TargetPrimaries::P3` is
 /// selected (ticket #1337). The OETF is identical for sRGB and Display P3
 /// (IEC 61966-2-1 / 2.4-gamma), so `srgb_gamma_encode` is unchanged.
+///
+/// As of #1921 this is the **first** step of the P3 path: the working triple is
+/// rotated Rec.2020 → linear P3 here, and the Oklab gamut compression then runs
+/// against the P3 hull (via `p3_linear_to_oklab` / `oklab_to_p3_linear`). The
+/// pre-#1921 order compressed to the sRGB hull first and rotated afterward,
+/// which capped P3 output at sRGB gamut.
 pub const M_REC2020_TO_P3: Matrix3 = Matrix3([
     [1.3436, -0.2822, -0.0614],
     [-0.0653, 1.0758, -0.0105],
