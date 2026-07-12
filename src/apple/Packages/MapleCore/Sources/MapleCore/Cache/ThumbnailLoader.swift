@@ -29,11 +29,13 @@ public actor ThumbnailLoader {
     /// tier in `ThumbnailLoader+DisplayPreview.swift` shares it.)
     let ctx = CIContext()
 
-    /// Shared CIContext for the static encode paths (`posterJPEG`, etc.).
-    /// `CIContext` is heavyweight to allocate and thread-safe to share, so the
-    /// static encoders reuse this one instance instead of minting a new context
-    /// on every call (a video poster per grid cell on scroll, otherwise).
-    private static let posterCIContext = CIContext()
+    /// Shared CIContext for every static encode path (`posterJPEG`,
+    /// `embeddedPreviewJPEG`, the Rust-develop and render-from-bytes
+    /// fallbacks). `CIContext` is heavyweight to allocate and thread-safe to
+    /// share, so the static encoders reuse this one instance instead of
+    /// minting a new context on every call (one per grid cell on scroll,
+    /// otherwise).
+    private static let staticEncodeCIContext = CIContext()
 
     /// Cap on concurrent thumbnail generations. The previous value (3) was
     /// tuned for the old Rust-develop thumbnail path (~350 ms each, CPU-
@@ -206,7 +208,7 @@ public actor ThumbnailLoader {
         // full develop + downscale. Same cost as before.
         do {
             let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
-            guard let data = encodeJPEG(image, ctx: CIContext()) else {
+            guard let data = encodeJPEG(image, ctx: staticEncodeCIContext) else {
                 logger.warning("JPEG encode failed for \(assetURL.lastPathComponent, privacy: .public)")
                 return nil
             }
@@ -270,7 +272,7 @@ public actor ThumbnailLoader {
         }
         // Encode to JPEG at spec quality via CIContext (reuses GPU path).
         let ci = CIImage(cgImage: cg)
-        return jpegData(from: ci, ctx: CIContext())
+        return jpegData(from: ci, ctx: staticEncodeCIContext)
     }
 
     /// Encode a CIImage to JPEG at the spec quality (q = 0.82). (Internal,
@@ -348,7 +350,7 @@ public actor ThumbnailLoader {
                     let bytes = try await provider()
                     let image = try PipelineRenderer.render(
                         rawBytes: bytes, hint: hint, quality: .preview)
-                    guard let data = Self.encodeJPEG(image, ctx: CIContext()) else {
+                    guard let data = Self.encodeJPEG(image, ctx: Self.staticEncodeCIContext) else {
                         return nil
                     }
                     await ThumbnailDiskCache.shared.storeThumbnailData(data, forKey: key)
@@ -451,6 +453,6 @@ public actor ThumbnailLoader {
                 scaleX: target.width / longEdge,
                 y: target.width / longEdge))
             : ci
-        return jpegData(from: scaled, ctx: posterCIContext)
+        return jpegData(from: scaled, ctx: staticEncodeCIContext)
     }
 }
