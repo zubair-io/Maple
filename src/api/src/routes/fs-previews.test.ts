@@ -200,4 +200,54 @@ describe('GET /api/fs/preview', () => {
     expect(res.status).toBe(200);
     expect(Buffer.from(await res.arrayBuffer())).toEqual(contentAddressed);
   });
+
+  it('serves the developed _dev_<ver>.jpg for an EDITED asset, with a sidecar-ver ETag (#1950)', async () => {
+    if (!mongo) return;
+
+    const db = mongo.db(TEST_DB);
+    const libraryId = new ObjectId();
+    await db.collection('folders').insertOne({
+      _id: libraryId,
+      path: tmp!,
+      slug: 'edited-lib',
+      label: 'Edited',
+    });
+    const mapleId = 'mid_dev_preview_test';
+    await db.collection('assets').insertOne({
+      maple_id: mapleId,
+      deleted_at: null,
+      has_xmp: true,
+      sidecar_ver: 3,
+      fileinfo: [
+        {
+          library_id: libraryId,
+          path: '',
+          filename: 'a.jpg',
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+    });
+    invalidateLibraryRoots();
+
+    // Pre-stage BOTH the developed file and the embedded file; the route must
+    // prefer the developed one for an edited asset.
+    const developed = Buffer.from([0xff, 0xd8, 0xde, 0xad, 0xff, 0xd9]);
+    const embedded = Buffer.from([0xff, 0xd8, 0xbe, 0xef, 0xff, 0xd9]);
+    const devPath = join(tmp!, '.maple', 'previews', `${mapleId}_dev_3.jpg`);
+    const embPath = join(tmp!, '.maple', 'previews', `${mapleId}_1280.jpg`);
+    await mkdir(dirname(devPath), { recursive: true });
+    await writeFile(devPath, developed);
+    await writeFile(embPath, embedded);
+
+    const res = await get(rawPath!);
+    expect(res.status).toBe(200);
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(developed);
+    const etag = res.headers.get('etag');
+    expect(etag).toContain('-dev3');
+
+    // A matching If-None-Match on the dev ETag → 304.
+    const revalidated = await get(rawPath!, { 'if-none-match': etag! });
+    expect(revalidated.status).toBe(304);
+  });
 });
