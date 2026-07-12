@@ -159,7 +159,9 @@ STAMP="$NATIVE_DIR/Frameworks/.xcframework-stamp.$PROFILE"
 EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 
 # Stable content hash over the inputs that affect the build:
-#   - every .rs under raw-core/src and raw-ffi/src
+#   - every .rs, .wgsl, and .bin under raw-core/src, raw-ffi/src,
+#     maple-pano/src, and raw-gpu/src (the .bin blobs are include_bytes!-
+#     embedded LUT / profile-bundle build inputs — #1946)
 #   - Cargo.lock (exact dependency versions)
 #   - the workspace + raw-core + raw-ffi Cargo.toml files
 #   - raw-ffi/cbindgen.toml (drives header generation — its [defines] decide
@@ -177,11 +179,18 @@ compute_input_hash() {
         # Includes `*.wgsl` shaders: raw-gpu `include_str!`s them into the compiled
         # library (the kernels run from those strings), so a shader-only edit also
         # changes the lib and must not hash-skip.
+        # Includes `*.bin` blobs (#1946): the baked LUT / profile-bundle files are
+        # `include_bytes!`-embedded into the compiled libraries and are therefore
+        # real build inputs — `view/agx_lut.bin` and `view/acr_match_lut.bin` (the
+        # AgX + AcrMatch cube LUTs) and `color/profiles/profiles.bin` (the DCP
+        # bundle). A LUT- or profile-only regeneration touches no `.rs`/`.wgsl`
+        # file, so without hashing these a stale xcframework would ship — the same
+        # bug class #1513 fixed for `.wgsl`, never extended to the `.bin` files.
         find "$RAW_PIPELINE_DIR/raw-core/src" \
              "$RAW_PIPELINE_DIR/raw-ffi/src" \
              "$RAW_PIPELINE_DIR/maple-pano/src" \
              "$RAW_PIPELINE_DIR/raw-gpu/src" \
-            -type f \( -name '*.rs' -o -name '*.wgsl' \) -print0 2>/dev/null | sort -z | xargs -0 shasum
+            -type f \( -name '*.rs' -o -name '*.wgsl' -o -name '*.bin' \) -print0 2>/dev/null | sort -z | xargs -0 shasum
         for f in \
             "$RAW_PIPELINE_DIR/Cargo.lock" \
             "$RAW_PIPELINE_DIR/Cargo.toml" \
