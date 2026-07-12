@@ -68,6 +68,14 @@ pub struct SyntheticGreyDng {
     pub profile_tone_curve: Option<Vec<(f32, f32)>>,
     pub as_shot_neutral_override: Option<[f32; 3]>,
 
+    /// `CameraCalibration1` (tag 50723): reference-camera → individual-camera
+    /// native. Defaults to identity — set a non-identity value to exercise the
+    /// per-unit-calibration fold (#1947).
+    pub camera_calibration_1_override: Option<[[f32; 3]; 3]>,
+    /// `AnalogBalance` (tag 50727): per-channel gain baked into the raw values.
+    /// Defaults to `[1, 1, 1]` — set it to exercise the per-unit fold (#1947).
+    pub analog_balance_override: Option<[f32; 3]>,
+
     /// DNG `LinearizationTable` (tag 50712 / 0xC618). Per-value LUT from
     /// encoded sensor codes to linear codes; `table[encoded] = linear`. When
     /// set, the writer emits a SHORT-array entry of `table.len()` entries.
@@ -104,6 +112,8 @@ impl Default for SyntheticGreyDng {
             forward_matrix_2: None,
             profile_tone_curve: None,
             as_shot_neutral_override: None,
+            camera_calibration_1_override: None,
+            analog_balance_override: None,
             linearization_table: None,
             encoded_value_override: None,
         }
@@ -222,23 +232,17 @@ impl SyntheticGreyDng {
         ]);
         ifd.add_srationals(TAG_COLOR_MATRIX_1, matrix_to_srationals(cm1));
 
-        // CameraCalibration1 stays identity always.
-        ifd.add_srationals(
-            TAG_CAMERA_CALIBRATION_1,
-            vec![
-                (1, 1),
-                (0, 1),
-                (0, 1),
-                (0, 1),
-                (1, 1),
-                (0, 1),
-                (0, 1),
-                (0, 1),
-                (1, 1),
-            ],
-        );
+        // CameraCalibration1: identity unless override set (#1947 per-unit fold).
+        let cc1 = self.camera_calibration_1_override.unwrap_or([
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]);
+        ifd.add_srationals(TAG_CAMERA_CALIBRATION_1, matrix_to_srationals(cc1));
 
-        ifd.add_rationals(TAG_ANALOG_BALANCE, vec![(1, 1), (1, 1), (1, 1)]);
+        // AnalogBalance: [1, 1, 1] unless override set (#1947 per-unit fold).
+        let ab = self.analog_balance_override.unwrap_or([1.0, 1.0, 1.0]);
+        ifd.add_rationals(TAG_ANALOG_BALANCE, vec3_to_rationals(ab));
 
         let asn = self.as_shot_neutral_override.unwrap_or([0.5, 1.0, 0.5]);
         ifd.add_rationals(TAG_AS_SHOT_NEUTRAL, vec3_to_rationals(asn));
