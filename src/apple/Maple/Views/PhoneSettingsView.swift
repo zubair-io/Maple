@@ -70,6 +70,8 @@ struct PhoneSettingsView: View {
             Section("Files") {
                 NavigationLink {
                     FileProviderSettingsViewIOS()
+                        .navigationTitle("Files")
+                        .navigationBarTitleDisplayMode(.inline)
                 } label: {
                     SettingsMenuRow(icon: "folder", label: "Files")
                 }
@@ -78,14 +80,15 @@ struct PhoneSettingsView: View {
             Section("App") {
                 NavigationLink {
                     AboutView()
+                        .navigationTitle("About")
+                        .navigationBarTitleDisplayMode(.inline)
                 } label: {
                     SettingsMenuRow(icon: "info.circle", label: "About")
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(MapleTokens.bg)
+        .mapleSettingsBackground()
     }
 }
 
