@@ -57,7 +57,7 @@ regression (wrong demosaic, orientation double-bake, resize filter, or a
 mis-applied XMP model) that the `maple-cli`-vs-ACR and Apple-Metal gates don't
 cover. Reuses the single diff implementation (`compare_images.py`); budgets are
 inline one-way-ratchet constants. Skip-passes when the RAW fixture or
-`python3`+numpy/PIL are absent.
+`python3`+numpy/PIL/colour (the `compare_images.py` deps) are absent.
 
 ```bash
 cd src/raw-pipeline
