@@ -11,6 +11,20 @@ import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from './maple-cache.types';
 
+/**
+ * Pipeline version the Hosted thumb cache was developed at (#1927). Unlike
+ * Apple's 256-px thumbnails (embedded-JPEG extraction, pipeline-independent),
+ * a Hosted thumb is a full WASM develop through the raw-core/AgX chain
+ * (`RawPipelineService.decode` with no XMP), so a raw-core/view-transform
+ * change alters its pixels. Bump this whenever such a change lands so
+ * previously-cached Hosted thumbs re-develop instead of serving stale.
+ *
+ * This mirrors Apple's hand-maintained `RenderedPreviewCache.viewTransformVersion`
+ * — a per-cache constant bumped on pixel-output changes, not a codegen value
+ * (the Rust codegen emits no version to TS today).
+ */
+export const THUMB_PIPELINE_VERSION = 1;
+
 @Injectable({ providedIn: 'root' })
 export class MapleCacheService {
   private fs = inject(FolderAccessService);
@@ -90,23 +104,38 @@ export class MapleCacheService {
   /**
    * Read a cached thumbnail blob.
    * `sha` is the 16-char hex prefix (sha256Prefix16(filename)).
-   * Returns null if not cached.
+   * Returns null if not cached — or if a Hosted-written thumb is stale.
+   *
+   * Pipeline-version guard (#1927): a thumb this client developed carries a
+   * `<sha>.jpg.v` companion recording `THUMB_PIPELINE_VERSION`. When that
+   * marker is older than the current version the cached pixels predate a
+   * raw-core/AgX change, so we miss and force a re-decode. A thumb with NO
+   * marker is foreign — written by the server or native app, which extract
+   * the embedded preview (pipeline-version-independent) — and is trusted
+   * as-is, preserving the portable `.maple/thumbs/<sha>.jpg` cross-platform
+   * contract. The `.jpg.v` companion mirrors the API's `<thumb>.meta`
+   * sidecar pattern (`routes/fs-thumbs.ts`).
    */
   async readThumb(folder: MapleFolderHandle, sha: string): Promise<Blob | null> {
+    let bytes: Uint8Array;
     try {
-      const bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg`);
-      // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
-      // .buffer may be typed as ArrayBufferLike; Blob requires ArrayBuffer).
-      const ab = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(ab).set(bytes);
-      return new Blob([ab], { type: 'image/jpeg' });
+      bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg`);
     } catch {
       return null;
     }
+    const markerVersion = await this._readThumbVersion(folder, sha);
+    if (markerVersion !== null && markerVersion < THUMB_PIPELINE_VERSION) {
+      return null; // stale locally-developed thumb → re-decode
+    }
+    // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
+    // .buffer may be typed as ArrayBufferLike; Blob requires ArrayBuffer).
+    const ab = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(ab).set(bytes);
+    return new Blob([ab], { type: 'image/jpeg' });
   }
 
   /**
-   * Write a thumbnail blob.
+   * Write a thumbnail blob plus its pipeline-version companion (#1927).
    * Creates `.maple/thumbs/` if necessary.
    * Silently skips if the folder is read-only.
    */
@@ -116,41 +145,30 @@ export class MapleCacheService {
       await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
       const bytes = new Uint8Array(await blob.arrayBuffer());
       await this.fs.writeFile(folder, `.maple/thumbs/${sha}.jpg`, bytes);
+      // Stamp the pipeline version this thumb was developed at so a later
+      // raw-core/AgX bump invalidates it on read (see readThumb).
+      await this.fs.writeFile(
+        folder,
+        `.maple/thumbs/${sha}.jpg.v`,
+        new TextEncoder().encode(String(THUMB_PIPELINE_VERSION)),
+      );
     } catch (err) {
       console.warn(`MapleCacheService: failed to write thumb ${sha}`, err);
     }
   }
 
-  // ── Previews ───────────────────────────────────────────────────────────────
-
   /**
-   * Read a cached preview blob (1600px, last-seen adjusted state).
-   * Returns null if not cached.
+   * Read the pipeline-version marker for a cached thumb. Returns the integer,
+   * or `null` when the marker is absent (a foreign/embedded thumb — trusted)
+   * or unparseable.
    */
-  async readPreview(folder: MapleFolderHandle, sha: string): Promise<Blob | null> {
+  private async _readThumbVersion(folder: MapleFolderHandle, sha: string): Promise<number | null> {
     try {
-      const bytes = await this.fs.readFile(folder, `.maple/previews/${sha}.jpg`);
-      const ab = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(ab).set(bytes);
-      return new Blob([ab], { type: 'image/jpeg' });
+      const bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg.v`);
+      const parsed = Number.parseInt(new TextDecoder().decode(bytes).trim(), 10);
+      return Number.isFinite(parsed) ? parsed : null;
     } catch {
       return null;
-    }
-  }
-
-  /**
-   * Write a preview blob.
-   * Creates `.maple/previews/` if necessary.
-   * Silently skips if the folder is read-only.
-   */
-  async writePreview(folder: MapleFolderHandle, sha: string, blob: Blob): Promise<void> {
-    if (!folder.write) return;
-    try {
-      await this.fs.ensureSubdirectory(folder, '.maple/previews');
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      await this.fs.writeFile(folder, `.maple/previews/${sha}.jpg`, bytes);
-    } catch (err) {
-      console.warn(`MapleCacheService: failed to write preview ${sha}`, err);
     }
   }
 }
