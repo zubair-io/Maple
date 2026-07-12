@@ -72,19 +72,20 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     // frame math is inherently anchor-relative; legacy absolute callers never
     // supply a frame). A zero-filled tail reads `scene_cct == 0` ⇒ absent ⇒
     // every branch below is byte-for-byte the pre-#1781 computation.
-    let wb_frame = crate::scene_linear_chain::wb_frame_from_flat(
-        &p.wb_frame_m_cold,
-        p.wb_frame_cct_cold,
-        &p.wb_frame_m_warm,
-        p.wb_frame_cct_warm,
-        if p.input_shape == 0 {
-            p.wb_frame_scene_cct
-        } else {
-            0.0
-        },
-        p.wb_frame_as_shot_tint,
-        &p.wb_frame_render_cm,
-    );
+    let wb_frame =
+        crate::scene_linear_chain::wb_frame_from_flat(&crate::scene_linear_chain::WbFrameFlat {
+            m_cold: &p.wb_frame_m_cold,
+            cct_cold: p.wb_frame_cct_cold,
+            m_warm: &p.wb_frame_m_warm,
+            cct_warm: p.wb_frame_cct_warm,
+            scene_cct: if p.input_shape == 0 {
+                p.wb_frame_scene_cct
+            } else {
+                0.0
+            },
+            as_shot_tint: p.wb_frame_as_shot_tint,
+            render_cm: &p.wb_frame_render_cm,
+        });
     let frame_delta_engaged = use_delta && wb_frame.is_present();
     let wb_matrix = if frame_delta_engaged {
         // Frame-anchored delta: `C_f · diag(g(live)/g(decoded)) · C_f⁻¹` —
