@@ -56,6 +56,9 @@ pub use types::{
 
 pub mod ui_tokens;
 
+pub mod version;
+pub use version::PIPELINE_OUTPUT_VERSION;
+
 pub mod xmp;
 
 pub mod pipeline;
