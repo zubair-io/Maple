@@ -83,6 +83,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             0.0
         },
         p.wb_frame_as_shot_tint,
+        &p.wb_frame_render_cm,
     );
     let frame_delta_engaged = use_delta && wb_frame.is_present();
     let wb_matrix = if frame_delta_engaged {

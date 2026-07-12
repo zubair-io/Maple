@@ -39,6 +39,11 @@ public struct WbSliderFrame: Sendable, Equatable {
     /// The frame's as-shot tint (in-frame estimate; may sit at the ±100
     /// rail for bodies whose as-shot chromaticity is far off the locus).
     public let asShotTint: Float
+    /// The RENDER PROFILE's camera→XYZ CM (row-major 9 floats) — the
+    /// conjugation basis the GPU-live WB delta is built in (#1904 seam
+    /// fix). Empty ⇒ absent; the Rust side then falls back to the value
+    /// frame (pre-fix behaviour), so an un-populated frame stays sound.
+    public let renderCm: [Float]
 
     /// Whether the export carries a real frame (`sceneCCT > 0`). All-zero
     /// exports read as absent — consumers keep legacy behaviour.
@@ -47,7 +52,8 @@ public struct WbSliderFrame: Sendable, Equatable {
     public init(
         mCold: [Float], cctCold: Float,
         mWarm: [Float], cctWarm: Float,
-        sceneCCT: Float, asShotTint: Float
+        sceneCCT: Float, asShotTint: Float,
+        renderCm: [Float] = []
     ) {
         self.mCold = mCold
         self.cctCold = cctCold
@@ -55,6 +61,7 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.cctWarm = cctWarm
         self.sceneCCT = sceneCCT
         self.asShotTint = asShotTint
+        self.renderCm = renderCm
     }
 
     /// Read the export off a decode buffer. Returns `nil` when the buffer
@@ -68,6 +75,7 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.cctWarm = buffer.wb_frame_cct_warm
         self.sceneCCT = buffer.wb_frame_scene_cct
         self.asShotTint = buffer.wb_frame_as_shot_tint
+        self.renderCm = Self.array9(buffer.wb_frame_render_cm)
     }
 
     /// The imported C `float[9]` (a 9-tuple in Swift) as an array.
@@ -97,6 +105,7 @@ extension WbSliderFrame {
         p.wb_frame_cct_warm = cctWarm
         p.wb_frame_scene_cct = sceneCCT
         p.wb_frame_as_shot_tint = asShotTint
+        p.wb_frame_render_cm = Self.tuple9(renderCm)
     }
 
     /// Fill the six `wb_frame_*` tail fields of the GPU live params.
@@ -107,6 +116,7 @@ extension WbSliderFrame {
         p.wb_frame_cct_warm = cctWarm
         p.wb_frame_scene_cct = sceneCCT
         p.wb_frame_as_shot_tint = asShotTint
+        p.wb_frame_render_cm = Self.tuple9(renderCm)
     }
 
     /// The delta anchor the per-tick chains must use when this frame is

@@ -25,6 +25,7 @@ fn synthetic_frame() -> SliderFrameExport {
         cct_warm: 6504.0,
         scene_cct: 5520.0,
         as_shot_tint: -12.0,
+        render_cm: Matrix3([[0.0; 3]; 3]),
     }
 }
 
@@ -97,6 +98,7 @@ fn singular_frame_falls_back_to_generic_cat16_delta() {
         // conjugation cannot be built.
         scene_cct: 5500.0,
         as_shot_tint: 0.0,
+        render_cm: Matrix3([[0.0; 3]; 3]),
     };
     let m = f.rec2020_delta_matrix((6282.0, -44.0), (6500.0, 0.0));
     let legacy =
