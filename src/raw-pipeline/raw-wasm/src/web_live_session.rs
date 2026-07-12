@@ -359,7 +359,15 @@ impl WebLiveSession {
     /// buffer, and present to the held canvas surface. The shared tail of `open` +
     /// `render`. Returns the achieved colour-space tag (from the one-time retag).
     async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
-        let inputs = chain_inputs_for_model(&self.raw_img, &self.raw, &self.ext, model);
+        let mut inputs = chain_inputs_for_model(&self.raw_img, &self.raw, &self.ext, model);
+        // #1913: the display-encode primaries MUST match the canvas colour-space
+        // tag the present surface achieved. `chain_inputs_for_model` defaults to
+        // sRGB (correct for the one-shot u8-readback path), but this live present
+        // targets a display-p3-tagged canvas — so encode P3 when that's what the
+        // browser actually configured, else the pixels are reinterpreted in the
+        // wider P3 gamut and oversaturate.
+        inputs.target_primaries =
+            crate::gpu_render::target_primaries_for_color_space(self.present.color_space());
         let final_idx = self
             .session
             .render_chain_to_f32_async(&self.ctx, &inputs, None)

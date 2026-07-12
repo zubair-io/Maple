@@ -14,6 +14,7 @@ import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
 import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
+import { type AdjustmentModel, defaultAdjustmentModel } from '../../models/adjustment-model';
 
 // ── DOM stubs ────────────────────────────────────────────────────────────────
 // jsdom omits OffscreenCanvas / transferControlToOffscreen. Stub both so the
@@ -72,7 +73,10 @@ function makeOpenedSession(): OpenedLiveSession {
 
 // ── Minimal GpuPresentHost stub ───────────────────────────────────────────────
 
-function makeHost(openLiveSessionImpl: () => Promise<OpenedLiveSession>): GpuPresentHost {
+function makeHost(
+  openLiveSessionImpl: () => Promise<OpenedLiveSession>,
+  model: AdjustmentModel = defaultAdjustmentModel(),
+): GpuPresentHost {
   const wrapEl = document.createElement('div');
   const loading = signal(false);
   const imageBitmap = signal<ImageBitmap | null>(null);
@@ -89,7 +93,7 @@ function makeHost(openLiveSessionImpl: () => Promise<OpenedLiveSession>): GpuPre
   const state = {
     updateAssetDimensions: vi.fn(),
     seedAsShotWhiteBalance: vi.fn(),
-    adjustmentFor: vi.fn(() => signal({ version: 0 })),
+    adjustmentFor: vi.fn(() => signal(model)),
   } as unknown as GpuPresentHost['state'];
 
   const canvasSvc = {
@@ -174,5 +178,46 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const second = await gpuPresent.open('asset-2', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
     expect(second).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ImageCanvasGpuPresent — cold-open sidecar (#1915)', () => {
+  beforeEach(() => {
+    patchDom();
+    ImageCanvasGpuPresent.resetSessionForTests();
+  });
+
+  afterEach(() => {
+    unpatchDom();
+    vi.restoreAllMocks();
+  });
+
+  it('opens the live session with the real serialized sidecar for a non-default model', async () => {
+    // An asset that already has edits must present them on the FIRST frame — before
+    // the fix this passed `undefined`, so the canvas showed the no-edit default and
+    // the #846 dedup then masked the mismatch (canvas stuck on default).
+    const edited: AdjustmentModel = { ...defaultAdjustmentModel(), exposure: 1.5 };
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()), edited);
+    const gpuPresent = new ImageCanvasGpuPresent(host);
+    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+
+    await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
+
+    const calls = (host.pipeline.openLiveSession as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    // 4th arg (index 3) is the xmp — the serialized model, not undefined.
+    expect(calls[0][3]).toBe('<x/>');
+  });
+
+  it('opens with undefined xmp for a fresh (default) model — preserves the #1892 As-Shot seeding path', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession())); // default model
+    const gpuPresent = new ImageCanvasGpuPresent(host);
+    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+
+    await gpuPresent.open('asset-1', new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
+
+    const calls = (host.pipeline.openLiveSession as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][3]).toBeUndefined();
   });
 });

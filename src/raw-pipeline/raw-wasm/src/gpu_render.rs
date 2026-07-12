@@ -142,6 +142,51 @@ fn effective_ae_mode(model: &AdjustmentModel, raw: &[u8], ext: &str) -> AutoExpo
     }
 }
 
+/// Select the display-encode `target_primaries` (`display_encode.wgsl`: 0 = sRGB,
+/// 1 = Display P3) that MATCHES the canvas colour-space tag the present surface
+/// actually achieved (#1913). The web live present retags the canvas `display-p3`
+/// when the browser supports it and falls back to `srgb` otherwise; encoding under
+/// the wrong primaries makes the browser reinterpret the pixels in a wider/narrower
+/// gamut (the over-saturation bug this fixes). Any non-`display-p3` tag (`srgb`,
+/// `unknown`) encodes sRGB, the legacy-safe default `build_full_chain_inputs` uses
+/// for the u8-readback path.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn target_primaries_for_color_space(color_space: &str) -> u32 {
+    if color_space == "display-p3" {
+        1
+    } else {
+        0
+    }
+}
+
+#[cfg(test)]
+mod primaries_tests {
+    /// #1913: the live present's display-encode primaries must match the canvas
+    /// colour-space tag the surface achieved. Before the fix the chain hardcoded
+    /// sRGB (`target_primaries: 0`) while the canvas was retagged `display-p3`,
+    /// oversaturating every frame. This gates the pure selector (the full present
+    /// is WebGPU-only, exercised on-device) and would have failed on the old
+    /// always-`0` behaviour for the `display-p3` case. Lives here (not in the
+    /// gpu-feature-gated `gpu_render/tests.rs`) so it runs in the default host
+    /// test build.
+    #[test]
+    fn target_primaries_matches_canvas_color_space() {
+        use super::target_primaries_for_color_space as select;
+        assert_eq!(
+            select("display-p3"),
+            1,
+            "display-p3 canvas must encode P3 primaries (1)"
+        );
+        assert_eq!(
+            select("srgb"),
+            0,
+            "srgb canvas must encode sRGB primaries (0)"
+        );
+        assert_eq!(select("unknown"), 0, "unknown tag falls back to sRGB (0)");
+        assert_eq!(select(""), 0, "empty tag falls back to sRGB (0)");
+    }
+}
+
 /// Derive the stripped-prefix model for `model` WITHOUT developing — the cheap
 /// change-detector the persistent [`crate::web_live_session::WebLiveSession`] uses
 /// to decide whether a render must re-develop + re-upload. Equal to the
