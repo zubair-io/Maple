@@ -15,16 +15,15 @@
 // resolved and rejected if they fall outside any allowed root.
 
 import { Elysia, t } from 'elysia';
-import { stat, readFile, writeFile, realpath, mkdir } from 'node:fs/promises';
+import { stat, readFile, writeFile, mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
-import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from '../fs/browse.ts';
+import { RAW_EXTENSIONS } from '../fs/browse.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { child as childLogger } from '../log.ts';
-import { ifNoneMatchEqual } from '../runtime/http-etag.ts';
+import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
 
 const log = childLogger('fs-thumbs');
 
@@ -53,62 +52,21 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       };
     }
 
-    if (!path.isAbsolute(reqPath)) {
-      set.status = 400;
-      return { error: 'path must be absolute' };
+    // Shared absolute-path / realpath-jail / extension-gate / stat preamble
+    // (fs-jail.ts — also used by /api/fs/preview).
+    const resolved = await resolveJailedFile(reqPath);
+    if (!resolved.ok) {
+      set.status = resolved.status;
+      return { error: resolved.error };
     }
+    const { real, ext, stat: rawStat } = resolved;
 
-    // Resolve symlinks so the jail check matches the parent realpath form
-    // (mirrors `listDirContents` behaviour on macOS where /var → /private/var).
-    let real: string;
-    try {
-      real = await realpath(reqPath);
-    } catch (err) {
-      set.status = 404;
-      return {
-        error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-
-    const roots = await browseRoots();
-    if (!roots.some((r) => isUnderRoot(real, r))) {
-      set.status = 403;
-      return {
-        error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-      };
-    }
-
-    // Extension gate — RAW formats go through the FFI pipeline; common
-    // bitmap formats (JPG/HEIC/PNG/WEBP/TIFF/AVIF) go through sharp; PSD/PSB/HDR
-    // go through ag-psd/hdr then sharp. Anything else 415s so the FFI never
-    // blocks on a 50 GB Word doc.
-    const dot = real.lastIndexOf('.');
-    const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
-    const isRaw = RAW_EXTENSIONS.has(ext);
-    // Sharp-native bitmaps and PSD/PSB/HDR (first decoded via ag-psd/hdr,
-    // then handed to sharp) both go through `renderImageThumbToFile` below —
-    // collapsed into one flag so the gate and the dispatch each read as a
-    // single two-way branch instead of three separate extension sets.
-    const renderViaImgdecode = SHARP_EXTENSIONS.has(ext) || PSD_HDR_EXTENSIONS.has(ext);
-    if (!isRaw && !renderViaImgdecode) {
-      set.status = 415;
-      return { error: `Unsupported file extension: "${ext}"` };
-    }
-
-    // Stat the RAW. Used both for staleness check and for the ETag.
-    let rawStat: Awaited<ReturnType<typeof stat>>;
-    try {
-      rawStat = await stat(real);
-    } catch (err) {
-      set.status = 404;
-      return {
-        error: `Cannot stat "${real}": ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    if (!rawStat.isFile()) {
-      set.status = 400;
-      return { error: `"${real}" is not a regular file` };
-    }
+    // Dispatch — RAW formats go through the FFI pipeline; sharp-native
+    // bitmaps (JPG/HEIC/PNG/WEBP/TIFF/AVIF) and PSD/PSB/HDR (first decoded
+    // via ag-psd/hdr, then handed to sharp) both go through
+    // `renderImageThumbToFile` below — collapsed into one flag so the
+    // dispatch reads as a single two-way branch.
+    const renderViaImgdecode = !RAW_EXTENSIONS.has(ext);
 
     // One thumb per RAW (matches Apple ThumbnailDiskCache + web
     // MapleCacheService). The `size` query param controls the RENDER
@@ -120,26 +78,14 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     const thumbPath = resolveThumbPath(real);
 
     const rawMtimeMs = rawStat.mtimeMs;
-    // ETag composes mtime + size so an mtime-preserved overwrite
-    // (e.g. `utimes` after a content edit) still produces a fresh
-    // validator. Mirror assets.ts which uses the same shape.
-    const etag = `"${Math.floor(rawMtimeMs)}-${rawStat.size}"`;
-
-    // Cache-Control echoed on both 200 and 304. RFC 9110 §15.4.5: a 304
-    // SHOULD carry the same Cache-Control so URLSession (and other HTTP
-    // caches) don't downgrade freshness on revalidation.
+    const etag = sourceETag(rawStat);
     const cacheControl = 'private, max-age=3600';
 
     // If-None-Match short-circuit. The File Provider extension caches
     // thumb bytes keyed on this ETag; matching ETag returns 304 with an
     // empty body so the extension can reuse its in-memory copy.
-    const ifNoneMatch = headers['if-none-match'];
-    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-      return new Response(null, {
-        status: 304,
-        headers: { ETag: etag, 'Cache-Control': cacheControl },
-      });
-    }
+    const cached304 = notModifiedResponse(headers['if-none-match'], etag, cacheControl);
+    if (cached304) return cached304;
 
     let thumbStat: Awaited<ReturnType<typeof stat>> | null = null;
     try {

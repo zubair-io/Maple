@@ -19,28 +19,25 @@
 // Auth: this Elysia plugin must be `.use()`d AFTER `requireAuth` in
 // `index.ts` so callers must present a valid bearer.
 //
-// Jail: same `MAPLE_ROOTS` policy as `/api/fs/thumb` — paths are realpath-
-// resolved and rejected if they fall outside any allowed root.
+// Jail: same `MAPLE_ROOTS` policy as `/api/fs/thumb`, via the shared
+// `resolveJailedFile` preamble in fs-jail.ts.
 
 import { Elysia, t } from 'elysia';
-import { stat, readFile, realpath } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
-import {
-  browseRoots,
-  isUnderRoot,
-  RAW_EXTENSIONS,
-  SHARP_EXTENSIONS,
-  PSD_HDR_EXTENSIONS,
-} from '../fs/browse.ts';
+import { isUnderRoot } from '../fs/browse.ts';
 import { cachePathFor, cachePathForAsset } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { generatePreview, PREVIEW_SIZE_KEY } from '../indexer/previewer.ts';
+import { isDbConnected } from '../db/client.ts';
 import { findAssetByAddress } from './library/shared.ts';
+import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
 import { child as childLogger } from '../log.ts';
-import { ifNoneMatchEqual } from '../runtime/http-etag.ts';
 
 const log = childLogger('fs-previews');
+
+const CACHE_CONTROL = 'private, max-age=3600';
 
 /**
  * Split `real` into (libraryIdHex, relDir, filename) against the registered
@@ -66,10 +63,18 @@ export function libraryAddressFor(
  * Resolve the on-disk preview cache path for `real`. Prefers the indexer's
  * content-addressed `<maple_id>_1280.jpg`; falls back to the legacy
  * basename-keyed path when the asset isn't indexed yet. The DB lookup is
- * best-effort — any failure (Mongo down, malformed id) degrades to the
+ * best-effort — any failure (malformed id, lookup error) degrades to the
  * legacy path rather than failing the request.
  */
 async function resolvePreviewCachePath(real: string): Promise<string> {
+  // Only consult the DB when the process already holds a live connection
+  // (the server connects at boot). Attempting a lookup while Mongo is down
+  // would eat the driver's 5 s server-selection timeout on EVERY request
+  // before falling back — the legacy path can serve immediately instead
+  // (Copilot review, PR #1907).
+  if (!isDbConnected()) {
+    return cachePathFor(real, 'previews', PREVIEW_SIZE_KEY);
+  }
   try {
     const libs = await loadLibraryRoots();
     const addr = libraryAddressFor(real, libs);
@@ -101,69 +106,16 @@ async function resolvePreviewCachePath(real: string): Promise<string> {
 export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   '/preview',
   async ({ query, headers, set }) => {
-    const reqPath = query.path;
-
-    if (!path.isAbsolute(reqPath)) {
-      set.status = 400;
-      return { error: 'path must be absolute' };
+    const resolved = await resolveJailedFile(query.path);
+    if (!resolved.ok) {
+      set.status = resolved.status;
+      return { error: resolved.error };
     }
+    const { real, stat: srcStat } = resolved;
 
-    // Resolve symlinks so the jail check matches the parent realpath form
-    // (mirrors `/api/fs/thumb` on macOS where /var → /private/var).
-    let real: string;
-    try {
-      real = await realpath(reqPath);
-    } catch (err) {
-      set.status = 404;
-      return {
-        error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-
-    const roots = await browseRoots();
-    if (!roots.some((r) => isUnderRoot(real, r))) {
-      set.status = 403;
-      return {
-        error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-      };
-    }
-
-    // Extension gate — same decodable-raster policy as `/api/fs/thumb`.
-    // Video/stub/audio formats have no still frame and 415 here.
-    const dot = real.lastIndexOf('.');
-    const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
-    if (!RAW_EXTENSIONS.has(ext) && !SHARP_EXTENSIONS.has(ext) && !PSD_HDR_EXTENSIONS.has(ext)) {
-      set.status = 415;
-      return { error: `Unsupported file extension: "${ext}"` };
-    }
-
-    let srcStat: Awaited<ReturnType<typeof stat>>;
-    try {
-      srcStat = await stat(real);
-    } catch (err) {
-      set.status = 404;
-      return {
-        error: `Cannot stat "${real}": ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    if (!srcStat.isFile()) {
-      set.status = 400;
-      return { error: `"${real}" is not a regular file` };
-    }
-
-    // ETag composes source mtime + size (same validator shape as
-    // `/api/fs/thumb`); Cache-Control echoed on 200 and 304 per RFC 9110
-    // §15.4.5 so URLSession doesn't downgrade freshness on revalidation.
-    const etag = `"${Math.floor(srcStat.mtimeMs)}-${srcStat.size}"`;
-    const cacheControl = 'private, max-age=3600';
-
-    const ifNoneMatch = headers['if-none-match'];
-    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-      return new Response(null, {
-        status: 304,
-        headers: { ETag: etag, 'Cache-Control': cacheControl },
-      });
-    }
+    const etag = sourceETag(srcStat);
+    const cached304 = notModifiedResponse(headers['if-none-match'], etag, CACHE_CONTROL);
+    if (cached304) return cached304;
 
     const previewPath = await resolvePreviewCachePath(real);
 
@@ -185,15 +137,15 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       return { error: 'Preview generation failed (see server log)' };
     }
 
-    const ab = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
-    return new Response(ab, {
+    // `Buffer` extends `Uint8Array`, which Bun's `Response` accepts directly
+    // — no ArrayBuffer copy needed (Jules review, PR #1907). The cast is
+    // type-level only: TS's DOM `BodyInit` excludes Buffer's ArrayBufferLike
+    // backing, but the bytes are passed through zero-copy at runtime.
+    return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
         'Content-Type': 'image/jpeg',
-        'Cache-Control': cacheControl,
+        'Cache-Control': CACHE_CONTROL,
         ETag: etag,
       },
     });
