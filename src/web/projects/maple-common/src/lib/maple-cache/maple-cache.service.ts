@@ -158,17 +158,22 @@ export class MapleCacheService {
   }
 
   /**
-   * Read the pipeline-version marker for a cached thumb. Returns the integer,
-   * or `null` when the marker is absent (a foreign/embedded thumb — trusted)
-   * or unparseable.
+   * Read the pipeline-version marker for a cached thumb.
+   *   - `null`  — marker ABSENT (a foreign/embedded thumb; `readThumb` trusts it).
+   *   - `N`     — the parsed version.
+   *   - `-1`    — marker PRESENT but unparseable (e.g. a partial write). A
+   *               corrupt marker belongs to a locally-developed thumb whose
+   *               version stamp is broken, so force a re-decode rather than
+   *               trust it: -1 is always below `THUMB_PIPELINE_VERSION`.
    */
   private async _readThumbVersion(folder: MapleFolderHandle, sha: string): Promise<number | null> {
+    let bytes: Uint8Array;
     try {
-      const bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg.v`);
-      const parsed = Number.parseInt(new TextDecoder().decode(bytes).trim(), 10);
-      return Number.isFinite(parsed) ? parsed : null;
+      bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg.v`);
     } catch {
-      return null;
+      return null; // absent → foreign thumb, trust
     }
+    const parsed = Number.parseInt(new TextDecoder().decode(bytes).trim(), 10);
+    return Number.isFinite(parsed) ? parsed : -1;
   }
 }

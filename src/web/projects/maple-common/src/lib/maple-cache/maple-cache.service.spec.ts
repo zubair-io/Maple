@@ -36,7 +36,7 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
       async writeFile(_f: MapleFolderHandle, path: string, data: Uint8Array): Promise<void> {
         files.set(path, data);
       },
-      async ensureSubdirectory(f: MapleFolderHandle): Promise<MapleFolderHandle> {
+      async ensureSubdirectory(f: MapleFolderHandle, _name: string): Promise<MapleFolderHandle> {
         return f;
       },
     };
@@ -72,6 +72,16 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
   it('readThumb misses a thumb whose marker is older than the current version', async () => {
     files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
     files.set(MARKER, new TextEncoder().encode(String(THUMB_PIPELINE_VERSION - 1)));
+    const blob = await svc.readThumb(folder(), SHA);
+    expect(blob).toBeNull();
+  });
+
+  it('readThumb re-decodes a thumb whose marker is present but corrupt', async () => {
+    // A partial write leaves a `.v` companion that doesn't parse. Since only
+    // locally-developed thumbs carry a marker, a corrupt one must force a
+    // re-decode rather than be trusted.
+    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    files.set(MARKER, new TextEncoder().encode('not-a-number'));
     const blob = await svc.readThumb(folder(), SHA);
     expect(blob).toBeNull();
   });
