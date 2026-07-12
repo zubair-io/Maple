@@ -168,6 +168,8 @@
         "src/workers/stages/cf-thumb-sync.ts",
         "src/workers/stages/describe.test.ts",
         "src/workers/stages/describe.ts",
+        "src/workers/stages/display-preview.test.ts",
+        "src/workers/stages/display-preview.ts",
         "src/workers/stages/exif.test.ts",
         "src/workers/stages/exif.ts",
         "src/workers/stages/face-detect.test.ts",
