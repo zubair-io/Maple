@@ -206,3 +206,36 @@ fn parse_crop_constrain_to_warp_is_silently_accepted() {
         crs:CropConstrainToWarp="0"/></x>"#;
     assert!(parse(xml).is_ok());
 }
+
+// #1943: a NaN / Infinity / -Infinity numeric attribute (from a hand-edited or
+// corrupted sidecar) must be rejected at parse time rather than accepted into
+// AdjustmentModel, where it would propagate through the render before being
+// silently zeroed pixel-by-pixel. `f32::from_str` accepts all of these spellings.
+fn nan_inf_xml(value: &str) -> String {
+    format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:Exposure2012="{value}"/></x>"#
+    )
+}
+
+#[test]
+fn parse_rejects_non_finite_numeric_values() {
+    for value in ["NaN", "nan", "inf", "-inf", "Infinity", "-Infinity", "infinity"] {
+        let result = parse(&nan_inf_xml(value));
+        assert!(
+            result.is_err(),
+            "expected non-finite crs:Exposure2012={value:?} to be rejected, got {result:?}"
+        );
+    }
+}
+
+#[test]
+fn parse_still_accepts_finite_negative_and_fractional_values() {
+    // The finite guard must not reject legitimate signed / fractional sliders.
+    for value in ["-4.5", "0", "0.0", "5.0", "-0.001"] {
+        let m = parse(&nan_inf_xml(value)).unwrap_or_else(|e| {
+            panic!("finite crs:Exposure2012={value:?} should parse, got {e:?}")
+        });
+        assert!(m.exposure.is_finite());
+    }
+}
