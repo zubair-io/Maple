@@ -76,6 +76,7 @@ docs/
 
 - **Changing a color pipeline stage?** Read `docs/architecture.md` § "Scene-linear chain" and `docs/testing.md` § "Parity gates." Every stage change runs the parity harness.
 - **Adding an Angular component?** Read `docs/best-practices.md` § "Angular". TL;DR: standalone, signals, `input()`/`output()`, separate `.ts`/`.html`/`.scss` files, observables at the service layer, view models in components.
+- **Navigating or changing routes?** Use Angular `routerLink` instead of standard `href` for all internal links. Do not use `replaceUrl: true` for page transitions (which skips browser history); only use it for guard redirects, close/dismiss actions, or reactive URL syncing (e.g. typing searches).
 - **Adding a Swift view?** Read `docs/best-practices.md` § "Swift". TL;DR: `@Observable`, actor-isolated I/O, generation-counter guards for async state.
 - **Touching the XMP schema?** Read `docs/sidecar-schema.md`. Schema changes are versioned; passthrough XML preserves unknown fields byte-for-byte.
 

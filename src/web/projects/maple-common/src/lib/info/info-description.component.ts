@@ -6,6 +6,7 @@
 // component is purely presentational.
 
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
 import {
   EnrichmentStageStatus,
@@ -17,7 +18,7 @@ import type { ApiAssetDetail } from '../api/bun-api-backend.service';
 @Component({
   selector: 'app-info-description',
   standalone: true,
-  imports: [MapleCollapsibleComponent, EnrichmentStatusBadgeComponent],
+  imports: [MapleCollapsibleComponent, EnrichmentStatusBadgeComponent, RouterLink],
   templateUrl: './info-description.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {

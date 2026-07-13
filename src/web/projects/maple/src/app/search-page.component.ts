@@ -37,6 +37,7 @@ import { SearchComponent, SearchResult, SearchScope, viewRouteCommands } from '@
       [showFilters]="true"
       (photoTap)="onPhotoTap($event)"
       (filters)="onFilters($event)"
+      (queryChange)="onQueryChange($event)"
     />
   `,
   styles: [
@@ -86,6 +87,14 @@ export class SearchPageComponent implements AfterViewInit {
     // `<app-search>` contract.
     void this.router.navigate(['/search/advanced'], {
       queryParams: payload.query ? { q: payload.query } : {},
+    });
+  }
+
+  protected onQueryChange(q: string): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: q ? { q } : {},
+      replaceUrl: true,
     });
   }
 }
