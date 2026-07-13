@@ -59,6 +59,21 @@ function handle(req: FfiRequest): FfiResponse {
     };
   }
 
+  if (req.type === 'renderPreviewJpeg') {
+    const ok = ffi.renderThumbnailPreviewJpegToFile(
+      req.rawPath,
+      req.outPath,
+      req.maxPx,
+      req.quality,
+    );
+    return {
+      type: 'renderPreviewJpeg',
+      id: req.id,
+      ok,
+      error: ok ? undefined : 'render-failed (see child stderr)',
+    };
+  }
+
   if (req.type === 'renderDevelop') {
     // Full develop with the sidecar applied → JPEG to disk. Like renderThumb,
     // the heavy pixel buffer never crosses the FFI/IPC boundary — Rust writes

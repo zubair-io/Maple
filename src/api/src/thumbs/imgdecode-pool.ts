@@ -66,14 +66,16 @@ class ImgDecodePool {
         }) as unknown as ImgDecodeWorker);
   }
 
-  /** Render `srcPath` to a resized AVIF thumbnail at `outPath`. Resolves with
-   * `{ ok, error? }`. Rejects on child spawn failure or crash. */
+  /** Render `srcPath` to a resized thumbnail at `outPath` (AVIF by default;
+   * pass `format: 'jpeg'` for the VLM describe/OCR preview tier). Resolves
+   * with `{ ok, error? }`. Rejects on child spawn failure or crash. */
   renderImageThumbToFile(
     srcPath: string,
     outPath: string,
     maxPx: number,
     quality: number,
     ext: string,
+    format?: 'avif' | 'jpeg',
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.nextId++;
     return new Promise<{ ok: boolean; error?: string }>((resolve, reject) => {
@@ -86,7 +88,7 @@ class ImgDecodePool {
       }
       this.pending.set(id, { resolve, reject });
       try {
-        w.postMessage({ type: 'render', id, srcPath, outPath, maxPx, quality, ext });
+        w.postMessage({ type: 'render', id, srcPath, outPath, maxPx, quality, ext, format });
       } catch (e) {
         this.pending.delete(id);
         reject(e instanceof Error ? e : new Error(String(e)));
@@ -179,26 +181,31 @@ export function _createImgdecodePoolForTests(opts: {
 }
 
 /**
- * Convenience wrapper: render `srcPath` to a resized AVIF thumbnail at
- * `outPath` via the shared imgdecode child pool. This is the function that
- * replaces the old `renderImageThumbToFile` from `render.ts` at all call
- * sites in the parent process. The heavy buffers (input image, intermediate
- * AVIF) never leave the child.
+ * Convenience wrapper: render `srcPath` to a resized thumbnail at `outPath`
+ * via the shared imgdecode child pool. This is the function that replaces
+ * the old `render.ts#renderImageThumbToFile` at all call sites in the parent
+ * process (that one now only runs inside the child — see
+ * `imgdecode.child.ts`). The heavy buffers (input image, intermediate
+ * output) never leave the child.
  *
- * `quality` — AVIF encode quality (0–100, default 55 — see THUMB_AVIF_QUALITY).
+ * `quality` — encode quality (0–100) on the target codec's own scale.
  * `ext` — lowercase source extension without dot (e.g. "jpeg", "heic", "png").
+ * `format` — output codec, default `'avif'` (the 256px grid-thumbnail tier
+ * — see THUMB_AVIF_QUALITY for its default quality); pass `'jpeg'` for the
+ * 1280px VLM describe/OCR preview tier.
  *
  * Rejects on child crash or spawn failure. Never loads sharp or heic-convert in
  * the parent process.
  */
-export function renderImageThumbToFile(
+export function renderImageThumbToFileViaPool(
   srcPath: string,
   outPath: string,
   maxPx: number,
   quality: number,
   ext: string,
+  format?: 'avif' | 'jpeg',
 ): Promise<{ ok: boolean; error?: string }> {
-  return imgdecodePool().renderImageThumbToFile(srcPath, outPath, maxPx, quality, ext);
+  return imgdecodePool().renderImageThumbToFile(srcPath, outPath, maxPx, quality, ext, format);
 }
 
 export type { ImgDecodePool };

@@ -29,7 +29,7 @@ import { cachePathFor } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isNoPreviewFilename } from './media-types.ts';
-import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('previewer');
@@ -161,6 +161,14 @@ function logTotals(): void {
   }
 }
 
+/** Shared by every render-branch catch block below: log the failure with
+ * context + a normalized error message, then return `false` so the caller
+ * can `return logRenderFailure(...)` in one line. */
+function logRenderFailure(context: Record<string, unknown>, err: unknown, label: string): false {
+  log.warn({ ...context, err: err instanceof Error ? err.message : err }, label);
+  return false;
+}
+
 async function renderRawPreviewToFile(rawPath: string, previewPath: string): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
@@ -170,12 +178,18 @@ async function renderRawPreviewToFile(rawPath: string, previewPath: string): Pro
     return false;
   }
   try {
-    // quality 85 (vs 82 for thumbs) — preview is consumed by a VLM, not the
-    // browser cache, so extra fidelity outweighs the few-KB size delta.
-    return await pool.renderThumbnailJpegToFile(rawPath, previewPath, PREVIEW_LONG_EDGE_PX, 85);
+    // quality 85 (vs 55 for AVIF thumbs) — preview is consumed by a VLM, not
+    // the browser cache, so extra fidelity outweighs the few-KB size delta.
+    // JPEG (not the grid-thumbnail tier's AVIF): every describe provider
+    // hardcodes `image/jpeg` as the media type it sends upstream (#1978).
+    return await pool.renderThumbnailPreviewJpegToFile(
+      rawPath,
+      previewPath,
+      PREVIEW_LONG_EDGE_PX,
+      85,
+    );
   } catch (e) {
-    log.warn({ rawPath, err: e instanceof Error ? e.message : e }, 'FFI call threw');
-    return false;
+    return logRenderFailure({ rawPath }, e, 'FFI call threw');
   }
   // Note: FFI path bakes orientation into pixels and emits a bare JPEG with
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
@@ -189,27 +203,29 @@ async function renderBitmapPreviewToFile(
   ext: string,
 ): Promise<boolean> {
   try {
-    // quality 82 matches the thumb path; the VLM consumes the preview at whatever
-    // quality the source encodes — additional fidelity does not measurably affect
+    // JPEG (not the grid-thumbnail tier's AVIF): every describe provider
+    // hardcodes `image/jpeg` as the media type it sends upstream (#1978).
+    // quality 82 — the VLM consumes the preview at whatever quality the
+    // source encodes; additional fidelity does not measurably affect
     // caption accuracy and is not worth the extra bytes.
-    const result = await renderImageThumbToFile(
+    const result = await renderImageThumbToFileViaPool(
       srcPath,
       previewPath,
       PREVIEW_LONG_EDGE_PX,
       82,
       ext,
+      'jpeg',
     );
     if (!result.ok) {
-      log.warn(
-        { srcPath, err: result.error ?? 'imgdecode failed' },
+      return logRenderFailure(
+        { srcPath },
+        result.error ?? 'imgdecode failed',
         'imgdecode child returned error',
       );
-      return false;
     }
     return true;
   } catch (e) {
-    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'imgdecode pool threw');
-    return false;
+    return logRenderFailure({ srcPath }, e, 'imgdecode pool threw');
   }
 }
 
@@ -218,7 +234,6 @@ async function copyImageAsPreview(srcPath: string, previewPath: string): Promise
     await fs.copyFile(srcPath, previewPath);
     return true;
   } catch (e) {
-    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'copy fallback failed');
-    return false;
+    return logRenderFailure({ srcPath }, e, 'copy fallback failed');
   }
 }
