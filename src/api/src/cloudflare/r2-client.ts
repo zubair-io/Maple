@@ -1,7 +1,7 @@
 /**
  * Thin wrapper around a single PUT to a Cloudflare R2 bucket via its
  * S3-compatible API, signed with `aws4fetch` (pure `fetch`, no Node-stream
- * dependency — thumbnails are single JPEGs well under any multipart
+ * dependency — thumbnails are single AVIFs well under any multipart
  * threshold, so the full AWS SDK's surface area buys nothing here).
  *
  * No retry logic lives in this module — retries are a caller policy:
@@ -40,21 +40,24 @@ function r2Client(config: ResolvedCloudflareConfig): AwsClient {
   });
 }
 
-/** Upload thumbnail bytes to R2 under `key`. Throws on any non-2xx
- * response or network failure — callers decide whether that's fatal.
- * `signal`, when supplied, aborts the underlying fetch (not just the
- * caller's wait) — see the indexer hook's use of `AbortSignal.timeout()`. */
+/** Upload thumbnail bytes to R2 under `key`, tagged with `contentType`
+ * (the Cloudflare Worker forwards this back to clients on a cache hit — see
+ * `src/cloudflare/src/index.ts`). Throws on any non-2xx response or network
+ * failure — callers decide whether that's fatal. `signal`, when supplied,
+ * aborts the underlying fetch (not just the caller's wait) — see the
+ * indexer hook's use of `AbortSignal.timeout()`. */
 export async function uploadThumbToR2(
   config: ResolvedCloudflareConfig,
   key: string,
   bytes: Uint8Array,
+  contentType: string,
   signal?: AbortSignal,
 ): Promise<void> {
   const client = r2Client(config);
   const res = await client.fetch(r2Endpoint(config, key), {
     method: 'PUT',
     body: bytes as BodyInit,
-    headers: { 'Content-Type': 'image/jpeg' },
+    headers: { 'Content-Type': contentType },
     signal,
   });
   if (!res.ok) {

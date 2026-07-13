@@ -181,20 +181,20 @@ class FfiWorkerPool {
     });
   }
 
-  /** Render a RAW thumbnail to disk. Resolves `true` on success; REJECTS on a
-   * render failure or infra error (worker crash, dylib missing) — callers feed
-   * the rejection into the stage retry/dead-letter path. */
-  async renderThumbnailJpegToFile(
+  /** Render a RAW thumbnail (AVIF) to disk. Resolves `true` on success;
+   * REJECTS on a render failure or infra error (worker crash, dylib missing)
+   * — callers feed the rejection into the stage retry/dead-letter path. */
+  async renderThumbnailAvifToFile(
     rawPath: string,
     outPath: string,
     maxPx: number,
-    quality = 82,
+    quality = 55,
   ): Promise<boolean> {
     return this.renderToFile('renderThumb', { rawPath, outPath, maxPx, quality });
   }
 
   /** Develop a RAW with `xmpPath` applied (null = neutral) and write the JPEG
-   * to `outPath`. The developed counterpart to `renderThumbnailJpegToFile`
+   * to `outPath`. The developed counterpart to `renderThumbnailAvifToFile`
    * (#1950). Resolves `true` on success; REJECTS on a render failure or infra
    * error (child crash, dylib missing). */
   async renderDevelopJpegToFile(

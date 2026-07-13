@@ -79,7 +79,13 @@ const thumbStage = defineStage({
   // v2 — raw-ffi FFI fix #328: orientation is now baked into the embedded-
   // preview JPEG before re-encode. Bump so existing rows re-render and the
   // on-disk thumbs in `.maple/thumbs/` get rewritten upright.
-  targetVersion: 2,
+  // v3 — thumbnail format changed JPEG → AVIF (`.jpg` → `.avif` on disk).
+  // Bump forces every asset to re-render under the new path; the existing
+  // `resetCfThumbSyncVersion` cascade below re-triggers a fresh R2 upload
+  // with the new bytes + `image/avif` Content-Type. Old `.jpg` files become
+  // orphans — `cache-gc.ts`/`dedupe.ts`/`restructure-fs.ts` recognize both
+  // extensions so they still get reaped.
+  targetVersion: 3,
   dependsOn: ['exif'],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.
@@ -98,8 +104,8 @@ const thumbStage = defineStage({
     // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
     // audio (mp3/wav/m4a/aac) have no still frame to thumbnail. Without this
     // guard the fall-through in `generateThumb` (`copyImageAsThumb`) copies
-    // the source bytes verbatim to `<maple_id>.jpg`, so `/api/thumb/...`
-    // would then serve 200 image/jpeg with raw non-image bytes — a broken
+    // the source bytes verbatim to `<maple_id>.avif`, so `/api/thumb/...`
+    // would then serve 200 image/avif with raw non-image bytes — a broken
     // <img> in the grid. Skip terminally; the preview/describe/face stages
     // carry the same guard.
     const primary = assetPrimaryFileInfo(image as unknown as ImageDoc);

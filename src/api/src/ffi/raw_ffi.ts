@@ -19,12 +19,6 @@ import type * as BunFfi from 'bun:ffi';
 
 const log = childLogger('raw-ffi');
 
-// MapleByteBuffer layout (must match raw-ffi/src/lib.rs):
-//   bytes: *mut u8  (8B)
-//   len:   usize    (8B)
-// Total: 16 bytes.
-const BYTE_BUFFER_SIZE = 16;
-
 /** Bins per channel in a Maple RGB histogram (8-bit → 256 levels). */
 const HISTOGRAM_BIN_COUNT = 256;
 
@@ -61,29 +55,25 @@ interface RawFfi {
    * logger).
    */
   computeHistogramBins(rawAbsPath: string, xmpAbsPath?: string | null): HistogramBins | null;
-  /**
-   * Decode `rawAbsPath` and return a JPEG-encoded thumbnail, fitted to
-   * `maxPx` on the long edge. Quality defaults to 82. Returns null on
-   * any FFI error (the underlying error is logged via the structured logger).
-   */
-  renderThumbnailJpeg(rawAbsPath: string, maxPx: number, quality?: number): Uint8Array | null;
-  /** Extract an embedded RAW preview and write the JPEG directly to `outAbsPath`
-   * (atomic via .tmp + rename). Avoids the bun:ffi `toBuffer` lifetime trap
-   * that segfaults the JSC heap when Rust-allocated memory is later GC'd. */
+  /** Extract an embedded RAW preview, downscale to `maxPx`, AVIF-encode, and
+   * write atomically to `outAbsPath` (.tmp + rename). Avoids the bun:ffi
+   * `toBuffer` lifetime trap that segfaults the JSC heap when Rust-allocated
+   * memory is later GC'd — Rust owns the write end-to-end. Quality defaults
+   * to 55 (AVIF's own scale, not JPEG's). */
+  renderThumbnailAvifToFile(
+    rawAbsPath: string,
+    outAbsPath: string,
+    maxPx: number,
+    quality?: number,
+  ): boolean;
   /** Develop `rawAbsPath` with `xmpAbsPath`'s adjustments applied (null =
    * neutral), downscale to `maxPx`, JPEG-encode, and write atomically to
-   * `outAbsPath`. The DEVELOPED counterpart to `renderThumbnailJpegToFile`
+   * `outAbsPath`. The DEVELOPED counterpart to `renderThumbnailAvifToFile`
    * (embedded-preview extraction, no adjustments) — used by the display-preview
    * stage for edited assets (#1950). Same file-output rationale. */
   renderDevelopJpegToFile(
     rawAbsPath: string,
     xmpAbsPath: string | null,
-    outAbsPath: string,
-    maxPx: number,
-    quality?: number,
-  ): boolean;
-  renderThumbnailJpegToFile(
-    rawAbsPath: string,
     outAbsPath: string,
     maxPx: number,
     quality?: number,
@@ -134,7 +124,7 @@ function loadFfi(): RawFfi | null {
   }
 
   try {
-    const { dlopen, FFIType, ptr, toBuffer } = require('bun:ffi') as typeof BunFfi;
+    const { dlopen, FFIType, ptr } = require('bun:ffi') as typeof BunFfi;
 
     const lib = dlopen(libPath, {
       maple_histogram_file: {
@@ -145,16 +135,7 @@ function loadFfi(): RawFfi | null {
         ],
         returns: FFIType.i32,
       },
-      maple_render_thumbnail_jpeg: {
-        args: [
-          FFIType.cstring, // raw_path
-          FFIType.u32, // max_px
-          FFIType.u8, // quality
-          FFIType.ptr, // out: *mut MapleByteBuffer
-        ],
-        returns: FFIType.i32,
-      },
-      maple_render_thumbnail_jpeg_to_file: {
+      maple_render_thumbnail_avif_to_file: {
         args: [
           FFIType.cstring, // raw_path
           FFIType.cstring, // out_path
@@ -172,10 +153,6 @@ function loadFfi(): RawFfi | null {
           FFIType.cstring, // out_path
         ],
         returns: FFIType.i32,
-      },
-      maple_free_byte_buffer: {
-        args: [FFIType.ptr], // *mut MapleByteBuffer
-        returns: FFIType.void,
       },
       maple_last_error: {
         args: [],
@@ -217,67 +194,15 @@ function loadFfi(): RawFfi | null {
         return histogramBinsFromBuffer(outBuf);
       },
 
-      renderThumbnailJpeg(
-        rawAbsPath: string,
-        maxPx: number,
-        quality: number = 82,
-      ): Uint8Array | null {
-        const outBuf = Buffer.alloc(BYTE_BUFFER_SIZE, 0);
-        const outPtr = ptr(outBuf);
-        const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
-
-        const rc = lib.symbols.maple_render_thumbnail_jpeg(
-          ptr(rawPathBuf),
-          maxPx >>> 0,
-          quality & 0xff,
-          outPtr,
-        ) as number;
-
-        if (rc !== 0) {
-          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          log.error({ rc, err: errStr }, 'maple_render_thumbnail_jpeg failed');
-          return null;
-        }
-
-        // MapleByteBuffer layout: bytes(ptr,8) | len(usize,8) | capacity(usize,8).
-        const bytesPtrVal = Number(outBuf.readBigUInt64LE(0));
-        const lenVal = Number(outBuf.readBigUInt64LE(8));
-
-        if (bytesPtrVal === 0 || lenVal === 0) {
-          // Defensive — Rust succeeded but produced an empty buffer.
-          lib.symbols.maple_free_byte_buffer(outPtr);
-          return null;
-        }
-
-        // bun:ffi's `toBuffer(ptr, byteOffset?, byteLength?)` — the
-        // single-arg variant treats the second positional as `byteOffset`,
-        // NOT `byteLength`, which truncates the view to a single page.
-        // Pass all three args so we get exactly `lenVal` bytes.
-        const native = toBuffer(
-          bytesPtrVal as unknown as Parameters<typeof toBuffer>[0],
-          0,
-          lenVal,
-        );
-        // Allocate a JS-owned buffer then copy byte-by-byte. `Buffer.from(view)`
-        // SHOULD copy, but in Bun (1.3.x at least) there are reproducible
-        // segfaults if we hand the same FFI-backed view through any further
-        // I/O before freeing — explicit copy via Uint8Array.set is the
-        // belt-and-braces option. Cheap (thumbs are <100 KB).
-        const copy = new Uint8Array(lenVal);
-        copy.set(native);
-        lib.symbols.maple_free_byte_buffer(outPtr);
-        return copy;
-      },
-
-      renderThumbnailJpegToFile(
+      renderThumbnailAvifToFile(
         rawAbsPath: string,
         outAbsPath: string,
         maxPx: number,
-        quality: number = 82,
+        quality: number = 55,
       ): boolean {
         const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
         const outPathBuf = Buffer.from(outAbsPath + '\0', 'utf-8');
-        const rc = lib.symbols.maple_render_thumbnail_jpeg_to_file(
+        const rc = lib.symbols.maple_render_thumbnail_avif_to_file(
           ptr(rawPathBuf),
           ptr(outPathBuf),
           maxPx >>> 0,
@@ -285,7 +210,7 @@ function loadFfi(): RawFfi | null {
         ) as number;
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          log.error({ rc, err: errStr }, 'maple_render_thumbnail_jpeg_to_file failed');
+          log.error({ rc, err: errStr }, 'maple_render_thumbnail_avif_to_file failed');
           return false;
         }
         return true;

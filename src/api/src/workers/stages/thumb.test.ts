@@ -146,8 +146,8 @@ describe('thumb handler — bitmap path', () => {
   it("returns { skip: 'stub-file' } for a .MOV and writes no thumb", async () => {
     // A video container can land in a mixed-media library and (post-#1638) is
     // a selectable asset. The handler must skip it rather than fall through to
-    // `copyImageAsThumb`, which would copy the raw .MOV bytes to `<id>.jpg` —
-    // the thumb route would then serve 200 image/jpeg with video bytes (broken
+    // `copyImageAsThumb`, which would copy the raw .MOV bytes to `<id>.avif` —
+    // the thumb route would then serve 200 image/avif with video bytes (broken
     // <img> in the grid). Mirrors the preview stage's video guard.
     const file = path.join(dir, 'IMG_3087.MOV');
     await writeFile(file, Buffer.from('not really a video, just bytes'));
@@ -305,7 +305,7 @@ describe('thumb handler — content-addressed cache path', () => {
     }
   });
 
-  it('uses <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.jpg when the doc has maple_id + fileinfo', async () => {
+  it('uses <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif when the doc has maple_id + fileinfo', async () => {
     if (!mongoReachable) return; // soft pass
 
     // Set up a library at our tmp dir, with a sub-folder containing the JPEG.
@@ -359,7 +359,7 @@ describe('thumb handler — content-addressed cache path', () => {
     expect(result).toEqual({ wrote: true });
     // The thumb is written to the content-addressed location even though the
     // path is no longer persisted on the asset.
-    const expected = path.join(dir, 'vacation', '.maple', 'thumbs', `${mapleId}.jpg`);
+    const expected = path.join(dir, 'vacation', '.maple', 'thumbs', `${mapleId}.avif`);
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);
   });

@@ -5,7 +5,12 @@ import * as path from 'node:path';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
 import { writePsdBuffer } from 'ag-psd';
-import { renderImageThumbToFile, renderHeicThumbToFile } from './render.ts';
+import {
+  renderImageThumbToFile,
+  renderHeicThumbToFile,
+  THUMB_AVIF_QUALITY,
+  THUMB_AVIF_EFFORT,
+} from './render.ts';
 
 // `import.meta.dir` is src/api/src/thumbs; fixture lives under src/api/tests/fixtures.
 const FIXTURE_HEIC = path.resolve(import.meta.dir, '..', '..', 'tests', 'fixtures', 'sample.heic');
@@ -54,7 +59,7 @@ async function renderHeicInlineReference(
   const buf = await sharp(jpegBuffer, { failOn: 'none' })
     .rotate()
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82, mozjpeg: true })
+    .avif({ quality: THUMB_AVIF_QUALITY, effort: THUMB_AVIF_EFFORT })
     .toBuffer();
   const tmp = `${thumbPath}.${process.pid}.inline.tmp`;
   await writeFile(tmp, buf);
@@ -70,12 +75,12 @@ describe('renderImageThumbToFile', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('quality parameter reaches the JPEG encoder — different quality → different bytes', async () => {
+  it('quality parameter reaches the AVIF encoder — different quality → different bytes', async () => {
     // Guards that req.quality from the IPC message actually flows through to
     // the encoder; if it were silently ignored, both renders would be identical.
     const src = path.join(dir, 'q.png');
-    const hi = path.join(dir, 'hi.jpg');
-    const lo = path.join(dir, 'lo.jpg');
+    const hi = path.join(dir, 'hi.avif');
+    const lo = path.join(dir, 'lo.avif');
     const pngBuf = await sharp({
       create: { width: 64, height: 64, channels: 3, background: { r: 100, g: 150, b: 200 } },
     })
@@ -93,12 +98,12 @@ describe('renderImageThumbToFile', () => {
     expect(hiBytes.equals(loBytes)).toBe(false);
   });
 
-  it('renders an uncompressed TIFF down to a bounded JPEG thumb', async () => {
+  it('renders an uncompressed TIFF down to a bounded AVIF thumb', async () => {
     // Pipeline smoke test against the real sharp/libvips: a TIFF in, a
-    // size-bounded JPEG out. Guards the decode → rotate → resize → encode
+    // size-bounded AVIF out. Guards the decode → rotate → resize → encode
     // chain itself (the options guard below can't catch a broken pipeline).
     const src = path.join(dir, 'x.tif');
-    const out = path.join(dir, 'x_1280.jpg');
+    const out = path.join(dir, 'x_1280.avif');
     const buf = await sharp({
       create: {
         width: 2048,
@@ -115,32 +120,35 @@ describe('renderImageThumbToFile', () => {
     expect(ok).toBe(true);
 
     const meta = await sharp(out).metadata();
-    expect(meta.format).toBe('jpeg');
+    // sharp has no distinct "avif" format label — AVIF is a HEIF profile, so
+    // a real AVIF file reports format:"heif" here (confirmed against this
+    // sharp build: `sharp.format.heif.output.alias` includes "avif").
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(1280);
   });
 
-  it('dispatches PSD through the ag-psd decode branch to a bounded JPEG thumb', async () => {
+  it('dispatches PSD through the ag-psd decode branch to a bounded AVIF thumb', async () => {
     const src = path.join(dir, 'x.psd');
-    const out = path.join(dir, 'x_256.jpg');
+    const out = path.join(dir, 'x_256.avif');
     await writeFile(src, buildSyntheticPsd(64, 48, [200, 60, 30, 255]));
 
     const ok = await renderImageThumbToFile(src, out, 256, 'psd');
     expect(ok).toBe(true);
 
     const meta = await sharp(out).metadata();
-    expect(meta.format).toBe('jpeg');
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(256);
   });
 
-  it('dispatches HDR through the tone-mapping decode branch to a bounded JPEG thumb (fixture-gated)', async () => {
+  it('dispatches HDR through the tone-mapping decode branch to a bounded AVIF thumb (fixture-gated)', async () => {
     if (!(await fixturePresent(FIXTURE_HDR))) return; // fixture missing → soft pass
-    const out = path.join(dir, 'hdr_256.jpg');
+    const out = path.join(dir, 'hdr_256.avif');
 
     const ok = await renderImageThumbToFile(FIXTURE_HDR, out, 256, 'hdr');
     expect(ok).toBe(true);
 
     const meta = await sharp(out).metadata();
-    expect(meta.format).toBe('jpeg');
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(256);
   });
 
@@ -162,8 +170,8 @@ describe('renderImageThumbToFile', () => {
       const chain = {
         rotate: () => chain,
         resize: () => chain,
-        jpeg: () => chain,
-        toBuffer: async () => Buffer.from([0xff, 0xd8, 0xff, 0xd9]), // minimal JPEG SOI/EOI
+        avif: () => chain,
+        toBuffer: async () => Buffer.from([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]), // minimal AVIF ftyp box
       };
       return chain;
     }) as unknown as typeof realSharp;
@@ -173,7 +181,7 @@ describe('renderImageThumbToFile', () => {
       const mod = await import('./render.ts');
       const ok = await mod.renderImageThumbToFile(
         path.join(dir, 'y.tif'),
-        path.join(dir, 'y_1280.jpg'),
+        path.join(dir, 'y_1280.avif'),
         1280,
         'tif',
       );
@@ -201,8 +209,8 @@ describe('renderImageThumbToFile — HEIC parity', () => {
   it('produces bytes identical to the pre-offload inline chain (fixture-gated)', async () => {
     if (!(await fixturePresent(FIXTURE_HEIC))) return; // fixture missing → soft pass
 
-    const viaRender = path.join(dir, 'via-render.jpg');
-    const viaInline = path.join(dir, 'via-inline.jpg');
+    const viaRender = path.join(dir, 'via-render.avif');
+    const viaInline = path.join(dir, 'via-inline.avif');
 
     const ok = await renderImageThumbToFile(FIXTURE_HEIC, viaRender, 48, 'heic');
     expect(ok).toBe(true);
@@ -214,13 +222,16 @@ describe('renderImageThumbToFile — HEIC parity', () => {
     expect(renderBytes.equals(inlineBytes)).toBe(true);
   });
 
-  it('renderHeicThumbToFile writes a valid JPEG (fixture-gated)', async () => {
+  it('renderHeicThumbToFile writes a valid AVIF (fixture-gated)', async () => {
     if (!(await fixturePresent(FIXTURE_HEIC))) return;
 
-    const out = path.join(dir, 'heic.jpg');
+    const out = path.join(dir, 'heic.avif');
     await renderHeicThumbToFile(FIXTURE_HEIC, out, 48);
     const meta = await sharp(out).metadata();
-    expect(meta.format).toBe('jpeg');
+    // sharp has no distinct "avif" format label — AVIF is a HEIF profile, so
+    // a real AVIF file reports format:"heif" here (confirmed against this
+    // sharp build: `sharp.format.heif.output.alias` includes "avif").
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(48);
   });
 });

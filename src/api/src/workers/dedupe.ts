@@ -397,6 +397,9 @@ async function processAsset(
  * Best-effort — derived data regenerates.
  */
 async function cleanFolderCache(folderAbs: string, mapleId: string): Promise<void> {
+  await fs.unlink(path.join(folderAbs, '.maple', 'thumbs', `${mapleId}.avif`)).catch(() => {});
+  // Legacy JPEG thumb from the pre-v3 (JPEG) thumbnail pipeline — may not
+  // exist for assets thumbnailed after the AVIF migration, hence best-effort.
   await fs.unlink(path.join(folderAbs, '.maple', 'thumbs', `${mapleId}.jpg`)).catch(() => {});
   const previewsDir = path.join(folderAbs, '.maple', 'previews');
   let entries: string[];

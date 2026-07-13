@@ -126,7 +126,7 @@ describe('GET /thumb/:slug/*', () => {
 
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/pending.jpg'));
     expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toBe('image/jpeg');
+    expect(res.headers.get('Content-Type')).toBe('image/avif');
     expect(res.headers.get('Retry-After')).toBeNull();
     expect(res.headers.get('Cache-Control')).toContain('must-revalidate');
     expect(res.headers.get('Cache-Control')).not.toContain('immutable');
@@ -159,7 +159,7 @@ describe('GET /thumb/:slug/*', () => {
     // Post-#1638 videos are selectable, so the grid will request thumbs for
     // them. A video has no still frame: the route must 404 rather than fall
     // through to generation (which would otherwise copy the raw .MOV bytes to
-    // a .jpg and serve 200 image/jpeg garbage → broken <img>).
+    // a .avif and serve 200 image/avif garbage → broken <img>).
     const src = path.join(tmpDir, 'clip.mov');
     await writeFile(src, 'fake-video-bytes');
 
@@ -168,6 +168,7 @@ describe('GET /thumb/:slug/*', () => {
     // Critically: NOT a 200 image with video bytes.
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+    expect(res.headers.get('Content-Type')).not.toBe('image/avif');
   });
 
   test('returns 404 (never a 200 image) for an indexed video asset', async () => {
@@ -193,6 +194,7 @@ describe('GET /thumb/:slug/*', () => {
     expect(res.status).toBe(404);
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+    expect(res.headers.get('Content-Type')).not.toBe('image/avif');
   });
 
   test.each(['scan.eip', 'session.braw', 'project.afphoto', 'logo.ai'])(
@@ -201,7 +203,7 @@ describe('GET /thumb/:slug/*', () => {
       if (!mongoReachable) return;
       // Metadata-only stub images have no decoder: the route must 404 rather
       // than fall through to generation (which would otherwise copy the raw
-      // source bytes to a .jpg and serve 200 image/jpeg garbage).
+      // source bytes to a .avif and serve 200 image/avif garbage).
       const src = path.join(tmpDir, filename);
       await writeFile(src, 'fake-stub-bytes');
 
@@ -209,6 +211,7 @@ describe('GET /thumb/:slug/*', () => {
       expect(res.status).toBe(404);
       expect(res.status).not.toBe(200);
       expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+      expect(res.headers.get('Content-Type')).not.toBe('image/avif');
     },
   );
 
@@ -223,6 +226,7 @@ describe('GET /thumb/:slug/*', () => {
       expect(res.status).toBe(404);
       expect(res.status).not.toBe(200);
       expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
+      expect(res.headers.get('Content-Type')).not.toBe('image/avif');
     },
   );
 
@@ -251,7 +255,7 @@ describe('GET /thumb/:slug/*', () => {
     const bucket = mapleId.slice(0, 2);
     const bucketDir = path.join(tmpDir, '.maple', 'thumbs', bucket);
     await mkdirNative(bucketDir, { recursive: true });
-    await writeFile(path.join(bucketDir, `${mapleId}.jpg`), 'fake-thumb-bytes');
+    await writeFile(path.join(bucketDir, `${mapleId}.avif`), 'fake-thumb-bytes');
 
     const etag = `"${mapleId}"`;
     const res = await app.handle(

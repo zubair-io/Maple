@@ -1,16 +1,21 @@
 /**
- * Cache GC — sweep orphaned `.maple/{thumbs,previews}/*.jpg` files.
+ * Cache GC — sweep orphaned `.maple/{thumbs,previews}/*.{jpg,avif}` files.
  *
  * Walks a library root looking for `.maple/thumbs` and `.maple/previews`
- * directories. For each `.jpg` it finds, derives the would-be `maple_id`
- * from the basename and unlinks the file when no asset row claims it.
+ * directories. For each `.jpg`/`.avif` file it finds, derives the would-be
+ * `maple_id` from the basename and unlinks the file when no asset row
+ * claims it. `previews` is JPEG-only (`.jpg`); `thumbs` is AVIF-only
+ * (`.avif`) since the thumb stage's v3 format migration — recognizing both
+ * extensions everywhere is simpler than threading "which kind" through, and
+ * previews will just never have a `.avif` file to match. `.jpg` files under
+ * `thumbs` are legacy orphans left by the pre-v3 JPEG thumbnail pipeline.
  *
  * Two classes of orphan get cleaned up:
  *   1. Legacy `sha256_prefix16(basename)`-keyed thumbs (16 hex chars) written
  *      before the content-addressing migration. After PR 3 of the migration
- *      every fresh thumb is written under `<maple_id>.jpg` (32 hex), so the
+ *      every fresh thumb is written under `<maple_id>.<ext>` (32 hex), so the
  *      16-char form is always an orphan post-migration.
- *   2. Stale `<maple_id>[_<size>].jpg` files for assets that have been
+ *   2. Stale `<maple_id>[_<size>].<ext>` files for assets that have been
  *      hard-deleted, or files at the previous location of a renamed asset
  *      whose `fileinfo[0]` has since moved.
  *
@@ -41,7 +46,7 @@ export interface SweepResult {
  * concurrent stage. Skip them this pass — the next boot's sweep will catch
  * them if they're genuinely orphaned. Cheapest defense against the TOCTOU
  * race where `known` is snapshotted before a stage finishes writing a fresh
- * `<maple_id>.jpg`.
+ * `<maple_id>.avif`.
  */
 const RECENT_THRESHOLD_MS = 60 * 1000;
 
@@ -114,9 +119,11 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
       return; // ENOENT — fine, no cache here.
     }
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.jpg')) continue;
+      if (!entry.isFile()) continue;
+      const ext = path.extname(entry.name);
+      if (ext !== '.jpg' && ext !== '.avif') continue;
       scanned += 1;
-      const stem = entry.name.slice(0, -4); // strip .jpg
+      const stem = entry.name.slice(0, -ext.length);
       const fullPath = path.join(cacheDir, entry.name);
 
       // TOCTOU defense: `known` was snapshotted before this walk began. A

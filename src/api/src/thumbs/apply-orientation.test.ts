@@ -115,11 +115,11 @@ describe("indexer thumbnailer + orientation", () => {
       const thumbsDir = path.join(path.dirname(raw), ".maple/thumbs");
       await fs.rm(thumbsDir, { recursive: true, force: true });
       await generateThumb(raw);
-      // Walk the .maple/thumbs dir and find the one .jpg we just made.
+      // Walk the .maple/thumbs dir and find the one .avif we just made.
       const entries = await fs.readdir(thumbsDir);
-      const jpg = entries.find((e) => e.endsWith(".jpg"));
-      expect(jpg).toBeDefined();
-      const meta = await sharp(path.join(thumbsDir, jpg!)).metadata();
+      const avif = entries.find((e) => e.endsWith(".avif"));
+      expect(avif).toBeDefined();
+      const meta = await sharp(path.join(thumbsDir, avif!)).metadata();
       expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
     },
   );

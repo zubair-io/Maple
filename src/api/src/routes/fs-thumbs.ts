@@ -1,8 +1,8 @@
 // src/api/src/routes/fs-thumbs.ts
 //
 // GET /api/fs/thumb?path=<abs-path-to-raw>&size=512
-//   Returns an `image/jpeg` thumbnail for a RAW file at `path`. Caches the
-//   result on disk under `<dir>/.maple/thumbs/<basename>_<size>.jpg`. Stale
+//   Returns an `image/avif` thumbnail for a RAW file at `path`. Caches the
+//   result on disk under `<dir>/.maple/thumbs/<basename>_<size>.avif`. Stale
 //   thumbs (older than the RAW) are regenerated.
 //
 // Lives in a separate file from `fs.ts` so the directory-listing endpoint
@@ -22,6 +22,7 @@ import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
+import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
 import { child as childLogger } from '../log.ts';
 import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
 
@@ -124,7 +125,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     if (fresh) {
       try {
         const bytes = await readFile(thumbPath);
-        set.headers['Content-Type'] = 'image/jpeg';
+        set.headers['Content-Type'] = 'image/avif';
         set.headers['Cache-Control'] = cacheControl;
         set.headers['ETag'] = etag;
         set.headers['X-Thumb-Cache'] = 'hit';
@@ -153,7 +154,13 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
 
     if (renderViaImgdecode) {
       try {
-        const result = await renderImageThumbToFile(real, thumbPath, sizePx, 82, ext);
+        const result = await renderImageThumbToFile(
+          real,
+          thumbPath,
+          sizePx,
+          THUMB_AVIF_QUALITY,
+          ext,
+        );
         if (!result.ok) {
           set.status = 500;
           return {
@@ -178,7 +185,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       }
       let ok = false;
       try {
-        ok = await pool.renderThumbnailJpegToFile(real, thumbPath, sizePx, 82);
+        ok = await pool.renderThumbnailAvifToFile(real, thumbPath, sizePx, THUMB_AVIF_QUALITY);
       } catch (err) {
         set.status = 500;
         return {
@@ -192,7 +199,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       try {
         await applyExifOrientationInPlace(thumbPath);
       } catch (err) {
-        // Non-fatal: the FFI output is still a valid JPEG, just possibly
+        // Non-fatal: the FFI output is still a valid AVIF, just possibly
         // un-rotated. Better to serve a sideways image than 500 the request.
         log.warn(
           { thumbPath, err: err instanceof Error ? err.message : err },
@@ -236,7 +243,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     return new Response(ab, {
       status: 200,
       headers: {
-        'Content-Type': 'image/jpeg',
+        'Content-Type': 'image/avif',
         'Cache-Control': cacheControl,
         ETag: etag,
         'X-Thumb-Cache': 'miss',

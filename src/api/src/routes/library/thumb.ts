@@ -1,7 +1,7 @@
 /**
  * GET /api/thumb/:slug/*
  *
- * Returns the content-keyed thumbnail JPEG for an indexed image.
+ * Returns the content-keyed thumbnail AVIF for an indexed image.
  * ETag: "<maple_id>", Cache-Control: public, max-age=31536000, immutable.
  * Honors If-None-Match for 304 responses.
  *
@@ -68,8 +68,8 @@ export const thumbRoutes = new Elysia().get(
     // Metadata-only stub images (eip/braw/afphoto/ai) have no decoder, and
     // audio (mp3/wav/m4a/aac) has no visual frame at all — both 404 the same
     // way rather than falling into `generateThumbDeduped`/`generateThumb`,
-    // which would otherwise copy the raw source bytes to a `.jpg` path and
-    // serve them as garbage `image/jpeg` (see indexer/thumbnailer.ts).
+    // which would otherwise copy the raw source bytes to a `.avif` path and
+    // serve them as garbage `image/avif` (see indexer/thumbnailer.ts).
     if (isNoPreviewFilename(filename)) {
       set.status = 404;
       return { error: 'No thumbnail for this file type' };
@@ -145,7 +145,7 @@ export const thumbRoutes = new Elysia().get(
       return new Response(bytes as unknown as BodyInit, {
         status: 200,
         headers: {
-          'Content-Type': 'image/jpeg',
+          'Content-Type': 'image/avif',
           ETag: wEtag,
           'Cache-Control': revalidateCache,
         },
@@ -197,7 +197,7 @@ export const thumbRoutes = new Elysia().get(
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
-        'Content-Type': 'image/jpeg',
+        'Content-Type': 'image/avif',
         ETag: etag,
         'Cache-Control': IMMUTABLE_CACHE,
       },

@@ -58,7 +58,7 @@ function freshFactory(): { factory: WorkerFactory; workers: FakeWorker[] } {
 
 function render(pool: ReturnType<typeof _createFfiPoolForTests>) {
   // outPath/maxPx/quality are inert in the fake — only the dispatch matters.
-  return pool.renderThumbnailJpegToFile('/raw.dng', '/out.jpg', 256);
+  return pool.renderThumbnailAvifToFile('/raw.dng', '/out.avif', 256);
 }
 
 describe('FfiWorkerPool — dispatch', () => {
