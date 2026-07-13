@@ -38,11 +38,19 @@
 
 use crate::chain::{CancelToken, Pass};
 use crate::context::GpuContext;
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::dehaze::{compute_airlight, AirlightSource};
 use crate::dither::{alloc_packed_rgb, encode_dither, unpack_rgb_u8};
 use crate::full_chain::FullChainInputs;
 use crate::image::GpuImage;
 use crate::live_chain::{build_live_chain, build_live_split, chain_signature, dehaze_is_active};
+
+/// Process-wide monotonic counter handing out a unique [`LiveSession::session_id`]
+/// to every session constructed anywhere in the process (#1929). Not reset on
+/// close — only monotonic uniqueness matters, never reuse. Starts at 1 so `0`
+/// stays available as an obviously-invalid sentinel for tests that don't care
+/// about session identity.
+static NEXT_LIVE_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A persistent live-render session bound to one uploaded image at one set of
 /// dims. Owns the GPU-resident image, the ping-pong scratch pair, the readback
@@ -81,6 +89,14 @@ pub struct LiveSession {
     /// prefix→readback→`compute_airlight`→suffix split — kept as a fallback and for
     /// the parity test that pins the on-GPU A against the CPU A.
     airlight_readback_fallback: bool,
+    /// This session's unique identity (#1929), salted into every
+    /// [`chain_signature`] this session computes so it can never share a
+    /// [`crate::FramePool`] bucket with another session — see
+    /// [`chain_signature`]'s "Session-identity salt" doc section for the
+    /// cross-session buffer-reuse hazard this closes. Drawn from
+    /// [`NEXT_LIVE_SESSION_ID`] at construction; stable for the session's whole
+    /// lifetime.
+    session_id: u64,
 }
 
 impl LiveSession {
@@ -162,8 +178,13 @@ impl LiveSession {
         });
         // Drop any cache from a prior session on this ctx — its bind groups
         // reference the OLD session's (now-dropped) ping-pong buffers (stale-
-        // reference safety; see `FramePool::reset`).
+        // reference safety; see `FramePool::reset`). This guards a CLOSED
+        // session's leftovers; it does NOT protect against a second session
+        // opening and rendering while this one is still alive (#1929) — that's
+        // what `session_id` (salted into every `chain_signature` this session
+        // computes) closes instead.
         ctx.frame_pool.borrow_mut().reset();
+        let session_id = NEXT_LIVE_SESSION_ID.fetch_add(1, Ordering::Relaxed);
         Ok(Self {
             image,
             ping_pong: [make_ping("live-ping-a"), make_ping("live-ping-b")],
@@ -171,6 +192,7 @@ impl LiveSession {
             readback,
             airlight_staging,
             airlight_readback_fallback,
+            session_id,
         })
     }
 
@@ -241,7 +263,7 @@ impl LiveSession {
         // Open the pooled render window for THIS chain shape — it SPANS both the
         // prefix and suffix encoders (the cursor runs prefix→suffix continuously),
         // so a same-signature re-render allocates ZERO new GPU resources.
-        let sig = chain_signature(inputs, dims);
+        let sig = chain_signature(inputs, dims, self.session_id);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
 
         let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
@@ -401,7 +423,7 @@ impl LiveSession {
         cancel: Option<&CancelToken>,
     ) -> Result<Option<usize>, String> {
         let dims = self.image.dims();
-        let sig = chain_signature(inputs, dims);
+        let sig = chain_signature(inputs, dims, self.session_id);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
 
         let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
@@ -570,3 +592,8 @@ mod limits;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests.rs"]
 mod tests;
+// Pooled zero-alloc gate — own file (600-LOC budget), reuses `tests`' `pub(super)`
+// fixtures. Same split shape as `gpu_render`'s `tests` / `tests_sizing`.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_pool.rs"]
+mod tests_pool;

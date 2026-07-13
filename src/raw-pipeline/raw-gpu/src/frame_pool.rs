@@ -16,17 +16,25 @@
 //! — the whole point of the C1 gate), the pass set changes, dispatch *i* is now a
 //! different kernel, and `cache[i]` would bind the wrong buffers / wrong layout.
 //!
-//! So the cache is keyed by the chain **signature** — the active-stage set + dims
-//! + anything that changes the dispatch COUNT (capture-sharpening's iterations).
-//! Within a fixed signature the dispatch sequence and its bindings are identical,
-//! so sequence-indexed reuse is valid; a signature change lands in a fresh bucket
-//! (allocating once for the new shape, zero thereafter). Param *values* don't
-//! change the signature — only the uniform CONTENTS — so a normal slider drag
-//! (same active set) stays zero-alloc: the pooled uniform is rewritten via
-//! `queue.write_buffer` (not a counted allocation) while its buffer object, and
-//! every bind group that references it, are reused. The signature is computed by
+//! So the cache is keyed by the chain **signature** — the SESSION identity + the
+//! active-stage set + dims + anything that changes the dispatch COUNT
+//! (capture-sharpening's iterations). Within a fixed signature the dispatch
+//! sequence and its bindings are identical, so sequence-indexed reuse is valid;
+//! a signature change lands in a fresh bucket (allocating once for the new
+//! shape, zero thereafter). Param *values* don't change the signature — only
+//! the uniform CONTENTS — so a normal slider drag (same active set) stays
+//! zero-alloc: the pooled uniform is rewritten via `queue.write_buffer` (not a
+//! counted allocation) while its buffer object, and every bind group that
+//! references it, are reused. The signature is computed by
 //! [`crate::live_chain::chain_signature`], single-sourced with the gating
 //! predicates so it can't drift from which passes `build_live_chain` pushes.
+//!
+//! The session-identity component (#1929) exists because [`GpuContext`] — and
+//! therefore this pool — can be shared PROCESS-WIDE across more than one live
+//! session (Apple's `GpuShared` static). Without it, two sessions with the same
+//! dims/active-mask would collide in the SAME bucket and could end up bound to
+//! each other's ping-pong buffers; see `chain_signature`'s doc for the full
+//! scenario.
 //!
 //! ## Arc, not Clone
 //!
