@@ -62,6 +62,7 @@ class StubSearchService {
   }
 }
 
+/* prettier-ignore */
 function makeResult(id: string, filename: string): SearchResult {
   return {
     id: `fs:/path/${id}`, address: null, _id: id, folder_id: 'f1', abs_path: `/path/${filename}`,
