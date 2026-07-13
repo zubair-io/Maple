@@ -54,13 +54,13 @@ extension EditSession {
         let renderer = nativeDetailRenderer
         let snapshot = await renderActor.snapshot(forAsset: asset)
         adoptDecodedWbFrame(snapshot.wbFrame)
+        // #1976: the live WB delta is applied ONCE, by `processSceneLinear`
+        // below, anchored at the buffer's actual as-shot bake
+        // (`wbDeltaAnchor`). The tile render itself takes NO anchor — see
+        // `NativeDetailRenderer.render` for why the old per-tile anchor
+        // was a no-op only by accidental cancellation and turned into a
+        // warm cast the moment the chain anchor was corrected.
         let asShot = wbDeltaAnchor
-        let decodedTemperature = snapshot.wbFrame?.isPresent == true
-            ? WbSliderFrame.decodeBakeAnchor.temperature
-            : asShot?.temperature
-        let decodedTint = snapshot.wbFrame?.isPresent == true
-            ? WbSliderFrame.decodeBakeAnchor.tint
-            : asShot?.tint
 
         let signpostID = editSessionSignposter.makeSignpostID()
         let signpostState = editSessionSignposter.beginInterval(
@@ -76,9 +76,7 @@ extension EditSession {
             let decoded = try await renderer.render(
                 asset: asset,
                 sourceRect: decodeRect,
-                model: m,
-                decodedTemperature: decodedTemperature,
-                decodedTint: decodedTint
+                model: m
             )
             guard requestID == nativeDetailRequestID, !Task.isCancelled else {
                 return true

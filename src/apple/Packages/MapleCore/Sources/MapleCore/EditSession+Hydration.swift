@@ -566,7 +566,12 @@ extension EditSession {
     /// the asset, e.g. a pano in `Panoramas/`). Returns nil when absent. (#1365.)
     nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
         let preview = MapleSidecarPaths.previewURL(for: url)
-        guard FileManager.default.fileExists(atPath: preview.path),
+        // #1976: skip previews without the current tier-version marker —
+        // they may carry since-fixed render semantics (the cyan-anchored
+        // era wrote no marker). The seed falls through to the embedded
+        // preview / fresh decode instead.
+        guard ThumbnailLoader.displayPreviewMarkerIsCurrent(for: url),
+            FileManager.default.fileExists(atPath: preview.path),
             let data = try? Data(contentsOf: preview)
         else { return nil }
         return CIImage(data: data)

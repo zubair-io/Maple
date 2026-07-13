@@ -24,7 +24,8 @@
 //
 // The buffer handed to the GPU session is the SAME decoded scene-linear CIImage
 // the CPU path uses — Rec.2020 fp16, AE + capture-sharpening baked at decode, WB
-// landed at 6500/0 (D65). `makeGpuLiveParams` therefore passes
+// landed at the image's As-Shot (the strip XMP omits the WB fields —
+// #1883/#1976). `makeGpuLiveParams` therefore passes
 // `capture_sharpening: None`, does NOT re-run AE, and uses develop's ABSOLUTE WB
 // (live temp/tint straight through). The on-screen result diverges from today's
 // CPU pixels BY DESIGN (sharpen + nr_color move into the scene-linear chain at
@@ -189,12 +190,13 @@ extension EditSession {
         // settle double-present.
         editSessionLogger.notice("GPU-TRACE present begin gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height)")
         var presentErr: Error? = nil
-        // #1781: with a decode-exported slider frame the delta anchors at
-        // the strip-XMP decode bake (6500/0 IN the frame) and the FFI
-        // derives the matrix with the frame's own calibration — matching
-        // the CPU tick chain and a fresh full develop. Frame-less RAW
-        // keeps the legacy pre-decode as-shot anchor; non-RAW keeps the
-        // D65 baseline (#1734).
+        // #1781/#1976: with a decode-exported slider frame the delta
+        // anchors at the frame's own as-shot pair (`wbDeltaAnchor` — the
+        // WB the strip-XMP decode actually baked) and the FFI derives the
+        // matrix with the frame's own calibration — matching the CPU tick
+        // chain and a fresh full develop. Frame-less RAW keeps the legacy
+        // pre-decode as-shot anchor; non-RAW keeps the D65 baseline
+        // (#1734).
         let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
         let anchor = wbDeltaAnchor
         await driver.present(

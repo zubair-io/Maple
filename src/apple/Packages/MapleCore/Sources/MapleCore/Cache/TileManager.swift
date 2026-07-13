@@ -83,7 +83,12 @@ public actor TileManager {
     /// CCT solve, and single-CM embedded-frame anchoring change the
     /// scene-linear chain's WB meaning; paired with RenderedPreviewCache
     /// viewTransformVersion=7 / DecodedBufferCache rustVersion=6.
-    public static let viewTransformVersion: UInt32 = 4
+    /// v5 (2026-07-12, #1976): the per-tick WB delta anchor moved from the
+    /// false explicit-(6500, 0) "decode bake" to the buffer's actual
+    /// as-shot bake — native-detail tiles rendered under the old anchor
+    /// carry the cyan overcool; paired with RenderedPreviewCache
+    /// viewTransformVersion=8.
+    public static let viewTransformVersion: UInt32 = 5
 
     private struct Entry {
         let image: CIImage

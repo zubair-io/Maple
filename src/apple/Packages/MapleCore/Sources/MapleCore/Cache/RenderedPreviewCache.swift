@@ -84,14 +84,26 @@ public actor RenderedPreviewCache {
     // short-circuits the pipeline forever; the same failure mode as v6's
     // #1801 entry.
     //
+    // v8 (2026-07-12, #1976): paired with TileManager viewTransformVersion=5.
+    // The per-tick WB delta anchor was a false explicit-(6500, 0) "decode
+    // bake" — the strip-XMP decode omits WB and bakes at As-Shot, so every
+    // settled render (GPU-live present, per-tick chain, and the previews
+    // persisted FROM them via #1665/#1879) overcooled into cyan on
+    // far-off-D65 bodies. Previews persisted under that anchor stay
+    // key-valid at v7 and would short-circuit the pipeline forever — the
+    // same failure mode as the v6/v7 entries. Apple-local bump (not
+    // raw-core `PIPELINE_OUTPUT_VERSION`): raw-core's output is unchanged
+    // and the web tick path has no decoded-anchor delta, so churning web
+    // thumbs would invalidate correct artifacts.
+    //
     // #1926: this hand-maintained per-cache integer is the drift-prone pattern
     // the codegen-sourced `AdjustmentModel.pipelineOutputVersion` supersedes.
     // Both are now folded into the key (see `variantToken`); `viewTransformVersion`
-    // is retained for the documented lineage above, but new pipeline-output
-    // changes bump raw-core's single-sourced `PIPELINE_OUTPUT_VERSION` instead
-    // — one constant that invalidates this cache and the Web thumb cache
-    // together, so a raw-core output change can no longer ship uninvalidated.
-    private let viewTransformVersion: UInt32 = 7
+    // is retained for the documented lineage above. Raw-core OUTPUT changes
+    // bump the single-sourced `PIPELINE_OUTPUT_VERSION` (invalidating this
+    // cache and the Web thumb cache together); host-side render-semantics
+    // fixes like v8 bump this Apple-local integer instead.
+    private let viewTransformVersion: UInt32 = 8
 
     // MARK: - Configure
 

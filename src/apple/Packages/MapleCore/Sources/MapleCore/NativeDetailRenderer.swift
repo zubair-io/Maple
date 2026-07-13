@@ -73,9 +73,7 @@ actor NativeDetailRenderer {
     func render(
         asset: AssetRef,
         sourceRect: CGRect,
-        model: AdjustmentModel,
-        decodedTemperature: Double?,
-        decodedTint: Double?
+        model: AdjustmentModel
     ) throws -> CIImage {
         guard !Task.isCancelled else { throw CancellationError() }
         guard let url = asset.primaryURL else { throw PipelineError.noByteSource }
@@ -129,14 +127,26 @@ actor NativeDetailRenderer {
         // path (`ImageEditPipeline` uses `.RGBAf` end to end since #487). The
         // fp16 the tile path previously produced could bias shadows or band
         // the AgX shoulder specifically in the tile vs the full image.
+        // NO decoded WB anchor (#1976): the handle's model is the STRIPPED
+        // model, whose WB fields were omitted (`omitWhiteBalance`, #1883)
+        // and therefore parse to the (6500, 0) defaults — NOT the live
+        // slider values the #1725 anchor contract assumed ("the caller
+        // hydrated the model to explicit values"). With an anchor, the
+        // tile's camera-WB stage computes `wb(6500-default) / wb(anchor)`:
+        // the old 6500/0 anchor made that identity only by accidental
+        // cancellation (while still retargeting the DCP at 6500 instead of
+        // as-shot), and any truthful anchor turns it into a warm cast. With
+        // NO anchor the tile resolves WB exactly like the whole-image strip
+        // decode — an As-Shot bake with the As-Shot DCP retarget — and the
+        // live WB delta is applied once, downstream, by the per-tick chain
+        // (`processSceneLinear`, anchored at `wbDeltaAnchor`). This matches
+        // every other tile caller (TileManager deep zoom, preview tiles).
         let imageData = try PipelineRenderer.renderTileF32(
             handle: rawHandle,
             srcX: UInt32(x), srcY: UInt32(y),
             srcW: UInt32(width), srcH: UInt32(height),
             outW: UInt32(width), outH: UInt32(height),
-            quality: .full,
-            decodedTemperature: decodedTemperature,
-            decodedTint: decodedTint
+            quality: .full
         )
         guard imageData.bytesPerPixel == 16 else {
             throw PipelineError.renderFailed(

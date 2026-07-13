@@ -992,12 +992,12 @@ public actor ImageEditPipeline {
     /// live-vs-decoded WB delta so opening a saved sidecar doesn't
     /// double-apply WB between the Rust path and the Apple kernel.
     /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
-    /// the chain's WB delta anchors at the strip-XMP decode bake —
-    /// `WbSliderFrame.decodeBakeAnchor` (6500/0, interpreted IN the frame)
-    /// — and is derived with the frame's own calibration, so this CPU tick
-    /// path agrees with both the GPU live chain and a fresh full develop
-    /// of the same model. `nil` keeps the legacy asShot-anchored generic
-    /// delta bit-for-bit.
+    /// the chain's WB delta is derived with the frame's own calibration —
+    /// anchored, like the frame-absent path, at the caller's `asShot`
+    /// (`wbDeltaAnchor`: the frame's as-shot pair, the WB the strip-XMP
+    /// decode actually baked — #1976) — so this CPU tick path agrees with
+    /// both the GPU live chain and a fresh full develop of the same model.
+    /// `nil` keeps the legacy asShot-anchored generic delta bit-for-bit.
     nonisolated public func processSceneLinear(
         decoded: CIImage,
         model: AdjustmentModel,
@@ -1022,13 +1022,13 @@ public actor ImageEditPipeline {
         //
         // WB contract (paired with `RawCoreBridge.stripAppleGPUStages`):
         //
-        //   1. The FFI scene-linear decode FORCES `temperature=6500,
-        //      tint=0`, so the Rust `white_balance::apply` early-exits.
-        //      The cached buffer is at D65 (post-DCP reference) regardless
-        //      of sidecar contents. This eliminates the
-        //      "first-open at D65, post-sidecar at user-temp"
-        //      inconsistency that surfaced as a magenta cast on every
-        //      slider write.
+        //   1. The FFI scene-linear decode OMITS the WB fields from the
+        //      strip XMP (`omitWhiteBalance`, #1883), so raw-core resolves
+        //      the develop at the image's As-Shot WB. The cached buffer is
+        //      the as-shot develop (post-DCP reference) regardless of
+        //      sidecar contents. This eliminates the "first-open at
+        //      as-shot, post-sidecar at user-temp" inconsistency that
+        //      surfaced as a magenta cast on every slider write.
         //
         //   2. Apple's chain passes `decodedTemp = asShot.temperature`
         //      (NOT 6500). The chain's `apply_delta(live, decoded)`
@@ -1050,16 +1050,15 @@ public actor ImageEditPipeline {
         // `decodedAtModel` is unused; kept on the signature so a future
         // saved-WB sidecar workflow can re-thread per-asset baselines.
         let _ = decodedAtModel
-        // #1781: with a present frame the anchor is the strip-XMP decode
-        // bake (explicit 6500/0 in the frame) — `asShot` remains the
-        // legacy anchor for frame-absent sources only.
+        // #1976: the anchor is `asShot` (the caller's `wbDeltaAnchor` — the
+        // frame's as-shot pair when a frame is present) in BOTH branches:
+        // the strip-XMP decode omits WB, so the buffer is always an
+        // as-shot develop. The old frame-present override to an explicit
+        // 6500/0 described a warm develop that never existed post-#1894
+        // and overcooled every settled render into cyan.
         let frame = (wbFrame?.isPresent == true) ? wbFrame : nil
-        let decodedTemp = frame != nil
-            ? WbSliderFrame.decodeBakeAnchor.temperature
-            : (asShot?.temperature ?? 6500.0)
-        let decodedTint = frame != nil
-            ? WbSliderFrame.decodeBakeAnchor.tint
-            : (asShot?.tint ?? 0.0)
+        let decodedTemp = asShot?.temperature ?? 6500.0
+        let decodedTint = asShot?.tint ?? 0.0
         if let asShot {
             logger.notice("processSceneLinear asShot=\(asShot.temperature, format: .fixed(precision: 0))K/\(asShot.tint, format: .fixed(precision: 1)) live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         } else {

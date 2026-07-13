@@ -6,8 +6,9 @@
 //   * `EditSession.adoptDecodedWbFrame` — the decode's numbers win over the
 //     `CIRAWFilter` placeholder for an untouched As-Shot model, and only
 //     then,
-//   * `EditSession.wbDeltaAnchor` — the strip-XMP decode-bake anchor when a
-//     frame is present, the legacy as-shot estimate otherwise.
+//   * `EditSession.wbDeltaAnchor` — the frame's own as-shot pair (the WB
+//     the strip-XMP decode actually baked, #1976) when a frame is present,
+//     the legacy as-shot estimate otherwise.
 
 import XCTest
 import RawPipeline
@@ -172,15 +173,33 @@ final class WbSliderFrameTests: XCTestCase {
 
     // MARK: - Anchor derivation
 
-    func testAnchorIsDecodeBakeWhenFramePresent() {
+    func testAnchorIsFrameAsShotWhenFramePresent() {
         let session = rawSession()
         session.asShotCCT = 4522
         session.asShotTint = -43.65
         session.adoptDecodedWbFrame(frame())
 
+        // #1976: the anchor is the WB the strip-XMP decode actually baked —
+        // the frame's own as-shot pair, NOT a 6500/0 constant (which
+        // described a warm develop that never existed and cyan-overcooled
+        // every settled render).
         let anchor = session.wbDeltaAnchor
-        XCTAssertEqual(anchor?.temperature ?? 0, 6500, accuracy: 0.01)
-        XCTAssertEqual(anchor?.tint ?? -1, 0, accuracy: 0.01)
+        XCTAssertEqual(anchor?.temperature ?? 0, 5520, accuracy: 0.01)
+        XCTAssertEqual(anchor?.tint ?? 0, -12, accuracy: 0.01)
+    }
+
+    func testAnchorPrefersFrameOverStaleSessionEstimate() {
+        // Directly assign the frame (bypassing adoption's estimate update)
+        // to prove the anchor binds to the frame metadata itself, not to
+        // whatever placeholder the session estimates happen to hold.
+        let session = rawSession()
+        session.asShotCCT = 6500 // stale placeholder
+        session.asShotTint = 0
+        session.wbSliderFrame = frame(sceneCCT: 4522, asShotTint: -43.79)
+
+        let anchor = session.wbDeltaAnchor
+        XCTAssertEqual(anchor?.temperature ?? 0, 4522, accuracy: 0.01)
+        XCTAssertEqual(anchor?.tint ?? 0, -43.79, accuracy: 0.01)
     }
 
     func testAnchorFallsBackToAsShotEstimateWithoutFrame() {

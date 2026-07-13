@@ -119,12 +119,14 @@ extension WbSliderFrame {
         p.wb_frame_render_cm = Self.tuple9(renderCm)
     }
 
-    /// The delta anchor the per-tick chains must use when this frame is
-    /// present: the strip-XMP decode bake — every Apple editor decode
-    /// develops at the stripped model's EXPLICIT `(6500, 0)`
-    /// (`RawCoreBridge.stripAppleGPUStages`), interpreted in this frame.
-    /// The live/refine parity contract is `delta(live vs 6500/0)` composed
-    /// over that bake ≡ a fresh develop at `live` — so the anchor is the
-    /// bake point, NOT the as-shot estimate (which only seeds the sliders).
-    public static let decodeBakeAnchor = (temperature: 6500.0, tint: 0.0)
+    // NOTE (#1976): there is deliberately NO decode-bake constant here.
+    // The strip-XMP decode OMITS the WB fields (`omitWhiteBalance`,
+    // #1883), so the buffer is an As-Shot develop — the per-tick delta
+    // anchor is this frame's own `(sceneCCT, asShotTint)` pair
+    // (`EditSession.wbDeltaAnchor`), which is also what seeds the sliders,
+    // making the untouched-open delta exact identity. The old
+    // `decodeBakeAnchor = (6500, 0)` constant described the pre-#1894
+    // slider encoding of that same develop; after #1894 moved the identity
+    // position to the as-shot pair it silently became a false statement
+    // about the buffer and produced the global cyan overcool.
 }
