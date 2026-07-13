@@ -12,7 +12,7 @@ final class MapleSidecarPathsTests: XCTestCase {
         let pano = URL(fileURLWithPath: "/a/b/Panoramas/panorama-test.png")
         XCTAssertEqual(
             MapleSidecarPaths.thumbURL(for: pano).path,
-            "/a/b/Panoramas/.maple/thumbs/88bab9b0d022c93c.jpg"
+            "/a/b/Panoramas/.maple/thumbs/88bab9b0d022c93c.avif"
         )
     }
 

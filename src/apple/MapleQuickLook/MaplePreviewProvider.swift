@@ -9,7 +9,7 @@ import OSLog
 /// QuickLook hands us the local cache URL of the materialized file (or
 /// the placeholder, depending on FP state). We resolve it back to a
 /// `(domain, assetID)` pair through the shared `FileProviderMetaStore`
-/// and fetch the pre-baked JPEG preview from
+/// and fetch the pre-baked AVIF preview from
 /// `GET /api/assets/<id>/thumb` — orders of magnitude cheaper than
 /// decoding a 40–150 MB RAW.
 ///
@@ -97,13 +97,13 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
 
-        // 4. Fetch the JPEG preview via the App Group disk cache. The
+        // 4. Fetch the AVIF preview via the App Group disk cache. The
         //    cache wraps `RemoteCatalog.getThumbConditional` and turns
         //    a same-ETag revalidation into a disk read instead of a
         //    payload-bearing 200. Across QL extension sessions (the
         //    appex dies on the next spacebar press for a different
         //    file type), this is the difference between paying N
-        //    JPEG round-trips and paying N HTTP 304s + 0 bytes.
+        //    AVIF round-trips and paying N HTTP 304s + 0 bytes.
         let bytes: Data
         let assetID = row.assetID
         do {
@@ -118,10 +118,16 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
         }
 
         // 5. Build the reply. `contentSize` is advisory; QL re-reads the
-        //    actual dimensions from the JPEG header and re-aspects on
+        //    actual dimensions from the AVIF header and re-aspects on
         //    display. The 1024-square placeholder is conventional.
+        //
+        //    `dataOfContentType` DECLARES the type to the OS rather than
+        //    sniffing it — unlike the grid's `CGImageSourceCreateWithData`
+        //    decode path, this must be kept in lockstep with whatever
+        //    format the server actually serves at `GET /api/assets/<id>/thumb`
+        //    (now AVIF) or Quick Look mis-renders/fails outright.
         let reply = QLPreviewReply(
-            dataOfContentType: .jpeg,
+            dataOfContentType: ThumbnailEncoder.utType,
             contentSize: CGSize(width: 1024, height: 1024)
         ) { _ in bytes }
         return reply

@@ -104,7 +104,7 @@ final class CloudCacheTests: XCTestCase {
     let url = base
       .appendingPathComponent(host, isDirectory: true)
       .appendingPathComponent(String(digest.prefix(2)), isDirectory: true)
-      .appendingPathComponent("\(digest).jpg")
+      .appendingPathComponent("\(digest).avif")
     try? FileManager.default.setAttributes([.modificationDate: mtime],
                                             ofItemAtPath: url.path)
   }

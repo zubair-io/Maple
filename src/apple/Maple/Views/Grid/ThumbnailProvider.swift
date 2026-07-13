@@ -243,7 +243,7 @@ private extension ThumbnailProvider {
                 if (info?[PHImageResultIsDegradedKey] as? Bool) == true { return }
                 guard latch.tryFire() else { return }
                 guard let image else { cont.resume(returning: nil); return }
-                cont.resume(returning: jpegBytes(from: image))
+                cont.resume(returning: avifBytes(from: image))
             }
         }
     }
@@ -291,23 +291,43 @@ private extension ThumbnailProvider {
         }
     }
 
-    /// Encode a platform image to JPEG bytes. Exact params from both originals:
-    /// `kCGImageDestinationLossyCompressionQuality: ThumbnailDiskCache.jpegQuality` (0.82).
-    static func jpegBytes(from image: PlatformImage) -> Data? {
+    /// Platform-specific CGImage extraction, shared by both encoders below
+    /// (the thumbnail tier's AVIF encode and the preview tier's JPEG encode).
+    static func cgImage(from image: PlatformImage) -> CGImage? {
         #if canImport(AppKit)
         var rect = CGRect(origin: .zero, size: image.size)
-        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
-        else { return nil }
+        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
         #elseif canImport(UIKit)
-        guard let cg = image.cgImage else { return nil }
+        return image.cgImage
         #endif
+    }
+
+    /// Encode a platform image to AVIF bytes via the shared `ThumbnailEncoder`
+    /// — the 256px thumbnail tier only (the display-preview tier below stays
+    /// JPEG and has its own independent encoder). This is the same encoder
+    /// `ThumbnailDiskCache`/`ThumbnailLoader` and `PhotoKitSource` use; ≥2
+    /// real callers wanting identical AVIF-encode behavior is exactly the
+    /// trigger for sharing it instead of duplicating the encode boilerplate.
+    static func avifBytes(from image: PlatformImage) -> Data? {
+        guard let cg = cgImage(from: image) else { return nil }
+        return ThumbnailEncoder.encode(cg)
+    }
+
+    /// JPEG quality for the display-preview tier — independent of the
+    /// thumbnail tier's `ThumbnailEncoder.quality` (AVIF scale). This tier
+    /// is out of scope for the thumbnail AVIF migration and stays JPEG.
+    private static let previewJpegQuality: CGFloat = 0.82
+
+    /// Encode a platform image to JPEG bytes for the display-preview tier.
+    static func jpegBytes(from image: PlatformImage) -> Data? {
+        guard let cg = cgImage(from: image) else { return nil }
         let mutableData = NSMutableData()
         let type = UTType.jpeg.identifier as CFString
         guard let dest = CGImageDestinationCreateWithData(mutableData, type, 1, nil)
         else { return nil }
         CGImageDestinationAddImage(
             dest, cg,
-            [kCGImageDestinationLossyCompressionQuality: ThumbnailDiskCache.jpegQuality]
+            [kCGImageDestinationLossyCompressionQuality: previewJpegQuality]
                 as CFDictionary
         )
         return CGImageDestinationFinalize(dest) ? (mutableData as Data) : nil

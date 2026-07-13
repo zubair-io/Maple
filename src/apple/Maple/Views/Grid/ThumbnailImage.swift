@@ -63,7 +63,7 @@ enum GridDisplayMode {
 
 // MARK: - ThumbnailImage
 
-/// Shared square thumbnail cell. Renders JPEG bytes (or a placeholder
+/// Shared square thumbnail cell. Renders AVIF bytes (or a placeholder
 /// when nil) inside a 1:1 rounded rectangle, with the caller's chosen
 /// fill/fit content mode. Used by the local Browse grid AND the cloud
 /// Timeline grid so both honor the toolbar's fill/fit toggle and pick
@@ -80,14 +80,14 @@ enum GridDisplayMode {
 /// offered width, and `.clipShape` cleans up the overflow with rounded
 /// corners.
 struct ThumbnailImage: View {
-    let jpegData: Data?
+    let thumbnailData: Data?
     let displayMode: GridDisplayMode
 
     var body: some View {
         Rectangle()
             .fill(MapleTokens.surfaceAlt)
             .overlay {
-                if let data = jpegData, let cgImg = Self.cgImage(from: data) {
+                if let data = thumbnailData, let cgImg = Self.cgImage(from: data) {
                     #if os(macOS)
                     Image(nsImage: NSImage(cgImage: cgImg, size: .zero))
                         .resizable()
@@ -108,8 +108,9 @@ struct ThumbnailImage: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
-    /// Decode JPEG bytes to a CGImage. Same helper ThumbnailCell used —
-    /// hoisted here so both call sites share it.
+    /// Decode thumbnail bytes to a CGImage (format-agnostic via
+    /// CGImageSource). Same helper ThumbnailCell used — hoisted here so
+    /// both call sites share it.
     static func cgImage(from data: Data) -> CGImage? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
@@ -120,7 +121,7 @@ struct ThumbnailImage: View {
 }
 
 #Preview("ThumbnailImage — placeholder") {
-    ThumbnailImage(jpegData: nil, displayMode: .fill)
+    ThumbnailImage(thumbnailData: nil, displayMode: .fill)
         .frame(width: 180, height: 180)
         .padding()
         .background(MapleTokens.bg)

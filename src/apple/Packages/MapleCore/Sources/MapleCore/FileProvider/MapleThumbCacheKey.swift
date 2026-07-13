@@ -6,7 +6,7 @@
 // `src/api/src/fs/xmp.ts` `resolveThumbPath`) and the web maple-cache's
 // `sha.ts`. The on-disk filename for a RAW's pre-rendered thumbnail is:
 //
-//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.jpg
+//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.avif
 //
 // The hash input is the RAW's filename (basename WITH extension), NOT
 // the absolute path — so `.maple/` travels with the photos when the
@@ -33,10 +33,10 @@ public enum MapleThumbCacheKey {
     /// Compose the on-disk thumbnail filename the server would write
     /// for `rawBasename`. `rawBasename` is the RAW's filename with
     /// extension (e.g. `IMG_0001.ARW`), exactly as `path.basename`
-    /// would return it server-side. Always returns `<hex>.jpg`
+    /// would return it server-side. Always returns `<hex>.avif`
     /// regardless of the input extension — the server normalises
-    /// every cached thumb to JPEG.
+    /// every cached thumb to AVIF.
     public static func thumbFilename(forRawBasename rawBasename: String) -> String {
-        return "\(sha256Prefix16(rawBasename)).jpg"
+        return "\(sha256Prefix16(rawBasename)).avif"
     }
 }

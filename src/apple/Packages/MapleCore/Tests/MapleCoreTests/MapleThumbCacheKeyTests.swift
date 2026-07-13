@@ -36,13 +36,13 @@ final class MapleThumbCacheKeyTests: XCTestCase {
         XCTAssertEqual(h, h.lowercased())
     }
 
-    func testThumbFilenameAlwaysEndsInJpg() {
+    func testThumbFilenameAlwaysEndsInAvif() {
         XCTAssertTrue(MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
-                        .hasSuffix(".jpg"))
+                        .hasSuffix(".avif"))
         XCTAssertTrue(MapleThumbCacheKey.thumbFilename(forRawBasename: "photo.HEIC")
-                        .hasSuffix(".jpg"))
+                        .hasSuffix(".avif"))
         XCTAssertTrue(MapleThumbCacheKey.thumbFilename(forRawBasename: "noext")
-                        .hasSuffix(".jpg"))
+                        .hasSuffix(".avif"))
     }
 
     func testThumbFilenameDeterministic() {

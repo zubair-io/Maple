@@ -72,8 +72,8 @@ final class ThumbnailLoaderTests: XCTestCase {
     // MARK: - Constants
 
     func testSpecConstantsMatchSpec() {
-        // Spec § 03: 256 px long edge, JPEG q=0.82.
+        // Spec § 03 (thumbnail AVIF migration): 256 px long edge, AVIF q=0.5.
         XCTAssertEqual(ThumbnailDiskCache.defaultThumbSize.width, 256)
-        XCTAssertEqual(ThumbnailDiskCache.jpegQuality, 0.82)
+        XCTAssertEqual(ThumbnailEncoder.quality, 0.5)
     }
 }

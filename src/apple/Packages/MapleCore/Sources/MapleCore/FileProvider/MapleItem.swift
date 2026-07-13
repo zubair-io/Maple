@@ -318,7 +318,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// Synthetic `.maple/thumbs/` directory — the only child of a
     /// `.mapleDir`. Children are one `.thumb(assetID:)` per indexed
     /// image in `parentRelativePath`, named with the server's
-    /// `sha256_prefix16(basename).jpg` convention.
+    /// `sha256_prefix16(basename).avif` convention.
     public init(mapleThumbsDir folderID: String,
                 parentRelativePath: String,
                 parentIdentifier: NSFileProviderItemIdentifier) {
@@ -334,8 +334,8 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = "thumbs"
     }
 
-    /// Pre-rendered thumbnail JPEG. `displayFilename` is the server's
-    /// on-disk name (`<sha256_prefix16(basename)>.jpg`), derived by the
+    /// Pre-rendered thumbnail AVIF. `displayFilename` is the server's
+    /// on-disk name (`<sha256_prefix16(basename)>.avif`), derived by the
     /// enumerator from the paired RAW's filename. Identifier carries
     /// only the assetID — the OS reaches `fetchContents` with the
     /// `.thumb(assetID:)` shape and the extension hits
@@ -354,7 +354,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.isDirectory = false
         self.size = nil
         self.modified = nil
-        self.utType = UTType(filenameExtension: "jpg") ?? .jpeg
+        self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
         // Read-only — `.maple/thumbs/` is a derived cache. Deletes
         // here would leak through to the server-side cache and the
         // next enumeration would just regenerate the entry.

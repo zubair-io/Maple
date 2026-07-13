@@ -532,7 +532,7 @@ public actor RemoteCatalog {
         }
     }
 
-    /// GET /api/assets/<assetID>/thumb. Returns the JPEG bytes of the
+    /// GET /api/assets/<assetID>/thumb. Returns the AVIF bytes of the
     /// pre-baked preview. Throws on non-2xx — 404 in particular means
     /// "thumbnail not generated yet" and the Quick Look extension
     /// uses that signal to fall back to OS-default RAW materialization.

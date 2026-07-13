@@ -53,7 +53,7 @@ struct CloudThumbTile: View {
     @State private var thumbData: Data?
 
     var body: some View {
-        ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
+        ThumbnailImage(thumbnailData: thumbData, displayMode: displayMode)
             .task(id: absPath) {
                 let bytes = await fetchCloudThumbBytes(
                     host: host, absPath: absPath, cache: thumbCache, client: thumbClient)

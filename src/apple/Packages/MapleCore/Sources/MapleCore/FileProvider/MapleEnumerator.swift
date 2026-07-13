@@ -242,7 +242,7 @@ public final class MapleDirEnumerator: NSObject, NSFileProviderEnumerator {
 /// folder's image listing (same `catalog.listDir(...)` call the
 /// `FolderEnumerator` uses) and surfaces one `.thumb(assetID:)` per
 /// indexed image, named with the server's on-disk filename convention
-/// (`<sha256_prefix16(image basename)>.jpg`).
+/// (`<sha256_prefix16(image basename)>.avif`).
 ///
 /// Empty parent → empty enumeration, NOT an error: a brand-new library
 /// with no synced thumbs still has a valid (just-empty) `.maple/thumbs/`

@@ -8,7 +8,7 @@
 //   - MapleDirEnumerator surfaces a single `thumbs/` child.
 //   - MapleThumbsEnumerator synthesises one thumb item per indexed
 //     image in the parent folder, with the server's
-//     `<sha256_prefix16(basename)>.jpg` filename.
+//     `<sha256_prefix16(basename)>.avif` filename.
 //   - MapleThumbsEnumerator returns an empty list (no error) when the
 //     parent folder has no indexed images — i.e. a brand-new library
 //     with no thumbs cached yet still produces a valid view.
@@ -199,7 +199,7 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
         let items = observer.batches.flatMap { $0 }
         XCTAssertEqual(items.count, 2, "expected 2 thumbs (A,B); C is unindexed and must be skipped")
         // Each item's filename must be the server's
-        // sha256_prefix16(basename).jpg.
+        // sha256_prefix16(basename).avif.
         let names = Set(items.map { $0.filename })
         let expectedA = MapleThumbCacheKey.thumbFilename(forRawBasename: "A.dng")
         let expectedB = MapleThumbCacheKey.thumbFilename(forRawBasename: "B.dng")
