@@ -220,7 +220,7 @@ describe('imgdecode child — integration', () => {
   it('renders a synthetic JPEG via the real child and writes the output file', async () => {
     // Create a minimal 4×4 RGB JPEG via sharp in this test process.
     const src = path.join(dir, 'src.jpg');
-    const out = path.join(dir, 'out.jpg');
+    const out = path.join(dir, 'out.avif');
     const jpgBuf = await sharp({
       create: { width: 4, height: 4, channels: 3, background: { r: 200, g: 100, b: 50 } },
     })
@@ -231,13 +231,15 @@ describe('imgdecode child — integration', () => {
     const { imgdecodePool, _resetImgdecodePoolForTests } = await import('./imgdecode-pool.ts');
     _resetImgdecodePoolForTests(); // ensure a fresh pool for this test
 
-    const result = await imgdecodePool().renderImageThumbToFile(src, out, 256, 82, 'jpg');
+    const result = await imgdecodePool().renderImageThumbToFile(src, out, 256, 55, 'jpg');
 
     expect(result.ok).toBe(true);
-    // The output file must exist and be a valid JPEG.
+    // The output file must exist and be a valid AVIF.
     const s = await stat(out);
     expect(s.size).toBeGreaterThan(0);
     const meta = await sharp(out).metadata();
-    expect(meta.format).toBe('jpeg');
+    // sharp has no distinct "avif" format label — AVIF is a HEIF profile, so
+    // a real AVIF file reports format:"heif" here.
+    expect(meta.format).toBe('heif');
   }, 15_000 /* generous timeout for child spawn + render */);
 });

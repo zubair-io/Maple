@@ -18,7 +18,7 @@ import { isVideoFilename } from '../indexer/media-types.ts';
 
 /**
  * First 16 hex chars of sha256(text) — the cache-key stem used for
- * `.maple/thumbs/<key>.jpg`. Matches the web (Hosted) maple-cache
+ * `.maple/thumbs/<key>.avif`. Matches the web (Hosted) maple-cache
  * convention at `src/web/.../maple-cache/sha.ts` so thumbs written by
  * the API are readable by the browser-FS-Access cache (and vice versa
  * once Apple migrates to a filename-keyed hash too).
@@ -112,7 +112,7 @@ export async function ensureMapleDir(folderAbsPath: string): Promise<string> {
  * Resolve the thumbnail cache path for a given RAW file.
  *
  * Convention (aligned with the desktop apps + web Hosted variant):
- *   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.jpg
+ *   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
  *
  * - Single thumb per RAW file (one file → one cache entry, no per-size
  *   variants). Re-rendering at a different render-target size overwrites
@@ -128,7 +128,7 @@ export function resolveThumbPath(rawAbsPath: string): string {
   const folder = path.dirname(rawAbsPath);
   const basename = path.basename(rawAbsPath);
   const key = sha256Prefix16(basename);
-  return path.join(folder, '.maple', 'thumbs', `${key}.jpg`);
+  return path.join(folder, '.maple', 'thumbs', `${key}.avif`);
 }
 
 /** Cache kind: derived thumbnail, or full-size rendered preview. */
@@ -141,7 +141,7 @@ export type CacheKind = 'thumbs' | 'previews';
  * Previews stay size-keyed because a single asset can have many rendered
  * outputs (different export sizes / edit versions); each needs its own file.
  *
- *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.jpg
+ *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
  *   previews: <folder>/.maple/previews/<basename_no_ext>_<size>.jpg
  *
  * Used by the GC sweep to unlink orphaned files after a soft-deleted asset's
@@ -162,7 +162,7 @@ export function cachePathFor(assetAbsPath: string, kind: CacheKind, size?: strin
  * Resolve the thumbnail cache path for an asset using its content-addressed
  * `maple_id`. Composes:
  *
- *   <library_root>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.jpg
+ *   <library_root>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif
  *
  * `fileinfo.path` is stored POSIX-separated (`/`); we split on `/` and re-join
  * via `path.join` so the result is platform-correct on Windows hosts. On the
@@ -189,14 +189,14 @@ export function resolveThumbPathForAsset(
   if (!root) return null;
   // `fileinfo.path` is POSIX-separated; split + path.join for platform-correct sep.
   const segments = primary.path === '' ? [] : primary.path.split('/');
-  return path.join(root, ...segments, '.maple', 'thumbs', `${asset.maple_id}.jpg`);
+  return path.join(root, ...segments, '.maple', 'thumbs', `${asset.maple_id}.avif`);
 }
 
 /**
  * Resolve a thumbnail or preview cache path for an asset using its
  * content-addressed `maple_id`. Composes:
  *
- *   thumbs:   <library_root>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.jpg
+ *   thumbs:   <library_root>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif
  *   previews: <library_root>/<fileinfo[0].path>/.maple/previews/<maple_id>_<size>.jpg
  *
  * `size` defaults to `"full"` for previews; pass `"1280"` for the VLM preview,
@@ -219,7 +219,7 @@ export function cachePathForAsset(
   if (!root) return null;
   const segments = primary.path === '' ? [] : primary.path.split('/');
   if (kind === 'thumbs') {
-    return path.join(root, ...segments, '.maple', 'thumbs', `${asset.maple_id}.jpg`);
+    return path.join(root, ...segments, '.maple', 'thumbs', `${asset.maple_id}.avif`);
   }
   const s = size ?? 'full';
   return path.join(root, ...segments, '.maple', 'previews', `${asset.maple_id}_${s}.jpg`);
@@ -231,7 +231,7 @@ export function cachePathForAsset(
  */
 export async function writeThumb(
   rawAbsPath: string,
-  jpegBytes: Buffer | Uint8Array,
+  avifBytes: Buffer | Uint8Array,
 ): Promise<OpResult> {
   const thumbPath = resolveThumbPath(rawAbsPath);
   const thumbDir = path.dirname(thumbPath);
@@ -244,7 +244,7 @@ export async function writeThumb(
     const tmp = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
     const fh = await fs.open(tmp, 'w');
     try {
-      await fh.writeFile(jpegBytes);
+      await fh.writeFile(avifBytes);
       await fh.datasync();
     } finally {
       await fh.close();

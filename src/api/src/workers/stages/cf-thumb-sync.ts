@@ -112,7 +112,13 @@ const cfThumbSyncStage = defineStage({
     }
 
     const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
-    await uploadThumbToR2(config, key, bytes, AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS));
+    await uploadThumbToR2(
+      config,
+      key,
+      bytes,
+      'image/avif',
+      AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS),
+    );
     return { patch: { cf_thumb_synced_at: new Date().toISOString() } };
   },
 });

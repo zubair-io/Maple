@@ -68,21 +68,23 @@ describe('xmpSidecarPath', () => {
 });
 
 describe('resolveThumbPathForAsset', () => {
-  test('composes <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.jpg', () => {
+  test('composes <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif', () => {
     const result = resolveThumbPathForAsset(makeAsset({}), libs());
     expect(result).toBe(
-      path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${MAPLE_ID}.jpg`),
+      path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${MAPLE_ID}.avif`),
     );
   });
 
-  test('fileinfo[0].path === "" → <lib>/.maple/thumbs/<maple_id>.jpg (file at library root)', () => {
+  test('fileinfo[0].path === "" → <lib>/.maple/thumbs/<maple_id>.avif (file at library root)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ fileinfoPath: '' }), libs());
-    expect(result).toBe(path.join(LIB_ROOT, '.maple', 'thumbs', `${MAPLE_ID}.jpg`));
+    expect(result).toBe(path.join(LIB_ROOT, '.maple', 'thumbs', `${MAPLE_ID}.avif`));
   });
 
   test('POSIX path split: "a/b/c" → segments joined via path.join (never raw "/" in result)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ fileinfoPath: 'a/b/c' }), libs());
-    expect(result).toBe(path.join(LIB_ROOT, 'a', 'b', 'c', '.maple', 'thumbs', `${MAPLE_ID}.jpg`));
+    expect(result).toBe(
+      path.join(LIB_ROOT, 'a', 'b', 'c', '.maple', 'thumbs', `${MAPLE_ID}.avif`),
+    );
   });
 
   test('returns null when maple_id is missing', () => {
@@ -114,10 +116,10 @@ describe('resolveThumbPathForAsset', () => {
 });
 
 describe('cachePathForAsset', () => {
-  test('thumbs kind composes <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.jpg', () => {
+  test('thumbs kind composes <lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif', () => {
     const result = cachePathForAsset(makeAsset({}), libs(), 'thumbs');
     expect(result).toBe(
-      path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${MAPLE_ID}.jpg`),
+      path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${MAPLE_ID}.avif`),
     );
   });
 

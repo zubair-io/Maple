@@ -1,22 +1,22 @@
 /**
  * Thumbnail generation for the indexer thumb stage.
  *
- * For RAW files: delegates to `maple_render_thumbnail_jpeg_to_file` via
- * raw-ffi — extracts the embedded preview JPEG and writes it directly to
- * `<dir>/.maple/thumbs/<sha256_prefix16>.jpg`. No buffer crosses the
- * `bun:ffi` boundary (Bun 1.3.x's `toBuffer`-backed Buffers double-free
- * during JSC GC and segfault the process — the older `renderToRgb`
- * pathway hit this every time the indexer touched its first RAW).
+ * For RAW files: delegates to `maple_render_thumbnail_avif_to_file` via
+ * raw-ffi — extracts the embedded preview JPEG, downsamples, and writes an
+ * AVIF directly to `<dir>/.maple/thumbs/<sha256_prefix16>.avif`. No buffer
+ * crosses the `bun:ffi` boundary (Bun 1.3.x's `toBuffer`-backed Buffers
+ * double-free during JSC GC and segfault the process — the older
+ * `renderToRgb` pathway hit this every time the indexer touched its first RAW).
  *
  * For non-RAW files (JPEG / PNG / WEBP / TIFF / AVIF / HEIC): decodes via
  * sharp (and heic-convert for HEIC/HEIF) and writes a properly resized
- * 512px JPEG to the thumb path. Earlier versions copied the source file
+ * 512px AVIF to the thumb path. Earlier versions copied the source file
  * straight through — that worked for JPGs (just oversized) but produced
  * un-renderable HEIC bytes with a `.jpg` extension.
  *
  * For PSD / PSB (Photoshop) and Radiance HDR: first-pass decoded to a
  * flattened RGBA8 raster via `ag-psd` / `hdr` (see
- * `thumbs/psd-hdr-decode.ts`), then resized + JPEG-encoded through the same
+ * `thumbs/psd-hdr-decode.ts`), then resized + AVIF-encoded through the same
  * sharp path as the bitmap formats above.
  *
  * If libraw_ffi is unavailable (Linux without the .so), RAW thumbs are
@@ -31,6 +31,7 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isNoPreviewFilename } from './media-types.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
+import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('thumbnailer');
@@ -62,10 +63,10 @@ let _cached = 0;
 let _failed = 0;
 
 /**
- * Generate (or refresh) the on-disk thumbnail JPEG for an asset.
+ * Generate (or refresh) the on-disk thumbnail AVIF for an asset.
  *
  * `thumbPathOverride` lets the caller supply a content-addressed cache path
- * (e.g. `<lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.jpg`) instead of
+ * (e.g. `<lib>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif`) instead of
  * the legacy basename-keyed `resolveThumbPath(absPath)`. When undefined the
  * legacy path is used, preserving behaviour for callers that haven't been
  * swept to the new resolver yet.
@@ -99,10 +100,10 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
 
   // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
   // audio have no still frame — and the `copyImageAsThumb` fall-through below
-  // would copy the raw source bytes to `<id>.jpg`, which the thumb route would
-  // then serve as 200 image/jpeg garbage. Bail before the copy. Stage/route
-  // callers already skip these; this is defense in depth so no future caller
-  // can land non-image bytes in the thumb cache.
+  // would copy the raw source bytes to `<id>.avif`, which the thumb route
+  // would then serve as 200 image/avif garbage. Bail before the copy.
+  // Stage/route callers already skip these; this is defense in depth so no
+  // future caller can land non-image bytes in the thumb cache.
   if (isNoPreviewFilename(absPath)) {
     _failed++;
     log.warn({ absPath }, 'skipped: no still frame to thumbnail');
@@ -150,12 +151,17 @@ async function renderRawThumbToFile(rawPath: string, thumbPath: string): Promise
     return false;
   }
   try {
-    return await pool.renderThumbnailJpegToFile(rawPath, thumbPath, THUMB_LONG_EDGE_PX, 82);
+    return await pool.renderThumbnailAvifToFile(
+      rawPath,
+      thumbPath,
+      THUMB_LONG_EDGE_PX,
+      THUMB_AVIF_QUALITY,
+    );
   } catch (e) {
     log.warn({ rawPath, err: e instanceof Error ? e.message : e }, 'FFI call threw');
     return false;
   }
-  // Note: FFI path bakes orientation into pixels and emits a bare JPEG with
+  // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
   // decode time. No inline orientation post-process needed — keeping sharp
   // out of worker-main's address space for isolation.
@@ -172,7 +178,13 @@ async function renderBitmapThumbToFile(
   ext: string,
 ): Promise<boolean> {
   try {
-    const result = await renderImageThumbToFile(srcPath, thumbPath, THUMB_LONG_EDGE_PX, 82, ext);
+    const result = await renderImageThumbToFile(
+      srcPath,
+      thumbPath,
+      THUMB_LONG_EDGE_PX,
+      THUMB_AVIF_QUALITY,
+      ext,
+    );
     if (!result.ok) {
       log.warn(
         { srcPath, err: result.error ?? 'imgdecode failed' },
