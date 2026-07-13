@@ -148,7 +148,19 @@ public enum WbDngTemperature {
     ///
     /// Port of `dng_temperature::Get_xy_coord` / Rust's `temp_tint_to_xy`.
     public static func tempTintToXy(_ temperature: Double, _ tint: Double) -> (x: Double, y: Double) {
-        let r = 1.0e6 / temperature
+        // Clamp reciprocal temperature to the Robertson table's covered range
+        // `[0, 600]` mired (≈ ∞K down to ~1667K). Without this guard a
+        // non-positive or non-finite `temperature` — e.g. from a corrupt or
+        // hand-edited XMP sidecar — makes `r` infinite/NaN/negative, the
+        // bracket search falls through to `index = 29`, and the interpolation
+        // weight becomes non-finite, propagating NaN or a physically-impossible
+        // `(x, y)` chromaticity downstream. Mirrors raw-core's `temp_tint_to_xy`
+        // (#1922). A NaN reciprocal maps to the coldest table endpoint.
+        let r: Double = {
+            let raw = 1.0e6 / temperature
+            if raw.isNaN { return 600.0 }
+            return min(max(raw, 0.0), 600.0)
+        }()
 
         var index = 29
         for i in 0..<30 where r < tempTable[i + 1].r {

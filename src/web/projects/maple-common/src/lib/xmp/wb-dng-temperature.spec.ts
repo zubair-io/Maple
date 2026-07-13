@@ -254,4 +254,22 @@ describe('wb-dng-temperature (#1894 golden vectors)', () => {
       });
     }
   });
+
+  // #1922: a non-positive, zero, or non-finite temperature (from a corrupt or
+  // hand-edited sidecar) must never yield NaN/Infinity or a
+  // physically-impossible chromaticity. Mirrors raw-core's
+  // `degenerate_temperature_stays_finite_and_in_gamut`.
+  describe('degenerate temperature clamp', () => {
+    const temps = [0, -1, -6500, NaN, Infinity, -Infinity];
+    const tints = [-120, 0, 120];
+    for (const temp of temps) {
+      for (const tint of tints) {
+        it(`temp=${temp} tint=${tint} -> finite, in-gamut xy`, () => {
+          const [x, y] = tempTintToXy(temp, tint);
+          expect(Number.isFinite(x) && Number.isFinite(y)).toBe(true);
+          expect(x > 0 && x < 1 && y > 0 && y < 1).toBe(true);
+        });
+      }
+    }
+  });
 });
