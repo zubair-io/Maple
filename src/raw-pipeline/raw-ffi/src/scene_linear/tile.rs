@@ -159,6 +159,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                         || msg.contains("deep denoise")
                         || msg.contains("local adjustments")
                         || msg.contains("capture sharpening")
+                        || msg.contains("OpcodeList3")
                     {
                         return 10;
                     }
@@ -298,6 +299,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                         || msg.contains("deep denoise")
                         || msg.contains("local adjustments")
                         || msg.contains("capture sharpening")
+                        || msg.contains("OpcodeList3")
                     {
                         return 10;
                     }
