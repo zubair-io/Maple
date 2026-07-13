@@ -485,12 +485,33 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
 }
 
 /// The chain SIGNATURE for the live pool ([`crate::frame_pool`]): a hash of the
-/// active-stage mask + the render dims + anything that changes the DISPATCH COUNT
-/// within an active stage. The pool keys its bind-group / scratch cache by this,
-/// so two renders with the same signature share resources (zero alloc on the
-/// second) while a signature change (a slider crossing a gating threshold, a dims
-/// change, a different capture-sharpening iteration count) lands in a fresh
+/// SESSION identity + the active-stage mask + the render dims + anything that
+/// changes the DISPATCH COUNT within an active stage. The pool keys its
+/// bind-group / scratch cache by this, so two renders with the same signature
+/// share resources (zero alloc on the second) while a signature change (a
+/// slider crossing a gating threshold, a dims change, a different
+/// capture-sharpening iteration count, or a DIFFERENT SESSION) lands in a fresh
 /// bucket — never binding a stale buffer to the wrong kernel.
+///
+/// ## Session-identity salt (#1929)
+///
+/// `session_id` is a value unique to the calling [`crate::LiveSession`] (see
+/// [`crate::LiveSession`]'s internal counter). On Apple, [`crate::GpuContext`] —
+/// and therefore the [`crate::frame_pool::FramePool`] this signature keys — is a
+/// PROCESS-WIDE static shared across every live session (`GpuShared` in
+/// `raw-ffi`), not per-session. Without a session-unique component, two
+/// sequentially-interleaved OPEN sessions of matching dims/active-mask (e.g. an
+/// old `EditSession` tearing down while a new one's first present races it, or a
+/// fast-preview session live alongside a refine session) would hash to the SAME
+/// bucket: `LiveSession::new` resets the pool as a stale-CLOSED-session guard,
+/// but that reset only protects against a session that has already gone away —
+/// it does nothing once a SECOND session starts rendering into the same
+/// (now-shared) bucket a first, still-open session already populated. A
+/// subsequent render on the first session would then hit a bind group built
+/// (and forever bound, per wgpu's immutable bind groups) against the SECOND
+/// session's ping-pong buffers, silently corrupting its output. Salting the
+/// signature with the session's own identity means two sessions NEVER share a
+/// bucket, matching or not, so this cross-session collision can't happen.
 ///
 /// Dispatch-count drivers folded in beyond the on/off mask:
 /// - **capture-sharpening `iterations`**: its encode loop is `for _ in
@@ -509,9 +530,12 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
 ///   `pool_scratch` replace the too-small buffer while the cached bind group at
 ///   the same signature kept referencing the OLD one — the dispatch would read
 ///   stale LUT data. Folding the size in lands the new shape in a fresh bucket.
-pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32)) -> u64 {
+pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u64) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    // Session salt FIRST (#1929) — two sessions never share a bucket regardless
+    // of how their mask/dims/dispatch-count components happen to collide.
+    session_id.hash(&mut h);
     active_mask(inputs).hash(&mut h);
     dims.0.hash(&mut h);
     dims.1.hash(&mut h);
@@ -535,3 +559,10 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32)) -> u64 {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests.rs"]
 mod tests;
+// The input-shape + sub-parameter pass-inclusion gates live in their own file
+// (600-LOC file budget); they reuse `tests::{neutral_case, run_live_chain,
+// TEST_SESSION_ID}` (`pub(super)` there). Same split shape as `gpu_render`'s
+// `tests` / `tests_sizing`.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_gating.rs"]
+mod tests_gating;
