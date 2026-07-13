@@ -229,6 +229,10 @@ fn render_display_from_raw(
     // Split toning (#1111, tone/zoom design § 10.3) — display-linear Oklab
     // a/b tint with a balance-shifted crossover; L untouched. Runs before
     // grain so the monochromatic noise lands on the graded image untinted.
+    // Any out-of-gamut push from split-tone / grain is caught by the
+    // hue-preserving Oklab compression in `rec2020_to_srgb` below (the sRGB
+    // hull ⊂ the Rec.2020 working hull), so they need no separate compress
+    // pass here (#1942).
     stage("split_tone", || {
         split_tone::apply(
             &mut scene,
@@ -286,6 +290,15 @@ fn render_display_from_raw(
                 cached_curve,
                 cached_lut,
             );
+        });
+        // Hue-preserving gamut guard AFTER the Auto Profile curve+LUT (#1942):
+        // that stack runs in display-encoded space and can push a channel back
+        // out of [0, 1] or rotate a saturated color out of gamut, which the
+        // final `dither_and_quantize` would otherwise hard-clip per-channel
+        // (posterising pushed color — the #438/#1621 defect class). Inert on
+        // in-gamut pixels; only reshapes genuinely out-of-gamut post-LUT ones.
+        stage("auto_profile_gamut_guard", || {
+            encode::gamut_guard_display_encoded_srgb(&mut scene)
         });
     }
     // The DisplayLookCurve (#371) used to shape pixels here; #443 retired
