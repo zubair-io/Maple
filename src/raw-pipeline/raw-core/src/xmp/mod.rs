@@ -154,12 +154,28 @@ fn set_field(
     has_crop: bool,
 ) -> Result<()> {
     let v = || {
-        value.parse::<f32>().map_err(|e| {
+        let parsed = value.parse::<f32>().map_err(|e| {
             Error::Xmp(format!(
                 "field {} has non-numeric value {}: {}",
                 key, value, e
             ))
-        })
+        })?;
+        // Reject non-finite values (#1943). `f32::from_str` happily accepts
+        // "NaN", "inf", "-infinity", etc., and there is no other finite-value
+        // scrub on model fields — the only one in the pipeline
+        // (`pipeline::finite_or_zero`) runs per-pixel on rendered RGB at the
+        // very end, so a non-finite slider from a hand-edited or corrupted
+        // sidecar would otherwise propagate through exposure/WB/tone math for a
+        // whole render before being silently zeroed pixel-by-pixel (a black or
+        // garbled frame with no surfaced error). Treat a non-finite numeric
+        // attribute the same as a non-numeric one: fail the parse loudly.
+        if !parsed.is_finite() {
+            return Err(Error::Xmp(format!(
+                "field {} has non-finite value {}",
+                key, value
+            )));
+        }
+        Ok(parsed)
     };
     match key {
         "crs:Temperature" => {
