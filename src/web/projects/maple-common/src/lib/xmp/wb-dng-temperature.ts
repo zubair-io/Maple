@@ -192,7 +192,16 @@ export function xyToTempTint(x: number, y: number): [number, number] {
  * and converts back to xy.
  */
 export function tempTintToXy(temperature: number, tint: number): [number, number] {
-  const r = 1.0e6 / temperature;
+  // Clamp reciprocal temperature to the Robertson table's covered range
+  // `[0, 600]` mired (≈ ∞K down to ~1667K). Without this guard a non-positive
+  // or non-finite `temperature` — e.g. from a corrupt or hand-edited XMP
+  // sidecar — makes `r` `Infinity`/`NaN`/negative, the bracket search falls
+  // through to `29`, and the interpolation weight becomes non-finite,
+  // propagating `NaN` or a physically-impossible `(x, y)` chromaticity
+  // downstream. Mirrors raw-core's `temp_tint_to_xy` (#1922). A `NaN`
+  // reciprocal maps to the coldest table endpoint.
+  const rawR = 1.0e6 / temperature;
+  const r = Number.isNaN(rawR) ? 600.0 : Math.min(Math.max(rawR, 0.0), 600.0);
 
   const index = tempTintBracketIndex(r);
 
