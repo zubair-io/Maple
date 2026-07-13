@@ -318,6 +318,25 @@ describe('SearchComponent', () => {
     (component as any).onFilters();
     expect(readRecents()).toContain('paris');
   });
+
+  it('emits queryChange output on query changes, clear, and recent tap', () => {
+    const emissions: string[] = [];
+    component.queryChange.subscribe((q) => {
+      emissions.push(q);
+    });
+
+    // 1. Typing in input
+    typeInput(fixture, 'paris');
+    expect(emissions).toEqual(['paris']);
+
+    // 2. Clearing the search
+    (component as any).onClear();
+    expect(emissions).toEqual(['paris', '']);
+
+    // 3. Tapping a recent search
+    (component as any).onRecentTap('berlin');
+    expect(emissions).toEqual(['paris', '', 'berlin']);
+  });
 });
 
 describe('SearchComponent initialQuery seeding', () => {
