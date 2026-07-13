@@ -46,8 +46,8 @@
 const LUMA_REC2020: vec3<f32> = vec3<f32>(0.2627, 0.6780, 0.0593);
 
 // Whites/blacks monotonicity bounds (#1918). Pinned to the raw-core stage
-// (raw_core::stages::scene_tone_controls WHITES_MIN_GAIN / B_CRUSH_EDGE /
-// B_LIFT_EDGE); the parity test gates them against the real stage. See the
+// raw_core::stages::scene_tone_controls::{WHITES_MIN_GAIN, B_CRUSH_EDGE,
+// B_LIFT_EDGE}; the parity test gates them against the real stage. See the
 // per-constant derivations there — the whites negative gain is floored so the
 // upper-end op stays monotone, and the blacks LIFT toe uses the WIDER 0.40 edge
 // (the CRUSH toe keeps the 0.2 edge, already monotone).
