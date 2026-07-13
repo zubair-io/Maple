@@ -179,7 +179,7 @@ pub struct MapleAdjustmentParams {
     /// The RENDER PROFILE's CM (row-major 3×3, XYZ→camera — the
     /// conjugation basis the post-DCP WB delta is built in (#1904
     /// GPU-live seam fix). Zero ⇒ host predates the fix.
-    pub wb_frame_render_cm: [f32; 9],
+    pub wb_frame_cam_to_rec2020: [f32; 9],
 }
 
 /// The flat `wb_frame_*` fields grouped for [`wb_frame_from_flat`] — the
@@ -197,7 +197,7 @@ pub(crate) struct WbFrameFlat<'a> {
     /// Render-profile CM (XYZ→camera) — the delta's conjugation basis
     /// (#1965). All-zero ⇒ absent ⇒ `to_frame` falls back to the value
     /// frame.
-    pub render_cm: &'a [f32; 9],
+    pub cam_to_rec2020: &'a [f32; 9],
 }
 
 /// Rebuild the raw-core [`raw_core::stages::wb_camera::SliderFrameExport`]
@@ -222,7 +222,7 @@ pub(crate) fn wb_frame_from_flat(
         cct_warm: f.cct_warm,
         scene_cct: f.scene_cct,
         as_shot_tint: f.as_shot_tint,
-        render_cm: mat(f.render_cm),
+        cam_to_rec2020: mat(f.cam_to_rec2020),
     }
 }
 
@@ -423,7 +423,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
             0.0
         },
         as_shot_tint: p.wb_frame_as_shot_tint,
-        render_cm: &p.wb_frame_render_cm,
+        cam_to_rec2020: &p.wb_frame_cam_to_rec2020,
     });
 
     let opts = raw_core::pipeline::ChainOptions {

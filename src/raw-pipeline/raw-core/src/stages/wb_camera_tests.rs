@@ -23,7 +23,6 @@ fn test_frame(scene_cct: f32, cm: [[f32; 3]; 3]) -> SliderFrame {
         endpoints: None,
         cm_as_shot: Matrix3(cm),
         scene_cct,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     }
 }
 

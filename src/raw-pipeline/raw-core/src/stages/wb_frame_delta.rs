@@ -92,11 +92,13 @@ pub struct SliderFrameExport {
     /// as-shot chromaticity is extremely far off the locus (H2D-39
     /// as-shot ≈ −143.5).
     pub as_shot_tint: f32,
-    /// The RENDER PROFILE's CM (`profile.color_matrix`, row-major
-    /// XYZ→camera — inverted to camera→XYZ in `frame_to_rec2020`) — the
-    /// conjugation basis `frame_to_rec2020` uses (#1904 seam fix). Zero ⇒
-    /// host predates the fix; `to_frame` falls back to the value frame.
-    pub render_cm: Matrix3,
+    /// The actual camera→Rec.2020 colorimetric transform of the render
+    /// profile (#1967 seam fix). When `forward_matrix` is present and
+    /// pre-gain is skipped (Bayer/LinearRaw DNGs), this correctly carries
+    /// `M_pro_to_rec2020 * inv_pro * forward_matrix`, preventing the huge
+    /// cyan mismatch caused by Bradford-adapting `ColorMatrix` instead.
+    /// Zero ⇒ host predates the fix; `to_frame` falls back to the legacy path.
+    pub cam_to_rec2020: Matrix3,
 }
 
 impl SliderFrameExport {
@@ -109,7 +111,7 @@ impl SliderFrameExport {
         cct_warm: 0.0,
         scene_cct: 0.0,
         as_shot_tint: 0.0,
-        render_cm: Matrix3([[0.0; 3]; 3]),
+        cam_to_rec2020: Matrix3([[0.0; 3]; 3]),
     };
 
     /// Resolve the export for a source: [`SliderFrame::resolve`] plus the
@@ -127,6 +129,10 @@ impl SliderFrameExport {
         // this SAME pair via `slider_source_xy`, so estimator and
         // reconstruction share one mapping (the #1870 invariant).
         let as_shot_tint = robertson_as_shot_tint(&frame, raw.as_shot_neutral);
+        // #1967: compute the actual Rec.2020 transform used by the CPU path
+        // for this render profile, instead of approximating it from ColorMatrix.
+        let cam_to_rec2020 =
+            crate::color::dcp::camera_to_rec2020_matrix(profile).unwrap_or(Matrix3::IDENTITY);
         match frame.endpoints {
             Some((m_cold, cct_cold, m_warm, cct_warm)) => SliderFrameExport {
                 m_cold,
@@ -135,7 +141,7 @@ impl SliderFrameExport {
                 cct_warm,
                 scene_cct: frame.scene_cct,
                 as_shot_tint,
-                render_cm: frame.render_cm,
+                cam_to_rec2020,
             },
             None => SliderFrameExport {
                 m_cold: frame.cm_as_shot,
@@ -144,7 +150,7 @@ impl SliderFrameExport {
                 cct_warm: frame.scene_cct,
                 scene_cct: frame.scene_cct,
                 as_shot_tint,
-                render_cm: frame.render_cm,
+                cam_to_rec2020,
             },
         }
     }
@@ -173,20 +179,10 @@ impl SliderFrameExport {
         } else {
             self.m_cold
         };
-        // Back-compat: a host predating the #1904 seam fix leaves
-        // `render_cm` all-zero (non-invertible) — fall back to the value
-        // frame (the pre-fix conjugation basis) so the old ABI stays sound.
-        let render_cm_absent = self.render_cm.0.iter().flatten().all(|v| *v == 0.0);
-        let render_cm = if render_cm_absent {
-            cm_as_shot
-        } else {
-            self.render_cm
-        };
         SliderFrame {
             endpoints,
             cm_as_shot,
             scene_cct: self.scene_cct,
-            render_cm,
         }
     }
 
@@ -213,8 +209,14 @@ impl SliderFrameExport {
             [0.0, 1.0, 0.0],
             [0.0, 0.0, g_target[2] / g_decoded[2].max(1e-6)],
         ]);
-        let conjugated = frame_to_rec2020(&frame, self.scene_cct, self.as_shot_tint)
-            .and_then(|c| c.inverse().map(|c_inv| c.mul_mat(&g_net).mul_mat(&c_inv)));
+        let cam_to_rec2020_absent = self.cam_to_rec2020.0.iter().flatten().all(|v| *v == 0.0);
+        let c = if cam_to_rec2020_absent {
+            frame_to_rec2020_legacy(&frame, self.scene_cct, self.as_shot_tint)
+        } else {
+            Some(self.cam_to_rec2020)
+        };
+        let conjugated = c
+            .and_then(|c_mat| c_mat.inverse().map(|c_inv| c_mat.mul_mat(&g_net).mul_mat(&c_inv)));
         match conjugated {
             Some(m) => m,
             // Defensive: a singular calibration carries no usable frame —
@@ -263,22 +265,19 @@ fn robertson_as_shot_tint(frame: &SliderFrame, as_shot_neutral: [f32; 3]) -> f32
     crate::color::dng_temperature::xy_to_temp_tint(xyz[0] / sum, xyz[1] / sum).1
 }
 
-/// The frame's camera→Rec.2020 transform (module doc): the DCP Bradford
+/// The frame's camera→Rec.2020 transform legacy fallback: the DCP Bradford
 /// fallback shape, built entirely from frame data. `w_frame` reconstructs
 /// the frame's as-shot white from `(scene_cct, as_shot_tint)` via
 /// [`crate::stages::white_balance::slider_source_xy`] (#1894, Robertson) —
 /// the SAME mapping [`robertson_as_shot_tint`] read `as_shot_tint` off of,
 /// so this is the exact inverse of the estimator half above (the #1870
 /// estimator/render invariant).
-fn frame_to_rec2020(frame: &SliderFrame, scene_cct: f32, as_shot_tint: f32) -> Option<Matrix3> {
+/// Used only when the host passes an all-zero `cam_to_rec2020` (back-compat).
+fn frame_to_rec2020_legacy(frame: &SliderFrame, scene_cct: f32, as_shot_tint: f32) -> Option<Matrix3> {
     let (wx, wy) = crate::stages::white_balance::slider_source_xy(scene_cct, as_shot_tint);
     let w_frame = xy_to_xyz(wx, wy, 1.0);
     let inv_pro = M_PRO_TO_XYZ_D50.inverse()?;
-    // #1904: conjugate through the RENDER profile's CM (the buffer's
-    // actual transform), NOT the value frame's `cm_as_shot`. The
-    // Bradford source `w_frame` above is the PHYSICAL as-shot white
-    // (frame-independent), so only the CM must change.
-    let cam_to_xyz = frame.render_cm.inverse()?;
+    let cam_to_xyz = frame.cm_as_shot.inverse()?;
     Some(
         m_pro_to_rec2020()
             .mul_mat(&inv_pro)

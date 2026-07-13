@@ -264,7 +264,7 @@ pub struct MapleGpuLiveParams {
     /// The RENDER PROFILE's CM (row-major 3×3, XYZ→camera — the
     /// conjugation basis the post-DCP WB delta is built in (#1904
     /// GPU-live seam fix). Zero ⇒ host predates the fix.
-    pub wb_frame_render_cm: [f32; 9],
+    pub wb_frame_cam_to_rec2020: [f32; 9],
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.

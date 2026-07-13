@@ -193,7 +193,7 @@ pub struct MapleSceneLinearBufferF32 {
     /// The RENDER PROFILE's CM (row-major 3×3, XYZ→camera — the
     /// conjugation basis the post-DCP WB delta is built in (#1904
     /// GPU-live seam fix). Zero ⇒ host predates the fix.
-    pub wb_frame_render_cm: [f32; 9],
+    pub wb_frame_cam_to_rec2020: [f32; 9],
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -214,7 +214,7 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_cct_warm: 0.0,
             wb_frame_scene_cct: 0.0,
             wb_frame_as_shot_tint: 0.0,
-            wb_frame_render_cm: [0.0; 9],
+            wb_frame_cam_to_rec2020: [0.0; 9],
         }
     }
 }

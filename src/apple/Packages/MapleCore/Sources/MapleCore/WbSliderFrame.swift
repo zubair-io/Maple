@@ -43,7 +43,7 @@ public struct WbSliderFrame: Sendable, Equatable {
     /// conjugation basis the GPU-live WB delta is built in (#1904 seam
     /// fix). Empty ⇒ absent; the Rust side then falls back to the value
     /// frame (pre-fix behaviour), so an un-populated frame stays sound.
-    public let renderCm: [Float]
+    public let camToRec2020: [Float]
 
     /// Whether the export carries a real frame (`sceneCCT > 0`). All-zero
     /// exports read as absent — consumers keep legacy behaviour.
@@ -53,7 +53,7 @@ public struct WbSliderFrame: Sendable, Equatable {
         mCold: [Float], cctCold: Float,
         mWarm: [Float], cctWarm: Float,
         sceneCCT: Float, asShotTint: Float,
-        renderCm: [Float] = []
+        camToRec2020: [Float] = []
     ) {
         self.mCold = mCold
         self.cctCold = cctCold
@@ -61,7 +61,7 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.cctWarm = cctWarm
         self.sceneCCT = sceneCCT
         self.asShotTint = asShotTint
-        self.renderCm = renderCm
+        self.camToRec2020 = camToRec2020
     }
 
     /// Read the export off a decode buffer. Returns `nil` when the buffer
@@ -75,7 +75,7 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.cctWarm = buffer.wb_frame_cct_warm
         self.sceneCCT = buffer.wb_frame_scene_cct
         self.asShotTint = buffer.wb_frame_as_shot_tint
-        self.renderCm = Self.array9(buffer.wb_frame_render_cm)
+        self.camToRec2020 = Self.array9(buffer.wb_frame_cam_to_rec2020)
     }
 
     /// The imported C `float[9]` (a 9-tuple in Swift) as an array.
@@ -105,7 +105,7 @@ extension WbSliderFrame {
         p.wb_frame_cct_warm = cctWarm
         p.wb_frame_scene_cct = sceneCCT
         p.wb_frame_as_shot_tint = asShotTint
-        p.wb_frame_render_cm = Self.tuple9(renderCm)
+        p.wb_frame_cam_to_rec2020 = Self.tuple9(camToRec2020)
     }
 
     /// Fill the six `wb_frame_*` tail fields of the GPU live params.
@@ -116,7 +116,7 @@ extension WbSliderFrame {
         p.wb_frame_cct_warm = cctWarm
         p.wb_frame_scene_cct = sceneCCT
         p.wb_frame_as_shot_tint = asShotTint
-        p.wb_frame_render_cm = Self.tuple9(renderCm)
+        p.wb_frame_cam_to_rec2020 = Self.tuple9(camToRec2020)
     }
 
     /// The delta anchor the per-tick chains must use when this frame is

@@ -28,7 +28,6 @@ fn single_cm_frame(scene_cct: f32) -> SliderFrame {
         endpoints: None,
         cm_as_shot: Matrix3(CANON_5D3_D65_CM),
         scene_cct,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     }
 }
 
@@ -48,7 +47,6 @@ fn dual_cm_frame(scene_cct: f32) -> SliderFrame {
             scene_cct,
         ),
         scene_cct,
-        render_cm: Matrix3([[0.6722,-0.0635,-0.0963],[-0.4287,1.2460,0.2028],[-0.0908,0.2162,0.5668]]),
     }
 }
 

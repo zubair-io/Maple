@@ -142,7 +142,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
             0.0
         },
         as_shot_tint: p.wb_frame_as_shot_tint,
-        render_cm: &p.wb_frame_render_cm,
+        cam_to_rec2020: &p.wb_frame_cam_to_rec2020,
     });
 
     let opts = raw_core::pipeline::ChainOptions {

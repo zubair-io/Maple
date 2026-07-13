@@ -49,7 +49,7 @@ fn synthetic_frame() -> SliderFrameExport {
         cct_warm: 6504.0,
         scene_cct: 5520.0,
         as_shot_tint: -12.0,
-        render_cm: raw_core::math::Matrix3([[0.0; 3]; 3]),
+        cam_to_rec2020: raw_core::math::Matrix3([[0.0; 3]; 3]),
     }
 }
 
@@ -62,7 +62,7 @@ fn set_frame(p: &mut MapleGpuLiveParams, frame: &SliderFrameExport) {
     p.wb_frame_cct_warm = frame.cct_warm;
     p.wb_frame_scene_cct = frame.scene_cct;
     p.wb_frame_as_shot_tint = frame.as_shot_tint;
-    p.wb_frame_render_cm = flat(frame.render_cm);
+    p.wb_frame_cam_to_rec2020 = flat(frame.cam_to_rec2020);
 }
 
 /// LEGACY EQUIVALENCE: a zero-filled frame tail (what every pre-#1781 host
