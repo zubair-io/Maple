@@ -64,24 +64,9 @@ class StubSearchService {
 
 function makeResult(id: string, filename: string): SearchResult {
   return {
-    id: `fs:/path/${id}`,
-    address: null,
-    _id: id,
-    folder_id: 'f1',
-    abs_path: `/path/${filename}`,
-    filename,
-    size: 1000,
-    mtime: 0,
-    captured_at: null,
-    camera: { make: 'Hasselblad', model: 'L3D-100c' },
-    lens: null,
-    iso: null,
-    aperture: null,
-    shutter: null,
-    focal_length: null,
-    rating: 0,
-    flag: 0,
-    color_label: '',
+    id: `fs:/path/${id}`, address: null, _id: id, folder_id: 'f1', abs_path: `/path/${filename}`,
+    filename, size: 1000, mtime: 0, captured_at: null, camera: { make: 'Hasselblad', model: 'L3D-100c' },
+    lens: null, iso: null, aperture: null, shutter: null, focal_length: null, rating: 0, flag: 0, color_label: '',
   };
 }
 
@@ -321,19 +306,11 @@ describe('SearchComponent', () => {
 
   it('emits queryChange output on query changes, clear, and recent tap', () => {
     const emissions: string[] = [];
-    component.queryChange.subscribe((q) => {
-      emissions.push(q);
-    });
-
-    // 1. Typing in input
+    component.queryChange.subscribe((q) => emissions.push(q));
     typeInput(fixture, 'paris');
     expect(emissions).toEqual(['paris']);
-
-    // 2. Clearing the search
     (component as any).onClear();
     expect(emissions).toEqual(['paris', '']);
-
-    // 3. Tapping a recent search
     (component as any).onRecentTap('berlin');
     expect(emissions).toEqual(['paris', '', 'berlin']);
   });
