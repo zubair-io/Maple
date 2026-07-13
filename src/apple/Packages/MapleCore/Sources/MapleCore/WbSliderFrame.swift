@@ -41,9 +41,31 @@ public struct WbSliderFrame: Sendable, Equatable {
     public let asShotTint: Float
     /// The RENDER PROFILE's CM (row-major 9 floats, XYZ→camera — the
     /// conjugation basis the GPU-live WB delta is built in (#1904 seam
-    /// fix). Empty ⇒ absent; the Rust side then falls back to the value
-    /// frame (pre-fix behaviour), so an un-populated frame stays sound.
+    /// fix) when the #1967 fields below are absent. Empty ⇒ absent; the
+    /// Rust side then falls back to the value frame (pre-#1904 behaviour).
     public let renderCm: [Float]
+
+    // ---- #1967: render-profile linear-core detail, enabling the Rust
+    // side to compute an EXACT per-target/per-anchor conjugation basis
+    // instead of the single fixed `renderCm`. Empty/zero ⇒ absent ⇒ the
+    // Rust side falls back to `renderCm` — see `SliderFrameExport`'s
+    // matching fields for the exact semantics each of these mirrors. ----
+    /// `profile.forward_matrix`, row-major 9 floats. Empty ⇒ `None`.
+    public let renderForwardMatrix: [Float]
+    /// `profile.scene_white_xyz`, 3 floats, Y-normalized.
+    public let renderSceneWhiteXYZ: [Float]
+    /// `profile.wb_already_baked` as a 0.0/1.0 flag.
+    public let renderWbAlreadyBaked: Float
+    /// Render profile's own dual-illuminant CM pair (distinct from
+    /// `mCold`/`mWarm` above, which are the VALUE frame's).
+    public let renderCmCold: [Float]
+    public let renderCctCold: Float
+    public let renderCmWarm: [Float]
+    public let renderCctWarm: Float
+    /// Render profile's FM pair (optional per side). Empty ⇒ that side's
+    /// FM is absent.
+    public let renderFmCold: [Float]
+    public let renderFmWarm: [Float]
 
     /// Whether the export carries a real frame (`sceneCCT > 0`). All-zero
     /// exports read as absent — consumers keep legacy behaviour.
@@ -53,7 +75,16 @@ public struct WbSliderFrame: Sendable, Equatable {
         mCold: [Float], cctCold: Float,
         mWarm: [Float], cctWarm: Float,
         sceneCCT: Float, asShotTint: Float,
-        renderCm: [Float] = []
+        renderCm: [Float] = [],
+        renderForwardMatrix: [Float] = [],
+        renderSceneWhiteXYZ: [Float] = [],
+        renderWbAlreadyBaked: Float = 0,
+        renderCmCold: [Float] = [],
+        renderCctCold: Float = 0,
+        renderCmWarm: [Float] = [],
+        renderCctWarm: Float = 0,
+        renderFmCold: [Float] = [],
+        renderFmWarm: [Float] = []
     ) {
         self.mCold = mCold
         self.cctCold = cctCold
@@ -62,6 +93,15 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.sceneCCT = sceneCCT
         self.asShotTint = asShotTint
         self.renderCm = renderCm
+        self.renderForwardMatrix = renderForwardMatrix
+        self.renderSceneWhiteXYZ = renderSceneWhiteXYZ
+        self.renderWbAlreadyBaked = renderWbAlreadyBaked
+        self.renderCmCold = renderCmCold
+        self.renderCctCold = renderCctCold
+        self.renderCmWarm = renderCmWarm
+        self.renderCctWarm = renderCctWarm
+        self.renderFmCold = renderFmCold
+        self.renderFmWarm = renderFmWarm
     }
 
     /// Read the export off a decode buffer. Returns `nil` when the buffer
@@ -76,6 +116,15 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.sceneCCT = buffer.wb_frame_scene_cct
         self.asShotTint = buffer.wb_frame_as_shot_tint
         self.renderCm = Self.array9(buffer.wb_frame_render_cm)
+        self.renderForwardMatrix = Self.array9(buffer.wb_frame_render_forward_matrix)
+        self.renderSceneWhiteXYZ = Self.array3(buffer.wb_frame_render_scene_white_xyz)
+        self.renderWbAlreadyBaked = buffer.wb_frame_render_wb_already_baked
+        self.renderCmCold = Self.array9(buffer.wb_frame_render_cm_cold)
+        self.renderCctCold = buffer.wb_frame_render_cct_cold
+        self.renderCmWarm = Self.array9(buffer.wb_frame_render_cm_warm)
+        self.renderCctWarm = buffer.wb_frame_render_cct_warm
+        self.renderFmCold = Self.array9(buffer.wb_frame_render_fm_cold)
+        self.renderFmWarm = Self.array9(buffer.wb_frame_render_fm_warm)
     }
 
     /// The imported C `float[9]` (a 9-tuple in Swift) as an array.
@@ -93,11 +142,23 @@ public struct WbSliderFrame: Sendable, Equatable {
         let v = { (i: Int) -> Float in i < a.count ? a[i] : 0 }
         return (v(0), v(1), v(2), v(3), v(4), v(5), v(6), v(7), v(8))
     }
+
+    /// The imported C `float[3]` (a 3-tuple in Swift) as an array.
+    static func array3(_ t: (Float, Float, Float)) -> [Float] {
+        [t.0, t.1, t.2]
+    }
+
+    /// An array back to the imported C `float[3]` 3-tuple shape. Missing
+    /// lanes read 0 (defensive).
+    static func tuple3(_ a: [Float]) -> (Float, Float, Float) {
+        let v = { (i: Int) -> Float in i < a.count ? a[i] : 0 }
+        return (v(0), v(1), v(2))
+    }
 }
 
 extension WbSliderFrame {
-    /// Fill the six `wb_frame_*` tail fields of the per-tick CPU chain
-    /// params. Absent frame ⇒ the fields stay zero (the legacy path).
+    /// Fill the `wb_frame_*` tail fields of the per-tick CPU chain params.
+    /// Absent frame ⇒ the fields stay zero (the legacy path).
     func fill(_ p: inout MapleAdjustmentParams) {
         p.wb_frame_m_cold = Self.tuple9(mCold)
         p.wb_frame_cct_cold = cctCold
@@ -106,9 +167,18 @@ extension WbSliderFrame {
         p.wb_frame_scene_cct = sceneCCT
         p.wb_frame_as_shot_tint = asShotTint
         p.wb_frame_render_cm = Self.tuple9(renderCm)
+        p.wb_frame_render_forward_matrix = Self.tuple9(renderForwardMatrix)
+        p.wb_frame_render_scene_white_xyz = Self.tuple3(renderSceneWhiteXYZ)
+        p.wb_frame_render_wb_already_baked = renderWbAlreadyBaked
+        p.wb_frame_render_cm_cold = Self.tuple9(renderCmCold)
+        p.wb_frame_render_cct_cold = renderCctCold
+        p.wb_frame_render_cm_warm = Self.tuple9(renderCmWarm)
+        p.wb_frame_render_cct_warm = renderCctWarm
+        p.wb_frame_render_fm_cold = Self.tuple9(renderFmCold)
+        p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
     }
 
-    /// Fill the six `wb_frame_*` tail fields of the GPU live params.
+    /// Fill the `wb_frame_*` tail fields of the GPU live params.
     func fill(_ p: inout MapleGpuLiveParams) {
         p.wb_frame_m_cold = Self.tuple9(mCold)
         p.wb_frame_cct_cold = cctCold
@@ -117,6 +187,15 @@ extension WbSliderFrame {
         p.wb_frame_scene_cct = sceneCCT
         p.wb_frame_as_shot_tint = asShotTint
         p.wb_frame_render_cm = Self.tuple9(renderCm)
+        p.wb_frame_render_forward_matrix = Self.tuple9(renderForwardMatrix)
+        p.wb_frame_render_scene_white_xyz = Self.tuple3(renderSceneWhiteXYZ)
+        p.wb_frame_render_wb_already_baked = renderWbAlreadyBaked
+        p.wb_frame_render_cm_cold = Self.tuple9(renderCmCold)
+        p.wb_frame_render_cct_cold = renderCctCold
+        p.wb_frame_render_cm_warm = Self.tuple9(renderCmWarm)
+        p.wb_frame_render_cct_warm = renderCctWarm
+        p.wb_frame_render_fm_cold = Self.tuple9(renderFmCold)
+        p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
     }
 
     // NOTE (#1976): there is deliberately NO decode-bake constant here.
