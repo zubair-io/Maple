@@ -1099,7 +1099,7 @@ export class LibraryFetch {
       size: 0,
       mtime: 0,
       sha256Prefix: sha,
-      thumbPath: `./thumbs/${sha}.jpg`,
+      thumbPath: `./thumbs/${sha}.avif`,
     };
     this.store.folderIndex = this.mapleCache.patchAssetInIndex(this.store.folderIndex, patch);
   }

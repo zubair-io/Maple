@@ -4,7 +4,7 @@
 // libraries from /api/folders are still the roots of the sidebar tree, but
 // once the user opens one we walk the directory tree directly via
 //   GET /api/fs/dir-fast?path=<abs>  → sub-dirs + RAW images at one level
-//   GET /api/fs/thumb?path=<abs>     → image/jpeg bytes (cached on disk by API)
+//   GET /api/fs/thumb?path=<abs>     → image/avif bytes (cached on disk by API)
 // instead of going through Mongo-keyed /api/folders/{id}/assets.
 //
 // `/dir-fast` is the pure-filesystem variant (no EXIF / asset_id / sidecars).
@@ -68,7 +68,7 @@ export class FilesystemBrowseService {
    * Cache of `path → Promise<blob:url>`. Promises live here (not just URLs)
    * so concurrent requests for the same thumbnail share a single network
    * round-trip. The Promise resolves to a `blob:` URL backed by an
-   * `image/jpeg` blob; bind it to an <img> via [src].
+   * `image/avif` blob; bind it to an <img> via [src].
    */
   private readonly thumbBlobCache = new Map<string, Promise<string>>();
 
@@ -97,7 +97,7 @@ export class FilesystemBrowseService {
   }
 
   /**
-   * Fetch a thumbnail JPEG via HttpClient (so the auth interceptor attaches
+   * Fetch a thumbnail AVIF via HttpClient (so the auth interceptor attaches
    * the bearer) and return a `blob:` URL the grid can drop into <img src>.
    * Caches by absPath so re-renders / scroll-back don't re-fetch.
    */

@@ -16,7 +16,8 @@ export async function sha256Hex(text: string): Promise<string> {
 
 /**
  * Returns the first 16 hex characters of sha256(text).
- * This is the cache-key stem used in `.maple/thumbs/<sha>.jpg`.
+ * This is the cache-key stem used in `.maple/thumbs/<sha>.avif` (or `.jpg`
+ * for legacy/pre-AVIF-migration cached entries — see `MapleCacheService`).
  * Same derivation is used by Maple Self Hosted and Maple native — do not change.
  */
 export async function sha256Prefix16(text: string): Promise<string> {
