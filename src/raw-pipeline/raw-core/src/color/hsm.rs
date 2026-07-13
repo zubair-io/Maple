@@ -414,11 +414,20 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
     // and scaled by 0.5 would give `175°` instead of the correct `-5°`.
     // Additive use downstream (`h + hd`, then `rem_euclid`) is unaffected by
     // the signed form.
-    let wrapped = out[0].rem_euclid(360.0);
-    let signed_hue_delta = if wrapped > 180.0 {
-        wrapped - 360.0
+    //
+    // Use the sign-preserving remainder `%` (range `(-360, 360)`), NOT
+    // `rem_euclid` (range `[0, 360)`): `rem_euclid` maps an exact `-180` to
+    // `+180`, a boundary sign flip that the `hd * w_chroma` scale would then
+    // propagate (`-180·0.5 = -90` vs the wrong `+180·0.5 = +90`). A single
+    // ±360 fold then lands any magnitude in `[-180, 180]`, mapping `-180 → -180`
+    // and `+180 → +180` while still wrapping `350 → -10`, `-350 → 10`.
+    let m = out[0] % 360.0;
+    let signed_hue_delta = if m > 180.0 {
+        m - 360.0
+    } else if m < -180.0 {
+        m + 360.0
     } else {
-        wrapped
+        m
     };
     (signed_hue_delta, out[1], out[2])
 }
@@ -734,6 +743,39 @@ mod tests {
             (hd - (-10.0)).abs() < 1e-3,
             "expected signed hueDelta ≈ -10, got {hd}"
         );
+    }
+
+    #[test]
+    fn lookup_normalizes_hue_delta_at_the_180_boundary() {
+        // Uniform-hueDelta tables so `lookup` returns exactly the (normalized)
+        // stored delta. The ±180 boundary is the regression (Copilot on PR
+        // #1975): `rem_euclid` mapped an exact -180 to +180 — a sign flip the
+        // `apply` scale then propagates (-180·0.5 = -90 vs the wrong +90). The
+        // sign-preserving remainder keeps -180 as -180 and +180 as +180, while
+        // still wrapping 350 → -10 and -350 → 10.
+        let uniform = |delta: f32| -> f32 {
+            let n = 2 * 2 * 2;
+            let mut data = Vec::with_capacity(n * 3);
+            for _ in 0..n {
+                data.push(delta);
+                data.push(1.0);
+                data.push(1.0);
+            }
+            let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
+            lookup(&table, 30.0, 0.5, 0.5).0
+        };
+        // Boundary cases: exact ±180 must keep their sign (not fold to +180).
+        assert!(approx(uniform(-180.0), -180.0, 1e-3), "-180 → {}", uniform(-180.0));
+        assert!(approx(uniform(180.0), 180.0, 1e-3), "+180 → {}", uniform(180.0));
+        // Wrap cases still fold into [-180, 180] with the correct sign.
+        assert!(approx(uniform(350.0), -10.0, 1e-3), "350 → {}", uniform(350.0));
+        assert!(approx(uniform(-350.0), 10.0, 1e-3), "-350 → {}", uniform(-350.0));
+        assert!(approx(uniform(270.0), -90.0, 1e-3), "270 → {}", uniform(270.0));
+        assert!(approx(uniform(-270.0), 90.0, 1e-3), "-270 → {}", uniform(-270.0));
+        // In-range values pass through unchanged.
+        assert!(approx(uniform(0.0), 0.0, 1e-3));
+        assert!(approx(uniform(90.0), 90.0, 1e-3));
+        assert!(approx(uniform(-90.0), -90.0, 1e-3));
     }
 
     #[test]
