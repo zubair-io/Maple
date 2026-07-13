@@ -127,4 +127,22 @@ final class WbDngTemperatureTests: XCTestCase {
                             "version=\(v.version) temp=\(v.temp) tint=\(v.tint): out tint mismatch")
         }
     }
+
+    /// #1922: a non-positive, zero, or non-finite temperature (from a corrupt
+    /// or hand-edited sidecar) must never yield NaN/Inf or a
+    /// physically-impossible chromaticity. Mirrors raw-core's
+    /// `degenerate_temperature_stays_finite_and_in_gamut`.
+    func testDegenerateTemperatureStaysFiniteAndInGamut() {
+        let temps: [Double] = [0.0, -1.0, -6500.0, .nan, .infinity, -.infinity]
+        let tints: [Double] = [-120.0, 0.0, 120.0]
+        for temp in temps {
+            for tint in tints {
+                let (x, y) = WbDngTemperature.tempTintToXy(temp, tint)
+                XCTAssertTrue(x.isFinite && y.isFinite,
+                              "temp=\(temp) tint=\(tint) produced non-finite xy (\(x), \(y))")
+                XCTAssertTrue(x > 0.0 && x < 1.0 && y > 0.0 && y < 1.0,
+                              "temp=\(temp) tint=\(tint) produced out-of-range xy (\(x), \(y))")
+            }
+        }
+    }
 }
