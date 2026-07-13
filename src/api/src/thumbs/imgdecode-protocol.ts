@@ -4,11 +4,11 @@
  *
  * Only small values cross the IPC boundary: a request carries paths + ints;
  * a response carries `ok`/`error`. The heavy buffers (decoded input, resized
- * JPEG) stay inside the child — the child writes the JPEG straight to `outPath`
- * on disk and never ships pixel data over IPC.
+ * output) stay inside the child — the child writes the image straight to
+ * `outPath` on disk and never ships pixel data over IPC.
  */
 
-/** Render a non-RAW image to a resized JPEG file on disk. */
+/** Render a non-RAW image to a resized image file on disk. */
 export interface ImgRenderRequest {
   type: 'render';
   id: number;
@@ -18,6 +18,11 @@ export interface ImgRenderRequest {
   quality: number;
   /** Lowercase extension without leading dot (e.g. "jpeg", "heic", "png"). */
   ext: string;
+  /** Output codec. Defaults to `'avif'` (the 256px grid-thumbnail tier) when
+   * omitted; the 1280px VLM describe/OCR preview tier (`previewer.ts`)
+   * passes `'jpeg'` since every describe provider hardcodes `image/jpeg` as
+   * the media type it sends upstream. */
+  format?: 'avif' | 'jpeg';
 }
 
 export type ImgDecodeRequest = ImgRenderRequest;

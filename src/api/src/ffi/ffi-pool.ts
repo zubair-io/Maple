@@ -148,17 +148,17 @@ class FfiWorkerPool {
     this.dispatch();
   }
 
-  /** Shared enqueue for the two `_to_file` render requests (renderThumb /
-   * renderDevelop): both write the JPEG in the child and report only
-   * ok/error, and share the same dispatch/promise plumbing. `payload` carries
-   * the type-specific fields.
+  /** Shared enqueue for the three `_to_file` render requests (renderThumb /
+   * renderPreviewJpeg / renderDevelop): all three write the image in the
+   * child and report only ok/error, and share the same dispatch/promise
+   * plumbing. `payload` carries the type-specific fields.
    *
    * Resolves `true` on success. REJECTS on any render failure — the child
    * sets `error` whenever the render returns non-ok — and on infra errors
    * (child crash, dylib missing). The `resolve(false)` below is an
    * unreachable defensive fallback for a malformed ok=false/no-error reply. */
   private renderToFile(
-    type: 'renderThumb' | 'renderDevelop',
+    type: 'renderThumb' | 'renderPreviewJpeg' | 'renderDevelop',
     payload: Record<string, unknown>,
   ): Promise<boolean> {
     if (!this.available()) {
@@ -191,6 +191,20 @@ class FfiWorkerPool {
     quality = 55,
   ): Promise<boolean> {
     return this.renderToFile('renderThumb', { rawPath, outPath, maxPx, quality });
+  }
+
+  /** Render a RAW's embedded preview to JPEG on disk — the 1280px VLM
+   * describe/OCR preview tier (#1978: kept JPEG through the grid-thumbnail
+   * AVIF migration since every describe provider hardcodes `image/jpeg` as
+   * the media type it sends upstream). Resolves `true` on success; REJECTS
+   * on a render failure or infra error. */
+  async renderThumbnailPreviewJpegToFile(
+    rawPath: string,
+    outPath: string,
+    maxPx: number,
+    quality = 85,
+  ): Promise<boolean> {
+    return this.renderToFile('renderPreviewJpeg', { rawPath, outPath, maxPx, quality });
   }
 
   /** Develop a RAW with `xmpPath` applied (null = neutral) and write the JPEG

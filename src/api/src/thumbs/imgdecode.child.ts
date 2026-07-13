@@ -50,6 +50,7 @@ process.on('message', (raw: unknown) => {
         req.maxPx,
         req.ext,
         req.quality,
+        req.format,
       );
       send({ type: 'render', id: req.id, ok });
     } catch (e) {
