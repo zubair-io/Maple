@@ -40,10 +40,11 @@ decode (rawler)  →  RawImage  (CFA mosaic, EXIF, DCP tags, AsShotNeutral, crop
   ├─ 12. chroma_prefilter     (#1104; decode-time chroma denoise — 0 by default)
   ├─ 13. deep_denoise         (#1105; BM3D collaborative filtering — 0 by default)
   ├─ 14. capture_sharpening   (Richardson-Lucy deconvolution — 0/Off by default)
-  │  ── end of the cached "decode product"; the stages below re-run per slider tick ──
   ├─ 15. auto_exposure        (#429; per-image scene anchor — measures mid-gray,
   │                            multiplies toward 0.18 so every camera lands on the same
   │                            AgX point. On by default; opt out via papp:AutoExposure="Off")
+  │  ── end of the cached "decode product" (auto-exposure baked in); the stages below
+  │     re-run per slider tick — white_balance re-applies as a delta on the cached buffer ──
   ├─ 16. white_balance        (post-DCP fallback — CAT16 chromatic adaptation by default,
   │                            or the legacy per-channel DiagonalRec2020 gain via
   │                            papp:WbMethod; scene-linear Rec.2020. Runs only when
