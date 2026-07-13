@@ -8,7 +8,7 @@
       <div class="flex flex-wrap gap-1">
         @for (face of taggedFaces(d); track face.person_id) {
           <a
-            [routerLink]="'/settings/people/' + face.person_id"
+            [routerLink]="['/settings/people', face.person_id]"
             class="flex items-center gap-[3px] rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main hover:border-primary hover:text-primary"
           >
             <maple-icon name="tag" [size]="9" color="currentColor" />
