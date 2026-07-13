@@ -239,6 +239,119 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
     );
 }
 
+/// #1931: the HSL 8-band stage was silently omitted from the tile develop
+/// chain, so a deep-zoom tile with any non-default HSL adjustment diverged
+/// from the full-resolution render. Same tile-vs-full bit-parity gate as
+/// `tile_matches_full_chain_with_non_default_tone_curve`, driven by a
+/// non-default HSL model. HSL is a pointwise Oklab op (no neighbour gather),
+/// so bit-equality is the contract. Fixture-gated identically.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn tile_matches_full_chain_with_non_default_hsl() {
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read raw");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+    assert!(
+        raw.crop_rect.is_none(),
+        "fixture grew a DefaultCrop — update this test's coordinate mapping"
+    );
+    assert!(
+        raw.profile_gain_table_map.is_none(),
+        "fixture grew a ProfileGainTableMap — update this test's stage set"
+    );
+    assert_eq!(
+        raw.orientation,
+        crate::image::ExifOrientation::Normal,
+        "fixture orientation changed — update this test's coordinate mapping"
+    );
+
+    let model = AdjustmentModel {
+        auto_exposure: crate::xmp::AutoExposureMode::Off,
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        // Non-default across three bands and all three channel kinds.
+        hue_adjustment_blue: -30.0,
+        saturation_adjustment_red: 50.0,
+        luminance_adjustment_green: 40.0,
+        ..AdjustmentModel::default()
+    };
+
+    // Self-check: the HSL model must actually perturb pixels, or this parity
+    // gate would pass trivially if `hsl` were dropped from BOTH chains.
+    {
+        let mut probe =
+            crate::image::Image::new(3, 1, crate::image::ColorSpace::SceneLinearRec2020);
+        probe.pixels[0] = [0.5, 0.1, 0.1]; // red band
+        probe.pixels[1] = [0.1, 0.5, 0.1]; // green band
+        probe.pixels[2] = [0.1, 0.1, 0.5]; // blue band
+        let before = probe.pixels.clone();
+        crate::stages::hsl::apply(
+            &mut probe,
+            &[0.0, 0.0, 0.0, 0.0, 0.0, -30.0, 0.0, 0.0],
+            &[50.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            &[0.0, 0.0, 0.0, 40.0, 0.0, 0.0, 0.0, 0.0],
+        );
+        assert_ne!(probe.pixels, before, "test model's HSL must be non-identity");
+    }
+
+    let (src_x, src_y, side) = (1024u32, 1024u32, 512u32);
+    let (tw, th, tile_fp16) = render_scene_linear_tile_from_raw_with_quality(
+        &raw,
+        &model,
+        TileRect {
+            src_x,
+            src_y,
+            src_w: side,
+            src_h: side,
+            out_w: side,
+            out_h: side,
+        },
+        RenderQuality::Full,
+    )
+    .expect("tile render");
+    assert_eq!((tw, th), (side, side), "tile output dims");
+
+    let full = crate::pipeline::develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        RenderQuality::Full,
+    )
+    .expect("full develop");
+
+    let fw = full.width as usize;
+    let mut diff_lanes = 0usize;
+    let mut max_bit_dist: u32 = 0;
+    for ty in 0..side as usize {
+        for tx in 0..side as usize {
+            let fi = (src_y as usize + ty) * fw + (src_x as usize + tx);
+            let fp = full.pixels[fi];
+            for c in 0..3 {
+                let expect = f32_to_f16_bits(fp[c]);
+                let got = tile_fp16[(ty * side as usize + tx) * 4 + c];
+                if expect != got {
+                    diff_lanes += 1;
+                    let dist = (expect as i32 - got as i32).unsigned_abs();
+                    if dist > max_bit_dist {
+                        max_bit_dist = dist;
+                    }
+                }
+            }
+        }
+    }
+    eprintln!(
+        "tile-vs-full HSL parity: {} differing lanes of {}, max fp16 bit distance {}",
+        diff_lanes,
+        (side * side * 3),
+        max_bit_dist,
+    );
+    assert_eq!(
+        diff_lanes, 0,
+        "tile diverges from full chain with a non-default HSL adjustment: \
+         {} lanes differ (max fp16 bit distance {})",
+        diff_lanes, max_bit_dist
+    );
+}
+
 /// Acceptance test for the #1725 tile-refine WB contract fix (the
 /// "horizontal band" symptom).
 ///
