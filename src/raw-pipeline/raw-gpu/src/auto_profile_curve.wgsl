@@ -86,20 +86,42 @@ fn cbrt_signed(x: f32) -> f32 {
     return sign(x) * pow(abs(x), 1.0 / 3.0);
 }
 
-// Scene/display Rec.2020 → Oklab. Mirrors raw_core::color::oklab::rec2020_to_oklab.
-fn rec2020_to_oklab(rgb: vec3<f32>) -> vec3<f32> {
-    let srgb = mul_rec2020_to_srgb(rgb);
-    let lms = mul_srgb_to_lms(srgb);
+// Linear sRGB D65 → Oklab. Mirrors raw_core::color::oklab::srgb_linear_to_oklab
+// — NO Rec.2020→sRGB rotation (the input is ALREADY linear sRGB, so applying it
+// would double-rotate the primaries). #1948: the auto-profile display buffer is
+// sRGB primaries, so its Oklab entry skips that inner multiply.
+fn srgb_linear_to_oklab(rgb: vec3<f32>) -> vec3<f32> {
+    let lms = mul_srgb_to_lms(rgb);
     let lms_cube = vec3<f32>(cbrt_signed(lms.x), cbrt_signed(lms.y), cbrt_signed(lms.z));
     return mul_lms_to_lab(lms_cube);
 }
 
-// Oklab → Rec.2020. Mirrors raw_core::color::oklab::oklab_to_rec2020.
-fn oklab_to_rec2020(lab: vec3<f32>) -> vec3<f32> {
+// Oklab → linear sRGB. Mirrors raw_core::color::oklab::oklab_to_srgb_linear —
+// lands in linear sRGB, no Rec.2020 step.
+fn oklab_to_srgb_linear(lab: vec3<f32>) -> vec3<f32> {
     let lms_cube = mul_lab_to_lms(lab);
     let lms = lms_cube * lms_cube * lms_cube; // cube — sign-preserving by construction
-    let srgb = mul_lms_to_srgb(lms);
-    return mul_srgb_to_rec2020(srgb);
+    return mul_lms_to_srgb(lms);
+}
+
+// sRGB gamma decode (linear ← display-encoded). Mirrors
+// raw_core::view::agx_inverse::srgb_gamma_inv (clamp [0,1] first).
+fn srgb_gamma_inv(y_in: f32) -> f32 {
+    let y = clamp(y_in, 0.0, 1.0);
+    if (y <= 0.040449936) {
+        return y / 12.92;
+    }
+    return pow((y + 0.055) / 1.055, 2.4);
+}
+
+// sRGB gamma encode (display-encoded ← linear). Mirrors
+// raw_core::view::encode::srgb_gamma (clamp [0,1] first).
+fn srgb_gamma(x_in: f32) -> f32 {
+    let x = clamp(x_in, 0.0, 1.0);
+    if (x <= 0.0031308) {
+        return x * 12.92;
+    }
+    return 1.055 * pow(x, 1.0 / 2.4) - 0.055;
 }
 
 // Soft-knee compression: identity for x ≤ KNEE=0.95, smooth roll-off to
@@ -174,7 +196,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         let chroma_off = vec2<f32>(curve[OFF_CHROMA_OFFSET + 0u], curve[OFF_CHROMA_OFFSET + 1u]);
         let l_off = curve[OFF_LIGHTNESS_OFFSET];
 
-        let lab = rec2020_to_oklab(vec3<f32>(r2, g2, b2));
+        // #1948: r2/g2/b2 are DisplayEncodedSrgb (sRGB primaries, sRGB gamma).
+        // Oklab is defined on LINEAR light, so decode the gamma first and use the
+        // linear-sRGB Oklab entry (NOT rec2020_to_oklab, which would re-apply a
+        // Rec.2020→sRGB primary rotation the display buffer already had), then
+        // re-encode after the correction.
+        let lin = vec3<f32>(srgb_gamma_inv(r2), srgb_gamma_inv(g2), srgb_gamma_inv(b2));
+        let lab = srgb_linear_to_oklab(lin);
 
         // Bin by Rec.709 luma on the post-curve+matrix RGB (matches fit-time
         // binning). 5 anchors at Y = 0/0.25/0.5/0.75/1.0 → scaled = y*4.
@@ -195,10 +223,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
             lab.y * chroma_boost + chroma_off.x + band_a_corr,
             lab.z * chroma_boost + chroma_off.y + band_b_corr,
         );
-        let back = oklab_to_rec2020(scaled);
-        r2 = back.x;
-        g2 = back.y;
-        b2 = back.z;
+        let back = oklab_to_srgb_linear(scaled);
+        r2 = srgb_gamma(back.x);
+        g2 = srgb_gamma(back.y);
+        b2 = srgb_gamma(back.z);
     }
 
     // Alpha passed through untouched (apply_curve has no alpha; the chain carries it).
