@@ -1,12 +1,14 @@
-//! Tests for the embedded-preview thumbnail fast-path
-//! (`maple_render_thumbnail_avif_to_file`).
+//! Tests for the embedded-preview thumbnail fast-path's two sibling externs:
+//! `maple_render_thumbnail_avif_to_file` (256px grid thumb) and
+//! `maple_render_thumbnail_preview_jpeg_to_file` (1280px VLM describe
+//! preview).
 //!
 //! The fast-path extracts a multi-MP JPEG preview that every modern RAW
-//! container embeds, then resizes + re-encodes it as AVIF — bypassing
-//! the full decode → pipeline → downsample chain. The Bun API exercises
-//! this indirectly via its thumbnail route integration tests; this file
-//! adds a Rust-side gate so a regression in rawler-slot selection,
-//! resize, or encode is caught without booting the full API stack.
+//! container embeds, then resizes + re-encodes it — bypassing the full
+//! decode → pipeline → downsample chain. The Bun API exercises this
+//! indirectly via its thumbnail/preview route integration tests; this file
+//! adds a Rust-side gate so a regression in rawler-slot selection, resize,
+//! or either encode path is caught without booting the full API stack.
 //!
 //! Mix of:
 //!   - synth-generated tests (always run; cover error paths)
@@ -14,7 +16,9 @@
 //!     cover the happy path against a real DNG that ships an embedded JPEG).
 
 use crate::error::maple_last_error;
-use crate::thumbnail::maple_render_thumbnail_avif_to_file;
+use crate::thumbnail::{
+    maple_render_thumbnail_avif_to_file, maple_render_thumbnail_preview_jpeg_to_file,
+};
 use raw_core::test_support::synth_dng::SyntheticGreyDng;
 use std::ffi::{CStr, CString};
 
@@ -66,8 +70,18 @@ fn avif_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     let (ispe_start, _) = find_box(ipco_body, b"ispe")?;
     // `ispe` is a FullBox: 1-byte version + 3-byte flags, then width, height
     // (big-endian u32 each).
-    let w = u32::from_be_bytes(ipco_body.get(ispe_start + 4..ispe_start + 8)?.try_into().ok()?);
-    let h = u32::from_be_bytes(ipco_body.get(ispe_start + 8..ispe_start + 12)?.try_into().ok()?);
+    let w = u32::from_be_bytes(
+        ipco_body
+            .get(ispe_start + 4..ispe_start + 8)?
+            .try_into()
+            .ok()?,
+    );
+    let h = u32::from_be_bytes(
+        ipco_body
+            .get(ispe_start + 8..ispe_start + 12)?
+            .try_into()
+            .ok()?,
+    );
     Some((w, h))
 }
 
@@ -117,9 +131,8 @@ fn render_thumbnail_to_file_missing_input_returns_rc6() {
     let out_dir = tempfile::tempdir().unwrap();
     let out_path = out_dir.path().join("thumb.avif");
     let out_cstr = CString::new(out_path.to_str().unwrap()).unwrap();
-    let rc = unsafe {
-        maple_render_thumbnail_avif_to_file(raw.as_ptr(), out_cstr.as_ptr(), 512, 0)
-    };
+    let rc =
+        unsafe { maple_render_thumbnail_avif_to_file(raw.as_ptr(), out_cstr.as_ptr(), 512, 0) };
     assert_eq!(rc, 6);
     assert!(!out_path.exists(), "output must not be created on rc=6");
     let err = unsafe { maple_last_error() };
@@ -256,12 +269,7 @@ fn render_thumbnail_to_file_quality_zero_uses_default() {
     let out_explicit = dir.path().join("explicit.avif");
     let out_explicit_cstr = CString::new(out_explicit.to_str().unwrap()).unwrap();
     let rc2 = unsafe {
-        maple_render_thumbnail_avif_to_file(
-            raw_cstr.as_ptr(),
-            out_explicit_cstr.as_ptr(),
-            256,
-            55,
-        )
+        maple_render_thumbnail_avif_to_file(raw_cstr.as_ptr(), out_explicit_cstr.as_ptr(), 256, 55)
     };
     assert_eq!(rc2, 0);
 
@@ -305,4 +313,106 @@ fn render_thumbnail_to_file_applies_orientation_to_portrait_raw() {
         w,
         h
     );
+}
+
+// ─── maple_render_thumbnail_preview_jpeg_to_file (VLM describe preview) ────
+
+/// Null pointers (either arg) return rc=1, same validation as the AVIF
+/// sibling — both share `render_thumbnail_to_file`.
+#[test]
+fn preview_jpeg_to_file_null_args_return_rc1() {
+    let some_path = CString::new("/tmp/does-not-matter").unwrap();
+    let rc = unsafe {
+        maple_render_thumbnail_preview_jpeg_to_file(std::ptr::null(), some_path.as_ptr(), 512, 0)
+    };
+    assert_eq!(rc, 1);
+}
+
+#[test]
+fn preview_jpeg_to_file_quality_above_100_returns_rc_14() {
+    let raw_path = CString::new("/dev/null").unwrap();
+    let out_path = CString::new("/tmp/maple_test_preview.jpg").unwrap();
+    let rc = unsafe {
+        maple_render_thumbnail_preview_jpeg_to_file(raw_path.as_ptr(), out_path.as_ptr(), 512, 200)
+    };
+    assert_eq!(rc, 14, "quality=200 should be rejected at validation");
+}
+
+/// Happy path: real DNG with an embedded preview → rc=0, a real JPEG file
+/// (decodes via the `image` crate — no custom box-walker needed since JPEG
+/// decode carries none of AVIF's C-toolchain dependency-fragility risk)
+/// whose long edge is `<= max_px`.
+#[test]
+fn preview_jpeg_to_file_fixture_round_trip() {
+    let path = fixture_path();
+    if !path.exists() {
+        return;
+    }
+    let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let out_path = dir.path().join("preview.jpg");
+    let out_cstr = CString::new(out_path.to_str().unwrap()).unwrap();
+    let max_px: u32 = 1280;
+    let rc = unsafe {
+        maple_render_thumbnail_preview_jpeg_to_file(raw_cstr.as_ptr(), out_cstr.as_ptr(), max_px, 0)
+    };
+    assert_eq!(rc, 0, "preview rc = {}", rc);
+    assert!(out_path.exists(), "output file must exist after rc=0");
+
+    let bytes = std::fs::read(&out_path).unwrap();
+    assert_eq!(&bytes[0..2], &[0xff, 0xd8], "missing JPEG SOI marker");
+
+    let decoded = image::load_from_memory(&bytes).expect("must decode as a real JPEG");
+    use image::GenericImageView;
+    let (w, h) = decoded.dimensions();
+    assert!(w > 0 && h > 0);
+    assert!(
+        w.max(h) <= max_px,
+        "long edge {} exceeds max_px={}",
+        w.max(h),
+        max_px
+    );
+
+    let tmp_path = out_path.with_extension("jpg.tmp");
+    assert!(!tmp_path.exists(), ".tmp must be removed on rename success");
+}
+
+/// `quality == 0` selects the preview tier's default of 85 — distinct from
+/// the AVIF sibling's default of 55.
+#[test]
+fn preview_jpeg_to_file_quality_zero_uses_default_85() {
+    let path = fixture_path();
+    if !path.exists() {
+        return;
+    }
+    let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let out_default = dir.path().join("default.jpg");
+    let out_default_cstr = CString::new(out_default.to_str().unwrap()).unwrap();
+    let rc1 = unsafe {
+        maple_render_thumbnail_preview_jpeg_to_file(
+            raw_cstr.as_ptr(),
+            out_default_cstr.as_ptr(),
+            256,
+            0,
+        )
+    };
+    assert_eq!(rc1, 0);
+
+    let out_explicit = dir.path().join("explicit.jpg");
+    let out_explicit_cstr = CString::new(out_explicit.to_str().unwrap()).unwrap();
+    let rc2 = unsafe {
+        maple_render_thumbnail_preview_jpeg_to_file(
+            raw_cstr.as_ptr(),
+            out_explicit_cstr.as_ptr(),
+            256,
+            85,
+        )
+    };
+    assert_eq!(rc2, 0);
+
+    let a = std::fs::read(&out_default).unwrap();
+    let b = std::fs::read(&out_explicit).unwrap();
+    assert_eq!(a, b, "quality=0 must equal quality=85");
 }

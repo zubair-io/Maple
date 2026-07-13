@@ -23,7 +23,8 @@
 //!                            model) + render_handle_tile.
 //!   - `scene_linear_chain` — `maple_apply_scene_linear_chain` per-tick
 //!                            cheap-stage chain + `MapleAdjustmentParams`.
-//!   - `thumbnail`          — embedded-preview AVIF thumbnail fast path.
+//!   - `thumbnail`          — embedded-preview thumbnail fast path: AVIF
+//!                            (grid thumbs) + JPEG (VLM describe preview).
 //!   - `id`                 — `maple_blake3_hex`, `maple_id_primary`,
 //!                            `maple_id_fallback` pure-function entries.
 
