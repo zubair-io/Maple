@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import { RAW_EXTENSIONS } from '../fs/browse.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
 import { child as childLogger } from '../log.ts';
@@ -65,7 +65,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     // Dispatch — RAW formats go through the FFI pipeline; sharp-native
     // bitmaps (JPG/HEIC/PNG/WEBP/TIFF/AVIF) and PSD/PSB/HDR (first decoded
     // via ag-psd/hdr, then handed to sharp) both go through
-    // `renderImageThumbToFile` below — collapsed into one flag so the
+    // `renderImageThumbToFileViaPool` below — collapsed into one flag so the
     // dispatch reads as a single two-way branch.
     const renderViaImgdecode = !RAW_EXTENSIONS.has(ext);
 
@@ -154,7 +154,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
 
     if (renderViaImgdecode) {
       try {
-        const result = await renderImageThumbToFile(
+        const result = await renderImageThumbToFileViaPool(
           real,
           thumbPath,
           sizePx,

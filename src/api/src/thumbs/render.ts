@@ -1,7 +1,9 @@
 /**
- * Bitmap-format thumbnail rendering — shared by `/api/fs/thumb` (live) and
- * the indexer's thumb stage. Decodes JPEG/PNG/WEBP/TIFF/AVIF/HEIC/HEIF and
- * writes a resized AVIF to `thumbPath` atomically (`.tmp` + rename).
+ * Bitmap-format thumbnail rendering — shared by `/api/fs/thumb` (live), the
+ * indexer's thumb stage, and (via `imgdecode-pool.ts`'s `format: 'jpeg'`
+ * option) the 1280px VLM describe/OCR preview tier. Decodes
+ * JPEG/PNG/WEBP/TIFF/AVIF/HEIC/HEIF and writes a resized AVIF or JPEG to
+ * `thumbPath` atomically (`.tmp` + rename) — see `ThumbOutputFormat`.
  *
  * RAW formats are NOT handled here — those go through the libraw FFI worker
  * pool. Sharp's prebuilt libvips on Linux ships without libheif (libheif →
@@ -41,6 +43,34 @@ export const THUMB_AVIF_QUALITY = 55;
  * throughput for the indexer backlog — effort has no effect on decode cost. */
 export const THUMB_AVIF_EFFORT = 4;
 
+/** Output codec for `renderImageThumbToFile` and its two format-specific
+ * helpers. `'avif'` is the 256px grid-thumbnail tier (default); `'jpeg'` is
+ * the 1280px VLM describe/OCR preview tier (`indexer/previewer.ts`), which
+ * must keep emitting real JPEG since every describe provider hardcodes
+ * `image/jpeg` as the media type it sends upstream. */
+export type ThumbOutputFormat = 'avif' | 'jpeg';
+
+/** sharp's mozjpeg encoder, matching the pre-AVIF-migration quality/encoder
+ * choice for the JPEG output format. */
+function encodeToBuffer(
+  pipeline: sharp.Sharp,
+  quality: number,
+  format: ThumbOutputFormat,
+): Promise<Buffer> {
+  return format === 'jpeg'
+    ? pipeline.jpeg({ quality, mozjpeg: true }).toBuffer()
+    : pipeline.avif({ quality, effort: THUMB_AVIF_EFFORT }).toBuffer();
+}
+
+/** Atomic write shared by every branch below: write to a pid+random-suffixed
+ * `.tmp` sibling of `thumbPath`, then rename — so a crash mid-write never
+ * leaves a half-written cache file. */
+async function writeAtomic(thumbPath: string, buf: Buffer): Promise<void> {
+  const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+  await writeFile(tmp, buf);
+  await rename(tmp, thumbPath);
+}
+
 /**
  * Input options handed to every `sharp()` decode in this module.
  *
@@ -74,24 +104,22 @@ export async function renderHeicThumbToFile(
   thumbPath: string,
   sizePx: number,
   quality = THUMB_AVIF_QUALITY,
+  format: ThumbOutputFormat = 'avif',
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
   // heic-convert → JPEG quality 0.9 (its own intermediate-decode scale, not
-  // the thumb's output quality); subsequent sharp resize re-encodes to AVIF
-  // at the caller-specified quality so the intermediate doesn't bloat the cache.
+  // the thumb's output quality); subsequent sharp resize re-encodes at the
+  // caller-specified quality so the intermediate doesn't bloat the cache.
   const jpegBuffer = (await heicConvert({
     buffer: inputBuffer,
     format: 'JPEG',
     quality: 0.9,
   })) as Buffer;
-  const buf = await sharp(jpegBuffer, SHARP_INPUT_OPTS)
+  const pipeline = sharp(jpegBuffer, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
-    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .avif({ quality, effort: THUMB_AVIF_EFFORT })
-    .toBuffer();
-  const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
-  await writeFile(tmp, buf);
-  await rename(tmp, thumbPath);
+    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true });
+  const buf = await encodeToBuffer(pipeline, quality, format);
+  await writeAtomic(thumbPath, buf);
 }
 
 /**
@@ -126,6 +154,7 @@ async function renderPsdOrHdrThumbToFile(
   sizePx: number,
   ext: string,
   quality = THUMB_AVIF_QUALITY,
+  format: ThumbOutputFormat = 'avif',
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
   const raster =
@@ -133,22 +162,20 @@ async function renderPsdOrHdrThumbToFile(
       ? await decodeHdrIsolated(new Uint8Array(inputBuffer))
       : decodePsdComposite(new Uint8Array(inputBuffer));
 
-  const buf = await sharp(raster.data, {
+  const pipeline = sharp(raster.data, {
     raw: { width: raster.width, height: raster.height, channels: 4 },
-  })
-    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .avif({ quality, effort: THUMB_AVIF_EFFORT })
-    .toBuffer();
-  const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
-  await writeFile(tmp, buf);
-  await rename(tmp, thumbPath);
+  }).resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true });
+  const buf = await encodeToBuffer(pipeline, quality, format);
+  await writeAtomic(thumbPath, buf);
 }
 
 /**
- * Render `srcPath` to `thumbPath` as an AVIF with the long edge ≤ `sizePx`.
- * Atomic: writes to `<thumbPath>.<pid>.tmp` first, then renames so a crash
- * mid-write never leaves a half-written cache file. Caller is responsible
- * for ensuring the parent directory exists.
+ * Render `srcPath` to `thumbPath` with the long edge ≤ `sizePx`, in `format`
+ * (default AVIF — the 256px grid-thumbnail tier; the 1280px VLM
+ * describe/OCR preview tier passes `'jpeg'`). Atomic: writes to
+ * `<thumbPath>.<pid>.tmp` first, then renames so a crash mid-write never
+ * leaves a half-written cache file. Caller is responsible for ensuring the
+ * parent directory exists.
  *
  * This function is the canonical render body called inside `imgdecode.child.ts`
  * (the isolated child process). All formats — including HEIC — are handled here
@@ -164,27 +191,25 @@ export async function renderImageThumbToFile(
   sizePx: number,
   ext: string,
   quality = THUMB_AVIF_QUALITY,
+  format: ThumbOutputFormat = 'avif',
 ): Promise<boolean> {
   if (ext === 'heic' || ext === 'heif') {
     // Call the canonical HEIC chain directly. When render.ts is loaded inside
     // `imgdecode.child.ts` this is already an isolated process — no event-loop
     // blocking concern. The old Worker-thread indirection via heic-pool is gone.
-    await renderHeicThumbToFile(srcPath, thumbPath, sizePx, quality);
+    await renderHeicThumbToFile(srcPath, thumbPath, sizePx, quality, format);
     return true;
   }
 
   if (ext === 'psd' || ext === 'psb' || ext === 'hdr') {
-    await renderPsdOrHdrThumbToFile(srcPath, thumbPath, sizePx, ext, quality);
+    await renderPsdOrHdrThumbToFile(srcPath, thumbPath, sizePx, ext, quality, format);
     return true;
   }
 
-  const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
-  const buf = await sharp(srcPath, SHARP_INPUT_OPTS)
+  const pipeline = sharp(srcPath, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
-    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .avif({ quality, effort: THUMB_AVIF_EFFORT })
-    .toBuffer();
-  await writeFile(tmp, buf);
-  await rename(tmp, thumbPath);
+    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true });
+  const buf = await encodeToBuffer(pipeline, quality, format);
+  await writeAtomic(thumbPath, buf);
   return true;
 }
