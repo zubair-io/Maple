@@ -20,9 +20,9 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, wb_camera,
-        white_balance,
+        chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab, hsl,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -304,6 +304,47 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     });
     stage("tile_saturation", || {
         saturation::apply(&mut scene, model.saturation)
+    });
+    // HSL 8-band (#1112) — scene-linear Oklab per-pixel op (like
+    // vibrance/saturation), after saturation and before clarity, matching
+    // the full and sized develop chains. Was silently omitted here (#1931):
+    // a deep-zoom tile with any non-default HSL adjustment diverged from the
+    // full-resolution preview. Point op with no neighbour gather, so it is
+    // trivially tile-safe; identity short-circuits on the all-default model.
+    stage("tile_hsl", || {
+        hsl::apply(
+            &mut scene,
+            &[
+                model.hue_adjustment_red,
+                model.hue_adjustment_orange,
+                model.hue_adjustment_yellow,
+                model.hue_adjustment_green,
+                model.hue_adjustment_aqua,
+                model.hue_adjustment_blue,
+                model.hue_adjustment_purple,
+                model.hue_adjustment_magenta,
+            ],
+            &[
+                model.saturation_adjustment_red,
+                model.saturation_adjustment_orange,
+                model.saturation_adjustment_yellow,
+                model.saturation_adjustment_green,
+                model.saturation_adjustment_aqua,
+                model.saturation_adjustment_blue,
+                model.saturation_adjustment_purple,
+                model.saturation_adjustment_magenta,
+            ],
+            &[
+                model.luminance_adjustment_red,
+                model.luminance_adjustment_orange,
+                model.luminance_adjustment_yellow,
+                model.luminance_adjustment_green,
+                model.luminance_adjustment_aqua,
+                model.luminance_adjustment_blue,
+                model.luminance_adjustment_purple,
+                model.luminance_adjustment_magenta,
+            ],
+        )
     });
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
