@@ -66,6 +66,19 @@ interface RawFfi {
     maxPx: number,
     quality?: number,
   ): boolean;
+  /** Extract an embedded RAW preview, downscale to `maxPx`, JPEG-encode, and
+   * write atomically to `outAbsPath` (.tmp + rename). The JPEG counterpart to
+   * `renderThumbnailAvifToFile` (same embedded-preview extraction, no
+   * adjustments) — used by the 1280px VLM describe/OCR preview tier
+   * (`indexer/previewer.ts`), which must keep emitting real JPEG since every
+   * describe provider hardcodes `image/jpeg` as the media type it sends
+   * upstream. Quality defaults to 85. */
+  renderThumbnailPreviewJpegToFile(
+    rawAbsPath: string,
+    outAbsPath: string,
+    maxPx: number,
+    quality?: number,
+  ): boolean;
   /** Develop `rawAbsPath` with `xmpAbsPath`'s adjustments applied (null =
    * neutral), downscale to `maxPx`, JPEG-encode, and write atomically to
    * `outAbsPath`. The DEVELOPED counterpart to `renderThumbnailAvifToFile`
@@ -144,6 +157,15 @@ function loadFfi(): RawFfi | null {
         ],
         returns: FFIType.i32,
       },
+      maple_render_thumbnail_preview_jpeg_to_file: {
+        args: [
+          FFIType.cstring, // raw_path
+          FFIType.cstring, // out_path
+          FFIType.u32, // max_px
+          FFIType.u8, // quality
+        ],
+        returns: FFIType.i32,
+      },
       maple_render_develop_jpeg_to_file: {
         args: [
           FFIType.cstring, // raw_path
@@ -159,6 +181,33 @@ function loadFfi(): RawFfi | null {
         returns: FFIType.cstring,
       },
     });
+
+    // Shared by `renderThumbnailAvifToFile` and `renderThumbnailPreviewJpegToFile`
+    // — both are `(raw_path, out_path, max_px, quality) -> rc` externs that
+    // extract the embedded RAW preview and differ only in output codec.
+    function renderRawToOutFile(
+      symbolFn: (
+        rawPath: ReturnType<typeof ptr>,
+        outPath: ReturnType<typeof ptr>,
+        maxPx: number,
+        quality: number,
+      ) => unknown,
+      symbolLabel: string,
+      rawAbsPath: string,
+      outAbsPath: string,
+      maxPx: number,
+      quality: number,
+    ): boolean {
+      const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
+      const outPathBuf = Buffer.from(outAbsPath + '\0', 'utf-8');
+      const rc = symbolFn(ptr(rawPathBuf), ptr(outPathBuf), maxPx >>> 0, quality & 0xff) as number;
+      if (rc !== 0) {
+        const errStr = lib.symbols.maple_last_error() as unknown as string | null;
+        log.error({ rc, err: errStr }, `${symbolLabel} failed`);
+        return false;
+      }
+      return true;
+    }
 
     return {
       computeHistogramBins(
@@ -200,20 +249,30 @@ function loadFfi(): RawFfi | null {
         maxPx: number,
         quality: number = 55,
       ): boolean {
-        const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
-        const outPathBuf = Buffer.from(outAbsPath + '\0', 'utf-8');
-        const rc = lib.symbols.maple_render_thumbnail_avif_to_file(
-          ptr(rawPathBuf),
-          ptr(outPathBuf),
-          maxPx >>> 0,
-          quality & 0xff,
-        ) as number;
-        if (rc !== 0) {
-          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          log.error({ rc, err: errStr }, 'maple_render_thumbnail_avif_to_file failed');
-          return false;
-        }
-        return true;
+        return renderRawToOutFile(
+          lib.symbols.maple_render_thumbnail_avif_to_file,
+          'maple_render_thumbnail_avif_to_file',
+          rawAbsPath,
+          outAbsPath,
+          maxPx,
+          quality,
+        );
+      },
+
+      renderThumbnailPreviewJpegToFile(
+        rawAbsPath: string,
+        outAbsPath: string,
+        maxPx: number,
+        quality: number = 85,
+      ): boolean {
+        return renderRawToOutFile(
+          lib.symbols.maple_render_thumbnail_preview_jpeg_to_file,
+          'maple_render_thumbnail_preview_jpeg_to_file',
+          rawAbsPath,
+          outAbsPath,
+          maxPx,
+          quality,
+        );
       },
 
       renderDevelopJpegToFile(

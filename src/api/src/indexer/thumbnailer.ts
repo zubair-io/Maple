@@ -30,7 +30,7 @@ import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isNoPreviewFilename } from './media-types.ts';
-import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -178,7 +178,7 @@ async function renderBitmapThumbToFile(
   ext: string,
 ): Promise<boolean> {
   try {
-    const result = await renderImageThumbToFile(
+    const result = await renderImageThumbToFileViaPool(
       srcPath,
       thumbPath,
       THUMB_LONG_EDGE_PX,

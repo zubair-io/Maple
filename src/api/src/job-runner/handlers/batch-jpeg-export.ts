@@ -13,7 +13,8 @@
  * bump progress. Cancellation is checked between assets so the user can
  * abort an in-flight export.
  *
- * Reuses `ffiPool().renderThumbnailJpegToFile` deliberately — it's the only
+ * Reuses `ffiPool().renderThumbnailPreviewJpegToFile` deliberately (shared
+ * with the 1280px VLM describe/OCR preview tier, #1978) — it's the only
  * RAW→JPEG path we have and it already serialises calls into the dylib so
  * the export doesn't starve the indexer's thumb stage. See
  * `docs/workers-architecture.md` §11 ("Reuse the FFI pool").
@@ -122,7 +123,7 @@ export const batchJpegExportHandler: JobHandler = {
           throw new Error(`asset has no resolvable location: ${idHex}`);
         }
         const outPath = join(outputDir, jpgFilename(srcPath));
-        const ok = await pool.renderThumbnailJpegToFile(
+        const ok = await pool.renderThumbnailPreviewJpegToFile(
           srcPath,
           outPath,
           maxPx ?? DEFAULT_MAX_PX,
