@@ -342,6 +342,117 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
     })
 }
 
+/// f32 (16 B/px) counterpart to [`maple_render_handle_scene_linear_tile`].
+///
+/// Identical arguments, geometry, WB-anchor contract, and error codes; the
+/// only difference is the output buffer is **f32** RGBA (`bytes_per_pixel =
+/// 16`) instead of fp16 (`8`). The Apple native-detail tile-refinement path
+/// (`NativeDetailRenderer`) uses this so its working precision matches the
+/// whole-image scene-linear path's f32 (#487) rather than the fp16 the tile
+/// path shipped — a precision-tier divergence that could bias shadows / band
+/// the AgX shoulder in the zoomed-in tile vs the full image (#1945).
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
+    handle: *const MapleRawHandle,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    quality_preview: i32,
+    decoded_temperature: f32,
+    decoded_tint: f32,
+    out: *mut crate::buffers::MapleSceneLinearBufferF32,
+) -> i32 {
+    if handle.is_null() || out.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    if src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 {
+        set_last_error("src_w/src_h/out_w/out_h must be > 0".into());
+        return 9;
+    }
+    let inner_ptr = (*handle).inner as *const MapleRawHandleInner;
+    if inner_ptr.is_null() {
+        set_last_error("handle has been freed".into());
+        return 1;
+    }
+    let inner: &MapleRawHandleInner = &*inner_ptr;
+    let raw_addr = (&inner.raw) as *const _ as usize;
+    let model_addr = (&inner.model) as *const _ as usize;
+    let out_ptr = out as usize;
+    let quality = if quality_preview != 0 {
+        raw_core::pipeline::RenderQuality::Preview
+    } else {
+        raw_core::pipeline::RenderQuality::Full
+    };
+    let wb_anchor = if decoded_temperature > 0.0 {
+        Some((decoded_temperature, decoded_tint))
+    } else {
+        None
+    };
+    with_large_stack(move || {
+        // SAFETY: identical to `maple_render_handle_scene_linear_tile` — the
+        // caller (actor-isolated RawImageCache) keeps the handle alive for the
+        // call; the references live in the heap-boxed `MapleRawHandleInner`.
+        let raw_img: &raw_core::image::RawImage =
+            unsafe { &*(raw_addr as *const raw_core::image::RawImage) };
+        let model: &xmp::AdjustmentModel = unsafe { &*(model_addr as *const xmp::AdjustmentModel) };
+        if dehaze_active(model) {
+            set_last_error("dehaze unsupported on tile path".into());
+            return 10;
+        }
+        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
+            raw_img,
+            model,
+            raw_core::pipeline::TileRect {
+                src_x,
+                src_y,
+                src_w,
+                src_h,
+                out_w,
+                out_h,
+            },
+            quality,
+            wb_anchor,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = format!("{}", e);
+                set_last_error(msg.clone());
+                if msg.contains("dehaze")
+                    || msg.contains("vignette")
+                    || msg.contains("deep denoise")
+                    || msg.contains("local adjustments")
+                    || msg.contains("capture sharpening")
+                    || msg.contains("OpcodeList3")
+                {
+                    return 10;
+                }
+                if msg.contains("upscale") || msg.contains("downscale-only") {
+                    return 11;
+                }
+                if msg.contains("matching aspect") {
+                    return 12;
+                }
+                return 8;
+            }
+        };
+        crate::scene_linear_f32::write_scene_linear_buf_f32(
+            out_ptr,
+            w,
+            h,
+            f32_rgba,
+            raw_img.noise_profile.as_deref(),
+            raw_img.iso,
+            &crate::scene_linear_f32::wb_frame_export(raw_img),
+        );
+        0
+    })
+}
+
 /// Free a `MapleRawHandle` and its inner `RawImage` + `AdjustmentModel`.
 /// No-op when `handle` is null. Apple's `MapleRawHandleBox.deinit` calls
 /// this on cache eviction or asset switch.
