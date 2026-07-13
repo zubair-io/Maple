@@ -262,23 +262,74 @@ export async function resizeBitmapToCanvas(
   return canvas;
 }
 
-/** Encode a canvas as a JPEG Blob. Works for both OffscreenCanvas and
- * HTMLCanvasElement. Used by callers that need to both render the image
- * (via blob URL) AND write it to the `.maple/thumbs/` cache (raw bytes). */
-export async function canvasToBlob(
+export type ThumbFormat = 'avif' | 'jpeg';
+export interface EncodedThumb {
+  blob: Blob;
+  format: ThumbFormat;
+}
+
+// Canvas quality is a 0–1 float — NOT sharp/Rust's 0–100 int scale used by
+// the server-side AVIF encoder. Client- and server-origin thumbnails already
+// differ in encoder/quality mapping today; no attempt is made to match them.
+const AVIF_THUMB_QUALITY = 0.6;
+const JPEG_THUMB_QUALITY = 0.85;
+
+/** Low-level: encode a canvas to a specific MIME type. The returned Blob's
+ * `.type` may differ from `mime` — some engines silently substitute a
+ * different format (commonly PNG) for an unsupported requested type rather
+ * than erroring. Callers MUST inspect the returned `.type`, not assume it
+ * matches what was requested. */
+function encodeCanvas(
   canvas: OffscreenCanvas | HTMLCanvasElement,
-  quality = 0.85,
+  mime: string,
+  quality: number,
 ): Promise<Blob> {
   if (canvas instanceof OffscreenCanvas) {
-    return canvas.convertToBlob({ type: 'image/jpeg', quality });
+    return canvas.convertToBlob({ type: mime, quality });
   }
   return new Promise<Blob>((resolve, reject) => {
     (canvas as HTMLCanvasElement).toBlob(
       (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-      'image/jpeg',
+      mime,
       quality,
     );
   });
+}
+
+// One-time memoized capability probe — avoids paying an AVIF-attempt-then-
+// JPEG-re-encode cost on every thumbnail for browsers that can't encode AVIF.
+let avifEncodeSupported: boolean | null = null;
+async function canEncodeAvif(): Promise<boolean> {
+  if (avifEncodeSupported !== null) return avifEncodeSupported;
+  try {
+    const probe =
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(1, 1)
+        : Object.assign(document.createElement('canvas'), { width: 1, height: 1 });
+    const blob = await encodeCanvas(probe, 'image/avif', AVIF_THUMB_QUALITY);
+    avifEncodeSupported = blob.type === 'image/avif';
+  } catch {
+    avifEncodeSupported = false;
+  }
+  return avifEncodeSupported;
+}
+
+/**
+ * Encode a canvas as an AVIF thumbnail, falling back to JPEG when the
+ * browser can't actually produce AVIF (verified via the returned Blob's
+ * `.type`, not just a successful call — see `encodeCanvas`). Reports which
+ * format was produced so the caller can persist it under the matching
+ * extension. Works for both OffscreenCanvas and HTMLCanvasElement.
+ */
+export async function canvasToBlob(
+  canvas: OffscreenCanvas | HTMLCanvasElement,
+): Promise<EncodedThumb> {
+  if (await canEncodeAvif()) {
+    const blob = await encodeCanvas(canvas, 'image/avif', AVIF_THUMB_QUALITY);
+    if (blob.type === 'image/avif') return { blob, format: 'avif' };
+  }
+  const blob = await encodeCanvas(canvas, 'image/jpeg', JPEG_THUMB_QUALITY);
+  return { blob, format: 'jpeg' };
 }
 
 /** Convenience: encode + wrap the blob in an object URL. Use this when you
@@ -286,7 +337,8 @@ export async function canvasToBlob(
 export async function canvasToBlobUrl(
   canvas: OffscreenCanvas | HTMLCanvasElement,
 ): Promise<string> {
-  return URL.createObjectURL(await canvasToBlob(canvas));
+  const { blob } = await canvasToBlob(canvas);
+  return URL.createObjectURL(blob);
 }
 
 /** Compute a 256-bin luma histogram from raw RGB pixel data. */
