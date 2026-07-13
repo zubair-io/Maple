@@ -1,7 +1,7 @@
 /**
  * Bitmap-format thumbnail rendering — shared by `/api/fs/thumb` (live) and
  * the indexer's thumb stage. Decodes JPEG/PNG/WEBP/TIFF/AVIF/HEIC/HEIF and
- * writes a resized JPEG to `thumbPath` atomically (`.tmp` + rename).
+ * writes a resized AVIF to `thumbPath` atomically (`.tmp` + rename).
  *
  * RAW formats are NOT handled here — those go through the libraw FFI worker
  * pool. Sharp's prebuilt libvips on Linux ships without libheif (libheif →
@@ -28,6 +28,19 @@ import { decodeHdrIsolated } from './hdr-decode-isolated.ts';
 // `thumbs/render.ts` importers keep working unchanged. (#782)
 export { SHARP_EXTENSIONS } from '../fs/browse.ts';
 
+/** Default AVIF quality for the `thumbs` cache tier — on AVIF's own [1,100]
+ * scale, NOT JPEG's; a JPEG-82-equivalent AVIF quality is meaningfully
+ * lower. 55 is a starting point favoring smaller files/faster decode over
+ * encode cost (thumbs are decoded on every grid scroll, encoded once at
+ * index time) — tune visually against real thumbnails if this drifts.
+ * Shared with `apply-orientation.ts`, `indexer/thumbnailer.ts`, and
+ * `routes/fs-thumbs.ts` so the default lives in exactly one place. */
+export const THUMB_AVIF_QUALITY = 55;
+
+/** Sharp's AVIF `effort` (0–9, higher = slower/smaller). 4 favors encode
+ * throughput for the indexer backlog — effort has no effect on decode cost. */
+export const THUMB_AVIF_EFFORT = 4;
+
 /**
  * Input options handed to every `sharp()` decode in this module.
  *
@@ -48,7 +61,7 @@ const SHARP_INPUT_OPTS = { failOn: 'none', unlimited: true } as const;
 /**
  * The canonical HEIC/HEIF chain: read the source, decode it to an
  * intermediate JPEG via `heic-convert` (quality 0.9), then resize + re-encode
- * via sharp at `quality` (mozjpeg) and write atomically.
+ * via sharp to AVIF at `quality` and write atomically.
  *
  * Called by `renderImageThumbToFile` for the HEIC/HEIF branch. Lives inside the
  * `imgdecode.child.ts` isolated process so the large input and intermediate JPEG
@@ -60,11 +73,12 @@ export async function renderHeicThumbToFile(
   srcPath: string,
   thumbPath: string,
   sizePx: number,
-  quality = 82,
+  quality = THUMB_AVIF_QUALITY,
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
-  // heic-convert → JPEG quality 0.9; subsequent sharp resize re-encodes at
-  // the caller-specified quality so the intermediate doesn't bloat the cache.
+  // heic-convert → JPEG quality 0.9 (its own intermediate-decode scale, not
+  // the thumb's output quality); subsequent sharp resize re-encodes to AVIF
+  // at the caller-specified quality so the intermediate doesn't bloat the cache.
   const jpegBuffer = (await heicConvert({
     buffer: inputBuffer,
     format: 'JPEG',
@@ -73,7 +87,7 @@ export async function renderHeicThumbToFile(
   const buf = await sharp(jpegBuffer, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality, mozjpeg: true })
+    .avif({ quality, effort: THUMB_AVIF_EFFORT })
     .toBuffer();
   const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   await writeFile(tmp, buf);
@@ -83,7 +97,7 @@ export async function renderHeicThumbToFile(
 /**
  * PSD/PSB/HDR chain: decode to a flattened RGBA8 raster via `ag-psd` / `hdr`
  * (see `psd-hdr-decode.ts`), then hand that raster to sharp's `raw` input
- * mode for the exact same resize + mozjpeg-encode path every other bitmap
+ * mode for the exact same resize + AVIF-encode path every other bitmap
  * format uses below. These formats carry no EXIF orientation metadata (and
  * sharp's raw-input path has no metadata to interpret), so we intentionally
  * do not call `.rotate()` here.
@@ -111,7 +125,7 @@ async function renderPsdOrHdrThumbToFile(
   thumbPath: string,
   sizePx: number,
   ext: string,
-  quality = 82,
+  quality = THUMB_AVIF_QUALITY,
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
   const raster =
@@ -123,7 +137,7 @@ async function renderPsdOrHdrThumbToFile(
     raw: { width: raster.width, height: raster.height, channels: 4 },
   })
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality, mozjpeg: true })
+    .avif({ quality, effort: THUMB_AVIF_EFFORT })
     .toBuffer();
   const tmp = `${thumbPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   await writeFile(tmp, buf);
@@ -131,7 +145,7 @@ async function renderPsdOrHdrThumbToFile(
 }
 
 /**
- * Render `srcPath` to `thumbPath` as a JPEG with the long edge ≤ `sizePx`.
+ * Render `srcPath` to `thumbPath` as an AVIF with the long edge ≤ `sizePx`.
  * Atomic: writes to `<thumbPath>.<pid>.tmp` first, then renames so a crash
  * mid-write never leaves a half-written cache file. Caller is responsible
  * for ensuring the parent directory exists.
@@ -149,7 +163,7 @@ export async function renderImageThumbToFile(
   thumbPath: string,
   sizePx: number,
   ext: string,
-  quality = 82,
+  quality = THUMB_AVIF_QUALITY,
 ): Promise<boolean> {
   if (ext === 'heic' || ext === 'heif') {
     // Call the canonical HEIC chain directly. When render.ts is loaded inside
@@ -168,7 +182,7 @@ export async function renderImageThumbToFile(
   const buf = await sharp(srcPath, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality, mozjpeg: true })
+    .avif({ quality, effort: THUMB_AVIF_EFFORT })
     .toBuffer();
   await writeFile(tmp, buf);
   await rename(tmp, thumbPath);

@@ -20,7 +20,7 @@ import { verifyBearer } from './auth';
 import { parseThumbPath, thumbR2Key } from './r2';
 
 const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
-const FALLBACK_CONTENT_TYPE = 'image/jpeg';
+const FALLBACK_CONTENT_TYPE = 'image/avif';
 
 function unauthorized(): Response {
 	return new Response(JSON.stringify({ error: 'unauthorized' }), {

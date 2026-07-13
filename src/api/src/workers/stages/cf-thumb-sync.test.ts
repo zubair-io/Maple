@@ -59,7 +59,7 @@ describe('cf-thumb-sync stage', () => {
     if (!opts?.noThumb) {
       const thumbDir = path.join(dir, relDir, '.maple', 'thumbs');
       await mkdir(thumbDir, { recursive: true });
-      await writeFile(path.join(thumbDir, `${mapleId}.jpg`), Buffer.from('fake-jpeg-bytes'));
+      await writeFile(path.join(thumbDir, `${mapleId}.avif`), Buffer.from('fake-avif-bytes'));
     }
     return {
       _id: new ObjectId(),

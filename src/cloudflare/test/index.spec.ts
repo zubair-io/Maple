@@ -48,6 +48,8 @@ describe('thumbnail-cache Worker', () => {
 
 	it('serves straight from R2 on a hit, without calling the origin', async () => {
 		const token = await bearerToken();
+		// No httpMetadata — exercises the FALLBACK_CONTENT_TYPE path (an object
+		// stored with no recorded content-type falls back to 'image/avif').
 		await env.THUMBS_BUCKET.put('thumbs/main/hit.jpg', new Uint8Array([1, 2, 3]));
 
 		const request = new IncomingRequest('https://example.com/api/thumb/main/hit.jpg', {
@@ -59,6 +61,7 @@ describe('thumbnail-cache Worker', () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+		expect(response.headers.get('content-type')).toBe('image/avif');
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 	});
 
@@ -88,7 +91,7 @@ describe('thumbnail-cache Worker', () => {
 		fetchMock
 			.get('https://origin.test')
 			.intercept({ path: '/api/thumb/main/miss.jpg', method: 'GET' })
-			.reply(200, bytes, { headers: { 'content-type': 'image/jpeg' } });
+			.reply(200, bytes, { headers: { 'content-type': 'image/avif' } });
 
 		const request = new IncomingRequest('https://example.com/api/thumb/main/miss.jpg', {
 			headers: { authorization: `Bearer ${token}` },
@@ -96,12 +99,14 @@ describe('thumbnail-cache Worker', () => {
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('image/avif');
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
 
 		// ctx.waitUntil'd R2 write only lands once the execution context settles.
 		await waitOnExecutionContext(ctx);
 		const cached = await env.THUMBS_BUCKET.get('thumbs/main/miss.jpg');
 		expect(cached).not.toBeNull();
+		expect(cached!.httpMetadata?.contentType).toBe('image/avif');
 		expect(new Uint8Array(await cached!.arrayBuffer())).toEqual(bytes);
 	});
 

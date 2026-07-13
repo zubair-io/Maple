@@ -74,9 +74,9 @@ describe('GET /api/assets/:id/thumb — ETag', () => {
       indexed_at: 'now',
     } as never);
     // Stage the thumb at the content-addressed path the route will look at.
-    const thumbPath = join(tmp, '.maple', 'thumbs', `${mapleId}.jpg`);
+    const thumbPath = join(tmp, '.maple', 'thumbs', `${mapleId}.avif`);
     await mkdir(dirname(thumbPath), { recursive: true });
-    await writeFile(thumbPath, Buffer.from([0xff, 0xd8, 0xff]));
+    await writeFile(thumbPath, Buffer.from([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]));
     // Invalidate the library cache so the route's loadLibraryRoots picks
     // up the freshly-inserted folder.
     const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');

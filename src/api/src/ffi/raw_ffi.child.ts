@@ -50,7 +50,7 @@ function handle(req: FfiRequest): FfiResponse {
   }
 
   if (req.type === 'renderThumb') {
-    const ok = ffi.renderThumbnailJpegToFile(req.rawPath, req.outPath, req.maxPx, req.quality);
+    const ok = ffi.renderThumbnailAvifToFile(req.rawPath, req.outPath, req.maxPx, req.quality);
     return {
       type: 'renderThumb',
       id: req.id,
