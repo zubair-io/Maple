@@ -272,8 +272,8 @@ final class CloudTimelineViewModelTests: XCTestCase {
     let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
     let merged = vm.mergedPagesByBucket[key] ?? []
     XCTAssertEqual(merged.count, 1)
-    guard case .synced(let local, let cloud) = merged[0] else {
-      XCTFail("expected .synced when phasset_links matches adapter contents, got \(merged[0])")
+    guard let first = merged.first, case .synced(let local, let cloud) = first else {
+      XCTFail("expected .synced when phasset_links matches adapter contents, got \(merged)")
       return
     }
     XCTAssertEqual(local.id, "P1")
@@ -348,8 +348,8 @@ final class CloudTimelineViewModelTests: XCTestCase {
     let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
     let merged = vm.mergedPagesByBucket[key] ?? []
     XCTAssertEqual(merged.count, 1, "expected one synced cell, got \(merged)")
-    guard case .synced(let local, let cloud) = merged[0] else {
-      XCTFail("expected .synced via cross-device cloud id, got \(merged[0])")
+    guard let first = merged.first, case .synced(let local, let cloud) = first else {
+      XCTFail("expected .synced via cross-device cloud id, got \(merged)")
       return
     }
     XCTAssertEqual(local.id, "DEVICE_B_PHID")
@@ -399,8 +399,8 @@ final class CloudTimelineViewModelTests: XCTestCase {
     let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
     let merged = vm.mergedPagesByBucket[key] ?? []
     XCTAssertEqual(merged.count, 1)
-    guard case .synced(let local, _) = merged[0] else {
-      XCTFail("expected .synced via the second link's cloud id, got \(merged[0])")
+    guard let first = merged.first, case .synced(let local, _) = first else {
+      XCTFail("expected .synced via the second link's cloud id, got \(merged)")
       return
     }
     XCTAssertEqual(local.id, "THIS_DEVICE_PHID")
@@ -441,8 +441,8 @@ final class CloudTimelineViewModelTests: XCTestCase {
     let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
     let merged = vm.mergedPagesByBucket[key] ?? []
     XCTAssertEqual(merged.count, 1)
-    guard case .synced(let local, _) = merged[0] else {
-      XCTFail("expected .synced when match is at links[1], got \(merged[0])")
+    guard let first = merged.first, case .synced(let local, _) = first else {
+      XCTFail("expected .synced when match is at links[1], got \(merged)")
       return
     }
     XCTAssertEqual(local.id, "DEVICE_B_PHID")
@@ -477,8 +477,8 @@ final class CloudTimelineViewModelTests: XCTestCase {
     let before = vm.mergedPagesByBucket[key] ?? []
     // P1 has no local counterpart in the empty adapter → .cloudOnly only.
     XCTAssertEqual(before.count, 1)
-    guard case .cloudOnly = before[0] else {
-      XCTFail("expected .cloudOnly with empty adapter, got \(before[0])")
+    guard let firstBefore = before.first, case .cloudOnly = firstBefore else {
+      XCTFail("expected .cloudOnly with empty adapter, got \(before)")
       return
     }
 
