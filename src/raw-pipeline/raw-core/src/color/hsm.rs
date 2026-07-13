@@ -153,11 +153,13 @@ pub fn lerp_tables(cold: &HsmTable, warm: &HsmTable, t: f32) -> Option<HsmTable>
 /// value is sRGB-encoded before HSV decomposition and sRGB-decoded after
 /// HSV recomposition. We use the standard piecewise sRGB transfer.
 ///
-/// Per DNG 1.6 § 6.6.2: pixels with any negative R/G/B component are
-/// passed through unchanged. HSV decomposition isn't well-defined for
-/// negative components (saturation drops out of [0, 1]), and the round-
-/// trip can move pixels by a large fraction of a unit. The guard below
-/// keeps the out-of-gamut wide-gamut tail intact.
+/// Per DNG 1.6 § 6.6.2, HSV decomposition isn't well-defined for negative
+/// R/G/B components (saturation drops out of [0, 1]). Rather than bypass
+/// such pixels unchanged — which left a discontinuity/banding seam at the
+/// gamut boundary (#1682) — the body applies a *soft lift* (#1703): the
+/// most-negative component is offset up to zero before decomposition and
+/// the same offset is subtracted back afterward, keeping the out-of-gamut
+/// wide-gamut tail intact without a hard branch.
 pub fn apply(img: &mut Image, table: &HsmTable) {
     img.pixels.par_iter_mut().for_each(|p| {
         // 0. Perform a soft lift for negative components instead of an abrupt bypass
@@ -404,8 +406,21 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
         };
     }
 
-    let final_hue = out[0].rem_euclid(360.0);
-    (final_hue, out[1], out[2])
+    // `out[0]` is the interpolated hueDelta (an *additive*, signed hue offset
+    // in degrees). Return it in a signed `[-180, 180]` range rather than the
+    // wrapped `[0, 360)` (#1924): the caller (`apply`) *scales* this delta by
+    // the achromatic low-saturation fade weight (`hd * w_chroma`), and scaling
+    // is not invariant under modular wrap — a `-10°` delta wrapped to `350°`
+    // and scaled by 0.5 would give `175°` instead of the correct `-5°`.
+    // Additive use downstream (`h + hd`, then `rem_euclid`) is unaffected by
+    // the signed form.
+    let wrapped = out[0].rem_euclid(360.0);
+    let signed_hue_delta = if wrapped > 180.0 {
+        wrapped - 360.0
+    } else {
+        wrapped
+    };
+    (signed_hue_delta, out[1], out[2])
 }
 
 #[cfg(test)]
@@ -695,6 +710,71 @@ mod tests {
             approx(h, 90.0, 0.5),
             "expected hue ≈90° (no shift via short arc), got {}",
             h
+        );
+    }
+
+    // ── Achromatic fade scales a SIGNED hue delta (#1924) ───────────────────
+
+    #[test]
+    fn lookup_returns_signed_hue_delta_not_wrapped() {
+        // A table whose every entry carries hueDelta = -10° must be looked up
+        // as a signed -10°, not the wrapped 350°. Pre-#1924 `lookup` returned
+        // `rem_euclid(360)` = 350°, which only stays correct while it is *added*
+        // to hue — `apply` scales it first, where wrap is not invariant.
+        let n = 2 * 2 * 2;
+        let mut data = Vec::with_capacity(n * 3);
+        for _ in 0..n {
+            data.push(-10.0);
+            data.push(1.0);
+            data.push(1.0);
+        }
+        let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
+        let (hd, _, _) = lookup(&table, 30.0, 0.5, 0.5);
+        assert!(
+            (hd - (-10.0)).abs() < 1e-3,
+            "expected signed hueDelta ≈ -10, got {hd}"
+        );
+    }
+
+    #[test]
+    fn achromatic_fade_scales_signed_hue_delta() {
+        // Saturation in the (0, 0.01) achromatic fade band with a NEGATIVE
+        // hueDelta. At s = 0.005, w_chroma = 0.5, so the applied delta must be
+        // -10 * 0.5 = -5° → output hue 355°. The pre-#1924 wrap made `lookup`
+        // return 350°, so `apply` computed 350 * 0.5 = 175° — a wildly wrong
+        // hue. This is the only band where the bug manifests (at s ≥ 0.01,
+        // w_chroma = 1 and the scale is a no-op).
+        let n = 2 * 2 * 2;
+        let mut data = Vec::with_capacity(n * 3);
+        for _ in 0..n {
+            data.push(-10.0);
+            data.push(1.0);
+            data.push(1.0);
+        }
+        let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        // max=1, min=0.995, delta=0.005 → sat 0.005, hue 0, val 1.
+        img.pixels[0] = [1.0, 0.995, 0.995];
+        let (h_in, s_in, _) = rgb_to_hsv(img.pixels[0]);
+        assert!(approx(h_in, 0.0, 1e-3) && approx(s_in, 0.005, 1e-4));
+        apply(&mut img, &table);
+        let (h_out, _, _) = rgb_to_hsv(img.pixels[0]);
+        // Expected 355° (= -5° mod 360). Shortest-arc distance to 355 must be
+        // tiny; distance to the buggy 175° must be large.
+        let dist = |a: f32, b: f32| {
+            let mut d = (a - b).abs();
+            if d > 180.0 {
+                d = 360.0 - d;
+            }
+            d
+        };
+        assert!(
+            dist(h_out, 355.0) < 2.0,
+            "expected output hue ≈ 355° (signed -5° fade), got {h_out}"
+        );
+        assert!(
+            dist(h_out, 175.0) > 20.0,
+            "output hue {h_out} landed near the buggy wrapped 175°"
         );
     }
 
