@@ -1,6 +1,7 @@
 // Image utility helpers for converting raw-wasm output to browser-paintable types.
 
 import type { DecodedImage, DecodedSceneLinearImage } from './raw-pipeline.types';
+import { SRGB_TO_REC2020 } from '../generated/color-matrices.generated';
 
 /**
  * Decode a non-RAW image (jpg/png/heic/webp/tiff/…) via the browser instead
@@ -150,37 +151,70 @@ function srgbToLinearLut(): Float64Array {
   return srgbToLinearLutCache;
 }
 
-// Linear sRGB/Rec.709 (D65) → linear Rec.2020 (D65), row-major 3×3.
-// Matches the Bradford-free D65→D65 conversion used by the Rust core; see
-// docs/architecture.md § "Scene-linear chain".
-const SRGB_TO_REC2020 = [
-  0.6274039, 0.329283, 0.0433131, 0.0690973, 0.9195404, 0.0113623, 0.0163914, 0.0880133, 0.8955953,
-];
-
-// fp16 (IEEE 754 half) encoder. Mirrors the bit layout produced by the Rust
-// core's `f32 → f16` lane packing so the WebGL `HALF_FLOAT` upload matches the
-// RAW path byte-for-byte.
+// fp16 (IEEE 754 half) encoder. Ports `raw_core::pipeline::fp16::f32_to_f16_bits`
+// (`src/raw-pipeline/raw-core/src/pipeline/fp16.rs`) BIT-FOR-BIT — including its
+// round-to-nearest-even rounding in the normal range — so the WebGL
+// `HALF_FLOAT` upload matches the Rust core's fp16 lane packing exactly, not
+// just approximately. The previous form (`mantissa >>> 13`) was a bare
+// truncation: every conversion rounded toward zero instead of to the nearest
+// representable fp16 value, a small but real, systematically one-sided bias
+// on every non-RAW pixel. #1944.
 const f32Buf = new Float32Array(1);
 const u32Buf = new Uint32Array(f32Buf.buffer);
-function f32ToF16(value: number): number {
+export function f32ToF16(value: number): number {
   f32Buf[0] = value;
-  const x = u32Buf[0];
-  const sign = (x >>> 16) & 0x8000;
-  let exp = ((x >>> 23) & 0xff) - 127 + 15;
-  const mantissa = x & 0x7fffff;
-  if (exp <= 0) {
-    // Subnormal / underflow to zero (scene-linear values are >= 0 and small
-    // negatives from the gamut rotation flush to 0 — acceptable, matches clamp).
-    if (exp < -10) return sign;
-    const m = (mantissa | 0x800000) >>> (1 - exp);
-    return sign | (m >>> 13);
+  const bits = u32Buf[0];
+  const sign = (bits >>> 16) & 0x8000;
+  const storedExp = (bits >>> 23) & 0xff;
+  const mantBits = bits & 0x007fffff;
+
+  if (storedExp === 0xff) {
+    // Inf / NaN — preserve NaN-ness via a non-zero mantissa flag.
+    return sign | 0x7c00 | (mantBits !== 0 ? 0x0001 : 0);
   }
-  if (exp >= 0x1f) {
+
+  const unbiasedExp = storedExp - 127;
+  const fp16Exp = unbiasedExp + 15;
+
+  if (fp16Exp >= 31) {
     // Overflow → fp16 infinity. Scene-linear highlights shouldn't reach this,
     // but clamp defensively rather than wrap.
     return sign | 0x7c00;
   }
-  return sign | (exp << 10) | (mantissa >>> 13);
+
+  if (fp16Exp <= 0) {
+    // Subnormal / underflow to zero (scene-linear values are >= 0 and small
+    // negatives from the gamut rotation flush to 0 — acceptable, matches clamp).
+    if (fp16Exp < -10) return sign;
+    // Add the implicit 1 and shift right to align in fp16 space (fp16
+    // subnormal precision = 10 bits below 2^-14), keeping 1 guard bit for a
+    // round-half-up on the shifted-out bit.
+    const mantWithImplicit = mantBits | 0x00800000;
+    const shift = 14 - unbiasedExp;
+    const shifted = mantWithImplicit >>> (shift - 10 - 1);
+    const rounded = (shifted + 1) >>> 1;
+    return sign | (rounded & 0x03ff);
+  }
+
+  // Normal range. Extract top 10 mantissa bits, rounding to nearest-even on
+  // the next bit (ties — round bit set, no lower bits set — round to whichever
+  // of the two candidates has an even low bit).
+  const top10 = (mantBits >>> 13) & 0x03ff;
+  const roundBit = (mantBits >>> 12) & 0x1;
+  const stickyBits = mantBits & 0x0fff;
+  let fp16Mant = top10;
+  if (roundBit !== 0 && (stickyBits !== 0 || (fp16Mant & 0x1) !== 0)) {
+    fp16Mant += 1;
+    if (fp16Mant > 0x3ff) {
+      // Mantissa overflow on round — bump exponent, mantissa goes to 0.
+      const bumpedExp = fp16Exp + 1;
+      if (bumpedExp >= 31) {
+        return sign | 0x7c00;
+      }
+      return sign | (bumpedExp << 10);
+    }
+  }
+  return sign | (fp16Exp << 10) | fp16Mant;
 }
 
 /** Convert raw-wasm RGB output (packed R,G,B bytes) to an ImageBitmap. */
