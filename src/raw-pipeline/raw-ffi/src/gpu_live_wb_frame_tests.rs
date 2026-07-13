@@ -518,8 +518,9 @@ fn native_detail_tile_bake_matches_whole_image_strip_develop() {
     // Whole-image strip develop at native resolution (long edge = sensor).
     let never = CancelToken::never();
     let native_long = raw.width.max(raw.height);
-    let (ww, wh, whole) = render_sized(&raw, &model_strip, RenderQuality::Full, native_long, never)
-        .expect("whole-image strip develop");
+    let (ww, _wh, whole) =
+        render_sized(&raw, &model_strip, RenderQuality::Full, native_long, never)
+            .expect("whole-image strip develop");
 
     // A background rect well inside the frame (top-left quadrant is the
     // white studio backdrop on this fixture).
@@ -570,7 +571,6 @@ fn native_detail_tile_bake_matches_whole_image_strip_develop() {
         "TILEBAKE whole={whole_mean:.5?} tile(none)={none_mean:.5?} ratio={r_none:.4?} | \
          tile(anchored 4522)={anch_mean:.5?} ratio={r_anch:.4?}"
     );
-    assert!(wh > 0);
     for (c, r) in r_none.iter().enumerate() {
         assert!(
             (r - 1.0).abs() < 0.005,
