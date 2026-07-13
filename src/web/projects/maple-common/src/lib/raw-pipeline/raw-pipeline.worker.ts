@@ -408,7 +408,27 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
       // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.
       // `open` already presented the first frame, so a snapshot here reflects it.
       setLiveCanvas(req.canvas);
+      // Marked SEPARATELY from `maple:session-open` above (#1930): this is a
+      // real GPU-sync cost (drawImage from the presented canvas + a
+      // synchronous pixel readback) that has nothing to do with the render
+      // the `session-open` measure is timing — folding it into that window
+      // (by reading back before the `:end` mark) would hide the render cost
+      // it's meant to isolate. Reported as its own measure instead.
+      performance.mark(`maple:scope-readback:${req.id}:start`);
       const scope = readbackScopeSnapshot();
+      performance.mark(`maple:scope-readback:${req.id}:end`);
+      performance.measure(
+        'maple:scope-readback',
+        `maple:scope-readback:${req.id}:start`,
+        `maple:scope-readback:${req.id}:end`,
+      );
+      // Clear the just-consumed marks + measure so nothing accumulates in the
+      // worker's performance-entry buffer. The marks are per-`req.id` (a fresh
+      // pair every session-open / render tick), so leaving them would grow the
+      // buffer unbounded across a slider drag.
+      performance.clearMarks(`maple:scope-readback:${req.id}:start`);
+      performance.clearMarks(`maple:scope-readback:${req.id}:end`);
+      performance.clearMeasures('maple:scope-readback');
       const response: WorkerResponse = {
         id: req.id,
         type: 'open-session-success',
@@ -462,7 +482,26 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
       // Read back the just-presented frame for the scopes (#1045). The render is
       // serialized on `sessionChain`, so the canvas holds this edit's frame here;
       // null on any failure → the scopes keep their previous (or pseudo) data.
+      // Marked SEPARATELY from `maple:session-render` above (#1930) — same
+      // reasoning as `handleOpenSession`: the readback is a real GPU-sync
+      // cost with no bearing on the render-loop tick the other measure times,
+      // so it gets its own measure instead of hiding inside (or inflating)
+      // that one.
+      performance.mark(`maple:scope-readback:${req.id}:start`);
       const scope = readbackScopeSnapshot();
+      performance.mark(`maple:scope-readback:${req.id}:end`);
+      performance.measure(
+        'maple:scope-readback',
+        `maple:scope-readback:${req.id}:start`,
+        `maple:scope-readback:${req.id}:end`,
+      );
+      // Clear the just-consumed marks + measure so nothing accumulates in the
+      // worker's performance-entry buffer. The per-`req.id` marks fire once per
+      // render tick, so leaving them would grow the buffer unbounded across a
+      // slider drag (the hot path this measure is meant to observe).
+      performance.clearMarks(`maple:scope-readback:${req.id}:start`);
+      performance.clearMarks(`maple:scope-readback:${req.id}:end`);
+      performance.clearMeasures('maple:scope-readback');
       const response: WorkerResponse = {
         id: req.id,
         type: 'render-session-success',
