@@ -214,10 +214,15 @@ fn zero_render_profile_tail_is_bit_identical_to_pre_1967_output() {
             decoded.0,
             decoded.1,
         );
+        // Match production's `.max(1e-6)` clamp on the decoded-gain
+        // denominator (Copilot review, PR #1983) — without it this test
+        // would silently stop being a true bit-identical assertion the
+        // moment `camera_wb_gain` ever produced a near-zero channel for
+        // some target/decoded pair.
         let g_net = Matrix3([
-            [g_target[0] / g_decoded[0], 0.0, 0.0],
+            [g_target[0] / g_decoded[0].max(1e-6), 0.0, 0.0],
             [0.0, 1.0, 0.0],
-            [0.0, 0.0, g_target[2] / g_decoded[2]],
+            [0.0, 0.0, g_target[2] / g_decoded[2].max(1e-6)],
         ]);
         let c = super::frame_to_rec2020(&f.to_frame(), f.scene_cct, f.as_shot_tint).unwrap();
         let expected = c.mul_mat(&g_net).mul_mat(&c.inverse().unwrap());
