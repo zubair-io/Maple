@@ -20,7 +20,7 @@ final class ThumbnailLoaderSidecarTests: XCTestCase {
         let thumbURL = MapleSidecarPaths.thumbURL(for: panoURL)
         try fm.createDirectory(
             at: thumbURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let expected = Data([0xFF, 0xD8, 0x42, 0x99])  // arbitrary "jpeg" bytes
+        let expected = Data([0xFF, 0xD8, 0x42, 0x99])  // arbitrary bytes — format-agnostic read
         try expected.write(to: thumbURL)
 
         let got = await ThumbnailLoader.shared.load(for: panoURL)

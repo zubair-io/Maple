@@ -109,7 +109,7 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
         let expectedHash = MapleThumbCacheKey.sha256Prefix16("IMG_1234.dng")
         let expectedFile = tmp
             .appendingPathComponent(".maple/thumbs")
-            .appendingPathComponent("\(expectedHash).jpg")
+            .appendingPathComponent("\(expectedHash).avif")
 
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: expectedFile.path),

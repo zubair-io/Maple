@@ -159,7 +159,7 @@ public protocol ImageSource: Actor {
     /// (or filename when capture date is unavailable).
     func images() async throws -> [ImageRef]
 
-    /// ~256 px thumbnail bytes (JPEG). Returns `nil` when the source has
+    /// ~256 px thumbnail bytes (AVIF). Returns `nil` when the source has
     /// nothing to hand back yet (e.g. Indexer hasn't rendered `.maple/thumbs/`).
     func thumb(for ref: ImageRef) async throws -> Data?
 

@@ -1,4 +1,4 @@
-// ThumbnailLoader.swift — view-layer facing glue that returns JPEG bytes for
+// ThumbnailLoader.swift — view-layer facing glue that returns AVIF bytes for
 // a given asset URL, consulting ThumbnailDiskCache first and only falling
 // through to PipelineRenderer on a miss.
 //
@@ -6,9 +6,9 @@
 // appear; the loader cancels the render task on cell disappear so fast-scroll
 // doesn't burn CPU on off-screen rows.
 //
-// Encoding / sizing per spec § 03:
+// Encoding / sizing per spec § 03 (thumbnail AVIF migration):
 //   - target long edge = 256 px
-//   - JPEG quality     = 0.82
+//   - AVIF quality     = ThumbnailEncoder.quality (0.5)
 //   - sRGB colourspace
 
 import Foundation
@@ -29,8 +29,8 @@ public actor ThumbnailLoader {
     /// tier in `ThumbnailLoader+DisplayPreview.swift` shares it.)
     let ctx = CIContext()
 
-    /// Shared CIContext for every static encode path (`posterJPEG`,
-    /// `embeddedPreviewJPEG`, the Rust-develop and render-from-bytes
+    /// Shared CIContext for every static encode path (`posterAVIF`,
+    /// `embeddedPreviewAVIF`, the Rust-develop and render-from-bytes
     /// fallbacks). `CIContext` is heavyweight to allocate and thread-safe to
     /// share, so the static encoders reuse this one instance instead of
     /// minting a new context on every call (one per grid cell on scroll,
@@ -92,7 +92,7 @@ public actor ThumbnailLoader {
     // MARK: - Public API
 
     /// Look up a thumbnail in the disk cache; on miss, render via the Rust
-    /// pipeline, downscale, JPEG-encode, persist via the disk cache, and
+    /// pipeline, downscale, AVIF-encode, persist via the disk cache, and
     /// return the bytes. Returns `nil` only when the render itself fails.
     public func load(for assetURL: URL) async -> Data? {
         await load(for: assetURL, scopeParentURL: nil)
@@ -104,7 +104,7 @@ public actor ThumbnailLoader {
     /// no-op because that URL carries no scope token, so the Rust FFI read
     /// fails with EPERM under the sandbox.
     public func load(for assetURL: URL, scopeParentURL: URL?) async -> Data? {
-        // 1. Fast path: cached JPEG bytes.
+        // 1. Fast path: cached AVIF bytes.
         if let cached = await ThumbnailDiskCache.shared.thumbnailData(for: assetURL) {
             return cached
         }
@@ -177,7 +177,7 @@ public actor ThumbnailLoader {
         // Short-circuits BEFORE CGImageSourceCreateThumbnailAtIndex so video
         // container bytes are never fed to ImageIO or libraw.
         if SidecarPath.isVideo(assetURL) {
-            guard let data = await posterJPEG(at: assetURL) else {
+            guard let data = await posterAVIF(at: assetURL) else {
                 logger.warning("video poster extraction failed for \(assetURL.lastPathComponent, privacy: .public)")
                 return nil
             }
@@ -202,7 +202,7 @@ public actor ThumbnailLoader {
         // extracts + resamples it at the target size in 5-50 ms per
         // image vs 300-500 ms for a full Rust develop.
         let t0 = Date()
-        if let data = embeddedPreviewJPEG(at: assetURL) {
+        if let data = embeddedPreviewAVIF(at: assetURL) {
             let ms = Int(Date().timeIntervalSince(t0) * 1000)
             logger.debug("thumb fast-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
             await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
@@ -214,8 +214,8 @@ public actor ThumbnailLoader {
         // full develop + downscale. Same cost as before.
         do {
             let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
-            guard let data = encodeJPEG(image, ctx: staticEncodeCIContext) else {
-                logger.warning("JPEG encode failed for \(assetURL.lastPathComponent, privacy: .public)")
+            guard let data = encodeThumbnail(image, ctx: staticEncodeCIContext) else {
+                logger.warning("AVIF encode failed for \(assetURL.lastPathComponent, privacy: .public)")
                 return nil
             }
             await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
@@ -254,14 +254,14 @@ public actor ThumbnailLoader {
         let longEdge = max(extent.width, extent.height)
         let scale = longEdge > 0 ? min(1.0, targetLongEdge / longEdge) : 1.0
         let scaled = rendered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        guard let data = Self.jpegData(from: scaled, ctx: ctx) else { return }
+        guard let data = Self.thumbnailData(from: scaled, ctx: ctx) else { return }
         await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
     }
 
-    /// Read the embedded JPEG preview from a file and resample it to the
-    /// thumbnail long-edge via ImageIO. Returns nil if the file has no
-    /// extractable thumbnail (very rare for modern RAWs + regular JPEGs).
-    private static func embeddedPreviewJPEG(at url: URL) -> Data? {
+    /// Read the embedded JPEG preview from a file and resample + re-encode it
+    /// to AVIF via ImageIO. Returns nil if the file has no extractable
+    /// thumbnail (very rare for modern RAWs + regular JPEGs).
+    private static func embeddedPreviewAVIF(at url: URL) -> Data? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let targetPx = Int(ThumbnailDiskCache.defaultThumbSize.width * 2) // 2x for Retina
         let opts: [CFString: Any] = [
@@ -276,20 +276,15 @@ public actor ThumbnailLoader {
         guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
             return nil
         }
-        // Encode to JPEG at spec quality via CIContext (reuses GPU path).
+        // Encode to AVIF at spec quality via CIContext (reuses GPU path).
         let ci = CIImage(cgImage: cg)
-        return jpegData(from: ci, ctx: staticEncodeCIContext)
+        return thumbnailData(from: ci, ctx: staticEncodeCIContext)
     }
 
-    /// Encode a CIImage to JPEG at the spec quality (q = 0.82). (Internal,
-    /// not private: shared by `ThumbnailLoader+DisplayPreview.swift`.)
-    static func jpegData(from ci: CIImage, ctx: CIContext) -> Data? {
-        return ctx.jpegRepresentation(
-            of: ci,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
-                        ThumbnailDiskCache.jpegQuality]
-        )
+    /// Encode a CIImage to AVIF at the spec quality (`ThumbnailEncoder.quality`).
+    /// (Internal, not private: shared by `ThumbnailLoader+DisplayPreview.swift`.)
+    static func thumbnailData(from ci: CIImage, ctx: CIContext) -> Data? {
+        return ThumbnailEncoder.encode(ci, ctx: ctx)
     }
 
     /// Sourceless entry point — for assets without a filesystem URL (PhotoKit,
@@ -346,7 +341,7 @@ public actor ThumbnailLoader {
             }
 
             // Fallback: pull RAW bytes through the asset's provider, render
-            // via the Rust pipeline, encode JPEG, persist — under the
+            // via the Rust pipeline, encode AVIF, persist — under the
             // decode-slot gate (acquired INSIDE the task; see the URL-keyed
             // overload for why).
             guard let provider else { return nil }
@@ -356,7 +351,7 @@ public actor ThumbnailLoader {
                     let bytes = try await provider()
                     let image = try PipelineRenderer.render(
                         rawBytes: bytes, hint: hint, quality: .preview)
-                    guard let data = Self.encodeJPEG(image, ctx: Self.staticEncodeCIContext) else {
+                    guard let data = Self.encodeThumbnail(image, ctx: Self.staticEncodeCIContext) else {
                         return nil
                     }
                     await ThumbnailDiskCache.shared.storeThumbnailData(data, forKey: key)
@@ -381,8 +376,8 @@ public actor ThumbnailLoader {
     // MARK: - Helpers
 
     /// Downscale the pipeline-produced RGB buffer to the thumbnail long-edge
-    /// and JPEG-encode at q=0.82.
-    private static func encodeJPEG(_ image: MapleImageData, ctx: CIContext) -> Data? {
+    /// and AVIF-encode at `ThumbnailEncoder.quality`.
+    private static func encodeThumbnail(_ image: MapleImageData, ctx: CIContext) -> Data? {
         guard image.pixels.count == image.width * image.height * 3 else { return nil }
 
         let bitmapInfo = CGImageAlphaInfo.none.rawValue
@@ -410,20 +405,16 @@ public actor ThumbnailLoader {
             ci = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         }
 
-        return ctx.jpegRepresentation(
-            of: ci,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: ThumbnailDiskCache.jpegQuality]
-        )
+        return ThumbnailEncoder.encode(ci, ctx: ctx)
     }
 
     /// Extract a poster frame from a video file using AVFoundation (#1642).
     ///
     /// Requests a frame at 1 second in; if the asset is shorter, the requested
     /// time is clamped to the asset duration so the generator returns the last
-    /// available frame instead of failing. Returns JPEG bytes downscaled to
+    /// available frame instead of failing. Returns AVIF bytes downscaled to
     /// `ThumbnailDiskCache.defaultThumbSize` long edge at
-    /// `ThumbnailDiskCache.jpegQuality`, or nil if AVFoundation cannot read the
+    /// `ThumbnailEncoder.quality`, or nil if AVFoundation cannot read the
     /// file (unsupported codec, missing file, etc.).
     ///
     /// Uses the async `AVAssetImageGenerator.image(at:)` (iOS 16 / macOS 13+),
@@ -431,7 +422,7 @@ public actor ThumbnailLoader {
     /// while it decodes. Generating several posters at once (grid scroll) on the
     /// synchronous API would block multiple cooperative-pool threads and starve
     /// the pool. The async API suspends instead, freeing the thread for other work.
-    private static func posterJPEG(at url: URL) async -> Data? {
+    private static func posterAVIF(at url: URL) async -> Data? {
         let asset = AVAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         // Apply the track's preferred display transform so portrait clips
@@ -463,6 +454,6 @@ public actor ThumbnailLoader {
                 scaleX: target.width / longEdge,
                 y: target.width / longEdge))
             : ci
-        return jpegData(from: scaled, ctx: staticEncodeCIContext)
+        return thumbnailData(from: scaled, ctx: staticEncodeCIContext)
     }
 }

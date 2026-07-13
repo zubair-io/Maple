@@ -10,14 +10,17 @@
 //   The shared helper lives in `MapleThumbCacheKey.sha256Prefix16(_:)`
 //   (FileProvider/MapleThumbCacheKey.swift) and is the single source of
 //   truth for all three layers.
-// Value: JPEG bytes stored at .maple/thumbs/<hash>.jpg
+// Value: AVIF bytes stored at .maple/thumbs/<hash>.avif
 // Eviction: LRU by file mtime; max 500MB or 10,000 entries (configurable).
 //
 // Migration note: pre-2026-05 builds keyed thumbs by `MD5(url.path)`
 // (32 hex chars). Existing entries at the old key are harmless orphans
 // and will be cleaned up by LRU eviction over time — we deliberately do
 // NOT sweep them, since a regex-based cleanup risks deleting unrelated
-// files in `.maple/thumbs/`.
+// files in `.maple/thumbs/`. Same precedent applies to the JPEG→AVIF format
+// migration (thumbnail AVIF epic): existing `.jpg` entries are left as
+// orphans rather than fallback-read — the cache is treated as cold and
+// regenerates under `.avif`.
 
 import Foundation
 import CoreImage
@@ -30,13 +33,11 @@ public actor ThumbnailDiskCache {
     private let fm = FileManager.default
     private var cacheDir: URL?
     private var memCache: [String: CIImage] = [:] // hot in-memory cache
-    private var dataMemCache: [String: Data] = [:] // hot JPEG-bytes cache (for UI cells)
+    private var dataMemCache: [String: Data] = [:] // hot AVIF-bytes cache (for UI cells)
     private let maxMemEntries = 100
 
     /// Thumbnail target size per spec § 03 (256 px long edge).
     public static let defaultThumbSize = CGSize(width: 256, height: 256)
-    /// JPEG encode quality per spec § 03 (q = 0.82).
-    public static let jpegQuality: CGFloat = 0.82
 
     // MARK: - Nonisolated synchronous peek (M1 scale-zoom)
     //
@@ -76,7 +77,7 @@ public actor ThumbnailDiskCache {
         if let img = memCache[key] { return img }
         // 2. Disk
         guard let dir = cacheDir else { return nil }
-        let fileURL = dir.appendingPathComponent("\(key).jpg")
+        let fileURL = dir.appendingPathComponent("\(key).avif")
         guard fm.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL),
               let ci = CIImage(data: data) else { return nil }
@@ -86,18 +87,18 @@ public actor ThumbnailDiskCache {
         return ci
     }
 
-    /// Return JPEG bytes for the given asset URL, or nil if not cached.
+    /// Return AVIF bytes for the given asset URL, or nil if not cached.
     /// Preferred entry-point for UI cells that render via `Image(data:)`.
     public func thumbnailData(for assetURL: URL) -> Data? {
         // Pass the BASENAME to `forKey:` (not a pre-hashed key). The
         // `forKey:` variant hashes its argument internally — passing
         // `cacheKey(for:)` here double-hashed and wrote to a path that
-        // diverged from the API/Web (`<folder>/.maple/thumbs/<sha256(basename).prefix16>.jpg`),
+        // diverged from the API/Web (`<folder>/.maple/thumbs/<sha256(basename).prefix16>.avif`),
         // defeating cross-app cache sharing.
         return thumbnailData(forKey: assetURL.lastPathComponent)
     }
 
-    /// Return JPEG bytes for an opaque stable key (e.g. an `AssetRef.id` or a
+    /// Return AVIF bytes for an opaque stable key (e.g. an `AssetRef.id` or a
     /// server-provided maple:id hex). Used by sourceless assets (PhotoKit,
     /// SelfHosted) where there is no filesystem URL to hash by basename.
     /// Note: pre-2026-05 this overload used MD5 of the key; it now shares
@@ -107,7 +108,7 @@ public actor ThumbnailDiskCache {
         let hashed = hashKey(key)
         if let d = dataMemCache[hashed] { return d }
         guard let dir = cacheDir else { return nil }
-        let fileURL = dir.appendingPathComponent("\(hashed).jpg")
+        let fileURL = dir.appendingPathComponent("\(hashed).avif")
         guard fm.fileExists(atPath: fileURL.path),
               let data = try? Data(contentsOf: fileURL) else { return nil }
         evictIfNeeded()
@@ -118,7 +119,7 @@ public actor ThumbnailDiskCache {
 
     // MARK: - Nonisolated synchronous memory peek
 
-    /// Synchronous, non-awaiting peek into `syncPeekCache`. Returns JPEG bytes
+    /// Synchronous, non-awaiting peek into `syncPeekCache`. Returns AVIF bytes
     /// if the thumbnail is already in the NSCache hot store; returns `nil` on
     /// any miss (disk not consulted — no blocking I/O). Safe to call from any
     /// context (nonisolated, main thread, a gesture handler) because NSCache is
@@ -134,33 +135,29 @@ public actor ThumbnailDiskCache {
 
     // MARK: - Write
 
-    /// Store a CIImage thumbnail. JPEG quality matches spec § 03 (q = 0.82).
+    /// Store a CIImage thumbnail as AVIF (`ThumbnailEncoder.quality`).
     public func storeThumbnail(_ image: CIImage, for assetURL: URL) {
         let key = cacheKey(for: assetURL)
         evictIfNeeded()
         memCache[key] = image
 
         guard let dir = cacheDir else { return }
-        let fileURL = dir.appendingPathComponent("\(key).jpg")
+        let fileURL = dir.appendingPathComponent("\(key).avif")
         let ctx = CIContext()
-        guard let data = ctx.jpegRepresentation(
-            of: image,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: Self.jpegQuality]
-        ) else { return }
+        guard let data = ThumbnailEncoder.encode(image, ctx: ctx) else { return }
         dataMemCache[key] = data
         syncPeekCache.setObject(data as NSData, forKey: key as NSString)
         try? data.write(to: fileURL, options: .atomic)
     }
 
-    /// Store pre-encoded JPEG bytes. Used by `ThumbnailLoader` which encodes
-    /// off-actor (avoids blocking the cache actor on JPEG round-trips).
+    /// Store pre-encoded AVIF bytes. Used by `ThumbnailLoader` which encodes
+    /// off-actor (avoids blocking the cache actor on the encode round-trip).
     public func storeThumbnailData(_ data: Data, for assetURL: URL) {
         // See `thumbnailData(for:)` — pass the basename, not a pre-hashed key.
         storeThumbnailData(data, forKey: assetURL.lastPathComponent)
     }
 
-    /// Store pre-encoded JPEG bytes under an opaque stable key. Sibling of the
+    /// Store pre-encoded AVIF bytes under an opaque stable key. Sibling of the
     /// URL-keyed overload — used for sourceless assets keyed by `AssetRef.id`.
     public func storeThumbnailData(_ data: Data, forKey key: String) {
         let hashed = hashKey(key)
@@ -168,7 +165,7 @@ public actor ThumbnailDiskCache {
         dataMemCache[hashed] = data
         syncPeekCache.setObject(data as NSData, forKey: hashed as NSString)
         guard let dir = cacheDir else { return }
-        let fileURL = dir.appendingPathComponent("\(hashed).jpg")
+        let fileURL = dir.appendingPathComponent("\(hashed).avif")
         try? data.write(to: fileURL, options: .atomic)
     }
 

@@ -9,7 +9,7 @@
 import Foundation
 
 public enum MapleSidecarPaths {
-    /// `<assetDir>/.maple/thumbs/<sha256prefix16(basename)>.jpg`
+    /// `<assetDir>/.maple/thumbs/<sha256prefix16(basename)>.avif`
     public static func thumbURL(for assetURL: URL) -> URL {
         let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
         // Append each component separately (matches ThumbnailDiskCache.configure
@@ -17,7 +17,7 @@ public enum MapleSidecarPaths {
         return assetURL.deletingLastPathComponent()
             .appendingPathComponent(".maple")
             .appendingPathComponent("thumbs")
-            .appendingPathComponent("\(key).jpg")
+            .appendingPathComponent("\(key).avif")
     }
 
     /// `<assetDir>/.maple/previews/<sha256prefix16(basename)>_1600.jpg`
