@@ -28,4 +28,21 @@ public enum MapleSidecarPaths {
             .appendingPathComponent("previews")
             .appendingPathComponent("\(key)_1600.jpg")
     }
+
+    /// `<assetDir>/.maple/previews/<sha256prefix16(basename)>_1600.v` — the
+    /// render-version marker for the display-preview tier (#1976). The JPEG
+    /// filename is a cross-consumer contract (the pano stitcher writes it,
+    /// the Self-Hosted API serves it), so the tier versions via this sibling
+    /// marker instead of the key — the same pattern as the web thumb cache's
+    /// `.v` marker (#1928). A preview whose marker is missing or older than
+    /// `ThumbnailLoader.displayPreviewTierVersion` reads as stale: it may
+    /// have been persisted from a render with since-fixed semantics (the
+    /// #1976 cyan-anchored renders had no marker at all).
+    public static func previewVersionURL(for assetURL: URL) -> URL {
+        let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
+        return assetURL.deletingLastPathComponent()
+            .appendingPathComponent(".maple")
+            .appendingPathComponent("previews")
+            .appendingPathComponent("\(key)_1600.v")
+    }
 }

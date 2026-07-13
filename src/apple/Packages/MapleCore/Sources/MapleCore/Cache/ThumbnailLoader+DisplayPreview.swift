@@ -20,6 +20,33 @@ extension ThumbnailLoader {
     /// display tier reuses the same artifact.
     public static let displayPreviewLongEdge: CGFloat = 1_600
 
+    /// Render-semantics version of the display-preview tier (#1976). The JPEG
+    /// filename is a cross-consumer contract, so staleness rides the sibling
+    /// `<key>_1600.v` marker (`MapleSidecarPaths.previewVersionURL`) instead
+    /// of the key: a preview with a missing or older marker is treated as a
+    /// miss and regenerated (embedded JPEG) or suppressed (visually edited —
+    /// the editor's render refresh repopulates it). v1 introduces the marker;
+    /// every pre-marker file is stale by definition, which retires the
+    /// previews persisted from the #1976 cyan-anchored renders.
+    public static let displayPreviewTierVersion: UInt32 = 1
+
+    /// Whether the display preview for `assetURL` carries the current tier
+    /// version marker. Missing / unreadable / older markers read as stale.
+    public nonisolated static func displayPreviewMarkerIsCurrent(for assetURL: URL) -> Bool {
+        let markerURL = MapleSidecarPaths.previewVersionURL(for: assetURL)
+        guard let text = try? String(contentsOf: markerURL, encoding: .utf8),
+            let version = UInt32(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return false }
+        return version >= displayPreviewTierVersion
+    }
+
+    /// Stamp the current tier version next to a just-written display preview.
+    nonisolated static func writeDisplayPreviewMarker(for assetURL: URL) {
+        let markerURL = MapleSidecarPaths.previewVersionURL(for: assetURL)
+        try? "\(displayPreviewTierVersion)".write(
+            to: markerURL, atomically: true, encoding: .utf8)
+    }
+
     /// Below this long edge an embedded thumbnail is not worth swapping in:
     /// EXIF thumbs are ~160 px — worse than the grid thumbnail already on
     /// screen — while real embedded previews are ≥ 1024 on every modern body.
@@ -114,6 +141,7 @@ extension ThumbnailLoader {
             withIntermediateDirectories: true
         )
         try? data.write(to: previewURL, options: .atomic)
+        writeDisplayPreviewMarker(for: url)
         return data
     }
 
@@ -145,6 +173,7 @@ extension ThumbnailLoader {
             withIntermediateDirectories: true
         )
         try? data.write(to: previewURL, options: .atomic)
+        Self.writeDisplayPreviewMarker(for: assetURL)
     }
 
     /// A sidecar may legitimately be a little newer than the preview the
@@ -170,6 +199,10 @@ extension ThumbnailLoader {
     private nonisolated static func freshDisplayPreviewData(
         previewURL: URL, assetURL: URL
     ) -> Data? {
+        // #1976: a missing/old tier-version marker means the file may have
+        // been persisted from a render with since-fixed semantics — treat
+        // as a miss so it regenerates (or is suppressed for edited photos).
+        guard displayPreviewMarkerIsCurrent(for: assetURL) else { return nil }
         let fm = FileManager.default
         guard
             let previewMtime = (try? fm.attributesOfItem(atPath: previewURL.path))?[
