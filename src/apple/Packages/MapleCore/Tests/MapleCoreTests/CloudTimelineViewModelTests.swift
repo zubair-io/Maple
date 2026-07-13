@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class CloudTimelineViewModelTests: XCTestCase {
 
-  func test_loadBuckets_populatesFromNetwork() async {
+  func test_loadBuckets_populatesFromNetwork() async throws {
     let server = URL(string: "https://example.test")!
     let json = """
     {"total":3,"buckets":[
@@ -29,7 +29,8 @@ final class CloudTimelineViewModelTests: XCTestCase {
     await vm.loadBuckets()
 
     XCTAssertEqual(vm.buckets.count, 2)
-    XCTAssertEqual(vm.buckets[0].count, 2)
+    let firstBucket = try XCTUnwrap(vm.buckets.first)
+    XCTAssertEqual(firstBucket.count, 2)
   }
 
   func test_loadPage_populatesPagesByBucket() async {
