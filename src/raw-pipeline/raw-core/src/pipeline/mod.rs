@@ -69,7 +69,9 @@ pub use scene_linear_chain::{
 };
 pub use tile::{
     render_scene_linear_tile_from_raw_with_quality,
-    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor, TileRect, TILE_OVERLAP_PX,
+    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor,
+    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32,
+    render_scene_linear_tile_from_raw_with_quality_f32, TileRect, TILE_OVERLAP_PX,
 };
 
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
