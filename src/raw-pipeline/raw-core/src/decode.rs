@@ -1451,26 +1451,32 @@ mod tests {
         assert!((curve.points[256].0 - 1.0).abs() < 1e-3);
     }
 
-    /// Regression test for the SubIFD walker hookup: test_0013.DNG carries
-    /// ProfileGainTableMap inside SubIFDs (tag 330). The strict parser
-    /// rejects MapPlanes != 1|3, so for the Apple-extended PGTM the field
-    /// stays None — but the walker MUST find the tag (we verify via
-    /// dng_ifd_walker independently in [`crate::dng_ifd_walker`] tests).
-    /// This test pins the user-visible field to the parser's expected
-    /// behaviour: None for the canonical-spec case here means we found
-    /// the tag, recognised the non-canonical layout, and bailed safely
-    /// rather than corrupting downstream pixels.
+    /// Regression test for the SubIFD walker hookup + #1923 parser rewrite:
+    /// test_0013.DNG carries ProfileGainTableMap inside SubIFDs (tag 330).
+    /// The value at offset 40 the retired parser mis-read as an invalid
+    /// `MapPlanes = 257` is actually `MapPointsN` (the value-axis sample
+    /// count) in the real 64-byte-header layout, so the correct parser now
+    /// parses it rather than bailing to None. This pins the user-visible
+    /// field to the fixed behaviour: `Some` with a value axis (`N > 1`),
+    /// confirming the walker found the tag and the parser read the real
+    /// layout.
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
-    fn decode_test_0013_pgtm_recognises_apple_extended_layout() {
+    fn decode_test_0013_pgtm_parses_real_layout() {
         let path = require_raw("test_0013.DNG");
         let raw = decode_path(&path).expect("decode iPhone DNG");
-        // Apple's PGTM has MapPlanes=257 (a DNG 1.7 extension); strict
-        // parser yields None to avoid mis-applying it.
+        let pgtm = raw
+            .profile_gain_table_map
+            .expect("Apple iPhone PGTM must now parse (#1923)");
         assert!(
-            raw.profile_gain_table_map.is_none(),
-            "Apple iPhone PGTM uses non-canonical MapPlanes=257; \
-             strict parser must skip rather than corrupt"
+            pgtm.map_points_n > 1,
+            "test_0013 PGTM carries a value (N) axis; got map_points_n={}",
+            pgtm.map_points_n
+        );
+        assert_eq!(
+            pgtm.gains.len() as u32,
+            pgtm.map_points_v * pgtm.map_points_h * pgtm.map_points_n,
+            "gain count must equal V*H*N"
         );
     }
 
