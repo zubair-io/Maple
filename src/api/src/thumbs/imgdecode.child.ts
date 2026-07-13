@@ -15,8 +15,8 @@
  * Transport: Bun IPC. The parent posts `ImgDecodeRequest`s via `subprocess.send`;
  * we reply with `ImgDecodeResponse`s via `process.send`. Multiple requests may be
  * in-flight at once; each is handled concurrently (sharp parallelizes them on its
- * libuv threadpool). Only `{ ok, error? }` crosses IPC — the heavy JPEG bytes
- * are written straight to `outPath` on disk inside this child.
+ * libuv threadpool). Only `{ ok, error? }` crosses IPC — the heavy AVIF thumbnail
+ * bytes are written straight to `outPath` on disk inside this child.
  */
 
 import type { ImgDecodeRequest, ImgDecodeResponse } from './imgdecode-protocol.ts';
