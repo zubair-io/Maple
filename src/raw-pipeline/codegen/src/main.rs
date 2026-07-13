@@ -46,8 +46,10 @@ enum Schema {
     /// `raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS}` — design-system
     /// color hex strings + motion duration/easing pairs. Ticket #606.
     UiTokens,
-    /// Oklab + Rec.2020/sRGB color matrices (forward + inverse) consumed by the
-    /// GPU scene-linear WGSL kernels. WGSL target only. Epic #925 P2 / #990.
+    /// Oklab + Rec.2020/sRGB color matrices (forward + inverse). WGSL target:
+    /// the full nine-matrix set the GPU scene-linear kernels bake in (epic
+    /// #925 P2 / #990). TS target: `M_SRGB_TO_REC2020` only — the one matrix
+    /// `image-utils.ts`'s non-RAW ingestion path consumes (#1944).
     ColorMatrices,
 }
 
@@ -92,8 +94,9 @@ fn main() {
             std::process::exit(2);
         }
         (Schema::ColorMatrices, Target::Wgsl) => color_matrices::emit_wgsl(),
-        (Schema::ColorMatrices, Target::Swift | Target::Ts | Target::Scss) => {
-            eprintln!("codegen: --schema color-matrices supports only the wgsl target");
+        (Schema::ColorMatrices, Target::Ts) => color_matrices::emit_ts(),
+        (Schema::ColorMatrices, Target::Swift | Target::Scss) => {
+            eprintln!("codegen: --schema color-matrices supports only the wgsl / ts targets");
             std::process::exit(2);
         }
     };
