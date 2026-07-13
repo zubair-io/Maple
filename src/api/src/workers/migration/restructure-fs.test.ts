@@ -160,9 +160,13 @@ describe('planAndPlace — collisions', () => {
 });
 
 describe('finalize — delete sources, drop cache, reclaim folder', () => {
-  test('deletes sources, drops maple_id cache, removes empty old dir', async () => {
+  test('deletes sources, drops maple_id cache (both thumb extensions), removes empty old dir', async () => {
     await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
-    await write('2024/Tokyo/03-15/.maple/thumbs/abc123.jpg', 'thumb');
+    // Current (AVIF) and a legacy pre-v3 (JPEG) thumb can both be sitting at
+    // the old path depending on when it was last rendered — dropOldCache
+    // must sweep both.
+    await write('2024/Tokyo/03-15/.maple/thumbs/abc123.avif', 'thumb-avif');
+    await write('2024/Tokyo/03-15/.maple/thumbs/abc123.jpg', 'thumb-jpg');
     await write('2024/Tokyo/03-15/.maple/previews/abc123_full.jpg', 'preview');
 
     const plan = await planAndPlace({
@@ -181,6 +185,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
     });
 
     expect(await exists('2024/Tokyo/03-15/IMG.HEIC')).toBe(false);
+    expect(await exists('2024/Tokyo/03-15/.maple/thumbs/abc123.avif')).toBe(false);
     expect(await exists('2024/Tokyo/03-15/.maple/thumbs/abc123.jpg')).toBe(false);
     expect(await exists('2024/Tokyo/03-15/.maple/previews/abc123_full.jpg')).toBe(false);
     expect(await exists('2024/Tokyo/03-15')).toBe(false); // reclaimed

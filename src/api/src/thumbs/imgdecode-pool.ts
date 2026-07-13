@@ -66,7 +66,7 @@ class ImgDecodePool {
         }) as unknown as ImgDecodeWorker);
   }
 
-  /** Render `srcPath` to a resized JPEG at `outPath`. Resolves with
+  /** Render `srcPath` to a resized AVIF thumbnail at `outPath`. Resolves with
    * `{ ok, error? }`. Rejects on child spawn failure or crash. */
   renderImageThumbToFile(
     srcPath: string,
@@ -179,14 +179,14 @@ export function _createImgdecodePoolForTests(opts: {
 }
 
 /**
- * Convenience wrapper: render `srcPath` to a resized JPEG at `outPath` via the
- * shared imgdecode child pool. This is the function that replaces the old
- * `renderImageThumbToFile` from `render.ts` at all call sites in the parent
- * process. The heavy buffers (input image, intermediate JPEG) never leave the
- * child.
+ * Convenience wrapper: render `srcPath` to a resized AVIF thumbnail at
+ * `outPath` via the shared imgdecode child pool. This is the function that
+ * replaces the old `renderImageThumbToFile` from `render.ts` at all call
+ * sites in the parent process. The heavy buffers (input image, intermediate
+ * AVIF) never leave the child.
  *
- * `quality` — JPEG encode quality (0–100, default 82).
- * `ext` — lowercase extension without dot (e.g. "jpeg", "heic", "png").
+ * `quality` — AVIF encode quality (0–100, default 55 — see THUMB_AVIF_QUALITY).
+ * `ext` — lowercase source extension without dot (e.g. "jpeg", "heic", "png").
  *
  * Rejects on child crash or spawn failure. Never loads sharp or heic-convert in
  * the parent process.
