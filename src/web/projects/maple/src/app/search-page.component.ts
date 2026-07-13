@@ -91,9 +91,10 @@ export class SearchPageComponent implements AfterViewInit {
   }
 
   protected onQueryChange(q: string): void {
+    const trimmed = q.trim();
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: q ? { q } : {},
+      queryParams: trimmed ? { q: trimmed } : {},
       replaceUrl: true,
     });
   }
