@@ -138,27 +138,18 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(raw, model, rect, quality, None)
 }
 
-/// Same as [`render_scene_linear_tile_from_raw_with_quality`], with an
-/// explicit WB delta anchor (#1725 band fix).
-///
-/// `decoded_wb_anchor = Some((decoded_temp, decoded_tint))` makes this tile
-/// render use the SAME delta contract as the app's live-chain
-/// (`pipeline::apply_scene_linear_chain`): `model.temperature`/`model.tint`
-/// are applied relative to the buffer's decode-time WB, so a tile rendered
-/// with `model.temperature == decoded_temp` (the common "unedited open"
-/// case, where both are the image's as-shot CCT) is IDENTITY — matching the
-/// GPU-live frame exactly instead of shifting away from it. `None` keeps the
-/// legacy ABSOLUTE `resolve_wb` + `apply` contract, correct for the
-/// maple-cli / XMP-render family where `crs:Temperature` is an absolute
-/// value. See `tile::develop::develop_scene_linear_from_padded_mosaic`'s
-/// doc-comment for the full rationale.
-pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+/// Shared tile pipeline: guard set + coordinate translation + develop + trim
+/// + downsample + EXIF-orient, producing oriented **f32** RGBA at the target
+/// size. The fp16 and f32 public tile entries both wrap this so the whole
+/// guard set and geometry stay single-sourced (#1945). See the public
+/// wrappers below for the WB-anchor contract.
+fn develop_tile_oriented_f32(
     raw: &RawImage,
     model: &AdjustmentModel,
     rect: TileRect,
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
-) -> Result<(u32, u32, Vec<u16>)> {
+) -> Result<(u32, u32, Vec<f32>)> {
     let TileRect {
         src_x,
         src_y,
@@ -370,8 +361,70 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
     let (w, h, oriented_f32) = stage("tile_apply_orientation_rgba", || {
         apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
     });
+    Ok((w, h, oriented_f32))
+}
+
+/// Same as [`render_scene_linear_tile_from_raw_with_quality`], with an
+/// explicit WB delta anchor (#1725 band fix).
+///
+/// `decoded_wb_anchor = Some((decoded_temp, decoded_tint))` makes this tile
+/// render use the SAME delta contract as the app's live-chain
+/// (`pipeline::apply_scene_linear_chain`): `model.temperature`/`model.tint`
+/// are applied relative to the buffer's decode-time WB, so a tile rendered
+/// with `model.temperature == decoded_temp` (the common "unedited open"
+/// case, where both are the image's as-shot CCT) is IDENTITY — matching the
+/// GPU-live frame exactly instead of shifting away from it. `None` keeps the
+/// legacy ABSOLUTE `resolve_wb` + `apply` contract, correct for the
+/// maple-cli / XMP-render family where `crs:Temperature` is an absolute
+/// value. See `tile::develop::develop_scene_linear_from_padded_mosaic`'s
+/// doc-comment for the full rationale.
+///
+/// Output is **fp16** RGBA (8 B/px). The f32 counterpart
+/// [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32`] shares
+/// the identical develop/geometry via [`develop_tile_oriented_f32`] and only
+/// differs in the final pack precision.
+pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
+) -> Result<(u32, u32, Vec<u16>)> {
+    let (w, h, oriented_f32) =
+        develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor)?;
     let fp16: Vec<u16> = stage("tile_pack_fp16", || {
         oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
     });
     Ok((w, h, fp16))
+}
+
+/// f32 (16 B/px) counterpart to
+/// [`render_scene_linear_tile_from_raw_with_quality`]. The native-detail
+/// tile-refinement path (Apple `NativeDetailRenderer`) uses this so its
+/// working precision matches the whole-image scene-linear path's f32
+/// (`ImageEditPipeline`, #487) instead of the fp16 the tile path shipped
+/// before — a precision-tier divergence that could bias shadows / band the
+/// AgX shoulder specifically in the zoomed-in tile vs the full image (#1945).
+pub fn render_scene_linear_tile_from_raw_with_quality_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_oriented_f32(raw, model, rect, quality, None)
+}
+
+/// f32 (16 B/px) counterpart to
+/// [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor`] — same
+/// WB-anchor contract, f32 output. See
+/// [`render_scene_linear_tile_from_raw_with_quality_f32`] for why the tile
+/// refinement path uses f32 (#1945).
+pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor)
 }

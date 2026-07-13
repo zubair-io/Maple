@@ -124,7 +124,12 @@ actor NativeDetailRenderer {
         }
 
         guard !Task.isCancelled else { throw CancellationError() }
-        let imageData = try PipelineRenderer.renderTile(
+        // #1945: use the f32 tile entry so this zoomed-in refinement path
+        // carries the same working precision as the whole-image scene-linear
+        // path (`ImageEditPipeline` uses `.RGBAf` end to end since #487). The
+        // fp16 the tile path previously produced could bias shadows or band
+        // the AgX shoulder specifically in the tile vs the full image.
+        let imageData = try PipelineRenderer.renderTileF32(
             handle: rawHandle,
             srcX: UInt32(x), srcY: UInt32(y),
             srcW: UInt32(width), srcH: UInt32(height),
@@ -133,10 +138,10 @@ actor NativeDetailRenderer {
             decodedTemperature: decodedTemperature,
             decodedTint: decodedTint
         )
-        guard imageData.bytesPerPixel == 8 else {
+        guard imageData.bytesPerPixel == 16 else {
             throw PipelineError.renderFailed(
                 code: 9,
-                message: "native-detail tile was not fp16 RGBA"
+                message: "native-detail tile was not f32 RGBA"
             )
         }
 
@@ -145,7 +150,7 @@ actor NativeDetailRenderer {
             bitmapData: imageData.pixels,
             bytesPerRow: imageData.width * imageData.bytesPerPixel,
             size: CGSize(width: imageData.width, height: imageData.height),
-            format: .RGBAh,
+            format: .RGBAf,
             colorSpace: colorSpace
         )
     }
