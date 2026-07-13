@@ -66,7 +66,8 @@ use crate::live_session::LiveSession;
 // the bind-group layout are single-sourced across Apple `CAMetalLayer` + web
 // `OffscreenCanvas` + the host offscreen parity gate.
 use crate::present_chain_pipeline::{
-    build_present_pipeline, encode_present_pass, pick_surface_format,
+    build_present_dispatch, build_present_pipeline, encode_present_pass, pick_surface_format,
+    PresentDispatchCache,
 };
 use std::ffi::c_void;
 
@@ -98,6 +99,14 @@ pub struct PersistentPresentSurface {
     /// the configured extent. A generation mismatch forces a fresh surface +
     /// the settle double-present, exactly like a layer-pointer change.
     generation: u64,
+    /// Cached present-pass uniform + bind group (#1930), keyed on the sampled
+    /// `chain_buf`'s identity — see [`PresentDispatchCache`] for why identity
+    /// (not "build once forever") is the right cache shape here: `chain_buf`
+    /// alternates between the session's two persistent ping-pong buffers
+    /// depending on the chain's pass-count parity. Invalidated on every
+    /// `reconfigure` (a format/layout change would otherwise leave a
+    /// bind-group cached against the OLD layout).
+    present_cache: PresentDispatchCache,
 }
 
 #[cfg(target_vendor = "apple")]
@@ -161,6 +170,7 @@ impl PersistentPresentSurface {
             height,
             layer: layer as usize,
             generation,
+            present_cache: PresentDispatchCache::new(),
         })
     }
 
@@ -192,6 +202,10 @@ impl PersistentPresentSurface {
         }
         self.width = width;
         self.height = height;
+        // Dims changed the uniform's content and a format change would have
+        // rebuilt the bind-group layout — either way the cached present
+        // dispatch (if any) is stale; force the next present to rebuild it.
+        self.present_cache.invalidate();
     }
 
     /// Draw the session's final f32 chain buffer into the surface's current
@@ -203,6 +217,13 @@ impl PersistentPresentSurface {
         final_idx: usize,
     ) -> Result<(), String> {
         let chain_buf = session.ping_pong_buffer(final_idx);
+        // Get-or-build the present dispatch for THIS chain buffer identity
+        // (#1930) — a same-identity re-present (the steady state while
+        // dragging one slider) is zero-alloc; only an identity change (a
+        // pass-count parity flip, or a re-open's fresh buffers) rebuilds.
+        let (_uniform, bind_group) =
+            self.present_cache
+                .get_or_build(ctx, &self.bind_group_layout, chain_buf, (self.width, self.height));
         let frame = self
             .surface
             .get_current_texture()
@@ -215,15 +236,7 @@ impl PersistentPresentSurface {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("present-chain-encoder"),
             });
-        encode_present_pass(
-            ctx,
-            &mut encoder,
-            &self.pipeline,
-            &self.bind_group_layout,
-            chain_buf,
-            &view,
-            (self.width, self.height),
-        );
+        encode_present_pass(&mut encoder, &self.pipeline, &bind_group, &view);
         ctx.queue.submit(Some(encoder.finish()));
         frame.present();
         Ok(())
@@ -390,21 +403,17 @@ pub fn present_chain_to_offscreen(
 
     let (pipeline, bgl) = build_present_pipeline(ctx, format);
     let chain_buf = session.ping_pong_buffer(final_idx);
+    // One-shot host oracle call, not a render-loop tick — build fresh directly
+    // (no cache needed; #1930's zero-alloc invariant is about the PER-TICK
+    // present path, which this parity harness isn't).
+    let dispatch = build_present_dispatch(ctx, &bgl, chain_buf, (width, height));
 
     let mut encoder = ctx
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("present-chain-offscreen-encoder"),
         });
-    encode_present_pass(
-        ctx,
-        &mut encoder,
-        &pipeline,
-        &bgl,
-        chain_buf,
-        &view,
-        (width, height),
-    );
+    encode_present_pass(&mut encoder, &pipeline, &dispatch.bind_group, &view);
 
     // Copy the rendered texture to a padded readback buffer (wgpu requires the
     // bytes-per-row to be 256-aligned for texture→buffer copies).
