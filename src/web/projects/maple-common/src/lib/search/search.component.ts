@@ -118,6 +118,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
    * advanced filter page (`/search/advanced`) with the current query + scope
    * prefilled as query params. */
   readonly filters = output<{ query: string; scope: SearchScope }>();
+  /** Emitted when the query input changes or is cleared. */
+  readonly queryChange = output<string>();
 
   private readonly searchService = inject(SearchService);
   private readonly destroyRef = inject(DestroyRef);
@@ -249,10 +251,12 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   protected onQueryChange(q: string): void {
     this.query.set(q);
+    this.queryChange.emit(q);
   }
 
   protected onClear(): void {
     this.query.set('');
+    this.queryChange.emit('');
   }
 
   protected onSubmit(): void {
@@ -321,6 +325,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   protected onRecentTap(q: string): void {
     this.query.set(q);
+    this.queryChange.emit(q);
     // Promote the tapped recent back to the head so the list reflects
     // most-recent-first ordering even when re-tapping older items.
     const next = pushRecent(this.recent(), q);
