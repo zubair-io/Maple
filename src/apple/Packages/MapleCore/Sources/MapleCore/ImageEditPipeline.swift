@@ -1078,15 +1078,26 @@ public actor ImageEditPipeline {
         // sharpen + nr_color stay on the Apple GPU path (Metal compute
         // kernels). Both run AFTER the FFI's AgX, so they operate in
         // display-linear Rec.2020 ([0,1]) rather than the scene-linear
-        // domain the original pipeline placed them in. This is a known
-        // behaviour change from "sharpen pre-AgX in scene-linear" to
-        // "sharpen post-AgX in display-linear" — chosen because:
+        // domain the reference (Rust CPU) pipeline runs them in. This is a
+        // deliberate domain change from "sharpen/NR pre-AgX in scene-linear"
+        // to "post-AgX in display-linear", chosen because:
         //   * sharpen at viewport size dominates Rust-on-CPU latency
         //     (~33 ms / 2 MP, exceeding the 16 ms slider tick budget);
-        //     GPU is essential.
-        //   * the display-domain shift only affects highlight halos, not
-        //     midtones — the visible difference at default sliders
-        //     (sharpen_amount = 0) is zero.
+        //     the GPU kernels are essential to hit the budget.
+        //   * these are display-domain corrections in most reference
+        //     renderers too (ACR sharpens in a perceptual/gamma domain, not
+        //     scene-linear), so the post-AgX position is defensible, not a
+        //     regression.
+        //   * NOTE (#1933): the earlier rationale here claimed the visible
+        //     difference "at default sliders (sharpen_amount = 0) is zero."
+        //     That was false — the reference-import defaults are
+        //     sharpenAmount = 40 and nrColor = 25 (AdjustmentModel), non-zero
+        //     for essentially every fresh import, so the domain shift is
+        //     exercised on nearly every image. Its acceptability at those real
+        //     defaults is gated by the CIEDE2000 SliderMatrixUITests harness
+        //     (candidate canvas vs ACR reference), NOT asserted here; restoring
+        //     the pre-AgX scene-linear order would reintroduce the CPU-latency
+        //     budget blow-out above.
         let withSharpen = MetalKernels.applySceneSharpen(
             to: chained,
             amount: Float(model.sharpenAmount),
