@@ -106,9 +106,18 @@ fn srgb_encode(v: f32) -> f32 {
     }
 }
 
-/// Write the canonical `.maple/thumbs` + `.maple/previews` JPEG derivatives
-/// for the pano at `png_path`, downscaled from the already-developed sRGB
-/// display buffer (interleaved RGB16, as returned by `develop_for_display`).
+/// Which encoder a `write_display_sidecars` variant uses.
+enum SidecarFormat {
+    Avif,
+    Jpeg,
+}
+
+/// Write the canonical `.maple/thumbs` (AVIF) + `.maple/previews` (JPEG)
+/// derivatives for the pano at `png_path`, downscaled from the
+/// already-developed sRGB display buffer (interleaved RGB16, as returned by
+/// `develop_for_display`). The `thumbs` tier matches the AVIF-encode
+/// convention used elsewhere (`raw-ffi`'s embedded-preview thumbnail path);
+/// `previews` is out of scope for that migration and stays JPEG.
 ///
 /// Consumes `display` (moved into an `ImageBuffer` — no full-frame clone;
 /// peak RSS matters on a 100MP+ pano). Non-fatal to the caller: a stitch has
@@ -130,13 +139,13 @@ pub fn write_display_sidecars(
     let src = ImageBuffer::<Rgb<u16>, _>::from_raw(width, height, display)
         .ok_or_else(|| "display buffer length != width*height*3".to_string())?;
 
-    // (subdir, filename, target long edge, JPEG quality)
+    // (subdir, filename, target long edge, format, quality)
     let variants = [
-        ("thumbs", format!("{key}.jpg"), 256u32, 82u8),
-        ("previews", format!("{key}_1600.jpg"), 1600u32, 85u8),
+        ("thumbs", format!("{key}.avif"), 256u32, SidecarFormat::Avif, 55u8),
+        ("previews", format!("{key}_1600.jpg"), 1600u32, SidecarFormat::Jpeg, 85u8),
     ];
 
-    for (subdir, filename, target, quality) in variants {
+    for (subdir, filename, target, format, quality) in variants {
         let (tw, th) = fit_long_edge(width, height, target);
         let resized: ImageBuffer<Rgb<u16>, Vec<u16>> = if (tw, th) == (width, height) {
             src.clone() // only when the pano is already ≤ target (tiny) — cheap
@@ -144,7 +153,11 @@ pub fn write_display_sidecars(
             image::imageops::resize(&src, tw, th, FilterType::Triangle)
         };
         let rgb8 = DynamicImage::ImageRgb16(resized).into_rgb8().into_raw();
-        let jpeg = raw_core::jpeg::encode(tw, th, &rgb8, quality).map_err(|e| e.to_string())?;
+        let encoded = match format {
+            SidecarFormat::Avif => raw_core::avif::encode(tw, th, &rgb8, quality),
+            SidecarFormat::Jpeg => raw_core::jpeg::encode(tw, th, &rgb8, quality),
+        }
+        .map_err(|e| e.to_string())?;
 
         let dir = png_path
             .parent()
@@ -152,7 +165,7 @@ pub fn write_display_sidecars(
             .join(".maple")
             .join(subdir);
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        std::fs::write(dir.join(filename), jpeg).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join(filename), encoded).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -173,6 +186,40 @@ fn fit_long_edge(width: u32, height: u32, target: u32) -> (u32, u32) {
 mod tests {
     use super::*;
     use crate::ingest::ValidityMask;
+
+    /// Read the encoded width/height straight out of an AVIF file's `ispe`
+    /// box, without a full AV1 decode — this crate only enables the `image`
+    /// crate's `avif` (encode) feature, deliberately not `avif-native`
+    /// (decode, which pulls in `dav1d` via a C toolchain build). Mirrors
+    /// `raw-ffi`'s `thumbnail_tests::avif_dimensions` test helper.
+    fn avif_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+        fn find_box(data: &[u8], want: &[u8; 4]) -> Option<(usize, usize)> {
+            let mut i = 0;
+            while i + 8 <= data.len() {
+                let size = u32::from_be_bytes(data[i..i + 4].try_into().ok()?) as usize;
+                let kind = &data[i + 4..i + 8];
+                if size < 8 || i + size > data.len() {
+                    return None;
+                }
+                if kind == want {
+                    return Some((i + 8, size - 8));
+                }
+                i += size;
+            }
+            None
+        }
+
+        let (meta_start, meta_len) = find_box(bytes, b"meta")?;
+        let meta_body = bytes.get(meta_start + 4..meta_start + meta_len)?;
+        let (iprp_start, iprp_len) = find_box(meta_body, b"iprp")?;
+        let iprp_body = meta_body.get(iprp_start..iprp_start + iprp_len)?;
+        let (ipco_start, ipco_len) = find_box(iprp_body, b"ipco")?;
+        let ipco_body = iprp_body.get(ipco_start..ipco_start + ipco_len)?;
+        let (ispe_start, _) = find_box(ipco_body, b"ispe")?;
+        let w = u32::from_be_bytes(ipco_body.get(ispe_start + 4..ispe_start + 8)?.try_into().ok()?);
+        let h = u32::from_be_bytes(ipco_body.get(ispe_start + 8..ispe_start + 12)?.try_into().ok()?);
+        Some((w, h))
+    }
 
     #[test]
     fn sha256_prefix16_matches_frozen_cross_platform_value() {
@@ -216,17 +263,16 @@ mod tests {
         write_display_sidecars(display, w, h, &png_path).unwrap();
 
         let key = sha256_prefix16("panorama-test.png");
-        let thumb = dir.join(".maple/thumbs").join(format!("{key}.jpg"));
+        let thumb = dir.join(".maple/thumbs").join(format!("{key}.avif"));
         let preview = dir.join(".maple/previews").join(format!("{key}_1600.jpg"));
         assert!(thumb.exists(), "thumb missing: {thumb:?}");
         assert!(preview.exists(), "preview missing: {preview:?}");
 
-        let t = image::open(&thumb).unwrap();
-        assert_eq!(
-            t.dimensions().0.max(t.dimensions().1),
-            256,
-            "thumb long edge"
-        );
+        let thumb_bytes = std::fs::read(&thumb).unwrap();
+        assert_eq!(&thumb_bytes[4..8], b"ftyp", "missing AVIF ftyp box");
+        let (tw, th) = avif_dimensions(&thumb_bytes).expect("ispe box present");
+        assert_eq!(tw.max(th), 256, "thumb long edge");
+
         let p = image::open(&preview).unwrap();
         assert_eq!(p.dimensions(), (400, 200), "preview must not upscale");
 

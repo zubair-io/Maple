@@ -10,8 +10,8 @@
 //! Module map:
 //!   - `error`              — `LAST_ERROR` thread-local, `with_large_stack`
 //!                            worker plumbing, `maple_last_error`.
-//!   - `buffers`            — `MapleImageBuffer` / `MapleByteBuffer` /
-//!                            `MapleSceneLinearBuffer` (+ free fns).
+//!   - `buffers`            — `MapleImageBuffer` / `MapleSceneLinearBuffer`
+//!                            (+ free fns).
 //!   - `model`              — shared XMP load helper + tile dehaze guard.
 //!   - `render`             — legacy 8-bit sRGB entries
 //!                            (`maple_render_file`, `maple_render_bytes`).
@@ -23,7 +23,7 @@
 //!                            model) + render_handle_tile.
 //!   - `scene_linear_chain` — `maple_apply_scene_linear_chain` per-tick
 //!                            cheap-stage chain + `MapleAdjustmentParams`.
-//!   - `thumbnail`          — embedded-JPEG fast path.
+//!   - `thumbnail`          — embedded-preview AVIF thumbnail fast path.
 //!   - `id`                 — `maple_blake3_hex`, `maple_id_primary`,
 //!                            `maple_id_fallback` pure-function entries.
 
@@ -74,7 +74,7 @@ mod pano;
 // their typedefs.
 pub use auto_adjustments::MapleAutoAdjustments;
 pub use auto_tone::MapleAutoTone;
-pub use buffers::{MapleByteBuffer, MapleImageBuffer, MapleSceneLinearBuffer};
+pub use buffers::{MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;
 pub use handle::MapleRawHandle;
 pub use scene_linear_chain::MapleAdjustmentParams;
