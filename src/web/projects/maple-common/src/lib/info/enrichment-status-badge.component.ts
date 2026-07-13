@@ -6,6 +6,7 @@
 // for the "paused" case.
 
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 export interface EnrichmentStageStatus {
   kind: 'failed' | 'skipped' | 'paused' | 'running' | 'pending' | 'complete';
@@ -16,7 +17,7 @@ export interface EnrichmentStageStatus {
 @Component({
   selector: 'app-enrichment-status-badge',
   standalone: true,
-  imports: [],
+  imports: [RouterLink],
   templateUrl: './enrichment-status-badge.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

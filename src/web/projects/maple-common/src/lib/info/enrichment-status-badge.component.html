@@ -7,7 +7,7 @@
     >
   } @else if (status().kind === 'paused') {
     <a
-      [href]="pausedHref()"
+      [routerLink]="pausedHref()"
       class="rounded-[3px] bg-surface-alt px-1.5 py-0.5 text-[9px] uppercase tracking-[0.3px] text-text-muted hover:text-text-main"
       >{{ status().label }} →</a
     >

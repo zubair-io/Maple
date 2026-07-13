@@ -26,6 +26,7 @@ import { SearchComponent, SearchResult, viewRouteCommands } from '@maple-common'
       [initialQuery]="initialQuery"
       [autoFocus]="autoFocus"
       (photoTap)="onPhotoTap($event)"
+      (queryChange)="onQueryChange($event)"
     />
   `,
   styles: [
@@ -60,5 +61,13 @@ export class SearchPageComponent implements AfterViewInit {
     // results, fs: id cold-load/hydration in Preview will need to land
     // first (#625).
     void this.router.navigate(viewRouteCommands(r.id));
+  }
+
+  protected onQueryChange(q: string): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: q ? { q } : {},
+      replaceUrl: true,
+    });
   }
 }

@@ -357,7 +357,7 @@ export class PeopleComponent implements OnDestroy {
   }
 
   selectPerson(id: string): void {
-    void this.router.navigate(['/settings/people', id], { replaceUrl: true });
+    void this.router.navigate(['/settings/people', id]);
   }
 
   /** Force a fresh fetch of an open person's detail (bypassing the SWR

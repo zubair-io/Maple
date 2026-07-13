@@ -8,7 +8,7 @@
       <div class="flex flex-wrap gap-1">
         @for (face of taggedFaces(d); track face.person_id) {
           <a
-            [href]="'/settings/people/' + face.person_id"
+            [routerLink]="'/settings/people/' + face.person_id"
             class="flex items-center gap-[3px] rounded-[3px] border-[0.5px] border-border bg-surface-alt px-1.5 py-0.5 text-[10px] text-text-main hover:border-primary hover:text-primary"
           >
             <maple-icon name="tag" [size]="9" color="currentColor" />
@@ -17,7 +17,7 @@
         }
         @if (untaggedFaceCount(d) > 0) {
           <a
-            href="/settings/people"
+            routerLink="/settings/people"
             class="rounded-[3px] border-[0.5px] border-dashed border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-primary hover:text-primary"
           >
             + {{ untaggedFaceCount(d) }} unnamed
@@ -42,7 +42,9 @@
     } @else if (stale()) {
       <div class="mt-1 text-[10px] text-text-muted">
         Still pending — check
-        <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.
+        <a [routerLink]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main"
+          >worker status</a
+        >.
       </div>
     }
   </div>

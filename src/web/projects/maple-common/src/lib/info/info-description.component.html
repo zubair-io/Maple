@@ -60,7 +60,9 @@
       } @else if (stale()) {
         <div class="mt-1 text-[10px] text-text-muted">
           Still pending — check
-          <a [href]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main">worker status</a>.
+          <a [routerLink]="WORKERS_SETTINGS_URL" class="underline hover:text-text-main"
+            >worker status</a
+          >.
         </div>
       }
     }

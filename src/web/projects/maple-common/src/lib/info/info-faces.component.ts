@@ -6,6 +6,7 @@
 // orchestrator owns the API call; this component is presentational.
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
 import { MapleIconComponent } from '../icons/maple-icon.component';
 import {
@@ -18,7 +19,12 @@ import type { ApiAssetDetail } from '../api/bun-api-backend.service';
 @Component({
   selector: 'app-info-faces',
   standalone: true,
-  imports: [MapleCollapsibleComponent, MapleIconComponent, EnrichmentStatusBadgeComponent],
+  imports: [
+    MapleCollapsibleComponent,
+    MapleIconComponent,
+    EnrichmentStatusBadgeComponent,
+    RouterLink,
+  ],
   templateUrl: './info-faces.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
