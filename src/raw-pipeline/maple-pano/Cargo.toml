@@ -101,7 +101,9 @@ image.workspace = true
 png.workspace = true
 # RAW decode + scene-linear normalization for the ingest stage (#1156):
 # `raw_core::decode_for_pano` is the single pixel source for real frames.
-raw-core = { path = "../raw-core" }
+# `avif` on: `stitch/io.rs::write_display_sidecars` writes the pano's own
+# `.maple/thumbs/` sidecar directly via `raw_core::avif::encode`.
+raw-core = { path = "../raw-core", features = ["avif"] }
 # Namespace-aware XMP parsing for the DJI gimbal prior (the two known DJI
 # `drone-dji` namespace URI variants force prefix resolution, not string
 # matching). Already a workspace dependency via raw-core's sidecar layer.
