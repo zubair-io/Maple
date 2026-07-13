@@ -239,6 +239,58 @@ fn tile_matches_full_chain_with_non_default_tone_curve() {
     );
 }
 
+/// #1945: the f32 tile entry shares the exact develop/geometry with the fp16
+/// entry (both wrap `develop_tile_oriented_f32`) and differs only in the final
+/// pack precision. Round-tripping the f32 output through `f32_to_f16_bits` must
+/// reproduce the fp16 entry bit-for-bit, proving the f32 path carries strictly
+/// more precision (no downcast) than — and is otherwise identical to — the
+/// shipped fp16 path.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn f32_tile_matches_fp16_tile_after_downcast() {
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read raw");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+    let model = AdjustmentModel::default();
+    let rect = TileRect {
+        src_x: 1024,
+        src_y: 1024,
+        src_w: 512,
+        src_h: 512,
+        out_w: 512,
+        out_h: 512,
+    };
+    let (fw, fh, fp16) =
+        render_scene_linear_tile_from_raw_with_quality(&raw, &model, rect, RenderQuality::Full)
+            .expect("fp16 tile");
+    let (w, h, f32) =
+        render_scene_linear_tile_from_raw_with_quality_f32(&raw, &model, rect, RenderQuality::Full)
+            .expect("f32 tile");
+    assert_eq!((w, h), (fw, fh), "f32 and fp16 tile dims must match");
+    assert_eq!(f32.len(), fp16.len(), "same lane count");
+    for (i, (&f, &packed)) in f32.iter().zip(fp16.iter()).enumerate() {
+        assert_eq!(
+            f32_to_f16_bits(f),
+            packed,
+            "lane {i}: f32 downcast {} != fp16 {}",
+            f32_to_f16_bits(f),
+            packed
+        );
+    }
+    // Sanity: the f32 buffer actually carries sub-fp16 precision on at least
+    // one lane (i.e. it is NOT just fp16 values widened), else the alignment
+    // would be pointless. Alpha lanes are exactly 1.0, so scan RGB only.
+    use crate::pipeline::fp16::f16_bits_to_f32;
+    let carries_extra_precision = f32
+        .iter()
+        .enumerate()
+        .any(|(i, &v)| i % 4 != 3 && f16_bits_to_f32(f32_to_f16_bits(v)) != v);
+    assert!(
+        carries_extra_precision,
+        "f32 tile should carry precision beyond fp16 on some RGB lane"
+    );
+}
+
 /// #1931: the HSL 8-band stage was silently omitted from the tile develop
 /// chain, so a deep-zoom tile with any non-default HSL adjustment diverged
 /// from the full-resolution render. Same tile-vs-full bit-parity gate as

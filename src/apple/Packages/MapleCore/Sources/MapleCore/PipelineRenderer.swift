@@ -846,6 +846,57 @@ public struct PipelineRenderer: Sendable {
         )
     }
 
+    /// f32 (16 B/px) counterpart to `renderTile(handle:...)`. The
+    /// native-detail tile-refinement path (`NativeDetailRenderer`) uses this
+    /// so its working precision matches the whole-image scene-linear path's
+    /// f32 (`ImageEditPipeline`, #487) instead of the fp16 the tile path
+    /// shipped — a precision-tier divergence that could bias shadows / band
+    /// the AgX shoulder in the zoomed-in tile vs the full image (#1945). Same
+    /// #1725 WB delta-anchor contract as the fp16 overload.
+    public static func renderTileF32(
+        handle: MapleRawHandle,
+        srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+        outW: UInt32, outH: UInt32,
+        quality: Quality = .full,
+        decodedTemperature: Double? = nil,
+        decodedTint: Double? = nil
+    ) throws -> MapleSceneLinearImageData {
+        var buf = MapleSceneLinearBufferF32()
+        let rc = maple_render_handle_scene_linear_tile_f32(
+            handle.pointer,
+            srcX, srcY, srcW, srcH,
+            outW, outH,
+            quality.rawValue,
+            // 0.0 is the FFI sentinel for "no decoded WB anchor" (see the
+            // fp16 overload).
+            Float(decodedTemperature ?? 0.0),
+            Float(decodedTint ?? 0.0),
+            &buf
+        )
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_scene_linear_buffer_f32(&buf) }
+        guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty tile buffer")
+        }
+        let data = mapleStage("decode tile f32 result copy") {
+            Data(bytes: ptr, count: Int(buf.len_bytes))
+        }
+        // Tile refinement ignores the buffer's noise/wb-frame fields (it only
+        // builds a display CIImage); expose just the pixels + geometry.
+        return MapleSceneLinearImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            channels: Int(buf.channels),
+            bytesPerPixel: Int(buf.bytes_per_pixel),
+            pixels: data,
+            noiseProfile: nil,
+            iso: 0
+        )
+    }
+
     /// One-shot tile render directly from a RAW file + optional XMP —
     /// no handle lifecycle. Useful for export / one-off tile renders
     /// where the caller doesn't want to keep the decoded mosaic alive.
