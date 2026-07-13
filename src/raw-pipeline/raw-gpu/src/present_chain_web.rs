@@ -57,7 +57,7 @@
 use crate::context::GpuContext;
 use crate::live_session::LiveSession;
 use crate::present_chain_pipeline::{
-    build_present_pipeline, encode_present_pass, pick_surface_format,
+    build_present_pipeline, encode_present_pass, pick_surface_format, PresentDispatchCache,
 };
 use wasm_bindgen::JsValue;
 use web_sys::OffscreenCanvas;
@@ -83,6 +83,14 @@ pub struct WebPresentSurface {
     /// The colour-space tag the browser reported after the one-time retag
     /// (`"display-p3"` / `"srgb"` / `"unknown"`) — surfaced for self-reporting.
     color_space: String,
+    /// Cached present-pass uniform + bind group (#1930), keyed on the sampled
+    /// `chain_buf`'s identity — see [`PresentDispatchCache`] for why identity
+    /// (not "build once forever") is the right cache shape: `chain_buf`
+    /// alternates between the session's two persistent ping-pong buffers
+    /// depending on the chain's pass-count parity. This surface has no
+    /// `reconfigure` (a dims change is a whole new `WebPresentSurface`), so
+    /// there's no format/layout-change path that needs to invalidate it.
+    present_cache: PresentDispatchCache,
 }
 
 impl WebPresentSurface {
@@ -173,6 +181,7 @@ impl WebPresentSurface {
             width,
             height,
             color_space,
+            present_cache: PresentDispatchCache::new(),
         })
     }
 
@@ -199,6 +208,13 @@ impl WebPresentSurface {
             ));
         }
         let chain_buf = session.ping_pong_buffer(final_idx);
+        // Get-or-build the present dispatch for THIS chain buffer identity
+        // (#1930) — a same-identity re-present (the steady state while
+        // dragging one slider) is zero-alloc; only an identity change (a
+        // pass-count parity flip, or a re-open's fresh buffers) rebuilds.
+        let (_uniform, bind_group) =
+            self.present_cache
+                .get_or_build(ctx, &self.bind_group_layout, chain_buf, (self.width, self.height));
         let frame = self
             .surface
             .get_current_texture()
@@ -211,15 +227,7 @@ impl WebPresentSurface {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("present-chain-web-encoder"),
             });
-        encode_present_pass(
-            ctx,
-            &mut encoder,
-            &self.pipeline,
-            &self.bind_group_layout,
-            chain_buf,
-            &view,
-            (self.width, self.height),
-        );
+        encode_present_pass(&mut encoder, &self.pipeline, &bind_group, &view);
         ctx.queue.submit(Some(encoder.finish()));
         frame.present();
         Ok(())
