@@ -118,12 +118,25 @@ extension URLSession {
 }
 
 extension AuthenticatedHTTPClient {
-  /// No-token convenience used by tests.
+  /// Convenience client for tests that stub the network layer and don't care
+  /// about the auth layer — they exist to exercise business logic against
+  /// `URLProtocolStub`, not to test token handling.
+  ///
+  /// Supplies a fixed, non-JWT placeholder token rather than `nil`. Since
+  /// `requiredTokensForRequest()` requires a token upfront (added by
+  /// `AuthenticatedHTTPClient.data(for:)`'s "unified Apple token lifecycle"
+  /// change), a `nil` tokensProvider makes every call throw
+  /// `.notAuthenticated` before the request ever reaches `URLProtocolStub` —
+  /// which silently emptied every caller's response and broke ~40 call
+  /// sites' assertions. The placeholder isn't a well-formed JWT, so
+  /// `accessTokenIsExpired` treats it as never-expiring (can't parse an
+  /// `exp` claim out of it) and `requiredTokensForRequest()` returns it
+  /// without attempting a refresh.
   static func unauthenticated(server: URL, urlSession: URLSession) -> AuthenticatedHTTPClient {
     AuthenticatedHTTPClient(
       server: server,
       urlSession: urlSession,
-      tokensProvider: { nil },
+      tokensProvider: { AuthTokens(access: "stub-access-token", refresh: "stub-refresh-token") },
       onTokensRefreshed: { _ in },
       onSignOut: {})
   }
