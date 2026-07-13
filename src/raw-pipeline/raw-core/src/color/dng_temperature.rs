@@ -173,7 +173,23 @@ pub fn xy_to_temp_tint(x: f32, y: f32) -> (f32, f32) {
 /// isotherm direction, offsets along the isotherm by `tint / TINT_SCALE`,
 /// and converts back to xy.
 pub fn temp_tint_to_xy(temperature: f32, tint: f32) -> (f32, f32) {
-    let r = 1.0e6 / temperature as f64;
+    // Clamp reciprocal temperature to the Robertson table's covered range
+    // `[0, 600]` mired (≈ ∞K down to ~1667K). Without this guard a
+    // non-positive or non-finite `temperature` — e.g. from a corrupt or
+    // hand-edited XMP sidecar — makes `r` `Inf`/`NaN`/negative, the bracket
+    // search falls through to `index = 29`, and the interpolation weight `f`
+    // becomes `±Inf`/`NaN`, propagating `NaN` or a physically-impossible
+    // `(x, y)` chromaticity into every downstream consumer. `f64::clamp`
+    // passes `NaN` through unchanged, so scrub it explicitly first (a NaN
+    // reciprocal → the coldest table endpoint).
+    let r = {
+        let raw = 1.0e6 / temperature as f64;
+        if raw.is_nan() {
+            600.0
+        } else {
+            raw.clamp(0.0, 600.0)
+        }
+    };
 
     let index = (0..30_usize)
         .find(|&i| r < TEMP_TABLE[i + 1].r)
@@ -306,6 +322,49 @@ mod tests {
         // above — 5000K sits on a TEMP_TABLE breakpoint, so this uses the
         // same widened tolerance rather than the tighter 0.5 used elsewhere.
         assert!((tint_plus - 50.0).abs() < 1.5);
+    }
+
+    /// #1922: a non-positive, zero, or non-finite temperature (from a corrupt
+    /// or hand-edited sidecar) must never yield a `NaN`/`Inf` or a
+    /// physically-impossible chromaticity. Every degenerate input clamps into
+    /// the Robertson table's covered reciprocal-temperature range and produces
+    /// a finite, in-range CIE xy. `x, y ∈ (0, 1)` on the daylight/blackbody
+    /// locus this table covers (roughly `x ∈ [0.25, 0.55]`, `y ∈ [0.25, 0.42]`
+    /// from Std A at 2856K up past 20000K), so `(0, 1)` is a loose but
+    /// meaningful bound that a `NaN`/`Inf`/negative result would fail.
+    #[test]
+    fn degenerate_temperature_stays_finite_and_in_gamut() {
+        for &temp in &[0.0_f32, -1.0, -6500.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for &tint in &[-120.0_f32, 0.0, 120.0] {
+                let (x, y) = temp_tint_to_xy(temp, tint);
+                assert!(
+                    x.is_finite() && y.is_finite(),
+                    "temp={temp} tint={tint} produced non-finite xy ({x}, {y})"
+                );
+                assert!(
+                    x > 0.0 && x < 1.0 && y > 0.0 && y < 1.0,
+                    "temp={temp} tint={tint} produced out-of-range xy ({x}, {y})"
+                );
+            }
+        }
+    }
+
+    /// The clamp saturates at the table endpoints: temperatures at or below the
+    /// coldest covered value (~1667K, `r = 600`) all resolve to the same
+    /// chromaticity as the endpoint, and arbitrarily high temperatures approach
+    /// the `r = 0` endpoint — both finite. Guards against the clamp being a
+    /// silent no-op if a future refactor drops it.
+    #[test]
+    fn clamp_saturates_at_table_endpoints() {
+        let (x_cold, y_cold) = temp_tint_to_xy(1667.0, 0.0);
+        let (x_below, y_below) = temp_tint_to_xy(500.0, 0.0); // r > 600 → clamps to 600
+        assert!(
+            (x_cold - x_below).abs() < 5e-3 && (y_cold - y_below).abs() < 5e-3,
+            "sub-1667K temperatures should clamp to the coldest endpoint: \
+             1667K→({x_cold},{y_cold}) vs 500K→({x_below},{y_below})"
+        );
+        let (x_hot, y_hot) = temp_tint_to_xy(1.0e9, 0.0);
+        assert!(x_hot.is_finite() && y_hot.is_finite());
     }
 
     /// Ticket #1894 acceptance vector: ACR displays roughly 4450K / -53 tint
