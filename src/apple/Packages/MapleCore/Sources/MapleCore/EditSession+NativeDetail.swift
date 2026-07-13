@@ -55,12 +55,8 @@ extension EditSession {
         let snapshot = await renderActor.snapshot(forAsset: asset)
         adoptDecodedWbFrame(snapshot.wbFrame)
         let asShot = wbDeltaAnchor
-        let decodedTemperature = snapshot.wbFrame?.isPresent == true
-            ? WbSliderFrame.decodeBakeAnchor.temperature
-            : asShot?.temperature
-        let decodedTint = snapshot.wbFrame?.isPresent == true
-            ? WbSliderFrame.decodeBakeAnchor.tint
-            : asShot?.tint
+        let decodedTemperature = asShot?.temperature
+        let decodedTint = asShot?.tint
 
         let signpostID = editSessionSignposter.makeSignpostID()
         let signpostState = editSessionSignposter.beginInterval(

@@ -118,13 +118,4 @@ extension WbSliderFrame {
         p.wb_frame_as_shot_tint = asShotTint
         p.wb_frame_cam_to_rec2020 = Self.tuple9(camToRec2020)
     }
-
-    /// The delta anchor the per-tick chains must use when this frame is
-    /// present: the strip-XMP decode bake — every Apple editor decode
-    /// develops at the stripped model's EXPLICIT `(6500, 0)`
-    /// (`RawCoreBridge.stripAppleGPUStages`), interpreted in this frame.
-    /// The live/refine parity contract is `delta(live vs 6500/0)` composed
-    /// over that bake ≡ a fresh develop at `live` — so the anchor is the
-    /// bake point, NOT the as-shot estimate (which only seeds the sliders).
-    public static let decodeBakeAnchor = (temperature: 6500.0, tint: 0.0)
 }

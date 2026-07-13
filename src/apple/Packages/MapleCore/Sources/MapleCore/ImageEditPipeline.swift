@@ -992,8 +992,8 @@ public actor ImageEditPipeline {
     /// live-vs-decoded WB delta so opening a saved sidecar doesn't
     /// double-apply WB between the Rust path and the Apple kernel.
     /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
-    /// the chain's WB delta anchors at the strip-XMP decode bake —
-    /// `WbSliderFrame.decodeBakeAnchor` (6500/0, interpreted IN the frame)
+    /// the chain's WB delta anchors at the frame's own `sceneCCT` and
+    /// `asShotTint` — matching the exact bake anchor of the decoded buffer
     /// — and is derived with the frame's own calibration, so this CPU tick
     /// path agrees with both the GPU live chain and a fresh full develop
     /// of the same model. `nil` keeps the legacy asShot-anchored generic
@@ -1050,16 +1050,11 @@ public actor ImageEditPipeline {
         // `decodedAtModel` is unused; kept on the signature so a future
         // saved-WB sidecar workflow can re-thread per-asset baselines.
         let _ = decodedAtModel
-        // #1781: with a present frame the anchor is the strip-XMP decode
-        // bake (explicit 6500/0 in the frame) — `asShot` remains the
-        // legacy anchor for frame-absent sources only.
+        // #1781: with a present frame the anchor is the frame's true
+        // as-shot CCT/tint. `asShot` already carries these values.
         let frame = (wbFrame?.isPresent == true) ? wbFrame : nil
-        let decodedTemp = frame != nil
-            ? WbSliderFrame.decodeBakeAnchor.temperature
-            : (asShot?.temperature ?? 6500.0)
-        let decodedTint = frame != nil
-            ? WbSliderFrame.decodeBakeAnchor.tint
-            : (asShot?.tint ?? 0.0)
+        let decodedTemp = asShot?.temperature ?? 6500.0
+        let decodedTint = asShot?.tint ?? 0.0
         if let asShot {
             logger.notice("processSceneLinear asShot=\(asShot.temperature, format: .fixed(precision: 0))K/\(asShot.tint, format: .fixed(precision: 1)) live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         } else {

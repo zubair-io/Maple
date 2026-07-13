@@ -375,7 +375,7 @@ extension EditSession {
         let cachedNoiseProfile = snapshot.noiseProfile
         let cachedISO = snapshot.iso
         let cachedWbFrame = snapshot.wbFrame
-        // #1781: decode-bake anchor when a frame is present (wbDeltaAnchor).
+        // #1781: frame as-shot anchor when a frame is present (wbDeltaAnchor).
         let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
         // Auto Profile (#812) — resolve (and cache) the per-image display-space
         // CIColorCube once per render, OFF the synchronous filter-chain block.

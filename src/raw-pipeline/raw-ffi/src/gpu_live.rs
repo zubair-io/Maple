@@ -341,6 +341,22 @@ pub unsafe extern "C" fn maple_gpu_live_open(
     };
     let px = std::slice::from_raw_parts(pixels, lanes);
 
+    // TEMP DIAG (#1967): mean RGB of the BAKE buffer the app hands the GPU.
+    // raw-core develop@6500 has bg B-R ~ -33 (warm); as-shot(4522) ~ 0 (neutral).
+    {
+        let n = (lanes / 4) as f64;
+        let (mut sr, mut sg, mut sb) = (0.0f64, 0.0f64, 0.0f64);
+        for c in px.chunks_exact(4) {
+            sr += c[0] as f64;
+            sg += c[1] as f64;
+            sb += c[2] as f64;
+        }
+        eprintln!(
+            "BAKEDIAG dims={}x{} mean_linRGB=[{:.4},{:.4},{:.4}] B-R={:.4}",
+            width, height, sr / n, sg / n, sb / n, (sb - sr) / n
+        );
+    }
+
     // Panic barrier (#1079): wgpu validation/`handle_error_fatal` panics must not
     // unwind through this `extern "C"` frame (an abort on Apple). rc 99 + a
     // last-error message instead — the Swift host CPU-falls-back on any nonzero.

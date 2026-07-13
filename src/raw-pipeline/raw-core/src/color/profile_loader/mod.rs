@@ -121,7 +121,7 @@ pub fn transcode_v1_to_v3(v1_bytes: &[u8]) -> Option<EncodedV3> {
 /// degrades gracefully (embedded matrices first, synthetic only when
 /// neither side provides a usable — non-identity, non-placeholder —
 /// calibration matrix) rather than collapsing to identity.
-pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
+pub const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
 pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
 

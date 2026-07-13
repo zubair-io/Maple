@@ -155,18 +155,24 @@ public final class EditSession {
     /// (non-RAW, `RawlerFallback` bodies) — those keep legacy behaviour.
     public internal(set) var wbSliderFrame: WbSliderFrame?
 
-    /// The WB delta anchor for the per-tick chains (#1781): the strip-XMP
-    /// decode bake (explicit 6500/0, interpreted IN the slider frame) when
-    /// a frame is present, else the legacy pre-decode as-shot estimate.
+    /// The WB delta anchor for the per-tick chains (#1781): the frame's true
+    /// as-shot CCT/tint when a frame is present, else the legacy pre-decode
+    /// as-shot estimate.
     var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
-        if wbSliderFrame?.isPresent == true {
+        if let frame = wbSliderFrame, frame.isPresent {
             return ImageEditPipeline.AsShotWB(
-                temperature: WbSliderFrame.decodeBakeAnchor.temperature,
-                tint: WbSliderFrame.decodeBakeAnchor.tint
+                temperature: Double(frame.sceneCCT),
+                tint: Double(frame.asShotTint)
             )
         }
-        guard let cct = asShotCCT, let t = asShotTint else { return nil }
-        return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
+
+        guard let cct = asShotCCT, let tint = asShotTint else {
+            return nil
+        }
+        return ImageEditPipeline.AsShotWB(
+            temperature: cct,
+            tint: tint
+        )
     }
 
     // MARK: Render output

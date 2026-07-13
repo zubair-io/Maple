@@ -6,7 +6,7 @@
 //   * `EditSession.adoptDecodedWbFrame` — the decode's numbers win over the
 //     `CIRAWFilter` placeholder for an untouched As-Shot model, and only
 //     then,
-//   * `EditSession.wbDeltaAnchor` — the strip-XMP decode-bake anchor when a
+//   * `EditSession.wbDeltaAnchor` — the frame's as-shot CCT/tint when a
 //     frame is present, the legacy as-shot estimate otherwise.
 
 import XCTest
@@ -172,15 +172,15 @@ final class WbSliderFrameTests: XCTestCase {
 
     // MARK: - Anchor derivation
 
-    func testAnchorIsDecodeBakeWhenFramePresent() {
+    func testAnchorUsesFrameWhenPresent() {
         let session = rawSession()
         session.asShotCCT = 4522
         session.asShotTint = -43.65
         session.adoptDecodedWbFrame(frame())
 
         let anchor = session.wbDeltaAnchor
-        XCTAssertEqual(anchor?.temperature ?? 0, 6500, accuracy: 0.01)
-        XCTAssertEqual(anchor?.tint ?? -1, 0, accuracy: 0.01)
+        XCTAssertEqual(anchor?.temperature ?? 0, 5520, accuracy: 0.01)
+        XCTAssertEqual(anchor?.tint ?? -1, -12, accuracy: 0.01)
     }
 
     func testAnchorFallsBackToAsShotEstimateWithoutFrame() {

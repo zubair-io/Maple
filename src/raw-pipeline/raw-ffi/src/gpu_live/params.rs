@@ -141,6 +141,21 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             }
         }
     };
+    // TEMP DIAG (#1967 app verify): dump the exact runtime WB inputs + result.
+    if p.input_shape == 0 {
+        let c = &p.wb_frame_cam_to_rec2020;
+        let c_zero = c.iter().all(|v| *v == 0.0);
+        eprintln!(
+            "WBDIAG2 engaged={} present={} cam2020_zero={} cam2020_row0=[{:.4},{:.4},{:.4}] \
+             scene_cct={:.1} live=({:.1},{:.2}) decoded=({:.1},{:.2}) \
+             wb_diag=[{:.4},{:.4},{:.4}] curve_len={} residual_lut_size={} wb_method={}",
+            frame_delta_engaged, wb_frame.is_present(), c_zero, c[0], c[1], c[2],
+            p.wb_frame_scene_cct, p.temperature, p.tint, p.decoded_temperature, p.decoded_tint,
+            wb_matrix[0][0], wb_matrix[1][1], wb_matrix[2][2],
+            p.profile_curve_len, p.residual_lut_size, p.wb_method,
+        );
+    }
+
     // Live-builder WB gate values (#1781). `build_live_chain` gates the WB
     // pass on `wb_is_noop(wb_temperature, wb_tint)` — the ABSOLUTE 6500/0
     // short-circuit predicate. Under the frame-anchored DELTA contract the

@@ -485,3 +485,206 @@ fn gpu_live_vs_develop_refine_seam_test_0002() {
         "frame path ({mean_a:.3}) must beat the generic path ({mean_b:.3})"
     );
 }
+
+/// DIAGNOSTIC (temp): measure the seam at the APP's real AS-SHOT target
+/// (4522.4 / −43.79), not the sidecar 6282. Compares:
+///   A) PR path: bake @6500, delta(target=asshot, decoded=6500)   [current app]
+///   B) bake @asshot, delta(target=asshot, decoded=asshot)=identity [fix option]
+/// vs the truth = a fresh full develop at as-shot.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore = "needs fixtures")]
+fn diag_seam_at_asshot_target() {
+    use raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable as render_sized;
+    use raw_core::pipeline::RenderQuality;
+    use raw_core::CancelToken;
+
+    let path = raw_core::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
+    let frame = crate::scene_linear_f32::wb_frame_export(&raw);
+    assert!(frame.is_present());
+
+    let base = AdjustmentModel {
+        temperature_seen: true, tint_seen: true,
+        auto_exposure: raw_core::types::adjustment::AutoExposureMode::Off,
+        sharpen_amount: 0.0, nr_color: 0.0, nr_luminance: 0.0,
+        ..AdjustmentModel::default()
+    };
+    let asshot = (4522.4f32, -43.79f32);
+    let m = |t: (f32, f32)| AdjustmentModel { temperature: t.0, tint: t.1, ..base.clone() };
+    let never = CancelToken::never();
+
+    let (w, h, refine) = render_sized(&raw, &m(asshot), RenderQuality::Preview, 512, never.clone()).expect("refine asshot");
+    let (_, _, bake6500) = render_sized(&raw, &m((6500.0, 0.0)), RenderQuality::Preview, 512, never.clone()).expect("bake6500");
+    let (_, _, bakeas) = render_sized(&raw, &m(asshot), RenderQuality::Preview, 512, never).expect("bake asshot");
+
+    let to_u8 = |f32buf: &[f32], w: u32, h: u32| {
+        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        for (i, c) in f32buf.chunks_exact(4).enumerate() { img.pixels[i] = [c[0], c[1], c[2]]; }
+        raw_core::view::agx::apply(&mut img, 0.0);
+        raw_core::view::encode::rec2020_to_srgb(&mut img);
+        raw_core::view::encode::srgb_gamma_encode(&mut img);
+        let mut rgba = Vec::with_capacity(f32buf.len());
+        for p in &img.pixels { rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]); }
+        raw_gpu::dither_and_quantize(&rgba, w as usize, h as usize)
+    };
+    let refine_u8 = to_u8(&refine, w, h);
+
+    let curve = ProfileCurve::identity();
+    let lut = ColorLut::identity(2);
+    let model_live = m(asshot);
+    let arr = owned_arrays(&model_live, &curve, &lut);
+    let null_auto = |p: &mut MapleGpuLiveParams| {
+        p.profile_curve_ptr = std::ptr::null(); p.profile_curve_len = 0;
+        p.residual_lut_size = 0; p.residual_lut_ptr = std::ptr::null(); p.residual_lut_len = 0;
+    };
+
+    // A) PR path: bake @6500, decoded=6500.
+    let mut pa = make_params(&model_live, WbMethod::Cat16, 2, &arr);
+    pa.decoded_temperature = 6500.0; pa.decoded_tint = 0.0;
+    null_auto(&mut pa); set_frame(&mut pa, &frame);
+    let live_a = gpu_render(&bake6500, w, h, &pa);
+
+    // B) bake @asshot, decoded=asshot (identity delta).
+    let mut pb = make_params(&model_live, WbMethod::Cat16, 2, &arr);
+    pb.decoded_temperature = asshot.0; pb.decoded_tint = asshot.1;
+    null_auto(&mut pb); set_frame(&mut pb, &frame);
+    let live_b = gpu_render(&bakeas, w, h, &pb);
+
+    let (ma, pa95, mxa) = de00_stats(&live_a, &refine_u8);
+    let (mb, pb95, mxb) = de00_stats(&live_b, &refine_u8);
+    eprintln!("DIAGSEAM @asshot(4522): A(PR bake6500) mean/p95/max={:.3}/{:.3}/{:.3} maxCh={} | B(bake-asshot identity) mean/p95/max={:.3}/{:.3}/{:.3} maxCh={}",
+        ma, pa95, mxa, max_channel_delta(&live_a, &refine_u8),
+        mb, pb95, mxb, max_channel_delta(&live_b, &refine_u8));
+}
+
+/// DIAGNOSTIC (temp): isolate whether the cyan is the WB delta or the
+/// Auto Profile GPU tail (curve vs residual LUT). Fits the REAL auto profile
+/// for test_0002 and applies it in the GPU render, comparing to the CPU
+/// application of the SAME artifacts (maple-cli is neutral WITH auto profile).
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore = "needs fixtures")]
+fn diag_autoprofile_gpu_vs_cpu_asshot() {
+    use raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable as render_sized;
+    use raw_core::pipeline::{fit_auto_profile_from_raw, RawInput, RenderQuality};
+    use raw_core::CancelToken;
+
+    let path = raw_core::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
+    let frame = crate::scene_linear_f32::wb_frame_export(&raw);
+    let asshot = (4522.4f32, -43.79f32);
+
+    // Fit the REAL auto profile (curve + residual LUT), profile = Auto.
+    let fit_model = AdjustmentModel {
+        temperature: asshot.0, tint: asshot.1, temperature_seen: true, tint_seen: true,
+        profile: raw_core::types::Profile::Auto,
+        auto_exposure: raw_core::types::adjustment::AutoExposureMode::Off,
+        sharpen_amount: 0.0, nr_color: 0.0, nr_luminance: 0.0,
+        ..AdjustmentModel::default()
+    };
+    let (curve_opt, lut_opt) = fit_auto_profile_from_raw(&raw, &fit_model, RenderQuality::Preview, RawInput::Path(&path))
+        .expect("auto profile fit");
+    let real_curve = curve_opt.unwrap_or_else(ProfileCurve::identity);
+    let real_lut = lut_opt.unwrap_or_else(|| ColorLut::identity(2));
+    eprintln!("APDIAG fit: curve_points={} lut_size={}", real_curve.to_flat().len(), real_lut.data.len());
+
+    let base = AdjustmentModel {
+        temperature: asshot.0, tint: asshot.1, temperature_seen: true, tint_seen: true,
+        auto_exposure: raw_core::types::adjustment::AutoExposureMode::Off,
+        sharpen_amount: 0.0, nr_color: 0.0, nr_luminance: 0.0,
+        ..AdjustmentModel::default()
+    };
+    let never = CancelToken::never();
+    let (w, h, bake6500) = render_sized(&raw, &AdjustmentModel{temperature:6500.0,tint:0.0,..base.clone()}, RenderQuality::Preview, 512, never.clone()).expect("bake");
+    let (_, _, refine) = render_sized(&raw, &base, RenderQuality::Preview, 512, never).expect("refine");
+
+    let id_curve = ProfileCurve::identity();
+    let id_lut = ColorLut::identity(2);
+
+    // CPU truth WITH the real auto profile: view tail over refine, then curve+lut.
+    let cpu_ref = |curve: &ProfileCurve, lut: &ColorLut| -> Vec<u8> {
+        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        for (i, c) in refine.chunks_exact(4).enumerate() { img.pixels[i] = [c[0], c[1], c[2]]; }
+        raw_core::view::agx::apply(&mut img, 0.0);
+        raw_core::view::encode::rec2020_to_srgb(&mut img);
+        raw_core::view::encode::srgb_gamma_encode(&mut img);
+        let mut rgb: Vec<f32> = Vec::with_capacity(img.pixels.len()*3);
+        for p in &img.pixels { rgb.extend_from_slice(&[p[0],p[1],p[2]]); }
+        raw_core::view::auto_profile::apply::apply_curve(&mut rgb, curve);
+        lut.apply(&mut rgb);
+        let mut rgba = Vec::with_capacity(refine.len());
+        for px in rgb.chunks_exact(3) { rgba.extend_from_slice(&[px[0],px[1],px[2],1.0]); }
+        raw_gpu::dither_and_quantize(&rgba, w as usize, h as usize)
+    };
+
+    let gpu_with = |curve: &ProfileCurve, lut: &ColorLut, lut_size: usize| -> Vec<u8> {
+        let arr = owned_arrays(&base, curve, lut);
+        let mut p = make_params(&base, WbMethod::Cat16, lut_size, &arr);
+        p.decoded_temperature = 6500.0; p.decoded_tint = 0.0;
+        set_frame(&mut p, &frame);
+        gpu_render(&bake6500, w, h, &p)
+    };
+
+    // Truth = CPU with full auto profile.
+    let truth = cpu_ref(&real_curve, &real_lut);
+    let lut_edge = (real_lut.data.len()/3) as f64; let lut_n = lut_edge.cbrt().round() as usize;
+
+    for (name, gpu, cpuref) in [
+        ("none(null_auto)", gpu_with(&id_curve, &id_lut, 2), cpu_ref(&id_curve, &id_lut)),
+        ("curve+lut(full)", gpu_with(&real_curve, &real_lut, lut_n), truth.clone()),
+        ("curve-only",      gpu_with(&real_curve, &id_lut, 2),       cpu_ref(&real_curve, &id_lut)),
+        ("lut-only",        gpu_with(&id_curve, &real_lut, lut_n),   cpu_ref(&id_curve, &real_lut)),
+    ] {
+        let (m,p95,mx) = de00_stats(&gpu, &cpuref);
+        eprintln!("APDIAG [{}] GPU-vs-CPU(same-AP) mean/p95/max={:.3}/{:.3}/{:.3} maxCh={}", name, m, p95, mx, max_channel_delta(&gpu, &cpuref));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore = "needs fixtures")]
+fn test_0002_untouched_wb_delta_is_identity() {
+    let path = raw_core::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read test_0002.dng");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode test_0002");
+    
+    let frame = crate::scene_linear_f32::wb_frame_export(&raw);
+    assert!(frame.is_present(), "test_0002 must have a frame");
+    
+    let as_shot_cct = frame.scene_cct;
+    let as_shot_tint = frame.as_shot_tint;
+
+    // Simulate an untouched open: the user slider is exactly at the as-shot defaults,
+    // and the decode anchor matches the frame's as-shot values.
+    let m = raw_core::types::adjustment::AdjustmentModel {
+        temperature: as_shot_cct,
+        tint: as_shot_tint,
+        ..Default::default()
+    };
+    
+    let mut params = crate::scene_linear_chain::MapleGpuLiveParams::default();
+    crate::scene_linear_chain::make_gpu_live_params(
+        &m,
+        as_shot_cct,
+        as_shot_tint,
+        as_shot_cct,
+        as_shot_tint,
+        &frame,
+        &mut params
+    );
+
+    // The GPU WB delta matrix must be the exact identity matrix.
+    let diag = [params.wb_delta_0, params.wb_delta_4, params.wb_delta_8];
+    let zeros = [
+        params.wb_delta_1, params.wb_delta_2, 
+        params.wb_delta_3, params.wb_delta_5, 
+        params.wb_delta_6, params.wb_delta_7
+    ];
+    
+    for (i, d) in diag.iter().enumerate() {
+        assert!((d - 1.0).abs() < 1e-6, "diagonal {} was {}, expected 1.0", i, d);
+    }
+    for (i, z) in zeros.iter().enumerate() {
+        assert!(z.abs() < 1e-6, "off-diagonal {} was {}, expected 0.0", i, z);
+    }
+}
