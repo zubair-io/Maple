@@ -110,6 +110,11 @@ pub struct TileRect {
 ///   sharpening"); the iterated Richardson–Lucy stencil reaches past the
 ///   overlap pad at the σ = 8 helper clamp (#1084). Same fallback
 ///   contract as dehaze.
+/// - a DNG carrying OpcodeList3 → returns `Err` ("OpcodeList3"); the
+///   WarpRectilinear resample gathers from displaced source positions that
+///   can exceed the overlap pad, and the tile chain does not apply opcodes,
+///   so tiled output would disagree with (and seam against) the full render
+///   (#1932). Same fallback contract as dehaze.
 /// - `out_w > src_w || out_h > src_h` → returns `Err` ("upscale"); the
 ///   tile path caps at native resolution.
 /// - `(out_w, out_h)` aspect does not match `(src_w, src_h)` aspect →
@@ -237,6 +242,31 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
             "tile path is not supported when capture sharpening is active \
              (Richardson–Lucy stencil exceeds the overlap pad; use the \
              full-image render entry instead). See #1084."
+                .into(),
+        ));
+    }
+    // DNG OpcodeList3 present → reject loudly, same fallback contract as
+    // dehaze/vignette (#1932). The full and sized develop chains apply
+    // OpcodeList3 (GainMap / WarpRectilinear) on the demosaiced buffer in
+    // full-sensor ActiveArea coordinates; the tile develop chain never did,
+    // so a DNG shipping OpcodeList3 rendered with spatial/color disagreement
+    // and seams between tiled and full output. WarpRectilinear is a resample
+    // that gathers from source positions displaced by the (unbounded) lens
+    // model — displacement can exceed TILE_OVERLAP_PX, so it is fundamentally
+    // untileable, exactly like dehaze. Rather than apply a subset on a
+    // half-built tile-local coordinate mapping (the coordinate plumbing #1173
+    // still needs for the already-mis-anchored tile PGTM path), refuse here so
+    // opcode-carrying DNGs fall back to the full-image render, which applies
+    // OpcodeList3 correctly — trading tile-render speed for correctness. A
+    // future tile-local GainMap apply (once #1173's coordinate mapping lands)
+    // could re-enable tiling for GainMap-only opcode lists.
+    if raw.opcode_list3.is_some() {
+        return Err(crate::error::Error::Pipeline(
+            "tile path is not supported when the DNG carries OpcodeList3 \
+             (GainMap / WarpRectilinear gain/warp/CA correction; the warp \
+             resample gather exceeds the overlap pad and the tile chain does \
+             not apply opcodes — use the full-image render entry instead). \
+             See #1932."
                 .into(),
         ));
     }
