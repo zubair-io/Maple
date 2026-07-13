@@ -138,7 +138,7 @@ export const metadataRoutes = new Elysia()
       return { error: 'Thumbnail not yet generated' };
     }
     set.headers['ETag'] = etag;
-    set.headers['Content-Type'] = 'image/jpeg';
+    set.headers['Content-Type'] = 'image/avif';
     set.headers['Cache-Control'] = cacheControl;
     return result.data;
   });
