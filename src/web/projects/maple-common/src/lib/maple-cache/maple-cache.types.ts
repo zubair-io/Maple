@@ -17,7 +17,7 @@ export interface IndexedAsset {
   mtime: number; // unix seconds (0 when unknown in fallback mode)
   /** First 16 hex chars of sha256(filename) — the cache-key stem. */
   sha256Prefix: string;
-  thumbPath?: string; // './thumbs/<sha>.jpg' if present
+  thumbPath?: string; // './thumbs/<sha>.avif' if present (cache-only; not consulted for lookup)
   previewPath?: string; // './previews/<sha>.jpg' if present
   culling?: CullingState;
 }

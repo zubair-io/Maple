@@ -2,8 +2,9 @@
 //
 // Resolves addresses by walking FileSystemDirectoryHandles registered in
 // LibrarySlugRegistry. thumbUrl returns a blob: URL from the local thumb
-// cache (.maple/thumbs/<sha>.jpg); content-key alignment with the Self-Hosted
-// system is deferred to M3.
+// cache (.maple/thumbs/<sha>.avif, or .jpg for legacy/pre-AVIF-migration
+// entries — see MapleCacheService); content-key alignment with the
+// Self-Hosted system is deferred to M3.
 
 import { Injectable, inject } from '@angular/core';
 import { childAddress, formatAddress, parentAddress } from './maple-address';

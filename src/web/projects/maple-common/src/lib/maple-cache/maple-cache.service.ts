@@ -11,6 +11,7 @@ import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from './maple-cache.types';
 import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
+import { ThumbFormat } from '../raw-pipeline/image-utils';
 
 /**
  * Pipeline version the Hosted thumb cache was developed at (#1927). Unlike
@@ -107,55 +108,77 @@ export class MapleCacheService {
 
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
+  /** Read order for `readThumb`: AVIF is the current format everywhere
+   * (server, native app, and this client's own local-decode fallback);
+   * `.jpg` is probed second to cover pre-existing cached entries and any
+   * browser whose local encode fell back to JPEG (see `canvasToBlob`). */
+  private static readonly THUMB_READ_ORDER: ReadonlyArray<{ ext: string; mime: string }> = [
+    { ext: 'avif', mime: 'image/avif' },
+    { ext: 'jpg', mime: 'image/jpeg' },
+  ];
+
   /**
    * Read a cached thumbnail blob.
    * `sha` is the 16-char hex prefix (sha256Prefix16(filename)).
    * Returns null if not cached — or if a Hosted-written thumb is stale.
    *
    * Pipeline-version guard (#1927): a thumb this client developed carries a
-   * `<sha>.jpg.v` companion recording `THUMB_PIPELINE_VERSION`. When that
+   * `<sha>.<ext>.v` companion recording `THUMB_PIPELINE_VERSION`. When that
    * marker is older than the current version the cached pixels predate a
    * raw-core/AgX change, so we miss and force a re-decode. A thumb with NO
    * marker is foreign — written by the server or native app, which extract
    * the embedded preview (pipeline-version-independent) — and is trusted
-   * as-is, preserving the portable `.maple/thumbs/<sha>.jpg` cross-platform
-   * contract. The `.jpg.v` companion mirrors the API's `<thumb>.meta`
+   * as-is, preserving the portable `.maple/thumbs/<sha>.<ext>` cross-platform
+   * contract. The `.<ext>.v` companion mirrors the API's `<thumb>.meta`
    * sidecar pattern (`routes/fs-thumbs.ts`).
    */
   async readThumb(folder: MapleFolderHandle, sha: string): Promise<Blob | null> {
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg`);
-    } catch {
-      return null;
+    for (const { ext, mime } of MapleCacheService.THUMB_READ_ORDER) {
+      let bytes: Uint8Array;
+      try {
+        bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.${ext}`);
+      } catch {
+        continue; // not cached in this format — try the next
+      }
+      const markerVersion = await this._readThumbVersion(folder, sha, ext);
+      if (markerVersion !== null && markerVersion < THUMB_PIPELINE_VERSION) {
+        return null; // stale locally-developed thumb → re-decode
+      }
+      // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
+      // .buffer may be typed as ArrayBufferLike; Blob requires ArrayBuffer).
+      const ab = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(ab).set(bytes);
+      return new Blob([ab], { type: mime });
     }
-    const markerVersion = await this._readThumbVersion(folder, sha);
-    if (markerVersion !== null && markerVersion < THUMB_PIPELINE_VERSION) {
-      return null; // stale locally-developed thumb → re-decode
-    }
-    // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
-    // .buffer may be typed as ArrayBufferLike; Blob requires ArrayBuffer).
-    const ab = new ArrayBuffer(bytes.byteLength);
-    new Uint8Array(ab).set(bytes);
-    return new Blob([ab], { type: 'image/jpeg' });
+    return null;
   }
 
   /**
    * Write a thumbnail blob plus its pipeline-version companion (#1927).
    * Creates `.maple/thumbs/` if necessary.
    * Silently skips if the folder is read-only.
+   *
+   * `format` defaults to `'jpeg'` for back-compat with any caller that
+   * doesn't pass one — the real callers (`library-cache.service.ts`) always
+   * pass the format `canvasToBlob` actually produced.
    */
-  async writeThumb(folder: MapleFolderHandle, sha: string, blob: Blob): Promise<void> {
+  async writeThumb(
+    folder: MapleFolderHandle,
+    sha: string,
+    blob: Blob,
+    format: ThumbFormat = 'jpeg',
+  ): Promise<void> {
     if (!folder.write) return;
+    const ext = format === 'avif' ? 'avif' : 'jpg';
     try {
       await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      await this.fs.writeFile(folder, `.maple/thumbs/${sha}.jpg`, bytes);
+      await this.fs.writeFile(folder, `.maple/thumbs/${sha}.${ext}`, bytes);
       // Stamp the pipeline version this thumb was developed at so a later
       // raw-core/AgX bump invalidates it on read (see readThumb).
       await this.fs.writeFile(
         folder,
-        `.maple/thumbs/${sha}.jpg.v`,
+        `.maple/thumbs/${sha}.${ext}.v`,
         new TextEncoder().encode(String(THUMB_PIPELINE_VERSION)),
       );
     } catch (err) {
@@ -164,7 +187,8 @@ export class MapleCacheService {
   }
 
   /**
-   * Read the pipeline-version marker for a cached thumb.
+   * Read the pipeline-version marker for a cached thumb at the given
+   * extension.
    *   - `null`  — marker ABSENT (a foreign/embedded thumb; `readThumb` trusts it).
    *   - `N`     — the parsed version.
    *   - `-1`    — marker PRESENT but unparseable (e.g. a partial write). A
@@ -172,10 +196,14 @@ export class MapleCacheService {
    *               version stamp is broken, so force a re-decode rather than
    *               trust it: -1 is always below `THUMB_PIPELINE_VERSION`.
    */
-  private async _readThumbVersion(folder: MapleFolderHandle, sha: string): Promise<number | null> {
+  private async _readThumbVersion(
+    folder: MapleFolderHandle,
+    sha: string,
+    ext: string,
+  ): Promise<number | null> {
     let bytes: Uint8Array;
     try {
-      bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.jpg.v`);
+      bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.${ext}.v`);
     } catch {
       return null; // absent → foreign thumb, trust
     }

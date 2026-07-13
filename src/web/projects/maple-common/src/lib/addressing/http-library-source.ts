@@ -3,14 +3,15 @@
 // Routes all calls through the M1 API:
 //   GET /api/folder/:slug/*  → FolderListing JSON
 //   GET /api/image/:slug/*   → original bytes
-//   GET /api/thumb/:slug/*   → thumbnail JPEG (immutable-cached)
+//   GET /api/thumb/:slug/*   → thumbnail AVIF (immutable-cached)
 //   GET /api/preview/:slug/* → preview JPEG (immutable-cached)
 //
 // All four methods go through HttpClient so the authInterceptor attaches the
 // bearer token. /api/thumb|preview are behind requireAuth (bearer-only — see
 // auth/middleware.ts), so a bare `<img src>` with no Authorization header
-// would 401. thumbBlob/previewBlob return the JPEG as a Blob; the CALLER owns
-// the object-URL lifecycle (create + revoke — see ThumbLruCache).
+// would 401. thumbBlob returns AVIF and previewBlob returns JPEG, both as a
+// Blob; the CALLER owns the object-URL lifecycle (create + revoke — see
+// ThumbLruCache).
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpEventType } from '@angular/common/http';
@@ -72,9 +73,9 @@ export class HttpLibrarySource implements LibrarySource {
         observe: 'response',
       }),
     );
-    // Only a 200 carries a real JPEG. A 202 (indexing — older servers) or 204
-    // has a JSON/empty body; return null so the caller keeps the gradient
-    // placeholder instead of rendering that body as a broken <img>.
+    // Only a 200 carries a real thumbnail. A 202 (indexing — older servers)
+    // or 204 has a JSON/empty body; return null so the caller keeps the
+    // gradient placeholder instead of rendering that body as a broken <img>.
     return res.status === 200 ? res.body : null;
   }
 

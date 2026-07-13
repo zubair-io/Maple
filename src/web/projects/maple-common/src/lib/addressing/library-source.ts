@@ -47,8 +47,8 @@ export interface LibrarySource {
    */
   imageBlob(a: MapleAddress, onProgress?: (p: DownloadProgress) => void): Promise<Blob>;
   /**
-   * Fetch the thumbnail/preview JPEG for an image address as a Blob. The
-   * CALLER owns the object-URL lifecycle (create + revoke) — see
+   * Fetch the thumbnail (AVIF) / preview (JPEG) for an image address as a
+   * Blob. The CALLER owns the object-URL lifecycle (create + revoke) — see
    * LibraryCache.ThumbLruCache. Returning a Blob (not a blob: URL string)
    * keeps revocation explicit and lets Self-Hosted fetch via HttpClient so the
    * bearer token is attached (the /api/thumb|preview routes are bearer-only;

@@ -17,6 +17,8 @@ import { MapleFolderHandle } from '../folder-access/folder-access.types';
 const SHA = 'abc1230000000000';
 const JPG = `.maple/thumbs/${SHA}.jpg`;
 const MARKER = `.maple/thumbs/${SHA}.jpg.v`;
+const AVIF = `.maple/thumbs/${SHA}.avif`;
+const AVIF_MARKER = `.maple/thumbs/${SHA}.avif.v`;
 
 function folder(write = true): MapleFolderHandle {
   return { name: 'lib', read: true, write };
@@ -48,7 +50,13 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
   });
 
   const jpeg = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
+  const avif = () =>
+    new Blob([new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70])], {
+      type: 'image/avif',
+    });
   const markerInt = () => Number.parseInt(new TextDecoder().decode(files.get(MARKER)!).trim(), 10);
+  const avifMarkerInt = () =>
+    Number.parseInt(new TextDecoder().decode(files.get(AVIF_MARKER)!).trim(), 10);
 
   it('writeThumb writes the jpg AND the version companion', async () => {
     await svc.writeThumb(folder(), SHA, jpeg());
@@ -96,6 +104,50 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
 
   it('readThumb returns null when no cached thumb exists', async () => {
     const blob = await svc.readThumb(folder(), SHA);
+    expect(blob).toBeNull();
+  });
+
+  it("writeThumb with format 'avif' writes the avif AND its own version companion", async () => {
+    await svc.writeThumb(folder(), SHA, avif(), 'avif');
+    expect(files.has(AVIF)).toBe(true);
+    expect(files.has(AVIF_MARKER)).toBe(true);
+    expect(files.has(JPG)).toBe(false);
+    expect(avifMarkerInt()).toBe(THUMB_PIPELINE_VERSION);
+  });
+
+  it('readThumb serves a locally-written avif thumb whose marker matches the current version', async () => {
+    await svc.writeThumb(folder(), SHA, avif(), 'avif');
+    const blob = await svc.readThumb(folder(), SHA);
+    expect(blob).not.toBeNull();
+    expect(blob!.type).toBe('image/avif');
+  });
+
+  it('readThumb prefers avif over a co-present legacy jpg', async () => {
+    // A library can hold both a pre-migration jpg and a freshly re-developed
+    // avif for the same sha (the jpg becomes an orphan; nothing deletes it
+    // client-side). avif must win the read.
+    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    await svc.writeThumb(folder(), SHA, avif(), 'avif');
+    const blob = await svc.readThumb(folder(), SHA);
+    expect(blob!.type).toBe('image/avif');
+  });
+
+  it('readThumb falls back to a legacy jpg when no avif is cached', async () => {
+    // Foreign (server/native) thumb pre-dating the AVIF migration, or a local
+    // thumb from a browser whose canvas encode fell back to JPEG.
+    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    const blob = await svc.readThumb(folder(), SHA);
+    expect(blob).not.toBeNull();
+    expect(blob!.type).toBe('image/jpeg');
+  });
+
+  it('readThumb misses a stale locally-written avif rather than falling back to an even-older jpg', async () => {
+    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9])); // a co-present legacy entry
+    files.set(AVIF, new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]));
+    files.set(AVIF_MARKER, new TextEncoder().encode(String(THUMB_PIPELINE_VERSION - 1)));
+    const blob = await svc.readThumb(folder(), SHA);
+    // Stale avif must NOT fall through to the co-present jpg and must not be
+    // served — the caller re-decodes.
     expect(blob).toBeNull();
   });
 });

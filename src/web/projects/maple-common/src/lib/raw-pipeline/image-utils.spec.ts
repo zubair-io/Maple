@@ -16,7 +16,7 @@
 //      Fixed by porting that function bit-for-bit; this spec proves the
 //      rounding behavior actually changed (not just re-labeled truncation).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { f32ToF16 } from './image-utils';
 import { SRGB_TO_REC2020 } from '../generated/color-matrices.generated';
@@ -101,5 +101,92 @@ describe('f32ToF16 (#1944 — round-to-nearest-even, ports raw_core::pipeline::f
   it('clamps overflow to fp16 infinity and small negatives to signed zero', () => {
     expect(f32ToF16(1e30)).toBe(0x7c00);
     expect(f32ToF16(-1e-10)).toBe(0x8000);
+  });
+});
+
+describe('canvasToBlob (thumbnail encoder: AVIF-first with verified JPEG fallback)', () => {
+  // A real jsdom/happy-dom test environment has no working OffscreenCanvas
+  // AVIF/JPEG encoder, so the global is fully replaced per test with a fake
+  // whose `convertToBlob` behavior the test controls — this exercises the
+  // AVIF-first/verify/fallback LOGIC in image-utils.ts, not a real codec.
+  // `vi.resetModules()` + a dynamic re-import gives each test a fresh module
+  // instance, so the module-level `avifEncodeSupported` memoization cache
+  // doesn't leak state between scenarios.
+  let convertToBlobImpl: (opts: { type: string; quality?: number }) => Promise<Blob>;
+
+  class FakeOffscreenCanvas {
+    width: number;
+    height: number;
+    constructor(width = 0, height = 0) {
+      this.width = width;
+      this.height = height;
+    }
+    convertToBlob(opts: { type: string; quality?: number }): Promise<Blob> {
+      return convertToBlobImpl(opts);
+    }
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('encodes AVIF when the browser genuinely supports it', async () => {
+    convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
+    const { canvasToBlob } = await import('./image-utils');
+    const canvas = new FakeOffscreenCanvas(4, 4);
+    const result = await canvasToBlob(canvas as unknown as OffscreenCanvas);
+    expect(result.format).toBe('avif');
+    expect(result.blob.type).toBe('image/avif');
+  });
+
+  it('falls back to JPEG when the engine silently substitutes an unsupported type (e.g. returns PNG)', async () => {
+    // Some engines don't error on an unsupported requested MIME type — they
+    // silently emit a different format (commonly PNG) instead. The verify
+    // step (checking the returned Blob.type) must catch this, not just
+    // assume success because the call didn't throw.
+    convertToBlobImpl = async ({ type }) =>
+      new Blob(['x'], { type: type === 'image/avif' ? 'image/png' : type });
+    const { canvasToBlob } = await import('./image-utils');
+    const canvas = new FakeOffscreenCanvas(4, 4);
+    const result = await canvasToBlob(canvas as unknown as OffscreenCanvas);
+    expect(result.format).toBe('jpeg');
+    expect(result.blob.type).toBe('image/jpeg');
+  });
+
+  it('falls back to JPEG when the AVIF probe itself throws', async () => {
+    convertToBlobImpl = async ({ type }) => {
+      if (type === 'image/avif') throw new Error('unsupported');
+      return new Blob(['x'], { type });
+    };
+    const { canvasToBlob } = await import('./image-utils');
+    const canvas = new FakeOffscreenCanvas(4, 4);
+    const result = await canvasToBlob(canvas as unknown as OffscreenCanvas);
+    expect(result.format).toBe('jpeg');
+    expect(result.blob.type).toBe('image/jpeg');
+  });
+
+  it('memoizes the capability probe across multiple canvasToBlob calls', async () => {
+    let probeConstructions = 0;
+    class TrackingFakeOffscreenCanvas extends FakeOffscreenCanvas {
+      constructor(width = 0, height = 0) {
+        super(width, height);
+        // canEncodeAvif() always probes with a 1x1 canvas — count only that
+        // shape so real per-call canvases (4x4 below) aren't miscounted.
+        if (width === 1 && height === 1) probeConstructions++;
+      }
+    }
+    vi.stubGlobal('OffscreenCanvas', TrackingFakeOffscreenCanvas);
+    convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
+    const { canvasToBlob } = await import('./image-utils');
+    const canvas = new TrackingFakeOffscreenCanvas(4, 4);
+    await canvasToBlob(canvas as unknown as OffscreenCanvas);
+    await canvasToBlob(canvas as unknown as OffscreenCanvas);
+    await canvasToBlob(canvas as unknown as OffscreenCanvas);
+    expect(probeConstructions).toBe(1);
   });
 });

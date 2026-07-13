@@ -550,8 +550,8 @@ export class LibraryCache {
   ): Promise<void> {
     const folder = this.store.currentFolder();
     // Hosted decode fallback: pull bytes, run them through the WASM
-    // pipeline, encode to JPEG, store, and write through to the
-    // .maple/ cache.
+    // pipeline, encode to AVIF (falling back to JPEG if the browser can't),
+    // store, and write through to the .maple/ cache.
     let bytes: Uint8Array;
     try {
       bytes = await this.bytesForAsset(asset.id);
@@ -564,11 +564,13 @@ export class LibraryCache {
     const bitmap = await imageDataToBitmap(decoded);
     const canvas = await resizeBitmapToCanvas(bitmap, 512);
     bitmap.close();
-    const blob = await canvasToBlob(canvas);
+    const { blob, format } = await canvasToBlob(canvas);
     this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
     if (folder?.write) {
       const sha = await sha256Prefix16(asset.filename);
-      void this.cache.writeThumb(folder, sha, blob).then(() => onThumbWritten?.(asset.id, sha));
+      void this.cache
+        .writeThumb(folder, sha, blob, format)
+        .then(() => onThumbWritten?.(asset.id, sha));
     }
   }
 
