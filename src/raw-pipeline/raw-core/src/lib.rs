@@ -40,6 +40,9 @@ pub mod png;
 
 pub mod jpeg;
 
+#[cfg(feature = "avif")]
+pub mod avif;
+
 pub mod tiff;
 
 #[cfg(any(test, feature = "test-support"))]

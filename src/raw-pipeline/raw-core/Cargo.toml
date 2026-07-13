@@ -54,6 +54,12 @@ stage-dump = ["dep:exr"]
 # Epic #925: pull in the headless GPU resource core (`raw-gpu`). OFF by default
 # — enable with `--features gpu`. Build-time only; no default impact.
 gpu = ["dep:raw-gpu"]
+# Pulls in the `image` crate's AVIF codec (pure-Rust `ravif`/`rav1e`, no C
+# toolchain) for the thumbnail encoder. OFF by default so raw-wasm — which
+# only ever needs raw-core's JPEG/decode path — never pulls ravif/rav1e into
+# the wasm32 build; raw-ffi and maple-pano opt in explicitly since they're
+# the only real consumers of `raw_core::avif::encode`.
+avif = ["image/avif"]
 
 [[example]]
 name = "synth-grey"

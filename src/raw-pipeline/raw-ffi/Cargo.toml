@@ -53,7 +53,9 @@ pano = ["dep:maple-pano", "maple-pano/ml"]
 pano-ios = ["dep:maple-pano", "maple-pano/ml-static"]
 
 [dependencies]
-raw-core = { path = "../raw-core" }
+# `avif` unconditionally on: the thumbnail encoder (thumbnail.rs) is AVIF-only
+# now, so there's no build variant of raw-ffi that doesn't need it.
+raw-core = { path = "../raw-core", features = ["avif"] }
 # Headless GPU resource core (epic #925). Gated by the `gpu` feature; absent
 # from default builds. wgpu is pulled in transitively through here.
 raw-gpu = { path = "../raw-gpu", optional = true }

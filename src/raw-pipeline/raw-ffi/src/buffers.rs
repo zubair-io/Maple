@@ -41,46 +41,6 @@ pub unsafe extern "C" fn maple_free_buffer(buffer: *mut MapleImageBuffer) {
     *b = MapleImageBuffer::empty();
 }
 
-/// Opaque heap-allocated byte buffer — used for FFI returns that hand the
-/// caller a length-tagged blob (e.g. an encoded JPEG). Free via
-/// `maple_free_byte_buffer`.
-///
-/// Layout (16 bytes on 64-bit):
-///   bytes:    *mut u8  (8B)
-///   len:      usize    (8B)
-///
-/// Free reconstructs a `Box<[u8]>` from `bytes` + `len` (matches the
-/// existing `MapleImageBuffer` free dance), so the underlying allocation
-/// must be a `Box<[u8]>`-shaped slice (i.e. `len == capacity`).
-#[repr(C)]
-pub struct MapleByteBuffer {
-    pub bytes: *mut u8,
-    pub len: usize,
-}
-
-impl MapleByteBuffer {
-    pub(crate) fn empty() -> Self {
-        Self {
-            bytes: std::ptr::null_mut(),
-            len: 0,
-        }
-    }
-}
-
-/// Free a buffer populated by `maple_render_thumbnail_jpeg`.
-#[no_mangle]
-pub unsafe extern "C" fn maple_free_byte_buffer(buffer: *mut MapleByteBuffer) {
-    if buffer.is_null() {
-        return;
-    }
-    let b = &mut *buffer;
-    if !b.bytes.is_null() {
-        let slice = std::slice::from_raw_parts_mut(b.bytes, b.len);
-        drop(Box::from_raw(slice as *mut [u8]));
-    }
-    *b = MapleByteBuffer::empty();
-}
-
 /// Scene-linear FFI buffer — Rec.2020 fp16 RGBA, straight alpha, row-major.
 ///
 /// `bytes_per_pixel` is always 8 (4 channels × 2 bytes per fp16 lane). It
