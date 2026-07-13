@@ -192,8 +192,21 @@ pub struct MapleSceneLinearBufferF32 {
     pub wb_frame_as_shot_tint: f32,
     /// The RENDER PROFILE's CM (row-major 3×3, XYZ→camera — the
     /// conjugation basis the post-DCP WB delta is built in (#1904
-    /// GPU-live seam fix). Zero ⇒ host predates the fix.
+    /// GPU-live seam fix) when the #1967 fields below are absent. Zero ⇒
+    /// host predates #1904.
     pub wb_frame_render_cm: [f32; 9],
+    // --- #1967: render-profile linear-core detail — see
+    //     `MapleGpuLiveParams`'s matching tail for the field-by-field
+    //     semantics; this is the decode-side export of the same data. ---
+    pub wb_frame_render_forward_matrix: [f32; 9],
+    pub wb_frame_render_scene_white_xyz: [f32; 3],
+    pub wb_frame_render_wb_already_baked: f32,
+    pub wb_frame_render_cm_cold: [f32; 9],
+    pub wb_frame_render_cct_cold: f32,
+    pub wb_frame_render_cm_warm: [f32; 9],
+    pub wb_frame_render_cct_warm: f32,
+    pub wb_frame_render_fm_cold: [f32; 9],
+    pub wb_frame_render_fm_warm: [f32; 9],
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -215,6 +228,15 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_scene_cct: 0.0,
             wb_frame_as_shot_tint: 0.0,
             wb_frame_render_cm: [0.0; 9],
+            wb_frame_render_forward_matrix: [0.0; 9],
+            wb_frame_render_scene_white_xyz: [0.0; 3],
+            wb_frame_render_wb_already_baked: 0.0,
+            wb_frame_render_cm_cold: [0.0; 9],
+            wb_frame_render_cct_cold: 0.0,
+            wb_frame_render_cm_warm: [0.0; 9],
+            wb_frame_render_cct_warm: 0.0,
+            wb_frame_render_fm_cold: [0.0; 9],
+            wb_frame_render_fm_warm: [0.0; 9],
         }
     }
 }

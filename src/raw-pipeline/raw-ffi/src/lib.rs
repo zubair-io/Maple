@@ -58,6 +58,10 @@ mod scene_linear;
 mod scene_linear_chain;
 mod scene_linear_f32;
 mod thumbnail;
+// The flat `wb_frame_*` FFI-tail ↔ `SliderFrameExport` bridge (#1781/#1967),
+// shared by the fp16 chain, the f32 chain, and the GPU-live params — split
+// out of `scene_linear_chain` per the 600-LOC budget.
+mod wb_frame_flat;
 // Epic #1234 / M3 (#1235) + M6 (#1244): panorama stitch C-FFI.
 //
 // Gated behind `pano` (macOS slices, load-dynamic ort) or `pano-ios` (iOS

@@ -263,8 +263,32 @@ pub struct MapleGpuLiveParams {
     pub wb_frame_as_shot_tint: f32,
     /// The RENDER PROFILE's CM (row-major 3×3, XYZ→camera — the
     /// conjugation basis the post-DCP WB delta is built in (#1904
-    /// GPU-live seam fix). Zero ⇒ host predates the fix.
+    /// GPU-live seam fix) when the #1967 fields below are absent. Zero ⇒
+    /// host predates #1904.
     pub wb_frame_render_cm: [f32; 9],
+    // --- #1967: render-profile linear-core detail, enabling an EXACT
+    //     per-target/per-anchor conjugation basis instead of the single
+    //     fixed `wb_frame_render_cm`. Appended at the struct tail per the
+    //     offset-stable ABI convention: a stale host leaves every field
+    //     below 0/absent ⇒ the #1904 fixed-C fallback, bit-identical
+    //     output. ---
+    /// `profile.forward_matrix`, row-major 3×3. All-zero ⇒ `None`.
+    pub wb_frame_render_forward_matrix: [f32; 9],
+    /// `profile.scene_white_xyz`, Y-normalized.
+    pub wb_frame_render_scene_white_xyz: [f32; 3],
+    /// `profile.wb_already_baked` as a 0.0/1.0 flag.
+    pub wb_frame_render_wb_already_baked: f32,
+    /// Render profile's own dual-illuminant CM pair (distinct from
+    /// `wb_frame_m_cold`/`wb_frame_m_warm` above, which are the VALUE
+    /// frame's). Span `< 1.0` ⇒ absent (single-illuminant render profile).
+    pub wb_frame_render_cm_cold: [f32; 9],
+    pub wb_frame_render_cct_cold: f32,
+    pub wb_frame_render_cm_warm: [f32; 9],
+    pub wb_frame_render_cct_warm: f32,
+    /// Render profile's FM pair (optional per side per the DNG spec).
+    /// All-zero ⇒ that side's FM absent.
+    pub wb_frame_render_fm_cold: [f32; 9],
+    pub wb_frame_render_fm_warm: [f32; 9],
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.
@@ -523,8 +547,12 @@ mod gpu_live_tests;
 #[cfg(test)]
 #[path = "gpu_live_nonraw_wb_tests.rs"]
 mod gpu_live_nonraw_wb_tests;
-// WB slider-frame gates (#1781): zero-frame legacy equivalence, the frame
-// parity gate, and the fixture-gated test_0002 live-vs-refine seam metric.
+// WB slider-frame gates (#1781): zero-frame legacy equivalence + the frame
+// parity gate. The fixture-gated live-vs-refine seam metric lives in the
+// sibling `gpu_live_wb_seam_tests` (split per the 600-LOC budget).
 #[cfg(test)]
 #[path = "gpu_live_wb_frame_tests.rs"]
 mod gpu_live_wb_frame_tests;
+#[cfg(test)]
+#[path = "gpu_live_wb_seam_tests.rs"]
+mod gpu_live_wb_seam_tests;

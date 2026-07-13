@@ -3,6 +3,7 @@
 //! `scene_linear_chain.rs` — see that file's docs.
 
 use super::*;
+use crate::wb_frame_flat::{wb_frame_from_flat, WbFrameFlat};
 
 #[no_mangle]
 pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
@@ -143,6 +144,15 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
         },
         as_shot_tint: p.wb_frame_as_shot_tint,
         render_cm: &p.wb_frame_render_cm,
+        render_forward_matrix: &p.wb_frame_render_forward_matrix,
+        render_scene_white_xyz: &p.wb_frame_render_scene_white_xyz,
+        render_wb_already_baked: p.wb_frame_render_wb_already_baked,
+        render_cm_cold: &p.wb_frame_render_cm_cold,
+        render_cct_cold: p.wb_frame_render_cct_cold,
+        render_cm_warm: &p.wb_frame_render_cm_warm,
+        render_cct_warm: p.wb_frame_render_cct_warm,
+        render_fm_cold: &p.wb_frame_render_fm_cold,
+        render_fm_warm: &p.wb_frame_render_fm_warm,
     });
 
     let opts = raw_core::pipeline::ChainOptions {

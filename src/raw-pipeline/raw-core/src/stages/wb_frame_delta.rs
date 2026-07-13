@@ -32,22 +32,39 @@
 //!
 //! where `g` is [`super::wb_camera::camera_wb_gain`] and `C(·)` the
 //! camera→Rec.2020 colorimetric transform (ForwardMatrix re-interpolated
-//! at the target per `retargeted_render_profile`). The frame export
-//! cannot carry the render profile's FM endpoints, so this module holds
-//! `C` FIXED at the frame's own Bradford-style transform
+//! at the target per `retargeted_render_profile`).
+//!
+//! **#1967: `C(T)` and `C(A)` are now computed EXACTLY**, distinctly, via
+//! [`SliderFrameExport::c_at`] — which runs the SAME
+//! `wb_camera::retargeted_render_profile` + `dcp::camera_to_rec2020_matrix`
+//! a real develop's DCP stage does against the render-profile detail this
+//! export now carries (`render_forward_matrix`/`render_cm_cold`/
+//! `render_cm_warm`/`render_fm_cold`/`render_fm_warm`/
+//! `render_scene_white_xyz`/`render_wb_already_baked`). This matches a
+//! fresh develop to floating-point precision (not an approximation) for
+//! any render-profile shape — FM-dual, FM-single, non-FM/Bradford, or
+//! dual-CM-only — because those two functions already dispatch correctly
+//! on all of them; nothing here reimplements DCP color math.
+//!
+//! An export that predates #1967 (no render-profile detail beyond
+//! `render_cm`) falls back to holding `C` FIXED at the frame's own
+//! Bradford-style transform
 //!
 //! ```text
 //!   C_f = M_pro→rec2020 · M_pro→xyzD50⁻¹ · bradford(w_frame → D50) · CM_as_shot⁻¹
 //! ```
 //!
-//! with `w_frame` reconstructed from `(scene_cct, as_shot_tint)`.
-//! Measured against the true FM-retargeted delta on test_0002
-//! (Hasselblad H2D-39 bundle profile, anchor 6500/0): max per-channel
-//! relative error 0.16 % at the sidecar target (6282, −44) and ≤ 1.0 %
-//! at a 1000 K + full-rail-tint excursion — versus the ≈ mean-ΔE00-7
-//! frame-anchoring error of the generic CAT16 path this replaces.
+//! with `w_frame` reconstructed from `(scene_cct, as_shot_tint)` — the
+//! #1904 fixed-C approximation. Measured against the exact #1967 delta on
+//! test_0002 (Hasselblad H2D-39, bundle render profile, anchor = the
+//! frame's own as-shot 4522.4 K / −43.79): the fixed-C floor sits at mean
+//! ΔE00 0.44 (sidecar target 6282/−44) to 0.70 (a 1000 K cool drag) vs a
+//! fresh develop; #1967 collapses both to dither-level (see
+//! `gpu_live_vs_develop_refine_seam_test_0002` in `raw-ffi` for the
+//! current measured numbers per case).
 //!
-//! Two deliberate invariances make the frame data sufficient:
+//! Two deliberate invariances make the frame data sufficient for the gain
+//! half of the conjugation regardless of which `C` tier is active:
 //! * `AsShotNeutral` cancels out of the gain RATIO (both gains divide by
 //!   it), so `camera_wb_gain` is evaluated with a `[1, 1, 1]` neutral.
 //! * any trailing diagonal factor of `C` (the pre-gain `1/AsShotNeutral`)
@@ -56,14 +73,15 @@
 
 use crate::{
     color::{
-        dcp::{self, DcpProfile},
+        dcp::{self, CmEndpoints, DcpProfile},
+        illuminant::Illuminant,
         matrices::{bradford_adapt, m_pro_to_rec2020, M_PRO_TO_XYZ_D50, XYZ_D50},
     },
     image::{ColorSpace, Image, RawImage},
-    math::Matrix3,
+    math::{Matrix3, Vec3},
 };
 
-use super::{camera_wb_gain, SliderFrame};
+use super::{camera_wb_gain, retargeted_render_profile, SliderFrame};
 use crate::stages::white_balance::{wb_cat16_matrix, xy_to_xyz};
 
 /// Plain-data export of a resolved [`SliderFrame`] + the frame's as-shot
@@ -94,9 +112,42 @@ pub struct SliderFrameExport {
     pub as_shot_tint: f32,
     /// The RENDER PROFILE's CM (`profile.color_matrix`, row-major
     /// XYZ→camera — inverted to camera→XYZ in `frame_to_rec2020`) — the
-    /// conjugation basis `frame_to_rec2020` uses (#1904 seam fix). Zero ⇒
-    /// host predates the fix; `to_frame` falls back to the value frame.
+    /// conjugation basis `frame_to_rec2020` uses when the #1967 fields
+    /// below are absent (#1904 seam fix). Zero ⇒ host predates #1904;
+    /// `to_frame` falls back to the value frame.
     pub render_cm: Matrix3,
+
+    // ---- #1967: render-profile linear-core detail, enabling an EXACT
+    // per-target/per-anchor conjugation basis `C(w)` (via
+    // `wb_camera::retargeted_render_profile` + `dcp::camera_to_rec2020_matrix`
+    // — the SAME functions a real develop's DCP stage runs) instead of the
+    // single fixed `C` `frame_to_rec2020` approximates. All-zero/degenerate
+    // ⇒ absent ⇒ `c_at` returns `None` and `rec2020_delta_matrix` falls
+    // back to the #1904 fixed-C path — additive-tail back-compat, same
+    // convention as `render_cm` above.
+    /// `profile.forward_matrix` (row-major, white-balanced camera→XYZ-D50).
+    /// All-zero ⇒ `None` (a real FM is never literally zero).
+    pub render_forward_matrix: Matrix3,
+    /// `profile.scene_white_xyz` — the render profile's OWN as-shot
+    /// chromaticity (the Bradford source `camera_to_prophoto_matrix` uses
+    /// on the non-FM path), Y-normalized.
+    pub render_scene_white_xyz: Vec3,
+    /// `profile.wb_already_baked` as a 0.0/1.0 flag (the FM-path gate).
+    pub render_wb_already_baked: f32,
+    /// `profile.cm_endpoints.m_cold/cct_cold` — the render profile's OWN
+    /// dual-illuminant CM pair (distinct from `m_cold`/`cct_cold` above,
+    /// which are the VALUE frame's). `render_cct_warm - render_cct_cold <
+    /// 1.0` ⇒ no render-profile endpoints (single-illuminant profile —
+    /// `c_at` is then constant across every target/anchor, matching
+    /// `retargeted_render_profile`'s own single-calibration short-circuit).
+    pub render_cm_cold: Matrix3,
+    pub render_cct_cold: f32,
+    pub render_cm_warm: Matrix3,
+    pub render_cct_warm: f32,
+    /// `profile.cm_endpoints.fm_cold/fm_warm` — FM is optional per side in
+    /// the DNG spec. All-zero ⇒ that side's FM is absent.
+    pub render_fm_cold: Matrix3,
+    pub render_fm_warm: Matrix3,
 }
 
 impl SliderFrameExport {
@@ -110,6 +161,15 @@ impl SliderFrameExport {
         scene_cct: 0.0,
         as_shot_tint: 0.0,
         render_cm: Matrix3([[0.0; 3]; 3]),
+        render_forward_matrix: Matrix3([[0.0; 3]; 3]),
+        render_scene_white_xyz: [0.0; 3],
+        render_wb_already_baked: 0.0,
+        render_cm_cold: Matrix3([[0.0; 3]; 3]),
+        render_cct_cold: 0.0,
+        render_cm_warm: Matrix3([[0.0; 3]; 3]),
+        render_cct_warm: 0.0,
+        render_fm_cold: Matrix3([[0.0; 3]; 3]),
+        render_fm_warm: Matrix3([[0.0; 3]; 3]),
     };
 
     /// Resolve the export for a source: [`SliderFrame::resolve`] plus the
@@ -127,6 +187,24 @@ impl SliderFrameExport {
         // this SAME pair via `slider_source_xy`, so estimator and
         // reconstruction share one mapping (the #1870 invariant).
         let as_shot_tint = robertson_as_shot_tint(&frame, raw.as_shot_neutral);
+        // #1967: the render profile's linear-core detail, independent of
+        // which VALUE-frame arm `SliderFrame::resolve` took above.
+        let render_forward_matrix = profile.forward_matrix.unwrap_or(Matrix3([[0.0; 3]; 3]));
+        let render_wb_already_baked = if profile.wb_already_baked { 1.0 } else { 0.0 };
+        let (render_cm_cold, render_cct_cold, render_cm_warm, render_cct_warm) =
+            match profile.cm_endpoints {
+                Some(e) => (e.m_cold, e.cct_cold, e.m_warm, e.cct_warm),
+                None => (Matrix3([[0.0; 3]; 3]), 0.0, Matrix3([[0.0; 3]; 3]), 0.0),
+            };
+        let render_fm_cold = profile
+            .cm_endpoints
+            .and_then(|e| e.fm_cold)
+            .unwrap_or(Matrix3([[0.0; 3]; 3]));
+        let render_fm_warm = profile
+            .cm_endpoints
+            .and_then(|e| e.fm_warm)
+            .unwrap_or(Matrix3([[0.0; 3]; 3]));
+        let render_scene_white_xyz = profile.scene_white_xyz;
         match frame.endpoints {
             Some((m_cold, cct_cold, m_warm, cct_warm)) => SliderFrameExport {
                 m_cold,
@@ -136,6 +214,15 @@ impl SliderFrameExport {
                 scene_cct: frame.scene_cct,
                 as_shot_tint,
                 render_cm: frame.render_cm,
+                render_forward_matrix,
+                render_scene_white_xyz,
+                render_wb_already_baked,
+                render_cm_cold,
+                render_cct_cold,
+                render_cm_warm,
+                render_cct_warm,
+                render_fm_cold,
+                render_fm_warm,
             },
             None => SliderFrameExport {
                 m_cold: frame.cm_as_shot,
@@ -145,6 +232,15 @@ impl SliderFrameExport {
                 scene_cct: frame.scene_cct,
                 as_shot_tint,
                 render_cm: frame.render_cm,
+                render_forward_matrix,
+                render_scene_white_xyz,
+                render_wb_already_baked,
+                render_cm_cold,
+                render_cct_cold,
+                render_cm_warm,
+                render_cct_warm,
+                render_fm_cold,
+                render_fm_warm,
             },
         }
     }
@@ -190,14 +286,89 @@ impl SliderFrameExport {
         }
     }
 
+    /// Whether the export carries render-profile detail beyond `render_cm`
+    /// (#1967) — enough to compute an exact per-CCT `C(w)` instead of the
+    /// single fixed `C` `frame_to_rec2020` approximates.
+    fn has_render_profile_detail(&self) -> bool {
+        let fm_present = !self
+            .render_forward_matrix
+            .0
+            .iter()
+            .flatten()
+            .all(|v| *v == 0.0);
+        let endpoints_present = self.render_cct_warm - self.render_cct_cold >= 1.0;
+        fm_present || endpoints_present
+    }
+
+    /// Reconstruct a minimal [`DcpProfile`] shell carrying only the fields
+    /// [`retargeted_render_profile`] and [`dcp::camera_to_rec2020_matrix`]
+    /// read (`color_matrix`, `forward_matrix`, `scene_white_xyz`,
+    /// `wb_already_baked`, `cm_endpoints`) — `illuminant`/`scene_cct`/
+    /// `hsm`/`look_table`/`tone_curve` are irrelevant to that linear-core
+    /// computation (neither function reads them) and get harmless
+    /// placeholders.
+    fn render_profile_shell(&self) -> DcpProfile {
+        let fm_present = !self
+            .render_forward_matrix
+            .0
+            .iter()
+            .flatten()
+            .all(|v| *v == 0.0);
+        let fm_cold_present = !self.render_fm_cold.0.iter().flatten().all(|v| *v == 0.0);
+        let fm_warm_present = !self.render_fm_warm.0.iter().flatten().all(|v| *v == 0.0);
+        let cm_endpoints =
+            (self.render_cct_warm - self.render_cct_cold >= 1.0).then(|| CmEndpoints {
+                m_cold: self.render_cm_cold,
+                cct_cold: self.render_cct_cold,
+                m_warm: self.render_cm_warm,
+                cct_warm: self.render_cct_warm,
+                fm_cold: fm_cold_present.then_some(self.render_fm_cold),
+                fm_warm: fm_warm_present.then_some(self.render_fm_warm),
+            });
+        DcpProfile {
+            illuminant: Illuminant::D65,
+            color_matrix: self.render_cm,
+            forward_matrix: fm_present.then_some(self.render_forward_matrix),
+            scene_cct: self.scene_cct,
+            scene_white_xyz: self.render_scene_white_xyz,
+            wb_already_baked: self.render_wb_already_baked != 0.0,
+            hsm: None,
+            look_table: None,
+            tone_curve: None,
+            cm_endpoints,
+        }
+    }
+
+    /// The EXACT camera→Rec.2020 transform of the render profile
+    /// retargeted at `(temperature, tint)` — `C(T)`/`C(A)` in the module
+    /// doc's `M = C(T) · diag(g(T)/g(A)) · C(A)⁻¹` (#1967). Runs the SAME
+    /// `wb_camera::retargeted_render_profile` + `dcp::camera_to_rec2020_matrix`
+    /// a real develop's DCP stage does, so this matches a fresh develop to
+    /// floating-point precision rather than approximating it. `None` when
+    /// the export predates #1967 (no render-profile detail beyond
+    /// `render_cm`) or the retargeted profile is singular (defensive).
+    fn c_at(&self, frame: &SliderFrame, temperature: f32, tint: f32) -> Option<Matrix3> {
+        if !self.has_render_profile_detail() {
+            return None;
+        }
+        let retargeted =
+            retargeted_render_profile(frame, self.render_profile_shell(), temperature, tint);
+        dcp::camera_to_rec2020_matrix(&retargeted).ok()
+    }
+
     /// The Rec.2020-space WB matrix that moves a buffer developed at
     /// slider `decoded` to the develop of slider `target`, both
     /// interpreted IN THIS FRAME (module doc). Exact [`Matrix3::IDENTITY`]
     /// inside the same half-Kelvin/half-tint band `apply_delta`
     /// short-circuits on, so a `target == decoded` render is bit-exact
-    /// through a GPU matrix multiply. Falls back to the generic CAT16
-    /// delta if the frame's calibration is singular (defensive — a real
-    /// CM never is).
+    /// through a GPU matrix multiply.
+    ///
+    /// Three-tier fallback, each additive-tail back-compat with the
+    /// previous: (1) exact per-CCT `C(T)`/`C(A)` via [`Self::c_at`] (#1967)
+    /// when the export carries render-profile detail; (2) the #1904 fixed-C
+    /// approximation (`frame_to_rec2020`, keyed on `render_cm`) for an
+    /// export that predates #1967; (3) the fully generic CAT16 delta for a
+    /// frame-absent/singular export (pre-#1781 legacy).
     pub fn rec2020_delta_matrix(&self, target: (f32, f32), decoded: (f32, f32)) -> Matrix3 {
         if (target.0 - decoded.0).abs() < 0.5 && (target.1 - decoded.1).abs() < 0.5 {
             return Matrix3::IDENTITY;
@@ -213,8 +384,16 @@ impl SliderFrameExport {
             [0.0, 1.0, 0.0],
             [0.0, 0.0, g_target[2] / g_decoded[2].max(1e-6)],
         ]);
-        let conjugated = frame_to_rec2020(&frame, self.scene_cct, self.as_shot_tint)
-            .and_then(|c| c.inverse().map(|c_inv| c.mul_mat(&g_net).mul_mat(&c_inv)));
+        let conjugated = match (
+            self.c_at(&frame, target.0, target.1),
+            self.c_at(&frame, decoded.0, decoded.1),
+        ) {
+            (Some(c_target), Some(c_decoded)) => c_decoded
+                .inverse()
+                .map(|c_decoded_inv| c_target.mul_mat(&g_net).mul_mat(&c_decoded_inv)),
+            _ => frame_to_rec2020(&frame, self.scene_cct, self.as_shot_tint)
+                .and_then(|c| c.inverse().map(|c_inv| c.mul_mat(&g_net).mul_mat(&c_inv))),
+        };
         match conjugated {
             Some(m) => m,
             // Defensive: a singular calibration carries no usable frame —

@@ -9,6 +9,12 @@ use crate::stages::white_balance::wb_cat16_matrix;
 /// A plausible dual-illuminant frame: the DNG-spec-shaped XYZ→camera
 /// calibration pair of a generic wide-gamut sensor (values in the range
 /// real bundle profiles carry; well-conditioned, non-identity).
+///
+/// Carries NO render-profile detail (`render_cm` and every `render_*`
+/// field zero) — exercises the #1904 fixed-C fallback tier (the value
+/// frame's own transform, since `render_cm` absent ⇒ `to_frame` falls
+/// back to `cm_as_shot`). [`synthetic_frame_with_render_profile`] below
+/// is the #1967 exact-C sibling.
 fn synthetic_frame() -> SliderFrameExport {
     SliderFrameExport {
         m_cold: Matrix3([
@@ -26,6 +32,49 @@ fn synthetic_frame() -> SliderFrameExport {
         scene_cct: 5520.0,
         as_shot_tint: -12.0,
         render_cm: Matrix3([[0.0; 3]; 3]),
+        render_forward_matrix: Matrix3([[0.0; 3]; 3]),
+        render_scene_white_xyz: [0.0; 3],
+        render_wb_already_baked: 0.0,
+        render_cm_cold: Matrix3([[0.0; 3]; 3]),
+        render_cct_cold: 0.0,
+        render_cm_warm: Matrix3([[0.0; 3]; 3]),
+        render_cct_warm: 0.0,
+        render_fm_cold: Matrix3([[0.0; 3]; 3]),
+        render_fm_warm: Matrix3([[0.0; 3]; 3]),
+    }
+}
+
+/// [`synthetic_frame`] plus a plausible dual-illuminant RENDER PROFILE
+/// (distinct matrices from the value frame's, and a ForwardMatrix pair —
+/// the shape that exercises the #1967 exact-`C` path). `wb_already_baked`
+/// = true (the common FM-shipping-body case).
+fn synthetic_frame_with_render_profile() -> SliderFrameExport {
+    let render_cm_cold = Matrix3([
+        [0.7513, -0.0870, 0.1180],
+        [-0.4001, 1.1502, 0.2601],
+        [-0.0602, 0.1801, 0.8102],
+    ]);
+    let render_cm_warm = Matrix3([
+        [0.6501, -0.0521, -0.0402],
+        [-0.4001, 1.1502, 0.2601],
+        [-0.1102, 0.2601, 0.6802],
+    ]);
+    SliderFrameExport {
+        render_cm: render_cm_cold, // as-shot single-value snapshot (unused when endpoints present)
+        render_forward_matrix: Matrix3([
+            [0.75, 0.18, 0.06],
+            [0.28, 0.71, 0.01],
+            [-0.01, -0.05, 1.06],
+        ]),
+        render_scene_white_xyz: [0.9505, 1.0, 1.0888], // D65
+        render_wb_already_baked: 1.0,
+        render_cm_cold,
+        render_cct_cold: 2856.0,
+        render_cm_warm,
+        render_cct_warm: 6504.0,
+        render_fm_cold: Matrix3([[0.79, 0.16, 0.05], [0.30, 0.68, 0.02], [-0.02, -0.04, 1.05]]),
+        render_fm_warm: Matrix3([[0.71, 0.20, 0.07], [0.26, 0.73, 0.00], [0.00, -0.06, 1.07]]),
+        ..synthetic_frame()
     }
 }
 
@@ -53,12 +102,14 @@ fn delta_matrix_is_exact_identity_when_target_equals_decoded() {
     assert_eq!(m.0, Matrix3::IDENTITY.0);
 }
 
-#[test]
-fn delta_matrix_round_trips_through_the_anchor() {
-    // delta(a→b) · delta(b→a) ≈ I: the two conjugations share C_f, so the
-    // product collapses to C·diag(g_ab·g_ba)·C⁻¹ = C·I·C⁻¹ exactly up to
-    // f32 rounding.
-    let f = synthetic_frame();
+/// Shared round-trip assertion: `delta(a→b) · delta(b→a) ≈ I`. Holds
+/// algebraically for EITHER tier — the fixed-C fallback (single shared
+/// `C_f`, so the product trivially collapses) AND the #1967 exact tier
+/// (`C(A)`/`C(B)` differ, but `M(A→B)·M(B→A) = C(B)·g(B)/g(A)·C(A)⁻¹ ·
+/// C(A)·g(A)/g(B)·C(B)⁻¹ = C(B)·I·C(B)⁻¹ = I` regardless) — so running it
+/// against both frame constructors below catches a real asymmetry bug in
+/// either `c_at` call, not just the legacy path.
+fn assert_round_trips_through_anchor(f: &SliderFrameExport) {
     let ab = f.rec2020_delta_matrix((6282.0, -44.0), (6500.0, 0.0));
     let ba = f.rec2020_delta_matrix((6500.0, 0.0), (6282.0, -44.0));
     let prod = ab.mul_mat(&ba);
@@ -72,6 +123,17 @@ fn delta_matrix_round_trips_through_the_anchor() {
             );
         }
     }
+}
+
+#[test]
+fn delta_matrix_round_trips_through_the_anchor() {
+    assert_round_trips_through_anchor(&synthetic_frame());
+}
+
+#[test]
+fn delta_matrix_round_trips_through_the_anchor_with_render_profile() {
+    // #1967: the exact per-CCT C(target)/C(anchor) tier.
+    assert_round_trips_through_anchor(&synthetic_frame_with_render_profile());
 }
 
 #[test]
@@ -99,6 +161,15 @@ fn singular_frame_falls_back_to_generic_cat16_delta() {
         scene_cct: 5500.0,
         as_shot_tint: 0.0,
         render_cm: Matrix3([[0.0; 3]; 3]),
+        render_forward_matrix: Matrix3([[0.0; 3]; 3]),
+        render_scene_white_xyz: [0.0; 3],
+        render_wb_already_baked: 0.0,
+        render_cm_cold: Matrix3([[0.0; 3]; 3]),
+        render_cct_cold: 0.0,
+        render_cm_warm: Matrix3([[0.0; 3]; 3]),
+        render_cct_warm: 0.0,
+        render_fm_cold: Matrix3([[0.0; 3]; 3]),
+        render_fm_warm: Matrix3([[0.0; 3]; 3]),
     };
     let m = f.rec2020_delta_matrix((6282.0, -44.0), (6500.0, 0.0));
     let legacy =
@@ -106,6 +177,106 @@ fn singular_frame_falls_back_to_generic_cat16_delta() {
     assert_eq!(
         m.0, legacy.0,
         "singular frame must reproduce the legacy delta"
+    );
+}
+
+// ---- #1967: exact per-CCT C(target)/C(anchor) ----
+
+#[test]
+fn zero_render_profile_tail_is_bit_identical_to_pre_1967_output() {
+    // Acceptance criterion 4 (#1967): an export whose new `render_*`
+    // fields are all zero (a host/decode that predates this ticket) must
+    // produce EXACTLY the #1904 fixed-C output — `c_at` must return `None`
+    // for such an export so `rec2020_delta_matrix` falls through to the
+    // unchanged `frame_to_rec2020` path. `synthetic_frame()` already
+    // carries an all-zero render-profile tail, so this pins that every
+    // pre-existing test's expected values (round-trip, warmer-pushes-red,
+    // identity short-circuit) is unaffected by the #1967 addition — this
+    // test makes the invariant explicit rather than merely implicit in
+    // "the old tests still pass".
+    let f = synthetic_frame();
+    let cases: &[((f32, f32), (f32, f32))] = &[
+        ((6282.0, -44.0), (6500.0, 0.0)),
+        ((5520.0 + 2000.0, 0.0), (5520.0, 0.0)),
+        ((3500.0, -80.0), (6500.0, 0.0)),
+    ];
+    for &(target, decoded) in cases {
+        let m = f.rec2020_delta_matrix(target, decoded);
+        let g_target = crate::stages::wb_camera::camera_wb_gain(
+            &f.to_frame(),
+            [1.0, 1.0, 1.0],
+            target.0,
+            target.1,
+        );
+        let g_decoded = crate::stages::wb_camera::camera_wb_gain(
+            &f.to_frame(),
+            [1.0, 1.0, 1.0],
+            decoded.0,
+            decoded.1,
+        );
+        let g_net = Matrix3([
+            [g_target[0] / g_decoded[0], 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, g_target[2] / g_decoded[2]],
+        ]);
+        let c = super::frame_to_rec2020(&f.to_frame(), f.scene_cct, f.as_shot_tint).unwrap();
+        let expected = c.mul_mat(&g_net).mul_mat(&c.inverse().unwrap());
+        assert_eq!(
+            m.0, expected.0,
+            "zero render-profile tail must reproduce the #1904 fixed-C formula bit-for-bit at {target:?}/{decoded:?}"
+        );
+    }
+}
+
+#[test]
+fn render_profile_tail_engages_the_exact_c_path() {
+    // The #1967 exact tier must be REACHABLE and must give a numerically
+    // DIFFERENT answer than the fixed-C fallback for a target/anchor pair
+    // where the render profile's retargeted FM genuinely differs from a
+    // fixed C — otherwise `c_at` is silently falling through and this
+    // ticket shipped a no-op.
+    let with_profile = synthetic_frame_with_render_profile();
+    let without_profile = synthetic_frame();
+    let target = (3500.0, 30.0);
+    let decoded = (6500.0, 0.0);
+    let m_exact = with_profile.rec2020_delta_matrix(target, decoded);
+    let m_fixed = without_profile.rec2020_delta_matrix(target, decoded);
+    let mut any_differs = false;
+    for r in 0..3 {
+        for c in 0..3 {
+            if (m_exact.0[r][c] - m_fixed.0[r][c]).abs() > 1e-3 {
+                any_differs = true;
+            }
+        }
+    }
+    assert!(
+        any_differs,
+        "exact-C output {m_exact:?} must differ from the fixed-C output {m_fixed:?} \
+         when a distinct render profile is present"
+    );
+}
+
+#[test]
+fn render_profile_without_endpoints_gives_a_constant_c_across_targets() {
+    // A single-illuminant render profile (`cm_endpoints` absent) makes
+    // `retargeted_render_profile` a no-op for EVERY target/anchor — so
+    // `c_at` must return the SAME matrix at any CCT, and the delta must
+    // collapse to the pure gain ratio conjugated through that one fixed
+    // transform (algebraically identical to the fixed-C tier's shape,
+    // even though it's computed via the exact-tier code path).
+    let f = SliderFrameExport {
+        render_cct_cold: 0.0,
+        render_cct_warm: 0.0, // span < 1.0 => cm_endpoints absent
+        render_fm_cold: Matrix3([[0.0; 3]; 3]),
+        render_fm_warm: Matrix3([[0.0; 3]; 3]),
+        ..synthetic_frame_with_render_profile()
+    };
+    let c_a = f.c_at(&f.to_frame(), 3500.0, 30.0);
+    let c_b = f.c_at(&f.to_frame(), 7500.0, -60.0);
+    assert_eq!(
+        c_a.unwrap().0,
+        c_b.unwrap().0,
+        "a single-illuminant render profile's C must not vary with target/anchor"
     );
 }
 
@@ -290,5 +461,50 @@ fn test_0002_as_shot_tint_export_is_a_wb_no_op() {
             (g - 1.0).abs() < 5e-3,
             "as-shot init must be a WB no-op, gain[{c}]={g}"
         );
+    }
+}
+
+/// Fixture-gated (#1967): `SliderFrameExport::resolve` round-trips
+/// test_0002's REAL render profile through the flat `render_*` fields
+/// losslessly — `c_at` on the reconstructed export must equal
+/// `dcp::camera_to_rec2020_matrix` computed directly on the ORIGINAL
+/// (never flattened) profile, bit-for-bit, at both the sidecar target and
+/// a large cool-drag. This is the round-trip half of the ticket; the
+/// color-accuracy half (vs a fresh develop) lives in the raw-ffi seam
+/// test, which is the actual GPU-live/tile consumer.
+#[test]
+#[cfg_attr(
+    not(feature = "fixtures"),
+    ignore = "needs test-fixtures/raws (fixtures feature)"
+)]
+fn test_0002_export_round_trips_the_render_profile_losslessly() {
+    use crate::stages::wb_camera::{retargeted_render_profile, SliderFrame};
+
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read test_0002.dng");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode test_0002");
+    let profile = crate::color::dcp::profile_for(&raw).expect("profile");
+    let export = SliderFrameExport::resolve(&raw, &profile);
+    let frame = SliderFrame::resolve(&raw, &profile);
+
+    for target in [(6282.0f32, -44.0f32), (3500.0, -20.0), (7500.0, 20.0)] {
+        let direct = {
+            let retargeted = retargeted_render_profile(&frame, profile.clone(), target.0, target.1);
+            crate::color::dcp::camera_to_rec2020_matrix(&retargeted).expect("direct C")
+        };
+        let via_export = export
+            .c_at(&export.to_frame(), target.0, target.1)
+            .expect("exported C");
+        for r in 0..3 {
+            for c in 0..3 {
+                assert!(
+                    (direct.0[r][c] - via_export.0[r][c]).abs() < 1e-5,
+                    "C({target:?})[{r}][{c}]: direct {} vs round-tripped {} — the flat \
+                     render_* export must reproduce the profile losslessly",
+                    direct.0[r][c],
+                    via_export.0[r][c]
+                );
+            }
+        }
     }
 }

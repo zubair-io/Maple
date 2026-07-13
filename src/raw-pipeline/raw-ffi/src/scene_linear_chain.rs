@@ -25,6 +25,7 @@
 //! matching commit `4a8c655`.
 
 use crate::error::set_last_error;
+use crate::wb_frame_flat::{wb_frame_from_flat, WbFrameFlat};
 
 /// C-ABI mirror of the slider subset that the per-tick chain consumes.
 /// Kept flat (all f32) so cbindgen / Swift's `@_silgen_name` import
@@ -178,52 +179,33 @@ pub struct MapleAdjustmentParams {
     pub wb_frame_as_shot_tint: f32,
     /// The RENDER PROFILE's CM (row-major 3×3, XYZ→camera — the
     /// conjugation basis the post-DCP WB delta is built in (#1904
-    /// GPU-live seam fix). Zero ⇒ host predates the fix.
+    /// GPU-live seam fix) when the #1967 fields below are absent. Zero ⇒
+    /// host predates #1904.
     pub wb_frame_render_cm: [f32; 9],
-}
-
-/// The flat `wb_frame_*` fields grouped for [`wb_frame_from_flat`] — the
-/// matrices borrowed from the caller's C params struct (`[f32; 9]` tail
-/// fields), the scalars by value. Grouping keeps the reconstruction under
-/// the repo's ≤5-parameter rule (CONTRIBUTING.md) instead of a
-/// `too_many_arguments` suppression.
-pub(crate) struct WbFrameFlat<'a> {
-    pub m_cold: &'a [f32; 9],
-    pub cct_cold: f32,
-    pub m_warm: &'a [f32; 9],
-    pub cct_warm: f32,
-    pub scene_cct: f32,
-    pub as_shot_tint: f32,
-    /// Render-profile CM (XYZ→camera) — the delta's conjugation basis
-    /// (#1965). All-zero ⇒ absent ⇒ `to_frame` falls back to the value
-    /// frame.
-    pub render_cm: &'a [f32; 9],
-}
-
-/// Rebuild the raw-core [`raw_core::stages::wb_camera::SliderFrameExport`]
-/// from the flat `wb_frame_*` fields (#1781). An absent frame
-/// (`scene_cct <= 0` or non-finite, e.g. a zero-initialised stale host)
-/// maps to `SliderFrameExport::ABSENT`, whose `is_present()` is false —
-/// consumers then keep the legacy generic-CAT16 path, and no unchecked
-/// host floats leak into the export.
-pub(crate) fn wb_frame_from_flat(
-    f: &WbFrameFlat,
-) -> raw_core::stages::wb_camera::SliderFrameExport {
-    if !(f.scene_cct.is_finite() && f.scene_cct > 0.0) {
-        return raw_core::stages::wb_camera::SliderFrameExport::ABSENT;
-    }
-    let mat = |m: &[f32; 9]| {
-        raw_core::math::Matrix3([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]])
-    };
-    raw_core::stages::wb_camera::SliderFrameExport {
-        m_cold: mat(f.m_cold),
-        cct_cold: f.cct_cold,
-        m_warm: mat(f.m_warm),
-        cct_warm: f.cct_warm,
-        scene_cct: f.scene_cct,
-        as_shot_tint: f.as_shot_tint,
-        render_cm: mat(f.render_cm),
-    }
+    // --- #1967: render-profile linear-core detail, enabling an EXACT
+    //     per-target/per-anchor conjugation basis instead of the single
+    //     fixed `wb_frame_render_cm`. Appended at the struct tail per the
+    //     offset-stable ABI convention: a stale host leaves every field
+    //     below 0/absent ⇒ the #1904 fixed-C fallback, bit-identical
+    //     output (asserted by `zero_frame_params_reproduce_legacy_wb_matrix`). ---
+    /// `profile.forward_matrix`, row-major 3×3. All-zero ⇒ `None`.
+    pub wb_frame_render_forward_matrix: [f32; 9],
+    /// `profile.scene_white_xyz`, Y-normalized.
+    pub wb_frame_render_scene_white_xyz: [f32; 3],
+    /// `profile.wb_already_baked` as a 0.0/1.0 flag.
+    pub wb_frame_render_wb_already_baked: f32,
+    /// Render profile's own dual-illuminant CM pair (distinct from
+    /// `wb_frame_m_cold`/`wb_frame_m_warm` above, which are the VALUE
+    /// frame's). `wb_frame_render_cct_warm - wb_frame_render_cct_cold <
+    /// 1.0` ⇒ absent (single-illuminant render profile).
+    pub wb_frame_render_cm_cold: [f32; 9],
+    pub wb_frame_render_cct_cold: f32,
+    pub wb_frame_render_cm_warm: [f32; 9],
+    pub wb_frame_render_cct_warm: f32,
+    /// Render profile's FM pair (optional per side per the DNG spec).
+    /// All-zero ⇒ that side's FM absent.
+    pub wb_frame_render_fm_cold: [f32; 9],
+    pub wb_frame_render_fm_warm: [f32; 9],
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -424,6 +406,15 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
         },
         as_shot_tint: p.wb_frame_as_shot_tint,
         render_cm: &p.wb_frame_render_cm,
+        render_forward_matrix: &p.wb_frame_render_forward_matrix,
+        render_scene_white_xyz: &p.wb_frame_render_scene_white_xyz,
+        render_wb_already_baked: p.wb_frame_render_wb_already_baked,
+        render_cm_cold: &p.wb_frame_render_cm_cold,
+        render_cct_cold: p.wb_frame_render_cct_cold,
+        render_cm_warm: &p.wb_frame_render_cm_warm,
+        render_cct_warm: p.wb_frame_render_cct_warm,
+        render_fm_cold: &p.wb_frame_render_fm_cold,
+        render_fm_warm: &p.wb_frame_render_fm_warm,
     });
 
     let opts = raw_core::pipeline::ChainOptions {
