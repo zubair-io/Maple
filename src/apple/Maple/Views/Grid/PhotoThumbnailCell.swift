@@ -79,7 +79,7 @@ struct PhotoThumbnailCell: View {
         // Sync peek first: if the thumbnail is already in the memory cache
         // (from a prior load), show it immediately without a placeholder frame.
         // `thumb` (async-loaded) takes precedence once the .task completes.
-        ThumbnailImage(jpegData: thumb ?? provider.cachedThumbnail(for: item.thumbnailSource),
+        ThumbnailImage(thumbnailData: thumb ?? provider.cachedThumbnail(for: item.thumbnailSource),
                        displayMode: displayMode)
             .opacity(item.overlays.hidden ? 0.4 : 1.0)
             .overlay {

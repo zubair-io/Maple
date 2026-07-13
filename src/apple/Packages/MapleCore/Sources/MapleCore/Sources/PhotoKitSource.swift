@@ -27,7 +27,6 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import Photos
-import UniformTypeIdentifiers
 import MapleBackup
 
 #if canImport(AppKit)
@@ -302,28 +301,21 @@ public actor PhotoKitSource {
         }
 
         guard let image = platformImage else { return nil }
-        return Self.jpegBytes(from: image)
+        return Self.avifBytes(from: image)
     }
 
-    // MARK: - JPEG encoding
+    // MARK: - AVIF encoding
 
     /// Encode a platform image (NSImage on macOS, UIImage on iOS/iPadOS) to
-    /// JPEG bytes at the spec quality (`ThumbnailDiskCache.jpegQuality`). The
-    /// CGImage path goes through ImageIO so both platforms share the same
-    /// encoder behaviour.
-    private static func jpegBytes(from image: PlatformImage) -> Data? {
+    /// AVIF bytes via the shared `ThumbnailEncoder`. The CGImage extraction
+    /// stays platform-specific (`cgImage(from:)` below); the encode itself
+    /// is shared with the URL-backed thumbnail path in
+    /// `ThumbnailDiskCache`/`ThumbnailLoader` — two real callers wanting the
+    /// same AVIF-encode behavior is exactly the trigger for pulling this out
+    /// of a per-source duplicate.
+    private static func avifBytes(from image: PlatformImage) -> Data? {
         guard let cg = cgImage(from: image) else { return nil }
-        let data = NSMutableData()
-        let type = (UTType.jpeg.identifier as CFString)
-        guard let dest = CGImageDestinationCreateWithData(data, type, 1, nil) else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: ThumbnailDiskCache.jpegQuality
-        ]
-        CGImageDestinationAddImage(dest, cg, options as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return data as Data
+        return ThumbnailEncoder.encode(cg)
     }
 
     private static func cgImage(from image: PlatformImage) -> CGImage? {
@@ -422,7 +414,7 @@ extension PhotoKitSource: ImageSource {
     }
 
     /// PhotoKit fast path — request a 256-px thumbnail via
-    /// `PHImageManager.requestImage` and JPEG-encode at q=0.82. Without this,
+    /// `PHImageManager.requestImage` and AVIF-encode at `ThumbnailEncoder.quality`. Without this,
     /// `ThumbnailLoader` falls through to rendering each tile from the full
     /// RAW bytes (full iCloud download + Rust develop per cell) — painful
     /// on the first browse of a new PhotoKit library. Photos' own preview

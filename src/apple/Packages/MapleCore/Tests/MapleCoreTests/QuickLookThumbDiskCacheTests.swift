@@ -89,7 +89,7 @@ final class QuickLookThumbDiskCacheTests: XCTestCase {
         XCTAssertEqual(second, bytes)
 
         // The disk file must exist. We don't poke at internal hashing —
-        // just verify one .jpg landed for that assetID.
+        // just verify one .avif landed for that assetID.
         let entryCount = await cache._entryCountForTesting()
         XCTAssertEqual(entryCount, 1)
     }

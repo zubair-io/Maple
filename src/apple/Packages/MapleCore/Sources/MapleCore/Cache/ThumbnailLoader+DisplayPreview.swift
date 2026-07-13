@@ -4,13 +4,32 @@
 // editor-design.md, slice A1).
 //
 // Split from ThumbnailLoader.swift for the file-size budget; shares the
-// actor's decode-slot gate, in-flight coalescing map, and JPEG encoder.
+// actor's decode-slot gate and in-flight coalescing map. Does NOT share the
+// 256px thumbnail tier's encoder: the thumbnail AVIF migration switched that
+// tier to `ThumbnailEncoder` (AVIF), but `.maple/previews/` stays JPEG, so
+// this file keeps its own independent JPEG quality constant + encoder below.
 
 import CoreImage
 import Foundation
 import ImageIO
 
 extension ThumbnailLoader {
+    /// JPEG quality for the display-preview tier — independent of the 256px
+    /// thumbnail tier's `ThumbnailEncoder.quality` (AVIF scale). This tier is
+    /// out of scope for the thumbnail AVIF migration and stays JPEG.
+    private static let previewJpegQuality: CGFloat = 0.82
+
+    /// Encode a CIImage to JPEG at `previewJpegQuality`. Local to the
+    /// display-preview tier — NOT the same encoder as the (now AVIF) 256px
+    /// thumbnail tier in ThumbnailLoader.swift.
+    private static func previewJpegData(from ci: CIImage, ctx: CIContext) -> Data? {
+        return ctx.jpegRepresentation(
+            of: ci,
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
+                        previewJpegQuality]
+        )
+    }
 
     /// Long-edge target for the display-preview tier at
     /// `MapleSidecarPaths.previewURL` (`.maple/previews/
@@ -166,7 +185,7 @@ extension ThumbnailLoader {
         let longEdge = max(extent.width, extent.height)
         let scale = longEdge > 0 ? min(1.0, target / longEdge) : 1.0
         let scaled = rendered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        guard let data = Self.jpegData(from: scaled, ctx: ctx) else { return }
+        guard let data = Self.previewJpegData(from: scaled, ctx: ctx) else { return }
         let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
         try? FileManager.default.createDirectory(
             at: previewURL.deletingLastPathComponent(),
@@ -270,6 +289,6 @@ extension ThumbnailLoader {
             return CGImageSourceCreateThumbnailAtIndex(src, 0, decodeOpts as CFDictionary)
         }()
         guard let cg = usable else { return nil }
-        return jpegData(from: CIImage(cgImage: cg), ctx: displayPreviewCIContext)
+        return previewJpegData(from: CIImage(cgImage: cg), ctx: displayPreviewCIContext)
     }
 }

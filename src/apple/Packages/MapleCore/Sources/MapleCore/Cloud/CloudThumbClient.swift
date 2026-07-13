@@ -16,7 +16,7 @@ public actor CloudThumbClient {
     self.httpClient = httpClient
   }
 
-  /// Returns JPEG bytes for the thumbnail of `absPath` at the given size.
+  /// Returns AVIF bytes for the thumbnail of `absPath` at the given size.
   /// Throws on non-2xx responses (caller surfaces the error or shows a
   /// placeholder cell).
   public func thumb(absPath: String, size: Int = 512) async throws -> Data {

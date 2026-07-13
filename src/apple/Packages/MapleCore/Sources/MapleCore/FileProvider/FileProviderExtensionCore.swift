@@ -601,7 +601,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     completionHandler(localURL, sidecarItem, nil)
                     return
                 case .thumb(let assetID):
-                    // Pre-rendered thumbnail JPEG from the server's
+                    // Pre-rendered thumbnail AVIF from the server's
                     // `.maple/thumbs/` cache. Surfaced through the FP
                     // mount so the app's future Folder-View consumer
                     // (#101) can read these next to the photos. Bytes
@@ -609,10 +609,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // which serves the same on-disk file the server
                     // wrote at `resolveThumbPath(raw)`.
                     //
-                    // The materialized URL keeps the `.jpg` extension
+                    // The materialized URL keeps the `.avif` extension
                     // so any downstream consumer (Quick Look, the app
                     // reader) can identify it by basename.
-                    let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".jpg")
+                    let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".avif")
                     async let metaTask = catalog.getAsset(assetID: assetID)
                     async let bytesTask = catalog.getThumb(assetID: assetID)
                     let bytes = try await bytesTask
