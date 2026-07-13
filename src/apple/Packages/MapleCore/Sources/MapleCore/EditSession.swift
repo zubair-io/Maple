@@ -148,26 +148,16 @@ public final class EditSession {
     ///   • `asShotCCT`/`asShotTint` are updated to the frame's as-shot
     ///     estimate (the decode's number wins over the `CIRAWFilter`
     ///     pre-decode placeholder, which reads a DIFFERENT frame);
-    ///   • every per-tick WB delta anchors at the frame's own as-shot
-    ///     pair (`wbDeltaAnchor` below) and carries the frame so the GPU
-    ///     live chain, the CPU tick chain, and a fresh full develop agree.
+    ///   • every per-tick WB delta anchors at the frame's own as-shot pair
+    ///     (`wbDeltaAnchor`) so live, tick, and full develops agree.
     /// `nil` until a decode lands, or forever for frame-less sources
     /// (non-RAW, `RawlerFallback` bodies) — those keep legacy behaviour.
     public internal(set) var wbSliderFrame: WbSliderFrame?
 
-    /// The WB delta anchor for the per-tick chains: the WB actually baked
-    /// into the decoded scene-linear buffer. The strip-XMP decode OMITS
-    /// the WB fields (`omitWhiteBalance`, #1883), so raw-core resolves the
-    /// develop at the image's As-Shot WB — i.e. the frame's own
-    /// `(sceneCCT, asShotTint)` estimate when a frame is present, else the
-    /// legacy pre-decode estimate.
-    ///
-    /// NOT a constant (#1976): under the post-#1894 Robertson value
-    /// mapping the slider identity position is the frame's as-shot pair,
-    /// not 6500/0. The old explicit-(6500, 0) anchor described a warm
-    /// 6500 K develop that never existed — the delta then "cooled" the
-    /// already-neutral as-shot buffer into a global cyan cast on every
-    /// settled render of far-off-D65 bodies (test_0002).
+    /// The WB delta anchor: the WB actually baked into the buffer. The
+    /// strip decode OMITS WB (#1883) → As-Shot develop → the frame's own
+    /// pair when present, else the legacy estimate. NOT 6500/0 (#1976):
+    /// post-#1894 that mislabel overcooled every settled render to cyan.
     var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
         if let frame = wbSliderFrame, frame.isPresent {
             return ImageEditPipeline.AsShotWB(
