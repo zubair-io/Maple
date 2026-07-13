@@ -1,6 +1,6 @@
 // CloudThumbCache.swift
 //
-// On-disk JPEG cache for cloud thumbnails. Keyed on the absolute path
+// On-disk AVIF cache for cloud thumbnails. Keyed on the absolute path
 // (because that's the server-side identity). LRU-evicted with a soft
 // total-size cap (default 2 GB).
 
@@ -54,14 +54,14 @@ public actor CloudThumbCache {
     return try? Data(contentsOf: url)
   }
 
-  public func put(host: String, absPath: String, _ jpeg: Data) {
+  public func put(host: String, absPath: String, _ avif: Data) {
     let url = path(host: host, absPath: absPath)
     try? FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(),
       withIntermediateDirectories: true)
-    try? jpeg.write(to: url, options: .atomic)
+    try? avif.write(to: url, options: .atomic)
     seedTotalIfNeeded()
-    approxTotal += Int64(jpeg.count)
+    approxTotal += Int64(avif.count)
     // Only schedule eviction when the running total has crossed the
     // cap AND no eviction is already in flight. A scrolling Timeline
     // can fire hundreds of put()s in quick succession; previously each
@@ -147,6 +147,6 @@ public actor CloudThumbCache {
     return baseDir
       .appendingPathComponent(host, isDirectory: true)
       .appendingPathComponent(String(digest.prefix(2)), isDirectory: true)
-      .appendingPathComponent("\(digest).jpg")
+      .appendingPathComponent("\(digest).avif")
   }
 }

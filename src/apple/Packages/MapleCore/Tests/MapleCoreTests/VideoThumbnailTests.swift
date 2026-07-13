@@ -1,7 +1,7 @@
 // VideoThumbnailTests.swift — poster-frame thumbnail for video assets (#1642).
 //
 // Coverage:
-//   1. `ThumbnailLoader.load(for:)` on a real .mov returns non-nil JPEG bytes.
+//   1. `ThumbnailLoader.load(for:)` on a real .mov returns non-nil AVIF bytes.
 //   2. The result is stored in `ThumbnailDiskCache` (memory + disk round-trip).
 //   3. A second load for the same URL returns from cache (no re-render).
 //   4. A non-video file still returns nil when it doesn't exist on disk (regression guard).
@@ -99,23 +99,25 @@ final class VideoThumbnailTests: XCTestCase {
 
     // MARK: - Tests
 
-    /// `ThumbnailLoader.load(for:)` must return JPEG bytes for a video file.
-    func testVideoLoadReturnsPosterJpeg() async throws {
+    /// `ThumbnailLoader.load(for:)` must return AVIF bytes for a video file.
+    func testVideoLoadReturnsPosterAvif() async throws {
         let videoURL = tmp.appendingPathComponent("sample.mov")
         guard try await writeMinimalMov(to: videoURL) else {
             throw XCTSkip("AVAssetWriter unavailable in this environment")
         }
 
         let data = await ThumbnailLoader.shared.load(for: videoURL, scopeParentURL: tmp)
-        XCTAssertNotNil(data, "ThumbnailLoader should return JPEG bytes for a video file")
-        // JPEG magic bytes: 0xFF 0xD8.
-        if let bytes = data, bytes.count >= 2 {
-            XCTAssertEqual(bytes[0], 0xFF, "poster should start with JPEG SOI marker byte 0")
-            XCTAssertEqual(bytes[1], 0xD8, "poster should start with JPEG SOI marker byte 1")
+        XCTAssertNotNil(data, "ThumbnailLoader should return AVIF bytes for a video file")
+        // AVIF magic bytes: ISOBMFF box — 4-byte size, "ftyp", "avif" major brand.
+        if let bytes = data, bytes.count >= 12 {
+            XCTAssertEqual(Array(bytes[4..<8]), [0x66, 0x74, 0x79, 0x70],
+                           "poster should be an ISOBMFF ftyp box")
+            XCTAssertEqual(Array(bytes[8..<12]), [0x61, 0x76, 0x69, 0x66],
+                           "poster major brand should be avif")
         }
     }
 
-    /// The poster JPEG must be written to `.maple/thumbs/<hash>.jpg` so the
+    /// The poster AVIF must be written to `.maple/thumbs/<hash>.avif` so the
     /// asset-relative cache lookup in `ThumbnailLoader` can serve it on the next call.
     func testVideoThumbnailStoredInDiskCache() async throws {
         let videoURL = tmp.appendingPathComponent("stored.mov")
@@ -130,7 +132,7 @@ final class VideoThumbnailTests: XCTestCase {
         let thumbURL = MapleSidecarPaths.thumbURL(for: videoURL)
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: thumbURL.path),
-            "poster JPEG should be written to .maple/thumbs/ next to the video"
+            "poster AVIF should be written to .maple/thumbs/ next to the video"
         )
     }
 

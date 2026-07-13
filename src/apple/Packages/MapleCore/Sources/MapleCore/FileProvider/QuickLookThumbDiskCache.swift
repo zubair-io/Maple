@@ -8,7 +8,7 @@
 // The QL extension is short-lived — every spacebar press in a fresh
 // session re-fetches the thumb from the server. The in-memory ETag
 // cache on RemoteCatalog covers same-process reuse only. This disk
-// cache avoids re-downloading the JPEG payload across sessions —
+// cache avoids re-downloading the AVIF payload across sessions —
 // the cache still revalidates via If-None-Match every spacebar.
 //
 // Eviction: TTL (entries with mtime older than `ttl` drop on lazy
@@ -22,9 +22,13 @@ import OSLog
 
 /// Disk-backed cache for Quick Look thumbnail bytes.
 ///
-/// Layout: `<containerURL>/QuickLookThumbs/<assetID>.<etagSha1>.jpg`.
+/// Layout: `<containerURL>/QuickLookThumbs/<assetID>.<etagSha1>.avif`.
 /// A new ETag value naturally lands as a new file; the old file
-/// becomes orphaned and is reaped by the next size-cap sweep.
+/// becomes orphaned and is reaped by the next size-cap sweep. Legacy
+/// `.jpg` entries from before the thumbnail AVIF migration are recognized
+/// by the eviction/sweep filters too (permanently — see `recognizedExtensions`)
+/// so they still age out normally instead of leaking in the App Group
+/// container; new writes are always `.avif`.
 ///
 /// Concurrency: an actor — every read/write goes through one
 /// serialised queue. The disk-cache itself can be shared across
@@ -63,7 +67,7 @@ public actor QuickLookThumbDiskCache {
 
     /// Hard cap on aggregate cache size. Sweep deletes oldest-by-mtime
     /// when a write would push past this. 200 MB is the spec default —
-    /// roughly 2,000–4,000 typical JPEG thumbs at 50–100 KB each.
+    /// roughly 2,000–4,000 typical AVIF thumbs at 50–100 KB each.
     public let sizeCap: Int64
 
     /// Maximum entries in the lastKnownETag pointer directory. The
@@ -94,6 +98,12 @@ public actor QuickLookThumbDiskCache {
     /// enough that a fresh session sees a recent sweep but long enough
     /// that hundreds of spacebar presses don't keep restatting.
     private let sweepInterval: TimeInterval = 5 * 60
+
+    /// Extensions every eviction/sweep/count filter recognizes as a cache
+    /// entry. `avif` is current; `jpg` is the pre-migration legacy format —
+    /// kept permanently (not time-boxed) so orphaned legacy entries keep
+    /// aging out via the existing TTL/size-cap sweeps rather than leaking.
+    private static let recognizedExtensions: Set<String> = ["avif", "jpg"]
 
     /// Designated initialiser. All parameters are injectable so tests
     /// can point at a tmp dir + isolated UserDefaults instead of the
@@ -134,9 +144,9 @@ public actor QuickLookThumbDiskCache {
             )
         }
         self.cacheDir = resolved
-        // Pointer subdir lives alongside the .jpg files. Per-asset
-        // pointer files eliminate the cross-process RMW race that the
-        // previous UserDefaults dict had.
+        // Pointer subdir lives alongside the .avif (and legacy .jpg) cache
+        // files. Per-asset pointer files eliminate the cross-process RMW
+        // race that the previous UserDefaults dict had.
         if let dir = resolved {
             let pdir = dir.appendingPathComponent("etag-pointers", isDirectory: true)
             try? FileManager.default.createDirectory(
@@ -157,7 +167,7 @@ public actor QuickLookThumbDiskCache {
         }
     }
 
-    /// Fetch the JPEG bytes for `assetID`, consulting the disk cache
+    /// Fetch the AVIF bytes for `assetID`, consulting the disk cache
     /// first and revalidating against `fetch` if needed.
     ///
     /// The closure performs the actual server round-trip — passed in
@@ -241,15 +251,16 @@ public actor QuickLookThumbDiskCache {
 
     // MARK: - Test accessors
 
-    /// Number of `.jpg` files currently in the cache dir.
-    /// Test-only — production callers use `fetch` and don't care.
+    /// Number of cache-entry files (`.avif` or legacy `.jpg`) currently in
+    /// the cache dir. Test-only — production callers use `fetch` and don't
+    /// care.
     internal func _entryCountForTesting() -> Int {
         guard let dir = cacheDir else { return 0 }
         let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        return urls.filter { $0.pathExtension == "jpg" }.count
+        return urls.filter { Self.recognizedExtensions.contains($0.pathExtension) }.count
     }
 
-    /// Aggregate size in bytes of all `.jpg` files in the cache dir.
+    /// Aggregate size in bytes of all cache-entry files in the cache dir.
     internal func _totalSizeForTesting() -> Int64 {
         guard let dir = cacheDir else { return 0 }
         return computeTotalSize(dir: dir)
@@ -273,7 +284,7 @@ public actor QuickLookThumbDiskCache {
 
     private func fileURL(in dir: URL, assetID: String, etag: String) -> URL {
         let etagKey = etagHash(etag)
-        return dir.appendingPathComponent("\(assetID).\(etagKey).jpg")
+        return dir.appendingPathComponent("\(assetID).\(etagKey).avif")
     }
 
     private func writeEntry(dir: URL, assetID: String, etag: String, data: Data) {
@@ -348,7 +359,7 @@ public actor QuickLookThumbDiskCache {
         )) ?? []
         struct Entry { let url: URL; let mtime: Date; let size: Int64 }
         var entries: [Entry] = []
-        for u in urls where u.pathExtension == "jpg" {
+        for u in urls where Self.recognizedExtensions.contains(u.pathExtension) {
             if u.resolvingSymlinksInPath().path == excludingPath { continue }
             let vals = try? u.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
             let mtime = vals?.contentModificationDate ?? .distantPast
@@ -380,7 +391,7 @@ public actor QuickLookThumbDiskCache {
             options: [.skipsHiddenFiles]
         )) ?? []
         var evicted = 0
-        for u in urls where u.pathExtension == "jpg" {
+        for u in urls where Self.recognizedExtensions.contains(u.pathExtension) {
             let vals = try? u.resourceValues(forKeys: [.contentModificationDateKey])
             let mtime = vals?.contentModificationDate ?? .distantPast
             if mtime < cutoff {
@@ -410,7 +421,7 @@ public actor QuickLookThumbDiskCache {
             options: [.skipsHiddenFiles]
         )) ?? []
         var total: Int64 = 0
-        for u in urls where u.pathExtension == "jpg" {
+        for u in urls where Self.recognizedExtensions.contains(u.pathExtension) {
             let vals = try? u.resourceValues(forKeys: [.fileSizeKey])
             total += Int64(vals?.fileSize ?? 0)
         }
@@ -433,7 +444,7 @@ public actor QuickLookThumbDiskCache {
     /// never collide — no inter-process coordination needed for the
     /// dict-replacement layer. Eviction is oldest-by-mtime when the
     /// pointer count exceeds `etagDictCap`, mirroring the pattern the
-    /// JPEG bytes cache already uses.
+    /// AVIF bytes cache already uses.
     private func pointerURL(assetID: String) -> URL? {
         guard let pdir = pointersDir else { return nil }
         let digest = Insecure.SHA1.hash(data: Data(assetID.utf8))
