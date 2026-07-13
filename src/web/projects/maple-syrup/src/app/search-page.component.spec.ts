@@ -89,4 +89,20 @@ describe('SearchPageComponent (Hosted) ?q wiring', () => {
     vi.advanceTimersByTime(300);
     expect(stub.calls.length).toBe(0);
   });
+
+  it('navigates to sync query parameters on queryChange output', () => {
+    const { fixture } = setup();
+    fixture.detectChanges();
+    const router = TestBed.inject(Router);
+
+    const searchComp = fixture.componentInstance['searchEl'];
+    expect(searchComp).toBeTruthy();
+    searchComp!.queryChange.emit('paris');
+
+    expect(router.navigate).toHaveBeenCalledWith([], {
+      relativeTo: expect.any(Object),
+      queryParams: { q: 'paris' },
+      replaceUrl: true,
+    });
+  });
 });
