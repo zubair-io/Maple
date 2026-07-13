@@ -268,6 +268,56 @@ fn render_scene_linear_tile_rejects_active_capture_sharpening() {
     );
 }
 
+/// Tile entry rejects a DNG carrying OpcodeList3 with an "OpcodeList3"
+/// error (#1932). The tile develop chain never applied opcodes, so an
+/// opcode-carrying DNG would render with spatial/color disagreement and
+/// seams vs the full render; WarpRectilinear's gather is untileable
+/// regardless. Rejecting here forces the full-image render (which applies
+/// opcodes correctly). Same fake-RawImage rationale as the dehaze test —
+/// the guard fires before any decode work.
+#[test]
+fn render_scene_linear_tile_rejects_opcode_list3() {
+    use crate::pipeline::pano::opcodes::{
+        ActiveAreaRect, OpcodeList3, PanoOpcode, WarpPlaneParams, WarpRectilinearOpcode,
+    };
+    let mut raw = fake_raw(2048, 2048);
+    raw.opcode_list3 = Some((
+        OpcodeList3 {
+            opcodes: vec![PanoOpcode::WarpRectilinear(WarpRectilinearOpcode {
+                planes: vec![WarpPlaneParams {
+                    kr: [1.0, 0.0, 0.0, 0.0],
+                    kt: [0.0, 0.0],
+                }],
+                center_x: 0.5,
+                center_y: 0.5,
+            })],
+            skipped_unknown: 0,
+        },
+        ActiveAreaRect::full(2048, 2048),
+    ));
+    let model = AdjustmentModel::default();
+    let r = render_scene_linear_tile_from_raw_with_quality(
+        &raw,
+        &model,
+        TileRect {
+            src_x: 1024,
+            src_y: 1024,
+            src_w: 512,
+            src_h: 512,
+            out_w: 512,
+            out_h: 512,
+        },
+        RenderQuality::Full,
+    );
+    assert!(r.is_err(), "tile path must error when OpcodeList3 is present");
+    let msg = format!("{}", r.unwrap_err());
+    assert!(
+        msg.contains("OpcodeList3"),
+        "error must mention OpcodeList3, got: {}",
+        msg
+    );
+}
+
 /// Tile entry rejects mismatched-aspect requests. The trim →
 /// downsample chain drives a single long-edge scale, so honouring
 /// `(out_w, out_h)` with a non-matching aspect would silently
