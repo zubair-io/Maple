@@ -72,11 +72,6 @@ struct Meta {
 
 type Mat3 = [[f32; 3]; 3];
 
-const M_REC2020_TO_SRGB: Mat3 = [
-    [1.6605, -0.5876, -0.0728],
-    [-0.1246, 1.1329, -0.0083],
-    [-0.0182, -0.1006, 1.1187],
-];
 #[allow(clippy::excessive_precision)]
 const M1_SRGB_TO_LMS: Mat3 = [
     [0.412_221_47, 0.536_332_54, 0.051_445_99],
@@ -123,25 +118,49 @@ fn inverse3(m: &Mat3) -> Mat3 {
     ]
 }
 
-fn rec2020_to_oklab(rgb: [f32; 3]) -> [f32; 3] {
-    let srgb = mul3(&M_REC2020_TO_SRGB, rgb);
-    let lms = mul3(&M1_SRGB_TO_LMS, srgb);
+/// Linear sRGB D65 → Oklab. Mirrors `raw_core::color::oklab::srgb_linear_to_oklab`
+/// — NO Rec.2020→sRGB rotation (the input is already linear sRGB). The parity
+/// test pins this against the real stage.
+fn srgb_linear_to_oklab(rgb: [f32; 3]) -> [f32; 3] {
+    let lms = mul3(&M1_SRGB_TO_LMS, rgb);
     let lms_cube = [lms[0].cbrt(), lms[1].cbrt(), lms[2].cbrt()];
     mul3(&M2_LMS_TO_LAB, lms_cube)
 }
 
-fn oklab_to_rec2020(lab: [f32; 3]) -> [f32; 3] {
+/// Oklab → linear sRGB. Mirrors `raw_core::color::oklab::oklab_to_srgb_linear`
+/// — lands in linear sRGB, no Rec.2020 step.
+fn oklab_to_srgb_linear(lab: [f32; 3]) -> [f32; 3] {
     let m2_inv = inverse3(&M2_LMS_TO_LAB);
     let m1_inv = inverse3(&M1_SRGB_TO_LMS);
-    let m_srgb_to_rec2020 = inverse3(&M_REC2020_TO_SRGB);
     let lms_cube = mul3(&m2_inv, lab);
     let lms = [
         lms_cube[0] * lms_cube[0] * lms_cube[0],
         lms_cube[1] * lms_cube[1] * lms_cube[1],
         lms_cube[2] * lms_cube[2] * lms_cube[2],
     ];
-    let srgb = mul3(&m1_inv, lms);
-    mul3(&m_srgb_to_rec2020, srgb)
+    mul3(&m1_inv, lms)
+}
+
+/// sRGB gamma decode (linear ← display-encoded). Mirrors
+/// `raw_core::view::agx_inverse::srgb_gamma_inv` (clamp `[0, 1]` first).
+fn srgb_gamma_inv(y: f32) -> f32 {
+    let y = y.clamp(0.0, 1.0);
+    if y <= 0.040_449_936 {
+        y / 12.92
+    } else {
+        ((y + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// sRGB gamma encode (display-encoded ← linear). Mirrors
+/// `raw_core::view::encode::srgb_gamma` (clamp `[0, 1]` first).
+fn srgb_gamma(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    if x <= 0.003_130_8 {
+        x * 12.92
+    } else {
+        1.055 * x.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 /// Soft-knee compression. Mirrors `apply::compress_input` verbatim (KNEE=0.95;
@@ -236,7 +255,12 @@ pub fn apply_auto_profile_curve(buf: &mut [f32], flat: &[f32]) {
             )
         };
         if apply_chroma {
-            let lab = rec2020_to_oklab([r2, g2, b2]);
+            // #1948: r2/g2/b2 are DisplayEncodedSrgb (sRGB primaries, sRGB
+            // gamma). Oklab is defined on LINEAR light, so decode the gamma and
+            // use the linear-sRGB Oklab entry (NOT rec2020_to_oklab), then
+            // re-encode after the correction.
+            let lin = [srgb_gamma_inv(r2), srgb_gamma_inv(g2), srgb_gamma_inv(b2)];
+            let lab = srgb_linear_to_oklab(lin);
             // Bin by Rec.709 luma on the post-curve+matrix RGB (matches fit-time
             // binning). 5 anchors at Y = 0/0.25/0.5/0.75/1.0.
             let y_post = (0.2126 * r2 + 0.7152 * g2 + 0.0722 * b2).clamp(0.0, 1.0);
@@ -253,10 +277,10 @@ pub fn apply_auto_profile_curve(buf: &mut [f32], flat: &[f32]) {
                 lab[1] * chroma_boost + chroma_off[0] + band_a,
                 lab[2] * chroma_boost + chroma_off[1] + band_b,
             ];
-            let back = oklab_to_rec2020(scaled);
-            r2 = back[0];
-            g2 = back[1];
-            b2 = back[2];
+            let back = oklab_to_srgb_linear(scaled);
+            r2 = srgb_gamma(back[0]);
+            g2 = srgb_gamma(back[1]);
+            b2 = srgb_gamma(back[2]);
         }
         px[0] = r2;
         px[1] = g2;

@@ -45,6 +45,16 @@
 // raw_core::stages::scene_tone_controls::LUMA_REC2020 (= [0.2627, 0.6780, 0.0593]).
 const LUMA_REC2020: vec3<f32> = vec3<f32>(0.2627, 0.6780, 0.0593);
 
+// Whites/blacks monotonicity bounds (#1918). Pinned to the raw-core stage
+// (raw_core::stages::scene_tone_controls WHITES_MIN_GAIN / B_CRUSH_EDGE /
+// B_LIFT_EDGE); the parity test gates them against the real stage. See the
+// per-constant derivations there — the whites negative gain is floored so the
+// upper-end op stays monotone, and the blacks LIFT toe uses the WIDER 0.40 edge
+// (the CRUSH toe keeps the 0.2 edge, already monotone).
+const WHITES_MIN_GAIN: f32 = 0.32;
+const B_CRUSH_EDGE: f32 = 0.2;
+const B_LIFT_EDGE: f32 = 0.40;
+
 struct Params {
     exposure: f32,    // EV; gain = 2^exposure
     brightness: f32,  // -100..100 (midtone-band gain, #1102)
@@ -85,7 +95,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // Brightness EV-per-unit-weight amount (raw-core B_STRENGTH = 0.7).
     let br_amount = 0.7 * params.brightness / 100.0;
 
-    let w_amount = params.whites / 200.0;
+    // Whites negative-gain floor (#1918): positive gain is unconditionally
+    // monotone and passes through unclamped; the negative side saturates at
+    // −WHITES_MIN_GAIN. Mirrors raw-core's `(whites/200).max(-WHITES_MIN_GAIN)`.
+    let w_amount = max(params.whites / 200.0, -WHITES_MIN_GAIN);
 
     let b_amount = params.blacks / 100.0;   // -1..+1
     let b_add_pos = params.blacks / 400.0;  // additive lift amount, positive branch only
@@ -121,11 +134,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     //    The asymmetry is intentional (a multiplicative lift would no-op p=0).
     if (apply_blacks) {
         let y_old = luma(p);
-        let w = 1.0 - smoothstep(0.0, 0.2, y_old);
         if (b_amount < 0.0) {
+            // Crush: multiplicative, toe weight over the 0.2 edge (B_CRUSH_EDGE,
+            // already monotone — unchanged, #1918).
+            let w = 1.0 - smoothstep(0.0, B_CRUSH_EDGE, y_old);
             let factor = 1.0 + b_amount * w;
             p = p * factor;
         } else {
+            // Lift: additive, toe weight over the WIDER 0.40 edge (B_LIFT_EDGE)
+            // so the transfer stays monotone at the full +100 lift (#1918). The
+            // Y=0 lift endpoint and the Y=0.40 midtone pin are preserved.
+            let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, y_old);
             let delta = b_add_pos * w;
             let y_in = luma(p);
             if (y_in > 1e-6) {
