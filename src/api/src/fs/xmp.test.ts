@@ -82,9 +82,7 @@ describe('resolveThumbPathForAsset', () => {
 
   test('POSIX path split: "a/b/c" → segments joined via path.join (never raw "/" in result)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ fileinfoPath: 'a/b/c' }), libs());
-    expect(result).toBe(
-      path.join(LIB_ROOT, 'a', 'b', 'c', '.maple', 'thumbs', `${MAPLE_ID}.avif`),
-    );
+    expect(result).toBe(path.join(LIB_ROOT, 'a', 'b', 'c', '.maple', 'thumbs', `${MAPLE_ID}.avif`));
   });
 
   test('returns null when maple_id is missing', () => {
