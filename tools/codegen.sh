@@ -8,8 +8,8 @@
 #   - adjustment (raw_core::types::ADJUSTMENT_SCHEMA) → Swift + TS
 #   - ui-tokens  (raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS})
 #                                            → Swift + TS + SCSS (ticket #606)
-#   - color-matrices (raw_core::color::{matrices,oklab}) → WGSL
-#                                            (epic #925 P2 / #990)
+#   - color-matrices (raw_core::color::{matrices,oklab}) → WGSL + TS
+#                                            (epic #925 P2 / #990; TS #1944)
 #   - agx-coeffs     (src/scripts/derive_agx_lut.py) → WGSL
 #                                            (epic #925 P2 / #990)
 #
@@ -20,6 +20,7 @@
 #   - src/web/projects/maple-common/src/lib/generated/ui-tokens.ts
 #   - src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss
 #   - src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl
+#   - src/web/projects/maple-common/src/lib/generated/color-matrices.generated.ts
 #   - src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl
 #
 # The cbindgen step for the FFI header is handled by
@@ -60,8 +61,14 @@ UI_SCSS_OUT="src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss"
 # matrix retune can't silently diverge from the GPU copy.
 
 GPU_WGSL_OUT="src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl"
+COLOR_MATRICES_TS_OUT="src/web/projects/maple-common/src/lib/generated/color-matrices.generated.ts"
 
 "$BIN" --schema color-matrices --target wgsl --out "$GPU_WGSL_OUT"
+
+# TS counterpart (#1944): the ONE matrix a TS caller consumes today
+# (`image-utils.ts`'s non-RAW/JPEG-PNG ingestion path) — single-sourced here
+# instead of hand-typed, so it can't silently drift from the GPU copy above.
+"$BIN" --schema color-matrices --target ts --out "$COLOR_MATRICES_TS_OUT"
 
 # --- AgX coefficients → WGSL (epic #925 P2 / #990) ------------------------
 # The headless GPU AgX kernel (raw-gpu/src/agx.wgsl) bakes the inset/outset
@@ -85,4 +92,5 @@ echo "  - $UI_SWIFT_OUT"
 echo "  - $UI_TS_OUT"
 echo "  - $UI_SCSS_OUT"
 echo "  - $GPU_WGSL_OUT"
+echo "  - $COLOR_MATRICES_TS_OUT"
 echo "  - $AGX_WGSL_OUT"
