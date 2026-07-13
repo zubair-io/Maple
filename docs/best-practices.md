@@ -272,6 +272,16 @@ Each page component owns one concern. Never switch page content with `@if` insid
 }
 ```
 
+### Routing & Navigation
+
+1. **SPA Integrity:** Always use `routerLink` / `[routerLink]` rather than standard `href` / `[href]` for internal navigation (e.g. settings panels, worker pages, profile pages). Standard `href` triggers a full browser reload, which resets the Angular state and breaks browser history navigation.
+2. **Browser History Management:**
+   - Avoid using `replaceUrl: true` for normal master-detail / page transitions. Users expect the browser back button to navigate backwards sequentially through their page views.
+   - Only use `replaceUrl: true` for:
+     - Boot-level or guard redirects (e.g. `/` redirecting to `/browse` or authentication redirects).
+     - Close/dismiss action buttons (e.g., closing a detail panel so that browser Back does not trap the user inside the detail view).
+     - Reactive URL synchronization for search inputs or dynamic state parameters (e.g. updating `?q=` as the user types), to avoid filling the history stack with intermediate query states.
+
 ---
 
 ## Angular — observables and view models
