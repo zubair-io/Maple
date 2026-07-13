@@ -209,7 +209,7 @@ extension EditSession {
         let canvasSize = nativeImageSize
         let pipeline = self.pipeline
         let m = model
-        adoptDecodedWbFrame(cachedWbFrame) // #1781: decode-bake anchor below
+        adoptDecodedWbFrame(cachedWbFrame) // #1781/#1976: as-shot anchor below
         let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
         // Auto Profile (#812) — resolve/cache the per-image cube off the
         // synchronous chain block, mirroring `decodeAndRender`. The editor
@@ -375,7 +375,7 @@ extension EditSession {
         let cachedNoiseProfile = snapshot.noiseProfile
         let cachedISO = snapshot.iso
         let cachedWbFrame = snapshot.wbFrame
-        // #1781: decode-bake anchor when a frame is present (wbDeltaAnchor).
+        // #1781/#1976: frame as-shot anchor when a frame is present (wbDeltaAnchor).
         let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
         // Auto Profile (#812) — resolve (and cache) the per-image display-space
         // CIColorCube once per render, OFF the synchronous filter-chain block.
