@@ -13,12 +13,11 @@
 //!    match the CPU composition of the SAME shared raw-core WB function
 //!    (`SliderFrameExport::apply_delta_rec2020`) + view tail + dither —
 //!    and at `live == decoded` both paths must be the AgX-only identity.
-//! 3. **Fixture-gated live-vs-refine seam measurement** on test_0002 at
-//!    its sidecar WB (6282 K / −44): the GPU live render over the
-//!    decode-anchored buffer vs a fresh full develop at the target WB —
-//!    the user-visible TestFlight seam this ticket closes. Asserts the
-//!    frame path lands within tenths of ΔE00 mean and prints the
-//!    before (generic-CAT16, CIRAWFilter-style anchor) vs after numbers.
+//! 3. **Fixture-gated live-vs-refine seam measurement** on test_0002: the
+//!    GPU live render over the ACTUAL editor decode bake (an As-Shot
+//!    develop — the strip XMP omits WB, #1883/#1976), anchored at the
+//!    frame's as-shot pair, vs a fresh full develop — at the untouched
+//!    open, the authored sidecar WB, and large warm/cool slider drags.
 
 use super::gpu_live_tests::{make_params, owned_arrays, scene_linear_rgba};
 use super::*;
@@ -143,17 +142,21 @@ fn frame_params_derive_frame_delta_matrix_and_gate() {
 
     // At live == decoded the matrix is exact identity AND the gate values
     // land inside `wb_is_noop`'s (6500 ± 0.5, ±0.5) band, so the live
-    // builder omits the WB pass entirely.
-    let mut p_id = make_params(&model, WbMethod::Cat16, 2, &arr);
-    p_id.temperature = 6500.0;
-    p_id.tint = 0.0;
-    p_id.decoded_temperature = 6500.0;
-    p_id.decoded_tint = 0.0;
-    set_frame(&mut p_id, &frame);
-    let inputs_id = unsafe { params::inputs_from_params(&p_id) };
-    assert_eq!(inputs_id.wb_matrix, raw_core::math::Matrix3::IDENTITY.0);
-    assert_eq!(inputs_id.wb_temperature, 6500.0);
-    assert_eq!(inputs_id.wb_tint, 0.0);
+    // builder omits the WB pass entirely — for ANY equal pair, not just
+    // 6500/0: the untouched editor open anchors at the frame's as-shot
+    // pair (#1976), so the far-off-D65 case is the one that matters.
+    for pair in [(6500.0f32, 0.0f32), (4522.4, -43.79)] {
+        let mut p_id = make_params(&model, WbMethod::Cat16, 2, &arr);
+        p_id.temperature = pair.0;
+        p_id.tint = pair.1;
+        p_id.decoded_temperature = pair.0;
+        p_id.decoded_tint = pair.1;
+        set_frame(&mut p_id, &frame);
+        let inputs_id = unsafe { params::inputs_from_params(&p_id) };
+        assert_eq!(inputs_id.wb_matrix, raw_core::math::Matrix3::IDENTITY.0);
+        assert_eq!(inputs_id.wb_temperature, 6500.0);
+        assert_eq!(inputs_id.wb_tint, 0.0);
+    }
 }
 
 /// The CPU reference for the WB-only live chain: the SAME shared raw-core
@@ -313,19 +316,32 @@ fn max_channel_delta(a: &[u8], b: &[u8]) -> u8 {
         .unwrap()
 }
 
-/// THE LIVE-vs-REFINE SEAM (fixture-gated, real Metal): test_0002 at its
-/// sidecar WB (6282 K / −44).
+/// THE LIVE-vs-REFINE SEAM (fixture-gated, real Metal): test_0002 through
+/// the GPU live chain over the ACTUAL editor decode bake, vs a fresh full
+/// develop at the same target — the truth.
 ///
-/// * refine = a fresh full develop at the target WB (what
-///   `maple_render_file_scene_linear_f32(raw, xmp)` produces on Apple) +
-///   the view tail — the truth.
-/// * live   = the decode-anchored buffer (develop at the strip-XMP's
-///   explicit 6500/0 bake) through the GPU live chain at the target.
+/// The bake models the strip-XMP decode faithfully (#1976): the strip
+/// OMITS the WB fields (`omitWhiteBalance`, #1883), so raw-core resolves
+/// the develop at the image's As-Shot WB — NOT at an explicit 6500/0.
+/// Pre-#1894 those were the same develop (6500/0 was the slider identity
+/// encoding); post-#1894 the identity moved to the frame's as-shot pair
+/// and the explicit-6500/0 bake model became a ~2000 K-warm fiction on
+/// this body. Anchoring the delta at that fiction "cooled" the neutral
+/// as-shot buffer into the shipped cyan overcool — and the old version of
+/// this test (bake at explicit 6500/0, single target 6282 ≈ anchor) baked
+/// the same false assumption into the gate, so it stayed green. The delta
+/// anchor here is the frame's as-shot pair, matching
+/// `EditSession.wbDeltaAnchor`.
 ///
-/// AFTER (#1781): frame data + the 6500/0 anchor ⇒ tenths of ΔE00.
-/// BEFORE (printed for the record): zero frame + the pre-decode
-/// platform-estimate anchor (4522 K / −43.65, what the app used to pass) —
-/// the visible band.
+/// Cases:
+///   * as-shot-open — the untouched editor open. The delta short-circuits
+///     to exact identity AND the refine develops at the explicit as-shot
+///     slider values, so this also gates the estimator/reconstruction
+///     round trip (#1870): a saved untouched sidecar must develop to the
+///     same pixels the open showed.
+///   * sidecar — this fixture's real authored WB (6282 K / −44).
+///   * warm-drag / cool-drag — large slider excursions in both
+///     directions, the regime the old single-target gate never exercised.
 #[test]
 #[cfg_attr(
     not(feature = "fixtures"),
@@ -341,75 +357,30 @@ fn gpu_live_vs_develop_refine_seam_test_0002() {
     let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode test_0002");
     let frame = crate::scene_linear_f32::wb_frame_export(&raw);
     assert!(frame.is_present(), "test_0002 must resolve a slider frame");
+    let anchor = (frame.scene_cct, frame.as_shot_tint);
 
-    // WB-isolated model shape: explicit WB (seen flags, like the FFI XMP
-    // parse), AE off (content-dependent gain would differ between the two
-    // develops), sharpen/NR zeroed (the live chain and the develop run them
-    // with different numerics — not the stage under test).
-    let base = AdjustmentModel {
-        temperature_seen: true,
-        tint_seen: true,
+    // The editor decode bake: WB UNSEEN (the strip XMP omits the fields),
+    // AE off + sharpen/NR zeroed — WB is the stage under test; the live
+    // chain and the develop run the others with different numerics.
+    let model_bake = AdjustmentModel {
         auto_exposure: raw_core::types::adjustment::AutoExposureMode::Off,
         sharpen_amount: 0.0,
         nr_color: 0.0,
         nr_luminance: 0.0,
         ..AdjustmentModel::default()
     };
-    let target = (6282.0f32, -44.0f32);
-    let model_target = AdjustmentModel {
-        temperature: target.0,
-        tint: target.1,
-        ..base.clone()
-    };
-    // The decode bake: the strip XMP's explicit 6500/0 (what every Apple
-    // editor decode develops at — `RawCoreBridge.stripAppleGPUStages`).
-    let model_bake = AdjustmentModel {
-        temperature: 6500.0,
-        tint: 0.0,
-        ..base
-    };
-
     let never = CancelToken::never();
-    let (w, h, refine_f32) = render_sized(
+    let (w, h, bake_f32) = render_sized(
         &raw,
-        &model_target,
+        &model_bake,
         RenderQuality::Preview,
         512,
         never.clone(),
     )
-    .expect("refine develop");
-    let (bw, bh, bake_f32) =
-        render_sized(&raw, &model_bake, RenderQuality::Preview, 512, never).expect("bake develop");
-    assert_eq!((w, h), (bw, bh));
+    .expect("bake develop");
 
-    // Refine display surface: view tail + dither over the target develop.
-    let refine_u8 = {
-        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
-        for (i, chunk) in refine_f32.chunks_exact(4).enumerate() {
-            img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
-        }
-        raw_core::view::agx::apply(&mut img, 0.0);
-        raw_core::view::encode::rec2020_to_srgb(&mut img);
-        raw_core::view::encode::srgb_gamma_encode(&mut img);
-        let mut rgba = Vec::with_capacity(refine_f32.len());
-        for p in &img.pixels {
-            rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
-        }
-        raw_gpu::dither_and_quantize(&rgba, w as usize, h as usize)
-    };
-
-    let model_live = AdjustmentModel {
-        temperature: target.0,
-        tint: target.1,
-        auto_exposure: raw_core::types::adjustment::AutoExposureMode::Off,
-        sharpen_amount: 0.0,
-        nr_color: 0.0,
-        nr_luminance: 0.0,
-        ..AdjustmentModel::default()
-    };
     let curve = ProfileCurve::identity();
     let lut = ColorLut::identity(2);
-    let arr = owned_arrays(&model_live, &curve, &lut);
     let null_auto = |p: &mut MapleGpuLiveParams| {
         p.profile_curve_ptr = std::ptr::null();
         p.profile_curve_len = 0;
@@ -418,70 +389,200 @@ fn gpu_live_vs_develop_refine_seam_test_0002() {
         p.residual_lut_len = 0;
     };
 
-    // AFTER: frame data + the 6500/0 decode-bake anchor.
-    let mut p_after = make_params(&model_live, WbMethod::Cat16, 2, &arr);
-    p_after.decoded_temperature = 6500.0;
-    p_after.decoded_tint = 0.0;
-    null_auto(&mut p_after);
-    set_frame(&mut p_after, &frame);
-    let live_after = gpu_render(&bake_f32, w, h, &p_after);
+    // Measured landings (2026-07-12, #1976) + ~15% headroom:
+    //   as-shot-open 0.045/0.504/1.573 maxCh 1 (dither-level — the fix)
+    //   sidecar      0.439/1.001/1.690 maxCh 2 (Δ ≈ 1760 K off anchor)
+    //   warm-drag    0.474/0.876/1.461 maxCh 4 (Δ ≈ 3000 K)
+    //   cool-drag    0.700/0.992/1.757 maxCh 4 (Δ ≈ 1000 K)
+    // The non-open budgets absorb the fixed-C conjugation approximation
+    // (`frame_to_rec2020` cannot carry the render profile's FM endpoints
+    // — #1967 shrinks them); the as-shot-open case must be dither-level.
+    let cases: [(&str, (f32, f32), (f32, f32, f32)); 4] = [
+        ("as-shot-open", anchor, (0.06, 0.6, 1.8)),
+        ("sidecar", (6282.0, -44.0), (0.55, 1.2, 2.0)),
+        ("warm-drag", (7500.0, 20.0), (0.55, 1.05, 1.7)),
+        ("cool-drag", (3500.0, -20.0), (0.85, 1.2, 2.1)),
+    ];
 
-    // BEFORE: zero frame + the platform pre-decode anchor the app used to
-    // pass (CIRAWFilter's 4522 K / −43.65 for this body) — today's shipped
-    // behaviour, for the record.
-    let mut p_before = make_params(&model_live, WbMethod::Cat16, 2, &arr);
-    p_before.decoded_temperature = 4522.0;
-    p_before.decoded_tint = -43.65;
-    null_auto(&mut p_before);
-    let live_before = gpu_render(&bake_f32, w, h, &p_before);
+    for (name, target, (b_mean, b_p95, b_max)) in cases {
+        // Truth: a fresh full develop at the explicit target + view tail.
+        let model_target = AdjustmentModel {
+            temperature: target.0,
+            tint: target.1,
+            temperature_seen: true,
+            tint_seen: true,
+            ..model_bake.clone()
+        };
+        let (tw, th, refine_f32) = render_sized(
+            &raw,
+            &model_target,
+            RenderQuality::Preview,
+            512,
+            never.clone(),
+        )
+        .expect("refine develop");
+        assert_eq!((w, h), (tw, th));
+        let refine_u8 = {
+            let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+            for (i, chunk) in refine_f32.chunks_exact(4).enumerate() {
+                img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
+            }
+            raw_core::view::agx::apply(&mut img, 0.0);
+            raw_core::view::encode::rec2020_to_srgb(&mut img);
+            raw_core::view::encode::srgb_gamma_encode(&mut img);
+            let mut rgba = Vec::with_capacity(refine_f32.len());
+            for p in &img.pixels {
+                rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
+            }
+            raw_gpu::dither_and_quantize(&rgba, w as usize, h as usize)
+        };
 
-    let (mean_b, p95_b, max_b) = de00_stats(&live_before, &refine_u8);
-    let (mean_a, p95_a, max_a) = de00_stats(&live_after, &refine_u8);
-    let ch_b = max_channel_delta(&live_before, &refine_u8);
-    let ch_a = max_channel_delta(&live_after, &refine_u8);
+        // Live: the GPU chain over the as-shot bake, anchored at the
+        // frame's as-shot pair (`wbDeltaAnchor`).
+        let arr = owned_arrays(&model_target, &curve, &lut);
+        let mut p = make_params(&model_target, WbMethod::Cat16, 2, &arr);
+        p.decoded_temperature = anchor.0;
+        p.decoded_tint = anchor.1;
+        null_auto(&mut p);
+        set_frame(&mut p, &frame);
+        let live = gpu_render(&bake_f32, w, h, &p);
+
+        let (mean, p95, max) = de00_stats(&live, &refine_u8);
+        let ch = max_channel_delta(&live, &refine_u8);
+        eprintln!(
+            "test_0002 live-vs-refine seam [{name}] @ ({:.1}, {:.1}): \
+             mean/p95/max dE00 = {mean:.3}/{p95:.3}/{max:.3} maxCh {ch}",
+            target.0, target.1
+        );
+        assert!(
+            mean < b_mean,
+            "[{name}] live-vs-refine mean dE00 {mean:.3} exceeds budget {b_mean}"
+        );
+        assert!(
+            p95 < b_p95,
+            "[{name}] live-vs-refine p95 dE00 {p95:.3} exceeds budget {b_p95}"
+        );
+        assert!(
+            max < b_max,
+            "[{name}] live-vs-refine max dE00 {max:.3} exceeds budget {b_max}"
+        );
+        if name == "as-shot-open" {
+            // The untouched open is delta-identity + gate-skip: the ONLY
+            // residual is the explicit-vs-unseen as-shot develop round
+            // trip (#1870) landing under dither — never more than 1 u8
+            // step on any channel.
+            assert!(
+                ch <= 1,
+                "[{name}] untouched open must be dither-level (maxCh {ch} > 1)"
+            );
+        }
+    }
+}
+
+/// THE TILE-BAKE PARITY GATE (fixture-gated; #1976 follow-on): the
+/// native-detail tile render with NO decoded-WB anchor must reproduce the
+/// whole-image strip develop (an As-Shot bake) — the invariant that makes
+/// the 100% native-detail overlay agree with the fit view, since both then
+/// feed the SAME per-tick chain with the SAME `wbDeltaAnchor`.
+///
+/// Also documents WHY the anchor must be absent: the stripped handle model
+/// carries the (6500, 0) parse DEFAULTS (WB omitted, #1883), so an anchored
+/// tile computes `wb(6500-default)/wb(anchor)` in camera space — identity
+/// only when the anchor is 6500/0 (the pre-#1976 accidental cancellation),
+/// and a visible warm cast for any truthful anchor (measured on-device as
+/// the pink 100% view).
+#[test]
+#[cfg_attr(
+    not(feature = "fixtures"),
+    ignore = "needs test-fixtures/raws (fixtures feature)"
+)]
+fn native_detail_tile_bake_matches_whole_image_strip_develop() {
+    use raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable as render_sized;
+    use raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32 as render_tile;
+    use raw_core::pipeline::{RenderQuality, TileRect};
+    use raw_core::CancelToken;
+
+    let path = raw_core::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read test_0002.dng");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode test_0002");
+
+    // The stripped handle model: WB omitted (unseen, parse defaults). AE
+    // explicitly off — the tile path omits AE by design (#1167, a uniform
+    // luminance factor, not color), so turning it off in the whole develop
+    // isolates the COLOR parity this gate is about.
+    let model_strip = AdjustmentModel {
+        auto_exposure: raw_core::types::adjustment::AutoExposureMode::Off,
+        ..AdjustmentModel::default()
+    };
+
+    // Whole-image strip develop at native resolution (long edge = sensor).
+    let never = CancelToken::never();
+    let native_long = raw.width.max(raw.height);
+    let (ww, wh, whole) = render_sized(&raw, &model_strip, RenderQuality::Full, native_long, never)
+        .expect("whole-image strip develop");
+
+    // A background rect well inside the frame (top-left quadrant is the
+    // white studio backdrop on this fixture).
+    let rect = TileRect {
+        src_x: 256,
+        src_y: 256,
+        src_w: 512,
+        src_h: 512,
+        out_w: 512,
+        out_h: 512,
+    };
+
+    let mean_rgb = |buf: &[f32], w: u32, x0: u32, y0: u32, n: u32| -> [f64; 3] {
+        let mut acc = [0.0f64; 3];
+        for yy in y0..y0 + n {
+            for xx in x0..x0 + n {
+                let i = ((yy * w + xx) * 4) as usize;
+                acc[0] += buf[i] as f64;
+                acc[1] += buf[i + 1] as f64;
+                acc[2] += buf[i + 2] as f64;
+            }
+        }
+        let cnt = (n * n) as f64;
+        [acc[0] / cnt, acc[1] / cnt, acc[2] / cnt]
+    };
+
+    // Fixed fix: NO anchor — must match the whole develop.
+    let (tw, th, tile_none) = render_tile(&raw, &model_strip, rect, RenderQuality::Full, None)
+        .expect("tile render (no anchor)");
+    assert_eq!((tw, th), (512, 512));
+    // Pre-#1976 shape: a truthful as-shot anchor — documents the warm cast.
+    let (_, _, tile_anchored) = render_tile(
+        &raw,
+        &model_strip,
+        rect,
+        RenderQuality::Full,
+        Some((4522.4, -43.79)),
+    )
+    .expect("tile render (anchored)");
+
+    let whole_mean = mean_rgb(&whole, ww, rect.src_x + 64, rect.src_y + 64, 384);
+    let none_mean = mean_rgb(&tile_none, 512, 64, 64, 384);
+    let anch_mean = mean_rgb(&tile_anchored, 512, 64, 64, 384);
+    let ratio = |a: [f64; 3], b: [f64; 3]| [a[0] / b[0], a[1] / b[1], a[2] / b[2]];
+    let r_none = ratio(none_mean, whole_mean);
+    let r_anch = ratio(anch_mean, whole_mean);
     eprintln!(
-        "test_0002 live-vs-refine seam @ (6282, -44): \
-         BEFORE mean/p95/max dE00 = {mean_b:.3}/{p95_b:.3}/{max_b:.3} maxCh {ch_b} | \
-         AFTER mean/p95/max dE00 = {mean_a:.3}/{p95_a:.3}/{max_a:.3} maxCh {ch_a}"
+        "TILEBAKE whole={whole_mean:.5?} tile(none)={none_mean:.5?} ratio={r_none:.4?} | \
+         tile(anchored 4522)={anch_mean:.5?} ratio={r_anch:.4?}"
     );
-    // Budget history:
-    //   • Pre-#1894 (frame == render profile): mean 0.037.
-    //   • #1894 regressed it to 0.533 by making the WB VALUE frame the
-    //     embedded single-CM CM (scene_cct 4522) while the buffer develops
-    //     through the BUNDLE profile (5516) — the fixed-C conjugation in
-    //     `frame_to_rec2020` was then built in the wrong basis. This gate is
-    //     fixture-gated (never runs in CI) so the regression shipped silently
-    //     and surfaced as the on-device cyan cast on this body (#1904).
-    //   • #1904 seam fix: conjugate through the RENDER profile's CM
-    //     (`SliderFrame::render_cm`) — mean 0.189 here (3× better; 55× better
-    //     than the generic-CAT16 BEFORE path's 10.4). The residual above the
-    //     old 0.037 is the fixed-C approximation's IRREDUCIBLE floor for a
-    //     body whose value frame ≠ render profile: `frame_to_rec2020` cannot
-    //     carry the render profile's ForwardMatrix ENDPOINTS (module doc),
-    //     so it cannot model the FM's different retarget at the bake anchor
-    //     (6500/0) vs the target — an error that only appears when the two
-    //     frames diverge, i.e. exactly the embedded-CM case. Closing it fully
-    //     needs the FM endpoints threaded through the FFI (larger change,
-    //     tracked separately). These ceilings are the measured landing (mean
-    //     0.189 / p95 0.790 / max 1.698) + ~15% headroom — a SET for the
-    //     post-#1894 embedded-frame reality, not a relaxation to mask a bug:
-    //     the `mean_a < mean_b` gate below still proves the frame path beats
-    //     the generic one by ~55×, and the As-Shot cyan this fixes measured
-    //     2.14 → 0.50 mean dE00 (repro during #1904).
+    assert!(wh > 0);
+    for (c, r) in r_none.iter().enumerate() {
+        assert!(
+            (r - 1.0).abs() < 0.005,
+            "no-anchor tile channel {c} diverges from the whole-image strip develop: ratio {r:.4}"
+        );
+    }
+    // The anchored tile's R/B ratio vs the develop demonstrates the warm
+    // cast the anchor injects (R up, B down) — the regression this test
+    // pins. If this ever reads ~1.0 the anchor semantics changed and the
+    // NativeDetail contract should be revisited.
     assert!(
-        mean_a < 0.22,
-        "live-vs-refine mean dE00 {mean_a:.3} exceeds the embedded-frame fixed-C floor"
-    );
-    assert!(
-        p95_a < 0.95,
-        "live-vs-refine p95 dE00 {p95_a:.3} exceeds budget"
-    );
-    assert!(
-        max_a < 2.0,
-        "live-vs-refine max dE00 {max_a:.3} exceeds budget"
-    );
-    assert!(
-        mean_a < mean_b,
-        "frame path ({mean_a:.3}) must beat the generic path ({mean_b:.3})"
+        r_anch[0] > 1.01 && r_anch[2] < 0.99,
+        "expected the truthful-anchor tile to show the documented warm cast; got {r_anch:.4?}"
     );
 }

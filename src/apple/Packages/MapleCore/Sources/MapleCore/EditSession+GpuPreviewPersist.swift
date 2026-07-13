@@ -40,8 +40,9 @@ extension EditSession {
         // just drew, so it must anchor WB identically or the persisted preview
         // would disagree with what's on screen.
         let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
-        // #1781: mirror `presentViaGpuLive`'s anchor exactly — decode-bake
-        // anchor + slider frame when present, legacy as-shot otherwise.
+        // #1781/#1976: mirror `presentViaGpuLive`'s anchor exactly — the
+        // frame's as-shot pair + slider frame when present, legacy as-shot
+        // otherwise.
         let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
         let anchor = wbDeltaAnchor
         let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
