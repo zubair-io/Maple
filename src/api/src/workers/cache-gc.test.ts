@@ -94,6 +94,11 @@ async function writeJpg(p: string): Promise<void> {
   await writeFile(p, Buffer.from([0xff, 0xd8, 0xff, 0xd9])); // tiny JPEG-ish bytes
 }
 
+async function writeAvif(p: string): Promise<void> {
+  await mkdir(path.dirname(p), { recursive: true });
+  await writeFile(p, Buffer.from([0x00, 0x00, 0x00, 0x1c])); // tiny AVIF-ish bytes
+}
+
 /**
  * Age `p` past the recency-skip window so the sweep will consider it for
  * deletion. The sweep skips files whose mtime is within 60s of `Date.now()`
@@ -115,6 +120,35 @@ describe('sweepOrphanedCaches', () => {
       const legacyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
       await writeJpg(knownThumb);
       await writeJpg(legacyThumb);
+      await agePast(knownThumb);
+      await agePast(legacyThumb);
+
+      await db!
+        .collection('assets')
+        .insertOne({ _id: new ObjectId(), maple_id: KNOWN_ID } as never);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 2, deleted: 1, skipped_recent: 0 });
+
+      // Known file remains.
+      const s = await stat(knownThumb);
+      expect(s.size).toBeGreaterThan(0);
+      // Legacy file gone.
+      await expect(stat(legacyThumb)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('unlinks orphaned .avif thumb and keeps known .avif thumb (thumb stage v3 format)', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      const knownThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.avif`);
+      const legacyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.avif`);
+      await writeAvif(knownThumb);
+      await writeAvif(legacyThumb);
       await agePast(knownThumb);
       await agePast(legacyThumb);
 

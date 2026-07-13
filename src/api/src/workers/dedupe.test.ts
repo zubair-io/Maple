@@ -196,7 +196,10 @@ describe('runDeDuplicateOnce', () => {
     writeFile('a', 'IMG.dng'); // index 0 = current anchor, will be moved
     writeFile('b', 'IMG.dng'); // keeper (rule 4)
     // Anchor folder has the maple_id-keyed cache; keeper folder does not.
+    // Both the current AVIF thumb and a legacy JPEG left over from before the
+    // thumb stage's v3 format migration should be swept.
     mkdirSync(join(root, 'a', '.maple', 'thumbs'), { recursive: true });
+    writeFileSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.avif`), 'avif');
     writeFileSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.jpg`), 'jpg');
     const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
 
@@ -208,7 +211,8 @@ describe('runDeDuplicateOnce', () => {
     expect(asset!.stages.thumb.version).toBe(0);
     expect(asset!.stages.preview.version).toBe(0);
     expect(asset!.stages.exif.version).toBe(1); // untouched — content-keyed
-    // The orphaned cache in the moved-from folder was cleaned.
+    // The orphaned cache in the moved-from folder was cleaned — both extensions.
+    expect(existsSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.avif`))).toBe(false);
     expect(existsSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.jpg`))).toBe(false);
   });
 
