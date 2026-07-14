@@ -1,17 +1,67 @@
 /**
- * Synchronous previews-cache cleanup for one on-disk location going away.
+ * Recognizing and cleaning up previews-cache filenames for one on-disk
+ * location.
  *
- * Split out of `xmp.ts` (which owns cache-PATH resolution) because this is
- * cache-path CLEANUP, called from `missing-reaper.ts`/`dedupe.ts` whenever a
- * `fileinfo` entry is removed — previews are path-keyed (see
- * `cachePathForAsset`'s doc in `xmp.ts`), so they don't survive a location
- * going away the way `maple_id`-keyed thumbs do, and can't wait for
- * `cache-gc`'s periodic backstop sweep alone.
+ * Split out of `xmp.ts` (which owns cache-PATH CONSTRUCTION: filename +
+ * suffix -> path) because this is the reverse direction — PARSING a cache
+ * filename back to its source, and CLEANUP once a location's `fileinfo`
+ * entry is removed. Previews are path-keyed (see `cachePathForAsset`'s doc
+ * in `xmp.ts`), so they don't survive a location going away the way
+ * `maple_id`-keyed thumbs do, and can't wait for `cache-gc`'s periodic
+ * backstop sweep alone — `missing-reaper.ts`/`dedupe.ts` call
+ * `cleanPreviewsCacheForLocation` synchronously instead; `cache-gc.ts` uses
+ * `sourceFilenameForPreviewCacheName` for its own backstop sweep.
  */
 import * as path from 'node:path';
 // Mirror-aware drop-in: durable writes/moves replicate to the library's
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
+import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
+
+/**
+ * Every previews-cache suffix currently in real use, spelled out exactly —
+ * a preview has exactly ONE size (`PREVIEW_CACHE_SUFFIX`, e.g. `1280.avif`;
+ * thumbs are a separate, differently-sized, maple_id-keyed tier entirely),
+ * so matching it with a generalized `\d+` digit pattern would be solving a
+ * size-variability problem previews don't actually have. `histogram.json`
+ * is likewise a single fixed literal (`routes/assets/histogram.ts`).
+ */
+const KNOWN_EXACT_SUFFIXES: readonly string[] = [
+  PREVIEW_CACHE_SUFFIX,
+  'full.jpg', // cachePathForAsset/cachePathFor's own default when no suffix is passed
+  'histogram.json',
+];
+
+/** `dev_<sidecar_ver>.jpg` is the one genuinely variable suffix — a real,
+ * ever-incrementing edit counter (`display-preview.ts`'s
+ * `developedPreviewSizeKey`), unlike the fixed literals above. */
+const DEV_SUFFIX_PATTERN = /\.dev_\d+\.jpg$/;
+
+/**
+ * Recover the exact source filename a previews-cache filename was generated
+ * for, or `null` if it doesn't end in any recognized suffix (a
+ * legacy/unrecognized cache file — unconditionally orphaned).
+ *
+ * Deliberately NOT prefix-matching against a set of live filenames: since
+ * filenames are unique per directory but one filename can still be a
+ * strict string-prefix of another (`image.jpg` vs `image.jpg.bak`),
+ * `name.startsWith(liveFilename + '.')` can misattribute a cache file to
+ * the wrong source — either hiding a genuine orphan (the true source was
+ * deleted, but a same-prefix live file's name happens to also match) or
+ * deleting a still-live file's preview (jules review, PR #2006). Anchoring
+ * on the closed, known suffix vocabulary from the END instead recovers an
+ * EXACT candidate filename, which — because filenames really are unique
+ * per directory — an exact-equality/Set-membership check resolves with no
+ * ambiguity.
+ */
+export function sourceFilenameForPreviewCacheName(cacheName: string): string | null {
+  for (const suffix of KNOWN_EXACT_SUFFIXES) {
+    const withDot = `.${suffix}`;
+    if (cacheName.endsWith(withDot)) return cacheName.slice(0, -withDot.length);
+  }
+  const match = DEV_SUFFIX_PATTERN.exec(cacheName);
+  return match ? cacheName.slice(0, match.index) : null;
+}
 
 /** The two `fs.Dirent` properties this file actually reads — declared
  * locally instead of importing `Dirent` from `node:fs` (real
@@ -27,9 +77,15 @@ interface DirEntry {
 /**
  * Unlink every previews-cache artefact for ONE on-disk location — every
  * size/kind variant (the unedited AVIF tier, a developed/edited JPEG tier,
- * the histogram JSON sidecar) shares the `<filename>.` prefix inside that
- * location's own `.maple/previews/` folder, per `cachePathForAsset`'s
- * previews branch.
+ * the histogram JSON sidecar) resolves back to `location.filename` via
+ * `sourceFilenameForPreviewCacheName`, inside that location's own
+ * `.maple/previews/` folder.
+ *
+ * Matches on the EXACT recovered source filename, not a `${filename}.`
+ * string prefix: since filenames are unique per directory but one filename
+ * can still be a strict prefix of another (`image.jpg` vs `image.jpg.bak`),
+ * prefix matching could delete a still-live `image.jpg.bak`'s preview when
+ * `image.jpg` is removed (jules review, PR #2006).
  *
  * Call this wherever a `fileinfo` entry is removed (missing-reaper's
  * prune/hard-delete, dedupe's move-then-pull) rather than leaving the orphan
@@ -50,10 +106,12 @@ export async function cleanPreviewsCacheForLocation(
   } catch {
     return; // no previews dir at this location
   }
-  const prefix = `${location.filename}.`;
   await Promise.all(
     entries
-      .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+      .filter(
+        (entry) =>
+          entry.isFile() && sourceFilenameForPreviewCacheName(entry.name) === location.filename,
+      )
       .map((entry) => fs.unlink(path.join(previewsDir, entry.name)).catch(() => {})),
   );
 }
