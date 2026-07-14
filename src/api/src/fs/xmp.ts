@@ -142,25 +142,25 @@ export type CacheKind = 'thumbs' | 'previews';
  * outputs (different export sizes / edit versions); each needs its own file.
  *
  *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
- *   previews: <folder>/.maple/previews/<basename_no_ext>_<suffix>
+ *   previews: <folder>/.maple/previews/<basename>.<suffix>
  *
- * `suffix` is the full size *and* extension (e.g. `"1280.avif"`) — same
- * convention as `cachePathForAsset`'s previews branch, kept in sync so
- * `generatePreview`'s actual encode format never mismatches the extension a
- * caller resolved ahead of writing.
- *
- * Used by the GC sweep to unlink orphaned files after a soft-deleted asset's
- * retention window elapses, and after a rename to clear stale artefacts at
- * the previous path.
+ * `suffix` is the full size *and* extension (e.g. `"1280.avif"`) — MUST use
+ * the same `<basename-with-its-own-extension>.<suffix>` convention as
+ * `cachePathForAsset`'s previews branch (not `<basename-no-ext>_<suffix>`):
+ * `cleanPreviewsCacheForLocation` and `cache-gc.ts`'s previews sweep both
+ * match on a live filename as a literal `.`-terminated prefix, so a legacy
+ * (unindexed-fallback) preview generated here needs the identical prefix an
+ * indexed one would have, or it's invisible to both cleanup paths and leaks
+ * on disk forever (jules review, PR #2006).
  */
 export function cachePathFor(assetAbsPath: string, kind: CacheKind, suffix?: string): string {
   if (kind === 'thumbs') {
     return resolveThumbPath(assetAbsPath);
   }
   const folder = path.dirname(assetAbsPath);
-  const base = path.basename(assetAbsPath, path.extname(assetAbsPath));
+  const filename = path.basename(assetAbsPath);
   const s = suffix ?? 'full.jpg';
-  return path.join(folder, '.maple', 'previews', `${base}_${s}`);
+  return path.join(folder, '.maple', 'previews', `${filename}.${s}`);
 }
 
 /**

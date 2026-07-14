@@ -8,6 +8,7 @@
  * going away the way `maple_id`-keyed thumbs do, and can't wait for
  * `cache-gc`'s periodic backstop sweep alone.
  */
+import type { Dirent } from 'node:fs';
 import * as path from 'node:path';
 // Mirror-aware drop-in: durable writes/moves replicate to the library's
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
@@ -33,16 +34,16 @@ export async function cleanPreviewsCacheForLocation(
 ): Promise<void> {
   const segments = location.path === '' ? [] : location.path.split('/');
   const previewsDir = path.join(libraryRoot, ...segments, '.maple', 'previews');
-  let entries: string[];
+  let entries: Dirent[];
   try {
-    entries = await fs.readdir(previewsDir);
+    entries = (await fs.readdir(previewsDir, { withFileTypes: true })) as Dirent[];
   } catch {
     return; // no previews dir at this location
   }
   const prefix = `${location.filename}.`;
   await Promise.all(
     entries
-      .filter((name) => name.startsWith(prefix))
-      .map((name) => fs.unlink(path.join(previewsDir, name)).catch(() => {})),
+      .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+      .map((entry) => fs.unlink(path.join(previewsDir, entry.name)).catch(() => {})),
   );
 }
