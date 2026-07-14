@@ -198,14 +198,14 @@ describe('MapleIdCache', () => {
 
   it('round-trips a cached id for matching size/mtime', async () => {
     const key = 'lib:2026/France/IMG_0001.dng';
-    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff00112233445566778');
+    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff001122334455667788');
     const result = await getCachedMapleId(key, 1024, 1_700_000_000_000);
-    expect(result).toBe('01aabbccddeeff00112233445566778');
+    expect(result).toBe('01aabbccddeeff001122334455667788');
   });
 
   it('treats a size mismatch as stale and returns null', async () => {
     const key = 'lib:2026/France/IMG_0001.dng';
-    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff00112233445566778');
+    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff001122334455667788');
     // Same mtime, DIFFERENT size — file replaced at this path.
     const result = await getCachedMapleId(key, 2048, 1_700_000_000_000);
     expect(result).toBeNull();
@@ -213,7 +213,7 @@ describe('MapleIdCache', () => {
 
   it('treats an mtime mismatch as stale and returns null', async () => {
     const key = 'lib:2026/France/IMG_0001.dng';
-    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff00112233445566778');
+    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff001122334455667788');
     // Same size, DIFFERENT mtime — file replaced at this path with
     // coincidentally identical size.
     const result = await getCachedMapleId(key, 1024, 1_700_000_000_001);
@@ -222,13 +222,13 @@ describe('MapleIdCache', () => {
 
   it('overwrites a stale entry when re-cached with new size/mtime/id', async () => {
     const key = 'lib:2026/France/IMG_0001.dng';
-    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff00112233445566778');
-    await putCachedMapleId(key, 2048, 1_700_000_000_999, '02ffeeddccbbaa99887766554433221');
+    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff001122334455667788');
+    await putCachedMapleId(key, 2048, 1_700_000_000_999, '02ffeeddccbbaa998877665544332211');
     // Old (size, mtime) no longer matches.
     expect(await getCachedMapleId(key, 1024, 1_700_000_000_000)).toBeNull();
     // New (size, mtime) matches the new id.
     expect(await getCachedMapleId(key, 2048, 1_700_000_000_999)).toBe(
-      '02ffeeddccbbaa99887766554433221',
+      '02ffeeddccbbaa998877665544332211',
     );
   });
 
