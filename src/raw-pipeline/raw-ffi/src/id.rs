@@ -1,6 +1,12 @@
 //! Hashing + maple_id FFI entries — `maple_blake3_hex`,
 //! `maple_id_primary`, `maple_id_fallback`. Pure functions over byte
 //! slices; no rawler, no allocator dance, no thread-local error state.
+//!
+//! Also the streaming fallback-form hasher (#1995):
+//! `maple_fallback_id_hasher_new` / `_update` / `_finalize` / `_free`. Unlike
+//! the pure functions above, this is a stateful opaque-handle API — see
+//! [`MapleFallbackIdHasher`]'s doc comment for the lifecycle and the ABI
+//! shape it mirrors (`MapleCancelFlag` in `crate::cancel`).
 
 /// Compute BLAKE3 hex of arbitrary bytes. Output buffer must be at least 64
 /// bytes (BLAKE3 is 256-bit → 64 hex chars). No null terminator — the caller
@@ -126,4 +132,136 @@ pub extern "C" fn maple_id_fallback(
         std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
     }
     0
+}
+
+/// Opaque streaming fallback-form id hasher (#1995): lets
+/// `maple_id_fallback`'s `sha1_full` term be built from chunks arriving over
+/// time (an SMB byte-range read, a bytes-per-tick copy loop) instead of
+/// requiring the whole file already resident as one buffer.
+///
+/// ABI shape mirrors [`crate::cancel::MapleCancelFlag`] /
+/// [`crate::handle::MapleRawHandle`] exactly: `#[repr(C)]` with a single
+/// `*mut c_void` field pointing at a heap-boxed `raw_core::FallbackIdHasher`
+/// the C/Swift side never sees the layout of. cbindgen emits this as an
+/// opaque typedef, same as those two.
+///
+/// Lifecycle (host responsibility):
+///   1. [`maple_fallback_id_hasher_new`] — allocate.
+///   2. [`maple_fallback_id_hasher_update`] — any number of times, in file
+///      order, as chunks arrive.
+///   3. Exactly one of:
+///      - [`maple_fallback_id_hasher_finalize`] — consumes and frees the
+///        handle, writing the 32-char hex id.
+///      - [`maple_fallback_id_hasher_free`] — abandons the hash (e.g. the
+///        caller cancelled a chunked read partway through) without
+///        computing an id.
+///
+/// A handle must not be used again after either `_finalize` or `_free` has
+/// consumed it — same caller obligation as `MapleRawHandle` /
+/// `MapleCancelFlag` (this crate does not, and cannot, guard against reuse
+/// of an already-freed raw pointer; the null checks below only cover the
+/// caller passing a genuinely null pointer, not a dangling one).
+#[repr(C)]
+pub struct MapleFallbackIdHasher {
+    /// Opaque pointer to a heap-allocated `raw_core::FallbackIdHasher`. Not
+    /// introspected by callers.
+    inner: *mut std::ffi::c_void,
+}
+
+/// Allocate a fresh streaming fallback-id hasher (no bytes fed yet). Never
+/// returns null. Free it with either `maple_fallback_id_hasher_finalize`
+/// (normal completion) or `maple_fallback_id_hasher_free` (early abort).
+#[no_mangle]
+pub extern "C" fn maple_fallback_id_hasher_new() -> *mut MapleFallbackIdHasher {
+    let inner = Box::new(raw_core::FallbackIdHasher::new());
+    let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
+    Box::into_raw(Box::new(MapleFallbackIdHasher { inner: inner_ptr }))
+}
+
+/// Feed the next chunk of file bytes into the running hash. Chunks must be
+/// fed **in file order**; length is caller-defined and may vary call to
+/// call. `chunk_len == 0` is a valid no-op (matches
+/// `raw_core::FallbackIdHasher::update`'s empty-chunk contract) — in that
+/// case `chunk_ptr` may be null.
+///
+/// Returns:
+///   0  success
+///  -1  null `handle`, a `handle` whose inner state is null (freed/invalid),
+///      or null `chunk_ptr` while `chunk_len > 0`
+#[no_mangle]
+pub unsafe extern "C" fn maple_fallback_id_hasher_update(
+    handle: *mut MapleFallbackIdHasher,
+    chunk_ptr: *const u8,
+    chunk_len: usize,
+) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+    if chunk_ptr.is_null() && chunk_len > 0 {
+        return -1;
+    }
+    let inner_ptr = (*handle).inner as *mut raw_core::FallbackIdHasher;
+    if inner_ptr.is_null() {
+        return -1;
+    }
+    let chunk: &[u8] = if chunk_len == 0 {
+        &[]
+    } else {
+        std::slice::from_raw_parts(chunk_ptr, chunk_len)
+    };
+    (*inner_ptr).update(chunk);
+    0
+}
+
+/// Finish the hash. Consumes and frees `handle` (do not call
+/// `maple_fallback_id_hasher_update`, `_finalize`, or `_free` on it again).
+/// Writes the 32-character lowercase hex fallback-form id to `out_hex`
+/// (must point to at least 32 writable bytes; no null terminator).
+///
+/// `filesize` is passed explicitly — same contract as `maple_id_fallback` /
+/// `raw_core::MapleId::fallback` / `raw_core::FallbackIdHasher::finalize`:
+/// typically equal to the total bytes fed via `update`, but callers may
+/// pass a different value (the spec formula's `filesize` term is
+/// independent of the hashed byte count).
+///
+/// Returns:
+///   0  success (handle is freed either way once this returns)
+///  -1  null `handle`, a `handle` whose inner state is null (freed/invalid),
+///      or null `out_hex`
+#[no_mangle]
+pub unsafe extern "C" fn maple_fallback_id_hasher_finalize(
+    handle: *mut MapleFallbackIdHasher,
+    filesize: u64,
+    out_hex: *mut u8,
+) -> i32 {
+    if handle.is_null() || out_hex.is_null() {
+        return -1;
+    }
+    let boxed = Box::from_raw(handle);
+    if boxed.inner.is_null() {
+        return -1;
+    }
+    let inner = Box::from_raw(boxed.inner as *mut raw_core::FallbackIdHasher);
+    let id = inner.finalize(filesize);
+    let hex = id.to_hex();
+    let hex_bytes = hex.as_bytes();
+    std::ptr::copy_nonoverlapping(hex_bytes.as_ptr(), out_hex, 32);
+    0
+}
+
+/// Abandon a streaming hash without finishing it — e.g. the caller cancelled
+/// a chunked read partway through. Frees `handle` and its inner state. A
+/// null pointer is a no-op (matches `maple_cancel_flag_free` /
+/// `maple_close_raw_handle`'s null-is-noop convention).
+#[no_mangle]
+pub unsafe extern "C" fn maple_fallback_id_hasher_free(handle: *mut MapleFallbackIdHasher) {
+    if handle.is_null() {
+        return;
+    }
+    let boxed = Box::from_raw(handle);
+    if !boxed.inner.is_null() {
+        drop(Box::from_raw(
+            boxed.inner as *mut raw_core::FallbackIdHasher,
+        ));
+    }
 }

@@ -74,4 +74,4 @@ pub mod api;
 pub use api::{decode_raw, read_exif, Exif, ExifGps};
 
 pub mod id;
-pub use id::{blake3_hex, maple_id, IdKind, MapleId};
+pub use id::{blake3_hex, maple_id, FallbackIdHasher, IdKind, MapleId};
