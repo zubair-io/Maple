@@ -127,9 +127,21 @@ export class MapleIdFallbackHasherService implements OnDestroy {
     return result;
   }
 
+  /**
+   * [caught in review]: must reject, not just drop, any hash still in
+   * flight — `hashFallback()`'s `await result` has no other way to ever
+   * settle once `this.pending`'s entry is gone (the worker is terminated
+   * below, so no `hash-fallback-success`/`-error` message is coming), so a
+   * caller awaiting `hashFallback()` across a destroy (e.g. an Angular
+   * route navigation away from a screen mid-upload) would hang forever.
+   * Same shape as the `error` listener in `ensureWorker()` above.
+   */
   ngOnDestroy(): void {
+    this.pending.forEach(({ reject }) =>
+      reject(new Error('MapleIdFallbackHasherService destroyed with a hash still in flight')),
+    );
+    this.pending.clear();
     this.worker?.terminate();
     this.worker = null;
-    this.pending.clear();
   }
 }
