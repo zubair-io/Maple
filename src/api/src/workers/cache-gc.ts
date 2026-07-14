@@ -33,6 +33,7 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('cache-gc');
@@ -133,29 +134,21 @@ function isOrphanThumb(knownMapleIds: ReadonlySet<string>, name: string): boolea
   return !knownMapleIds.has(stem.slice(0, 32));
 }
 
-/** A preview is orphaned when its name isn't `<live filename>.<...>` for any
- * currently-live filename at this exact directory. No resolvable library id
- * → no known-live set was (or safely could be) built for this pass, so
- * never delete — a transient failure to resolve the library must not
- * mass-delete live previews (see `resolveLibraryId`). */
+/** A preview is orphaned when the exact source filename recovered from its
+ * name (via `sourceFilenameForPreviewCacheName` — an unrecognized suffix
+ * shape means an unconditional orphan) isn't currently live at this exact
+ * directory. No resolvable library id → no known-live set was (or safely
+ * could be) built for this pass, so never delete — a transient failure to
+ * resolve the library must not mass-delete live previews (see
+ * `resolveLibraryId`). */
 function isOrphanPreview(
   libraryId: ObjectId | null,
   liveNames: ReadonlySet<string>,
   name: string,
 ): boolean {
   if (libraryId === null) return false;
-  // O(dots in `name`) instead of O(liveNames.size): check every prefix of
-  // `name` up to a `.` boundary against the Set directly (an O(1) lookup)
-  // rather than iterating every live filename and calling `startsWith` on
-  // each — a cache file's own name has a small, bounded number of dots
-  // regardless of how many live files share its directory, so this scales
-  // with directory size in neither dimension (jules review, PR #2006).
-  let dot = name.indexOf('.');
-  while (dot !== -1) {
-    if (liveNames.has(name.slice(0, dot))) return false;
-    dot = name.indexOf('.', dot + 1);
-  }
-  return true;
+  const source = sourceFilenameForPreviewCacheName(name);
+  return source === null || !liveNames.has(source);
 }
 
 async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {

@@ -226,6 +226,36 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
+  // Regression for jules's PR #2006 review: `image.jpg` is a strict string
+  // prefix of `image.jpg.bak`, so naive `name.startsWith(liveFilename + '.')`
+  // prefix matching would wrongly treat the deleted `image.jpg.bak`'s
+  // orphaned preview as live (it matches `image.jpg.`'s prefix).
+  test('unlinks an orphaned preview even when its filename is a strict prefix-match of a DIFFERENT live filename', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      const libraryId = await registerLibrary(root);
+      // `image.jpg` is live; `image.jpg.bak` is NOT (already deleted).
+      await insertLiveAsset(libraryId, '', 'image.jpg');
+      const keep = path.join(root, '.maple', 'previews', 'image.jpg.1280.avif');
+      const orphan = path.join(root, '.maple', 'previews', 'image.jpg.bak.1280.avif');
+      await writeAvif(keep);
+      await writeAvif(orphan);
+      await agePast(keep);
+      await agePast(orphan);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 2, deleted: 1, skipped_recent: 0 });
+
+      const s = await stat(keep);
+      expect(s.size).toBeGreaterThan(0);
+      await expect(stat(orphan)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('keeps a preview whose filename matches a live fileinfo entry', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
