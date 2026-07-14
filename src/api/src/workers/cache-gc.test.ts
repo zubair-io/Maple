@@ -211,6 +211,52 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
+  test('keeps a developed preview (_dev_<N> suffix) whose maple_id matches a live asset', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      // Regression test for the MAPLE_ID_RE suffix character class excluding
+      // `_` — before the fix, `<maple_id>_dev_5` fell into the "unknown
+      // shape, unlink" branch regardless of whether the id was known,
+      // deleting every developed preview ~60s after every server restart.
+      const keep = path.join(root, '.maple', 'previews', `${KNOWN_ID}_dev_5.jpg`);
+      await writeJpg(keep);
+      await agePast(keep);
+
+      await db!
+        .collection('assets')
+        .insertOne({ _id: new ObjectId(), maple_id: KNOWN_ID } as never);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 0, skipped_recent: 0 });
+
+      const s = await stat(keep);
+      expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('unlinks an orphaned developed preview (_dev_<N> suffix) for an unknown maple_id', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      const orphan = path.join(root, '.maple', 'previews', `${OTHER_ID}_dev_12.jpg`);
+      await writeJpg(orphan);
+      await agePast(orphan);
+
+      // No assets in the collection — every cache file is orphaned.
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 1, skipped_recent: 0 });
+
+      await expect(stat(orphan)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('library with no .maple/ directories → { scanned: 0, deleted: 0 }', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');

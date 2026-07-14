@@ -60,11 +60,19 @@ const FAIL_THRESHOLD = 3;
 
 /**
  * Matches `<maple_id>` (32 lowercase hex) or `<maple_id>_<size>` where size
- * is `[a-z0-9]+` (e.g. `1280`, `full`). The legacy `sha256_prefix16` cache
- * key is 16 hex chars and does NOT match — it falls through to the "unknown
- * shape, unlink" branch.
+ * is `[a-z0-9_]+` (e.g. `1280`, `full`, `dev_5`). The legacy `sha256_prefix16`
+ * cache key is 16 hex chars and does NOT match — it falls through to the
+ * "unknown shape, unlink" branch.
+ *
+ * The suffix class includes `_` (not just `[a-z0-9]+`) so the
+ * display-preview stage's `<maple_id>_dev_<sidecar_ver>` developed-preview
+ * filenames are recognized as known-shape and checked against `known`
+ * instead of falling into the unconditional-delete branch. Without this,
+ * every developed preview gets deleted as an "orphan" ~60s after every
+ * server restart (`RECENT_THRESHOLD_MS` only protects freshly-written
+ * files) — a real, live bug, not something the AVIF migration introduced.
  */
-const MAPLE_ID_RE = /^[0-9a-f]{32}(?:_[a-z0-9]+)?$/;
+const MAPLE_ID_RE = /^[0-9a-f]{32}(?:_[a-z0-9_]+)?$/;
 
 export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepResult> {
   // Build the set of known maple_ids once (one query per library). Projection
