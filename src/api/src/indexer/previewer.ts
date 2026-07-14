@@ -32,35 +32,35 @@
  * circuit cleanly via its ENOENT path.
  */
 
-import * as path from "node:path";
-import * as fs from "node:fs/promises";
-import { cachePathFor } from "../fs/xmp.ts";
-import { ffiPool } from "../ffi/ffi-pool.ts";
-import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from "../fs/browse.ts";
-import { isNoPreviewFilename } from "./media-types.ts";
-import { renderImageThumbToFileViaPool } from "../thumbs/imgdecode-pool.ts";
-import { child as childLogger } from "../log.ts";
+import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
+import { cachePathFor } from '../fs/xmp.ts';
+import { ffiPool } from '../ffi/ffi-pool.ts';
+import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
+import { isNoPreviewFilename } from './media-types.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("previewer");
+const log = childLogger('previewer');
 
 const RAW_EXTS = new Set([
-  ".dng",
-  ".cr2",
-  ".cr3",
-  ".nef",
-  ".arw",
-  ".raf",
-  ".orf",
-  ".rw2",
-  ".pef",
-  ".srw",
-  ".x3f",
-  ".3fr",
-  ".mef",
-  ".erf",
-  ".mrw",
-  ".raw",
-  ".fff",
+  '.dng',
+  '.cr2',
+  '.cr3',
+  '.nef',
+  '.arw',
+  '.raf',
+  '.orf',
+  '.rw2',
+  '.pef',
+  '.srw',
+  '.x3f',
+  '.3fr',
+  '.mef',
+  '.erf',
+  '.mrw',
+  '.raw',
+  '.fff',
 ]);
 
 /** Long-edge target in pixels. Picked to balance VLM accuracy against
@@ -69,9 +69,10 @@ const RAW_EXTS = new Set([
  * photos at the cost of ~10 s/image on phoebe. */
 export const PREVIEW_LONG_EDGE_PX = 1280;
 
-/** Size key embedded in the cache filename. Stable so the GC sweep and
- * cache-invalidation paths can address the file deterministically. */
-export const PREVIEW_SIZE_KEY = "1280";
+/** Size key embedded in the cache filename. Not exported — every external
+ * caller resolving this tier's path needs the full suffix below, not the
+ * bare size. */
+const PREVIEW_SIZE_KEY = '1280';
 
 /** Full size+extension suffix for `cachePathFor`/`cachePathForAsset`'s
  * previews branch — this tier is always AVIF, so every caller resolving
@@ -99,19 +100,15 @@ export async function generatePreview(
   previewPathOverride?: string,
 ): Promise<void> {
   const ext = path.extname(absPath).toLowerCase();
-  const extNoDot = ext.startsWith(".") ? ext.slice(1) : ext;
+  const extNoDot = ext.startsWith('.') ? ext.slice(1) : ext;
   const previewPath =
-    previewPathOverride ??
-    cachePathFor(absPath, "previews", PREVIEW_CACHE_SUFFIX);
+    previewPathOverride ?? cachePathFor(absPath, 'previews', PREVIEW_CACHE_SUFFIX);
 
   try {
     await fs.mkdir(path.dirname(previewPath), { recursive: true });
   } catch (e) {
     _failed++;
-    log.warn(
-      { previewPath, err: e instanceof Error ? e.message : e },
-      "mkdir failed",
-    );
+    log.warn({ previewPath, err: e instanceof Error ? e.message : e }, 'mkdir failed');
     logTotals();
     return;
   }
@@ -119,10 +116,7 @@ export async function generatePreview(
   // Stale-check: if the cached preview's mtime is >= the source's, reuse it.
   // Matches the thumb-stage convention so a rerun is cheap.
   try {
-    const [previewStat, srcStat] = await Promise.all([
-      fs.stat(previewPath),
-      fs.stat(absPath),
-    ]);
+    const [previewStat, srcStat] = await Promise.all([fs.stat(previewPath), fs.stat(absPath)]);
     if (previewStat.size > 0 && previewStat.mtimeMs >= srcStat.mtimeMs) {
       _cached++;
       logTotals();
@@ -140,7 +134,7 @@ export async function generatePreview(
   // handlers carry the same guard as defense in depth.
   if (isNoPreviewFilename(absPath)) {
     _failed++;
-    log.warn({ absPath }, "skipped: no still frame to preview");
+    log.warn({ absPath }, 'skipped: no still frame to preview');
     logTotals();
     return;
   }
@@ -148,10 +142,7 @@ export async function generatePreview(
   let ok = false;
   if (RAW_EXTS.has(ext)) {
     ok = await renderRawPreviewToFile(absPath, previewPath);
-  } else if (
-    SHARP_EXTENSIONS.has(extNoDot) ||
-    PSD_HDR_EXTENSIONS.has(extNoDot)
-  ) {
+  } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     ok = await renderBitmapPreviewToFile(absPath, previewPath, extNoDot);
   } else {
     // Unknown format — no decode path can produce a genuine AVIF from these
@@ -162,7 +153,7 @@ export async function generatePreview(
     // would serve them with `Content-Type: image/avif`. Skip; the describe
     // and preview-route handlers carry the same guard as defense in depth.
     _failed++;
-    log.warn({ absPath }, "skipped: unrecognized format, no preview generated");
+    log.warn({ absPath }, 'skipped: unrecognized format, no preview generated');
     logTotals();
     return;
   }
@@ -171,7 +162,7 @@ export async function generatePreview(
     _rendered++;
   } else {
     _failed++;
-    log.warn({ absPath }, "failed");
+    log.warn({ absPath }, 'failed');
   }
   logTotals();
 }
@@ -187,42 +178,29 @@ export async function generatePreview(
  * fallback case (see `generatePreview`'s doc).
  */
 export function resolvePreviewPath(absPath: string): string {
-  return cachePathFor(absPath, "previews", PREVIEW_CACHE_SUFFIX);
+  return cachePathFor(absPath, 'previews', PREVIEW_CACHE_SUFFIX);
 }
 
 function logTotals(): void {
   const total = _rendered + _cached + _failed;
   if (total > 0 && total % 500 === 0) {
-    log.info(
-      { rendered: _rendered, cached: _cached, failed: _failed },
-      "totals",
-    );
+    log.info({ rendered: _rendered, cached: _cached, failed: _failed }, 'totals');
   }
 }
 
 /** Shared by every render-branch catch block below: log the failure with
  * context + a normalized error message, then return `false` so the caller
  * can `return logRenderFailure(...)` in one line. */
-function logRenderFailure(
-  context: Record<string, unknown>,
-  err: unknown,
-  label: string,
-): false {
-  log.warn(
-    { ...context, err: err instanceof Error ? err.message : err },
-    label,
-  );
+function logRenderFailure(context: Record<string, unknown>, err: unknown, label: string): false {
+  log.warn({ ...context, err: err instanceof Error ? err.message : err }, label);
   return false;
 }
 
-async function renderRawPreviewToFile(
-  rawPath: string,
-  previewPath: string,
-): Promise<boolean> {
+async function renderRawPreviewToFile(rawPath: string, previewPath: string): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
     log.warn(
-      "raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.",
+      'raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.',
     );
     return false;
   }
@@ -232,14 +210,9 @@ async function renderRawPreviewToFile(
     // the VLM's input, so it needs materially more fidelity than the 256px
     // grid-thumbnail tier's quality-55 AVIF, but AVIF's efficiency means it
     // doesn't need JPEG-equivalent-looking quality numbers to get there.
-    return await pool.renderThumbnailAvifToFile(
-      rawPath,
-      previewPath,
-      PREVIEW_LONG_EDGE_PX,
-      70,
-    );
+    return await pool.renderThumbnailAvifToFile(rawPath, previewPath, PREVIEW_LONG_EDGE_PX, 70);
   } catch (e) {
-    return logRenderFailure({ rawPath }, e, "FFI call threw");
+    return logRenderFailure({ rawPath }, e, 'FFI call threw');
   }
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
@@ -260,17 +233,17 @@ async function renderBitmapPreviewToFile(
       PREVIEW_LONG_EDGE_PX,
       70,
       ext,
-      "avif",
+      'avif',
     );
     if (!result.ok) {
       return logRenderFailure(
         { srcPath },
-        result.error ?? "imgdecode failed",
-        "imgdecode child returned error",
+        result.error ?? 'imgdecode failed',
+        'imgdecode child returned error',
       );
     }
     return true;
   } catch (e) {
-    return logRenderFailure({ srcPath }, e, "imgdecode pool threw");
+    return logRenderFailure({ srcPath }, e, 'imgdecode pool threw');
   }
 }
