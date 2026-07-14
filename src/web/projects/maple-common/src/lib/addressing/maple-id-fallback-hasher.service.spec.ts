@@ -230,4 +230,38 @@ describe('MapleIdFallbackHasherService', () => {
     // caller's result came from the read failure, not a worker response.
     expect(finalizedIds.length).toBe(1);
   });
+
+  it('rejects (not hangs) a hash still in flight when the service is destroyed', async () => {
+    // Simulates the real-world trigger: a caller `await`s `hashFallback()`
+    // (e.g. mid-upload of a large file) and the owning component is torn
+    // down — a route navigation, a closed dialog — before the worker's
+    // response ever arrives. This worker never posts back on finalize, so
+    // the returned promise can ONLY ever settle via `ngOnDestroy()`'s own
+    // cleanup — proving it actively rejects rather than just abandoning the
+    // entry in `pending` (which would leave the `await` hanging forever).
+    class NeverRespondingWorker extends FakeFallbackWorker {
+      override postMessage(msg: HashFallbackRequest): void {
+        if (msg.type === 'hash-fallback-finalize') return;
+        super.postMessage(msg);
+      }
+    }
+    class WorkerCtor {
+      constructor(_url: URL, _opts?: WorkerOptions) {
+        return new NeverRespondingWorker() as unknown as Worker;
+      }
+    }
+    Object.defineProperty(globalThis, 'Worker', {
+      value: WorkerCtor,
+      writable: true,
+      configurable: true,
+    });
+
+    const service = TestBed.inject(MapleIdFallbackHasherService);
+    const file = new File([new Uint8Array([1, 2, 3])], 'test.dng');
+
+    const pendingHash = service.hashFallback(file, 1024);
+    service.ngOnDestroy();
+
+    await expect(pendingHash).rejects.toThrow(/destroyed/i);
+  });
 });
