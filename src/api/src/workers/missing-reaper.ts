@@ -66,19 +66,23 @@
  * Started from `src/index.ts`.
  */
 
-import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
-import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
-import { updateLiveLocationCount } from '../indexer/images.repo.ts';
-import type { FileInfo } from '../db/schema.ts';
-import { child as childLogger } from '../log.ts';
-import { stageRegistry } from './registry.ts';
-import { ThroughputWindow } from './run-stage.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
-import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
+import * as path from "node:path";
+import type { ObjectId } from "mongodb";
+import { assetsCollection } from "../db/client.ts";
+import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
+import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
+import { meilisearchClient } from "../enrichment/meilisearch-client.ts";
+import { updateLiveLocationCount } from "../indexer/images.repo.ts";
+import { cleanPreviewsCacheForLocation } from "../fs/xmp.ts";
+import type { FileInfo } from "../db/schema.ts";
+import { child as childLogger } from "../log.ts";
+import { stageRegistry } from "./registry.ts";
+import { ThroughputWindow } from "./run-stage.ts";
+import {
+  WorkerConfigRepo,
+  type WorkerConfigDoc,
+} from "./worker-config.repo.ts";
+import { loadPruneWindowHours } from "./missing-reaper-config.repo.ts";
 import {
   BREAKER_FRACTION,
   BREAKER_MIN,
@@ -89,13 +93,13 @@ import {
   sameEntry,
   statKind,
   type MissingReaperSummary,
-} from './missing-reaper.helpers.ts';
-import { makePausedPoller } from './paused-poller.ts';
+} from "./missing-reaper.helpers.ts";
+import { makePausedPoller } from "./paused-poller.ts";
 
-const log = childLogger('missing-reaper');
+const log = childLogger("missing-reaper");
 
 /** Registry / route key. Matches `/api/workers/missing-reaper/...`. */
-export const MISSING_REAPER_NAME = 'missing-reaper';
+export const MISSING_REAPER_NAME = "missing-reaper";
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH = 200;
@@ -133,16 +137,18 @@ export async function runMissingReaperOnce(
   }
 
   // Per-pass root cache: unregistered/missing roots count as offline → assets skipped.
-  const rootStatus = new Map<string, 'present' | 'offline'>();
-  const checkRoot = async (libIdHex: string): Promise<'present' | 'offline'> => {
+  const rootStatus = new Map<string, "present" | "offline">();
+  const checkRoot = async (
+    libIdHex: string,
+  ): Promise<"present" | "offline"> => {
     const cached = rootStatus.get(libIdHex);
     if (cached) return cached;
     const root = libs.get(libIdHex);
-    let status: 'present' | 'offline';
+    let status: "present" | "offline";
     if (!root) {
-      status = 'offline';
+      status = "offline";
     } else {
-      status = (await statKind(root)) === 'present' ? 'present' : 'offline';
+      status = (await statKind(root)) === "present" ? "present" : "offline";
     }
     rootStatus.set(libIdHex, status);
     return status;
@@ -168,7 +174,7 @@ export async function runMissingReaperOnce(
   // `fileinfo.missing_since_1` partial multikey index instead of a COLLSCAN.
   const candidates = await coll
     .find(
-      { 'fileinfo.missing_since': { $type: 'string' } },
+      { "fileinfo.missing_since": { $type: "string" } },
       {
         projection: {
           _id: 1,
@@ -177,16 +183,16 @@ export async function runMissingReaperOnce(
           // Dead flags for the original-file stages — so recovery can re-arm
           // ones that dead-lettered against the vanished path (drains the
           // legacy backlog from before tag-only suppression).
-          'stages.exif.dead': 1,
-          'stages.thumb.dead': 1,
-          'stages.preview.dead': 1,
+          "stages.exif.dead": 1,
+          "stages.thumb.dead": 1,
+          "stages.preview.dead": 1,
         },
       },
     )
     // Oldest-missing first. A multikey sort orders by each row's smallest
     // entry `missing_since`, so the longest-waiting rows are reconciled first
     // even when a backlog exceeds `batchSize`.
-    .sort({ 'fileinfo.missing_since': 1 })
+    .sort({ "fileinfo.missing_since": 1 })
     .limit(batchSize)
     .toArray();
 
@@ -206,7 +212,7 @@ export async function runMissingReaperOnce(
       let cannotVerify = false;
 
       for (const fi of tagged) {
-        const aged = (fi.missing_since ?? '') < opts.deleteBeforeIso;
+        const aged = (fi.missing_since ?? "") < opts.deleteBeforeIso;
         if (fi.deleted_at) {
           // Orphan / content-moved: dead, never re-stat. Prune once aged.
           if (aged) prune.push(fi);
@@ -214,16 +220,16 @@ export async function runMissingReaperOnce(
         }
         // Vanished-file entry: re-stat with the mount guard.
         const libIdHex = fi.library_id.toHexString();
-        if ((await checkRoot(libIdHex)) === 'offline') {
+        if ((await checkRoot(libIdHex)) === "offline") {
           cannotVerify = true;
           break;
         }
         const root = libs.get(libIdHex)!;
-        const segments = fi.path === '' ? [] : fi.path.split('/');
+        const segments = fi.path === "" ? [] : fi.path.split("/");
         const abs = path.join(root, ...segments, fi.filename);
         const kind = await statKind(abs);
-        if (kind === 'present') recover.push(fi);
-        else if (kind === 'absent') {
+        if (kind === "present") recover.push(fi);
+        else if (kind === "absent") {
           if (aged) {
             prune.push(fi);
             absentForVeto.push(fi);
@@ -242,7 +248,9 @@ export async function runMissingReaperOnce(
 
       // Survivors = every entry we are NOT pruning this pass (live entries,
       // recovered entries, and still-in-cooldown missing entries).
-      const survivors = (doc.fileinfo ?? []).filter((f) => !prune.some((p) => sameEntry(p, f)));
+      const survivors = (doc.fileinfo ?? []).filter(
+        (f) => !prune.some((p) => sameEntry(p, f)),
+      );
 
       if (survivors.length > 0) {
         // The row keeps at least one location → reconcile in place (runs even
@@ -252,41 +260,51 @@ export async function runMissingReaperOnce(
           if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
           continue;
         }
-        await reconcileSurvivor(coll, doc, recover, prune, survivors, summary);
+        await reconcileSurvivor(
+          coll,
+          doc,
+          recover,
+          prune,
+          survivors,
+          summary,
+          libs,
+        );
         continue;
       }
 
       // No survivor — the prune empties the row → RECORD DELETE (irreversible).
       // Near-match veto on the absent (non-orphan) entries first.
-      let veto: 'name-mismatch' | 'unreadable' | null = null;
+      let veto: "name-mismatch" | "unreadable" | null = null;
       for (const fi of absentForVeto) {
         const root = libs.get(fi.library_id.toHexString())!;
-        const segments = fi.path === '' ? [] : fi.path.split('/');
-        const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
-        if (verdict === 'match') {
-          veto = 'name-mismatch';
+        const segments = fi.path === "" ? [] : fi.path.split("/");
+        const verdict = await nearMatchOnDisk(
+          path.join(root, ...segments, fi.filename),
+        );
+        if (verdict === "match") {
+          veto = "name-mismatch";
           break;
         }
-        if (verdict === 'unreadable') {
-          veto = 'unreadable';
+        if (verdict === "unreadable") {
+          veto = "unreadable";
           break;
         }
       }
-      if (veto === 'name-mismatch') {
+      if (veto === "name-mismatch") {
         summary.skippedNameMismatch++;
         log.warn(
           { _id: String(doc._id) },
-          'missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted',
+          "missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted",
         );
         continue;
       }
-      if (veto === 'unreadable') {
+      if (veto === "unreadable") {
         // Couldn't list a gone entry's directory — treat like an offline mount:
         // skip rather than delete on unproven absence.
         summary.skippedMountOffline++;
         log.warn(
           { _id: String(doc._id) },
-          'missing-reaper: gone entry parent dir unreadable — skipped, not deleted',
+          "missing-reaper: gone entry parent dir unreadable — skipped, not deleted",
         );
         continue;
       }
@@ -303,7 +321,7 @@ export async function runMissingReaperOnce(
       summary.errors++;
       log.warn(
         { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-        'missing-reaper: row failed',
+        "missing-reaper: row failed",
       );
     }
   }
@@ -311,29 +329,32 @@ export async function runMissingReaperOnce(
   // Circuit breaker: a pass that wants to hard-delete a large fraction of what
   // it scanned is far more likely a systemic mis-detection than that many real
   // deletions. Abort without deleting and surface it loudly.
-  if (toDelete.length > BREAKER_MIN && toDelete.length > summary.scanned * BREAKER_FRACTION) {
+  if (
+    toDelete.length > BREAKER_MIN &&
+    toDelete.length > summary.scanned * BREAKER_FRACTION
+  ) {
     summary.aborted = true;
     log.error(
       { wouldDelete: toDelete.length, scanned: summary.scanned },
-      'missing-reaper: circuit breaker tripped — too many hard-deletes in one pass; aborting WITHOUT deleting',
+      "missing-reaper: circuit breaker tripped — too many hard-deletes in one pass; aborting WITHOUT deleting",
     );
     return summary;
   }
 
   for (const doc of toDelete) {
     try {
-      await hardDeleteRow(coll, doc);
+      await hardDeleteRow(coll, doc, libs);
       summary.reaped++;
     } catch (err) {
       summary.errors++;
       log.warn(
         { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-        'missing-reaper: hard-delete failed',
+        "missing-reaper: hard-delete failed",
       );
     }
   }
 
-  if (summary.scanned > 0) log.info(summary, 'missing-reaper pass complete');
+  if (summary.scanned > 0) log.info(summary, "missing-reaper pass complete");
   return summary;
 }
 
@@ -356,6 +377,7 @@ async function reconcileSurvivor(
   prune: FileInfo[],
   survivors: FileInfo[],
   summary: MissingReaperSummary,
+  libs: ReadonlyMap<string, string>,
 ): Promise<void> {
   // Re-arm dead stages only when a LIVE location will remain to process —
   // either an originally-live survivor, or one we are recovering this pass.
@@ -367,14 +389,14 @@ async function reconcileSurvivor(
   if (recover.length > 0) {
     await coll.updateOne(
       { _id: doc._id },
-      { $set: { 'fileinfo.$[r].missing_since': null, ...reArm } },
+      { $set: { "fileinfo.$[r].missing_since": null, ...reArm } },
       {
         arrayFilters: [
           {
             $or: recover.map((e) => ({
-              'r.library_id': e.library_id,
-              'r.path': e.path,
-              'r.filename': e.filename,
+              "r.library_id": e.library_id,
+              "r.path": e.path,
+              "r.filename": e.filename,
             })),
           },
         ],
@@ -387,18 +409,42 @@ async function reconcileSurvivor(
     const update: Record<string, unknown> = {
       $pull: {
         fileinfo: {
-          $or: prune.map((p) => ({ library_id: p.library_id, path: p.path, filename: p.filename })),
+          $or: prune.map((p) => ({
+            library_id: p.library_id,
+            path: p.path,
+            filename: p.filename,
+          })),
         },
       },
     };
-    if (!reArmApplied && Object.keys(reArm).length > 0) update['$set'] = reArm;
+    if (!reArmApplied && Object.keys(reArm).length > 0) update["$set"] = reArm;
     await coll.updateOne({ _id: doc._id }, update as never);
     summary.prunedEntries += prune.length;
+    // Previews are path-keyed now — they don't survive a location going
+    // away the way maple_id-keyed thumbs do, so clean them up right here
+    // instead of leaving the orphan for cache-gc's backstop sweep.
+    await cleanRemovedLocationsCache(libs, prune);
   }
 
   // Recompute live count after any recover/prune mutations on this row.
   await updateLiveLocationCount(coll, doc._id);
   summary.recovered++;
+}
+
+/** Best-effort previews-cache cleanup for every removed location. A
+ * filesystem failure here must never affect the DB reconciliation it's
+ * called alongside — cache-gc's periodic sweep reclaims anything missed. */
+async function cleanRemovedLocationsCache(
+  libs: ReadonlyMap<string, string>,
+  entries: readonly FileInfo[],
+): Promise<void> {
+  await Promise.all(
+    entries.map(async (fi) => {
+      const root = libs.get(fi.library_id.toHexString());
+      if (!root) return;
+      await cleanPreviewsCacheForLocation(root, fi).catch(() => {});
+    }),
+  );
 }
 
 /** Hard-delete a row whose every location is gone, tombstone its search doc,
@@ -407,9 +453,11 @@ async function reconcileSurvivor(
 async function hardDeleteRow(
   coll: Awaited<ReturnType<typeof assetsCollection>>,
   doc: { _id: ObjectId; fileinfo?: FileInfo[]; maple_id?: string },
+  libs: ReadonlyMap<string, string>,
 ): Promise<void> {
   const folderId = doc.fileinfo?.[0]?.library_id ?? null;
   await coll.deleteOne({ _id: doc._id });
+  await cleanRemovedLocationsCache(libs, doc.fileinfo ?? []);
   // Tombstone the Meilisearch document. A reaped row was never soft-deleted,
   // so without this the search index keeps surfacing an asset whose Mongo row
   // and on-disk file are both gone until the next full backfill. Best-effort.
@@ -421,7 +469,7 @@ async function hardDeleteRow(
     }
   }
   await recordAndPublishAssetChange({
-    kind: 'delete',
+    kind: "delete",
     asset_id: doc._id,
     folder_id: folderId,
     abs_path: null,
@@ -448,7 +496,9 @@ export interface StartMissingReaperOptions {
  * sticks across restarts. The returned handle's `stop()` cancels the loop and
  * unregisters; `ready` resolves once the persisted state has been adopted.
  */
-export function startMissingReaper(opts: StartMissingReaperOptions = {}): MissingReaperHandle {
+export function startMissingReaper(
+  opts: StartMissingReaperOptions = {},
+): MissingReaperHandle {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const batchSize = opts.batchSize ?? DEFAULT_BATCH;
 
@@ -464,9 +514,11 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
   const getRepo = (): Promise<WorkerConfigRepo> => {
     if (!repoPromise) {
       repoPromise = (async () => {
-        const { getDb } = await import('../db/client.ts');
+        const { getDb } = await import("../db/client.ts");
         const db = await getDb();
-        return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+        return new WorkerConfigRepo(
+          db.collection<WorkerConfigDoc>("worker_config"),
+        );
       })();
     }
     return repoPromise;
@@ -478,7 +530,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : err },
-        'missing-reaper: could not load persisted pause state — staying paused',
+        "missing-reaper: could not load persisted pause state — staying paused",
       );
     }
   };
@@ -505,12 +557,14 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     pause: async () => {
       paused = true;
       await persistPaused(true);
-      log.info('missing-reaper paused');
+      log.info("missing-reaper paused");
     },
     resume: async () => {
       paused = false;
       await persistPaused(false);
-      log.warn('missing-reaper RESUMED — aged-out missing rows are now eligible for hard delete');
+      log.warn(
+        "missing-reaper RESUMED — aged-out missing rows are now eligible for hard delete",
+      );
     },
   });
 
@@ -528,7 +582,9 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     try {
       paused = await pollPaused();
       const pruneWindowHours = await loadPruneWindowHours();
-      const deleteBeforeIso = new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString();
+      const deleteBeforeIso = new Date(
+        Date.now() - pruneWindowHours * 3_600_000,
+      ).toISOString();
       const summary = await runMissingReaperOnce({
         batchSize,
         deleteBeforeIso,
@@ -541,7 +597,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
         MISSING_REAPER_NAME,
         err instanceof Error ? err.message : String(err),
       );
-      log.error({ err }, 'missing-reaper pass crashed');
+      log.error({ err }, "missing-reaper pass crashed");
     } finally {
       running = false;
     }
@@ -551,7 +607,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     void tick();
   }, intervalMs);
 
-  log.info({ intervalMs }, 'missing-reaper started');
+  log.info({ intervalMs }, "missing-reaper started");
 
   return {
     stop: () => {

@@ -29,31 +29,32 @@
  * Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
  */
 
-import { readFile } from 'node:fs/promises';
-import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
-import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
-import { cachePathForAsset } from '../../fs/xmp.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isNoPreviewFilename } from '../../indexer/media-types.ts';
-import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
+import { readFile } from "node:fs/promises";
+import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
+import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
+import { cachePathForAsset } from "../../fs/xmp.ts";
+import { loadLibraryRoots } from "../../indexer/libraries.cache.ts";
+import { assetPrimaryFileInfo } from "../../indexer/images.repo.ts";
+import { isNoPreviewFilename } from "../../indexer/media-types.ts";
+import { relocateBackupScreenshot } from "../migration/refile-backups.ts";
 import {
   type DescribeProvider,
   getDescribeProvider,
-} from '../../enrichment/describe-providers/index.ts';
+} from "../../enrichment/describe-providers/index.ts";
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
   QWEN_VL_OLLAMA_TAG,
-} from '../../enrichment/enrichment-config.repo.ts';
+} from "../../enrichment/enrichment-config.repo.ts";
 import {
   parseVisionJson,
   strippedRawFor,
   VISION_DOC_JSON_SCHEMA,
-} from '../../enrichment/describe-providers/parse-vision-json.ts';
-import { PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
+} from "../../enrichment/describe-providers/parse-vision-json.ts";
+import { PREVIEW_CACHE_SUFFIX } from "../../indexer/previewer.ts";
+import sharp from "sharp";
 
 /**
  * Prompt version stamped on both `description_meta.prompt_version` and
@@ -88,7 +89,7 @@ async function getDeps(): Promise<DescribeDeps> {
   // / `describe_model` / `describe_system_prompt` values in the DB row are
   // ignored — kept on the type only so older config docs don't error on
   // parse.
-  const provider = getDescribeProvider('ollama', {
+  const provider = getDescribeProvider("ollama", {
     url: cfg.describe_provider_url,
   });
   _deps = {
@@ -113,7 +114,10 @@ export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
 }
 
 // fallow-ignore-next-line complexity
-export async function describeHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
+export async function describeHandler(
+  image: ImageDoc,
+  ctx: StageContext,
+): Promise<StageResult> {
   // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
   // audio have no still frame for the vision model to caption. They reach
   // this stage because the library can hold mixed media (the backup-ingest
@@ -126,7 +130,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // and never reclaimed.
   const primary = assetPrimaryFileInfo(image);
   if (primary && isNoPreviewFilename(primary.filename)) {
-    return { skip: 'stub-file' };
+    return { skip: "stub-file" };
   }
 
   const { provider, systemPrompt, model } = await getDeps();
@@ -150,20 +154,33 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // is unregistered.
   const libs = await loadLibraryRoots();
 
-  const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
+  const previewPath = cachePathForAsset(
+    image as never,
+    libs,
+    "previews",
+    PREVIEW_CACHE_SUFFIX,
+  );
   if (!previewPath) {
-    return { skip: 'no-resolvable-location' };
+    return { skip: "no-resolvable-location" };
   }
-  let jpegBytes: Buffer;
+  let avifBytes: Buffer;
   try {
-    jpegBytes = await readFile(previewPath);
+    avifBytes = await readFile(previewPath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      return { skip: 'preview-missing' };
+    if (code === "ENOENT") {
+      return { skip: "preview-missing" };
     }
     throw err;
   }
+  // Every describe provider hardcodes `image/jpeg` as the media type it
+  // sends upstream (#1978), but the on-disk preview is AVIF (the canonical,
+  // cross-platform display-preview tier). Decode + re-encode to JPEG here,
+  // in memory, immediately before the provider call — no second persisted
+  // artifact; the buffer is discarded once `provider.describe` returns.
+  const jpegBytes = await sharp(avifBytes)
+    .jpeg({ quality: 90, mozjpeg: true })
+    .toBuffer();
 
   const result = await provider.describe(jpegBytes, {
     systemPrompt,
@@ -184,7 +201,10 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   const now = new Date().toISOString();
   // Measure post-fence-strip so the recorded size matches what the parser
   // actually consumed, per VisionMeta.raw_response_size contract.
-  const rawResponseSize = Buffer.byteLength(strippedRawFor(result.text), 'utf8');
+  const rawResponseSize = Buffer.byteLength(
+    strippedRawFor(result.text),
+    "utf8",
+  );
 
   const patch: Record<string, unknown> = {
     // Free-text caption mirror — legacy clients still read `description`.
@@ -216,9 +236,9 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // OCR mirror: the structured vision pass extracts visible text as part
   // of captioning, so we populate ocr_text from vision.text_visible. qwen2.5-vl
   // is the sole OCR source; the engine field is always the literal "qwen2.5-vl".
-  patch.ocr_text = vision.text_visible ?? '';
+  patch.ocr_text = vision.text_visible ?? "";
   patch.ocr_meta = {
-    engine: 'qwen2.5-vl',
+    engine: "qwen2.5-vl",
     engine_version: model,
     generated_at: now,
     // qwen2.5-vl has no per-token confidence the way a classic OCR engine does.
@@ -236,16 +256,19 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   if (vision.is_screenshot && (image.phasset_links?.length ?? 0) > 0) {
     try {
       const outcome = await relocateBackupScreenshot(image._id);
-      if (outcome === 'moved') {
+      if (outcome === "moved") {
         ctx.log.info(
           { assetId: image._id.toHexString() },
-          'filed screenshot under year/Screenshot (describe verdict)',
+          "filed screenshot under year/Screenshot (describe verdict)",
         );
       }
     } catch (err) {
       ctx.log.warn(
-        { assetId: image._id.toHexString(), err: err instanceof Error ? err.message : err },
-        'screenshot relocation failed — left for the screenshot migration',
+        {
+          assetId: image._id.toHexString(),
+          err: err instanceof Error ? err.message : err,
+        },
+        "screenshot relocation failed — left for the screenshot migration",
       );
     }
   }
@@ -254,7 +277,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
 }
 
 const describeStage = defineStage({
-  name: 'describe',
+  name: "describe",
   // v2: structured JSON output via DEFAULT_DESCRIBE_VISION_PROMPT, reads
   // the 1280-px preview, populates `vision` + `vision_meta`. v1 produced
   // free-text descriptions from `llava` against the 512-px thumb — bumping
@@ -281,7 +304,7 @@ const describeStage = defineStage({
   // the schema.
   // v7: remove nudity classification and auto-hide logic (prompt v6)
   targetVersion: 7,
-  dependsOn: ['preview'],
+  dependsOn: ["preview"],
   defaults: {
     concurrency: 2,
     maxAttempts: 5,
