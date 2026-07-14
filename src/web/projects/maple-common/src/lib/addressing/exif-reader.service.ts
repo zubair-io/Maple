@@ -29,12 +29,35 @@ function resolveExifr(): typeof exifrNs {
 
 @Injectable({ providedIn: 'root' })
 export class ExifReaderService {
-  /** Parse `file`'s EXIF, restricted to `pick`. Returns `undefined` when
+  /**
+   * Parse `file`'s EXIF, restricted to `pick`. Returns `undefined` when
    * `exifr` finds nothing (matches `exifr.parse`'s own contract) or throws
    * on an unparseable/corrupt file — the caller decides what "no EXIF"
-   * means for its use case. */
+   * means for its use case.
+   *
+   * [P0-2, caught in review]: `reviveValues: false` is required here, not
+   * cosmetic. exifr's *default* (`reviveValues: true`) converts
+   * DateTimeOriginal/CreateDate from their raw "YYYY:MM:DD HH:MM:SS" string
+   * into a `Date` object itself, via a 3-argument `new Date(y, m-1, d)` +
+   * local `setHours`/`setMinutes`/`setSeconds` (confirmed directly in
+   * exifr's own bundled source, the `ze` function) — i.e. exifr's *own*
+   * Date construction is exactly the same LOCAL-timezone-ambiguous pattern
+   * `captured-at.ts`'s `asIsoDate` was fixed to stop doing. Once exifr hands
+   * back a `Date` instead of a string, `asIsoDate`'s `Date` branch has no
+   * way to tell "this came from exifr's locally-biased parse" apart from
+   * "this is a genuinely correct, already-UTC Date some other caller
+   * constructed" (both are indistinguishable `Date` instances) — so it
+   * cannot un-bias it after the fact without also breaking legitimate
+   * UTC-Date inputs. The only robust fix is never letting exifr construct
+   * the Date in the first place: `reviveValues: false` makes it hand back
+   * the raw string always, which routes through `asIsoDate`'s string
+   * branch (the one actually fixed to use `Date.UTC(...)`). Since this
+   * service only ever picks DateTimeOriginal/CreateDate (no GPS, no other
+   * revived tags), disabling revival globally for this call has no other
+   * side effects to worry about.
+   */
   async parse(file: File, pick: readonly string[]): Promise<Record<string, unknown> | undefined> {
-    return resolveExifr().parse(file, { pick: [...pick] }) as Promise<
+    return resolveExifr().parse(file, { pick: [...pick], reviveValues: false }) as Promise<
       Record<string, unknown> | undefined
     >;
   }

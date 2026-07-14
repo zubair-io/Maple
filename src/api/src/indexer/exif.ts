@@ -222,6 +222,45 @@ const EXIFR_PARSE_OPTS = {
 };
 
 /**
+ * [P0-2, caught in review]: exifr's default `reviveValues: true` — which
+ * `EXIFR_PARSE_OPTS` above deliberately relies on for GPS lat/lng and other
+ * tag formatting — also converts DateTimeOriginal/CreateDate into a `Date`
+ * object itself, via the *same* locally-ambiguous 3-argument-constructor-
+ * plus-local-setters technique `asIsoDate`'s string branch was fixed to
+ * avoid (confirmed directly in exifr's bundled source, its internal `ze`
+ * function). Once exifr hands back a `Date` instead of a raw string,
+ * `asIsoDate`'s `Date` branch can't tell "this came from exifr's locally-
+ * biased parse" apart from "this is a genuinely correct, already-UTC Date"
+ * (this file's own video branch passes a real UTC `Date` through
+ * `CreateDate` today, and must keep working) — so it can't be fixed after
+ * the fact without also breaking that legitimate caller.
+ *
+ * A blanket `reviveValues: false` on `EXIFR_PARSE_OPTS` would also turn off
+ * GPS coordinate conversion and the other tag formatting this stage relies
+ * on, so instead `withRawCaptureDates` below fires a second, narrowly-scoped
+ * parse for just the two date tags with revival off, and splices those raw
+ * (unbiased) strings back into the main parse's result before
+ * `normalizeExif` ever sees it — every other tag keeps going through the
+ * single, already-revived `EXIFR_PARSE_OPTS` parse untouched.
+ */
+const EXIFR_DATE_ONLY_OPTS = {
+  pick: ['DateTimeOriginal', 'CreateDate'],
+  reviveValues: false,
+};
+
+/** See `EXIFR_DATE_ONLY_OPTS`'s doc comment. `input` must be the same source
+ * (buffer or path) the caller already parsed into `raw`, so the re-parse
+ * reads the identical bytes. */
+async function withRawCaptureDates(input: string | Buffer, raw: LooseRecord): Promise<LooseRecord> {
+  const rawDates = (await exifr.parse(input, EXIFR_DATE_ONLY_OPTS)) as LooseRecord | undefined;
+  if (rawDates) {
+    if ('DateTimeOriginal' in rawDates) raw.DateTimeOriginal = rawDates.DateTimeOriginal;
+    if ('CreateDate' in rawDates) raw.CreateDate = rawDates.CreateDate;
+  }
+  return raw;
+}
+
+/**
  * Parse EXIF for one file.
  *
  * Returns null for the *expected* no-metadata cases: an unsupported
@@ -278,7 +317,8 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     const tiff = await readHeicExifTiff(absPath);
     if (!tiff) return null;
     const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-    return raw ? normalizeExif(raw) : null;
+    if (!raw) return null;
+    return normalizeExif(await withRawCaptureDates(tiff, raw));
   }
 
   if (WEBP_EXTS.has(ext)) {
@@ -287,10 +327,11 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     const tiff = await readWebpExifTiff(absPath);
     if (!tiff) return null;
     const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-    return raw ? normalizeExif(raw) : null;
+    if (!raw) return null;
+    return normalizeExif(await withRawCaptureDates(tiff, raw));
   }
 
   const raw = (await exifr.parse(absPath, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
   if (!raw) return null;
-  return normalizeExif(raw);
+  return normalizeExif(await withRawCaptureDates(absPath, raw));
 }
