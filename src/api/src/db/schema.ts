@@ -874,6 +874,15 @@ export interface PersonDoc {
    * faces keep flowing into the hidden person rather than spawning a fresh
    * visible "Person N". Additive — no migration needed. */
   hidden?: boolean;
+  /** Best-matching other live, non-hidden, non-dismissed person by centroid
+   * cosine similarity, if it clears MERGE_SUGGESTION_THRESHOLD
+   * (`people-merge-suggestions.ts`). Refreshed by the clustering job
+   * alongside `centroid`; null when no qualifying match exists. */
+  suggested_merge_person_id?: ObjectId | null;
+  /** Cosine similarity score backing `suggested_merge_person_id`, for
+   * display ("87% match"). Refreshed alongside the id; null when the id
+   * is null. */
+  suggested_merge_score?: number | null;
   /**
    * Denormalized count of this person's live assigned faces: faces with
    * `person_id` set to this person's hex id, `hidden !== true`, and a
@@ -888,6 +897,17 @@ export interface PersonDoc {
 }
 
 export type PersonWithId = WithId<PersonDoc>;
+
+/**
+ * One permanently-dismissed "not a match" pair from the person-page
+ * merge-suggestion banner. `pair` is direction-independent — see
+ * `sortedPairKey` in `people-merge-suggestions.ts`, which is the single
+ * source of the exact string format both the read and write sides use.
+ */
+export interface PersonMergeDismissalDoc {
+  pair: string;
+  created_at: string;
+}
 
 /**
  * Default empty state for one enrichment stage. The fast pipeline's skeleton
