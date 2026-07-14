@@ -5,16 +5,16 @@
  * .maple/ directories are created lazily under each library folder.
  */
 
-import * as path from 'node:path';
+import * as path from "node:path";
 // Mirror-aware drop-in: durable writes/moves replicate to the library's
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
-import * as fs from './mirrored.ts';
-import { createHash, randomBytes } from 'node:crypto';
-import { safeWriteAllowed } from './root.ts';
-import type { OpResult } from './root.ts';
-import type { AssetDoc } from '../db/schema.ts';
-import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
-import { isVideoFilename } from '../indexer/media-types.ts';
+import * as fs from "./mirrored.ts";
+import { createHash, randomBytes } from "node:crypto";
+import { safeWriteAllowed } from "./root.ts";
+import type { OpResult } from "./root.ts";
+import type { AssetDoc } from "../db/schema.ts";
+import { assetPrimaryFileInfo } from "../indexer/images.repo.ts";
+import { isVideoFilename } from "../indexer/media-types.ts";
 
 /**
  * First 16 hex chars of sha256(text) — the cache-key stem used for
@@ -24,7 +24,7 @@ import { isVideoFilename } from '../indexer/media-types.ts';
  * once Apple migrates to a filename-keyed hash too).
  */
 export function sha256Prefix16(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
+  return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 16);
 }
 
 /**
@@ -41,16 +41,16 @@ export function sha256Prefix16(text: string): string {
  * changes.
  */
 export function xmpSidecarPath(rawAbsPath: string): string {
-  if (isVideoFilename(rawAbsPath)) return rawAbsPath + '.xmp';
+  if (isVideoFilename(rawAbsPath)) return rawAbsPath + ".xmp";
   const ext = path.extname(rawAbsPath);
-  return rawAbsPath.slice(0, -ext.length) + '.xmp';
+  return rawAbsPath.slice(0, -ext.length) + ".xmp";
 }
 
 /** Read XMP sidecar. Returns ok:false if the sidecar does not exist. */
 export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   const sidecar = xmpSidecarPath(rawAbsPath);
   try {
-    const content = await fs.readFile(sidecar, 'utf-8');
+    const content = await fs.readFile(sidecar, "utf-8");
     return { ok: true, data: content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -67,9 +67,12 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
  *   3. fsync the temp file.
  *   4. rename() into place.
  */
-export async function writeXmpAtomic(rawAbsPath: string, xmlContent: string): Promise<OpResult> {
+export async function writeXmpAtomic(
+  rawAbsPath: string,
+  xmlContent: string,
+): Promise<OpResult> {
   const sidecar = xmpSidecarPath(rawAbsPath);
-  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
 
   const allowed = await safeWriteAllowed(sidecar);
   if (!allowed.ok) return { ok: false, error: allowed.error };
@@ -78,9 +81,9 @@ export async function writeXmpAtomic(rawAbsPath: string, xmlContent: string): Pr
     // Ensure directory exists (it should, but be defensive).
     await fs.mkdir(path.dirname(sidecar), { recursive: true });
 
-    const fh = await fs.open(tmp, 'w');
+    const fh = await fs.open(tmp, "w");
     try {
-      await fh.writeFile(xmlContent, 'utf-8');
+      await fh.writeFile(xmlContent, "utf-8");
       await fh.datasync();
     } finally {
       await fh.close();
@@ -103,7 +106,7 @@ export async function writeXmpAtomic(rawAbsPath: string, xmlContent: string): Pr
  * Returns the .maple/ path.
  */
 export async function ensureMapleDir(folderAbsPath: string): Promise<string> {
-  const dir = path.join(folderAbsPath, '.maple');
+  const dir = path.join(folderAbsPath, ".maple");
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
@@ -128,11 +131,11 @@ export function resolveThumbPath(rawAbsPath: string): string {
   const folder = path.dirname(rawAbsPath);
   const basename = path.basename(rawAbsPath);
   const key = sha256Prefix16(basename);
-  return path.join(folder, '.maple', 'thumbs', `${key}.avif`);
+  return path.join(folder, ".maple", "thumbs", `${key}.avif`);
 }
 
 /** Cache kind: derived thumbnail, or full-size rendered preview. */
-export type CacheKind = 'thumbs' | 'previews';
+export type CacheKind = "thumbs" | "previews";
 
 /**
  * Resolve the on-disk cache path for an asset's derived artefact.
@@ -142,20 +145,29 @@ export type CacheKind = 'thumbs' | 'previews';
  * outputs (different export sizes / edit versions); each needs its own file.
  *
  *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
- *   previews: <folder>/.maple/previews/<basename_no_ext>_<size>.jpg
+ *   previews: <folder>/.maple/previews/<basename_no_ext>_<suffix>
+ *
+ * `suffix` is the full size *and* extension (e.g. `"1280.avif"`) — same
+ * convention as `cachePathForAsset`'s previews branch, kept in sync so
+ * `generatePreview`'s actual encode format never mismatches the extension a
+ * caller resolved ahead of writing.
  *
  * Used by the GC sweep to unlink orphaned files after a soft-deleted asset's
  * retention window elapses, and after a rename to clear stale artefacts at
  * the previous path.
  */
-export function cachePathFor(assetAbsPath: string, kind: CacheKind, size?: string): string {
-  if (kind === 'thumbs') {
+export function cachePathFor(
+  assetAbsPath: string,
+  kind: CacheKind,
+  suffix?: string,
+): string {
+  if (kind === "thumbs") {
     return resolveThumbPath(assetAbsPath);
   }
   const folder = path.dirname(assetAbsPath);
   const base = path.basename(assetAbsPath, path.extname(assetAbsPath));
-  const s = size ?? 'full';
-  return path.join(folder, '.maple', 'previews', `${base}_${s}.jpg`);
+  const s = suffix ?? "full.jpg";
+  return path.join(folder, ".maple", "previews", `${base}_${s}`);
 }
 
 /**
@@ -179,7 +191,7 @@ export function cachePathFor(assetAbsPath: string, kind: CacheKind, size?: strin
  * the legacy fallback once every row has `fileinfo[0]`.
  */
 export function resolveThumbPathForAsset(
-  asset: Pick<AssetDoc, 'maple_id' | 'fileinfo'>,
+  asset: Pick<AssetDoc, "maple_id" | "fileinfo">,
   libraries: ReadonlyMap<string, string>,
 ): string | null {
   if (!asset.maple_id) return null;
@@ -188,41 +200,101 @@ export function resolveThumbPathForAsset(
   const root = libraries.get(primary.library_id.toHexString());
   if (!root) return null;
   // `fileinfo.path` is POSIX-separated; split + path.join for platform-correct sep.
-  const segments = primary.path === '' ? [] : primary.path.split('/');
-  return path.join(root, ...segments, '.maple', 'thumbs', `${asset.maple_id}.avif`);
+  const segments = primary.path === "" ? [] : primary.path.split("/");
+  return path.join(
+    root,
+    ...segments,
+    ".maple",
+    "thumbs",
+    `${asset.maple_id}.avif`,
+  );
 }
 
 /**
- * Resolve a thumbnail or preview cache path for an asset using its
- * content-addressed `maple_id`. Composes:
+ * Resolve a thumbnail or preview cache path for an asset. Composes:
  *
  *   thumbs:   <library_root>/<fileinfo[0].path>/.maple/thumbs/<maple_id>.avif
- *   previews: <library_root>/<fileinfo[0].path>/.maple/previews/<maple_id>_<size>.jpg
+ *   previews: <library_root>/<fileinfo[0].path>/.maple/previews/<fileinfo[0].filename>.<suffix>
  *
- * `size` defaults to `"full"` for previews; pass `"1280"` for the VLM preview,
- * other size keys for export variants. Thumbs ignore `size` (one thumb per
- * asset — re-renders overwrite the same file, mtime-checked).
+ * Thumbs stay content-addressed (`maple_id`-keyed): `dedupe.ts` relies on that
+ * so several on-disk locations of the same content share one cached thumb.
+ * Previews are keyed off the source's own filename instead — no EXIF read or
+ * hash needed to resolve one, at the cost of losing that same multi-location
+ * sharing and not surviving a rename/move (both accepted trade-offs; a moved
+ * file's stale preview is cleaned up by the missing-reaper/dedupe cache-removal
+ * hook, with cache-gc's sweep as a backstop). `suffix` is the FULL size *and*
+ * extension a caller wants (e.g. `"1280.avif"` for the canonical unedited
+ * preview, `"dev_5.jpg"` for a developed/edited one, `"histogram.json"` for
+ * the histogram sidecar) since previews, unlike thumbs, have no one fixed
+ * format.
  *
  * Same `null` semantics as `resolveThumbPathForAsset` — see there for the
  * legacy-fallback rationale.
  */
 export function cachePathForAsset(
-  asset: Pick<AssetDoc, 'maple_id' | 'fileinfo'>,
+  asset: Pick<AssetDoc, "maple_id" | "fileinfo">,
   libraries: ReadonlyMap<string, string>,
   kind: CacheKind,
-  size?: string,
+  suffix?: string,
 ): string | null {
-  if (!asset.maple_id) return null;
   const primary = assetPrimaryFileInfo(asset);
   if (!primary) return null;
   const root = libraries.get(primary.library_id.toHexString());
   if (!root) return null;
-  const segments = primary.path === '' ? [] : primary.path.split('/');
-  if (kind === 'thumbs') {
-    return path.join(root, ...segments, '.maple', 'thumbs', `${asset.maple_id}.avif`);
+  const segments = primary.path === "" ? [] : primary.path.split("/");
+  if (kind === "thumbs") {
+    if (!asset.maple_id) return null;
+    return path.join(
+      root,
+      ...segments,
+      ".maple",
+      "thumbs",
+      `${asset.maple_id}.avif`,
+    );
   }
-  const s = size ?? 'full';
-  return path.join(root, ...segments, '.maple', 'previews', `${asset.maple_id}_${s}.jpg`);
+  const s = suffix ?? "full.jpg";
+  return path.join(
+    root,
+    ...segments,
+    ".maple",
+    "previews",
+    `${primary.filename}.${s}`,
+  );
+}
+
+/**
+ * Unlink every previews-cache artefact for ONE on-disk location — every
+ * size/kind variant (the unedited AVIF tier, a developed/edited JPEG tier,
+ * the histogram JSON sidecar) shares the `<filename>.` prefix inside that
+ * location's own `.maple/previews/` folder, per `cachePathForAsset`'s
+ * previews branch.
+ *
+ * Previews are path-keyed now (not `maple_id`-keyed like thumbs), so they do
+ * NOT survive a location going away — call this wherever a `fileinfo` entry
+ * is removed (missing-reaper's prune/hard-delete, dedupe's move-then-pull)
+ * rather than leaving the orphan for cache-gc's periodic backstop sweep to
+ * find later. Best-effort: a filesystem hiccup here must never block or fail
+ * the DB reconciliation that's actually load-bearing; a file left behind by
+ * a failed unlink is still reclaimed by cache-gc.
+ */
+export async function cleanPreviewsCacheForLocation(
+  libraryRoot: string,
+  location: { path: string; filename: string },
+): Promise<void> {
+  const segments = location.path === "" ? [] : location.path.split("/");
+  const previewsDir = path.join(libraryRoot, ...segments, ".maple", "previews");
+  let entries: string[];
+  try {
+    entries = await fs.readdir(previewsDir);
+  } catch {
+    return; // no previews dir at this location
+  }
+  const prefix = `${location.filename}.`;
+  await Promise.all(
+    entries
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => fs.unlink(path.join(previewsDir, name)).catch(() => {})),
+  );
 }
 
 /**
@@ -241,8 +313,8 @@ export async function writeThumb(
 
   try {
     await fs.mkdir(thumbDir, { recursive: true });
-    const tmp = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
-    const fh = await fs.open(tmp, 'w');
+    const tmp = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
+    const fh = await fs.open(tmp, "w");
     try {
       await fh.writeFile(avifBytes);
       await fh.datasync();
@@ -266,19 +338,22 @@ export async function writeThumb(
  * - `error`: any other failure (path jail, disk full, etc.).
  */
 export type XmpWriteOutcome =
-  | { kind: 'ok'; mtime: Date }
-  | { kind: 'conflict'; conflictPath: string; conflictMtime: Date }
-  | { kind: 'error'; error: string };
+  | { kind: "ok"; mtime: Date }
+  | { kind: "conflict"; conflictPath: string; conflictMtime: Date }
+  | { kind: "error"; error: string };
 
 /** Sanitize a device name for use in a conflict-copy filename. */
 function sanitizeDeviceName(raw: string | undefined): string {
-  const trimmed = (raw ?? '').trim();
-  if (!trimmed) return 'Unknown device';
-  return trimmed.replace(/[/\\:*?"<>|]/g, '-').slice(0, 64);
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "Unknown device";
+  return trimmed.replace(/[/\\:*?"<>|]/g, "-").slice(0, 64);
 }
 
 /** Compose the conflict-copy path for a given RAW + device name. */
-export function conflictCopyPath(rawAbsPath: string, deviceName: string): string {
+export function conflictCopyPath(
+  rawAbsPath: string,
+  deviceName: string,
+): string {
   const ext = path.extname(rawAbsPath);
   const base = rawAbsPath.slice(0, -ext.length);
   return `${base} (conflict from ${sanitizeDeviceName(deviceName)}).xmp`;
@@ -307,7 +382,7 @@ export async function pickFreeConflictPath(
     return base; // No collision.
   }
   // base ends in ".xmp" — strip and append " (N).xmp".
-  const stem = base.slice(0, -'.xmp'.length);
+  const stem = base.slice(0, -".xmp".length);
   for (let n = 2; n <= 1000; n++) {
     const candidate = `${stem} (${n}).xmp`;
     try {
@@ -348,38 +423,40 @@ export async function writeXmpWithPrecondition(
     if (onDiskEpoch !== ifMtimeMatchesEpoch) {
       const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName);
       const allowed = await safeWriteAllowed(conflictPath);
-      if (!allowed.ok) return { kind: 'error', error: allowed.error ?? 'Path not allowed' };
-      const tmp = `${conflictPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+      if (!allowed.ok)
+        return { kind: "error", error: allowed.error ?? "Path not allowed" };
+      const tmp = `${conflictPath}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
       try {
         await fs.mkdir(path.dirname(conflictPath), { recursive: true });
-        const fh = await fs.open(tmp, 'w');
+        const fh = await fs.open(tmp, "w");
         try {
-          await fh.writeFile(xmlContent, 'utf-8');
+          await fh.writeFile(xmlContent, "utf-8");
           await fh.datasync();
         } finally {
           await fh.close();
         }
         await fs.rename(tmp, conflictPath);
         const st = await fs.stat(conflictPath);
-        return { kind: 'conflict', conflictPath, conflictMtime: st.mtime };
+        return { kind: "conflict", conflictPath, conflictMtime: st.mtime };
       } catch (err) {
         try {
           await fs.unlink(tmp);
         } catch {}
         const msg = err instanceof Error ? err.message : String(err);
-        return { kind: 'error', error: `Conflict-copy write failed: ${msg}` };
+        return { kind: "error", error: `Conflict-copy write failed: ${msg}` };
       }
     }
   }
 
   const result = await writeXmpAtomic(rawAbsPath, xmlContent);
-  if (!result.ok) return { kind: 'error', error: result.error ?? 'XMP write failed' };
+  if (!result.ok)
+    return { kind: "error", error: result.error ?? "XMP write failed" };
   try {
     const st = await fs.stat(sidecar);
-    return { kind: 'ok', mtime: st.mtime };
+    return { kind: "ok", mtime: st.mtime };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { kind: 'error', error: `stat after write failed: ${msg}` };
+    return { kind: "error", error: `stat after write failed: ${msg}` };
   }
 }
 
@@ -397,9 +474,9 @@ export async function deleteXmpSidecar(rawAbsPath: string): Promise<OpResult> {
   } catch (err: unknown) {
     if (
       err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code: string }).code === 'ENOENT'
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code: string }).code === "ENOENT"
     ) {
       return { ok: true };
     }
@@ -436,22 +513,25 @@ export function resolveConflictSidecarPath(
   rawAbsPath: string,
   conflictBasename: string,
 ): string | null {
-  if (conflictBasename.includes('/') || conflictBasename.includes('\\')) return null;
-  if (conflictBasename.includes('..')) return null;
+  if (conflictBasename.includes("/") || conflictBasename.includes("\\"))
+    return null;
+  if (conflictBasename.includes("..")) return null;
 
   const ext = path.extname(rawAbsPath);
   const rawBase = path.basename(rawAbsPath, ext); // e.g. "IMG_1"
 
   // The basename must start with the RAW's base and end with the
   // conflict-suffix (optionally followed by a numbered variant).
-  const pattern = new RegExp(`^${escapeRegex(rawBase)} \\(conflict from [^)]+\\)( \\(\\d+\\))?$`);
+  const pattern = new RegExp(
+    `^${escapeRegex(rawBase)} \\(conflict from [^)]+\\)( \\(\\d+\\))?$`,
+  );
   if (!pattern.test(conflictBasename)) return null;
 
   return path.join(path.dirname(rawAbsPath), `${conflictBasename}.xmp`);
 }
 
 function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -463,9 +543,9 @@ export async function readConflictSidecar(
   conflictBasename: string,
 ): Promise<OpResult<string>> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
-  if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
+  if (!sidecar) return { ok: false, error: "Invalid conflict basename" };
   try {
-    const content = await fs.readFile(sidecar, 'utf-8');
+    const content = await fs.readFile(sidecar, "utf-8");
     return { ok: true, data: content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -483,17 +563,18 @@ export async function writeConflictSidecarAtomic(
   xmlContent: string,
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
-  if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
+  if (!sidecar) return { ok: false, error: "Invalid conflict basename" };
 
   const allowed = await safeWriteAllowed(sidecar);
-  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
+  if (!allowed.ok)
+    return { ok: false, error: allowed.error ?? "Path not allowed" };
 
-  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+  const tmp = `${sidecar}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
   try {
     await fs.mkdir(path.dirname(sidecar), { recursive: true });
-    const fh = await fs.open(tmp, 'w');
+    const fh = await fs.open(tmp, "w");
     try {
-      await fh.writeFile(xmlContent, 'utf-8');
+      await fh.writeFile(xmlContent, "utf-8");
       await fh.datasync();
     } finally {
       await fh.close();
@@ -520,7 +601,9 @@ export async function writeConflictSidecarAtomic(
  * directory or read errors return an empty array — the caller is moving
  * sidecars best-effort.
  */
-export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> {
+export async function listPairedSidecars(
+  rawAbsPath: string,
+): Promise<string[]> {
   const dir = path.dirname(rawAbsPath);
   const rawBase = path.basename(rawAbsPath, path.extname(rawAbsPath));
   let entries: string[];
@@ -535,12 +618,14 @@ export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> 
   // a bare `<rawBase> (N).xmp` (e.g. `IMG_1 (2).xmp`) is NOT a paired
   // sidecar and must not match, otherwise trash/purge would move
   // unrelated XMP files with that name.
-  const escaped = rawBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = rawBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(
     `^${escaped}(?:\\.xmp| \\(conflict from [^)]+\\)(?: \\(\\d+\\))?\\.xmp)$`,
-    'i',
+    "i",
   );
-  return entries.filter((name) => pattern.test(name)).map((name) => path.join(dir, name));
+  return entries
+    .filter((name) => pattern.test(name))
+    .map((name) => path.join(dir, name));
 }
 
 /**
@@ -553,18 +638,19 @@ export async function deleteConflictSidecar(
   conflictBasename: string,
 ): Promise<OpResult> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
-  if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
+  if (!sidecar) return { ok: false, error: "Invalid conflict basename" };
   const allowed = await safeWriteAllowed(sidecar);
-  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
+  if (!allowed.ok)
+    return { ok: false, error: allowed.error ?? "Path not allowed" };
   try {
     await fs.unlink(sidecar);
     return { ok: true };
   } catch (err: unknown) {
     if (
       err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code: string }).code === 'ENOENT'
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code: string }).code === "ENOENT"
     ) {
       return { ok: true };
     }
