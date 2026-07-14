@@ -144,11 +144,16 @@ function isOrphanPreview(
   name: string,
 ): boolean {
   if (libraryId === null) return false;
-  // Iterate the set directly rather than spreading it into an array — this
-  // runs once per cache file scanned, and a directory can hold thousands
-  // (jules review, PR #2006).
-  for (const live of liveNames) {
-    if (name.startsWith(`${live}.`)) return false;
+  // O(dots in `name`) instead of O(liveNames.size): check every prefix of
+  // `name` up to a `.` boundary against the Set directly (an O(1) lookup)
+  // rather than iterating every live filename and calling `startsWith` on
+  // each — a cache file's own name has a small, bounded number of dots
+  // regardless of how many live files share its directory, so this scales
+  // with directory size in neither dimension (jules review, PR #2006).
+  let dot = name.indexOf('.');
+  while (dot !== -1) {
+    if (liveNames.has(name.slice(0, dot))) return false;
+    dot = name.indexOf('.', dot + 1);
   }
   return true;
 }
