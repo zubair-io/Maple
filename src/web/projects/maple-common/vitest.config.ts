@@ -14,11 +14,11 @@ import { defineConfig } from 'vitest/config';
 // independently confirmed, so it stays.
 export default defineConfig({
   test: {
-    pool: 'threads',
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
+    // `poolOptions.threads.singleThread` was removed in Vitest 4 ("all
+    // previous poolOptions are now top-level options" per its own
+    // deprecation warning); `fileParallelism: false` is the current
+    // equivalent — run test files sequentially instead of across a
+    // multi-threaded pool.
+    fileParallelism: false,
   },
 });
