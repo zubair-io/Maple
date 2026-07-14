@@ -213,10 +213,23 @@ pub unsafe extern "C" fn maple_fallback_id_hasher_update(
     0
 }
 
-/// Finish the hash. Consumes and frees `handle` (do not call
-/// `maple_fallback_id_hasher_update`, `_finalize`, or `_free` on it again).
+/// Finish the hash. **Always** consumes and frees a non-null `handle`
+/// before returning — including on every error path below — so the
+/// lifecycle rule is a single, unconditional sentence: after calling this
+/// function once, `handle` is gone, full stop; never call
+/// `maple_fallback_id_hasher_update`, `_finalize`, or `_free` on it again,
+/// regardless of the return code. (An earlier revision only freed on the
+/// success path and on the "inner state already null" error path, silently
+/// leaking the handle when `out_hex` was null — a real bug caught by
+/// review: a caller reading only the "0 success" line of a doc comment,
+/// not every error branch, would reasonably assume freeing was always
+/// handled and never call `_free` themselves.) On a null `handle`, this is
+/// a no-op (nothing to free) — same as `maple_fallback_id_hasher_free`'s
+/// null-is-noop convention.
+///
 /// Writes the 32-character lowercase hex fallback-form id to `out_hex`
-/// (must point to at least 32 writable bytes; no null terminator).
+/// (must point to at least 32 writable bytes; no null terminator) — only
+/// on success.
 ///
 /// `filesize` is passed explicitly — same contract as `maple_id_fallback` /
 /// `raw_core::MapleId::fallback` / `raw_core::FallbackIdHasher::finalize`:
@@ -225,16 +238,17 @@ pub unsafe extern "C" fn maple_fallback_id_hasher_update(
 /// independent of the hashed byte count).
 ///
 /// Returns:
-///   0  success (handle is freed either way once this returns)
-///  -1  null `handle`, a `handle` whose inner state is null (freed/invalid),
-///      or null `out_hex`
+///   0  success
+///  -1  null `handle` (no-op), a `handle` whose inner state is null
+///      (freed/invalid), or null `out_hex` — `handle` is freed in every
+///      case except "null `handle`" itself, which has nothing to free
 #[no_mangle]
 pub unsafe extern "C" fn maple_fallback_id_hasher_finalize(
     handle: *mut MapleFallbackIdHasher,
     filesize: u64,
     out_hex: *mut u8,
 ) -> i32 {
-    if handle.is_null() || out_hex.is_null() {
+    if handle.is_null() {
         return -1;
     }
     let boxed = Box::from_raw(handle);
@@ -242,6 +256,11 @@ pub unsafe extern "C" fn maple_fallback_id_hasher_finalize(
         return -1;
     }
     let inner = Box::from_raw(boxed.inner as *mut raw_core::FallbackIdHasher);
+    if out_hex.is_null() {
+        // `inner` (and `boxed`) drop here regardless — the handle is
+        // consumed even though this call reports failure.
+        return -1;
+    }
     let id = inner.finalize(filesize);
     let hex = id.to_hex();
     let hex_bytes = hex.as_bytes();
