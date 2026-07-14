@@ -3,21 +3,20 @@
 // hashes exactly the bounded 64 KB head, and the cache is consulted/written
 // correctly. `exifr`'s own EXIF-parsing correctness and `maple-id-cache.ts`'s
 // own staleness logic are proven in their own specs — this spec fakes both
-// (`exifr` via `vi.mock` — a package import, not a relative one; the cache
-// via `TestBed.overrideProvider` on `MapleIdCacheService`, since Angular's
-// unit-test runner rejects `vi.mock()` on relative-path imports — "Please
-// use Angular TestBed for mocking dependencies") so it stays focused on
-// `HostedMapleIdService`'s wiring between them.
+// (via `TestBed.overrideProvider`-style `useValue` substitution on
+// `ExifReaderService`/`MapleIdCacheService`; see `exif-reader.service.ts`'s
+// module doc for why this dependency is routed through Angular DI rather
+// than a bare `vi.mock('exifr', ...)` — the latter reproduced a real,
+// intermittent CI failure this file's history no longer needs to carry) so
+// it stays focused on `HostedMapleIdService`'s wiring between them.
 
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import exifr from 'exifr';
+import { ExifReaderService } from './exif-reader.service';
 import { primary, SHA1_HEAD_BYTES } from './maple-id';
 import { MapleIdCacheService } from './maple-id-cache';
 import { HostedMapleIdService } from './hosted-maple-id.service';
 import { MapleIdFallbackHasherService } from './maple-id-fallback-hasher.service';
-
-vi.mock('exifr', () => ({ default: { parse: vi.fn() } }));
 
 // Return type pinned to `Uint8Array<ArrayBuffer>` (not the wider
 // `ArrayBufferLike`, which also covers `SharedArrayBuffer`) so these bytes
@@ -29,11 +28,12 @@ function bytesFromPattern(len: number, seedMul: number, seedAdd: number): Uint8A
 }
 
 describe('HostedMapleIdService', () => {
+  let fakeExifReader: { parse: ReturnType<typeof vi.fn> };
   let fakeFallbackHasher: { hashFallback: ReturnType<typeof vi.fn> };
   let fakeIdCache: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    fakeExifReader = { parse: vi.fn() };
     fakeFallbackHasher = { hashFallback: vi.fn() };
     // Default: always a cache miss, so `computeMapleId`-focused tests below
     // (which call `computeMapleId` directly, bypassing the cache) aren't
@@ -45,6 +45,7 @@ describe('HostedMapleIdService', () => {
     };
     TestBed.configureTestingModule({
       providers: [
+        { provide: ExifReaderService, useValue: fakeExifReader },
         { provide: MapleIdFallbackHasherService, useValue: fakeFallbackHasher },
         { provide: MapleIdCacheService, useValue: fakeIdCache },
       ],
@@ -53,7 +54,7 @@ describe('HostedMapleIdService', () => {
 
   describe('computeMapleId', () => {
     it('uses the primary form when EXIF has a DateTimeOriginal', async () => {
-      vi.mocked(exifr.parse).mockResolvedValue({ DateTimeOriginal: '2026-07-12T10:30:00.000Z' });
+      fakeExifReader.parse.mockResolvedValue({ DateTimeOriginal: '2026-07-12T10:30:00.000Z' });
       const service = TestBed.inject(HostedMapleIdService);
       const bytes = bytesFromPattern(500, 7, 3);
       const file = new File([bytes], 'IMG_0001.dng', { lastModified: 1_700_000_000_000 });
@@ -67,7 +68,7 @@ describe('HostedMapleIdService', () => {
     });
 
     it('only ever hashes the bounded 64 KB head for the primary form, not the whole file', async () => {
-      vi.mocked(exifr.parse).mockResolvedValue({ DateTimeOriginal: '2020-01-01T00:00:00.000Z' });
+      fakeExifReader.parse.mockResolvedValue({ DateTimeOriginal: '2020-01-01T00:00:00.000Z' });
       const service = TestBed.inject(HostedMapleIdService);
       // A file bigger than SHA1_HEAD_BYTES — the head bytes and the full
       // bytes share the same prefix (deterministic pattern), so comparing
@@ -84,7 +85,7 @@ describe('HostedMapleIdService', () => {
     });
 
     it('never passes a camera serial or shutter count (server always sends null for both)', async () => {
-      vi.mocked(exifr.parse).mockResolvedValue({ DateTimeOriginal: '2026-01-01T00:00:00.000Z' });
+      fakeExifReader.parse.mockResolvedValue({ DateTimeOriginal: '2026-01-01T00:00:00.000Z' });
       const service = TestBed.inject(HostedMapleIdService);
       const bytes = bytesFromPattern(200, 5, 5);
       const file = new File([bytes], 'IMG_0003.dng');
@@ -98,7 +99,7 @@ describe('HostedMapleIdService', () => {
     });
 
     it('uses the fallback form when EXIF has neither DateTimeOriginal nor CreateDate', async () => {
-      vi.mocked(exifr.parse).mockResolvedValue({});
+      fakeExifReader.parse.mockResolvedValue({});
       fakeFallbackHasher.hashFallback.mockResolvedValue('02aabbccddeeff001122334455667788');
       const service = TestBed.inject(HostedMapleIdService);
       const file = new File([new Uint8Array([1, 2, 3])], 'screen-recording.mov');
@@ -111,7 +112,7 @@ describe('HostedMapleIdService', () => {
     });
 
     it('treats an exifr parse failure (unsupported/corrupt file) as "no EXIF" and falls back', async () => {
-      vi.mocked(exifr.parse).mockRejectedValue(new Error('Unknown file format'));
+      fakeExifReader.parse.mockRejectedValue(new Error('Unknown file format'));
       fakeFallbackHasher.hashFallback.mockResolvedValue('02ffffffffffffffffffffffffffffff');
       const service = TestBed.inject(HostedMapleIdService);
       const file = new File([new Uint8Array([9, 9, 9])], 'weird.bin');
@@ -139,13 +140,13 @@ describe('HostedMapleIdService', () => {
         file.size,
         file.lastModified,
       );
-      expect(exifr.parse).not.toHaveBeenCalled();
+      expect(fakeExifReader.parse).not.toHaveBeenCalled();
       expect(fakeIdCache.put).not.toHaveBeenCalled();
     });
 
     it('computes and caches on a miss', async () => {
       fakeIdCache.get.mockResolvedValue(null);
-      vi.mocked(exifr.parse).mockResolvedValue({ DateTimeOriginal: '2026-03-03T03:03:03.000Z' });
+      fakeExifReader.parse.mockResolvedValue({ DateTimeOriginal: '2026-03-03T03:03:03.000Z' });
       const service = TestBed.inject(HostedMapleIdService);
       const bytes = bytesFromPattern(64, 2, 2);
       const file = new File([bytes], 'IMG_0005.dng', { lastModified: 1_700_000_000_500 });

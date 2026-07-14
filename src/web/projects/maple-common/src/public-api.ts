@@ -233,4 +233,5 @@ export * from './lib/addressing/captured-at';
 export * from './lib/addressing/maple-id-fallback.types';
 export * from './lib/addressing/maple-id-fallback-hasher.service';
 export * from './lib/addressing/maple-id-cache';
+export * from './lib/addressing/exif-reader.service';
 export * from './lib/addressing/hosted-maple-id.service';

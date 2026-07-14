@@ -24,8 +24,8 @@
 // — not a decision this ticket should get ahead of.
 
 import { Injectable, inject } from '@angular/core';
-import * as exifrNs from 'exifr';
 import { capturedAtFromExif } from './captured-at';
+import { ExifReaderService } from './exif-reader.service';
 import { fromHex, primary, SHA1_HEAD_BYTES, type MapleId } from './maple-id';
 import { MapleIdCacheService } from './maple-id-cache';
 import { MapleIdFallbackHasherService } from './maple-id-fallback-hasher.service';
@@ -37,22 +37,9 @@ import { MapleIdFallbackHasherService } from './maple-id-fallback-hasher.service
  * avoids pulling unrelated tag data into memory for every browsed file. */
 const CAPTURED_AT_PICK_TAGS = ['DateTimeOriginal', 'CreateDate'] as const;
 
-/**
- * `exifr` ships no `"exports"` map — only legacy `main` (UMD) / `module`
- * (ESM) fields — so a default import (`import exifr from 'exifr'`) depends
- * on the bundler/runtime's CJS-interop guess for a shape it can't declare
- * unambiguously. A namespace import (`import * as ...`) has no such
- * ambiguity: it always reflects exactly what the resolved module exports,
- * so resolving `.default` (falling back to the namespace itself if the
- * module turns out to already be the callable object) here is robust
- * regardless of interop behavior differences across Bun/Vite versions or
- * platforms. `vi.mock('exifr', () => ({ default: { parse: vi.fn() } }))`
- * in this file's spec is shaped to match this resolution exactly.
- */
-const exifr = (exifrNs as unknown as { default?: typeof exifrNs }).default ?? exifrNs;
-
 @Injectable({ providedIn: 'root' })
 export class HostedMapleIdService {
+  private readonly exifReader = inject(ExifReaderService);
   private readonly fallbackHasher = inject(MapleIdFallbackHasherService);
   private readonly idCache = inject(MapleIdCacheService);
 
@@ -87,9 +74,7 @@ export class HostedMapleIdService {
 
   private async readCapturedAt(file: File): Promise<string | null> {
     try {
-      const raw = (await exifr.parse(file, { pick: [...CAPTURED_AT_PICK_TAGS] })) as
-        | Record<string, unknown>
-        | undefined;
+      const raw = await this.exifReader.parse(file, CAPTURED_AT_PICK_TAGS);
       return raw ? capturedAtFromExif(raw) : null;
     } catch {
       // Unparseable / unsupported format / corrupt header — same "no usable
