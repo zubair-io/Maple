@@ -251,7 +251,8 @@
         "test": {
           "builder": "@angular/build:unit-test",
           "options": {
-            "tsConfig": "projects/maple-common/tsconfig.spec.json"
+            "tsConfig": "projects/maple-common/tsconfig.spec.json",
+            "runnerConfig": "projects/maple-common/vitest.config.ts"
           }
         }
       }
