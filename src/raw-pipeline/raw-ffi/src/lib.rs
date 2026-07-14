@@ -26,7 +26,10 @@
 //!   - `thumbnail`          — embedded-preview thumbnail fast path: AVIF
 //!                            (grid thumbs) + JPEG (VLM describe preview).
 //!   - `id`                 — `maple_blake3_hex`, `maple_id_primary`,
-//!                            `maple_id_fallback` pure-function entries.
+//!                            `maple_id_fallback` pure-function entries, plus
+//!                            the streaming `MapleFallbackIdHasher` opaque
+//!                            handle (#1995: `_new`/`_update`/`_finalize`/
+//!                            `_free`) for chunked fallback-form hashing.
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -82,6 +85,7 @@ pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;
 pub use handle::MapleRawHandle;
+pub use id::MapleFallbackIdHasher;
 pub use scene_linear_chain::MapleAdjustmentParams;
 // gpu-gated: the live-session FFI structs (absent from the default xcframework).
 #[cfg(feature = "gpu")]
