@@ -47,6 +47,61 @@ public enum ImageMetadataReader {
         }
     }
 
+    /// Raw (unformatted) EXIF capture-date strings as ImageIO surfaces them
+    /// — `"YYYY:MM:DD HH:MM:SS"`, untouched. Used by maple_id primary-form
+    /// derivation (`ExifCaptureDate.iso8601UTC`, #1995), which needs the RAW
+    /// tag value, not `formatExifDate`'s human-display reformatting (that
+    /// helper is a DISPLAY formatter for the Info tab and its output isn't
+    /// guaranteed to stay in a shape `ExifCaptureDate` can re-parse).
+    public struct RawCaptureDateStrings: Sendable, Equatable {
+        /// `kCGImagePropertyExifDateTimeOriginal` — exifr's `DateTimeOriginal`.
+        public var dateTimeOriginal: String?
+        /// `kCGImagePropertyExifDateTimeDigitized` — exifr's `CreateDate`.
+        public var createDate: String?
+    }
+
+    /// Read the raw EXIF `DateTimeOriginal` / `DateTimeDigitized` strings
+    /// from a URL, from whichever subimage `bestSubimageIndex` picks (the
+    /// largest-by-pixel-area one — the sensor data's EXIF dictionary for
+    /// multi-IFD DNGs, not the embedded JPEG preview's at IFD 0). Mirrors the
+    /// preference order the server indexer's `normalizeExif` uses
+    /// (`asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`,
+    /// `src/api/src/indexer/exif.ts`) — callers should try
+    /// `dateTimeOriginal` first and fall back to `createDate` only when the
+    /// first is absent or fails to parse.
+    ///
+    /// Returns a struct with both fields `nil` when the file can't be opened
+    /// or carries no EXIF dictionary at all.
+    public static func readRawCaptureDateStrings(from url: URL) -> RawCaptureDateStrings {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            return RawCaptureDateStrings(dateTimeOriginal: nil, createDate: nil)
+        }
+        return readRawCaptureDateStrings(from: src)
+    }
+
+    /// Sourceless variant of `readRawCaptureDateStrings(from url:)` for
+    /// assets surfaced through `bytesProvider` (PhotoKit, Self-Hosted) where
+    /// no stable URL exists.
+    public static func readRawCaptureDateStrings(from data: Data) -> RawCaptureDateStrings {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return RawCaptureDateStrings(dateTimeOriginal: nil, createDate: nil)
+        }
+        return readRawCaptureDateStrings(from: src)
+    }
+
+    private static func readRawCaptureDateStrings(from src: CGImageSource) -> RawCaptureDateStrings {
+        let index = bestSubimageIndex(in: src)
+        guard let raw = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any],
+              let exif = raw[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        else {
+            return RawCaptureDateStrings(dateTimeOriginal: nil, createDate: nil)
+        }
+        return RawCaptureDateStrings(
+            dateTimeOriginal: exif[kCGImagePropertyExifDateTimeOriginal] as? String,
+            createDate: exif[kCGImagePropertyExifDateTimeDigitized] as? String
+        )
+    }
+
     /// Best-effort read of the as-shot white balance from a RAW / DNG URL.
     /// Returns `nil` when the file is not a recognized RAW or when the
     /// metadata is unavailable. Does **not** decode the image — the filter
