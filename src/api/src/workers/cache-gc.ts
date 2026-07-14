@@ -143,7 +143,14 @@ function isOrphanPreview(
   liveNames: ReadonlySet<string>,
   name: string,
 ): boolean {
-  return libraryId !== null && ![...liveNames].some((live) => name.startsWith(`${live}.`));
+  if (libraryId === null) return false;
+  // Iterate the set directly rather than spreading it into an array — this
+  // runs once per cache file scanned, and a directory can hold thousands
+  // (jules review, PR #2006).
+  for (const live of liveNames) {
+    if (name.startsWith(`${live}.`)) return false;
+  }
+  return true;
 }
 
 async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {
@@ -204,6 +211,11 @@ async function sweepCacheDir(
   for (const entry of entries) {
     if (!entry.isFile() || !allowedExts.has(path.extname(entry.name))) continue;
     ctx.counters.scanned += 1;
+    // Check the in-memory orphan verdict BEFORE touching the filesystem
+    // again — a known/live file (the common case) never needs a stat call
+    // at all, saving a syscall per file in every directory this sweeps
+    // (jules review, PR #2006).
+    if (!isOrphan(entry.name)) continue;
     const fullPath = path.join(cacheDir, entry.name);
 
     // TOCTOU defense: the known/live set was snapshotted before this walk
@@ -216,7 +228,7 @@ async function sweepCacheDir(
       continue;
     }
 
-    if (isOrphan(entry.name) && (await unlinkSafe(ctx, fullPath))) ctx.counters.deleted += 1;
+    if (await unlinkSafe(ctx, fullPath)) ctx.counters.deleted += 1;
   }
 }
 
