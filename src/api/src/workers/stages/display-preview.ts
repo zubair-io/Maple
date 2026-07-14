@@ -22,23 +22,20 @@
  *
  * dependsOn: ["exif"] — needs a located, oriented asset; matches `thumb`.
  */
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import {
-  assetAbsPath,
-  assetPrimaryFileInfo,
-} from "../../indexer/images.repo.ts";
-import { cachePathForAsset, xmpSidecarPath } from "../../fs/xmp.ts";
-import { isNoPreviewFilename } from "../../indexer/media-types.ts";
-import { loadLibraryRoots } from "../../indexer/libraries.cache.ts";
-import { ffiPool } from "../../ffi/ffi-pool.ts";
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { cachePathForAsset, xmpSidecarPath } from '../../fs/xmp.ts';
+import { isNoPreviewFilename } from '../../indexer/media-types.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { ffiPool } from '../../ffi/ffi-pool.ts';
 import {
   defineStage,
   runStage,
   type ImageDoc,
   type RunStageHandle,
   type StageResult,
-} from "../run-stage.ts";
+} from '../run-stage.ts';
 
 /** Long-edge target for the developed preview. Matches the embedded `preview`
  * stage's 1280 px (`previewer.PREVIEW_LONG_EDGE_PX`); defined locally rather
@@ -49,19 +46,17 @@ const DISPLAY_PREVIEW_LONG_EDGE_PX = 1280;
 
 /** Full size+extension suffix for a developed preview cache file, for
  * `cachePathForAsset`'s previews branch: `dev_<sidecar_ver>.jpg`. */
-export function developedPreviewSizeKey(
-  sidecarVer: number | undefined,
-): string {
+export function developedPreviewSizeKey(sidecarVer: number | undefined): string {
   return `dev_${sidecarVer ?? 0}.jpg`;
 }
 
 const displayPreviewStage = defineStage({
-  name: "display-preview",
+  name: 'display-preview',
   // v2 — path-keyed migration: previews moved off `maple_id`-keying onto
   // `fileinfo[0].filename` (format unchanged, still JPEG). Bump so every
   // edited asset re-renders at the new path.
   targetVersion: 2,
-  dependsOn: ["exif"],
+  dependsOn: ['exif'],
   // Reads the original RAW — an ENOENT means it vanished; the runner tags
   // `missing_since` for the missing-reaper.
   tagsMissingOnEnoent: true,
@@ -82,13 +77,13 @@ const displayPreviewStage = defineStage({
     const doc = image as unknown as ImageDoc;
     const primary = assetPrimaryFileInfo(doc);
     if (primary && isNoPreviewFilename(primary.filename)) {
-      return { skip: "stub-file" };
+      return { skip: 'stub-file' };
     }
 
     // Only edited assets get a developed preview. Unedited → the embedded
     // 1280 preview (from the `preview` stage) is correct, so skip terminally.
     if (!image.has_xmp) {
-      return { skip: "unedited" };
+      return { skip: 'unedited' };
     }
 
     const libs = await loadLibraryRoots();
@@ -96,11 +91,11 @@ const displayPreviewStage = defineStage({
     const devPath = cachePathForAsset(
       image as never,
       libs,
-      "previews",
+      'previews',
       developedPreviewSizeKey(image.sidecar_ver),
     );
     if (!absPath || !devPath) {
-      return { skip: "no-resolvable-location" };
+      return { skip: 'no-resolvable-location' };
     }
 
     // The sidecar path is the `.xmp` sibling of the original. `has_xmp` should
@@ -135,7 +130,7 @@ async function fileExists(p: string): Promise<boolean> {
     await fs.stat(p);
     return true;
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw e;
   }
 }

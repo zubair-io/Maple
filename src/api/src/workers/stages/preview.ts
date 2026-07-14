@@ -18,33 +18,22 @@
  * Not `pausedOnFirstBoot` — this is purely local file IO, free, and downstream
  * stages need it.
  */
-import {
-  generatePreview,
-  PREVIEW_CACHE_SUFFIX,
-} from "../../indexer/previewer.ts";
-import { cachePathForAsset } from "../../fs/xmp.ts";
-import {
-  assetAbsPath,
-  assetPrimaryFileInfo,
-} from "../../indexer/images.repo.ts";
-import { isNoPreviewFilename } from "../../indexer/media-types.ts";
-import { loadLibraryRoots } from "../../indexer/libraries.cache.ts";
-import {
-  defineStage,
-  runStage,
-  type RunStageHandle,
-  type StageResult,
-} from "../run-stage.ts";
+import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
+import { cachePathForAsset } from '../../fs/xmp.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { isNoPreviewFilename } from '../../indexer/media-types.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const previewStage = defineStage({
-  name: "preview",
+  name: 'preview',
   // v3 — path-keyed + AVIF migration: previews moved off `maple_id`-keying
   // onto `fileinfo[0].filename`, and the on-disk format switched from JPEG
   // to AVIF. Bump so every existing row re-renders at the new path — the old
   // `<maple_id>_1280.jpg` files become orphans, reclaimed by the
   // missing-reaper/dedupe cache-removal hook or cache-gc's backstop sweep.
   targetVersion: 3,
-  dependsOn: ["thumb"],
+  dependsOn: ['thumb'],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.
   tagsMissingOnEnoent: true,
@@ -66,7 +55,7 @@ const previewStage = defineStage({
     // guard as defense in depth.
     const primary = assetPrimaryFileInfo(image as never);
     if (primary && isNoPreviewFilename(primary.filename)) {
-      return { skip: "stub-file" };
+      return { skip: 'stub-file' };
     }
 
     // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
@@ -83,15 +72,10 @@ const previewStage = defineStage({
     // instead of marking the stage done, so the missing-reaper sees it. See
     // run-stage.ts (`hasOnlySoftDeletedFileInfo`).
     const libs = await loadLibraryRoots();
-    const previewPath = cachePathForAsset(
-      image as never,
-      libs,
-      "previews",
-      PREVIEW_CACHE_SUFFIX,
-    );
+    const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_CACHE_SUFFIX);
     const absPath = assetAbsPath(image as never, libs);
     if (!previewPath || !absPath) {
-      return { skip: "no-resolvable-location" };
+      return { skip: 'no-resolvable-location' };
     }
     // An ENOENT here (original gone) is tagged `missing_since` by the runner
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
