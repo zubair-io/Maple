@@ -205,20 +205,38 @@ current-state facts:
   logic (DNG SubIFD vs. `preview_image` vs. root-IFD thumbnail, across a dozen RAW
   dialects) a second time in a different language — expensive, error-prone, and with
   no existing precedent of this codebase hand-rolling RAW container parsing outside
-  Rust. **Concrete implementation shape:** move `extract_embedded_preview`,
-  `resize_long_edge`, and `bake_orientation` out of `raw-ffi/src/thumbnail.rs` (private
-  today) into a new `raw_core::preview` module (public, re-exported at the crate
-  root), adapting `extract_embedded_preview`'s `raw_path: &Path` parameter to an
-  `ext: &str` hint instead — mirroring the ext-driven dispatch `raw_core::decode::
-decode_bytes` already uses for `render_bytes`'s WASM binding, so no real filesystem
-  path is required. `raw-ffi/src/thumbnail.rs`'s existing functions become thin
-  call-through wrappers (behavior-preserving, pure move — the existing 256px and
-  1280px-JPEG externs keep working unchanged). `raw-wasm` adds a new binding,
-  `extract_display_preview_rgb(raw: &[u8], ext: &str, max_px: u32) -> Result<PreviewRgb,
-JsError>`, in the shape of the existing `render_bytes(raw: &[u8], ext: &str, xmp:
-Option<String>)` (same `&[u8]`/`ext` calling convention Web already uses), returning
-  oriented RGB8 + dimensions — **not** pre-encoded AVIF bytes (see §1.6 for why the
-  encode step stays in JS/canvas, not WASM).
+  Rust. **Concrete implementation shape, corrected from an earlier draft that would
+  have regressed server memory efficiency (caught by review):** move
+  `extract_embedded_preview`, `resize_long_edge`, and `bake_orientation` out of
+  `raw-ffi/src/thumbnail.rs` (private today) into a new `raw_core::preview` module
+  (public, re-exported at the crate root), generic over `R: Read + Seek` rather than
+  either a filesystem path or a full in-memory `&[u8]` buffer:
+  `extract_embedded_preview<R: Read + Seek>(r: &mut R, ext: &str, max_px: u32) ->
+Result<PreviewRgb>`. **Why not a bare `raw: &[u8]` parameter (the earlier draft's
+  proposal):** embedded-preview extraction reads a specific IFD/SubIFD offset inside
+  the RAW container, not the whole file — the FFI/server path today gets that
+  efficiency for free from a seek-based file read (only the bytes at the preview's
+  actual offset are ever touched, not the full 20–100MB RAW). Forcing that caller
+  onto a `&[u8]` parameter would require reading the entire file into memory first
+  just to form the slice, solely to satisfy WASM's calling convention — a real,
+  needless memory-efficiency regression on the server path for the sake of a
+  browser-side caller that doesn't even need it structurally. `R: Read + Seek` avoids
+  this entirely: the FFI/file caller passes an open `std::fs::File` (already
+  efficient, seek-based, unchanged from today's behavior); the WASM caller wraps its
+  `&[u8]` in `std::io::Cursor` (a zero-copy, in-memory `Read + Seek` adapter over the
+  buffer JS already handed it) — one function body, both callers keep their natural,
+  efficient representation, no forced buffering on either side.
+  `raw-ffi/src/thumbnail.rs`'s existing functions become thin call-through wrappers
+  passing their already-open `File` (behavior-preserving, pure move — the existing
+  256px and 1280px-JPEG externs keep working unchanged). `raw-wasm` adds a new
+  binding, `extract_display_preview_rgb(raw: &[u8], ext: &str, max_px: u32) ->
+Result<PreviewRgb, JsError>` (same `&[u8]`/`ext` calling convention `render_bytes`'s
+  WASM binding already uses — the public WASM signature is unchanged from the
+  earlier draft; only the shared Rust-core function's internal generality changed),
+  wrapping its `raw` slice in a `Cursor` before calling the shared
+  `extract_embedded_preview`, returning oriented RGB8 + dimensions — **not**
+  pre-encoded AVIF bytes (see §1.6 for why the encode step stays in JS/canvas, not
+  WASM).
 - **Apple: independent ImageIO implementation, matching the already-shipped sibling
   tier's decision.** Apple's 256px thumbnail generator has the Rust AVIF-extraction FFI
   symbol linked and available and _chose not to call it_, shipping an independent
@@ -457,15 +475,18 @@ Server and Rust/WASM producers must add this same floor (they don't have it toda
 Bitmap sources are unaffected (native size is written, never upscaled — no floor
 needed, since bitmaps decode exactly at any size).**
 
-**Correction to an earlier draft of this section, caught by automated review: "no file
-written" cannot mean _no file at all_.** Combined with §2.4's rule that a missing
-marker is always treated as a cache miss, writing literally nothing for an undersized
-asset would make every single preview request for that asset re-parse the RAW and
-re-extract the embedded preview from scratch, forever — an unbounded, perpetual
-cache-miss loop, not a one-time skip. The fix: **the producer still writes the `.v`
-marker (current `PREVIEW_RECIPE_VERSION`) even when it decides not to publish an
-image.** This is a legitimate, stable third state, distinct from both a normal
-cache-hit and a real cache-miss:
+**Correction to an earlier draft of this section, caught by automated review (two
+rounds): "no file written" cannot mean _no file at all_, and a negative-cache publish
+must not leave a stale image lying around from an earlier, more permissive check.**
+Combined with §2.4's rule that a missing marker is always treated as a cache miss,
+writing literally nothing for an undersized asset would make every single preview
+request for that asset re-parse the RAW and re-extract the embedded preview from
+scratch, forever — an unbounded, perpetual cache-miss loop, not a one-time skip. The
+fix: **the producer still writes the `.v` marker (current `PREVIEW_RECIPE_VERSION`)
+even when it decides not to publish an image — and, before doing so, unlinks any
+pre-existing image file at that path (best-effort, same non-fatal-on-failure pattern
+as §2.7's legacy-file cleanup).** This is a legitimate, stable third state, distinct
+from both a normal cache-hit and a real cache-miss:
 
 - **Marker present + current, image present** → normal cache hit, serve the image.
 - **Marker present + current, image absent** → _negative-cache hit_: this asset's
@@ -475,11 +496,23 @@ cache-hit and a real cache-miss:
 - **Marker missing, unreadable, or older than current** → real cache miss per §2.4;
   regenerate (which may again conclude "undersized" and re-publish only the marker).
 
+**Why the unlink step is required, not optional:** the second state above (negative-
+cache hit) is only a sound, stable state if "image absent" genuinely holds. Without
+the unlink step, an asset that had a real image published at an older recipe version
+(e.g. an earlier `PREVIEW_RECIPE_VERSION` had a smaller floor, or the embedded-preview
+extraction logic changed what it considers "present") and is now re-checked at a newer
+recipe that concludes "undersized" would be left with a **stale image sitting next to
+a fresh marker** — a reader would see "marker current + image present" and (wrongly)
+treat that as a normal cache hit, serving indefinitely stale pixels. Publishing order
+for the negative-cache case is therefore: unlink any existing image at the path, THEN
+write the marker — mirroring image-then-marker's own torn-read reasoning in the
+opposite direction (here, marker-after-unlink guarantees a reader never observes
+"current marker + present image" unless a real image write actually happened).
+
 This composes cleanly with §2.3's atomic publish order rather than undermining it: the
-negative-cache case never writes an image at all, so there is no image write for the
-marker-write to race ahead of, and the "image-then-marker" ordering's torn-read
-concern (marker claims a version the image bytes don't match yet) simply doesn't
-apply to a state that has no image by design.
+negative-cache case never _writes_ an image, so there is no new image write for the
+marker-write to race ahead of — the added unlink step only ever removes a prior
+producer's stale artifact, it does not introduce a second concurrent image writer.
 
 Reasoning:
 
@@ -631,17 +664,43 @@ torn-read requirement the plan calls out:
   Stage-4 test item):** same-volume `rename()` is POSIX-atomic, so the last writer's
   `rename()` wins cleanly for the image file, and independently for the marker file —
   no torn bytes are ever observable by a third reader, only "which version won" is
-  racy, and since both writers are producing the _same recipe_ (same
-  `PREVIEW_RECIPE_VERSION`) the winning image is expected to be visually equivalent
-  regardless of which writer's render lands last. **Flagged as an open question, not
-  asserted with full confidence:** this reasoning assumes the shared library folder is
-  a genuinely POSIX-rename-atomic filesystem; if it's mounted over SMB/NAS (the
-  concrete deployment target this whole plan exists for), cross-network rename
-  atomicity is a weaker, protocol- and server-dependent guarantee than local POSIX
-  semantics. This spec does not independently verify SMB rename atomicity in this
-  session — Stage 4's concurrent-writer tests should target the actual NAS deployment
-  path, not just a local filesystem, to close this out with confidence rather than
-  inherited assumption.
+  racy. **Correction to an earlier draft, caught by automated review: "both writers
+  are producing the same recipe" is not a safe assumption during a staggered
+  rollout.** Two clients on different app versions (e.g. Apple not yet updated to a
+  new `PREVIEW_RECIPE_VERSION`, the server already updated) can genuinely race with
+  _different_ compiled-in recipe versions. Without a guard, this produces a torn state
+  the original reasoning didn't cover: an older-recipe writer's image `rename()`
+  landing _after_ a newer-recipe writer already published both its image and marker
+  would silently downgrade the image bytes while leaving the newer marker in place —
+  a reader would see "marker=newer, image=older," the same class of failure §2.3's
+  ordering exists to prevent, just reached by a race between two _different-recipe_
+  writers instead of a single writer's own two-step publish.
+
+  **The fix: every producer re-reads the current on-disk marker immediately before
+  publishing (i.e. before its own image write, not just before its marker write) and
+  skips the _entire_ publish — image and marker both — if the on-disk marker's
+  version is already ≥ its own compiled-in `PREVIEW_RECIPE_VERSION`.** This is the
+  direct generalization of §2.5's forward-compatibility rule ("an old client must
+  never overwrite a newer marker") applied consistently to the image write as well as
+  the marker write, rather than only to the marker. With this check in place: the only
+  way an image write proceeds is when the writer's own recipe is strictly newer than
+  (or the marker is missing/stale relative to) whatever is currently published, so a
+  strictly-older writer can never clobber a strictly-newer one's image, regardless of
+  which `rename()` physically lands last — the race is resolved by the pre-check, not
+  by hoping `rename()` ordering happens to favor the newer writer. Two writers on the
+  _same_ recipe version can still race harmlessly (as originally reasoned: same
+  recipe, visually equivalent output, "which one wins" doesn't matter) — this
+  additional check only changes the outcome for the _different_-recipe-version case
+  the earlier draft missed.
+
+  **Flagged as an open question, not asserted with full confidence:** this reasoning
+  assumes the shared library folder is a genuinely POSIX-rename-atomic filesystem; if
+  it's mounted over SMB/NAS (the concrete deployment target this whole plan exists
+  for), cross-network rename atomicity is a weaker, protocol- and server-dependent
+  guarantee than local POSIX semantics. This spec does not independently verify SMB
+  rename atomicity in this session — Stage 4's concurrent-writer tests should target
+  the actual NAS deployment path, not just a local filesystem, to close this out with
+  confidence rather than inherited assumption.
 
 ### 2.4 Reader behavior
 
@@ -746,6 +805,39 @@ depending on every library being swept promptly. `cache-gc.ts` itself needs no c
 for this — Stage 1's fix already stays correct (an asset that's genuinely deleted
 still gets both its `.jpg` and `.avif` cleaned up the existing way, since the sweep
 matches on `mapleId` independent of extension).
+
+**Gap in the above, caught by a second round of automated review: this only covers
+the server's same-stem `.jpg`→`.avif` migration. Apple's pre-migration legacy file is
+a completely different case and needs its own explicit cleanup step.** Per the
+Grounding section, Apple's _current_ (pre-this-spec) display-preview file lives at
+`<sha256prefix16(basename)>_1600.jpg` — a different key scheme entirely (basename hash,
+not `maple_id`; `_1600` size suffix, not `_1280`), not merely a same-stem
+format-extension difference. The writer-side cleanup above — "check for a same-stem
+`.jpg` next to the `.avif` you just wrote" — structurally cannot find this file, because
+it isn't at the same stem; it's at an unrelated filename computed by a different
+formula. Left unaddressed, every Apple-origin legacy preview would be orphaned
+permanently: `cache-gc.ts`'s existing "unknown shape, unlink" branch (its 16-hex-char
+legacy-thumb case, §1's doc comment) _would_ catch these on a server-registered
+library's next sweep — but for the case this whole epic is centrally motivated by
+(Apple browsing a local folder or an SMB share directly, no self-hosted server
+involved at all), there is no sweep of any kind, and no other mechanism ever visits
+that file again.
+
+**Fix: Apple performs this cleanup itself, at the point it first publishes the new
+canonical `<maple_id>_1280.avif` for an asset.** Apple already computes the legacy
+path today (`MapleSidecarPaths.previewURL` _is_ that computation — `sha256prefix16` of
+the same basename it always had) and is the only platform positioned to know both the
+old key and the new key for the same asset in the same code path; the server and Web
+have no way to derive `sha256prefix16(basename)` for an asset they're indexing purely
+by `maple_id` (they were never guaranteed to see the original basename this legacy
+scheme was keyed on when browsed independently). So this is Apple-specific cleanup,
+not a generalized cross-platform rule: when Apple's canonical-tier writer (§1.1)
+succeeds in publishing `<maple_id>_1280.avif` for an asset it has not previously
+migrated, it computes the legacy `MapleSidecarPaths.previewURL`-style path for that
+same asset and unlinks it if present (best-effort, non-fatal on failure, same pattern
+as the rest of this section) — along with the legacy `<key>_1600.v` marker file
+(#1976) at the same legacy stem, so no half-migrated legacy artifact pair is left
+behind either.
 
 ## 3. Apple's edited-preview local-only contract
 
