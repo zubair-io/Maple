@@ -24,7 +24,7 @@
 // — not a decision this ticket should get ahead of.
 
 import { Injectable, inject } from '@angular/core';
-import exifr from 'exifr';
+import * as exifrNs from 'exifr';
 import { capturedAtFromExif } from './captured-at';
 import { fromHex, primary, SHA1_HEAD_BYTES, type MapleId } from './maple-id';
 import { MapleIdCacheService } from './maple-id-cache';
@@ -36,6 +36,20 @@ import { MapleIdFallbackHasherService } from './maple-id-fallback-hasher.service
  * camera/lens/GPS fields irrelevant to `maple_id`) keeps the parse fast and
  * avoids pulling unrelated tag data into memory for every browsed file. */
 const CAPTURED_AT_PICK_TAGS = ['DateTimeOriginal', 'CreateDate'] as const;
+
+/**
+ * `exifr` ships no `"exports"` map — only legacy `main` (UMD) / `module`
+ * (ESM) fields — so a default import (`import exifr from 'exifr'`) depends
+ * on the bundler/runtime's CJS-interop guess for a shape it can't declare
+ * unambiguously. A namespace import (`import * as ...`) has no such
+ * ambiguity: it always reflects exactly what the resolved module exports,
+ * so resolving `.default` (falling back to the namespace itself if the
+ * module turns out to already be the callable object) here is robust
+ * regardless of interop behavior differences across Bun/Vite versions or
+ * platforms. `vi.mock('exifr', () => ({ default: { parse: vi.fn() } }))`
+ * in this file's spec is shaped to match this resolution exactly.
+ */
+const exifr = (exifrNs as unknown as { default?: typeof exifrNs }).default ?? exifrNs;
 
 @Injectable({ providedIn: 'root' })
 export class HostedMapleIdService {

@@ -123,6 +123,11 @@ export class FsAccessLibrarySource implements LibrarySource {
    * unchanged by this ticket); callers that need a real id for one asset
    * (e.g. as a preview-cache key) call this directly.
    */
+  // Not yet called: capability-first staging for #1996 (Stage 4, the AVIF
+  // preview tier), which wires this in as the preview-cache key. Deliberately
+  // sequenced, not a stub — implementation is complete and tested (see this
+  // class's spec).
+  // fallow-ignore-next-line unused-class-member
   async mapleId(a: MapleAddress): Promise<string> {
     validateRelPath(a.relPath);
     const file = await this.getFile(a);
