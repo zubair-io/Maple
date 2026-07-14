@@ -82,6 +82,7 @@
         "src/imports/scan.test.ts",
         "src/imports/worker.test.ts",
         "src/indexer/exif.formats.test.ts",
+        "src/indexer/exif.timezone.test.ts",
         "src/indexer/exif.ts",
         "src/indexer/exif.video.test.ts",
         "src/indexer/heic-exif.test.ts",
