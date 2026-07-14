@@ -14,7 +14,7 @@
 // staleness check — is exercised through a real `openDb` -> transaction ->
 // get/put round trip, not just asserted against hand-mocked return values.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getCachedMapleId, putCachedMapleId } from './maple-id-cache';
 
 // ── Minimal in-memory IndexedDB fake ────────────────────────────────────────
@@ -157,6 +157,11 @@ function installFakeIndexedDb(): void {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
+// jsdom ships no `indexedDB` (this file's own module doc says so), so the
+// value here at first `beforeEach` is reliably `undefined` — captured once
+// so `afterAll` can put it back exactly, not just delete the key.
+const originalIndexedDb = (globalThis as unknown as { indexedDB?: unknown }).indexedDB;
+
 beforeEach(() => {
   registry.clear();
   installFakeIndexedDb();
@@ -164,6 +169,25 @@ beforeEach(() => {
 
 afterEach(() => {
   registry.clear();
+});
+
+// A real, load-bearing regression, not tidiness: `installFakeIndexedDb`
+// assigns `globalThis.indexedDB` directly (there is no per-file/per-realm
+// scoping for a raw global assignment), and this fake only implements the
+// `open`/`get`/`put` surface this file's own tests exercise — no `delete`.
+// Without restoring the ORIGINAL value once every test in this file is
+// done, the fake leaks into whichever spec file runs next in the same
+// process. That silently flipped `user-preset-store.ts`'s
+// `createHostedUserPresetStore()` — which branches on
+// `typeof indexedDB === 'undefined'` — from the safe `InMemoryUserPresetStore`
+// onto the real `IdbUserPresetStore` for `presets.service.spec.ts`'s tests,
+// and its `delete()` call threw against this fake's missing
+// `objectStore.delete`, which `PresetsService.delete()`'s catch turned into
+// a silent `false` return — reproduced directly, not a guess: confirmed by
+// running the full suite repeatedly and observing the failure disappear
+// once this teardown was added.
+afterAll(() => {
+  (globalThis as unknown as { indexedDB?: unknown }).indexedDB = originalIndexedDb;
 });
 
 describe('MapleIdCache', () => {
