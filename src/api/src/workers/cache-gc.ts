@@ -27,15 +27,15 @@
  *   registered library as a fire-and-forget background task. Bounded work:
  *   each sweep is O(files-in-library).
  */
-import type { Dirent } from "node:fs";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { ObjectId } from "mongodb";
-import { assetsCollection } from "../db/client.ts";
-import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
-import { child as childLogger } from "../log.ts";
+import type { Dirent } from 'node:fs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { ObjectId } from 'mongodb';
+import { assetsCollection } from '../db/client.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("cache-gc");
+const log = childLogger('cache-gc');
 
 export interface SweepResult {
   scanned: number;
@@ -99,240 +99,255 @@ async function resolveLibraryId(libraryRoot: string): Promise<ObjectId | null> {
   return null;
 }
 
-export async function sweepOrphanedCaches(
-  libraryRoot: string,
-): Promise<SweepResult> {
-  // Build the set of known maple_ids once (one query, DB-wide — a maple_id
-  // is unique regardless of which library it lives in). Projection keeps the
-  // working set tight even on 100k-asset libraries; iterating the cursor
-  // avoids materialising the full result array as an intermediate.
-  const coll = await assetsCollection();
+/** Mutable counters threaded through one sweep pass via `SweepContext`,
+ * pulled out of `sweepOrphanedCaches` so every helper below is a top-level
+ * function (explicit params, not closure capture) rather than a nest of
+ * inner functions — keeps each one independently readable and measurable. */
+interface SweepCounters {
+  scanned: number;
+  deleted: number;
+  skippedRecent: number;
+  recentFailErrno: string | null;
+  recentFailCount: number;
+}
+
+/** Per-pass, read-mostly context threaded through `walk`/`sweepThumbsDir`/
+ * `sweepPreviewsDir`/`sweepCacheDir`/`unlinkSafe`. `counters` is the only
+ * mutable part (mutated in place, not reassigned). */
+interface SweepContext {
+  counters: SweepCounters;
+  now: number;
+  knownMapleIds: ReadonlySet<string>;
+  knownPreviewFilenames: ReadonlyMap<string, ReadonlySet<string>>;
+  libraryId: ObjectId | null;
+}
+
+const THUMB_EXTS = new Set(['.jpg', '.avif']);
+const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.json']);
+
+function isOrphanThumb(knownMapleIds: ReadonlySet<string>, name: string): boolean {
+  const ext = path.extname(name);
+  const stem = name.slice(0, -ext.length);
+  if (!MAPLE_ID_RE.test(stem)) return true; // e.g. legacy 16-hex sha256_prefix16 — definitely orphaned
+  // Stem is `<maple_id>` (thumbs ignore size — one file per asset).
+  return !knownMapleIds.has(stem.slice(0, 32));
+}
+
+/** A preview is orphaned when its name isn't `<live filename>.<...>` for any
+ * currently-live filename at this exact directory. No resolvable library id
+ * → no known-live set was (or safely could be) built for this pass, so
+ * never delete — a transient failure to resolve the library must not
+ * mass-delete live previews (see `resolveLibraryId`). */
+function isOrphanPreview(
+  libraryId: ObjectId | null,
+  liveNames: ReadonlySet<string>,
+  name: string,
+): boolean {
+  return libraryId !== null && ![...liveNames].some((live) => name.startsWith(`${live}.`));
+}
+
+async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {
+  try {
+    await fs.unlink(p);
+    ctx.counters.recentFailCount = 0;
+    ctx.counters.recentFailErrno = null;
+    return true;
+  } catch (err) {
+    const errno = (err as { code?: string } | null)?.code ?? 'UNKNOWN';
+    if (errno === 'ENOENT') {
+      // Race: file vanished between readdir/stat and unlink (another
+      // process, or a stage cleaning up its own artefact). The desired
+      // state — file gone — is achieved, so don't count this toward the
+      // failure threshold and don't log noise. Reset the streak just like
+      // the success path so a real EACCES burst stays isolated.
+      ctx.counters.recentFailCount = 0;
+      ctx.counters.recentFailErrno = null;
+      return false;
+    }
+    if (errno === ctx.counters.recentFailErrno) {
+      ctx.counters.recentFailCount += 1;
+    } else {
+      ctx.counters.recentFailErrno = errno;
+      ctx.counters.recentFailCount = 1;
+    }
+    log.warn({ p, errno, err: err instanceof Error ? err.message : err }, 'unlink failed');
+    if (ctx.counters.recentFailCount >= FAIL_THRESHOLD) {
+      log.error(
+        { errno, count: ctx.counters.recentFailCount },
+        'cache-gc: too many unlink failures — aborting sweep',
+      );
+      throw new Error(
+        `cache-gc aborted: ${ctx.counters.recentFailCount} consecutive ${errno} failures`,
+        { cause: err },
+      );
+    }
+    return false;
+  }
+}
+
+/** Shared readdir → filter-by-extension → TOCTOU-recency-guard → per-entry
+ * orphan decision. Thumbs and previews differ only in which extensions they
+ * accept and how they judge one entry orphaned — everything else about
+ * walking a cache directory is identical between them. */
+async function sweepCacheDir(
+  ctx: SweepContext,
+  cacheDir: string,
+  allowedExts: ReadonlySet<string>,
+  isOrphan: (entryName: string) => boolean,
+): Promise<void> {
+  let entries: Dirent[];
+  try {
+    entries = (await fs.readdir(cacheDir, { withFileTypes: true })) as Dirent[];
+  } catch {
+    return; // ENOENT — fine, no cache here.
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !allowedExts.has(path.extname(entry.name))) continue;
+    ctx.counters.scanned += 1;
+    const fullPath = path.join(cacheDir, entry.name);
+
+    // TOCTOU defense: the known/live set was snapshotted before this walk
+    // began. A stage may have written this file in the meantime. If the
+    // file's mtime is within the recency window, defer to the next boot's
+    // sweep.
+    const stat = await fs.stat(fullPath).catch(() => null);
+    if (stat && ctx.now - stat.mtimeMs < RECENT_THRESHOLD_MS) {
+      ctx.counters.skippedRecent += 1;
+      continue;
+    }
+
+    if (isOrphan(entry.name) && (await unlinkSafe(ctx, fullPath))) ctx.counters.deleted += 1;
+  }
+}
+
+async function sweepThumbsDir(ctx: SweepContext, cacheDir: string): Promise<void> {
+  await sweepCacheDir(ctx, cacheDir, THUMB_EXTS, (name) => isOrphanThumb(ctx.knownMapleIds, name));
+}
+
+/** Previews orphan sweep — mostly a backstop now (see module doc): the
+ * primary cleanup is synchronous, at the point a `fileinfo` entry is
+ * removed. */
+async function sweepPreviewsDir(
+  ctx: SweepContext,
+  cacheDir: string,
+  relDir: string,
+): Promise<void> {
+  const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
+  await sweepCacheDir(ctx, cacheDir, PREVIEW_EXTS, (name) =>
+    isOrphanPreview(ctx.libraryId, liveNames, name),
+  );
+}
+
+async function walk(ctx: SweepContext, dir: string, relDir: string): Promise<void> {
+  let entries: Dirent[];
+  try {
+    entries = (await fs.readdir(dir, { withFileTypes: true })) as Dirent[];
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    // Skip symlinks defensively — with `withFileTypes: true`, a symlink
+    // entry has `isSymbolicLink() === true` and `isDirectory() === false`
+    // (the dirent reflects lstat, not stat). Without this guard, a future
+    // change that resolves the target before classification could let a
+    // self-referential or upward-pointing dir symlink loop the walk forever.
+    if (entry.isSymbolicLink()) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === '.maple') {
+        await sweepThumbsDir(ctx, path.join(full, 'thumbs'));
+        await sweepPreviewsDir(ctx, path.join(full, 'previews'), relDir);
+      } else if (!entry.name.startsWith('.')) {
+        const childRelDir = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
+        await walk(ctx, full, childRelDir);
+      }
+    }
+  }
+}
+
+/** Build the set of known maple_ids once (one query, DB-wide — a maple_id is
+ * unique regardless of which library it lives in). Projection keeps the
+ * working set tight even on 100k-asset libraries; iterating the cursor
+ * avoids materialising the full result array as an intermediate. */
+async function loadKnownMapleIds(
+  coll: Awaited<ReturnType<typeof assetsCollection>>,
+): Promise<Set<string>> {
   const knownMapleIds = new Set<string>();
   const mapleIdCursor = coll.find(
-    { maple_id: { $type: "string" } },
+    { maple_id: { $type: 'string' } },
     { projection: { maple_id: 1 } },
   );
   for await (const doc of mapleIdCursor) {
-    if (typeof doc.maple_id === "string") knownMapleIds.add(doc.maple_id);
+    if (typeof doc.maple_id === 'string') knownMapleIds.add(doc.maple_id);
   }
+  return knownMapleIds;
+}
 
-  // Build the set of live (path, filename) pairs for THIS library only —
-  // previews are path-keyed per-location, not DB-wide unique like maple_id,
-  // so this needs library scoping. `path` (POSIX-separated, matching
-  // `fileinfo.path`'s own convention) maps to the set of live filenames at
-  // that exact directory.
+/** Build the set of live (path, filename) pairs for one library — previews
+ * are path-keyed per-location, not DB-wide unique like maple_id, so this
+ * needs library scoping. `path` (POSIX-separated, matching `fileinfo.path`'s
+ * own convention) maps to the set of live filenames at that exact
+ * directory. */
+async function loadKnownPreviewFilenames(
+  coll: Awaited<ReturnType<typeof assetsCollection>>,
+  libraryId: ObjectId,
+): Promise<Map<string, Set<string>>> {
   const knownPreviewFilenames = new Map<string, Set<string>>();
-  const libraryId = await resolveLibraryId(libraryRoot);
-  if (libraryId) {
-    const fiCursor = coll.find(
-      {
-        fileinfo: {
-          $elemMatch: {
-            library_id: libraryId,
-            deleted_at: null,
-            missing_since: null,
-          },
-        },
+  const fiCursor = coll.find(
+    {
+      fileinfo: {
+        $elemMatch: { library_id: libraryId, deleted_at: null, missing_since: null },
       },
-      { projection: { fileinfo: 1 } },
-    );
-    for await (const doc of fiCursor) {
-      for (const fi of (doc.fileinfo as FileInfoLocation[] | undefined) ?? []) {
-        if (
-          !fi.library_id.equals(libraryId) ||
-          fi.deleted_at ||
-          fi.missing_since
-        )
-          continue;
-        const set = knownPreviewFilenames.get(fi.path) ?? new Set<string>();
-        set.add(fi.filename);
-        knownPreviewFilenames.set(fi.path, set);
-      }
+    },
+    { projection: { fileinfo: 1 } },
+  );
+  for await (const doc of fiCursor) {
+    for (const fi of (doc.fileinfo as FileInfoLocation[] | undefined) ?? []) {
+      if (!fi.library_id.equals(libraryId) || fi.deleted_at || fi.missing_since) continue;
+      const set = knownPreviewFilenames.get(fi.path) ?? new Set<string>();
+      set.add(fi.filename);
+      knownPreviewFilenames.set(fi.path, set);
     }
   }
+  return knownPreviewFilenames;
+}
 
-  let scanned = 0;
-  let deleted = 0;
-  let skippedRecent = 0;
-  const now = Date.now();
+export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepResult> {
+  const coll = await assetsCollection();
+  const knownMapleIds = await loadKnownMapleIds(coll);
+  const libraryId = await resolveLibraryId(libraryRoot);
+  const knownPreviewFilenames = libraryId
+    ? await loadKnownPreviewFilenames(coll, libraryId)
+    : new Map<string, Set<string>>();
 
-  let recentFailErrno: string | null = null;
-  let recentFailCount = 0;
-
-  async function walk(dir: string, relDir: string): Promise<void> {
-    let entries: Dirent[];
-    try {
-      entries = (await fs.readdir(dir, { withFileTypes: true })) as Dirent[];
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      // Skip symlinks defensively — with `withFileTypes: true`, a symlink
-      // entry has `isSymbolicLink() === true` and `isDirectory() === false`
-      // (the dirent reflects lstat, not stat). Without this guard, a future
-      // change that resolves the target before classification could let a
-      // self-referential or upward-pointing dir symlink loop the walk forever.
-      if (entry.isSymbolicLink()) continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === ".maple") {
-          await sweepThumbsDir(path.join(full, "thumbs"));
-          await sweepPreviewsDir(path.join(full, "previews"), relDir);
-        } else if (!entry.name.startsWith(".")) {
-          const childRelDir =
-            relDir === "" ? entry.name : `${relDir}/${entry.name}`;
-          await walk(full, childRelDir);
-        }
-      }
-    }
-  }
-
-  async function sweepThumbsDir(cacheDir: string): Promise<void> {
-    let entries: Dirent[];
-    try {
-      entries = (await fs.readdir(cacheDir, {
-        withFileTypes: true,
-      })) as Dirent[];
-    } catch {
-      return; // ENOENT — fine, no cache here.
-    }
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const ext = path.extname(entry.name);
-      if (ext !== ".jpg" && ext !== ".avif") continue;
-      scanned += 1;
-      const stem = entry.name.slice(0, -ext.length);
-      const fullPath = path.join(cacheDir, entry.name);
-
-      // TOCTOU defense: `knownMapleIds` was snapshotted before this walk
-      // began. A stage may have written this file in the meantime. If the
-      // file's mtime is within the recency window, defer to the next boot's
-      // sweep.
-      const stat = await fs.stat(fullPath).catch(() => null);
-      if (stat && now - stat.mtimeMs < RECENT_THRESHOLD_MS) {
-        skippedRecent += 1;
-        continue;
-      }
-
-      if (!MAPLE_ID_RE.test(stem)) {
-        // basename isn't shaped like a maple_id (e.g. legacy 16-hex
-        // sha256_prefix16 key). Definitely orphaned.
-        if (await unlinkSafe(fullPath)) deleted += 1;
-        continue;
-      }
-      // Stem is `<maple_id>` (thumbs ignore size — one file per asset).
-      const mapleId = stem.slice(0, 32);
-      if (!knownMapleIds.has(mapleId)) {
-        if (await unlinkSafe(fullPath)) deleted += 1;
-      }
-    }
-  }
-
-  /** Previews orphan sweep — mostly a backstop now (see module doc): the
-   * primary cleanup is synchronous, at the point a `fileinfo` entry is
-   * removed. A file is orphaned when its name isn't `<live filename>.<...>`
-   * for any currently-live filename at this exact directory. */
-  async function sweepPreviewsDir(
-    cacheDir: string,
-    relDir: string,
-  ): Promise<void> {
-    let entries: Dirent[];
-    try {
-      entries = (await fs.readdir(cacheDir, {
-        withFileTypes: true,
-      })) as Dirent[];
-    } catch {
-      return; // ENOENT — fine, no cache here.
-    }
-    const liveNames = knownPreviewFilenames.get(relDir) ?? new Set<string>();
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      const ext = path.extname(entry.name);
-      if (ext !== ".jpg" && ext !== ".avif" && ext !== ".json") continue;
-      scanned += 1;
-      const fullPath = path.join(cacheDir, entry.name);
-
-      // TOCTOU defense — same rationale as the thumbs sweep above.
-      const stat = await fs.stat(fullPath).catch(() => null);
-      if (stat && now - stat.mtimeMs < RECENT_THRESHOLD_MS) {
-        skippedRecent += 1;
-        continue;
-      }
-
-      // No resolvable library id → no known-live set was (or safely could
-      // be) built for THIS pass. Never delete without one — a transient
-      // failure to resolve the library must not mass-delete live previews
-      // (see `resolveLibraryId`) — but still scan/count, matching thumbs.
-      if (!libraryId) continue;
-
-      const isLive = [...liveNames].some((name) =>
-        entry.name.startsWith(`${name}.`),
-      );
-      if (!isLive) {
-        if (await unlinkSafe(fullPath)) deleted += 1;
-      }
-    }
-  }
-
-  async function unlinkSafe(p: string): Promise<boolean> {
-    try {
-      await fs.unlink(p);
-      recentFailCount = 0;
-      recentFailErrno = null;
-      return true;
-    } catch (err) {
-      const errno = (err as { code?: string } | null)?.code ?? "UNKNOWN";
-      if (errno === "ENOENT") {
-        // Race: file vanished between readdir/stat and unlink (another
-        // process, or a stage cleaning up its own artefact). The desired
-        // state — file gone — is achieved, so don't count this toward the
-        // failure threshold and don't log noise. Reset the streak just like
-        // the success path so a real EACCES burst stays isolated.
-        recentFailCount = 0;
-        recentFailErrno = null;
-        return false;
-      }
-      if (errno === recentFailErrno) {
-        recentFailCount += 1;
-      } else {
-        recentFailErrno = errno;
-        recentFailCount = 1;
-      }
-      log.warn(
-        { p, errno, err: err instanceof Error ? err.message : err },
-        "unlink failed",
-      );
-      if (recentFailCount >= FAIL_THRESHOLD) {
-        log.error(
-          { errno, count: recentFailCount },
-          "cache-gc: too many unlink failures — aborting sweep",
-        );
-        throw new Error(
-          `cache-gc aborted: ${recentFailCount} consecutive ${errno} failures`,
-          {
-            cause: err,
-          },
-        );
-      }
-      return false;
-    }
-  }
+  const ctx: SweepContext = {
+    counters: {
+      scanned: 0,
+      deleted: 0,
+      skippedRecent: 0,
+      recentFailErrno: null,
+      recentFailCount: 0,
+    },
+    now: Date.now(),
+    knownMapleIds,
+    knownPreviewFilenames,
+    libraryId,
+  };
 
   try {
-    await walk(libraryRoot, "");
+    await walk(ctx, libraryRoot, '');
   } catch (err) {
     // unlinkSafe threw past FAIL_THRESHOLD — return the partial result so
     // the caller can log the operator-actionable error without losing the
     // counts collected up to the abort point.
     log.error(
-      {
-        err: err instanceof Error ? err.message : err,
-        scanned,
-        deleted,
-        skippedRecent,
-      },
-      "cache-gc sweep aborted with partial result",
+      { err: err instanceof Error ? err.message : err, ...ctx.counters },
+      'cache-gc sweep aborted with partial result',
     );
   }
-  return { scanned, deleted, skipped_recent: skippedRecent };
+  return {
+    scanned: ctx.counters.scanned,
+    deleted: ctx.counters.deleted,
+    skipped_recent: ctx.counters.skippedRecent,
+  };
 }

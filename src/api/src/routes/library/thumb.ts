@@ -27,6 +27,7 @@ import {
   IMMUTABLE_CACHE,
   findAssetByAddress,
   parseWildcardSegments,
+  serveCachedBytesOr404,
 } from './shared.ts';
 
 const log = childLogger('routes/library/thumb');
@@ -188,20 +189,7 @@ export const thumbRoutes = new Elysia().get(
       }
     }
 
-    const bytes = await safeReadBytes(thumbPath);
-    if (!bytes) {
-      set.status = 404;
-      return { error: 'Thumbnail file unreadable' };
-    }
-
-    return new Response(bytes as unknown as BodyInit, {
-      status: 200,
-      headers: {
-        'Content-Type': 'image/avif',
-        ETag: etag,
-        'Cache-Control': IMMUTABLE_CACHE,
-      },
-    });
+    return serveCachedBytesOr404(set, thumbPath, 'image/avif', etag, 'Thumbnail file unreadable');
   },
   {
     params: t.Object({
