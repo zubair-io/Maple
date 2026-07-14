@@ -63,6 +63,18 @@ public actor FilesystemSource {
     private var scopeURL: URL?
     private var scopeClaimed: Bool = false
 
+    /// Per-folder maple_id cache (#1995) — avoids re-hashing every file on
+    /// every browse. `nil` until a folder is opened/restored; reset to
+    /// `nil` in `close()`. See `MapleIdCache.swift` for the multi-writer
+    /// design.
+    private var idCache: MapleIdCacheStore?
+
+    /// Bytes read per `FallbackFormHasher.update(_:)` call when streaming a
+    /// whole file for fallback-form id derivation — bounded so a 100+ MB RAW
+    /// is never held in memory as one buffer. 4 MiB balances syscall count
+    /// against peak memory; not a tuned constant, just a reasonable bound.
+    private static let fallbackHashChunkSize = 4 * 1024 * 1024
+
     public var assets: [FileAsset] { _assets }
     /// Expose the scope-backed ancestor so other parts of the pipeline can
     /// wrap their FFI reads in a `startAccessingSecurityScopedResource`
@@ -92,6 +104,7 @@ public actor FilesystemSource {
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+        self.idCache = MapleIdCacheStore(folderURL: folderURL)
         try _index()
         // Deliberately DO NOT stopAccessingSecurityScopedResource here — the
         // scope must outlive the index call for later render / thumbnail
@@ -116,6 +129,7 @@ public actor FilesystemSource {
         self.bookmarkData = isStale
             ? try url.bookmarkData(options: Self.bookmarkCreationOptions, includingResourceValuesForKeys: nil, relativeTo: nil)
             : data
+        self.idCache = MapleIdCacheStore(folderURL: url)
         try _index()
         // Keep scope open — see `open(folderURL:)` for rationale.
     }
@@ -131,6 +145,7 @@ public actor FilesystemSource {
         scopeURL = nil
         bookmarkData = nil
         _assets = []
+        idCache = nil
     }
 
     /// Stop accessing the security-scoped resource, if we've been holding
@@ -185,24 +200,110 @@ public actor FilesystemSource {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .map { FileAsset(url: $0) }
     }
+
+    // MARK: - maple_id derivation (#1995)
+
+    /// Resolve a maple_id for `asset`, consulting the folder's id-cache
+    /// first (`MapleIdCacheStore.lookup`) and only re-deriving (then
+    /// persisting) on a cache miss or a stale entry (size/mtime mismatch —
+    /// the file was replaced at this path since the id was last computed).
+    /// Returns `nil` when the file's attributes can't be read or derivation
+    /// itself fails; `images()` falls back to the file path in that case.
+    private func mapleId(for asset: FileAsset) async -> String? {
+        guard let idCache else { return nil }
+        // `FileManager.attributesOfItem(atPath:)`, NOT `URL.resourceValues
+        // (forKeys:)` — `URL` caches fetched resource values on the URL
+        // value itself, so re-querying the SAME `FileAsset.url` (stored once
+        // in `_assets`, reused across every `images()` call) after the file
+        // changed on disk can silently return the FIRST call's stale
+        // snapshot instead of a fresh stat(). `attributesOfItem(atPath:)`
+        // has no such cache — every call is a real stat(2).
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: asset.url.path),
+              let size = (attrs[.size] as? NSNumber)?.int64Value,
+              let modDate = attrs[.modificationDate] as? Date
+        else { return nil }
+
+        let sizeI64 = size
+        let mtime = modDate.timeIntervalSince1970
+        // Non-recursive listing (`_index()`) means every asset's filename is
+        // already a stable, unambiguous key within this folder — no need
+        // for the full absolute path.
+        let cacheKey = asset.url.lastPathComponent
+
+        if let cached = await idCache.lookup(path: cacheKey, size: sizeI64, mtime: mtime) {
+            return cached
+        }
+        guard let derived = await deriveMapleId(for: asset, filesize: sizeI64) else { return nil }
+        await idCache.record(path: cacheKey, mapleId: derived, size: sizeI64, mtime: mtime)
+        return derived
+    }
+
+    /// Derive a maple_id from scratch: read the first 64 KB + raw EXIF
+    /// capture-date strings for the primary-form attempt, and hand a
+    /// chunked `FileHandle` reader to `MapleIdDerivation.derive` for the
+    /// fallback-form path so a large RAW is never held in memory as one
+    /// buffer.
+    private func deriveMapleId(for asset: FileAsset, filesize: Int64) async -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: asset.url) else { return nil }
+        defer { try? handle.close() }
+
+        let headBytes = (try? handle.read(upToCount: Self.mapleIdHeadByteCount)) ?? Data()
+        let dates = ImageMetadataReader.readRawCaptureDateStrings(from: asset.url)
+        // Rewind — the head read above consumed the handle's offset, and
+        // the fallback-form path (if reached) needs the WHOLE file from
+        // byte 0, head bytes included. A silently-swallowed seek failure
+        // here would corrupt the fallback-form hash (missing its first 64
+        // KB) without any signal, so this checks explicitly rather than
+        // `try?`-and-proceed.
+        do {
+            try handle.seek(toOffset: 0)
+        } catch {
+            return nil
+        }
+
+        return await MapleIdDerivation.derive(
+            headBytes: headBytes,
+            exifDateTimeOriginal: dates.dateTimeOriginal,
+            exifCreateDate: dates.createDate,
+            filesize: UInt64(filesize),
+            nextChunk: {
+                (try? handle.read(upToCount: Self.fallbackHashChunkSize)) ?? Data()
+            }
+        )
+    }
+
+    /// First 64 KB of a file — the bound the primary-form head hash reads.
+    /// Matches `raw_core::SHA1_HEAD_BYTES` (`id.rs`); duplicated as a literal
+    /// rather than threaded across the FFI boundary for a single integer —
+    /// `MapleId.primary` ignores anything past this bound regardless of how
+    /// much the caller hands it, so reading more here would just waste I/O.
+    fileprivate static let mapleIdHeadByteCount = 64 * 1024
 }
 
 // MARK: - ImageSource conformance
 
 extension FilesystemSource: ImageSource {
     /// Map discovered `FileAsset`s to the generic `ImageRef` vocabulary.
-    /// The id is the filesystem URL path — stable for the lifetime of the
-    /// folder and unique within this source.
+    /// `id` is the spec-form `maple_id` hex (#1995) — a content-addressed,
+    /// BLAKE3-based id shared with the server's indexer and Web, so the same
+    /// photo resolves to the same cache key regardless of which platform
+    /// derived it. Falls back to the file's path (the old behaviour) only
+    /// when derivation genuinely fails (unreadable file) — this keeps
+    /// `images()` from ever losing an asset outright over a hashing error.
     public func images() async throws -> [ImageRef] {
         let scope = scopeURL
-        return _assets.map { fa in
-            ImageRef(
-                id: fa.url.path,
+        var refs: [ImageRef] = []
+        refs.reserveCapacity(_assets.count)
+        for fa in _assets {
+            let id = await mapleId(for: fa) ?? fa.url.path
+            refs.append(ImageRef(
+                id: id,
                 displayName: fa.name,
                 url: fa.url,
                 scopeParentURL: scope
-            )
+            ))
         }
+        return refs
     }
 
     /// Filesystem sources don't synthesise thumbnails; callers fall through

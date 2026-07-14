@@ -167,4 +167,140 @@ final class HashingTests: XCTestCase {
         XCTAssertEqual(p?.prefix(2), "01")
         XCTAssertEqual(f?.prefix(2), "02")
     }
+
+    // MARK: - FallbackFormHasher (streaming fallback-form id hasher, #1995)
+    //
+    // The load-bearing property: any chunking of the SAME bytes in the SAME
+    // order must reproduce exactly what `MapleId.fallback(bytes:)` computes
+    // for the whole buffer in one call — proving the Swift wrapper is
+    // correct independent of any particular chunking, mirroring the Rust
+    // reference's own `fallback_id_hasher_matches_one_shot_*` test suite
+    // (`raw-core/src/id.rs`).
+
+    /// Deterministic, non-trivial byte content — a chunking bug that
+    /// scrambled byte order would change the hash rather than being masked
+    /// by degenerate (all-zero/all-same) input.
+    private func pseudoRandomBytes(_ count: Int) -> Data {
+        var bytes = [UInt8](repeating: 0, count: count)
+        for i in 0..<count {
+            let x = UInt64(i) &* 2_654_435_761 &+ 0x9E37_79B9
+            bytes[i] = UInt8((x >> 24) & 0xff)
+        }
+        return Data(bytes)
+    }
+
+    /// Feed `bytes` through a fresh `FallbackFormHasher` in the chunks
+    /// implied by `splits` (an ascending sequence starting at 0 and ending
+    /// at `bytes.count`; consecutive equal values produce a zero-length
+    /// chunk), then finalize with `bytes.count` as the filesize, and assert
+    /// the result matches `MapleId.fallback(bytes:)` for the same buffer.
+    private func assertChunkedMatchesOneShot(_ bytes: Data, splits: [Int], line: UInt = #line) {
+        precondition(splits.first == 0 && splits.last == bytes.count)
+        let hasher = FallbackFormHasher()
+        for window in zip(splits, splits.dropFirst()) {
+            hasher.update(bytes.subdata(in: window.0..<window.1))
+        }
+        let chunked = hasher.finalize(filesize: UInt64(bytes.count))
+        let oneShot = MapleId.fallback(bytes: bytes)
+        XCTAssertEqual(chunked, oneShot, "chunked hash diverged for splits \(splits)", line: line)
+    }
+
+    func testFallbackFormHasherMatchesOneShotForSmallBuffer() {
+        // Proves the wrapper is correct independent of chunking, over a
+        // buffer small enough to eyeball: one `update` call covering
+        // everything.
+        let bytes = pseudoRandomBytes(1024)
+        assertChunkedMatchesOneShot(bytes, splits: [0, bytes.count])
+    }
+
+    func testFallbackFormHasherMatchesOneShotAcrossManySplits() {
+        let bytes = pseudoRandomBytes(130_000)
+        assertChunkedMatchesOneShot(bytes, splits: [
+            0, 17, 500, 4096, 4096, 12_345, 65_536, 65_537, 100_000, bytes.count,
+        ])
+    }
+
+    func testFallbackFormHasherMatchesOneShotWithEmptyLeadingChunk() {
+        let bytes = pseudoRandomBytes(2048)
+        assertChunkedMatchesOneShot(bytes, splits: [0, 0, bytes.count])
+    }
+
+    func testFallbackFormHasherMatchesOneShotAllSingleByteChunks() {
+        let bytes = pseudoRandomBytes(200)
+        assertChunkedMatchesOneShot(bytes, splits: Array(0...bytes.count))
+    }
+
+    func testFallbackFormHasherHandlesEmptyInput() {
+        // `MapleId.fallback(bytes:)` rejects empty input by contract (its
+        // own `guard !bytes.isEmpty`, mirroring the FFI's `bytes_len == 0`
+        // -> -2 rejection — a defensive check against a zero-length raw
+        // pointer, not a property of the hashing algorithm). The STREAMING
+        // hasher has no equivalent guard at either the Rust or FFI layer
+        // (`raw_core::FallbackIdHasher::finalize` and
+        // `maple_fallback_id_hasher_finalize` both finalize unconditionally
+        // regardless of how many bytes were fed) — a real file could validly
+        // be zero bytes mid-stream, and the hasher must still produce a
+        // real, well-formed id in that case rather than nil.
+        let hasher = FallbackFormHasher()
+        let hex = hasher.finalize(filesize: 0)
+        XCTAssertNotNil(hex)
+        XCTAssertEqual(hex?.count, 32)
+        XCTAssertEqual(hex?.prefix(2), "02")
+
+        // Deterministic: a second hasher fed nothing, finalized with the
+        // same filesize, produces the identical id.
+        let hasher2 = FallbackFormHasher()
+        XCTAssertEqual(hasher2.finalize(filesize: 0), hex)
+    }
+
+    func testFallbackFormHasherFilesizeIsExplicitNotBytesFed() {
+        // Mirrors MapleId.fallback's existing filesize-independent-of-
+        // bytes-len contract: the hasher mixes in whatever `filesize`
+        // `finalize` is called with, not the accumulated byte count. Same
+        // fed bytes, two different claimed filesizes -> two different ids.
+        let bytes = pseudoRandomBytes(100)
+
+        let hasherA = FallbackFormHasher()
+        hasherA.update(bytes)
+        let hexA = hasherA.finalize(filesize: 100)
+
+        let hasherB = FallbackFormHasher()
+        hasherB.update(bytes)
+        let hexB = hasherB.finalize(filesize: 999)
+
+        XCTAssertNotNil(hexA)
+        XCTAssertNotNil(hexB)
+        XCTAssertNotEqual(hexA, hexB)
+        // The "true byte count" filesize must still match the one-shot
+        // reference — this is the case that matters in practice (filesize
+        // == bytes fed).
+        XCTAssertEqual(hexA, MapleId.fallback(bytes: bytes))
+    }
+
+    func testFallbackFormHasherOutputIsTaggedFallback() {
+        let bytes = pseudoRandomBytes(512)
+        let hasher = FallbackFormHasher()
+        hasher.update(bytes)
+        let hex = hasher.finalize(filesize: UInt64(bytes.count))
+        XCTAssertEqual(hex?.prefix(2), "02")
+    }
+
+    func testFallbackFormHasherSecondFinalizeIsNilNotCrash() {
+        let hasher = FallbackFormHasher()
+        hasher.update(Data([1, 2, 3]))
+        _ = hasher.finalize(filesize: 3)
+        // Consumed — a second finalize call must not crash (defensive
+        // no-op, not a documented supported path).
+        XCTAssertNil(hasher.finalize(filesize: 3))
+    }
+
+    func testFallbackFormHasherAbandonedWithoutFinalizeDoesNotCrash() {
+        // Early-abort path: let a hasher deinit without ever calling
+        // finalize. Nothing to assert beyond "this doesn't crash" — the
+        // `deinit` -> `maple_fallback_id_hasher_free` path is exercised
+        // implicitly when `hasher` goes out of scope.
+        let hasher = FallbackFormHasher()
+        hasher.update(Data([9, 9, 9]))
+        _ = hasher // silence "never used" — the point is letting it deinit
+    }
 }
