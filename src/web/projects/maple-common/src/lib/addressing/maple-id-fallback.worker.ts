@@ -69,8 +69,16 @@ function errorMessage(err: unknown): string {
 
 async function handleUpdate(req: Extract<HashFallbackRequest, { type: 'hash-fallback-update' }>) {
   if (failures.has(req.id)) return;
-  await ensureReady();
   try {
+    // `ensureReady()` belongs inside this try, not before it: a rejected
+    // `init()` (the WASM bundle failing to load/instantiate) must land in
+    // the same "mark this id failed, let finalize report it" path as any
+    // other update-time error — left outside the try, that rejection would
+    // propagate out of this async function unhandled (this is only ever
+    // called via `void handleUpdate(...)`, so nothing awaits it) and the
+    // main thread's pending `hashFallback()` promise for this id would
+    // never resolve OR reject.
+    await ensureReady();
     let hasher = hashers.get(req.id);
     if (!hasher) {
       hasher = new FallbackIdHasher();
@@ -83,17 +91,36 @@ async function handleUpdate(req: Extract<HashFallbackRequest, { type: 'hash-fall
 }
 
 async function handleFinalize(req: HashFallbackFinalizeRequest): Promise<void> {
-  await ensureReady();
+  try {
+    // Same reasoning as `handleUpdate`: a rejected `ensureReady()` here must
+    // not propagate unhandled — `finalize` is the terminal call for this
+    // id, so unlike `handleUpdate` (which can defer reporting to a later
+    // `finalize`), this catch must itself post the error back.
+    await ensureReady();
+  } catch (err) {
+    hashers.get(req.id)?.free();
+    hashers.delete(req.id);
+    failures.delete(req.id);
+    post({ id: req.id, type: 'hash-fallback-error', message: errorMessage(err) });
+    return;
+  }
   const failure = failures.get(req.id);
-  // A zero-byte file never gets an `update` call — finalize a fresh hasher
-  // so `fallback(emptyBytes, 0)` is still reachable.
-  const hasher = hashers.get(req.id) ?? new FallbackIdHasher();
+  const existingHasher = hashers.get(req.id);
   hashers.delete(req.id);
   failures.delete(req.id);
   if (failure) {
+    // Free whatever hasher a prior successful `update` created for this id
+    // before this failure — never construct a fresh one just to abandon it
+    // unfreed (a WASM linear-memory leak; a zero-byte-file finalize with no
+    // failure is the only case that needs the "no hasher yet" fallback,
+    // handled in the branch below).
+    existingHasher?.free();
     post({ id: req.id, type: 'hash-fallback-error', message: failure });
     return;
   }
+  // A zero-byte file never gets an `update` call — finalize a fresh hasher
+  // so `fallback(emptyBytes, 0)` is still reachable.
+  const hasher = existingHasher ?? new FallbackIdHasher();
   try {
     const hex = hasher.finalize(req.filesize);
     post({ id: req.id, type: 'hash-fallback-success', hex });

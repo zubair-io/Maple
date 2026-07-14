@@ -189,4 +189,45 @@ describe('MapleIdFallbackHasherService', () => {
 
     await expect(service.hashFallback(file, 1024)).rejects.toThrow('boom');
   });
+
+  it('cleans up and notifies the worker when a chunk read fails mid-stream', async () => {
+    // A real File never throws on `.slice(...).arrayBuffer()` — this stubs
+    // just enough of the shape `hashFallback` actually calls to simulate
+    // the local file becoming unreadable partway through streaming (e.g.
+    // deleted, permission revoked) without needing a real filesystem.
+    const finalizedIds: number[] = [];
+    class TrackingWorker extends FakeFallbackWorker {
+      override postMessage(msg: HashFallbackRequest): void {
+        if (msg.type === 'hash-fallback-finalize') finalizedIds.push(msg.id);
+        super.postMessage(msg);
+      }
+    }
+    class WorkerCtor {
+      constructor(_url: URL, _opts?: WorkerOptions) {
+        return new TrackingWorker() as unknown as Worker;
+      }
+    }
+    Object.defineProperty(globalThis, 'Worker', {
+      value: WorkerCtor,
+      writable: true,
+      configurable: true,
+    });
+
+    const service = TestBed.inject(MapleIdFallbackHasherService);
+    const readError = new Error('file became unreadable mid-stream');
+    const flakyFile = {
+      size: 100,
+      slice: () => ({ arrayBuffer: () => Promise.reject(readError) }),
+    } as unknown as File;
+
+    // The caller sees the real read error, not a hang and not a generic
+    // "worker error" — this is the bug fix: without it, `id` would never
+    // leave `pending` (nothing ever settles it) and this await would hang
+    // forever instead of rejecting.
+    await expect(service.hashFallback(flakyFile, 10)).rejects.toBe(readError);
+    // Best-effort cleanup still reached the worker so it frees whatever
+    // (possibly zero) hasher state it held for this id, even though the
+    // caller's result came from the read failure, not a worker response.
+    expect(finalizedIds.length).toBe(1);
+  });
 });

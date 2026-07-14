@@ -79,10 +79,39 @@ export class MapleIdFallbackHasherService implements OnDestroy {
     const result = new Promise<string>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
     });
-    for (let offset = 0; offset < file.size; offset += chunkSize) {
-      const buffer = await file.slice(offset, offset + chunkSize).arrayBuffer();
-      const req: HashFallbackUpdateRequest = { id, type: 'hash-fallback-update', chunk: buffer };
-      worker.postMessage(req, [buffer]);
+    try {
+      for (let offset = 0; offset < file.size; offset += chunkSize) {
+        const buffer = await file.slice(offset, offset + chunkSize).arrayBuffer();
+        const req: HashFallbackUpdateRequest = { id, type: 'hash-fallback-update', chunk: buffer };
+        worker.postMessage(req, [buffer]);
+      }
+    } catch (err) {
+      // `file.slice(...).arrayBuffer()` can throw mid-stream (the local
+      // file is deleted, becomes unreadable, or a permission is revoked
+      // while streaming) — without this, `id` never leaves `this.pending`
+      // (nothing ever resolves/rejects it — the worker never got a
+      // finalize for this id, so it never posts back), a permanent leak of
+      // one Map entry per failed read, and the worker is left holding a
+      // half-fed `FallbackIdHasher` for `id` forever too. Best-effort
+      // finalize the worker side so IT frees the hasher (the response, if
+      // any ever arrives, is a no-op — `id` is already gone from
+      // `pending`), then surface the original read error to the caller.
+      // Scoped to only the read loop, not the `await result` below: a
+      // legitimate worker-reported failure already cleans up its own
+      // `pending`/worker-side state through the normal message-handler
+      // path and shouldn't re-enter this recovery branch.
+      this.pending.delete(id);
+      try {
+        const abortFinalize: HashFallbackFinalizeRequest = {
+          id,
+          type: 'hash-fallback-finalize',
+          filesize: BigInt(file.size),
+        };
+        worker.postMessage(abortFinalize);
+      } catch {
+        // Worker already gone/terminated — nothing left to clean up there.
+      }
+      throw err;
     }
     const finalizeReq: HashFallbackFinalizeRequest = {
       id,
