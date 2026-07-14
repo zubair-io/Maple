@@ -359,12 +359,12 @@ fn fallback_id_hasher_ffi_finalize_rejects_nulls() {
         unsafe { maple_fallback_id_hasher_finalize(std::ptr::null_mut(), 0, out.as_mut_ptr()) };
     assert_eq!(rc, -1);
 
-    // Null out_hex: the null check fires before the handle is consumed, so
-    // the handle is still valid afterward and must be freed normally.
+    // Null out_hex: the handle is still consumed/freed even though this
+    // call reports failure (the unconditional-free contract) — calling
+    // `_free` again here would be a double-free, so we don't.
     let handle = maple_fallback_id_hasher_new();
     let rc = unsafe { maple_fallback_id_hasher_finalize(handle, 0, std::ptr::null_mut()) };
     assert_eq!(rc, -1);
-    unsafe { maple_fallback_id_hasher_free(handle) };
 }
 
 #[test]
