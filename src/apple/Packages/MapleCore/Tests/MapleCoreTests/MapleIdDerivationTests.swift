@@ -131,6 +131,66 @@ final class MapleIdDerivationTests: XCTestCase {
         XCTAssertEqual(id, MapleId.fallback(bytes: whole))
     }
 
+    /// [Caught in review on #2003] `derive`'s fallback loop terminates on
+    /// `chunk.isEmpty`, which is indistinguishable from a genuinely thrown
+    /// error unless `nextChunk` itself propagates the throw rather than
+    /// swallowing it into an empty `Data()`. This is the exact contract
+    /// `FilesystemSource.deriveMapleId`'s `nextChunk` closure was fixed to
+    /// honor (it previously used `try?` internally, converting a transient
+    /// `FileHandle.read` error into "EOF", silently hashing only a prefix
+    /// of the file into a wrong id) — `SMBSource.deriveMapleId` already did
+    /// this correctly. `derive` itself is `async rethrows` specifically to
+    /// support this; this test locks in that the mechanism actually works.
+    struct TestReadError: Error {}
+
+    func testNextChunkErrorPropagatesRatherThanBeingTreatedAsEOF() async {
+        let head = pseudoRandomBytes(64)
+        var callCount = 0
+        do {
+            _ = try await MapleIdDerivation.derive(
+                headBytes: head,
+                exifDateTimeOriginal: nil,
+                exifCreateDate: nil,
+                filesize: 4096,
+                nextChunk: {
+                    callCount += 1
+                    if callCount == 1 { return head }
+                    throw TestReadError()
+                }
+            )
+            XCTFail("expected derive to rethrow the nextChunk error, not swallow it as EOF")
+        } catch is TestReadError {
+            // Expected — the error reached the caller instead of being
+            // silently treated as end-of-stream.
+        } catch {
+            XCTFail("expected TestReadError, got \(error)")
+        }
+    }
+
+    /// Locks in `derive`'s documented contract (corrected in review on
+    /// #2003): a genuinely empty file — no EXIF, empty head bytes, zero
+    /// fallback chunks — still produces a REAL fallback-form id, not `nil`.
+    /// `FallbackFormHasher.finalize` only returns `nil` on an FFI/
+    /// allocation failure, so hashing zero content bytes is a legitimate,
+    /// deterministic outcome, not a derivation failure. Compared against
+    /// `FallbackFormHasher` directly (`HashingTests.
+    /// testFallbackFormHasherHandlesEmptyInput`'s own reference), NOT
+    /// `MapleId.fallback(bytes:)` — that one-shot API deliberately guards
+    /// empty input to `nil` by its own contract (a defensive check against
+    /// a zero-length raw pointer at the FFI boundary), which is a different
+    /// property from the streaming hasher `derive` actually calls.
+    func testEmptyFileProducesValidFallbackIdNotNil() async {
+        let id = await MapleIdDerivation.derive(
+            headBytes: Data(),
+            exifDateTimeOriginal: nil,
+            exifCreateDate: nil,
+            filesize: 0,
+            nextChunk: { Data() }
+        )
+        XCTAssertNotNil(id)
+        XCTAssertEqual(id, FallbackFormHasher().finalize(filesize: 0))
+    }
+
     // MARK: - Determinism
 
     func testDeterministicAcrossRepeatedCalls() async {

@@ -283,6 +283,21 @@ public actor MapleIdCacheStore {
     ) async -> [String: MapleIdCacheEntry] {
         guard let data = await storage.readIdCacheFile(name: name) else { return [:] }
         guard let file = try? JSONDecoder().decode(MapleIdCacheFile.self, from: data) else { return [:] }
-        return Dictionary(uniqueKeysWithValues: file.entries.map { ($0.path, $0) })
+        // `Dictionary(uniqueKeysWithValues:)` would TRAP at runtime on a
+        // cache file containing duplicate `path` entries. The storage
+        // contract already treats an unreadable/corrupt file as a cache
+        // miss (re-derive) rather than a crash — a malformed-but-decodable
+        // file (e.g. hand-edited, or corrupted mid-write on a flaky SMB
+        // share) must degrade the same way, not take down the browse
+        // session. Same greatest-`mtime`-wins tie-break `loadUnionFromStorage`
+        // already uses for cross-file duplicates, applied within one file.
+        var entries: [String: MapleIdCacheEntry] = [:]
+        for entry in file.entries {
+            if let existing = entries[entry.path], existing.mtime >= entry.mtime {
+                continue
+            }
+            entries[entry.path] = entry
+        }
+        return entries
     }
 }
