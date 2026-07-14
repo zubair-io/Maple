@@ -145,6 +145,31 @@ final class MapleIdCacheTests: XCTestCase {
         XCTAssertEqual(hit, "01-newer")
     }
 
+    /// [Caught in review on #2003] `loadEntries` used to build its
+    /// dictionary via `Dictionary(uniqueKeysWithValues:)`, which TRAPS at
+    /// runtime on a decodable-but-malformed cache file containing more than
+    /// one row for the same `path` (hand-edited, or corrupted mid-write on
+    /// a flaky SMB share). The storage contract already treats an
+    /// unreadable/corrupt file as a cache miss rather than a crash — this
+    /// proves a duplicate-path file degrades the same way instead of
+    /// taking down the browse session, resolving the duplicate via the same
+    /// greater-`mtime`-wins rule `loadUnionFromStorage` already uses across
+    /// files.
+    func testDuplicatePathEntriesInOneCacheFileDoNotCrashAndPreferGreaterMtime() async throws {
+        let mapleDir = tmpDir.appendingPathComponent(".maple")
+        try FileManager.default.createDirectory(at: mapleDir, withIntermediateDirectories: true)
+        let file = MapleIdCacheFile(entries: [
+            MapleIdCacheEntry(path: "a.dng", mapleId: "01-older", size: 100, mtime: 100.0),
+            MapleIdCacheEntry(path: "a.dng", mapleId: "01-newer", size: 100, mtime: 200.0),
+        ])
+        let data = try JSONEncoder().encode(file)
+        try data.write(to: mapleDir.appendingPathComponent("id-cache-apple.json"))
+
+        let reader = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
+        let hit = await reader.lookup(path: "a.dng", size: 100, mtime: 200.0)
+        XCTAssertEqual(hit, "01-newer")
+    }
+
     func testRecordAfterUnionAlreadyLoadedIsImmediatelyVisible() async {
         let apple = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
         // Force the union to load (empty at this point).

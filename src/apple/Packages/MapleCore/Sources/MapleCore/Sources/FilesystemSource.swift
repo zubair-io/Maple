@@ -261,13 +261,22 @@ public actor FilesystemSource {
             return nil
         }
 
-        return await MapleIdDerivation.derive(
+        // `try` (not `try?`) inside the closure: a transient
+        // `FileHandle.read` error must reach `derive`'s `rethrows`
+        // propagation, not collapse to empty `Data` — which `derive`'s loop
+        // reads as EOF, silently hashing only a prefix of the file into a
+        // wrong fallback-form id. `derive`'s own `try?` at this call site
+        // catches that (and any other) thrown error and collapses it to
+        // `nil`, matching this function's established fail-safe-to-nil
+        // contract (mirrors `SMBSource.deriveMapleId`'s identical
+        // throw-then-`try?` shape for the same reason).
+        return try? await MapleIdDerivation.derive(
             headBytes: headBytes,
             exifDateTimeOriginal: dates.dateTimeOriginal,
             exifCreateDate: dates.createDate,
             filesize: UInt64(filesize),
             nextChunk: {
-                (try? handle.read(upToCount: Self.fallbackHashChunkSize)) ?? Data()
+                try handle.read(upToCount: Self.fallbackHashChunkSize) ?? Data()
             }
         )
     }
