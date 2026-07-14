@@ -126,7 +126,7 @@ describe('HostedMapleIdService', () => {
 
   describe('getOrComputeMapleId — cache integration', () => {
     it('returns the cached id without computing when size/mtime match', async () => {
-      fakeIdCache.get.mockResolvedValue('01cachedcachedcachedcachedcached');
+      fakeIdCache.get.mockResolvedValue('01cafecafecafecafecafecafecafeca');
       const service = TestBed.inject(HostedMapleIdService);
       const file = new File([new Uint8Array([1, 2, 3])], 'IMG_0004.dng', {
         lastModified: 1_700_000_000_000,
@@ -134,7 +134,7 @@ describe('HostedMapleIdService', () => {
 
       const hex = await service.getOrComputeMapleId('lib:2026/IMG_0004.dng', file);
 
-      expect(hex).toBe('01cachedcachedcachedcachedcached');
+      expect(hex).toBe('01cafecafecafecafecafecafecafeca');
       expect(fakeIdCache.get).toHaveBeenCalledWith(
         'lib:2026/IMG_0004.dng',
         file.size,

@@ -138,4 +138,15 @@ describe('fromHex', () => {
   it('throws on the wrong length', () => {
     expect(() => fromHex('deadbeef')).toThrow(/32 hex chars/);
   });
+
+  it('throws on a partially-invalid byte instead of silently truncating it (P2)', () => {
+    // `Number.parseInt('0g', 16)` is `0`, not `NaN` — it parses the leading
+    // valid digit and stops at the first invalid one instead of rejecting
+    // the pair outright. A 32-char string is otherwise the right LENGTH, so
+    // without validating every character, a string like this would have
+    // silently produced a wrong-but-finite byte instead of throwing.
+    const thirtyTwoCharsWithOneBadNibble = '0g1d8b14783f21f538fd63d5f5559a8'.padEnd(32, '0');
+    expect(thirtyTwoCharsWithOneBadNibble).toHaveLength(32);
+    expect(() => fromHex(thirtyTwoCharsWithOneBadNibble)).toThrow(/invalid hex digit/);
+  });
 });

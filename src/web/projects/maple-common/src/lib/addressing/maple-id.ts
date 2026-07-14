@@ -149,13 +149,20 @@ export function fromHex(hex: string): MapleId {
   if (hex.length !== 32) {
     throw new Error(`maple:id: expected 32 hex chars, got ${hex.length}`);
   }
+  // `Number.parseInt` accepts a PARTIALLY valid string — `parseInt('0g', 16)`
+  // is `0`, not `NaN` (it parses the leading valid digits and silently stops
+  // at the first invalid one), so a per-byte `!Number.isFinite(byte)` check
+  // never actually catches a malformed pair like "0g" or "f!". `raw-core`'s
+  // reference `from_hex` validates every nibble strictly and rejects any of
+  // them; this port must match that, not silently accept garbage as if it
+  // were a real byte. Validating the whole string up front against a strict
+  // hex-only pattern closes that gap in one place, before any parsing.
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
+    throw new Error('maple:id: invalid hex digit');
+  }
   const out = new Uint8Array(16);
   for (let i = 0; i < 16; i++) {
-    const byte = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    if (!Number.isFinite(byte)) {
-      throw new Error(`maple:id: invalid hex digit near index ${i * 2}`);
-    }
-    out[i] = byte;
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return {
     bytes: out,

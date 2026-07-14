@@ -225,9 +225,9 @@ export * from './lib/addressing/route-address';
 // #1995 — Hosted-mode `maple_id` derivation (byte-for-byte port of the
 // server's src/api/src/indexer/id.ts) + its IndexedDB id cache. NOT exported:
 // `maple-id-fallback.worker.ts` (only reachable via a runtime
-// `new Worker(new URL(...))` call — see its module doc / `raw-wasm-init.ts`'s
-// for why a file that imports `pkg/raw_wasm` can't be part of this
-// ng-packagr-built barrel).
+// `new Worker(new URL(...))` call — see its own module doc, and
+// `raw-wasm-init.ts`'s module doc, for why a file that imports
+// `pkg/raw_wasm` can't be part of this ng-packagr-built barrel).
 export * from './lib/addressing/maple-id';
 export * from './lib/addressing/captured-at';
 export * from './lib/addressing/maple-id-fallback.types';

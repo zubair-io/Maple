@@ -61,6 +61,11 @@ export class MapleIdFallbackHasherService implements OnDestroy {
         reject(new Error(`maple-id-fallback worker error: ${message}`)),
       );
       this.pending.clear();
+      // Terminate the broken instance before dropping the reference — without
+      // this, a worker that errored (e.g. a script load failure) keeps
+      // running abandoned rather than being cleaned up, and only the
+      // reference gets replaced on the next `ensureWorker()` call.
+      worker.terminate();
       this.worker = null;
     });
     this.worker = worker;
