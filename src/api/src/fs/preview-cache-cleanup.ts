@@ -8,11 +8,21 @@
  * going away the way `maple_id`-keyed thumbs do, and can't wait for
  * `cache-gc`'s periodic backstop sweep alone.
  */
-import type { Dirent } from 'node:fs';
 import * as path from 'node:path';
 // Mirror-aware drop-in: durable writes/moves replicate to the library's
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
+
+/** The two `fs.Dirent` properties this file actually reads — declared
+ * locally instead of importing `Dirent` from `node:fs` (real
+ * `fs.readdir(..., { withFileTypes: true })` results satisfy this
+ * structurally, since `Dirent` has strictly more properties) so this file
+ * doesn't need a `.oxlintrc.json` no-restricted-imports allowlist entry for
+ * what's really just a type import. */
+interface DirEntry {
+  name: string;
+  isFile(): boolean;
+}
 
 /**
  * Unlink every previews-cache artefact for ONE on-disk location — every
@@ -34,9 +44,9 @@ export async function cleanPreviewsCacheForLocation(
 ): Promise<void> {
   const segments = location.path === '' ? [] : location.path.split('/');
   const previewsDir = path.join(libraryRoot, ...segments, '.maple', 'previews');
-  let entries: Dirent[];
+  let entries: DirEntry[];
   try {
-    entries = (await fs.readdir(previewsDir, { withFileTypes: true })) as Dirent[];
+    entries = (await fs.readdir(previewsDir, { withFileTypes: true })) as DirEntry[];
   } catch {
     return; // no previews dir at this location
   }
