@@ -14,6 +14,7 @@ import { LibrarySlugRegistry } from './library-slug-registry';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
+import { HostedMapleIdService } from './hosted-maple-id.service';
 
 /** Filesystem entry shape for unit-testable pure helpers. */
 export interface FsEntry {
@@ -90,6 +91,7 @@ export function buildFolderListing(
 export class FsAccessLibrarySource implements LibrarySource {
   private readonly registry = inject(LibrarySlugRegistry);
   private readonly cache = inject(MapleCacheService);
+  private readonly mapleIdService = inject(HostedMapleIdService);
 
   async listFolder(a: MapleAddress): Promise<FolderListing> {
     validateRelPath(a.relPath);
@@ -106,6 +108,28 @@ export class FsAccessLibrarySource implements LibrarySource {
   }
 
   async imageBlob(a: MapleAddress): Promise<Blob> {
+    return this.getFile(a);
+  }
+
+  /**
+   * Real `maple_id` for a Hosted-mode local file (#1995), computed on demand
+   * (not eagerly during `listFolder` — hashing every file in a folder just to
+   * list it would read gigabytes of RAW bytes per folder open, breaking the
+   * cold-open performance budget). Cached in IndexedDB keyed by this
+   * address's `slug:relPath` and validated against the file's current
+   * `size`/`lastModified` — see `HostedMapleIdService` /
+   * `maple-id-cache.ts`. `listFolder`'s `ImageEntry.mapleId` stays `null`
+   * (content-key alignment with Self-Hosted at the listing level is M3,
+   * unchanged by this ticket); callers that need a real id for one asset
+   * (e.g. as a preview-cache key) call this directly.
+   */
+  async mapleId(a: MapleAddress): Promise<string> {
+    validateRelPath(a.relPath);
+    const file = await this.getFile(a);
+    return this.mapleIdService.getOrComputeMapleId(formatAddress(a), file);
+  }
+
+  private async getFile(a: MapleAddress): Promise<File> {
     validateRelPath(a.relPath);
     const rootHandle = await this.registry.getHandle(a.slug);
     if (!rootHandle) {
