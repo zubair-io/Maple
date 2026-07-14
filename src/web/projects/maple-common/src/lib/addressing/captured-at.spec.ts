@@ -5,18 +5,26 @@
 // function (via `bun run` against `src/api/src/indexer/exif.ts` — not
 // hand-derived).
 //
-// Timezone note: `asIsoDate`'s EXIF-format branch (`"YYYY:MM:DD HH:MM:SS"`)
-// parses via `new Date(iso)` on a timezone-LESS ISO string, which JS
-// interprets as LOCAL time — this is a genuine property of the shared
-// algorithm (present in the server's real function too), not something this
-// port introduces. Hardcoding that branch's expected output as a fixed UTC
-// string would make this spec flaky across machines in different timezones.
-// The cases below split into two groups: (1) inputs that are timezone-
-// independent (a `Date` object, or a string with an explicit UTC offset) —
-// asserted against a fixed literal; (2) the EXIF-colon-format branch —
-// asserted against `new Date(...).toISOString()` computed the SAME way in
-// the test, so the assertion holds under any local timezone while still
-// exercising the real regex-rewrite-then-parse code path.
+// Timezone note [P0, corrected in review]: an earlier version of this file
+// had `asIsoDate`'s EXIF-format branch parsing via `new Date(iso)` on a
+// timezone-LESS ISO string, which JS interprets as the process's LOCAL
+// time — and this test file's own "expected" values were computed the
+// SAME locally-ambiguous way, so the assertions held on any one machine
+// but were not actually proving a fixed, portable, cross-platform-correct
+// value. Since this feeds the cross-platform `maple_id` hash directly,
+// that ambiguity meant the SAME EXIF timestamp hashed differently
+// depending on the browser's timezone — a real bug, not a "genuine
+// property of the shared algorithm" as this comment previously (wrongly)
+// characterized it. `asIsoDate` now parses via `Date.UTC(...)`, which has
+// no such ambiguity, so every case below asserts a fixed UTC-literal
+// golden value — safe on any machine in any timezone, and actually
+// meaningful (a machine in a non-UTC timezone would have caught the old
+// bug immediately; the exact regression these fixed literals now guard
+// against). `src/api/src/indexer/exif.timezone.test.ts` proves the same
+// fix on the server side by spawning real child processes under different
+// `TZ` values, which is the only reliable way to test this in Bun (a
+// mid-process `process.env.TZ` mutation does not retroactively affect
+// `Date` parsing there — see that file's module doc).
 
 import { describe, it, expect } from 'vitest';
 import { asIsoDate, capturedAtFromExif } from './captured-at';
@@ -46,24 +54,19 @@ describe('asIsoDate — timezone-independent inputs (parity with exif.ts)', () =
 });
 
 describe('asIsoDate — EXIF colon-format branch ("YYYY:MM:DD HH:MM:SS")', () => {
-  // Expected values computed via the SAME local-time Date parse the real
-  // function performs (`new Date('YYYY-MM-DDTHH:MM:SS').toISOString()`) —
-  // portable across timezones while still proving the regex rewrite
-  // (":" -> "-" in the date portion, space/`T` separator accepted) lands on
-  // the exact same parseable ISO string the server's function builds.
+  // Fixed UTC-literal golden values — see the module doc's [P0] note for
+  // why this is now safe (and load-bearing) rather than the earlier
+  // locally-ambiguous `new Date(...).toISOString()` comparison.
   it('parses the space-separated EXIF format', () => {
-    const expected = new Date('2026-07-12T10:30:00').toISOString();
-    expect(asIsoDate('2026:07:12 10:30:00')).toBe(expected);
+    expect(asIsoDate('2026:07:12 10:30:00')).toBe('2026-07-12T10:30:00.000Z');
   });
 
   it('parses the T-separated EXIF format', () => {
-    const expected = new Date('2026-07-12T10:30:00').toISOString();
-    expect(asIsoDate('2026:07:12T10:30:00')).toBe(expected);
+    expect(asIsoDate('2026:07:12T10:30:00')).toBe('2026-07-12T10:30:00.000Z');
   });
 
   it('accepts trailing sub-second data after the matched prefix', () => {
-    const expected = new Date('2026-07-12T10:30:00').toISOString();
-    expect(asIsoDate('2026:07:12 10:30:00.500')).toBe(expected);
+    expect(asIsoDate('2026:07:12 10:30:00.500')).toBe('2026-07-12T10:30:00.000Z');
   });
 });
 
