@@ -30,6 +30,7 @@ import type {
   ImportFileDoc,
   DiscoverFrontierDoc,
   PersonDoc,
+  PersonMergeDismissalDoc,
   StageHandlerDoc,
   UserDoc,
   CredentialDoc,
@@ -167,6 +168,12 @@ export async function lanHandoffCodesCollection(): Promise<Collection<LanHandoff
 }
 export async function peopleCollection(): Promise<Collection<PersonDoc>> {
   return (await getDb()).collection<PersonDoc>('people');
+}
+
+export async function personMergeDismissalsCollection(): Promise<
+  Collection<PersonMergeDismissalDoc>
+> {
+  return (await getDb()).collection<PersonMergeDismissalDoc>('person_merge_dismissals');
 }
 
 export async function workerConfigCollection(): Promise<Collection<WorkerConfigDoc>> {
@@ -1527,6 +1534,14 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('mirror_queue')
     .createIndex({ dead: 1, claimed_at: 1, enqueued_at: 1 }, { name: 'mirror_queue_claim' });
+
+  // person_merge_dismissals: one row per permanently-dismissed "not a
+  // match" pair from the person-page merge-suggestion banner. Unique on
+  // `pair` so a duplicate dismiss of the same pair is a no-op (the repo
+  // action upserts), not a duplicate row.
+  await db
+    .collection('person_merge_dismissals')
+    .createIndex({ pair: 1 }, { unique: true, name: 'person_merge_dismissals_pair' });
 
   await ensureStageIndexes(db);
 
