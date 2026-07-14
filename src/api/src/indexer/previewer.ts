@@ -1,21 +1,30 @@
 /**
- * 1280-px preview generation for the VLM describe / OCR pipeline.
+ * 1280-px unedited preview generation — the canonical display-preview tier
+ * (the image the Preview screen swaps in over the thumbnail while the full
+ * RAW loads) AND the source artefact for the VLM describe / OCR pipeline.
  *
  * Sibling of `thumbnailer.ts`. The 512-px thumb is too small for reliable
  * caption / OCR on a 24-MP photo, so the describe stage consumes a
  * separate, larger artefact written here.
  *
- * Cache layout (see `fs/xmp.ts:cachePathFor`):
- *   <folder>/.maple/previews/<basename_no_ext>_1280.jpg
+ * Cache layout (see `fs/xmp.ts:cachePathFor` / `cachePathForAsset`):
+ *   <folder>/.maple/previews/<original filename>.1280.avif
+ * Path-keyed (not `maple_id`-keyed, unlike thumbs) — see `cachePathForAsset`'s
+ * doc for why. AVIF, not JPEG: every describe provider hardcodes
+ * `image/jpeg` as the media type it sends upstream (#1978), so `describe.ts`
+ * decodes this file and re-encodes to JPEG in memory immediately before each
+ * provider call rather than this tier persisting a second JPEG artefact.
  *
- * For RAW files: extracts the embedded preview JPEG via the existing FFI
- * worker pool at maxPx=1280. If the embedded preview is smaller than
- * 1280 the FFI hands back whatever the camera embedded — acceptable for
- * the VLM, which gracefully handles smaller inputs.
+ * For RAW files: extracts the embedded preview via the existing FFI worker
+ * pool at maxPx=1280, AVIF-encoded (the same generalized encode path the
+ * 256px grid-thumbnail tier uses, just called with a larger `maxPx`). If the
+ * embedded preview is smaller than 1280 the FFI hands back whatever the
+ * camera embedded — acceptable for the VLM, which gracefully handles
+ * smaller inputs.
  *
- * For non-RAW files: same sharp + heic-convert pipeline as the thumb path.
- * PSD/PSB/HDR route through the same `ag-psd`/`hdr` decode + sharp resize
- * chain as `thumbnailer.ts` (see `thumbs/psd-hdr-decode.ts`).
+ * For non-RAW files: same sharp + heic-convert pipeline as the thumb path,
+ * AVIF-encoded. PSD/PSB/HDR route through the same `ag-psd`/`hdr` decode +
+ * sharp resize chain as `thumbnailer.ts` (see `thumbs/psd-hdr-decode.ts`).
  *
  * If libraw_ffi is unavailable (Linux without the .so), RAW previews are
  * logged as deferred and skipped — the rest of the pipeline still
@@ -23,35 +32,35 @@
  * circuit cleanly via its ENOENT path.
  */
 
-import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
-import { cachePathFor } from '../fs/xmp.ts';
-import { ffiPool } from '../ffi/ffi-pool.ts';
-import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
-import { isNoPreviewFilename } from './media-types.ts';
-import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
-import { child as childLogger } from '../log.ts';
+import * as path from "node:path";
+import * as fs from "node:fs/promises";
+import { cachePathFor } from "../fs/xmp.ts";
+import { ffiPool } from "../ffi/ffi-pool.ts";
+import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from "../fs/browse.ts";
+import { isNoPreviewFilename } from "./media-types.ts";
+import { renderImageThumbToFileViaPool } from "../thumbs/imgdecode-pool.ts";
+import { child as childLogger } from "../log.ts";
 
-const log = childLogger('previewer');
+const log = childLogger("previewer");
 
 const RAW_EXTS = new Set([
-  '.dng',
-  '.cr2',
-  '.cr3',
-  '.nef',
-  '.arw',
-  '.raf',
-  '.orf',
-  '.rw2',
-  '.pef',
-  '.srw',
-  '.x3f',
-  '.3fr',
-  '.mef',
-  '.erf',
-  '.mrw',
-  '.raw',
-  '.fff',
+  ".dng",
+  ".cr2",
+  ".cr3",
+  ".nef",
+  ".arw",
+  ".raf",
+  ".orf",
+  ".rw2",
+  ".pef",
+  ".srw",
+  ".x3f",
+  ".3fr",
+  ".mef",
+  ".erf",
+  ".mrw",
+  ".raw",
+  ".fff",
 ]);
 
 /** Long-edge target in pixels. Picked to balance VLM accuracy against
@@ -62,34 +71,47 @@ export const PREVIEW_LONG_EDGE_PX = 1280;
 
 /** Size key embedded in the cache filename. Stable so the GC sweep and
  * cache-invalidation paths can address the file deterministically. */
-export const PREVIEW_SIZE_KEY = '1280';
+export const PREVIEW_SIZE_KEY = "1280";
+
+/** Full size+extension suffix for `cachePathFor`/`cachePathForAsset`'s
+ * previews branch — this tier is always AVIF, so every caller resolving
+ * this specific artefact's path should use this constant rather than
+ * re-deriving `${PREVIEW_SIZE_KEY}.avif` itself. */
+export const PREVIEW_CACHE_SUFFIX = `${PREVIEW_SIZE_KEY}.avif`;
 
 let _rendered = 0;
 let _cached = 0;
 let _failed = 0;
 
 /**
- * Generate (or refresh) the 1280-px preview JPEG for an asset.
+ * Generate (or refresh) the 1280-px unedited preview (AVIF) for an asset.
  *
- * `previewPathOverride` lets the caller supply a content-addressed cache path
- * (e.g. `<lib>/<fileinfo[0].path>/.maple/previews/<maple_id>_1280.jpg`)
- * instead of the legacy basename-keyed `cachePathFor(absPath, "previews",
- * "1280")`. When undefined the legacy path is used, preserving behaviour for
- * callers that haven't been swept to the new resolver yet.
+ * `previewPathOverride` lets the caller supply a path-keyed cache path (e.g.
+ * `<lib>/<fileinfo[0].path>/.maple/previews/<filename>.1280.avif`, via
+ * `cachePathForAsset`) instead of the legacy basename-keyed
+ * `cachePathFor(absPath, "previews", PREVIEW_CACHE_SUFFIX)`. The legacy path
+ * is only reachable when no asset row exists yet to resolve fileinfo from
+ * (DB down, or a file `/api/fs/preview` is asked to preview before the
+ * indexer has ever seen it) — see `routes/fs-previews.ts`'s `legacy()`.
  */
 export async function generatePreview(
   absPath: string,
   previewPathOverride?: string,
 ): Promise<void> {
   const ext = path.extname(absPath).toLowerCase();
-  const extNoDot = ext.startsWith('.') ? ext.slice(1) : ext;
-  const previewPath = previewPathOverride ?? cachePathFor(absPath, 'previews', PREVIEW_SIZE_KEY);
+  const extNoDot = ext.startsWith(".") ? ext.slice(1) : ext;
+  const previewPath =
+    previewPathOverride ??
+    cachePathFor(absPath, "previews", PREVIEW_CACHE_SUFFIX);
 
   try {
     await fs.mkdir(path.dirname(previewPath), { recursive: true });
   } catch (e) {
     _failed++;
-    log.warn({ previewPath, err: e instanceof Error ? e.message : e }, 'mkdir failed');
+    log.warn(
+      { previewPath, err: e instanceof Error ? e.message : e },
+      "mkdir failed",
+    );
     logTotals();
     return;
   }
@@ -97,7 +119,10 @@ export async function generatePreview(
   // Stale-check: if the cached preview's mtime is >= the source's, reuse it.
   // Matches the thumb-stage convention so a rerun is cheap.
   try {
-    const [previewStat, srcStat] = await Promise.all([fs.stat(previewPath), fs.stat(absPath)]);
+    const [previewStat, srcStat] = await Promise.all([
+      fs.stat(previewPath),
+      fs.stat(absPath),
+    ]);
     if (previewStat.size > 0 && previewStat.mtimeMs >= srcStat.mtimeMs) {
       _cached++;
       logTotals();
@@ -115,7 +140,7 @@ export async function generatePreview(
   // handlers carry the same guard as defense in depth.
   if (isNoPreviewFilename(absPath)) {
     _failed++;
-    log.warn({ absPath }, 'skipped: no still frame to preview');
+    log.warn({ absPath }, "skipped: no still frame to preview");
     logTotals();
     return;
   }
@@ -123,19 +148,30 @@ export async function generatePreview(
   let ok = false;
   if (RAW_EXTS.has(ext)) {
     ok = await renderRawPreviewToFile(absPath, previewPath);
-  } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
+  } else if (
+    SHARP_EXTENSIONS.has(extNoDot) ||
+    PSD_HDR_EXTENSIONS.has(extNoDot)
+  ) {
     ok = await renderBitmapPreviewToFile(absPath, previewPath, extNoDot);
   } else {
-    // Unknown format — copy as-is so the describe stage has something to
-    // open. Same last-resort behaviour as the thumb path.
-    ok = await copyImageAsPreview(absPath, previewPath);
+    // Unknown format — no decode path can produce a genuine AVIF from these
+    // bytes, so there is nothing to write. A raw byte copy under a
+    // `.1280.avif`-labeled path would lie about the file's actual format —
+    // the describe stage would then ship non-image bytes to the vision
+    // model as if they were a real image, and the on-demand preview route
+    // would serve them with `Content-Type: image/avif`. Skip; the describe
+    // and preview-route handlers carry the same guard as defense in depth.
+    _failed++;
+    log.warn({ absPath }, "skipped: unrecognized format, no preview generated");
+    logTotals();
+    return;
   }
 
   if (ok) {
     _rendered++;
   } else {
     _failed++;
-    log.warn({ absPath }, 'failed');
+    log.warn({ absPath }, "failed");
   }
   logTotals();
 }
@@ -144,54 +180,68 @@ export async function generatePreview(
  * Resolve where this asset's 1280-px preview lives on disk. Pure path
  * math — does not stat or guarantee the file exists.
  *
- * @deprecated Legacy absPath-keyed resolver. Callers must migrate to
- * `cachePathForAsset(asset, libraries, 'previews', '1280')` from `fs/xmp.ts`,
- * which composes the path from `(library_root, fileinfo[0].path, maple_id)`.
- * Scheduled for removal in plan-PR-6 of the content-addressing migration,
- * once the legacy basename-hash fallback retires.
+ * @deprecated Legacy absPath-keyed resolver. Callers should prefer
+ * `cachePathForAsset(asset, libraries, 'previews', PREVIEW_CACHE_SUFFIX)` from
+ * `fs/xmp.ts`, which composes the path from `(library_root, fileinfo[0].path,
+ * fileinfo[0].filename)`. This one remains only for the no-asset-row
+ * fallback case (see `generatePreview`'s doc).
  */
 export function resolvePreviewPath(absPath: string): string {
-  return cachePathFor(absPath, 'previews', PREVIEW_SIZE_KEY);
+  return cachePathFor(absPath, "previews", PREVIEW_CACHE_SUFFIX);
 }
 
 function logTotals(): void {
   const total = _rendered + _cached + _failed;
   if (total > 0 && total % 500 === 0) {
-    log.info({ rendered: _rendered, cached: _cached, failed: _failed }, 'totals');
+    log.info(
+      { rendered: _rendered, cached: _cached, failed: _failed },
+      "totals",
+    );
   }
 }
 
 /** Shared by every render-branch catch block below: log the failure with
  * context + a normalized error message, then return `false` so the caller
  * can `return logRenderFailure(...)` in one line. */
-function logRenderFailure(context: Record<string, unknown>, err: unknown, label: string): false {
-  log.warn({ ...context, err: err instanceof Error ? err.message : err }, label);
+function logRenderFailure(
+  context: Record<string, unknown>,
+  err: unknown,
+  label: string,
+): false {
+  log.warn(
+    { ...context, err: err instanceof Error ? err.message : err },
+    label,
+  );
   return false;
 }
 
-async function renderRawPreviewToFile(rawPath: string, previewPath: string): Promise<boolean> {
+async function renderRawPreviewToFile(
+  rawPath: string,
+  previewPath: string,
+): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
     log.warn(
-      'raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.',
+      "raw-ffi not available — RAW preview generation deferred. Build the native/libraw_ffi.* (dylib on macOS, .so on Linux) with src/api/scripts/build-raw-ffi.sh.",
     );
     return false;
   }
   try {
-    // quality 85 (vs 55 for AVIF thumbs) — preview is consumed by a VLM, not
-    // the browser cache, so extra fidelity outweighs the few-KB size delta.
-    // JPEG (not the grid-thumbnail tier's AVIF): every describe provider
-    // hardcodes `image/jpeg` as the media type it sends upstream (#1978).
-    return await pool.renderThumbnailPreviewJpegToFile(
+    // quality 70 — this tier is both the client-facing "swap in over the
+    // thumbnail" preview and (after describe.ts's in-memory JPEG re-encode)
+    // the VLM's input, so it needs materially more fidelity than the 256px
+    // grid-thumbnail tier's quality-55 AVIF, but AVIF's efficiency means it
+    // doesn't need JPEG-equivalent-looking quality numbers to get there.
+    return await pool.renderThumbnailAvifToFile(
       rawPath,
       previewPath,
       PREVIEW_LONG_EDGE_PX,
-      85,
+      70,
     );
   } catch (e) {
-    return logRenderFailure({ rawPath }, e, 'FFI call threw');
+    return logRenderFailure({ rawPath }, e, "FFI call threw");
   }
-  // Note: FFI path bakes orientation into pixels and emits a bare JPEG with
+  // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
   // decode time. No inline orientation post-process needed — keeping sharp
   // out of worker-main's address space for isolation.
@@ -203,37 +253,24 @@ async function renderBitmapPreviewToFile(
   ext: string,
 ): Promise<boolean> {
   try {
-    // JPEG (not the grid-thumbnail tier's AVIF): every describe provider
-    // hardcodes `image/jpeg` as the media type it sends upstream (#1978).
-    // quality 82 — the VLM consumes the preview at whatever quality the
-    // source encodes; additional fidelity does not measurably affect
-    // caption accuracy and is not worth the extra bytes.
+    // AVIF, quality 70 — matches the RAW path's rationale above.
     const result = await renderImageThumbToFileViaPool(
       srcPath,
       previewPath,
       PREVIEW_LONG_EDGE_PX,
-      82,
+      70,
       ext,
-      'jpeg',
+      "avif",
     );
     if (!result.ok) {
       return logRenderFailure(
         { srcPath },
-        result.error ?? 'imgdecode failed',
-        'imgdecode child returned error',
+        result.error ?? "imgdecode failed",
+        "imgdecode child returned error",
       );
     }
     return true;
   } catch (e) {
-    return logRenderFailure({ srcPath }, e, 'imgdecode pool threw');
-  }
-}
-
-async function copyImageAsPreview(srcPath: string, previewPath: string): Promise<boolean> {
-  try {
-    await fs.copyFile(srcPath, previewPath);
-    return true;
-  } catch (e) {
-    return logRenderFailure({ srcPath }, e, 'copy fallback failed');
+    return logRenderFailure({ srcPath }, e, "imgdecode pool threw");
   }
 }

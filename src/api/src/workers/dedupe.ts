@@ -28,9 +28,13 @@
  * Derived data:
  *   - XMP sidecars travel into `_duplicates` alongside the moved file (edits
  *     preserved & restorable) via `moveToDuplicates`.
- *   - Thumbs/previews are `maple_id`-keyed and SHARED by every location, so the
- *     moved copy's folder cache is cleaned only when the kept copy is NOT in
- *     that folder. When the cache anchor (`fileinfo[0]`) is one of the moved
+ *   - Thumbs are `maple_id`-keyed and SHARED by every location, so a moved
+ *     copy's thumb is cleaned only when the kept copy is NOT in that folder
+ *     (else it would delete the kept copy's live cache). Previews are
+ *     path-keyed (not `maple_id`-keyed — see `cachePathForAsset`'s doc), so
+ *     they have no such sharing to preserve: a moved copy's previews are
+ *     always cleaned at its old location regardless of where the keeper
+ *     lives. When the cache anchor (`fileinfo[0]`) is one of the moved
  *     copies, the `thumb`/`preview` stages are re-armed so the kept copy
  *     regenerates them at its location (the serving route 404s on a cache miss;
  *     it does not lazily render).
@@ -41,29 +45,36 @@
  * surface controls it. Started from `workers/maintenance.ts`.
  */
 
-import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import * as path from "node:path";
+import type { ObjectId } from "mongodb";
 // Mirror-aware drop-in: cache unlinks replicate to the library's backup root(s).
 // `readdir` / `stat` pass through to `node:fs/promises`.
-import * as fs from '../fs/mirrored.ts';
-import { assetsCollection } from '../db/client.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import * as fs from "../fs/mirrored.ts";
+import { assetsCollection } from "../db/client.ts";
+import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
 import {
   isLiveFileInfo,
   assetPrimaryFileInfo,
   liveAwareDuplicatePredicate,
   updateLiveLocationCount,
-} from '../indexer/images.repo.ts';
-import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
-import type { AssetDoc, FileInfo } from '../db/schema.ts';
-import { child as childLogger } from '../log.ts';
-import { stageRegistry } from './registry.ts';
-import { ThroughputWindow } from './run-stage.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
-import { makePausedPoller } from './paused-poller.ts';
-import { statKind } from './missing-reaper.helpers.ts';
-import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
-import { loadDeDuplicateConfig, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.ts';
+} from "../indexer/images.repo.ts";
+import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
+import type { AssetDoc, FileInfo } from "../db/schema.ts";
+import { child as childLogger } from "../log.ts";
+import { stageRegistry } from "./registry.ts";
+import { ThroughputWindow } from "./run-stage.ts";
+import {
+  WorkerConfigRepo,
+  type WorkerConfigDoc,
+} from "./worker-config.repo.ts";
+import { makePausedPoller } from "./paused-poller.ts";
+import { statKind } from "./missing-reaper.helpers.ts";
+import { moveToDuplicates, directoryHasKeepFile } from "../fs/duplicates.ts";
+import { cleanPreviewsCacheForLocation } from "../fs/xmp.ts";
+import {
+  loadDeDuplicateConfig,
+  DEFAULT_BATCH_SIZE,
+} from "./dedupe-config.repo.ts";
 import {
   emptySummary,
   folderKey,
@@ -71,12 +82,12 @@ import {
   sameEntry,
   selectKeeper,
   type DeDuplicateSummary,
-} from './dedupe.helpers.ts';
+} from "./dedupe.helpers.ts";
 
-const log = childLogger('deduplicate');
+const log = childLogger("deduplicate");
 
 /** Registry / route key. Matches `/api/workers/deduplicate/...`. */
-export const DEDUPLICATE_NAME = 'deduplicate';
+export const DEDUPLICATE_NAME = "deduplicate";
 
 /** How long to sleep between completed work passes when not paused. */
 const DEFAULT_INTERVAL_MS = 300_000;
@@ -143,7 +154,7 @@ export async function runDeDuplicateOnce(
       summary.errors++;
       log.warn(
         { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-        'deduplicate: asset failed',
+        "deduplicate: asset failed",
       );
     }
   }
@@ -153,16 +164,16 @@ export async function runDeDuplicateOnce(
     // the live-aware backlog drains to 0. Logged on every idle pass; at the
     // 5-minute interval this produces at most ~288 lines/day, which is
     // acceptable. Promoted from debug (#1290).
-    log.info('deduplicate pass: no live candidates — backlog is empty');
+    log.info("deduplicate pass: no live candidates — backlog is empty");
   } else {
     if (summary.skippedOffline > 0) {
       log.warn(
         { skippedOffline: summary.skippedOffline },
-        'deduplicate: assets skipped because library root could not be resolved — ' +
-          'check that all libraries are mounted and their paths in the folders collection match the filesystem',
+        "deduplicate: assets skipped because library root could not be resolved — " +
+          "check that all libraries are mounted and their paths in the folders collection match the filesystem",
       );
     }
-    log.info(summary, 'deduplicate pass complete');
+    log.info(summary, "deduplicate pass complete");
   }
   return summary;
 }
@@ -194,11 +205,11 @@ async function processAsset(
       summary.skippedOffline++;
       return;
     }
-    const segments = entry.path === '' ? [] : entry.path.split('/');
+    const segments = entry.path === "" ? [] : entry.path.split("/");
     const kind = await statKind(path.join(root, ...segments, entry.filename));
-    if (kind === 'present') {
+    if (kind === "present") {
       onDisk.push(entry);
-    } else if (kind === 'absent') {
+    } else if (kind === "absent") {
       absentEntries.push(entry);
     } else {
       // 'error' (EACCES/EIO/offline mount) — a sibling we can't verify. Don't
@@ -217,19 +228,22 @@ async function processAsset(
     const tagged = await coll
       .updateOne(
         { _id: doc._id },
-        { $set: { 'fileinfo.$[e].missing_since': now } },
+        { $set: { "fileinfo.$[e].missing_since": now } },
         {
           arrayFilters: [
             {
               $and: [
                 {
-                  $or: [{ 'e.missing_since': { $exists: false } }, { 'e.missing_since': null }],
+                  $or: [
+                    { "e.missing_since": { $exists: false } },
+                    { "e.missing_since": null },
+                  ],
                 },
                 {
                   $or: absentEntries.map((e) => ({
-                    'e.library_id': e.library_id,
-                    'e.path': e.path,
-                    'e.filename': e.filename,
+                    "e.library_id": e.library_id,
+                    "e.path": e.path,
+                    "e.filename": e.filename,
                   })),
                 },
               ],
@@ -240,8 +254,11 @@ async function processAsset(
       .then(() => true)
       .catch((err) => {
         log.warn(
-          { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-          'deduplicate: failed to tag absent entries',
+          {
+            _id: String(doc._id),
+            err: err instanceof Error ? err.message : err,
+          },
+          "deduplicate: failed to tag absent entries",
         );
         return false;
       });
@@ -249,8 +266,11 @@ async function processAsset(
       // Recompute live count after tagging absent entries missing_since.
       await updateLiveLocationCount(coll, doc._id).catch((err) => {
         log.warn(
-          { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-          'deduplicate: failed to recompute live_location_count after tagging',
+          {
+            _id: String(doc._id),
+            err: err instanceof Error ? err.message : err,
+          },
+          "deduplicate: failed to recompute live_location_count after tagging",
         );
       });
     }
@@ -277,7 +297,7 @@ async function processAsset(
     let isKept = keepByFolder.get(key);
     if (isKept === undefined) {
       const root = libs.get(entry.library_id.toHexString())!;
-      const segments = entry.path === '' ? [] : entry.path.split('/');
+      const segments = entry.path === "" ? [] : entry.path.split("/");
       isKept = await directoryHasKeepFile(path.join(root, ...segments));
       keepByFolder.set(key, isKept);
     }
@@ -292,7 +312,9 @@ async function processAsset(
   // left for the reconciler.
   const keepers = pinned.length > 0 ? pinned : [selectKeeper(onDisk)];
   const keeperKeys = new Set(keepers.map(folderKey));
-  const removeEntries = onDisk.filter((e) => !keepers.some((k) => sameEntry(e, k)));
+  const removeEntries = onDisk.filter(
+    (e) => !keepers.some((k) => sameEntry(e, k)),
+  );
 
   // Every on-disk copy is pinned by a `.keep` marker — nothing un-pinned to
   // collapse. Leave the asset exactly as it is (this is the whole point of the
@@ -307,23 +329,31 @@ async function processAsset(
   // stays nearest) the cache anchor.
   const primaryKeeper = keepers[0]!;
   const keeperRoot = libs.get(primaryKeeper.library_id.toHexString())!;
-  const keeperSegments = primaryKeeper.path === '' ? [] : primaryKeeper.path.split('/');
-  const keeperAbs = path.join(keeperRoot, ...keeperSegments, primaryKeeper.filename);
+  const keeperSegments =
+    primaryKeeper.path === "" ? [] : primaryKeeper.path.split("/");
+  const keeperAbs = path.join(
+    keeperRoot,
+    ...keeperSegments,
+    primaryKeeper.filename,
+  );
 
   // The current cache anchor = first live entry (which may be a stale/absent
   // one). If no surviving keeper shares its folder, re-arm the location-keyed
   // cache stages so a kept copy regenerates its thumb/preview at its folder.
-  const oldPrimary = assetPrimaryFileInfo(doc as Pick<AssetDoc, 'fileinfo'>)!;
+  const oldPrimary = assetPrimaryFileInfo(doc as Pick<AssetDoc, "fileinfo">)!;
   const anchorMoves = !keeperKeys.has(folderKey(oldPrimary));
 
   const moved: FileInfo[] = [];
   for (const entry of removeEntries) {
     const root = libs.get(entry.library_id.toHexString())!;
-    const segments = entry.path === '' ? [] : entry.path.split('/');
+    const segments = entry.path === "" ? [] : entry.path.split("/");
     const abs = path.join(root, ...segments, entry.filename);
 
     if (dryRun) {
-      log.info({ _id: String(doc._id), from: abs }, 'deduplicate dry-run: would move duplicate');
+      log.info(
+        { _id: String(doc._id), from: abs },
+        "deduplicate dry-run: would move duplicate",
+      );
       moved.push(entry);
       continue;
     }
@@ -331,21 +361,27 @@ async function processAsset(
     // `moveToDuplicates` returns an error (never throws) if the source vanished
     // in the small window since we stat'd it — counted and skipped, not fatal.
     const res = await moveToDuplicates(abs, root);
-    if (res.kind === 'error') {
+    if (res.kind === "error") {
       summary.errors++;
-      log.warn({ _id: String(doc._id), abs, err: res.error }, 'deduplicate: move failed');
+      log.warn(
+        { _id: String(doc._id), abs, err: res.error },
+        "deduplicate: move failed",
+      );
       continue;
     }
     summary.movedFiles++;
     log.info(
       { _id: String(doc._id), from: abs, to: res.newAbsPath },
-      'deduplicate: moved duplicate to _duplicates/',
+      "deduplicate: moved duplicate to _duplicates/",
     );
 
-    // Clean the moved copy's folder cache only when no surviving keeper is in
-    // that folder (else it is a kept copy's live cache and must stay).
+    // Previews are path-keyed, not shared across locations — always clean
+    // the moved copy's previews at its old location. Thumbs ARE shared
+    // (maple_id-keyed), so only clean those when no surviving keeper is in
+    // this folder (else it would delete the kept copy's live thumb).
+    await cleanPreviewsCacheForLocation(root!, entry).catch(() => {});
     if (doc.maple_id && !keeperKeys.has(folderKey(entry))) {
-      await cleanFolderCache(path.dirname(abs), doc.maple_id);
+      await cleanThumbCache(path.dirname(abs), doc.maple_id);
     }
     moved.push(entry);
   }
@@ -371,10 +407,14 @@ async function processAsset(
     const m = moved[i];
     const pullUpdate: Record<string, unknown> = {
       $pull: {
-        fileinfo: { library_id: m.library_id, path: m.path, filename: m.filename },
+        fileinfo: {
+          library_id: m.library_id,
+          path: m.path,
+          filename: m.filename,
+        },
       },
     };
-    if (i === 0 && anchorMoves) pullUpdate['$set'] = reArmCacheStages();
+    if (i === 0 && anchorMoves) pullUpdate["$set"] = reArmCacheStages();
     await coll.updateOne({ _id: doc._id }, pullUpdate as never);
   }
   // Recompute live count after pulling moved entries from fileinfo.
@@ -383,7 +423,7 @@ async function processAsset(
 
   // Publish an update keyed by the surviving primary so clients + search refresh.
   await recordAndPublishAssetChange({
-    kind: 'update',
+    kind: "update",
     asset_id: doc._id,
     folder_id: primaryKeeper.library_id,
     abs_path: keeperAbs,
@@ -391,31 +431,25 @@ async function processAsset(
 }
 
 /**
- * Delete the `maple_id`-keyed thumb and every preview/derived variant in one
- * folder's `.maple` cache. Called for a moved copy's folder ONLY when no
- * surviving live entry shares it, so the kept copy's cache is never touched.
- * Best-effort — derived data regenerates.
+ * Delete the `maple_id`-keyed thumb in one folder's `.maple/thumbs` cache.
+ * Called for a moved copy's folder ONLY when no surviving live entry shares
+ * it, so the kept copy's thumb is never touched. Best-effort — derived data
+ * regenerates. (Previews are handled separately by
+ * `cleanPreviewsCacheForLocation` — they're path-keyed, not shared across
+ * locations, so they're always cleaned regardless of where the keeper is.)
  */
-async function cleanFolderCache(folderAbs: string, mapleId: string): Promise<void> {
-  await fs.unlink(path.join(folderAbs, '.maple', 'thumbs', `${mapleId}.avif`)).catch(() => {});
+async function cleanThumbCache(
+  folderAbs: string,
+  mapleId: string,
+): Promise<void> {
+  await fs
+    .unlink(path.join(folderAbs, ".maple", "thumbs", `${mapleId}.avif`))
+    .catch(() => {});
   // Legacy JPEG thumb from the pre-v3 (JPEG) thumbnail pipeline — may not
   // exist for assets thumbnailed after the AVIF migration, hence best-effort.
-  await fs.unlink(path.join(folderAbs, '.maple', 'thumbs', `${mapleId}.jpg`)).catch(() => {});
-  const previewsDir = path.join(folderAbs, '.maple', 'previews');
-  let entries: string[];
-  try {
-    entries = await fs.readdir(previewsDir);
-  } catch {
-    return; // no previews dir here
-  }
-  // Previews are `<maple_id>_<size>.jpg`; the histogram sidecar is
-  // `<maple_id>_histogram.json`. Both share the `<maple_id>_` prefix.
-  const prefix = `${mapleId}_`;
-  for (const name of entries) {
-    if (name.startsWith(prefix)) {
-      await fs.unlink(path.join(previewsDir, name)).catch(() => {});
-    }
-  }
+  await fs
+    .unlink(path.join(folderAbs, ".maple", "thumbs", `${mapleId}.jpg`))
+    .catch(() => {});
 }
 
 export interface DeDuplicateHandle {
@@ -438,7 +472,9 @@ export interface StartDeDuplicateOptions {
  * `POST /api/workers/deduplicate/resume`. The persisted pause state then sticks
  * across restarts exactly like every other worker.
  */
-export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicateHandle {
+export function startDeDuplicate(
+  opts: StartDeDuplicateOptions = {},
+): DeDuplicateHandle {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
 
   // Paused until the persisted state is read AND paused-by-default on first boot.
@@ -451,9 +487,11 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
   const getRepo = (): Promise<WorkerConfigRepo> => {
     if (!repoPromise) {
       repoPromise = (async () => {
-        const { getDb } = await import('../db/client.ts');
+        const { getDb } = await import("../db/client.ts");
         const db = await getDb();
-        return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+        return new WorkerConfigRepo(
+          db.collection<WorkerConfigDoc>("worker_config"),
+        );
       })();
     }
     return repoPromise;
@@ -465,7 +503,7 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : err },
-        'deduplicate: could not load persisted pause state — staying paused',
+        "deduplicate: could not load persisted pause state — staying paused",
       );
     }
   };
@@ -488,12 +526,14 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
     pause: async () => {
       paused = true;
       await persistPaused(true);
-      log.info('deduplicate paused');
+      log.info("deduplicate paused");
     },
     resume: async () => {
       paused = false;
       await persistPaused(false);
-      log.warn('deduplicate RESUMED — duplicate originals will be moved into _duplicates/');
+      log.warn(
+        "deduplicate RESUMED — duplicate originals will be moved into _duplicates/",
+      );
     },
   });
 
@@ -513,13 +553,19 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
       paused = await pollPaused();
       if (paused) return PAUSED_POLL_MS; // `finally` still clears `running`
       const cfg = await loadDeDuplicateConfig();
-      const summary = await runDeDuplicateOnce({ batchSize: cfg.batch_size, dryRun: cfg.dry_run });
+      const summary = await runDeDuplicateOnce({
+        batchSize: cfg.batch_size,
+        dryRun: cfg.dry_run,
+      });
       for (let i = 0; i < summary.deduped; i++) throughput.record(new Date());
       stageRegistry.clearError(DEDUPLICATE_NAME);
       return intervalMs;
     } catch (err) {
-      stageRegistry.recordError(DEDUPLICATE_NAME, err instanceof Error ? err.message : String(err));
-      log.error({ err }, 'deduplicate tick crashed');
+      stageRegistry.recordError(
+        DEDUPLICATE_NAME,
+        err instanceof Error ? err.message : String(err),
+      );
+      log.error({ err }, "deduplicate tick crashed");
       return intervalMs; // back off after an error just like after a normal pass
     } finally {
       running = false;
@@ -544,7 +590,7 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
 
   log.info(
     { intervalMs },
-    'deduplicate worker started (paused by default — resume from /settings/workers)',
+    "deduplicate worker started (paused by default — resume from /settings/workers)",
   );
 
   return {

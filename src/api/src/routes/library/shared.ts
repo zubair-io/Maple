@@ -2,17 +2,17 @@
  * Shared utilities for the M1 library routes.
  */
 
-import { stat } from 'node:fs/promises';
+import { stat } from "node:fs/promises";
 import {
   RAW_EXTENSIONS,
   SHARP_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
   STUB_IMAGE_EXTENSIONS,
   AUDIO_EXTENSIONS,
-} from '../../fs/browse.ts';
-import { cachePathForAsset } from '../../fs/xmp.ts';
-import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
-import type { AssetDoc } from '../../db/schema.ts';
+} from "../../fs/browse.ts";
+import { cachePathForAsset } from "../../fs/xmp.ts";
+import { ifNoneMatchEqual } from "../../runtime/http-etag.ts";
+import type { AssetDoc } from "../../db/schema.ts";
 
 /** Union of all image extensions surfaced by library routes. */
 export const IMAGE_EXTENSIONS_SET = new Set<string>([
@@ -34,64 +34,66 @@ export const STUB_AND_AUDIO_EXTENSIONS_SET = new Set<string>([
 
 /** Map of lowercase extension → MIME type for Content-Type headers. */
 const MIME_BY_EXT: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-  gif: 'image/gif',
-  tif: 'image/tiff',
-  tiff: 'image/tiff',
-  heic: 'image/heic',
-  heif: 'image/heif',
-  cr2: 'image/x-canon-cr2',
-  cr3: 'image/x-canon-cr3',
-  nef: 'image/x-nikon-nef',
-  arw: 'image/x-sony-arw',
-  dng: 'image/dng',
-  raf: 'image/x-fuji-raf',
-  orf: 'image/x-olympus-orf',
-  rw2: 'image/x-panasonic-rw2',
-  pef: 'image/x-pentax-pef',
-  srw: 'image/x-samsung-srw',
-  x3f: 'image/x-sigma-x3f',
-  '3fr': 'image/x-hasselblad-3fr',
-  mef: 'image/x-mamiya-mef',
-  erf: 'image/x-epson-erf',
-  mrw: 'image/x-minolta-mrw',
-  fff: 'image/x-hasselblad-fff',
-  avif: 'image/avif',
-  psd: 'image/vnd.adobe.photoshop',
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  heic: "image/heic",
+  heif: "image/heif",
+  cr2: "image/x-canon-cr2",
+  cr3: "image/x-canon-cr3",
+  nef: "image/x-nikon-nef",
+  arw: "image/x-sony-arw",
+  dng: "image/dng",
+  raf: "image/x-fuji-raf",
+  orf: "image/x-olympus-orf",
+  rw2: "image/x-panasonic-rw2",
+  pef: "image/x-pentax-pef",
+  srw: "image/x-samsung-srw",
+  x3f: "image/x-sigma-x3f",
+  "3fr": "image/x-hasselblad-3fr",
+  mef: "image/x-mamiya-mef",
+  erf: "image/x-epson-erf",
+  mrw: "image/x-minolta-mrw",
+  fff: "image/x-hasselblad-fff",
+  avif: "image/avif",
+  psd: "image/vnd.adobe.photoshop",
   // No registered PSB-specific MIME type exists; PSB is Photoshop's own
   // "Large Document Format" variant of the same 8BPS container, so reuse
   // the PSD type rather than falling back to application/octet-stream.
-  psb: 'image/vnd.adobe.photoshop',
-  hdr: 'image/vnd.radiance',
+  psb: "image/vnd.adobe.photoshop",
+  hdr: "image/vnd.radiance",
   // Audio (#1835) — IANA-registered types.
-  mp3: 'audio/mpeg',
-  wav: 'audio/wav',
-  m4a: 'audio/mp4',
-  aac: 'audio/aac',
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
   // Metadata-only stub images (#1835) — no registered MIME exists for
   // eip/braw/afphoto; fall back to the generic binary type. `ai` files are
   // normally a PDF/vector container (Illustrator), so `application/postscript`
   // is the closest IANA-registered type rather than octet-stream.
-  eip: 'application/octet-stream',
-  braw: 'application/octet-stream',
-  afphoto: 'application/octet-stream',
-  ai: 'application/postscript',
+  eip: "application/octet-stream",
+  braw: "application/octet-stream",
+  afphoto: "application/octet-stream",
+  ai: "application/postscript",
 };
 
 export function mimeForExt(ext: string): string {
-  return MIME_BY_EXT[ext.toLowerCase()] ?? 'application/octet-stream';
+  return MIME_BY_EXT[ext.toLowerCase()] ?? "application/octet-stream";
 }
 
 /** Immutable cache control for content-keyed responses. */
-export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
+export const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
 
 /**
  * Safe stat — returns null on any error.
  */
-export async function safeStat(p: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
+export async function safeStat(
+  p: string,
+): Promise<Awaited<ReturnType<typeof stat>> | null> {
   try {
     return await stat(p);
   } catch {
@@ -112,7 +114,7 @@ export async function safeReadBytes(p: string): Promise<Uint8Array | null> {
 
 /**
  * Developed-preview response for an EDITED asset (#1950). When the
- * `display-preview` stage has rendered `<maple_id>_dev_<sidecar_ver>.jpg`,
+ * `display-preview` stage has rendered `<filename>.dev_<sidecar_ver>.jpg`,
  * returns a 200 serving it (or a 304 on a matching `ifNoneMatch`). Returns
  * null when the asset is unedited / un-indexed or the developed file isn't on
  * disk yet — the caller then serves the embedded preview. Shared by both
@@ -122,27 +124,41 @@ export async function safeReadBytes(p: string): Promise<Uint8Array | null> {
  * stage's job (a full develop is seconds-to-minutes).
  */
 export async function developedPreviewResponse(
-  asset: Pick<AssetDoc, 'maple_id' | 'fileinfo' | 'has_xmp' | 'sidecar_ver'>,
+  asset: Pick<AssetDoc, "maple_id" | "fileinfo" | "has_xmp" | "sidecar_ver">,
   libs: ReadonlyMap<string, string>,
   etag: string,
   cacheControl: string,
   ifNoneMatch: unknown,
 ): Promise<Response | null> {
-  if (!asset.has_xmp || !asset.maple_id) return null;
-  // `dev_<sidecar_ver>` mirrors `developedPreviewSizeKey` in the stage.
-  const devPath = cachePathForAsset(asset, libs, 'previews', `dev_${asset.sidecar_ver ?? 0}`);
+  if (!asset.has_xmp) return null;
+  // `dev_<sidecar_ver>.jpg` mirrors `developedPreviewSizeKey` in the stage.
+  const devPath = cachePathForAsset(
+    asset,
+    libs,
+    "previews",
+    `dev_${asset.sidecar_ver ?? 0}.jpg`,
+  );
   if (!devPath || !(await safeStat(devPath))) return null;
-  if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
+  if (
+    ifNoneMatchEqual(
+      typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+      etag,
+    )
+  ) {
     return new Response(null, {
       status: 304,
-      headers: { ETag: etag, 'Cache-Control': cacheControl },
+      headers: { ETag: etag, "Cache-Control": cacheControl },
     });
   }
   const bytes = await safeReadBytes(devPath);
   if (!bytes) return null;
   return new Response(bytes as unknown as BodyInit, {
     status: 200,
-    headers: { 'Content-Type': 'image/jpeg', ETag: etag, 'Cache-Control': cacheControl },
+    headers: {
+      "Content-Type": "image/jpeg",
+      ETag: etag,
+      "Cache-Control": cacheControl,
+    },
   });
 }
 
@@ -165,8 +181,8 @@ export async function streamFile(
   return new Response(Bun.file(absPath), {
     status: 200,
     headers: {
-      'Content-Type': contentType,
-      'Content-Length': String(st.size),
+      "Content-Type": contentType,
+      "Content-Length": String(st.size),
       ...extraHeaders,
     },
   });
@@ -176,8 +192,8 @@ export async function streamFile(
  * Extension from a filename (lowercase, no dot).
  */
 export function extOf(filename: string): string {
-  const dot = filename.lastIndexOf('.');
-  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : '';
+  const dot = filename.lastIndexOf(".");
+  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
 }
 
 /**
@@ -190,7 +206,7 @@ export function extOf(filename: string): string {
  */
 export function parseWildcardSegments(wildcard: string): string[] {
   if (!wildcard) return [];
-  return wildcard.split('/').map((seg) => {
+  return wildcard.split("/").map((seg) => {
     try {
       return decodeURIComponent(seg);
     } catch {
@@ -203,10 +219,14 @@ export function parseWildcardSegments(wildcard: string): string[] {
  * Get the asset record for a specific (library_id, path, filename) tuple.
  * Uses the `fileinfo_lib_path_name` compound index.
  */
-import { assetsCollection } from '../../db/client.ts';
-import type { ObjectId } from 'mongodb';
+import { assetsCollection } from "../../db/client.ts";
+import type { ObjectId } from "mongodb";
 
-export async function findAssetByAddress(libraryId: ObjectId, relPath: string, filename: string) {
+export async function findAssetByAddress(
+  libraryId: ObjectId,
+  relPath: string,
+  filename: string,
+) {
   const coll = await assetsCollection();
   return coll.findOne(
     {

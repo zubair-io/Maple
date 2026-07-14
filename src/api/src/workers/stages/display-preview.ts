@@ -3,14 +3,17 @@
  * asset (#1950), the self-hosted half of the fast-preview design's §3
  * "developed display preview" tier.
  *
- * Unlike the `preview` stage (which extracts the camera's *embedded* JPEG and
- * applies no adjustments), this runs the full raw-core develop with the
+ * Unlike the `preview` stage (which extracts the camera's *embedded* preview
+ * and applies no adjustments), this runs the full raw-core develop with the
  * asset's XMP sidecar applied — via the new `maple_render_develop_jpeg_to_file`
- * FFI — so an edited asset's preview reflects its edits. Output:
- *   `<lib>/<fileinfo[0].path>/.maple/previews/<maple_id>_dev_<sidecar_ver>.jpg`
+ * FFI — so an edited asset's preview reflects its edits. Output stays JPEG
+ * (unlike the unedited tier's AVIF — cross-platform sharing + format for this
+ * developed/edited tier is deferred to its own follow-on epic):
+ *   `<lib>/<fileinfo[0].path>/.maple/previews/<fileinfo[0].filename>.dev_<sidecar_ver>.jpg`
+ * Path-keyed off `fileinfo[0]`, not `maple_id` (see `cachePathForAsset`'s doc).
  * The `sidecar_ver` in the filename is the doc's monotonic edit counter, so a
  * new edit renders a new file and orphans the old; the preview routes serve
- * the same `_dev_<sidecar_ver>` name.
+ * the same `dev_<sidecar_ver>` name.
  *
  * Only edited assets (`has_xmp`) do any work — an unedited library skips every
  * asset terminally (skip advances the stage version, so it never re-claims),
@@ -19,20 +22,23 @@
  *
  * dependsOn: ["exif"] — needs a located, oriented asset; matches `thumb`.
  */
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { cachePathForAsset, xmpSidecarPath } from '../../fs/xmp.ts';
-import { isNoPreviewFilename } from '../../indexer/media-types.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { ffiPool } from '../../ffi/ffi-pool.ts';
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import {
+  assetAbsPath,
+  assetPrimaryFileInfo,
+} from "../../indexer/images.repo.ts";
+import { cachePathForAsset, xmpSidecarPath } from "../../fs/xmp.ts";
+import { isNoPreviewFilename } from "../../indexer/media-types.ts";
+import { loadLibraryRoots } from "../../indexer/libraries.cache.ts";
+import { ffiPool } from "../../ffi/ffi-pool.ts";
 import {
   defineStage,
   runStage,
   type ImageDoc,
   type RunStageHandle,
   type StageResult,
-} from '../run-stage.ts';
+} from "../run-stage.ts";
 
 /** Long-edge target for the developed preview. Matches the embedded `preview`
  * stage's 1280 px (`previewer.PREVIEW_LONG_EDGE_PX`); defined locally rather
@@ -41,15 +47,21 @@ import {
  * add another instance of it). */
 const DISPLAY_PREVIEW_LONG_EDGE_PX = 1280;
 
-/** Size-key stem for a developed preview cache file: `dev_<sidecar_ver>`. */
-export function developedPreviewSizeKey(sidecarVer: number | undefined): string {
-  return `dev_${sidecarVer ?? 0}`;
+/** Full size+extension suffix for a developed preview cache file, for
+ * `cachePathForAsset`'s previews branch: `dev_<sidecar_ver>.jpg`. */
+export function developedPreviewSizeKey(
+  sidecarVer: number | undefined,
+): string {
+  return `dev_${sidecarVer ?? 0}.jpg`;
 }
 
 const displayPreviewStage = defineStage({
-  name: 'display-preview',
-  targetVersion: 1,
-  dependsOn: ['exif'],
+  name: "display-preview",
+  // v2 — path-keyed migration: previews moved off `maple_id`-keying onto
+  // `fileinfo[0].filename` (format unchanged, still JPEG). Bump so every
+  // edited asset re-renders at the new path.
+  targetVersion: 2,
+  dependsOn: ["exif"],
   // Reads the original RAW — an ENOENT means it vanished; the runner tags
   // `missing_since` for the missing-reaper.
   tagsMissingOnEnoent: true,
@@ -70,13 +82,13 @@ const displayPreviewStage = defineStage({
     const doc = image as unknown as ImageDoc;
     const primary = assetPrimaryFileInfo(doc);
     if (primary && isNoPreviewFilename(primary.filename)) {
-      return { skip: 'stub-file' };
+      return { skip: "stub-file" };
     }
 
     // Only edited assets get a developed preview. Unedited → the embedded
     // 1280 preview (from the `preview` stage) is correct, so skip terminally.
     if (!image.has_xmp) {
-      return { skip: 'unedited' };
+      return { skip: "unedited" };
     }
 
     const libs = await loadLibraryRoots();
@@ -84,11 +96,11 @@ const displayPreviewStage = defineStage({
     const devPath = cachePathForAsset(
       image as never,
       libs,
-      'previews',
+      "previews",
       developedPreviewSizeKey(image.sidecar_ver),
     );
     if (!absPath || !devPath) {
-      return { skip: 'no-resolvable-location' };
+      return { skip: "no-resolvable-location" };
     }
 
     // The sidecar path is the `.xmp` sibling of the original. `has_xmp` should
@@ -123,7 +135,7 @@ async function fileExists(p: string): Promise<boolean> {
     await fs.stat(p);
     return true;
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw e;
   }
 }
