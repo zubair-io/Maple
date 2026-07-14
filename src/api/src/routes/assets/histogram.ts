@@ -14,11 +14,10 @@
  *   2. Resolve RAW abs-path + (optional) XMP sidecar.
  *   3. Compute the cache key as the tuple `<raw_mtime_ms>-<xmp_mtime_ms_or_none>`
  *      so a re-edit invalidates without a flush. The histogram lives at
- *      `<lib>/<rel>/.maple/previews/<maple_id>_histogram.json` (composed via
- *      `cachePathForAsset(.., 'previews', 'histogram')` with the trailing
- *      `.jpg` swapped to `.json`); the JSON includes the key in a `key`
- *      field, so a stale on-disk file is detected by reading it back
- *      without re-rendering.
+ *      `<lib>/<rel>/.maple/previews/<filename>.histogram.json` (composed via
+ *      `cachePathForAsset(.., 'previews', 'histogram.json')`); the JSON
+ *      includes the key in a `key` field, so a stale on-disk file is
+ *      detected by reading it back without re-rendering.
  *   4. Cache miss → ffiPool().computeHistogram(raw, xmp).
  *   5. Persist + serve.
  *
@@ -35,21 +34,21 @@
  * rather than spinning forever.
  */
 
-import { Elysia } from 'elysia';
-import { stat, readFile, writeFile, mkdir, rename } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
-import * as path from 'node:path';
-import { findCoreInfoById, parseAssetId } from '../../db/assets.repo.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { safeWriteAllowed } from '../../fs/root.ts';
-import { xmpSidecarPath, cachePathForAsset } from '../../fs/xmp.ts';
-import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
-import { ffiPool } from '../../ffi/ffi-pool.ts';
-import type { HistogramBins } from '../../thumbs/histogram.ts';
-import { assetsLog } from './_shared.ts';
+import { Elysia } from "elysia";
+import { stat, readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import * as path from "node:path";
+import { findCoreInfoById, parseAssetId } from "../../db/assets.repo.ts";
+import { assetAbsPath } from "../../indexer/images.repo.ts";
+import { loadLibraryRoots } from "../../indexer/libraries.cache.ts";
+import { safeWriteAllowed } from "../../fs/root.ts";
+import { xmpSidecarPath, cachePathForAsset } from "../../fs/xmp.ts";
+import { ifNoneMatchEqual } from "../../runtime/http-etag.ts";
+import { ffiPool } from "../../ffi/ffi-pool.ts";
+import type { HistogramBins } from "../../thumbs/histogram.ts";
+import { assetsLog } from "./_shared.ts";
 
-const CACHE_CONTROL = 'private, max-age=300';
+const CACHE_CONTROL = "private, max-age=300";
 
 interface CachedHistogram {
   /** Cache key — `<raw_mtime_ms>-<xmp_mtime_ms_or_none>`. Match before trust. */
@@ -58,7 +57,7 @@ interface CachedHistogram {
 }
 
 function buildCacheKey(rawMtimeMs: number, xmpMtimeMs: number | null): string {
-  return `${Math.floor(rawMtimeMs)}-${xmpMtimeMs === null ? 'none' : Math.floor(xmpMtimeMs)}`;
+  return `${Math.floor(rawMtimeMs)}-${xmpMtimeMs === null ? "none" : Math.floor(xmpMtimeMs)}`;
 }
 
 function etagFor(key: string): string {
@@ -69,9 +68,12 @@ function etagFor(key: string): string {
  * Try to read a cached histogram from disk. Returns null on any I/O,
  * parse, or key-mismatch problem — the caller falls back to recompute.
  */
-async function readCached(jsonPath: string, expectedKey: string): Promise<HistogramBins | null> {
+async function readCached(
+  jsonPath: string,
+  expectedKey: string,
+): Promise<HistogramBins | null> {
   try {
-    const raw = await readFile(jsonPath, 'utf-8');
+    const raw = await readFile(jsonPath, "utf-8");
     const parsed = JSON.parse(raw) as Partial<CachedHistogram>;
     if (parsed?.key !== expectedKey) return null;
     if (
@@ -97,46 +99,52 @@ async function readCached(jsonPath: string, expectedKey: string): Promise<Histog
 
 /** Atomic JSON write (`.tmp` + rename). Best-effort — write failures
  *  log + swallow; the histogram is recomputable. */
-async function writeCached(jsonPath: string, payload: CachedHistogram): Promise<void> {
+async function writeCached(
+  jsonPath: string,
+  payload: CachedHistogram,
+): Promise<void> {
   try {
     const allowed = await safeWriteAllowed(jsonPath);
     if (!allowed.ok) {
       assetsLog.warn(
         { jsonPath, error: allowed.error },
-        'histogram cache outside MAPLE_ROOTS — skipping persist',
+        "histogram cache outside MAPLE_ROOTS — skipping persist",
       );
       return;
     }
     await mkdir(path.dirname(jsonPath), { recursive: true });
-    const tmp = `${jsonPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
-    await writeFile(tmp, JSON.stringify(payload), 'utf-8');
+    const tmp = `${jsonPath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    await writeFile(tmp, JSON.stringify(payload), "utf-8");
     await rename(tmp, jsonPath);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    assetsLog.warn({ jsonPath, msg }, 'histogram cache write failed (non-fatal)');
+    assetsLog.warn(
+      { jsonPath, msg },
+      "histogram cache write failed (non-fatal)",
+    );
   }
 }
 
 export const histogramRoutes = new Elysia().get(
-  '/:id/histogram',
+  "/:id/histogram",
   async ({ params, headers, set }) => {
     const id = parseAssetId(params.id);
     if (!id) {
       set.status = 400;
-      return { error: 'Invalid asset id' };
+      return { error: "Invalid asset id" };
     }
 
     const info = await findCoreInfoById(id);
     if (!info) {
       set.status = 404;
-      return { error: 'Asset not found' };
+      return { error: "Asset not found" };
     }
 
     const libs = await loadLibraryRoots();
     const rawPath = assetAbsPath(info, libs);
     if (!rawPath) {
       set.status = 404;
-      return { error: 'Asset has no resolvable location' };
+      return { error: "Asset has no resolvable location" };
     }
 
     let rawStat;
@@ -144,7 +152,7 @@ export const histogramRoutes = new Elysia().get(
       rawStat = await stat(rawPath);
     } catch {
       set.status = 404;
-      return { error: 'RAW file missing on disk' };
+      return { error: "RAW file missing on disk" };
     }
 
     // Resolve the sidecar's mtime (if any) so a re-edit advances the key.
@@ -161,33 +169,36 @@ export const histogramRoutes = new Elysia().get(
     const etag = etagFor(key);
 
     // 304 short-circuit — never read the cache JSON or touch the dylib.
-    const ifNoneMatch = headers['if-none-match'];
-    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
+    const ifNoneMatch = headers["if-none-match"];
+    if (
+      ifNoneMatchEqual(
+        typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+        etag,
+      )
+    ) {
       return new Response(null, {
         status: 304,
-        headers: { ETag: etag, 'Cache-Control': CACHE_CONTROL },
+        headers: { ETag: etag, "Cache-Control": CACHE_CONTROL },
       });
     }
 
-    // Disk-cache lookup. `cachePathForAsset(.., 'previews', 'histogram')`
-    // composes `<lib>/<rel>/.maple/previews/<maple_id>_histogram.jpg` —
-    // we override the extension by swapping `.jpg` for `.json` below.
-    // The function asserts `maple_id` is present; without it we still
-    // can answer, just without the on-disk memo.
-    const previewPath = cachePathForAsset(
+    // Disk-cache lookup. `cachePathForAsset(.., 'previews', 'histogram.json')`
+    // composes `<lib>/<rel>/.maple/previews/<filename>.histogram.json` — no
+    // `maple_id` needed (previews are path-keyed, see `cachePathForAsset`'s
+    // doc), just an asset row with `fileinfo`.
+    const jsonPath = cachePathForAsset(
       { maple_id: info.maple_id ?? undefined, fileinfo: info.fileinfo },
       libs,
-      'previews',
-      'histogram',
+      "previews",
+      "histogram.json",
     );
-    const jsonPath = previewPath ? previewPath.replace(/\.jpg$/, '.json') : null;
 
     if (jsonPath) {
       const cached = await readCached(jsonPath, key);
       if (cached) {
-        set.headers['ETag'] = etag;
-        set.headers['Cache-Control'] = CACHE_CONTROL;
-        set.headers['Content-Type'] = 'application/json';
+        set.headers["ETag"] = etag;
+        set.headers["Cache-Control"] = CACHE_CONTROL;
+        set.headers["Content-Type"] = "application/json";
         return cached;
       }
     }
@@ -195,26 +206,36 @@ export const histogramRoutes = new Elysia().get(
     // Cache miss — compute via the worker. Dylib-missing → 503.
     let bins: HistogramBins;
     try {
-      bins = await ffiPool().computeHistogram(rawPath, xmpMtimeMs === null ? null : xmpPath);
+      bins = await ffiPool().computeHistogram(
+        rawPath,
+        xmpMtimeMs === null ? null : xmpPath,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/dylib not available/.test(msg)) {
-        assetsLog.warn({ rawPath }, 'libraw_ffi dylib not available — returning 503');
+        assetsLog.warn(
+          { rawPath },
+          "libraw_ffi dylib not available — returning 503",
+        );
         set.status = 503;
-        return { error: 'Histogram rendering unavailable' };
+        return { error: "Histogram rendering unavailable" };
       }
-      assetsLog.error({ rawPath, msg }, 'histogram compute failed');
+      assetsLog.error({ rawPath, msg }, "histogram compute failed");
       set.status = 500;
-      return { error: 'Histogram compute failed' };
+      return { error: "Histogram compute failed" };
     }
 
     // Cheap structural sanity — guards against an unexpected worker
     // response shape (e.g. a future protocol change). Loud-fails the
     // request rather than poisoning the disk cache.
-    if (bins.r.length !== 256 || bins.g.length !== 256 || bins.b.length !== 256) {
-      assetsLog.error({}, 'worker returned malformed bins');
+    if (
+      bins.r.length !== 256 ||
+      bins.g.length !== 256 ||
+      bins.b.length !== 256
+    ) {
+      assetsLog.error({}, "worker returned malformed bins");
       set.status = 500;
-      return { error: 'Histogram validation failed' };
+      return { error: "Histogram validation failed" };
     }
 
     // Persist (best-effort). Doesn't block the response.
@@ -222,9 +243,9 @@ export const histogramRoutes = new Elysia().get(
       void writeCached(jsonPath, { key, bins });
     }
 
-    set.headers['ETag'] = etag;
-    set.headers['Cache-Control'] = CACHE_CONTROL;
-    set.headers['Content-Type'] = 'application/json';
+    set.headers["ETag"] = etag;
+    set.headers["Cache-Control"] = CACHE_CONTROL;
+    set.headers["Content-Type"] = "application/json";
     return bins;
   },
 );

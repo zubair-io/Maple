@@ -1,16 +1,19 @@
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, mkdir, rm, writeFile, stat, utimes } from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import sharp from 'sharp';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import previewStage from './preview.ts';
-import { PREVIEW_LONG_EDGE_PX, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
-import { cachePathForAsset } from '../../fs/xmp.ts';
+import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile, stat, utimes } from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import sharp from "sharp";
+import { MongoClient, ObjectId, type Db } from "mongodb";
+import previewStage from "./preview.ts";
+import {
+  PREVIEW_LONG_EDGE_PX,
+  PREVIEW_CACHE_SUFFIX,
+} from "../../indexer/previewer.ts";
+import { cachePathForAsset } from "../../fs/xmp.ts";
 
 const TEST_DB = `maple_test_preview_stage_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
@@ -19,7 +22,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db('admin').command({ ping: 1 });
+    await c.db("admin").command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -37,17 +40,20 @@ function makeDoc(
 ) {
   const relDir = path.relative(libraryRoot, path.dirname(absPath));
   return {
-    _id: '000000000000000000000004' as unknown as ObjectId,
+    _id: "000000000000000000000004" as unknown as ObjectId,
     fileinfo: [
       {
-        path: relDir === '.' || relDir === '' ? '' : relDir.split(path.sep).join('/'),
+        path:
+          relDir === "." || relDir === ""
+            ? ""
+            : relDir.split(path.sep).join("/"),
         filename: path.basename(absPath),
         library_id: libraryId,
         deleted_at: null,
       },
     ],
-    sha1_head: 'c'.repeat(40),
-    maple_id: mapleIdOverride ?? 'd'.repeat(32),
+    sha1_head: "c".repeat(40),
+    maple_id: mapleIdOverride ?? "d".repeat(32),
     exif: null,
     stages: {
       exif: {
@@ -64,34 +70,71 @@ function makeDoc(
         processed_at: new Date().toISOString(),
         dead: false,
       },
-      preview: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      face: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      describe: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      geocode: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
-      meili: { version: 0, attempts: 0, last_error: null, processed_at: null, dead: false },
+      preview: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      face: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      describe: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      geocode: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      meili: {
+        version: 0,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
     },
   };
 }
 
-describe('preview handler — bitmap path', () => {
+describe("preview handler — bitmap path", () => {
   let dir: string;
   let libraryId: ObjectId;
   beforeAll(async () => {
-    dir = await mkdtemp(path.join(os.tmpdir(), 'preview-stage-'));
+    dir = await mkdtemp(path.join(os.tmpdir(), "preview-stage-"));
     libraryId = new ObjectId();
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const { setLibraryRootsForTests } =
+      await import("../../indexer/libraries.cache.ts");
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const { setLibraryRootsForTests } =
+      await import("../../indexer/libraries.cache.ts");
     setLibraryRootsForTests(null);
   });
 
-  it('generates a 1280-px preview for a 2000-px JPEG and marks the stage wrote', async () => {
-    const file = path.join(dir, 'wide.jpg');
+  it("generates a 1280-px preview for a 2000-px JPEG and marks the stage wrote", async () => {
+    const file = path.join(dir, "wide.jpg");
     const buf = await sharp({
-      create: { width: 2000, height: 1200, channels: 3, background: { r: 100, g: 150, b: 200 } },
+      create: {
+        width: 2000,
+        height: 1200,
+        channels: 3,
+        background: { r: 100, g: 150, b: 200 },
+      },
     })
       .jpeg()
       .toBuffer();
@@ -106,23 +149,32 @@ describe('preview handler — bitmap path', () => {
     const previewPath = cachePathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
-      'previews',
-      PREVIEW_SIZE_KEY,
+      "previews",
+      PREVIEW_CACHE_SUFFIX,
     );
     expect(previewPath).not.toBeNull();
-    expect((previewPath as string).endsWith(`_${PREVIEW_SIZE_KEY}.jpg`)).toBe(true);
+    expect((previewPath as string).endsWith(`.${PREVIEW_CACHE_SUFFIX}`)).toBe(
+      true,
+    );
 
     // The file must exist and be downscaled to 1280-px long edge.
     const s = await stat(previewPath as string);
     expect(s.size).toBeGreaterThan(0);
     const meta = await sharp(previewPath as string).metadata();
-    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(PREVIEW_LONG_EDGE_PX);
+    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(
+      PREVIEW_LONG_EDGE_PX,
+    );
   });
 
-  it('does not enlarge a smaller source — a 600-px JPEG stays at 600', async () => {
-    const file = path.join(dir, 'small.jpg');
+  it("does not enlarge a smaller source — a 600-px JPEG stays at 600", async () => {
+    const file = path.join(dir, "small.jpg");
     const buf = await sharp({
-      create: { width: 600, height: 400, channels: 3, background: { r: 50, g: 80, b: 100 } },
+      create: {
+        width: 600,
+        height: 400,
+        channels: 3,
+        background: { r: 50, g: 80, b: 100 },
+      },
     })
       .jpeg()
       .toBuffer();
@@ -134,8 +186,8 @@ describe('preview handler — bitmap path', () => {
     const previewPath = cachePathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
-      'previews',
-      PREVIEW_SIZE_KEY,
+      "previews",
+      PREVIEW_CACHE_SUFFIX,
     );
     expect(previewPath).not.toBeNull();
     const meta = await sharp(previewPath as string).metadata();
@@ -143,10 +195,15 @@ describe('preview handler — bitmap path', () => {
     expect(meta.height).toBe(400);
   });
 
-  it('bakes in EXIF orientation so the preview is upright', async () => {
-    const file = path.join(dir, 'rotated.jpg');
+  it("bakes in EXIF orientation so the preview is upright", async () => {
+    const file = path.join(dir, "rotated.jpg");
     const buf = await sharp({
-      create: { width: 1600, height: 800, channels: 3, background: { r: 200, g: 50, b: 50 } },
+      create: {
+        width: 1600,
+        height: 800,
+        channels: 3,
+        background: { r: 200, g: 50, b: 50 },
+      },
     })
       .jpeg()
       .withMetadata({ orientation: 6 }) // 90° CW
@@ -159,8 +216,8 @@ describe('preview handler — bitmap path', () => {
     const previewPath = cachePathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
-      'previews',
-      PREVIEW_SIZE_KEY,
+      "previews",
+      PREVIEW_CACHE_SUFFIX,
     );
     expect(previewPath).not.toBeNull();
     const meta = await sharp(previewPath as string).metadata();
@@ -168,9 +225,14 @@ describe('preview handler — bitmap path', () => {
   });
 
   it("reuses a cached preview when its mtime is >= the source's", async () => {
-    const file = path.join(dir, 'cached.jpg');
+    const file = path.join(dir, "cached.jpg");
     const buf = await sharp({
-      create: { width: 2000, height: 1200, channels: 3, background: { r: 10, g: 20, b: 30 } },
+      create: {
+        width: 2000,
+        height: 1200,
+        channels: 3,
+        background: { r: 10, g: 20, b: 30 },
+      },
     })
       .jpeg()
       .toBuffer();
@@ -182,8 +244,8 @@ describe('preview handler — bitmap path', () => {
     const previewPath = cachePathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
-      'previews',
-      PREVIEW_SIZE_KEY,
+      "previews",
+      PREVIEW_CACHE_SUFFIX,
     );
     expect(previewPath).not.toBeNull();
     const stat1 = await stat(previewPath as string);
@@ -203,14 +265,14 @@ describe('preview handler — bitmap path', () => {
     // skip it rather than fall through to the copy-as-is path, which would
     // leave raw .MOV bytes under a .jpg name for the describe stage to ship
     // to the vision model.
-    const file = path.join(dir, 'IMG_3087.MOV');
-    await writeFile(file, Buffer.from('not really a video, just bytes'));
+    const file = path.join(dir, "IMG_3087.MOV");
+    await writeFile(file, Buffer.from("not really a video, just bytes"));
 
-    // Unique maple_id — the preview cache path is keyed on it, so reusing the
-    // default would collide with previews other tests in this block wrote.
-    const doc = makeDoc(file, libraryId, dir, 'e'.repeat(32));
+    // Distinct maple_id kept for clarity even though the preview cache path
+    // is now keyed on `file`'s own name, not `maple_id`.
+    const doc = makeDoc(file, libraryId, dir, "e".repeat(32));
     const result = await previewStage.handler(doc as never, {} as never);
-    expect((result as { skip: string }).skip).toBe('stub-file');
+    expect((result as { skip: string }).skip).toBe("stub-file");
 
     // No preview artefact was produced — assert the stat rejects with ENOENT
     // specifically, so an unexpected error (permissions, transient FS) fails
@@ -218,55 +280,58 @@ describe('preview handler — bitmap path', () => {
     const previewPath = cachePathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
-      'previews',
-      PREVIEW_SIZE_KEY,
+      "previews",
+      PREVIEW_CACHE_SUFFIX,
     );
     expect(previewPath).not.toBeNull();
     const err = await stat(previewPath as string).then(
       () => null,
       (e: NodeJS.ErrnoException) => e,
     );
-    expect(err?.code).toBe('ENOENT');
+    expect(err?.code).toBe("ENOENT");
   });
 
   it.each([
-    ['scan.eip', 'f'.repeat(32)],
-    ['session.braw', '1'.repeat(32)],
-    ['project.afphoto', '2'.repeat(32)],
-    ['logo.ai', '3'.repeat(32)],
-    ['track.mp3', '4'.repeat(32)],
-    ['voice.wav', '5'.repeat(32)],
-    ['memo.m4a', '6'.repeat(32)],
-    ['song.aac', '7'.repeat(32)],
+    ["scan.eip", "f".repeat(32)],
+    ["session.braw", "1".repeat(32)],
+    ["project.afphoto", "2".repeat(32)],
+    ["logo.ai", "3".repeat(32)],
+    ["track.mp3", "4".repeat(32)],
+    ["voice.wav", "5".repeat(32)],
+    ["memo.m4a", "6".repeat(32)],
+    ["song.aac", "7".repeat(32)],
   ])(
     "returns { skip: 'stub-file' } for %s (#1835 metadata-only stub/audio) and writes no preview",
     async (filename, mapleId) => {
       const file = path.join(dir, filename as string);
-      await writeFile(file, Buffer.from('not a real decodable file'));
+      await writeFile(file, Buffer.from("not a real decodable file"));
 
       const doc = makeDoc(file, libraryId, dir, mapleId as string);
       const result = await previewStage.handler(doc as never, {} as never);
-      expect((result as { skip: string }).skip).toBe('stub-file');
+      expect((result as { skip: string }).skip).toBe("stub-file");
 
       const previewPath = cachePathForAsset(
         doc as never,
         new Map([[libraryId.toHexString(), dir]]),
-        'previews',
-        PREVIEW_SIZE_KEY,
+        "previews",
+        PREVIEW_CACHE_SUFFIX,
       );
       expect(previewPath).not.toBeNull();
       const err = await stat(previewPath as string).then(
         () => null,
         (e: NodeJS.ErrnoException) => e,
       );
-      expect(err?.code).toBe('ENOENT');
+      expect(err?.code).toBe("ENOENT");
     },
   );
 
-  it('marks the stage wrote for a RAW when the FFI is unavailable (soft pass)', async () => {
+  it("marks the stage wrote for a RAW when the FFI is unavailable (soft pass)", async () => {
     // Mirrors the thumb stage test: the handler must never throw when the
     // FFI dylib is absent; downstream stages skip via ENOENT.
-    const dng = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0017.dng');
+    const dng = path.resolve(
+      process.cwd(),
+      "../../test-fixtures/raws/test_0017.dng",
+    );
     let dngExists = false;
     try {
       await stat(dng);
@@ -278,21 +343,22 @@ describe('preview handler — bitmap path', () => {
 
     // RAW is outside the test library; stage a second library for it.
     const rawLibraryId = new ObjectId();
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    const { setLibraryRootsForTests } =
+      await import("../../indexer/libraries.cache.ts");
     setLibraryRootsForTests(
       new Map([
         [libraryId.toHexString(), dir],
         [rawLibraryId.toHexString(), path.dirname(dng)],
       ]),
     );
-    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng), 'f'.repeat(32));
+    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng), "f".repeat(32));
     const result = await previewStage.handler(doc as never, {} as never);
     expect(result).toEqual({ wrote: true });
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 });
 
-describe('preview handler — content-addressed cache path', () => {
+describe("preview handler — path-keyed cache path", () => {
   let mongo: MongoClient | null = null;
   let mongoReachable = false;
   let db: Db | null = null;
@@ -302,19 +368,21 @@ describe('preview handler — content-addressed cache path', () => {
     mongo = await tryConnect();
     mongoReachable = mongo !== null;
     if (!mongoReachable) {
-      console.log('[preview.test] skipping content-addressed block: MongoDB unreachable');
+      console.log(
+        "[preview.test] skipping content-addressed block: MongoDB unreachable",
+      );
       return;
     }
     db = mongo!.db(TEST_DB);
     await db.dropDatabase();
-    const { closeDb } = await import('../../db/client.ts');
+    const { closeDb } = await import("../../db/client.ts");
     await closeDb();
-    dir = await mkdtemp(path.join(os.tmpdir(), 'preview-stage-ca-'));
+    dir = await mkdtemp(path.join(os.tmpdir(), "preview-stage-ca-"));
   });
 
   afterAll(async () => {
     if (mongoReachable) {
-      const { closeDb } = await import('../../db/client.ts');
+      const { closeDb } = await import("../../db/client.ts");
       await closeDb();
       try {
         await mongo!.db(TEST_DB).dropDatabase();
@@ -326,11 +394,12 @@ describe('preview handler — content-addressed cache path', () => {
     }
   });
 
-  it('uses <lib>/<fileinfo[0].path>/.maple/previews/<maple_id>_1280.jpg when the doc has maple_id + fileinfo', async () => {
+  it("uses <lib>/<fileinfo[0].path>/.maple/previews/<filename>.1280.avif when the doc has fileinfo (no maple_id needed)", async () => {
     if (!mongoReachable) return; // soft pass
 
-    const { foldersCollection } = await import('../../db/client.ts');
-    const { invalidateLibraryRoots } = await import('../../indexer/libraries.cache.ts');
+    const { foldersCollection } = await import("../../db/client.ts");
+    const { invalidateLibraryRoots } =
+      await import("../../indexer/libraries.cache.ts");
     invalidateLibraryRoots();
 
     const libId = new ObjectId();
@@ -338,38 +407,50 @@ describe('preview handler — content-addressed cache path', () => {
     await folder.insertOne({
       _id: libId,
       path: dir,
-      label: 'test',
+      label: "test",
       last_scan: null,
       file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
 
-    const sub = path.join(dir, 'trip');
+    const sub = path.join(dir, "trip");
     await mkdir(sub, { recursive: true });
-    const file = path.join(sub, 'wide.jpg');
+    const file = path.join(sub, "wide.jpg");
     const buf = await sharp({
-      create: { width: 2000, height: 1200, channels: 3, background: { r: 100, g: 150, b: 200 } },
+      create: {
+        width: 2000,
+        height: 1200,
+        channels: 3,
+        background: { r: 100, g: 150, b: 200 },
+      },
     })
       .jpeg()
       .toBuffer();
     await writeFile(file, buf);
 
-    const mapleId = 'f'.repeat(32);
     const doc = {
-      ...makeDoc(file, libId, dir, mapleId),
-      fileinfo: [{ path: 'trip', filename: 'wide.jpg', library_id: libId, deleted_at: null }],
+      ...makeDoc(file, libId, dir, undefined),
+      maple_id: undefined,
+      fileinfo: [
+        {
+          path: "trip",
+          filename: "wide.jpg",
+          library_id: libId,
+          deleted_at: null,
+        },
+      ],
     };
 
     const result = await previewStage.handler(doc as never, {} as never);
     expect(result).toEqual({ wrote: true });
-    // The preview is written to the content-addressed location even though the
-    // path is no longer persisted on the asset.
+    // The preview is written to the path-keyed location — no maple_id needed,
+    // and the path is not persisted on the asset (recomputed on read).
     const expected = path.join(
       dir,
-      'trip',
-      '.maple',
-      'previews',
-      `${mapleId}_${PREVIEW_SIZE_KEY}.jpg`,
+      "trip",
+      ".maple",
+      "previews",
+      `wide.jpg.${PREVIEW_CACHE_SUFFIX}`,
     );
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);
