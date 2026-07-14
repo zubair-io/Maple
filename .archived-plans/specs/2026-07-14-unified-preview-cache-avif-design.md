@@ -386,10 +386,15 @@ Reasoning:
       max_px: u32,   // 1280
       quality: u8,   // 0 → default 68
   ) -> i32 {
-      render_thumbnail_to_file(raw_path, out_path, max_px, quality, 68,
+      let effective_quality = if quality == 0 { 68 } else { quality };
+      render_thumbnail_to_file(raw_path, out_path, max_px, effective_quality,
                                 raw_core::avif::encode, "avif")
   }
   ```
+  (Corrected from an earlier draft of this snippet, which passed both `quality` and
+  the literal `68` as two separate arguments to a function that only takes one
+  quality parameter — a copy-paste artifact, not an intentional 7-argument call.
+  Caught by automated review.)
 - **Web canvas-encode quality is explicitly NOT numerically matched to the Rust-side
   quality** — this mirrors the already-accepted precedent for the 256px tier
   (`image-utils.ts`'s own comment: "Canvas quality is a 0–1 float — NOT sharp/Rust's
@@ -411,10 +416,34 @@ Reasoning:
 ### 1.7 Behavior when the embedded preview is smaller than 1280px
 
 **Decision: adopt Apple's already-shipped floor — below 1024px long edge, RAW sources
-skip generation entirely (no file written); the client falls back to the thumbnail it
-already has. Server and Rust/WASM producers must add this same floor (they don't have
-it today). Bitmap sources are unaffected (native size is written, never upscaled — no
-floor needed, since bitmaps decode exactly at any size).**
+skip publishing an image file; the client falls back to the thumbnail it already has.
+Server and Rust/WASM producers must add this same floor (they don't have it today).
+Bitmap sources are unaffected (native size is written, never upscaled — no floor
+needed, since bitmaps decode exactly at any size).**
+
+**Correction to an earlier draft of this section, caught by automated review: "no file
+written" cannot mean _no file at all_.** Combined with §2.4's rule that a missing
+marker is always treated as a cache miss, writing literally nothing for an undersized
+asset would make every single preview request for that asset re-parse the RAW and
+re-extract the embedded preview from scratch, forever — an unbounded, perpetual
+cache-miss loop, not a one-time skip. The fix: **the producer still writes the `.v`
+marker (current `PREVIEW_RECIPE_VERSION`) even when it decides not to publish an
+image.** This is a legitimate, stable third state, distinct from both a normal
+cache-hit and a real cache-miss:
+
+- **Marker present + current, image present** → normal cache hit, serve the image.
+- **Marker present + current, image absent** → _negative-cache hit_: this asset's
+  embedded preview was checked at the current recipe version and found under the
+  1024px floor. Nothing to serve; the client falls back to the thumbnail. Do **not**
+  regenerate — the check has already run at the current recipe.
+- **Marker missing, unreadable, or older than current** → real cache miss per §2.4;
+  regenerate (which may again conclude "undersized" and re-publish only the marker).
+
+This composes cleanly with §2.3's atomic publish order rather than undermining it: the
+negative-cache case never writes an image at all, so there is no image write for the
+marker-write to race ahead of, and the "image-then-marker" ordering's torn-read
+concern (marker claims a version the image bytes don't match yet) simply doesn't
+apply to a state that has no image by design.
 
 Reasoning:
 
@@ -648,6 +677,39 @@ decode the now-AVIF file and re-encode to JPEG in memory before each VLM provide
 `raw-ffi/src/thumbnail.rs`'s doc comments) — this is Stage 4 implementation work per
 the plan, restated here only so the version contract above is read with the correct
 downstream consequence in mind.
+
+### 2.7 Legacy JPEG cleanup (Stage 4 requirement, flagged by automated review)
+
+**Decision: each producer, when it publishes a new `<maple_id>_1280.avif`, must also
+unlink a co-located legacy `<maple_id>_1280.jpg` at the same stem if one exists.**
+
+This is a real gap an earlier draft of this spec did not address: `cache-gc.ts`'s
+sweep (§3.1 below quotes its current regex) is presence-of-_asset_-based, not
+format-aware — it keeps _any_ file whose `<maple_id>` stem matches a live asset,
+regardless of extension. Once the canonical tier moves to `.avif`, the old
+`<maple_id>_1280.jpg` written by every producer's pre-migration code is a file whose
+`maple_id` still belongs to a live, existing asset — `known.has(mapleId)` is `true` —
+so `cache-gc.ts` will keep it **forever**. Across every asset in every library, this is
+an unbounded storage leak (roughly double the previews-tier disk usage, indefinitely),
+not a transient migration artifact that self-cleans.
+
+Extending `cache-gc.ts` with format-aware pruning (e.g. "if both `<stem>.jpg` and
+`<stem>.avif` exist for the same stem, delete the `.jpg`") is one fix, but it adds a
+second cross-file-comparison pass to a sweep that is currently a simple single-file
+classification, and it only reaches assets that get swept (library-root-registered,
+on a boot-triggered cadence). The simpler, more immediate fix — and the one this spec
+requires of Stage 4 — is **writer-side cleanup at generation time**: whichever
+producer (Apple, server, Web) is about to atomically publish `<maple_id>_1280.avif`
+per §2.3's image-then-marker order also checks for a same-stem `<maple_id>_1280.jpg`
+immediately after the image write succeeds, and deletes it if present (best-effort —
+a failed delete is not fatal to publishing the new file, just logged). This
+guarantees the leak self-heals as each asset's preview naturally gets regenerated
+post-migration (every asset that anyone actually browses converges to a single file
+within one regeneration), without adding new sweep logic to `cache-gc.ts`, and without
+depending on every library being swept promptly. `cache-gc.ts` itself needs no change
+for this — Stage 1's fix already stays correct (an asset that's genuinely deleted
+still gets both its `.jpg` and `.avif` cleaned up the existing way, since the sweep
+matches on `mapleId` independent of extension).
 
 ## 3. Apple's edited-preview local-only contract
 
