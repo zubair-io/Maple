@@ -39,9 +39,16 @@ public enum MapleIdDerivation {
     /// range-read API) supply their own bounded I/O so the whole file is
     /// never materialised as one buffer.
     ///
-    /// Returns `nil` only when BOTH forms fail to produce an id (e.g.
-    /// `headBytes` empty AND `nextChunk` never yields any bytes) — this
-    /// should not happen for a real, non-empty file.
+    /// Returns `nil` only when the fallback-form path's
+    /// `FallbackFormHasher.finalize(filesize:)` itself fails (an FFI/
+    /// allocation error) — NOT for an empty or unreadable-past-the-head
+    /// file. Zero `nextChunk` bytes (an empty file, or a file that never
+    /// yields beyond an empty `headBytes`) is a legitimate input to the
+    /// fallback form: `finalize` still succeeds and returns a real id
+    /// computed over zero content bytes (see `Hashing.swift`'s
+    /// `FallbackFormHasher.finalize` doc and this type's own tests, which
+    /// codify that an empty file gets a valid, deterministic fallback-form
+    /// id rather than `nil`).
     public static func derive(
         headBytes: Data,
         exifDateTimeOriginal: String?,
