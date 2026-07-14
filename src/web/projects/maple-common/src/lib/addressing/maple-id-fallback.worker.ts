@@ -25,6 +25,10 @@
 // in `maple-id-fallback-hasher.service.ts`, which does not create a static
 // import edge ng-packagr would try to resolve (see that service's module doc).
 
+// Same gitignored, wasm-pack-generated path `raw-pipeline.worker.ts` already
+// imports; only resolvable after the raw-wasm build+sync step, which
+// fallow's audit job doesn't run.
+// fallow-ignore-next-line unresolved-import
 import init, { FallbackIdHasher, install_panic_hook } from '../raw-pipeline/pkg/raw_wasm';
 import type {
   HashFallbackFinalizeRequest,

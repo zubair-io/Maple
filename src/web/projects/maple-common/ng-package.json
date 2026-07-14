@@ -3,5 +3,6 @@
   "dest": "../../dist/maple-common",
   "lib": {
     "entryFile": "src/public-api.ts"
-  }
+  },
+  "allowedNonPeerDependencies": ["@noble/hashes", "exifr"]
 }
