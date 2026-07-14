@@ -24,29 +24,22 @@
 // Jail: same `MAPLE_ROOTS` policy as `/api/fs/thumb`, via the shared
 // `resolveJailedFile` preamble in fs-jail.ts.
 
-import { Elysia, t } from "elysia";
-import { readFile } from "node:fs/promises";
-import * as path from "node:path";
-import { ObjectId } from "mongodb";
-import { isUnderRoot } from "../fs/browse.ts";
-import { cachePathFor, cachePathForAsset } from "../fs/xmp.ts";
-import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
-import { generatePreview, PREVIEW_CACHE_SUFFIX } from "../indexer/previewer.ts";
-import { isDbConnected } from "../db/client.ts";
-import {
-  findAssetByAddress,
-  developedPreviewResponse,
-} from "./library/shared.ts";
-import {
-  resolveJailedFile,
-  sourceETag,
-  notModifiedResponse,
-} from "./fs-jail.ts";
-import { child as childLogger } from "../log.ts";
+import { Elysia, t } from 'elysia';
+import { readFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { ObjectId } from 'mongodb';
+import { isUnderRoot } from '../fs/browse.ts';
+import { cachePathFor, cachePathForAsset } from '../fs/xmp.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
+import { isDbConnected } from '../db/client.ts';
+import { findAssetByAddress, developedPreviewResponse } from './library/shared.ts';
+import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("fs-previews");
+const log = childLogger('fs-previews');
 
-const CACHE_CONTROL = "private, max-age=3600";
+const CACHE_CONTROL = 'private, max-age=3600';
 
 /**
  * Split `real` into (libraryIdHex, relDir, filename) against the registered
@@ -59,13 +52,13 @@ export function libraryAddressFor(
   roots: ReadonlyMap<string, string>,
 ): { libraryIdHex: string; relDir: string; filename: string } | null {
   for (const [libraryIdHex, root] of roots) {
-    const r = root.replace(/\/$/, "") || "/";
+    const r = root.replace(/\/$/, '') || '/';
     if (!isUnderRoot(real, r)) continue;
-    const rel = r === "/" ? real.slice(1) : real.slice(r.length + 1);
+    const rel = r === '/' ? real.slice(1) : real.slice(r.length + 1);
     const dir = path.dirname(rel);
     return {
       libraryIdHex,
-      relDir: dir === "." ? "" : dir,
+      relDir: dir === '.' ? '' : dir,
       filename: path.basename(rel),
     };
   }
@@ -81,7 +74,7 @@ export function libraryAddressFor(
  * path rather than failing the request.
  */
 async function resolvePreviewCachePath(real: string): Promise<string> {
-  const legacy = () => cachePathFor(real, "previews", PREVIEW_CACHE_SUFFIX);
+  const legacy = () => cachePathFor(real, 'previews', PREVIEW_CACHE_SUFFIX);
   // `lookupAssetByReal` is a no-op when Mongo isn't connected — attempting a
   // lookup while it's down would eat the driver's 5 s server-selection timeout
   // on EVERY request; the legacy basename path serves immediately instead
@@ -96,7 +89,7 @@ async function resolvePreviewCachePath(real: string): Promise<string> {
           fileinfo: asset.fileinfo as never,
         },
         libs,
-        "previews",
+        'previews',
         PREVIEW_CACHE_SUFFIX,
       );
       if (pathKeyed) return pathKeyed;
@@ -104,7 +97,7 @@ async function resolvePreviewCachePath(real: string): Promise<string> {
   } catch (err) {
     log.debug(
       { real, err: err instanceof Error ? err.message : err },
-      "asset lookup failed; using legacy basename-keyed preview path",
+      'asset lookup failed; using legacy basename-keyed preview path',
     );
   }
   return legacy();
@@ -118,15 +111,11 @@ async function lookupAssetByReal(real: string) {
   const libs = await loadLibraryRoots();
   const addr = libraryAddressFor(real, libs);
   if (!addr) return null;
-  return findAssetByAddress(
-    new ObjectId(addr.libraryIdHex),
-    addr.relDir,
-    addr.filename,
-  );
+  return findAssetByAddress(new ObjectId(addr.libraryIdHex), addr.relDir, addr.filename);
 }
 
-export const fsPreviewsRoutes = new Elysia({ prefix: "/api/fs" }).get(
-  "/preview",
+export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
+  '/preview',
   async ({ query, headers, set }) => {
     const resolved = await resolveJailedFile(query.path);
     if (!resolved.ok) {
@@ -148,17 +137,13 @@ export const fsPreviewsRoutes = new Elysia({ prefix: "/api/fs" }).get(
         libs,
         devEtag,
         CACHE_CONTROL,
-        headers["if-none-match"],
+        headers['if-none-match'],
       );
       if (developed) return developed;
     }
 
     const etag = sourceETag(srcStat);
-    const cached304 = notModifiedResponse(
-      headers["if-none-match"],
-      etag,
-      CACHE_CONTROL,
-    );
+    const cached304 = notModifiedResponse(headers['if-none-match'], etag, CACHE_CONTROL);
     if (cached304) return cached304;
 
     const previewPath = await resolvePreviewCachePath(real);
@@ -175,10 +160,10 @@ export const fsPreviewsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     } catch (err) {
       log.warn(
         { real, previewPath, err: err instanceof Error ? err.message : err },
-        "preview generation produced no readable file",
+        'preview generation produced no readable file',
       );
       set.status = 500;
-      return { error: "Preview generation failed (see server log)" };
+      return { error: 'Preview generation failed (see server log)' };
     }
 
     // `Buffer` extends `Uint8Array`, which Bun's `Response` accepts directly
@@ -188,8 +173,8 @@ export const fsPreviewsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
-        "Content-Type": "image/avif",
-        "Cache-Control": CACHE_CONTROL,
+        'Content-Type': 'image/avif',
+        'Cache-Control': CACHE_CONTROL,
         ETag: etag,
       },
     });
