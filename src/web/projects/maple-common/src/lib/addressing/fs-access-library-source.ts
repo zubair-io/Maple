@@ -10,6 +10,7 @@ import { Injectable, inject } from '@angular/core';
 import { childAddress, formatAddress, parentAddress } from './maple-address';
 import type { MapleAddress } from './maple-address';
 import type { LibrarySource, FolderListing, ImageEntry } from './library-source';
+import type { DownloadProgress } from '../api/filesystem-browse.service';
 import { LibrarySlugRegistry } from './library-slug-registry';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
@@ -107,7 +108,14 @@ export class FsAccessLibrarySource implements LibrarySource {
     return buildFolderListing(a, entries, null);
   }
 
-  async imageBlob(a: MapleAddress): Promise<Blob> {
+  // `onProgress` is part of the `LibrarySource` interface (HttpLibrarySource
+  // wires it to the editor's open-progress overlay for a network download)
+  // but is unused here: a local FileSystemDirectoryHandle read is
+  // effectively instant, nothing to report progress on. Kept in the
+  // signature (not dropped) so a caller holding a concrete
+  // `FsAccessLibrarySource` reference doesn't need a different call
+  // pattern than one holding the interface type.
+  async imageBlob(a: MapleAddress, _onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
     return this.getFile(a);
   }
 

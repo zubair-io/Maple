@@ -15,7 +15,24 @@
 // `captured-at.spec.ts` proves parity against `exif.ts`'s real `asIsoDate`
 // for concrete (raw EXIF value) -> (expected ISO string) pairs.
 
-/** EXIF DateTimeOriginal can be a Date (exifr's default) or a string. */
+/**
+ * EXIF DateTimeOriginal can be a Date (exifr's default) or a string.
+ *
+ * [P0, caught in review]: EXIF's DateTimeOriginal/CreateDate tags carry NO
+ * timezone offset per spec — a bare "YYYY:MM:DD HH:MM:SS". An earlier
+ * version of this function built that into a string like
+ * "2026-07-12T10:30:00" and passed it to `new Date(...)`; per the ECMAScript
+ * spec, a date-TIME string with no trailing `Z`/offset is parsed in the
+ * JS engine's LOCAL timezone, not UTC. Since this feeds the cross-platform
+ * `maple_id` hash directly (via `capturedAtFromExif` -> `primary()`), that
+ * ambiguity meant the SAME photo's EXIF timestamp hashed to a DIFFERENT
+ * `maple_id` depending on which timezone the browser happened to be
+ * running in — completely defeating the point of a cross-platform cache
+ * key. `Date.UTC(...)`'s numeric-component constructor has no string-
+ * parsing ambiguity at all: it is always UTC, matching the Apple port's
+ * same explicit choice (`ExifCaptureDate.swift`) and the server's
+ * `src/api/src/indexer/exif.ts`, fixed in lockstep with this file.
+ */
 export function asIsoDate(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
     return v.toISOString();
@@ -25,8 +42,9 @@ export function asIsoDate(v: unknown): string | null {
     const exifMatch = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(v);
     if (exifMatch) {
       const [, y, mo, d, h, mi, s] = exifMatch;
-      const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}`;
-      const t = new Date(iso);
+      const t = new Date(
+        Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s)),
+      );
       if (!Number.isNaN(t.getTime())) return t.toISOString();
     }
     const t = new Date(v);
