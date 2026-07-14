@@ -1,7 +1,10 @@
 # Unified Display-Preview Cache — Canonical Derivative + Versioning Spec
 
 **Date:** 2026-07-14
-**Status:** Proposed (Stage 2 of the 6-stage plan in `make-a-plan-to-abstract-zephyr.md`)
+**Status:** Proposed (Stage 2 of the 6-stage plan tracked as epic #1993 — the original
+plan document lived only in a local Claude Code plan-mode session and was never
+committed to the repo; #1993 and its stage sub-issues #1994–#1999 are the durable,
+in-repo record of that plan's content)
 **Platforms:** Rust core (`src/raw-pipeline/`), Bun/Elysia server (`src/api/`), Angular web
 (`src/web/`), Swift/SwiftUI Apple app (`src/apple/`)
 **Depends on:** Stage 1 (`cache-gc.ts` orphan-regex fix — shipped, commit `99cfc4d23`)
@@ -403,15 +406,48 @@ Reasoning:
   required to converge numerically with the Rust-side `68`.
 - **Web encode mechanism, decision:** the new WASM `extract_display_preview_rgb`
   binding (§1.1) returns raw RGB8 + dimensions, **not** pre-encoded AVIF bytes. The
-  final encode step reuses the existing, already-shipped, already-fallback-tested
-  `canvasToBlob`/`encodeCanvas`/`canEncodeAvif` machinery in `image-utils.ts` (probes
-  AVIF canvas-encode support once, falls back to JPEG automatically, reports which
-  format was actually produced via `ThumbFormat` so the caller persists the correct
-  extension). This is a stronger, more concrete answer than "add a browser
-  AVIF-support fallback" — that fallback already exists, is already proven in
-  production for thumbnails, and this decision is simply "reuse it for the second
-  tier" rather than build a parallel WASM-side AVIF encoder with its own bespoke
-  fallback logic.
+  final encode step reuses the existing, already-shipped `canvasToBlob`/`encodeCanvas`/
+  `canEncodeAvif` probe from `image-utils.ts` — but **for this canonical, shared tier,
+  its JPEG-fallback branch must NOT be used to publish to the shared cache path**,
+  which is a real correction to an earlier draft of this section, caught by review.
+
+  **Why the thumbnail tier's fallback pattern doesn't transfer here.** For the 256px
+  thumbnail tier, `canEncodeAvif` failing and falling back to a JPEG persisted under a
+  `.jpg` extension (via `ThumbFormat`) is safe, because that tier is explicitly
+  **not** part of this epic's cross-platform-shared-file model (per Non-goals) — each
+  platform still generates and reads its own basename-keyed thumbnail independently;
+  no other platform is ever required to open the exact byte-identical file a browser
+  wrote. This tier is different by design: §2.1 fixes the canonical filename as
+  `<maple_id>_1280.avif` (one extension, no negotiation), and §2.6 has every reader —
+  Apple, the server, other browsers — serve/decode that path unconditionally as
+  `image/avif`. A Hosted-Web writer that fell back to JPEG and either (a) still wrote
+  it to the `.avif`-named path (wrong bytes under a lying extension — a reader would
+  try to AVIF-decode JPEG bytes and fail) or (b) wrote it under a renamed `.jpg` path
+  (invisible to every other platform's reader, which only ever looks for `.avif`)
+  would break the "one canonical file, addressed the same way by every producer"
+  contract this whole spec exists to establish — exactly the conflict raised in
+  review.
+
+  **The fix: `canEncodeAvif` gates whether Hosted-Web publishes to the canonical path
+  at all, not what extension it publishes under.** If the browser's `canEncodeAvif`
+  probe fails, Hosted-Web simply does not write to `.maple/previews/<maple_id>_1280.avif`
+  for that browse session — behaviorally identical to any other producer failing to
+  produce a valid derivative (a decode error, a corrupt RAW), which this spec already
+  treats as "no file published this time, try again later, another platform may
+  succeed first." The browser MAY still render an ephemeral, in-memory JPEG (or even
+  just the canvas RGB8 buffer directly) for its own immediate on-screen display in
+  that session — that is a local rendering decision with no cache-contract
+  implications, since it never touches the shared `.maple/previews/` path. Given the
+  target browser matrix (this repo builds against evergreen browsers; AVIF
+  canvas-encode support is expected to be near-universal there — the thumbnail tier's
+  fallback exists as a defensive minimum, not because it's commonly exercised), this
+  is judged an acceptable, low-frequency gap rather than a reason to build a
+  format-negotiation contract every reader on every platform would need to implement.
+  If Stage 5's browser-matrix benchmark (§4 item 7) finds AVIF-encode failure is
+  common enough in practice to matter, revisiting this as its own follow-up is cheap;
+  building speculative negotiation machinery now, before that evidence exists, is not
+  ("build for today's requirement, not a speculative tomorrow" per this repo's YAGNI
+  convention).
 
 ### 1.7 Behavior when the embedded preview is smaller than 1280px
 
