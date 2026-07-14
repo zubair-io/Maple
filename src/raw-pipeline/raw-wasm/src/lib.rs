@@ -6,6 +6,10 @@
 //!   render_bytes(raw: Uint8Array, ext: string, xmp: string | null)
 //!       → MapleRender { width: u32, height: u32, rgb: Uint8Array }
 //!
+//!   new FallbackIdHasher() .update(chunk: Uint8Array) .finalize(filesize: bigint)
+//!       → 32-char lowercase hex fallback-form maple_id (#1995, `id.rs`) —
+//!         streams `File.slice()` chunks instead of buffering a whole RAW.
+//!
 //! Threading (T10):
 //! When compiled with `--features parallel` and the `+atomics,+bulk-memory`
 //! target features, `initThreadPool(num_threads)` is re-exported from
@@ -20,6 +24,7 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_adjustments;
 pub mod auto_tone;
+pub mod id;
 
 #[cfg(feature = "gpu")]
 pub mod gpu;
