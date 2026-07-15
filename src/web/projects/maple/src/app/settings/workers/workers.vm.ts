@@ -64,13 +64,6 @@ export const STAGE_META: Record<string, StageMeta> = {
     description:
       'Builds 1280-px preview cache used by the editor and enrichment LLM. Concurrency also caps on-demand regeneration triggered by cache-miss preview requests (e.g. Browse) — an in-process throttle (this API process only) against a synchronized regeneration burst.',
   },
-  'display-preview': {
-    id: 'display-preview',
-    group: 'Ingest',
-    icon: 'image',
-    enrichment: null,
-    description: 'Renders the developed 1280-px preview for edited assets (sidecar applied).',
-  },
   describe: {
     id: 'describe',
     group: 'Enrich',

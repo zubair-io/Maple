@@ -200,8 +200,7 @@ export const xmpRoutes = new Elysia()
       set.headers['Last-Modified'] = outcome.mtime.toUTCString();
       set.status = 204;
       // Mark the asset as carrying an XMP sidecar (working-set `has_xmp`
-      // filter, Task B1), bump `sidecar_ver`, and re-arm the display-preview
-      // stage so it re-renders the developed preview for this edit (#1950).
+      // filter, Task B1) and bump the monotonic `sidecar_ver` edit counter.
       await recordSidecarEdit(id).catch(() => {});
       // Best-effort change-feed emit so the File Provider extension can
       // signal the OS to re-fetch this asset's sidecar.

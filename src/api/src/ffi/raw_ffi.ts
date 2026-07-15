@@ -82,8 +82,8 @@ interface RawFfi {
   /** Develop `rawAbsPath` with `xmpAbsPath`'s adjustments applied (null =
    * neutral), downscale to `maxPx`, JPEG-encode, and write atomically to
    * `outAbsPath`. The DEVELOPED counterpart to `renderThumbnailAvifToFile`
-   * (embedded-preview extraction, no adjustments) — used by the display-preview
-   * stage for edited assets (#1950). Same file-output rationale. */
+   * (embedded-preview extraction, no adjustments). Used for headless
+   * develop-to-JPEG rendering of edited assets. Same file-output rationale. */
   renderDevelopJpegToFile(
     rawAbsPath: string,
     xmpAbsPath: string | null,
