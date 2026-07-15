@@ -118,6 +118,7 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
       flushPendingXmpWrites: vi.fn(() => Promise.resolve()),
+      flushPendingPreviewWrites: vi.fn(),
       hydrateSelfHostedFsAsset: vi.fn(() => null),
       openSelfHostedSubfolder: vi.fn(),
     } as unknown as Partial<LibraryStateService>;

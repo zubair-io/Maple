@@ -176,6 +176,10 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   @HostListener('window:beforeunload')
   onBeforeUnload(): void {
     void this.state.flushPendingXmpWrites();
+    // Developed-preview persist (#2018) — same "flush on close" role as the
+    // sidecar flush above, fire-and-forget for the same reason (beforeunload
+    // can't reliably await async work).
+    this.state.flushPendingPreviewWrites();
   }
 
   // ── Derived state (preserved) ─────────────────────────────────────────
@@ -287,6 +291,14 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
       this._undoLongPressTimer = null;
     }
     teardownPointerMove(this._chrome);
+    // Editor-teardown persist trigger (#2018): leaving the editor (SPA
+    // navigation, not just a hard tab close) is one of the write policy's
+    // three triggers — idle debounce, exit, navigate-away. The idle timer
+    // itself lives on the singleton `EditPreviewPersistService`, so it
+    // would still fire in the background even without this call; this makes
+    // the "editor teardown" trigger immediate rather than waiting out
+    // whatever's left of the debounce.
+    this.state.flushPendingPreviewWrites();
   }
 
   // ── Canvas scrub ───────────────────────────────────────────────────────

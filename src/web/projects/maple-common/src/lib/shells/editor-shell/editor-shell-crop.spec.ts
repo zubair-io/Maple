@@ -106,6 +106,7 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
       flushPendingXmpWrites: vi.fn(),
+      flushPendingPreviewWrites: vi.fn(),
       hydrateSelfHostedFsAsset: vi.fn(() => null),
       openSelfHostedSubfolder: vi.fn(),
     } as unknown as Partial<LibraryStateService>;

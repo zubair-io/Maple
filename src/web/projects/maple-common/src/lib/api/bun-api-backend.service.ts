@@ -575,6 +575,23 @@ export class BunApiBackendService {
     return this.http.delete<void>(`${this.base}/xmp?path=${encodeURIComponent(path)}`);
   }
 
+  /**
+   * Upload a rendered preview for the asset at `path` (the ORIGINAL asset's
+   * path, not the cache path — the server derives
+   * `<dir>/.maple/previews/<filename>.avif` from it, mirroring `putXmp`).
+   *
+   * `contentType` is `image/avif` when this browser can genuinely
+   * canvas-encode AVIF (`canEncodeAvif`), or `image/jpeg` otherwise — the
+   * server (#2018) accepts either, transcoding a JPEG body to AVIF
+   * server-side via the same isolated sharp pipeline the index-time preview
+   * stage uses. See `routes/preview.ts`'s module doc on the API side.
+   */
+  putPreview(path: string, body: Blob, contentType: string): Observable<void> {
+    return this.http.put<void>(`${this.base}/preview?path=${encodeURIComponent(path)}`, body, {
+      headers: { 'Content-Type': contentType },
+    });
+  }
+
   /** Force a re-scan of one library folder. Resets every stage's version to 0
    * for all assets under the folder path tree so the pipeline re-processes them.
    * Returns immediately; the workers pick up the reset docs on their next poll. */

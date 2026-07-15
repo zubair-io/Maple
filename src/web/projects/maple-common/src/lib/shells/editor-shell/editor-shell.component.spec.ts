@@ -48,6 +48,7 @@ function setup(opts: {
     openSelfHostedSubfolder,
     hydrateSelfHostedFsAsset,
     flushPendingXmpWrites: vi.fn(),
+    flushPendingPreviewWrites: vi.fn(),
     sidebarVisible: () => true,
   };
 
