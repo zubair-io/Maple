@@ -16,6 +16,7 @@ import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source';
 import { parseAddress } from '../addressing/maple-address';
+import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { BlobUrlChannel } from './blob-url-channel';
 import { LruCache, ThumbLruCache } from './lru-cache';
 
@@ -28,6 +29,10 @@ export class LibraryCache {
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
+  // Hosted-mode (File System Access API) embedded-preview extraction
+  // (#2010) — extracted to its own injectable rather than inlined here to
+  // stay under this file's size budget; see that service's module doc.
+  private readonly hostedPreviewResolver = inject(HostedPreviewResolver);
 
   private _lastSelectedSourceId = this.selection.selectedSourceId();
 
@@ -164,27 +169,31 @@ export class LibraryCache {
 
   /**
    * Subscribe to preview-URL changes for `id` — the best available _still_.
-   * Mirrors {@link subscribeThumbUrl} except: a Self-Hosted M2 `slug:relPath`
-   * asset resolves via the authed `/api/preview/:slug/*` blob URL
-   * (`LibrarySource.previewBlob`; excludes legacy `fs:<absPath>` ids, which
-   * also contain ':' but have no address to parse) — every other id delegates
-   * straight to `subscribeThumbUrl` since there's no richer preview source yet.
+   * Mirrors {@link subscribeThumbUrl} except any address-shaped id (a
+   * `slug:relPath` asset, Self-Hosted M2 or Hosted/FS-Access; excludes
+   * legacy `fs:<absPath>` ids) resolves through {@link previewChannel}
+   * instead — Self-Hosted via `LibrarySource.previewBlob`
+   * (`/api/preview/:slug/*`), Hosted via {@link HostedPreviewResolver}'s
+   * local embedded-preview extraction (#2010). Every other id (drag-drop
+   * imports, un-addressed legacy `fs:` ids) delegates to
+   * {@link subscribeThumbUrl} since there's no richer preview source for it.
+   *
+   * A `null` resolution leaves the preview channel uncached — the caller's
+   * stacked `thumbUrl` (populated independently, unaffected by this method)
+   * stays the shown image, so a miss here is a silent no-op, not a blank tile.
    */
   subscribePreviewUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
-    const isSelfHostedAddress =
-      this.store.backend === 'self-hosted' &&
-      typeof id === 'string' &&
-      id.includes(':') &&
-      !id.startsWith('fs:');
-
-    if (!isSelfHostedAddress) {
+    if (!this._isM2Asset(id)) {
       return this.subscribeThumbUrl(id, cb);
     }
 
     const unsubscribe = this.previewChannel.subscribe(id, cb);
-    this.previewChannel.ensure(id, (assetId) =>
-      this.librarySource.previewBlob(parseAddress(assetId as string)),
-    );
+    this.previewChannel.ensure(id, (assetId) => {
+      const address = parseAddress(assetId as string);
+      return this.store.backend === 'self-hosted'
+        ? this.librarySource.previewBlob(address)
+        : this.hostedPreviewResolver.resolve(assetId, address, (aid) => this.bytesForAsset(aid));
+    });
     return unsubscribe;
   }
 

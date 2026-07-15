@@ -22,6 +22,7 @@ import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
+import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import type { Asset, AssetId } from '../models/asset';
 
 describe('LibraryCache — thumbnail object-URL lifecycle', () => {
@@ -45,6 +46,7 @@ describe('LibraryCache — thumbnail object-URL lifecycle', () => {
         { provide: FilesystemBrowseService, useValue: { clearThumbCache } },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
+        { provide: HostedPreviewResolver, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(), previewBlob: vi.fn() } },
       ],
     });
@@ -113,6 +115,7 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
         { provide: FilesystemBrowseService, useValue: fsBrowse },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
+        { provide: HostedPreviewResolver, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: libSource },
       ],
     });
@@ -205,6 +208,7 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
         { provide: FilesystemBrowseService, useValue: {} },
         { provide: MapleCacheService, useValue: { readThumb } },
         { provide: RawPipelineService, useValue: {} },
+        { provide: HostedPreviewResolver, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: { thumbBlob } },
       ],
     });
@@ -244,6 +248,7 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
         { provide: FilesystemBrowseService, useValue: {} },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
+        { provide: HostedPreviewResolver, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(() => new Promise(() => {})) } }, // never resolves
       ],
     });
@@ -293,6 +298,7 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
         { provide: FilesystemBrowseService, useValue: {} },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
+        { provide: HostedPreviewResolver, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: libSource },
       ],
     });
@@ -336,6 +342,7 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
         { provide: FilesystemBrowseService, useValue: { getRawBytes } },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
+        { provide: HostedPreviewResolver, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: { imageBlob } },
       ],
     });
@@ -364,6 +371,7 @@ describe('LibraryCache — thumbnail subscriptions (component-owned signals)', (
         { provide: FilesystemBrowseService, useValue: {} },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
+        { provide: HostedPreviewResolver, useValue: {} },
         { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(), previewBlob: vi.fn() } },
       ],
     });

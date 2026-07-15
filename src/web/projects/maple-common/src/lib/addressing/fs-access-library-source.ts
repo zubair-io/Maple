@@ -130,12 +130,13 @@ export class FsAccessLibrarySource implements LibrarySource {
    * (content-key alignment with Self-Hosted at the listing level is M3,
    * unchanged by this ticket); callers that need a real id for one asset
    * (e.g. as a preview-cache key) call this directly.
+   *
+   * Wired in as exactly that preview-cache key by #2010 (Stage 4's Web
+   * embedded-preview binding) — `LibraryCache`'s Hosted preview-loading path
+   * calls this directly (not through the `LibrarySource` interface, which
+   * has no `mapleId` member; only Hosted mode needs client-side id
+   * computation, since Self-Hosted's server already knows each asset's id).
    */
-  // Not yet called: capability-first staging for #1996 (Stage 4, the AVIF
-  // preview tier), which wires this in as the preview-cache key. Deliberately
-  // sequenced, not a stub — implementation is complete and tested (see this
-  // class's spec).
-  // fallow-ignore-next-line unused-class-member
   async mapleId(a: MapleAddress): Promise<string> {
     validateRelPath(a.relPath);
     const file = await this.getFile(a);
@@ -182,7 +183,14 @@ export class FsAccessLibrarySource implements LibrarySource {
   }
 
   async previewBlob(a: MapleAddress): Promise<Blob | null> {
-    // Hosted preview: same path as thumb for now. Full preview generation is M3.
+    // This LibrarySource interface method stays a thumb-fallback: the real
+    // embedded-preview read/generate/write-through-cache path for Hosted
+    // mode is centralized in `LibraryCache` (#2010), which needs a
+    // write-permission-checked `MapleFolderHandle` (`LibraryStore.currentFolder`)
+    // this class doesn't have — the same read-only-here,
+    // generate-in-LibraryCache split `thumbBlob` already established for
+    // thumbnails. Kept correct (not deleted) for interface conformance and
+    // any future caller that only needs a best-effort local blob.
     return this.thumbBlob(a);
   }
 

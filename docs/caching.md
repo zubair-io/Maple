@@ -239,3 +239,30 @@ never serves the app shell in place of an API response.
 | ------------------ | ------------------------------------------------------------- | ---------------------------------- |
 | SW thumbnails/data | DevTools → Application → Cache Storage (or unregister the SW) | Thumbnails re-fetched from the API |
 | App shell / assets | Deploy a new build (update flow) or unregister the SW         | Next load fetches the new bundle   |
+
+---
+
+## Web — Hosted-Mode Local Caches (File System Access)
+
+On Hosted (`projects/maple-syrup`, browser-only, no server), thumbnails and
+previews both live under `.maple/` next to the photos, the same "travels
+with the photos" convention as Apple's disk caches — via
+`MapleCacheService` (`maple-common/src/lib/maple-cache/`), which reads/writes
+through `FolderAccessService`'s File System Access backend.
+
+| Cache                       | Path                              | Key                                                                  | Format              | Version guard                                                                                                                                                                                        |
+| ---------------------------- | ---------------------------------- | ---------------------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Thumbnails                  | `.maple/thumbs/<sha>.<ext>`       | `sha256Prefix16(filename)`                                          | AVIF, JPEG fallback | `<sha>.<ext>.v` companion stamps `THUMB_PIPELINE_VERSION` for a client-developed thumb (a full WASM raw-core develop); a foreign (server/Apple-extracted) thumb has no marker and is trusted as-is. |
+| Previews (embedded, #2010)  | `.maple/previews/<maple_id>.jpg`  | content-derived `maple_id` (`FsAccessLibrarySource.mapleId`, #1995) | JPEG only            | None needed — extraction is a pure re-encode of the RAW's own embedded JPEG (`raw_core::preview::extract_embedded_preview`), independent of `PIPELINE_OUTPUT_VERSION`.                              |
+
+The preview tier is the "unedited" display-preview Apple/server also produce
+(`RenderedPreviewCache` §3 above / `previewer.ts`'s `PREVIEW_LONG_EDGE_PX`
+tier) — extracted via a dedicated Web Worker
+(`raw-pipeline/embedded-preview.worker.ts`, kept separate from the
+decode/live-render worker so it never contends with that worker's
+single-in-flight-decode gate) wrapping the same `raw_core::preview` Rust code
+raw-ffi's native externs use. It's content-addressed rather than
+filename-sha-keyed like thumbs, which lets duplicate files at different paths
+in the same folder tree share one cached extraction. RAW only — a non-RAW
+still (already display-ready pixels) has no embedded-preview concept and
+falls back to the stacked thumbnail (`LibraryCache.subscribePreviewUrl`).

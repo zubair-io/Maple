@@ -16,9 +16,14 @@
     }
     @if (previewUrl(); as p) {
       <!-- subscribePreviewUrl() falls through to the thumbnail URL for
-           non-self-hosted / non-address ids, in which case previewUrl()
-           equals thumbUrl() — skip the redundant stacked <img> (and its
-           decode/paint cost) and let the thumb crossfade stand alone. -->
+           non-address ids, in which case previewUrl() equals thumbUrl() —
+           skip the redundant stacked <img> (and its decode/paint cost) and
+           let the thumb crossfade stand alone. For address ids, previewUrl()
+           is independently resolved (network preview on Self-Hosted, local
+           embedded-preview extraction on Hosted, #2010) and stays undefined
+           on a genuine miss (non-RAW asset, no embedded preview, extraction
+           error) — the `@if` above already handles that case by not
+           rendering at all. -->
       @if (p !== thumbUrl()) {
         <img class="preview-img preview-img--full" [src]="p" alt="" />
       }

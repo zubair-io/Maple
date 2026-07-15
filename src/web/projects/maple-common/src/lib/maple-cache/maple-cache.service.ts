@@ -210,4 +210,62 @@ export class MapleCacheService {
     const parsed = Number.parseInt(new TextDecoder().decode(bytes).trim(), 10);
     return Number.isFinite(parsed) ? parsed : -1;
   }
+
+  // ── Previews (embedded-RAW-preview extraction, #2010) ────────────────────
+
+  /**
+   * Read a cached extracted-embedded-preview blob. `mapleId` is the asset's
+   * content-derived `maple_id` (`FsAccessLibrarySource.mapleId`) — NOT the
+   * filename sha thumbs use above. Previews are content-addressed here
+   * (unlike the server's path/filename-keyed `.maple/previews/` tier, per
+   * epic #1993's design update) so duplicate files at different paths
+   * within the same folder tree share one cached extraction — the same
+   * multi-location win `dedupe.ts` already gets from content-addressing
+   * thumbs server-side.
+   *
+   * Returns null if not cached.
+   *
+   * No pipeline-version marker (contrast `readThumb`'s `.v` companion): a
+   * Hosted preview is a pure re-encode of the RAW's own embedded JPEG
+   * (`EmbeddedPreviewService.extractEmbeddedPreview`) — it never touches
+   * raw-core's decode/demosaic/AgX chain, so a `PIPELINE_OUTPUT_VERSION`
+   * bump can't make a cached preview stale. Every entry under
+   * `.maple/previews/` is trusted as-is, the same way a foreign
+   * (server/Apple-written) thumb with no `.v` marker is trusted above.
+   */
+  async readPreview(folder: MapleFolderHandle, mapleId: string): Promise<Blob | null> {
+    try {
+      const bytes = await this.fs.readFile(folder, `.maple/previews/${mapleId}.jpg`);
+      // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array
+      // whose .buffer may be typed as ArrayBufferLike; Blob requires
+      // ArrayBuffer) — same conversion `readThumb` does above.
+      const ab = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(ab).set(bytes);
+      return new Blob([ab], { type: 'image/jpeg' });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Write an extracted-embedded-preview JPEG blob, keyed by `mapleId` (see
+   * `readPreview`). Creates `.maple/previews/` if necessary. Silently skips
+   * if the folder is read-only.
+   *
+   * JPEG only — `raw-wasm` doesn't enable raw-core's `avif` feature (kept
+   * off there so the wasm32 build never pulls in the `ravif`/`rav1e` AV1
+   * encoder; see `raw-core/Cargo.toml`'s `avif` feature comment), so unlike
+   * `writeThumb` there's no AVIF variant of this client-generated artefact
+   * yet.
+   */
+  async writePreview(folder: MapleFolderHandle, mapleId: string, blob: Blob): Promise<void> {
+    if (!folder.write) return;
+    try {
+      await this.fs.ensureSubdirectory(folder, '.maple/previews');
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await this.fs.writeFile(folder, `.maple/previews/${mapleId}.jpg`, bytes);
+    } catch (err) {
+      console.warn(`MapleCacheService: failed to write preview ${mapleId}`, err);
+    }
+  }
 }
