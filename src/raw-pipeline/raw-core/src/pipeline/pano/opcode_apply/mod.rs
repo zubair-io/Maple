@@ -51,11 +51,18 @@ use super::opcodes::{
 
 /// Scale an `ActiveAreaRect` from raw-sensor coordinates into the
 /// coordinate space of a demosaiced buffer that may be a different
-/// resolution — Preview quality's half-res Bayer demosaic (the standard
-/// develop chain's `effective_quality_divisor`) or the sized render
-/// path's arbitrary viewport cap (`develop_sized`'s `camera_rgb.width /
-/// raw.width`). `scale` is `buffer_dim / raw_dim`; every resize path
+/// resolution. `scale` is `buffer_dim / raw_dim`; every resize path
 /// here preserves aspect ratio, so one scalar covers both axes.
+///
+/// Both call sites compute `scale` from the *post-demosaic* buffer, not
+/// the eventual render target: the standard develop chain
+/// (`develop::geometry::effective_quality_divisor`) and `develop_sized`
+/// (which runs this stage *before* its later `max_long_edge` downsample
+/// — see that call site) each only ever land on 1.0 (Full/Amaze) or 0.5
+/// (Preview quality, or `develop_sized`'s #1637 demosaic-half fallback
+/// for a small target) — not an arbitrary viewport-cap ratio. A future
+/// caller passing a genuinely arbitrary scale is still safe: the
+/// trailing clamp below holds regardless.
 ///
 /// Each field rounds independently, which can — at odd rounding
 /// boundaries — push `left + width` or `top + height` one past the
