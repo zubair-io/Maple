@@ -8,7 +8,7 @@
  * Cache-path resolution: path-keyed off `fileinfo[0]`, not `maple_id` — see
  * `cachePathForAsset`'s doc in `fs/xmp.ts` for why previews dropped
  * content-addressing (thumbs keep it). Writes to
- * `<lib>/<fileinfo[0].path>/.maple/previews/<fileinfo[0].filename>.1280.avif`.
+ * `<lib>/<fileinfo[0].path>/.maple/previews/<fileinfo[0].filename>.avif`.
  *
  * dependsOn: ["thumb"]
  *   — chained on thumb so the FFI worker pool is already warm when this
@@ -27,12 +27,15 @@ import { defineStage, runStage, type RunStageHandle, type StageResult } from '..
 
 const previewStage = defineStage({
   name: 'preview',
-  // v3 — path-keyed + AVIF migration: previews moved off `maple_id`-keying
-  // onto `fileinfo[0].filename`, and the on-disk format switched from JPEG
-  // to AVIF. Bump so every existing row re-renders at the new path — the old
-  // `<maple_id>_1280.jpg` files become orphans, reclaimed by the
-  // missing-reaper/dedupe cache-removal hook or cache-gc's backstop sweep.
-  targetVersion: 3,
+  // v4 — KISS single-file migration (#2017): the cache filename dropped its
+  // size token, collapsing `<filename>.1280.avif` to `<filename>.avif` (one
+  // unversioned file per asset). Bump so every existing row re-renders at the
+  // new name — the old `<filename>.1280.avif` (and any `<filename>.dev_*.jpg`
+  // developed previews from the retired display-preview stage) become orphans,
+  // reclaimed by the missing-reaper/dedupe cache-removal hook or cache-gc's
+  // backstop sweep. (v3 was the earlier path-keyed + AVIF migration off the
+  // `<maple_id>_1280.jpg` scheme.)
+  targetVersion: 4,
   dependsOn: ['thumb'],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.
