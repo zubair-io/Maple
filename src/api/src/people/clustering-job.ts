@@ -26,6 +26,7 @@ import { child as childLogger } from '../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD, EMBEDDING_DIM } from './cluster-embeddings.ts';
 import { loadCentroids, loadUnassignedFaces, maxAutoNameIndex } from './cluster-load.ts';
 import { prepareClusteringPassOffThread } from './cluster-pool.ts';
+import type { MergeSuggestion } from './people-merge-suggestions.ts';
 
 const log = childLogger('people:clustering');
 
@@ -251,6 +252,9 @@ export async function runOnlineClustering(
   }
   await persistCentroids(centroidsToPersist);
 
+  // Persist this run's merge suggestions (§ person-page merge suggestions).
+  await persistMergeSuggestions(pass.seedPersonIds, pass.mergeSuggestions);
+
   // Backfill cover thumbs for any live person without one. Covers may be
   // missing on rows created before cover-seeding landed, or on people
   // created manually via `POST /api/people` ahead of any face assignment.
@@ -434,6 +438,37 @@ async function persistCentroids(centroids: CentroidEntry[]): Promise<void> {
       },
     },
   }));
+  await peopleC.bulkWrite(ops);
+}
+
+/**
+ * Bulk-write this run's merge-suggestion results across EVERY live person
+ * the load stage considered (`seedPersonIds`), not just the ones with a
+ * qualifying match — anyone absent from `suggestions` gets explicitly
+ * cleared to `null` so a stale suggestion (dismissed, or the match since
+ * hidden/merged/no-longer-best) self-heals on the very next run.
+ */
+async function persistMergeSuggestions(
+  seedPersonIds: string[],
+  suggestions: MergeSuggestion[],
+): Promise<void> {
+  if (seedPersonIds.length === 0) return;
+  const byPerson = new Map(suggestions.map((s) => [s.personIdHex, s]));
+  const peopleC = await peopleCollection();
+  const ops: AnyBulkWriteOperation<PersonDoc>[] = seedPersonIds.map((idHex) => {
+    const s = byPerson.get(idHex);
+    return {
+      updateOne: {
+        filter: { _id: new ObjectId(idHex) },
+        update: {
+          $set: {
+            suggested_merge_person_id: s ? new ObjectId(s.suggestedPersonIdHex) : null,
+            suggested_merge_score: s ? s.score : null,
+          },
+        },
+      },
+    };
+  });
   await peopleC.bulkWrite(ops);
 }
 

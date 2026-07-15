@@ -589,6 +589,61 @@ describe('prepareClusteringPass — merge suggestions', () => {
   });
 });
 
+describe('runOnlineClustering — merge suggestion persistence', () => {
+  it('writes suggested_merge_person_id/score for a qualifying pair, and self-heals to null once the match is hidden', async () => {
+    if (!mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const { runOnlineClustering, EMBEDDING_DIM } = await import('./clustering-job.ts');
+    const peopleC = await peopleCollection();
+
+    const a = await createPerson('Person G');
+    const b = await createPerson('Person H');
+    const c = await createPerson('Person I');
+    const matching = new Array(EMBEDDING_DIM).fill(0);
+    matching[0] = 1;
+    const distinct = new Array(EMBEDDING_DIM).fill(0);
+    distinct[1] = 1;
+    await peopleC.updateOne(
+      { _id: a._id },
+      { $set: { centroid: matching, centroid_face_count: 5 } },
+    );
+    await peopleC.updateOne(
+      { _id: b._id },
+      { $set: { centroid: matching, centroid_face_count: 5 } },
+    );
+    await peopleC.updateOne(
+      { _id: c._id },
+      { $set: { centroid: distinct, centroid_face_count: 5 } },
+    );
+
+    // No unassigned faces this run — purely exercises the merge-suggestion
+    // write side against the manually-seeded centroids above. (Two people
+    // scoring above the merge-suggestion threshold, while still being
+    // separate people, is only reachable in practice via centroid drift
+    // across many faces — setting centroids directly is the deterministic
+    // way to exercise the write-side wiring in isolation; Task 3 already
+    // covers the compute side the same way.)
+    await runOnlineClustering();
+
+    const freshA = await peopleC.findOne({ _id: a._id });
+    const freshB = await peopleC.findOne({ _id: b._id });
+    const freshC = await peopleC.findOne({ _id: c._id });
+    expect(freshA?.suggested_merge_person_id?.toHexString()).toBe(b._id.toHexString());
+    expect(freshA?.suggested_merge_score).toBeCloseTo(1, 5);
+    expect(freshB?.suggested_merge_person_id?.toHexString()).toBe(a._id.toHexString());
+    expect(freshC?.suggested_merge_person_id ?? null).toBeNull();
+
+    // Hide B, re-run: A's suggestion self-heals to null (its only
+    // qualifying match is now excluded from the pass).
+    await peopleC.updateOne({ _id: b._id }, { $set: { hidden: true } });
+    await runOnlineClustering();
+    const afterHide = await peopleC.findOne({ _id: a._id });
+    expect(afterHide?.suggested_merge_person_id ?? null).toBeNull();
+    expect(afterHide?.suggested_merge_score ?? null).toBeNull();
+  });
+});
+
 describe('runOnlineClustering — meili reindex trigger', () => {
   it('re-queues the assets it assigned for the meili stage', async () => {
     if (!mongoReachable) return;
