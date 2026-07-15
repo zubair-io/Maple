@@ -40,6 +40,7 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
+  ApiMergeSuggestion,
   ApiPerson,
   ApiPersonDetail,
   ApiPersonFace,
@@ -569,6 +570,13 @@ export class PeopleComponent implements OnDestroy {
     if (original) return this.coverThumbUrl(original);
     if (!detail.coverAssetId) return null;
     return this.thumbs.url(`apiId:${detail.coverAssetId}`);
+  }
+
+  suggestionCoverUrl(suggestion: ApiMergeSuggestion): string | null {
+    const original = this.people().find((p) => p.id === suggestion.personId);
+    if (original) return this.coverThumbUrl(original);
+    if (!suggestion.coverAssetId) return null;
+    return this.thumbs.url(`apiId:${suggestion.coverAssetId}`);
   }
 
   faceThumbUrl(face: ApiPersonFace): string | null {
