@@ -150,6 +150,32 @@ describe('HostedPreviewResolver.resolve', () => {
     expect(blob).toBeNull();
   });
 
+  it('traversal relPath (..): never reads/writes the cache — degrades to a cacheless extraction', async () => {
+    const readPreview = vi.fn(async () => null);
+    const writePreview = vi.fn();
+    const jpeg = new Blob(['jpeg']);
+    const extractEmbeddedPreview = vi.fn(async () => ({ width: 8, height: 6, blob: jpeg }));
+
+    const resolver = setup(
+      { findAsset: () => rawAsset(), currentFolder: () => ({ write: true }) },
+      { readPreview, writePreview },
+      { extractEmbeddedPreview },
+    );
+
+    // A malicious/deep-link id with a traversal segment must not be turned into
+    // a `.maple/previews/` path — `_locate` rejects it via `validateRelPath`, so
+    // the cache is never touched (extraction still runs for display).
+    const blob = await resolver.resolve(
+      'lib:../../etc/a.dng' as AssetId,
+      vi.fn(async () => new Uint8Array([1])),
+    );
+    await settle();
+
+    expect(blob).toBe(jpeg);
+    expect(readPreview).not.toHaveBeenCalled();
+    expect(writePreview).not.toHaveBeenCalled();
+  });
+
   it('extraction failure (no embedded preview) is swallowed — returns null, not a throw', async () => {
     const extractEmbeddedPreview = vi.fn(async () => {
       throw new Error('no embedded preview / thumbnail in RAW');
