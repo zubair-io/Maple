@@ -234,8 +234,10 @@ struct EditorView: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
             .ignoresSafeArea(edges: .bottom)
-            .opacity(chromeOpacity)
-            .allowsHitTesting(isRegular || chromeVisible)
+            // The classic iPhone controls are persistent, so their header
+            // must remain equally stable instead of dimming after idle.
+            .opacity(isIPhone ? 1 : chromeOpacity)
+            .allowsHitTesting(isIPhone || isRegular || chromeVisible)
 
             // ── LAYER 5 : bottom control bar (variant A / compact only) ───────
             //
