@@ -526,7 +526,7 @@ struct AppShell: View {
             // thumbnail pipeline) keeps showing the pre-edit render.
             onEditorDismiss: {
                 if let id = browseVM.selectedID, let session = sessions[id] {
-                    session.refreshThumbnailFromCurrentGpuFrame()
+                    session.persistDisplayPreviewOnExit()
                 }
                 mode = .preview
             },
@@ -625,6 +625,13 @@ struct AppShell: View {
                 selectedSession?.representOnForeground()
             }
             #endif
+            // #2009 — backgrounding is an exit for the preview persist: an
+            // edit in flight (GPU frame not yet read back, or a captured frame
+            // still in the idle-debounce window) must land before the app can
+            // be suspended/killed. No-op unless a session is actively editing.
+            if newPhase == .background, mode == .editing {
+                selectedSession?.persistDisplayPreviewOnExit()
+            }
         }
     }
 

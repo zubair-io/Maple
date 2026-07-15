@@ -84,6 +84,9 @@ struct EditorDestination: View {
             // so an undo-then-leave persists the right value, not the stale
             // pre-undo value sitting in the debounce window.
             if let session = state?.session {
+                // #2009 — persist the developed `<filename>.avif` on exit
+                // (GPU readback + any pending idle-debounce frame).
+                session.persistDisplayPreviewOnExit()
                 Task.detached { await session.flushPendingSidecarWrite() }
             }
         }

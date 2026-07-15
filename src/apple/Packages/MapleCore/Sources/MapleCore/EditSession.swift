@@ -367,6 +367,23 @@ public final class EditSession {
     /// `writeXMP` API instead.
     @ObservationIgnored let sidecarStore: (any SidecarStoreProtocol)?
 
+    /// Where the editor persists the developed display preview (#2009) — the
+    /// canonical `<filename>.avif`. Local file for URL-backed assets, an
+    /// `/api/preview` upload for cloud assets, `nil` for sourceless assets with
+    /// no destination. Written on an idle debounce + on exit, never per tick
+    /// (`EditSession+DisplayPreviewPersist`).
+    @ObservationIgnored let previewSink: (any DisplayPreviewSink)?
+
+    /// Latest full-render frame awaiting persist to `previewSink`. Captured by
+    /// the render-publish path; encoded + written once the idle debounce fires
+    /// or the editor exits. `@ObservationIgnored` — persist bookkeeping, not
+    /// view state.
+    @ObservationIgnored var pendingPreviewImage: CIImage?
+
+    /// The in-flight idle-debounce persist. Cancelled + rescheduled on each new
+    /// captured frame; cancelled + flushed on exit.
+    @ObservationIgnored var previewPersistTask: Task<Void, Never>?
+
     @ObservationIgnored private var sidecarErrorTask: Task<Void, Never>?
 
     /// The wgpu live-render driver (epic #925, P4b-apple / #1028). Created
@@ -484,6 +501,7 @@ public final class EditSession {
                 model: AdjustmentModel = .default,
                 culling: CullingState = CullingState(),
                 remoteSidecarStore: (any SidecarStoreProtocol)? = nil,
+                remotePreviewSink: (any DisplayPreviewSink)? = nil,
                 downloadProgress: DownloadProgress? = nil) {
         self.asset = asset
         self.model = model
@@ -506,6 +524,16 @@ public final class EditSession {
             self.sidecarStore = nil
         }
 
+        // Preview sink parallels the sidecar store (#2009): a local file next
+        // to the RAW for URL-backed assets, else the injected cloud uploader,
+        // else no destination.
+        if let url = asset.primaryURL {
+            self.previewSink = LocalDisplayPreviewSink(
+                previewURL: MapleSidecarPaths.previewURL(for: url))
+        } else {
+            self.previewSink = remotePreviewSink
+        }
+
         if let store = self.sidecarStore {
             sidecarErrorTask = Task { [weak self, store] in
                 // Mirror the tileEventsTask pattern: check cancellation before
@@ -525,6 +553,7 @@ public final class EditSession {
 
     deinit {
         sidecarErrorTask?.cancel()
+        previewPersistTask?.cancel()
     }
 
     // MARK: - Public lifecycle
@@ -562,39 +591,7 @@ public final class EditSession {
         model = originalModel
     }
 
-    /// Replace the IPTC keyword list (#632). Routes through `culling`'s
-    /// `didSet` which schedules the same 750ms-debounced XMP write the
-    /// rating/flag mutators use — keywords have zero pixel impact so the
-    /// render path is intentionally not kicked. Duplicates are removed
-    /// preserving first-occurrence order (`Set` would lose order); blank
-    /// entries are dropped since `dc:subject` rejects empty `rdf:li`
-    /// content on the read path.
-    public func setKeywords(_ keywords: [String]) {
-        var seen: Set<String> = []
-        var deduped: [String] = []
-        for raw in keywords {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
-            seen.insert(trimmed)
-            deduped.append(trimmed)
-        }
-        guard culling.keywords != deduped else { return }
-        culling.keywords = deduped
-    }
-
-    /// Force an immediate flush of any pending sidecar write. Call before
-    /// tearing the editor down so an undo-then-leave sequence persists
-    /// the right value (spec § S5 risk #4b). No-op when there's no store
-    /// (e.g. preview session, in-memory test).
-    public func flushPendingSidecarWrite() async {
-        guard let store = sidecarStore else { return }
-        if let xmp = store as? XMPSidecarStore {
-            await xmp.flush()
-        }
-        // Other SidecarStoreProtocol conformers (CloudSidecarStore) have
-        // their own flush semantics — they coalesce per-request and
-        // there's no synchronous "force now" call. Their inflight POST
-        // either lands or doesn't on the next request cycle.
-    }
+    // `setKeywords` + `flushPendingSidecarWrite` moved to
+    // `EditSession+Lifecycle.swift` (file-size budget, #2009).
 
 }

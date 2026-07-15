@@ -43,6 +43,16 @@ extension EditSession {
         _scheduleRender(phase: .fast)
     }
 
+    /// Force a full-resolution render immediately (useful before export).
+    public func renderFull() async {
+        renderRequested = true
+        // Bypass the scheduler — caller wants the work to land before
+        // returning. Take a fresh generation so the gen-check inside
+        // `decodeAndRender` lines up against the live counter.
+        let gen = await renderActor.currentGeneration()
+        await decodeAndRender(targetSize: nil, phase: .refine, gen: gen)
+    }
+
     /// Bake the current model against a fresh full-quality decode for export.
     public func renderForExport() async throws -> CIImage {
         // #1781: decode-bake anchor with a present frame; the export

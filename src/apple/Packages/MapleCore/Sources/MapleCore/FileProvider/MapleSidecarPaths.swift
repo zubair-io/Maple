@@ -20,29 +20,29 @@ public enum MapleSidecarPaths {
             .appendingPathComponent("\(key).avif")
     }
 
-    /// `<assetDir>/.maple/previews/<sha256prefix16(basename)>_1600.jpg`
+    /// `<assetDir>/.maple/previews/<filename>.avif` — the canonical
+    /// cross-platform display-preview file (#2009, epic #1993 "KISS preview
+    /// redesign"). `<filename>` is the ORIGINAL filename *including* its
+    /// extension, e.g. `IMG_1234.CR2` → `IMG_1234.CR2.avif`. Server, Apple, and
+    /// Web all resolve this exact path so a preview written by one is read by
+    /// the others.
+    ///
+    /// Deliberately unhashed and token-free — no `<sha256prefix16>`, no
+    /// `_1600` size token, no `.v` version marker. The filename itself is the
+    /// version boundary: changing the scheme (from the old
+    /// `<sha256prefix16>_1600.jpg`) retires every pre-#2009 preview because the
+    /// new reader simply never looks at the old path. The preview is a pure
+    /// cache — overwritten in place, never an original, always re-derivable
+    /// (unedited = camera embedded preview; edited = developed RAW+XMP render).
+    ///
+    /// Thumbs keep their `<sha256prefix16(basename)>.avif` scheme
+    /// (`thumbURL` above) — this simplification is previews-only.
     public static func previewURL(for assetURL: URL) -> URL {
-        let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
+        // Append each component separately — avoids slash-in-component edge
+        // cases (matches `thumbURL`).
         return assetURL.deletingLastPathComponent()
             .appendingPathComponent(".maple")
             .appendingPathComponent("previews")
-            .appendingPathComponent("\(key)_1600.jpg")
-    }
-
-    /// `<assetDir>/.maple/previews/<sha256prefix16(basename)>_1600.v` — the
-    /// render-version marker for the display-preview tier (#1976). The JPEG
-    /// filename is a cross-consumer contract (the pano stitcher writes it,
-    /// the Self-Hosted API serves it), so the tier versions via this sibling
-    /// marker instead of the key — the same pattern as the web thumb cache's
-    /// `.v` marker (#1928). A preview whose marker is missing or older than
-    /// `ThumbnailLoader.displayPreviewTierVersion` reads as stale: it may
-    /// have been persisted from a render with since-fixed semantics (the
-    /// #1976 cyan-anchored renders had no marker at all).
-    public static func previewVersionURL(for assetURL: URL) -> URL {
-        let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
-        return assetURL.deletingLastPathComponent()
-            .appendingPathComponent(".maple")
-            .appendingPathComponent("previews")
-            .appendingPathComponent("\(key)_1600.v")
+            .appendingPathComponent("\(assetURL.lastPathComponent).avif")
     }
 }
