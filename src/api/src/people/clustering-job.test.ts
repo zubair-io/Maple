@@ -519,6 +519,76 @@ describe('recomputeCentroids', () => {
   });
 });
 
+describe('prepareClusteringPass — merge suggestions', () => {
+  it('suggests the best-matching other live, non-hidden person above threshold', async () => {
+    if (!mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { prepareClusteringPass, EMBEDDING_DIM } = await import('./cluster-load.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const peopleC = await peopleCollection();
+
+    const a = await createPerson('Person A');
+    const b = await createPerson('Person B');
+    const centroid = new Array(EMBEDDING_DIM).fill(0);
+    centroid[0] = 1;
+    await peopleC.updateOne({ _id: a._id }, { $set: { centroid, centroid_face_count: 5 } });
+    await peopleC.updateOne({ _id: b._id }, { $set: { centroid, centroid_face_count: 5 } });
+
+    const pass = await prepareClusteringPass();
+    const forA = pass.mergeSuggestions.find((s) => s.personIdHex === a._id.toHexString());
+    expect(forA?.suggestedPersonIdHex).toBe(b._id.toHexString());
+    expect(forA?.score).toBeCloseTo(1, 5);
+  });
+
+  it('excludes a hidden person from suggestions', async () => {
+    if (!mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { prepareClusteringPass, EMBEDDING_DIM } = await import('./cluster-load.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const peopleC = await peopleCollection();
+
+    const a = await createPerson('Person C');
+    const hiddenB = await createPerson('Person D');
+    const centroid = new Array(EMBEDDING_DIM).fill(0);
+    centroid[0] = 1;
+    await peopleC.updateOne({ _id: a._id }, { $set: { centroid, centroid_face_count: 5 } });
+    await peopleC.updateOne(
+      { _id: hiddenB._id },
+      { $set: { centroid, centroid_face_count: 5, hidden: true } },
+    );
+
+    const pass = await prepareClusteringPass();
+    const forA = pass.mergeSuggestions.find((s) => s.personIdHex === a._id.toHexString());
+    expect(forA).toBeUndefined();
+  });
+
+  it('excludes a dismissed pair', async () => {
+    if (!mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { prepareClusteringPass, EMBEDDING_DIM } = await import('./cluster-load.ts');
+    const { peopleCollection, personMergeDismissalsCollection } = await import('../db/client.ts');
+    const { sortedPairKey } = await import('./people-merge-suggestions.ts');
+    const peopleC = await peopleCollection();
+
+    const a = await createPerson('Person E');
+    const b = await createPerson('Person F');
+    const centroid = new Array(EMBEDDING_DIM).fill(0);
+    centroid[0] = 1;
+    await peopleC.updateOne({ _id: a._id }, { $set: { centroid, centroid_face_count: 5 } });
+    await peopleC.updateOne({ _id: b._id }, { $set: { centroid, centroid_face_count: 5 } });
+
+    const dismissalsC = await personMergeDismissalsCollection();
+    await dismissalsC.insertOne({
+      pair: sortedPairKey(a._id.toHexString(), b._id.toHexString()),
+      created_at: new Date().toISOString(),
+    });
+
+    const pass = await prepareClusteringPass();
+    const forA = pass.mergeSuggestions.find((s) => s.personIdHex === a._id.toHexString());
+    expect(forA).toBeUndefined();
+  });
+});
+
 describe('runOnlineClustering — meili reindex trigger', () => {
   it('re-queues the assets it assigned for the meili stage', async () => {
     if (!mongoReachable) return;
