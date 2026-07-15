@@ -239,3 +239,79 @@ never serves the app shell in place of an API response.
 | ------------------ | ------------------------------------------------------------- | ---------------------------------- |
 | SW thumbnails/data | DevTools → Application → Cache Storage (or unregister the SW) | Thumbnails re-fetched from the API |
 | App shell / assets | Deploy a new build (update flow) or unregister the SW         | Next load fetches the new bundle   |
+
+---
+
+## Web Hosted — unedited-preview cache (`.maple/previews/`, #2010)
+
+The "unedited preview" is the higher-resolution still the Preview screen swaps
+in over the grid thumbnail (the camera-embedded JPEG a RAW already carries, at
+1280 px long edge — **not** a re-render of the sensor data through the develop
+pipeline). In **Hosted** (File System Access) mode this is produced client-side
+and cached on disk next to the photos, following the canonical cross-platform
+contract shared with the server and Apple app.
+
+**Location:** `{photo_directory}/.maple/previews/{original_filename}.avif` — the
+`.maple/` folder sits in the asset's **own** directory (per-directory, like the
+server/Apple write), and the filename keeps its original extension
+(`IMG_1234.CR2` → `.maple/previews/IMG_1234.CR2.avif`). No size token, no
+version token; one file per asset, overwritten in place, fully re-derivable.
+Keyed off **directory + filename**, not a content hash — a preview written by
+any client lands exactly where every other client looks for it. (Contrast the
+web **thumbnail** tier, which still uses a single root `.maple/thumbs/<sha>`
+convention; aligning thumbs to the canonical per-directory layout is a separate
+epic stage.)
+
+**Derivation:** `EmbeddedPreviewService` (a dedicated Web Worker, separate from
+the decode/live-render worker so it never contends with that worker's
+single-in-flight-decode gate) calls the shared Rust core
+`raw_core::preview::extract_embedded_preview` via the `raw-wasm`
+`extract_embedded_preview` binding — the exact same extraction (rawler
+preview/full/thumbnail-slot hunt + resize + baked EXIF orientation) the native
+server/Apple preview tier uses, so the pixels match across platforms.
+
+**Format decision — genuine AVIF, browser-native, or defer.** The cache file
+MUST be real AVIF: the server's #2014 validator decodes derivatives and rejects
+a JPEG wearing an `.avif` extension. `raw-core`'s `avif` feature is deliberately
+excluded from `raw-wasm` (keeps `ravif`/`rav1e` out of the wasm32 build), so the
+WASM binding emits JPEG. The AVIF is produced **in the browser** via the same
+canvas `convertToBlob('image/avif')` path the grid-thumb tier already uses
+(`image-utils.ts`'s `canEncodeAvif` probe → `encodePreviewBlobToAvif`):
+
+- **A browser whose canvas can genuinely encode AVIF** transcodes the extracted
+  preview to real AVIF and writes `<filename>.avif`.
+- **A browser that cannot** writes **nothing** — never a mislabeled `.avif`. The
+  extracted preview still displays in-memory (the fast JPEG blob drives the
+  `<img>`); only the on-disk interop cache is skipped, and it re-derives on the
+  next visit (pure cache, no correctness impact).
+
+**Reality of canvas AVIF-encode support (measured, not assumed):** it is _not_
+broadly available in shipping engines today — `canvas.convertToBlob('image/avif')`
+on current Chromium silently substitutes PNG (verified against Chrome 148:
+WebP/JPEG encode, AVIF does not), which the `blob.type === 'image/avif'` check
+catches and treats as "can't encode." So in practice **Hosted-web is primarily a
+_reader_ of the canonical `<filename>.avif`** (produced by the Self-Hosted
+server / Apple app / a future AVIF-capable browser) and writes it only where a
+browser genuinely can. This is precisely the ticket's option (b) — "defer AVIF
+production to the server/next-index and only READ `<filename>.avif` (writing …
+only where it genuinely can)." It avoids pulling an AV1 encoder (`ravif`/`rav1e`)
+into the wasm32 build, reuses the reviewed grid-thumb precedent, honors the
+strict genuine-AVIF contract, and lights up writes automatically as engines add
+canvas AVIF encode. The alternative — a wasm AVIF encoder for guaranteed
+Hosted-web writes today — was deliberately not taken here (it reverses a
+documented `raw-wasm` decision and adds real binary/encode cost); it remains a
+possible follow-up if guaranteed same-session Hosted-web interop is required.
+
+The display path is always the extracted JPEG (fast, universal); the AVIF write
+is a fire-and-forget side-effect gated on a write-capable folder.
+
+Implemented by `HostedPreviewResolver` (`lib/state/hosted-preview-resolver.service.ts`),
+routed through `LibraryCache.subscribePreviewUrl`. Read/write-through helpers:
+`MapleCacheService.readPreview` / `writePreview`. No `PIPELINE_OUTPUT_VERSION`
+marker (contrast the thumb tier): a preview is a pure re-encode of the camera's
+own embedded JPEG, never touching the develop pipeline, so a raw-core/AgX bump
+can't stale it.
+
+| Cache                   | How to Clear                                     | Effect                            |
+| ----------------------- | ------------------------------------------------ | --------------------------------- |
+| Hosted unedited preview | Delete `.maple/previews/` in the photo directory | Preview re-extracted on next open |
