@@ -83,6 +83,19 @@ extension ThumbnailLoader {
         return mtime.timeIntervalSince1970
     }
 
+    /// Tolerance on the "delta must not be negative" side of
+    /// `editedPreviewMarkerIsCurrent`'s check — absorbs sub-millisecond
+    /// float round-trip noise between the epoch captured at write time and
+    /// the SAME unchanged file's epoch re-read at check time (two
+    /// `FileManager.attributesOfItem` calls a `Date` → `Double` →
+    /// `%.6f`-formatted-text → `Double` trip apart are not guaranteed
+    /// bit-identical even when nothing touched the file in between —
+    /// observed as a spurious same-instant invalidation under heavy
+    /// concurrent load in the full test suite, PR #2013). Two orders of
+    /// magnitude below any realistic sidecar rewrite gap, so it never masks
+    /// a genuine revert-to-older-content case.
+    private static let sidecarEpochPrecisionEpsilon: TimeInterval = 0.25
+
     /// Whether the local edited/developed preview for `assetURL` still
     /// matches the CURRENT edit sidecar, tolerating `sidecarAutosaveSlack`
     /// (below) of drift between when the render-publish path captured the
@@ -103,7 +116,7 @@ extension ThumbnailLoader {
             let recorded = TimeInterval(text.trimmingCharacters(in: .whitespacesAndNewlines))
         else { return false }
         let delta = sidecarStateEpoch(for: assetURL) - recorded
-        return delta >= 0 && delta <= sidecarAutosaveSlack
+        return delta >= -sidecarEpochPrecisionEpsilon && delta <= sidecarAutosaveSlack
     }
 
     /// Stamp the CURRENT sidecar-state epoch next to a just-written edited
