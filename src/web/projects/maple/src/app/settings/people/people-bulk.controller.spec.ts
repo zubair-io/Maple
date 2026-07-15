@@ -93,4 +93,22 @@ describe('PeopleBulkController — merge suggestions', () => {
     await controller.dismissSuggestion();
     expect(toast).toHaveBeenCalledWith('boom', 'error');
   });
+
+  it('dismissSuggestion: increments peopleBulkBusy while in flight, decrements after', async () => {
+    let resolveDismiss!: () => void;
+    dismissMergeSuggestion.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveDismiss = resolve;
+      }),
+    );
+
+    expect(controller.peopleBulkBusy()).toBe(0);
+    const pending = controller.dismissSuggestion();
+    await Promise.resolve();
+    expect(controller.peopleBulkBusy()).toBe(1);
+
+    resolveDismiss();
+    await pending;
+    expect(controller.peopleBulkBusy()).toBe(0);
+  });
 });
