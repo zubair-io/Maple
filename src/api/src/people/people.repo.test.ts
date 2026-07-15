@@ -465,3 +465,74 @@ describe('people-search-reindex — markAssetsForMeiliReindex', () => {
     expect(version).toBe(0);
   });
 });
+
+describe('getPerson — suggestedMerge', () => {
+  it('resolves suggested_merge_person_id into display info', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson, getPerson } = await import('./people.repo.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const peopleC = await peopleCollection();
+
+    const subject = await createPerson('Person S1');
+    const target = await createPerson('Person T1');
+    await peopleC.updateOne(
+      { _id: target._id },
+      { $set: { cover_asset_id: 'abc123', cover_bbox: { x: 0, y: 0, w: 1, h: 1 } } },
+    );
+    await peopleC.updateOne(
+      { _id: subject._id },
+      { $set: { suggested_merge_person_id: target._id, suggested_merge_score: 0.87 } },
+    );
+
+    const detail = await getPerson(subject._id);
+    expect(detail?.suggestedMerge?.personId.toHexString()).toBe(target._id.toHexString());
+    expect(detail?.suggestedMerge?.name).toBe('Person T1');
+    expect(detail?.suggestedMerge?.coverAssetId).toBe('abc123');
+    expect(detail?.suggestedMerge?.score).toBe(0.87);
+  });
+
+  it('returns null when no suggestion is set', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson, getPerson } = await import('./people.repo.ts');
+
+    const subject = await createPerson('Person S2');
+    const detail = await getPerson(subject._id);
+    expect(detail?.suggestedMerge).toBeNull();
+  });
+
+  it('defensively returns null when the suggested target has since been merged away', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson, getPerson } = await import('./people.repo.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const peopleC = await peopleCollection();
+
+    const subject = await createPerson('Person S3');
+    const target = await createPerson('Person T3');
+    await peopleC.updateOne(
+      { _id: subject._id },
+      { $set: { suggested_merge_person_id: target._id, suggested_merge_score: 0.9 } },
+    );
+    await peopleC.updateOne({ _id: target._id }, { $set: { merged_into: subject._id } });
+
+    const detail = await getPerson(subject._id);
+    expect(detail?.suggestedMerge).toBeNull();
+  });
+
+  it('defensively returns null when the suggested target has since been hidden', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson, getPerson } = await import('./people.repo.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const peopleC = await peopleCollection();
+
+    const subject = await createPerson('Person S4');
+    const target = await createPerson('Person T4');
+    await peopleC.updateOne(
+      { _id: subject._id },
+      { $set: { suggested_merge_person_id: target._id, suggested_merge_score: 0.9 } },
+    );
+    await peopleC.updateOne({ _id: target._id }, { $set: { hidden: true } });
+
+    const detail = await getPerson(subject._id);
+    expect(detail?.suggestedMerge).toBeNull();
+  });
+});
