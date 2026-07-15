@@ -1,5 +1,5 @@
 /**
- * Server-wide concurrency gate for ON-DEMAND (request-path) preview
+ * API-process-wide concurrency gate for ON-DEMAND (request-path) preview
  * regeneration — `GET /api/preview/:slug/*` (`routes/library/preview.ts`)
  * and `GET /api/fs/preview` (`routes/fs-previews.ts`) both call
  * `generatePreview` synchronously on a cache miss. Unlike the background
@@ -32,7 +32,7 @@
  * warm at boot" convention for the FFI pool — see `index.ts`).
  */
 
-import { workerConfigCollection } from '../db/client.ts';
+import { isDbConnected, workerConfigCollection } from '../db/client.ts';
 import { WorkerConfigRepo } from '../workers/worker-config.repo.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -105,9 +105,21 @@ class PreviewOndemandLimiter {
   /** Seed `limit` from the persisted `preview` stage concurrency on first
    * use only — avoids a DB round-trip on every on-demand request. Best
    * effort: a failure (DB unreachable) just leaves the built-in default in
-   * place; `setLimit` from the live PATCH hook still applies going forward. */
+   * place; `setLimit` from the live PATCH hook still applies going forward.
+   *
+   * Gated on `isDbConnected()` — the same guard `fs-previews.ts` uses before
+   * its own DB lookup — so a request that arrives before the API has ever
+   * connected (or during an outage) skips straight to `DEFAULT_ONDEMAND_LIMIT`
+   * instead of paying the driver's ~5s connect/server-selection timeout on
+   * the hot request path. `isDbConnected()` is a synchronous `_db !== null`
+   * check (see `db/client.ts`), so it can never itself stall. Deliberately
+   * NOT memoized when skipped this way: a later call, once the DB comes up,
+   * gets a real chance to seed from the persisted value instead of staying
+   * stuck at the default until an operator happens to touch the `preview`
+   * stage's concurrency setting. */
   private ensureSeeded(): Promise<void> {
     if (!this.seedPromise) {
+      if (!isDbConnected()) return Promise.resolve();
       this.seedPromise = (async () => {
         try {
           const repo = new WorkerConfigRepo(await workerConfigCollection());
