@@ -85,6 +85,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Fixtures/auth-contract.json"),
+                .copy("Fixtures/preview-path-contract.json"),
             ]
         ),
     ],
