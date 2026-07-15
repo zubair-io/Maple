@@ -139,6 +139,7 @@
         "src/thumbs/imgdecode-pool.test.ts",
         "src/thumbs/render.test.ts",
         "src/thumbs/render.ts",
+        "src/workers/cache-gc.pano-preseed.test.ts",
         "src/workers/cache-gc.test.ts",
         "src/workers/cache-gc.ts",
         "src/workers/dedupe.test.ts",

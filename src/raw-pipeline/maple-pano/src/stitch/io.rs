@@ -27,11 +27,21 @@ use crate::ingest::PlanarImage;
 /// matters on the 100MP+ pano, notably on iPad via the Apple FFI). The single
 /// interleaved `raw_core::Image` copy is required by raw-core's view-tail API,
 /// which operates on interleaved `[f32; 3]`.
-/// First 8 bytes of `SHA256(name)` as lowercase hex — the canonical
-/// `.maple/{thumbs,previews}/` cache-key derivation, single-sourced by
-/// contract with Apple (`MapleThumbCacheKey.sha256Prefix16`), the API
-/// (`src/api/src/fs/xmp.ts`), and the web (`maple-cache/sha.ts`). The Rust
-/// copy is guarded by `sha256_prefix16_matches_frozen_cross_platform_value`.
+/// First 8 bytes of `SHA256(name)` as lowercase hex — the pano-injection
+/// pre-seed cache key for BOTH `write_display_sidecars` derivatives, single-
+/// sourced by contract with Apple's SYNCHRONOUS, hash-of-filename-only path
+/// resolver (`MapleSidecarPaths.thumbURL`/`previewURL`, which mirror this
+/// function exactly). This resolver is called from UI code that needs a
+/// display URL immediately — it cannot afford to read and hash the pano's
+/// actual file bytes, so this stays a cheap filename hash rather than a
+/// `maple_id` (which every other, INDEXED thumb/preview now uses — see
+/// `cachePathForAsset`'s doc in `src/api/src/fs/xmp.ts`). The real,
+/// properly-keyed derivatives still get written once the pano is indexed
+/// through the standard pipeline; this pre-seed is a short-lived,
+/// best-effort stand-in for the gap before that happens — `cache-gc.ts`'s
+/// orphan sweep has a matching carve-out so it doesn't delete this scheme
+/// out from under a freshly-stitched pano (#1365 follow-up). The Rust copy
+/// is guarded by `sha256_prefix16_matches_frozen_cross_platform_value`.
 pub(crate) fn sha256_prefix16(name: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(name.as_bytes());
@@ -112,12 +122,24 @@ enum SidecarFormat {
     Jpeg,
 }
 
-/// Write the canonical `.maple/thumbs` (AVIF) + `.maple/previews` (JPEG)
-/// derivatives for the pano at `png_path`, downscaled from the
+/// Write the pano-injection pre-seed `.maple/thumbs` (AVIF) + `.maple/previews`
+/// (JPEG) derivatives for the pano at `png_path`, downscaled from the
 /// already-developed sRGB display buffer (interleaved RGB16, as returned by
-/// `develop_for_display`). The `thumbs` tier matches the AVIF-encode
-/// convention used elsewhere (`raw-ffi`'s embedded-preview thumbnail path);
-/// `previews` is out of scope for that migration and stays JPEG.
+/// `develop_for_display`). Both tiers are `sha256_prefix16(filename)`-keyed —
+/// see that function's doc for why: this pre-seed is read by Apple's
+/// SYNCHRONOUS, hash-of-filename-only `MapleSidecarPaths` resolver, called
+/// from UI code that needs a display URL immediately and cannot afford to
+/// read+hash the pano's actual bytes. The real `maple_id`-keyed thumb and
+/// the developed-preview-tier's own encoding
+/// (`ThumbnailLoader+DisplayPreview.swift`, 1600px JPEG) still apply once the
+/// pano is indexed / the tier next re-renders; this pre-seed exists only to
+/// fill the gap before that happens, so it must match whatever Apple's
+/// reader is CURRENTLY looking for at the SAME key, not the server's
+/// separate, `maple_id`/path-keyed indexed-asset convention
+/// (`cachePathForAsset` in `src/api/src/fs/xmp.ts`) — the two are
+/// deliberately different schemes for different purposes; see `cache-gc.ts`'s
+/// legacy-scheme carve-out for how the server still avoids orphan-sweeping
+/// this one (#1365 follow-up).
 ///
 /// Consumes `display` (moved into an `ImageBuffer` — no full-frame clone;
 /// peak RSS matters on a 100MP+ pano). Non-fatal to the caller: a stitch has
@@ -224,7 +246,8 @@ mod tests {
     #[test]
     fn sha256_prefix16_matches_frozen_cross_platform_value() {
         // MUST equal Apple's MapleThumbCacheKey.sha256Prefix16 and the API's
-        // sha256Prefix16 for the same input — the .maple/ cache key contract.
+        // sha256Prefix16 for the same input — the .maple/ pre-seed cache key
+        // contract.
         assert_eq!(sha256_prefix16("panorama-test.png"), "88bab9b0d022c93c");
     }
 

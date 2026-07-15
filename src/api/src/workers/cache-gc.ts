@@ -19,6 +19,17 @@
  *     `missing-reaper.ts`/`dedupe.ts`) — for whatever that missed (a crash
  *     mid-cleanup, files present before this backstop ever ran).
  *
+ * Both sweeps ALSO recognize a third scheme: `sha256_prefix16(basename)`-keyed
+ * pre-seed thumbs/previews written by the pano stitcher
+ * (`maple-pano/src/stitch/io.rs::write_display_sidecars`, #1365) immediately
+ * after stitching, before the pano is indexed and gets a `maple_id`. Apple's
+ * `MapleSidecarPaths` mirrors this exact scheme on the read side, so it is a
+ * real, live, cross-platform-frozen key — NOT a "legacy, always-orphaned"
+ * shape the way the old pre-content-addressing `sha256_prefix16` thumb keys
+ * are (those really are always orphans post-migration; this one, keyed the
+ * SAME way, is not). Recognized iff SOME live filename in this exact
+ * directory hashes to the file's stem — see `isOrphanThumb`/`isOrphanPreview`.
+ *
  * No migration sentinel:
  *   The set of orphans changes continuously (a re-render at a new size, a
  *   rename, a hard-delete each create one). A one-shot sentinel-gated sweep
@@ -34,6 +45,7 @@ import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
+import { sha256Prefix16 } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('cache-gc');
@@ -75,12 +87,20 @@ const FAIL_THRESHOLD = 3;
  * Matches `<maple_id>` (32 lowercase hex), thumbs-only now that previews
  * dropped content-addressing (see this file's module doc). The legacy
  * `sha256_prefix16` cache key is 16 hex chars and does NOT match — it falls
- * through to the "unknown shape, unlink" branch. The trailing optional
- * suffix group is dead for thumbs' actual naming (`<maple_id>.avif`, no
- * suffix) but kept harmless/permissive rather than tightened without a
- * concrete need to.
+ * through to the pano-pre-seed check (`LEGACY_SHA256_PREFIX16_RE`) below.
+ * The trailing optional suffix group is dead for thumbs' actual naming
+ * (`<maple_id>.avif`, no suffix) but kept harmless/permissive rather than
+ * tightened without a concrete need to.
  */
 const MAPLE_ID_RE = /^[0-9a-f]{32}(?:_[a-z0-9_]+)?$/;
+
+/** Matches a `sha256_prefix16(basename)` stem (16 lowercase hex) — the
+ * pano-injection pre-seed thumb key (module doc). */
+const LEGACY_SHA256_PREFIX16_RE = /^[0-9a-f]{16}$/;
+
+/** Matches a `sha256_prefix16(basename)_1600.jpg` filename — the
+ * pano-injection pre-seed preview (module doc). Captures the 16-hex key. */
+const LEGACY_PANO_PREVIEW_RE = /^([0-9a-f]{16})_1600\.jpg$/;
 
 /** Resolve `libraryRoot`'s registered `_id`, or `null` if it isn't a
  * registered library root (or the lookup fails). `null` makes the previews
@@ -119,6 +139,10 @@ interface SweepContext {
   counters: SweepCounters;
   now: number;
   knownMapleIds: ReadonlySet<string>;
+  /** relDir -> live filenames at that exact directory. Despite the name,
+   * consumed by BOTH `sweepPreviewsDir` (primary use) and `sweepThumbsDir`
+   * (the pano-pre-seed legacy-scheme check only — see `isOrphanThumb`'s
+   * doc); not renamed to avoid unrelated churn across every call site. */
   knownPreviewFilenames: ReadonlyMap<string, ReadonlySet<string>>;
   libraryId: ObjectId | null;
 }
@@ -126,21 +150,36 @@ interface SweepContext {
 const THUMB_EXTS = new Set(['.jpg', '.avif']);
 const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.json']);
 
-function isOrphanThumb(knownMapleIds: ReadonlySet<string>, name: string): boolean {
+/** A thumb is orphaned unless it matches ONE of two live schemes: the
+ * modern, indexed-asset `<maple_id>.avif`, or the pano-injection pre-seed
+ * `<sha256_prefix16(liveFilename)>.avif` (module doc) — legitimate iff SOME
+ * live filename in this exact directory hashes to the file's stem. */
+function isOrphanThumb(
+  knownMapleIds: ReadonlySet<string>,
+  liveNames: ReadonlySet<string>,
+  name: string,
+): boolean {
   const ext = path.extname(name);
   const stem = name.slice(0, -ext.length);
-  if (!MAPLE_ID_RE.test(stem)) return true; // e.g. legacy 16-hex sha256_prefix16 — definitely orphaned
-  // Stem is `<maple_id>` (thumbs ignore size — one file per asset).
-  return !knownMapleIds.has(stem.slice(0, 32));
+  if (MAPLE_ID_RE.test(stem)) {
+    return !knownMapleIds.has(stem.slice(0, 32));
+  }
+  if (LEGACY_SHA256_PREFIX16_RE.test(stem)) {
+    for (const liveName of liveNames) {
+      if (sha256Prefix16(liveName) === stem) return false;
+    }
+  }
+  return true; // unrecognized shape, or a recognized-but-dead pre-seed key
 }
 
-/** A preview is orphaned when the exact source filename recovered from its
- * name (via `sourceFilenameForPreviewCacheName` — an unrecognized suffix
- * shape means an unconditional orphan) isn't currently live at this exact
- * directory. No resolvable library id → no known-live set was (or safely
- * could be) built for this pass, so never delete — a transient failure to
- * resolve the library must not mass-delete live previews (see
- * `resolveLibraryId`). */
+/** A preview is orphaned unless it matches ONE of two live schemes: the
+ * modern, path-keyed `<filename>.<suffix>` (via
+ * `sourceFilenameForPreviewCacheName`), or the pano-injection pre-seed
+ * `<sha256_prefix16(liveFilename)>_1600.jpg` (module doc) — legitimate iff
+ * SOME live filename in this exact directory hashes to the captured key. No
+ * resolvable library id → no known-live set was (or safely could be) built
+ * for this pass, so never delete — a transient failure to resolve the
+ * library must not mass-delete live previews (see `resolveLibraryId`). */
 function isOrphanPreview(
   libraryId: ObjectId | null,
   liveNames: ReadonlySet<string>,
@@ -148,7 +187,15 @@ function isOrphanPreview(
 ): boolean {
   if (libraryId === null) return false;
   const source = sourceFilenameForPreviewCacheName(name);
-  return source === null || !liveNames.has(source);
+  if (source !== null) return !liveNames.has(source);
+  const legacyMatch = LEGACY_PANO_PREVIEW_RE.exec(name);
+  if (legacyMatch) {
+    const key = legacyMatch[1];
+    for (const liveName of liveNames) {
+      if (sha256Prefix16(liveName) === key) return false;
+    }
+  }
+  return true;
 }
 
 async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {
@@ -230,8 +277,14 @@ async function sweepCacheDir(
   }
 }
 
-async function sweepThumbsDir(ctx: SweepContext, cacheDir: string): Promise<void> {
-  await sweepCacheDir(ctx, cacheDir, THUMB_EXTS, (name) => isOrphanThumb(ctx.knownMapleIds, name));
+async function sweepThumbsDir(ctx: SweepContext, cacheDir: string, relDir: string): Promise<void> {
+  // `knownPreviewFilenames` is really just "live filenames per directory" —
+  // reused here for the pano-pre-seed legacy-scheme check, not previews
+  // specifically (see `isOrphanThumb`'s doc).
+  const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
+  await sweepCacheDir(ctx, cacheDir, THUMB_EXTS, (name) =>
+    isOrphanThumb(ctx.knownMapleIds, liveNames, name),
+  );
 }
 
 /** Previews orphan sweep — mostly a backstop now (see module doc): the
@@ -265,7 +318,7 @@ async function walk(ctx: SweepContext, dir: string, relDir: string): Promise<voi
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === '.maple') {
-        await sweepThumbsDir(ctx, path.join(full, 'thumbs'));
+        await sweepThumbsDir(ctx, path.join(full, 'thumbs'), relDir);
         await sweepPreviewsDir(ctx, path.join(full, 'previews'), relDir);
       } else if (!entry.name.startsWith('.')) {
         const childRelDir = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
