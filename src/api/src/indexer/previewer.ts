@@ -117,15 +117,10 @@ export async function generatePreview(
 
   // Stale-check: if the cached preview's mtime is >= the source's, reuse it.
   // Matches the thumb-stage convention so a rerun is cheap.
-  try {
-    const [previewStat, srcStat] = await Promise.all([fs.stat(previewPath), fs.stat(absPath)]);
-    if (previewStat.size > 0 && previewStat.mtimeMs >= srcStat.mtimeMs) {
-      _cached++;
-      logTotals();
-      return;
-    }
-  } catch {
-    // missing or source vanished — proceed (downstream stages will skip if needed)
+  if (await isPreviewCacheFresh(previewPath, absPath)) {
+    _cached++;
+    logTotals();
+    return;
   }
 
   // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
@@ -194,6 +189,29 @@ export async function generatePreview(
  */
 export function resolvePreviewPath(absPath: string): string {
   return cachePathFor(absPath, 'previews', PREVIEW_CACHE_SUFFIX);
+}
+
+/**
+ * True when the cached preview at `previewPath` is fresh relative to its
+ * source (`absPath`): the file exists, is non-empty, and is at least as new
+ * as the source. This is the exact rule `generatePreview` uses internally to
+ * short-circuit a rerun — exported so a caller can decide WHETHER to invoke
+ * `generatePreview` at all before doing so, e.g. to gate an on-demand
+ * concurrency limiter (`preview-ondemand-limiter.ts`) only around genuine
+ * cache misses rather than every request (a warm read is two `stat` calls;
+ * routing it through the limiter would make it queue behind unrelated
+ * cold-cache regeneration work during a migration burst). One definition,
+ * so the two call sites can never drift apart.
+ */
+export async function isPreviewCacheFresh(previewPath: string, absPath: string): Promise<boolean> {
+  try {
+    const [previewStat, srcStat] = await Promise.all([fs.stat(previewPath), fs.stat(absPath)]);
+    return previewStat.size > 0 && previewStat.mtimeMs >= srcStat.mtimeMs;
+  } catch {
+    // missing preview, or source vanished — not fresh (and generatePreview
+    // will no-op cleanly downstream if the source really is gone).
+    return false;
+  }
 }
 
 function logTotals(): void {

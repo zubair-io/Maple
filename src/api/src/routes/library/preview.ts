@@ -19,6 +19,7 @@ import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
+import { previewOndemandLimiter } from '../../indexer/preview-ondemand-limiter.ts';
 import {
   safeStat,
   IMMUTABLE_CACHE,
@@ -118,7 +119,12 @@ export const previewRoutes = new Elysia().get(
     const previewSt = await safeStat(previewPath);
     if (!previewSt) {
       try {
-        await generatePreview(absPath, previewPath);
+        // Bound concurrent on-demand regeneration server-wide — see
+        // preview-ondemand-limiter.ts. Protects live-request latency from a
+        // synchronized cache-miss burst (e.g. opening a large NAS folder
+        // shortly after the #2006 AVIF/path-key migration, before the
+        // background `preview` stage has caught every asset up).
+        await previewOndemandLimiter().run(() => generatePreview(absPath, previewPath));
       } catch (err) {
         log.warn(
           {
