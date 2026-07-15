@@ -832,6 +832,15 @@ export class BunApiBackendService {
             bbox: f.bbox,
             confidence: f.confidence,
           })),
+          suggestedMerge: r.suggested_merge
+            ? {
+                personId: r.suggested_merge.person_id,
+                name: r.suggested_merge.name,
+                coverAssetId: r.suggested_merge.cover_asset_id,
+                coverBbox: r.suggested_merge.cover_bbox,
+                score: r.suggested_merge.score,
+              }
+            : null,
         })),
       );
   }
@@ -923,6 +932,15 @@ export class BunApiBackendService {
   unhidePerson(id: string): Observable<{ ok: true }> {
     return this.http.post<{ ok: true }>(`${this.base}/people/${id}/unhide`, {});
   }
+
+  /** Permanently mark a merge suggestion "not a match" — clears it
+   * server-side on both people and suppresses the pair on future
+   * clustering runs. */
+  dismissMergeSuggestion(id: string, otherId: string): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/${id}/dismiss-merge-suggestion`, {
+      other_id: otherId,
+    });
+  }
 }
 
 /** Map the wire's snake_case people-list row → the UI's camelCase
@@ -939,6 +957,7 @@ function normalisePerson(r: ApiPersonRaw): ApiPerson {
     coverBbox: r.cover_bbox ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    hasMergeSuggestion: r.has_merge_suggestion,
   };
 }
 
@@ -1099,6 +1118,7 @@ export interface ApiPerson {
   coverBbox: Bbox | null;
   createdAt: string;
   updatedAt: string;
+  hasMergeSuggestion: boolean;
 }
 
 /** GET /api/people/:id response (camel-cased). */
@@ -1117,6 +1137,7 @@ export interface ApiPersonDetail {
    * Optional for the same reason as `offset`. */
   limit?: number;
   faces: ApiPersonFace[];
+  suggestedMerge: ApiMergeSuggestion | null;
 }
 
 export interface ApiPersonFace {
@@ -1125,6 +1146,17 @@ export interface ApiPersonFace {
   absPath: string;
   bbox: Bbox;
   confidence: number;
+}
+
+/** A candidate person the server thinks is the same real-world identity as
+ * the one being viewed — surfaced by the clustering job's pairwise pass.
+ * Null when there's no unsuppressed suggestion. */
+export interface ApiMergeSuggestion {
+  personId: string;
+  name: string;
+  coverAssetId: string | null;
+  coverBbox: Bbox | null;
+  score: number;
 }
 
 /** Trimmed shape returned by POST /api/people. */
@@ -1165,6 +1197,7 @@ interface ApiPersonRaw {
   cover_bbox?: Bbox | null;
   created_at: string;
   updated_at: string;
+  has_merge_suggestion: boolean;
 }
 
 interface ApiPersonDetailRaw {
@@ -1183,6 +1216,15 @@ interface ApiPersonDetailRaw {
     bbox: Bbox;
     confidence: number;
   }>;
+  suggested_merge: ApiMergeSuggestionRaw | null;
+}
+
+interface ApiMergeSuggestionRaw {
+  person_id: string;
+  name: string;
+  cover_asset_id: string | null;
+  cover_bbox: Bbox | null;
+  score: number;
 }
 
 interface ApiPersonSummaryRaw {
