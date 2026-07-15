@@ -641,28 +641,37 @@ struct AppShell: View {
     /// backgrounds (jules review, #2009).
     ///
     /// On iOS a bare `Task { … }` would be aborted mid-flight when the OS
-    /// suspends the process, so the async readback + AVIF encode + local write
-    /// (or `/api/preview` PUT) is held under a `performExpiringActivity`
-    /// assertion (iOS-only API). The synchronous block holds the assertion for
-    /// the work's duration by waiting on the async persist, which runs on the
-    /// MainActor + a detached utility task — never this queue thread, so no
-    /// deadlock. Best-effort: the preview is a pure cache, so an early `expired`
-    /// just leaves it to regenerate on next open.
+    /// suspends the process. Hold a UIKit background-task assertion for the
+    /// async readback + AVIF encode + local write (or `/api/preview` PUT).
+    /// This is async-friendly — no thread blocking: the persist runs on the
+    /// MainActor while the assertion is held (unlike a `DispatchSemaphore`
+    /// inside `performExpiringActivity`, whose wait could stall the actor and
+    /// starve the very persist Task it's waiting on). `end()` is idempotent, so
+    /// whichever of the completion or the OS expiration handler fires first
+    /// releases the assertion exactly once. Best-effort: the preview is a pure
+    /// cache, so an early expiration just leaves it to regenerate on next open.
     ///
     /// macOS doesn't suspend the process on background the way iOS does (as the
     /// `scenePhase` comment above notes), so a plain task lands the write.
+    @MainActor
     private func persistPreviewOnBackground(_ session: EditSession) {
         #if os(iOS)
-        ProcessInfo.processInfo.performExpiringActivity(
-            withReason: "app.justmaple.aperture.preview-persist"
-        ) { expired in
-            guard !expired else { return }
-            let done = DispatchSemaphore(value: 0)
-            Task {
-                await session.persistDisplayPreviewOnExit()
-                done.signal()
+        let app = UIApplication.shared
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        let end = {
+            if bgTask != .invalid {
+                app.endBackgroundTask(bgTask)
+                bgTask = .invalid
             }
-            done.wait()
+        }
+        bgTask = app.beginBackgroundTask(
+            withName: "app.justmaple.aperture.preview-persist",
+            expirationHandler: end
+        )
+        guard bgTask != .invalid else { return }
+        Task { @MainActor in
+            await session.persistDisplayPreviewOnExit()
+            end()
         }
         #else
         Task { await session.persistDisplayPreviewOnExit() }
