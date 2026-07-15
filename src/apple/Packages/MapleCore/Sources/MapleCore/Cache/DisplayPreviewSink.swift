@@ -65,8 +65,9 @@ public struct CloudDisplayPreviewSink: DisplayPreviewSink {
     public func write(_ bytes: Data) async {
         guard let req = Self.makeRequest(server: server, assetPath: assetPath, bytes: bytes)
         else { return }
-        // Best-effort: a failed upload leaves the server to regenerate the
-        // preview from the (already-synced) XMP via its display-preview stage.
+        // Best-effort: a failed upload leaves the server's copy to be
+        // regenerated on demand from the (already-synced) XMP — how the
+        // server does that is its own concern and out of scope here.
         _ = try? await httpClient.data(for: req)
     }
 

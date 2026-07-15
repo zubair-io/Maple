@@ -55,9 +55,15 @@ extension EditSession {
     ///     to the `CAMetalLayer`), so read the current frame back once and
     ///     persist that; this also refreshes the browse thumbnail (#1879).
     /// Whichever path ran, the other's branch is a cheap no-op.
-    public func persistDisplayPreviewOnExit() {
-        refreshThumbnailFromCurrentGpuFrame()
-        Task { [weak self] in await self?.flushDisplayPreviewPersist() }
+    ///
+    /// `async` + strong `self`: the caller (`Task { await session.persist… }`,
+    /// with the app kept awake on iOS background) holds the session alive until
+    /// the write lands. A fire-and-forget `Task { [weak self] … }` here would
+    /// drop the final write if the session deallocated on teardown (jules
+    /// review, #2009).
+    public func persistDisplayPreviewOnExit() async {
+        await refreshThumbnailFromCurrentGpuFrame()
+        await flushDisplayPreviewPersist()
     }
 
     /// Encode the pending frame off the MainActor and hand the bytes to the

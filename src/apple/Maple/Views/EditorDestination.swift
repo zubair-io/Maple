@@ -85,8 +85,10 @@ struct EditorDestination: View {
             // pre-undo value sitting in the debounce window.
             if let session = state?.session {
                 // #2009 — persist the developed `<filename>.avif` on exit
-                // (GPU readback + any pending idle-debounce frame).
-                session.persistDisplayPreviewOnExit()
+                // (GPU readback + any pending idle-debounce frame). Strong
+                // `session` capture so the write lands even if the popped
+                // destination's session is released right after.
+                Task { await session.persistDisplayPreviewOnExit() }
                 Task.detached { await session.flushPendingSidecarWrite() }
             }
         }
