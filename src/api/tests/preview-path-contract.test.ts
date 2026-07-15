@@ -7,8 +7,9 @@
  * indexed/path-keyed resolver used by the `preview` stage and the
  * `/api/preview/:slug/*` route — and `cachePathFor`, the legacy/un-indexed
  * fallback used by `PUT /api/preview` and `/api/fs/preview`) against the
- * SAME golden fixture the web (`maple-cache.service.spec.ts`) and Apple
- * (`PreviewPathContractTests.swift`) resolvers are pinned against, so a
+ * SAME golden fixture the web
+ * (`src/web/projects/maple-common/src/lib/state/preview-path-contract.spec.ts`)
+ * and Apple (`PreviewPathContractTests.swift`) resolvers are pinned against, so a
  * change to any one implementation's path scheme fails loudly here instead
  * of silently diverging from the other two. See
  * `tests/fixtures/preview-path-contract.json`'s header for the shared-fixture
