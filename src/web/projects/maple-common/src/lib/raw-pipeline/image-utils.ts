@@ -341,6 +341,50 @@ export async function canvasToBlobUrl(
   return URL.createObjectURL(blob);
 }
 
+/** Long-edge cap for the unedited-preview tier — matches the server's
+ * `PREVIEW_LONG_EDGE_PX` and `EmbeddedPreviewService`'s own default. The
+ * extracted preview is already resized to this by the WASM binding, so this
+ * is a ceiling (scale 1, no upscale) for the transcode below, not a target. */
+const PREVIEW_LONG_EDGE_PX = 1280;
+
+/** AVIF quality for the unedited-preview cache tier (canvas 0–1 scale). ~0.7
+ * per the #1993 preview contract ("quality ~70") — higher than the 0.6 grid
+ * thumb because a 1280px preview is viewed full, not as a grid cell. */
+const PREVIEW_AVIF_QUALITY = 0.7;
+
+/**
+ * Transcode an already-display-oriented image blob (the extracted embedded
+ * preview JPEG from `EmbeddedPreviewService`) into a *genuine* AVIF blob at
+ * the unedited-preview tier's quality, or `null` when this browser cannot
+ * encode AVIF.
+ *
+ * The `null` return is load-bearing, not a soft failure: the canonical preview
+ * cache file is `<filename>.avif` and MUST be real AVIF — the server's #2014
+ * validator rejects a JPEG wearing an `.avif` extension (format/compression
+ * decode check). Callers therefore persist the result ONLY when it is non-null;
+ * on a browser without canvas AVIF encode they write nothing and re-derive next
+ * visit (pure cache), never a mislabeled file. Reuses the same one-time
+ * `canEncodeAvif()` capability probe the grid-thumb tier uses, and verifies the
+ * produced blob's real `.type` (some engines silently substitute PNG for an
+ * unsupported requested type — see `encodeCanvas`).
+ *
+ * `resizeBitmapToCanvas(_, 1280)` is a 1:1 redraw here (the source is already
+ * ≤1280 on its long edge, and it never upscales), used only to get the pixels
+ * onto a canvas the AVIF encoder can consume; orientation was already baked
+ * into the pixels upstream, so nothing rotates here.
+ */
+export async function encodePreviewBlobToAvif(source: Blob): Promise<Blob | null> {
+  if (!(await canEncodeAvif())) return null;
+  const bitmap = await createImageBitmap(source);
+  try {
+    const canvas = await resizeBitmapToCanvas(bitmap, PREVIEW_LONG_EDGE_PX);
+    const blob = await encodeCanvas(canvas, 'image/avif', PREVIEW_AVIF_QUALITY);
+    return blob.type === 'image/avif' ? blob : null;
+  } finally {
+    bitmap.close();
+  }
+}
+
 /** Compute a 256-bin luma histogram from raw RGB pixel data. */
 export function computeLumaHistogram(img: DecodedImage): Uint32Array {
   const bins = new Uint32Array(256);

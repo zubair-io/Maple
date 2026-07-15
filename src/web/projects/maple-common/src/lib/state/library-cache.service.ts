@@ -18,6 +18,7 @@ import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source
 import { parseAddress } from '../addressing/maple-address';
 import { BlobUrlChannel } from './blob-url-channel';
 import { LruCache, ThumbLruCache } from './lru-cache';
+import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
@@ -28,6 +29,7 @@ export class LibraryCache {
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
+  private readonly hostedPreview = inject(HostedPreviewResolver);
 
   private _lastSelectedSourceId = this.selection.selectedSourceId();
 
@@ -164,28 +166,34 @@ export class LibraryCache {
 
   /**
    * Subscribe to preview-URL changes for `id` — the best available _still_.
-   * Mirrors {@link subscribeThumbUrl} except: a Self-Hosted M2 `slug:relPath`
-   * asset resolves via the authed `/api/preview/:slug/*` blob URL
-   * (`LibrarySource.previewBlob`; excludes legacy `fs:<absPath>` ids, which
-   * also contain ':' but have no address to parse) — every other id delegates
-   * straight to `subscribeThumbUrl` since there's no richer preview source yet.
+   * Prefers a richer source than the thumbnail when one exists (see
+   * {@link _previewLoader}): a Self-Hosted network preview, or a Hosted
+   * (FS-Access) embedded-preview extraction cached as canonical
+   * `<dir>/.maple/previews/<filename>.avif`. Falls back to
+   * {@link subscribeThumbUrl} otherwise.
    */
   subscribePreviewUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
-    const isSelfHostedAddress =
-      this.store.backend === 'self-hosted' &&
-      typeof id === 'string' &&
-      id.includes(':') &&
-      !id.startsWith('fs:');
-
-    if (!isSelfHostedAddress) {
-      return this.subscribeThumbUrl(id, cb);
-    }
-
+    const loader = this._previewLoader(id);
+    if (!loader) return this.subscribeThumbUrl(id, cb);
     const unsubscribe = this.previewChannel.subscribe(id, cb);
-    this.previewChannel.ensure(id, (assetId) =>
-      this.librarySource.previewBlob(parseAddress(assetId as string)),
-    );
+    this.previewChannel.ensure(id, loader);
     return unsubscribe;
+  }
+
+  /**
+   * The richer-than-thumbnail preview loader for `id`, or `null` when the only
+   * source is the stacked thumbnail (a Self-Hosted legacy `fs:` id). Hosted
+   * (FS-Access) ids route through {@link HostedPreviewResolver}, which no-ops
+   * to `null` for non-RAW assets so the thumbnail stands.
+   */
+  private _previewLoader(id: AssetId): ((id: AssetId) => Promise<Blob | null>) | null {
+    const isAddress = typeof id === 'string' && id.includes(':') && !id.startsWith('fs:');
+    if (this.store.backend === 'self-hosted') {
+      return isAddress
+        ? (assetId) => this.librarySource.previewBlob(parseAddress(assetId as string))
+        : null;
+    }
+    return (assetId) => this.hostedPreview.resolve(assetId, (bid) => this.bytesForAsset(bid));
   }
 
   // ── Reset ──────────────────────────────────────────────────────────────────
