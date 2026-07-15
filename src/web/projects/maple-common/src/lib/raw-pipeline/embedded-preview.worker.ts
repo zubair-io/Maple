@@ -94,5 +94,12 @@ async function handleExtract(req: ExtractPreviewRequest): Promise<void> {
 }
 
 addEventListener('message', (event: MessageEvent<ExtractPreviewRequest>) => {
-  void handleExtract(event.data);
+  const req = event.data;
+  // Guard on the discriminator (mirrors maple-id-fallback.worker.ts) —
+  // without it, any unexpected message shape would still reach
+  // handleExtract, whose response keys off `req.id`; an unexpected message
+  // with no `id` would post a reply the main thread's pending map has no
+  // entry for, silently hanging that caller's promise instead of erroring.
+  if (req.type !== 'extract-preview') return;
+  void handleExtract(req);
 });

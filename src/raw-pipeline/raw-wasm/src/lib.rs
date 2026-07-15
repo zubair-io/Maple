@@ -10,7 +10,7 @@
 //!       → 32-char lowercase hex fallback-form maple_id (#1995, `id.rs`) —
 //!         streams `File.slice()` chunks instead of buffering a whole RAW.
 //!
-//!   extract_embedded_preview(raw: Uint8Array, ext: string, maxLongEdge: u32, quality: u8)
+//!   extract_embedded_preview(raw: Uint8Array, ext: string, maxLongEdge: u32, quality: u32)
 //!       → EmbeddedPreview { width: u32, height: u32, take_jpeg(): Uint8Array }
 //!         (#2010, `preview.rs`) — extracts the RAW's camera-embedded
 //!         preview JPEG (not a re-render), matching Apple/server's

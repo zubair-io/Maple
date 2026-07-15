@@ -236,12 +236,19 @@ export class MapleCacheService {
   async readPreview(folder: MapleFolderHandle, mapleId: string): Promise<Blob | null> {
     try {
       const bytes = await this.fs.readFile(folder, `.maple/previews/${mapleId}.jpg`);
-      // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array
-      // whose .buffer may be typed as ArrayBufferLike; Blob requires
-      // ArrayBuffer) — same conversion `readThumb` does above.
-      const ab = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(ab).set(bytes);
-      return new Blob([ab], { type: 'image/jpeg' });
+      // `Blob`'s constructor accepts an `ArrayBufferView` (a `Uint8Array`)
+      // directly at runtime — passing `bytes` itself (not `bytes.buffer`)
+      // also correctly respects its byteOffset/byteLength if `readFile`
+      // ever returns a view over a larger buffer, so this needs neither the
+      // extra copy nor the `ArrayBuffer`-only assumption `readThumb` above
+      // was written against. The cast is TS-only friction: `lib.dom.d.ts`
+      // types `Uint8Array` as generic over its buffer (`Uint8Array<ArrayBufferLike>`
+      // by default) and narrows `BlobPart` to `ArrayBufferView<ArrayBuffer>`
+      // specifically, so it can't statically rule out a `SharedArrayBuffer`
+      // backing here even though `readFile` never produces one — same
+      // known friction `image-utils.ts`'s `canvasToBlob`/`blobToBytes`
+      // already cast through.
+      return new Blob([bytes as unknown as BlobPart], { type: 'image/jpeg' });
     } catch {
       return null;
     }

@@ -196,8 +196,9 @@ describe('HostedPreviewResolver.resolve', () => {
     }
   });
 
-  it('no currentFolder: still extracts and returns the blob, but never attempts a write', async () => {
+  it('no currentFolder: skips mapleId entirely (nothing to cache against) and still extracts', async () => {
     const mapleId = vi.fn(async () => 'abc123');
+    const readPreview = vi.fn();
     const writePreview = vi.fn();
     const extractedBlob = new Blob(['jpeg'], { type: 'image/jpeg' });
     const extractEmbeddedPreview = vi.fn(async () => ({
@@ -212,7 +213,7 @@ describe('HostedPreviewResolver.resolve', () => {
     const resolver = setup(
       { findAsset, currentFolder: () => null },
       { mapleId },
-      { readPreview: vi.fn(), writePreview },
+      { readPreview, writePreview },
       { extractEmbeddedPreview },
     );
 
@@ -223,7 +224,44 @@ describe('HostedPreviewResolver.resolve', () => {
     );
 
     expect(blob).toBe(extractedBlob);
+    // The id would only ever be used as a `.maple/previews/` cache key —
+    // with no folder handle there's no cache to read or write, so it must
+    // never be computed (copilot review: wasted work + an avoidable
+    // failure mode when there's nothing for it to do).
+    expect(mapleId).not.toHaveBeenCalled();
+    expect(readPreview).not.toHaveBeenCalled();
     expect(writePreview).not.toHaveBeenCalled();
+  });
+
+  it('no currentFolder AND a would-be-failing mapleId: still extracts (id never computed, never blocks)', async () => {
+    const mapleId = vi.fn(async () => {
+      throw new Error('hash failed');
+    });
+    const extractedBlob = new Blob(['jpeg'], { type: 'image/jpeg' });
+    const extractEmbeddedPreview = vi.fn(async () => ({
+      width: 100,
+      height: 100,
+      blob: extractedBlob,
+    }));
+    const findAsset = vi.fn(
+      () => ({ id: 'lib:2026/a.dng', filename: 'a.dng' }) as unknown as Asset,
+    );
+
+    const resolver = setup(
+      { findAsset, currentFolder: () => null },
+      { mapleId },
+      {},
+      { extractEmbeddedPreview },
+    );
+
+    const blob = await resolver.resolve(
+      'lib:2026/a.dng' as AssetId,
+      { slug: 'lib', relPath: '2026/a.dng' },
+      vi.fn(async () => new Uint8Array([1])),
+    );
+
+    expect(blob).toBe(extractedBlob);
+    expect(mapleId).not.toHaveBeenCalled();
   });
 
   it('folder present but read-only: extracts, returns the blob, never attempts a write', async () => {

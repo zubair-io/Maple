@@ -88,6 +88,16 @@ impl EmbeddedPreview {
 /// caller that never overrides quality gets the same encode the server/Apple
 /// preview tier uses.
 ///
+/// `quality` is deliberately typed `u32`, not `u8` — wasm-bindgen's generated
+/// glue narrows a JS `number` into whatever integer width the Rust parameter
+/// declares *before* this function body ever runs (there is no JS-side range
+/// check), so a `u8` parameter would silently wrap an out-of-range value
+/// (e.g. JS `300` arrives here already truncated to `44`) rather than
+/// reaching the `quality > 100` check below as the caller's real, invalid
+/// input. `u32` has enough headroom that this validation runs against the
+/// caller's actual value for every realistic (or malicious) input; the
+/// narrowing `as u8` happens only after that check passes.
+///
 /// Errors (thrown as `JsError`): `max_long_edge == 0`, `quality > 100`, or
 /// extraction failure (`raw_core::Error::Preview` — no embedded preview in
 /// this RAW, unrecognized format, or a caught rawler panic on malformed
@@ -97,7 +107,7 @@ pub fn extract_embedded_preview(
     raw: &[u8],
     ext: &str,
     max_long_edge: u32,
-    quality: u8,
+    quality: u32,
 ) -> Result<EmbeddedPreview, JsError> {
     const DEFAULT_QUALITY: u8 = 85;
 
@@ -115,7 +125,7 @@ pub fn extract_embedded_preview(
     let q = if quality == 0 {
         DEFAULT_QUALITY
     } else {
-        quality
+        quality as u8
     };
 
     let (img, orientation) = raw_core::preview::extract_embedded_preview(raw, ext)

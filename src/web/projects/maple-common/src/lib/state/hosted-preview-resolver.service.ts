@@ -69,11 +69,21 @@ export class HostedPreviewResolver {
       return null;
     }
 
+    // Check `currentFolder()` BEFORE computing `mapleId`: the id only ever
+    // exists to be a `.maple/previews/` cache key, and without a folder
+    // handle there's no cache to read or write against — so with no folder,
+    // skip straight to a cacheless one-shot extraction rather than paying
+    // for (and being able to fail on) a cache-key computation nothing will
+    // use.
+    const folder = this.store.currentFolder();
+    if (!folder) {
+      return this._extractAndCache(id, asset.filename, null, folder, getBytes);
+    }
+
     const mapleId = await this._resolveMapleId(address, asset.filename);
     if (!mapleId) return null;
 
-    const folder = this.store.currentFolder();
-    const cached = folder ? await this.cache.readPreview(folder, mapleId) : null;
+    const cached = await this.cache.readPreview(folder, mapleId);
     if (cached) return cached;
 
     return this._extractAndCache(id, asset.filename, mapleId, folder, getBytes);
@@ -91,13 +101,14 @@ export class HostedPreviewResolver {
   }
 
   /** Read `getBytes`, extract via the WASM binding, write-through the cache
-   * when `folder` is write-capable, and return the blob. `null` on any
-   * failure (logged) — includes the "no embedded preview in this RAW" case
-   * (rare — see `raw_core::preview`'s module doc). */
+   * when both `folder` is write-capable AND a cache key was resolved, and
+   * return the blob. `null` on any failure (logged) — includes the "no
+   * embedded preview in this RAW" case (rare — see `raw_core::preview`'s
+   * module doc). */
   private async _extractAndCache(
     id: AssetId,
     filename: string,
-    mapleId: string,
+    mapleId: string | null,
     folder: ReturnType<LibraryStore['currentFolder']>,
     getBytes: (id: AssetId) => Promise<Uint8Array>,
   ): Promise<Blob | null> {
@@ -105,7 +116,7 @@ export class HostedPreviewResolver {
       const bytes = await getBytes(id);
       const ext = filename.split('.').pop()?.toLowerCase() ?? '';
       const { blob } = await this.previewExtractor.extractEmbeddedPreview(bytes, ext);
-      if (folder?.write) {
+      if (folder?.write && mapleId) {
         void this.cache.writePreview(folder, mapleId, blob);
       }
       return blob;
