@@ -31,7 +31,12 @@ import { ObjectId } from 'mongodb';
 import { isUnderRoot } from '../fs/browse.ts';
 import { cachePathFor, cachePathForAsset } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
+import {
+  generatePreview,
+  isPreviewCacheFresh,
+  PREVIEW_CACHE_SUFFIX,
+} from '../indexer/previewer.ts';
+import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
 import { isDbConnected } from '../db/client.ts';
 import { findAssetByAddress, developedPreviewResponse } from './library/shared.ts';
 import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
@@ -152,7 +157,16 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     // fast return), and the RAW-FFI / sharp / PSD render dispatch. It logs
     // failures instead of throwing; a missing output file below is the
     // failure signal.
-    await generatePreview(real, previewPath);
+    //
+    // Only route a genuine cache MISS through the on-demand concurrency
+    // limiter (preview-ondemand-limiter.ts) — a warm cache is two cheap
+    // `stat` calls (which `generatePreview` would just repeat and no-op on),
+    // and gating that too would make it queue behind unrelated cold-cache
+    // regeneration work during a migration burst, hurting the common (warm)
+    // case to protect against the rare (cold) one.
+    if (!(await isPreviewCacheFresh(previewPath, real))) {
+      await previewOndemandLimiter().run(() => generatePreview(real, previewPath));
+    }
 
     let bytes: Buffer;
     try {
