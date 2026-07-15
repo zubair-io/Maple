@@ -153,6 +153,10 @@ describe('sweepOrphanedCaches', () => {
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
+      // Legacy-key thumbs are only recognized as the pano pre-seed scheme
+      // (and thus verifiably dead vs. verifiably live) once the library
+      // resolves — see `isOrphanThumb`'s doc.
+      await registerLibrary(root);
       const knownThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.jpg`);
       const legacyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
       await writeJpg(knownThumb);
@@ -182,6 +186,7 @@ describe('sweepOrphanedCaches', () => {
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
+      await registerLibrary(root);
       const knownThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.avif`);
       const legacyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.avif`);
       await writeAvif(knownThumb);
@@ -368,6 +373,7 @@ describe('sweepOrphanedCaches', () => {
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
+      await registerLibrary(root);
       const nested = path.join(root, 'vacation', '2024', '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
       await writeJpg(nested);
       await agePast(nested);
@@ -412,6 +418,7 @@ describe('sweepOrphanedCaches', () => {
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
+      await registerLibrary(root);
       // A real .maple cache with one legacy orphan to verify the sweep still
       // does its job around the symlink.
       const realOrphan = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
@@ -436,6 +443,7 @@ describe('sweepOrphanedCaches', () => {
     if (!mongoReachable) return;
     const root = await mkTree();
     try {
+      await registerLibrary(root);
       // Four legacy-keyed orphans. The mock makes `fs.unlink` race-fail
       // (ENOENT) for the first to land in unlinkSafe, simulating another
       // process having removed it between readdir and unlink.
