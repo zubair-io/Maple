@@ -164,7 +164,7 @@ function lazyHashedNames(liveNames: ReadonlySet<string>): () => ReadonlySet<stri
   let hashed: ReadonlySet<string> | null = null;
   return () => {
     if (hashed === null) {
-      hashed = new Set([...liveNames].map(sha256Prefix16));
+      hashed = new Set([...liveNames].map((name) => sha256Prefix16(name)));
     }
     return hashed;
   };
