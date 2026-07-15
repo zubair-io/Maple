@@ -56,47 +56,56 @@ function errMessage(e: unknown): string {
 
 /**
  * Decode `filePath` and confirm it's a genuine, complete, correctly-sized
- * AVIF matching this pipeline's encode conventions:
+ * AVIF matching this pipeline's encode conventions. Checks run cheapest
+ * (metadata-only) to most expensive (a full pixel decode) — see the
+ * ordering note inline below for why that order is load-bearing, not
+ * incidental:
  *
  *  1. Format: `format`/`compression` must report `heif`/`av1` — sharp's way
  *     of saying "this is genuinely AVIF," not e.g. a HEIC file or non-image
  *     bytes with an `.avif` extension.
- *  2. Integrity: a full pixel decode must succeed. `.metadata()` alone is
- *     NOT sufficient — it can return a plausible width/height read straight
- *     from the AVIF's meta/header box even when the `mdat` pixel payload is
- *     truncated (verified empirically: a header-intact AVIF sliced to a
- *     third of its real length still returns full metadata with no error).
- *     Catching a truncated/corrupt encode requires forcing a real decode of
- *     the pixel data, not just parsing the header.
- *  3. Dimensions: both the width and height must be within
+ *  2. Dimensions: both the width and height must be within
  *     `DIMENSION_TOLERANCE_PX` of `expectedLongEdgePx` — an upper bound
  *     only, since `fit: 'inside', withoutEnlargement: true` (this pipeline's
  *     resize contract) legitimately leaves a source smaller than the target
  *     un-upscaled.
- *  4. Orientation: every encoder in this pipeline bakes EXIF orientation
+ *  3. Orientation: every encoder in this pipeline bakes EXIF orientation
  *     into pixels at encode time (raw-ffi's `bake_orientation`, sharp's
  *     `.rotate()`) and never carries an orientation tag forward — see
  *     `thumbs/apply-orientation.ts`'s module doc. A tag other than `1` here
  *     means some path landed a cache entry that still depends on a tag no
  *     reader (server route, Apple, web) applies.
- *  5. Colour characteristics: this pipeline's AVIF outputs are untagged
+ *  4. Colour characteristics: this pipeline's AVIF outputs are untagged
  *     sRGB by convention (`raw-core`'s `avif::encode` doc: "color-managed
  *     viewers assume sRGB for untagged AVIF", and neither encode path calls
  *     `.withIccProfile()` / `.toColorspace()`). An embedded ICC profile, or
  *     a decoded colourspace other than sRGB, means the encoder attached (or
  *     interpreted) something this pipeline never asked for.
+ *  5. Integrity: a full pixel decode must succeed. `.metadata()` alone is
+ *     NOT sufficient — it can return a plausible width/height read straight
+ *     from the AVIF's meta/header box even when the `mdat` pixel payload is
+ *     truncated (verified empirically: a header-intact AVIF sliced to a
+ *     third of its real length still returns full metadata with no error).
+ *     Catching a truncated/corrupt encode requires forcing a real decode of
+ *     the pixel data, not just parsing the header. Deliberately LAST: it's
+ *     the only check that pulls the full image into memory, so every cheap
+ *     metadata-only check — especially the dimension bound — must reject
+ *     first for a wildly-oversized input (see the inline comment below).
  */
 export async function validateAvifOutput(
   filePath: string,
   expectedLongEdgePx: number,
 ): Promise<AvifValidationResult> {
+  // `failOn: 'warning'` is sharp's own strictest setting (its default) —
+  // explicit here because we're validating OUR OWN freshly-encoded output,
+  // the opposite intent of `SHARP_INPUT_OPTS`'s `failOn: 'none'` used
+  // elsewhere in this pipeline for decoding third-party source files. One
+  // instance, reused below for both `.metadata()` and `.raw().toBuffer()`.
+  const image = sharp(filePath, { failOn: 'warning' });
+
   let meta: sharp.Metadata;
   try {
-    // `failOn: 'warning'` is sharp's own strictest setting (its default) —
-    // explicit here because we're validating OUR OWN freshly-encoded output,
-    // the opposite intent of `SHARP_INPUT_OPTS`'s `failOn: 'none'` used
-    // elsewhere in this pipeline for decoding third-party source files.
-    meta = await sharp(filePath, { failOn: 'warning' }).metadata();
+    meta = await image.metadata();
   } catch (e) {
     return { ok: false, reason: `metadata decode failed: ${errMessage(e)}` };
   }
@@ -108,14 +117,14 @@ export async function validateAvifOutput(
     };
   }
 
-  try {
-    // Full pixel decode, result discarded — see point 2 above for why
-    // `.metadata()` alone can't be trusted to catch truncation.
-    await sharp(filePath, { failOn: 'warning' }).raw().toBuffer();
-  } catch (e) {
-    return { ok: false, reason: `pixel decode failed (truncated or corrupt): ${errMessage(e)}` };
-  }
-
+  // Every check below this point is metadata-only (no pixel decode) — they
+  // run BEFORE the full pixel decode at the bottom of this function
+  // deliberately: `copyImageAsThumb`'s fallback can hand this validator
+  // arbitrary bytes that happen to parse as a genuine (if huge) AVIF, and a
+  // resize bug is exactly the class of thing this validator exists to catch.
+  // Checking declared dimensions first means a wildly-oversized image is
+  // rejected on its cheap header read rather than fully decoded into memory
+  // first — see jules review on PR #2011/#2014.
   const { width, height, orientation, space, hasProfile } = meta;
   if (!width || !height) {
     return { ok: false, reason: 'metadata missing width/height' };
@@ -144,6 +153,16 @@ export async function validateAvifOutput(
   }
   if (space !== 'srgb') {
     return { ok: false, reason: `unexpected colourspace "${space}" (expected srgb)` };
+  }
+
+  try {
+    // Full pixel decode, result discarded — see point 5 in the doc comment
+    // above for why `.metadata()` alone can't be trusted to catch
+    // truncation. Deliberately the LAST and most expensive check, now that
+    // every metadata-only check (including the dimension bound) has passed.
+    await image.raw().toBuffer();
+  } catch (e) {
+    return { ok: false, reason: `pixel decode failed (truncated or corrupt): ${errMessage(e)}` };
   }
 
   return { ok: true };
