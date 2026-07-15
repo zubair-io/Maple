@@ -25,6 +25,7 @@ import { LibraryCache } from './library-cache.service';
 import { LibraryFetch } from './library-fetch.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
+import { EditPreviewPersistService } from './edit-preview-persist.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
 export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw } from './library-fetch.service';
@@ -37,6 +38,7 @@ export class LibraryStateService {
   private readonly fetch_ = inject(LibraryFetch);
   private readonly status = inject(LibraryStatusService);
   private readonly prefs = inject(BrowsePreferencesService);
+  private readonly previewPersist = inject(EditPreviewPersistService);
 
   // ── Backend identity ──────────────────────────────────────────────────────
   readonly backend = this.store.backend;
@@ -230,6 +232,11 @@ export class LibraryStateService {
     this.store.setAdjustment(id, patch);
     // Schedule debounced sidecar write.
     this.fetch_.scheduleSidecarWrite(id);
+    // Schedule the idle-debounced developed-preview persist (#2018) — ONLY
+    // here, not on the culling mutators below (setRating/setFlag/etc.),
+    // since those don't touch pixels. See EditPreviewPersistService's module
+    // doc for the write-policy contract (idle debounce, not per-tick).
+    this.previewPersist.schedule(id);
   }
 
   isEdited(id: AssetId): Signal<boolean> {
@@ -285,6 +292,14 @@ export class LibraryStateService {
   // ── XMP write flush ───────────────────────────────────────────────────────
   flushPendingXmpWrites(): Promise<void> {
     return this.fetch_.flushPendingXmpWrites();
+  }
+
+  // ── Developed-preview persist flush (#2018) ─────────────────────────────────
+  /** Immediately fire every pending developed-preview persist. Call on
+   * navigate-away / close / editor-teardown — see
+   * `EditPreviewPersistService.flushAll`'s doc. */
+  flushPendingPreviewWrites(): void {
+    this.previewPersist.flushAll();
   }
 
   // ── Index write helper (called by AssetGridComponent post-write) ──────────

@@ -315,3 +315,75 @@ can't stale it.
 | Cache                   | How to Clear                                     | Effect                            |
 | ----------------------- | ------------------------------------------------ | --------------------------------- |
 | Hosted unedited preview | Delete `.maple/previews/` in the photo directory | Preview re-extracted on next open |
+
+---
+
+## Web editor — edit-time developed-preview persist (#2018)
+
+The "developed preview" is the OTHER half of the same `.maple/previews/<filename>.avif`
+cache file (#2010 produces the unedited/camera-embedded tier above): on a
+pixel-affecting edit, the web editor (`EditorShellComponent`, `/edit/:slug/**`
+— the sole live editor since the S5 editor's retirement, epic #1807) re-renders
+the DEVELOPED image (RAW + current XMP) at the canonical 1280px-long-edge
+preview size and overwrites the same file. Both tiers share one cache slot —
+whichever a client rendered most recently wins, matching the "pure cache,
+overwritten in place" contract epic #1993 established.
+
+**Write policy — idle debounce + exit, NOT per slider tick:** the live
+on-screen render (`ImageCanvasComponent`'s two-phase fast/refine passes) is
+completely separate from this persist. `LibraryStateService.updateAdjustment`
+(every pixel-affecting edit — NOT the culling mutators, which don't touch
+pixels) arms a 2-second idle debounce on `EditPreviewPersistService`; only
+once the user stops editing does the service run ONE decode + encode + write.
+`EditorShellComponent` also flushes any pending persist immediately on
+`beforeunload` and `ngOnDestroy` (navigate-away / close / editor-teardown),
+mirroring `LibraryFetch.flushPendingXmpWrites`'s role for the sidecar
+debounce. This is a bounded, occasional cost — never a per-tick allocation or
+WASM round-trip (CLAUDE.md's performance invariants) — and shares the
+existing `RawPipelineService` single-in-flight decode queue, so it simply
+queues behind (never alongside) a live render.
+
+**AVIF-encode reality (#2018, following #2010's measurement that no shipping
+browser's canvas can genuinely encode AVIF today — see above):**
+
+- **Server-backed (Self-Hosted):** encodes AVIF client-side when this browser
+  genuinely can (`canEncodeAvif`); otherwise falls back to a HIGH-quality JPEG
+  (`encodeDevelopedRenderToJpeg`, quality 0.92 — an intermediate, not the
+  final artifact) and `PUT`s that instead. The server's `/api/preview` route
+  (`routes/preview.ts`) accepts EITHER format: an AVIF body is staged as-is;
+  a JPEG body is transcoded to AVIF server-side via
+  `renderImageThumbToFileViaPool` — the SAME isolated-child-process sharp
+  pipeline the index-time preview stage already uses for bitmap sources, so a
+  malformed/hostile upload can only crash that isolated child, never the HTTP
+  process. Either input format is then validated with a real decode
+  (`validateAvifOutput`, #2014) before the atomic publish. Net effect: the
+  server-backed path persists a genuine developed AVIF on every browser
+  today, not just AVIF-capable ones.
+- **Hosted (File System Access folder handle):** no server to transcode a
+  JPEG fallback to. Only a genuine AVIF is ever written — a browser that
+  can't canvas-encode AVIF writes NOTHING for that edit (never a JPEG wearing
+  an `.avif` extension), exactly mirroring `HostedPreviewResolver`'s #2010
+  precedent for the unedited tier. It re-derives on a future write attempt
+  (the next idle-debounce firing, or a future AVIF-capable browser) rather
+  than ever serving a stale/wrong developed preview under a lie of a
+  filename.
+
+Implemented by `EditPreviewPersistService`
+(`lib/state/edit-preview-persist.service.ts`), which owns the debounce timers
+and the Hosted-vs-server-backed branch; the encode helpers
+(`encodeDevelopedRenderToAvif` / `encodeDevelopedRenderToJpeg`) live in
+`raw-pipeline/image-utils.ts` alongside the unedited tier's
+`encodePreviewBlobToAvif`, reusing the same `canEncodeAvif()` capability
+probe. The Hosted write path reuses `MapleCacheService.writePreview`
+unchanged; the server-backed path adds `BunApiBackendService.putPreview`.
+
+Non-RAW assets (JPEG/PNG/HEIC sources) are out of scope for this tier:
+`RawPipelineService.decode`'s non-RAW branch decodes browser-natively and
+does not apply the XMP adjustment at all, so there is no "developed" render
+to persist through this code path — the unedited tier (#2010) already keeps
+that asset's preview current, and persisting an unedited render under the
+edited contract would be actively wrong, not just incomplete.
+
+| Cache                          | How to Clear                                     | Effect                                                 |
+| ------------------------------ | ------------------------------------------------ | ------------------------------------------------------ |
+| Web developed preview (either) | Delete `.maple/previews/` in the photo directory | Re-derives on next open (unedited) or edit (developed) |
