@@ -11,9 +11,6 @@ import {
   STUB_IMAGE_EXTENSIONS,
   AUDIO_EXTENSIONS,
 } from '../../fs/browse.ts';
-import { cachePathForAsset } from '../../fs/xmp.ts';
-import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
-import type { AssetDoc } from '../../db/schema.ts';
 
 /** Union of all image extensions surfaced by library routes. */
 export const IMAGE_EXTENSIONS_SET = new Set<string>([
@@ -90,6 +87,27 @@ export function mimeForExt(ext: string): string {
 export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 
 /**
+ * Cache control for the preview tier (#2017). The preview is a pure cache
+ * overwritten in place at a stable URL — never content-keyed — so it must NOT
+ * be `immutable`; a client that cached it forever would never pick up an edit.
+ * `must-revalidate` with `max-age=0` forces a conditional request every time,
+ * which the ETag (preview file mtime/size) answers with a cheap 304 when
+ * unchanged and fresh bytes immediately after the editor overwrites the file.
+ * `private` because previews are per-library user content behind auth.
+ */
+export const MUTABLE_PREVIEW_CACHE = 'private, max-age=0, must-revalidate';
+
+/**
+ * Strong ETag for a preview file: its mtime + size. An in-place overwrite by
+ * the editor changes the bytes (and thus the size and/or the mtime), so the
+ * validator busts automatically — no version token in the URL required.
+ * `Number(...)` normalizes the `BigIntStats` union `stat` can return.
+ */
+export function previewFileETag(st: Awaited<ReturnType<typeof stat>>): string {
+  return `"${Math.floor(Number(st.mtimeMs))}-${Number(st.size)}"`;
+}
+
+/**
  * Safe stat — returns null on any error.
  */
 export async function safeStat(p: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
@@ -126,6 +144,7 @@ export async function serveCachedBytesOr404(
   contentType: string,
   etag: string,
   notFoundMessage: string,
+  cacheControl: string = IMMUTABLE_CACHE,
 ): Promise<Response | { error: string }> {
   const bytes = await safeReadBytes(cachePath);
   if (!bytes) {
@@ -136,46 +155,6 @@ export async function serveCachedBytesOr404(
     status: 200,
     headers: {
       'Content-Type': contentType,
-      ETag: etag,
-      'Cache-Control': IMMUTABLE_CACHE,
-    },
-  });
-}
-
-/**
- * Developed-preview response for an EDITED asset (#1950). When the
- * `display-preview` stage has rendered `<filename>.dev_<sidecar_ver>.jpg`,
- * returns a 200 serving it (or a 304 on a matching `ifNoneMatch`). Returns
- * null when the asset is unedited / un-indexed or the developed file isn't on
- * disk yet — the caller then serves the embedded preview. Shared by both
- * preview routes so neither carries the branch inline. `etag` is caller-
- * supplied (each route folds `sidecar_ver` in differently) and `cacheControl`
- * is echoed on both 200 and 304. Never develops here — that's the background
- * stage's job (a full develop is seconds-to-minutes).
- */
-export async function developedPreviewResponse(
-  asset: Pick<AssetDoc, 'maple_id' | 'fileinfo' | 'has_xmp' | 'sidecar_ver'>,
-  libs: ReadonlyMap<string, string>,
-  etag: string,
-  cacheControl: string,
-  ifNoneMatch: unknown,
-): Promise<Response | null> {
-  if (!asset.has_xmp) return null;
-  // `dev_<sidecar_ver>.jpg` mirrors `developedPreviewSizeKey` in the stage.
-  const devPath = cachePathForAsset(asset, libs, 'previews', `dev_${asset.sidecar_ver ?? 0}.jpg`);
-  if (!devPath || !(await safeStat(devPath))) return null;
-  if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-    return new Response(null, {
-      status: 304,
-      headers: { ETag: etag, 'Cache-Control': cacheControl },
-    });
-  }
-  const bytes = await safeReadBytes(devPath);
-  if (!bytes) return null;
-  return new Response(bytes as unknown as BodyInit, {
-    status: 200,
-    headers: {
-      'Content-Type': 'image/jpeg',
       ETag: etag,
       'Cache-Control': cacheControl,
     },
@@ -261,10 +240,6 @@ export async function findAssetByAddress(libraryId: ObjectId, relPath: string, f
       projection: {
         maple_id: 1,
         fileinfo: 1,
-        // has_xmp + sidecar_ver drive the developed-preview branch in the
-        // preview routes (#1950): edited assets serve `_dev_<sidecar_ver>.jpg`.
-        has_xmp: 1,
-        sidecar_ver: 1,
       },
     },
   );
