@@ -20,6 +20,8 @@ export * from './lib/raw-pipeline/raw-pipeline.service';
 export * from './lib/raw-pipeline/raw-pipeline.types';
 export * from './lib/raw-pipeline/gpu-live-render.token';
 export * from './lib/raw-pipeline/image-utils';
+export * from './lib/raw-pipeline/embedded-preview.service';
+export * from './lib/raw-pipeline/embedded-preview.types';
 
 // T10 note: `raw-wasm-init.ts` is intentionally NOT re-exported from the
 // library entry point. It imports directly from `./pkg/raw_wasm` (wasm-pack

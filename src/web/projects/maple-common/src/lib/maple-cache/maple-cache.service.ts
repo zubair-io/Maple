@@ -32,6 +32,23 @@ import { ThumbFormat } from '../raw-pipeline/image-utils';
  */
 export const THUMB_PIPELINE_VERSION = PIPELINE_OUTPUT_VERSION;
 
+/** Directory holding an asset's unedited-preview cache, relative to the
+ * library root. `relDir` is the asset's OWN directory (`''` for a root-level
+ * asset) — the `.maple/previews/` folder sits alongside the asset, matching
+ * the canonical cross-platform layout the server/Apple write
+ * (`<dir>/.maple/previews/`), not the single root `.maple/thumbs/` the web
+ * thumb tier still uses. */
+function previewCacheDir(relDir: string): string {
+  return relDir ? `${relDir}/.maple/previews` : '.maple/previews';
+}
+
+/** Canonical preview cache path: `<relDir>/.maple/previews/<filename>.avif`,
+ * where `filename` includes the original extension (e.g. `IMG_1234.CR2` →
+ * `.../previews/IMG_1234.CR2.avif`). */
+function previewCachePath(relDir: string, filename: string): string {
+  return `${previewCacheDir(relDir)}/${filename}.avif`;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MapleCacheService {
   private fs = inject(FolderAccessService);
@@ -209,5 +226,79 @@ export class MapleCacheService {
     }
     const parsed = Number.parseInt(new TextDecoder().decode(bytes).trim(), 10);
     return Number.isFinite(parsed) ? parsed : -1;
+  }
+
+  // ── Previews (unedited embedded-RAW-preview tier, #2010 / epic #1993) ──────
+
+  /**
+   * Read a cached unedited-preview AVIF blob for the asset at
+   * `<relDir>/<filename>` within `folder`.
+   *
+   * Path is the canonical cross-platform preview contract, identical on
+   * server/Apple/web: `<relDir>/.maple/previews/<filename>.avif`, where
+   * `filename` is the asset's original name INCLUDING its extension and
+   * `relDir` is the asset's directory relative to the library root (`''` for a
+   * root-level asset). Path-keyed off directory+filename — NOT the
+   * content-addressed `maple_id` an earlier draft used, and NOT the
+   * filename-sha thumbs use — so a preview written by any client lands exactly
+   * where every other client looks for it.
+   *
+   * Returns null if not cached.
+   *
+   * No pipeline-version marker (contrast `readThumb`'s `.v` companion): a
+   * preview is a pure re-encode of the RAW's own camera-embedded JPEG
+   * (`EmbeddedPreviewService`), never touching raw-core's decode/demosaic/AgX
+   * chain, so a `PIPELINE_OUTPUT_VERSION` bump can't make it stale. Every entry
+   * under `.maple/previews/` is trusted as-is.
+   */
+  async readPreview(
+    folder: MapleFolderHandle,
+    relDir: string,
+    filename: string,
+  ): Promise<Blob | null> {
+    try {
+      const bytes = await this.fs.readFile(folder, previewCachePath(relDir, filename));
+      // `Blob`'s constructor accepts an `ArrayBufferView` (a `Uint8Array`)
+      // directly at runtime — passing `bytes` itself (not `bytes.buffer`) also
+      // respects its byteOffset/byteLength if `readFile` ever returns a view
+      // over a larger buffer, so this needs neither the extra copy nor the
+      // `ArrayBuffer`-only assumption `readThumb` above was written against.
+      // The cast is TS-only friction (`lib.dom.d.ts` narrows `BlobPart` to
+      // `ArrayBufferView<ArrayBuffer>` and can't statically rule out a
+      // `SharedArrayBuffer` backing `readFile` never produces) — same friction
+      // `image-utils.ts`'s canvas helpers already cast through.
+      return new Blob([bytes as unknown as BlobPart], { type: 'image/avif' });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Write an unedited-preview blob to the canonical
+   * `<relDir>/.maple/previews/<filename>.avif` path (see `readPreview`).
+   * Creates the `.maple/previews/` directory (in the asset's own folder) if
+   * necessary. Silently skips if the folder is read-only.
+   *
+   * `blob` MUST be genuine AVIF: the caller (`HostedPreviewResolver`) only
+   * reaches this after `encodePreviewBlobToAvif` produced real AVIF, precisely
+   * so a browser that can't encode AVIF never lands a mislabeled `.avif` here
+   * (exactly the format the server's #2014 validator rejects on a real decode).
+   * The `.avif` extension is fixed by the cross-platform contract, so unlike
+   * `writeThumb` there is no format parameter.
+   */
+  async writePreview(
+    folder: MapleFolderHandle,
+    relDir: string,
+    filename: string,
+    blob: Blob,
+  ): Promise<void> {
+    if (!folder.write) return;
+    try {
+      await this.fs.ensureSubdirectory(folder, previewCacheDir(relDir));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await this.fs.writeFile(folder, previewCachePath(relDir, filename), bytes);
+    } catch (err) {
+      console.warn(`MapleCacheService: failed to write preview ${relDir}/${filename}`, err);
+    }
   }
 }

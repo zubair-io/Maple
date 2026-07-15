@@ -152,6 +152,75 @@ describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
   });
 });
 
+describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.maple/previews/<filename>.avif)', () => {
+  let svc: MapleCacheService;
+  let files: Map<string, Uint8Array>;
+  let ensured: string[];
+
+  beforeEach(() => {
+    files = new Map();
+    ensured = [];
+    const fakeFs = {
+      async readFile(_f: MapleFolderHandle, path: string): Promise<Uint8Array> {
+        const b = files.get(path);
+        if (!b) throw new Error(`ENOENT ${path}`);
+        return b;
+      },
+      async writeFile(_f: MapleFolderHandle, path: string, data: Uint8Array): Promise<void> {
+        files.set(path, data);
+      },
+      async ensureSubdirectory(f: MapleFolderHandle, name: string): Promise<MapleFolderHandle> {
+        ensured.push(name);
+        return f;
+      },
+    };
+    TestBed.configureTestingModule({
+      providers: [MapleCacheService, { provide: FolderAccessService, useValue: fakeFs }],
+    });
+    svc = TestBed.inject(MapleCacheService);
+  });
+
+  const avif = () =>
+    new Blob([new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70])], {
+      type: 'image/avif',
+    });
+
+  it('writePreview lands the AVIF in the asset OWN directory (per-directory .maple, not root)', async () => {
+    await svc.writePreview(folder(), '2024/France', 'IMG_1234.CR2', avif());
+    expect(files.has('2024/France/.maple/previews/IMG_1234.CR2.avif')).toBe(true);
+    expect(ensured).toContain('2024/France/.maple/previews');
+  });
+
+  it('writePreview for a root-level asset keys off dir="" (root .maple/previews)', async () => {
+    await svc.writePreview(folder(), '', 'top.dng', avif());
+    expect(files.has('.maple/previews/top.dng.avif')).toBe(true);
+    expect(ensured).toContain('.maple/previews');
+  });
+
+  it('writePreview skips entirely on a read-only folder', async () => {
+    await svc.writePreview(folder(false), '2024', 'a.dng', avif());
+    expect(files.size).toBe(0);
+    expect(ensured).toEqual([]);
+  });
+
+  it('readPreview round-trips a written AVIF with image/avif type', async () => {
+    await svc.writePreview(folder(), '2024', 'a.dng', avif());
+    const blob = await svc.readPreview(folder(), '2024', 'a.dng');
+    expect(blob).not.toBeNull();
+    expect(blob!.type).toBe('image/avif');
+  });
+
+  it('readPreview returns null when nothing is cached', async () => {
+    expect(await svc.readPreview(folder(), '2024', 'missing.dng')).toBeNull();
+  });
+
+  it('preview cache filename includes the original extension (e.g. IMG.CR2.avif, not IMG.avif)', async () => {
+    await svc.writePreview(folder(), '', 'IMG.CR2', avif());
+    expect(files.has('.maple/previews/IMG.CR2.avif')).toBe(true);
+    expect(files.has('.maple/previews/IMG.avif')).toBe(false);
+  });
+});
+
 describe('THUMB_PIPELINE_VERSION is the single-sourced pipeline-output version (#1926)', () => {
   it('tracks the codegen PIPELINE_OUTPUT_VERSION exactly', () => {
     // The thumb marker is the develop-pipeline-output version, single-sourced

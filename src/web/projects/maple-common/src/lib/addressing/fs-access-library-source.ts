@@ -199,7 +199,10 @@ export class FsAccessLibrarySource implements LibrarySource {
   }
 }
 
-function splitRelPath(relPath: string): { dir: string; filename: string } {
+/** Split a POSIX relPath into its directory (`''` for a root-level file) and
+ * basename. Shared with `HostedPreviewResolver`, which keys the canonical
+ * `<dir>/.maple/previews/<filename>.avif` cache off exactly these two parts. */
+export function splitRelPath(relPath: string): { dir: string; filename: string } {
   const slash = relPath.lastIndexOf('/');
   if (slash < 0) return { dir: '', filename: relPath };
   return { dir: relPath.slice(0, slash), filename: relPath.slice(slash + 1) };
