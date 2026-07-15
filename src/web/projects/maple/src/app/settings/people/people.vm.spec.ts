@@ -50,6 +50,7 @@ function person(overrides: Partial<ApiPerson> = {}): ApiPerson {
     coverBbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-02T00:00:00.000Z',
+    hasMergeSuggestion: false,
     ...overrides,
   };
 }
@@ -74,6 +75,7 @@ function detail(faces: ApiPersonFace[], overrides: Partial<ApiPersonDetail> = {}
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-02T00:00:00.000Z',
     faces,
+    suggestedMerge: null,
     ...overrides,
   };
 }
@@ -442,6 +444,7 @@ describe('mergeTargets', () => {
     coverBbox: null,
     createdAt: '',
     updatedAt: '',
+    hasMergeSuggestion: false,
   });
   it('returns named people minus the excluded ids', () => {
     const named = [mk('1', 'Alice'), mk('2', 'Bob'), mk('3', 'Cara')];
