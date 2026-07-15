@@ -131,6 +131,55 @@
       </div>
     </div>
 
+    @if (detail.suggestedMerge; as suggestion) {
+      <div class="merge-suggestion-banner">
+        <div class="merge-suggestion-avatar">
+          @if (suggestionCoverUrl(suggestion); as url) {
+            @if (suggestion.coverBbox; as bbox) {
+              <img
+                [src]="url"
+                [style.transform]="crop.transform(bbox, url)"
+                style="transform-origin: 0 0"
+                alt=""
+                decoding="async"
+                (load)="crop.onImgLoad(url, $event)"
+              />
+            } @else {
+              <img class="cover-fill" [src]="url" alt="" decoding="async" />
+            }
+          } @else {
+            <span class="merge-suggestion-avatar-fallback">{{
+              suggestion.name.slice(0, 1).toUpperCase()
+            }}</span>
+          }
+        </div>
+        <div class="merge-suggestion-text">
+          <strong>{{ suggestion.name }}</strong> might be the same person —
+          {{ suggestion.score * 100 | number: '1.0-0' }}% match
+        </div>
+        <div class="merge-suggestion-actions">
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="bulk.peopleBulkBusy() > 0"
+            [attr.aria-label]="'Merge with ' + suggestion.name"
+            (click)="bulk.mergeSuggestionInto()"
+          >
+            Merge
+          </button>
+          <button
+            type="button"
+            class="btn-ghost"
+            [disabled]="bulk.peopleBulkBusy() > 0"
+            [attr.aria-label]="'Not the same person as ' + suggestion.name"
+            (click)="bulk.dismissSuggestion()"
+          >
+            Not the same person
+          </button>
+        </div>
+      </div>
+    }
+
     <!-- Filter bar -->
     <div class="filter-bar">
       <div class="threshold">
@@ -442,6 +491,15 @@
                             [stroke]="2.4"
                           />
                         }
+                      </span>
+                    }
+                    @if (p.hasMergeSuggestion) {
+                      <span
+                        class="merge-suggestion-badge"
+                        title="Possible duplicate"
+                        aria-label="Possible duplicate"
+                      >
+                        <maple-settings-icon name="merge" [size]="11" color="#ffffff" />
                       </span>
                     }
                     @if (coverThumbUrl(p); as url) {
