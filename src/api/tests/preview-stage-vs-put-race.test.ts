@@ -11,14 +11,16 @@
  * the same `<dir>/.maple/previews/<filename>.avif` via write-to-private-
  * temp-then-rename — exactly the scenario a remote-editing client's `PUT`
  * landing while the background indexer's `preview` stage is re-rendering the
- * same (root-level, so both resolvers agree — see below) asset would hit in
- * production.
+ * same asset would hit in production.
  *
- * `cachePathForAsset` (stage) and `cachePathFor` (PUT, via
- * `resolveAndAuthorizePath`) only resolve to the identical path for a
- * ROOT-LEVEL asset (`relDir === ''`); the fixture below uses one so the race
- * is genuine (both producers target the exact same file), matching
- * `tests/fixtures/preview-path-contract.json`'s `root_level` case.
+ * `cachePathForAsset` (stage) composes `<root>/<fileinfo[0].path>/.maple/
+ * previews/<filename>.avif`; `cachePathFor` (PUT, via `resolveAndAuthorizePath`
+ * → `cachePathFor(absPath, …)`) composes `<dirname(absPath)>/.maple/previews/
+ * <basename(absPath)>.avif`. For an asset at `<root>/<relDir>/<filename>` those
+ * are the SAME path at ANY directory depth (not only at the root), so the race
+ * would be equally genuine for a nested asset. This test uses a root-level
+ * asset purely for simplicity — one temp dir, no subdirectory bookkeeping —
+ * matching `tests/fixtures/preview-path-contract.json`'s `root_level` case.
  *
  * No Mongo needed — the stage handler resolves the library root via the
  * `setLibraryRootsForTests` in-memory seam (see `workers/stages/preview.test.ts`'s
@@ -27,7 +29,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm, realpath, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, realpath, readFile, writeFile, rename } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectId } from 'mongodb';
@@ -99,6 +102,14 @@ describe('PUT /api/preview racing the `preview` stage — no partial AVIF (#1997
     );
     expect(previewPath).not.toBeNull();
 
+    // Update the source ATOMICALLY (write a private temp file, then rename
+    // into place) rather than overwriting `sourcePath` in place. The stage
+    // handler reads the source from disk during decode, so an in-place
+    // `writeFile` racing a concurrent stage run could hand that run a
+    // torn/partial JPEG — flaking THIS test for a reason unrelated to preview
+    // atomicity (ironic in a race test). POSIX rename is atomic, so a
+    // concurrent stage read sees either the whole old source or the whole new
+    // one — the same guarantee the code under test relies on for the preview.
     async function writeSourceJpeg(seed: number): Promise<void> {
       const buf = await sharp({
         create: {
@@ -110,7 +121,9 @@ describe('PUT /api/preview racing the `preview` stage — no partial AVIF (#1997
       })
         .jpeg()
         .toBuffer();
-      await writeFile(sourcePath, buf);
+      const srcTmp = `${sourcePath}.tmp.${randomBytes(8).toString('hex')}`;
+      await writeFile(srcTmp, buf);
+      await rename(srcTmp, sourcePath);
     }
 
     const STAGE_RUN_COUNT = 5;
