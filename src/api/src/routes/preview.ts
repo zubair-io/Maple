@@ -49,16 +49,18 @@ export const previewPathRoutes = new Elysia().put(
       return { error: r.error };
     }
 
-    // Binary body coercion. `Buffer` is a `Uint8Array` subclass, so the first
-    // branch also catches a Bun-supplied Buffer. Anything else (an empty PUT
-    // giving `undefined`, or a mis-typed body) collapses to a zero-length
-    // buffer and is rejected 400 below — never fed to `Buffer.from(undefined)`.
-    const bytes =
+    // Binary body coercion, zero-copy: a Bun-supplied `Uint8Array`/`Buffer` is
+    // used as-is (no `Buffer.from` copy of a potentially multi-MB payload), and
+    // an `ArrayBuffer` is wrapped in a view over the same memory. Anything else
+    // (an empty PUT giving `undefined`, or a mis-typed body) collapses to a
+    // zero-length view and is rejected 400 below. `fs.writeFile` accepts a
+    // `Uint8Array` directly, so no `Buffer` is needed at all.
+    const bytes: Uint8Array =
       body instanceof Uint8Array
-        ? Buffer.from(body)
+        ? body
         : body instanceof ArrayBuffer
-          ? Buffer.from(body)
-          : Buffer.alloc(0);
+          ? new Uint8Array(body)
+          : new Uint8Array(0);
     if (bytes.byteLength === 0) {
       set.status = 400;
       return { error: 'Empty request body; expected AVIF bytes' };
