@@ -110,7 +110,7 @@ async function stageDoc(absPath: string): Promise<ImageDoc> {
     doc as never,
     new Map([[libraryId.toHexString(), tmpRoot]]),
     'previews',
-    '1280.avif',
+    'avif',
   );
   if (!previewPath) throw new Error('test setup: cachePathForAsset returned null');
   mkdirSync(dirname(previewPath), { recursive: true });
