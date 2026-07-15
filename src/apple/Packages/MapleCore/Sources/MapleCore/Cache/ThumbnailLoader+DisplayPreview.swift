@@ -68,44 +68,50 @@ extension ThumbnailLoader {
 
     // MARK: - Edited/developed preview tier (#2009)
 
-    /// Sidecar-state signature used by the edited-preview freshness marker:
-    /// the XMP sidecar's own mtime, formatted for exact round-tripping
-    /// through the marker file. `"none"` when no sidecar exists yet — in
-    /// practice this only surfaces for an asset whose editor has never been
-    /// opened (the as-shot WB seed writes a sidecar on first open; see
-    /// `sidecarHasVisualEdits`'s doc).
-    private nonisolated static func sidecarStateSignature(for assetURL: URL) -> String {
+    /// Sidecar-state epoch used by the edited-preview freshness marker: the
+    /// XMP sidecar's own mtime as a Unix timestamp, or `0` when no sidecar
+    /// exists yet — in practice this only surfaces for an asset whose
+    /// editor has never been opened (the as-shot WB seed writes a sidecar
+    /// on first open; see `sidecarHasVisualEdits`'s doc).
+    private nonisolated static func sidecarStateEpoch(for assetURL: URL) -> TimeInterval {
         let sidecar = SidecarPath.sidecarURL(for: assetURL)
         guard
             let mtime = (try? FileManager.default.attributesOfItem(atPath: sidecar.path))?[
                 .modificationDate
             ] as? Date
-        else { return "none" }
-        return String(format: "%.6f", mtime.timeIntervalSince1970)
+        else { return 0 }
+        return mtime.timeIntervalSince1970
     }
 
     /// Whether the local edited/developed preview for `assetURL` still
-    /// matches the CURRENT edit sidecar. Distinct from
+    /// matches the CURRENT edit sidecar, tolerating `sidecarAutosaveSlack`
+    /// (below) of drift between when the render-publish path captured the
+    /// sidecar's state and when the 750 ms debounced autosave actually
+    /// lands on disk: the render-publish write reads whatever the sidecar
+    /// says AT THAT MOMENT, which routinely trails the live in-memory model
+    /// by up to the debounce window, so the autosave landing a beat later
+    /// FOR THE SAME EDIT must not read as a sidecar change. A sidecar mtime
+    /// that moved by more than the slack (a real new edit, one synced from
+    /// another device, or a revert) still invalidates (Jules review, PR
+    /// #2013 — the original exact-equality check falsely invalidated the
+    /// preview it had just written on every edit). Distinct from
     /// `displayPreviewMarkerIsCurrent`, which tracks the display-preview
-    /// tier's render-SEMANTICS version — this tracks sidecar EDIT STATE. A
-    /// stale marker means the sidecar changed (a slider tweak synced from
-    /// another device, a revert) since this edited render was captured, so
-    /// the cached JPEG no longer reflects it.
+    /// tier's render-SEMANTICS version, not sidecar edit state.
     public nonisolated static func editedPreviewMarkerIsCurrent(for assetURL: URL) -> Bool {
         let markerURL = MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL)
-        guard let recorded = try? String(contentsOf: markerURL, encoding: .utf8) else {
-            return false
-        }
-        return recorded.trimmingCharacters(in: .whitespacesAndNewlines)
-            == sidecarStateSignature(for: assetURL)
+        guard let text = try? String(contentsOf: markerURL, encoding: .utf8),
+            let recorded = TimeInterval(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return false }
+        let delta = sidecarStateEpoch(for: assetURL) - recorded
+        return delta >= 0 && delta <= sidecarAutosaveSlack
     }
 
-    /// Stamp the CURRENT sidecar-state signature next to a just-written
-    /// edited preview, so a later read can tell whether the sidecar has
-    /// since changed.
+    /// Stamp the CURRENT sidecar-state epoch next to a just-written edited
+    /// preview, so a later read can tell whether the sidecar has since
+    /// changed (beyond `sidecarAutosaveSlack`).
     nonisolated static func writeEditedPreviewMarker(for assetURL: URL) {
         let markerURL = MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL)
-        try? sidecarStateSignature(for: assetURL).write(
+        try? String(format: "%.6f", sidecarStateEpoch(for: assetURL)).write(
             to: markerURL, atomically: true, encoding: .utf8)
     }
 

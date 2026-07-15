@@ -1,5 +1,5 @@
 /**
- * Cache GC — sweep orphaned `.maple/{thumbs,previews}/*.{jpg,avif,json}` files.
+ * Cache GC — sweep orphaned `.maple/{thumbs,previews}/*.{jpg,avif,json,v}` files.
  *
  * Walks a library root looking for `.maple/thumbs` and `.maple/previews`
  * directories. Thumbs and previews now use TWO DIFFERENT orphan-detection
@@ -42,6 +42,14 @@
  * Apple's own client handles sidecar-state staleness for this file
  * (`ThumbnailLoader.freshEditedPreviewData`/`removeEditedPreview`) since a
  * DB-side sweep has no visibility into XMP sidecar content.
+ *
+ * Two more previews-only files ride the SAME hash key with a `.v` extension
+ * instead of `.jpg`: `<hash>_1600.v` (`MapleSidecarPaths.previewVersionURL`,
+ * the canonical tier's render-semantics marker, #1976) and
+ * `<hash>_1600.edited.v` (`editedPreviewMarkerURL`, this file's sidecar-state
+ * marker). `PREVIEW_EXTS` includes `.v` so these are swept (not silently
+ * ignored forever) and recognized live the same "hash matches a live
+ * filename" way as their `.jpg` siblings (Jules review, PR #2013).
  *
  * No migration sentinel:
  *   The set of orphans changes continuously (a re-render at a new size, a
@@ -121,6 +129,16 @@ const LEGACY_PANO_PREVIEW_RE = /^([0-9a-f]{16})_1600\.jpg$/;
  * schemes never collide even though both key off the same hash. */
 const EDITED_PREVIEW_RE = /^([0-9a-f]{16})_1600\.edited\.jpg$/;
 
+/** Matches a `sha256_prefix16(basename)_1600.v` filename — the canonical
+ * hash-keyed preview tier's render-semantics marker (`previewVersionURL`,
+ * #1976, module doc). Captures the 16-hex key. */
+const PREVIEW_VERSION_MARKER_RE = /^([0-9a-f]{16})_1600\.v$/;
+
+/** Matches a `sha256_prefix16(basename)_1600.edited.v` filename — the
+ * edited-preview tier's sidecar-state marker (`editedPreviewMarkerURL`,
+ * #2009, module doc). Captures the 16-hex key. */
+const EDITED_PREVIEW_MARKER_RE = /^([0-9a-f]{16})_1600\.edited\.v$/;
+
 /** Resolve `libraryRoot`'s registered `_id`, or `null` if it isn't a
  * registered library root (or the lookup fails). `null` makes the previews
  * sweep scan/count as normal but skip every delete decision (see
@@ -167,7 +185,10 @@ interface SweepContext {
 }
 
 const THUMB_EXTS = new Set(['.jpg', '.avif']);
-const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.json']);
+// `.v` covers both hash-keyed marker siblings — `<hash>_1600.v`
+// (`previewVersionURL`) and `<hash>_1600.edited.v` (`editedPreviewMarkerURL`,
+// #2009) — see this file's module doc.
+const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.json', '.v']);
 
 /** Lazily builds (and memoizes) the set of `sha256Prefix16(liveName)`
  * hashes for one directory's live filenames — used by the pano pre-seed
@@ -218,16 +239,27 @@ function isOrphanThumb(
   return true; // unrecognized shape, or a recognized-but-dead pre-seed key
 }
 
-/** A preview is orphaned unless it matches ONE of three live schemes: the
+/** Every hash-keyed previews scheme besides the modern path-keyed one:
+ * the pano pre-seed preview, Apple's local-only edited-preview, and the
+ * `.v` marker sibling of each (module doc). All four share the same
+ * verification rule — legitimate iff SOME live filename in this exact
+ * directory hashes to the captured key — so they're one regex list instead
+ * of one near-identical `if` per scheme. */
+const HASH_KEYED_PREVIEW_SCHEMES: readonly RegExp[] = [
+  LEGACY_PANO_PREVIEW_RE,
+  EDITED_PREVIEW_RE,
+  PREVIEW_VERSION_MARKER_RE,
+  EDITED_PREVIEW_MARKER_RE,
+];
+
+/** A preview is orphaned unless it matches ONE of the live schemes: the
  * modern, path-keyed `<filename>.<suffix>` (via
- * `sourceFilenameForPreviewCacheName`), the pano-injection pre-seed
- * `<sha256_prefix16(liveFilename)>_1600.jpg`, or Apple's local-only edited/
- * developed-render preview `<sha256_prefix16(liveFilename)>_1600.edited.jpg`
- * (module doc, #2009) — the latter two legitimate iff SOME live filename in
- * this exact directory hashes to the captured key. No resolvable library id
- * → no known-live set was (or safely could be) built for this pass, so
- * never delete — a transient failure to resolve the library must not
- * mass-delete live previews (see `resolveLibraryId`). */
+ * `sourceFilenameForPreviewCacheName`), or one of the
+ * `HASH_KEYED_PREVIEW_SCHEMES` (module doc) — the latter legitimate iff SOME
+ * live filename in this exact directory hashes to the captured key. No
+ * resolvable library id → no known-live set was (or safely could be) built
+ * for this pass, so never delete — a transient failure to resolve the
+ * library must not mass-delete live previews (see `resolveLibraryId`). */
 function isOrphanPreview(
   libraryId: ObjectId | null,
   liveNames: ReadonlySet<string>,
@@ -237,13 +269,9 @@ function isOrphanPreview(
   if (libraryId === null) return false;
   const source = sourceFilenameForPreviewCacheName(name);
   if (source !== null) return !liveNames.has(source);
-  const legacyMatch = LEGACY_PANO_PREVIEW_RE.exec(name);
-  if (legacyMatch) {
-    return !hashedLiveNames().has(legacyMatch[1]);
-  }
-  const editedMatch = EDITED_PREVIEW_RE.exec(name);
-  if (editedMatch) {
-    return !hashedLiveNames().has(editedMatch[1]);
+  for (const scheme of HASH_KEYED_PREVIEW_SCHEMES) {
+    const match = scheme.exec(name);
+    if (match) return !hashedLiveNames().has(match[1]);
   }
   return true;
 }

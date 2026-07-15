@@ -129,6 +129,11 @@ async function writeJpg(p: string): Promise<void> {
   await writeFile(p, Buffer.from([0xff, 0xd8, 0xff, 0xd9])); // tiny JPEG-ish bytes
 }
 
+async function writeMarker(p: string): Promise<void> {
+  await mkdir(path.dirname(p), { recursive: true });
+  await writeFile(p, '1721000000.000000'); // plain-text epoch, like the real markers
+}
+
 /**
  * Age `p` past the recency-skip window so the sweep will consider it for
  * deletion. The sweep skips files whose mtime is within 60s of `Date.now()`
@@ -215,6 +220,101 @@ describe('sweepOrphanedCaches — edited/developed-preview derivatives (#2009)',
 
       const s = await stat(wouldBeOrphan);
       expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  // Jules review (PR #2013): `.v` was missing from `PREVIEW_EXTS`, so BOTH
+  // marker siblings (`_1600.v` and `_1600.edited.v`) were silently invisible
+  // to the sweep — never recognized as live, and never cleaned up as orphans
+  // either. These four tests cover the fix.
+
+  test('keeps a live edited-preview marker (_1600.edited.v) whose hash matches a live fileinfo entry', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      const libraryId = await registerLibrary(root);
+      await insertLiveAsset(libraryId, '', 'a.dng');
+      const keep = path.join(
+        root,
+        '.maple',
+        'previews',
+        `${sha256Prefix16('a.dng')}_1600.edited.v`,
+      );
+      await writeMarker(keep);
+      await agePast(keep);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 0, skipped_recent: 0 });
+
+      const s = await stat(keep);
+      expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('unlinks an orphaned edited-preview marker (_1600.edited.v) whose hash matches no live filename', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      await registerLibrary(root);
+      const orphan = path.join(
+        root,
+        '.maple',
+        'previews',
+        `${sha256Prefix16('gone.dng')}_1600.edited.v`,
+      );
+      await writeMarker(orphan);
+      await agePast(orphan);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 1, skipped_recent: 0 });
+
+      await expect(stat(orphan)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps a live canonical-tier marker (_1600.v) whose hash matches a live fileinfo entry', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      const libraryId = await registerLibrary(root);
+      await insertLiveAsset(libraryId, '', 'a.dng');
+      const keep = path.join(root, '.maple', 'previews', `${sha256Prefix16('a.dng')}_1600.v`);
+      await writeMarker(keep);
+      await agePast(keep);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 0, skipped_recent: 0 });
+
+      const s = await stat(keep);
+      expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('unlinks an orphaned canonical-tier marker (_1600.v) whose hash matches no live filename', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      await registerLibrary(root);
+      const orphan = path.join(root, '.maple', 'previews', `${sha256Prefix16('gone.dng')}_1600.v`);
+      await writeMarker(orphan);
+      await agePast(orphan);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 1, skipped_recent: 0 });
+
+      await expect(stat(orphan)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

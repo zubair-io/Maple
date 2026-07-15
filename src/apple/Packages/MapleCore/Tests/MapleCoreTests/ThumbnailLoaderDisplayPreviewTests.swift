@@ -238,9 +238,42 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
         // A new edit (slider move, crop, revert — any sidecar rewrite) must
         // invalidate the marker written for the OLD sidecar state, even
         // though `ThumbnailLoader.displayPreviewTierVersion` hasn't changed
-        // — the two are independent invalidation triggers.
+        // — the two are independent invalidation triggers. Backdate past
+        // `sidecarAutosaveSlack` (10s) so this reads as a genuine new edit,
+        // not the debounced-autosave lag `editedPreviewMarkerIsCurrent`
+        // deliberately tolerates (see the test below).
         try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.4))
+        let sidecarURL = SidecarPath.sidecarURL(for: assetURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: 20)],
+            ofItemAtPath: sidecarURL.path)
         XCTAssertFalse(ThumbnailLoader.editedPreviewMarkerIsCurrent(for: assetURL))
+    }
+
+    /// #2009 / Jules review (PR #2013): the render-publish path captures
+    /// whatever the sidecar says AT RENDER TIME, which routinely trails the
+    /// live in-memory model by up to the 750 ms debounced-autosave window.
+    /// The autosave landing a beat later for the SAME edit must not read as
+    /// a sidecar change and self-invalidate the preview it just wrote.
+    func testEditedPreviewMarkerTolerantOfDebouncedAutosaveLag() async throws {
+        let assetURL = try writeJPEG(named: "l.jpg", width: 64, height: 64)
+        try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 0.5))
+        try FileManager.default.createDirectory(
+            at: MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL)
+                .deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        ThumbnailLoader.writeEditedPreviewMarker(for: assetURL)
+
+        // Simulate the debounced autosave landing ~1s after the render
+        // captured the marker — well within `sidecarAutosaveSlack` (10s).
+        let sidecarURL = SidecarPath.sidecarURL(for: assetURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: 1)],
+            ofItemAtPath: sidecarURL.path)
+
+        XCTAssertTrue(
+            ThumbnailLoader.editedPreviewMarkerIsCurrent(for: assetURL),
+            "a same-edit autosave landing within the slack window must not invalidate the marker")
     }
 
     func testFreshEditedPreviewDataPrefersLocalEditedRenderOverCanonicalTier() async throws {
