@@ -31,7 +31,11 @@
 
 import type { ObjectId } from 'mongodb';
 import { type Filter, type AnyBulkWriteOperation } from 'mongodb';
-import { assetsCollection, peopleCollection } from '../db/client.ts';
+import {
+  assetsCollection,
+  peopleCollection,
+  personMergeDismissalsCollection,
+} from '../db/client.ts';
 import type { Bbox, PersonDoc } from '../db/schema.ts';
 import {
   clusterEmbeddings,
@@ -40,6 +44,9 @@ import {
   l2Normalise,
   type ClusterSeed,
 } from './cluster-embeddings.ts';
+import { computeMergeSuggestions, type MergeSuggestion } from './people-merge-suggestions.ts';
+
+export { EMBEDDING_DIM } from './cluster-embeddings.ts';
 
 /** A loaded centroid, ready to seed the clustering pass. The `person_id` is
  * kept as a hex string so the whole structure is `postMessage`-serializable
@@ -50,6 +57,11 @@ export interface LoadedCentroid {
   centroid: Float32Array;
   /** Number of faces that contributed to the running mean. */
   face_count: number;
+  /** True for a soft-hidden person. Carried so the merge-suggestion pass
+   * can exclude hidden people without a second query — clustering itself
+   * deliberately does NOT filter on `hidden` (see the module header), this
+   * field exists only for that second, narrower use. */
+  hidden: boolean;
 }
 
 /** An unassigned face ref WITHOUT its embedding. The embedding stays inside
@@ -92,6 +104,11 @@ export interface PreparedClusteringPass {
    * Carried for parity with the prior `recomputeCentroids()` return value
    * (the value the standalone `recomputeCentroids` export must still yield). */
   recomputed: number;
+  /** Merge-suggestion pass over the loaded centroids (§ person-page merge
+   * suggestions). One entry per person with a qualifying suggestion;
+   * absent entries mean "no suggestion" — the write side (`clustering-
+   * job.ts`) explicitly clears anyone not present here. */
+  mergeSuggestions: MergeSuggestion[];
 }
 
 /**
@@ -127,6 +144,18 @@ export async function prepareClusteringPass(
     { similarityThreshold, seeds },
   );
 
+  // Merge-suggestion pass over the SAME loaded centroids — the only new
+  // Mongo read is `loadMergeDismissals()`; no second centroid load.
+  const dismissedPairs = await loadMergeDismissals();
+  const mergeSuggestions = computeMergeSuggestions(
+    centroids.map((c) => ({
+      personIdHex: c.person_id_hex,
+      centroid: c.centroid,
+      hidden: c.hidden,
+    })),
+    dismissedPairs,
+  );
+
   return {
     seedCount: centroids.length,
     seedPersonIds: centroids.map((c) => c.person_id_hex),
@@ -142,6 +171,7 @@ export async function prepareClusteringPass(
     })),
     maxAutoIndex,
     recomputed,
+    mergeSuggestions,
   };
 }
 
@@ -294,9 +324,18 @@ export async function loadCentroids(): Promise<LoadedCentroid[]> {
       person_id_hex: r._id.toHexString(),
       centroid: l2Normalise(Float32Array.from(r.centroid)),
       face_count: r.centroid_face_count ?? 0,
+      hidden: r.hidden === true,
     });
   }
   return out;
+}
+
+/** Every permanently-dismissed "not a match" pair, as a `Set` of
+ * `sortedPairKey` strings, for `computeMergeSuggestions` to exclude. */
+export async function loadMergeDismissals(): Promise<Set<string>> {
+  const coll = await personMergeDismissalsCollection();
+  const rows = await coll.find({}).project<{ pair: string }>({ pair: 1, _id: 0 }).toArray();
+  return new Set(rows.map((r) => r.pair));
 }
 
 export async function loadUnassignedFaces(): Promise<LoadedFace[]> {
