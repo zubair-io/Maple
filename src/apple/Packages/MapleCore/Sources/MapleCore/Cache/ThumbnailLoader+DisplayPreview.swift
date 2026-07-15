@@ -66,6 +66,73 @@ extension ThumbnailLoader {
             to: markerURL, atomically: true, encoding: .utf8)
     }
 
+    // MARK: - Edited/developed preview tier (#2009)
+
+    /// Sidecar-state signature used by the edited-preview freshness marker:
+    /// the XMP sidecar's own mtime, formatted for exact round-tripping
+    /// through the marker file. `"none"` when no sidecar exists yet — in
+    /// practice this only surfaces for an asset whose editor has never been
+    /// opened (the as-shot WB seed writes a sidecar on first open; see
+    /// `sidecarHasVisualEdits`'s doc).
+    private nonisolated static func sidecarStateSignature(for assetURL: URL) -> String {
+        let sidecar = SidecarPath.sidecarURL(for: assetURL)
+        guard
+            let mtime = (try? FileManager.default.attributesOfItem(atPath: sidecar.path))?[
+                .modificationDate
+            ] as? Date
+        else { return "none" }
+        return String(format: "%.6f", mtime.timeIntervalSince1970)
+    }
+
+    /// Whether the local edited/developed preview for `assetURL` still
+    /// matches the CURRENT edit sidecar. Distinct from
+    /// `displayPreviewMarkerIsCurrent`, which tracks the display-preview
+    /// tier's render-SEMANTICS version — this tracks sidecar EDIT STATE. A
+    /// stale marker means the sidecar changed (a slider tweak synced from
+    /// another device, a revert) since this edited render was captured, so
+    /// the cached JPEG no longer reflects it.
+    public nonisolated static func editedPreviewMarkerIsCurrent(for assetURL: URL) -> Bool {
+        let markerURL = MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL)
+        guard let recorded = try? String(contentsOf: markerURL, encoding: .utf8) else {
+            return false
+        }
+        return recorded.trimmingCharacters(in: .whitespacesAndNewlines)
+            == sidecarStateSignature(for: assetURL)
+    }
+
+    /// Stamp the CURRENT sidecar-state signature next to a just-written
+    /// edited preview, so a later read can tell whether the sidecar has
+    /// since changed.
+    nonisolated static func writeEditedPreviewMarker(for assetURL: URL) {
+        let markerURL = MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL)
+        try? sidecarStateSignature(for: assetURL).write(
+            to: markerURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Delete the local edited-render preview + its freshness marker for
+    /// `assetURL`, if present. A no-op when neither file exists.
+    nonisolated static func removeEditedPreview(for assetURL: URL) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: MapleSidecarPaths.editedPreviewURL(for: assetURL))
+        try? fm.removeItem(at: MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL))
+    }
+
+    /// Bytes of the local edited/developed preview when it's fresh — nil on
+    /// a miss (never rendered) or a missing/unreadable file. A STALE marker
+    /// (present but no longer matching the current sidecar — see
+    /// `editedPreviewMarkerIsCurrent`) is a real orphan: the sidecar moved on
+    /// since this render was captured, so it's cleaned up right here rather
+    /// than left for `cache-gc.ts`'s backstop sweep to eventually find
+    /// (#2009). A missing marker (never rendered, or already cleaned up) is
+    /// a no-op remove.
+    nonisolated static func freshEditedPreviewData(for assetURL: URL) -> Data? {
+        guard editedPreviewMarkerIsCurrent(for: assetURL) else {
+            removeEditedPreview(for: assetURL)
+            return nil
+        }
+        return try? Data(contentsOf: MapleSidecarPaths.editedPreviewURL(for: assetURL))
+    }
+
     /// Below this long edge an embedded thumbnail is not worth swapping in:
     /// EXIF thumbs are ~160 px — worse than the grid thumbnail already on
     /// screen — while real embedded previews are ≥ 1024 on every modern body.
@@ -147,6 +214,15 @@ extension ThumbnailLoader {
         let accessing = scope.startAccessingSecurityScopedResource()
         defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
+        // #2009: the local edited/developed render takes precedence when its
+        // sidecar-state marker is current — it reflects the ACTUAL pixels
+        // this sidecar renders to (Maple's own pipeline, distinct from the
+        // camera JPEG the canonical tier below is seeded from), and the
+        // 256px browse thumbnail already shows those same developed pixels.
+        if let edited = freshEditedPreviewData(for: url) {
+            return edited
+        }
+
         let previewURL = MapleSidecarPaths.previewURL(for: url)
         if let cached = freshDisplayPreviewData(previewURL: previewURL, assetURL: url) {
             return cached
@@ -174,11 +250,18 @@ extension ThumbnailLoader {
         await updateDisplayPreviewFromRender(rendered, for: assetURL)
     }
 
-    /// Overwrite the on-disk display preview for `assetURL` with one rendered
-    /// from a CIImage — the display-tier sibling of
+    /// Overwrite the on-disk EDITED/developed preview for `assetURL` with one
+    /// rendered from a CIImage — the display-tier sibling of
     /// `updateThumbnailFromRender`, called from the same render-publish paths
     /// so an edited photo's Preview swap shows the EDITED pixels, not the
     /// camera original.
+    ///
+    /// Writes `MapleSidecarPaths.editedPreviewURL`, NOT `previewURL` (#2009):
+    /// `previewURL` is the shared, cross-consumer camera-original contract
+    /// the Self-Hosted API's describe/OCR (VLM) pipeline reads — an earlier
+    /// design draft that wrote developed pixels there was a confirmed
+    /// correctness-and-privacy bug, not just a caching one. This tier is
+    /// LOCAL-ONLY.
     public func updateDisplayPreviewFromRender(_ rendered: CIImage, for assetURL: URL) async {
         let target = Self.displayPreviewLongEdge
         let extent = rendered.extent
@@ -186,13 +269,13 @@ extension ThumbnailLoader {
         let scale = longEdge > 0 ? min(1.0, target / longEdge) : 1.0
         let scaled = rendered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let data = Self.previewJpegData(from: scaled, ctx: ctx) else { return }
-        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+        let editedURL = MapleSidecarPaths.editedPreviewURL(for: assetURL)
         try? FileManager.default.createDirectory(
-            at: previewURL.deletingLastPathComponent(),
+            at: editedURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try? data.write(to: previewURL, options: .atomic)
-        Self.writeDisplayPreviewMarker(for: assetURL)
+        try? data.write(to: editedURL, options: .atomic)
+        Self.writeEditedPreviewMarker(for: assetURL)
     }
 
     /// A sidecar may legitimately be a little newer than the preview the

@@ -322,6 +322,62 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
+  test('keeps an edited-preview (_1600.edited.jpg) whose hash matches a live fileinfo entry', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const { sha256Prefix16 } = await import('../fs/xmp.ts');
+    const root = await mkTree();
+    try {
+      const libraryId = await registerLibrary(root);
+      await insertLiveAsset(libraryId, '', 'a.dng');
+      // Apple's local-only edited/developed-render preview
+      // (`MapleSidecarPaths.editedPreviewURL`, #2009) — hash-keyed like the
+      // pano pre-seed scheme, not path-keyed like the modern server tiers.
+      const keep = path.join(
+        root,
+        '.maple',
+        'previews',
+        `${sha256Prefix16('a.dng')}_1600.edited.jpg`,
+      );
+      await writeJpg(keep);
+      await agePast(keep);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 0, skipped_recent: 0 });
+
+      const s = await stat(keep);
+      expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('unlinks an orphaned edited-preview (_1600.edited.jpg) whose hash matches no live filename', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const { sha256Prefix16 } = await import('../fs/xmp.ts');
+    const root = await mkTree();
+    try {
+      await registerLibrary(root);
+      const orphan = path.join(
+        root,
+        '.maple',
+        'previews',
+        `${sha256Prefix16('gone.dng')}_1600.edited.jpg`,
+      );
+      await writeJpg(orphan);
+      await agePast(orphan);
+
+      // No live asset hashes to `sha256Prefix16('gone.dng')` — orphaned.
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 1, skipped_recent: 0 });
+
+      await expect(stat(orphan)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('does not delete previews when the library cannot be resolved (safe degradation)', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');

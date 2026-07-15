@@ -30,6 +30,19 @@
  * SAME way, is not). Recognized iff SOME live filename in this exact
  * directory hashes to the file's stem — see `isOrphanThumb`/`isOrphanPreview`.
  *
+ * The previews sweep additionally recognizes a FOURTH scheme, previews-only:
+ * `sha256_prefix16(basename)_1600.edited.jpg` — Apple's LOCAL-ONLY edited/
+ * developed-render preview (`MapleSidecarPaths.editedPreviewURL`, #2009).
+ * Same "verify against a live filename in this directory" carve-out as the
+ * pano pre-seed scheme above, NOT an unconditional keep: this file is Apple's
+ * own render, deliberately never written to the shared `sha256_prefix16(...)
+ * _1600.jpg` camera-original contract the describe/OCR (VLM) pipeline reads
+ * (an earlier design draft that did so was a confirmed correctness-and-
+ * privacy bug, not just a caching one). cache-gc only judges liveness here;
+ * Apple's own client handles sidecar-state staleness for this file
+ * (`ThumbnailLoader.freshEditedPreviewData`/`removeEditedPreview`) since a
+ * DB-side sweep has no visibility into XMP sidecar content.
+ *
  * No migration sentinel:
  *   The set of orphans changes continuously (a re-render at a new size, a
  *   rename, a hard-delete each create one). A one-shot sentinel-gated sweep
@@ -101,6 +114,12 @@ const LEGACY_SHA256_PREFIX16_RE = /^[0-9a-f]{16}$/;
 /** Matches a `sha256_prefix16(basename)_1600.jpg` filename — the
  * pano-injection pre-seed preview (module doc). Captures the 16-hex key. */
 const LEGACY_PANO_PREVIEW_RE = /^([0-9a-f]{16})_1600\.jpg$/;
+
+/** Matches a `sha256_prefix16(basename)_1600.edited.jpg` filename — Apple's
+ * local-only edited/developed-render preview (module doc, #2009). Captures
+ * the 16-hex key. Distinct suffix from `LEGACY_PANO_PREVIEW_RE` so the two
+ * schemes never collide even though both key off the same hash. */
+const EDITED_PREVIEW_RE = /^([0-9a-f]{16})_1600\.edited\.jpg$/;
 
 /** Resolve `libraryRoot`'s registered `_id`, or `null` if it isn't a
  * registered library root (or the lookup fails). `null` makes the previews
@@ -199,14 +218,16 @@ function isOrphanThumb(
   return true; // unrecognized shape, or a recognized-but-dead pre-seed key
 }
 
-/** A preview is orphaned unless it matches ONE of two live schemes: the
+/** A preview is orphaned unless it matches ONE of three live schemes: the
  * modern, path-keyed `<filename>.<suffix>` (via
- * `sourceFilenameForPreviewCacheName`), or the pano-injection pre-seed
- * `<sha256_prefix16(liveFilename)>_1600.jpg` (module doc) — legitimate iff
- * SOME live filename in this exact directory hashes to the captured key. No
- * resolvable library id → no known-live set was (or safely could be) built
- * for this pass, so never delete — a transient failure to resolve the
- * library must not mass-delete live previews (see `resolveLibraryId`). */
+ * `sourceFilenameForPreviewCacheName`), the pano-injection pre-seed
+ * `<sha256_prefix16(liveFilename)>_1600.jpg`, or Apple's local-only edited/
+ * developed-render preview `<sha256_prefix16(liveFilename)>_1600.edited.jpg`
+ * (module doc, #2009) — the latter two legitimate iff SOME live filename in
+ * this exact directory hashes to the captured key. No resolvable library id
+ * → no known-live set was (or safely could be) built for this pass, so
+ * never delete — a transient failure to resolve the library must not
+ * mass-delete live previews (see `resolveLibraryId`). */
 function isOrphanPreview(
   libraryId: ObjectId | null,
   liveNames: ReadonlySet<string>,
@@ -219,6 +240,10 @@ function isOrphanPreview(
   const legacyMatch = LEGACY_PANO_PREVIEW_RE.exec(name);
   if (legacyMatch) {
     return !hashedLiveNames().has(legacyMatch[1]);
+  }
+  const editedMatch = EDITED_PREVIEW_RE.exec(name);
+  if (editedMatch) {
+    return !hashedLiveNames().has(editedMatch[1]);
   }
   return true;
 }

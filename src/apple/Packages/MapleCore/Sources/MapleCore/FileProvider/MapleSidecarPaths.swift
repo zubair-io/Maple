@@ -45,4 +45,46 @@ public enum MapleSidecarPaths {
             .appendingPathComponent("previews")
             .appendingPathComponent("\(key)_1600.v")
     }
+
+    /// `<assetDir>/.maple/previews/<sha256prefix16(basename)>_1600.edited.jpg`
+    /// — Apple's LOCAL-ONLY developed/edited-render preview (#2009).
+    ///
+    /// Deliberately a distinct filename from `previewURL`, never written by
+    /// anything other than Apple's own render-publish path
+    /// (`ThumbnailLoader.updateDisplayPreviewFromRender`). `previewURL` is
+    /// the shared, cross-consumer contract for the IMMUTABLE camera-original
+    /// preview — the Self-Hosted API's describe/OCR (VLM) pipeline reads it
+    /// as "the camera-original preview" for a third-party model. An earlier
+    /// draft of this epic's design let edited pixels land there; that was a
+    /// confirmed correctness-AND-privacy bug, not just a caching bug, which
+    /// is why this tier gets its own name instead of reusing `previewURL`.
+    /// `cache-gc.ts`'s previews sweep recognizes this exact scheme as a
+    /// legitimate third naming convention (mirroring the pano pre-seed
+    /// carve-out), the same way `MapleSidecarPaths` mirrors that scheme on
+    /// the read side.
+    public static func editedPreviewURL(for assetURL: URL) -> URL {
+        let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
+        return assetURL.deletingLastPathComponent()
+            .appendingPathComponent(".maple")
+            .appendingPathComponent("previews")
+            .appendingPathComponent("\(key)_1600.edited.jpg")
+    }
+
+    /// `<assetDir>/.maple/previews/<sha256prefix16(basename)>_1600.edited.v`
+    /// — the sidecar-state freshness marker for `editedPreviewURL` (#2009).
+    ///
+    /// Unlike `previewVersionURL` (which tracks the display-preview tier's
+    /// RENDER-SEMANTICS version — an integer bumped when the JPEG-production
+    /// code changes), this marker tracks EDIT SIDECAR STATE: it must
+    /// invalidate whenever the sidecar changes (a new slider value, a new
+    /// crop, a revert), independent of any tier-version bump. Those are two
+    /// separate invalidation triggers — see
+    /// `ThumbnailLoader.editedPreviewMarkerIsCurrent(for:)`.
+    public static func editedPreviewMarkerURL(for assetURL: URL) -> URL {
+        let key = MapleThumbCacheKey.sha256Prefix16(assetURL.lastPathComponent)
+        return assetURL.deletingLastPathComponent()
+            .appendingPathComponent(".maple")
+            .appendingPathComponent("previews")
+            .appendingPathComponent("\(key)_1600.edited.v")
+    }
 }

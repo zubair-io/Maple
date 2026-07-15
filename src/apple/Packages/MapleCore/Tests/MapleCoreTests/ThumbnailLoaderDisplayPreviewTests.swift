@@ -92,6 +92,7 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
             at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let staged = Data([0xFF, 0xD8, 0x01, 0x02, 0xFF, 0xD9])
         try staged.write(to: previewURL)
+        ThumbnailLoader.writeDisplayPreviewMarker(for: assetURL)
 
         let data = await ThumbnailLoader.shared.loadDisplayPreview(
             for: AssetRef(url: assetURL))
@@ -154,17 +155,42 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
         let assetURL = try writeJPEG(named: "e.jpg", width: 2400, height: 1600)
         try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
         // The render-publish path wrote a developed preview (what
-        // `updateDisplayPreviewFromRender` produces) — the gate only blocks
-        // COLD generation from the camera original.
-        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+        // `updateDisplayPreviewFromRender` produces) to the LOCAL edited tier
+        // (#2009) — the gate only blocks COLD generation from the camera
+        // original into the canonical shared tier.
+        let editedURL = MapleSidecarPaths.editedPreviewURL(for: assetURL)
         try FileManager.default.createDirectory(
-            at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            at: editedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let developed = Data([0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9])
-        try developed.write(to: previewURL)
+        try developed.write(to: editedURL)
+        ThumbnailLoader.writeEditedPreviewMarker(for: assetURL)
 
         let data = await ThumbnailLoader.shared.loadDisplayPreview(
             for: AssetRef(url: assetURL))
         XCTAssertEqual(data, developed)
+    }
+
+    func testEditedSidecarWithoutFreshEditedMarkerBlocksColdGeneration() async throws {
+        let assetURL = try writeJPEG(named: "h.jpg", width: 2400, height: 1600)
+        try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
+        // A LOCAL edited-tier file exists but its marker is stale (doesn't
+        // match the current sidecar state) — must not be served, and must
+        // NOT fall through to generating camera-original pixels either
+        // (#2009: the existing edited-photo gate still applies).
+        let editedURL = MapleSidecarPaths.editedPreviewURL(for: assetURL)
+        try FileManager.default.createDirectory(
+            at: editedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9]).write(to: editedURL)
+        try "stale".write(
+            to: MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL),
+            atomically: true, encoding: .utf8)
+
+        let data = await ThumbnailLoader.shared.loadDisplayPreview(
+            for: AssetRef(url: assetURL))
+        XCTAssertNil(data)
+        // The stale edited render is cleaned up eagerly rather than left for
+        // cache-gc's backstop sweep.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: editedURL.path))
     }
 
     // MARK: - Render refresh
@@ -183,9 +209,73 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
 
         await ThumbnailLoader.shared.updateDisplayPreviewFromRender(rendered, for: assetURL)
 
-        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
-        let bytes = try Data(contentsOf: previewURL)
+        // #2009: the render-publish path writes the LOCAL edited tier, never
+        // the canonical shared `previewURL` (the camera-original contract
+        // the server's describe/OCR pipeline reads).
+        let editedURL = MapleSidecarPaths.editedPreviewURL(for: assetURL)
+        let bytes = try Data(contentsOf: editedURL)
         XCTAssertEqual(try longEdge(of: bytes), Int(ThumbnailLoader.displayPreviewLongEdge))
+        XCTAssertTrue(ThumbnailLoader.editedPreviewMarkerIsCurrent(for: assetURL))
+
+        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: previewURL.path),
+            "an edited render must never land in the shared camera-original file")
+    }
+
+    // MARK: - Edited preview marker + cleanup (#2009)
+
+    func testEditedPreviewMarkerInvalidatesWhenSidecarChanges() async throws {
+        let assetURL = try writeJPEG(named: "i.jpg", width: 64, height: 64)
+        try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 0.5))
+        try FileManager.default.createDirectory(
+            at: MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL)
+                .deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        ThumbnailLoader.writeEditedPreviewMarker(for: assetURL)
+        XCTAssertTrue(ThumbnailLoader.editedPreviewMarkerIsCurrent(for: assetURL))
+
+        // A new edit (slider move, crop, revert — any sidecar rewrite) must
+        // invalidate the marker written for the OLD sidecar state, even
+        // though `ThumbnailLoader.displayPreviewTierVersion` hasn't changed
+        // — the two are independent invalidation triggers.
+        try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.4))
+        XCTAssertFalse(ThumbnailLoader.editedPreviewMarkerIsCurrent(for: assetURL))
+    }
+
+    func testFreshEditedPreviewDataPrefersLocalEditedRenderOverCanonicalTier() async throws {
+        let assetURL = try writeJPEG(named: "j.jpg", width: 2400, height: 1600)
+        // Both tiers present + fresh — the local edited render must win.
+        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+        try FileManager.default.createDirectory(
+            at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0xFF, 0xD8, 0x01, 0x02, 0xFF, 0xD9]).write(to: previewURL)
+        ThumbnailLoader.writeDisplayPreviewMarker(for: assetURL)
+
+        let editedURL = MapleSidecarPaths.editedPreviewURL(for: assetURL)
+        let developed = Data([0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9])
+        try developed.write(to: editedURL)
+        ThumbnailLoader.writeEditedPreviewMarker(for: assetURL)
+
+        let data = await ThumbnailLoader.shared.loadDisplayPreview(
+            for: AssetRef(url: assetURL))
+        XCTAssertEqual(data, developed)
+    }
+
+    func testRemoveEditedPreviewDeletesBothFiles() throws {
+        let assetURL = try writeJPEG(named: "k.jpg", width: 64, height: 64)
+        let editedURL = MapleSidecarPaths.editedPreviewURL(for: assetURL)
+        try FileManager.default.createDirectory(
+            at: editedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0xFF, 0xD8]).write(to: editedURL)
+        ThumbnailLoader.writeEditedPreviewMarker(for: assetURL)
+
+        ThumbnailLoader.removeEditedPreview(for: assetURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: editedURL.path))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: MapleSidecarPaths.editedPreviewMarkerURL(for: assetURL).path))
     }
 
     // MARK: - Non-image guards

@@ -23,4 +23,26 @@ final class MapleSidecarPathsTests: XCTestCase {
             "/a/b/Panoramas/.maple/previews/88bab9b0d022c93c_1600.jpg"
         )
     }
+
+    // MARK: - Edited/developed preview tier (#2009)
+
+    func testEditedPreviewURLIsDistinctFromCanonicalPreviewURL() {
+        let pano = URL(fileURLWithPath: "/a/b/Panoramas/panorama-test.png")
+        let edited = MapleSidecarPaths.editedPreviewURL(for: pano)
+        XCTAssertEqual(
+            edited.path,
+            "/a/b/Panoramas/.maple/previews/88bab9b0d022c93c_1600.edited.jpg"
+        )
+        XCTAssertNotEqual(edited, MapleSidecarPaths.previewURL(for: pano))
+    }
+
+    func testEditedPreviewMarkerURLIsDistinctFromCanonicalMarkerURL() {
+        let pano = URL(fileURLWithPath: "/a/b/Panoramas/panorama-test.png")
+        let marker = MapleSidecarPaths.editedPreviewMarkerURL(for: pano)
+        XCTAssertEqual(
+            marker.path,
+            "/a/b/Panoramas/.maple/previews/88bab9b0d022c93c_1600.edited.v"
+        )
+        XCTAssertNotEqual(marker, MapleSidecarPaths.previewVersionURL(for: pano))
+    }
 }
