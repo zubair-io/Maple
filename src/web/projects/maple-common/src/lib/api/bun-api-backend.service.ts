@@ -586,7 +586,7 @@ export class BunApiBackendService {
    * server-side via the same isolated sharp pipeline the index-time preview
    * stage uses. See `routes/preview.ts`'s module doc on the API side.
    */
-  putPreview(path: string, body: Blob, contentType: string): Observable<void> {
+  putPreview(path: string, body: Blob, contentType: 'image/avif' | 'image/jpeg'): Observable<void> {
     return this.http.put<void>(`${this.base}/preview?path=${encodeURIComponent(path)}`, body, {
       headers: { 'Content-Type': contentType },
     });
