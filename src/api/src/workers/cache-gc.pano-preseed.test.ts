@@ -163,6 +163,31 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
     }
   });
 
+  test('does not delete a pano pre-seed thumb when the library cannot be resolved (safe degradation)', async () => {
+    if (!mongoReachable) return;
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      // Deliberately NOT registered — `resolveLibraryId` returns null, so
+      // no known-live set can be built. Mirrors the previews-side
+      // "safe degradation" test — a transient/failed library lookup must
+      // never mass-delete a pano's pre-seed thumb either (jules review,
+      // PR #2008 round 2).
+      const preSeedKey = sha256Prefix16('panorama-test.png');
+      const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
+      await writeAvif(preSeedThumb);
+      await agePast(preSeedThumb);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result.deleted).toBe(0);
+
+      const s = await stat(preSeedThumb);
+      expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('unlinks a pano pre-seed thumb (sha256_prefix16-keyed) matching NO live filename', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');

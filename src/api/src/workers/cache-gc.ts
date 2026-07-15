@@ -171,11 +171,19 @@ function lazyHashedNames(liveNames: ReadonlySet<string>): () => ReadonlySet<stri
 }
 
 /** A thumb is orphaned unless it matches ONE of two live schemes: the
- * modern, indexed-asset `<maple_id>.avif`, or the pano-injection pre-seed
+ * modern, indexed-asset `<maple_id>.avif` (library-independent — checked
+ * against the DB-wide `knownMapleIds` set regardless of whether this
+ * library root resolves), or the pano-injection pre-seed
  * `<sha256_prefix16(liveFilename)>.avif` (module doc) — legitimate iff SOME
- * live filename in this exact directory hashes to the file's stem. */
+ * live filename in this exact directory hashes to the file's stem. Unlike
+ * `knownMapleIds`, the legacy scheme's live set is library-scoped
+ * (`hashedLiveNames`, built from `knownPreviewFilenames`), so it needs the
+ * same `libraryId === null` guard as `isOrphanPreview`: no resolvable
+ * library id → no known-live set was (or safely could be) built for this
+ * pass, so never delete on that branch (jules review, PR #2008 round 2). */
 function isOrphanThumb(
   knownMapleIds: ReadonlySet<string>,
+  libraryId: ObjectId | null,
   hashedLiveNames: () => ReadonlySet<string>,
   name: string,
 ): boolean {
@@ -185,6 +193,7 @@ function isOrphanThumb(
     return !knownMapleIds.has(stem.slice(0, 32));
   }
   if (LEGACY_SHA256_PREFIX16_RE.test(stem)) {
+    if (libraryId === null) return false;
     return !hashedLiveNames().has(stem);
   }
   return true; // unrecognized shape, or a recognized-but-dead pre-seed key
@@ -300,7 +309,7 @@ async function sweepThumbsDir(ctx: SweepContext, cacheDir: string, relDir: strin
   const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
   const hashedLiveNames = lazyHashedNames(liveNames);
   await sweepCacheDir(ctx, cacheDir, THUMB_EXTS, (name) =>
-    isOrphanThumb(ctx.knownMapleIds, hashedLiveNames, name),
+    isOrphanThumb(ctx.knownMapleIds, ctx.libraryId, hashedLiveNames, name),
   );
 }
 
