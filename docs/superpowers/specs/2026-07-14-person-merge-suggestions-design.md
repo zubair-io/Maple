@@ -190,7 +190,7 @@ export function computeMergeSuggestions(
   the doc being listed — no join) for the grid badge.
 - **New `POST /api/people/:id/dismiss-merge-suggestion`**, body
   `{ other_id: string }` — mirrors the existing `/hide` route shape.
-  Validates `other_id` matches the person's *current*
+  Validates `other_id` matches the person's _current_
   `suggested_merge_person_id` — a mismatch (suggestion already changed or
   cleared server-side) maps to 404, mirroring the existing merge route's
   `person not found` / `person already merged` → 404 convention — writes the
@@ -297,23 +297,23 @@ duplicate"`).
 
 ## Files touched
 
-| File                                                                      | Change                                                              |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `src/api/src/db/schema.ts`                                                | new `PersonDoc` fields; new `PersonMergeDismissalDoc`                |
-| `src/api/src/db/client.ts`                                                | new `personMergeDismissalsCollection()`; unique index on `pair`      |
-| `src/api/src/people/people-merge-suggestions.ts`                          | new — pure `computeMergeSuggestions` + threshold constant            |
-| `src/api/src/people/people-merge-suggestions.test.ts`                     | new — pure-core unit tests                                            |
-| `src/api/src/people/cluster-load.ts`                                     | `loadCentroids` projects `hidden`; new `loadMergeDismissals`          |
-| `src/api/src/people/clustering-job.ts`                                   | wire suggestion pass + bulkWrite after centroid load                 |
-| `src/api/src/people/people.repo.ts`                                      | `getPerson`/`toPersonListRow` include suggestion fields               |
-| `src/api/src/routes/people.ts`                                          | new `POST /:id/dismiss-merge-suggestion`                              |
-| `src/api/src/people/*.test.ts`                                           | route + integration tests                                             |
-| `src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts`  | `ApiMergeSuggestion`, type additions, `dismissMergeSuggestion`         |
-| `src/web/projects/maple-common/src/lib/api/people.store.ts`             | `dismissMergeSuggestion` + invalidation                               |
-| `src/web/projects/maple/src/app/settings/people/people-detail.controller.ts` | `mergeSuggestionInto`, `dismissSuggestion`                       |
-| `src/web/projects/maple/src/app/settings/people/people.component.html`  | detail banner; list badge                                             |
-| `src/web/projects/maple/src/app/settings/people/people.component.scss`  | banner + badge styling                                                |
-| `src/web/projects/maple/src/app/settings/people/*.spec.ts`               | controller/store unit tests                                           |
+| File                                                                         | Change                                                          |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `src/api/src/db/schema.ts`                                                   | new `PersonDoc` fields; new `PersonMergeDismissalDoc`           |
+| `src/api/src/db/client.ts`                                                   | new `personMergeDismissalsCollection()`; unique index on `pair` |
+| `src/api/src/people/people-merge-suggestions.ts`                             | new — pure `computeMergeSuggestions` + threshold constant       |
+| `src/api/src/people/people-merge-suggestions.test.ts`                        | new — pure-core unit tests                                      |
+| `src/api/src/people/cluster-load.ts`                                         | `loadCentroids` projects `hidden`; new `loadMergeDismissals`    |
+| `src/api/src/people/clustering-job.ts`                                       | wire suggestion pass + bulkWrite after centroid load            |
+| `src/api/src/people/people.repo.ts`                                          | `getPerson`/`toPersonListRow` include suggestion fields         |
+| `src/api/src/routes/people.ts`                                               | new `POST /:id/dismiss-merge-suggestion`                        |
+| `src/api/src/people/*.test.ts`                                               | route + integration tests                                       |
+| `src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts`       | `ApiMergeSuggestion`, type additions, `dismissMergeSuggestion`  |
+| `src/web/projects/maple-common/src/lib/api/people.store.ts`                  | `dismissMergeSuggestion` + invalidation                         |
+| `src/web/projects/maple/src/app/settings/people/people-detail.controller.ts` | `mergeSuggestionInto`, `dismissSuggestion`                      |
+| `src/web/projects/maple/src/app/settings/people/people.component.html`       | detail banner; list badge                                       |
+| `src/web/projects/maple/src/app/settings/people/people.component.scss`       | banner + badge styling                                          |
+| `src/web/projects/maple/src/app/settings/people/*.spec.ts`                   | controller/store unit tests                                     |
 
 ## Ticket
 
