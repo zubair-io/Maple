@@ -161,16 +161,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     if let Some((list, aa)) = raw.opcode_list3.as_ref() {
         stage("sized_opcode_list3", || {
             let scale = camera_rgb.width as f32 / raw.width as f32;
-            let scaled_aa = if (scale - 1.0).abs() > 1e-4 {
-                crate::pipeline::pano::opcodes::ActiveAreaRect {
-                    top: ((aa.top as f32) * scale).round() as u32,
-                    left: ((aa.left as f32) * scale).round() as u32,
-                    width: ((aa.width as f32) * scale).round() as u32,
-                    height: ((aa.height as f32) * scale).round() as u32,
-                }
-            } else {
-                *aa
-            };
+            let scaled_aa = crate::pipeline::pano::opcode_apply::scale_active_area(
+                *aa,
+                scale,
+                camera_rgb.width,
+                camera_rgb.height,
+            );
             crate::pipeline::pano::opcode_apply::apply_opcode_list3(
                 &mut camera_rgb,
                 list,
