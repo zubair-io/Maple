@@ -162,10 +162,12 @@ describe('GET /api/fs/preview', () => {
 
     const revalidated = await get(rawPath!, { 'if-none-match': etag! });
     expect(revalidated.status).toBe(304);
-    expect(revalidated.headers.get('cache-control')).toBe('private, max-age=3600');
+    // Not immutable / long-max-age — the preview is overwritten in place on
+    // edit, so clients must revalidate (the file-based ETag then busts) (#2017).
+    expect(revalidated.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate');
   });
 
-  it('serves the indexer-written <filename>.1280.avif when the asset is indexed (no maple_id needed)', async () => {
+  it('serves the indexer-written <filename>.avif when the asset is indexed (no maple_id needed)', async () => {
     if (!mongo) return;
 
     const db = mongo.db(TEST_DB);
@@ -198,53 +200,5 @@ describe('GET /api/fs/preview', () => {
     const res = await get(rawPath!);
     expect(res.status).toBe(200);
     expect(Buffer.from(await res.arrayBuffer())).toEqual(pathKeyed);
-  });
-
-  it('serves the developed _dev_<ver>.jpg for an EDITED asset, with a sidecar-ver ETag (#1950)', async () => {
-    if (!mongo) return;
-
-    const db = mongo.db(TEST_DB);
-    const libraryId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: libraryId,
-      path: tmp!,
-      slug: 'edited-lib',
-      label: 'Edited',
-    });
-    await db.collection('assets').insertOne({
-      deleted_at: null,
-      has_xmp: true,
-      sidecar_ver: 3,
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: '',
-          filename: 'a.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-    });
-    invalidateLibraryRoots();
-
-    // Pre-stage BOTH the developed file and the embedded file; the route must
-    // prefer the developed one for an edited asset.
-    const developed = Buffer.from([0xff, 0xd8, 0xde, 0xad, 0xff, 0xd9]);
-    const embedded = Buffer.from([0xff, 0xd8, 0xbe, 0xef, 0xff, 0xd9]);
-    const devPath = join(tmp!, '.maple', 'previews', 'a.jpg.dev_3.jpg');
-    const embPath = join(tmp!, '.maple', 'previews', `a.jpg.${PREVIEW_CACHE_SUFFIX}`);
-    await mkdir(dirname(devPath), { recursive: true });
-    await writeFile(devPath, developed);
-    await writeFile(embPath, embedded);
-
-    const res = await get(rawPath!);
-    expect(res.status).toBe(200);
-    expect(Buffer.from(await res.arrayBuffer())).toEqual(developed);
-    const etag = res.headers.get('etag');
-    expect(etag).toContain('-dev3');
-
-    // A matching If-None-Match on the dev ETag → 304.
-    const revalidated = await get(rawPath!, { 'if-none-match': etag! });
-    expect(revalidated.status).toBe(304);
   });
 });

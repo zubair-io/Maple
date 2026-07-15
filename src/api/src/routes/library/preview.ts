@@ -1,15 +1,15 @@
 /**
  * GET /api/preview/:slug/*
  *
- * Returns a long-edge 1280 AVIF preview for an indexed image.
- * ETag: "<maple_id>_1280", Cache-Control: public, max-age=31536000, immutable.
- * Honors If-None-Match for 304 responses. ETag stays `maple_id`-based (an
- * opaque validator, not the cache key) even though the file itself is now
- * path-keyed — see `cachePathForAsset`'s doc in `fs/xmp.ts`.
+ * Serves the single `<filename>.avif` preview for an indexed image (#2017) —
+ * one unversioned file per asset, generated on a cold-cache miss. ETag is the
+ * preview file's own mtime + size, so an in-place overwrite by the editor
+ * busts it automatically; Cache-Control is `must-revalidate` (not immutable)
+ * so clients pick up that overwrite. Honors If-None-Match for 304 responses.
  *
  * Uses `cachePathForAsset(asset, libs, 'previews', PREVIEW_CACHE_SUFFIX)` —
- * the same path as the existing preview stage — so the cache is shared
- * between the background stage and on-demand generation from this route.
+ * the same path as the `preview` stage — so the cache is shared between the
+ * background stage and on-demand generation from this route.
  */
 
 import { Elysia, t } from 'elysia';
@@ -22,10 +22,10 @@ import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.t
 import { previewOndemandLimiter } from '../../indexer/preview-ondemand-limiter.ts';
 import {
   safeStat,
-  IMMUTABLE_CACHE,
+  MUTABLE_PREVIEW_CACHE,
+  previewFileETag,
   findAssetByAddress,
   parseWildcardSegments,
-  developedPreviewResponse,
   serveCachedBytesOr404,
 } from './shared.ts';
 
@@ -34,8 +34,8 @@ const log = childLogger('routes/library/preview');
 export const previewRoutes = new Elysia().get(
   '/preview/:slug/*',
   // Pre-existing M1-route complexity (wildcard parse, address resolve,
-  // indexing-202, ETag/304, on-demand generate + serve). This PR adds only a
-  // thin developed-preview branch (one `developedPreviewResponse` helper call).
+  // indexing-202, on-demand generate, ETag/304). The developed-vs-unedited
+  // branch was removed in #2017 (one file per asset), which simplified this.
   // fallow-ignore-next-line complexity
   async ({ params, headers, set }) => {
     const slug = params.slug;
@@ -79,32 +79,7 @@ export const previewRoutes = new Elysia().get(
       };
     }
 
-    const ifNoneMatch = headers['if-none-match'];
     const libs = await loadLibraryRoots();
-
-    // Developed preview for edited assets (#1950): when the `display-preview`
-    // stage has rendered `<maple_id>_dev_<sidecar_ver>.jpg`, serve that — it
-    // reflects the sidecar's edits, unlike the embedded 1280 preview below.
-    // ETag folds in `sidecar_ver` so a new edit busts client caches. Null →
-    // unedited or not-yet-rendered; fall through to the embedded preview.
-    const sidecarVer = (asset.sidecar_ver as number | undefined) ?? 0;
-    const developed = await developedPreviewResponse(
-      asset,
-      libs,
-      `"${asset.maple_id}_dev_${sidecarVer}"`,
-      IMMUTABLE_CACHE,
-      ifNoneMatch,
-    );
-    if (developed) return developed;
-
-    const etag = `"${asset.maple_id}_1280"`;
-    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-      return new Response(null, {
-        status: 304,
-        headers: { ETag: etag, 'Cache-Control': IMMUTABLE_CACHE },
-      });
-    }
-
     const previewPath = cachePathForAsset(
       { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
       libs,
@@ -116,14 +91,17 @@ export const previewRoutes = new Elysia().get(
       return { error: 'Cannot resolve preview path for this asset' };
     }
 
-    const previewSt = await safeStat(previewPath);
+    // Ensure the preview exists, then derive the ETag from the file itself so
+    // an in-place overwrite (the editor saving a developed preview) busts it —
+    // there is no size/version token in the name to key off instead.
+    let previewSt = await safeStat(previewPath);
     if (!previewSt) {
       try {
         // Bound concurrent on-demand regeneration in this API process — see
         // preview-ondemand-limiter.ts. Protects live-request latency from a
         // synchronized cache-miss burst (e.g. opening a large NAS folder
-        // shortly after the #2006 AVIF/path-key migration, before the
-        // background `preview` stage has caught every asset up).
+        // shortly after the #2017 rename migration, before the background
+        // `preview` stage has caught every asset up).
         await previewOndemandLimiter().run(() => generatePreview(absPath, previewPath));
       } catch (err) {
         log.warn(
@@ -137,9 +115,30 @@ export const previewRoutes = new Elysia().get(
         set.status = 500;
         return { error: 'Preview generation failed' };
       }
+      previewSt = await safeStat(previewPath);
+      if (!previewSt) {
+        set.status = 500;
+        return { error: 'Preview generation failed' };
+      }
     }
 
-    return serveCachedBytesOr404(set, previewPath, 'image/avif', etag, 'Preview file unreadable');
+    const etag = previewFileETag(previewSt);
+    const ifNoneMatch = headers['if-none-match'];
+    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
+      return new Response(null, {
+        status: 304,
+        headers: { ETag: etag, 'Cache-Control': MUTABLE_PREVIEW_CACHE },
+      });
+    }
+
+    return serveCachedBytesOr404(
+      set,
+      previewPath,
+      'image/avif',
+      etag,
+      'Preview file unreadable',
+      MUTABLE_PREVIEW_CACHE,
+    );
   },
   {
     params: t.Object({
