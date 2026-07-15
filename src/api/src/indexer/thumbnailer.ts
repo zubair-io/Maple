@@ -26,12 +26,14 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isNoPreviewFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
+import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('thumbnailer');
@@ -111,17 +113,33 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     return;
   }
 
-  let ok = false;
+  // Encode to a private temp path first, not `thumbPath` directly — a
+  // completed-but-corrupt encode (codec edge case, resize bug, or — for the
+  // copy fallback below — bytes that were never AVIF at all) would otherwise
+  // still land at the cache path looking like a good entry. `finalizeAvifRender`
+  // decodes this temp file and only renames it to `thumbPath` if it passes;
+  // on any failure the temp file is removed, never `thumbPath`.
+  const tmpPath = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+
+  let renderOk: boolean;
   if (RAW_EXTS.has(ext)) {
-    ok = await renderRawThumbToFile(absPath, thumbPath);
+    renderOk = await renderRawThumbToFile(absPath, tmpPath);
   } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
-    ok = await renderBitmapThumbToFile(absPath, thumbPath, extNoDot);
+    renderOk = await renderBitmapThumbToFile(absPath, tmpPath, extNoDot);
   } else {
     // Unknown format — fall back to copy so something is at the path
     // (matches the prior behaviour for, e.g., a future format we haven't
-    // taught sharp about yet).
-    ok = await copyImageAsThumb(absPath, thumbPath);
+    // taught sharp about yet). Routed through the same validate-then-publish
+    // gate as every other branch: a copied source that isn't actually a
+    // valid AVIF (the common case, since this is the last-resort branch)
+    // fails validation and is discarded rather than silently served.
+    renderOk = await copyImageAsThumb(absPath, tmpPath);
   }
+
+  const ok = await finalizeAvifRender(renderOk, tmpPath, thumbPath, THUMB_LONG_EDGE_PX, log, {
+    assetPath: absPath,
+    tier: 'thumb',
+  });
 
   if (ok) {
     _rendered++;
@@ -141,8 +159,10 @@ function logTotals(): void {
 
 /** RAW thumb via the off-thread FFI worker pool. Returns true on success.
  * The worker holds the synchronous bun:ffi call so the main HTTP thread
- * stays responsive during indexer bursts. */
-async function renderRawThumbToFile(rawPath: string, thumbPath: string): Promise<boolean> {
+ * stays responsive during indexer bursts. `outPath` is the caller's private
+ * temp path, not the final cache path — `generateThumb` validates and
+ * renames into place. See its doc comment. */
+async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
     log.warn(
@@ -153,7 +173,7 @@ async function renderRawThumbToFile(rawPath: string, thumbPath: string): Promise
   try {
     return await pool.renderThumbnailAvifToFile(
       rawPath,
-      thumbPath,
+      outPath,
       THUMB_LONG_EDGE_PX,
       THUMB_AVIF_QUALITY,
     );
@@ -171,16 +191,17 @@ async function renderRawThumbToFile(rawPath: string, thumbPath: string): Promise
  * Bitmap formats (JPEG / PNG / WEBP / TIFF / AVIF / HEIC / HEIF): decode
  * + resize via the imgdecode child pool (sharp + heic-convert in an isolated
  * process). Same output as the live `/api/fs/thumb` route on a cache miss.
+ * `outPath` is the caller's private temp path — see `renderRawThumbToFile`.
  */
 async function renderBitmapThumbToFile(
   srcPath: string,
-  thumbPath: string,
+  outPath: string,
   ext: string,
 ): Promise<boolean> {
   try {
     const result = await renderImageThumbToFileViaPool(
       srcPath,
-      thumbPath,
+      outPath,
       THUMB_LONG_EDGE_PX,
       THUMB_AVIF_QUALITY,
       ext,
@@ -202,11 +223,14 @@ async function renderBitmapThumbToFile(
 /**
  * Last-resort copy for formats sharp doesn't know about. Keeps the prior
  * fallback so a future format addition doesn't silently drop on the floor
- * before we explicitly handle it.
+ * before we explicitly handle it. `outPath` is the caller's private temp
+ * path — see `renderRawThumbToFile`. The copied bytes still have to clear
+ * `publishValidatedAvif`'s decode gate, so a source that isn't actually a
+ * valid AVIF is caught there rather than served.
  */
-async function copyImageAsThumb(srcPath: string, thumbPath: string): Promise<boolean> {
+async function copyImageAsThumb(srcPath: string, outPath: string): Promise<boolean> {
   try {
-    await fs.copyFile(srcPath, thumbPath);
+    await fs.copyFile(srcPath, outPath);
     return true;
   } catch (e) {
     log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'copy failed');

@@ -34,11 +34,13 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { cachePathFor } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { isNoPreviewFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('previewer');
@@ -139,11 +141,19 @@ export async function generatePreview(
     return;
   }
 
-  let ok = false;
+  // Encode to a private temp path first, not `previewPath` directly — a
+  // completed-but-corrupt encode (codec edge case, resize bug) would
+  // otherwise still get atomically written+renamed by the encoder itself,
+  // landing at the cache path looking like a good entry. `finalizeAvifRender`
+  // below decodes this temp file and only renames it to `previewPath` if it
+  // passes; on any failure the temp file is removed, never `previewPath`.
+  const tmpPath = `${previewPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
+
+  let renderOk: boolean;
   if (RAW_EXTS.has(ext)) {
-    ok = await renderRawPreviewToFile(absPath, previewPath);
+    renderOk = await renderRawPreviewToFile(absPath, tmpPath);
   } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
-    ok = await renderBitmapPreviewToFile(absPath, previewPath, extNoDot);
+    renderOk = await renderBitmapPreviewToFile(absPath, tmpPath, extNoDot);
   } else {
     // Unknown format — no decode path can produce a genuine AVIF from these
     // bytes, so there is nothing to write. A raw byte copy under a
@@ -157,6 +167,11 @@ export async function generatePreview(
     logTotals();
     return;
   }
+
+  const ok = await finalizeAvifRender(renderOk, tmpPath, previewPath, PREVIEW_LONG_EDGE_PX, log, {
+    assetPath: absPath,
+    tier: 'preview',
+  });
 
   if (ok) {
     _rendered++;
@@ -196,7 +211,9 @@ function logRenderFailure(context: Record<string, unknown>, err: unknown, label:
   return false;
 }
 
-async function renderRawPreviewToFile(rawPath: string, previewPath: string): Promise<boolean> {
+/** `outPath` is the caller's private temp path, not the final cache path —
+ * `generatePreview` validates and renames into place. See its doc comment. */
+async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise<boolean> {
   const pool = ffiPool();
   if (!pool.available()) {
     log.warn(
@@ -210,7 +227,7 @@ async function renderRawPreviewToFile(rawPath: string, previewPath: string): Pro
     // the VLM's input, so it needs materially more fidelity than the 256px
     // grid-thumbnail tier's quality-55 AVIF, but AVIF's efficiency means it
     // doesn't need JPEG-equivalent-looking quality numbers to get there.
-    return await pool.renderThumbnailAvifToFile(rawPath, previewPath, PREVIEW_LONG_EDGE_PX, 70);
+    return await pool.renderThumbnailAvifToFile(rawPath, outPath, PREVIEW_LONG_EDGE_PX, 70);
   } catch (e) {
     return logRenderFailure({ rawPath }, e, 'FFI call threw');
   }
@@ -220,16 +237,17 @@ async function renderRawPreviewToFile(rawPath: string, previewPath: string): Pro
   // out of worker-main's address space for isolation.
 }
 
+/** `outPath` is the caller's private temp path — see `renderRawPreviewToFile`. */
 async function renderBitmapPreviewToFile(
   srcPath: string,
-  previewPath: string,
+  outPath: string,
   ext: string,
 ): Promise<boolean> {
   try {
     // AVIF, quality 70 — matches the RAW path's rationale above.
     const result = await renderImageThumbToFileViaPool(
       srcPath,
-      previewPath,
+      outPath,
       PREVIEW_LONG_EDGE_PX,
       70,
       ext,
