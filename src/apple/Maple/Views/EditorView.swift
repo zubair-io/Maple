@@ -42,6 +42,9 @@
 
 import SwiftUI
 import MapleCore
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - EditorView
 
@@ -86,6 +89,17 @@ struct EditorView: View {
     // ── END TEMPORARY ─────────────────────────────────────────────────────────
 
     private var isRegular: Bool { hSizeClass == .regular }
+
+    /// The restored S5 control stack is deliberately phone-idiom-only.
+    /// Size class alone is insufficient because an iPad can become compact
+    /// in Split View and must retain its existing editor design.
+    private var isIPhone: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         ZStack {
@@ -159,25 +173,27 @@ struct EditorView: View {
                 // trailing edge (the panel itself is right-anchored inside
                 // StackedAdjustmentsPanel on regular); on compact it sits at
                 // the bottom.
-                StackedAdjustmentsPanel(
-                    state: state,
-                    onPresetsTap: { presetsOpen = true }
-                )
-                #if os(macOS)
-                .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
-                    PresetsPanel(
+                if !isIPhone {
+                    StackedAdjustmentsPanel(
                         state: state,
-                        store: presetStore,
-                        onApplied: { presetsOpen = false }
+                        onPresetsTap: { presetsOpen = true }
                     )
-                    .frame(width: 340, height: 460)
-                    .background(MapleTokens.surface)
+                    #if os(macOS)
+                    .popover(isPresented: $presetsOpen, arrowEdge: .trailing) {
+                        PresetsPanel(
+                            state: state,
+                            store: presetStore,
+                            onApplied: { presetsOpen = false }
+                        )
+                        .frame(width: 340, height: 460)
+                        .background(MapleTokens.surface)
+                    }
+                    #endif
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isRegular ? .trailing : .bottom)
+                    .ignoresSafeArea(edges: .bottom)
+                    .opacity(chromeOpacity)
+                    .allowsHitTesting(isRegular || chromeVisible)
                 }
-                #endif
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isRegular ? .trailing : .bottom)
-                .ignoresSafeArea(edges: .bottom)
-                .opacity(chromeOpacity)
-                .allowsHitTesting(isRegular || chromeVisible)
             }
 
             // ── LAYER 3b : flyout slider panel (variant A / regular only) ──
@@ -230,7 +246,26 @@ struct EditorView: View {
             // MobileControlBar replaces ControlCard here; ControlCard.swift
             // is retained as a file (its preview / tests remain valid) but is
             // no longer mounted in this layout.
-            if activeVariant == .compact && !isRegular {
+            if isIPhone {
+                VStack {
+                    Spacer()
+                    IPhoneLegacyControlBar(
+                        state: state,
+                        onPresetsTap: { presetsOpen = true }
+                    )
+                    #if os(iOS)
+                    .mapleBottomSheet(isPresented: $presetsOpen) {
+                        PresetsPanel(
+                            state: state,
+                            store: presetStore,
+                            onApplied: { presetsOpen = false }
+                        )
+                    }
+                    #endif
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea(edges: .bottom)
+            } else if activeVariant == .compact && !isRegular {
                 VStack {
                     Spacer()
                     MobileControlBar(
