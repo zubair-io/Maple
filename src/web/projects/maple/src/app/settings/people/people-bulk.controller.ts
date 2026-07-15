@@ -142,4 +142,29 @@ export class PeopleBulkController {
       void this.deps.router.navigate(['/settings/people', targetId]);
     });
   }
+
+  /** Merge the currently-open person's suggested duplicate INTO this page —
+   * the OPPOSITE direction from `mergeDetailInto`: here the page you're on
+   * always survives (keeps its id/name/cover), the suggested other person
+   * is always the one folded in. Fixed rule, not a "prefer the named one"
+   * heuristic — see the merge-suggestions design doc. */
+  mergeSuggestionInto(): void {
+    const detail = this.deps.selected();
+    const suggestion = detail?.suggestedMerge;
+    if (!detail || !suggestion) return;
+    void this.performMerge(detail.id, [suggestion.personId], () => {});
+  }
+
+  /** "Not the same person" — permanently dismisses the suggestion so it
+   * doesn't resurface on the next clustering run. */
+  async dismissSuggestion(): Promise<void> {
+    const detail = this.deps.selected();
+    const suggestion = detail?.suggestedMerge;
+    if (!detail || !suggestion) return;
+    try {
+      await this.deps.store.dismissMergeSuggestion(detail.id, suggestion.personId);
+    } catch (err) {
+      this.deps.toast(errorMessage(err), 'error');
+    }
+  }
 }
