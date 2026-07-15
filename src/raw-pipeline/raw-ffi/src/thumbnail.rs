@@ -30,110 +30,14 @@
 //! File-output sidesteps the issue: Rust owns its allocations end-to-end and
 //! JS just reads the resulting file. The cost is one extra fs read, which is
 //! negligible (the route writes-through to the same cache file anyway).
+//!
+//! The actual extraction (rawler preview/full/thumbnail-slot hunt) lives in
+//! `raw_core::preview::extract_embedded_preview` — shared with `raw-wasm`'s
+//! browser-safe binding (#2010) so the two platforms can't drift. This file
+//! is the native, file-based, dual-format (AVIF/JPEG) wrapper around it.
 
 use crate::error::set_last_error;
-use raw_core::ExifOrientation;
 use std::ffi::{c_char, CStr};
-
-/// Common rawler preview-image extraction used by both entries.
-///
-/// Try `preview_image` first (largest embedded), fall back to `full_image`
-/// (DNG SubIFD), then `thumbnail_image` (tiny root-IFD thumb). If none
-/// exists, return an error — the caller may decide to fall through to a
-/// full pipeline render.
-///
-/// Also returns the source's EXIF orientation so the caller can bake the
-/// rotation into the pixels. Embedded preview JPEGs (and the rawler decode
-/// path that delivers them as a `DynamicImage`) are typically in sensor
-/// orientation with no EXIF carried through; without applying the tag here
-/// portrait shots end up sideways on disk.
-fn extract_embedded_preview(
-    raw_bytes: &[u8],
-    raw_path: &std::path::Path,
-) -> Result<(image::DynamicImage, ExifOrientation), String> {
-    // Wrap the entire decoder + image extraction in catch_unwind. Rawler can
-    // panic on malformed RAWs; if that panic unwinds across the FFI boundary
-    // it's UB and Bun bus-errors the whole process. Catching it lets us
-    // return a proper error code instead.
-    let extract = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes).with_path(raw_path);
-        let decoder = rawler::get_decoder(&source).map_err(|e| format!("get_decoder: {}", e))?;
-        let params = rawler::decoders::RawDecodeParams::default();
-
-        // EXIF orientation. Pull from `raw_metadata().exif.orientation` —
-        // the raw TIFF tag — same source the full decode path uses
-        // (`decode::decode_bytes` § 1a). Works across DNG/CR2/ARW/NEF;
-        // defaults to Normal when missing.
-        let orientation = decoder
-            .raw_metadata(&source, &params)
-            .ok()
-            .and_then(|md| md.exif.orientation)
-            .map(ExifOrientation::from_u16)
-            .unwrap_or(ExifOrientation::Normal);
-
-        // Embedded preview hunt — different decoders put the largest
-        // embedded JPEG in different rawler slots:
-        //   - DNG uses `full_image()` for the SubIFD preview
-        //     (NewSubFileType=1) — the multi-MP one most converters embed.
-        //   - Most non-DNG formats (CR3, ARW, NEF, RAF) override
-        //     `preview_image()` with the embedded JPEG.
-        //   - `thumbnail_image()` is the tiny root-IFD thumb (~160px).
-        // Try preview → full → thumbnail in priority order so we pick the
-        // best available embedded JPEG without running the actual RAW
-        // pipeline. `full_image` for non-DNG decoders may also fall through
-        // to None, which is fine.
-        let try_slot =
-            |result: Result<Option<image::DynamicImage>, _>| -> Option<image::DynamicImage> {
-                match result {
-                    Ok(Some(img)) => Some(img),
-                    Ok(None) | Err(_) => None,
-                }
-            };
-        let img = try_slot(decoder.preview_image(&source, &params))
-            .or_else(|| try_slot(decoder.full_image(&source, &params)))
-            .or_else(|| try_slot(decoder.thumbnail_image(&source, &params)));
-        match img {
-            Some(i) => Ok::<(image::DynamicImage, ExifOrientation), String>((i, orientation)),
-            None => Err("no embedded preview / thumbnail in RAW".into()),
-        }
-    }));
-    match extract {
-        Ok(Ok(pair)) => Ok(pair),
-        Ok(Err(msg)) => Err(msg),
-        Err(_) => Err("rawler panicked during preview extraction".into()),
-    }
-}
-
-/// Bake the EXIF orientation into the pixels of an already-decoded RGB8
-/// buffer. Returns `(width, height, bytes)`, where width/height are swapped
-/// for transpose-family orientations. A `Normal` input is the identity but
-/// still allocates a fresh buffer — at thumbnail resolutions this is
-/// cheaper than threading an `Option` through the encode call site.
-fn bake_orientation(
-    w: u32,
-    h: u32,
-    rgb: &[u8],
-    orientation: ExifOrientation,
-) -> (u32, u32, Vec<u8>) {
-    raw_core::image::apply_orientation(rgb, w, h, orientation)
-}
-
-/// Resize `img` so the long edge is at most `max_px`, preserving aspect
-/// ratio, never upscaling. Triangle filter: cheap and visually fine for
-/// grid thumbs; Lanczos would be sharper but ~3× slower with no
-/// perceptible win at 512px.
-pub(crate) fn resize_long_edge(img: image::DynamicImage, max_px: u32) -> image::DynamicImage {
-    use image::GenericImageView;
-    let (w, h) = img.dimensions();
-    let long_edge = w.max(h);
-    if long_edge <= max_px {
-        return img;
-    }
-    let scale = max_px as f32 / long_edge as f32;
-    let new_w = ((w as f32) * scale).round().max(1.0) as u32;
-    let new_h = ((h as f32) * scale).round().max(1.0) as u32;
-    img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
-}
 
 /// Shared core for both externs below: extract the embedded preview,
 /// downsample to `max_px` on the long edge, bake in EXIF orientation, encode
@@ -196,23 +100,39 @@ unsafe fn render_thumbnail_to_file(
         }
     };
 
-    let (dyn_img, orientation) = match extract_embedded_preview(&raw_bytes, raw_path) {
+    // Extension hint for rawler's format detection — same derivation as
+    // `raw_core::decode::decode`'s path→bytes delegation to `decode_bytes`.
+    let ext = raw_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let (dyn_img, orientation) = match raw_core::preview::extract_embedded_preview(&raw_bytes, &ext)
+    {
         Ok(pair) => pair,
-        Err(msg) => {
+        Err(raw_core::Error::Preview(msg)) => {
             let panicked = msg.contains("panicked");
             set_last_error(msg);
             return if panicked { 11 } else { 8 };
         }
+        Err(e) => {
+            // Unreachable in practice — `extract_embedded_preview` only ever
+            // returns `Error::Preview` — but handled defensively so a future
+            // change to that contract can't silently drop the message here.
+            set_last_error(e.to_string());
+            return 8;
+        }
     };
 
-    let resized = resize_long_edge(dyn_img, max_px);
+    let resized = raw_core::preview::resize_long_edge(dyn_img, max_px);
     let rgb_img = resized.to_rgb8();
     let (rw, rh) = rgb_img.dimensions();
     // Bake EXIF orientation into the pixels — rawler hands back the
     // embedded preview in its native (usually sensor) orientation and the
     // re-encode below carries no EXIF, so rotating here is the only chance
     // to land an upright thumb on disk.
-    let (ow, oh, oriented) = bake_orientation(rw, rh, rgb_img.as_raw(), orientation);
+    let (ow, oh, oriented) =
+        raw_core::image::apply_orientation(rgb_img.as_raw(), rw, rh, orientation);
     let encoded = match encode(ow, oh, &oriented, q) {
         Ok(b) => b,
         Err(e) => {

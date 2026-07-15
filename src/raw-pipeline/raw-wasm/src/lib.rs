@@ -10,6 +10,12 @@
 //!       → 32-char lowercase hex fallback-form maple_id (#1995, `id.rs`) —
 //!         streams `File.slice()` chunks instead of buffering a whole RAW.
 //!
+//!   extract_embedded_preview(raw: Uint8Array, ext: string, maxLongEdge: u32, quality: u32)
+//!       → EmbeddedPreview { width: u32, height: u32, take_jpeg(): Uint8Array }
+//!         (#2010, `preview.rs`) — extracts the RAW's camera-embedded
+//!         preview JPEG (not a re-render), matching Apple/server's
+//!         `maple_render_thumbnail_preview_jpeg_to_file` derivation.
+//!
 //! Threading (T10):
 //! When compiled with `--features parallel` and the `+atomics,+bulk-memory`
 //! target features, `initThreadPool(num_threads)` is re-exported from
@@ -25,6 +31,7 @@ use wasm_bindgen::prelude::*;
 pub mod auto_adjustments;
 pub mod auto_tone;
 pub mod id;
+pub mod preview;
 
 #[cfg(feature = "gpu")]
 pub mod gpu;

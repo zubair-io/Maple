@@ -33,6 +33,15 @@ pub enum Error {
     #[error("PNG write error: {0}")]
     Png(String),
 
+    /// Embedded-preview extraction failed (`crate::preview::extract_embedded_preview`)
+    /// — either the RAW has none of rawler's `preview_image`/`full_image`/
+    /// `thumbnail_image` slots populated, the decoder couldn't be
+    /// identified, or extraction panicked (caught via `catch_unwind`).
+    /// Distinct from `Decode` because the RAW itself may decode fine — this
+    /// only means it has no camera-embedded preview to fast-path from.
+    #[error("embedded preview extraction failed: {0}")]
+    Preview(String),
+
     #[error("pipeline assertion failed: {0}")]
     Pipeline(String),
 
