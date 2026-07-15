@@ -28,7 +28,7 @@ import {
   type PreviewOndemandLimiter,
 } from './preview-ondemand-limiter.ts';
 import { WorkerConfigRepo } from '../workers/worker-config.repo.ts';
-import { getDb, closeDb } from '../db/client.ts';
+import { getDb, closeDb, isDbConnected } from '../db/client.ts';
 
 /** Yield the event loop a tick — enough for a pending `acquire()`'s promise
  * continuation to run without a real timer. */
@@ -226,5 +226,56 @@ describe('PreviewOndemandLimiter — DB seeding from the `preview` stage config'
     // Still 9 — live changes only apply via the explicit `setLimit` hook
     // (routes-main.ts's PATCH /:name/config handler), not a re-poll here.
     expect(limiter.currentLimit()).toBe(9);
+  });
+});
+
+describe('PreviewOndemandLimiter — DB-down does not stall the hot path (Copilot review, PR #2015)', () => {
+  afterEach(() => {
+    _resetPreviewOndemandLimiterForTests();
+  });
+
+  it('run() resolves quickly and stays at the default when isDbConnected() is false, without attempting a connect', async () => {
+    // Force a known-disconnected state regardless of what an earlier
+    // describe block in this file left behind.
+    await closeDb().catch(() => {});
+    expect(isDbConnected()).toBe(false);
+
+    const limiter = previewOndemandLimiter();
+    const started = Date.now();
+    await limiter.run(async () => {});
+    const elapsedMs = Date.now() - started;
+
+    // The driver's connect/server-selection timeout in `getDb()` is 5000ms;
+    // resolving well under that proves `ensureSeeded()` never attempted a
+    // connect. Generous bound to absorb CI jitter without risking a false
+    // pass if the gate regresses back to an unconditional connect attempt.
+    expect(elapsedMs).toBeLessThan(1000);
+    expect(limiter.currentLimit()).toBe(DEFAULT_ONDEMAND_LIMIT);
+  });
+
+  it('a later call, once the DB connects, still gets a real chance to seed (the skip is not memoized as done)', async () => {
+    const probe = await tryConnect();
+    if (!probe) return; // skip-if-unreachable
+    await probe.close().catch(() => {});
+
+    await closeDb().catch(() => {});
+    const limiter = previewOndemandLimiter();
+    await limiter.run(async () => {}); // DB down — skipped, stays at default
+    expect(limiter.currentLimit()).toBe(DEFAULT_ONDEMAND_LIMIT);
+
+    // DB comes up.
+    await getDb();
+    const repo = new WorkerConfigRepo((await getDb()).collection('worker_config') as never);
+    await repo.upsert('preview', {
+      concurrency: 6,
+      maxAttempts: 5,
+      paused: false,
+      last_seen_target_version: 3,
+    });
+
+    await limiter.run(async () => {}); // should now seed for real
+    expect(limiter.currentLimit()).toBe(6);
+
+    await closeDb().catch(() => {});
   });
 });

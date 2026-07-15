@@ -119,7 +119,7 @@ export const previewRoutes = new Elysia().get(
     const previewSt = await safeStat(previewPath);
     if (!previewSt) {
       try {
-        // Bound concurrent on-demand regeneration server-wide — see
+        // Bound concurrent on-demand regeneration in this API process — see
         // preview-ondemand-limiter.ts. Protects live-request latency from a
         // synchronized cache-miss burst (e.g. opening a large NAS folder
         // shortly after the #2006 AVIF/path-key migration, before the
