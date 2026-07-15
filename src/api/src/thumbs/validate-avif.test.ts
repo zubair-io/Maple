@@ -137,6 +137,44 @@ describe('validateAvifOutput', () => {
     if (!result.ok) expect(result.reason).toMatch(/dimensions/i);
   });
 
+  it('rejects an oversized image WITHOUT performing a full pixel decode', async () => {
+    // Regression for jules review on PR #2011/#2014: the dimension check
+    // must run before `.raw().toBuffer()`, not after — otherwise a wildly
+    // oversized AVIF (e.g. from `copyImageAsThumb`'s fallback handing this
+    // validator arbitrary-but-AVIF-shaped bytes, or the exact class of
+    // resize bug this validator exists to catch) gets fully decoded into
+    // memory before being rejected for being oversized, an OOM/DoS risk.
+    // Stubs sharp to report huge declared dimensions and tracks whether
+    // `.raw()` is ever reached.
+    const realSharp = (await import('sharp')).default;
+    let rawCalled = false;
+    const stub = ((_input: unknown, _opts?: unknown) => ({
+      metadata: async () => ({
+        format: 'heif',
+        compression: 'av1',
+        width: 50000,
+        height: 50000,
+        orientation: 1,
+        space: 'srgb',
+        hasProfile: false,
+      }),
+      raw: () => {
+        rawCalled = true;
+        return { toBuffer: async () => Buffer.alloc(4) };
+      },
+    })) as unknown as typeof realSharp;
+    mock.module('sharp', () => ({ default: stub }));
+    try {
+      const mod = await import('./validate-avif.ts');
+      const result = await mod.validateAvifOutput(path.join(dir, 'huge.avif'), 1280);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/dimensions/i);
+      expect(rawCalled).toBe(false);
+    } finally {
+      mock.module('sharp', () => ({ default: realSharp }));
+    }
+  });
+
   it('rejects an AVIF carrying an embedded ICC profile', async () => {
     // This pipeline's AVIF outputs are untagged sRGB by convention — an
     // attached profile means the encoder did something we didn't ask for.
