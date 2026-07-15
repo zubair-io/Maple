@@ -62,7 +62,7 @@ export const STAGE_META: Record<string, StageMeta> = {
     icon: 'image',
     enrichment: null,
     description:
-      'Builds 1280-px preview cache used by the editor and enrichment LLM. Concurrency also caps on-demand regeneration triggered by cache-miss preview requests (e.g. Browse) — one shared, server-wide throttle against a synchronized regeneration burst.',
+      'Builds 1280-px preview cache used by the editor and enrichment LLM. Concurrency also caps on-demand regeneration triggered by cache-miss preview requests (e.g. Browse) — an in-process throttle (this API process only) against a synchronized regeneration burst.',
   },
   'display-preview': {
     id: 'display-preview',
