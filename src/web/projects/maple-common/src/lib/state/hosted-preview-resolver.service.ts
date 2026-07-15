@@ -16,7 +16,7 @@
 import { Injectable, inject } from '@angular/core';
 import type { Asset, AssetId } from '../models/asset';
 import { parseAddress } from '../addressing/maple-address';
-import { splitRelPath } from '../addressing/fs-access-library-source';
+import { splitRelPath, validateRelPath } from '../addressing/fs-access-library-source';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import { encodePreviewBlobToAvif } from '../raw-pipeline/image-utils';
@@ -86,7 +86,13 @@ export class HostedPreviewResolver {
   private _locate(id: AssetId): PreviewLocation | null {
     if (typeof id !== 'string' || !id.includes(':') || id.startsWith('fs:')) return null;
     try {
-      const { dir, filename } = splitRelPath(parseAddress(id).relPath);
+      const { relPath } = parseAddress(id);
+      // Reject traversal / absolute / backslash relPaths before they reach the
+      // FS-Access walk — same guard every `FsAccessLibrarySource` method
+      // applies. A bad path throws here and degrades to a cacheless one-shot
+      // extraction (`_locate` → null), never touching `.maple/previews/`.
+      validateRelPath(relPath);
+      const { dir, filename } = splitRelPath(relPath);
       return filename ? { dir, filename } : null;
     } catch {
       return null;
