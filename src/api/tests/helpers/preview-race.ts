@@ -36,8 +36,11 @@ export type ReadObservation = { ok: boolean; reason?: string };
  * matters.
  *
  * `scratchDir` must be a directory the caller owns exclusively for the
- * duration of the race (each reader instance gets its own counter namespace
- * via `readerId` so concurrent readers never collide on a scratch filename).
+ * duration of the race. Each reader reuses ONE private scratch file
+ * (`read-<readerId>.avif`) — the file is overwritten in place each iteration
+ * (a single writer per path, so no torn read here) and removed once after the
+ * loop, rather than churning a fresh create+unlink per iteration; `readerId`
+ * keeps concurrent readers off each other's scratch file.
  *
  * Not exported — `runReadersAgainst` below is the module's only external
  * entry point; both test files drive readers through it exclusively.
@@ -49,29 +52,42 @@ async function raceReaderLoop(
   shouldStop: () => boolean,
   observations: ReadObservation[],
 ): Promise<void> {
-  let counter = 0;
-  while (!shouldStop()) {
-    let bytes: Buffer | null = null;
-    try {
-      bytes = await readFile(previewPath);
-    } catch {
-      // ENOENT is only legitimate before the shared path has ever been
-      // published — callers pre-seed before starting readers, so this
-      // should not fire during the timed race window. Retry rather than
-      // record a spurious observation.
-      continue;
+  const scratchPath = join(scratchDir, `read-${readerId}.avif`);
+  try {
+    while (!shouldStop()) {
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(previewPath);
+      } catch (err) {
+        // A missing shared path is only legitimate before it has ever been
+        // published — callers pre-seed before starting readers, so an ENOENT
+        // here just means this reader raced ahead of the very first publish;
+        // retry without recording a spurious observation. ANY OTHER error
+        // (EACCES, EIO, …) is a genuine failure the test must not swallow —
+        // rethrow it so the reader promise rejects loudly instead of masking
+        // it as an infinite retry.
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw err;
+      }
+      await writeFile(scratchPath, bytes);
+      const result = await validateAvifOutput(scratchPath, PREVIEW_LONG_EDGE_PX);
+      observations.push(result.ok ? { ok: true } : { ok: false, reason: result.reason });
     }
-    const scratchPath = join(scratchDir, `read-${readerId}-${counter++}.avif`);
-    await writeFile(scratchPath, bytes);
-    const result = await validateAvifOutput(scratchPath, PREVIEW_LONG_EDGE_PX);
+  } finally {
     await unlink(scratchPath).catch(() => {});
-    observations.push(result.ok ? { ok: true } : { ok: false, reason: result.reason });
   }
 }
 
 /** Run `readerCount` concurrent `raceReaderLoop`s against `previewPath`,
  * stopping them ~`graceMs` after `work` resolves. Returns the collected
- * observations plus the settled result of `work`. */
+ * observations plus the settled result of `work`.
+ *
+ * `stop` is set in a `finally` so a throwing/rejecting `work()` still tears
+ * the reader loops down before this function rethrows — otherwise the readers
+ * would spin forever and hang the suite (their `while (!shouldStop())` would
+ * never exit). `Promise.all(readers)` is awaited on both the success and
+ * error paths so their scratch-file cleanup (and any reader-side rejection)
+ * is surfaced rather than left dangling. */
 export async function runReadersAgainst<T>(
   previewPath: string,
   scratchDir: string,
@@ -85,10 +101,15 @@ export async function runReadersAgainst<T>(
     raceReaderLoop(previewPath, scratchDir, i, () => stop, observations),
   );
 
-  const result = await work();
-  await new Promise((r) => setTimeout(r, graceMs));
-  stop = true;
-  await Promise.all(readers);
-
-  return { observations, result };
+  try {
+    const result = await work();
+    await new Promise((r) => setTimeout(r, graceMs));
+    return { observations, result };
+  } finally {
+    // Runs on BOTH the normal return above and a throwing `work()` — either
+    // way the readers must be told to stop and be awaited to completion
+    // before this frame unwinds.
+    stop = true;
+    await Promise.all(readers);
+  }
 }
