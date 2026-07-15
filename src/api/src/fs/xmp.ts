@@ -138,8 +138,11 @@ export type CacheKind = 'thumbs' | 'previews';
  * Resolve the on-disk cache path for an asset's derived artefact.
  *
  * Thumbs use the unified per-file convention from `resolveThumbPath`.
- * Previews stay size-keyed because a single asset can have many rendered
- * outputs (different export sizes / edit versions); each needs its own file.
+ * Previews are keyed off the source's own filename plus a `suffix` — the
+ * canonical preview is a single, unversioned `<basename>.avif` overwritten in
+ * place (#2017), NOT size- or version-keyed; the `suffix` mechanism only
+ * additionally distinguishes co-located artefacts of a different kind (the
+ * `histogram.json` sidecar).
  *
  *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
  *   previews: <folder>/.maple/previews/<basename>.<suffix>
