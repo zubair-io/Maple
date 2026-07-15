@@ -161,10 +161,13 @@ export class PeopleBulkController {
     const detail = this.deps.selected();
     const suggestion = detail?.suggestedMerge;
     if (!detail || !suggestion) return;
+    this.peopleBulkBusy.update((n) => n + 1);
     try {
       await this.deps.store.dismissMergeSuggestion(detail.id, suggestion.personId);
     } catch (err) {
       this.deps.toast(errorMessage(err), 'error');
+    } finally {
+      this.peopleBulkBusy.update((n) => Math.max(0, n - 1));
     }
   }
 }
