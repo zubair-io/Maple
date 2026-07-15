@@ -40,6 +40,7 @@ function person(id: string, name: string, faceCount = 3): ApiPerson {
     coverBbox: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
+    hasMergeSuggestion: false,
   };
 }
 
@@ -52,6 +53,7 @@ function detail(id: string, name: string): ApiPersonDetail {
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     faces: [],
+    suggestedMerge: null,
   };
 }
 
@@ -85,6 +87,7 @@ class ApiStub {
   );
   hidePerson = vi.fn((_id: string) => of({ ok: true as const }));
   unhidePerson = vi.fn((_id: string) => of({ ok: true as const }));
+  dismissMergeSuggestion = vi.fn((_id: string, _otherId: string) => of({ ok: true as const }));
 }
 
 function makeBed(api: ApiStub = new ApiStub()) {
@@ -525,5 +528,30 @@ describe('PeopleStore', () => {
     expect(store.hiddenStatus()).toBe('error');
     expect(store.hiddenError()?.message).toBe('hidden boom');
     expect(store.hidden()).toBeUndefined();
+  });
+
+  // ── dismissMergeSuggestion ────────────────────────────────────────────────
+
+  describe('dismissMergeSuggestion', () => {
+    it('calls the API, evicts the other person, and refreshes this detail + the list', async () => {
+      const { api } = makeBed();
+      store = TestBed.inject(PeopleStore);
+      store.ensureList();
+
+      await store.dismissMergeSuggestion('p1', 'p2');
+
+      expect(api.dismissMergeSuggestion).toHaveBeenCalledWith('p1', 'p2');
+      expect(api.getPerson).toHaveBeenCalledWith('p1', { offset: 0, limit: DETAIL_FACE_PAGE_SIZE });
+      expect(api.listPeople).toHaveBeenCalledTimes(2); // initial ensureList() + invalidate()
+    });
+
+    it('propagates a failure without evicting anything', async () => {
+      const api = new ApiStub();
+      api.dismissMergeSuggestion = vi.fn(() => throwError(() => new Error('boom')));
+      makeBed(api);
+      store = TestBed.inject(PeopleStore);
+
+      await expect(store.dismissMergeSuggestion('p1', 'p2')).rejects.toThrow('boom');
+    });
   });
 });

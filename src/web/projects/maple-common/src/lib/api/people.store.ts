@@ -449,6 +449,18 @@ export class PeopleStore implements Store<ApiPerson[]> {
     return result;
   }
 
+  /** Permanently dismiss a merge suggestion ("not the same person"). Evicts
+   * the other person's cached detail (no refetch — it'll fetch fresh next
+   * time it's opened) and refreshes this person's detail + the list, so the
+   * banner/badge disappear immediately. Throws on failure so the caller can
+   * surface an error toast. */
+  async dismissMergeSuggestion(personId: string, otherId: string): Promise<void> {
+    await firstValueFrom(this.api.dismissMergeSuggestion(personId, otherId));
+    this.evictDetail(otherId);
+    this.invalidateDetail(personId);
+    this.invalidate();
+  }
+
   /** Bulk soft-hide. Fans out the per-person hide in parallel (allSettled so a
    * single failure doesn't abort the batch), then evicts + refreshes both
    * lists once. Returns ok/failed counts for the toast. */
