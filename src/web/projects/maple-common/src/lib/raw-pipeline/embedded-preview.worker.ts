@@ -59,9 +59,10 @@ function errorMessage(err: unknown): string {
 }
 
 async function handleExtract(req: ExtractPreviewRequest): Promise<void> {
+  let result: ReturnType<typeof extract_embedded_preview> | undefined;
   try {
     await ensureReady();
-    const result = extract_embedded_preview(
+    result = extract_embedded_preview(
       new Uint8Array(req.raw),
       req.ext,
       req.maxLongEdge,
@@ -81,6 +82,14 @@ async function handleExtract(req: ExtractPreviewRequest): Promise<void> {
     ]);
   } catch (err) {
     post({ id: req.id, type: 'extract-preview-error', message: errorMessage(err) });
+  } finally {
+    // `EmbeddedPreview` is a wasm-bindgen struct: its JS wrapper is
+    // finalization-registered, but `FinalizationRegistry` callbacks are not
+    // timely (the spec allows browsers to delay or skip them). Extraction
+    // runs on every visible grid tile during ordinary folder browsing —
+    // waiting on GC would let the WASM heap accumulate one leaked struct per
+    // tile scrolled past, eventually OOMing this worker. Free deterministically.
+    result?.free();
   }
 }
 

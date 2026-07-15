@@ -69,33 +69,48 @@ export class HostedPreviewResolver {
       return null;
     }
 
-    const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
-
-    let mapleId: string;
-    try {
-      mapleId = await this.fsAccessSource.mapleId(address);
-    } catch (err) {
-      console.warn('[state] mapleId failed for preview cache key', asset.filename, err);
-      return null;
-    }
+    const mapleId = await this._resolveMapleId(address, asset.filename);
+    if (!mapleId) return null;
 
     const folder = this.store.currentFolder();
-    if (folder) {
-      const cached = await this.cache.readPreview(folder, mapleId);
-      if (cached) return cached;
-    }
+    const cached = folder ? await this.cache.readPreview(folder, mapleId) : null;
+    if (cached) return cached;
 
+    return this._extractAndCache(id, asset.filename, mapleId, folder, getBytes);
+  }
+
+  /** `null` on failure (logged) — the cache key can't be resolved, so the
+   * caller degrades to "no preview available" rather than throwing. */
+  private async _resolveMapleId(address: MapleAddress, filename: string): Promise<string | null> {
+    try {
+      return await this.fsAccessSource.mapleId(address);
+    } catch (err) {
+      console.warn('[state] mapleId failed for preview cache key', filename, err);
+      return null;
+    }
+  }
+
+  /** Read `getBytes`, extract via the WASM binding, write-through the cache
+   * when `folder` is write-capable, and return the blob. `null` on any
+   * failure (logged) — includes the "no embedded preview in this RAW" case
+   * (rare — see `raw_core::preview`'s module doc). */
+  private async _extractAndCache(
+    id: AssetId,
+    filename: string,
+    mapleId: string,
+    folder: ReturnType<LibraryStore['currentFolder']>,
+    getBytes: (id: AssetId) => Promise<Uint8Array>,
+  ): Promise<Blob | null> {
     try {
       const bytes = await getBytes(id);
+      const ext = filename.split('.').pop()?.toLowerCase() ?? '';
       const { blob } = await this.previewExtractor.extractEmbeddedPreview(bytes, ext);
       if (folder?.write) {
         void this.cache.writePreview(folder, mapleId, blob);
       }
       return blob;
     } catch (err) {
-      // Includes the "no embedded preview in this RAW" case (rare — see
-      // `raw_core::preview`'s module doc).
-      console.warn('[state] embedded preview extraction failed for', asset.filename, err);
+      console.warn('[state] embedded preview extraction failed for', filename, err);
       return null;
     }
   }

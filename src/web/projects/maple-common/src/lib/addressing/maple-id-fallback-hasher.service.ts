@@ -25,6 +25,7 @@ import type {
   HashFallbackResponse,
   HashFallbackUpdateRequest,
 } from './maple-id-fallback.types';
+import { wireWorkerErrorRecovery } from '../util/worker-error-recovery';
 
 /** Default chunk size for streaming a File through the worker: 8 MiB. Large
  * enough to keep the per-chunk `postMessage` count small for a 100+ MB RAW
@@ -55,17 +56,7 @@ export class MapleIdFallbackHasherService implements OnDestroy {
       if (msg.type === 'hash-fallback-success') handler.resolve(msg.hex);
       else handler.reject(new Error(msg.message));
     });
-    worker.addEventListener('error', (event) => {
-      const message = event.message || 'unknown error';
-      this.pending.forEach(({ reject }) =>
-        reject(new Error(`maple-id-fallback worker error: ${message}`)),
-      );
-      this.pending.clear();
-      // Terminate the broken instance before dropping the reference — without
-      // this, a worker that errored (e.g. a script load failure) keeps
-      // running abandoned rather than being cleaned up, and only the
-      // reference gets replaced on the next `ensureWorker()` call.
-      worker.terminate();
+    wireWorkerErrorRecovery(worker, 'maple-id-fallback worker error', this.pending, () => {
       this.worker = null;
     });
     this.worker = worker;

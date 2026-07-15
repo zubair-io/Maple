@@ -16,13 +16,15 @@
 
 import { Injectable, OnDestroy } from '@angular/core';
 import type { ExtractPreviewRequest, ExtractPreviewResponse } from './embedded-preview.types';
+import { wireWorkerErrorRecovery } from '../util/worker-error-recovery';
 
 /** Long-edge target in pixels for the extracted preview. Matches the
  * server's `PREVIEW_LONG_EDGE_PX` (`src/api/src/indexer/previewer.ts`) and
  * `LibraryCache`'s own "embedded 1280px" preview-channel doc comment — the
  * same size across all three platforms so this tier's derivation stays
- * genuinely comparable, not just format-compatible. */
-export const EMBEDDED_PREVIEW_LONG_EDGE_PX = 1280;
+ * genuinely comparable, not just format-compatible. Not exported: only used
+ * as this file's own default parameter value. */
+const EMBEDDED_PREVIEW_LONG_EDGE_PX = 1280;
 
 export interface ExtractedEmbeddedPreview {
   width: number;
@@ -63,18 +65,7 @@ export class EmbeddedPreviewService implements OnDestroy {
         handler.reject(new Error(msg.message));
       }
     });
-    worker.addEventListener('error', (event) => {
-      const message = event.message || 'unknown error';
-      this.pending.forEach(({ reject }) =>
-        reject(new Error(`embedded-preview worker error: ${message}`)),
-      );
-      this.pending.clear();
-      // Terminate the broken instance before dropping the reference —
-      // without this, a worker that errored (e.g. a script load failure)
-      // keeps running abandoned rather than being cleaned up, and only the
-      // reference gets replaced on the next `ensureWorker()` call. Mirrors
-      // `MapleIdFallbackHasherService.ensureWorker()`'s identical guard.
-      worker.terminate();
+    wireWorkerErrorRecovery(worker, 'embedded-preview worker error', this.pending, () => {
       this.worker = null;
     });
     this.worker = worker;

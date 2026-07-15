@@ -115,6 +115,11 @@ export class FsAccessLibrarySource implements LibrarySource {
   // signature (not dropped) so a caller holding a concrete
   // `FsAccessLibrarySource` reference doesn't need a different call
   // pattern than one holding the interface type.
+  // Called via the `LibrarySource` interface (`LibraryCache._readM2Bytes`
+  // dispatches through the injected `LIBRARY_SOURCE` token, not this
+  // concrete class), which the dead-code scanner's static analysis can't
+  // trace through — same reasoning as `previewBlob` below.
+  // fallow-ignore-next-line unused-class-member
   async imageBlob(a: MapleAddress, _onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
     return this.getFile(a);
   }
@@ -182,6 +187,13 @@ export class FsAccessLibrarySource implements LibrarySource {
     return (await this.cache.readThumb(folderHandle, sha)) ?? null;
   }
 
+  // Called via the `LibrarySource` interface (`LibraryCache.subscribePreviewUrl`'s
+  // self-hosted branch dispatches through the injected `LIBRARY_SOURCE`
+  // token, not this concrete class) — invisible to the dead-code scanner's
+  // static analysis, which only traces same-class / concretely-typed calls
+  // (see `mapleId`'s doc above: once a caller holds this class concretely,
+  // e.g. `HostedPreviewResolver`, the scanner correctly resolves it).
+  // fallow-ignore-next-line unused-class-member
   async previewBlob(a: MapleAddress): Promise<Blob | null> {
     // This LibrarySource interface method stays a thumb-fallback: the real
     // embedded-preview read/generate/write-through-cache path for Hosted
