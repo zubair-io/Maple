@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bun + Elysia + MongoDB (`src/api`), Angular 21 standalone components + signals (`src/web`). No new external dependencies.
 
-**Design doc:** `docs/superpowers/specs/2026-07-14-person-merge-suggestions-design.md` — read it for the full rationale (threshold choice, hidden-people exclusion, dismiss permanence, merge-direction decision). This plan implements that design; where this plan's exact mechanics differ from the design doc's looser description (the merge-suggestion compute pass actually runs inside `cluster-load.ts`'s off-thread `prepareClusteringPass`, not directly in `clustering-job.ts` as the design doc's wiring section loosely suggested — the design's *behavior* is unchanged, only the precise file is corrected here), this plan is authoritative on mechanics.
+**Design doc:** `docs/superpowers/specs/2026-07-14-person-merge-suggestions-design.md` — read it for the full rationale (threshold choice, hidden-people exclusion, dismiss permanence, merge-direction decision). This plan implements that design; where this plan's exact mechanics differ from the design doc's looser description (the merge-suggestion compute pass actually runs inside `cluster-load.ts`'s off-thread `prepareClusteringPass`, not directly in `clustering-job.ts` as the design doc's wiring section loosely suggested — the design's _behavior_ is unchanged, only the precise file is corrected here), this plan is authoritative on mechanics.
 
 ## Global Constraints
 
@@ -25,6 +25,7 @@
 ## File Structure
 
 New files:
+
 - `src/api/src/people/people-merge-suggestions.ts` — pure core: threshold constant, types, `sortedPairKey`, `computeMergeSuggestions`. No Mongo — mirrors the existing `cluster-embeddings.ts` split.
 - `src/api/src/people/people-merge-suggestions.test.ts` — unit tests for the above.
 - `src/api/src/people/people-merge-suggestions.repo.ts` — DB-backed `dismissMergeSuggestion`. Mirrors the `people-merge.repo.ts` split (pure math vs. Mongo action, in separate files).
@@ -32,6 +33,7 @@ New files:
 - `src/web/projects/maple/src/app/settings/people/people-bulk.controller.spec.ts` — first spec file for this controller; covers the two new methods.
 
 Modified files (in task order):
+
 - `src/api/src/db/schema.ts` — new `PersonDoc` fields, new `PersonMergeDismissalDoc`.
 - `src/api/src/db/client.ts` — new `personMergeDismissalsCollection()` accessor + unique index.
 - `src/api/src/people/cluster-load.ts` — `LoadedCentroid`/`loadCentroids` gain `hidden`; new `loadMergeDismissals`; `PreparedClusteringPass`/`prepareClusteringPass` gain `mergeSuggestions`.
@@ -53,11 +55,13 @@ Modified files (in task order):
 ### Task 1: Schema + DB client — dismissal collection + person doc fields
 
 **Files:**
+
 - Modify: `src/api/src/db/schema.ts` (near the `PersonDoc` interface, currently ending around line 887)
 - Modify: `src/api/src/db/client.ts:23-47` (import block), `:168-170` (accessor block), and the end of `ensureIndexes()` (just before `await ensureStageIndexes(db);`)
 - Test: `src/api/src/people/person-merge-dismissals.test.ts` (new)
 
 **Interfaces:**
+
 - Produces: `PersonDoc.suggested_merge_person_id?: ObjectId | null`, `PersonDoc.suggested_merge_score?: number | null`, `PersonMergeDismissalDoc { pair: string; created_at: string }`, `personMergeDismissalsCollection(): Promise<Collection<PersonMergeDismissalDoc>>`.
 
 - [ ] **Step 1: Write the failing test**
@@ -159,7 +163,6 @@ export async function peopleCollection(): Promise<Collection<PersonDoc>> {
 add:
 
 ```ts
-
 export async function personMergeDismissalsCollection(): Promise<
   Collection<PersonMergeDismissalDoc>
 > {
@@ -185,15 +188,15 @@ In `ensureIndexes()`, find the tail end of the function — it currently reads:
 Insert a new block right before `await ensureStageIndexes(db);`:
 
 ```ts
-  // person_merge_dismissals: one row per permanently-dismissed "not a
-  // match" pair from the person-page merge-suggestion banner. Unique on
-  // `pair` so a duplicate dismiss of the same pair is a no-op (the repo
-  // action upserts), not a duplicate row.
-  await db
-    .collection('person_merge_dismissals')
-    .createIndex({ pair: 1 }, { unique: true, name: 'person_merge_dismissals_pair' });
+// person_merge_dismissals: one row per permanently-dismissed "not a
+// match" pair from the person-page merge-suggestion banner. Unique on
+// `pair` so a duplicate dismiss of the same pair is a no-op (the repo
+// action upserts), not a duplicate row.
+await db
+  .collection('person_merge_dismissals')
+  .createIndex({ pair: 1 }, { unique: true, name: 'person_merge_dismissals_pair' });
 
-  await ensureStageIndexes(db);
+await ensureStageIndexes(db);
 ```
 
 - [ ] **Step 6: Run test to verify it passes**
@@ -213,10 +216,12 @@ git commit -m "feat(api): add PersonDoc merge-suggestion fields + dismissal coll
 ### Task 2: Pure core — `computeMergeSuggestions`
 
 **Files:**
+
 - Create: `src/api/src/people/people-merge-suggestions.ts`
 - Test: `src/api/src/people/people-merge-suggestions.test.ts`
 
 **Interfaces:**
+
 - Consumes: `dotProduct(a: Float32Array, b: Float32Array): number` from `./cluster-embeddings.ts` (already exists).
 - Produces: `MERGE_SUGGESTION_THRESHOLD: number`, `SuggestionCandidate { personIdHex: string; centroid: Float32Array; hidden: boolean }`, `MergeSuggestion { personIdHex: string; suggestedPersonIdHex: string; score: number }`, `sortedPairKey(aHex: string, bHex: string): string`, `computeMergeSuggestions(people: SuggestionCandidate[], dismissedPairs: ReadonlySet<string>, threshold?: number): MergeSuggestion[]`.
 
@@ -416,10 +421,12 @@ git commit -m "feat(api): pure computeMergeSuggestions core"
 ### Task 3: `cluster-load.ts` — hidden flag, dismissals loader, wire into `prepareClusteringPass`
 
 **Files:**
+
 - Modify: `src/api/src/people/cluster-load.ts`
 - Test: `src/api/src/people/clustering-job.test.ts` (append — this file already hosts `cluster-load.ts`'s tests by existing convention, since `recomputeCentroids`/`loadCentroids` are tested there today)
 
 **Interfaces:**
+
 - Consumes: `computeMergeSuggestions`, `MergeSuggestion` from `./people-merge-suggestions.ts` (Task 2); `personMergeDismissalsCollection` from `../db/client.ts` (Task 1).
 - Produces: `LoadedCentroid.hidden: boolean` (new field), `loadMergeDismissals(): Promise<Set<string>>`, `PreparedClusteringPass.mergeSuggestions: MergeSuggestion[]` (new field).
 
@@ -560,7 +567,11 @@ export async function loadCentroids(): Promise<LoadedCentroid[]> {
 Add the import (top of `cluster-load.ts`, alongside the existing `assetsCollection, peopleCollection` import from `../db/client.ts`):
 
 ```ts
-import { assetsCollection, peopleCollection, personMergeDismissalsCollection } from '../db/client.ts';
+import {
+  assetsCollection,
+  peopleCollection,
+  personMergeDismissalsCollection,
+} from '../db/client.ts';
 ```
 
 Add a new exported function, near `loadCentroids`:
@@ -596,39 +607,39 @@ In the `PreparedClusteringPass` interface, add one field (after `recomputed`):
 In `prepareClusteringPass()`, after the existing `const result = clusterEmbeddings(...)` call and before the `return`, add:
 
 ```ts
-  // Merge-suggestion pass over the SAME loaded centroids — the only new
-  // Mongo read is `loadMergeDismissals()`; no second centroid load.
-  const dismissedPairs = await loadMergeDismissals();
-  const mergeSuggestions = computeMergeSuggestions(
-    centroids.map((c) => ({
-      personIdHex: c.person_id_hex,
-      centroid: c.centroid,
-      hidden: c.hidden,
-    })),
-    dismissedPairs,
-  );
+// Merge-suggestion pass over the SAME loaded centroids — the only new
+// Mongo read is `loadMergeDismissals()`; no second centroid load.
+const dismissedPairs = await loadMergeDismissals();
+const mergeSuggestions = computeMergeSuggestions(
+  centroids.map((c) => ({
+    personIdHex: c.person_id_hex,
+    centroid: c.centroid,
+    hidden: c.hidden,
+  })),
+  dismissedPairs,
+);
 ```
 
 Then add `mergeSuggestions` to the returned object (which currently ends `maxAutoIndex, recomputed, };`):
 
 ```ts
-  return {
-    seedCount: centroids.length,
-    seedPersonIds: centroids.map((c) => c.person_id_hex),
-    assignments: result.assignments,
-    clusters: result.clusters.map((c) => ({
-      centroid: Array.from(c.centroid),
-      face_count: c.face_count,
-    })),
-    faces: faces.map((f) => ({
-      asset_id_hex: f.asset_id_hex,
-      face_index: f.face_index,
-      bbox: f.bbox,
-    })),
-    maxAutoIndex,
-    recomputed,
-    mergeSuggestions,
-  };
+return {
+  seedCount: centroids.length,
+  seedPersonIds: centroids.map((c) => c.person_id_hex),
+  assignments: result.assignments,
+  clusters: result.clusters.map((c) => ({
+    centroid: Array.from(c.centroid),
+    face_count: c.face_count,
+  })),
+  faces: faces.map((f) => ({
+    asset_id_hex: f.asset_id_hex,
+    face_index: f.face_index,
+    bbox: f.bbox,
+  })),
+  maxAutoIndex,
+  recomputed,
+  mergeSuggestions,
+};
 ```
 
 - [ ] **Step 6: Re-export `EMBEDDING_DIM` and `prepareClusteringPass` for the test**
@@ -663,10 +674,12 @@ git commit -m "feat(api): compute merge suggestions in the clustering load stage
 ### Task 4: `clustering-job.ts` — persist merge suggestions (with self-healing null-clear)
 
 **Files:**
+
 - Modify: `src/api/src/people/clustering-job.ts`
 - Test: `src/api/src/people/clustering-job.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `pass.seedPersonIds: string[]`, `pass.mergeSuggestions: MergeSuggestion[]` (Task 3).
 - Produces: every live/`hidden`-irrelevant person considered by the load stage gets `suggested_merge_person_id`/`suggested_merge_score` written (or explicitly nulled) on each `runOnlineClustering()` call.
 
@@ -784,8 +797,8 @@ async function persistMergeSuggestions(
 In `runOnlineClustering()`, right after the existing `await persistCentroids(centroidsToPersist);` line, add:
 
 ```ts
-  // Persist this run's merge suggestions (§ person-page merge suggestions).
-  await persistMergeSuggestions(pass.seedPersonIds, pass.mergeSuggestions);
+// Persist this run's merge suggestions (§ person-page merge suggestions).
+await persistMergeSuggestions(pass.seedPersonIds, pass.mergeSuggestions);
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -810,10 +823,12 @@ git commit -m "feat(api): persist merge suggestions each clustering run"
 ### Task 5: `people-merge-suggestions.repo.ts` — `dismissMergeSuggestion`
 
 **Files:**
+
 - Create: `src/api/src/people/people-merge-suggestions.repo.ts`
 - Test: `src/api/src/people/people-merge-suggestions.repo.test.ts`
 
 **Interfaces:**
+
 - Consumes: `sortedPairKey` from `./people-merge-suggestions.ts` (Task 2); `peopleCollection`, `personMergeDismissalsCollection` from `../db/client.ts` (Task 1).
 - Produces: `dismissMergeSuggestion(personId: ObjectId, otherId: ObjectId): Promise<'dismissed' | 'stale'>`.
 
@@ -1011,10 +1026,12 @@ git commit -m "feat(api): dismissMergeSuggestion repo action"
 ### Task 6: `people.repo.ts` — `getPerson` resolves `suggestedMerge`
 
 **Files:**
+
 - Modify: `src/api/src/people/people.repo.ts` (the `PersonDetail` interface around line 71-74, and `getPerson` around line 376-410ish)
 - Test: `src/api/src/people/people.repo.test.ts` (append)
 
 **Interfaces:**
+
 - Produces: `SuggestedMergeInfo { personId: ObjectId; name: string; coverAssetId: string | null; coverBbox: Bbox | null; score: number }`, `PersonDetail.suggestedMerge: SuggestedMergeInfo | null` (new field).
 
 - [ ] **Step 1: Write the failing tests**
@@ -1164,8 +1181,8 @@ async function loadSuggestedMergeInfo(
 In `getPerson()`, find the final `return` statement (it currently returns `{ person, faces }` — check the exact tail of the function's aggregation-building code to find where `faces` is fully built). Change the tail to:
 
 ```ts
-  const suggestedMerge = await loadSuggestedMergeInfo(coll, person);
-  return { person, faces, suggestedMerge };
+const suggestedMerge = await loadSuggestedMergeInfo(coll, person);
+return { person, faces, suggestedMerge };
 ```
 
 (`coll` is the same `peopleCollection()` handle already opened earlier in this function as `const coll = await peopleCollection();` — reuse it, don't open a second handle.)
@@ -1192,9 +1209,11 @@ git commit -m "feat(api): getPerson resolves suggestedMerge display info"
 ### Task 7: `routes/people.ts` — wire the wire format + new dismiss route
 
 **Files:**
+
 - Modify: `src/api/src/routes/people.ts`
 
 **Interfaces:**
+
 - Consumes: `PersonDetail.suggestedMerge` (Task 6), `PersonWithCount.person.suggested_merge_person_id` (Task 1, already on `PersonWithId`), `dismissMergeSuggestion` (Task 5).
 - Produces: `GET /api/people/:id` response gains `suggested_merge`; `GET /api/people` (and `/hidden`) rows gain `has_merge_suggestion`; new `POST /api/people/:id/dismiss-merge-suggestion`.
 
@@ -1213,32 +1232,32 @@ import { dismissMergeSuggestion } from '../people/people-merge-suggestions.repo.
 Find the `GET /:id` handler's return object (currently ends `... faces: detail.faces.map(...), offset, limit, };`). Add `suggested_merge` right after `cover_bbox`:
 
 ```ts
-      return {
-        id: detail.person._id.toHexString(),
-        name: detail.person.name,
-        created_at: detail.person.created_at,
-        updated_at: detail.person.updated_at,
-        cover_asset_id: detail.person.cover_asset_id ?? null,
-        cover_bbox: detail.person.cover_bbox ?? null,
-        suggested_merge: detail.suggestedMerge
-          ? {
-              person_id: detail.suggestedMerge.personId.toHexString(),
-              name: detail.suggestedMerge.name,
-              cover_asset_id: detail.suggestedMerge.coverAssetId,
-              cover_bbox: detail.suggestedMerge.coverBbox,
-              score: detail.suggestedMerge.score,
-            }
-          : null,
-        faces: detail.faces.map((f) => ({
-          asset_id: f.asset_id,
-          face_index: f.face_index,
-          abs_path: f.abs_path,
-          bbox: f.bbox,
-          confidence: f.confidence,
-        })),
-        offset,
-        limit,
-      };
+return {
+  id: detail.person._id.toHexString(),
+  name: detail.person.name,
+  created_at: detail.person.created_at,
+  updated_at: detail.person.updated_at,
+  cover_asset_id: detail.person.cover_asset_id ?? null,
+  cover_bbox: detail.person.cover_bbox ?? null,
+  suggested_merge: detail.suggestedMerge
+    ? {
+        person_id: detail.suggestedMerge.personId.toHexString(),
+        name: detail.suggestedMerge.name,
+        cover_asset_id: detail.suggestedMerge.coverAssetId,
+        cover_bbox: detail.suggestedMerge.coverBbox,
+        score: detail.suggestedMerge.score,
+      }
+    : null,
+  faces: detail.faces.map((f) => ({
+    asset_id: f.asset_id,
+    face_index: f.face_index,
+    abs_path: f.abs_path,
+    bbox: f.bbox,
+    confidence: f.confidence,
+  })),
+  offset,
+  limit,
+};
 ```
 
 - [ ] **Step 3: Extend `toPersonListRow`**
@@ -1323,9 +1342,11 @@ git commit -m "feat(api): wire merge-suggestion fields + dismiss route into /api
 ### Task 8: Web types — `bun-api-backend.service.ts`
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts`
 
 **Interfaces:**
+
 - Produces: `ApiMergeSuggestion { personId: string; name: string; coverAssetId: string | null; coverBbox: Bbox | null; score: number }`, `ApiPerson.hasMergeSuggestion: boolean`, `ApiPersonDetail.suggestedMerge: ApiMergeSuggestion | null`, `dismissMergeSuggestion(id: string, otherId: string): Observable<{ ok: true }>`.
 
 No new test file for this task — this file (the raw HTTP snake_case→camelCase mapping layer) has zero existing spec coverage anywhere in the codebase today (confirmed: no `bun-api-backend.service.spec.ts` exists), so adding one here would be inconsistent with the established boundary — this codebase tests the mapping's OUTPUT at the store layer instead (Task 9, via a stub of this service), which is exactly the existing convention `people.store.spec.ts` already follows. Verified for real (actual wire response, not a stub) in Task 12's dev-server walkthrough.
@@ -1520,10 +1541,12 @@ git commit -m "feat(web): ApiMergeSuggestion type + dismissMergeSuggestion HTTP 
 ### Task 9: `people.store.ts` — `dismissMergeSuggestion` store method
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/api/people.store.ts` (add after the existing `mergePeople` method, around line 450)
 - Test: `src/web/projects/maple-common/src/lib/api/people.store.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `this.api.dismissMergeSuggestion(id, otherId)` (Task 8), `this.evictDetail(id)`, `this.invalidate()`, `this.invalidateDetail(id)` (all pre-existing store methods).
 - Produces: `PeopleStore.dismissMergeSuggestion(personId: string, otherId: string): Promise<void>`.
 
@@ -1532,7 +1555,7 @@ git commit -m "feat(web): ApiMergeSuggestion type + dismissMergeSuggestion HTTP 
 In `src/web/projects/maple-common/src/lib/api/people.store.spec.ts`, add to the `ApiStub` class:
 
 ```ts
-  dismissMergeSuggestion = vi.fn((_id: string, _otherId: string) => of({ ok: true as const }));
+dismissMergeSuggestion = vi.fn((_id: string, _otherId: string) => of({ ok: true as const }));
 ```
 
 Add a new `describe` block:
@@ -1607,10 +1630,12 @@ git commit -m "feat(web): PeopleStore.dismissMergeSuggestion"
 ### Task 10: `people-bulk.controller.ts` — `mergeSuggestionInto` / `dismissSuggestion`
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts`
 - Test (new file): `src/web/projects/maple/src/app/settings/people/people-bulk.controller.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `this.deps.selected(): ApiPersonDetail | null` (existing dep), `this.performMerge(targetId, sourceIds, after)` (existing private method), `this.deps.store.dismissMergeSuggestion(id, otherId)` (Task 9), `this.deps.toast` (existing dep), `errorMessage` from `./people.vm.ts` (already imported in this file).
 - Produces: `PeopleBulkController.mergeSuggestionInto(): void`, `PeopleBulkController.dismissSuggestion(): Promise<void>`.
 
@@ -1771,11 +1796,13 @@ git commit -m "feat(web): PeopleBulkController merge-suggestion actions"
 ### Task 11: Detail banner + list badge (template, styles, component wiring)
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.ts` (import `ApiMergeSuggestion`; add `suggestionCoverUrl`)
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.html` (detail banner; list badge)
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.scss` (banner + badge styles)
 
 **Interfaces:**
+
 - Consumes: `detail.suggestedMerge: ApiMergeSuggestion | null` (Task 8), `p.hasMergeSuggestion: boolean` (Task 8), `bulk.mergeSuggestionInto()`/`bulk.dismissSuggestion()`/`bulk.peopleBulkBusy()` (Task 10), existing `this.people()`, `this.coverThumbUrl()`, `this.thumbs`, `crop.transform()`/`crop.onImgLoad()`.
 
 No automated test for this task (template/styles aren't meaningfully unit-testable) — verified by hand against the running dev server in this task's own Step 5, per CLAUDE.md's "test the golden path in a browser before reporting complete" for UI changes. Task 12 repeats this as part of the final full walkthrough.
@@ -1888,35 +1915,29 @@ Insert the banner between `.detail-head`'s closing `</div>` and the `<!-- Filter
 In the same file, the list-view card's `.person-thumb` block currently starts:
 
 ```html
-                  <div class="person-thumb">
-                    @if (bulk.selectMode()) {
-                      <span class="select-check" ...> ... </span>
-                    }
-                    @if (coverThumbUrl(p); as url) {
+<div class="person-thumb">
+  @if (bulk.selectMode()) {
+  <span class="select-check" ...> ... </span>
+  } @if (coverThumbUrl(p); as url) {
+</div>
 ```
 
 Insert a badge block between the `@if (bulk.selectMode())` block and the `@if (coverThumbUrl(p); as url)` block:
 
 ```html
-                  <div class="person-thumb">
-                    @if (bulk.selectMode()) {
-                      <span class="select-check" [class.is-selected]="bulk.isPersonSelected(p.id)">
-                        @if (bulk.isPersonSelected(p.id)) {
-                          <maple-settings-icon
-                            name="check"
-                            [size]="12"
-                            color="#ffffff"
-                            [stroke]="2.4"
-                          />
-                        }
-                      </span>
-                    }
-                    @if (p.hasMergeSuggestion) {
-                      <span class="merge-suggestion-badge" title="Possible duplicate" aria-label="Possible duplicate">
-                        <maple-settings-icon name="merge" [size]="11" color="#ffffff" />
-                      </span>
-                    }
-                    @if (coverThumbUrl(p); as url) {
+<div class="person-thumb">
+  @if (bulk.selectMode()) {
+  <span class="select-check" [class.is-selected]="bulk.isPersonSelected(p.id)">
+    @if (bulk.isPersonSelected(p.id)) {
+    <maple-settings-icon name="check" [size]="12" color="#ffffff" [stroke]="2.4" />
+    }
+  </span>
+  } @if (p.hasMergeSuggestion) {
+  <span class="merge-suggestion-badge" title="Possible duplicate" aria-label="Possible duplicate">
+    <maple-settings-icon name="merge" [size]="11" color="#ffffff" />
+  </span>
+  } @if (coverThumbUrl(p); as url) {
+</div>
 ```
 
 - [ ] **Step 4: Add the styles**
