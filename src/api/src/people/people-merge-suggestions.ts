@@ -40,6 +40,30 @@ export function sortedPairKey(aHex: string, bHex: string): string {
   return aHex < bHex ? `${aHex}:${bHex}` : `${bHex}:${aHex}`;
 }
 
+interface BestMatch {
+  other: SuggestionCandidate | null;
+  score: number;
+}
+
+/** Best-scoring OTHER visible person for `person`, ties breaking toward the
+ * first-encountered candidate (strict `>`, matching `clusterEmbeddings`'s
+ * own tie-break rule) — deterministic given a stable input order. */
+function bestMatchFor(
+  person: SuggestionCandidate,
+  visible: SuggestionCandidate[],
+  dismissedPairs: ReadonlySet<string>,
+): BestMatch {
+  return visible.reduce<BestMatch>(
+    (best, other) => {
+      if (other.personIdHex === person.personIdHex) return best;
+      if (dismissedPairs.has(sortedPairKey(person.personIdHex, other.personIdHex))) return best;
+      const score = dotProduct(person.centroid, other.centroid);
+      return score > best.score ? { other, score } : best;
+    },
+    { other: null, score: -Infinity },
+  );
+}
+
 /**
  * All-pairs cosine similarity over people (not faces — a few hundred/
  * thousand rows, cheap compared to the face-level clustering pass). For
@@ -47,10 +71,6 @@ export function sortedPairKey(aHex: string, bHex: string): string {
  * person if it clears `threshold` and isn't in `dismissedPairs`. People
  * with no qualifying match are simply absent from the result — the caller
  * writes `null` for them.
- *
- * Ties break toward the first-encountered candidate (strict `>`, matching
- * `clusterEmbeddings`'s own tie-break convention) — deterministic given a
- * stable input order.
  */
 export function computeMergeSuggestions(
   people: SuggestionCandidate[],
@@ -58,26 +78,12 @@ export function computeMergeSuggestions(
   threshold: number = MERGE_SUGGESTION_THRESHOLD,
 ): MergeSuggestion[] {
   const visible = people.filter((p) => !p.hidden);
-  const results: MergeSuggestion[] = [];
-  for (const person of visible) {
-    let bestScore = -Infinity;
-    let bestOther: SuggestionCandidate | null = null;
-    for (const other of visible) {
-      if (other.personIdHex === person.personIdHex) continue;
-      if (dismissedPairs.has(sortedPairKey(person.personIdHex, other.personIdHex))) continue;
-      const score = dotProduct(person.centroid, other.centroid);
-      if (score > bestScore) {
-        bestScore = score;
-        bestOther = other;
-      }
-    }
-    if (bestOther && bestScore >= threshold) {
-      results.push({
-        personIdHex: person.personIdHex,
-        suggestedPersonIdHex: bestOther.personIdHex,
-        score: bestScore,
-      });
-    }
-  }
-  return results;
+  return visible
+    .map((person) => {
+      const { other, score } = bestMatchFor(person, visible, dismissedPairs);
+      return other && score >= threshold
+        ? { personIdHex: person.personIdHex, suggestedPersonIdHex: other.personIdHex, score }
+        : null;
+    })
+    .filter((s): s is MergeSuggestion => s !== null);
 }
