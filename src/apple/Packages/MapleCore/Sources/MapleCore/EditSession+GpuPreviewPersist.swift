@@ -66,21 +66,23 @@ extension EditSession {
         }
     }
 
-    /// Refresh the browse/Preview thumbnail from the CURRENT GPU frame (#1879).
-    /// The GPU-live present path returns from `decodeAndRender` before the CPU
-    /// publish tail ever runs, so GPU-live edits never reach
-    /// `ThumbnailLoader.updateThumbnailFromRender` — `ThumbnailDiskCache` keeps
-    /// the import-time thumbnail and the Preview ("Full Image") view shows the
-    /// ORIGINAL render after edits. Called on editor dismiss: ONE
-    /// utility-priority readback per editor exit, never per slider tick (the
-    /// same cost profile as `persistGpuFrameToPreviewCache`'s cold-open
-    /// one-shot). No-op when the GPU path never presented for this canvas (the
-    /// CPU publish tail already refreshes the thumbnail on every refine) or
-    /// without a driver / asset URL.
+    /// Refresh the browse/Preview thumbnail + persist the display preview from
+    /// the CURRENT GPU frame (#1879, #2009). The GPU-live present path returns
+    /// from `decodeAndRender` before the CPU publish tail ever runs, so
+    /// GPU-live edits never reach `ThumbnailLoader.updateThumbnailFromRender`
+    /// (the browse grid + Preview would keep the pre-edit render) nor
+    /// `scheduleDisplayPreviewPersist` (the `<filename>.avif` would stay the
+    /// camera original). Called on editor dismiss: ONE utility-priority
+    /// readback per editor exit, never per slider tick (the same cost profile
+    /// as `persistGpuFrameToPreviewCache`'s cold-open one-shot). No-op when the
+    /// GPU path never presented for this canvas (the CPU publish tail already
+    /// refreshed both on every refine) or without a driver.
+    ///
+    /// The thumbnail refresh needs a local URL and is skipped for cloud assets
+    /// (their grid thumbs are server-rendered); the preview persist runs for
+    /// both — a local file write or an `/api/preview` upload via `previewSink`.
     public func refreshThumbnailFromCurrentGpuFrame() {
-        guard gpuFramePresented,
-              let driver = gpuLiveDriver,
-              let url = asset.primaryURL else { return }
+        guard gpuFramePresented, let driver = gpuLiveDriver else { return }
         let liveModel = model
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -99,11 +101,18 @@ extension EditSession {
                 asShotTint: tint,
                 wbFrame: liveWbFrame
             ) else { return }
+            let thumbnailURL = self.asset.primaryURL
+            let sink = self.previewSink
             Task.detached(priority: .utility) {
                 guard let image = Self.ciImageFromGpuRgb(
                     frame.bytes, width: frame.width, height: frame.height
                 ) else { return }
-                await ThumbnailLoader.shared.updateDerivedImagesFromRender(image, for: url)
+                if let thumbnailURL {
+                    await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: thumbnailURL)
+                }
+                if let sink, let data = ThumbnailLoader.encodeDisplayPreview(from: image) {
+                    await sink.write(data)
+                }
             }
         }
     }

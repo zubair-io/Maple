@@ -1,69 +1,47 @@
-// ThumbnailLoader+DisplayPreview.swift — the `.maple/previews` 1600 px
+// ThumbnailLoader+DisplayPreview.swift — the `.maple/previews` 1280 px
 // display tier behind the Preview screen's thumbnail → display-res swap
 // (spec §3 of docs/superpowers/specs/2026-07-06-fast-preview-and-phone-card-
 // editor-design.md, slice A1).
 //
 // Split from ThumbnailLoader.swift for the file-size budget; shares the
-// actor's decode-slot gate and in-flight coalescing map. Does NOT share the
-// 256px thumbnail tier's encoder: the thumbnail AVIF migration switched that
-// tier to `ThumbnailEncoder` (AVIF), but `.maple/previews/` stays JPEG, so
-// this file keeps its own independent JPEG quality constant + encoder below.
+// actor's decode-slot gate and in-flight coalescing map. Encodes to AVIF via
+// the shared `ThumbnailEncoder` — same format as the 256px thumbnail tier,
+// but at the display-preview long edge + quality (#2009: the whole preview
+// tier moved onto the canonical cross-platform `<filename>.avif` contract).
 
 import CoreImage
 import Foundation
 import ImageIO
 
 extension ThumbnailLoader {
-    /// JPEG quality for the display-preview tier — independent of the 256px
-    /// thumbnail tier's `ThumbnailEncoder.quality` (AVIF scale). This tier is
-    /// out of scope for the thumbnail AVIF migration and stays JPEG.
-    private static let previewJpegQuality: CGFloat = 0.82
-
-    /// Encode a CIImage to JPEG at `previewJpegQuality`. Local to the
-    /// display-preview tier — NOT the same encoder as the (now AVIF) 256px
-    /// thumbnail tier in ThumbnailLoader.swift.
-    private static func previewJpegData(from ci: CIImage, ctx: CIContext) -> Data? {
-        return ctx.jpegRepresentation(
-            of: ci,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
-                        previewJpegQuality]
-        )
-    }
+    /// AVIF quality for the display-preview tier on ImageIO's 0…1 lossy scale
+    /// (~70 in the cross-platform contract's 0–100 terms). Higher than the
+    /// 256px thumbnail tier's `ThumbnailEncoder.quality` (0.5): a preview is
+    /// the largest on-screen surface below full develop, so it favors fidelity
+    /// over file size.
+    static let displayPreviewAvifQuality: CGFloat = 0.7
 
     /// Long-edge target for the display-preview tier at
-    /// `MapleSidecarPaths.previewURL` (`.maple/previews/
-    /// <sha256prefix16(basename)>_1600.jpg`). 1600 is the established
-    /// convention: the pano stitcher writes it at stitch time (#1365) and
-    /// `EditSession` cold-open seeding reads it — the Preview screen's
-    /// display tier reuses the same artifact.
-    public static let displayPreviewLongEdge: CGFloat = 1_600
+    /// `MapleSidecarPaths.previewURL` (`.maple/previews/<filename>.avif`). 1280
+    /// is the canonical cross-platform preview size (#2009) — server, Apple,
+    /// and Web all render the internal preview at this long edge; the pano
+    /// stitcher pre-seeds it (#1365) and `EditSession` cold-open seeding reads
+    /// it.
+    public static let displayPreviewLongEdge: CGFloat = 1_280
 
-    /// Render-semantics version of the display-preview tier (#1976). The JPEG
-    /// filename is a cross-consumer contract, so staleness rides the sibling
-    /// `<key>_1600.v` marker (`MapleSidecarPaths.previewVersionURL`) instead
-    /// of the key: a preview with a missing or older marker is treated as a
-    /// miss and regenerated (embedded JPEG) or suppressed (visually edited —
-    /// the editor's render refresh repopulates it). v1 introduces the marker;
-    /// every pre-marker file is stale by definition, which retires the
-    /// previews persisted from the #1976 cyan-anchored renders.
-    public static let displayPreviewTierVersion: UInt32 = 1
-
-    /// Whether the display preview for `assetURL` carries the current tier
-    /// version marker. Missing / unreadable / older markers read as stale.
-    public nonisolated static func displayPreviewMarkerIsCurrent(for assetURL: URL) -> Bool {
-        let markerURL = MapleSidecarPaths.previewVersionURL(for: assetURL)
-        guard let text = try? String(contentsOf: markerURL, encoding: .utf8),
-            let version = UInt32(text.trimmingCharacters(in: .whitespacesAndNewlines))
-        else { return false }
-        return version >= displayPreviewTierVersion
-    }
-
-    /// Stamp the current tier version next to a just-written display preview.
-    nonisolated static func writeDisplayPreviewMarker(for assetURL: URL) {
-        let markerURL = MapleSidecarPaths.previewVersionURL(for: assetURL)
-        try? "\(displayPreviewTierVersion)".write(
-            to: markerURL, atomically: true, encoding: .utf8)
+    /// Scale a rendered CIImage to `displayPreviewLongEdge` (never upscaling)
+    /// and AVIF-encode it at `displayPreviewAvifQuality`. The single encoder
+    /// for the display-preview tier: the Browse-grid cold-generate path and
+    /// the editor's idle/exit preview persist (`EditSession`) both go through
+    /// it, so both write byte-identical `<filename>.avif` files. Returns nil on
+    /// an encode failure.
+    public nonisolated static func encodeDisplayPreview(from rendered: CIImage) -> Data? {
+        let extent = rendered.extent
+        let longEdge = max(extent.width, extent.height)
+        let scale = longEdge > 0 ? min(1.0, displayPreviewLongEdge / longEdge) : 1.0
+        let scaled = rendered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        return ThumbnailEncoder.encode(
+            scaled, ctx: displayPreviewCIContext, quality: displayPreviewAvifQuality)
     }
 
     /// Below this long edge an embedded thumbnail is not worth swapping in:
@@ -77,14 +55,14 @@ extension ThumbnailLoader {
     /// never pays a per-encode context allocation.
     private static let displayPreviewCIContext = CIContext()
 
-    /// Display-resolution JPEG for a URL-backed asset — the Preview screen's
+    /// Display-resolution AVIF for a URL-backed asset — the Preview screen's
     /// second tier (the thumbnail paints first, this swaps in when it
     /// resolves).
     ///
     /// Order of attempts:
-    ///   1. Fresh `.maple/previews/<key>_1600.jpg` on disk — written by a
-    ///      previous call, the pano stitcher (#1365), or the render-publish
-    ///      refresh (`updateDisplayPreviewFromRender`).
+    ///   1. Fresh `.maple/previews/<filename>.avif` on disk — written by a
+    ///      previous call, the pano stitcher (#1365), or the editor's
+    ///      idle/exit preview persist (`EditSession`, #2009).
     ///   2. Edited-photo gate: when the sidecar carries non-default
     ///      adjustments (beyond the as-shot WB seed) and step 1 missed,
     ///      return nil — the 256 px thumbnail already reflects the edits
@@ -93,9 +71,9 @@ extension ThumbnailLoader {
     ///      repopulates the tier with developed pixels.
     ///   3. Generate from the camera's embedded JPEG preview (never an
     ///      Apple-RAW full decode — its rendering diverges from the Maple
-    ///      pipeline), persist to `.maple/previews/`, and return the bytes.
-    ///      Non-RAW bitmaps with no useful embedded thumb decode exactly, so
-    ///      they synthesize at target instead.
+    ///      pipeline), AVIF-encode + persist to `.maple/previews/`, and return
+    ///      the bytes. Non-RAW bitmaps with no useful embedded thumb decode
+    ///      exactly, so they synthesize at target instead.
     ///
     /// Returns nil when no tier is available (edited-and-stale, RAW without
     /// an embedded preview, video/stub/audio) — the caller keeps showing the
@@ -154,55 +132,23 @@ extension ThumbnailLoader {
         if sidecarHasVisualEdits(assetURL: url) {
             return nil
         }
-        guard let data = displayPreviewJPEG(at: url, isRaw: isRaw) else { return nil }
+        guard let data = displayPreviewAVIF(at: url, isRaw: isRaw) else { return nil }
         try? FileManager.default.createDirectory(
             at: previewURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try? data.write(to: previewURL, options: .atomic)
-        writeDisplayPreviewMarker(for: url)
         return data
     }
 
-    /// Refresh BOTH render-derived artifacts — the 256 px browse thumbnail
-    /// and the 1600 px display preview — from one rendered frame. The render-
-    /// publish paths (`EditSession+Render`, the #1879 GPU-exit readback) call
-    /// this so the two tiers stay in lock-step: an edited photo's Preview
-    /// swap must show the same EDITED pixels its thumbnail does.
-    public func updateDerivedImagesFromRender(_ rendered: CIImage, for assetURL: URL) async {
-        await updateThumbnailFromRender(rendered, for: assetURL)
-        await updateDisplayPreviewFromRender(rendered, for: assetURL)
-    }
-
-    /// Overwrite the on-disk display preview for `assetURL` with one rendered
-    /// from a CIImage — the display-tier sibling of
-    /// `updateThumbnailFromRender`, called from the same render-publish paths
-    /// so an edited photo's Preview swap shows the EDITED pixels, not the
-    /// camera original.
-    public func updateDisplayPreviewFromRender(_ rendered: CIImage, for assetURL: URL) async {
-        let target = Self.displayPreviewLongEdge
-        let extent = rendered.extent
-        let longEdge = max(extent.width, extent.height)
-        let scale = longEdge > 0 ? min(1.0, target / longEdge) : 1.0
-        let scaled = rendered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        guard let data = Self.previewJpegData(from: scaled, ctx: ctx) else { return }
-        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
-        try? FileManager.default.createDirectory(
-            at: previewURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? data.write(to: previewURL, options: .atomic)
-        Self.writeDisplayPreviewMarker(for: assetURL)
-    }
-
     /// A sidecar may legitimately be a little newer than the preview the
-    /// editor wrote for it: the render-publish path writes the tier per
-    /// refine render, while the sidecar lands on the 750 ms debounced
-    /// autosave — so on editor exit the sidecar's mtime trails the preview's
-    /// by up to a couple of seconds. Within this window the preview is the
-    /// developed render OF that sidecar, not a stale artifact. An externally
-    /// synced edit (the case the staleness check below exists for) arrives
-    /// minutes-to-days later.
+    /// editor wrote for it: the editor persists the preview on an idle
+    /// debounce + on exit, while the sidecar lands on the 750 ms debounced
+    /// autosave — so on editor exit the sidecar's mtime can trail the
+    /// preview's by up to a couple of seconds. Within this window the preview
+    /// is the developed render OF that sidecar, not a stale artifact. An
+    /// externally synced edit (the case the staleness check below exists for)
+    /// arrives minutes-to-days later.
     private static let sidecarAutosaveSlack: TimeInterval = 10
 
     /// Bytes of the cached display preview when it is fresh; nil on a miss
@@ -218,10 +164,10 @@ extension ThumbnailLoader {
     private nonisolated static func freshDisplayPreviewData(
         previewURL: URL, assetURL: URL
     ) -> Data? {
-        // #1976: a missing/old tier-version marker means the file may have
-        // been persisted from a render with since-fixed semantics — treat
-        // as a miss so it regenerates (or is suppressed for edited photos).
-        guard displayPreviewMarkerIsCurrent(for: assetURL) else { return nil }
+        // No version marker (#2009): the canonical `<filename>.avif` scheme is
+        // itself the version boundary — a preview written under the old
+        // `<key>_1600.jpg` scheme lives at a different path this reader never
+        // consults, so there is nothing stale to gate out here.
         let fm = FileManager.default
         guard
             let previewMtime = (try? fm.attributesOfItem(atPath: previewURL.path))?[
@@ -257,13 +203,15 @@ extension ThumbnailLoader {
         return model.isVisuallyEditedBeyondWhiteBalance
     }
 
-    /// Extract the display-preview JPEG via ImageIO. RAWs use the embedded
+    /// Extract the display-preview AVIF via ImageIO. RAWs use the embedded
     /// camera preview ONLY (`FromImageIfAbsent: false` — an Apple-RAW decode
     /// renders differently from the Maple pipeline and must never be
     /// persisted as this asset's preview). Non-RAW bitmaps decode exactly,
     /// so when their embedded thumb is too small to be useful they
-    /// synthesize one from the full image instead.
-    private nonisolated static func displayPreviewJPEG(at url: URL, isRaw: Bool) -> Data? {
+    /// synthesize one from the full image instead. The ImageIO thumbnail is
+    /// already capped at `displayPreviewLongEdge`, so the CGImage is
+    /// AVIF-encoded directly (no second downscale).
+    private nonisolated static func displayPreviewAVIF(at url: URL, isRaw: Bool) -> Data? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let targetPx = Int(displayPreviewLongEdge)
         let embeddedOpts: [CFString: Any] = [
@@ -289,6 +237,6 @@ extension ThumbnailLoader {
             return CGImageSourceCreateThumbnailAtIndex(src, 0, decodeOpts as CFDictionary)
         }()
         guard let cg = usable else { return nil }
-        return previewJpegData(from: CIImage(cgImage: cg), ctx: displayPreviewCIContext)
+        return ThumbnailEncoder.encode(cg, quality: displayPreviewAvifQuality)
     }
 }

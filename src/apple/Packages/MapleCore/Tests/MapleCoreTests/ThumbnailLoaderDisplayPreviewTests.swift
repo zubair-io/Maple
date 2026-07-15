@@ -1,6 +1,7 @@
-// ThumbnailLoaderDisplayPreviewTests.swift — the `.maple/previews` 1600 px
+// ThumbnailLoaderDisplayPreviewTests.swift — the `.maple/previews` 1280 px
 // display tier behind the Preview screen's thumbnail → hi-res swap
-// (ThumbnailLoader+DisplayPreview.swift).
+// (ThumbnailLoader+DisplayPreview.swift). Post-#2009: AVIF at the canonical
+// `<filename>.avif` path, no `_1600` size token, no `.v` version marker.
 //
 // Real files in a temp directory throughout — including real `.xmp`
 // sidecars via `XMPSerializer` — per the "no mocks for the sidecar layer"
@@ -73,15 +74,16 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
             for: AssetRef(url: assetURL))
         let bytes = try XCTUnwrap(data)
 
-        // Display-res, not thumbnail-res: capped at the 1600 tier target and
+        // Display-res, not thumbnail-res: capped at the 1280 tier target and
         // well above the 256 px grid thumb.
         let edge = try longEdge(of: bytes)
         XCTAssertLessThanOrEqual(edge, Int(ThumbnailLoader.displayPreviewLongEdge))
         XCTAssertGreaterThanOrEqual(edge, 1_024)
 
-        // Persisted at the canonical asset-relative location so the editor
-        // cold-open seed + a later Preview open reuse it.
+        // Persisted at the canonical `<filename>.avif` location so the editor
+        // cold-open seed + a later Preview open reuse it — no `.v` marker.
         let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+        XCTAssertEqual(previewURL.lastPathComponent, "a.jpg.avif")
         XCTAssertTrue(FileManager.default.fileExists(atPath: previewURL.path))
     }
 
@@ -153,9 +155,8 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     func testEditedSidecarWithFreshRenderedTierServesIt() async throws {
         let assetURL = try writeJPEG(named: "e.jpg", width: 2400, height: 1600)
         try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
-        // The render-publish path wrote a developed preview (what
-        // `updateDisplayPreviewFromRender` produces) — the gate only blocks
-        // COLD generation from the camera original.
+        // The editor's idle/exit persist wrote a developed preview — the gate
+        // only blocks COLD generation from the camera original.
         let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
         try FileManager.default.createDirectory(
             at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -167,10 +168,9 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
         XCTAssertEqual(data, developed)
     }
 
-    // MARK: - Render refresh
+    // MARK: - Encode
 
-    func testUpdateDisplayPreviewFromRenderWritesDownscaledTier() async throws {
-        let assetURL = try writeJPEG(named: "f.jpg", width: 64, height: 64)
+    func testEncodeDisplayPreviewDownscalesToLongEdgeAsAVIF() throws {
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = try XCTUnwrap(CGContext(
             data: nil, width: 3_200, height: 2_000,
@@ -181,11 +181,18 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
         ctx.fill(CGRect(x: 0, y: 0, width: 3_200, height: 2_000))
         let rendered = CIImage(cgImage: try XCTUnwrap(ctx.makeImage()))
 
-        await ThumbnailLoader.shared.updateDisplayPreviewFromRender(rendered, for: assetURL)
-
-        let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
-        let bytes = try Data(contentsOf: previewURL)
+        let bytes = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: rendered))
+        // Downscaled to the 1280 tier long edge.
         XCTAssertEqual(try longEdge(of: bytes), Int(ThumbnailLoader.displayPreviewLongEdge))
+        // AVIF container (`ftyp` box at offset 4).
+        XCTAssertEqual(bytes[4..<8], Data("ftyp".utf8), "encoded preview must be AVIF")
+    }
+
+    func testEncodeDisplayPreviewNeverUpscalesSmallSource() throws {
+        // A source already below the tier target keeps its native size.
+        let small = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 250))
+        let bytes = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: small))
+        XCTAssertEqual(try longEdge(of: bytes), 400)
     }
 
     // MARK: - Non-image guards
