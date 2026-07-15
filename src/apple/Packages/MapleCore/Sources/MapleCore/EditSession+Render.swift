@@ -36,19 +36,6 @@ import CoreImage
 
 @MainActor
 extension EditSession {
-    // MARK: - Public render entry points
-
-    /// Force a full-resolution render immediately (useful before export).
-    public func renderFull() async {
-        renderRequested = true
-        // Bypass the scheduler — caller wants the work to land before
-        // returning. Take a fresh generation so the gen-check inside
-        // `decodeAndRender` lines up against the live counter.
-        let gen = await renderActor.currentGeneration()
-        await decodeAndRender(targetSize: nil, phase: .refine, gen: gen)
-    }
-
-
     // MARK: - Two-phase scheduler (thin forwarders onto RenderActor)
 
     /// Two-phase scheduler entry. Cancels the prior render+refine on
@@ -289,11 +276,18 @@ extension EditSession {
 
         // `!isFullQualityDecoding` mirrors the persist gate: a refine off the
         // seeded decode would push camera-JPEG-derived pixels to the thumbnail.
-        if coversCanvas, !isFullQualityDecoding, let url = asset.primaryURL {
-            Task.detached(priority: .utility) { [composite] in
-                await ThumbnailLoader.shared.updateDerivedImagesFromRender(composite, for: url)
+        if coversCanvas, !isFullQualityDecoding {
+            if let url = asset.primaryURL {
+                // Browse thumbnail stays per-refine (cheap; keeps the grid
+                // live during editing) and is inherently local.
+                Task.detached(priority: .utility) { [composite] in
+                    await ThumbnailLoader.shared.updateThumbnailFromRender(composite, for: url)
+                }
+                persistCurrentPreviewToCache()
             }
-            persistCurrentPreviewToCache()
+            // Display preview (#2009): capture the frame, persist on idle +
+            // exit — never per tick. Local file or cloud upload via the sink.
+            scheduleDisplayPreviewPersist(composite)
         }
     }
 
@@ -560,14 +554,18 @@ extension EditSession {
             // refine that ran off the seeded decode would push camera-JPEG-
             // derived pixels to the thumbnail; the decode's completion re-kicks
             // a render, so the thumbnail still refreshes from real pixels.
-            if phase == .refine, !isFullQualityDecoding, let url = asset.primaryURL {
+            if phase == .refine, !isFullQualityDecoding {
                 // Use the cropped `displayImage` so the browse thumbnail +
                 // rendered-preview cache reflect what the user sees (#638).
                 let thumbSource = displayImage
-                Task.detached(priority: .utility) {
-                    await ThumbnailLoader.shared.updateDerivedImagesFromRender(thumbSource, for: url)
+                if let url = asset.primaryURL {
+                    Task.detached(priority: .utility) {
+                        await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
+                    }
+                    persistCurrentPreviewToCache()
                 }
-                persistCurrentPreviewToCache()
+                // Display preview (#2009): idle/exit persist, local or cloud.
+                scheduleDisplayPreviewPersist(thumbSource)
             }
         } catch {
             if let gen {

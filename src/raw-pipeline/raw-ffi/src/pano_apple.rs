@@ -154,9 +154,11 @@ pub(super) fn run_stitch_apple(
             set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
             return -7;
         }
-        // Render-time derivatives (#1365): 256px thumb + 1600px preview into
+        // Render-time derivatives (#1365): 256px thumb + 1280px preview into
         // <dir>/.maple/{thumbs,previews}/ so the grid tile isn't a blank ghost
-        // and cold-open is instant. Non-fatal — the pano itself already wrote.
+        // and cold-open is instant. The preview is the canonical
+        // `<filename>.avif` Apple's read path expects (#2009). Non-fatal — the
+        // pano itself already wrote.
         if let Err(e) = write_display_sidecars(data, img.width(), img.height(), out_path) {
             eprintln!("maple_pano_stitch: derivative generation failed (non-fatal): {e}");
         }

@@ -444,8 +444,14 @@ extension AppShell {
         )
         if sessions[assetRef.id] == nil {
             let remoteStore = CloudSidecarStore(server: effectiveServer, assetID: asset.id, httpClient: httpClient)
+            // #2009 — developed-preview uploads to the same canonical
+            // `<filename>.avif` the server serves, keyed on the asset's
+            // server-side absolute path (the same save model as the XMP).
+            let previewSink = CloudDisplayPreviewSink(
+                server: effectiveServer, assetPath: asset.abs_path, httpClient: httpClient)
             let session = EditSession(asset: assetRef,
                                       remoteSidecarStore: remoteStore,
+                                      remotePreviewSink: previewSink,
                                       downloadProgress: progress)
             sessions[assetRef.id] = session
             Task { await session.loadSidecar() }

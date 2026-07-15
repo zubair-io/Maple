@@ -561,14 +561,13 @@ extension EditSession {
 // MARK: - Embedded preview reader (nonisolated)
 
 extension EditSession {
-    /// Read the render-time `.maple/previews/<key>_1600.jpg` baked preview for
+    /// Read the render-time `.maple/previews/<filename>.avif` baked preview for
     /// an asset and decode it to a `CIImage`. Asset-relative (resolves next to
-    /// the asset, e.g. a pano in `Panoramas/`). Returns nil when absent. (#1365.)
+    /// the asset, e.g. a pano in `Panoramas/`). Returns nil when absent. (#1365,
+    /// canonical scheme #2009.)
     nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
         let preview = MapleSidecarPaths.previewURL(for: url)
-        // #1976: cyan-era previews carry no tier-version marker — skip.
-        guard ThumbnailLoader.displayPreviewMarkerIsCurrent(for: url),
-            FileManager.default.fileExists(atPath: preview.path),
+        guard FileManager.default.fileExists(atPath: preview.path),
             let data = try? Data(contentsOf: preview)
         else { return nil }
         return CIImage(data: data)
