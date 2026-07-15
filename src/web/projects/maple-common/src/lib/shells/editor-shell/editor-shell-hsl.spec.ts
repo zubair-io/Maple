@@ -112,6 +112,7 @@ describe('EditorShellComponent — HSL / color-mix port (epic #1807 slice 4)', (
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
       flushPendingXmpWrites: vi.fn(),
+      flushPendingPreviewWrites: vi.fn(),
       hydrateSelfHostedFsAsset: vi.fn(() => null),
       openSelfHostedSubfolder: vi.fn(),
     } as unknown as Partial<LibraryStateService>;

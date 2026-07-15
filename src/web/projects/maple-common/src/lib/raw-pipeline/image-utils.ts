@@ -341,11 +341,16 @@ export async function canvasToBlobUrl(
   return URL.createObjectURL(blob);
 }
 
-/** Long-edge cap for the unedited-preview tier — matches the server's
- * `PREVIEW_LONG_EDGE_PX` and `EmbeddedPreviewService`'s own default. The
- * extracted preview is already resized to this by the WASM binding, so this
- * is a ceiling (scale 1, no upscale) for the transcode below, not a target. */
-const PREVIEW_LONG_EDGE_PX = 1280;
+/** Long-edge cap for the preview cache tier (unedited AND edited/developed —
+ * #2018) — matches the server's `PREVIEW_LONG_EDGE_PX` and
+ * `EmbeddedPreviewService`'s own default. The unedited-tier's extracted
+ * preview is already resized to this by the WASM binding, so it's a ceiling
+ * (scale 1, no upscale) for that transcode; the edited tier's caller
+ * (`EditPreviewPersistService`) passes it straight to `RawPipelineService.decode`'s
+ * `maxLongEdge` so the develop itself downsamples to this size, matching the
+ * contract exactly rather than resizing after the fact. Exported for that
+ * reuse. */
+export const PREVIEW_LONG_EDGE_PX = 1280;
 
 /** AVIF quality for the unedited-preview cache tier (canvas 0–1 scale). ~0.7
  * per the #1993 preview contract ("quality ~70") — higher than the 0.6 grid
@@ -380,6 +385,61 @@ export async function encodePreviewBlobToAvif(source: Blob): Promise<Blob | null
     const canvas = await resizeBitmapToCanvas(bitmap, PREVIEW_LONG_EDGE_PX);
     const blob = await encodeCanvas(canvas, 'image/avif', PREVIEW_AVIF_QUALITY);
     return blob.type === 'image/avif' ? blob : null;
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** JPEG quality for the edit-time developed-preview persist's server-backed
+ * fallback (#2018) — deliberately HIGH (well above `PREVIEW_AVIF_QUALITY`'s
+ * 0.7) because this JPEG is an INTERMEDIATE the server re-encodes to AVIF
+ * (`routes/preview.ts`'s JPEG branch), not the final cache artifact; a lossy
+ * source for that second encode would double-compress. Matches the
+ * `heic-convert` intermediate-decode quality convention on the server side
+ * (`thumbs/render.ts`'s `renderHeicThumbToFile`, quality 0.9) for the same
+ * reason. */
+const DEVELOPED_PREVIEW_JPEG_QUALITY = 0.92;
+
+/**
+ * Encode a raw-pipeline `DecodedImage` (the WASM develop's packed RGB output,
+ * NOT a display-ready Blob like `encodePreviewBlobToAvif` takes) into a
+ * *genuine* AVIF blob at the preview cache tier's quality, or `null` when
+ * this browser cannot encode AVIF — same `canEncodeAvif()` gate and
+ * verified-`.type` contract as `encodePreviewBlobToAvif`, reused rather than
+ * duplicated. Used by `EditPreviewPersistService` for the Hosted
+ * (File-System-Access-local) edit-time persist path: only a genuine AVIF is
+ * ever written to `.maple/previews/<filename>.avif` there — Hosted has no
+ * server to fall back to, so a browser that can't encode AVIF writes
+ * NOTHING for this asset until either the browser gains canvas AVIF support
+ * or the file is next produced by a platform that can (server / Apple).
+ */
+export async function encodeDevelopedRenderToAvif(img: DecodedImage): Promise<Blob | null> {
+  if (!(await canEncodeAvif())) return null;
+  const bitmap = await imageDataToBitmap(img);
+  try {
+    const canvas = await resizeBitmapToCanvas(bitmap, PREVIEW_LONG_EDGE_PX);
+    const blob = await encodeCanvas(canvas, 'image/avif', PREVIEW_AVIF_QUALITY);
+    return blob.type === 'image/avif' ? blob : null;
+  } finally {
+    bitmap.close();
+  }
+}
+
+/**
+ * Encode a raw-pipeline `DecodedImage` into a high-quality JPEG blob. Every
+ * engine's canvas can encode JPEG (unlike AVIF), so this never returns
+ * `null` — it's the server-backed edit-time persist path's fallback
+ * (`EditPreviewPersistService`) when `encodeDevelopedRenderToAvif` returns
+ * `null`: the JPEG is POSTed to `PUT /api/preview` (#2018), which transcodes
+ * it to genuine AVIF server-side before it ever reaches the cache file, so
+ * this function's job is purely "get the develop's pixels into a widely-
+ * decodable intermediate," not "produce the final cache artifact."
+ */
+export async function encodeDevelopedRenderToJpeg(img: DecodedImage): Promise<Blob> {
+  const bitmap = await imageDataToBitmap(img);
+  try {
+    const canvas = await resizeBitmapToCanvas(bitmap, PREVIEW_LONG_EDGE_PX);
+    return await encodeCanvas(canvas, 'image/jpeg', DEVELOPED_PREVIEW_JPEG_QUALITY);
   } finally {
     bitmap.close();
   }

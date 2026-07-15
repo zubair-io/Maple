@@ -9,7 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm, realpath, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, rm, realpath, readFile, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectId } from 'mongodb';
@@ -17,6 +17,7 @@ import sharp from 'sharp';
 
 import { previewPathRoutes } from './preview.ts';
 import { setLibraryRootsForTests, invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { imgdecodePool, _resetImgdecodePoolForTests } from '../thumbs/imgdecode-pool.ts';
 
 /** A genuine, small, untagged-sRGB AVIF (≤ 1280 long edge) that passes the
  * #2014 `validateAvifOutput` gate — same encode shape as the render pipeline
@@ -34,12 +35,15 @@ async function validAvif(): Promise<Buffer> {
 describe('PUT /api/preview', () => {
   let tmp = '';
 
-  const put = (path: string, body: BodyInit | undefined) =>
+  // `Buffer` re-wrapped as `Uint8Array` — see the sibling `putBody` helper
+  // below for why (Node's `Buffer` doesn't structurally satisfy `BodyInit`
+  // under this tsconfig even though it is one at runtime).
+  const put = (path: string, body: BodyInit | Buffer | undefined) =>
     new Elysia().use(previewPathRoutes).handle(
       new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
         method: 'PUT',
         headers: { 'content-type': 'image/avif' },
-        body,
+        body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
       }),
     );
 
@@ -127,5 +131,137 @@ describe('PUT /api/preview', () => {
   it('rejects an empty path value with 400', async () => {
     const res = await put('', await validAvif());
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * JPEG-body coverage (#2018): browsers that can't canvas-encode AVIF post a
+ * JPEG of the developed render instead; the server transcodes it via the
+ * SAME isolated imgdecode child `previewer.ts` uses for bitmap sources. These
+ * spawn the real child (mirrors `imgdecode-pool.test.ts`'s own integration
+ * test) rather than mocking it, so a genuine AVIF ends up on disk — the
+ * property the coordinator's decision explicitly asked to be decode-verified,
+ * not asserted-by-mock.
+ */
+describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
+  let tmp = '';
+
+  // `body` accepts a Buffer too (every caller below hands one in — sharp's
+  // `.toBuffer()` and `Buffer.from()` both return `Buffer`) and re-wraps it as
+  // a plain `Uint8Array`: Node's `Buffer` type doesn't structurally satisfy
+  // DOM's `BodyInit` under this tsconfig even though it IS one at runtime
+  // (Buffer extends Uint8Array) — same friction `Request`'s body option hits
+  // elsewhere in this file; wrapping here keeps every call site below clean.
+  const putBody = (path: string, body: BodyInit | Buffer, contentType = 'image/jpeg') =>
+    new Elysia().use(previewPathRoutes).handle(
+      new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
+        method: 'PUT',
+        headers: { 'content-type': contentType },
+        body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
+      }),
+    );
+
+  beforeEach(async () => {
+    tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-put-preview-jpeg-')));
+    setLibraryRootsForTests(new Map([[new ObjectId().toHexString(), tmp]]));
+    process.env.MAPLE_ROOTS = tmp;
+    // Fresh pool per test so a crash/timeout in one test can't wedge the next.
+    _resetImgdecodePoolForTests();
+  });
+
+  afterEach(async () => {
+    if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
+    tmp = '';
+    delete process.env.MAPLE_ROOTS;
+    setLibraryRootsForTests(null);
+    invalidateLibraryRoots();
+    try {
+      imgdecodePool().shutdown();
+    } catch {
+      // child may already be gone
+    }
+    _resetImgdecodePoolForTests();
+  });
+
+  it('transcodes a JPEG body to genuine AVIF on disk and returns 204', async () => {
+    const original = join(tmp, 'IMG_5555.NEF');
+    const jpeg = await sharp({
+      create: { width: 200, height: 150, channels: 3, background: { r: 12, g: 200, b: 90 } },
+    })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    const res = await putBody(original, jpeg);
+    expect(res.status).toBe(204);
+
+    const previewPath = join(tmp, '.maple', 'previews', 'IMG_5555.NEF.avif');
+    const meta = await sharp(previewPath).metadata();
+    // sharp reports AVIF as format "heif"/compression "av1" — see
+    // `validate-avif.ts`'s module doc for why.
+    expect(meta.format).toBe('heif');
+    expect(meta.compression).toBe('av1');
+    expect(meta.width).toBeLessThanOrEqual(200);
+    expect(meta.height).toBeLessThanOrEqual(150);
+
+    // No leftover JPEG-staging or AVIF-transcode temp files.
+    const files = await readdir(join(tmp, '.maple', 'previews'));
+    expect(files).toEqual(['IMG_5555.NEF.avif']);
+  }, 15_000 /* generous timeout for real child spawn + transcode */);
+
+  it('sniffs JPEG via magic bytes when Content-Type is generic/missing', async () => {
+    const original = join(tmp, 'sniffed.dng');
+    const jpeg = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    const res = await putBody(original, jpeg, 'application/octet-stream');
+    expect(res.status).toBe(204);
+
+    const previewPath = join(tmp, '.maple', 'previews', 'sniffed.dng.avif');
+    const meta = await sharp(previewPath).metadata();
+    expect(meta.format).toBe('heif');
+  }, 15_000);
+
+  it('rejects an undecodable JPEG body with 422 and writes nothing', async () => {
+    const original = join(tmp, 'bad.dng');
+    // Passes the magic-byte sniff (SOI marker) but has no actual image data
+    // for sharp to decode — the isolated child reports { ok: false }.
+    const corrupt = new Uint8Array([0xff, 0xd8, 0xff]);
+
+    const res = await putBody(original, corrupt);
+    expect(res.status).toBe(422);
+
+    const previewPath = join(tmp, '.maple', 'previews', 'bad.dng.avif');
+    await expect(stat(previewPath)).rejects.toThrow();
+  }, 15_000);
+
+  it('rejects a body that is neither AVIF nor JPEG with 422 (no child spawned)', async () => {
+    const original = join(tmp, 'neither.dng');
+    const res = await putBody(
+      original,
+      Buffer.from('plain text, not an image'),
+      'application/octet-stream',
+    );
+    expect(res.status).toBe(422);
+
+    const previewPath = join(tmp, '.maple', 'previews', 'neither.dng.avif');
+    await expect(stat(previewPath)).rejects.toThrow();
+  });
+
+  it('the existing AVIF-body path still works unchanged alongside the new JPEG path', async () => {
+    const original = join(tmp, 'still-avif.dng');
+    const raw = Buffer.alloc(32 * 24 * 3);
+    for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
+    const avif = await sharp(raw, { raw: { width: 32, height: 24, channels: 3 } })
+      .avif({ quality: 60, effort: 2 })
+      .toBuffer();
+
+    const res = await putBody(original, avif, 'image/avif');
+    expect(res.status).toBe(204);
+
+    const previewPath = join(tmp, '.maple', 'previews', 'still-avif.dng.avif');
+    expect(Buffer.from(await readFile(previewPath))).toEqual(avif);
   });
 });
