@@ -9,14 +9,18 @@
 //   `size=2048` request just returns the cached 512 px grid thumb.
 //
 //   Cache: `.maple/previews/` next to the image. When the indexer has an
-//   asset row for this file, the path-keyed `<filename>.1280.avif` written
-//   by the background `preview` stage is used — shared artifact, no
-//   duplicate render (no `maple_id` needed, unlike thumbs — see
-//   `cachePathForAsset`'s doc). Un-indexed files (no DB row yet, or DB
-//   unreachable) fall back to the legacy basename-keyed
-//   `<basename_no_ext>_1280.avif` and are generated on demand via the same
+//   asset row for this file, the path-keyed `<filename>.avif` written by the
+//   background `preview` stage is used — shared artifact, no duplicate render
+//   (no `maple_id` needed, unlike thumbs — see `cachePathForAsset`'s doc).
+//   Un-indexed files (no DB row yet, or DB unreachable) fall back to the
+//   basename-keyed `<filename>.avif` and are generated on demand via the same
 //   `generatePreview` the stage uses (which also owns the mtime staleness
 //   check).
+//
+//   The preview is a single, unversioned file overwritten in place (#2017),
+//   so the served ETag is the preview FILE's mtime + size (not the source
+//   RAW's — its mtime is unchanged by an edit) and Cache-Control is
+//   `must-revalidate`, so an in-place overwrite busts client caches.
 //
 // Auth: this Elysia plugin must be `.use()`d AFTER `requireAuth` in
 // `index.ts` so callers must present a valid bearer.
@@ -25,7 +29,7 @@
 // `resolveJailedFile` preamble in fs-jail.ts.
 
 import { Elysia, t } from 'elysia';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { isUnderRoot } from '../fs/browse.ts';
@@ -38,13 +42,11 @@ import {
 } from '../indexer/previewer.ts';
 import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
 import { isDbConnected } from '../db/client.ts';
-import { findAssetByAddress, developedPreviewResponse } from './library/shared.ts';
-import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
+import { findAssetByAddress, previewFileETag, MUTABLE_PREVIEW_CACHE } from './library/shared.ts';
+import { resolveJailedFile, notModifiedResponse } from './fs-jail.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs-previews');
-
-const CACHE_CONTROL = 'private, max-age=3600';
 
 /**
  * Split `real` into (libraryIdHex, relDir, filename) against the registered
@@ -72,11 +74,11 @@ export function libraryAddressFor(
 
 /**
  * Resolve the on-disk preview cache path for `real`. Prefers the indexer's
- * path-keyed `<filename>.1280.avif` (needs only an asset row with `fileinfo`,
- * not `maple_id` — see `cachePathForAsset`'s doc); falls back to the legacy
- * basename-keyed path when there's no asset row at all yet. The DB lookup is
- * best-effort — any failure (lookup error, DB down) degrades to the legacy
- * path rather than failing the request.
+ * path-keyed `<filename>.avif` (needs only an asset row with `fileinfo`, not
+ * `maple_id` — see `cachePathForAsset`'s doc); falls back to the basename-keyed
+ * path when there's no asset row at all yet. The DB lookup is best-effort —
+ * any failure (lookup error, DB down) degrades to the fallback path rather
+ * than failing the request.
  */
 async function resolvePreviewCachePath(real: string): Promise<string> {
   const legacy = () => cachePathFor(real, 'previews', PREVIEW_CACHE_SUFFIX);
@@ -109,8 +111,8 @@ async function resolvePreviewCachePath(real: string): Promise<string> {
 }
 
 /** Look up the indexed asset for a symlink-resolved path, or null (un-indexed
- * / DB down / no matching library). Shared by the developed-preview branch and
- * `resolvePreviewCachePath`. */
+ * / DB down / no matching library). Used by `resolvePreviewCachePath` to key
+ * the shared path-keyed cache off the asset's `fileinfo`. */
 async function lookupAssetByReal(real: string) {
   if (!isDbConnected()) return null;
   const libs = await loadLibraryRoots();
@@ -127,29 +129,7 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       set.status = resolved.status;
       return { error: resolved.error };
     }
-    const { real, stat: srcStat } = resolved;
-
-    // Prefer the developed preview for edited assets; fall back to embedded.
-    // The ETag folds in `sidecar_ver` (the RAW's mtime doesn't change on edit,
-    // so the source ETag alone would be stale across edits).
-    const asset = await lookupAssetByReal(real).catch(() => null);
-    if (asset) {
-      const libs = await loadLibraryRoots();
-      const ver = (asset.sidecar_ver as number | undefined) ?? 0;
-      const devEtag = `"${Math.floor(Number(srcStat.mtimeMs))}-${Number(srcStat.size)}-dev${ver}"`;
-      const developed = await developedPreviewResponse(
-        asset,
-        libs,
-        devEtag,
-        CACHE_CONTROL,
-        headers['if-none-match'],
-      );
-      if (developed) return developed;
-    }
-
-    const etag = sourceETag(srcStat);
-    const cached304 = notModifiedResponse(headers['if-none-match'], etag, CACHE_CONTROL);
-    if (cached304) return cached304;
+    const { real } = resolved;
 
     const previewPath = await resolvePreviewCachePath(real);
 
@@ -168,13 +148,32 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       await previewOndemandLimiter().run(() => generatePreview(real, previewPath));
     }
 
+    // ETag from the preview FILE (mtime + size), not the source RAW: the
+    // preview is overwritten in place on edit while the RAW's mtime is
+    // unchanged, so a source-keyed ETag would never bust across edits (#2017).
+    let previewStat: Awaited<ReturnType<typeof stat>>;
+    try {
+      previewStat = await stat(previewPath);
+    } catch (err) {
+      log.warn(
+        { real, previewPath, err: err instanceof Error ? err.message : err },
+        'preview generation produced no readable file',
+      );
+      set.status = 500;
+      return { error: 'Preview generation failed (see server log)' };
+    }
+
+    const etag = previewFileETag(previewStat);
+    const cached304 = notModifiedResponse(headers['if-none-match'], etag, MUTABLE_PREVIEW_CACHE);
+    if (cached304) return cached304;
+
     let bytes: Buffer;
     try {
       bytes = await readFile(previewPath);
     } catch (err) {
       log.warn(
         { real, previewPath, err: err instanceof Error ? err.message : err },
-        'preview generation produced no readable file',
+        'preview file unreadable after generation',
       );
       set.status = 500;
       return { error: 'Preview generation failed (see server log)' };
@@ -188,7 +187,7 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       status: 200,
       headers: {
         'Content-Type': 'image/avif',
-        'Cache-Control': CACHE_CONTROL,
+        'Cache-Control': MUTABLE_PREVIEW_CACHE,
         ETag: etag,
       },
     });

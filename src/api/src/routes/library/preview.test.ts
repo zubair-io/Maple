@@ -11,7 +11,11 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { previewRoutes } from './preview.ts';
-import { setLibraryBySlugForTests, invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import {
+  setLibraryRootsForTests,
+  setLibraryBySlugForTests,
+  invalidateLibraryRoots,
+} from '../../indexer/libraries.cache.ts';
 
 const TEST_DB = `maple_test_preview_route_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -56,6 +60,10 @@ beforeAll(async () => {
   tmpDir = `/tmp/maple-preview-test-${process.pid}`;
   await mkdir(tmpDir, { recursive: true });
   libraryId = new ObjectId();
+  // Seed byId (loadLibraryRoots — used to resolve the preview cache path) AND
+  // bySlug (resolveAddress). setLibraryRootsForTests first so the bySlug add
+  // below appends to the same cache entry rather than being wiped.
+  setLibraryRootsForTests(new Map([[libraryId.toHexString(), tmpDir]]));
   setLibraryBySlugForTests('prevlib', { libraryId, root: tmpDir, label: 'Preview Test Library' });
 });
 
@@ -120,7 +128,7 @@ describe('GET /preview/:slug/*', () => {
     expect(body.status).toBe('indexing');
   });
 
-  test('returns 304 when ETag matches If-None-Match', async () => {
+  test('serves the single <filename>.avif with a file-based ETag and 304s on If-None-Match', async () => {
     if (!mongoReachable) return;
     const mapleId = new ObjectId().toHexString();
     await db!.collection('assets').insertOne({
@@ -137,20 +145,28 @@ describe('GET /preview/:slug/*', () => {
       deleted_at: null,
     } as never);
 
-    // Create a fake preview so the route doesn't try to generate it
-    const { mkdir: mkdirNative } = await import('node:fs/promises');
-    const bucket = mapleId.slice(0, 2);
-    const bucketDir = path.join(tmpDir, '.maple', 'previews', '1280', bucket);
-    await mkdirNative(bucketDir, { recursive: true });
-    await writeFile(path.join(bucketDir, `${mapleId}.jpg`), 'fake-preview-bytes');
+    // Pre-stage the one preview file so the route serves it without generating.
+    // The serving path only stats/reads it (no decode), so arbitrary bytes work.
+    const previewPath = path.join(tmpDir, '.maple', 'previews', 'ready.jpg.avif');
+    await mkdir(path.dirname(previewPath), { recursive: true });
+    await writeFile(previewPath, 'fake-preview-bytes');
 
-    const etag = `"${mapleId}_1280"`;
-    const res = await app.handle(
+    // First request: 200 with an ETag derived from the file's mtime/size, and a
+    // revalidate (not immutable) Cache-Control — the preview is a mutable cache.
+    const res = await app.handle(new Request('http://localhost/preview/prevlib/ready.jpg'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('image/avif');
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=0, must-revalidate');
+    const etag = res.headers.get('ETag');
+    expect(etag).toBeTruthy();
+
+    // Conditional request with that ETag: 304.
+    const revalidated = await app.handle(
       new Request('http://localhost/preview/prevlib/ready.jpg', {
-        headers: { 'If-None-Match': etag },
+        headers: { 'If-None-Match': etag! },
       }),
     );
-    expect(res.status).toBe(304);
-    expect(res.headers.get('ETag')).toBe(etag);
+    expect(revalidated.status).toBe(304);
+    expect(revalidated.headers.get('ETag')).toBe(etag);
   });
 });
