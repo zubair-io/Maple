@@ -7,9 +7,9 @@
  * `<dir>/.maple/previews/<filename>.avif`.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm, realpath, readFile, readdir, stat } from 'node:fs/promises';
+import { mkdtemp, rm, realpath, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectId } from 'mongodb';
@@ -17,7 +17,7 @@ import sharp from 'sharp';
 
 import { previewPathRoutes } from './preview.ts';
 import { setLibraryRootsForTests, invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import { imgdecodePool, _resetImgdecodePoolForTests } from '../thumbs/imgdecode-pool.ts';
+import type * as ImgdecodePoolModule from '../thumbs/imgdecode-pool.ts';
 
 /** A genuine, small, untagged-sRGB AVIF (≤ 1280 long edge) that passes the
  * #2014 `validateAvifOutput` gate — same encode shape as the render pipeline
@@ -136,15 +136,34 @@ describe('PUT /api/preview', () => {
 
 /**
  * JPEG-body coverage (#2018): browsers that can't canvas-encode AVIF post a
- * JPEG of the developed render instead; the server transcodes it via the
- * SAME isolated imgdecode child `previewer.ts` uses for bitmap sources. These
- * spawn the real child (mirrors `imgdecode-pool.test.ts`'s own integration
- * test) rather than mocking it, so a genuine AVIF ends up on disk — the
- * property the coordinator's decision explicitly asked to be decode-verified,
- * not asserted-by-mock.
+ * JPEG of the developed render instead; the server transcodes it to AVIF
+ * before publishing.
+ *
+ * These stub ONLY the isolated-child subprocess boundary
+ * (`renderImageThumbToFileViaPool`), transcoding in-process via sharp
+ * instead — so a genuine AVIF still lands on disk and passes the real
+ * `validateAvifOutput` gate (decode-verified, not asserted-by-mock), while
+ * the route's own logic (format sniffing, the validation gate, atomic
+ * publish, error mapping) is exercised end-to-end. Spawning the real child
+ * here too added enough child-process churn to destabilise the shared pool
+ * singleton under CI's constrained resources — the sibling
+ * `workers/stages/preview.test.ts` pool tests would flake with sharp
+ * "unsupported image format". The real isolated-child transcode is covered
+ * by `imgdecode-pool.test.ts`'s own integration test.
  */
 describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
   let tmp = '';
+  let realPool: typeof ImgdecodePoolModule;
+
+  beforeAll(async () => {
+    // Capture the real module BEFORE any mock so afterEach can restore it and
+    // the mock never leaks to sibling test files in this process.
+    realPool = await import('../thumbs/imgdecode-pool.ts');
+  });
+
+  afterAll(() => {
+    mock.module('../thumbs/imgdecode-pool.ts', () => realPool);
+  });
 
   // `body` accepts a Buffer too (every caller below hands one in — sharp's
   // `.toBuffer()` and `Buffer.from()` both return `Buffer`) and re-wraps it as
@@ -165,22 +184,39 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-put-preview-jpeg-')));
     setLibraryRootsForTests(new Map([[new ObjectId().toHexString(), tmp]]));
     process.env.MAPLE_ROOTS = tmp;
-    // Fresh pool per test so a crash/timeout in one test can't wedge the next.
-    _resetImgdecodePoolForTests();
+    // Transcode in-process via sharp (no child subprocess) — see the block
+    // doc. Mirrors the pool's contract: writes a genuine AVIF to `outPath`
+    // and returns `{ ok: false }` on an undecodable source (the route maps
+    // that to 422).
+    mock.module('../thumbs/imgdecode-pool.ts', () => ({
+      ...realPool,
+      renderImageThumbToFileViaPool: async (
+        srcPath: string,
+        outPath: string,
+        maxPx: number,
+        quality: number,
+      ): Promise<{ ok: boolean; error?: string }> => {
+        try {
+          const out = await sharp(await readFile(srcPath))
+            .resize({ width: maxPx, height: maxPx, fit: 'inside', withoutEnlargement: true })
+            .avif({ quality })
+            .toBuffer();
+          await writeFile(outPath, out);
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+    }));
   });
 
   afterEach(async () => {
+    mock.module('../thumbs/imgdecode-pool.ts', () => realPool);
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = '';
     delete process.env.MAPLE_ROOTS;
     setLibraryRootsForTests(null);
     invalidateLibraryRoots();
-    try {
-      imgdecodePool().shutdown();
-    } catch {
-      // child may already be gone
-    }
-    _resetImgdecodePoolForTests();
   });
 
   it('transcodes a JPEG body to genuine AVIF on disk and returns 204', async () => {
@@ -206,7 +242,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     // No leftover JPEG-staging or AVIF-transcode temp files.
     const files = await readdir(join(tmp, '.maple', 'previews'));
     expect(files).toEqual(['IMG_5555.NEF.avif']);
-  }, 15_000 /* generous timeout for real child spawn + transcode */);
+  }, 15_000 /* generous timeout for the transcode + validation */);
 
   it('sniffs JPEG via magic bytes when Content-Type is generic/missing', async () => {
     const original = join(tmp, 'sniffed.dng');
@@ -227,7 +263,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
   it('rejects an undecodable JPEG body with 422 and writes nothing', async () => {
     const original = join(tmp, 'bad.dng');
     // Passes the magic-byte sniff (SOI marker) but has no actual image data
-    // for sharp to decode — the isolated child reports { ok: false }.
+    // for sharp to decode — the transcode reports { ok: false }.
     const corrupt = new Uint8Array([0xff, 0xd8, 0xff]);
 
     const res = await putBody(original, corrupt);
