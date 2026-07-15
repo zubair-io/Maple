@@ -19,23 +19,25 @@ import * as fs from './mirrored.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
 
 /**
- * Every previews-cache suffix currently in real use, spelled out exactly —
- * a preview has exactly ONE size (`PREVIEW_CACHE_SUFFIX`, e.g. `1280.avif`;
- * thumbs are a separate, differently-sized, maple_id-keyed tier entirely),
- * so matching it with a generalized `\d+` digit pattern would be solving a
- * size-variability problem previews don't actually have. `histogram.json`
- * is likewise a single fixed literal (`routes/assets/histogram.ts`).
+ * Every previews-cache suffix currently in real use, spelled out exactly.
+ * The preview itself is a single, unversioned file per asset
+ * (`PREVIEW_CACHE_SUFFIX`, now the bare `avif` extension — no size or version
+ * token; thumbs are a separate, maple_id-keyed tier entirely). `full.jpg` is
+ * `cachePathFor`/`cachePathForAsset`'s own default when no suffix is passed,
+ * and `histogram.json` is the histogram sidecar (`routes/assets/histogram.ts`)
+ * — both live in the same `previews/` folder and must be reclaimed with the
+ * preview when a location goes away.
+ *
+ * Old `<filename>.1280.avif` and `<filename>.dev_<N>.jpg` files from earlier
+ * schemes end in `.avif`/`.jpg` too but recover to a non-live source filename
+ * (`<filename>.1280` / `<filename>.dev_<N>`), so they simply orphan out via
+ * the not-live check in `cache-gc.ts` — no dedicated pattern needed.
  */
 const KNOWN_EXACT_SUFFIXES: readonly string[] = [
   PREVIEW_CACHE_SUFFIX,
-  'full.jpg', // cachePathForAsset/cachePathFor's own default when no suffix is passed
+  'full.jpg',
   'histogram.json',
 ];
-
-/** `dev_<sidecar_ver>.jpg` is the one genuinely variable suffix — a real,
- * ever-incrementing edit counter (`display-preview.ts`'s
- * `developedPreviewSizeKey`), unlike the fixed literals above. */
-const DEV_SUFFIX_PATTERN = /\.dev_\d+\.jpg$/;
 
 /**
  * Recover the exact source filename a previews-cache filename was generated
@@ -59,8 +61,7 @@ export function sourceFilenameForPreviewCacheName(cacheName: string): string | n
     const withDot = `.${suffix}`;
     if (cacheName.endsWith(withDot)) return cacheName.slice(0, -withDot.length);
   }
-  const match = DEV_SUFFIX_PATTERN.exec(cacheName);
-  return match ? cacheName.slice(0, match.index) : null;
+  return null;
 }
 
 /** The two `fs.Dirent` properties this file actually reads — declared
@@ -75,11 +76,10 @@ interface DirEntry {
 }
 
 /**
- * Unlink every previews-cache artefact for ONE on-disk location — every
- * size/kind variant (the unedited AVIF tier, a developed/edited JPEG tier,
- * the histogram JSON sidecar) resolves back to `location.filename` via
- * `sourceFilenameForPreviewCacheName`, inside that location's own
- * `.maple/previews/` folder.
+ * Unlink every previews-cache artefact for ONE on-disk location — the AVIF
+ * preview and the histogram JSON sidecar both resolve back to
+ * `location.filename` via `sourceFilenameForPreviewCacheName`, inside that
+ * location's own `.maple/previews/` folder.
  *
  * Matches on the EXACT recovered source filename, not a `${filename}.`
  * string prefix: since filenames are unique per directory but one filename
