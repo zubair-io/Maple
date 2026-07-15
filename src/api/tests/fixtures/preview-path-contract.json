@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "description": "Golden cases for the KISS preview cache path contract (#2017/#1997): given an asset's directory (relative to its library root) and filename (including extension), every producer/consumer — server (fs/xmp.ts:cachePathForAsset/cachePathFor), web (maple-cache.service.ts:previewCachePath), and Apple (MapleSidecarPaths.previewURL) — must resolve the SAME `<relDir>/.maple/previews/<filename>.avif` path relative to the library root / asset's own folder. `relPath` is that path relative to the library root (POSIX separators). One physical copy of this file is duplicated per platform's test/resource tooling (same convention as auth-contract.json) — see src/api/tests/fixtures/, src/web/projects/maple-common/src/lib/state/, and src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/.",
+  "cases": [
+    {
+      "id": "root_level",
+      "relDir": "",
+      "filename": "top.dng",
+      "relPath": ".maple/previews/top.dng.avif"
+    },
+    {
+      "id": "nested_single_level",
+      "relDir": "2024",
+      "filename": "IMG_0001.CR2",
+      "relPath": "2024/.maple/previews/IMG_0001.CR2.avif"
+    },
+    {
+      "id": "nested_multi_level",
+      "relDir": "2024/France/Paris",
+      "filename": "DSC_0099.NEF",
+      "relPath": "2024/France/Paris/.maple/previews/DSC_0099.NEF.avif"
+    },
+    {
+      "id": "filename_with_multiple_dots",
+      "relDir": "Edits",
+      "filename": "IMG.v2.final.ARW",
+      "relPath": "Edits/.maple/previews/IMG.v2.final.ARW.avif"
+    },
+    {
+      "id": "dir_and_filename_with_spaces",
+      "relDir": "My Trip 2025",
+      "filename": "DSC 001.jpg",
+      "relPath": "My Trip 2025/.maple/previews/DSC 001.jpg.avif"
+    },
+    {
+      "id": "uppercase_extension_preserved",
+      "relDir": "Scans",
+      "filename": "IMG_2001.JPG",
+      "relPath": "Scans/.maple/previews/IMG_2001.JPG.avif"
+    }
+  ]
+}
