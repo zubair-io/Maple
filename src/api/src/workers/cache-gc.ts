@@ -150,13 +150,33 @@ interface SweepContext {
 const THUMB_EXTS = new Set(['.jpg', '.avif']);
 const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.json']);
 
+/** Lazily builds (and memoizes) the set of `sha256Prefix16(liveName)`
+ * hashes for one directory's live filenames — used by the pano pre-seed
+ * legacy-scheme checks below. A directory is swept file-by-file, and most
+ * directories contain zero legacy-scheme candidates, so hashing every live
+ * filename is deferred until the first candidate actually needs it, then
+ * reused (O(1) `.has`) for every subsequent candidate in the same directory
+ * — each live filename is hashed at most once per sweep pass, not once per
+ * candidate file (jules + Copilot review, PR #2008: the prior version
+ * rehashed every live filename per legacy candidate, O(legacyFiles ×
+ * liveFiles)). */
+function lazyHashedNames(liveNames: ReadonlySet<string>): () => ReadonlySet<string> {
+  let hashed: ReadonlySet<string> | null = null;
+  return () => {
+    if (hashed === null) {
+      hashed = new Set([...liveNames].map(sha256Prefix16));
+    }
+    return hashed;
+  };
+}
+
 /** A thumb is orphaned unless it matches ONE of two live schemes: the
  * modern, indexed-asset `<maple_id>.avif`, or the pano-injection pre-seed
  * `<sha256_prefix16(liveFilename)>.avif` (module doc) — legitimate iff SOME
  * live filename in this exact directory hashes to the file's stem. */
 function isOrphanThumb(
   knownMapleIds: ReadonlySet<string>,
-  liveNames: ReadonlySet<string>,
+  hashedLiveNames: () => ReadonlySet<string>,
   name: string,
 ): boolean {
   const ext = path.extname(name);
@@ -165,9 +185,7 @@ function isOrphanThumb(
     return !knownMapleIds.has(stem.slice(0, 32));
   }
   if (LEGACY_SHA256_PREFIX16_RE.test(stem)) {
-    for (const liveName of liveNames) {
-      if (sha256Prefix16(liveName) === stem) return false;
-    }
+    return !hashedLiveNames().has(stem);
   }
   return true; // unrecognized shape, or a recognized-but-dead pre-seed key
 }
@@ -183,6 +201,7 @@ function isOrphanThumb(
 function isOrphanPreview(
   libraryId: ObjectId | null,
   liveNames: ReadonlySet<string>,
+  hashedLiveNames: () => ReadonlySet<string>,
   name: string,
 ): boolean {
   if (libraryId === null) return false;
@@ -190,10 +209,7 @@ function isOrphanPreview(
   if (source !== null) return !liveNames.has(source);
   const legacyMatch = LEGACY_PANO_PREVIEW_RE.exec(name);
   if (legacyMatch) {
-    const key = legacyMatch[1];
-    for (const liveName of liveNames) {
-      if (sha256Prefix16(liveName) === key) return false;
-    }
+    return !hashedLiveNames().has(legacyMatch[1]);
   }
   return true;
 }
@@ -282,8 +298,9 @@ async function sweepThumbsDir(ctx: SweepContext, cacheDir: string, relDir: strin
   // reused here for the pano-pre-seed legacy-scheme check, not previews
   // specifically (see `isOrphanThumb`'s doc).
   const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
+  const hashedLiveNames = lazyHashedNames(liveNames);
   await sweepCacheDir(ctx, cacheDir, THUMB_EXTS, (name) =>
-    isOrphanThumb(ctx.knownMapleIds, liveNames, name),
+    isOrphanThumb(ctx.knownMapleIds, hashedLiveNames, name),
   );
 }
 
@@ -296,8 +313,9 @@ async function sweepPreviewsDir(
   relDir: string,
 ): Promise<void> {
   const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
+  const hashedLiveNames = lazyHashedNames(liveNames);
   await sweepCacheDir(ctx, cacheDir, PREVIEW_EXTS, (name) =>
-    isOrphanPreview(ctx.libraryId, liveNames, name),
+    isOrphanPreview(ctx.libraryId, liveNames, hashedLiveNames, name),
   );
 }
 
