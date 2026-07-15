@@ -20,6 +20,7 @@ import MapleCore
 
 struct ColorAccessoryRow: View {
     @Bindable var state: EditorState
+    var compactStyle = false
 
     private var session: EditSession { state.session }
 
@@ -51,15 +52,27 @@ struct ColorAccessoryRow: View {
                     session.model.temperature = cct
                     session.model.tint = tint
                 }
-                .font(.system(size: 11, weight: .regular))
+                .font(.system(size: compactStyle ? 10 : 11, weight: compactStyle ? .medium : .regular))
                 .buttonStyle(.borderless)
-                .foregroundStyle(MapleTokens.textMuted)
+                .foregroundStyle(compactStyle ? MapleTokens.primary : MapleTokens.textMuted)
+                .padding(.horizontal, compactStyle ? 10 : 0)
+                .padding(.vertical, compactStyle ? 4 : 0)
+                .background {
+                    if compactStyle {
+                        Capsule().fill(MapleTokens.primary.opacity(0.15))
+                    }
+                }
+                .overlay {
+                    if compactStyle {
+                        Capsule().stroke(MapleTokens.primary, lineWidth: 0.5)
+                    }
+                }
                 .accessibilityIdentifier("editor-as-shot-wb")
                 .accessibilityLabel("Reset white balance to as-shot")
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, compactStyle ? 24 : 12)
+        .padding(.vertical, compactStyle ? 6 : 8)
         .frame(maxWidth: .infinity)
         .background(MapleTokens.bg)
         .accessibilityIdentifier("editor-color-accessory")
