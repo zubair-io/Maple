@@ -20,6 +20,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { f32ToF16 } from './image-utils';
 import { SRGB_TO_REC2020 } from '../generated/color-matrices.generated';
+import type { DecodedImage } from './raw-pipeline.types';
 
 /** Build an f32 value from its raw IEEE 754 bit pattern (for exact control
  * over mantissa bits when pinning rounding behavior). */
@@ -188,5 +189,108 @@ describe('canvasToBlob (thumbnail encoder: AVIF-first with verified JPEG fallbac
     await canvasToBlob(canvas as unknown as OffscreenCanvas);
     await canvasToBlob(canvas as unknown as OffscreenCanvas);
     expect(probeConstructions).toBe(1);
+  });
+});
+
+describe('encodeDevelopedRenderToAvif / encodeDevelopedRenderToJpeg (#2018 edit-time persist)', () => {
+  // Same fake-canvas approach as `canvasToBlob` above, extended with a fake
+  // `createImageBitmap` (these functions start from a raw-pipeline
+  // `DecodedImage`, not an already-Blob source like `encodePreviewBlobToAvif`
+  // takes) and a `getContext('2d')` stub so `resizeBitmapToCanvas`'s
+  // `drawImage` call has somewhere to land.
+  let convertToBlobImpl: (opts: { type: string; quality?: number }) => Promise<Blob>;
+
+  class FakeCtx {
+    drawImage(): void {
+      // no-op — this suite tests the AVIF-genuine/JPEG-fallback LOGIC, not
+      // real pixel compositing.
+    }
+  }
+
+  class FakeOffscreenCanvas {
+    width: number;
+    height: number;
+    constructor(width = 0, height = 0) {
+      this.width = width;
+      this.height = height;
+    }
+    getContext(): FakeCtx {
+      return new FakeCtx();
+    }
+    convertToBlob(opts: { type: string; quality?: number }): Promise<Blob> {
+      return convertToBlobImpl(opts);
+    }
+  }
+
+  function fakeDecodedImage(width: number, height: number): DecodedImage {
+    return {
+      width,
+      height,
+      rgb: new Uint8Array(width * height * 3),
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    };
+  }
+
+  // `imageDataToBitmap` constructs a real `ImageData` before handing it to
+  // `createImageBitmap` — jsdom has neither, so both need stubbing (the fake
+  // `createImageBitmap` below ignores its argument entirely, but the `new
+  // ImageData(...)` call still needs a constructor to not throw).
+  class FakeImageData {
+    constructor(
+      public data: Uint8ClampedArray,
+      public width: number,
+      public height: number,
+    ) {}
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+    vi.stubGlobal('ImageData', FakeImageData);
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => ({ width: 32, height: 24, close: () => {} })),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('encodeDevelopedRenderToAvif returns genuine AVIF when the browser can encode it', async () => {
+    convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
+    const { encodeDevelopedRenderToAvif } = await import('./image-utils');
+    const blob = await encodeDevelopedRenderToAvif(fakeDecodedImage(32, 24));
+    expect(blob?.type).toBe('image/avif');
+  });
+
+  it('encodeDevelopedRenderToAvif returns null when the browser silently substitutes a different format (#2010 Chrome-148 reality)', async () => {
+    convertToBlobImpl = async ({ type }) =>
+      new Blob(['x'], { type: type === 'image/avif' ? 'image/png' : type });
+    const { encodeDevelopedRenderToAvif } = await import('./image-utils');
+    const blob = await encodeDevelopedRenderToAvif(fakeDecodedImage(32, 24));
+    expect(blob).toBeNull();
+  });
+
+  it('encodeDevelopedRenderToAvif returns null when the AVIF probe itself throws', async () => {
+    convertToBlobImpl = async ({ type }) => {
+      if (type === 'image/avif') throw new Error('unsupported');
+      return new Blob(['x'], { type });
+    };
+    const { encodeDevelopedRenderToAvif } = await import('./image-utils');
+    const blob = await encodeDevelopedRenderToAvif(fakeDecodedImage(32, 24));
+    expect(blob).toBeNull();
+  });
+
+  it('encodeDevelopedRenderToJpeg always produces a JPEG — the server-backed fallback works even when AVIF cannot', async () => {
+    // Same "browser can't encode AVIF" world as the null-return case above —
+    // encodeDevelopedRenderToJpeg doesn't probe AVIF at all, so it must
+    // still succeed here (this is exactly the #2018 server-backed path).
+    convertToBlobImpl = async ({ type }) =>
+      new Blob(['x'], { type: type === 'image/avif' ? 'image/png' : type });
+    const { encodeDevelopedRenderToJpeg } = await import('./image-utils');
+    const blob = await encodeDevelopedRenderToJpeg(fakeDecodedImage(32, 24));
+    expect(blob.type).toBe('image/jpeg');
   });
 });
