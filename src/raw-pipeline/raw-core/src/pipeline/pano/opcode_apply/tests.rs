@@ -390,6 +390,108 @@ fn warp_reduces_barrel_line_bow_not_doubles_it() {
     );
 }
 
+// ---- `scale_active_area` (regression: raw-core panic at
+// opcode_apply/mod.rs:189, "index out of bounds: the len is 6144 but the
+// index is 6144") ----------------------------------------------------
+//
+// The unsized develop chain used to pass a raw-sensor-coordinate
+// ActiveAreaRect straight to `apply_opcode_list3` even when Preview
+// quality's half-res demosaic had already halved the buffer. A DNG
+// whose ActiveArea spans the full sensor width (left=0) walks its warp
+// loop's `col` up to `raw_width`, so `aa_left + col` reaches exactly
+// `raw_width` — one past a half-res buffer whose width is `raw_width /
+// 2`. test_0000.DNG (12288×8192, ActiveArea full-width, one
+// WarpRectilinear opcode) is the real-world repro; this test reproduces
+// the same shape synthetically so it doesn't depend on fixtures.
+
+/// A full-sensor-width ActiveArea scaled by the Preview-quality half-res
+/// divisor must land exactly on the half-res buffer's bounds, not one
+/// past them.
+#[test]
+fn scale_active_area_halves_a_full_width_rect_to_fit_the_preview_buffer() {
+    let raw_w = 12288u32;
+    let raw_h = 8192u32;
+    let aa = ActiveAreaRect::full(raw_w, raw_h);
+    let (buf_w, buf_h) = (raw_w / 2, raw_h / 2);
+    let scaled = scale_active_area(aa, 0.5, buf_w, buf_h);
+    assert_eq!(scaled.left, 0);
+    assert_eq!(scaled.top, 0);
+    assert_eq!(scaled.width, buf_w, "must reach the buffer's right edge exactly");
+    assert_eq!(scaled.height, buf_h, "must reach the buffer's bottom edge exactly");
+    assert!(
+        scaled.left + scaled.width <= buf_w,
+        "scaled rect must fit the buffer width"
+    );
+    assert!(
+        scaled.top + scaled.height <= buf_h,
+        "scaled rect must fit the buffer height"
+    );
+}
+
+/// Actually applying a WarpRectilinear opcode with the unscaled rect
+/// against a half-res buffer must no longer panic — the direct
+/// regression check for opcode_apply/mod.rs:189. Uses the exact
+/// dimensions/geometry test_0000.DNG hits (full-width ActiveArea, real
+/// buffer width divisible by 2).
+#[test]
+fn apply_opcode_list3_does_not_panic_when_aa_is_prescaled_for_a_half_res_buffer() {
+    let raw_w = 12288u32;
+    let raw_h = 8192u32;
+    let aa_raw = ActiveAreaRect::full(raw_w, raw_h);
+    let (buf_w, buf_h) = (raw_w / 2, raw_h / 2);
+    let scaled_aa = scale_active_area(aa_raw, 0.5, buf_w, buf_h);
+
+    let mut img = flat_image(buf_w, buf_h, [0.25; 3]);
+    let list = OpcodeList3 {
+        opcodes: vec![PanoOpcode::WarpRectilinear(identity_warp())],
+        skipped_unknown: 0,
+    };
+    // Must not panic; a still-unscaled `aa_raw` against this half-res
+    // buffer is exactly the crash this test guards against.
+    let applied = apply_opcode_list3(&mut img, &list, scaled_aa);
+    assert_eq!(applied, vec!["WarpRectilinear(1 planes)"]);
+}
+
+/// A no-op scale (1.0) is the identity, matching the pano path (always
+/// `RenderQuality::Full`, so `aa` never needs rescaling).
+#[test]
+fn scale_active_area_is_identity_at_scale_one() {
+    let aa = ActiveAreaRect {
+        top: 3,
+        left: 5,
+        width: 40,
+        height: 20,
+    };
+    let scaled = scale_active_area(aa, 1.0, 100, 100);
+    assert_eq!(scaled, aa);
+}
+
+/// Independent per-field rounding can push `left + width` one past a
+/// non-power-of-two buffer edge; the clamp must still hold, never
+/// panic-inducing overflow.
+#[test]
+fn scale_active_area_clamps_odd_rounding_to_the_buffer() {
+    // raw right edge lands exactly at raw_w; scale is deliberately not a
+    // clean divisor so left/width round independently.
+    let raw_w = 101u32;
+    let aa = ActiveAreaRect {
+        top: 0,
+        left: 51,
+        width: 50,
+        height: 1,
+    };
+    let buf_w = 50u32;
+    let scale = buf_w as f32 / raw_w as f32;
+    let scaled = scale_active_area(aa, scale, buf_w, 1);
+    assert!(
+        scaled.left + scaled.width <= buf_w,
+        "left {} + width {} must not exceed buffer width {}",
+        scaled.left,
+        scaled.width,
+        buf_w
+    );
+}
+
 /// List order is preserved and labels surface what ran.
 #[test]
 fn apply_list3_runs_in_list_order_and_reports_labels() {

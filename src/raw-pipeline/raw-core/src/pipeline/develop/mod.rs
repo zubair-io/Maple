@@ -166,9 +166,23 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
 
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
+    // `aa` is in raw-sensor coordinates; Preview quality's half-res Bayer
+    // demosaic (`half_res_cancellable`, same divisor `crop_to_default`
+    // uses above) leaves `camera_rgb` at half those dims, so the rect
+    // must scale down to match — an unscaled full-raw-width rect walked
+    // straight off the end of a half-res row (out-of-bounds panic on
+    // sources whose ActiveArea spans the full sensor width, e.g. a
+    // WarpRectilinear-carrying DNG opened at Preview quality).
     if let Some((list, aa)) = raw.opcode_list3.as_ref() {
         stage("opcode_list3", || {
-            crate::pipeline::pano::opcode_apply::apply_opcode_list3(&mut camera_rgb, list, *aa);
+            let qd = effective_quality_divisor(quality, raw.cfa);
+            let scaled_aa = crate::pipeline::pano::opcode_apply::scale_active_area(
+                *aa,
+                1.0 / qd as f32,
+                camera_rgb.width,
+                camera_rgb.height,
+            );
+            crate::pipeline::pano::opcode_apply::apply_opcode_list3(&mut camera_rgb, list, scaled_aa);
         });
         dump_after("00a_opcode_list3", &camera_rgb);
     }

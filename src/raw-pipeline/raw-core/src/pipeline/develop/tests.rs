@@ -362,3 +362,61 @@ fn develop_applies_opcode_list3_corrections() {
     }
     assert!(different, "corrected and uncorrected pixels must differ");
 }
+
+/// Regression for the raw-core panic at `opcode_apply/mod.rs:189`
+/// ("index out of bounds: the len is 6144 but the index is 6144"),
+/// surfaced by `AppleRenderHarnessTests` on test_0000.DNG / test_0015.DNG.
+///
+/// Those DNGs carry a `WarpRectilinear` OpcodeList3 opcode whose
+/// ActiveArea spans the full raw-sensor width. `decodeSceneLinear` calls
+/// this chain at `RenderQuality::Preview`, which demosaics Bayer sources
+/// at half resolution (`half_res_cancellable`) — but the unsized develop
+/// chain used to apply `raw.opcode_list3`'s ActiveAreaRect straight
+/// against the post-demosaic buffer without rescaling it, so a
+/// full-sensor-width rect walked one column past the halved buffer's
+/// edge. This exercises the real call site (`develop_scene_linear_from_
+/// raw_with_quality` → the `opcode_list3` stage in `develop/mod.rs`)
+/// directly, at `RenderQuality::Preview`, with an `ActiveAreaRect::full`
+/// rect — the same shape as the real fixtures — instead of only via the
+/// Apple XCTest harness.
+#[test]
+fn develop_applies_opcode_list3_corrections_at_preview_quality_without_panicking() {
+    use crate::test_support::synth_chart::SyntheticColorChart;
+    let chart = SyntheticColorChart::default();
+    let mut raw = crate::decode::decode_bytes(&chart.write_to_bytes(), "dng")
+        .expect("synthetic chart must decode");
+    let model = AdjustmentModel::default();
+
+    // Full-sensor-width ActiveArea (left=0, width=raw.width) — the exact
+    // shape that panicked: at Preview quality the post-demosaic buffer
+    // is half `raw.width`, so an unscaled rect's warp loop walks its
+    // `col` up to `raw.width`, one column past the halved buffer.
+    let list = crate::pipeline::pano::opcodes::OpcodeList3 {
+        opcodes: vec![crate::pipeline::pano::opcodes::PanoOpcode::WarpRectilinear(
+            crate::pipeline::pano::opcodes::WarpRectilinearOpcode {
+                planes: vec![crate::pipeline::pano::opcodes::WarpPlaneParams {
+                    kr: [1.02, 0.0, 0.0, 0.0],
+                    kt: [0.0, 0.0],
+                }],
+                center_x: 0.5,
+                center_y: 0.5,
+            },
+        )],
+        skipped_unknown: 0,
+    };
+    raw.opcode_list3 = Some((
+        list,
+        crate::pipeline::pano::opcodes::ActiveAreaRect::full(raw.width, raw.height),
+    ));
+
+    // Must not panic (the regression) and must produce a valid half-res
+    // buffer.
+    let preview = develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        RenderQuality::Preview,
+    )
+    .unwrap();
+    assert_eq!(preview.width, raw.width / 2);
+    assert_eq!(preview.height, raw.height / 2);
+}

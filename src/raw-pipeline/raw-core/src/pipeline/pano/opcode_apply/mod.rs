@@ -49,6 +49,47 @@ use super::opcodes::{
     ActiveAreaRect, GainMapOpcode, OpcodeList3, PanoOpcode, WarpRectilinearOpcode,
 };
 
+/// Scale an `ActiveAreaRect` from raw-sensor coordinates into the
+/// coordinate space of a demosaiced buffer that may be a different
+/// resolution — Preview quality's half-res Bayer demosaic (the standard
+/// develop chain's `effective_quality_divisor`) or the sized render
+/// path's arbitrary viewport cap (`develop_sized`'s `camera_rgb.width /
+/// raw.width`). `scale` is `buffer_dim / raw_dim`; every resize path
+/// here preserves aspect ratio, so one scalar covers both axes.
+///
+/// Each field rounds independently, which can — at odd rounding
+/// boundaries — push `left + width` or `top + height` one past the
+/// buffer's actual extent. The trailing clamp against `image_width` /
+/// `image_height` is defense-in-depth so a caller's `aa` always fits the
+/// buffer `apply_opcode_list3` is about to walk, instead of indexing out
+/// of bounds (see the regression this fixes: an unscaled full-raw-width
+/// `ActiveArea` applied to a Preview-quality half-res buffer).
+pub fn scale_active_area(
+    aa: ActiveAreaRect,
+    scale: f32,
+    image_width: u32,
+    image_height: u32,
+) -> ActiveAreaRect {
+    let scaled = if (scale - 1.0).abs() <= 1e-4 {
+        aa
+    } else {
+        ActiveAreaRect {
+            top: ((aa.top as f32) * scale).round() as u32,
+            left: ((aa.left as f32) * scale).round() as u32,
+            width: ((aa.width as f32) * scale).round() as u32,
+            height: ((aa.height as f32) * scale).round() as u32,
+        }
+    };
+    let top = scaled.top.min(image_height);
+    let left = scaled.left.min(image_width);
+    ActiveAreaRect {
+        top,
+        left,
+        width: scaled.width.min(image_width.saturating_sub(left)),
+        height: scaled.height.min(image_height.saturating_sub(top)),
+    }
+}
+
 /// Apply a parsed `OpcodeList3` to a demosaiced linear image, in list
 /// order. Returns human-readable labels of what ran (for the ingest
 /// report / CLI surfacing).
