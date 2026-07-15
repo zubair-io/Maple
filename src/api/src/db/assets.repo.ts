@@ -192,22 +192,19 @@ export async function setHasXmp(
 }
 
 /**
- * Record an XMP edit (#1950): mark `has_xmp`, bump the monotonic
- * `sidecar_ver`, and re-arm the `display-preview` stage so it re-renders the
- * developed preview for the new sidecar. One atomic update — a `$set` +
- * `$inc`. The bumped `sidecar_ver` is what the stage and the preview routes
- * both fold into the `_dev_<N>.jpg` cache filename, so an edit produces a new
- * developed file and orphans the old.
+ * Record an XMP edit: mark `has_xmp` and bump the monotonic `sidecar_ver`
+ * edit counter, in one atomic `$set` + `$inc`.
+ *
+ * `sidecar_ver` is retained as a general edit-generation counter (consumed by
+ * the client editor write-policy work in #2009/#2010); it no longer keys any
+ * preview cache file. The preview is a single, unversioned `<filename>.avif`
+ * (#2017) — the editor overwrites it in place on edit and the serving routes
+ * bust their ETag from the file's own mtime/size, so there is no per-version
+ * developed-preview file to re-arm a stage for.
  */
 export async function recordSidecarEdit(id: ObjectId, dbOverride?: Db): Promise<UpdateResult> {
   const c = await coll(dbOverride);
-  return c.updateOne(
-    { _id: id },
-    {
-      $set: { has_xmp: true, 'stages.display-preview.version': 0 },
-      $inc: { sidecar_ver: 1 },
-    },
-  );
+  return c.updateOne({ _id: id }, { $set: { has_xmp: true }, $inc: { sidecar_ver: 1 } });
 }
 
 /**

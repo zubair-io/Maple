@@ -555,11 +555,12 @@ export interface AssetDoc {
    * rows pre-date the flag; readers should treat missing as `false`. */
   has_xmp?: boolean;
   /**
-   * Monotonic sidecar-edit counter, incremented on every XMP write (#1950).
-   * The `display-preview` stage renders `.maple/previews/<maple_id>_dev_<N>.jpg`
-   * where N is this value, and the preview routes serve that same filename —
-   * so a new edit produces a new developed-preview file and orphans the old.
-   * Absent/`0` means no edit has been recorded (serve the embedded preview).
+   * Monotonic sidecar-edit counter, incremented on every XMP write. A general
+   * edit-generation marker consumed by the client editor write-policy work
+   * (#2009/#2010); it no longer keys any preview cache file. Under #2017 the
+   * preview is a single, unversioned `<filename>.avif` overwritten in place on
+   * edit, so there is no per-version preview file to key off this. Absent/`0`
+   * means no edit has been recorded.
    */
   sidecar_ver?: number;
   /**
