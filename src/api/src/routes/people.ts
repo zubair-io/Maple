@@ -12,6 +12,7 @@
  *   POST   /api/people/assign         — manual face → person override
  *   POST   /api/people/hide           — hide a face (excluded from clustering)
  *   POST   /api/people/merge          — merge source people into a target (target survives)
+ *   POST   /api/people/:id/dismiss-merge-suggestion — mark a merge suggestion "not a match"
  *
  * Mounted behind `requireAuth` in `src/api/src/index.ts`.
  */
@@ -34,6 +35,7 @@ import {
   type PersonWithCount,
 } from '../people/people.repo.ts';
 import { mergePeopleInto } from '../people/people-merge.repo.ts';
+import { dismissMergeSuggestion } from '../people/people-merge-suggestions.repo.ts';
 import { setPersonCover } from '../people/people-cover.repo.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -70,6 +72,10 @@ const CoverBody = t.Object({
   face_index: t.Number(),
 });
 
+const DismissMergeSuggestionBody = t.Object({
+  other_id: t.String({ minLength: 1 }),
+});
+
 function safeObjectId(raw: string): ObjectId | null {
   if (!raw || raw.length !== 24 || !/^[0-9a-f]{24}$/i.test(raw)) return null;
   try {
@@ -99,6 +105,7 @@ function toPersonListRow(r: PersonWithCount) {
     // for manually-created people who have no faces yet (or pre-backfill
     // rows on a stale install — backfill heals on the next list call).
     cover_bbox: r.person.cover_bbox ?? null,
+    has_merge_suggestion: r.person.suggested_merge_person_id != null,
     created_at: r.person.created_at,
     updated_at: r.person.updated_at,
   };
@@ -170,6 +177,15 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
         updated_at: detail.person.updated_at,
         cover_asset_id: detail.person.cover_asset_id ?? null,
         cover_bbox: detail.person.cover_bbox ?? null,
+        suggested_merge: detail.suggestedMerge
+          ? {
+              person_id: detail.suggestedMerge.personId.toHexString(),
+              name: detail.suggestedMerge.name,
+              cover_asset_id: detail.suggestedMerge.coverAssetId,
+              cover_bbox: detail.suggestedMerge.coverBbox,
+              score: detail.suggestedMerge.score,
+            }
+          : null,
         faces: detail.faces.map((f) => ({
           asset_id: f.asset_id,
           face_index: f.face_index,
@@ -291,6 +307,26 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
       }
     },
     { body: MergeBody },
+  )
+
+  // ── Dismiss a merge suggestion: permanently mark a pair "not a match" ──
+  .post(
+    '/:id/dismiss-merge-suggestion',
+    async ({ params, body, set }) => {
+      const id = safeObjectId(params.id);
+      const otherId = safeObjectId(body.other_id);
+      if (!id || !otherId) {
+        set.status = 400;
+        return { error: 'invalid person id' };
+      }
+      const result = await dismissMergeSuggestion(id, otherId);
+      if (result === 'stale') {
+        set.status = 404;
+        return { error: 'suggestion not found' };
+      }
+      return { ok: true };
+    },
+    { body: DismissMergeSuggestionBody },
   )
 
   // ── Soft-hide a person (keeps faces + row; stays a clustering seed) ──
