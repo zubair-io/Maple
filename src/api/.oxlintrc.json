@@ -126,6 +126,7 @@
         "src/routes/library/folder.ts",
         "src/routes/library/image.test.ts",
         "src/routes/library/preview.test.ts",
+        "src/routes/library/preview-ondemand-limiter.test.ts",
         "src/routes/library/shared.ts",
         "src/routes/library/thumb.test.ts",
         "src/routes/mirror.ts",

@@ -32,6 +32,7 @@ import {
 } from '../ffi/ffi-pool-config.repo.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
+import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
 import { DEDUPLICATE_NAME } from './dedupe.ts';
@@ -445,6 +446,14 @@ export function workerRoutes(): Elysia {
             // The worker process re-reads worker_config on its next poll tick
             // — no IPC needed.
             const savedConfig = await repo.load(params.name);
+            // The `preview` stage's concurrency also caps ON-DEMAND (request-
+            // path) preview regeneration in THIS process — see
+            // preview-ondemand-limiter.ts's module doc for why it reuses this
+            // setting instead of adding a new one. Apply live; this route runs
+            // in the API process, same as the on-demand routes (no IPC needed).
+            if (params.name === 'preview' && savedConfig) {
+              previewOndemandLimiter().setLimit(savedConfig.concurrency);
+            }
             invalidateStatusCache();
             return { ok: true, config: savedConfig };
           } catch (err) {
