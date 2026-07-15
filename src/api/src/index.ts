@@ -47,6 +47,7 @@ import { networkPublicRoutes, networkSettingsRoutes } from './routes/network.ts'
 import { foldersRoutes } from './routes/folders.ts';
 import { assetsRoutes } from './routes/assets.ts';
 import { xmpPathRoutes } from './routes/xmp.ts';
+import { previewPathRoutes } from './routes/preview.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { authRoutes } from './routes/auth.ts';
 import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
@@ -227,6 +228,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(assetsListRoutes)
         .use(assetsRoutes)
         .use(xmpPathRoutes)
+        .use(previewPathRoutes)
         .use(batchMetadataRoutes)
         .use(fsRoutes)
         .use(fsThumbsRoutes)
