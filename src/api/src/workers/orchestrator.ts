@@ -24,7 +24,6 @@ import { stageManifest } from './stages/manifest.ts';
 import { startExifStage } from './stages/exif.ts';
 import { startThumbStage } from './stages/thumb.ts';
 import { startPreviewStage } from './stages/preview.ts';
-import { startDisplayPreviewStage } from './stages/display-preview.ts';
 import { startFaceDetectStage } from './stages/face-detect.ts';
 import { startFaceEmbedStage } from './stages/face-embed.ts';
 import { startDescribeStage } from './stages/describe.ts';
@@ -39,7 +38,6 @@ const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHand
   ['exif', startExifStage],
   ['thumb', startThumbStage],
   ['preview', startPreviewStage],
-  ['display-preview', startDisplayPreviewStage],
   ['face-detect', startFaceDetectStage],
   ['face-embed', startFaceEmbedStage],
   ['describe', startDescribeStage],
