@@ -76,10 +76,13 @@ interface DirEntry {
 }
 
 /**
- * Unlink every previews-cache artefact for ONE on-disk location — the AVIF
- * preview and the histogram JSON sidecar both resolve back to
+ * Unlink the current-scheme previews-cache artefacts for ONE on-disk location
+ * — the AVIF preview and the histogram JSON sidecar, which resolve back to
  * `location.filename` via `sourceFilenameForPreviewCacheName`, inside that
- * location's own `.maple/previews/` folder.
+ * location's own `.maple/previews/` folder. Pre-KISS files for the same asset
+ * (`<filename>.1280.avif`, `<filename>.dev_<N>.jpg`) recover to a DIFFERENT
+ * source name and are deliberately NOT matched here; they orphan out via
+ * cache-gc's backstop sweep instead (see this module's `KNOWN_EXACT_SUFFIXES`).
  *
  * Matches on the EXACT recovered source filename, not a `${filename}.`
  * string prefix: since filenames are unique per directory but one filename

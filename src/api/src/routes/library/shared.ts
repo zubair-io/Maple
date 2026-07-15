@@ -98,13 +98,18 @@ export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 export const MUTABLE_PREVIEW_CACHE = 'private, max-age=0, must-revalidate';
 
 /**
- * Strong ETag for a preview file: its mtime + size. An in-place overwrite by
- * the editor changes the bytes (and thus the size and/or the mtime), so the
- * validator busts automatically — no version token in the URL required.
- * `Number(...)` normalizes the `BigIntStats` union `stat` can return.
+ * Strong ETag for a preview file: its full-precision mtime + size. An in-place
+ * overwrite by the editor changes the bytes (and thus the size and/or the
+ * mtime), so the validator busts automatically — no version token in the URL
+ * required. Deliberately NOT floored to whole milliseconds (unlike the
+ * source-file `sourceETag`): the preview is overwritten in place, so two rapid
+ * re-saves of the same byte-size within one millisecond would collide under a
+ * floored mtime and wrongly serve a 304 with stale bytes; the sub-ms `mtimeMs`
+ * fraction distinguishes them. `Number(...)` normalizes the `BigIntStats`
+ * union `stat` can return.
  */
 export function previewFileETag(st: Awaited<ReturnType<typeof stat>>): string {
-  return `"${Math.floor(Number(st.mtimeMs))}-${Number(st.size)}"`;
+  return `"${Number(st.mtimeMs)}-${Number(st.size)}"`;
 }
 
 /**
