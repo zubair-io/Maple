@@ -12,6 +12,11 @@ struct IPhoneLegacyControlBar: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      if state.armedGroup == .color {
+        ColorAccessoryRow(state: state, compactStyle: true)
+          .transition(.opacity)
+      }
+
       SubParamRow(state: state)
 
       if state.armedTool == .crop {
@@ -19,11 +24,6 @@ struct IPhoneLegacyControlBar: View {
       } else {
         DragBar(state: state)
           .padding(.vertical, 7)
-      }
-
-      if state.armedGroup == .color {
-        ColorAccessoryRow(state: state)
-          .transition(.opacity)
       }
 
       Divider().background(MapleTokens.border)
