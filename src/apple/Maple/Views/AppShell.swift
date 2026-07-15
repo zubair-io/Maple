@@ -526,7 +526,9 @@ struct AppShell: View {
             // thumbnail pipeline) keeps showing the pre-edit render.
             onEditorDismiss: {
                 if let id = browseVM.selectedID, let session = sessions[id] {
-                    session.persistDisplayPreviewOnExit()
+                    // Strong `session` capture — the persist must finish even if
+                    // the session is later evicted from `sessions` (#2009).
+                    Task { await session.persistDisplayPreviewOnExit() }
                 }
                 mode = .preview
             },
@@ -629,10 +631,42 @@ struct AppShell: View {
             // edit in flight (GPU frame not yet read back, or a captured frame
             // still in the idle-debounce window) must land before the app can
             // be suspended/killed. No-op unless a session is actively editing.
-            if newPhase == .background, mode == .editing {
-                selectedSession?.persistDisplayPreviewOnExit()
+            if newPhase == .background, mode == .editing, let session = selectedSession {
+                persistPreviewOnBackground(session)
             }
         }
+    }
+
+    /// Persist the editing session's developed preview when the app
+    /// backgrounds (jules review, #2009).
+    ///
+    /// On iOS a bare `Task { … }` would be aborted mid-flight when the OS
+    /// suspends the process, so the async readback + AVIF encode + local write
+    /// (or `/api/preview` PUT) is held under a `performExpiringActivity`
+    /// assertion (iOS-only API). The synchronous block holds the assertion for
+    /// the work's duration by waiting on the async persist, which runs on the
+    /// MainActor + a detached utility task — never this queue thread, so no
+    /// deadlock. Best-effort: the preview is a pure cache, so an early `expired`
+    /// just leaves it to regenerate on next open.
+    ///
+    /// macOS doesn't suspend the process on background the way iOS does (as the
+    /// `scenePhase` comment above notes), so a plain task lands the write.
+    private func persistPreviewOnBackground(_ session: EditSession) {
+        #if os(iOS)
+        ProcessInfo.processInfo.performExpiringActivity(
+            withReason: "app.justmaple.aperture.preview-persist"
+        ) { expired in
+            guard !expired else { return }
+            let done = DispatchSemaphore(value: 0)
+            Task {
+                await session.persistDisplayPreviewOnExit()
+                done.signal()
+            }
+            done.wait()
+        }
+        #else
+        Task { await session.persistDisplayPreviewOnExit() }
+        #endif
     }
 
     /// Shared between the Mac/iPad NavigationSplitView and the iPhone

@@ -81,40 +81,43 @@ extension EditSession {
     /// The thumbnail refresh needs a local URL and is skipped for cloud assets
     /// (their grid thumbs are server-rendered); the preview persist runs for
     /// both — a local file write or an `/api/preview` upload via `previewSink`.
-    public func refreshThumbnailFromCurrentGpuFrame() {
+    ///
+    /// `async` + strong `self`, and it AWAITS the off-actor encode/write: this
+    /// is the teardown path, so the caller must be able to keep the session (and
+    /// on iOS the app) alive until the write lands. A fire-and-forget
+    /// `Task { [weak self] … }` would drop the final frame if the session
+    /// deallocated on exit or the app suspended (jules review, #2009).
+    public func refreshThumbnailFromCurrentGpuFrame() async {
         guard gpuFramePresented, let driver = gpuLiveDriver else { return }
-        let liveModel = model
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Same anchor contract as `presentViaGpuLive` /
-            // `persistGpuFrameToPreviewCache`: the readback re-runs the chain
-            // the live present just drew, so WB must anchor identically.
-            let resolvedIsRaw =
-                await self.renderActor.resolvedIsRaw(for: self.asset.id) ?? self.asset.isRaw
-            let liveWbFrame = resolvedIsRaw ? self.wbSliderFrame : nil
-            let anchor = self.wbDeltaAnchor
-            let cct = resolvedIsRaw ? (anchor?.temperature ?? self.asShotCCT) : 6500.0
-            let tint = resolvedIsRaw ? (anchor?.tint ?? self.asShotTint) : 0.0
-            guard let frame = await driver.renderCurrentFrameBytes(
-                model: liveModel,
-                asShotCCT: cct,
-                asShotTint: tint,
-                wbFrame: liveWbFrame
+        // Same anchor contract as `presentViaGpuLive` /
+        // `persistGpuFrameToPreviewCache`: the readback re-runs the chain the
+        // live present just drew, so WB must anchor identically.
+        let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
+        let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
+        let anchor = wbDeltaAnchor
+        let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
+        let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
+        guard let frame = await driver.renderCurrentFrameBytes(
+            model: model,
+            asShotCCT: cct,
+            asShotTint: tint,
+            wbFrame: liveWbFrame
+        ) else { return }
+        let thumbnailURL = asset.primaryURL
+        let sink = previewSink
+        // Off the MainActor (per-pixel RGBA expansion + AVIF encode), but
+        // AWAITED so the exit path knows the write completed.
+        await Task.detached(priority: .utility) {
+            guard let image = Self.ciImageFromGpuRgb(
+                frame.bytes, width: frame.width, height: frame.height
             ) else { return }
-            let thumbnailURL = self.asset.primaryURL
-            let sink = self.previewSink
-            Task.detached(priority: .utility) {
-                guard let image = Self.ciImageFromGpuRgb(
-                    frame.bytes, width: frame.width, height: frame.height
-                ) else { return }
-                if let thumbnailURL {
-                    await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: thumbnailURL)
-                }
-                if let sink, let data = ThumbnailLoader.encodeDisplayPreview(from: image) {
-                    await sink.write(data)
-                }
+            if let thumbnailURL {
+                await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: thumbnailURL)
             }
-        }
+            if let sink, let data = ThumbnailLoader.encodeDisplayPreview(from: image) {
+                await sink.write(data)
+            }
+        }.value
     }
 
     /// Wrap the GPU chain's `width·height·3` u8 RGB readback (the canonical
