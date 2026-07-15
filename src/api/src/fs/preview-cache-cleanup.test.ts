@@ -9,16 +9,21 @@ import { sourceFilenameForPreviewCacheName } from './preview-cache-cleanup.ts';
 
 describe('sourceFilenameForPreviewCacheName', () => {
   test('recovers the source filename for each recognized suffix', () => {
-    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.1280.avif')).toBe('IMG_0001.dng');
-    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.dev_5.jpg')).toBe('IMG_0001.dng');
+    // One unversioned preview per asset (#2017): the bare `.avif` suffix.
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.avif')).toBe('IMG_0001.dng');
     expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.full.jpg')).toBe('IMG_0001.dng');
     expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.histogram.json')).toBe('IMG_0001.dng');
   });
 
-  test('does not match a different, unsupported numeric size (previews have exactly one size)', () => {
-    // Not a suffix this codebase ever writes — must NOT be recognized as if
-    // previews supported arbitrary sizes.
-    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.512.avif')).toBeNull();
+  // Migration (#2017): pre-KISS files (`<filename>.1280.avif` from the size-
+  // keyed scheme, `<filename>.dev_<N>.jpg` from the retired display-preview
+  // stage) end in `.avif`/`.jpg` too, but recover to a source filename that
+  // carries the old size/version token — which is never a live filename — so
+  // they simply orphan out via cache-gc's not-live check.
+  test('old size/version-keyed files recover to a non-live source (they orphan out)', () => {
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.1280.avif')).toBe('IMG_0001.dng.1280');
+    // `.dev_5.jpg` is no longer a recognized suffix at all → null → orphan.
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.dev_5.jpg')).toBeNull();
   });
 
   test('returns null for an unrecognized suffix shape (legacy/orphan)', () => {
@@ -33,7 +38,7 @@ describe('sourceFilenameForPreviewCacheName', () => {
   // exact source filename with no ambiguity, regardless of what else is
   // live in the same directory.
   test('does not confuse a file whose name is a strict prefix of another live filename', () => {
-    const preview = 'image.jpg.bak.1280.avif';
+    const preview = 'image.jpg.bak.avif';
     // Genuinely generated for "image.jpg.bak" — recovered exactly, not
     // "image.jpg" (a different, also-plausible-looking live file).
     expect(sourceFilenameForPreviewCacheName(preview)).toBe('image.jpg.bak');

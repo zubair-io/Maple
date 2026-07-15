@@ -1,16 +1,21 @@
 /**
- * 1280-px unedited preview generation — the canonical display-preview tier
- * (the image the Preview screen swaps in over the thumbnail while the full
- * RAW loads) AND the source artefact for the VLM describe / OCR pipeline.
+ * 1280-px preview generation — the single canonical preview tier (the image
+ * the Preview screen swaps in over the thumbnail while the full RAW loads)
+ * AND the source artefact for the VLM describe / OCR pipeline.
  *
  * Sibling of `thumbnailer.ts`. The 512-px thumb is too small for reliable
  * caption / OCR on a 24-MP photo, so the describe stage consumes a
  * separate, larger artefact written here.
  *
  * Cache layout (see `fs/xmp.ts:cachePathFor` / `cachePathForAsset`):
- *   <folder>/.maple/previews/<original filename>.1280.avif
- * Path-keyed (not `maple_id`-keyed, unlike thumbs) — see `cachePathForAsset`'s
- * doc for why. AVIF, not JPEG: every describe provider hardcodes
+ *   <folder>/.maple/previews/<original filename>.avif
+ * ONE file per asset — no size token, no version token. It is a pure cache:
+ * overwritten in place, never an original, always re-derivable (unedited =
+ * the camera's embedded JPEG in the RAW; edited = re-render from RAW+XMP).
+ * The 1280-px long edge is an internal render target, deliberately NOT in the
+ * filename. Path-keyed (not `maple_id`-keyed, unlike thumbs) — see
+ * `cachePathForAsset`'s doc for why. AVIF, not JPEG: every describe provider
+ * hardcodes
  * `image/jpeg` as the media type it sends upstream (#1978), so `describe.ts`
  * decodes this file and re-encodes to JPEG in memory immediately before each
  * provider call rather than this tier persisting a second JPEG artefact.
@@ -71,16 +76,12 @@ const RAW_EXTS = new Set([
  * photos at the cost of ~10 s/image on phoebe. */
 export const PREVIEW_LONG_EDGE_PX = 1280;
 
-/** Size key embedded in the cache filename. Not exported — every external
- * caller resolving this tier's path needs the full suffix below, not the
- * bare size. */
-const PREVIEW_SIZE_KEY = '1280';
-
-/** Full size+extension suffix for `cachePathFor`/`cachePathForAsset`'s
- * previews branch — this tier is always AVIF, so every caller resolving
- * this specific artefact's path should use this constant rather than
- * re-deriving `${PREVIEW_SIZE_KEY}.avif` itself. */
-export const PREVIEW_CACHE_SUFFIX = `${PREVIEW_SIZE_KEY}.avif`;
+/** Extension suffix for `cachePathFor`/`cachePathForAsset`'s previews branch.
+ * The preview is a single, unversioned AVIF per asset — no size token, no
+ * version token — so the suffix is just the bare `avif` extension. Every
+ * caller resolving this artefact's path uses this constant rather than
+ * hard-coding `'avif'` itself. */
+export const PREVIEW_CACHE_SUFFIX = 'avif';
 
 let _rendered = 0;
 let _cached = 0;
@@ -90,7 +91,7 @@ let _failed = 0;
  * Generate (or refresh) the 1280-px unedited preview (AVIF) for an asset.
  *
  * `previewPathOverride` lets the caller supply a path-keyed cache path (e.g.
- * `<lib>/<fileinfo[0].path>/.maple/previews/<filename>.1280.avif`, via
+ * `<lib>/<fileinfo[0].path>/.maple/previews/<filename>.avif`, via
  * `cachePathForAsset`) instead of the legacy basename-keyed
  * `cachePathFor(absPath, "previews", PREVIEW_CACHE_SUFFIX)`. The legacy path
  * is only reachable when no asset row exists yet to resolve fileinfo from
@@ -152,7 +153,7 @@ export async function generatePreview(
   } else {
     // Unknown format — no decode path can produce a genuine AVIF from these
     // bytes, so there is nothing to write. A raw byte copy under a
-    // `.1280.avif`-labeled path would lie about the file's actual format —
+    // `.avif`-labeled path would lie about the file's actual format —
     // the describe stage would then ship non-image bytes to the vision
     // model as if they were a real image, and the on-demand preview route
     // would serve them with `Content-Type: image/avif`. Skip; the describe

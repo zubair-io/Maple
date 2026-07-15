@@ -144,8 +144,8 @@ export type CacheKind = 'thumbs' | 'previews';
  *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
  *   previews: <folder>/.maple/previews/<basename>.<suffix>
  *
- * `suffix` is the full size *and* extension (e.g. `"1280.avif"`) — MUST use
- * the same `<basename-with-its-own-extension>.<suffix>` convention as
+ * `suffix` is the extension (e.g. `"avif"` for the canonical preview) — MUST
+ * use the same `<basename-with-its-own-extension>.<suffix>` convention as
  * `cachePathForAsset`'s previews branch (not `<basename-no-ext>_<suffix>`):
  * `cleanPreviewsCacheForLocation` and `cache-gc.ts`'s previews sweep both
  * match on a live filename as a literal `.`-terminated prefix, so a legacy
@@ -225,11 +225,10 @@ export function resolveThumbPathForAsset(
  * hash needed to resolve one, at the cost of losing that same multi-location
  * sharing and not surviving a rename/move (both accepted trade-offs; a moved
  * file's stale preview is cleaned up by the missing-reaper/dedupe cache-removal
- * hook, with cache-gc's sweep as a backstop). `suffix` is the FULL size *and*
- * extension a caller wants (e.g. `"1280.avif"` for the canonical unedited
- * preview, `"dev_5.jpg"` for a developed/edited one, `"histogram.json"` for
- * the histogram sidecar) since previews, unlike thumbs, have no one fixed
- * format.
+ * hook, with cache-gc's sweep as a backstop). `suffix` is the extension a
+ * caller wants (e.g. `"avif"` for the canonical preview, `"histogram.json"`
+ * for the histogram sidecar) since previews, unlike thumbs, live in the same
+ * folder in more than one format.
  *
  * Same `null` semantics as `resolveThumbPathForAsset` — see there for the
  * legacy-fallback rationale.

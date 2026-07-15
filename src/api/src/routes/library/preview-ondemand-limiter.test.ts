@@ -187,7 +187,7 @@ describe('GET /preview/:slug/* — on-demand regeneration is concurrency-bounded
       deleted_at: null,
     } as never);
     await writeFile(join(tmpDir, 'warm.jpg'), 'source-bytes');
-    const previewPath = join(tmpDir, '.maple', 'previews', 'warm.jpg.1280.avif');
+    const previewPath = join(tmpDir, '.maple', 'previews', 'warm.jpg.avif');
     await mkdir(join(previewPath, '..'), { recursive: true });
     await writeFile(previewPath, 'already-cached-bytes');
 

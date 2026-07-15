@@ -217,7 +217,7 @@ describe('sweepOrphanedCaches', () => {
     const root = await mkTree();
     try {
       await registerLibrary(root);
-      const orphan = path.join(root, '.maple', 'previews', 'gone.dng.1280.avif');
+      const orphan = path.join(root, '.maple', 'previews', 'gone.dng.avif');
       await writeAvif(orphan);
       await agePast(orphan);
 
@@ -243,8 +243,8 @@ describe('sweepOrphanedCaches', () => {
       const libraryId = await registerLibrary(root);
       // `image.jpg` is live; `image.jpg.bak` is NOT (already deleted).
       await insertLiveAsset(libraryId, '', 'image.jpg');
-      const keep = path.join(root, '.maple', 'previews', 'image.jpg.1280.avif');
-      const orphan = path.join(root, '.maple', 'previews', 'image.jpg.bak.1280.avif');
+      const keep = path.join(root, '.maple', 'previews', 'image.jpg.avif');
+      const orphan = path.join(root, '.maple', 'previews', 'image.jpg.bak.avif');
       await writeAvif(keep);
       await writeAvif(orphan);
       await agePast(keep);
@@ -282,41 +282,35 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
-  test('keeps a developed preview (dev_<N> suffix) whose filename matches a live fileinfo entry', async () => {
+  // Migration (#2017): with the size/version token gone, the new
+  // `<filename>.avif` is kept for a live asset while pre-KISS files for the
+  // SAME live asset — the size-keyed `<filename>.1280.avif` and the retired
+  // display-preview stage's `<filename>.dev_<N>.jpg` — orphan out, because they
+  // recover to a source filename (`a.dng.1280` / null) that is never live.
+  test('keeps the new <filename>.avif but orphans pre-KISS size/version-keyed files for a live asset', async () => {
     if (!mongoReachable) return;
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
       const libraryId = await registerLibrary(root);
       await insertLiveAsset(libraryId, '', 'a.dng');
-      const keep = path.join(root, '.maple', 'previews', 'a.dng.dev_5.jpg');
-      await writeJpg(keep);
+      const keep = path.join(root, '.maple', 'previews', 'a.dng.avif');
+      const oldSized = path.join(root, '.maple', 'previews', 'a.dng.1280.avif');
+      const oldDev = path.join(root, '.maple', 'previews', 'a.dng.dev_5.jpg');
+      await writeAvif(keep);
+      await writeAvif(oldSized);
+      await writeJpg(oldDev);
       await agePast(keep);
+      await agePast(oldSized);
+      await agePast(oldDev);
 
       const result = await sweepOrphanedCaches(root);
-      expect(result).toEqual({ scanned: 1, deleted: 0, skipped_recent: 0 });
+      expect(result).toEqual({ scanned: 3, deleted: 2, skipped_recent: 0 });
 
       const s = await stat(keep);
       expect(s.size).toBeGreaterThan(0);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test('unlinks an orphaned developed preview (dev_<N> suffix) whose filename is not live', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
-    const root = await mkTree();
-    try {
-      await registerLibrary(root);
-      const orphan = path.join(root, '.maple', 'previews', 'gone.dng.dev_12.jpg');
-      await writeJpg(orphan);
-      await agePast(orphan);
-
-      const result = await sweepOrphanedCaches(root);
-      expect(result).toEqual({ scanned: 1, deleted: 1, skipped_recent: 0 });
-
-      await expect(stat(orphan)).rejects.toThrow();
+      await expect(stat(oldSized)).rejects.toThrow();
+      await expect(stat(oldDev)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -328,7 +322,7 @@ describe('sweepOrphanedCaches', () => {
     const root = await mkTree();
     try {
       // Deliberately NOT registered — `resolveLibraryId` returns null.
-      const wouldBeOrphan = path.join(root, '.maple', 'previews', 'anything.dng.1280.avif');
+      const wouldBeOrphan = path.join(root, '.maple', 'previews', 'anything.dng.avif');
       await writeAvif(wouldBeOrphan);
       await agePast(wouldBeOrphan);
 
@@ -396,7 +390,7 @@ describe('sweepOrphanedCaches', () => {
       // Unknown filename (no live asset for it) with fresh mtime — simulates
       // a stage mid-write or just-finished writing while the known-live set
       // was already snapshotted.
-      const fresh = path.join(root, '.maple', 'previews', 'brand-new.dng.1280.avif');
+      const fresh = path.join(root, '.maple', 'previews', 'brand-new.dng.avif');
       await writeAvif(fresh);
       // Do NOT age — mtime is "now", inside the recency window.
 

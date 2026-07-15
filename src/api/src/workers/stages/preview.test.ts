@@ -376,7 +376,7 @@ describe('preview handler — path-keyed cache path', () => {
     }
   });
 
-  it('uses <lib>/<fileinfo[0].path>/.maple/previews/<filename>.1280.avif when the doc has fileinfo (no maple_id needed)', async () => {
+  it('uses <lib>/<fileinfo[0].path>/.maple/previews/<filename>.avif when the doc has fileinfo (no maple_id needed)', async () => {
     if (!mongoReachable) return; // soft pass
 
     const { foldersCollection } = await import('../../db/client.ts');
