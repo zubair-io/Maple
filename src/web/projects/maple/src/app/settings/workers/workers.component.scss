@@ -393,15 +393,6 @@
   color: var(--s-err);
 }
 
-// ── RAW decode-pool control (ticket #673) ──────────────────────────────
-// Lives inside the expanded "preview" stage panel and reuses the shared
-// `.block` / `.field` / `.row-footer` styling; only the source label needs
-// a dedicated rule.
-.perf-source {
-  font-size: 12px;
-  opacity: 0.7;
-}
-
 // ── Responsive ─────────────────────────────────────────────────────────
 
 // Tablet and below (≤1023px): an eight-metric row plus the settings sidebar
