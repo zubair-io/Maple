@@ -16,7 +16,7 @@ import { dotProduct } from './cluster-embeddings.ts';
 /** Empirically-chosen starting point — ratchet like
  * `DEFAULT_SIMILARITY_THRESHOLD` once real score distributions are observed
  * in production libraries. */
-export const MERGE_SUGGESTION_THRESHOLD = 0.65;
+const MERGE_SUGGESTION_THRESHOLD = 0.65;
 
 export interface SuggestionCandidate {
   personIdHex: string;
