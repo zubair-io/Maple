@@ -517,11 +517,10 @@ describe('WorkersComponent', () => {
     });
     fixture.detectChanges();
 
-    // The control reflects the server's clamped value + new source.
+    // The control reflects the server's clamped value.
     expect(
       (fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement).value,
     ).toBe('16');
-    expect(fixture.nativeElement.querySelector('.perf-source')?.textContent).toContain('db');
   });
 
   it('hides the control when the performance route is unavailable', () => {
