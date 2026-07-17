@@ -332,7 +332,7 @@ export async function loadCentroids(): Promise<LoadedCentroid[]> {
 
 /** Every permanently-dismissed "not a match" pair, as a `Set` of
  * `sortedPairKey` strings, for `computeMergeSuggestions` to exclude. */
-export async function loadMergeDismissals(): Promise<Set<string>> {
+async function loadMergeDismissals(): Promise<Set<string>> {
   const coll = await personMergeDismissalsCollection();
   const rows = await coll.find({}).project<{ pair: string }>({ pair: 1, _id: 0 }).toArray();
   return new Set(rows.map((r) => r.pair));

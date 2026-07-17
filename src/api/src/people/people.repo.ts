@@ -22,6 +22,10 @@ import {
   markAssetIdsForMeiliReindexBestEffort,
 } from './people-search-reindex.ts';
 import { adjustPersonFaceCount, recomputePersonFaceCount } from './people-face-count.repo.ts';
+import {
+  loadSuggestedMergeInfo,
+  type SuggestedMergeInfo,
+} from './people-merge-suggestion-info.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -68,16 +72,6 @@ export interface PersonDetailFace {
   confidence: number;
 }
 
-/** Display info for a resolved `suggested_merge_person_id`, used by the
- * person-page merge-suggestion banner. */
-export interface SuggestedMergeInfo {
-  personId: ObjectId;
-  name: string;
-  coverAssetId: string | null;
-  coverBbox: Bbox | null;
-  score: number;
-}
-
 export interface PersonDetail {
   person: PersonWithId;
   faces: PersonDetailFace[];
@@ -105,29 +99,6 @@ async function findByNameCI(
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-/**
- * Resolve `person.suggested_merge_person_id` into display info for the
- * detail-page banner. Defensive: a target that's since been merged away or
- * hidden (stale between clustering runs) is treated as "no suggestion"
- * rather than surfacing a broken banner — the next clustering run
- * self-heals the stale reference on the SUBJECT's own doc (Task 4).
- */
-async function loadSuggestedMergeInfo(
-  coll: Collection<PersonDoc>,
-  person: PersonWithId,
-): Promise<SuggestedMergeInfo | null> {
-  if (!person.suggested_merge_person_id || person.suggested_merge_score == null) return null;
-  const target = await coll.findOne({ _id: person.suggested_merge_person_id });
-  if (!target || target.merged_into || target.hidden) return null;
-  return {
-    personId: target._id,
-    name: target.name,
-    coverAssetId: target.cover_asset_id ?? null,
-    coverBbox: target.cover_bbox ?? null,
-    score: person.suggested_merge_score,
-  };
 }
 
 // ---------------------------------------------------------------------------
