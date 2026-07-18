@@ -1,6 +1,6 @@
 import { Injectable, signal, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { Observable, firstValueFrom, map } from 'rxjs';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 
 /// Custom URL schemes we will hand a one-time auth code to. The Apple shell
@@ -12,6 +12,15 @@ export interface AuthUser {
   id: string;
   email: string;
   role: 'owner' | 'member';
+}
+
+/** A paired device (Apple TV) — see `AuthService.listDeviceSessions`. */
+export interface DeviceSession {
+  id: string;
+  label: string;
+  platform: string;
+  created_at: string;
+  last_used_at: string;
 }
 
 /**
@@ -344,6 +353,22 @@ export class AuthService {
     const stepUp = await this.stepUp();
     await firstValueFrom(
       this.http.delete<any>(`/api/auth/credentials/${encodeURIComponent(id)}`, {
+        headers: { 'X-Step-Up': stepUp },
+      }),
+    );
+  }
+
+  listDeviceSessions(): Observable<DeviceSession[]> {
+    return this.http
+      .get<{ sessions: DeviceSession[] }>('/api/auth/device-sessions')
+      .pipe(map((r) => r.sessions));
+  }
+
+  /** Revoke a paired device (Apple TV). Step-up-gated like credential removal. */
+  async revokeDeviceSession(id: string): Promise<void> {
+    const stepUp = await this.stepUp();
+    await firstValueFrom(
+      this.http.delete<void>(`/api/auth/device-sessions/${encodeURIComponent(id)}`, {
         headers: { 'X-Step-Up': stepUp },
       }),
     );
