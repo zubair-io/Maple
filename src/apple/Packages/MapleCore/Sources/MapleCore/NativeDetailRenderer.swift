@@ -14,6 +14,32 @@ enum NativeDetailLOD {
     /// Covers dehaze's 67 px stencil plus headroom for chained filters.
     static let filterHalo: CGFloat = 96
 
+    /// Ticket #2063 pan-reuse margin — independent of `filterHalo`.
+    /// `filterHalo` is unpublished filter-stencil context added around the
+    /// developed patch when `decodeRect` builds the decode-tile request;
+    /// this margin instead grows the DEVELOPED AND PUBLISHED patch itself
+    /// (`patchRect`, below) beyond the immediate viewport (`detailRect`), so
+    /// a typical small pan's new viewport still lands inside the previous
+    /// publish and hits the containment fast path in
+    /// `EditSession.updateTileVisibleRegion` / `refineNativeDetail` instead
+    /// of paying a fresh 150 ms-debounced develop.
+    ///
+    /// `panMargin(for:)` returns the TOTAL pixels added along each
+    /// dimension (split evenly between both edges by `patchRect`) — 25% of
+    /// the visible rect's larger dimension, clamped to `panMarginCeiling`,
+    /// applied to BOTH width and height. For a SQUARE viewport, unclamped,
+    /// that grows both dimensions by exactly `panMarginFraction` and raises
+    /// the developed area by (1 + panMarginFraction)² ≈ 1.56×. A wider (or
+    /// taller) viewport grows its shorter axis by a bigger relative
+    /// fraction — the margin is sized from the LONGER dimension but
+    /// applied evenly to both — so a typical widescreen viewport's
+    /// multiplier lands a bit above that; the ceiling caps it back down
+    /// once a dimension exceeds `panMarginCeiling / panMarginFraction`
+    /// (2048 px at these defaults). See the PR description for the
+    /// worked numbers on a representative viewport size.
+    static let panMarginFraction: CGFloat = 0.25
+    static let panMarginCeiling: CGFloat = 512
+
     static func shouldRender(pixelScale: CGFloat, visibleRect: CGRect) -> Bool {
         pixelScale >= minimumPixelScale
             && !visibleRect.isEmpty
@@ -29,6 +55,41 @@ enum NativeDetailLOD {
         guard bounds.width > 0, bounds.height > 0 else { return .zero }
         let rect = visibleRect.standardized.integral.intersection(bounds)
         return rect.isNull ? .zero : rect
+    }
+
+    /// Total pixels the pan-reuse patch grows by along each dimension
+    /// (`patchRect` splits this evenly between both edges) — 25% of
+    /// `visibleRect`'s larger dimension, clamped to `panMarginCeiling` so an
+    /// unusually large viewport doesn't blow the develop out arbitrarily.
+    /// Pure function of the rect's size alone so it's directly
+    /// unit-testable without a full detail/image-bounds round trip.
+    static func panMargin(for visibleRect: CGRect) -> CGFloat {
+        guard !visibleRect.isEmpty, !visibleRect.isNull else { return 0 }
+        let longest = max(visibleRect.width, visibleRect.height)
+        return min(longest * panMarginFraction, panMarginCeiling)
+    }
+
+    /// The rect actually DEVELOPED and PUBLISHED as `nativeDetailPreview` /
+    /// `nativeDetailSourceRect` (#2063) — `detailRect` grown by
+    /// `panMargin(for:)`, split evenly across both edges, and re-clamped to
+    /// the oriented image bounds. Deliberately larger than the immediate
+    /// viewport so an ordinary small pan's new `detailRect` still lands
+    /// inside the previous publish and hits the containment fast path
+    /// instead of a fresh develop. `filterHalo` remains a separate, smaller
+    /// addition applied on top by `decodeRect` for filter-stencil context
+    /// only — it is never grown by this margin and is never itself
+    /// published.
+    static func patchRect(visibleRect: CGRect, imageSize: CGSize) -> CGRect {
+        let base = detailRect(visibleRect: visibleRect, imageSize: imageSize)
+        guard !base.isEmpty else { return base }
+        let margin = panMargin(for: visibleRect)
+        guard margin > 0 else { return base }
+        let bounds = CGRect(origin: .zero, size: imageSize)
+        let grown = base
+            .insetBy(dx: -margin / 2, dy: -margin / 2)
+            .integral
+            .intersection(bounds)
+        return grown.isNull ? base : grown
     }
 
     /// Source rect sent to the RAW tile entry. The halo gives clarity,
