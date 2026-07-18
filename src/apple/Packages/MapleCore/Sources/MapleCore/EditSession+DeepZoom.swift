@@ -28,16 +28,45 @@ extension EditSession {
         let prevRect = viewportSourceRect
         let prevZoom = pixelScale
         let rectChanged = !prevRect.equalTo(viewport)
+        // Small tolerance so a sub-pixel jitter doesn't trigger a
+        // reschedule storm during a pinch.
+        let zoomChanged = abs(zoom - prevZoom) > 0.01
+        // Containment fast path (#2063): a pure pan (zoom unchanged) whose
+        // new detail rect still fits inside the already-published
+        // native-detail patch needs neither the clear below (which would
+        // drop the sharp overlay down to the blurry base for the whole
+        // 150 ms debounce) nor a fresh develop.
+        // `NativeDetailLOD.patchRect` deliberately grows the published
+        // patch beyond the viewport it was developed for so ordinary small
+        // pans land inside it here. The overlay itself is positioned in
+        // SOURCE coordinates against `nativeImageSize`
+        // (`NativeDetailOverlay` in EditorView+Canvas.swift proportions
+        // itself from `nativeDetailSourceRect`/`nativeImageSize`), inside
+        // the same pan/zoom-transformed canvas frame as the base preview —
+        // so as long as the source rect and image stay the pixels it's
+        // already showing, no re-render is needed for it to keep tracking
+        // the pan correctly.
+        let newDetailRect = NativeDetailLOD.detailRect(
+            visibleRect: viewport,
+            imageSize: nativeImageSize
+        )
+        let coveredByExistingPatch = !zoomChanged
+            && nativeDetailPreview != nil
+            && !newDetailRect.isEmpty
+            && nativeDetailSourceRect.contains(newDetailRect)
         // Pure pan does not touch pixelScale, so invalidate the old native
-        // detail patch here before its source region moves off-screen.
-        if rectChanged { clearNativeDetailPreview() }
+        // detail patch here before its source region moves off-screen —
+        // unless the new region is still covered by what's already published.
+        if rectChanged, !coveredByExistingPatch {
+            clearNativeDetailPreview()
+        }
         viewportSourceRect = viewport
         pixelScale = zoom  // didSet on pixelScale will reschedule when changed
         // If zoom didn't change but the viewport rect did (pure pan),
-        // pixelScale.didSet won't fire — kick a refine here. Use a
-        // small tolerance so a sub-pixel jitter doesn't trigger a
-        // reschedule storm during a pinch.
-        if abs(zoom - prevZoom) <= 0.01, rectChanged {
+        // pixelScale.didSet won't fire — kick a refine here, unless the
+        // containment fast path above already determined the published
+        // patch covers the new viewport (nothing to refine).
+        if !zoomChanged, rectChanged, !coveredByExistingPatch {
             _scheduleRefine()
         }
     }

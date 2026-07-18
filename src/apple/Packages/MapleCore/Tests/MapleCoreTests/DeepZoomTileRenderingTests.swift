@@ -728,6 +728,115 @@ final class DeepZoomTileRenderingTests: XCTestCase {
         XCTAssertEqual(session.pixelScale, 0, accuracy: 0.001)
     }
 
+    // MARK: - #2063 pan-reuse containment fast path
+
+    /// A small pan whose new detail rect stays inside the previously
+    /// published native-detail patch must NOT clear `nativeDetailPreview` —
+    /// this is the whole point of the containment fast path: the overlay
+    /// stays on screen instead of dropping to the blurry base while a
+    /// fresh 150ms-debounced develop runs for a pan that didn't need one.
+    @MainActor
+    func testEditSessionUpdateTileVisibleRegionKeepsContainedNativeDetailPreview() {
+        let tmp = URL(fileURLWithPath: "/tmp/maple_session_pan_reuse.dng")
+        let asset = AssetRef(url: tmp)
+        let session = EditSession(asset: asset)
+        session.nativeImageSize = CGSize(width: 8000, height: 6000)
+        session.updateTileVisibleRegion(
+            viewport: CGRect(x: 1000, y: 1000, width: 1000, height: 800),
+            zoom: 1.0
+        )
+        // Simulate a previously-published native-detail patch — bigger
+        // than the viewport, as `NativeDetailLOD.patchRect` would produce.
+        session.nativeDetailPreview = Self.makeTinyCIImage()
+        session.nativeDetailSourceRect = CGRect(x: 800, y: 800, width: 1400, height: 1200)
+
+        // Small pan (50px right, 30px down) whose new detail rect stays
+        // inside the published patch.
+        session.updateTileVisibleRegion(
+            viewport: CGRect(x: 1050, y: 1030, width: 1000, height: 800),
+            zoom: 1.0
+        )
+
+        XCTAssertNotNil(session.nativeDetailPreview, "a contained pan must keep the overlay")
+        XCTAssertEqual(
+            session.nativeDetailSourceRect,
+            CGRect(x: 800, y: 800, width: 1400, height: 1200),
+            "the published patch must be untouched by a contained pan"
+        )
+    }
+
+    /// A pan whose new detail rect escapes the published patch must still
+    /// clear the overlay — existing behaviour, unaffected by the
+    /// containment fast path.
+    @MainActor
+    func testEditSessionUpdateTileVisibleRegionClearsWhenPanEscapesPatch() {
+        let tmp = URL(fileURLWithPath: "/tmp/maple_session_pan_escape.dng")
+        let asset = AssetRef(url: tmp)
+        let session = EditSession(asset: asset)
+        session.nativeImageSize = CGSize(width: 8000, height: 6000)
+        session.updateTileVisibleRegion(
+            viewport: CGRect(x: 1000, y: 1000, width: 1000, height: 800),
+            zoom: 1.0
+        )
+        session.nativeDetailPreview = Self.makeTinyCIImage()
+        session.nativeDetailSourceRect = CGRect(x: 800, y: 800, width: 1400, height: 1200)
+
+        // Large pan (2000px right) whose new detail rect is NOT inside
+        // the published patch.
+        session.updateTileVisibleRegion(
+            viewport: CGRect(x: 3000, y: 3000, width: 1000, height: 800),
+            zoom: 1.0
+        )
+
+        XCTAssertNil(session.nativeDetailPreview, "a pan outside the patch must clear the overlay")
+        XCTAssertEqual(session.nativeDetailSourceRect, .zero)
+    }
+
+    /// A zoom change must still clear the overlay even though the rect
+    /// itself didn't move — zoom changes invalidate the native-detail
+    /// patch regardless of containment (native detail is resolution-
+    /// dependent), via `pixelScale`'s own `didSet`.
+    @MainActor
+    func testEditSessionUpdateTileVisibleRegionClearsOnZoomChangeEvenIfRectUnchanged() {
+        let tmp = URL(fileURLWithPath: "/tmp/maple_session_zoom_change.dng")
+        let asset = AssetRef(url: tmp)
+        let session = EditSession(asset: asset)
+        session.nativeImageSize = CGSize(width: 8000, height: 6000)
+        let viewport = CGRect(x: 1000, y: 1000, width: 1000, height: 800)
+        session.updateTileVisibleRegion(viewport: viewport, zoom: 1.0)
+        session.nativeDetailPreview = Self.makeTinyCIImage()
+        session.nativeDetailSourceRect = CGRect(x: 800, y: 800, width: 1400, height: 1200)
+
+        // Same viewport rect, but zoom changed.
+        session.updateTileVisibleRegion(viewport: viewport, zoom: 2.0)
+
+        XCTAssertNil(session.nativeDetailPreview, "a zoom change must clear the overlay")
+    }
+
+    /// Without a previously-published patch (`nativeDetailPreview == nil`),
+    /// a pan must still clear (a no-op — it's already nil) and reach the
+    /// refine-scheduling branch; this guards against the containment
+    /// check accidentally treating "no patch yet" as "covered."
+    @MainActor
+    func testEditSessionUpdateTileVisibleRegionWithNoPublishedPatchIsUnaffected() {
+        let tmp = URL(fileURLWithPath: "/tmp/maple_session_no_patch.dng")
+        let asset = AssetRef(url: tmp)
+        let session = EditSession(asset: asset)
+        session.nativeImageSize = CGSize(width: 8000, height: 6000)
+        session.updateTileVisibleRegion(
+            viewport: CGRect(x: 1000, y: 1000, width: 1000, height: 800),
+            zoom: 1.0
+        )
+        XCTAssertNil(session.nativeDetailPreview)
+
+        session.updateTileVisibleRegion(
+            viewport: CGRect(x: 1050, y: 1030, width: 1000, height: 800),
+            zoom: 1.0
+        )
+        XCTAssertNil(session.nativeDetailPreview)
+        XCTAssertEqual(session.viewportSourceRect, CGRect(x: 1050, y: 1030, width: 1000, height: 800))
+    }
+
     /// Tiny CIImage for cache accounting tests — synthetic, no decode.
     static func makeTinyCIImage() -> CIImage {
         let side = 8
