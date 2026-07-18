@@ -25,9 +25,7 @@ process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
 // Mirror index.ts: wrap the self-gating device-session routes so their
 // `requireAuth` scoped-derive stays contained and doesn't leak forward.
-const app = new Elysia()
-  .use(authRoutes)
-  .use(new Elysia().use(authDeviceSessionRoutes));
+const app = new Elysia().use(authRoutes).use(new Elysia().use(authDeviceSessionRoutes));
 
 let ipCounter = 0;
 /** A fresh IP per call keeps the shared `auth:<ip>` limiter from tripping
@@ -107,7 +105,7 @@ beforeEach(async () => {
 });
 
 describe('device-session routes (#2075)', () => {
-  it('mints a device session from the caller\'s own live refresh token, in a new family that rotates', async () => {
+  it("mints a device session from the caller's own live refresh token, in a new family that rotates", async () => {
     const userId = await seedUser('owner@maple.test');
     const bearer = await bearerFor(userId, 'owner@maple.test');
     const own = await issueRefreshToken(userId, 'Safari on Mac');
