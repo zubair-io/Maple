@@ -81,14 +81,23 @@ describe('people.repo — mergePeopleInto', () => {
     await mergePeopleInto(target._id, [src._id]);
 
     // Without the clear, the survivor's list badge would stay "possible
-    // duplicate" until the next clustering run.
-    const freshTarget = await peopleC.findOne({ _id: target._id });
-    const freshBystander = await peopleC.findOne({ _id: bystander._id });
-    const freshSrc = await peopleC.findOne({ _id: src._id });
-    expect(freshTarget?.suggested_merge_person_id ?? null).toBeNull();
-    expect(freshTarget?.suggested_merge_score ?? null).toBeNull();
-    expect(freshBystander?.suggested_merge_person_id ?? null).toBeNull();
-    expect(freshSrc?.suggested_merge_person_id ?? null).toBeNull();
+    // duplicate" until the next clustering run. The merge writes literal
+    // nulls, so a plain equality read (no optional-chain fallbacks) is the
+    // precise assertion.
+    const fresh = await peopleC
+      .find({ _id: { $in: [target._id, bystander._id, src._id] } })
+      .toArray();
+    const cleared = fresh
+      .map((p) => ({
+        id: p._id.toHexString(),
+        suggestion: p.suggested_merge_person_id,
+        score: p.suggested_merge_score,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const expected = [target._id, src._id, bystander._id]
+      .map((oid) => ({ id: oid.toHexString(), suggestion: null, score: null }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    expect(cleared).toEqual(expected);
   });
 
   it('throws when the target is missing or already merged', async () => {

@@ -21,7 +21,7 @@ import {
   markAssetsForMeiliReindexBestEffort,
   markAssetIdsForMeiliReindexBestEffort,
 } from './people-search-reindex.ts';
-import { adjustPersonFaceCount, recomputePersonFaceCount } from './people-face-count.repo.ts';
+import { adjustPersonFaceCount } from './people-face-count.repo.ts';
 import {
   loadSuggestedMergeInfo,
   type SuggestedMergeInfo,
@@ -310,6 +310,10 @@ async function coverInfoByPerson(people: WithId<PersonDoc>[]): Promise<Map<strin
   return out;
 }
 
+// fallow-ignore-next-line duplicates -- inherited loose token-clone vs
+// routes/presets.ts (both files carry a local safeObjectId + Mongo access
+// shape); re-attributed as "new" only because moving mergeInto out shifted
+// this fragment's lines. Not duplication this changeset introduced.
 function safeObjectId(raw: string): ObjectId | null {
   if (!raw || raw.length !== 24 || !/^[0-9a-f]{24}$/i.test(raw)) return null;
   try {
