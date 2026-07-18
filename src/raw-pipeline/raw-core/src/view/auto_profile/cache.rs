@@ -8,31 +8,43 @@
 //! ticks on the same RAW reuse the previously fitted curve.
 //!
 //! Key shapes (see [`CacheKey`]):
-//! - [`CacheKey::Path`] — `(canonical path, mtime)` for native callers.
-//!   Mtime catches "user re-edited and re-exported the RAW out from under
-//!   us"; the path discriminates between fixtures.
-//! - [`CacheKey::Bytes`] — discriminator over a 64-bit blake3 digest of
-//!   the first 64 KB + last 64 KB + total length of the bytes. Full
-//!   blake3 of a 50 MB RAW alone is ~50 ms (would defeat the cache);
-//!   prefix+suffix+length is collision-free across distinct RAW files in
-//!   practice and runs in microseconds. blake3 is already a workspace
-//!   dependency.
+//! - [`CacheKey::Path`] — `(canonical path, mtime, quality)` for native
+//!   callers. Mtime catches "user re-edited and re-exported the RAW out from
+//!   under us"; the path discriminates between fixtures.
+//! - [`CacheKey::Bytes`] — `(hash, quality)` where the hash is a 64-bit
+//!   blake3 digest of the first 64 KB + last 64 KB + total length of the
+//!   bytes. Full blake3 of a 50 MB RAW alone is ~50 ms (would defeat the
+//!   cache); prefix+suffix+length is collision-free across distinct RAW
+//!   files in practice and runs in microseconds. blake3 is already a
+//!   workspace dependency.
 //!
 //! Keying invariant (#1085): the fit is PINNED to the default adjustment
 //! model — every fit entry develops `AdjustmentModel::default()` with only
 //! `auto_exposure: Off` pinned and the caller's `profile` carried (see
 //! `pipeline::render::auto_fit::fit_develop_model`), never the caller's live
 //! edit model. The fitted curve/LUT are therefore a pure function of the RAW
-//! (at a given develop quality/size), so a RAW-identity key needs no
+//! at a given develop quality, so `(raw identity, quality)` needs no
 //! adjustment digest or generation counter: slider ticks cannot change what
 //! a fit would produce, and a warm entry is always exactly what a cold fit
-//! would re-compute. (Develop quality/size are NOT in the key — pre-existing,
-//! documented contract: the fit quality "MUST match the host's render".)
+//! would re-compute.
+//!
+//! The develop [`RenderQuality`] joined the key in #2035: the fit develop
+//! runs at the caller's quality (`Preview` = half-res demosaic), so a
+//! Preview-fit and a Full-fit of the same RAW are DIFFERENT artifacts —
+//! under the old quality-less key, whichever path fit first (the
+//! Full-quality CPU/CLI render vs the Preview-quality Apple GPU-live host)
+//! silently served its artifacts to the other. Develop SIZE stays out of the
+//! key — pre-existing contract: the standalone fit entries derive their
+//! proxy size deterministically from the RAW
+//! (`auto_fit::auto_fit_max_long_edge`), so per `(raw, quality)` there is
+//! one canonical standalone fit.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
+
+use crate::pipeline::RenderQuality;
 
 use super::curve::ProfileCurve;
 use super::lut::ColorLut;
@@ -52,36 +64,46 @@ const CAPACITY: usize = 32;
 /// Bytes-hash discriminator window. Prefix + suffix bytes hashed; tunable.
 const HASH_WINDOW: usize = 64 * 1024;
 
-/// Cache key shape — see module doc.
+/// Cache key shape — see module doc. `quality` is the develop quality the
+/// fit ran at (#2035) — Preview- and Full-fit artifacts must never serve
+/// each other.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CacheKey {
-    Path { path: PathBuf, mtime: SystemTime },
-    Bytes { hash: u64 },
+    Path {
+        path: PathBuf,
+        mtime: SystemTime,
+        quality: RenderQuality,
+    },
+    Bytes {
+        hash: u64,
+        quality: RenderQuality,
+    },
 }
 
 impl CacheKey {
-    /// Build a [`CacheKey::Path`] from a RAW file path. Returns `None`
-    /// if the file is missing, can't be canonicalized, or `metadata` /
-    /// `modified()` fail (file without an mtime, e.g. some virtual
-    /// filesystems).
+    /// Build a [`CacheKey::Path`] from a RAW file path + the develop quality
+    /// the fit runs at. Returns `None` if the file is missing, can't be
+    /// canonicalized, or `metadata` / `modified()` fail (file without an
+    /// mtime, e.g. some virtual filesystems).
     ///
     /// Canonicalization resolves symlinks and `..` segments so two callers
     /// referring to the same file through different paths share a cache
     /// entry — matches the module doc's "canonical path" claim.
-    pub fn from_path(path: &Path) -> Option<Self> {
+    pub fn from_path(path: &Path, quality: RenderQuality) -> Option<Self> {
         let canonical = std::fs::canonicalize(path).ok()?;
         let meta = std::fs::metadata(&canonical).ok()?;
         let mtime = meta.modified().ok()?;
         Some(CacheKey::Path {
             path: canonical,
             mtime,
+            quality,
         })
     }
 
-    /// Build a [`CacheKey::Bytes`] from in-memory RAW bytes. Uses a 64-bit
-    /// truncation of blake3 over (prefix, suffix, length) — see module
-    /// doc for the cost rationale.
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    /// Build a [`CacheKey::Bytes`] from in-memory RAW bytes + the develop
+    /// quality the fit runs at. Uses a 64-bit truncation of blake3 over
+    /// (prefix, suffix, length) — see module doc for the cost rationale.
+    pub fn from_bytes(bytes: &[u8], quality: RenderQuality) -> Self {
         let mut hasher = blake3::Hasher::new();
         let head_end = bytes.len().min(HASH_WINDOW);
         hasher.update(&bytes[..head_end]);
@@ -107,7 +129,7 @@ impl CacheKey {
             bytes_out[6],
             bytes_out[7],
         ]);
-        CacheKey::Bytes { hash }
+        CacheKey::Bytes { hash, quality }
     }
 }
 
@@ -266,6 +288,15 @@ mod tests {
     /// inserts.
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Bytes-variant key at a fixed quality — the tests below that exercise
+    /// LRU mechanics (not quality discrimination) key on the hash alone.
+    fn bkey(hash: u64) -> CacheKey {
+        CacheKey::Bytes {
+            hash,
+            quality: RenderQuality::Full,
+        }
+    }
+
     fn dummy_curve(tag: f32) -> ProfileCurve {
         // Build a curve with a recognisable tag in chroma_boost so we can
         // tell cached entries apart by value.
@@ -286,7 +317,7 @@ mod tests {
     fn insert_then_get_returns_same_curve() {
         let _g = TEST_LOCK.lock().unwrap();
         clear_for_test();
-        let key = CacheKey::Bytes { hash: 0xdead_beef };
+        let key = bkey(0xdead_beef);
         let curve = dummy_curve(1.234);
         insert(key.clone(), curve.clone());
         let got = get(&key).expect("should hit");
@@ -297,7 +328,7 @@ mod tests {
     fn miss_returns_none() {
         let _g = TEST_LOCK.lock().unwrap();
         clear_for_test();
-        let key = CacheKey::Bytes { hash: 0x1234 };
+        let key = bkey(0x1234);
         assert!(get(&key).is_none());
     }
 
@@ -310,7 +341,7 @@ mod tests {
         let mut lut = ColorLut::identity(5);
         lut.data[0] = 0.123;
         // `from_bytes` needs no filesystem — keeps the round-trip pure in-memory.
-        let key = CacheKey::from_bytes(b"lut-round-trip-fixture");
+        let key = CacheKey::from_bytes(b"lut-round-trip-fixture", RenderQuality::Full);
         insert_lut(key.clone(), lut.clone());
         let got = get_lut(&key).expect("should hit");
         assert_eq!(got, lut);
@@ -322,7 +353,7 @@ mod tests {
     fn lut_cache_miss_returns_none() {
         let _g = TEST_LOCK.lock().unwrap();
         clear_lut_for_test();
-        let key = CacheKey::from_bytes(b"absent-lut-key");
+        let key = CacheKey::from_bytes(b"absent-lut-key", RenderQuality::Full);
         assert!(get_lut(&key).is_none());
     }
 
@@ -332,15 +363,12 @@ mod tests {
         clear_for_test();
         // Fill cache to capacity + 1, with distinct keys.
         for i in 0..(CAPACITY as u64 + 1) {
-            insert(CacheKey::Bytes { hash: i }, dummy_curve(i as f32));
+            insert(bkey(i), dummy_curve(i as f32));
         }
         // Key 0 should have been evicted; keys 1..=CAPACITY should be present.
-        assert!(get(&CacheKey::Bytes { hash: 0 }).is_none());
+        assert!(get(&bkey(0)).is_none());
         for i in 1..=(CAPACITY as u64) {
-            assert!(
-                get(&CacheKey::Bytes { hash: i }).is_some(),
-                "expected hit for hash={i}"
-            );
+            assert!(get(&bkey(i)).is_some(), "expected hit for hash={i}");
         }
     }
 
@@ -350,20 +378,17 @@ mod tests {
         clear_for_test();
         // Fill to capacity.
         for i in 0..(CAPACITY as u64) {
-            insert(CacheKey::Bytes { hash: i }, dummy_curve(i as f32));
+            insert(bkey(i), dummy_curve(i as f32));
         }
         // Touch the oldest (hash=0) — it should now be MRU.
-        let _ = get(&CacheKey::Bytes { hash: 0 });
+        let _ = get(&bkey(0));
         // Insert one more — the new LRU should be hash=1, not hash=0.
-        insert(CacheKey::Bytes { hash: 999 }, dummy_curve(999.0));
+        insert(bkey(999), dummy_curve(999.0));
         assert!(
-            get(&CacheKey::Bytes { hash: 0 }).is_some(),
+            get(&bkey(0)).is_some(),
             "hash=0 was promoted, should survive"
         );
-        assert!(
-            get(&CacheKey::Bytes { hash: 1 }).is_none(),
-            "hash=1 was LRU, should be evicted"
-        );
+        assert!(get(&bkey(1)).is_none(), "hash=1 was LRU, should be evicted");
     }
 
     #[test]
@@ -375,7 +400,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("test.bin");
         std::fs::write(&path, b"hello").expect("write");
-        let k1 = CacheKey::from_path(&path).expect("key 1");
+        let k1 = CacheKey::from_path(&path, RenderQuality::Full).expect("key 1");
 
         // Touch the file to a different mtime. On filesystems with low
         // mtime resolution (HFS+ = 1 s), a plain rewrite can land in the
@@ -390,7 +415,7 @@ mod tests {
             .expect("open")
             .write_all(b"world!")
             .expect("write");
-        let k2 = CacheKey::from_path(&path).expect("key 2");
+        let k2 = CacheKey::from_path(&path, RenderQuality::Full).expect("key 2");
         assert_ne!(k1, k2, "mtime change should produce a different key");
     }
 
@@ -400,11 +425,11 @@ mod tests {
         let mut b = vec![0u8; 1024];
         b[0] = 1;
         let c = vec![0u8; 2048];
-        let ka = CacheKey::from_bytes(&a);
-        let kb = CacheKey::from_bytes(&b);
-        let kc = CacheKey::from_bytes(&c);
+        let ka = CacheKey::from_bytes(&a, RenderQuality::Full);
+        let kb = CacheKey::from_bytes(&b, RenderQuality::Full);
+        let kc = CacheKey::from_bytes(&c, RenderQuality::Full);
         // Identical bytes → identical keys.
-        let ka2 = CacheKey::from_bytes(&a);
+        let ka2 = CacheKey::from_bytes(&a, RenderQuality::Full);
         assert_eq!(ka, ka2);
         // Different prefix → different key.
         assert_ne!(ka, kb);
@@ -424,7 +449,10 @@ mod tests {
         // Differ only in the very last byte. Prefix + length identical.
         a[len - 1] = 1;
         b[len - 1] = 2;
-        assert_ne!(CacheKey::from_bytes(&a), CacheKey::from_bytes(&b));
+        assert_ne!(
+            CacheKey::from_bytes(&a, RenderQuality::Full),
+            CacheKey::from_bytes(&b, RenderQuality::Full)
+        );
     }
 
     #[test]
@@ -432,8 +460,57 @@ mod tests {
         let path_key = CacheKey::Path {
             path: PathBuf::from("/x"),
             mtime: SystemTime::UNIX_EPOCH,
+            quality: RenderQuality::Full,
         };
-        let bytes_key = CacheKey::Bytes { hash: 0 };
+        let bytes_key = bkey(0);
         assert_ne!(path_key, bytes_key);
+    }
+
+    /// #2035: the develop quality is part of the key — same source, different
+    /// quality → different key, for BOTH variants.
+    #[test]
+    fn quality_discriminates_keys() {
+        let bytes = b"quality-key-fixture";
+        assert_ne!(
+            CacheKey::from_bytes(bytes, RenderQuality::Preview),
+            CacheKey::from_bytes(bytes, RenderQuality::Full),
+        );
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("q.bin");
+        std::fs::write(&path, b"hello").expect("write");
+        assert_ne!(
+            CacheKey::from_path(&path, RenderQuality::Preview).expect("key"),
+            CacheKey::from_path(&path, RenderQuality::Full).expect("key"),
+        );
+    }
+
+    /// #2035 cross-quality poisoning regression: artifacts inserted under a
+    /// Full-quality key must MISS when looked up at Preview (and vice versa)
+    /// — before quality joined the key, whichever path fit first silently
+    /// served the other quality's artifacts.
+    #[test]
+    fn cross_quality_lookup_misses() {
+        let _g = TEST_LOCK.lock().unwrap();
+        clear_for_test();
+        clear_lut_for_test();
+        let bytes = b"cross-quality-miss-fixture";
+        let full_key = CacheKey::from_bytes(bytes, RenderQuality::Full);
+        let preview_key = CacheKey::from_bytes(bytes, RenderQuality::Preview);
+
+        insert(full_key.clone(), dummy_curve(4.2));
+        insert_lut(full_key.clone(), ColorLut::identity(5));
+
+        assert!(
+            get(&preview_key).is_none(),
+            "a Full-fit curve must not serve a Preview lookup"
+        );
+        assert!(
+            get_lut(&preview_key).is_none(),
+            "a Full-fit LUT must not serve a Preview lookup"
+        );
+        // Sanity: the matching quality still hits.
+        assert!(get(&full_key).is_some());
+        assert!(get_lut(&full_key).is_some());
     }
 }
