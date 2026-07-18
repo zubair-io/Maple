@@ -545,13 +545,20 @@ describe('PeopleStore', () => {
       expect(api.listPeople).toHaveBeenCalledTimes(2); // initial ensureList() + invalidate()
     });
 
-    it('propagates a failure without evicting anything', async () => {
+    it('propagates a failure, refetching this detail so a stale banner converges', async () => {
       const api = new ApiStub();
       api.dismissMergeSuggestion = vi.fn(() => throwError(() => new Error('boom')));
       makeBed(api);
       store = TestBed.inject(PeopleStore);
+      store.ensureList();
 
       await expect(store.dismissMergeSuggestion('p1', 'p2')).rejects.toThrow('boom');
+
+      // A 404 here means the suggestion is already stale server-side — the
+      // person's own detail refetches so the banner converges, but neither
+      // the other person's cache nor the list is touched.
+      expect(api.getPerson).toHaveBeenCalledWith('p1', { offset: 0, limit: DETAIL_FACE_PAGE_SIZE });
+      expect(api.listPeople).toHaveBeenCalledTimes(1); // ensureList() only — no invalidate()
     });
   });
 });
