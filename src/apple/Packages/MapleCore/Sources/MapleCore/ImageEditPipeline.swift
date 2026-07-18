@@ -238,6 +238,12 @@ public actor ImageEditPipeline {
         /// `DecodedSnapshot` so the per-tick chains and the As-Shot seed
         /// use raw-core's numbers.
         public let wbFrame: WbSliderFrame?
+        /// Decode-exported auto-exposure gain (#1167/#2070); mirrors
+        /// `wbFrame`'s export contract (never optional — see
+        /// `MapleSceneLinearImageData.aeGain`). Survives the decode→render
+        /// hand-off via `DecodedSnapshot` so `NativeDetailRenderer` can
+        /// thread the SAME gain into a deep-zoom / native-detail tile.
+        public let aeGain: Float
     }
 
     nonisolated public func decodeSceneLinear(
@@ -298,7 +304,8 @@ public actor ImageEditPipeline {
             image: ciImage,
             noiseProfile: imageData.noiseProfile,
             iso: imageData.iso,
-            wbFrame: imageData.wbFrame
+            wbFrame: imageData.wbFrame,
+            aeGain: imageData.aeGain
         )
     }
 
@@ -387,7 +394,8 @@ public actor ImageEditPipeline {
             image: ciImage,
             noiseProfile: imageData.noiseProfile,
             iso: imageData.iso,
-            wbFrame: imageData.wbFrame
+            wbFrame: imageData.wbFrame,
+            aeGain: imageData.aeGain
         )
     }
 

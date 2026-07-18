@@ -126,11 +126,17 @@ extension EditSession {
         if !cropApplied,
            asset.isRaw,
            asset.primaryURL != nil,
-           // The tile develop intentionally omits full-frame auto exposure.
-           // Auto Profile's decode contract already disables AE, so it is the
-           // parity-safe native path. Neutral/ACR Match retain the bounded
-           // whole-image fallback until tile AE parity lands (#1167).
-           model.profile == .auto,
+           // #1167/#2070: the tile develop now accepts the full-image
+           // (or sized) decode's exported AE gain as an explicit scalar
+           // (`NativeDetailRenderer.render(aeGain:)` →
+           // `maple_render_handle_scene_linear_tile_ae_f32`) instead of
+           // omitting the auto-exposure stage, so every profile is
+           // parity-safe at 1:1 now — not just Auto. (Auto's decode
+           // contract still disables AE outright, so its exported gain is
+           // always 1.0 and this is a no-op for it; Neutral/ACR-Match
+           // previously fell back to the bounded whole-image refine below
+           // because a tile that omitted AE entirely would render at the
+           // wrong brightness — that gap is what this closes.)
            NativeDetailLOD.shouldRender(
                pixelScale: pixelScale,
                visibleRect: viewportSourceRect

@@ -75,7 +75,7 @@ extension RenderActor {
             // or flip a cancel flag here — same-asset slider ticks during a cold
             // open share this one decode and its flag; nobody cancels until a
             // genuinely different decode supersedes it (the replace path below).
-            guard let (decoded, _, _, _) = await existing.value else { return nil }
+            guard let (decoded, _, _, _, _) = await existing.value else { return nil }
             if decodedAtModel == nil {
                 decodedAtModel = EditSession.parseSidecarModel(for: asset)
             }
@@ -106,7 +106,7 @@ extension RenderActor {
         // cancelAll can flip it to abandon this decode.
         let cancelFlag = CancelFlag()
         decodeCancelFlag = cancelFlag
-        let task: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?)?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
+        let task: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float)?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
             var dispatchAsset = asset
             var dispatchIsRaw = extensionIsRaw
             if needsSniff, let provider = asset.bytesProvider {
@@ -157,7 +157,7 @@ extension RenderActor {
                     )
                 }
                 guard let nonRawImage else { return nil }
-                return (nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none)
+                return (nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0))
             }
             let asset = dispatchAsset
             let sidecar: URL? = {
@@ -183,7 +183,7 @@ extension RenderActor {
                 guard let sizedResult else { return nil }
                 return (
                     sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
-                    sizedResult.wbFrame
+                    sizedResult.wbFrame, sizedResult.aeGain
                 )
             }
             // #940 — refine pass (full-resolution): use AMaZE when AmazeFlag
@@ -202,7 +202,7 @@ extension RenderActor {
             guard let refineResult else { return nil }
             return (
                 refineResult.image, refineResult.noiseProfile, refineResult.iso,
-                refineResult.wbFrame
+                refineResult.wbFrame, refineResult.aeGain
             )
         }
         decodeTask = task
@@ -213,7 +213,7 @@ extension RenderActor {
         let decodeResult = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
 
-        guard let (decoded, decodeNoiseProfile, decodeISO, decodeWbFrame) = decodeResult else {
+        guard let (decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain) = decodeResult else {
             if decodeTaskAssetID == asset.id {
                 decodeTask = nil
                 decodeTaskAssetID = nil
@@ -294,6 +294,10 @@ extension RenderActor {
             // #1781: the slider-frame export rides the same write gate as
             // the buffer it describes.
             decodedWbFrame = decodeWbFrame
+            // #1167/#2070: the AE-gain export rides the same write gate —
+            // `NativeDetailRenderer` needs the gain of the buffer actually
+            // on screen, not a stale one from a superseded decode.
+            decodedAeGain = decodeAeGain
             // #2049: identity bump — any real write means the uploaded GPU
             // buffer (if any) is now potentially stale even at unchanged dims.
             decodeGeneration &+= 1
@@ -418,6 +422,7 @@ extension RenderActor {
         decodedNoiseProfile = nil
         decodedISO = 0
         decodedWbFrame = nil
+        decodedAeGain = 1.0
     }
 
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
@@ -459,6 +464,7 @@ extension RenderActor {
             noiseProfile: decodedNoiseProfile,
             iso: decodedISO,
             wbFrame: decodedWbFrame,
+            aeGain: decodedAeGain,
             decodeGeneration: decodeGeneration
         )
     }
@@ -518,6 +524,10 @@ extension RenderActor {
         // Seeded preview buffers carry no slider-frame export (#1781); a
         // stale frame from a previous decode must not describe them.
         self.decodedWbFrame = nil
+        // Seeded preview buffers carry no AE-gain export (#1167/#2070); 1.0
+        // is the correct no-op gain for a buffer with no explicit export
+        // (matches `MapleSceneLinearImageData.aeGain`'s default).
+        self.decodedAeGain = 1.0
         // #2049: a seed is a cache WRITE — bump identity so a GPU-live
         // session uploaded from the previous buffer knows to re-upload.
         self.decodeGeneration &+= 1
@@ -541,6 +551,7 @@ extension RenderActor {
         self.decodedIsFull = false
         self.decodedProfile = nil  // #871 — see `seed(...)`
         self.decodedWbFrame = nil  // #1781 — see `seed(...)`
+        self.decodedAeGain = 1.0  // #1167/#2070 — see `seed(...)`
         self.decodeGeneration &+= 1  // #2049 — see `seed(...)`
         return true
     }

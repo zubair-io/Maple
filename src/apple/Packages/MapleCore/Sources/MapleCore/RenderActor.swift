@@ -148,6 +148,14 @@ public actor RenderActor {
     /// EditSession's As-Shot seed use raw-core's frame numbers.
     var decodedWbFrame: WbSliderFrame? = nil
 
+    /// Decode-exported auto-exposure gain captured at decode time
+    /// (#1167/#2070). Mirrors `decodedWbFrame`'s export contract but is
+    /// never optional (`1.0` for non-RAW / seeded buffers or frame-less
+    /// bodies — see `MapleSceneLinearImageData.aeGain`). Stored alongside
+    /// the decoded image so `NativeDetailRenderer` can thread the SAME gain
+    /// the buffer on screen was developed with into its tile refine.
+    var decodedAeGain: Float = 1.0
+
     /// Profile the cached `decodedImage` was developed for (#871). The
     /// decode buffer is now profile-dependent: `Profile::Auto` develops
     /// `auto_exposure` Off (so it byte-matches the buffer the Auto curve
@@ -182,10 +190,11 @@ public actor RenderActor {
     /// from it never accidentally matches a different asset's upload).
     var decodeGeneration: UInt64 = 0
 
-    /// (image, noiseProfile, iso, wbFrame) — noiseProfile/iso forwarded to the
-    /// NR stage (PR #1709 review fix 4); wbFrame is the #1781 slider-frame
-    /// export. Non-RAW decodes yield (image, nil, 0, nil).
-    var decodeTask: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?)?, Never>?
+    /// (image, noiseProfile, iso, wbFrame, aeGain) — noiseProfile/iso
+    /// forwarded to the NR stage (PR #1709 review fix 4); wbFrame is the
+    /// #1781 slider-frame export; aeGain is the #1167/#2070 AE-gain export.
+    /// Non-RAW decodes yield (image, nil, 0, nil, 1.0).
+    var decodeTask: Task<(CIImage, [Float]?, UInt32, WbSliderFrame?, Float)?, Never>?
     var decodeTaskAssetID: AssetRef.ID?
     /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
     /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
@@ -279,6 +288,14 @@ public actor RenderActor {
         /// Decode-exported WB slider frame (#1781). `nil` for seeded /
         /// non-RAW buffers or frame-less bodies.
         public let wbFrame: WbSliderFrame?
+        /// Decode-exported auto-exposure gain (#1167/#2070). `1.0` for
+        /// seeded / non-RAW buffers or frame-less bodies (see
+        /// `MapleSceneLinearImageData.aeGain`) — never optional, unlike
+        /// `wbFrame`, since `1.0` is itself a meaningful no-op gain.
+        /// `NativeDetailRenderer.render` takes this as its `aeGain`
+        /// parameter so a native-detail tile matches the full-image AE
+        /// brightness of the buffer currently on screen.
+        public let aeGain: Float
         /// The decode-cache write generation the cached buffer was written
         /// under (#2049) — see `RenderActor.decodeGeneration`. Threaded into
         /// `presentViaGpuLive` so the GPU-live upload identity can detect a

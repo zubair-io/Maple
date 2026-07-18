@@ -150,7 +150,8 @@ actor NativeDetailRenderer {
     func render(
         asset: AssetRef,
         sourceRect: CGRect,
-        model: AdjustmentModel
+        model: AdjustmentModel,
+        aeGain: Float
     ) throws -> CIImage {
         guard !Task.isCancelled else { throw CancellationError() }
         guard let url = asset.primaryURL else { throw PipelineError.noByteSource }
@@ -230,12 +231,22 @@ actor NativeDetailRenderer {
         // live WB delta is applied once, downstream, by the per-tick chain
         // (`processSceneLinear`, anchored at `wbDeltaAnchor`). This matches
         // every other tile caller (TileManager deep zoom, preview tiles).
+        //
+        // `aeGain` (#1167/#2070): the caller passes the SAME `ae_gain` the
+        // full-image (or sized) decode of this model exported, so the tile
+        // reproduces the full-image auto-exposure brightness instead of
+        // omitting the stage — the bug that gated this whole path to
+        // `Profile::Auto` only (Auto's decode contract disables AE, so its
+        // exported gain is always 1.0 and this call is a no-op for it;
+        // Neutral/ACR-Match now get a real gain instead of falling back to
+        // the bounded whole-image refine).
         let imageData = try PipelineRenderer.renderTileF32(
             handle: rawHandle,
             srcX: UInt32(x), srcY: UInt32(y),
             srcW: UInt32(width), srcH: UInt32(height),
             outW: UInt32(width), outH: UInt32(height),
-            quality: .full
+            quality: .full,
+            aeGain: aeGain
         )
         guard imageData.bytesPerPixel == 16 else {
             throw PipelineError.renderFailed(
