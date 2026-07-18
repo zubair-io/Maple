@@ -34,16 +34,32 @@ enum NativeDetailLOD {
     /// Source rect sent to the RAW tile entry. The halo gives clarity,
     /// sharpening, and NR context beyond the displayed patch without ever
     /// expanding work to the full sensor.
+    ///
+    /// The result is additionally clamped to `CanvasMath.metalMaxTextureEdge`
+    /// per edge (#2061) — the halo inset only ever adds `2 * filterHalo`
+    /// (192px) beyond the caller's `detailRect`, but a pathological
+    /// viewport (an ultra-wide 2×-Retina display, or a very large source
+    /// image) can still produce a `detailRect` whose expanded form would
+    /// exceed the texture ceiling this tile is eventually uploaded into.
+    /// Clamping the size here (keeping the origin fixed) is defensive:
+    /// on ordinary hardware/viewports it never binds.
     static func decodeRect(detailRect: CGRect, imageSize: CGSize) -> CGRect {
         let bounds = CGRect(origin: .zero, size: imageSize)
         guard !detailRect.isEmpty, bounds.width > 0, bounds.height > 0 else {
             return .zero
         }
-        let rect = detailRect
+        let expanded = detailRect
             .insetBy(dx: -filterHalo, dy: -filterHalo)
             .integral
             .intersection(bounds)
-        return rect.isNull ? .zero : rect
+        guard !expanded.isNull else { return .zero }
+        let maxEdge = CanvasMath.metalMaxTextureEdge
+        return CGRect(
+            x: expanded.minX,
+            y: expanded.minY,
+            width: min(expanded.width, maxEdge),
+            height: min(expanded.height, maxEdge)
+        )
     }
 
     /// Convert a top-left-oriented source rect into the local CoreImage
@@ -111,6 +127,18 @@ actor NativeDetailRenderer {
             rawHandle = handle
         } else {
             guard !Task.isCancelled else { throw CancellationError() }
+            // Release the old handle BEFORE opening its replacement (#2061g):
+            // a baked-field edit (e.g. highlight recovery) reopens the handle
+            // with a different `bakedModel`, and holding both the old and
+            // new decoded mosaics live at once transiently doubles resident
+            // memory (~30-300MB each). Nil-ing here drops this actor's only
+            // strong reference so `MapleRawHandle.deinit` (which calls
+            // `maple_close_raw_handle`) can run before the new open begins.
+            // If `openRawHandle` throws, the renderer is simply left
+            // handle-less — actor state stays consistent (both fields nil)
+            // and the next `render` call reopens fresh.
+            handle = nil
+            handleKey = nil
             let opened = try PipelineRenderer.openRawHandle(
                 rawPath: url,
                 model: model,
