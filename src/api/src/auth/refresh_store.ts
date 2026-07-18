@@ -5,6 +5,7 @@ import { generateRefreshToken, hashRefreshToken, refreshExpiresAt } from './toke
 export interface IssuedRefresh {
   raw: string;
   userId: ObjectId;
+  familyId: ObjectId;
 }
 
 export type RefreshErrorCode =
@@ -50,8 +51,10 @@ export async function issueRefreshToken(
   userId: ObjectId,
   deviceLabel: string,
   familyId?: ObjectId,
+  platform?: string,
 ): Promise<IssuedRefresh> {
   const raw = generateRefreshToken();
+  const family = familyId ?? new ObjectId();
   const c = await refreshTokensCollection();
   await c.insertOne({
     user_id: userId,
@@ -61,9 +64,10 @@ export async function issueRefreshToken(
     revoked_at: null,
     replaced_by: null,
     device_label: deviceLabel,
-    family_id: familyId ?? new ObjectId(),
+    family_id: family,
+    ...(platform !== undefined ? { platform } : {}),
   });
-  return { raw, userId };
+  return { raw, userId, familyId: family };
 }
 
 /**
@@ -95,6 +99,7 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
     { $set: { revoked_at: now.toISOString(), replaced_by: successorId } },
   );
   if (matched) {
+    const successorFamily = matched.family_id ?? new ObjectId();
     await c.insertOne({
       _id: successorId,
       user_id: matched.user_id,
@@ -104,9 +109,10 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
       revoked_at: null,
       replaced_by: null,
       device_label: matched.device_label,
-      family_id: matched.family_id ?? new ObjectId(),
+      family_id: successorFamily,
+      ...(matched.platform !== undefined ? { platform: matched.platform } : {}),
     });
-    return { raw: successorRaw, userId: matched.user_id };
+    return { raw: successorRaw, userId: matched.user_id, familyId: successorFamily };
   }
 
   // 2. Not live — classify.
@@ -124,7 +130,7 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
       : null;
     if (live) {
       // Benign lost-response / concurrent retry of a just-rotated token.
-      return await issueRefreshToken(row.user_id, row.device_label, row.family_id);
+      return await issueRefreshToken(row.user_id, row.device_label, row.family_id, row.platform);
     }
     // A winning CAS linked its successor but has not inserted it yet. The
     // family has not been deliberately revoked, so this is transient.

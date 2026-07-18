@@ -1181,6 +1181,11 @@ export interface RefreshTokenDoc {
   family_id?: ObjectId;
   /** Set on every member when logout/reuse deliberately revokes the family. */
   family_revoked_at?: string;
+  /** Device-session platform marker (Maple TV epic, milestone B, #2075). Set
+   * on a paired-device login (e.g. 'tvos') and propagated across rotation /
+   * grace re-mint so the whole family stays labeled. Absent for plain
+   * browser/native logins. */
+  platform?: string;
 }
 
 // ---------------------------------------------------------------------------
