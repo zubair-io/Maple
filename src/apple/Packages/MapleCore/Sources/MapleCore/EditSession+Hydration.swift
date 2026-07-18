@@ -474,7 +474,19 @@ extension EditSession {
     func seedFromCachedPreview(for asset: AssetRef) async -> Bool {
         guard let url = asset.primaryURL else { return false }
         guard renderedPreview == nil else { return false }
-        let w = Int(max(previewSize.width, 1))
+        guard previewSize.width > 0 else {
+            // `ensureRenderStarted()` fired before the canvas laid out and
+            // pushed a real viewport (documented race on that method's doc
+            // comment) — `previewSize` is still `.zero`. A lookup now would
+            // bucket on `screenWidth == 1`, which `RenderedPreviewCache`'s
+            // key folds in, so it can never match a previous session's
+            // real-width entry — a guaranteed miss, not a real one. Flag the
+            // retry instead of burning it; `previewSize`'s `didSet` re-runs
+            // this once the real viewport lands (#2041).
+            cachedPreviewSeedPendingViewport = true
+            return false
+        }
+        let w = Int(previewSize.width)
         let cached = await RenderedPreviewCache.shared
             .preview(for: url, screenWidth: w)
         guard let cached else { return false }
@@ -496,6 +508,33 @@ extension EditSession {
             "cached preview seeded decode extent=\(cached.extent.width)x\(cached.extent.height)"
         )
         return true
+    }
+
+    /// Re-attempts `seedFromCachedPreview` once the real viewport width is
+    /// known (#2041). Called from `previewSize`'s `didSet` on the first
+    /// zero→real transition, i.e. at most once per cold-open.
+    ///
+    /// `seedFromCachedPreview`'s own `renderedPreview == nil` guard is the
+    /// same atomicity contract every other cold-open seed already leans
+    /// on — a placeholder that landed while the real width was still
+    /// unknown (embedded JPEG, `.maple` sidecar preview, or the Rust
+    /// decode itself) is left alone; this only fills the slot when
+    /// nothing has published into it yet.
+    func retryCachedPreviewSeedIfPending() {
+        guard cachedPreviewSeedPendingViewport else { return }
+        cachedPreviewSeedPendingViewport = false
+        // Same asset-id guard the other async cold-open seeds use: capture
+        // now, re-check after the `await` in case the user switched assets
+        // (filmstrip sibling) while the lookup was in flight.
+        let openedAsset = self.asset
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard self.asset.id == openedAsset.id else { return }
+            let hit = await self.seedFromCachedPreview(for: openedAsset)
+            if hit {
+                self._scheduleRender(phase: .fast)
+            }
+        }
     }
 
     /// Returns true if the embedded JPEG preview was loaded and seeded
