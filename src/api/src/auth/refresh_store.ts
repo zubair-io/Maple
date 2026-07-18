@@ -199,3 +199,84 @@ export async function revokeOne(rawToken: string): Promise<void> {
     { $set: { revoked_at: new Date().toISOString() } },
   );
 }
+
+export interface DeviceSession {
+  id: string;
+  label: string;
+  platform: string;
+  created_at: string;
+  last_used_at: string;
+}
+
+/**
+ * Live paired-device families for a user. A "device session" is a refresh
+ * family carrying a `platform` marker (stamped only by the device-sessions
+ * mint endpoint) — ordinary logins never set it, so they never appear here.
+ * "Live" = the family still holds an unrevoked, unexpired token.
+ */
+export async function listDeviceSessions(userId: ObjectId): Promise<DeviceSession[]> {
+  const c = await refreshTokensCollection();
+  const now = new Date();
+  const rows = await c
+    .aggregate<{
+      _id: ObjectId;
+      label: string;
+      platform: string;
+      created_at: string;
+      last_used_at: string;
+      live: number;
+    }>([
+      {
+        $match: {
+          user_id: userId,
+          platform: { $exists: true },
+          family_revoked_at: { $exists: false },
+        },
+      },
+      {
+        $group: {
+          _id: '$family_id',
+          label: { $first: '$device_label' },
+          platform: { $first: '$platform' },
+          created_at: { $min: '$issued_at' },
+          last_used_at: { $max: '$issued_at' },
+          live: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$revoked_at', null] }, { $gt: ['$expires_at', now] }] },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+      { $match: { live: { $gt: 0 } } },
+      { $sort: { last_used_at: -1 } },
+    ])
+    .toArray();
+  return rows.map((r) => ({
+    id: r._id.toHexString(),
+    label: r.label,
+    platform: r.platform,
+    created_at: r.created_at,
+    last_used_at: r.last_used_at,
+  }));
+}
+
+/**
+ * Revoke one paired-device family, ownership-checked. Only platform-marked
+ * families qualify — the panel must not be able to kill an ordinary login's
+ * family through this path (logout and revokeChain cover those).
+ */
+export async function revokeDeviceSession(userId: ObjectId, familyId: ObjectId): Promise<boolean> {
+  const c = await refreshTokensCollection();
+  const row = await c.findOne({
+    family_id: familyId,
+    user_id: userId,
+    platform: { $exists: true },
+  });
+  if (!row) return false;
+  await revokeFamily(familyId);
+  return true;
+}
