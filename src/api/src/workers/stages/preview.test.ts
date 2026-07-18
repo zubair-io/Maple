@@ -77,36 +77,43 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
  * patches the one export in place — every importer calls through the
  * namespace slot — and `mockRestore()` reverts it reliably for every
  * importer (the `worker-status.repo.test.ts` db/client pattern).
+ *
+ * Installed inside `beforeAll`, not at top-level module evaluation: a
+ * top-level install would patch the shared namespace as a side effect of
+ * this file merely being COLLECTED, before any hook lifecycle applies —
+ * the same order-dependent-leak class this file exists to eliminate.
  */
-const renderStubSpy = spyOn(
-  imgdecodePoolModule,
-  'renderImageThumbToFileViaPool',
-).mockImplementation(
-  async (
-    srcPath: string,
-    outPath: string,
-    maxPx: number,
-    quality: number,
-  ): Promise<{ ok: boolean; error?: string }> => {
-    mockRenderCalls++;
-    try {
-      // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
-      // orientation, resize without enlarging, AVIF-encode.
-      const out = await sharp(await readFile(srcPath), { failOn: 'none', unlimited: true })
-        .rotate()
-        .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
-        .avif({ quality })
-        .toBuffer();
-      await writeFile(outPath, out);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  },
-);
+let renderStubSpy: { mockRestore(): void } | null = null;
+
+beforeAll(() => {
+  renderStubSpy = spyOn(imgdecodePoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
+    async (
+      srcPath: string,
+      outPath: string,
+      maxPx: number,
+      quality: number,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      mockRenderCalls++;
+      try {
+        // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
+        // orientation, resize without enlarging, AVIF-encode.
+        const out = await sharp(await readFile(srcPath), { failOn: 'none', unlimited: true })
+          .rotate()
+          .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
+          .avif({ quality })
+          .toBuffer();
+        await writeFile(outPath, out);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+});
 
 afterAll(() => {
-  renderStubSpy.mockRestore();
+  renderStubSpy?.mockRestore();
+  renderStubSpy = null;
 });
 
 async function tryConnect(): Promise<MongoClient | null> {
