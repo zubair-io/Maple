@@ -407,6 +407,17 @@ public final class EditSession {
     /// but those inactive sessions must stay decode-free until opened.
     @ObservationIgnored var renderRequested = false
 
+    /// Set by `seedFromCachedPreview` when it ran while `previewSize` was
+    /// still `.zero` (`ensureRenderStarted()` racing ahead of
+    /// `CanvasZoomController`'s viewport push — documented on
+    /// `ensureRenderStarted()`). `RenderedPreviewCache` folds screenWidth
+    /// into its key, so that attempt looked up a bogus `screenWidth == 1`
+    /// bucket and could never match a previous session's real-width entry.
+    /// `previewSize`'s `didSet` re-attempts the lookup once the real
+    /// viewport lands and clears this flag either way — the retry fires at
+    /// most once per cold-open (#2041).
+    @ObservationIgnored var cachedPreviewSeedPendingViewport = false
+
     // MARK: Deep zoom (Plan 3 / Ticket 06 M4)
 
     /// Tile manager for deep-zoom (`pixelScale >= 1.0`) refine renders.
@@ -448,6 +459,10 @@ public final class EditSession {
             // the image appears immediately; refine follows.
             if oldValue == .zero {
                 _scheduleRender(phase: .fast)
+                // The real viewport just landed — if the cache-preview seed
+                // bailed earlier for lack of it (#2041), give it one
+                // correctly-bucketed shot now.
+                retryCachedPreviewSeedIfPending()
             } else {
                 // Later resize (window drag) — refine only. `_scheduleRender`
                 // also cancels the prior refine, so a continuous window drag

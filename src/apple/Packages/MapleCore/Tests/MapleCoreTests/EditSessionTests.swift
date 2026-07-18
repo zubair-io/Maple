@@ -347,6 +347,76 @@ final class EditSessionTests: XCTestCase {
         XCTAssertEqual(received.code, 42)
         XCTAssertEqual(received.domain, "test.sidecar")
     }
+
+    // MARK: - Cached-preview seed / zero-viewport race (#2041)
+
+    /// `seedFromCachedPreview` buckets its `RenderedPreviewCache` lookup on
+    /// `previewSize.width`. `ensureRenderStarted()` can fire before the
+    /// canvas lays out and pushes the real viewport (documented race on that
+    /// method's doc comment — `CanvasZoomController.viewportChanged` hasn't
+    /// run yet), so the very first attempt can see `previewSize == .zero`.
+    /// Looking that up would bucket on a bogus `screenWidth == 1`, which can
+    /// never match a previous session's real-width entry — a guaranteed
+    /// miss, not a real one. This verifies the miss doesn't permanently
+    /// consume the seed slot, and that once `previewSize` seeds to the real
+    /// width the retry lands the cached preview instead of falling through
+    /// to the slow decode path.
+    func testCachedPreviewSeedRetriesAfterZeroViewportRace() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        await RenderedPreviewCache.shared.configure(folderURL: tmp)
+
+        let assetURL = tmp.appendingPathComponent("race.dng")
+        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+        let asset = AssetRef(url: assetURL)
+
+        // Simulate a PREVIOUS session's develop, cached under the real
+        // (non-degenerate) viewport width a canvas would actually report.
+        let realWidth = 823
+        let cachedSwatch = CIImage(color: CIColor(red: 0.2, green: 0.4, blue: 0.6))
+            .cropped(to: CGRect(x: 0, y: 0, width: realWidth, height: 550))
+        await RenderedPreviewCache.shared.storePreview(
+            cachedSwatch, for: assetURL, screenWidth: realWidth)
+
+        let session = await EditSession(asset: asset)
+
+        // First attempt: previewSize is still the default `.zero` — exactly
+        // the state `ensureRenderStarted()` can race into. The lookup must
+        // neither hit (screenWidth=1 can't match the realWidth entry) nor
+        // consume the seed slot — it must flag a retry instead.
+        let firstAttemptHit = await session.seedFromCachedPreview(for: asset)
+        XCTAssertFalse(firstAttemptHit,
+            "a zero-viewport lookup can never match a real-width cache entry")
+        let renderedAfterFirstAttempt = await session.renderedPreview
+        XCTAssertNil(renderedAfterFirstAttempt,
+            "a degenerate-width miss must not publish anything")
+        let pendingAfterFirstAttempt = await session.cachedPreviewSeedPendingViewport
+        XCTAssertTrue(pendingAfterFirstAttempt,
+            "the zero-viewport miss must flag a retry (#2041)")
+
+        // The real viewport lands (`CanvasZoomController.viewportChanged`
+        // equivalent) — `previewSize`'s `didSet` must re-attempt the seed
+        // with the now-correct width and land the cached preview.
+        await MainActor.run {
+            session.previewSize = CGSize(width: realWidth, height: 550)
+        }
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline {
+            if await session.renderedPreview != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let landed = await session.renderedPreview
+        XCTAssertNotNil(landed,
+            "the cached preview must land once previewSize seeds to the real width")
+        XCTAssertEqual(landed?.extent.width ?? 0, CGFloat(realWidth), accuracy: 0.5,
+            "the retried seed must publish the cache-stored preview, not a stray render")
+        let pendingAfterRetry = await session.cachedPreviewSeedPendingViewport
+        XCTAssertFalse(pendingAfterRetry, "the retry must fire at most once per cold-open")
+    }
 }
 
 // MARK: - FailingSidecarStore (test double for #1412)
