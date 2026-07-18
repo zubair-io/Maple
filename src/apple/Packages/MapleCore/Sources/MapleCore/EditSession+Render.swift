@@ -14,7 +14,7 @@
 //     The closure is `@Sendable` and runs on the unstructured Task that
 //     the actor spawns; it hops back to MainActor on every state access
 //     via `await MainActor.run { ... }`.
-//   • `decodeAndRender` / `refineVisibleRegion` / `renderFull` — the
+//   • `decodeAndRender` / `renderFull` — the
 //     actual render-pass bodies. They read MainActor state
 //     (`renderedPreview`, `previewSize`, `pixelScale`, `nativeImageSize`,
 //     `asShotCCT,Tint`) so they must stay on MainActor. The actor's
@@ -107,15 +107,15 @@ extension EditSession {
         let live = await renderActor.currentGeneration()
         guard gen == live, !Task.isCancelled else { return }
         // #638: when a crop is applied (tool disarmed, non-identity crop)
-        // the two fast refine paths below operate on FULL-FRAME source
-        // geometry and can't honor the crop: the deep-zoom tile composite
-        // and the visible-region refine both crop the full-frame decode to a
+        // the fast refine paths below operate on FULL-FRAME source
+        // geometry and can't honor the crop: the native-detail patch and the
+        // deep-zoom tile composite both crop the full-frame decode to a
         // viewport rect, but `viewportSourceRect` is in CROPPED-image coords
         // (the canvas/zoom now anchor to `effectiveImageSize`). Re-rendering
         // the whole frame through `decodeAndRender(.refine)` is the correct,
         // crop-aware path (it applies `CropImageStage` on the developed
         // output) — a touch slower at deep zoom on a cropped image, but
-        // correct. Full-frame (uncropped) renders keep both fast paths.
+        // correct. Full-frame (uncropped) renders keep the fast paths.
         let cropApplied = !cropEditingActive && CropImageStage.shouldApply(model.crop)
         // Native visible-region detail is the production 100% path. It uses a
         // stripped-model RAW handle and sends the resulting small scene-linear
@@ -154,30 +154,14 @@ extension EditSession {
             persistCurrentPreviewToCache()
             return
         }
-        // Visible-region refine. Requires a FULL-resolution cached decode
-        // — this branch crops `snapshot.image` directly, so a sized fast
-        // decode would yield a low-res zoom. When the cache is sized-only,
-        // fall through to `decodeAndRender(.refine)` below, which
-        // re-decodes full (#785).
-        let visible = viewportSourceRect
-        let snapshot = await renderActor.snapshot(forAsset: asset)
-        if !cropApplied,
-           !visible.isEmpty,
-           nativeImageSize.width > 0, nativeImageSize.height > 0,
-           snapshot.isFresh,
-           snapshot.isFull,
-           snapshot.image != nil {
-            await refineVisibleRegion(
-                visibleRect: visible,
-                gen: gen,
-                cached: snapshot.image!,
-                cachedDecodedAtModel: snapshot.decodedAtModel,
-                cachedNoiseProfile: snapshot.noiseProfile,
-                cachedISO: snapshot.iso,
-                cachedWbFrame: snapshot.wbFrame
-            )
-            return
-        }
+        // The former visible-region refine branch (crop the cached decode to
+        // `viewportSourceRect`, materialise just the patch) was removed in
+        // #2058: its `snapshot.isFull` gate was never true in production —
+        // no interactive path requests a target-nil decode, so the cache is
+        // always a sized decode whose native-coordinate crop wouldn't line
+        // up anyway. Its job is covered by `refineNativeDetail` above
+        // (RAW + Auto at 1:1) and by this fallback, which since #2039 reuses
+        // a covering sized decode instead of re-decoding.
         await decodeAndRender(targetSize: refinedTargetSize, phase: .refine, gen: gen)
     }
 
@@ -196,7 +180,7 @@ extension EditSession {
     /// path develops at `.preview` (RenderActor's sharedDecode +
     /// decodeSceneLinear* default to `.preview`), so the curve is fit at
     /// `.preview` to match the displayed buffer (#844).
-    func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async -> CIFilter? {
+    private func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async -> CIFilter? {
         guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
         return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
     }
@@ -376,9 +360,11 @@ extension EditSession {
                 // refine). Refine used to decode full-resolution even when the
                 // scheduler handed it a capped `refinedTargetSize`, so a 100 MP
                 // RAW allocated the full-sensor demosaic + a full-res GPU
-                // texture and jetsam-killed iOS. `renderFull()` still passes a
-                // nil target → genuine full-res for export prep; `.fast` caps a
-                // nil/degenerate target rather than fall through to full-res.
+                // texture and jetsam-killed iOS. A nil/degenerate target
+                // (including `renderFull()`'s) caps to the fallback long edge
+                // rather than fall through to full-res — no interactive path
+                // ever allocates a full-sensor decode; genuine full-res lives
+                // solely on `renderActor.renderForExport` (#2058).
                 let decodeTarget = ImageEditPipeline.decodeTarget(
                     phase: phase, targetSize: targetSize
                 )
