@@ -355,6 +355,17 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
+        // Not `Profile::Auto` → no tail can ever fit: `fit_auto_profile_from_raw`'s
+        // own top guard returns `None` (→ this entry's rc 1) without using the
+        // decoded RAW, so exit with the identical rc 1 BEFORE the cache-key
+        // stat, the probe, and any read/decode work (Copilot review on #2053).
+        // The default (null-xmp) model's profile IS Auto, so sidecar-less calls
+        // are unaffected. Note this also means a non-Auto call on an unreadable
+        // RAW reports 1 (no tail) rather than 6/7 — the host treats both as
+        // "render plain AgX".
+        if model.profile != raw_core::xmp::Profile::Auto {
+            return 1;
+        }
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
         } else {

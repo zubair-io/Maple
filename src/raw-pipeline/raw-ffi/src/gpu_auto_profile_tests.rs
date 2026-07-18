@@ -460,4 +460,41 @@ fn cached_fit_skips_file_read_and_decode_and_respects_quality() {
          decode (which fails on the garbage file) — not be served cross-quality \
          artifacts"
     );
+
+    // Non-Auto sidecar → the early profile guard returns rc 1 (no tail)
+    // WITHOUT touching the file at all — same structural proof: the garbage
+    // RAW can only produce rc 7 if the read+decode path ran (Copilot review
+    // on #2053; the fit's own top guard would return the identical rc 1).
+    let xmp_path = dir.path().join("neutral.xmp");
+    std::fs::write(
+        &xmp_path,
+        r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:papp="http://ns.justmaple.app/1.0/"
+              papp:Profile="Neutral"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#,
+    )
+    .expect("write xmp");
+    let cxmp = std::ffi::CString::new(xmp_path.to_str().unwrap()).unwrap();
+    let rc = unsafe {
+        maple_gpu_fit_auto_profile(
+            cpath.as_ptr(),
+            cxmp.as_ptr(),
+            0,
+            curve.as_mut_ptr(),
+            &mut present,
+            lut.as_mut_ptr(),
+            lut.len(),
+            &mut size,
+        )
+    };
+    assert_eq!(
+        rc, 1,
+        "a non-Auto model must exit with rc 1 (no tail) before any file I/O — \
+         reaching the decode would produce rc 7 on the garbage file"
+    );
+    assert_eq!(present, 0, "no curve may be surfaced for a non-Auto model");
+    assert_eq!(size, 0, "no residual may be surfaced for a non-Auto model");
 }
