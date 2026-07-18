@@ -177,12 +177,14 @@ final class CanvasZoomControllerTests: XCTestCase {
     /// times/sec) must move the live model on every event but defer the
     /// session commit — a synchronous per-event commit used to clear the
     /// native-detail overlay and reschedule a refine Task on every single
-    /// event. A short injected debounce interval keeps this test fast
-    /// without sleeping the production 120 ms.
+    /// event. This test body never suspends, so the main-actor debounce
+    /// task cannot interleave regardless of interval; the deliberately
+    /// huge injected interval makes the "no commit during the stream"
+    /// assertion robust against scheduler jitter on any runner.
     func testWheelPanEventsUpdateModelLiveWithoutCommitting() {
         let controller = makeController()
         controller.zoomToScale(1.0)
-        controller._testSetWheelPanCommitInterval(milliseconds: 20)
+        controller._testSetWheelPanCommitInterval(milliseconds: 10_000)
         let rectAfterZoom = controller.session.viewportSourceRect
 
         for _ in 0..<10 {
@@ -197,48 +199,55 @@ final class CanvasZoomControllerTests: XCTestCase {
     }
 
     /// After the wheel stream goes idle, exactly one commit fires and it
-    /// reflects the FINAL model state — not an intermediate one.
+    /// reflects the FINAL model state — not an intermediate one. The wait
+    /// (250 ms) is ~8× the injected debounce (30 ms) so CI scheduler
+    /// jitter can't stall the commit past the assertion.
     func testWheelPanCommitsOnceAfterStreamGoesIdle() async {
         let controller = makeController()
         controller.zoomToScale(1.0)
-        controller._testSetWheelPanCommitInterval(milliseconds: 20)
+        controller._testSetWheelPanCommitInterval(milliseconds: 30)
 
         for _ in 0..<10 {
             controller.wheelPan(delta: CGSize(width: -10, height: 0))
         }
         let panAtLastEvent = controller.model.panOffset
 
-        try? await Task.sleep(for: .milliseconds(80))
+        try? await Task.sleep(for: .milliseconds(250))
 
         XCTAssertEqual(controller._testWheelPanCommitFireCount, 1,
                        "ten rapid events must coalesce into exactly one commit")
         XCTAssertEqual(controller.panOffset, panAtLastEvent,
                        "the single commit reflects the tail of the stream")
-        XCTAssertNotEqual(controller.session.viewportSourceRect.midX, 4000, accuracy: 1e-6,
-                          "the committed visible rect follows the panned position")
+        // 10 events × −10 pt = −100 pt of pan → 200 source px (2× display
+        // scale): the committed window shifts right from the centered 4000
+        // to exactly 4200. An intermediate commit would land short of it.
+        XCTAssertEqual(controller.session.viewportSourceRect.midX, 4200, accuracy: 1e-6,
+                       "the committed visible rect reflects the FINAL panned position")
     }
 
     /// A fresh wheel event that arrives before the debounce fires must
     /// cancel and restart the wait — this is what makes momentum-scroll
     /// tails (which just extend the event stream) work correctly instead
-    /// of committing mid-stream.
+    /// of committing mid-stream. Margins are wide (150 ms debounce, 60 ms
+    /// sleeps) so scheduler jitter on a loaded CI runner can't let the
+    /// first deadline fire before the second event re-arms it.
     func testFreshWheelEventRestartsTheDebounce() async {
         let controller = makeController()
         controller.zoomToScale(1.0)
-        controller._testSetWheelPanCommitInterval(milliseconds: 40)
+        controller._testSetWheelPanCommitInterval(milliseconds: 150)
 
         controller.wheelPan(delta: CGSize(width: -10, height: 0))
-        try? await Task.sleep(for: .milliseconds(25))
-        // Re-arm just before the first commit would have fired (at 40 ms).
+        try? await Task.sleep(for: .milliseconds(60))
+        // Re-arm well before the first commit would have fired (at 150 ms).
         // If the second event failed to cancel + restart the wait, the
-        // ORIGINAL 40 ms deadline would fire here regardless.
+        // ORIGINAL 150 ms deadline would fire during the next sleep.
         controller.wheelPan(delta: CGSize(width: -10, height: 0))
-        try? await Task.sleep(for: .milliseconds(25))
+        try? await Task.sleep(for: .milliseconds(60))
 
         XCTAssertEqual(controller._testWheelPanCommitFireCount, 0,
                        "the second event must have cancelled + restarted the debounce")
 
-        try? await Task.sleep(for: .milliseconds(40))
+        try? await Task.sleep(for: .milliseconds(250))
         XCTAssertEqual(controller._testWheelPanCommitFireCount, 1,
                        "the restarted debounce eventually fires exactly once")
     }
