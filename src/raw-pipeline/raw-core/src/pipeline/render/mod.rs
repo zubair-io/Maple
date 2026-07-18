@@ -30,7 +30,9 @@ use crate::{
 /// keep this file under the size budget; re-exported so `pipeline::{…}` and the
 /// FFI keep resolving `fit_profile_curve_from_raw` / `fit_auto_profile_from_raw`.
 mod auto_fit;
-pub use auto_fit::{fit_auto_profile_from_raw, fit_profile_curve_from_raw};
+pub use auto_fit::{
+    cached_auto_profile_fit, fit_auto_profile_from_raw, fit_profile_curve_from_raw,
+};
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;
@@ -144,9 +146,9 @@ fn render_display_from_raw(
     let auto_profile_disabled = std::env::var_os("MAPLE_DISABLE_AUTO_PROFILE").is_some();
     let auto_cache_key = if !auto_profile_disabled && model.profile == Profile::Auto {
         match &raw_source {
-            Some(RawInput::Path(p)) => auto_profile::cache::CacheKey::from_path(p),
+            Some(RawInput::Path(p)) => auto_profile::cache::CacheKey::from_path(p, quality),
             Some(RawInput::Bytes { bytes, .. }) => {
-                Some(auto_profile::cache::CacheKey::from_bytes(bytes))
+                Some(auto_profile::cache::CacheKey::from_bytes(bytes, quality))
             }
             None => None,
         }
