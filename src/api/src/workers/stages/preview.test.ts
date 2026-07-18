@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeAll, afterAll, mock } from 'bun:test';
-import { mkdtemp, mkdir, readdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
+import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
+import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import sharp from 'sharp';
@@ -7,21 +7,15 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
-import type * as ImgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
+import * as imgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
 
-/** #2032 CI diagnostics — incremented by the imgdecode-boundary mock below so
- * a failure can report whether the mocked render was reached at all. If a
- * bitmap test fails while this stayed at 0, `generatePreview` itself never
- * dispatched to the render boundary — i.e. the stage was bound to some OTHER
- * `generatePreview` (a leaked module mock), not the real one. */
-let mockRenderCalls = 0;
-
-/** #2032 CI diagnostics: `sharp(p).metadata()` with rich failure context.
- * On decode failure, capture what actually landed at `p` — header bytes,
- * size/mtime, a buffer-based decode attempt (discriminates a path/loader
- * problem from genuinely-undecodable bytes), the previews dir listing, the
- * mock-render counter, and the identity of the currently-registered
- * `generatePreview` — then rethrow with all of it in the message. */
+/** `sharp(p).metadata()` with failure context. #2032's root cause was a
+ * sibling file's leaked `generatePreview` module mock writing literal
+ * `generated-<n>` text bytes at the preview path — undecodable by sharp, and
+ * invisible in the default assertion failure. On decode failure, report what
+ * actually landed at `p` (header bytes, size, whether this file's own render
+ * stub was ever reached, and which `generatePreview` is currently registered)
+ * so any future leak of this class is self-diagnosing in CI output. */
 async function readbackMetadata(p: string): Promise<sharp.Metadata> {
   try {
     return await sharp(p).metadata();
@@ -30,43 +24,27 @@ async function readbackMetadata(p: string): Promise<sharp.Metadata> {
       (b) => b,
       () => null,
     );
-    const head = bytes ? bytes.subarray(0, 32).toString('hex') : '<unreadable>';
     const headAscii = bytes
       ? bytes
           .subarray(0, 32)
           .toString('latin1')
           .replace(/[^\x20-\x7e]/g, '.')
       : '<unreadable>';
-    const bufferDecode = bytes
-      ? await sharp(bytes)
-          .metadata()
-          .then(
-            (m) => `ok format=${m.format} ${m.width}x${m.height}`,
-            (e: Error) => `failed: ${e.message}`,
-          )
-      : 'no bytes';
-    const s = await stat(p).then(
-      (v) => `size=${v.size} mtimeMs=${v.mtimeMs}`,
-      (e: Error) => `stat failed: ${e.message}`,
-    );
-    const dirListing = await readdir(path.dirname(p)).then(
-      (names) => names.join(', '),
-      (e: Error) => `readdir failed: ${e.message}`,
-    );
     const previewerNow = await import('../../indexer/previewer.ts');
     throw new Error(
-      `#2032 diag — sharp metadata() failed for ${p}: ${err instanceof Error ? err.message : err}\n` +
-        `  file: ${s}\n` +
-        `  head(hex): ${head}\n` +
+      `sharp metadata() failed for ${p}: ${err instanceof Error ? err.message : err}\n` +
+        `  size: ${bytes?.length ?? '<unreadable>'}\n` +
         `  head(ascii): ${headAscii}\n` +
-        `  buffer decode: ${bufferDecode}\n` +
-        `  dir: ${dirListing}\n` +
-        `  mockRenderCalls: ${mockRenderCalls}\n` +
-        `  registered generatePreview fn name: ${previewerNow.generatePreview.name}`,
+        `  stub render calls this file: ${mockRenderCalls}\n` +
+        `  registered generatePreview fn: ${previewerNow.generatePreview.name}`,
       { cause: err },
     );
   }
 }
+
+/** Incremented by the render stub below; surfaced by `readbackMetadata` so a
+ * failure shows whether `generatePreview` ever reached the render boundary. */
+let mockRenderCalls = 0;
 
 const TEST_DB = `maple_test_preview_stage_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -77,62 +55,58 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
  * `previewStage.handler` through the REAL production path — `previewer.ts`'s
  * `renderBitmapPreviewToFile` — which dispatches to the isolated `imgdecode`
  * child process via the process-global singleton in `thumbs/imgdecode-pool.ts`
- * (see that module's doc: one child, shared by every caller in the whole
- * `bun test` process for its lifetime).
+ * (one child, shared by every caller in the whole `bun test` process).
  *
- * #2032: under CI's resource-constrained runner, that shared singleton is
- * also driven by `imgdecode-pool.test.ts`'s own real-child integration test
- * (which resets/shuts down the SAME process-global pool). The extra
- * spawn/respawn churn intermittently made the child return decode errors —
- * or leave a corrupt/partial file behind — for perfectly valid JPEGs here,
- * so `sharp(...).metadata()` on this file's output would throw "Input file
- * contains unsupported image format". Root-caused and reproduced twice in CI
- * (issue #2032); the full suite is stable locally where resources aren't
- * constrained.
+ * The stub below replaces ONLY that subprocess boundary
+ * (`renderImageThumbToFileViaPool`), transcoding in-process via sharp instead
+ * — the same treatment `routes/preview.test.ts`'s JPEG-body tests got in
+ * commit ed75f062b: spawning real decode children from multiple test files
+ * destabilises the shared pool singleton under CI's constrained resources.
+ * A genuine AVIF still lands on disk and passes the real `validateAvifOutput`
+ * decode-gate inside `previewer.ts` — every assertion in this file stays
+ * decode-verified, not asserted-by-mock — while the real isolated-child
+ * transcode remains covered by `imgdecode-pool.test.ts`'s own integration
+ * test.
  *
- * Mirrors the fix already applied to `routes/preview.test.ts`'s JPEG-body
- * tests (#2018, commit ed75f062b) for the identical class of problem: stub
- * ONLY the subprocess boundary (`renderImageThumbToFileViaPool`), transcoding
- * in-process via sharp instead. A genuine AVIF still lands on disk and passes
- * the real `validateAvifOutput` decode-gate inside `previewer.ts` — every
- * assertion in this file stays decode-verified, not asserted-by-mock — while
- * the real isolated-child transcode remains covered by
- * `imgdecode-pool.test.ts`'s own integration test. Captured/restored once for
- * the whole file (both describe blocks below exercise the same handler path)
- * so the mock never leaks into sibling test files.
+ * Patched via `spyOn` on the module namespace, NOT `mock.module`, and
+ * restored in `afterAll`: #2032's root cause was precisely a sibling file's
+ * `mock.module` fake (of `generatePreview`, in
+ * `routes/library/preview-ondemand-limiter.test.ts`) whose afterAll restore
+ * silently failed to take effect on CI's (linux) test-file collection order,
+ * leaking `generated-<n>` text bytes into this file's preview paths. `spyOn`
+ * patches the one export in place — every importer calls through the
+ * namespace slot — and `mockRestore()` reverts it reliably for every
+ * importer (the `worker-status.repo.test.ts` db/client pattern).
  */
-let realImgdecodePool: typeof ImgdecodePoolModule;
-
-beforeAll(async () => {
-  realImgdecodePool = await import('../../thumbs/imgdecode-pool.ts');
-  mock.module('../../thumbs/imgdecode-pool.ts', () => ({
-    ...realImgdecodePool,
-    renderImageThumbToFileViaPool: async (
-      srcPath: string,
-      outPath: string,
-      maxPx: number,
-      quality: number,
-    ): Promise<{ ok: boolean; error?: string }> => {
-      mockRenderCalls++;
-      try {
-        // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
-        // orientation, resize without enlarging, AVIF-encode.
-        const out = await sharp(await readFile(srcPath), { failOn: 'none', unlimited: true })
-          .rotate()
-          .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
-          .avif({ quality })
-          .toBuffer();
-        await writeFile(outPath, out);
-        return { ok: true };
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  }));
-});
+const renderStubSpy = spyOn(
+  imgdecodePoolModule,
+  'renderImageThumbToFileViaPool',
+).mockImplementation(
+  async (
+    srcPath: string,
+    outPath: string,
+    maxPx: number,
+    quality: number,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    mockRenderCalls++;
+    try {
+      // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
+      // orientation, resize without enlarging, AVIF-encode.
+      const out = await sharp(await readFile(srcPath), { failOn: 'none', unlimited: true })
+        .rotate()
+        .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
+        .avif({ quality })
+        .toBuffer();
+      await writeFile(outPath, out);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
 
 afterAll(() => {
-  mock.module('../../thumbs/imgdecode-pool.ts', () => realImgdecodePool);
+  renderStubSpy.mockRestore();
 });
 
 async function tryConnect(): Promise<MongoClient | null> {
