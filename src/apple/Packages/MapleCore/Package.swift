@@ -26,9 +26,11 @@ let package = Package(
     platforms: [
         .macOS(.v14),
         .iOS(.v17),
+        .tvOS(.v17),
     ],
     products: [
         .library(name: "MapleCore", targets: ["MapleCore"]),
+        .library(name: "MapleCloudKit", targets: ["MapleCloudKit"]),
     ],
     dependencies: [
         // AMSMB2 — Swift SMB 2/3 client (MIT license; review before App Store submission).
@@ -48,9 +50,14 @@ let package = Package(
         ),
     ],
     targets: [
+        // Portable Cloud/Auth networking layer — consumed by the iOS/macOS app
+        // via MapleCore's re-export AND directly by the Maple TV target (tvOS),
+        // which must not link RawPipeline. Keep this target dependency-free.
+        .target(name: "MapleCloudKit"),
         .target(
             name: "MapleCore",
             dependencies: [
+                "MapleCloudKit",
                 "RawPipeline",
                 .product(name: "AMSMB2", package: "AMSMB2"),
                 .product(name: "MapleBackup", package: "MapleBackup"),
@@ -81,6 +88,7 @@ let package = Package(
             name: "MapleCoreTests",
             dependencies: [
                 "MapleCore",
+                "MapleCloudKit",
                 .product(name: "MapleBackup", package: "MapleBackup"),
             ],
             resources: [
