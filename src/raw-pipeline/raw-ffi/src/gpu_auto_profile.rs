@@ -26,7 +26,10 @@ use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
-use raw_core::pipeline::{fit_auto_profile_from_raw, RawInput, RenderQuality};
+use raw_core::pipeline::{
+    cached_auto_profile_fit, fit_auto_profile_from_raw, RawInput, RenderQuality,
+};
+use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
 use std::ffi::{c_char, CStr};
 
 /// The flat-`f32` length of a serialized `ProfileCurve` — the size the host must
@@ -70,8 +73,11 @@ const _: () = assert!(
 ///
 /// This is a **per-image, one-shot** call (JPEG extract + full develop + fit,
 /// orders of magnitude over the slider-tick budget). Both fits are cached in the
-/// shared `auto_profile` LRUs; the host should ALSO cache the returned artifacts
-/// and never call this per slider tick.
+/// shared `auto_profile` LRUs keyed `(path, mtime, quality)`; a call whose
+/// artifacts are fully cached returns WITHOUT reading or decoding the RAW at
+/// all (#2035 — the Apple host re-issues this call on every GPU session
+/// re-open, so the hit path is just an artifact copy). The host should ALSO
+/// cache the returned artifacts and never call this per slider tick.
 ///
 /// Returns:
 /// - `0` on success — at least one of curve / residual was fit and written.
@@ -158,48 +164,73 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        // Compute the key BEFORE the read so a file replaced between read and stat
-        // can't cache T0-content under a T1-mtime key (TOCTOU stale-hit).
-        let cache_key = CacheKey::from_path(raw_path);
-        let raw_bytes =
-            match raw_core::pipeline::stage("ffi_gpu_auto_raw_read", || std::fs::read(raw_path)) {
-                Ok(b) => b,
-                Err(e) => {
-                    set_last_error(format!("raw read: {}", e));
-                    return 6;
-                }
-            };
-        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        // #1662: route through the SAME decoded-RawImage cache (#949) the
-        // scene-linear render FFI populated moments earlier under this path key,
-        // so the GPU-live Auto-Profile fit HITS instead of re-decoding the RAW a
-        // second time. The CPU fit (`maple_compute_auto_profile_lut`) already
-        // cached; the GPU fit was still on the uncached `decode_bytes` — the ~10s
-        // cold-open double-decode on large RAWs. Falls back to an uncached decode
-        // on an un-stattable path (key None), mirroring `decode_file_cached`.
-        let raw_img =
-            match raw_core::pipeline::stage("ffi_gpu_auto_decode", || match cache_key.as_ref() {
-                Some(k) => decode_bytes_cached(k, &raw_bytes, ext),
-                None => Ok(std::sync::Arc::new(decode_bytes(&raw_bytes, ext)?)),
-            }) {
-                Ok(r) => r,
-                Err(e) => {
-                    set_last_error(format!("decode: {}", e));
-                    return 7;
-                }
-            };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
         } else {
             RenderQuality::Full
         };
 
-        let (curve_opt, residual_opt) =
-            match fit_auto_profile_from_raw(&raw_img, &model, quality, RawInput::Path(raw_path)) {
-                Some(pair) => pair,
-                // Not Auto, or no embedded JPEG (both stages None) — host AgX.
-                None => return 1,
-            };
+        // #2035: cache-only probe BEFORE any file I/O. The Apple GPU-live host
+        // re-issues this call on every session re-open (a window resize, a
+        // zoom past fit), and the fit LRUs usually still hold the artifacts —
+        // under a hit the whole call is an artifact copy, skipping the
+        // full-file read and the decode entirely. The probe key carries the
+        // develop quality, so a Preview host can never be served Full-fit
+        // artifacts (or vice versa).
+        let auto_key = AutoCacheKey::from_path(raw_path, quality);
+        let fit_result = match cached_auto_profile_fit(&model, auto_key.as_ref()) {
+            Some(pair) => Some(pair),
+            None => {
+                // Miss (or no tail) — the pre-#2035 read + decode + fit path.
+                // Compute the decode-cache key BEFORE the read so a file
+                // replaced between read and stat can't cache T0-content under
+                // a T1-mtime key (TOCTOU stale-hit).
+                let cache_key = CacheKey::from_path(raw_path);
+                let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                // #2035: probe the decoded-RawImage cache (#949) first — on a
+                // hit the full-file read below is skipped too.
+                let raw_img = match cache_key.as_ref().and_then(raw_core::decode_cache::get) {
+                    Some(img) => img,
+                    None => {
+                        let raw_bytes =
+                            match raw_core::pipeline::stage("ffi_gpu_auto_raw_read", || {
+                                std::fs::read(raw_path)
+                            }) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    set_last_error(format!("raw read: {}", e));
+                                    return 6;
+                                }
+                            };
+                        // #1662: route through the SAME decoded-RawImage cache
+                        // (#949) the scene-linear render FFI populated moments
+                        // earlier under this path key, so the GPU-live
+                        // Auto-Profile fit HITS instead of re-decoding the RAW
+                        // a second time. Falls back to an uncached decode on an
+                        // un-stattable path (key None), mirroring
+                        // `decode_file_cached`.
+                        match raw_core::pipeline::stage("ffi_gpu_auto_decode", || {
+                            match cache_key.as_ref() {
+                                Some(k) => decode_bytes_cached(k, &raw_bytes, ext),
+                                None => Ok(std::sync::Arc::new(decode_bytes(&raw_bytes, ext)?)),
+                            }
+                        }) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                set_last_error(format!("decode: {}", e));
+                                return 7;
+                            }
+                        }
+                    }
+                };
+                fit_auto_profile_from_raw(&raw_img, &model, quality, RawInput::Path(raw_path))
+            }
+        };
+        let (curve_opt, residual_opt) = match fit_result {
+            Some(pair) => pair,
+            // Not Auto, or no embedded JPEG (both stages None) — host AgX.
+            None => return 1,
+        };
 
         // --- Curve: write the flat serialization iff a curve was fit. ---
         if let Some(curve) = curve_opt {

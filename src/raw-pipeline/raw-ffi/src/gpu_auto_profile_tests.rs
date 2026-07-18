@@ -301,19 +301,23 @@ fn fixture_fit_matches_cube_when_present() {
 /// GPU fit did not).
 ///
 /// Observable: after the fit runs, the file's key is present in the cache. Uses
-/// `test_0017` — no other raw-ffi test decodes it, so the key is pristine and is
-/// present iff THIS fit inserted it (no `clear_for_test`, so no interference with
-/// concurrent fixture tests). The decode runs BEFORE the Auto/Neutral tail
-/// decision, so an `rc` of 0 (tail) or 1 (no tail) both mean the decode executed.
+/// a TEMPDIR COPY of `test_0017` whose mtime is bumped to a distinct second
+/// before every iteration: each iteration therefore carries a unique
+/// `(path, mtime)` identity, so the #2035 fit-artifact fast path (which skips
+/// the decode entirely on a warm fit-LRU) can never mask the property under
+/// test, and no other test can interfere (no `clear_for_test` needed). The
+/// decode runs BEFORE the Auto/Neutral tail decision, so an `rc` of 0 (tail)
+/// or 1 (no tail) both mean the decode executed.
 #[test]
 fn fixture_gpu_fit_routes_decode_through_shared_cache() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0017.dng");
-    if !path.exists() {
+    if !fixture.exists() {
         return; // skip-pass: no fixture (CI without RAWs)
     }
-    let key = raw_core::decode_cache::CacheKey::from_path(&path)
-        .expect("a real fixture file is stattable");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("test_0017_1662.dng");
+    std::fs::copy(&fixture, &path).expect("copy fixture into tempdir");
 
     let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
     let mut curve = [0f32; PROFILE_CURVE_FLAT_LEN];
@@ -328,9 +332,22 @@ fn fixture_gpu_fit_routes_decode_through_shared_cache() {
     // the key present on AT LEAST ONE iteration: the old uncached fit NEVER
     // inserts (every iteration absent → fail), while the fixed fit inserts on
     // every call, so an eviction would have to win the race on every iteration.
-    // In practice the fixed path is present on the first iteration.
+    // In practice the fixed path is present on the first iteration. Each
+    // iteration bumps the copy's mtime so its `(path, mtime)` identity is
+    // fresh — the decode cache AND the #2035 fit-artifact cache both miss,
+    // forcing the decode this test observes.
     let mut populated = false;
-    for _ in 0..5 {
+    for i in 0..5u64 {
+        let mtime =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000 + i);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open copy")
+            .set_modified(mtime)
+            .expect("set mtime");
+        let key = raw_core::decode_cache::CacheKey::from_path(&path)
+            .expect("a real temp file is stattable");
         let rc = unsafe {
             maple_gpu_fit_auto_profile(
                 cpath.as_ptr(),
@@ -353,5 +370,94 @@ fn fixture_gpu_fit_routes_decode_through_shared_cache() {
         populated,
         "GPU fit must populate the shared decode cache (#1662) — it was calling \
          the uncached decode_bytes, forcing a second full decode on cold open"
+    );
+}
+
+/// #2035: a fully-cached `(path, mtime, quality)` fit is served WITHOUT reading
+/// or decoding the file — proven structurally: the "RAW" on disk is garbage
+/// bytes that CANNOT decode (the read+decode path returns rc=7 on it), yet with
+/// both artifacts pre-inserted under the file's Full-quality key the call
+/// returns rc=0 with exactly the cached artifacts. The same call at Preview
+/// quality then MISSES (the #2035 quality discriminant) and falls through to
+/// the real read+decode — which fails on the garbage, proving a Preview caller
+/// can never be served the Full-keyed artifacts.
+///
+/// Runs without fixtures: the tempdir file + the process-wide LRUs are all the
+/// state involved, and the unique temp path can't collide with other tests.
+#[test]
+fn cached_fit_skips_file_read_and_decode_and_respects_quality() {
+    use raw_core::pipeline::RenderQuality;
+    use raw_core::view::auto_profile::cache as auto_cache;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("bogus_2035.dng");
+    std::fs::write(&path, b"definitely not a decodable raw file").expect("write");
+    let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+
+    // Pre-insert BOTH artifacts under the file's Full-quality key.
+    let cached_curve = non_identity_curve();
+    let cached_residual = non_identity_residual(5);
+    let key = auto_cache::CacheKey::from_path(&path, RenderQuality::Full)
+        .expect("temp file is stattable");
+    auto_cache::insert(key.clone(), cached_curve.clone());
+    auto_cache::insert_lut(key, cached_residual.clone());
+
+    let mut curve = [0f32; PROFILE_CURVE_FLAT_LEN];
+    let mut present = 0i32;
+    let mut lut = vec![0f32; 5 * 5 * 5 * 3];
+    let mut size = 0u32;
+
+    // Full quality (quality_preview = 0) → cache HIT → rc 0, no decode of the
+    // garbage bytes, out-params exactly the cached artifacts.
+    let rc = unsafe {
+        maple_gpu_fit_auto_profile(
+            cpath.as_ptr(),
+            std::ptr::null(), // no sidecar → default model → Profile::Auto
+            0,
+            curve.as_mut_ptr(),
+            &mut present,
+            lut.as_mut_ptr(),
+            lut.len(),
+            &mut size,
+        )
+    };
+    assert_eq!(
+        rc, 0,
+        "a fully-cached fit must succeed without touching the (undecodable) file"
+    );
+    assert_eq!(present, 1, "the cached curve must be surfaced");
+    assert_eq!(
+        &curve[..],
+        &cached_curve.to_flat()[..],
+        "surfaced curve must be byte-identical to the cached artifact"
+    );
+    assert_eq!(size, 5, "the cached residual edge must be surfaced");
+    assert_eq!(
+        &lut[..],
+        &cached_residual.data[..],
+        "surfaced residual must be byte-identical to the cached artifact"
+    );
+
+    // Preview quality (quality_preview = 1) → DIFFERENT key → cache miss →
+    // the real read+decode path runs and fails on the garbage bytes (rc 7).
+    // Before #2035's quality discriminant this would have silently served the
+    // Full-fit artifacts.
+    let rc = unsafe {
+        maple_gpu_fit_auto_profile(
+            cpath.as_ptr(),
+            std::ptr::null(),
+            1,
+            curve.as_mut_ptr(),
+            &mut present,
+            lut.as_mut_ptr(),
+            lut.len(),
+            &mut size,
+        )
+    };
+    assert_eq!(
+        rc, 7,
+        "a Preview-quality call must MISS the Full-keyed cache and hit the real \
+         decode (which fails on the garbage file) — not be served cross-quality \
+         artifacts"
     );
 }

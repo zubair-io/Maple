@@ -52,10 +52,11 @@ pub use develop_sized::{
 pub use downsample::downsample_image_area;
 pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use render::{
-    fit_auto_profile_from_raw, fit_profile_curve_from_raw, native_render_dims, render_from_raw,
-    render_from_raw_with_quality, render_from_raw_with_quality_and_source,
-    render_from_scene_linear, render_from_scene_linear_with_chain,
-    render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
+    cached_auto_profile_fit, fit_auto_profile_from_raw, fit_profile_curve_from_raw,
+    native_render_dims, render_from_raw, render_from_raw_with_quality,
+    render_from_raw_with_quality_and_source, render_from_scene_linear,
+    render_from_scene_linear_with_chain, render_scene_linear_from_raw_with_quality,
+    render_scene_linear_from_raw_with_quality_f32,
     render_scene_linear_from_raw_with_quality_f32_cancellable,
     render_scene_linear_sized_from_raw_with_quality,
     render_scene_linear_sized_from_raw_with_quality_f32,
@@ -162,7 +163,11 @@ pub(crate) fn dump_after(_name: &str, _image: &crate::image::Image) {}
 /// `Preview` returns the buffer at the half-res rendered dimensions —
 /// callers must scale to display dimensions themselves (CIImage transform
 /// on Apple, texture upload on Web).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+/// `Hash` because the quality participates in the Auto-Profile fit cache key
+/// (`view::auto_profile::cache::CacheKey`, #2035) — the fit develop runs at a
+/// given quality, so Preview- and Full-fit artifacts must never serve each
+/// other.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RenderQuality {
     Preview,
     Full,

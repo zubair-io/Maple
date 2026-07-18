@@ -225,8 +225,8 @@ pub fn fit_profile_curve_from_raw(
     // Mirror the cache lookup in the render path so a hit on either path
     // serves the other without re-fitting.
     let auto_cache_key = match &raw_source {
-        RawInput::Path(p) => CacheKey::from_path(p),
-        RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes)),
+        RawInput::Path(p) => CacheKey::from_path(p, quality),
+        RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes, quality)),
     };
     if let Some(c) = auto_cache_key.as_ref().and_then(auto_profile::cache::get) {
         return Some(c);
@@ -299,9 +299,19 @@ pub fn fit_auto_profile_from_raw(
         return None;
     }
     let auto_cache_key = match &raw_source {
-        RawInput::Path(p) => CacheKey::from_path(p),
-        RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes)),
+        RawInput::Path(p) => CacheKey::from_path(p, quality),
+        RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes, quality)),
     };
+
+    // Fast path: everything obtainable is already cached (e.g. a CPU render of
+    // the same RAW ran first) — return without the multi-second develop. The
+    // hit condition lives in [`cached_auto_profile_fit`] so the FFI entries
+    // can probe it BEFORE reading/decoding the RAW (#2035) without a second
+    // copy of the semantics.
+    if let Some(pair) = cached_auto_profile_fit(model, auto_cache_key.as_ref()) {
+        return Some(pair);
+    }
+
     let lut_disabled = auto_profile::lut::lut_disabled_by_env();
     let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
     let cached_lut = if lut_disabled {
@@ -312,39 +322,33 @@ pub fn fit_auto_profile_from_raw(
             .and_then(auto_profile::cache::get_lut)
     };
 
-    // Fast path: everything obtainable is already cached (e.g. a CPU render of
-    // the same RAW ran first) — return without the multi-second develop. A
-    // cached curve with no cached LUT still needs the develop to fit the
+    // A cached curve with no cached LUT still needs the develop to fit the
     // residual (a legitimately-`None` residual can't be distinguished from
     // "never fit" via the cache, but the host caches the baked artifacts, so
     // this re-fits at most once per image).
-    let (curve, residual) = if cached_curve.is_some() && (lut_disabled || cached_lut.is_some()) {
-        (cached_curve, cached_lut)
-    } else {
-        match extract_preview_for_fit(&raw_source) {
-            // No embedded preview: nothing beyond the cache can be fit.
-            None => (cached_curve, cached_lut),
-            Some(preview) => {
-                // #1637: size the fit develop to the preview on large sensors
-                // only (see the curve-only fit above + `auto_fit_max_long_edge`).
-                let mle = auto_fit_max_long_edge(raw, &preview);
-                // #1647 M2: shrink the JPEG to the proxy so the curve+residual
-                // fit over a ~1.5 MP pair, not the full embedded preview.
-                let preview = downsample_preview_for_fit(preview, mle);
-                let mut scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
-                let (w, h) = (scene.width as usize, scene.height as usize);
-                let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-                auto_profile::apply_pipeline::fit_auto_profile_artifacts(
-                    pixels,
-                    w,
-                    h,
-                    raw.orientation,
-                    Some(&preview),
-                    auto_cache_key.as_ref(),
-                    cached_curve,
-                    cached_lut,
-                )
-            }
+    let (curve, residual) = match extract_preview_for_fit(&raw_source) {
+        // No embedded preview: nothing beyond the cache can be fit.
+        None => (cached_curve, cached_lut),
+        Some(preview) => {
+            // #1637: size the fit develop to the preview on large sensors
+            // only (see the curve-only fit above + `auto_fit_max_long_edge`).
+            let mle = auto_fit_max_long_edge(raw, &preview);
+            // #1647 M2: shrink the JPEG to the proxy so the curve+residual
+            // fit over a ~1.5 MP pair, not the full embedded preview.
+            let preview = downsample_preview_for_fit(preview, mle);
+            let mut scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
+            let (w, h) = (scene.width as usize, scene.height as usize);
+            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+            auto_profile::apply_pipeline::fit_auto_profile_artifacts(
+                pixels,
+                w,
+                h,
+                raw.orientation,
+                Some(&preview),
+                auto_cache_key.as_ref(),
+                cached_curve,
+                cached_lut,
+            )
         }
     };
 
@@ -358,6 +362,54 @@ pub fn fit_auto_profile_from_raw(
         residual.map(|l| l.with_strength(k))
     };
     Some((curve, residual))
+}
+
+/// Cache-only probe (#2035): the fully-resolved Auto Profile fit result for
+/// `key`, **iff** a call to [`fit_auto_profile_from_raw`] with the same
+/// `model` + key would take its fast path — i.e. both artifacts are already
+/// resolvable from the shared LRUs without the multi-second develop. `None`
+/// means a fresh fit would still need the RAW (or `model` isn't
+/// `Profile::Auto`, where the fit returns no tail anyway).
+///
+/// This is THE fast-path condition of `fit_auto_profile_from_raw`, extracted
+/// so the FFI fit entries (`maple_gpu_fit_auto_profile`,
+/// `maple_compute_auto_profile_lut`) can probe it BEFORE paying the
+/// full-file `fs::read` + decode their miss path needs — on a session
+/// re-open of an already-fit image the probe hit makes the whole FFI call
+/// artifact-copy cheap. On a hit the returned pair is byte-identical to what
+/// the fit itself would return: same LRU entries, same
+/// `MAPLE_DISABLE_AUTO_LUT` / `MAPLE_AUTO_LUT_STRENGTH` env semantics
+/// (the cache always holds the full-strength residual; the strength scale is
+/// applied on the way out, exactly like the fit's own return).
+///
+/// A hit requires a cached CURVE (plus a cached LUT unless the residual is
+/// env-disabled) — a cached LUT alone is NOT a hit, mirroring the fit: a
+/// legitimately-`None` residual can't be distinguished from "never fit" via
+/// the cache, so a curve-less state always re-develops.
+pub fn cached_auto_profile_fit(
+    model: &AdjustmentModel,
+    key: Option<&CacheKey>,
+) -> Option<(Option<ProfileCurve>, Option<ColorLut>)> {
+    if model.profile != Profile::Auto {
+        return None;
+    }
+    let key = key?;
+    let cached_curve = auto_profile::cache::get(key)?;
+    let lut_disabled = auto_profile::lut::lut_disabled_by_env();
+    let cached_lut = if lut_disabled {
+        None
+    } else {
+        // A curve without its paired LUT is a MISS — the develop must run to
+        // fit the residual (see the doc above).
+        Some(auto_profile::cache::get_lut(key)?)
+    };
+    let k = auto_profile::lut::lut_strength_from_env();
+    let residual = if k == 1.0 {
+        cached_lut
+    } else {
+        cached_lut.map(|l| l.with_strength(k))
+    };
+    Some((Some(cached_curve), residual))
 }
 
 /// The CPU render path's Auto Profile stage (#1085): obtain the (pinned-fit)
@@ -532,6 +584,66 @@ mod tests {
         // (c) … AE stays pinned Off (#550/#871) and profile is carried.
         assert_eq!(fit.auto_exposure, AutoExposureMode::Off);
         assert_eq!(fit.profile, Profile::Auto);
+    }
+
+    /// #2035: the cache-only probe hits IFF both artifacts are cached under
+    /// the exact `(source, quality)` key, and returns exactly the cached
+    /// values. Pure in-memory (`CacheKey::from_bytes` on unique synthetic
+    /// byte strings — no file, structurally proving a hit needs no RAW
+    /// read), so no fixture and no cross-test cache interference.
+    #[test]
+    fn cached_fit_probe_hits_only_when_fully_cached() {
+        use crate::view::auto_profile::cache;
+        use crate::view::auto_profile::curve::ProfileCurve;
+
+        let auto = AdjustmentModel::default();
+        assert_eq!(auto.profile, Profile::Auto);
+        let neutral = AdjustmentModel {
+            profile: Profile::Neutral,
+            ..AdjustmentModel::default()
+        };
+
+        // Cold key (never inserted) → miss.
+        let cold = CacheKey::from_bytes(b"2035-probe-cold-unique-0001", RenderQuality::Preview);
+        assert!(cached_auto_profile_fit(&auto, Some(&cold)).is_none());
+        // No key at all (un-stattable path) → miss.
+        assert!(cached_auto_profile_fit(&auto, None).is_none());
+
+        // Curve alone → still a miss (the residual can't be told apart from
+        // "never fit"; the develop must run).
+        let half =
+            CacheKey::from_bytes(b"2035-probe-curve-only-unique-0002", RenderQuality::Preview);
+        cache::insert(half.clone(), ProfileCurve::identity());
+        assert!(
+            cached_auto_profile_fit(&auto, Some(&half)).is_none(),
+            "a cached curve WITHOUT its paired LUT must not probe as a hit"
+        );
+
+        // Curve + LUT → hit, with exactly the cached artifacts.
+        let full = CacheKey::from_bytes(b"2035-probe-full-unique-0003", RenderQuality::Preview);
+        let mut lut = crate::view::auto_profile::lut::ColorLut::identity(5);
+        lut.data[0] = 0.25; // recognisable tag
+        cache::insert(full.clone(), ProfileCurve::identity());
+        cache::insert_lut(full.clone(), lut.clone());
+        let (curve, residual) =
+            cached_auto_profile_fit(&auto, Some(&full)).expect("fully-cached key must hit");
+        assert_eq!(curve, Some(ProfileCurve::identity()));
+        assert_eq!(residual, Some(lut));
+
+        // Not Profile::Auto → no tail regardless of cache state.
+        assert!(
+            cached_auto_profile_fit(&neutral, Some(&full)).is_none(),
+            "non-Auto model must never probe as a hit"
+        );
+
+        // #2035 quality discriminant: the SAME bytes at a DIFFERENT quality
+        // is a different key → miss (Preview-fit artifacts can't serve Full).
+        let other_quality =
+            CacheKey::from_bytes(b"2035-probe-full-unique-0003", RenderQuality::Full);
+        assert!(
+            cached_auto_profile_fit(&auto, Some(&other_quality)).is_none(),
+            "a Preview-keyed fit must not serve a Full-quality probe"
+        );
     }
 
     /// #1085 determinism: the fit develop — and therefore the fitted curve —

@@ -344,7 +344,9 @@ fn auto_will_fit_matches_profile_and_cache() {
 
     // Auto profile + a cache HIT on these exact bytes → true (a prior CPU/GPU
     // render fit this RAW; the probe predicts the fit without re-extracting).
-    let key = auto_profile::cache::CacheKey::from_bytes(hit_bytes);
+    // `Full` = the quality this path's fit runs at, which is the key the
+    // probe checks (#2035 quality-keyed cache).
+    let key = auto_profile::cache::CacheKey::from_bytes(hit_bytes, RenderQuality::Full);
     auto_profile::cache::insert(key, auto_profile::curve::ProfileCurve::identity());
     assert!(
         super::auto_will_fit(&auto, hit_bytes, ext),

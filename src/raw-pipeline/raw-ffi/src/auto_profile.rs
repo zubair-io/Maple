@@ -8,8 +8,10 @@ use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 use raw_core::pipeline::{
-    fit_auto_profile_from_raw, fit_profile_curve_from_raw, RawInput, RenderQuality,
+    cached_auto_profile_fit, fit_auto_profile_from_raw, fit_profile_curve_from_raw, RawInput,
+    RenderQuality,
 };
+use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
 use std::ffi::{c_char, CStr};
 
 /// Bake a fitted Auto Profile curve into a display-space `n³` 3D LUT (#817)
@@ -129,8 +131,8 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
 /// This is a **per-image, one-shot** call — the fit runs a full JPEG
 /// extraction + develop chain (orders of magnitude over the slider tick
 /// budget). The fit is cached in the shared `auto_profile` LRU keyed on
-/// `(raw_identity, mtime)`, so the host should ALSO cache the returned
-/// curve on its side and never call this per slider tick.
+/// `(raw_identity, mtime, quality)`, so the host should ALSO cache the
+/// returned curve on its side and never call this per slider tick.
 ///
 /// Returns:
 /// - `0` on success — `out` holds `PROFILE_CURVE_FLAT_LEN` f32.
@@ -272,8 +274,10 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
 ///
 /// This is a **per-image, one-shot** call (JPEG extract + full develop + fit +
 /// bake, orders of magnitude over the slider-tick budget). Both fits are cached
-/// in the shared `auto_profile` LRUs; the host should ALSO cache the composed
-/// cube and never call this per slider tick.
+/// in the shared `auto_profile` LRUs keyed `(path, mtime, quality)`; a call
+/// whose artifacts are fully cached bakes straight from the cache WITHOUT
+/// reading or decoding the RAW at all (#2035). The host should ALSO cache the
+/// composed cube and never call this per slider tick.
 ///
 /// Returns:
 /// - `0` on success — `out` holds `n * n * n * 3` f32.
@@ -351,42 +355,69 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        // Compute the key BEFORE reading — if the file changes between here and
-        // fs::read we cache the new bytes under the new mtime, not the old one.
-        let cache_key = CacheKey::from_path(raw_path);
-        let raw_bytes =
-            match raw_core::pipeline::stage("ffi_auto_lut_raw_read", || std::fs::read(raw_path)) {
-                Ok(b) => b,
-                Err(e) => {
-                    set_last_error(format!("raw read: {}", e));
-                    return 6;
-                }
-            };
-        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        // #949: route through the decoded-RawImage cache keyed on (path, mtime).
-        // The scene-linear render FFI decoded the SAME file moments earlier under
-        // the same path key, so this is a hit and the ~1.8s decode is skipped.
-        // The `ffi_auto_lut_decode` stage wrapper stays so a hit reads as ~0ms.
-        let raw_img = match raw_core::pipeline::stage("ffi_auto_lut_decode", || {
-            decode_auto_lut_cached(cache_key.as_ref(), &raw_bytes, ext)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
-        };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
         } else {
             RenderQuality::Full
         };
-        let (curve_opt, residual_opt) =
-            match fit_auto_profile_from_raw(&raw_img, &model, quality, RawInput::Path(raw_path)) {
-                Some(pair) => pair,
-                // Not Auto, or no embedded JPEG (both stages None) — host AgX.
-                None => return 1,
-            };
+        // #2035: cache-only probe BEFORE any file I/O — when the shared fit
+        // LRUs already hold BOTH artifacts for `(path, mtime, quality)`, the
+        // bake below needs nothing from the file, so the full-file read and
+        // the decode are skipped entirely. The quality in the key keeps a
+        // Preview-fit from ever being baked for a Full-quality caller (and
+        // vice versa).
+        let fit_result = {
+            let auto_key = AutoCacheKey::from_path(raw_path, quality);
+            match cached_auto_profile_fit(&model, auto_key.as_ref()) {
+                Some(pair) => Some(pair),
+                None => {
+                    // Miss (or no tail) — the pre-#2035 read + decode + fit
+                    // path. Compute the decode-cache key BEFORE reading — if
+                    // the file changes between here and fs::read we cache the
+                    // new bytes under the new mtime, not the old one.
+                    let cache_key = CacheKey::from_path(raw_path);
+                    let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    // #2035: probe the decoded-RawImage cache (#949) first —
+                    // on a hit the full-file read below is skipped too.
+                    let raw_img = match cache_key.as_ref().and_then(raw_core::decode_cache::get) {
+                        Some(img) => img,
+                        None => {
+                            let raw_bytes =
+                                match raw_core::pipeline::stage("ffi_auto_lut_raw_read", || {
+                                    std::fs::read(raw_path)
+                                }) {
+                                    Ok(b) => b,
+                                    Err(e) => {
+                                        set_last_error(format!("raw read: {}", e));
+                                        return 6;
+                                    }
+                                };
+                            // #949: route through the decoded-RawImage cache
+                            // keyed on (path, mtime). The scene-linear render
+                            // FFI decoded the SAME file moments earlier under
+                            // the same path key, so this is a hit and the
+                            // ~1.8s decode is skipped. The `ffi_auto_lut_decode`
+                            // stage wrapper stays so a hit reads as ~0ms.
+                            match raw_core::pipeline::stage("ffi_auto_lut_decode", || {
+                                decode_auto_lut_cached(cache_key.as_ref(), &raw_bytes, ext)
+                            }) {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    set_last_error(format!("decode: {}", e));
+                                    return 7;
+                                }
+                            }
+                        }
+                    };
+                    fit_auto_profile_from_raw(&raw_img, &model, quality, RawInput::Path(raw_path))
+                }
+            }
+        };
+        let (curve_opt, residual_opt) = match fit_result {
+            Some(pair) => pair,
+            // Not Auto, or no embedded JPEG (both stages None) — host AgX.
+            None => return 1,
+        };
         // Compose curve ∘ residual into one cube. A missing curve degrades to
         // identity (residual-only, the AE-off brightness anchor); a missing
         // residual bakes the curve only — BYTE-identical to the #812 cube.
@@ -435,3 +466,7 @@ fn decode_auto_lut_cached(
         None => Ok(std::sync::Arc::new(decode_bytes(raw_bytes, ext)?)),
     }
 }
+
+#[cfg(test)]
+#[path = "auto_profile_tests.rs"]
+mod auto_profile_tests;
