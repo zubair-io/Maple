@@ -97,6 +97,7 @@ extension EditSession {
         )
         renderedPreview = composite
         previewIsFullRender = coversCanvas
+        previewIsThumbnailSeed = false  // #2040: a real render always supersedes the thumbnail seed
         renderError = nil
 
         // `!isFullQualityDecoding` mirrors the persist gate: a refine off the
