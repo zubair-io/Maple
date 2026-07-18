@@ -171,6 +171,78 @@ final class CanvasZoomControllerTests: XCTestCase {
                        accuracy: 1e-9)
     }
 
+    // MARK: - Wheel-pan commit coalescing (#2036)
+
+    /// Rapid wheel-pan events (trackpad two-finger scroll firing dozens of
+    /// times/sec) must move the live model on every event but defer the
+    /// session commit — a synchronous per-event commit used to clear the
+    /// native-detail overlay and reschedule a refine Task on every single
+    /// event. A short injected debounce interval keeps this test fast
+    /// without sleeping the production 120 ms.
+    func testWheelPanEventsUpdateModelLiveWithoutCommitting() {
+        let controller = makeController()
+        controller.zoomToScale(1.0)
+        controller._testSetWheelPanCommitInterval(milliseconds: 20)
+        let rectAfterZoom = controller.session.viewportSourceRect
+
+        for _ in 0..<10 {
+            controller.wheelPan(delta: CGSize(width: -10, height: 0))
+        }
+
+        XCTAssertNotEqual(controller.model.panOffset, .zero,
+                           "the live model must move on every event")
+        XCTAssertEqual(controller.session.viewportSourceRect, rectAfterZoom,
+                       "no commit reaches the session while the wheel stream is still active")
+        XCTAssertEqual(controller._testWheelPanCommitFireCount, 0)
+    }
+
+    /// After the wheel stream goes idle, exactly one commit fires and it
+    /// reflects the FINAL model state — not an intermediate one.
+    func testWheelPanCommitsOnceAfterStreamGoesIdle() async {
+        let controller = makeController()
+        controller.zoomToScale(1.0)
+        controller._testSetWheelPanCommitInterval(milliseconds: 20)
+
+        for _ in 0..<10 {
+            controller.wheelPan(delta: CGSize(width: -10, height: 0))
+        }
+        let panAtLastEvent = controller.model.panOffset
+
+        try? await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(controller._testWheelPanCommitFireCount, 1,
+                       "ten rapid events must coalesce into exactly one commit")
+        XCTAssertEqual(controller.panOffset, panAtLastEvent,
+                       "the single commit reflects the tail of the stream")
+        XCTAssertNotEqual(controller.session.viewportSourceRect.midX, 4000, accuracy: 1e-6,
+                          "the committed visible rect follows the panned position")
+    }
+
+    /// A fresh wheel event that arrives before the debounce fires must
+    /// cancel and restart the wait — this is what makes momentum-scroll
+    /// tails (which just extend the event stream) work correctly instead
+    /// of committing mid-stream.
+    func testFreshWheelEventRestartsTheDebounce() async {
+        let controller = makeController()
+        controller.zoomToScale(1.0)
+        controller._testSetWheelPanCommitInterval(milliseconds: 40)
+
+        controller.wheelPan(delta: CGSize(width: -10, height: 0))
+        try? await Task.sleep(for: .milliseconds(25))
+        // Re-arm just before the first commit would have fired (at 40 ms).
+        // If the second event failed to cancel + restart the wait, the
+        // ORIGINAL 40 ms deadline would fire here regardless.
+        controller.wheelPan(delta: CGSize(width: -10, height: 0))
+        try? await Task.sleep(for: .milliseconds(25))
+
+        XCTAssertEqual(controller._testWheelPanCommitFireCount, 0,
+                       "the second event must have cancelled + restarted the debounce")
+
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(controller._testWheelPanCommitFireCount, 1,
+                       "the restarted debounce eventually fires exactly once")
+    }
+
     // MARK: - Early commands (no viewport yet)
 
     func testZoomCommandBeforeViewportDefersCommit() {
