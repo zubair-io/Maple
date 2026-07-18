@@ -24,37 +24,48 @@ configuration (RAW asset, `Profile == .auto`, GPU-live on):
   independent fit (`EditSession+GpuLive.swift:169-172`). Every cold open of a
   never-fitted image pays seconds of serialized work, plus the multi-GB develop
   transient previously identified as the iOS jetsam lever, for zero benefit.
-- **Fit thrown away on every GPU session re-open.** `GpuLiveDriver.open()` resets
-  `autoProfileFitDone = false` unconditionally (`GpuLiveDriver.swift:157`), and `open()`
-  runs on every dims change because `isOpen` compares exact dims
-  (`GpuLiveDriver.swift:286-288`). The fit's inputs are `(rawPath, quality)` — dims play
-  no part — yet a window resize, a zoom past fit, or a crop toggle repeats the entire
-  seconds-long fit.
+- **Full-file read per fit call on every GPU session re-open.** _(Corrected during
+  implementation — the original claim that the entire fit re-runs was wrong.)_ The fit
+  results are already cached process-wide: `fit_auto_profile_from_raw` keeps a
+  capacity-32 LRU keyed `(path, mtime)` (`raw_core::view::auto_profile::cache`,
+  #558/#913/#1085), and both fit FFI entries route their decode through the shared
+  decoded-RawImage cache (#949/#1662). What every call still pays, before any cache is
+  consulted, is an unconditional `std::fs::read` of the whole RAW (~100–230 MB for the
+  100 MP class) in both `maple_compute_auto_profile_lut` and
+  `maple_gpu_fit_auto_profile` — and `GpuLiveDriver.open()` resets
+  `autoProfileFitDone = false` on every dims change (`GpuLiveDriver.swift:157`), so
+  every resize / zoom-past-fit / fast↔refine transition re-triggers that read. The
+  shared cache key also omits `quality`, so a Full-quality fit can be silently served
+  for a Preview request (cross-path correctness hazard). F2 is re-scoped accordingly.
 - **Fast/refine dims flip-flop.** The fast phase presents at viewport dims; the refine
   phase (once `pixelScale` exceeds fit) presents at up to 2× viewport
   (`CanvasMath.refinedTargetSize`). With exact-dims `isOpen`, each fast→refine→fast
   transition closes and re-opens the wgpu session, each re-open paying a full f32 CPU
-  readback (`sceneLinearFloats`) + re-upload — and, per the previous bullet, a full
-  auto-profile refit.
+  readback (`sceneLinearFloats`) + re-upload — plus the per-call file read above.
+- **Stale upload on baked-field edits (#2049, found while designing F6).** `isOpen`'s
+  exact-dims check is the ONLY guard on the readback+upload; a baked-field edit
+  (highlight recovery, capture sharpening) forces a fresh decode at unchanged dims, so
+  the upload is skipped and the GPU canvas presents the live chain over the stale
+  buffer until something changes the dims.
 
 Net effect while zoomed between fit and 100% on a RAW+Auto image: **every pan or slider
-settle costs a fresh sized FFI decode, two GPU session re-opens, and a seconds-long
-auto-profile refit.** At plain fit zoom the refine short-circuits
-(`refinedTargetSize == fastTargetSize`), which is why the cold open at fit feels merely
-slow while zooming feels broken.
+settle costs a fresh sized FFI decode, two GPU session re-opens (each a full f32
+readback + upload), and a full RAW file read for the refit call.** At plain fit zoom
+the refine short-circuits (`refinedTargetSize == fastTargetSize`), which is why the
+cold open at fit feels merely slow while zooming feels broken.
 
 ## Prioritized fixes
 
 ### P0 — build now
 
-| #   | Fix                                                                                                                                                                                                                                                                                                                                                                                                          | Goal served         | Size | Files (primary)                                              |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- | ---- | ------------------------------------------------------------ |
-| F1  | Compute the CPU `profileLUT` lazily, only on the CPU-fallback branches after `presentViaGpuLive` declines the frame (both the cached and fresh-decode branches, and `refineVisibleRegion` keeps its existing eager fetch since it is CPU-only). Removes seconds + a multi-GB transient from the default cold open.                                                                                           | load, memory        | S    | `EditSession+Render.swift`                                   |
-| F2  | Cache the GPU-live auto-profile fit across session re-opens, keyed `(rawPath, mtime, quality)`. The artifacts live Rust-side in the session, so the cache belongs in the process-wide slot that already survives re-opens; the Swift `autoProfileFitDone` flag alone cannot carry it. Touches `raw-core` gpu-live + `raw-ffi` + xcframework rebuild; caching only — no color-math change, no parity surface. | load, zoom          | M    | `gpu_live` (Rust), `GpuLiveDriver.swift`                     |
-| F3  | Coalesce macOS trackpad wheel-pan: `wheelPan` currently calls `commitToSession()` per scroll event, nil-ing the sharp native-detail patch and re-spawning the refine task at scroll-event frequency (visible flicker). Commit once per pan-idle, matching the drag/pinch gesture contract.                                                                                                                   | zoom                | S    | `CanvasZoomController.swift`                                 |
-| F4  | Broaden the memory-pressure response beyond the thumbnail cache: also clear `RenderedPreviewCache.memCache`, invalidate `RenderActor` decoded buffers + tile entries on non-active sessions, and drop GPU sessions for backgrounded editors.                                                                                                                                                                 | memory (iOS)        | M    | `MapleApp.swift`, `AppShell.swift`, cache classes            |
-| F5  | Prune `AppShell.sessions` on every folder load/navigation, not only on editor-open. Today each `EditSession` (own `CIContext`, `RenderActor`, `NativeDetailRenderer`) accumulates for every asset ever scrolled into view, across folders, for the process lifetime.                                                                                                                                         | memory              | S-M  | `AppShell.swift`, `AppShell+FolderActions.swift`             |
-| F6  | Stop the refine re-decode churn at zoom: the interactive path can never set `decodedIsFull` (`decodeTarget` never returns nil), so `cacheSufficient` is always false for refine and every settle re-decodes. Treat a cached sized decode whose dims already cover the refine target as sufficient; this also stops the fast/refine GPU dims flip-flop when the covering buffer is reused.                    | zoom, load, battery | M    | `RenderActor+DecodedCache.swift`, `EditSession+Render.swift` |
+| #   | Fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Goal served         | Size | Files (primary)                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- | ---- | ---------------------------------------------------------------------------------------- |
+| F1  | Compute the CPU `profileLUT` lazily, only on the CPU-fallback branches after `presentViaGpuLive` declines the frame (both the cached and fresh-decode branches, and `refineVisibleRegion` keeps its existing eager fetch since it is CPU-only). Removes seconds + a multi-GB transient from the default cold open.                                                                                                                                                                         | load, memory        | S    | `EditSession+Render.swift`                                                               |
+| F2  | _(Re-scoped — see the corrected headline bullet.)_ In both fit FFI entries, consult the fit LRU (stat-derived key) and the decoded-RawImage cache before touching the file, so a fully-cached key skips the `fs::read` and decode entirely; and add the missing `quality` discriminant to the fit cache key (cross-quality poisoning hazard). No new cache; byte-identical artifacts on hit.                                                                                               | load, zoom          | S-M  | `raw-ffi/auto_profile.rs`, `raw-ffi/gpu_auto_profile.rs`, `raw-core auto_profile::cache` |
+| F3  | Coalesce macOS trackpad wheel-pan: `wheelPan` currently calls `commitToSession()` per scroll event, nil-ing the sharp native-detail patch and re-spawning the refine task at scroll-event frequency (visible flicker). Commit once per pan-idle, matching the drag/pinch gesture contract.                                                                                                                                                                                                 | zoom                | S    | `CanvasZoomController.swift`                                                             |
+| F4  | Broaden the memory-pressure response beyond the thumbnail cache: also clear `RenderedPreviewCache.memCache`, invalidate `RenderActor` decoded buffers + tile entries on non-active sessions, and drop GPU sessions for backgrounded editors.                                                                                                                                                                                                                                               | memory (iOS)        | M    | `MapleApp.swift`, `AppShell.swift`, cache classes                                        |
+| F5  | Prune `AppShell.sessions` on every folder load/navigation, not only on editor-open. Today each `EditSession` (own `CIContext`, `RenderActor`, `NativeDetailRenderer`) accumulates for every asset ever scrolled into view, across folders, for the process lifetime.                                                                                                                                                                                                                       | memory              | S-M  | `AppShell.swift`, `AppShell+FolderActions.swift`                                         |
+| F6  | Stop the refine re-decode churn at zoom: the interactive path can never set `decodedIsFull` (`decodeTarget` never returns nil), so `cacheSufficient` is always false for refine and every settle re-decodes. Treat a cached sized decode whose dims already cover the refine target as sufficient; reuse the open GPU session when its dims cover the request; and track decode identity so a fresh decode at unchanged dims forces the re-upload (fixes #2049's stale baked-field edits). | zoom, load, battery | M    | `RenderActor+DecodedCache.swift`, `EditSession+Render.swift`, `GpuLiveDriver.swift`      |
 
 ### P1 — next wave
 
