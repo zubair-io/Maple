@@ -439,6 +439,35 @@ final class SceneLinearPipelineTests: XCTestCase {
         return Self.float16BitsToFloat32(bytes.load(fromByteOffset: off, as: UInt16.self))
     }
 
+    /// Render the FULL pixel buffer of a CIImage to fp16 RGBA, returned as
+    /// raw `Data` for byte-for-byte comparison across two independent
+    /// renders (see `testSeparableGaussianBlurSharedContextIsStableAcrossCalls`
+    /// — #2043). Uses its own throwaway `CIContext`, deliberately NOT the
+    /// shared one under test in `MetalKernels`, so this helper's own
+    /// rendering can't mask a real divergence between the two blur calls.
+    static func renderFullBufferRGBAh(_ ci: CIImage, width w: Int, height h: Int) -> Data? {
+        let device = MTLCreateSystemDefaultDevice()
+        let context: CIContext
+        if let device {
+            context = CIContext(mtlDevice: device, options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+                .cacheIntermediates: false,
+            ])
+        } else {
+            context = CIContext(options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+                .workingFormat: CIFormat.RGBAh,
+            ])
+        }
+        let outSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        guard let cg = context.createCGImage(
+            ci, from: CGRect(x: 0, y: 0, width: w, height: h),
+            format: .RGBAh, colorSpace: outSpace
+        ), let cfData = cg.dataProvider?.data else { return nil }
+        return cfData as Data
+    }
+
     /// Build a 16×16 fp16 Rec.2020 CIImage of one constant RGB triple.
     static func makeRGBSceneLinearCIImage(width w: Int, height h: Int,
                                           r: Float, g: Float, b: Float) -> CIImage {

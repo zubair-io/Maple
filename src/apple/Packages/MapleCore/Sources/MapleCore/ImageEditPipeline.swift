@@ -701,25 +701,6 @@ public actor ImageEditPipeline {
         let totalBytes = rowBytes * h
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
 
-        // Materialise scaled CIImage -> f32 RGBA bytes.
-        var inputBytes = Data(count: totalBytes)
-        let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
-            guard let base = buf.baseAddress else { return false }
-            context.render(
-                scaled,
-                toBitmap: base,
-                rowBytes: rowBytes,
-                bounds: CGRect(x: 0, y: 0, width: w, height: h),
-                format: .RGBAf,
-                colorSpace: space
-            )
-            return true
-        }
-        guard renderSucceeded else {
-            logger.error("applySceneLinearChainViaFFI: CIContext.render failed; falling through")
-            return scaled
-        }
-
         // Run the FFI chain. On error, log and fall through to the
         // unprocessed input — the Apple side still shows pixels rather
         // than going black on a kernel hiccup.
@@ -731,36 +712,83 @@ public actor ImageEditPipeline {
             iso: iso,
             wbFrame: wbFrame
         )
-        let outputBytes: Data
-        do {
-            outputBytes = try mapleStage("apply scene-linear chain") {
-                try PipelineRenderer.applySceneLinearChain(
-                    inputBytes: inputBytes, width: w, height: h, params: params,
-                    noiseProfile: noiseProfile
+
+        // #2042 — the round trip below allocates an ~totalBytes `inputBytes`
+        // buffer (the rendered `scaled` CIImage) AND an ~totalBytes
+        // `outputBytes` buffer (the FFI result) — at 100 MP that's ~1.6 GB
+        // each, ~3.2 GB live together for the FFI call. `autoreleasepool`
+        // guarantees `inputBytes` plus any Foundation/CoreImage temporaries
+        // autoreleased while rendering it (CoreImage's `context.render`
+        // implementation is not under our control and is known to
+        // autorelease scratch buffers) are released the instant this
+        // function returns — BEFORE the next stage (the sibling
+        // `encodeDisplaySRGBViaFFI` round trip, or the Metal blur helpers
+        // in `MetalKernels`) allocates its own ~GB-scale buffers. Without
+        // this, Swift gives no guarantee `inputBytes` is freed before
+        // function return (ARC's last-use release is an optimisation, not
+        // a promise, and autoreleased temporaries only die at a pool
+        // drain) — so per-stage buffers can stack instead of superseding
+        // one another across a single render.
+        let wrapped: CIImage? = autoreleasepool {
+            // Materialise scaled CIImage -> f32 RGBA bytes.
+            var inputBytes = Data(count: totalBytes)
+            let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
+                guard let base = buf.baseAddress else { return false }
+                context.render(
+                    scaled,
+                    toBitmap: base,
+                    rowBytes: rowBytes,
+                    bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                    format: .RGBAf,
+                    colorSpace: space
+                )
+                return true
+            }
+            guard renderSucceeded else {
+                logger.error("applySceneLinearChainViaFFI: CIContext.render failed; falling through")
+                return nil
+            }
+
+            let outputBytes: Data
+            do {
+                outputBytes = try mapleStage("apply scene-linear chain") {
+                    try PipelineRenderer.applySceneLinearChain(
+                        inputBytes: inputBytes, width: w, height: h, params: params,
+                        noiseProfile: noiseProfile
+                    )
+                }
+            } catch {
+                logger.error("applySceneLinearChainViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
+            // `inputBytes` has no further use after this point — falling
+            // out of this closure's scope (the autoreleasepool boundary)
+            // is what actually drops it, rather than relying on it to
+            // happen to be optimised away before function return.
+
+            // Wrap the FFI output back into a CIImage. The bytes are f32
+            // RGBA in extendedLinearITUR_2020 — same colour space the FFI
+            // input was in, so downstream `MetalKernels.*` consumers see
+            // the buffer they expect.
+            return mapleStage("FFI chain CIImage build") {
+                CIImage(
+                    bitmapData: outputBytes,
+                    bytesPerRow: rowBytes,
+                    size: CGSize(width: w, height: h),
+                    format: .RGBAf,
+                    colorSpace: space
                 )
             }
-        } catch {
-            logger.error("applySceneLinearChainViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
+        }
+        guard let wrapped else {
+            // Either the render or the FFI call failed above (already
+            // logged inside the pool) — fall through to the unprocessed
+            // input, matching the pre-#2042 control flow exactly.
             return scaled
         }
-
-        // Wrap the FFI output back into a CIImage. The bytes are f32
-        // RGBA in extendedLinearITUR_2020 — same colour space the FFI
-        // input was in, so downstream `MetalKernels.*` consumers see
-        // the buffer they expect.
-        let wrapped = mapleStage("FFI chain CIImage build") {
-            CIImage(
-                bitmapData: outputBytes,
-                bytesPerRow: rowBytes,
-                size: CGSize(width: w, height: h),
-                format: .RGBAf,
-                colorSpace: space
-            )
-        }
-        // #661 — store only on the success path. The two fallthrough
-        // `return scaled` branches above must not pollute the cache or
-        // a recovered pipeline would silently return the unprocessed
-        // input on the next tick.
+        // #661 — store only on the success path. The failure branch above
+        // must not pollute the cache or a recovered pipeline would
+        // silently return the unprocessed input on the next tick.
         if let cacheKey {
             sceneLinearChainCache.put(cacheKey, wrapped)
         }
@@ -816,46 +844,61 @@ public actor ImageEditPipeline {
         // Materialise the post-AgX display-linear Rec.2020 buffer.
         let rec2020 = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
 
-        var inputBytes = Data(count: totalBytes)
-        let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
-            guard let base = buf.baseAddress else { return false }
-            context.render(
-                input,
-                toBitmap: base,
-                rowBytes: rowBytes,
-                bounds: CGRect(x: 0, y: 0, width: w, height: h),
-                format: .RGBAf,
-                colorSpace: rec2020
-            )
-            return true
-        }
-        guard renderSucceeded else {
-            logger.error("encodeDisplaySRGBViaFFI: CIContext.render failed; no encode")
-            return nil
-        }
+        // #2042 — same round-trip shape (and same ~GB-scale overlap risk)
+        // as `applySceneLinearChainViaFFI` above: `inputBytes` (the
+        // rendered `input` CIImage) and `outputBytes` (the FFI result)
+        // are both ~totalBytes. By the time THIS function is entered, the
+        // scene-linear chain's own round trip has already returned (its
+        // autoreleasepool already drained), so its buffers are gone —
+        // this pool's job is to make sure THIS stage's `inputBytes` (plus
+        // any autoreleased CoreImage/Foundation scratch) doesn't linger
+        // into whatever the caller does next (`MapleExporter`'s encode,
+        // or the live-canvas publish).
+        return autoreleasepool {
+            var inputBytes = Data(count: totalBytes)
+            let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
+                guard let base = buf.baseAddress else { return false }
+                context.render(
+                    input,
+                    toBitmap: base,
+                    rowBytes: rowBytes,
+                    bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                    format: .RGBAf,
+                    colorSpace: rec2020
+                )
+                return true
+            }
+            guard renderSucceeded else {
+                logger.error("encodeDisplaySRGBViaFFI: CIContext.render failed; no encode")
+                return nil
+            }
 
-        let outputBytes: Data
-        do {
-            outputBytes = try mapleStage("encode display sRGB (Oklab gamut)") {
-                try PipelineRenderer.encodeDisplaySRGB(
-                    inputBytes: inputBytes, width: w, height: h
+            let outputBytes: Data
+            do {
+                outputBytes = try mapleStage("encode display sRGB (Oklab gamut)") {
+                    try PipelineRenderer.encodeDisplaySRGB(
+                        inputBytes: inputBytes, width: w, height: h
+                    )
+                }
+            } catch {
+                logger.error("encodeDisplaySRGBViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
+            // `inputBytes` dies at this closure's scope exit (the
+            // autoreleasepool boundary), not merely "whenever ARC gets
+            // around to it" — see the comment on the sibling round trip.
+
+            // The bytes are now sRGB-gamma-encoded sRGB-primary f32 RGBA —
+            // tag the CIImage sRGB so CoreImage does no further gamut clamp.
+            return mapleStage("display sRGB CIImage build") {
+                CIImage(
+                    bitmapData: outputBytes,
+                    bytesPerRow: rowBytes,
+                    size: CGSize(width: w, height: h),
+                    format: .RGBAf,
+                    colorSpace: Self.displayEncodedColorSpace
                 )
             }
-        } catch {
-            logger.error("encodeDisplaySRGBViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-
-        // The bytes are now sRGB-gamma-encoded sRGB-primary f32 RGBA — tag
-        // the CIImage sRGB so CoreImage does no further gamut clamp.
-        return mapleStage("display sRGB CIImage build") {
-            CIImage(
-                bitmapData: outputBytes,
-                bytesPerRow: rowBytes,
-                size: CGSize(width: w, height: h),
-                format: .RGBAf,
-                colorSpace: Self.displayEncodedColorSpace
-            )
         }
     }
 

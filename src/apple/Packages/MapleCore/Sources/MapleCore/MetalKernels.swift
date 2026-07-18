@@ -65,6 +65,21 @@ public enum MetalKernels {
     /// the other kernel slots above.
     private static var _metalDevice: MTLDevice?
 
+    /// Shared `CIContext` + `MTLCommandQueue` for the two blur helpers
+    /// below (`applySeparableGaussianBlur` / `applySeparableTrueGaussianBlur`).
+    /// Both used to build a fresh `CIContext(mtlDevice:)` + call
+    /// `device.makeCommandQueue()` on EVERY invocation (#2043) — both are
+    /// expensive, GPU-memory-pinning operations (see the precedent at
+    /// `ThumbnailLoader.swift:27-38`: "creating one per call is expensive
+    /// and pins GPU memory for no reason"), and since `sharpenAmount`
+    /// defaults to 40 and `nrColor` defaults to 25 (`AdjustmentModel`), at
+    /// least one of these helpers runs on effectively every CPU-path
+    /// render — a slider drag calls this many times per second. Cached
+    /// process-lifetime, same lazy pattern as `_metalDevice` above and
+    /// `ImageEditPipeline.context` / `ThumbnailLoader.staticEncodeCIContext`.
+    private static var _sharedBlurCIContext: CIContext?
+    private static var _sharedBlurCommandQueue: MTLCommandQueue?
+
     // SceneNRColor shared kernels. Two kernels: extractAB (rec2020 ->
     // oklab a/b pack for the blur input) and combine (rec2020 +
     // blurredAB -> rec2020 with new a/b). Same lazy / process-lifetime
@@ -128,95 +143,104 @@ public enum MetalKernels {
 
         guard let device = metalDevice(),
               let pipelineH = separableBoxBlurHPipeline(),
-              let pipelineV = separableBoxBlurVPipeline() else {
+              let pipelineV = separableBoxBlurVPipeline(),
+              let ciCtx = sharedBlurCIContext(),
+              let queue = sharedBlurCommandQueue() else {
             return input
         }
 
-        // Build an MTLTexture for the input by rendering the CIImage into
-        // a fresh f32 RGBA texture. f32 RGBA matches the Rec.2020
-        // working format the rest of the chain uses (per
-        // ImageEditPipeline.swift, `.RGBAf` / extendedLinearITUR_2020).
-        // Migrated from rgba16Float in #487 so the 3 H+V Gaussian passes
-        // don't compound fp16 truncation error on the scene buffer.
-        // The Metal compute kernels themselves still sample as `half4`
-        // — Metal widens the rgba32Float read into the half-precision
-        // local at sample time, so no shader source changes were
-        // required.
-        let extent = input.extent
-        let w = max(1, Int(extent.width.rounded()))
-        let h = max(1, Int(extent.height.rounded()))
+        // #2042 — this call allocates 3 full-res rgba32Float textures
+        // (~1.6 GB each at 100 MP: texSrc, texPing, texPong). Only
+        // `texPong` escapes (wrapped in the returned `CIImage`); `texSrc`
+        // and `texPing` are pure scratch. Wrapping the whole build+dispatch
+        // sequence in `autoreleasepool` guarantees `texSrc`/`texPing` (and
+        // any autoreleased Metal/CoreImage temporaries created while
+        // rendering + dispatching) are released the instant this call
+        // returns, rather than however long it happens to take Swift/Metal
+        // to drain them on their own — this is what keeps a sharpen +
+        // nr_color pass on the same frame from stacking 6 full-res
+        // textures' worth of scratch instead of 3.
+        return autoreleasepool {
+            // Build an MTLTexture for the input by rendering the CIImage into
+            // a fresh f32 RGBA texture. f32 RGBA matches the Rec.2020
+            // working format the rest of the chain uses (per
+            // ImageEditPipeline.swift, `.RGBAf` / extendedLinearITUR_2020).
+            // Migrated from rgba16Float in #487 so the 3 H+V Gaussian passes
+            // don't compound fp16 truncation error on the scene buffer.
+            // The Metal compute kernels themselves still sample as `half4`
+            // — Metal widens the rgba32Float read into the half-precision
+            // local at sample time, so no shader source changes were
+            // required.
+            let extent = input.extent
+            let w = max(1, Int(extent.width.rounded()))
+            let h = max(1, Int(extent.height.rounded()))
 
-        let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba32Float,
-            width: w, height: h, mipmapped: false
-        )
-        desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
-        desc.storageMode = .private
-        guard let texSrc = device.makeTexture(descriptor: desc),
-              let texPing = device.makeTexture(descriptor: desc),
-              let texPong = device.makeTexture(descriptor: desc) else {
-            return input
-        }
-
-        // CIContext render of the input CIImage into texSrc.
-        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        let ciCtx = CIContext(mtlDevice: device, options: [
-            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-            .workingFormat: CIFormat.RGBAf,
-            .cacheIntermediates: false,
-        ])
-        guard let queue = device.makeCommandQueue(),
-              let commandBuffer = queue.makeCommandBuffer() else {
-            return input
-        }
-        ciCtx.render(
-            input,
-            to: texSrc,
-            commandBuffer: commandBuffer,
-            bounds: extent,
-            colorSpace: space
-        )
-
-        // Compose the 6 passes on the same command buffer:
-        //   texSrc  --H-->  texPing
-        //   texPing --V-->  texPong
-        //   texPong --H-->  texPing
-        //   texPing --V-->  texPong
-        //   texPong --H-->  texPing
-        //   texPing --V-->  texPong
-        // After 3 H+V pairs (= 3-pass Gaussian), texPong holds the result.
-        let dispatches: [(MTLComputePipelineState, MTLTexture, MTLTexture)] = [
-            (pipelineH, texSrc,  texPing),
-            (pipelineV, texPing, texPong),
-            (pipelineH, texPong, texPing),
-            (pipelineV, texPing, texPong),
-            (pipelineH, texPong, texPing),
-            (pipelineV, texPing, texPong),
-        ]
-        for (pipeline, src, dst) in dispatches {
-            guard let enc = commandBuffer.makeComputeCommandEncoder() else {
+            let desc = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .rgba32Float,
+                width: w, height: h, mipmapped: false
+            )
+            desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
+            desc.storageMode = .private
+            guard let texSrc = device.makeTexture(descriptor: desc),
+                  let texPing = device.makeTexture(descriptor: desc),
+                  let texPong = device.makeTexture(descriptor: desc) else {
                 return input
             }
-            enc.setComputePipelineState(pipeline)
-            enc.setTexture(src, index: 0)
-            enc.setTexture(dst, index: 1)
-            var rBoxLocal = rBox
-            enc.setBytes(&rBoxLocal, length: MemoryLayout<UInt32>.size, index: 0)
-            let tgSize = MTLSize(width: 16, height: 16, depth: 1)
-            let tgCount = MTLSize(
-                width:  (w + tgSize.width  - 1) / tgSize.width,
-                height: (h + tgSize.height - 1) / tgSize.height,
-                depth: 1
-            )
-            enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tgSize)
-            enc.endEncoding()
-        }
-        commandBuffer.commit()
-        // Don't wait synchronously — return a CIImage wrapping texPong;
-        // CoreImage will sync at the next render that depends on it.
 
-        let opts: [CIImageOption: Any] = [.colorSpace: space]
-        return CIImage(mtlTexture: texPong, options: opts) ?? input
+            // CIContext render of the input CIImage into texSrc.
+            let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+            guard let commandBuffer = queue.makeCommandBuffer() else {
+                return input
+            }
+            ciCtx.render(
+                input,
+                to: texSrc,
+                commandBuffer: commandBuffer,
+                bounds: extent,
+                colorSpace: space
+            )
+
+            // Compose the 6 passes on the same command buffer:
+            //   texSrc  --H-->  texPing
+            //   texPing --V-->  texPong
+            //   texPong --H-->  texPing
+            //   texPing --V-->  texPong
+            //   texPong --H-->  texPing
+            //   texPing --V-->  texPong
+            // After 3 H+V pairs (= 3-pass Gaussian), texPong holds the result.
+            let dispatches: [(MTLComputePipelineState, MTLTexture, MTLTexture)] = [
+                (pipelineH, texSrc,  texPing),
+                (pipelineV, texPing, texPong),
+                (pipelineH, texPong, texPing),
+                (pipelineV, texPing, texPong),
+                (pipelineH, texPong, texPing),
+                (pipelineV, texPing, texPong),
+            ]
+            for (pipeline, src, dst) in dispatches {
+                guard let enc = commandBuffer.makeComputeCommandEncoder() else {
+                    return input
+                }
+                enc.setComputePipelineState(pipeline)
+                enc.setTexture(src, index: 0)
+                enc.setTexture(dst, index: 1)
+                var rBoxLocal = rBox
+                enc.setBytes(&rBoxLocal, length: MemoryLayout<UInt32>.size, index: 0)
+                let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+                let tgCount = MTLSize(
+                    width:  (w + tgSize.width  - 1) / tgSize.width,
+                    height: (h + tgSize.height - 1) / tgSize.height,
+                    depth: 1
+                )
+                enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tgSize)
+                enc.endEncoding()
+            }
+            commandBuffer.commit()
+            // Don't wait synchronously — return a CIImage wrapping texPong;
+            // CoreImage will sync at the next render that depends on it.
+
+            let opts: [CIImageOption: Any] = [.colorSpace: space]
+            return CIImage(mtlTexture: texPong, options: opts) ?? input
+        }
     }
 
     // MARK: SeparableTrueGaussianBlur (#1083)
@@ -268,77 +292,81 @@ public enum MetalKernels {
 
         guard let device = metalDevice(),
               let pipelineH = separableTrueGaussianHPipeline(),
-              let pipelineV = separableTrueGaussianVPipeline() else {
+              let pipelineV = separableTrueGaussianVPipeline(),
+              let ciCtx = sharedBlurCIContext(),
+              let queue = sharedBlurCommandQueue() else {
             return input
         }
 
         var weights = gaussianKernel1D(sigma: sigma)
         var tapCount = UInt32(weights.count)
 
-        let extent = input.extent
-        let w = max(1, Int(extent.width.rounded()))
-        let h = max(1, Int(extent.height.rounded()))
+        // #2042 — same texture-lifetime reasoning as `applySeparableGaussianBlur`
+        // above: 3 full-res rgba32Float textures per call, only `texPong`
+        // escapes. `autoreleasepool` bounds the scratch (`texSrc`/`texPing`
+        // plus any autoreleased Metal/CoreImage temporaries) to this call's
+        // lifetime instead of however long ARC/Metal happen to take to
+        // release them on their own.
+        return autoreleasepool {
+            let extent = input.extent
+            let w = max(1, Int(extent.width.rounded()))
+            let h = max(1, Int(extent.height.rounded()))
 
-        let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba32Float,
-            width: w, height: h, mipmapped: false
-        )
-        desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
-        desc.storageMode = .private
-        guard let texSrc = device.makeTexture(descriptor: desc),
-              let texPing = device.makeTexture(descriptor: desc),
-              let texPong = device.makeTexture(descriptor: desc) else {
-            return input
-        }
-
-        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        let ciCtx = CIContext(mtlDevice: device, options: [
-            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-            .workingFormat: CIFormat.RGBAf,
-            .cacheIntermediates: false,
-        ])
-        guard let queue = device.makeCommandQueue(),
-              let commandBuffer = queue.makeCommandBuffer() else {
-            return input
-        }
-        ciCtx.render(
-            input,
-            to: texSrc,
-            commandBuffer: commandBuffer,
-            bounds: extent,
-            colorSpace: space
-        )
-
-        // Two dispatches on the same command buffer:
-        //   texSrc  --H-->  texPing
-        //   texPing --V-->  texPong
-        let dispatches: [(MTLComputePipelineState, MTLTexture, MTLTexture)] = [
-            (pipelineH, texSrc, texPing),
-            (pipelineV, texPing, texPong),
-        ]
-        for (pipeline, src, dst) in dispatches {
-            guard let enc = commandBuffer.makeComputeCommandEncoder() else {
+            let desc = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .rgba32Float,
+                width: w, height: h, mipmapped: false
+            )
+            desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
+            desc.storageMode = .private
+            guard let texSrc = device.makeTexture(descriptor: desc),
+                  let texPing = device.makeTexture(descriptor: desc),
+                  let texPong = device.makeTexture(descriptor: desc) else {
                 return input
             }
-            enc.setComputePipelineState(pipeline)
-            enc.setTexture(src, index: 0)
-            enc.setTexture(dst, index: 1)
-            enc.setBytes(&tapCount, length: MemoryLayout<UInt32>.size, index: 0)
-            enc.setBytes(&weights, length: MemoryLayout<Float>.size * weights.count, index: 1)
-            let tgSize = MTLSize(width: 16, height: 16, depth: 1)
-            let tgCount = MTLSize(
-                width:  (w + tgSize.width  - 1) / tgSize.width,
-                height: (h + tgSize.height - 1) / tgSize.height,
-                depth: 1
-            )
-            enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tgSize)
-            enc.endEncoding()
-        }
-        commandBuffer.commit()
-        // Don't wait synchronously — CoreImage syncs at the next dependent render.
 
-        let opts: [CIImageOption: Any] = [.colorSpace: space]
-        return CIImage(mtlTexture: texPong, options: opts) ?? input
+            let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+            guard let commandBuffer = queue.makeCommandBuffer() else {
+                return input
+            }
+            ciCtx.render(
+                input,
+                to: texSrc,
+                commandBuffer: commandBuffer,
+                bounds: extent,
+                colorSpace: space
+            )
+
+            // Two dispatches on the same command buffer:
+            //   texSrc  --H-->  texPing
+            //   texPing --V-->  texPong
+            let dispatches: [(MTLComputePipelineState, MTLTexture, MTLTexture)] = [
+                (pipelineH, texSrc, texPing),
+                (pipelineV, texPing, texPong),
+            ]
+            for (pipeline, src, dst) in dispatches {
+                guard let enc = commandBuffer.makeComputeCommandEncoder() else {
+                    return input
+                }
+                enc.setComputePipelineState(pipeline)
+                enc.setTexture(src, index: 0)
+                enc.setTexture(dst, index: 1)
+                enc.setBytes(&tapCount, length: MemoryLayout<UInt32>.size, index: 0)
+                enc.setBytes(&weights, length: MemoryLayout<Float>.size * weights.count, index: 1)
+                let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+                let tgCount = MTLSize(
+                    width:  (w + tgSize.width  - 1) / tgSize.width,
+                    height: (h + tgSize.height - 1) / tgSize.height,
+                    depth: 1
+                )
+                enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tgSize)
+                enc.endEncoding()
+            }
+            commandBuffer.commit()
+            // Don't wait synchronously — CoreImage syncs at the next dependent render.
+
+            let opts: [CIImageOption: Any] = [.colorSpace: space]
+            return CIImage(mtlTexture: texPong, options: opts) ?? input
+        }
     }
 
     // MARK: SceneNRColor
@@ -544,6 +572,45 @@ public enum MetalKernels {
         if let d = _metalDevice { return d }
         _metalDevice = MTLCreateSystemDefaultDevice()
         return _metalDevice
+    }
+
+    /// Shared `CIContext` for both blur helpers (#2043) — built once,
+    /// reused for every call. Options are IDENTICAL to what each helper
+    /// used to construct per-call (`extendedLinearSRGB` working space,
+    /// `RGBAf` working format, no intermediate caching), so hoisting this
+    /// to a cached static changes nothing about rendered output — only
+    /// how often the (expensive) `CIContext(mtlDevice:)` constructor runs.
+    ///
+    /// Thread-safety: `applySeparableGaussianBlur` and
+    /// `applySeparableTrueGaussianBlur` both run from detached render
+    /// tasks (the two-phase fast/refine scheduler in `RenderActor` can
+    /// have a fast-phase task and a refine-phase task in flight on
+    /// different threads at once), so this context must tolerate
+    /// concurrent use. `CIContext` is documented thread-safe by Apple
+    /// ("a single CIContext object... can be used simultaneously from
+    /// multiple threads") — no additional locking is needed here.
+    private static func sharedBlurCIContext() -> CIContext? {
+        if let ctx = _sharedBlurCIContext { return ctx }
+        guard let device = metalDevice() else { return nil }
+        let ctx = CIContext(mtlDevice: device, options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+            .workingFormat: CIFormat.RGBAf,
+            .cacheIntermediates: false,
+        ])
+        _sharedBlurCIContext = ctx
+        return ctx
+    }
+
+    /// Shared `MTLCommandQueue` for both blur helpers (#2043) — built once
+    /// against the shared device, reused for every call. `MTLCommandQueue`
+    /// is documented thread-safe (Apple: multiple threads may encode and
+    /// commit command buffers to the same queue concurrently), matching
+    /// the `sharedBlurCIContext()` thread-safety note above.
+    private static func sharedBlurCommandQueue() -> MTLCommandQueue? {
+        if let queue = _sharedBlurCommandQueue { return queue }
+        guard let device = metalDevice() else { return nil }
+        _sharedBlurCommandQueue = device.makeCommandQueue()
+        return _sharedBlurCommandQueue
     }
 
     /// Compile `SeparableGaussianBlur.metal` to a runtime `MTLLibrary`.
