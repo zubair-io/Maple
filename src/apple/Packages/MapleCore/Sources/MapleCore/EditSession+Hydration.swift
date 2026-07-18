@@ -563,7 +563,16 @@ extension EditSession {
               let data = ThumbnailDiskCache.shared.syncPeekData(forKey: thumbnailCacheKey),
               let ci = CIImage(data: data)
         else { return }
-        renderedPreview = decodedForNativeCanvas(ci, asset: asset)
+        // Published AS-IS, deliberately NOT through `decodedForNativeCanvas`:
+        // the other seeds publish their un-normalized image too (normalizing
+        // only the copy they hand to `renderActor`, which this seed skips
+        // entirely). Scaling the 256px thumbnail's extent up to
+        // `nativeImageSize` here would make `CanvasImageView`'s
+        // `createCGImage(from: image.extent)` rasterize a sensor-sized RGBA16
+        // bitmap (~800 MB on a 100 MP RAW) just to paint a temporary
+        // backdrop — SwiftUI's `.fit` scaling of the small raster is the
+        // right (and existing) upscale path. (Copilot review, this PR.)
+        renderedPreview = ci
         previewIsFullRender = false
         previewIsThumbnailSeed = true
         editSessionLogger.debug(
