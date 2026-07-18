@@ -6,15 +6,22 @@
 // after the #2006 AVIF/path-key migration) never runs more than the
 // configured cap's worth of decode+encode jobs concurrently.
 //
-// `generatePreview` is mocked (via `mock.module`, restored in `afterAll` —
-// see `cache-gc.test.ts` for the same pattern and its "no real un-mock,
-// restore explicitly or it leaks into sibling test files" rationale) with a
-// slow, concurrency-tracking fake so this never touches sharp/libraw. Kept
-// in its own file for exactly that reason: `mock.module` has no real
-// per-test undo, so a module-level generatePreview mock must not share a
-// file with tests that need the real implementation.
+// `generatePreview` is faked with a slow, concurrency-tracking implementation
+// so this never touches sharp/libraw — via `spyOn` on the previewer module
+// namespace, NOT `mock.module`. #2032: the previous `mock.module`-based fake
+// leaked out of this file on CI's (linux) test-file collection order — the
+// `afterAll` restore did not repoint `workers/stages/preview.ts`'s
+// already-captured `generatePreview` binding in Bun's shared module registry,
+// so the preview STAGE tests later in the run invoked THIS file's fake, which
+// wrote literal `generated-<n>` text bytes as their "preview" and made
+// `sharp().metadata()` fail with "unsupported image format" (deterministically
+// red on CI, green on macOS where collection order differs). `spyOn` patches
+// the one export in place and `mockRestore()` reverts it for every importer —
+// the same leak-proof pattern `worker-status.repo.test.ts` documents for
+// db/client. Kept in its own file so the fake's lifetime stays trivially
+// scoped to this file's beforeAll/afterAll.
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
@@ -42,7 +49,7 @@ let activeGenerations = 0;
 let peakConcurrent = 0;
 let completedCount = 0;
 
-const realPreviewer = await import('../../indexer/previewer.ts');
+const previewerModule = await import('../../indexer/previewer.ts');
 
 /** Simulated decode+AVIF-encode: tracks concurrency, writes a dummy file so
  * the route's subsequent read succeeds, never touches sharp/libraw. */
@@ -56,14 +63,14 @@ async function fakeGeneratePreview(_absPath: string, previewPath: string): Promi
   completedCount++;
 }
 
-mock.module('../../indexer/previewer.ts', () => ({
-  ...realPreviewer,
-  generatePreview: fakeGeneratePreview,
-}));
+// Patch the one export in place — every importer (including `previewRoutes`'s
+// own `generatePreview` binding) calls through the namespace slot, and
+// `mockRestore()` in `afterAll` reverts it for every importer. See the module
+// doc for why this must NOT be `mock.module` (#2032 leak).
+const generatePreviewSpy = spyOn(previewerModule, 'generatePreview').mockImplementation(
+  fakeGeneratePreview,
+);
 
-// Fresh import so `previewRoutes` binds against the mocked `generatePreview`
-// — a static top-of-file import would already have resolved the real module
-// before the `mock.module` call above took effect.
 const { previewRoutes } = await import('./preview.ts');
 const { Elysia } = await import('elysia');
 const app = new Elysia().use(previewRoutes);
@@ -123,7 +130,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  mock.module('../../indexer/previewer.ts', () => realPreviewer); // restore — see module doc
+  generatePreviewSpy.mockRestore(); // restore for sibling test files — see module doc
   if (mongo) {
     await mongo
       .db(TEST_DB)

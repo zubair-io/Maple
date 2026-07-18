@@ -7,7 +7,7 @@
  * `<dir>/.maple/previews/<filename>.avif`.
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, realpath, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,7 +17,7 @@ import sharp from 'sharp';
 
 import { previewPathRoutes } from './preview.ts';
 import { setLibraryRootsForTests, invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import type * as ImgdecodePoolModule from '../thumbs/imgdecode-pool.ts';
+import * as imgdecodePoolModule from '../thumbs/imgdecode-pool.ts';
 
 /** A genuine, small, untagged-sRGB AVIF (≤ 1280 long edge) that passes the
  * #2014 `validateAvifOutput` gate — same encode shape as the render pipeline
@@ -146,24 +146,19 @@ describe('PUT /api/preview', () => {
  * the route's own logic (format sniffing, the validation gate, atomic
  * publish, error mapping) is exercised end-to-end. Spawning the real child
  * here too added enough child-process churn to destabilise the shared pool
- * singleton under CI's constrained resources — the sibling
- * `workers/stages/preview.test.ts` pool tests would flake with sharp
- * "unsupported image format". The real isolated-child transcode is covered
- * by `imgdecode-pool.test.ts`'s own integration test.
+ * singleton under CI's constrained resources. The real isolated-child
+ * transcode is covered by `imgdecode-pool.test.ts`'s own integration test.
+ *
+ * Stubbed via `spyOn` on the module namespace, NOT `mock.module` — #2032
+ * proved a `mock.module` fake can leak past its restore on CI's (linux)
+ * test-file collection order (that leak, in
+ * `routes/library/preview-ondemand-limiter.test.ts`, was what deterministically
+ * broke `workers/stages/preview.test.ts` on CI). `spyOn` patches the one
+ * export in place and `mockRestore()` reverts it reliably for every importer.
  */
 describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
   let tmp = '';
-  let realPool: typeof ImgdecodePoolModule;
-
-  beforeAll(async () => {
-    // Capture the real module BEFORE any mock so afterEach can restore it and
-    // the mock never leaks to sibling test files in this process.
-    realPool = await import('../thumbs/imgdecode-pool.ts');
-  });
-
-  afterAll(() => {
-    mock.module('../thumbs/imgdecode-pool.ts', () => realPool);
-  });
+  let renderStubSpy: { mockRestore(): void } | null = null;
 
   // `body` accepts a Buffer too (every caller below hands one in — sharp's
   // `.toBuffer()` and `Buffer.from()` both return `Buffer`) and re-wraps it as
@@ -188,9 +183,8 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     // doc. Mirrors the pool's contract: writes a genuine AVIF to `outPath`
     // and returns `{ ok: false }` on an undecodable source (the route maps
     // that to 422).
-    mock.module('../thumbs/imgdecode-pool.ts', () => ({
-      ...realPool,
-      renderImageThumbToFileViaPool: async (
+    renderStubSpy = spyOn(imgdecodePoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
+      async (
         srcPath: string,
         outPath: string,
         maxPx: number,
@@ -207,11 +201,12 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
           return { ok: false, error: err instanceof Error ? err.message : String(err) };
         }
       },
-    }));
+    );
   });
 
   afterEach(async () => {
-    mock.module('../thumbs/imgdecode-pool.ts', () => realPool);
+    renderStubSpy?.mockRestore();
+    renderStubSpy = null;
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = '';
     delete process.env.MAPLE_ROOTS;
