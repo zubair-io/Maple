@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll, mock } from 'bun:test';
-import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import sharp from 'sharp';
@@ -8,6 +8,65 @@ import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import type * as ImgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
+
+/** #2032 CI diagnostics — incremented by the imgdecode-boundary mock below so
+ * a failure can report whether the mocked render was reached at all. If a
+ * bitmap test fails while this stayed at 0, `generatePreview` itself never
+ * dispatched to the render boundary — i.e. the stage was bound to some OTHER
+ * `generatePreview` (a leaked module mock), not the real one. */
+let mockRenderCalls = 0;
+
+/** #2032 CI diagnostics: `sharp(p).metadata()` with rich failure context.
+ * On decode failure, capture what actually landed at `p` — header bytes,
+ * size/mtime, a buffer-based decode attempt (discriminates a path/loader
+ * problem from genuinely-undecodable bytes), the previews dir listing, the
+ * mock-render counter, and the identity of the currently-registered
+ * `generatePreview` — then rethrow with all of it in the message. */
+async function readbackMetadata(p: string): Promise<sharp.Metadata> {
+  try {
+    return await sharp(p).metadata();
+  } catch (err) {
+    const bytes = await readFile(p).then(
+      (b) => b,
+      () => null,
+    );
+    const head = bytes ? bytes.subarray(0, 32).toString('hex') : '<unreadable>';
+    const headAscii = bytes
+      ? bytes
+          .subarray(0, 32)
+          .toString('latin1')
+          .replace(/[^\x20-\x7e]/g, '.')
+      : '<unreadable>';
+    const bufferDecode = bytes
+      ? await sharp(bytes)
+          .metadata()
+          .then(
+            (m) => `ok format=${m.format} ${m.width}x${m.height}`,
+            (e: Error) => `failed: ${e.message}`,
+          )
+      : 'no bytes';
+    const s = await stat(p).then(
+      (v) => `size=${v.size} mtimeMs=${v.mtimeMs}`,
+      (e: Error) => `stat failed: ${e.message}`,
+    );
+    const dirListing = await readdir(path.dirname(p)).then(
+      (names) => names.join(', '),
+      (e: Error) => `readdir failed: ${e.message}`,
+    );
+    const previewerNow = await import('../../indexer/previewer.ts');
+    throw new Error(
+      `#2032 diag — sharp metadata() failed for ${p}: ${err instanceof Error ? err.message : err}\n` +
+        `  file: ${s}\n` +
+        `  head(hex): ${head}\n` +
+        `  head(ascii): ${headAscii}\n` +
+        `  buffer decode: ${bufferDecode}\n` +
+        `  dir: ${dirListing}\n` +
+        `  mockRenderCalls: ${mockRenderCalls}\n` +
+        `  registered generatePreview fn name: ${previewerNow.generatePreview.name}`,
+      { cause: err },
+    );
+  }
+}
 
 const TEST_DB = `maple_test_preview_stage_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -54,6 +113,7 @@ beforeAll(async () => {
       maxPx: number,
       quality: number,
     ): Promise<{ ok: boolean; error?: string }> => {
+      mockRenderCalls++;
       try {
         // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
         // orientation, resize without enlarging, AVIF-encode.
@@ -213,7 +273,7 @@ describe('preview handler — bitmap path', () => {
     // The file must exist and be downscaled to 1280-px long edge.
     const s = await stat(previewPath as string);
     expect(s.size).toBeGreaterThan(0);
-    const meta = await sharp(previewPath as string).metadata();
+    const meta = await readbackMetadata(previewPath as string);
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(PREVIEW_LONG_EDGE_PX);
   });
 
@@ -241,7 +301,7 @@ describe('preview handler — bitmap path', () => {
       PREVIEW_CACHE_SUFFIX,
     );
     expect(previewPath).not.toBeNull();
-    const meta = await sharp(previewPath as string).metadata();
+    const meta = await readbackMetadata(previewPath as string);
     expect(meta.width).toBe(600);
     expect(meta.height).toBe(400);
   });
@@ -271,7 +331,7 @@ describe('preview handler — bitmap path', () => {
       PREVIEW_CACHE_SUFFIX,
     );
     expect(previewPath).not.toBeNull();
-    const meta = await sharp(previewPath as string).metadata();
+    const meta = await readbackMetadata(previewPath as string);
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
   });
 
@@ -308,6 +368,25 @@ describe('preview handler — bitmap path', () => {
 
     await previewStage.handler(doc as never, {} as never);
     const stat2 = await stat(previewPath as string);
+    if (stat2.mtimeMs !== stat1.mtimeMs) {
+      // #2032 diag: the second handler call rewrote a fresh preview. Surface
+      // what the freshness inputs looked like and what content is on disk.
+      const bytes = await readFile(previewPath as string);
+      const srcStat = await stat(file);
+      const { isPreviewCacheFresh } = await import('../../indexer/previewer.ts');
+      const freshNow = await isPreviewCacheFresh(previewPath as string, file);
+      throw new Error(
+        `#2032 diag — preview was rewritten (${stat1.mtimeMs} -> ${stat2.mtimeMs}, ` +
+          `delta ${(stat2.mtimeMs - stat1.mtimeMs).toFixed(1)}ms)\n` +
+          `  src mtimeMs after utimes: ${srcStat.mtimeMs}\n` +
+          `  isPreviewCacheFresh now: ${freshNow}\n` +
+          `  head(ascii): ${bytes
+            .subarray(0, 32)
+            .toString('latin1')
+            .replace(/[^\x20-\x7e]/g, '.')}\n` +
+          `  mockRenderCalls: ${mockRenderCalls}`,
+      );
+    }
     expect(stat2.mtimeMs).toBe(stat1.mtimeMs);
   });
 
