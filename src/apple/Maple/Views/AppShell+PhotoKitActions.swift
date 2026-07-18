@@ -68,6 +68,9 @@ extension AppShell {
                 // here. Keep mergedCloudSource nil for consistency.
                 mergedCloudSource = nil
                 await browseVM.loadPhotoKitSource(source)
+                // The filter just replaced the visible asset list wholesale —
+                // drop any session left over from whatever was open before (#2038).
+                pruneSessionsForNewAssetList()
                 SourceSelectionStore.save(.photoKitFilter(filter))
             } catch {
                 browseVM.loadError = error
@@ -148,6 +151,9 @@ extension AppShell {
             do {
                 try await source.connect(credentials: credentials, remotePath: "/")
                 await browseVM.loadSource(source)
+                // Same reasoning as loadFolder / loadPhotos — the connect just
+                // replaced the visible asset list (#2038).
+                pruneSessionsForNewAssetList()
                 let share = SMBCredentialStore.SavedShare(
                     host: credentials.host,
                     share: credentials.share,

@@ -62,6 +62,9 @@ extension AppShell {
         librarySelection = .folder(path: url.path)
         libraryTitle = url.lastPathComponent
         mode = .browse
+        // The asset list above just got replaced wholesale — drop any
+        // session left over from whatever folder was open before (#2038).
+        pruneSessionsForNewAssetList()
 
         for asset in browseVM.assets where sessions[asset.id] == nil {
             // FileProvider observer (see EditSession+Hydration) drives this
@@ -114,6 +117,7 @@ extension AppShell {
             Task { @MainActor in
                 await browseVM.loadCloudDir(source, absPath: url.path)
                 libraryTitle = url.lastPathComponent
+                pruneSessionsForNewAssetList()
             }
             return
         }
@@ -126,6 +130,7 @@ extension AppShell {
             browseVM.loadFolder(url: url)
             librarySelection = .folder(path: url.path)
             libraryTitle = url.lastPathComponent
+            pruneSessionsForNewAssetList()
             return
         }
         openSubFolder(url: url, rootBookmark: bookmark)
@@ -216,6 +221,7 @@ extension AppShell {
             // Non-recursive walk of the sub-folder — the grid shows only
             // RAWs directly inside it, matching Finder-style drill-down.
             browseVM.loadFolder(url: url)
+            pruneSessionsForNewAssetList()
         }
     }
 
@@ -266,6 +272,7 @@ extension AppShell {
             await RenderedPreviewCache.shared.configure(folderURL: folderURL)
             await DecodedBufferCache.shared.configure(folderURL: folderURL)
             browseVM.loadFolder(url: folderURL)
+            pruneSessionsForNewAssetList()
             SourceSelectionStore.save(.filesystem(bookmark: folder.bookmark))
             SavedFolderStore.upsert(SavedFolder(
                 path: folder.path,
@@ -328,6 +335,7 @@ extension AppShell {
             librarySelection = .folder(path: folderURL.path)
             libraryTitle = folderURL.lastPathComponent
             browseVM.loadFolder(url: folderURL)
+            pruneSessionsForNewAssetList()
         case .photoKit, .photoKitFilter:
             // Do NOT auto-load Photos on cold start. The user opted into
             // PhotoKit in a previous session; that's no excuse to ambush them

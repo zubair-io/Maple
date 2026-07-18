@@ -281,6 +281,22 @@ struct AppShell: View {
         browseVM.selectedID.flatMap { sessions[$0] }
     }
 
+    /// Core "prune to a keep-set" primitive — both `pruneInactiveSessions`
+    /// (editor-open) and `pruneSessionsForNewAssetList` (folder/library
+    /// navigation) reduce their intent to "these asset ids must stay
+    /// resident" and call this to do the actual eviction, rather than each
+    /// reimplementing the dictionary filter. The guard avoids a spurious
+    /// `@State` rewrite (and shell re-render) when nothing would actually
+    /// be dropped. The real teardown work — cancelling the evicted
+    /// `EditSession`'s outstanding tasks — happens in `EditSession.deinit`
+    /// once the reassignment below drops the last strong reference; see
+    /// `prunedSessions(_:keeping:)` in MapleCore.
+    @MainActor
+    private func pruneSessions(keeping keepIDs: Set<AssetRef.ID>) {
+        guard sessions.keys.contains(where: { !keepIDs.contains($0) }) else { return }
+        sessions = prunedSessions(sessions, keeping: keepIDs)
+    }
+
     /// Pane-shell (iPad/Mac) memory guard: keep only the active editor's session
     /// resident. Each EditSession holds GPU live buffers + a decoded cache —
     /// roughly one large RAW's worth — and the `open*` actions cache every opened
@@ -293,23 +309,31 @@ struct AppShell: View {
     @MainActor
     func pruneInactiveSessions() {
         guard isImageOpen, let id = browseVM.selectedID else { return }
-        if let active = sessions[id] {
-            // Active session already resident — drop every other one. The
-            // `count > 1` guard avoids a spurious @State rewrite (and shell
-            // re-render) when it's already the only entry.
-            if sessions.count > 1 { sessions = [id: active] }
-        } else {
-            // The active asset's session isn't resident yet. Today every
-            // in-editor switch routes through `openEditor`, which instantiates
-            // the session BEFORE mutating `selectedID`, so this branch is a
-            // guard against a future path that flips `selectedID` first: free
-            // every prior session so the old large RAW's buffers are gone
-            // before the new decode runs, rather than early-returning and
-            // leaving them resident while the next image loads (#1660). The
-            // active session is then (re)created by `openEditor`. Mirrors
-            // EditorDestination's `sessions = [:]` pruning (#1661 review).
-            sessions = [:]
-        }
+        // Whether or not `id` is resident yet, the only id allowed to survive
+        // is the active one — `pruneSessions` reduces to `sessions = [:]` when
+        // it isn't resident (mirrors EditorDestination's own `sessions = [:]`,
+        // #1661 review) and to "drop every other entry" when it is.
+        pruneSessions(keeping: [id])
+    }
+
+    /// Pane-shell + iPhone memory guard: prune `sessions` whenever a folder /
+    /// library navigation replaces the visible asset list. `loadFolder`
+    /// pre-creates a session for every asset in the folder it loads, and
+    /// `ensureSession(for:)` primes one for every grid cell scrolled into
+    /// view — neither ever prunes, so re-browsing the same folder, or
+    /// navigating to a different one, only ever added entries, growing
+    /// memory without bound while pure browsing (#2038). Keeps every asset
+    /// in the NEW current list (so a still-visible cell's `ensureSession`
+    /// call on next appear is a no-op, not a re-create) plus the actively-
+    /// open editor asset, if any (mirrors `pruneInactiveSessions`'s
+    /// `isImageOpen` guard — never evict the session the user is looking
+    /// at mid-navigation, e.g. a filmstrip-driven folder change).
+    @MainActor
+    func pruneSessionsForNewAssetList() {
+        let currentIDs = Set(browseVM.assets.map(\.id))
+        let openID = isImageOpen ? browseVM.selectedID : nil
+        let keepIDs = openID.map { currentIDs.union([$0]) } ?? currentIDs
+        pruneSessions(keeping: keepIDs)
     }
 
     var body: some View {

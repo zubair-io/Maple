@@ -222,6 +222,10 @@ extension AppShell {
                                                  folderID: folderID,
                                                  libraryPath: cloudCurrentPath ?? libraryPath)
                 mode = .browse
+                // The dir listing above just replaced the visible asset list
+                // wholesale — drop any session left over from whatever
+                // folder/library was open before (#2038).
+                pruneSessionsForNewAssetList()
             case .timeline:
                 browseVM.clear()
                 // Single AuthenticatedHTTPClient shared by the search +
@@ -293,6 +297,11 @@ extension AppShell {
                                                  folderID: folderID,
                                                  libraryPath: libraryPath)
                 mode = .browse
+                // Timeline mode renders from `cloudTimelineVM`, not
+                // `browseVM.assets` (cleared above by `browseVM.clear()`), and
+                // has no per-cell `ensureSession` priming — so the keep-set
+                // here is just the actively-open editor asset, if any (#2038).
+                pruneSessionsForNewAssetList()
             }
         }
     }
