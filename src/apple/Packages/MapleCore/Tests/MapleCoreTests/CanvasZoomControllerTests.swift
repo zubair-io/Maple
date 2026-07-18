@@ -252,6 +252,27 @@ final class CanvasZoomControllerTests: XCTestCase {
                        "the restarted debounce eventually fires exactly once")
     }
 
+    /// An immediate commit from another path (toolbar zoom, double-tap,
+    /// viewport change) supersedes a pending debounced wheel-pan commit —
+    /// the pending task must be cancelled, not left to fire a redundant
+    /// commit later (PR #2047 review).
+    func testImmediateCommitCancelsPendingWheelPanCommit() async {
+        let controller = makeController()
+        controller.zoomToScale(1.0)
+        controller._testSetWheelPanCommitInterval(milliseconds: 30)
+
+        controller.wheelPan(delta: CGSize(width: -10, height: 0))
+        // ⌘= while the debounce is pending: commits immediately and must
+        // absorb the pending wheel-pan commit.
+        controller.stepZoomIn()
+
+        try? await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(controller._testWheelPanCommitFireCount, 0,
+                       "the immediate commit supersedes the debounced one — no late fire")
+        XCTAssertEqual(controller.session.pixelScale, 1.25, accuracy: 1e-9,
+                       "the immediate commit itself landed")
+    }
+
     // MARK: - Early commands (no viewport yet)
 
     func testZoomCommandBeforeViewportDefersCommit() {

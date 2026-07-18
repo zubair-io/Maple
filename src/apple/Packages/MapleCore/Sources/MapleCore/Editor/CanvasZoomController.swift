@@ -329,6 +329,12 @@ public final class CanvasZoomController {
     /// flushes naturally on the next `viewportChanged` — which always
     /// commits.
     private func commitToSession() {
+        // Any commit supersedes a pending debounced wheel-pan commit — both
+        // would push the same current model state, so letting the debounce
+        // fire later would only re-trigger `updateTileVisibleRegion` for
+        // nothing (PR #2047 review).
+        wheelPanCommitTask?.cancel()
+        wheelPanCommitTask = nil
         guard viewportPoints.width > 0, viewportPoints.height > 0 else { return }
         let math = context.canvasMath(
             pixelScale: model.pixelScale,
