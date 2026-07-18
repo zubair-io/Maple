@@ -12,13 +12,37 @@
 import SwiftUI
 import MapleCore
 
-struct CanvasImageView: View {
+struct CanvasImageView: View, Equatable {
     let image: CIImage
 
     @Environment(\.displayScale) private var displayScale
 
     private static let context = CIContext()
     private static let outputColorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
+
+    // Render-skip contract (#2062): `body` runs a synchronous
+    // `CIContext.createCGImage` raster — expensive enough that it must not
+    // re-run just because a parent re-evaluated its own body during pan/zoom.
+    // Equality is reference identity on `image`: this pipeline never mutates
+    // a published `CIImage` in place (every edit publishes a *new* `CIImage`
+    // instance — see `EditSession`/`ImageEditPipeline`), so the same instance
+    // always denotes the same pixels. `===` is therefore both necessary
+    // (value/structural equality on a `CIImage` filter graph is not
+    // practically computable) and sufficient (identical instance implies
+    // identical raster output) for this call site: same instance ⇒ skip the
+    // re-raster, new instance ⇒ re-raster.
+    //
+    // `displayScale` (the only other stored property) is deliberately left
+    // out of this comparison: it's an `@Environment` read, not a value the
+    // call site constructs, and SwiftUI tracks environment-key dependencies
+    // for a view's body independently of `EquatableView`/`.equatable()` —
+    // a `displayScale` change invalidates and re-runs `body` on its own,
+    // regardless of what this `==` returns. Including it here would just
+    // require resolving `displayScale` on two instances outside their
+    // normal tree-attached lifecycle for no correctness benefit.
+    static func == (lhs: CanvasImageView, rhs: CanvasImageView) -> Bool {
+        lhs.image === rhs.image
+    }
 
     var body: some View {
         Group {

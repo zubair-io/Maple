@@ -64,7 +64,16 @@ extension EditorView {
                 GpuLiveCanvasView(session: state.session)
                 if showCpuBackdrop,
                    let preview = state.session.renderedPreview {
+                    // `.equatable()` makes the render-skip contractual
+                    // (#2062): SwiftUI does not consult `Equatable`
+                    // automatically for an arbitrary `View`-conforming
+                    // struct — only `EquatableView`/`.equatable()` opts a
+                    // use site into skipping `body` when `==` says nothing
+                    // changed, which is what lets `renderedPreview` staying
+                    // the same `CIImage` instance across pan/zoom frames
+                    // skip the synchronous raster.
                     CanvasImageView(image: preview)
+                        .equatable()
                         .allowsHitTesting(false)
                 }
                 nativeDetailOverlay
@@ -99,7 +108,11 @@ extension EditorView {
             // CPU path — suppressed while showing the original (review #1),
             // so the before/after toggle falls back to the placeholder.
             ZStack {
+                // See the GPU branch above for why `.equatable()` is required
+                // (#2062): `Equatable` conformance alone doesn't change
+                // SwiftUI's diffing behavior without it.
                 CanvasImageView(image: preview)
+                    .equatable()
                 nativeDetailOverlay
             }
                 .accessibilityElement(children: .ignore)
@@ -252,7 +265,11 @@ private struct NativeDetailOverlay: View {
             let centerX = size.width * sourceRect.midX / sourceSize.width
             let centerY = size.height * sourceRect.midY / sourceSize.height
 
+            // `.equatable()` per #2062 — see the canvas-leaf branches above
+            // for why the plain conformance needs this to actually gate
+            // `body` re-evaluation.
             CanvasImageView(image: image)
+                .equatable()
                 .frame(width: width, height: height)
                 .position(x: centerX, y: centerY)
         }
