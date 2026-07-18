@@ -417,6 +417,81 @@ final class EditSessionTests: XCTestCase {
         let pendingAfterRetry = await session.cachedPreviewSeedPendingViewport
         XCTAssertFalse(pendingAfterRetry, "the retry must fire at most once per cold-open")
     }
+
+    /// The jules-review edge on top of the race above: a SUB-PIXEL layout
+    /// transient lands first (0 → 0.5). That takes the didSet's
+    /// zero-transition branch and fires the retry, which fails the seed's
+    /// `width >= 1` guard and RE-ARMS the pending flag. The real width then
+    /// arrives with `oldValue == 0.5` — the non-zero branch — so a retry
+    /// gated on `oldValue == .zero` would never fire again and the cache
+    /// miss would be permanent. The retry call therefore runs on EVERY
+    /// `previewSize` update (its pending-flag guard makes that free); this
+    /// walks the full 0 → 0.5 → real-width sequence and asserts the cached
+    /// preview still lands.
+    func testCachedPreviewSeedSurvivesSubPixelViewportTransient() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        await RenderedPreviewCache.shared.configure(folderURL: tmp)
+
+        let assetURL = tmp.appendingPathComponent("transient.dng")
+        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+        let asset = AssetRef(url: assetURL)
+
+        let realWidth = 823
+        let cachedSwatch = CIImage(color: CIColor(red: 0.7, green: 0.3, blue: 0.1))
+            .cropped(to: CGRect(x: 0, y: 0, width: realWidth, height: 550))
+        await RenderedPreviewCache.shared.storePreview(
+            cachedSwatch, for: assetURL, screenWidth: realWidth)
+
+        let session = await EditSession(asset: asset)
+
+        // Cold-open attempt at .zero — arms the pending flag.
+        let zeroHit = await session.seedFromCachedPreview(for: asset)
+        XCTAssertFalse(zeroHit)
+        let pendingAfterZero = await session.cachedPreviewSeedPendingViewport
+        XCTAssertTrue(pendingAfterZero, "precondition: zero-width attempt arms the retry")
+
+        // Sub-pixel layout-churn transient (0 → 0.5): the didSet's retry
+        // fires, fails the `width >= 1` guard, and must RE-ARM the flag
+        // rather than burn the one shot. Poll for the re-arm — the retry
+        // body is an async hop off the didSet.
+        await MainActor.run {
+            session.previewSize = CGSize(width: 0.5, height: 550)
+        }
+        let rearmDeadline = Date().addingTimeInterval(2.0)
+        while Date() < rearmDeadline {
+            if await session.cachedPreviewSeedPendingViewport { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let pendingAfterTransient = await session.cachedPreviewSeedPendingViewport
+        XCTAssertTrue(pendingAfterTransient,
+            "a sub-pixel retry must re-arm the pending flag, not consume it (#2041)")
+        let renderedAfterTransient = await session.renderedPreview
+        XCTAssertNil(renderedAfterTransient,
+            "a sub-pixel-width lookup must not publish anything")
+
+        // Real width lands with oldValue == 0.5 — the NON-zero didSet
+        // branch. The retry must still fire and land the cached preview.
+        await MainActor.run {
+            session.previewSize = CGSize(width: realWidth, height: 550)
+        }
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline {
+            if await session.renderedPreview != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let landed = await session.renderedPreview
+        XCTAssertNotNil(landed,
+            "the cached preview must land after a sub-pixel transient — a retry gated on "
+            + "oldValue == .zero strands the pending flag forever (jules review, #2041)")
+        XCTAssertEqual(landed?.extent.width ?? 0, CGFloat(realWidth), accuracy: 0.5,
+            "the retried seed must publish the cache-stored preview")
+        let pendingAfterLanding = await session.cachedPreviewSeedPendingViewport
+        XCTAssertFalse(pendingAfterLanding, "a landed seed must clear the pending flag")
+    }
 }
 
 // MARK: - FailingSidecarStore (test double for #1412)
