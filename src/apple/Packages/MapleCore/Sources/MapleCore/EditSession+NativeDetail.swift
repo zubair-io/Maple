@@ -24,7 +24,30 @@ extension EditSession {
     func refineNativeDetail(gen: UInt64) async -> Bool {
         let asset = self.asset
         let assetID = asset.id
-        let detailRect = NativeDetailLOD.detailRect(
+        let viewportDetailRect = NativeDetailLOD.detailRect(
+            visibleRect: viewportSourceRect,
+            imageSize: nativeImageSize
+        )
+        guard !viewportDetailRect.isEmpty else { return false }
+
+        // Already-covered fast path (#2063): `updateTileVisibleRegion`'s
+        // containment check keeps the overlay across a small pan without
+        // ever calling in here, but a refine can still reach this point
+        // from other `_scheduleRefine` callers (a tile-completion poke, a
+        // coalesced reschedule) after the viewport already settled inside
+        // the published patch. If so there is nothing new to develop —
+        // bail out before opening any RAW handle.
+        if nativeDetailPreview != nil,
+           nativeDetailSourceRect.contains(viewportDetailRect) {
+            return true
+        }
+
+        // Grow the published patch beyond the immediate viewport
+        // (`NativeDetailLOD.panMargin`) so a subsequent small pan lands
+        // inside it and hits the fast path above instead of paying this
+        // develop again. `decodeRect` adds the separate, smaller
+        // `filterHalo` on top for filter-stencil context only.
+        let detailRect = NativeDetailLOD.patchRect(
             visibleRect: viewportSourceRect,
             imageSize: nativeImageSize
         )
