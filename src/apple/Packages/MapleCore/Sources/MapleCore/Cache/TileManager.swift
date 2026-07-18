@@ -528,7 +528,10 @@ public actor TileManager {
     private static func estimatedByteCost(for image: CIImage) -> Int {
         let extent = image.extent
         guard !extent.isInfinite, extent.width > 0, extent.height > 0 else { return 0 }
-        return Int(extent.width * extent.height) * 8
+        // Ceil each axis: a fractional extent still occupies whole pixels in
+        // the backing store, and truncating would undercount against the
+        // budget (PR #2069 review).
+        return Int(extent.width.rounded(.up)) * Int(extent.height.rounded(.up)) * 8
     }
 
     // MARK: - Sidecar mtime lookup
