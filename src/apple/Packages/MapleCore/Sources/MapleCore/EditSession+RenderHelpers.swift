@@ -21,9 +21,27 @@ extension EditSession {
     /// registered, please re-render" hook: cheap (no decode), bypasses the
     /// preview-set guard. (#1362 follow-up — caught on iPad with self-hosted
     /// cloud assets where the bytes download adds seconds to canvas-mount.)
+    ///
+    /// #2064: does NOT cancel a render that's already in flight. A render
+    /// that started before the layer registered still re-reads
+    /// `driver.hasLayer` live at present time (`presentViaGpuLive`), so in
+    /// the common case it picks up the layer we just registered on its own
+    /// — cancelling it here would only discard that work and immediately
+    /// redo an identical pass. Instead, wait for it to settle and re-check:
+    /// if the GPU still hasn't presented (the narrow race where that
+    /// render's own `hasLayer` check ran BEFORE this registration, and it
+    /// already committed to the CPU path), fall through to the original
+    /// unconditional kick — the mount is never silently dropped, only
+    /// deferred behind whatever render was already running.
     public func kickRenderAfterGpuCanvasMount() {
         guard gpuLiveDriver?.hasLayer == true, !gpuFramePresented else { return }
-        _scheduleRender(phase: .fast)
+        let actor = renderActor
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await actor.awaitCurrentRenderIfInFlight()
+            guard self.gpuLiveDriver?.hasLayer == true, !self.gpuFramePresented else { return }
+            self._scheduleRender(phase: .fast)
+        }
     }
 
     /// Re-present the current model after the scene returns to `.active`

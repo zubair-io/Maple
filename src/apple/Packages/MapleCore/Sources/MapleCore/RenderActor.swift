@@ -498,6 +498,40 @@ public actor RenderActor {
         return gen
     }
 
+    /// Wait for the render task that's in flight RIGHT NOW to settle, if
+    /// any — a no-op when nothing is running. (#2064.)
+    ///
+    /// This exists so a caller whose only goal is "make sure a render
+    /// eventually reflects the latest state" doesn't have to go through
+    /// `scheduleRender`'s cancel-previous path when a render is already
+    /// working: cancelling and relaunching an in-flight fast-phase render
+    /// throws away whatever progress it made and redoes an IDENTICAL pass
+    /// whenever nothing the render actually reads (model, decoded buffer,
+    /// GPU-layer availability) changed in the meantime — pure churn during
+    /// exactly the cold-open window where time-to-first-pixel matters most.
+    ///
+    /// Awaiting the existing task instead lets it finish on its own terms.
+    /// This is safe specifically because the render body re-reads its
+    /// inputs live rather than trusting anything captured at schedule
+    /// time: `decodeAndRender` re-fetches `renderActor.snapshot(forAsset:)`
+    /// fresh, and `presentViaGpuLive` re-reads `driver.hasLayer` fresh,
+    /// each time a render actually runs — so an in-flight render started
+    /// before some new state landed (a newly-registered GPU layer, a
+    /// richer decode) will very often still pick that state up by the time
+    /// it gets there. The caller is expected to re-check whatever
+    /// condition it cared about AFTER this returns and schedule a fresh
+    /// render only if that check still says one is needed — see
+    /// `EditSession.kickRenderAfterGpuCanvasMount`.
+    ///
+    /// Captures the in-flight task handle before awaiting so a concurrent
+    /// `scheduleRender` replacing `renderTask` mid-wait can't redirect this
+    /// call onto a different (newer) task — we always wait for the one
+    /// that was actually in flight when the caller asked.
+    public func awaitCurrentRenderIfInFlight() async {
+        guard let task = renderTask, !task.isCancelled else { return }
+        await task.value
+    }
+
     /// Cancel both in-flight tasks. Used on asset switch / session
     /// teardown so background work from the previous asset doesn't
     /// continue to spend GPU cycles after the user moved on.

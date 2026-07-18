@@ -210,6 +210,136 @@ final class RenderActorSchedulerTests: XCTestCase {
         XCTAssertEqual(g3, g0 &+ 3)
     }
 
+    // MARK: - awaitCurrentRenderIfInFlight (#2064 cold-open trigger coalescing)
+
+    /// No render in flight ⇒ immediate return. This is what lets
+    /// `kickRenderAfterGpuCanvasMount` behave exactly as before (unconditional
+    /// kick) in the "mounted-after-completion" case #1362 was written for —
+    /// the render that published via CPU has already settled by the time the
+    /// layer registers, so there's nothing to wait on.
+    func testAwaitCurrentRenderIfInFlightNoOpsWhenNothingRunning() async {
+        let actor = makeActor()
+        let start = ContinuousClock.now
+        await actor.awaitCurrentRenderIfInFlight()
+        let elapsed = start.duration(to: .now)
+        XCTAssertLessThan(elapsed, .milliseconds(50),
+            "must return immediately when no render is in flight")
+    }
+
+    /// The core #2064 contract: `awaitCurrentRenderIfInFlight` waits for the
+    /// CURRENTLY in-flight render to finish rather than returning early, and
+    /// — critically — does NOT cancel it. This is what a caller like
+    /// `kickRenderAfterGpuCanvasMount` needs: instead of cancelling an
+    /// in-flight fast-phase render (pure churn if it was already going to
+    /// pick up the same fresh state) and re-scheduling, it can wait for the
+    /// existing render to complete on its own terms and only re-schedule if,
+    /// after that, its condition still isn't satisfied.
+    func testAwaitCurrentRenderIfInFlightWaitsWithoutCancelling() async {
+        let actor = makeActor()
+        let counter = ExecutionCounter()
+
+        await actor.scheduleRender(phase: .fast) { _ in
+            await counter.recordStart()
+            try? await Task.sleep(for: .milliseconds(150))
+            if Task.isCancelled { return }
+            await counter.recordComplete()
+        }
+        // Let the render actually start before we begin waiting on it.
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let genBeforeWait = await actor.currentGeneration()
+        await actor.awaitCurrentRenderIfInFlight()
+        let genAfterWait = await actor.currentGeneration()
+
+        XCTAssertEqual(genBeforeWait, genAfterWait,
+            "awaiting must not itself schedule/cancel anything — generation must be unchanged")
+        let completes = await counter.completeCount
+        XCTAssertEqual(completes, 1,
+            "the in-flight render must have been allowed to run to completion, not cancelled")
+    }
+
+    /// Simulates the actual `kickRenderAfterGpuCanvasMount` coalescing shape
+    /// end to end at the RenderActor level (per the ticket's suggested test
+    /// seam): a render is in flight; the "mount kick" waits for it instead of
+    /// cancelling, and only issues a FRESH `scheduleRender` if the condition
+    /// it cares about is still unmet afterward. Contrast with the OLD
+    /// unconditional-kick behavior, which would have bumped the generation
+    /// (and cancelled the in-flight render) immediately.
+    func testMountKickShapeSkipsRedundantScheduleWhenConditionAlreadySatisfied() async {
+        let actor = makeActor()
+        let counter = ExecutionCounter()
+        // Stand-in for `gpuFramePresented`: flips true partway through the
+        // in-flight render, mirroring a render that picks up the
+        // newly-registered layer on its own and presents via GPU.
+        let presented = PresentFlag()
+
+        await actor.scheduleRender(phase: .fast) { _ in
+            await counter.recordStart()
+            try? await Task.sleep(for: .milliseconds(80))
+            if Task.isCancelled { return }
+            await presented.set(true)
+            await counter.recordComplete()
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+        let genAtMountEvent = await actor.currentGeneration()
+
+        // The mount-kick shape: wait for the in-flight render, then only
+        // schedule a fresh one if the condition is still unmet.
+        await actor.awaitCurrentRenderIfInFlight()
+        let stillUnmet = await !presented.value
+        if stillUnmet {
+            await actor.scheduleRender(phase: .fast) { _ in await counter.recordComplete() }
+        }
+
+        let genAfter = await actor.currentGeneration()
+        XCTAssertEqual(genAfter, genAtMountEvent,
+            "the render already in flight satisfied the condition on its own — no fresh schedule should have fired")
+        let completes = await counter.completeCount
+        XCTAssertEqual(completes, 1, "the original render must complete exactly once, uncancelled")
+    }
+
+    /// The narrow race the doc calls out: the in-flight render's own
+    /// condition check already came back "unmet" (it committed to the CPU
+    /// path before the layer registered) and never flips. The mount-kick
+    /// shape must still schedule a FRESH render afterward — the mount is
+    /// never silently dropped.
+    func testMountKickShapeSchedulesFreshRenderWhenConditionStillUnmet() async {
+        let actor = makeActor()
+        let counter = ExecutionCounter()
+        let presented = PresentFlag()
+
+        await actor.scheduleRender(phase: .fast) { _ in
+            await counter.recordStart()
+            try? await Task.sleep(for: .milliseconds(50))
+            if Task.isCancelled { return }
+            // This render never satisfies the condition (e.g. it evaluated
+            // `hasLayer == false` before this test's "mount" and fell back
+            // to CPU) — `presented` stays false.
+            await counter.recordComplete()
+        }
+        try? await Task.sleep(for: .milliseconds(15))
+        let genAtMountEvent = await actor.currentGeneration()
+
+        await actor.awaitCurrentRenderIfInFlight()
+        let stillUnmet = await !presented.value
+        XCTAssertTrue(stillUnmet, "test setup: the first render must not have satisfied the condition")
+        if stillUnmet {
+            await actor.scheduleRender(phase: .fast) { _ in
+                await presented.set(true)
+                await counter.recordComplete()
+            }
+        }
+
+        try? await Task.sleep(for: .milliseconds(100))
+        let genAfter = await actor.currentGeneration()
+        XCTAssertGreaterThan(genAfter, genAtMountEvent,
+            "the mount must still schedule a fresh render when nothing satisfied its condition")
+        let completes = await counter.completeCount
+        XCTAssertEqual(completes, 2, "both the original render and the fresh mount-kick render must complete")
+        let finalPresented = await presented.value
+        XCTAssertTrue(finalPresented, "the fresh render must have eventually satisfied the condition")
+    }
+
     // MARK: - cancelAll
 
     /// `cancelAll` flips both task handles to a cancelled state so the
@@ -309,4 +439,12 @@ private actor ExecutionCounter {
 
     var startCount: Int { starts }
     var completeCount: Int { completes }
+}
+
+/// Actor-backed boolean — stands in for `EditSession.gpuFramePresented` in
+/// the #2064 mount-kick-shape tests above, which simulate the coalescing
+/// logic at the RenderActor level without standing up a real GPU driver.
+private actor PresentFlag {
+    private(set) var value = false
+    func set(_ newValue: Bool) { value = newValue }
 }
