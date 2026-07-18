@@ -184,8 +184,8 @@ extension EditSession {
     // MARK: - Unified decode + render
 
     /// Auto Profile (#812) — resolve (and cache) the per-image display-space
-    /// CIColorCube for a CPU-path render. Call only from `decodeAndRender`'s
-    /// CPU-fallback branches (after `presentViaGpuLive` has declined the
+    /// CIColorCube for a CPU-path render. In `decodeAndRender`, call only from
+    /// the CPU-fallback branches (after `presentViaGpuLive` has declined the
     /// frame): the fit is a cold JPEG-extract + develop the first time per
     /// image (seconds + a multi-GB develop transient on a 100MP RAW), and
     /// when the GPU live present handles the frame it does its own fit —
@@ -196,7 +196,7 @@ extension EditSession {
     /// path develops at `.preview` (RenderActor's sharedDecode +
     /// decodeSceneLinear* default to `.preview`), so the curve is fit at
     /// `.preview` to match the displayed buffer (#844).
-    private func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async -> CIFilter? {
+    func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async -> CIFilter? {
         guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
         return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
     }
@@ -328,6 +328,14 @@ extension EditSession {
                 // chain that actually uses it.
                 let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
                 MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+                // The fit is a multi-second suspension on a cold image, and the
+                // detached render below doesn't inherit cancellation — bail here
+                // so a slider tick that cancelled mid-fit can't spawn a stale
+                // full filter chain.
+                guard !Task.isCancelled else {
+                    isRendering = false
+                    return
+                }
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
@@ -399,6 +407,13 @@ extension EditSession {
                 // chain that actually uses it.
                 let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
                 MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+                // Same bail as the cached branch: the fit suspension may have
+                // outlived this generation, and the detached render below
+                // doesn't inherit cancellation.
+                guard !Task.isCancelled else {
+                    isRendering = false
+                    return
+                }
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
