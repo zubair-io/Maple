@@ -2,6 +2,7 @@
 import CryptoKit
 import XCTest
 @testable import MapleCore
+@testable import MapleCloudKit
 
 @MainActor
 final class CloudCacheTests: XCTestCase {

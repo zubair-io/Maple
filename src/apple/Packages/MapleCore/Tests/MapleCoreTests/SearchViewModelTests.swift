@@ -12,6 +12,7 @@
 
 import XCTest
 @testable import MapleCore
+@testable import MapleCloudKit
 
 @MainActor
 final class SearchViewModelTests: XCTestCase {
