@@ -376,12 +376,14 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
 ) -> i32 {
     render_handle_scene_linear_tile_f32_impl(
         handle,
-        src_x,
-        src_y,
-        src_w,
-        src_h,
-        out_w,
-        out_h,
+        raw_core::pipeline::TileRect {
+            src_x,
+            src_y,
+            src_w,
+            src_h,
+            out_w,
+            out_h,
+        },
         quality_preview,
         decoded_temperature,
         decoded_tint,
@@ -431,12 +433,14 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_ae_f32(
     }
     render_handle_scene_linear_tile_f32_impl(
         handle,
-        src_x,
-        src_y,
-        src_w,
-        src_h,
-        out_w,
-        out_h,
+        raw_core::pipeline::TileRect {
+            src_x,
+            src_y,
+            src_w,
+            src_h,
+            out_w,
+            out_h,
+        },
         quality_preview,
         decoded_temperature,
         decoded_tint,
@@ -450,16 +454,13 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_ae_f32(
 /// public symbols have in common, plus `ae_gain` (1.0 from the former, a
 /// caller-supplied value from the latter). Factored out so the two `#[repr(C)]`
 /// entries (which must keep distinct, stable arities — see each fn's doc)
-/// don't duplicate the guard/decode/pack body (#1167).
-#[allow(clippy::too_many_arguments)]
+/// don't duplicate the guard/decode/pack body (#1167). The six tile-geometry
+/// scalars the C ABI passes positionally are grouped into raw-core's own
+/// [`raw_core::pipeline::TileRect`] here — the flat C signatures are the ABI
+/// surface; internal code follows the 5-parameter guideline.
 unsafe fn render_handle_scene_linear_tile_f32_impl(
     handle: *const MapleRawHandle,
-    src_x: u32,
-    src_y: u32,
-    src_w: u32,
-    src_h: u32,
-    out_w: u32,
-    out_h: u32,
+    rect: raw_core::pipeline::TileRect,
     quality_preview: i32,
     decoded_temperature: f32,
     decoded_tint: f32,
@@ -470,7 +471,7 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
         set_last_error("null pointer argument".into());
         return 1;
     }
-    if src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 {
+    if rect.src_w == 0 || rect.src_h == 0 || rect.out_w == 0 || rect.out_h == 0 {
         set_last_error("src_w/src_h/out_w/out_h must be > 0".into());
         return 9;
     }
@@ -507,14 +508,7 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
         let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
             raw_img,
             model,
-            raw_core::pipeline::TileRect {
-                src_x,
-                src_y,
-                src_w,
-                src_h,
-                out_w,
-                out_h,
-            },
+            rect,
             quality,
             wb_anchor,
             ae_gain,
