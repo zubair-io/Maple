@@ -16,8 +16,13 @@
 // Gesture-live updates (pinch frames, drag frames) mutate only the
 // model — the session is committed on gesture END, matching the legacy
 // contract ("commit once on release so target-size refinements don't
-// swap brightness mid-pinch"). Discrete inputs (wheel, keyboard,
-// toolbar, double-tap) commit immediately.
+// swap brightness mid-pinch"). Wheel-pan (trackpad two-finger scroll,
+// #2036) follows the same "commit once" contract via a debounce —
+// every event updates the model but the commit is deferred until the
+// scroll stream goes idle, since a continuous scroll fires far too
+// often to commit synchronously per event. Wheel-zoom, keyboard,
+// toolbar, and double-tap remain genuinely discrete inputs and commit
+// immediately.
 //
 // Lives in MapleCore so the editor (`EditorState`), the legacy full-image
 // surface, and the S4 loupe (#577) share one implementation, and so the
@@ -207,10 +212,17 @@ public final class CanvasZoomController {
     }
 
     /// Two-finger scroll / wheel pan while zoomed (deltas in points).
+    /// Model-only per event — the debounced commit below coalesces the
+    /// stream, matching the drag/pinch "commit once" contract (#2036).
+    /// Trackpad two-finger scroll emits dozens of events/sec; a
+    /// synchronous per-event commit reaches `updateTileVisibleRegion`,
+    /// which clears the native-detail overlay (visible sharp→blurry
+    /// flicker for the whole pan) and reschedules a refine Task on every
+    /// event.
     public func wheelPan(delta: CGSize) {
         guard model.isZoomedIn else { return }
         model.wheelPan(by: delta, context: context)
-        commitToSession()
+        scheduleWheelPanCommit()
     }
 
     /// Cmd+scroll zoom anchored at the cursor (normalized delta —
@@ -245,6 +257,60 @@ public final class CanvasZoomController {
         model.stepZoomOut(context: context)
         commitToSession()
     }
+
+    // MARK: - Wheel-pan commit debounce (#2036)
+
+    /// Wheel-pan commit debounce — a continuous trackpad two-finger
+    /// scroll fires dozens of events per second; committing per event
+    /// (the previous behaviour) forced a native-detail clear + refine
+    /// reschedule on every one. 120 ms comfortably exceeds the gap
+    /// between consecutive scroll-wheel events (including a momentum
+    /// tail) while still committing promptly once the pan actually
+    /// stops.
+    public static let wheelPanCommitDebounceMilliseconds: UInt64 = 120
+
+    /// Interval `scheduleWheelPanCommit` actually sleeps. A stored
+    /// (not static) value so `_testSetWheelPanCommitInterval` can shrink
+    /// it for a fast coalescing test; production never touches this.
+    private var wheelPanCommitIntervalMilliseconds: UInt64 =
+        CanvasZoomController.wheelPanCommitDebounceMilliseconds
+
+    /// Pending debounced commit — cancelled and replaced on every
+    /// `wheelPan` event so only the tail of a continuous scroll (momentum
+    /// included, since momentum just extends the event stream) survives
+    /// to actually commit. Same cancel-previous-task idiom as
+    /// `RenderActor.refineTask`.
+    private var wheelPanCommitTask: Task<Void, Never>?
+
+    /// (Re)arms the debounced wheel-pan commit. Cancelling the previous
+    /// pending Task on every call means a steady stream of events keeps
+    /// pushing the commit out; it only fires once the stream goes idle
+    /// for `wheelPanCommitIntervalMilliseconds`.
+    private func scheduleWheelPanCommit() {
+        wheelPanCommitTask?.cancel()
+        let intervalMilliseconds = wheelPanCommitIntervalMilliseconds
+        wheelPanCommitTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(intervalMilliseconds)))
+            guard !Task.isCancelled else { return }
+            self?._testWheelPanCommitFireCount += 1
+            self?.commitToSession()
+        }
+    }
+
+    // MARK: - Test hooks
+
+    /// Shrinks the wheel-pan commit debounce so a coalescing test doesn't
+    /// have to sleep the production 120 ms per assertion.
+    internal func _testSetWheelPanCommitInterval(milliseconds: UInt64) {
+        wheelPanCommitIntervalMilliseconds = milliseconds
+    }
+
+    /// Number of times the debounced wheel-pan commit has actually fired
+    /// (i.e. survived to the end of its sleep uncancelled). `Task.isCancelled`
+    /// stays `false` after a task simply completes, so it can't distinguish
+    /// "pending" from "already fired" — this counter is the reliable signal
+    /// a coalescing test needs.
+    internal private(set) var _testWheelPanCommitFireCount = 0
 
     // MARK: - Session commit
 
