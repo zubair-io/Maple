@@ -432,6 +432,90 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         XCTAssertTrue(freshAgain)
     }
 
+    // MARK: - #2037: memory-pressure eviction
+
+    /// `EditSession.releaseTransientMemory()` must empty the decoded-image
+    /// cache — the same postcondition `invalidate()` already guarantees
+    /// (`testInvalidateClearsAllCacheFields` above), exercised through the
+    /// higher-level session API the memory-pressure fan-out actually calls.
+    /// Also asserts the deep-zoom tile cache is cleared (`TileManager.clear()`
+    /// empties `entries`), and that the call is idempotent / safe with no
+    /// tile manager or GPU-live driver present (the common case: most
+    /// sessions never zoom in and `GpuLiveFlag` may be off in this test
+    /// environment).
+    func testReleaseTransientMemoryEmptiesDecodedCache() async throws {
+        let (asset, dir) = try makeAsset()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let session = EditSession(asset: asset)
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
+            decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100),
+            decodedAtModel: AdjustmentModel.default
+        )
+        let populatedBefore = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
+        XCTAssertTrue(populatedBefore, "precondition: decoded cache populated before eviction")
+
+        await session.releaseTransientMemory()
+
+        let populatedAfter = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
+        XCTAssertFalse(populatedAfter,
+            "releaseTransientMemory must empty the decoded-image cache (#2037)")
+        let atModelAfter = await session.renderActor._testDecodedAtModel
+        XCTAssertNil(atModelAfter, "releaseTransientMemory must clear decodedAtModel too")
+    }
+
+    /// The deep-zoom tile cache is a second re-derivable buffer
+    /// `releaseTransientMemory()` must free — mirrors
+    /// `testTileManagerClearEmptiesCache` (`DeepZoomTileRenderingTests`) but
+    /// through the session-level eviction call.
+    func testReleaseTransientMemoryClearsTileManager() async throws {
+        let (asset, dir) = try makeAsset()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let session = EditSession(asset: asset)
+        let tileManager = session.ensureTileManager()
+        // Seed directly via the test-only synchronous insert — `update(...)`
+        // would enqueue a real FFI fetch against the fake `.dng` bytes
+        // `makeAsset()` writes, which isn't a real RAW.
+        let key = TileKey(
+            urlHash: TileManager.urlHash(asset.primaryURL!),
+            sidecarMtime: .distantPast,
+            viewTransformVersion: TileManager.viewTransformVersion,
+            zoomBucket: 1,
+            tileX: 0,
+            tileY: 0
+        )
+        await tileManager.testInsertTile(key: key, image: makeDecoded())
+        let countBefore = await tileManager.testCachedTileCount()
+        XCTAssertEqual(countBefore, 1, "precondition: tile cache populated")
+
+        await session.releaseTransientMemory()
+
+        let countAfter = await tileManager.testCachedTileCount()
+        XCTAssertEqual(countAfter, 0,
+            "releaseTransientMemory must clear the session's deep-zoom tile cache (#2037)")
+    }
+
+    /// The common case: a browse-primed session that never zoomed in (no
+    /// `tileManager`) and never opened a GPU-live session must not crash or
+    /// hang — `releaseTransientMemory()` no-ops on the absent pieces.
+    func testReleaseTransientMemoryIsSafeWithNoTileManagerOrGpuSession() async throws {
+        let (asset, dir) = try makeAsset()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let session = EditSession(asset: asset)
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset, decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100))
+
+        await session.releaseTransientMemory()
+
+        let populatedAfter = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
+        XCTAssertFalse(populatedAfter)
+    }
+
     /// Cold-open second-render parity: when fixture is present, run a
     /// real decode through `ensureRenderStarted`, wait for the Rust
     /// pass to land in the actor's cache AND the first preview to
