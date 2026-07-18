@@ -4,12 +4,6 @@
 // the `sharedDecode` / `coalescedRefineDecode` / `renderForExport` methods
 // onto `RenderActor`. What's left here is:
 //
-//   • `invalidateDecodedCache` — public sync forwarder. Schedules a
-//     `Task` that calls `renderActor.invalidate()` and clears the per-
-//     session tile manager. Kept on EditSession so existing callers
-//     (Settings UI, tests, external Browse paths) don't have to switch
-//     to `await session.renderActor.invalidate()`.
-//
 //   • `persistCurrentPreviewToCache` — reads `renderedPreview` /
 //     `previewSize` (EditSession-owned MainActor state), no coupling to
 //     the decoded-image cache. Stays here per the slice-2 plan note.
@@ -24,31 +18,6 @@ import CoreImage
 
 @MainActor
 extension EditSession {
-    // MARK: - Cache invalidation forwarder
-
-    /// Drop the cached decoded CIImage — call after reloading the
-    /// sidecar from disk or when the underlying asset bytes may have
-    /// changed.
-    ///
-    /// Synchronous-looking surface preserved for callers; the actor
-    /// hop is fire-and-forget. In-flight render tasks observe the
-    /// invalidation through the gen-counter guard upstream, so racing
-    /// the actor write against a publish has the same effect as the
-    /// pre-slice-2 inline mutation.
-    public func invalidateDecodedCache() {
-        let actor = renderActor
-        Task { await actor.invalidate() }
-        // Plan 3 — drop tile cache for this asset so the next deep-zoom
-        // refine starts from a clean slate against the fresh decode.
-        let mgr = tileManager
-        Task { await mgr?.clear() }
-        // #1881 — the on-screen preview now predates the invalidation cause
-        // (sidecar reload, paste-adjustments, external XMP edit). Until the
-        // re-render publishes, a refine-skip persist would write OLD-model
-        // pixels under the NEW sidecar-mtime cache key.
-        previewIsFullRender = false
-    }
-
     // MARK: - Preview cache persistence
 
     /// Snapshot the current `renderedPreview` into `RenderedPreviewCache`
@@ -98,11 +67,10 @@ extension EditSession {
     /// from the sidecar + RAW on next use — no user state (the model, undo
     /// stack, sidecar) is touched.
     ///
-    /// Unlike `invalidateDecodedCache()` (a fire-and-forget sync forwarder
-    /// for UI call sites), this AWAITS every teardown so a caller fanning
-    /// out over `AppShell.sessions` under memory pressure knows the frees
-    /// landed before it returns, and so a test can assert on the result
-    /// synchronously.
+    /// AWAITS every teardown (rather than firing detached `Task`s) so a
+    /// caller fanning out over `AppShell.sessions` under memory pressure
+    /// knows the frees landed before it returns, and so a test can assert
+    /// on the result synchronously.
     ///
     /// Callers decide which sessions this reaches — see `AppShell`'s
     /// `pruneInactiveSessions()` for how "active vs inactive" is already
@@ -122,9 +90,9 @@ extension EditSession {
     public func releaseTransientMemory() async {
         await renderActor.invalidate()
         await tileManager?.clear()
-        // #1881 — mirrors `invalidateDecodedCache()`: the on-screen preview
-        // (if any) now predates this eviction, so a refine-skip persist must
-        // not write these stale pixels under a fresh cache key later.
+        // #1881 — the on-screen preview (if any) now predates this eviction,
+        // so a refine-skip persist must not write these stale pixels under a
+        // fresh cache key later.
         previewIsFullRender = false
         await gpuLiveDriver?.closeSession()
     }

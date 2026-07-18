@@ -39,8 +39,8 @@ public actor RenderedPreviewCache {
     // every post-adjustment render — bump it whenever any pipeline stage
     // changes pixel output, not just the AgX LUT.
     //
-    // v3 (2026-05-01): paired with DecodedBufferCache rustVersion=3. Color-
-    // convergence Phase 1.1 + 1.2 + 1.5 + 2 + apply_scene_linear_chain D65
+    // v3 (2026-05-01): paired with the (since-removed, #2060) DecodedBufferCache's
+    // rustVersion=3. Color-convergence Phase 1.1 + 1.2 + 1.5 + 2 + apply_scene_linear_chain D65
     // contract + additive BE lookup + tile-pipeline pre-gain — every one of
     // those changes pixel output. Without bumping this, the app loads the
     // pre-Phase-1.1 cached render JPEG and short-circuits the entire
@@ -50,8 +50,9 @@ public actor RenderedPreviewCache {
     // Smith sigmoid replacing the polynomial fit). Mid-gray now lands at
     // 0.18 instead of 0.237 — every preview from before this change reads
     // ~8% bright at mid-gray.
-    // v5 (2026-05-23, #370): paired with DecodedBufferCache rustVersion=4.
-    // BaselineExposure compose chain rewritten — the per-body
+    // v5 (2026-05-23, #370): paired with the (since-removed, #2060)
+    // DecodedBufferCache's rustVersion=4. BaselineExposure compose chain
+    // rewritten — the per-body
     // `camera_calibration::baseline_exposure` lookup that contributed to
     // BE for several vendor bodies (Canon 5DM4 / 5DS R, Fuji 50R / 50S,
     // Hasselblad H2D-39, Nikon D850, Panasonic LX2) is gone, replaced by
@@ -62,8 +63,9 @@ public actor RenderedPreviewCache {
     // alone (#370 commit) is not enough — the preview cache reads from
     // its own disk store and would otherwise keep serving pre-#370
     // output indefinitely after app update.
-    // v6 (2026-07-06, #1801): paired with DecodedBufferCache rustVersion=5.
-    // Catches up on three unbumped pipeline-output changes: #1756 (sidecar
+    // v6 (2026-07-06, #1801): paired with the (since-removed, #2060)
+    // DecodedBufferCache's rustVersion=5. Catches up on three unbumped
+    // pipeline-output changes: #1756 (sidecar
     // WB re-interpreted in the camera calibration frame), #1774 (Auto 2.0
     // default profile flip — default-look output changed on every image),
     // and #1783 (decode bakes at strip-XMP 6500/0 + SliderFrame-anchored
@@ -71,8 +73,9 @@ public actor RenderedPreviewCache {
     // old look and, uninvalidated, short-circuit the pipeline — devices
     // kept showing pre-fix output (the persistent TestFlight band/pink)
     // no matter which build was installed.
-    // v7 (2026-07-12, #1904): paired with DecodedBufferCache rustVersion=6
-    // and TileManager viewTransformVersion=4. The #1893/#1894 WB value-
+    // v7 (2026-07-12, #1904): paired with the (since-removed, #2060)
+    // DecodedBufferCache's rustVersion=6 and TileManager viewTransformVersion=4.
+    // The #1893/#1894 WB value-
     // mapping series changed pipeline output: kTintScale magnitude, the
     // Robertson slider mapping, the Robertson-consistent frame/profile CCT
     // solve (moves the FM retarget point), and single-CM DNGs anchoring on
@@ -185,9 +188,7 @@ public actor RenderedPreviewCache {
     // RAW's pixels, so a change to those pixels that leaves the sidecar
     // untouched — re-import, external sync tool, filesystem restore — must
     // still miss. Keying only on `sidecarMtime` would serve a preview
-    // developed from the old bytes under an identical key. `DecodedBufferCache`
-    // (the pre-adjustment sibling) already keys on the primary mtime; this
-    // brings the post-adjustment cache to parity.
+    // developed from the old bytes under an identical key.
     // The key is `"{urlHash}_{sha256Prefix(variant)}"` — the per-asset `urlHash` is
     // kept as a literal prefix (not folded into the outer hash) so
     // `invalidate(assetURL:)` can find every screen-width variant of an asset

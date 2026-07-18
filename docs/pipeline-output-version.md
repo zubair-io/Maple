@@ -2,9 +2,9 @@
 
 Maple's develop pipeline is deterministic: a given `(RAW file, XMP sidecar)`
 pair renders to one specific image. Several caches lean on that determinism to
-avoid recomputing pixels — the Apple rendered-preview cache, the decoded-buffer
-cache, the deep-zoom tile cache, and the Web thumbnail cache all store a
-previously-produced artifact and serve it again when the same input reappears.
+avoid recomputing pixels — the Apple rendered-preview cache, the deep-zoom tile
+cache, and the Web thumbnail cache all store a previously-produced artifact
+and serve it again when the same input reappears.
 That shortcut is only safe while the pipeline that produced the artifact still
 agrees with the pipeline running today. When a color-math change, a demosaic
 retune, an AgX LUT revision, or a silent reinterpretation of a stored slider
@@ -131,9 +131,10 @@ of them:
 
 On Apple the constant supersedes, going forward, the hand-maintained,
 drift-prone per-cache version fields that predate it —
-`RenderedPreviewCache.viewTransformVersion`, `DecodedBufferCache.rustVersion`,
-and `TileManager.viewTransformVersion`. These are per-instance `private let`
-fields, not statics. `RenderedPreviewCache` keeps its local
+`RenderedPreviewCache.viewTransformVersion` and
+`TileManager.viewTransformVersion` (a third, `DecodedBufferCache.rustVersion`,
+was removed along with that dead subsystem in #2060). These are per-instance
+`private let` fields, not statics. `RenderedPreviewCache` keeps its local
 `viewTransformVersion` for the documented bump lineage recorded in that file, but
 new pipeline-output changes bump this single source instead of a local integer,
 so a raw-core output change can no longer ship without invalidating the caches.

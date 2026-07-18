@@ -40,7 +40,6 @@ extension AppShell {
         Task.detached {
             await ThumbnailDiskCache.shared.configure(folderURL: url)
             await RenderedPreviewCache.shared.configure(folderURL: url)
-            await DecodedBufferCache.shared.configure(folderURL: url)
         }
 
         // Claim scope on the picker URL FIRST, before any filesystem read.
@@ -189,7 +188,6 @@ extension AppShell {
         Task.detached {
             await ThumbnailDiskCache.shared.configure(folderURL: url)
             await RenderedPreviewCache.shared.configure(folderURL: url)
-            await DecodedBufferCache.shared.configure(folderURL: url)
         }
         Task { @MainActor in
             // Claim security scope via the root's bookmark. Child URLs live
@@ -270,7 +268,6 @@ extension AppShell {
             browseVM.currentScopeRoot = folderURL
             await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
             await RenderedPreviewCache.shared.configure(folderURL: folderURL)
-            await DecodedBufferCache.shared.configure(folderURL: folderURL)
             browseVM.loadFolder(url: folderURL)
             pruneSessionsForNewAssetList()
             SourceSelectionStore.save(.filesystem(bookmark: folder.bookmark))
@@ -331,7 +328,6 @@ extension AppShell {
             browseVM.currentScopeRoot = folderURL
             await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
             await RenderedPreviewCache.shared.configure(folderURL: folderURL)
-            await DecodedBufferCache.shared.configure(folderURL: folderURL)
             librarySelection = .folder(path: folderURL.path)
             libraryTitle = folderURL.lastPathComponent
             browseVM.loadFolder(url: folderURL)

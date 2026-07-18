@@ -71,12 +71,13 @@
 //! On Apple the constant supersedes, going forward, the hand-maintained,
 //! drift-prone per-cache version fields that predate it. Those are not
 //! statics — each is a per-instance `private let` on its cache: the `UInt32`
-//! `viewTransformVersion` on `RenderedPreviewCache`, `rustVersion` on
-//! `DecodedBufferCache`, and `viewTransformVersion` on `TileManager`.
-//! `RenderedPreviewCache` retains its local `viewTransformVersion` for the
-//! documented bump lineage in that file, but new pipeline-output changes bump
-//! this single source instead. See `docs/pipeline-output-version.md` for the
-//! full narrative.
+//! `viewTransformVersion` on `RenderedPreviewCache` and `viewTransformVersion`
+//! on `TileManager` (a third, `rustVersion` on the disk-based
+//! `DecodedBufferCache`, was removed along with that dead subsystem in
+//! #2060). `RenderedPreviewCache` retains its local `viewTransformVersion` for
+//! the documented bump lineage in that file, but new pipeline-output changes
+//! bump this single source instead. See `docs/pipeline-output-version.md` for
+//! the full narrative.
 
 /// Monotonic version of the develop pipeline's rendered output. See the
 /// [module docs](self) for the bump policy and the relationship to
