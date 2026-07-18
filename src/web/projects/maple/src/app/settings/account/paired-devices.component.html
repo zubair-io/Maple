@@ -1,0 +1,37 @@
+<section class="paired-devices">
+  <div class="subhead">Paired devices</div>
+  @if (error(); as err) {
+    <p class="error" role="alert">{{ err }}</p>
+  }
+  @if (sessions(); as list) {
+    @if (list.length === 0) {
+      <p class="empty">
+        No paired devices. Pair an Apple TV from the Maple app's Settings → Cloud.
+      </p>
+    } @else {
+      <div class="card-list">
+        @for (s of list; track s.id) {
+          <div class="card-row">
+            <div class="card-text">
+              <div class="card-name">{{ s.label }}</div>
+              <div class="card-meta mono">
+                {{ s.platform }} · paired {{ s.created_at | date: 'mediumDate' }} · last used
+                {{ s.last_used_at | date: 'medium' }}
+              </div>
+            </div>
+            <button
+              type="button"
+              class="delete-btn"
+              [disabled]="busyId() === s.id"
+              (click)="revoke(s)"
+            >
+              {{ busyId() === s.id ? 'Revoking…' : 'Revoke' }}
+            </button>
+          </div>
+        }
+      </div>
+    }
+  } @else {
+    <p class="empty">Loading…</p>
+  }
+</section>
