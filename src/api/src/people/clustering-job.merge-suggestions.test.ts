@@ -136,4 +136,41 @@ describe('runOnlineClustering — merge suggestion persistence', () => {
     expect(afterHide?.suggested_merge_person_id ?? null).toBeNull();
     expect(afterHide?.suggested_merge_score ?? null).toBeNull();
   });
+
+  it('drops a suggestion whose pair was dismissed after the prepare-time snapshot', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { peopleCollection, personMergeDismissalsCollection } = await import('../db/client.ts');
+    const { _internals } = await import('./clustering-job.ts');
+    const { sortedPairKey } = await import('./people-merge-suggestions.ts');
+    const peopleC = await peopleCollection();
+
+    const a = await createPerson('Person J');
+    const b = await createPerson('Person K');
+    const aHex = a._id.toHexString();
+    const bHex = b._id.toHexString();
+
+    // Simulate a "Not the same person" dismiss landing while the clustering
+    // run is in flight: the compute pass produced a suggestion for the pair
+    // (its dismissal snapshot predates the dismiss), but by persist time the
+    // dismissal exists — the persist-side re-load must drop it, clearing
+    // both sides to null instead of resurrecting the suggestion.
+    const dismissalsC = await personMergeDismissalsCollection();
+    await dismissalsC.insertOne({
+      pair: sortedPairKey(aHex, bHex),
+      created_at: new Date().toISOString(),
+    });
+    await _internals.persistMergeSuggestions(
+      [aHex, bHex],
+      [
+        { personIdHex: aHex, suggestedPersonIdHex: bHex, score: 0.9 },
+        { personIdHex: bHex, suggestedPersonIdHex: aHex, score: 0.9 },
+      ],
+    );
+
+    const freshA = await peopleC.findOne({ _id: a._id });
+    const freshB = await peopleC.findOne({ _id: b._id });
+    expect(freshA?.suggested_merge_person_id ?? null).toBeNull();
+    expect(freshB?.suggested_merge_person_id ?? null).toBeNull();
+  });
 });

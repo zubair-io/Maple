@@ -24,9 +24,14 @@ import { markAssetIdsForMeiliReindexBestEffort } from './people-search-reindex.t
 import { writeAuthoritativeFaceCounts } from './people-face-count.repo.ts';
 import { child as childLogger } from '../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD, EMBEDDING_DIM } from './cluster-embeddings.ts';
-import { loadCentroids, loadUnassignedFaces, maxAutoNameIndex } from './cluster-load.ts';
+import {
+  loadCentroids,
+  loadMergeDismissals,
+  loadUnassignedFaces,
+  maxAutoNameIndex,
+} from './cluster-load.ts';
 import { prepareClusteringPassOffThread } from './cluster-pool.ts';
-import type { MergeSuggestion } from './people-merge-suggestions.ts';
+import { sortedPairKey, type MergeSuggestion } from './people-merge-suggestions.ts';
 
 const log = childLogger('people:clustering');
 
@@ -453,7 +458,16 @@ async function persistMergeSuggestions(
   suggestions: MergeSuggestion[],
 ): Promise<void> {
   if (seedPersonIds.length === 0) return;
-  const byPerson = new Map(suggestions.map((s) => [s.personIdHex, s]));
+  // Re-load dismissals rather than reusing the prepare-time snapshot: a
+  // "not the same person" dismiss that landed while this run was in flight
+  // would otherwise be overwritten here, resurrecting the suggestion until
+  // the next run (which only comes when new faces arrive). Dropped entries
+  // fall through to the clear-to-null path below.
+  const dismissed = await loadMergeDismissals();
+  const live = suggestions.filter(
+    (s) => !dismissed.has(sortedPairKey(s.personIdHex, s.suggestedPersonIdHex)),
+  );
+  const byPerson = new Map(live.map((s) => [s.personIdHex, s]));
   const peopleC = await peopleCollection();
   const ops: AnyBulkWriteOperation<PersonDoc>[] = seedPersonIds.map((idHex) => {
     const s = byPerson.get(idHex);
@@ -495,6 +509,7 @@ export const _internals = {
   loadCentroids,
   loadUnassignedFaces,
   maxAutoNameIndex,
+  persistMergeSuggestions,
   EMBEDDING_DIM,
   DEFAULT_SIMILARITY_THRESHOLD,
 };
