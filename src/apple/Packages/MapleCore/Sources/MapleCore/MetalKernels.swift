@@ -65,20 +65,52 @@ public enum MetalKernels {
     /// the other kernel slots above.
     private static var _metalDevice: MTLDevice?
 
-    /// Shared `CIContext` + `MTLCommandQueue` for the two blur helpers
-    /// below (`applySeparableGaussianBlur` / `applySeparableTrueGaussianBlur`).
-    /// Both used to build a fresh `CIContext(mtlDevice:)` + call
-    /// `device.makeCommandQueue()` on EVERY invocation (#2043) — both are
-    /// expensive, GPU-memory-pinning operations (see the precedent at
-    /// `ThumbnailLoader.swift:27-38`: "creating one per call is expensive
-    /// and pins GPU memory for no reason"), and since `sharpenAmount`
-    /// defaults to 40 and `nrColor` defaults to 25 (`AdjustmentModel`), at
-    /// least one of these helpers runs on effectively every CPU-path
-    /// render — a slider drag calls this many times per second. Cached
-    /// process-lifetime, same lazy pattern as `_metalDevice` above and
-    /// `ImageEditPipeline.context` / `ThumbnailLoader.staticEncodeCIContext`.
-    private static var _sharedBlurCIContext: CIContext?
-    private static var _sharedBlurCommandQueue: MTLCommandQueue?
+    /// Shared `CIContext` for the two blur helpers below
+    /// (`applySeparableGaussianBlur` / `applySeparableTrueGaussianBlur`).
+    /// Both used to build a fresh `CIContext(mtlDevice:)` on EVERY
+    /// invocation (#2043) — an expensive, GPU-memory-pinning operation
+    /// (see the precedent at `ThumbnailLoader.swift:27-38`: "creating one
+    /// per call is expensive and pins GPU memory for no reason"), and
+    /// since `sharpenAmount` defaults to 40 and `nrColor` defaults to 25
+    /// (`AdjustmentModel`), at least one of these helpers runs on
+    /// effectively every CPU-path render — a slider drag calls this many
+    /// times per second.
+    ///
+    /// Options are IDENTICAL to what each helper used to construct
+    /// per-call (`extendedLinearSRGB` working space, `RGBAf` working
+    /// format, no intermediate caching), so the hoist changed only *how
+    /// often* the context is constructed, not any rendering output.
+    ///
+    /// Concurrency: declared as a `static let` with an immediately-invoked
+    /// closure — Swift guarantees dispatch_once semantics for global/static
+    /// stored-property initialization, so concurrent first-callers cannot
+    /// race the construction (unlike the manual `if let`-check lazy-var
+    /// pattern used by the `CIKernel?` slots above, which is tolerable for
+    /// idempotent kernel loads but not the right shape for a shared
+    /// stateful object). The blur helpers run from detached render tasks
+    /// (the two-phase fast/refine scheduler can have both phases in flight
+    /// on different threads at once); after init, `CIContext` is
+    /// documented thread-safe by Apple ("a single CIContext object...
+    /// can be used simultaneously from multiple threads"), so no locking
+    /// is needed on use either.
+    private static let sharedBlurCIContext: CIContext? = {
+        guard let device = metalDevice() else { return nil }
+        return CIContext(mtlDevice: device, options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+            .workingFormat: CIFormat.RGBAf,
+            .cacheIntermediates: false,
+        ])
+    }()
+
+    /// Shared `MTLCommandQueue` for both blur helpers (#2043) — same
+    /// once-only `static let` initialization guarantee as
+    /// `sharedBlurCIContext` above. After init, `MTLCommandQueue` is
+    /// documented thread-safe (Apple: multiple threads may create and
+    /// commit command buffers on the same queue concurrently).
+    private static let sharedBlurCommandQueue: MTLCommandQueue? = {
+        guard let device = metalDevice() else { return nil }
+        return device.makeCommandQueue()
+    }()
 
     // SceneNRColor shared kernels. Two kernels: extractAB (rec2020 ->
     // oklab a/b pack for the blur input) and combine (rec2020 +
@@ -144,8 +176,8 @@ public enum MetalKernels {
         guard let device = metalDevice(),
               let pipelineH = separableBoxBlurHPipeline(),
               let pipelineV = separableBoxBlurVPipeline(),
-              let ciCtx = sharedBlurCIContext(),
-              let queue = sharedBlurCommandQueue() else {
+              let ciCtx = sharedBlurCIContext,
+              let queue = sharedBlurCommandQueue else {
             return input
         }
 
@@ -293,8 +325,8 @@ public enum MetalKernels {
         guard let device = metalDevice(),
               let pipelineH = separableTrueGaussianHPipeline(),
               let pipelineV = separableTrueGaussianVPipeline(),
-              let ciCtx = sharedBlurCIContext(),
-              let queue = sharedBlurCommandQueue() else {
+              let ciCtx = sharedBlurCIContext,
+              let queue = sharedBlurCommandQueue else {
             return input
         }
 
@@ -572,45 +604,6 @@ public enum MetalKernels {
         if let d = _metalDevice { return d }
         _metalDevice = MTLCreateSystemDefaultDevice()
         return _metalDevice
-    }
-
-    /// Shared `CIContext` for both blur helpers (#2043) — built once,
-    /// reused for every call. Options are IDENTICAL to what each helper
-    /// used to construct per-call (`extendedLinearSRGB` working space,
-    /// `RGBAf` working format, no intermediate caching), so hoisting this
-    /// to a cached static changes nothing about rendered output — only
-    /// how often the (expensive) `CIContext(mtlDevice:)` constructor runs.
-    ///
-    /// Thread-safety: `applySeparableGaussianBlur` and
-    /// `applySeparableTrueGaussianBlur` both run from detached render
-    /// tasks (the two-phase fast/refine scheduler in `RenderActor` can
-    /// have a fast-phase task and a refine-phase task in flight on
-    /// different threads at once), so this context must tolerate
-    /// concurrent use. `CIContext` is documented thread-safe by Apple
-    /// ("a single CIContext object... can be used simultaneously from
-    /// multiple threads") — no additional locking is needed here.
-    private static func sharedBlurCIContext() -> CIContext? {
-        if let ctx = _sharedBlurCIContext { return ctx }
-        guard let device = metalDevice() else { return nil }
-        let ctx = CIContext(mtlDevice: device, options: [
-            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-            .workingFormat: CIFormat.RGBAf,
-            .cacheIntermediates: false,
-        ])
-        _sharedBlurCIContext = ctx
-        return ctx
-    }
-
-    /// Shared `MTLCommandQueue` for both blur helpers (#2043) — built once
-    /// against the shared device, reused for every call. `MTLCommandQueue`
-    /// is documented thread-safe (Apple: multiple threads may encode and
-    /// commit command buffers to the same queue concurrently), matching
-    /// the `sharedBlurCIContext()` thread-safety note above.
-    private static func sharedBlurCommandQueue() -> MTLCommandQueue? {
-        if let queue = _sharedBlurCommandQueue { return queue }
-        guard let device = metalDevice() else { return nil }
-        _sharedBlurCommandQueue = device.makeCommandQueue()
-        return _sharedBlurCommandQueue
     }
 
     /// Compile `SeparableGaussianBlur.metal` to a runtime `MTLLibrary`.
