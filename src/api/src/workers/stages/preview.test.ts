@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, mkdir, rm, writeFile, stat, utimes } from 'node:fs/promises';
+import { describe, expect, it, beforeAll, afterAll, mock } from 'bun:test';
+import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import sharp from 'sharp';
@@ -7,10 +7,73 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
+import type * as ImgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
 
 const TEST_DB = `maple_test_preview_stage_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+
+/**
+ * Every test below that writes a bitmap (JPEG) source drives
+ * `previewStage.handler` through the REAL production path — `previewer.ts`'s
+ * `renderBitmapPreviewToFile` — which dispatches to the isolated `imgdecode`
+ * child process via the process-global singleton in `thumbs/imgdecode-pool.ts`
+ * (see that module's doc: one child, shared by every caller in the whole
+ * `bun test` process for its lifetime).
+ *
+ * #2032: under CI's resource-constrained runner, that shared singleton is
+ * also driven by `imgdecode-pool.test.ts`'s own real-child integration test
+ * (which resets/shuts down the SAME process-global pool). The extra
+ * spawn/respawn churn intermittently made the child return decode errors —
+ * or leave a corrupt/partial file behind — for perfectly valid JPEGs here,
+ * so `sharp(...).metadata()` on this file's output would throw "Input file
+ * contains unsupported image format". Root-caused and reproduced twice in CI
+ * (issue #2032); the full suite is stable locally where resources aren't
+ * constrained.
+ *
+ * Mirrors the fix already applied to `routes/preview.test.ts`'s JPEG-body
+ * tests (#2018, commit ed75f062b) for the identical class of problem: stub
+ * ONLY the subprocess boundary (`renderImageThumbToFileViaPool`), transcoding
+ * in-process via sharp instead. A genuine AVIF still lands on disk and passes
+ * the real `validateAvifOutput` decode-gate inside `previewer.ts` — every
+ * assertion in this file stays decode-verified, not asserted-by-mock — while
+ * the real isolated-child transcode remains covered by
+ * `imgdecode-pool.test.ts`'s own integration test. Captured/restored once for
+ * the whole file (both describe blocks below exercise the same handler path)
+ * so the mock never leaks into sibling test files.
+ */
+let realImgdecodePool: typeof ImgdecodePoolModule;
+
+beforeAll(async () => {
+  realImgdecodePool = await import('../../thumbs/imgdecode-pool.ts');
+  mock.module('../../thumbs/imgdecode-pool.ts', () => ({
+    ...realImgdecodePool,
+    renderImageThumbToFileViaPool: async (
+      srcPath: string,
+      outPath: string,
+      maxPx: number,
+      quality: number,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
+        // orientation, resize without enlarging, AVIF-encode.
+        const out = await sharp(await readFile(srcPath), { failOn: 'none', unlimited: true })
+          .rotate()
+          .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
+          .avif({ quality })
+          .toBuffer();
+        await writeFile(outPath, out);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  }));
+});
+
+afterAll(() => {
+  mock.module('../../thumbs/imgdecode-pool.ts', () => realImgdecodePool);
+});
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {
