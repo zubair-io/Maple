@@ -135,8 +135,8 @@ final class RenderedPreviewCacheTests: XCTestCase {
         let asset = try writeFile("g.dng")
         let cache = await freshCache()
         await cache.storePreview(swatch(), for: asset, screenWidth: 800)
-        let hadEntry = await cache._testMemCacheIsEmpty()
-        XCTAssertFalse(hadEntry, "precondition: storePreview populates the memory cache")
+        let emptyBefore = await cache._testMemCacheIsEmpty()
+        XCTAssertFalse(emptyBefore, "precondition: storePreview populates the memory cache")
 
         await cache.handleMemoryPressure()
 
