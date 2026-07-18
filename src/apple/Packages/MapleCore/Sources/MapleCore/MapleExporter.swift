@@ -88,7 +88,10 @@ public enum ExportFileFormat: String, Sendable, CaseIterable {
 // MARK: - MapleExporter
 
 public struct MapleExporter: Sendable {
-    private static let context = CIContext(options: [
+    /// Fallback `CIContext` for call sites with no session-owned context to
+    /// reuse (direct `encodeImage` callers such as `MapleExporterTests`).
+    /// The live `exportData` path below no longer uses this — see #2042.
+    static let fallbackContext = CIContext(options: [
         .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
         .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
     ])
@@ -109,12 +112,29 @@ public struct MapleExporter: Sendable {
     /// a single image to a destination strip by strip — so there is nothing
     /// useful to tile here. One encode path therefore serves every size and
     /// keeps each format's color space and bit depth correct.
+    ///
+    /// #2042 — the final encode now reuses `session.pipeline.context`
+    /// instead of standing up a second, separately-configured Metal-backed
+    /// `CIContext`. `renderForExport()` above already evaluates the export
+    /// graph through that same context, so it's already resident; minting
+    /// `fallbackContext` as well would keep a SECOND GPU resource cache
+    /// (command queue, texture pool) alive for the whole export, on top of
+    /// the pipeline's, for no benefit. Every encode call below passes an
+    /// explicit `colorSpace:` argument, which is what actually determines
+    /// each format's output color space (`workingColorSpace` only affects
+    /// internal compositing math) — see the PR description for the one
+    /// residual case (`maxSidePixels` resample) this doesn't fully rule out.
     public static func exportData(session: EditSession, options: ExportOptions) async throws -> Data {
         // Full-quality bake. Bypasses the editor's preview-quality decoded
         // cache so the exported pixels go through the parity-gated path.
         let ci = try await session.renderForExport()
+        // `pipeline` is an immutable `let` of actor (hence Sendable) type,
+        // so — like `ImageEditPipeline.context` itself (see that file's own
+        // comment) — this reads synchronously despite `EditSession` being
+        // `@MainActor`; no isolation hop actually happens here.
+        let context = session.pipeline.context
         let scaled = scaledImage(ci, maxSide: options.maxSidePixels)
-        return try encodeImage(scaled, options: options)
+        return try encodeImage(scaled, options: options, context: context)
     }
 
     // MARK: - macOS: NSSavePanel
@@ -158,7 +178,17 @@ public struct MapleExporter: Sendable {
     /// requested format's native color space and bit depth. Package-internal
     /// (not `public`) so `MapleExporterTests` can exercise it directly without
     /// standing up a full `EditSession`.
-    static func encodeImage(_ image: CIImage, options: ExportOptions) throws -> Data {
+    ///
+    /// `context` defaults to `fallbackContext` so existing direct callers
+    /// (tests) keep compiling; `exportData` passes the session's own
+    /// pipeline context instead (#2042) so export doesn't stand up a
+    /// second Metal-backed `CIContext` alongside the one already resident
+    /// for the render.
+    static func encodeImage(
+        _ image: CIImage,
+        options: ExportOptions,
+        context: CIContext = fallbackContext
+    ) throws -> Data {
         let cs = options.format.targetColorSpace
         switch options.format {
         case .jpegSRGB, .jpegP3:
