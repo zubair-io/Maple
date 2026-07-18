@@ -2,11 +2,14 @@
 //!
 //! The tile path runs `linearize` ONLY on a padded crop region (rather
 //! than the whole sensor), then runs a stripped-down develop chain
-//! against it (no auto-exposure — #1167; dehaze / vignette / deep
-//! denoise / local adjustments / capture sharpening are rejected loudly
-//! at the entry — see the per-function notes), then trims the overlap,
-//! downsamples to the requested output size, and packs the result as
-//! oriented fp16 RGBA.
+//! against it (auto-exposure is never recomputed per-tile — a tile's
+//! histogram isn't representative of the whole scene — but the caller
+//! can thread in the gain a full-image develop already measured, see
+//! [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32`],
+//! #1167; dehaze / vignette / deep denoise / local adjustments / capture
+//! sharpening are rejected loudly at the entry — see the per-function
+//! notes), then trims the overlap, downsamples to the requested output
+//! size, and packs the result as oriented fp16 RGBA.
 //! This makes a 23-tile view of a 100 MP RAW land in ~10 s rather than
 //! ~10 minutes.
 //!
@@ -143,12 +146,18 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
 /// size. The fp16 and f32 public tile entries both wrap this so the whole
 /// guard set and geometry stay single-sourced (#1945). See the public
 /// wrappers below for the WB-anchor contract.
+///
+/// `ae_gain` (#1167) is the auto-exposure anchor gain to thread into
+/// [`develop_scene_linear_from_padded_mosaic`] — `1.0` (every wrapper below
+/// except the explicit `_and_ae_gain_` one) is a bit-identical no-op, exactly
+/// reproducing this chain's pre-#1167 output.
 fn develop_tile_oriented_f32(
     raw: &RawImage,
     model: &AdjustmentModel,
     rect: TileRect,
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
+    ae_gain: f32,
 ) -> Result<(u32, u32, Vec<f32>)> {
     let TileRect {
         src_x,
@@ -314,8 +323,14 @@ fn develop_tile_oriented_f32(
             crate::stages::hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
         });
     }
-    let scene =
-        develop_scene_linear_from_padded_mosaic(&mosaic, raw, model, quality, decoded_wb_anchor)?;
+    let scene = develop_scene_linear_from_padded_mosaic(
+        &mosaic,
+        raw,
+        model,
+        quality,
+        decoded_wb_anchor,
+        ae_gain,
+    )?;
 
     // Trim the overlap, leaving the inner s_w × s_h block in SENSOR coords
     // (rotation applied below). For half-res Preview the trim coords
@@ -391,7 +406,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
     decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<(u32, u32, Vec<u16>)> {
     let (w, h, oriented_f32) =
-        develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor)?;
+        develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0)?;
     let fp16: Vec<u16> = stage("tile_pack_fp16", || {
         oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
     });
@@ -411,7 +426,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_f32(
     rect: TileRect,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, None)
+    develop_tile_oriented_f32(raw, model, rect, quality, None, 1.0)
 }
 
 /// f32 (16 B/px) counterpart to
@@ -426,5 +441,27 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor)
+    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0)
+}
+
+/// f32 (16 B/px) counterpart to
+/// [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32`],
+/// additionally accepting the auto-exposure anchor gain (#1167) a full-image
+/// (or sized) develop of the same model already measured — see
+/// `pipeline::develop::develop_scene_linear_from_raw_with_quality_with_gain`
+/// (or the sized sibling) for how to obtain it. `ae_gain = 1.0` is a
+/// bit-identical no-op, so this entry is a strict superset of
+/// [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32`], kept
+/// as a separate function (rather than widening that one's arity) so
+/// existing callers — including the Apple FFI entry point that predates this
+/// ticket — are untouched.
+pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    decoded_wb_anchor: Option<(f32, f32)>,
+    ae_gain: f32,
+) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, ae_gain)
 }

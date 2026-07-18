@@ -404,6 +404,167 @@ fn tile_matches_full_chain_with_non_default_hsl() {
     );
 }
 
+/// Tile-vs-full parity with `papp:AutoExposure="On"` (#1167).
+///
+/// Before this ticket the tile chain never applied `auto_exposure` at all
+/// (see `tile::develop`'s module doc) — a tile's own histogram isn't
+/// representative of the whole scene, so it can't safely RECOMPUTE the
+/// anchor gain per-tile. This test exercises the fix: measure the gain the
+/// full-image develop's `auto_exposure` stage actually applied
+/// (`develop_scene_linear_from_raw_with_quality_with_gain`), thread that
+/// SAME scalar into the tile chain
+/// (`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32`),
+/// and assert the tile matches the full-chain crop. The AE multiply is a
+/// per-pixel scalar op with no neighbour gather (unlike sharpen / nr_color's
+/// separable blurs), so — same as the #1084 tone-curve and #1931 HSL parity
+/// gates above — bit-equality is the expected result, not an aspiration.
+/// `sharpen_amount` and `nr_color` are pinned to 0 for the same reason those
+/// tests pin them: their row-sum accumulation is buffer-position dependent,
+/// which is unrelated to what this gate measures.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn tile_matches_full_chain_with_auto_exposure_on() {
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read raw");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+    assert!(
+        raw.crop_rect.is_none(),
+        "fixture grew a DefaultCrop — update this test's coordinate mapping"
+    );
+    assert!(
+        raw.profile_gain_table_map.is_none(),
+        "fixture grew a ProfileGainTableMap — update this test's stage set"
+    );
+    assert_eq!(
+        raw.orientation,
+        crate::image::ExifOrientation::Normal,
+        "fixture orientation changed — update this test's coordinate mapping"
+    );
+
+    let model = AdjustmentModel {
+        auto_exposure: crate::xmp::AutoExposureMode::On,
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        ..AdjustmentModel::default()
+    };
+
+    let (full, ae_gain) = crate::pipeline::develop_scene_linear_from_raw_with_quality_with_gain(
+        &raw,
+        &model,
+        RenderQuality::Full,
+    )
+    .expect("full develop with gain");
+
+    // Self-check: the fixture must actually drive a non-trivial AE gain, or
+    // this parity gate would pass trivially even if `ae_gain` were dropped on
+    // the floor (e.g. threaded as a hardcoded 1.0 instead of the real value).
+    assert!(
+        (ae_gain - 1.0).abs() > 0.01,
+        "test fixture's measured AE gain is too close to 1.0 to exercise this \
+         gate: {ae_gain}"
+    );
+
+    let (src_x, src_y, side) = (1024u32, 1024u32, 512u32);
+    let (tw, th, tile_f32) =
+        render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
+            &raw,
+            &model,
+            TileRect {
+                src_x,
+                src_y,
+                src_w: side,
+                src_h: side,
+                out_w: side,
+                out_h: side,
+            },
+            RenderQuality::Full,
+            None,
+            ae_gain,
+        )
+        .expect("tile render with ae_gain");
+    assert_eq!((tw, th), (side, side), "tile output dims");
+
+    let fw = full.width as usize;
+    let mut diff_lanes = 0usize;
+    let mut max_abs_diff = 0.0f32;
+    for ty in 0..side as usize {
+        for tx in 0..side as usize {
+            let fi = (src_y as usize + ty) * fw + (src_x as usize + tx);
+            let fp = full.pixels[fi];
+            for c in 0..3 {
+                let expect = fp[c];
+                let got = tile_f32[(ty * side as usize + tx) * 4 + c];
+                if expect.to_bits() != got.to_bits() {
+                    diff_lanes += 1;
+                    let d = (expect - got).abs();
+                    if d > max_abs_diff {
+                        max_abs_diff = d;
+                    }
+                }
+            }
+        }
+    }
+    eprintln!(
+        "tile-vs-full auto-exposure parity: {} differing lanes of {}, max abs diff {}",
+        diff_lanes,
+        (side * side * 3),
+        max_abs_diff,
+    );
+    assert_eq!(
+        diff_lanes, 0,
+        "tile diverges from full chain with AutoExposure=On: {} lanes differ \
+         (max abs diff {})",
+        diff_lanes, max_abs_diff
+    );
+}
+
+/// #1167 regression: `ae_gain = 1.0` through the new
+/// `_and_wb_anchor_and_ae_gain_f32` entry must reproduce today's tile output
+/// bit-for-bit — adding the AE-gain parameter must not perturb any existing
+/// caller that doesn't pass a real gain. Compares directly against the
+/// existing `_and_wb_anchor_f32` entry (which never threads AE at all), so a
+/// regression here means the new code path diverges from the shipped one
+/// even at the identity gain.
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn tile_ae_gain_one_matches_existing_tile_output() {
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("read raw");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+    let model = AdjustmentModel::default();
+    let rect = TileRect {
+        src_x: 1024,
+        src_y: 1024,
+        src_w: 512,
+        src_h: 512,
+        out_w: 512,
+        out_h: 512,
+    };
+    let (w0, h0, existing) = render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
+        &raw,
+        &model,
+        rect,
+        RenderQuality::Full,
+        None,
+    )
+    .expect("existing tile entry");
+    let (w1, h1, with_gain_one) =
+        render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
+            &raw,
+            &model,
+            rect,
+            RenderQuality::Full,
+            None,
+            1.0,
+        )
+        .expect("ae_gain=1.0 tile entry");
+    assert_eq!((w0, h0), (w1, h1), "dims must match");
+    assert_eq!(
+        existing, with_gain_one,
+        "ae_gain=1.0 must reproduce today's tile output bit-for-bit"
+    );
+}
+
 /// Acceptance test for the #1725 tile-refine WB contract fix (the
 /// "horizontal band" symptom).
 ///

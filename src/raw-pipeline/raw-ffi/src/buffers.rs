@@ -167,6 +167,18 @@ pub struct MapleSceneLinearBufferF32 {
     pub wb_frame_render_cct_warm: f32,
     pub wb_frame_render_fm_cold: [f32; 9],
     pub wb_frame_render_fm_warm: [f32; 9],
+    /// Auto-exposure anchor gain (#1167) the develop chain's `auto_exposure`
+    /// stage actually applied to this buffer's pixels: `clamp(0.18 /
+    /// midgrey, max = 8.0)` (or the highlight-candidate variant — see
+    /// `stages::auto_exposure`), or exactly `1.0` when
+    /// `papp:AutoExposure="Off"`. Informational/export-only — the gain is
+    /// already baked into `f32_rgba`. Hosts pass this straight through to a
+    /// tile-develop call (`maple_render_handle_scene_linear_tile_ae_f32`'s
+    /// `ae_gain` parameter) so a deep-zoom tile of the SAME model reproduces
+    /// the full-image AE gain instead of omitting the stage. Appended at the
+    /// struct tail per the offset-stable ABI convention (inline scalar,
+    /// nothing to free).
+    pub ae_gain: f32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -197,6 +209,7 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_render_cct_warm: 0.0,
             wb_frame_render_fm_cold: [0.0; 9],
             wb_frame_render_fm_warm: [0.0; 9],
+            ae_gain: 1.0,
         }
     }
 }

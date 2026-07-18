@@ -86,6 +86,48 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     max_long_edge: u32,
     cancel: CancelToken<'_>,
 ) -> Result<crate::image::Image> {
+    develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        cancel,
+    )
+    .map(|(scene, _ae_gain)| scene)
+}
+
+/// Non-cancellable variant of
+/// [`develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain`].
+pub fn develop_scene_linear_sized_from_raw_with_quality_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+) -> Result<(crate::image::Image, f32)> {
+    develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        CancelToken::never(),
+    )
+}
+
+/// Same sized develop chain as
+/// [`develop_scene_linear_sized_from_raw_with_quality_cancellable`],
+/// additionally returning the scalar gain the `auto_exposure` stage applied.
+/// See the unsized sibling
+/// (`super::develop::develop_scene_linear_from_raw_with_quality_cancellable_with_gain`)
+/// for the full #1167 rationale — the editor's fast phase uses the sized
+/// decode, so this is the entry that must export the gain for tile-develop
+/// parity to hold on the interactive path, not just the cold full-res open.
+pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, f32)> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -319,7 +361,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         }
     }
     dump_after("04b_capture_sharpening", &scene);
-    stage("sized_auto_exposure", || {
+    let ae_gain = stage("sized_auto_exposure", || {
         auto_exposure::apply(&mut scene, model)
     });
     dump_after("05_auto_exposure", &scene);
@@ -456,5 +498,5 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    Ok(scene)
+    Ok((scene, ae_gain))
 }

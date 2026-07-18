@@ -10,10 +10,12 @@ use crate::image::RawImage;
 use crate::pipeline::develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
+    develop_scene_linear_from_raw_with_quality_cancellable_with_gain,
 };
 use crate::pipeline::develop_sized::{
     develop_scene_linear_sized_from_raw_with_quality,
     develop_scene_linear_sized_from_raw_with_quality_cancellable,
+    develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain,
 };
 use crate::pipeline::fp16::f32_to_f16_bits;
 use crate::pipeline::orient::apply_orientation_f32_rgba;
@@ -120,6 +122,38 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable(
     Ok((w, h, oriented_f32))
 }
 
+/// Same as [`render_scene_linear_from_raw_with_quality_f32_cancellable`],
+/// additionally returning the scalar gain the develop chain's `auto_exposure`
+/// stage applied (#1167). The FFI f32 entries (`maple_render_file_scene_linear_f32`
+/// / `maple_render_bytes_scene_linear_f32`) route through here so the gain can
+/// be carried on `MapleSceneLinearBufferF32` for the host to thread back into
+/// a tile-develop call.
+pub fn render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>, f32)> {
+    let (scene, ae_gain) = develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+        raw, model, quality, cancel,
+    )?;
+    let (w0, h0) = (scene.width, scene.height);
+    let rgba_f32 = stage("pack_rgba_f32", || {
+        let mut v = Vec::with_capacity(scene.pixels.len() * 4);
+        for p in &scene.pixels {
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
+            v.push(1.0);
+        }
+        v
+    });
+    let (w, h, oriented_f32) = stage("apply_orientation_rgba", || {
+        apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
+    });
+    Ok((w, h, oriented_f32, ae_gain))
+}
+
 /// Sized scene-linear render entry. Same shared development chain as
 /// `render_scene_linear_from_raw_with_quality`, then downsample to fit
 /// within `max_long_edge` (single scalar — see Plan 1 v2 Task 8 API
@@ -217,4 +251,43 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
         apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
     });
     Ok((w, h, oriented_f32))
+}
+
+/// Same as [`render_scene_linear_sized_from_raw_with_quality_f32_cancellable`],
+/// additionally returning the scalar gain the develop chain's `auto_exposure`
+/// stage applied (#1167). The sized FFI f32 entries
+/// (`maple_render_file_scene_linear_sized_f32` /
+/// `maple_render_bytes_scene_linear_sized_f32`) route through here — the
+/// editor's fast-phase cold open uses the sized decode, so this is the entry
+/// that must export the gain for the interactive (not just cold full-res)
+/// path.
+pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>, f32)> {
+    let (scene, ae_gain) = develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        cancel,
+    )?;
+    let (w0, h0) = (scene.width, scene.height);
+    let rgba_f32 = stage("pack_rgba_f32_sized", || {
+        let mut v = Vec::with_capacity(scene.pixels.len() * 4);
+        for p in &scene.pixels {
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
+            v.push(1.0);
+        }
+        v
+    });
+    let (w, h, oriented_f32) = stage("apply_orientation_rgba_sized", || {
+        apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
+    });
+    Ok((w, h, oriented_f32, ae_gain))
 }

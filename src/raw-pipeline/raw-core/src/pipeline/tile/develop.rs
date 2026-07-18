@@ -9,7 +9,14 @@
 //!   capture_sharpening — rejected loudly at the tile entry
 //!   (`super::render_scene_linear_tile_from_raw_with_quality`) so the
 //!   host falls back to the full-image render (#1084, #1105, #1109),
-//! * auto_exposure — omitted; parity follow-up tracked in #1167.
+//! * auto_exposure — a tile is a sub-region, so its own histogram isn't
+//!   representative of the whole scene; this chain never recomputes the
+//!   anchor gain per-tile (#1167). Instead it accepts the scalar
+//!   `ae_gain` the caller already measured from a full-image (or sized)
+//!   develop of the SAME model, and applies it as a flat multiply at the
+//!   identical chain position `stages::auto_exposure::apply` occupies in
+//!   the full/sized chains — see the call site in this file for why the
+//!   position matters (non-commutative neighbor stages).
 //!
 //! Split out of `super::mod` so the tile entry stays under the file-size
 //! budget (#114).
@@ -53,12 +60,24 @@ use crate::pipeline::{stage, RenderQuality};
 /// buffer), where `crs:Temperature` is an absolute ACR sidecar value, not a
 /// delta. See `raw-ffi/src/scene_linear/tile.rs` for which FFI entries pass
 /// which.
+///
+/// `ae_gain` (#1167) is the scalar auto-exposure anchor gain to apply as a
+/// flat scene-linear multiply, at the same chain position the full/sized
+/// develop applies `stages::auto_exposure::apply`. `1.0` is a bit-identical
+/// no-op — every existing tile caller passes `1.0` (matching the pre-#1167
+/// omission exactly), and a caller wanting parity with a full-image develop
+/// that had `papp:AutoExposure="On"` passes the gain THAT develop's
+/// `auto_exposure` stage returned (see
+/// `pipeline::develop::develop_scene_linear_from_raw_with_quality_with_gain`
+/// / the sized sibling). The tile chain never recomputes this gain itself —
+/// a tile's own histogram isn't representative of the whole scene.
 pub(super) fn develop_scene_linear_from_padded_mosaic(
     mosaic: &crate::image::Image,
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
+    ae_gain: f32,
 ) -> Result<crate::image::Image> {
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -225,15 +244,30 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // this fn runs when the model carries an active capture-sharpening
     // amount — same loud-rejection contract as dehaze (#1084).
     //
-    // NOTE: auto_exposure intentionally omitted on the tile path. A tile is
-    // a sub-region of the image, so its histogram is not representative of
-    // the whole scene — running AE here would give a different gain per
-    // tile, producing visible discontinuities at tile borders. Wiring AE
-    // into the tile path correctly requires precomputing the EV from the
-    // full image once and threading it through. Today the tile path will
-    // render slightly darker than the full-image path (by whatever EV the
-    // full path's AE picked); follow-up tracked in #1167. The same
-    // architectural reason already excludes dehaze from this path.
+    // Per-image scene-anchor gain (#1167). A tile's own histogram is not
+    // representative of the whole scene, so this chain never RECOMPUTES the
+    // anchor — `ae_gain` is a scalar the caller already measured from a
+    // full-image (or sized) develop of the same model (see this function's
+    // doc comment). Applied at EXACTLY the chain position
+    // `stages::auto_exposure::apply` occupies in the full/sized develop
+    // chains: after chroma_prefilter/deep_denoise/capture_sharpening (the
+    // latter two are rejected loudly at the tile entry, same as dehaze), and
+    // before the post-DCP white-balance block below. Position matters here
+    // — `scene_tone_controls` (user exposure + tone curve shaping) and the
+    // WB delta/absolute paths below are NOT scale-commutative with an
+    // arbitrary point downstream, so the multiply must land at the same
+    // relative position the full chain uses, not just "somewhere before the
+    // pixels are returned." `1.0` (every pre-#1167 caller) is a
+    // bit-identical no-op.
+    if (ae_gain - 1.0).abs() > 1e-6 {
+        stage("tile_auto_exposure", || {
+            for p in &mut scene.pixels {
+                p[0] *= ae_gain;
+                p[1] *= ae_gain;
+                p[2] *= ae_gain;
+            }
+        });
+    }
     // Post-DCP white balance — skipped entirely when camera-space WB
     // already ran (#1726; see `pipeline::develop` for the full rationale):
     // that stage normalised `camera_rgb` to the user's target illuminant

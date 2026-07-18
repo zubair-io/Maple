@@ -128,8 +128,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba) =
-            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable(
+        let (w, h, f32_rgba, ae_gain) =
+            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
                 &raw_img, &model, quality, token,
             ) {
                 Ok(t) => t,
@@ -147,6 +147,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
             &wb_frame_export(&raw_img),
+            ae_gain,
         );
         0
     })
@@ -222,8 +223,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba) =
-            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable(
+        let (w, h, f32_rgba, ae_gain) =
+            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
                 &raw_img, &model, quality, token,
             ) {
                 Ok(t) => t,
@@ -241,6 +242,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
             &wb_frame_export(&raw_img),
+            ae_gain,
         );
         0
     })
@@ -329,7 +331,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+        let (w, h, f32_rgba, ae_gain) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain(
             &raw_img, &model, quality, max_long_edge, token,
         ) {
             Ok(t) => t,
@@ -344,6 +346,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
             &wb_frame_export(&raw_img),
+            ae_gain,
         );
         0
     })
@@ -424,7 +427,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+        let (w, h, f32_rgba, ae_gain) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain(
             &raw_img, &model, quality, max_long_edge, token,
         ) {
             Ok(t) => t,
@@ -439,6 +442,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
             &wb_frame_export(&raw_img),
+            ae_gain,
         );
         0
     })
@@ -511,6 +515,11 @@ pub(crate) fn flatten_matrix(m: raw_core::math::Matrix3) -> [f32; 9] {
 /// `RawImage::noise_profile`, and `iso` is `RawImage::iso`. Both are forwarded
 /// into the buffer so the per-tick FFI chain (`maple_apply_scene_linear_chain_f32`)
 /// can use them for profile-aware NR (PR #1709 review fix).
+///
+/// `ae_gain` (#1167) is the scalar auto-exposure anchor gain the develop
+/// chain's `auto_exposure` stage applied to `f32_rgba` (`1.0` when
+/// `papp:AutoExposure="Off"`) — see `MapleSceneLinearBufferF32::ae_gain`'s
+/// doc for how the host uses it.
 pub(crate) fn write_scene_linear_buf_f32(
     out_ptr: usize,
     w: u32,
@@ -519,6 +528,7 @@ pub(crate) fn write_scene_linear_buf_f32(
     noise_profile: Option<&[f32]>,
     iso: u32,
     wb_frame: &raw_core::stages::wb_camera::SliderFrameExport,
+    ae_gain: f32,
 ) {
     let (f32_ptr, _len_lanes, len_bytes) = raw_core::pipeline::stage("ffi_pack_f32", || {
         let mut boxed = f32_rgba.into_boxed_slice();
@@ -565,6 +575,7 @@ pub(crate) fn write_scene_linear_buf_f32(
             wb_frame_render_cct_warm: wb_frame.render_cct_warm,
             wb_frame_render_fm_cold: flatten_matrix(wb_frame.render_fm_cold),
             wb_frame_render_fm_warm: flatten_matrix(wb_frame.render_fm_warm),
+            ae_gain,
         };
     }
 }

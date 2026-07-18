@@ -96,6 +96,41 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     quality: RenderQuality,
     cancel: CancelToken<'_>,
 ) -> Result<crate::image::Image> {
+    develop_scene_linear_from_raw_with_quality_cancellable_with_gain(raw, model, quality, cancel)
+        .map(|(scene, _ae_gain)| scene)
+}
+
+/// Non-cancellable variant of
+/// [`develop_scene_linear_from_raw_with_quality_cancellable_with_gain`].
+pub fn develop_scene_linear_from_raw_with_quality_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+) -> Result<(crate::image::Image, f32)> {
+    develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+        raw,
+        model,
+        quality,
+        CancelToken::never(),
+    )
+}
+
+/// Same develop chain as [`develop_scene_linear_from_raw_with_quality_cancellable`],
+/// additionally returning the scalar gain the `auto_exposure` stage applied
+/// (1.0 when `model.auto_exposure` is `Off`, or when the anchor computation
+/// degenerates to a no-op — see `stages::auto_exposure::apply`). Ticket #1167:
+/// this is the export the tile-develop path threads back in as its `ae_gain`
+/// input, so a deep-zoom tile can reproduce the exact per-scene AE gain the
+/// full-image develop picked instead of omitting the stage. Kept as a
+/// separate entry (rather than changing the widely-called plain function's
+/// return type) to avoid touching the ~30 existing callers across raw-core,
+/// maple-cli, and the test suite that only want the `Image`.
+pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, f32)> {
     // Bail before any work if the host already cancelled (e.g. the decode
     // task was superseded before the worker thread even started).
     if cancel.is_cancelled() {
@@ -401,7 +436,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // opt out per-image via `papp:AutoExposure="Off"` for strict
     // scene-referred output, in which case the stage is a bit-identical
     // no-op.
-    stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
+    let ae_gain = stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
     // Post-DCP white balance: skipped when the camera-space stage above
     // already normalised `camera_rgb` (#1726) — applying the CAT16 matrix
@@ -539,7 +574,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    Ok(scene)
+    Ok((scene, ae_gain))
 }
 
 #[cfg(test)]
