@@ -10,6 +10,7 @@
 // location used for the rest of the cloud DTOs) and never log it.
 
 import Foundation
+import MapleCloudKit
 
 public actor ObservabilityConfigClient {
     public nonisolated let server: URL

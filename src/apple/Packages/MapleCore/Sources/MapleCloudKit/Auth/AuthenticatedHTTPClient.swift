@@ -9,7 +9,7 @@ import Darwin
 /// or via Console.app filtering on subsystem `app.justmaple.aperture.cloud`
 /// category `http`. Verbose bodies are at `.debug` level so they're
 /// visible in development but stripped from release archives.
-let cloudHTTPLogger = Logger(
+public let cloudHTTPLogger = Logger(
   subsystem: "app.justmaple.aperture.cloud",
   category: "http"
 )

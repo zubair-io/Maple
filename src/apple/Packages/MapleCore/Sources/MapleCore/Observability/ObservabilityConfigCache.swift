@@ -16,6 +16,7 @@
 // logged. There is no separate Keychain storage for it.
 
 import Foundation
+import MapleCloudKit
 
 public enum ObservabilityConfigCache {
     private static let folder = "observability-config"
