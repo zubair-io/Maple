@@ -16,17 +16,17 @@
 
 import Foundation
 
-final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+public final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let fallbackTotal: Int64?
     private let onProgress: @Sendable (_ received: Int64, _ total: Int64?) -> Void
 
-    init(fallbackTotal: Int64?,
+    public init(fallbackTotal: Int64?,
          onProgress: @escaping @Sendable (_ received: Int64, _ total: Int64?) -> Void) {
         self.fallbackTotal = fallbackTotal
         self.onProgress = onProgress
     }
 
-    func urlSession(_ session: URLSession,
+    public func urlSession(_ session: URLSession,
                     downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64,
@@ -43,7 +43,7 @@ final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unc
     // Required by the protocol. The downloaded file is consumed by the
     // `download(for:)` async API's returned URL, so there's nothing to do
     // here — but the method must exist for the delegate to be valid.
-    func urlSession(_ session: URLSession,
+    public func urlSession(_ session: URLSession,
                     downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
         // No-op: the async `session.download(for:)` API handles relocating the

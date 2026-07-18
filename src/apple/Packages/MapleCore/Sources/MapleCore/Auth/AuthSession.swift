@@ -1,25 +1,17 @@
 // AuthSession.swift
+//
+// Stays in MapleCore (not MapleCloudKit) — unlike the rest of the Auth/
+// directory — because it calls `FileProviderDomainController`, which
+// integrates with the FileProvider framework and is not portable to tvOS
+// (2026-07-18, Maple TV milestone A, MapleCloudKit extraction). `AuthUser`
+// and `authLogger`, formerly declared in this file, moved to
+// MapleCloudKit/Auth/AuthUser.swift since four MapleCloudKit files
+// (AddMapleCloudState, AddMapleCloudViewModel, AuthClient, AuthUserCache)
+// need them; this file imports MapleCloudKit to keep using them.
 import Foundation
+import MapleCloudKit
 import Observation
 import OSLog
-
-/// Logger for the auth subsystem. View in Xcode's debug console or
-/// Console.app filtering on subsystem `app.justmaple.aperture.auth`.
-/// Keep error-level events visible without being chatty.
-let authLogger = Logger(subsystem: "app.justmaple.aperture.auth", category: "session")
-
-public struct AuthUser: Codable, Equatable, Sendable {
-  public let id: String
-  public let email: String
-  public let role: String
-  public var isOwner: Bool { role == "owner" }
-
-  public init(id: String, email: String, role: String) {
-    self.id = id
-    self.email = email
-    self.role = role
-  }
-}
 
 @MainActor @Observable
 public final class AuthSession {

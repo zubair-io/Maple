@@ -78,8 +78,8 @@ public enum AuthUserCache {
 /// fails the nil return is logged so a silent cache miss doesn't go
 /// undiagnosed — `load`/`save`/`clear` then no-op and the caller falls
 /// back to live fetch / empty state.
-enum AuthCacheKey {
-  static func make(for server: URL) -> String? {
+public enum AuthCacheKey {
+  public static func make(for server: URL) -> String? {
     guard let host = server.host else {
       authLogger.error("AuthCacheKey: no host for server \(server.absoluteString, privacy: .public) — cache disabled for this URL")
       return nil
