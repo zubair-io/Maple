@@ -12,7 +12,14 @@
 // zoom bucket, tile X, tile Y).
 //
 // First-plan scope (per the executing brief):
-//   * Simple dictionary cache. No LRU. No byte budget. No prefetch.
+//   * Dictionary cache with byte-budget LRU eviction (#2061f — this
+//     path is currently gated off by `EditSession.deepZoomEnabled =
+//     false`, but the plain unbounded dictionary was a footgun for
+//     re-enablement). Each entry tracks its own byte cost (tile pixel
+//     count × bytes/pixel); inserting past `byteBudget` (~256MB) evicts
+//     least-recently-USED entries first — `update`'s cache-hit path
+//     touches an entry, so a tile that's still being read survives
+//     even if it was inserted long ago. No prefetch.
 //   * One in-flight `Task` per missing tile so a flurry of `update`
 //     calls during a pan doesn't double-schedule the same tile.
 //   * Caller is responsible for showing the upscaled cached preview
@@ -90,11 +97,30 @@ public actor TileManager {
     /// viewTransformVersion=8.
     public static let viewTransformVersion: UInt32 = 5
 
+    /// Byte budget for the in-memory tile cache (#2061f). At the default
+    /// 512² `.RGBAh` tile geometry (512*512*8 bytes ≈ 2MB/tile) this caps
+    /// the cache at roughly 128 resident tiles. Re-enablement safety net
+    /// for a path currently gated off by `EditSession.deepZoomEnabled`.
+    public static let byteBudget: Int = 256 * 1024 * 1024
+
     private struct Entry {
         let image: CIImage
+        /// Resident byte cost — `width * height * bytesPerPixel` of the
+        /// decoded tile. Tracked per-entry so eviction can bring
+        /// `totalBytes` back under `byteBudget` without re-measuring the
+        /// whole cache on every insert.
+        let byteCost: Int
     }
 
     private var entries: [TileKey: Entry] = [:]
+    /// Running sum of every cached entry's `byteCost`. Kept in lockstep
+    /// with `entries` by `store(key:image:byteCost:)` and every removal
+    /// path (`evictLeastRecentlyUsed`, `invalidate`, `clear`).
+    private var totalBytes: Int = 0
+    /// LRU order: front = least-recently touched, back = most-recently
+    /// touched (inserted or read-hit). A linear array is fine at this
+    /// cache's scale (at most ~`byteBudget / tile size` entries).
+    private var lruOrder: [TileKey] = []
     private var inFlight: [TileKey: Task<CIImage, Error>] = [:]
     private let rawCache: RawImageCache
 
@@ -212,7 +238,12 @@ public actor TileManager {
                 tileY: pos.tileY
             )
             if let entry = entries[key] {
-                // Hit — translate the tile into its viewport position
+                // Hit — mark this entry most-recently-used before
+                // anything else so a tile that's actively being read
+                // survives eviction even if it was inserted long ago
+                // (#2061f: LRU is touch-order, not insert-order).
+                touch(key)
+                // Translate the tile into its viewport position
                 // and composite over what we already have. Each tile
                 // is rendered at 512 source-pixel scale (the FFI's
                 // `outW/outH` is locked at 512 in the basic path).
@@ -252,7 +283,10 @@ public actor TileManager {
     public func invalidate(asset: AssetRef) {
         guard let url = asset.primaryURL else { return }
         let hash = Self.urlHash(url)
+        let stale = entries.filter { $0.key.urlHash == hash }
+        for (_, entry) in stale { totalBytes -= entry.byteCost }
         entries = entries.filter { $0.key.urlHash != hash }
+        lruOrder.removeAll { $0.urlHash == hash }
         for (key, task) in inFlight where key.urlHash == hash {
             task.cancel()
             inFlight.removeValue(forKey: key)
@@ -262,6 +296,8 @@ public actor TileManager {
     /// Reset the entire cache. Cancels every in-flight fetch.
     public func clear() {
         entries.removeAll()
+        lruOrder.removeAll()
+        totalBytes = 0
         for (_, task) in inFlight { task.cancel() }
         inFlight.removeAll()
     }
@@ -361,16 +397,16 @@ public actor TileManager {
     /// the fire-and-forget Task. Throws whatever the underlying FFI
     /// throws.
     public func testFetchTileSync(key: TileKey, asset: AssetRef) async throws {
-        let image = try await fetch(key: key, asset: asset)
-        entries[key] = Entry(image: image)
-        notifyTileInserted(key)
+        let (image, byteCost) = try await fetch(key: key, asset: asset)
+        store(key: key, image: image, byteCost: byteCost)
     }
 
     /// Insert a synthetic tile under `key`. Bypasses the fetch path —
-    /// for tests that want to populate the cache directly.
+    /// for tests that want to populate the cache directly. Byte cost is
+    /// estimated from the image's pixel extent assuming the pipeline's
+    /// `.RGBAh` tile format (8 bytes/pixel) — see `estimatedByteCost`.
     public func testInsertTile(key: TileKey, image: CIImage) {
-        entries[key] = Entry(image: image)
-        notifyTileInserted(key)
+        store(key: key, image: image, byteCost: Self.estimatedByteCost(for: image))
     }
 
     /// Number of tiles currently cached.
@@ -378,6 +414,16 @@ public actor TileManager {
 
     /// Number of in-flight fetches. For diagnostic tests.
     public func testInFlightCount() -> Int { inFlight.count }
+
+    /// Sum of `byteCost` across every cached entry. For eviction tests
+    /// (#2061f) — asserts the cache stays at or under `byteBudget`.
+    public func testTotalCachedBytes() -> Int { totalBytes }
+
+    /// Whether `key` is currently resident. For eviction tests that need
+    /// to confirm a *specific* entry survived or was evicted (dictionary
+    /// membership alone doesn't say which one, when several keys share a
+    /// count).
+    public func testHasTile(key: TileKey) -> Bool { entries[key] != nil }
 
     // MARK: - Private fetch path
 
@@ -389,8 +435,8 @@ public actor TileManager {
             guard let self else {
                 throw CancellationError()
             }
-            let image = try await self.fetch(key: key, asset: asset)
-            await self.completeFetch(key: key, image: image)
+            let (image, byteCost) = try await self.fetch(key: key, asset: asset)
+            await self.completeFetch(key: key, image: image, byteCost: byteCost)
             return image
         }
         return task
@@ -398,8 +444,10 @@ public actor TileManager {
 
     /// Common fetch path used by both the background `Task` and the
     /// test-synchronous entry. Resolves the handle, runs the tile FFI,
-    /// returns the resulting CIImage.
-    private func fetch(key: TileKey, asset: AssetRef) async throws -> CIImage {
+    /// returns the resulting CIImage plus its resident byte cost
+    /// (`width * height * bytesPerPixel`, read straight off the FFI's
+    /// `MapleImageData` rather than re-derived from the CIImage).
+    private func fetch(key: TileKey, asset: AssetRef) async throws -> (image: CIImage, byteCost: Int) {
         guard let url = asset.primaryURL else {
             throw CancellationError()  // sourceless not yet supported
         }
@@ -416,22 +464,70 @@ public actor TileManager {
             quality: .full
         )
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        return CIImage(
+        let image = CIImage(
             bitmapData: imageData.pixels,
             bytesPerRow: imageData.width * imageData.bytesPerPixel,
             size: CGSize(width: imageData.width, height: imageData.height),
             format: .RGBAh,
             colorSpace: space
         )
+        let byteCost = imageData.width * imageData.height * imageData.bytesPerPixel
+        return (image, byteCost)
     }
 
     /// Background-task completion handler. Stores the rendered tile,
     /// clears the in-flight slot, and notifies subscribers so the
     /// editor can re-composite.
-    private func completeFetch(key: TileKey, image: CIImage) {
-        entries[key] = Entry(image: image)
+    private func completeFetch(key: TileKey, image: CIImage, byteCost: Int) {
+        store(key: key, image: image, byteCost: byteCost)
         inFlight.removeValue(forKey: key)
+    }
+
+    // MARK: - Byte-budget LRU (#2061f)
+
+    /// Insert (or replace) a tile entry: update byte accounting and LRU
+    /// order, notify subscribers, then evict least-recently-used entries
+    /// until the total is back under `byteBudget`.
+    private func store(key: TileKey, image: CIImage, byteCost: Int) {
+        if let existing = entries.removeValue(forKey: key) {
+            totalBytes -= existing.byteCost
+            lruOrder.removeAll { $0 == key }
+        }
+        entries[key] = Entry(image: image, byteCost: byteCost)
+        totalBytes += byteCost
+        lruOrder.append(key)
         notifyTileInserted(key)
+        evictLeastRecentlyUsed()
+    }
+
+    /// Mark `key` as most-recently used without touching its stored
+    /// entry. Called on every cache hit in `update(...)`.
+    private func touch(_ key: TileKey) {
+        guard let idx = lruOrder.firstIndex(of: key) else { return }
+        lruOrder.remove(at: idx)
+        lruOrder.append(key)
+    }
+
+    /// Evict entries from the front of `lruOrder` (the least-recently
+    /// touched first) until `totalBytes` is at or under `byteBudget`.
+    private func evictLeastRecentlyUsed() {
+        while totalBytes > Self.byteBudget, !lruOrder.isEmpty {
+            let evictedKey = lruOrder.removeFirst()
+            if let evicted = entries.removeValue(forKey: evictedKey) {
+                totalBytes -= evicted.byteCost
+            }
+        }
+    }
+
+    /// Estimate a `CIImage`'s resident byte cost assuming the tile
+    /// pipeline's `.RGBAh` format (8 bytes/pixel). Used only by
+    /// `testInsertTile`, which constructs a `CIImage` directly instead
+    /// of going through `fetch` — the real path always has the exact
+    /// `MapleImageData.bytesPerPixel` instead of this estimate.
+    private static func estimatedByteCost(for image: CIImage) -> Int {
+        let extent = image.extent
+        guard !extent.isInfinite, extent.width > 0, extent.height > 0 else { return 0 }
+        return Int(extent.width * extent.height) * 8
     }
 
     // MARK: - Sidecar mtime lookup
