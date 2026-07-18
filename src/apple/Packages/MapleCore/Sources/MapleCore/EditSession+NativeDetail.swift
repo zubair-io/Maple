@@ -47,15 +47,15 @@ extension EditSession {
         // inside it and hits the fast path above instead of paying this
         // develop again. `decodeRect` adds the separate, smaller
         // `filterHalo` on top for filter-stencil context only.
-        let detailRect = NativeDetailLOD.patchRect(
+        let publishedPatchRect = NativeDetailLOD.patchRect(
             visibleRect: viewportSourceRect,
             imageSize: nativeImageSize
         )
         let decodeRect = NativeDetailLOD.decodeRect(
-            detailRect: detailRect,
+            detailRect: publishedPatchRect,
             imageSize: nativeImageSize
         )
-        guard !detailRect.isEmpty, !decodeRect.isEmpty else { return false }
+        guard !publishedPatchRect.isEmpty, !decodeRect.isEmpty else { return false }
 
         nativeDetailRequestID &+= 1
         let requestID = nativeDetailRequestID
@@ -92,7 +92,7 @@ extension EditSession {
         defer { editSessionSignposter.endInterval("native-detail", signpostState) }
 
         editSessionLogger.debug(
-            "native detail gen=\(gen) request=\(requestID) rect=\(detailRect.origin.x, format: .fixed(precision: 0)),\(detailRect.origin.y, format: .fixed(precision: 0)) \(detailRect.width, format: .fixed(precision: 0))x\(detailRect.height, format: .fixed(precision: 0))"
+            "native detail gen=\(gen) request=\(requestID) rect=\(publishedPatchRect.origin.x, format: .fixed(precision: 0)),\(publishedPatchRect.origin.y, format: .fixed(precision: 0)) \(publishedPatchRect.width, format: .fixed(precision: 0))x\(publishedPatchRect.height, format: .fixed(precision: 0))"
         )
 
         do {
@@ -116,7 +116,7 @@ extension EditSession {
                 )
             }()
             let localDetailRect = NativeDetailLOD.localCoreImageRect(
-                detailRect: detailRect,
+                detailRect: publishedPatchRect,
                 decodeRect: decodeRect
             )
             let materialised = await Task.detached(priority: .userInitiated) {
@@ -161,7 +161,7 @@ extension EditSession {
             }
 
             nativeDetailPreview = materialised
-            nativeDetailSourceRect = detailRect
+            nativeDetailSourceRect = publishedPatchRect
             renderError = nil
             return true
         } catch is CancellationError {
