@@ -289,7 +289,11 @@ public final class CanvasZoomController {
     private func scheduleWheelPanCommit() {
         wheelPanCommitTask?.cancel()
         let intervalMilliseconds = wheelPanCommitIntervalMilliseconds
-        wheelPanCommitTask = Task { [weak self] in
+        // `@MainActor` documents the isolation the closure already inherits
+        // from this @MainActor class (SE-0306: unstructured Tasks inherit
+        // the enclosing actor context) — explicit for readers, zero
+        // behavior change.
+        wheelPanCommitTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(intervalMilliseconds)))
             guard !Task.isCancelled else { return }
             self?._testWheelPanCommitFireCount += 1
