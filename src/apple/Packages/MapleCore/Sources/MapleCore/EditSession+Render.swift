@@ -293,6 +293,24 @@ extension EditSession {
 
     // MARK: - Unified decode + render
 
+    /// Auto Profile (#812) — resolve (and cache) the per-image display-space
+    /// CIColorCube for a CPU-path render. Call only from `decodeAndRender`'s
+    /// CPU-fallback branches (after `presentViaGpuLive` has declined the
+    /// frame): the fit is a cold JPEG-extract + develop the first time per
+    /// image (seconds + a multi-GB develop transient on a 100MP RAW), and
+    /// when the GPU live present handles the frame it does its own fit —
+    /// computing this before attempting the present burns that cost on a
+    /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
+    /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
+    /// for non-RAW, `Profile::Neutral`, or fit failure. The editor decode
+    /// path develops at `.preview` (RenderActor's sharedDecode +
+    /// decodeSceneLinear* default to `.preview`), so the curve is fit at
+    /// `.preview` to match the displayed buffer (#844).
+    private func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async -> CIFilter? {
+        guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
+        return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
+    }
+
     func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
         // Videos are selectable for metadata editing (#1638) but have no still
         // frame to develop. No-op the render rather than feeding container bytes
@@ -371,21 +389,16 @@ extension EditSession {
         let cachedWbFrame = snapshot.wbFrame
         // #1781/#1976: frame as-shot anchor when a frame is present (wbDeltaAnchor).
         let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
-        // Auto Profile (#812) — resolve (and cache) the per-image display-space
-        // CIColorCube once per render, OFF the synchronous filter-chain block.
-        // The fit is a cold JPEG-extract + develop the first time per image;
-        // `AutoProfileLUT` caches the baked cube keyed on URL+mtime+quality so
-        // slider ticks reuse it. Nil for non-RAW, `Profile::Neutral`, or fit
-        // failure. The editor decode path develops at `.preview` (RenderActor's
-        // sharedDecode + decodeSceneLinear* default to `.preview`), so the
-        // curve is fit at `.preview` to match the displayed buffer (#844).
-        let profileLUT: CIFilter? = await {
-            guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
-            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
-        }()
-        MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
+        // Auto Profile (#812) fetch is NOT resolved here. It used to be fetched
+        // unconditionally at this point, but that runs a cold per-image FFI fit
+        // (seconds + a multi-GB develop transient on a 100MP RAW) even when the
+        // wgpu live present below handles the frame and does its own fit — the
+        // result was computed and then thrown away on the (default) GPU path.
+        // `autoProfileLUTForCPURender` is called instead, once per branch,
+        // immediately before the `processSceneLinear` call it feeds, only after
+        // `presentViaGpuLive` has declined the frame.
         editSessionLogger.debug(
-            "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil) autoProfile=\(profileLUT != nil)"
+            "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil)"
         )
         let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
         let phaseSignpostID = editSessionSignposter.makeSignpostID()
@@ -420,6 +433,11 @@ extension EditSession {
                     isRendering = false
                     return
                 }
+                // GPU present declined the frame — fetch (and cache) the CPU-path
+                // Auto Profile LUT now, immediately before the fallback filter
+                // chain that actually uses it.
+                let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+                MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
@@ -486,6 +504,11 @@ extension EditSession {
                 let freshNoiseProfile = freshSnapshot.noiseProfile
                 let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
                 let freshAsShot = wbDeltaAnchor
+                // GPU present declined the frame — fetch (and cache) the CPU-path
+                // Auto Profile LUT now, immediately before the fallback filter
+                // chain that actually uses it.
+                let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+                MemoryProbe.sample("after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
                 let processed = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
