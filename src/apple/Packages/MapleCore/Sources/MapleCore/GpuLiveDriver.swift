@@ -385,6 +385,9 @@ public final class GpuLiveDriver {
         guard let s = session else { return }
         session = nil
         sessionDims = nil
+        // The uploaded-pixels identity describes the session being closed; a
+        // stale value must not vouch for the NEXT session's upload (#2039).
+        uploadedIdentity = nil
         autoProfileFitDone = false
         await s.close()
     }
