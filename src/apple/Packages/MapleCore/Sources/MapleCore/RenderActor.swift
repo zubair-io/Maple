@@ -162,9 +162,25 @@ public actor RenderActor {
     /// (sufficient for the refine pass / a deep-zoom crop) or a
     /// downsampled fast-phase decode (#785). The fast phase accepts any
     /// fresh cache; the refine pass treats a sized-only cache as a miss
-    /// and re-decodes full, so a low-res fast decode never poisons the
-    /// final render. Seeded preview / embedded-JPEG buffers are NOT full.
+    /// UNLESS the cache's resolution already covers the requested target
+    /// (#2039 — see `refineCacheSufficient`), so a low-res
+    /// fast decode never poisons the final render but a covering sized one
+    /// is reused instead of forcing a redundant re-decode. Seeded preview /
+    /// embedded-JPEG buffers are NOT full.
     var decodedIsFull: Bool = false
+
+    /// Monotonic counter bumped every time the decoded-image cache is
+    /// WRITTEN — a real decode landing in `sharedDecode`'s write-gated
+    /// block, or a `seed`/`seedIfUnpopulated` call (#2049). This is the
+    /// buffer's IDENTITY, independent of pixel dimensions: a baked-field
+    /// edit (highlightRecovery, captureSharpeningAmount/Sigma, the unsharp
+    /// sharpenRadius/Detail/Masking) forces a fresh decode at the SAME
+    /// target dims, so dims alone can't tell the GPU-live present that the
+    /// uploaded buffer is stale — this generation can. Never reset (a
+    /// monotonic counter across asset switches is fine: switching assets
+    /// always triggers a fresh decode that bumps it, so an identity built
+    /// from it never accidentally matches a different asset's upload).
+    var decodeGeneration: UInt64 = 0
 
     /// (image, noiseProfile, iso, wbFrame) — noiseProfile/iso forwarded to the
     /// NR stage (PR #1709 review fix 4); wbFrame is the #1781 slider-frame
@@ -263,6 +279,12 @@ public actor RenderActor {
         /// Decode-exported WB slider frame (#1781). `nil` for seeded /
         /// non-RAW buffers or frame-less bodies.
         public let wbFrame: WbSliderFrame?
+        /// The decode-cache write generation the cached buffer was written
+        /// under (#2049) — see `RenderActor.decodeGeneration`. Threaded into
+        /// `presentViaGpuLive` so the GPU-live upload identity can detect a
+        /// same-dims re-decode (a baked-field edit) and re-upload instead of
+        /// silently presenting the live chain over stale pixels.
+        public let decodeGeneration: UInt64
     }
 
     // MARK: - Scheduler state (slice 3)
@@ -524,9 +546,14 @@ public actor RenderActor {
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = isFull
         self.decodedProfile = profile
+        // Mirror the production write path (#2049): every cache write —
+        // seeded or real — bumps the identity generation.
+        self.decodeGeneration &+= 1
     }
 
     internal func _testDecodedIsFull() -> Bool { decodedIsFull }
+
+    internal func _testDecodeGeneration() -> UInt64 { decodeGeneration }
 
     internal func _testDecodedCachePopulated(forAsset asset: AssetRef) -> Bool {
         decodedImage != nil && decodedForAssetID == asset.id

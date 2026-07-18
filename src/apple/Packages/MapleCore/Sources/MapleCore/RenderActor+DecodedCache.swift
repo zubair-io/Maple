@@ -226,15 +226,30 @@ extension RenderActor {
         }
 
         let normalized = await normalize(decoded, asset)
-        // A sized fast decode must NOT clobber a full-resolution cache
-        // that a concurrent refine already landed — but only while that
-        // full cache is still FRESH. A STALE full cache (sidecar mtime
-        // changed) is never served (`snapshot.isFresh` is false, so the
-        // render path re-decodes), and refusing to overwrite it would
-        // strand it there and force a fresh sized decode on every fast
-        // tick. So a sized decode may overwrite a stale full cache; it
-        // may not overwrite a fresh one. Full decodes always write. The
-        // fullness flag drives refine's re-decode decision (#785).
+        // A sized fast decode must NOT clobber a cache that already COVERS
+        // it — a fresh cache at least as large, same asset/profile/baked
+        // model. Downgrading resolution silently is the bug (#785); the
+        // read-side coverage check in `decodeAndRender` re-evaluates against
+        // whatever the CURRENT cache holds, so an overwrite that DOES happen
+        // is never served below the size it was decoded at. But letting the
+        // write through anyway would defeat #2039's whole point: a fast tick
+        // completing after a bigger refine-covering decode would evict the
+        // buffer refine was about to reuse, forcing a redundant re-decode on
+        // every fast/refine alternation at the same zoom. So the gate keys on
+        // COVERAGE (this decode's resolution vs. what's already cached), not
+        // on `decodedIsFull` alone — `decodedIsFull` is only ever true for a
+        // literal full decode (nothing currently requests one through this
+        // path, #2039), so keying solely on it made every sized decode write
+        // unconditionally.
+        //
+        // Profile MUST gate the coverage claim too: a same-or-larger cache
+        // for a DIFFERENT profile does not already have this decode's data
+        // (#871 — Auto vs Neutral develop different buffers at any size), so
+        // a profile mismatch always allows the write. Skipping this check
+        // would wedge a profile switch to a smaller target in a permanent
+        // loop — the new-profile decode is discarded as "already covered" by
+        // the stale old-profile buffer, the read side detects the profile
+        // mismatch and re-decodes, and the write gate discards it again.
         //
         // Capture the live baked model (stripped sidecar model) once and
         // reuse it for the stored `decodedBakedModel` so the write-gate and
@@ -248,16 +263,21 @@ extension RenderActor {
         // parse, never serve stale.
         let currentMtime = EditSession.sidecarMtime(for: asset)
         let currentBaked = Self.bakedModel(for: asset)
+        let newRawResolution = decoded.extent.size
         let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
-        let cachedIsFreshFull = sameAssetCached
-            && decodedIsFull
-            && (decodedBakedModel == currentBaked)
+        let cachedCoversNewDecode = Self.cacheCoversNewDecode(
+            sameAsset: sameAssetCached,
+            sameProfile: decodedProfile == decodeProfile,
+            sameBakedModel: decodedBakedModel == currentBaked,
+            cachedRawResolution: decodedRawResolution,
+            newRawResolution: newRawResolution
+        )
         let shouldWrite = Self.shouldWriteDecodedCache(
-            wantsFull: wantsFull, cachedIsFreshFull: cachedIsFreshFull
+            wantsFull: wantsFull, cachedCoversNewDecode: cachedCoversNewDecode
         )
         if shouldWrite {
             decodedImage = normalized
-            decodedRawResolution = decoded.extent.size
+            decodedRawResolution = newRawResolution
             decodedForAssetID = asset.id
             decodedAtModel = EditSession.parseSidecarModel(for: asset)
             decodedBakedModel = currentBaked
@@ -268,12 +288,15 @@ extension RenderActor {
             // decoded buffer so processSceneLinear can forward them to the NR
             // stage without a re-decode. Written only on the same shouldWrite
             // path as the image itself — a fast decode that doesn't clobber a
-            // fresh full cache also doesn't update the noise profile/ISO.
+            // covering cache also doesn't update the noise profile/ISO.
             decodedNoiseProfile = decodeNoiseProfile
             decodedISO = decodeISO
             // #1781: the slider-frame export rides the same write gate as
             // the buffer it describes.
             decodedWbFrame = decodeWbFrame
+            // #2049: identity bump — any real write means the uploaded GPU
+            // buffer (if any) is now potentially stale even at unchanged dims.
+            decodeGeneration &+= 1
         }
         if decodeTaskAssetID == asset.id {
             decodeTask = nil
@@ -310,18 +333,65 @@ extension RenderActor {
         return result
     }
 
+    // MARK: - Refine-sufficiency predicate (pure, testable, #2039)
+
+    /// Whether a cached decode is sufficient for the REFINE phase: either a
+    /// genuine full-resolution decode, or a sized decode whose extent already
+    /// COVERS the requested `targetSize` (holds every pixel the request
+    /// needs, so reuse can never publish below the requested quality — the
+    /// #785 invariant, preserved via coverage rather than exact fullness). A
+    /// `nil` target (the `renderFull()` export-prep path) has no bound to
+    /// check coverage against, so only `isFull` can satisfy it.
+    nonisolated static func refineCacheSufficient(
+        isFull: Bool, rawResolution: CGSize, targetSize: CGSize?
+    ) -> Bool {
+        if isFull { return true }
+        guard let targetSize else { return false }
+        return rawResolution.width >= targetSize.width - 0.5
+            && rawResolution.height >= targetSize.height - 0.5
+    }
+
+    // MARK: - Write-gate coverage predicate (pure, testable, #2039/#871)
+
+    /// Whether the EXISTING cache already covers what a just-completed
+    /// decode would offer — same asset, same profile (#871), same baked
+    /// model (#950), and a resolution at least as large as the new decode's.
+    /// All four must hold: profile and baked-model mismatches mean the
+    /// cached pixels are DIFFERENT content, not merely a smaller version of
+    /// the same content, so a mismatch on either always yields `false`
+    /// (permit the write) regardless of resolution. Skipping the profile
+    /// check here would wedge a profile switch to a smaller target in a
+    /// permanent loop: the new-profile decode gets discarded as "already
+    /// covered" by the stale old-profile buffer, the read-side profile
+    /// check (`decodeAndRender`'s `profileMatches`) detects the mismatch and
+    /// re-decodes, and the write gate discards the result again forever.
+    nonisolated static func cacheCoversNewDecode(
+        sameAsset: Bool,
+        sameProfile: Bool,
+        sameBakedModel: Bool,
+        cachedRawResolution: CGSize,
+        newRawResolution: CGSize
+    ) -> Bool {
+        sameAsset && sameProfile && sameBakedModel
+            && cachedRawResolution.width >= newRawResolution.width - 0.5
+            && cachedRawResolution.height >= newRawResolution.height - 0.5
+    }
+
     // MARK: - Write-gate predicate (pure, testable)
 
     /// Decide whether a just-completed decode may write the decoded-image
-    /// cache. A full decode always wins. A sized (fast) decode writes
-    /// unless a FRESH full cache for the same asset is already present —
-    /// it must not downgrade a fresh full buffer, but it MAY overwrite a
-    /// stale one (which is never served anyway) so the fast path isn't
-    /// forced to re-decode every tick (#785).
+    /// cache. A full decode always wins. A sized (fast) decode writes unless
+    /// the cache ALREADY COVERS it — same asset, same profile, same baked
+    /// model, and a resolution at least as large as this decode's (#2039)
+    /// — in which case writing would only downgrade or needlessly re-store
+    /// an equivalent buffer. `cachedCoversNewDecode` is never served past its
+    /// own coverage claim: the read-side coverage check in `decodeAndRender`
+    /// re-evaluates against whatever IS in the cache, so a write that DOES
+    /// go through is always safe to serve at its own size (#785).
     nonisolated static func shouldWriteDecodedCache(
-        wantsFull: Bool, cachedIsFreshFull: Bool
+        wantsFull: Bool, cachedCoversNewDecode: Bool
     ) -> Bool {
-        wantsFull || !cachedIsFreshFull
+        wantsFull || !cachedCoversNewDecode
     }
 
     // MARK: - Cache lifecycle (slice 2)
@@ -388,7 +458,8 @@ extension RenderActor {
             profile: decodedProfile,
             noiseProfile: decodedNoiseProfile,
             iso: decodedISO,
-            wbFrame: decodedWbFrame
+            wbFrame: decodedWbFrame,
+            decodeGeneration: decodeGeneration
         )
     }
 
@@ -447,6 +518,9 @@ extension RenderActor {
         // Seeded preview buffers carry no slider-frame export (#1781); a
         // stale frame from a previous decode must not describe them.
         self.decodedWbFrame = nil
+        // #2049: a seed is a cache WRITE — bump identity so a GPU-live
+        // session uploaded from the previous buffer knows to re-upload.
+        self.decodeGeneration &+= 1
     }
 
     public func seedIfUnpopulated(
@@ -467,6 +541,7 @@ extension RenderActor {
         self.decodedIsFull = false
         self.decodedProfile = nil  // #871 — see `seed(...)`
         self.decodedWbFrame = nil  // #1781 — see `seed(...)`
+        self.decodeGeneration &+= 1  // #2049 — see `seed(...)`
         return true
     }
 }

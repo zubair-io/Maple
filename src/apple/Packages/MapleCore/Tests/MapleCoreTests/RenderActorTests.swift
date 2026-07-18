@@ -142,33 +142,252 @@ final class RenderActorTests: XCTestCase {
         XCTAssertNil(snapshot.image, "invalidate must clear the cached image")
     }
 
-    // MARK: - Decoded-cache write-gate (#785)
+    // MARK: - Refine-sufficiency coverage (#2039)
+
+    /// A sized cache whose extent COVERS the requested target is sufficient
+    /// for refine — it holds every pixel the request needs, so reusing it
+    /// can never publish below the requested quality. This is the actual
+    /// perf win: refine no longer re-decodes just because `isFull` is false.
+    func testRefineCacheSufficientAcceptsCoveringSizedCache() {
+        XCTAssertTrue(
+            RenderActor.refineCacheSufficient(
+                isFull: false,
+                rawResolution: CGSize(width: 2000, height: 1500),
+                targetSize: CGSize(width: 1200, height: 900)
+            ),
+            "a sized cache larger than the request on both axes must be treated as sufficient")
+        XCTAssertTrue(
+            RenderActor.refineCacheSufficient(
+                isFull: false,
+                rawResolution: CGSize(width: 1200, height: 900),
+                targetSize: CGSize(width: 1200, height: 900)
+            ),
+            "an exactly-equal cache must be treated as sufficient")
+    }
+
+    /// A sized cache SMALLER than the requested target on either axis is
+    /// insufficient — refine must re-decode rather than upscale/serve a
+    /// lower-resolution buffer.
+    func testRefineCacheSufficientRejectsSmallerSizedCache() {
+        XCTAssertFalse(
+            RenderActor.refineCacheSufficient(
+                isFull: false,
+                rawResolution: CGSize(width: 800, height: 600),
+                targetSize: CGSize(width: 1200, height: 900)
+            ),
+            "a cache smaller than the request on both axes must be insufficient")
+        XCTAssertFalse(
+            RenderActor.refineCacheSufficient(
+                isFull: false,
+                rawResolution: CGSize(width: 2000, height: 600),
+                targetSize: CGSize(width: 1200, height: 900)
+            ),
+            "a cache narrower than the request on only ONE axis must still be insufficient")
+    }
+
+    /// A genuine full decode is always sufficient regardless of the
+    /// requested target (matches `decodedIsFull`'s pre-#2039 contract).
+    func testRefineCacheSufficientAcceptsFullRegardlessOfTarget() {
+        XCTAssertTrue(
+            RenderActor.refineCacheSufficient(
+                isFull: true,
+                rawResolution: CGSize(width: 10, height: 10),
+                targetSize: CGSize(width: 5000, height: 5000)
+            ),
+            "isFull must short-circuit the coverage check")
+    }
+
+    /// A `nil` target (the `renderFull()` export-prep path, #1637) has no
+    /// bound to check coverage against — only a genuine full decode can
+    /// satisfy it, matching pre-#2039 behavior for that call site.
+    func testRefineCacheSufficientRejectsSizedCacheWithNilTarget() {
+        XCTAssertFalse(
+            RenderActor.refineCacheSufficient(
+                isFull: false,
+                rawResolution: CGSize(width: 5000, height: 5000),
+                targetSize: nil
+            ),
+            "a nil target must require isFull — coverage has nothing to compare against")
+    }
+
+    // MARK: - Decode-generation identity (#2049)
+
+    /// The decode generation bumps every time a real decode completes and
+    /// writes the cache — the identity signal `presentViaGpuLive` uses to
+    /// detect a same-dims re-decode (a baked-field edit).
+    func testDecodeGenerationBumpsOnCacheWrite() async {
+        let pipeline = ImageEditPipeline()
+        let actor = RenderActor(pipeline: pipeline)
+        let asset = AssetRef(
+            displayName: "gen.dng",
+            hintExtension: "dng",
+            stableID: "gen-1",
+            explicitIsRaw: true,
+            bytesProvider: { Data() }
+        )
+        let before = await actor._testDecodeGeneration()
+        let ci = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        await actor._testSeedDecodedCache(
+            asset: asset, decoded: ci, rawResolution: CGSize(width: 8, height: 8)
+        )
+        let afterFirstWrite = await actor._testDecodeGeneration()
+        XCTAssertGreaterThan(afterFirstWrite, before,
+            "a cache write must bump the decode generation")
+
+        await actor._testSeedDecodedCache(
+            asset: asset, decoded: ci, rawResolution: CGSize(width: 8, height: 8)
+        )
+        let afterSecondWrite = await actor._testDecodeGeneration()
+        XCTAssertGreaterThan(afterSecondWrite, afterFirstWrite,
+            "every subsequent cache write must bump the generation again — the GPU-live "
+            + "upload identity depends on distinguishing consecutive same-dims decodes (#2049)")
+    }
+
+    /// `seed`/`seedIfUnpopulated` are cache writes too (a cold-open preview
+    /// hydration) and must bump the generation the same way a real decode
+    /// does, so a GPU-live session opened against a seeded buffer still
+    /// re-uploads once the real decode lands even if dims coincide.
+    func testDecodeGenerationBumpsOnSeed() async {
+        let pipeline = ImageEditPipeline()
+        let actor = RenderActor(pipeline: pipeline)
+        let asset = AssetRef(
+            displayName: "seed-gen.jpg",
+            hintExtension: "jpg",
+            stableID: "seed-gen-1",
+            explicitIsRaw: false,
+            bytesProvider: { Data() }
+        )
+        let ci = CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+
+        let before = await actor._testDecodeGeneration()
+        await actor.seed(asset: asset, decoded: ci, rawResolution: CGSize(width: 64, height: 64))
+        let afterSeed = await actor._testDecodeGeneration()
+        XCTAssertGreaterThan(afterSeed, before, "seed(...) must bump the decode generation")
+
+        // seedIfUnpopulated on an ALREADY-populated cache is a no-op — must
+        // NOT bump (nothing was written).
+        let accepted = await actor.seedIfUnpopulated(
+            asset: asset, decoded: ci, rawResolution: CGSize(width: 64, height: 64)
+        )
+        XCTAssertFalse(accepted, "precondition: cache already populated for this asset")
+        let afterNoopSeed = await actor._testDecodeGeneration()
+        XCTAssertEqual(afterNoopSeed, afterSeed,
+            "seedIfUnpopulated must NOT bump the generation when it declines to write")
+
+        let otherAsset = AssetRef(
+            displayName: "seed-gen-2.jpg",
+            hintExtension: "jpg",
+            stableID: "seed-gen-2",
+            explicitIsRaw: false,
+            bytesProvider: { Data() }
+        )
+        let acceptedOther = await actor.seedIfUnpopulated(
+            asset: otherAsset, decoded: ci, rawResolution: CGSize(width: 64, height: 64)
+        )
+        XCTAssertTrue(acceptedOther, "an empty cache for a different asset should accept the seed")
+        let afterOtherSeed = await actor._testDecodeGeneration()
+        XCTAssertGreaterThan(afterOtherSeed, afterNoopSeed,
+            "seedIfUnpopulated must bump the generation when it DOES write")
+    }
+
+    // MARK: - Write-gate coverage predicate (#2039, #871)
+
+    /// A same-asset, same-profile, same-baked-model cache at least as large
+    /// as the new decode covers it — the write should be skipped.
+    func testCacheCoversNewDecodeAcceptsEqualOrLargerSameIdentity() {
+        XCTAssertTrue(
+            RenderActor.cacheCoversNewDecode(
+                sameAsset: true, sameProfile: true, sameBakedModel: true,
+                cachedRawResolution: CGSize(width: 2000, height: 1500),
+                newRawResolution: CGSize(width: 800, height: 600)
+            ),
+            "a larger same-identity cache must cover a smaller new decode")
+    }
+
+    /// A smaller cache never covers a larger new decode, even with matching
+    /// identity — the new (bigger) decode must be allowed to write.
+    func testCacheCoversNewDecodeRejectsSmallerCache() {
+        XCTAssertFalse(
+            RenderActor.cacheCoversNewDecode(
+                sameAsset: true, sameProfile: true, sameBakedModel: true,
+                cachedRawResolution: CGSize(width: 800, height: 600),
+                newRawResolution: CGSize(width: 2000, height: 1500)
+            ),
+            "a smaller cache must not claim to cover a larger new decode")
+    }
+
+    /// THE HOLE (#871): a cache that is large enough but for a DIFFERENT
+    /// profile must NOT claim coverage — Auto and Neutral develop distinct
+    /// buffers at any size, so "big enough" alone is not "already has this
+    /// data". Ignoring profile here would let a profile switch to a smaller
+    /// target get silently discarded by the write gate forever (the new,
+    /// correct-profile decode never lands in the cache because the stale
+    /// large buffer always looks like it "already covers" the request).
+    func testCacheCoversNewDecodeRejectsProfileMismatchDespiteSize() {
+        XCTAssertFalse(
+            RenderActor.cacheCoversNewDecode(
+                sameAsset: true, sameProfile: false, sameBakedModel: true,
+                cachedRawResolution: CGSize(width: 2000, height: 1500),
+                newRawResolution: CGSize(width: 800, height: 600)
+            ),
+            "a profile mismatch must defeat coverage even when the cached resolution is larger")
+    }
+
+    /// A baked-model mismatch (a KEPT-field edit landed) is the same story
+    /// as a profile mismatch — different content, not a smaller version of
+    /// the same content — so it must also defeat coverage regardless of size.
+    func testCacheCoversNewDecodeRejectsBakedModelMismatchDespiteSize() {
+        XCTAssertFalse(
+            RenderActor.cacheCoversNewDecode(
+                sameAsset: true, sameProfile: true, sameBakedModel: false,
+                cachedRawResolution: CGSize(width: 2000, height: 1500),
+                newRawResolution: CGSize(width: 800, height: 600)
+            ),
+            "a baked-model mismatch must defeat coverage even when the cached resolution is larger")
+    }
+
+    /// A different asset never covers — the cached pixels describe a
+    /// different image entirely.
+    func testCacheCoversNewDecodeRejectsDifferentAsset() {
+        XCTAssertFalse(
+            RenderActor.cacheCoversNewDecode(
+                sameAsset: false, sameProfile: true, sameBakedModel: true,
+                cachedRawResolution: CGSize(width: 2000, height: 1500),
+                newRawResolution: CGSize(width: 800, height: 600)
+            ),
+            "a different asset must never claim coverage")
+    }
+
+    // MARK: - Decoded-cache write-gate (#785, #2039)
 
     /// A full decode always writes the cache, regardless of what's there.
     func testWriteGateFullDecodeAlwaysWrites() {
         XCTAssertTrue(
-            RenderActor.shouldWriteDecodedCache(wantsFull: true, cachedIsFreshFull: true),
-            "a full decode must overwrite even a fresh full cache (re-decode after invalidate)")
+            RenderActor.shouldWriteDecodedCache(wantsFull: true, cachedCoversNewDecode: true),
+            "a full decode must overwrite even a covering cache (re-decode after invalidate)")
         XCTAssertTrue(
-            RenderActor.shouldWriteDecodedCache(wantsFull: true, cachedIsFreshFull: false),
-            "a full decode must write when no fresh full cache is present")
+            RenderActor.shouldWriteDecodedCache(wantsFull: true, cachedCoversNewDecode: false),
+            "a full decode must write when no covering cache is present")
     }
 
-    /// A sized (fast) decode must NOT clobber a FRESH full cache — that
-    /// would downgrade the buffer the refine pass already landed.
-    func testWriteGateSizedDecodeSkipsFreshFullCache() {
+    /// A sized (fast) decode must NOT clobber a cache that already COVERS
+    /// it (same identity, resolution ≥ this decode's) — that would evict a
+    /// buffer refine may already be reusing for nothing (#2039), or downgrade
+    /// a cache that held more than this decode does.
+    func testWriteGateSizedDecodeSkipsCoveringCache() {
         XCTAssertFalse(
-            RenderActor.shouldWriteDecodedCache(wantsFull: false, cachedIsFreshFull: true),
-            "a sized decode must not overwrite a fresh full cache")
+            RenderActor.shouldWriteDecodedCache(wantsFull: false, cachedCoversNewDecode: true),
+            "a sized decode must not overwrite a cache that already covers it")
     }
 
-    /// A sized (fast) decode MAY overwrite a STALE full cache (or an
-    /// empty / sized slot): the stale buffer is never served, and
-    /// refusing to write would force a fresh sized decode every fast tick.
-    func testWriteGateSizedDecodeOverwritesStaleOrSizedCache() {
+    /// A sized (fast) decode MAY overwrite a cache that does NOT cover it
+    /// (stale identity, smaller resolution, or empty): the non-covering
+    /// buffer is never served past its own size anyway, and refusing to
+    /// write would force a fresh sized decode every fast tick.
+    func testWriteGateSizedDecodeOverwritesNonCoveringCache() {
         XCTAssertTrue(
-            RenderActor.shouldWriteDecodedCache(wantsFull: false, cachedIsFreshFull: false),
-            "a sized decode must overwrite a stale/sized/empty cache so the fast path doesn't re-decode every tick")
+            RenderActor.shouldWriteDecodedCache(wantsFull: false, cachedCoversNewDecode: false),
+            "a sized decode must overwrite a non-covering cache so the fast path doesn't re-decode every tick")
     }
 
     // MARK: - AMaZE quality selectors (#940)
