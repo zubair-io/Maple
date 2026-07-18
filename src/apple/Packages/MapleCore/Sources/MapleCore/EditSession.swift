@@ -459,16 +459,23 @@ public final class EditSession {
             // the image appears immediately; refine follows.
             if oldValue == .zero {
                 _scheduleRender(phase: .fast)
-                // The real viewport just landed — if the cache-preview seed
-                // bailed earlier for lack of it (#2041), give it one
-                // correctly-bucketed shot now.
-                retryCachedPreviewSeedIfPending()
             } else {
                 // Later resize (window drag) — refine only. `_scheduleRender`
                 // also cancels the prior refine, so a continuous window drag
                 // coalesces into a single refine pass after the user stops.
                 _scheduleRefine()
             }
+            // A viewport landed — if the cache-preview seed is still waiting
+            // for a usable width (#2041), give it a correctly-bucketed shot.
+            // Deliberately OUTSIDE the zero-transition branch: a sub-pixel
+            // layout-churn transient (0 → 0.5) takes the zero branch but
+            // fails the seed's `width >= 1` guard and re-arms the pending
+            // flag; the real width then arrives with `oldValue == 0.5`, so
+            // gating the retry on `oldValue == .zero` would strand the flag
+            // forever (jules review). The internal
+            // `guard cachedPreviewSeedPendingViewport` makes this free on
+            // every non-pending update.
+            retryCachedPreviewSeedIfPending()
         }
     }
 
