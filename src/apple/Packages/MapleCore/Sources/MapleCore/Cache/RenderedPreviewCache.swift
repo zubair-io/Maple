@@ -246,6 +246,26 @@ public actor RenderedPreviewCache {
         }
     }
 
+    // MARK: - Memory pressure
+
+    /// Drop every in-memory entry (up to `maxMemEntries` full-viewport
+    /// `CIImage`s) while leaving the on-disk `.maple/previews/` files
+    /// untouched — a subsequent `preview(for:)` call still hits from disk,
+    /// just pays a JPEG-decode instead of a dictionary lookup. Called by
+    /// `MapleApp`'s memory-pressure observer (#2037): before this, only the
+    /// (already-bounded) thumbnail cache responded to pressure while this
+    /// cache's larger entries sat resident.
+    public func handleMemoryPressure() {
+        memCache.removeAll()
+    }
+
+    // MARK: - Test hooks
+
+    /// Whether the in-memory front is empty. `internal` (test-visible via
+    /// `@testable import`) — lets a test assert `handleMemoryPressure()`
+    /// actually drained `memCache` without exposing the dictionary itself.
+    internal func _testMemCacheIsEmpty() -> Bool { memCache.isEmpty }
+
     // MARK: - Hash (SHA256 prefix for key stability)
 
     /// The first 16 bytes of the string's SHA256, as 32 lowercase hex chars.

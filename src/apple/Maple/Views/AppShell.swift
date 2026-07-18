@@ -190,6 +190,12 @@ struct AppShell: View {
     @State private var deepLinkRouter = DeepLinkRouter.shared
     @State private var documentOpenRouter = DocumentOpenRouter.shared
 
+    /// Same idiom as the two routers above: `MapleApp`'s process-level
+    /// memory-pressure observer can't reach `sessions` directly (plain
+    /// `@State`, no static handle), so it bumps this singleton and we react
+    /// via `.onChange(of:)`. See `MemoryPressureSignal`'s header doc (#2037).
+    @State private var memoryPressureSignal = MemoryPressureSignal.shared
+
     #if os(iOS)
 
     /// iPhone drawer snapped state. `dragOffset` (the in-flight finger
@@ -309,6 +315,43 @@ struct AppShell: View {
             // active session is then (re)created by `openEditor`. Mirrors
             // EditorDestination's `sessions = [:]` pruning (#1661 review).
             sessions = [:]
+        }
+    }
+
+    /// System memory-pressure response (#2037): free every INACTIVE
+    /// session's decoded-image cache, deep-zoom tile cache, and GPU-live
+    /// session — reusing `pruneInactiveSessions()`'s "active = the current
+    /// `browseVM.selectedID`" signal. Unlike `pruneInactiveSessions()` (which
+    /// evicts the whole `EditSession` and only runs on an open/switch), this
+    /// keeps every session resident (so browsing back to one is instant) and
+    /// only drops its re-derivable transient buffers — the active session is
+    /// never touched, so the current edit doesn't stall.
+    @MainActor
+    func releaseTransientMemoryForInactiveSessions() {
+        let activeID = browseVM.selectedID
+        for (id, session) in sessions where id != activeID {
+            Task { await session.releaseTransientMemory() }
+        }
+    }
+
+    /// iOS backgrounding response (#2037): backgrounded apps are jetsam's
+    /// first victims, so free every session's transient buffers — including
+    /// the active one's GPU-live session and decoded cache. Both self-heal
+    /// on foreground: the GPU driver reopens via the existing `!isOpen`
+    /// guard (`presentViaGpuLive`), and the decoded-image cache repopulates
+    /// via the ordinary cache-miss decode path.
+    ///
+    /// `excluding` is the currently-editing session's id, when
+    /// `persistPreviewOnBackground` is about to run one for it: that persist
+    /// reads the live GPU frame (`refreshThumbnailFromCurrentGpuFrame`), so
+    /// releasing it concurrently here would race `closeSession()` against
+    /// that readback on the same `GpuLiveDriver`. That session releases
+    /// itself from within the persist's own completion instead (see the
+    /// `scenePhase` observer below), sequenced safely after the readback.
+    @MainActor
+    func releaseTransientMemoryForAllSessions(excluding: AssetRef.ID? = nil) {
+        for (id, session) in sessions where id != excluding {
+            Task { await session.releaseTransientMemory() }
         }
     }
 
@@ -460,6 +503,12 @@ struct AppShell: View {
         .onChange(of: documentOpenRouter.pendingFileURL) { _, newValue in
             guard newValue != nil else { return }
             consumePendingOpenedDocument()
+        }
+        // System memory pressure (#2037): free every INACTIVE session's
+        // decoded/tile/GPU buffers. The active session is untouched — see
+        // `releaseTransientMemoryForInactiveSessions()`.
+        .onChange(of: memoryPressureSignal.pressureEventCount) { _, _ in
+            releaseTransientMemoryForInactiveSessions()
         }
     }
 
@@ -634,6 +683,17 @@ struct AppShell: View {
             if newPhase == .background, mode == .editing, let session = selectedSession {
                 persistPreviewOnBackground(session)
             }
+            #if os(iOS)
+            // #2037 — a backgrounded app is jetsam's first victim; free every
+            // session's decoded/tile/GPU buffers, including the active one's.
+            // The currently-editing session (if any) is excluded here and
+            // released instead from inside its own exit-persist completion
+            // above, so its GPU frame is captured before the session closes.
+            if newPhase == .background {
+                let activeEditingID = (mode == .editing) ? browseVM.selectedID : nil
+                releaseTransientMemoryForAllSessions(excluding: activeEditingID)
+            }
+            #endif
         }
     }
 
@@ -671,6 +731,12 @@ struct AppShell: View {
         guard bgTask != .invalid else { return }
         Task { @MainActor in
             await session.persistDisplayPreviewOnExit()
+            // #2037 — now that the exit persist has read whatever GPU frame
+            // was live, release this session's decoded/tile/GPU buffers too
+            // (backgrounded apps are jetsam's first victims). Sequenced
+            // AFTER the persist — see `releaseTransientMemoryForAllSessions`'s
+            // `excluding` doc for why running it concurrently would race.
+            await session.releaseTransientMemory()
             end()
         }
         #else

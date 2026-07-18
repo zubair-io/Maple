@@ -289,4 +289,23 @@ public final class GpuLiveDriver {
 
     /// The current session dims, if open.
     public var currentDims: (width: Int, height: Int)? { sessionDims }
+
+    /// Explicitly close the current session (if any) and drop the
+    /// reference, freeing its GPU buffers immediately rather than waiting
+    /// for the next `open` to replace it. Used by the memory-pressure
+    /// eviction path (#2037) to release an inactive editor's GPU-resident
+    /// image without waiting for a future re-open.
+    ///
+    /// Safe to call while idle: `isOpen`/`hasSession` report `false` once
+    /// `session` is `nil`, and the next `decodeAndRender` call transparently
+    /// reopens against the current decode — the `!driver.isOpen(...)` guard
+    /// in `presentViaGpuLive` (`EditSession+GpuLive.swift`) re-reads back the
+    /// decoded image and calls `open` again. No-op if already closed.
+    public func closeSession() async {
+        guard let s = session else { return }
+        await s.close()
+        session = nil
+        sessionDims = nil
+        autoProfileFitDone = false
+    }
 }

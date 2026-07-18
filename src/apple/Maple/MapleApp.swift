@@ -217,19 +217,36 @@ struct MapleApp: App {
         }
     }
 
-    /// Forward memory-pressure / low-memory signals to the thumbnail loader so
-    /// it drops hot in-memory entries before the OS jettisons us. On macOS,
+    /// Forward memory-pressure / low-memory signals to every cache that
+    /// holds hot in-memory entries, before the OS jettisons us. On macOS,
     /// `DispatchSource.makeMemoryPressureSource` fires at warn/critical; on
     /// iOS, `UIApplication.didReceiveMemoryWarningNotification`.
+    ///
+    /// Three responses fan out from the same signal (#2037 — broadened from
+    /// thumbnails-only, which left the much larger rendered-preview and
+    /// per-editor decoded/tile/GPU buffers resident under pressure):
+    ///   * `ThumbnailLoader` — the grid's in-memory thumbnail cache (already
+    ///     wired; small, already-bounded).
+    ///   * `RenderedPreviewCache` — up to 20 full-viewport `CIImage`s; both
+    ///     are process-wide singletons this observer can reach directly.
+    ///   * `MemoryPressureSignal` — `AppShell.sessions` (the decoded-image
+    ///     cache, deep-zoom tiles, and GPU-live session per open editor) is
+    ///     plain SwiftUI `@State` with no handle reachable from here, so the
+    ///     signal is bumped and `AppShell` observes it (mirrors the
+    ///     `DeepLinkRouter` cross-layer idiom — see `MemoryPressureSignal`'s
+    ///     header doc) and fans out to every INACTIVE session itself.
     private static func installMemoryPressureObserver() {
+        let respond = {
+            Task { await ThumbnailLoader.shared.handleMemoryPressure() }
+            Task { await RenderedPreviewCache.shared.handleMemoryPressure() }
+            Task { await MemoryPressureSignal.shared.signalPressure() }
+        }
         #if os(macOS)
         let src = DispatchSource.makeMemoryPressureSource(
             eventMask: [.warning, .critical],
             queue: .global(qos: .utility)
         )
-        src.setEventHandler {
-            Task { await ThumbnailLoader.shared.handleMemoryPressure() }
-        }
+        src.setEventHandler(handler: respond)
         src.resume()
         // Keep the source alive for the app lifetime — stash on a throwaway
         // static so ARC doesn't deallocate it.
@@ -239,9 +256,7 @@ struct MapleApp: App {
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            Task { await ThumbnailLoader.shared.handleMemoryPressure() }
-        }
+        ) { _ in respond() }
         #endif
     }
 }
