@@ -57,6 +57,40 @@ describe('people.repo — mergePeopleInto', () => {
     expect(second.survivor._id.toHexString()).toBe(target._id.toHexString());
   });
 
+  it('clears merge suggestions pointing at a merged-away source — survivor and third parties', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { mergePeopleInto } = await import('./people-merge.repo.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const peopleC = await peopleCollection();
+
+    const target = await createPerson('Survivor');
+    const src = await createPerson('Duplicate');
+    const bystander = await createPerson('Bystander');
+    // The banner flow: the survivor's live suggestion IS the person being
+    // merged in; a third person's best match also happens to be the source.
+    await peopleC.updateOne(
+      { _id: target._id },
+      { $set: { suggested_merge_person_id: src._id, suggested_merge_score: 0.9 } },
+    );
+    await peopleC.updateOne(
+      { _id: bystander._id },
+      { $set: { suggested_merge_person_id: src._id, suggested_merge_score: 0.8 } },
+    );
+
+    await mergePeopleInto(target._id, [src._id]);
+
+    // Without the clear, the survivor's list badge would stay "possible
+    // duplicate" until the next clustering run.
+    const freshTarget = await peopleC.findOne({ _id: target._id });
+    const freshBystander = await peopleC.findOne({ _id: bystander._id });
+    const freshSrc = await peopleC.findOne({ _id: src._id });
+    expect(freshTarget?.suggested_merge_person_id ?? null).toBeNull();
+    expect(freshTarget?.suggested_merge_score ?? null).toBeNull();
+    expect(freshBystander?.suggested_merge_person_id ?? null).toBeNull();
+    expect(freshSrc?.suggested_merge_person_id ?? null).toBeNull();
+  });
+
   it('throws when the target is missing or already merged', async () => {
     if (!h.mongoReachable) return;
     const { createPerson } = await import('./people.repo.ts');

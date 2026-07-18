@@ -3,15 +3,97 @@
  * target (the target always survives). Extracted from `people.repo.ts` to keep
  * both files within the 600-LOC file-budget gate (#1303).
  *
- * Reuses `mergeInto` from `people.repo.ts` and `markAssetsForMeiliReindexBestEffort`
- * from `people-search-reindex.ts` so the repoint / mark logic stays in exactly one place.
+ * Owns the `mergeInto` primitive (moved here from `people.repo.ts` for the
+ * file-size budget); the rename-on-collision path imports it back, so the
+ * repoint / mark logic stays in exactly one place.
  */
 
 import type { ObjectId } from 'mongodb';
-import { peopleCollection } from '../db/client.ts';
+import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { PersonWithId } from '../db/schema.ts';
-import { mergeInto } from './people.repo.ts';
+import { recomputePersonFaceCount } from './people-face-count.repo.ts';
 import { markAssetsForMeiliReindexBestEffort } from './people-search-reindex.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('people:merge');
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+/** Internal merge helper: repoint `asset.faces[].person_id` from `orphan`
+ * to `survivor`, then mark the orphan as `merged_into = survivor`. The
+ * survivor's name is canonicalised to `name` (operator spelling).
+ *
+ * Exported so the rename-on-collision path (`people.repo.ts`) can reuse the
+ * same primitive without duplicating the repoint/mark logic. */
+export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: string): Promise<void> {
+  const survivorHex = survivor.toHexString();
+  const orphanHex = orphan.toHexString();
+  const assets = await assetsCollection();
+  const peopleC = await peopleCollection();
+
+  // Repoint faces. Faces are stored as a sub-array of objects; Mongo's
+  // arrayFilters lets us update every matching element in one pass per
+  // asset doc.
+  const repoint = await assets.updateMany(
+    { 'faces.person_id': orphanHex },
+    {
+      $set: { 'faces.$[face].person_id': survivorHex },
+    },
+    {
+      arrayFilters: [{ 'face.person_id': orphanHex }],
+    },
+  );
+  // Mark the orphan as merged, zero out its face_count (faces are gone),
+  // and drop its own now-moot merge suggestion.
+  await peopleC.updateOne(
+    { _id: orphan },
+    {
+      $set: {
+        merged_into: survivor,
+        updated_at: nowIso(),
+        face_count: 0,
+        suggested_merge_person_id: null,
+        suggested_merge_score: null,
+      },
+    },
+  );
+  // Clear any live merge suggestion pointing at the orphan — on the survivor
+  // (the banner's own Merge action just resolved it; without this the list
+  // badge would stay "possible duplicate" until the next clustering run) and
+  // on any third person whose best match was the orphan.
+  await peopleC.updateMany(
+    { suggested_merge_person_id: orphan },
+    { $set: { suggested_merge_person_id: null, suggested_merge_score: null } },
+  );
+  // Canonicalise the survivor's name + bump updated_at. Centroid is now
+  // stale (more faces); the next clustering run will recompute.
+  await peopleC.updateOne(
+    { _id: survivor },
+    {
+      $set: {
+        name,
+        updated_at: nowIso(),
+        // Force a centroid recompute on the next pass.
+        centroid_face_count: -1,
+      },
+    },
+  );
+  // Recompute the survivor's face_count from its ACTUAL assigned, non-hidden
+  // faces (now including the repointed ones) rather than summing the orphan's
+  // stored count — which may be missing or drifted and would corrupt the
+  // survivor. Runs after the repoint so it sees the merged faces.
+  await recomputePersonFaceCount(survivorHex);
+  log.info(
+    {
+      survivor: survivorHex,
+      orphan: orphanHex,
+      faces_repointed: repoint.modifiedCount,
+    },
+    'merged person',
+  );
+}
 
 /** Result of `mergePeopleInto`. `mergedCount` is the number of sources that
  * were actually folded in (self / already-merged / missing sources are
