@@ -252,32 +252,7 @@ extension SceneLinearPipelineTests {
             throw XCTSkip("no Metal device on test runner")
         }
         let w = 16, h = 16
-        var pixels = [UInt16](repeating: 0, count: w * h * 4)
-        let zero = Self.float32ToFloat16Bits(0.0)
-        let one  = Self.float32ToFloat16Bits(1.0)
-        for i in stride(from: 0, to: pixels.count, by: 4) {
-            pixels[i + 0] = zero
-            pixels[i + 1] = zero
-            pixels[i + 2] = zero
-            pixels[i + 3] = one
-        }
-        let centerIdx = (8 * w + 8) * 4
-        pixels[centerIdx + 0] = one
-        pixels[centerIdx + 1] = one
-        pixels[centerIdx + 2] = one
-        pixels[centerIdx + 3] = one
-        let bytesPerRow = w * 4 * 2
-        let data = pixels.withUnsafeBufferPointer { buf -> Data in
-            Data(bytes: buf.baseAddress!, count: buf.count * 2)
-        }
-        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        let input = CIImage(
-            bitmapData: data,
-            bytesPerRow: bytesPerRow,
-            size: CGSize(width: w, height: h),
-            format: .RGBAh,
-            colorSpace: space
-        )
+        let input = Self.makeCenterDeltaRGBAhCIImage(width: w, height: h)
 
         let firstBytes = try XCTUnwrap(
             Self.renderFullBufferRGBAh(
@@ -294,5 +269,64 @@ extension SceneLinearPipelineTests {
             firstBytes, secondBytes,
             "shared CIContext/MTLCommandQueue produced different output on the second call — "
                 + "reuse across calls is not safe")
+    }
+
+    /// #2043 — concurrency companion to the sequential test above. The
+    /// production call pattern is CONCURRENT: the two-phase scheduler can
+    /// have a fast-phase task and a refine-phase task in flight on
+    /// different threads simultaneously, both hitting the shared
+    /// `CIContext` + `MTLCommandQueue`. The sequential test can't exercise
+    /// that interleaving, so this one runs several blur calls in parallel
+    /// TaskGroup children — each building its own input from the same
+    /// deterministic recipe, blurring, and rendering to bytes concurrently
+    /// — and requires every concurrent result to be byte-identical to a
+    /// sequentially-computed baseline. Divergence (or a crash/hang) here
+    /// means sharing the context/queue across in-flight render tasks is
+    /// not safe.
+    func testSeparableGaussianBlurSharedContextIsSafeUnderConcurrentCalls() async throws {
+        guard MTLCreateSystemDefaultDevice() != nil else {
+            throw XCTSkip("no Metal device on test runner")
+        }
+        let w = 16, h = 16
+
+        // Sequential baseline first. This also initializes the shared
+        // statics before the concurrent phase — so the group below tests
+        // concurrent *use* of the shared instances; concurrent
+        // *first-touch* init is covered by Swift's once-only `static let`
+        // guarantee (dispatch_once semantics) rather than by this test.
+        let baselineInput = Self.makeCenterDeltaRGBAhCIImage(width: w, height: h)
+        let baseline = try XCTUnwrap(
+            Self.renderFullBufferRGBAh(
+                MetalKernels.applySeparableGaussianBlur(to: baselineInput, radius: 2),
+                width: w, height: h),
+            "baseline blur call produced no renderable output")
+
+        let concurrentResults = await withTaskGroup(of: Data?.self) { group -> [Data?] in
+            for _ in 0..<4 {
+                group.addTask {
+                    // Each child builds its own CIImage from the same
+                    // deterministic recipe (CIImage is not Sendable, so no
+                    // cross-task sharing of the input graph) — the SHARED
+                    // pieces under test are MetalKernels' static CIContext
+                    // and MTLCommandQueue.
+                    let input = Self.makeCenterDeltaRGBAhCIImage(width: w, height: h)
+                    let out = MetalKernels.applySeparableGaussianBlur(to: input, radius: 2)
+                    return Self.renderFullBufferRGBAh(out, width: w, height: h)
+                }
+            }
+            var results: [Data?] = []
+            for await result in group { results.append(result) }
+            return results
+        }
+
+        XCTAssertEqual(concurrentResults.count, 4)
+        for (i, result) in concurrentResults.enumerated() {
+            let bytes = try XCTUnwrap(
+                result, "concurrent blur call #\(i) produced no renderable output")
+            XCTAssertEqual(
+                bytes, baseline,
+                "concurrent blur call #\(i) diverged from the sequential baseline — "
+                    + "the shared CIContext/MTLCommandQueue is not safe under concurrent use")
+        }
     }
 }

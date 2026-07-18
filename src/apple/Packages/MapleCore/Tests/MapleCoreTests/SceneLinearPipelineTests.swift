@@ -439,6 +439,42 @@ final class SceneLinearPipelineTests: XCTestCase {
         return Self.float16BitsToFloat32(bytes.load(fromByteOffset: off, as: UInt16.self))
     }
 
+    /// Deterministic blur-test input (#2043): a `w`×`h` fp16 Rec.2020
+    /// CIImage that is zero everywhere except a single bright RGBA=1 pixel
+    /// at the centre. Shared by the sequential and concurrent shared-blur-
+    /// context tests in `SceneLinearPipelineTests+GaussianBlur.swift` —
+    /// each caller (including each concurrent TaskGroup child) builds its
+    /// own instance from this recipe, so the only state shared across
+    /// calls is what's actually under test in `MetalKernels`.
+    static func makeCenterDeltaRGBAhCIImage(width w: Int, height h: Int) -> CIImage {
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let zero = Self.float32ToFloat16Bits(0.0)
+        let one  = Self.float32ToFloat16Bits(1.0)
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[i + 0] = zero
+            pixels[i + 1] = zero
+            pixels[i + 2] = zero
+            pixels[i + 3] = one
+        }
+        let centerIdx = ((h / 2) * w + (w / 2)) * 4
+        pixels[centerIdx + 0] = one
+        pixels[centerIdx + 1] = one
+        pixels[centerIdx + 2] = one
+        pixels[centerIdx + 3] = one
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { buf -> Data in
+            Data(bytes: buf.baseAddress!, count: buf.count * 2)
+        }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        return CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+    }
+
     /// Render the FULL pixel buffer of a CIImage to fp16 RGBA, returned as
     /// raw `Data` for byte-for-byte comparison across two independent
     /// renders (see `testSeparableGaussianBlurSharedContextIsStableAcrossCalls`
