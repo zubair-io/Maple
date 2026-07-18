@@ -28,14 +28,10 @@ extension EditSession {
         adoptDecodedWbFrame(cachedWbFrame) // #1781/#1976: as-shot anchor below
         let asShot: ImageEditPipeline.AsShotWB? = wbDeltaAnchor
         // Auto Profile (#812) — resolve/cache the per-image cube off the
-        // synchronous chain block, mirroring `decodeAndRender`. The editor
-        // decode path develops at `.preview` (RenderActor's sharedDecode +
-        // decodeSceneLinear* default to `.preview`), so the curve MUST be fit
-        // at `.preview` too or it won't match the displayed pixels (#844).
-        let profileLUT: CIFilter? = await {
-            guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
-            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
-        }()
+        // synchronous chain block via the shared CPU-render fetch (guard +
+        // `.preview` quality semantics documented on the helper, #844). This
+        // path is CPU-only, so the fetch is unconditionally correct here.
+        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
 
         renderPhase = .refine
         isRendering = true
