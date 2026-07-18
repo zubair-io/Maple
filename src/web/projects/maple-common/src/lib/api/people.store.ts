@@ -455,7 +455,15 @@ export class PeopleStore implements Store<ApiPerson[]> {
    * banner/badge disappear immediately. Throws on failure so the caller can
    * surface an error toast. */
   async dismissMergeSuggestion(personId: string, otherId: string): Promise<void> {
-    await firstValueFrom(this.api.dismissMergeSuggestion(personId, otherId));
+    try {
+      await firstValueFrom(this.api.dismissMergeSuggestion(personId, otherId));
+    } catch (err) {
+      // 404 means the suggestion is already stale server-side (changed or
+      // cleared by a newer clustering run) — refetch the detail so the
+      // stale banner converges instead of lingering behind the error toast.
+      this.invalidateDetail(personId);
+      throw err;
+    }
     this.evictDetail(otherId);
     this.invalidateDetail(personId);
     this.invalidate();
