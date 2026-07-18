@@ -69,9 +69,9 @@ extension EditorView {
                     // automatically for an arbitrary `View`-conforming
                     // struct — only `EquatableView`/`.equatable()` opts a
                     // use site into skipping `body` when `==` says nothing
-                    // changed, which is what lets `renderedPreview` staying
-                    // the same `CIImage` instance across pan/zoom frames
-                    // skip the synchronous raster.
+                    // changed — which is what lets an unchanged
+                    // `renderedPreview` (the same `CIImage` instance across
+                    // pan/zoom frames) skip the synchronous raster.
                     CanvasImageView(image: preview)
                         .equatable()
                         .allowsHitTesting(false)
