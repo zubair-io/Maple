@@ -66,10 +66,18 @@ async function fakeGeneratePreview(_absPath: string, previewPath: string): Promi
 // Patch the one export in place — every importer (including `previewRoutes`'s
 // own `generatePreview` binding) calls through the namespace slot, and
 // `mockRestore()` in `afterAll` reverts it for every importer. See the module
-// doc for why this must NOT be `mock.module` (#2032 leak).
-const generatePreviewSpy = spyOn(previewerModule, 'generatePreview').mockImplementation(
-  fakeGeneratePreview,
-);
+// doc for why this must NOT be `mock.module` (#2032 leak). Installed inside
+// `beforeAll`, not at top-level module evaluation: a top-level install would
+// patch the shared namespace as a side effect of this file merely being
+// COLLECTED, before any hook lifecycle applies — the same
+// order-dependent-leak class this change exists to eliminate.
+let generatePreviewSpy: { mockRestore(): void } | null = null;
+
+beforeAll(() => {
+  generatePreviewSpy = spyOn(previewerModule, 'generatePreview').mockImplementation(
+    fakeGeneratePreview,
+  );
+});
 
 const { previewRoutes } = await import('./preview.ts');
 const { Elysia } = await import('elysia');
@@ -130,7 +138,8 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  generatePreviewSpy.mockRestore(); // restore for sibling test files — see module doc
+  generatePreviewSpy?.mockRestore(); // restore for sibling test files — see module doc
+  generatePreviewSpy = null;
   if (mongo) {
     await mongo
       .db(TEST_DB)
