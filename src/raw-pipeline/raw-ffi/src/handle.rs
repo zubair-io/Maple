@@ -352,6 +352,13 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
 /// whole-image scene-linear path's f32 (#487) rather than the fp16 the tile
 /// path shipped — a precision-tier divergence that could bias shadows / band
 /// the AgX shoulder in the zoomed-in tile vs the full image (#1945).
+///
+/// Auto-exposure (#1167): this entry never threads an AE gain — it is
+/// exactly the pre-#1167 tile chain, i.e. bit-identical to `ae_gain = 1.0`.
+/// See [`maple_render_handle_scene_linear_tile_ae_f32`] for the AE-gain-aware
+/// sibling; kept as a separate symbol (rather than widening this one's
+/// arity) so existing Apple bindings compiled against this signature keep
+/// working unchanged.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
@@ -365,6 +372,83 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
     quality_preview: i32,
     decoded_temperature: f32,
     decoded_tint: f32,
+    out: *mut crate::buffers::MapleSceneLinearBufferF32,
+) -> i32 {
+    render_handle_scene_linear_tile_f32_impl(
+        handle,
+        src_x,
+        src_y,
+        src_w,
+        src_h,
+        out_w,
+        out_h,
+        quality_preview,
+        decoded_temperature,
+        decoded_tint,
+        1.0,
+        out,
+    )
+}
+
+/// AE-gain-aware sibling of [`maple_render_handle_scene_linear_tile_f32`]
+/// (#1167). Identical in every other respect; `ae_gain` is the auto-exposure
+/// anchor gain to thread into the tile develop chain — pass the
+/// `MapleSceneLinearBufferF32::ae_gain` a full-image (or sized) f32 render of
+/// the SAME model already exported, so a deep-zoom tile matches the
+/// full-image AE brightness instead of omitting the stage (`ae_gain = 1.0`
+/// reproduces the pre-#1167 / [`maple_render_handle_scene_linear_tile_f32`]
+/// output bit-for-bit).
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_ae_f32(
+    handle: *const MapleRawHandle,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    quality_preview: i32,
+    decoded_temperature: f32,
+    decoded_tint: f32,
+    ae_gain: f32,
+    out: *mut crate::buffers::MapleSceneLinearBufferF32,
+) -> i32 {
+    render_handle_scene_linear_tile_f32_impl(
+        handle,
+        src_x,
+        src_y,
+        src_w,
+        src_h,
+        out_w,
+        out_h,
+        quality_preview,
+        decoded_temperature,
+        decoded_tint,
+        ae_gain,
+        out,
+    )
+}
+
+/// Shared body of [`maple_render_handle_scene_linear_tile_f32`] and
+/// [`maple_render_handle_scene_linear_tile_ae_f32`] — every argument the two
+/// public symbols have in common, plus `ae_gain` (1.0 from the former, a
+/// caller-supplied value from the latter). Factored out so the two `#[repr(C)]`
+/// entries (which must keep distinct, stable arities — see each fn's doc)
+/// don't duplicate the guard/decode/pack body (#1167).
+#[allow(clippy::too_many_arguments)]
+unsafe fn render_handle_scene_linear_tile_f32_impl(
+    handle: *const MapleRawHandle,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    quality_preview: i32,
+    decoded_temperature: f32,
+    decoded_tint: f32,
+    ae_gain: f32,
     out: *mut crate::buffers::MapleSceneLinearBufferF32,
 ) -> i32 {
     if handle.is_null() || out.is_null() {
@@ -405,7 +489,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
             set_last_error("dehaze unsupported on tile path".into());
             return 10;
         }
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
+        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
             raw_img,
             model,
             raw_core::pipeline::TileRect {
@@ -418,6 +502,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
             },
             quality,
             wb_anchor,
+            ae_gain,
         ) {
             Ok(t) => t,
             Err(e) => {
@@ -449,6 +534,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
             &crate::scene_linear_f32::wb_frame_export(raw_img),
+            ae_gain,
         );
         0
     })
