@@ -90,6 +90,45 @@ extension EditSession {
         return true
     }
 
+    // MARK: - Memory pressure (#2037)
+
+    /// Free every transient, re-derivable buffer this session holds: the
+    /// decoded-image cache, the deep-zoom tile cache, and the wgpu live-
+    /// render session's GPU buffers. Everything freed here is re-derived
+    /// from the sidecar + RAW on next use — no user state (the model, undo
+    /// stack, sidecar) is touched.
+    ///
+    /// Unlike `invalidateDecodedCache()` (a fire-and-forget sync forwarder
+    /// for UI call sites), this AWAITS every teardown so a caller fanning
+    /// out over `AppShell.sessions` under memory pressure knows the frees
+    /// landed before it returns, and so a test can assert on the result
+    /// synchronously.
+    ///
+    /// Callers decide which sessions this reaches — see `AppShell`'s
+    /// `pruneInactiveSessions()` for how "active vs inactive" is already
+    /// determined (the current `browseVM.selectedID`, while an image
+    /// surface is open). The regular memory-pressure fan-out must skip the
+    /// active session (dropping its decoded cache / GPU session would stall
+    /// the on-screen edit — worse than the memory pressure itself); the
+    /// iOS background fan-out includes it, since a backgrounded app has
+    /// nothing "on screen" to stall and jetsam is the bigger risk.
+    ///
+    /// GPU-live sessions are self-healing: `GpuLiveDriver.isOpen` reports
+    /// `false` once its session is `nil`, and the next `presentViaGpuLive`
+    /// call (`EditSession+GpuLive.swift`) transparently re-reads back the
+    /// decoded image and reopens — so closing here costs a re-upload (and,
+    /// if the decoded cache was also dropped, a re-decode) on next visit,
+    /// not correctness.
+    public func releaseTransientMemory() async {
+        await renderActor.invalidate()
+        await tileManager?.clear()
+        // #1881 — mirrors `invalidateDecodedCache()`: the on-screen preview
+        // (if any) now predates this eviction, so a refine-skip persist must
+        // not write these stale pixels under a fresh cache key later.
+        previewIsFullRender = false
+        await gpuLiveDriver?.closeSession()
+    }
+
 }
 
 // MARK: - Sidecar helpers (nonisolated; called from RenderActor)

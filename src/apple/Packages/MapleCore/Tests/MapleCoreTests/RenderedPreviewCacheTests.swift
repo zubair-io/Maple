@@ -129,6 +129,26 @@ final class RenderedPreviewCacheTests: XCTestCase {
         XCTAssertNil(b)
     }
 
+    // MARK: - #2037: memory-pressure eviction
+
+    func testHandleMemoryPressureClearsMemCacheKeepsDisk() async throws {
+        let asset = try writeFile("g.dng")
+        let cache = await freshCache()
+        await cache.storePreview(swatch(), for: asset, screenWidth: 800)
+        let hadEntry = await cache._testMemCacheIsEmpty()
+        XCTAssertFalse(hadEntry, "precondition: storePreview populates the memory cache")
+
+        await cache.handleMemoryPressure()
+
+        let emptyAfter = await cache._testMemCacheIsEmpty()
+        XCTAssertTrue(emptyAfter, "handleMemoryPressure must clear the in-memory cache (#2037)")
+
+        // Disk entry survives — a FRESH instance (no memory front to serve
+        // from) still hits from disk.
+        let hit = await freshCache().preview(for: asset, screenWidth: 800)
+        XCTAssertNotNil(hit, "handleMemoryPressure must not delete the on-disk preview")
+    }
+
     // MARK: - #1926: the single-sourced pipeline-output version is in the key
 
     /// The `variantToken` that seeds the cache key carries the codegen-sourced
