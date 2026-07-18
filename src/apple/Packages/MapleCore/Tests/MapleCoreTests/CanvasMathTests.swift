@@ -218,6 +218,39 @@ final class CanvasMathTests: XCTestCase {
         XCTAssertEqual(canvas.refinedTargetSize, CGSize(width: 1500, height: 1200))
     }
 
+    /// #2061d: `refinedTargetSize` must never exceed Metal's 16384
+    /// texture-edge ceiling, even when the 2×-viewport headroom cap
+    /// (#1637) would otherwise permit it. A 9000×2000 viewport on a
+    /// 20000×3000 native image: cap = min(9000*2, 16384) = 16384;
+    /// width = min(max(20000, 9000), 16384) = 16384 (clamps); height =
+    /// min(max(3000, 2000), 16384) = 3000 (native already under the cap).
+    func testRefinedTargetSizeClampsToMetalMaxTextureEdge() {
+        let canvas = CanvasMath(
+            viewportPx: CGSize(width: 9000, height: 2000),
+            nativeImageSize: CGSize(width: 20000, height: 3000),
+            pixelScale: 1.0
+        )
+        let target = canvas.refinedTargetSize
+        XCTAssertEqual(target?.width, CanvasMath.metalMaxTextureEdge)
+        XCTAssertEqual(target?.height, 3000)
+    }
+
+    /// #2061d: the pre-decode fallback branch clamps the same way — an
+    /// ultra-wide 2×-Retina viewport (9000×9000 real px) at pixelScale=3
+    /// would otherwise compute `fast × min(max(1,3),2) = 18000` per edge,
+    /// past the 16384 Metal ceiling.
+    func testRefinedTargetSizePreDecodeFallbackClampsToMetalMaxTextureEdge() {
+        let canvas = CanvasMath(
+            viewportPx: CGSize(width: 9000, height: 9000),
+            nativeImageSize: .zero,
+            pixelScale: 3.0
+        )
+        XCTAssertEqual(
+            canvas.refinedTargetSize,
+            CGSize(width: CanvasMath.metalMaxTextureEdge, height: CanvasMath.metalMaxTextureEdge)
+        )
+    }
+
     // MARK: - visibleSourceRect
 
     /// At zoom 1.0 with a centred 1000×800-px viewport on a 4000×3000-px

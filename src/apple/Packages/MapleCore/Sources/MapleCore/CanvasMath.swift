@@ -36,6 +36,17 @@ import Foundation
 import CoreGraphics
 
 public struct CanvasMath: Sendable, Equatable {
+    // MARK: - Constants
+
+    /// Metal's per-platform texture-edge ceiling (`MTLDevice` reports
+    /// 16384 on every Apple GPU this app ships on). Single source of
+    /// truth for every render-target dimension this type computes —
+    /// `refinedTargetSize` here and `NativeDetailLOD.decodeRect` (which
+    /// references this constant directly) both clamp against it so a
+    /// pathological viewport can't request a texture Metal will refuse
+    /// to allocate (#2061).
+    public static let metalMaxTextureEdge: CGFloat = 16384
+
     // MARK: - Inputs
 
     /// Viewport size in real screen pixels (points × displayScale).
@@ -145,13 +156,22 @@ public struct CanvasMath: Sendable, Equatable {
         // refine approach the full sensor at high zoom (or via the pre-decode
         // fallback below) — a ~1.4 GB f32 buffer that, with the concurrent
         // auto-profile develop, jetsam-killed iOS on a 100 MP RAW (#1637).
+        //
+        // The `headroom×` cap alone tracks the viewport size, and an
+        // ultra-wide 2×-Retina viewport can push `headroom× viewport`
+        // past Metal's 16384 texture-edge limit even while staying well
+        // inside the #1637 jetsam budget the headroom cap targets — so
+        // both branches below additionally clamp to `metalMaxTextureEdge`
+        // (#2061).
         let headroom: CGFloat = 2.0
-        let cap = max(fast.width, fast.height) * headroom
+        let cap = min(max(fast.width, fast.height) * headroom, Self.metalMaxTextureEdge)
         if nativeImageSize == .zero {
             // Pre-decode fallback. Constrain to `headroom×` fast (was 8×) so the
             // first render can't request near-full res before native lands.
             let mult = min(max(1.0, pixelScale), headroom)
-            return CGSize(width: fast.width * mult, height: fast.height * mult)
+            let w = min(fast.width * mult, Self.metalMaxTextureEdge)
+            let h = min(fast.height * mult, Self.metalMaxTextureEdge)
+            return CGSize(width: w, height: h)
         }
         let scale = min(max(pixelScale, 0), 1.0)
         let w = min(max(nativeImageSize.width * scale, fast.width), cap)
