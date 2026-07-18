@@ -234,6 +234,96 @@ final class EditSessionTests: XCTestCase {
         XCTAssertNotNil(preview, "Embedded preview must publish within 1500 ms; otherwise cold open regressed to wait for Rust")
     }
 
+    // MARK: - Thumbnail canvas seed (#2040)
+
+    /// Helper: write a throwaway asset file + a matching AVIF-encoded
+    /// thumbnail into `ThumbnailDiskCache`'s sync-peek NSCache under the
+    /// same key `seedFromThumbnailIfAvailable` derives (asset basename).
+    /// Mirrors what a real browse-grid cell load leaves behind before the
+    /// user taps into the editor.
+    private func makeSessionWithHotThumbnail(
+        color: CIColor, size: CGSize = CGSize(width: 64, height: 64)
+    ) async throws -> EditSession {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let assetURL = tmp.appendingPathComponent("thumb-seed-\(UUID().uuidString).dng")
+        try Data([0x44, 0x4E, 0x47]).write(to: assetURL)
+
+        let swatch = CIImage(color: color).cropped(to: CGRect(origin: .zero, size: size))
+        let data = ThumbnailEncoder.encode(swatch, ctx: CIContext())
+        XCTAssertNotNil(data, "test setup: AVIF encode must succeed")
+        await ThumbnailDiskCache.shared.storeThumbnailData(data!, for: assetURL)
+
+        return await EditSession(asset: AssetRef(url: assetURL))
+    }
+
+    /// The core #2040 contract: when a browse-grid thumbnail is already hot
+    /// in `ThumbnailDiskCache`'s sync-peek cache, `seedFromThumbnailIfAvailable`
+    /// publishes it to `renderedPreview` synchronously (no `await` inside the
+    /// function at all) and marks it as a non-full, thumbnail-only seed so it
+    /// can never reach the persist gates.
+    func testThumbnailSeedPublishesSynchronouslyAsNonFullSeed() async throws {
+        let session = try await makeSessionWithHotThumbnail(color: .red)
+
+        session.seedFromThumbnailIfAvailable()
+
+        XCTAssertNotNil(session.renderedPreview, "hot thumbnail must publish as the initial canvas preview")
+        XCTAssertFalse(session.previewIsFullRender, "a thumbnail seed must never look like a full render to the persist gates")
+        XCTAssertTrue(session.previewIsThumbnailSeed, "must be flagged as a thumbnail-only seed")
+    }
+
+    /// Must never clobber a richer seed or a real render — the ordering
+    /// invariant the ticket calls out explicitly. Simulates a real render
+    /// (or any richer seed) having already landed by hand-setting
+    /// `renderedPreview`/`previewIsFullRender` before the thumbnail seed runs.
+    func testThumbnailSeedNeverOverwritesExistingPreview() async throws {
+        let session = try await makeSessionWithHotThumbnail(color: .red)
+
+        let existing = CIImage(color: .green)
+            .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+        session.renderedPreview = existing
+        session.previewIsFullRender = true
+
+        session.seedFromThumbnailIfAvailable()
+
+        // If the thumbnail seed had incorrectly overwritten `renderedPreview`,
+        // it would also have forced `previewIsFullRender` back to false — that
+        // flip is the deterministic tell, since two CIImage recipes aren't
+        // directly comparable for equality.
+        XCTAssertTrue(session.previewIsFullRender, "a real render already on screen must survive the thumbnail seed untouched")
+        XCTAssertFalse(session.previewIsThumbnailSeed, "the flag must stay false — nothing thumbnail-only is showing")
+    }
+
+    /// The seed-ordering fix this ticket needed: `seedFromCachedPreview`'s
+    /// "don't clobber something already better" guard used to be a bare
+    /// `renderedPreview == nil` check, which would have permanently locked in
+    /// the (coarser) thumbnail seed and starved the richer cached-preview seed
+    /// from ever landing. `previewIsThumbnailSeed` is the escape hatch: the
+    /// cached preview must still win once it's available.
+    func testCachedPreviewSeedOverwritesThumbnailSeed() async throws {
+        let session = try await makeSessionWithHotThumbnail(color: .red)
+        let assetURL = session.asset.primaryURL!
+
+        await RenderedPreviewCache.shared.configure(
+            folderURL: assetURL.deletingLastPathComponent()
+        )
+        session.previewSize = CGSize(width: 800, height: 600)
+        let richer = CIImage(color: .blue)
+            .cropped(to: CGRect(x: 0, y: 0, width: 800, height: 600))
+        await RenderedPreviewCache.shared.storePreview(richer, for: assetURL, screenWidth: 800)
+
+        // Thumbnail lands first, exactly as `ensureRenderStarted` would do it.
+        session.seedFromThumbnailIfAvailable()
+        XCTAssertTrue(session.previewIsThumbnailSeed, "test setup: thumbnail seed must have landed first")
+
+        let accepted = await session.seedFromCachedPreview(for: session.asset)
+
+        XCTAssertTrue(accepted, "the richer cached preview must be allowed to overwrite a thumbnail-only seed")
+        XCTAssertFalse(session.previewIsThumbnailSeed, "the flag must clear once the richer seed lands")
+        XCTAssertFalse(session.previewIsFullRender, "a cache seed is still not a full render — persist gates must stay shut")
+    }
+
     func testLoadSidecarDoesNotRenderInactivePrimedSession() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

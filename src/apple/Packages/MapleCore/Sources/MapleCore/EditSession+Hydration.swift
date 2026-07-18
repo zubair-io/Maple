@@ -228,6 +228,16 @@ extension EditSession {
         // published anything?". The hard "do we need a real decode?"
         // check is the snapshot-fetch inside `openAssetPipelineAsync`.
         guard renderedPreview == nil else { return }
+        // Fastest possible seed (#2040): the browse grid already holds a
+        // decoded thumbnail of this exact asset in `ThumbnailDiskCache`'s
+        // sync-peek NSCache — synchronous, no disk I/O, no actor hop. Publish
+        // it before any of the async cold-open work below even starts so the
+        // GPU canvas's CPU backdrop (`showCpuBackdrop` in
+        // `EditorView+Canvas.swift`) has real pixels instead of the blank
+        // placeholder for the ~50–1000+ms until the first present. Placed
+        // AFTER the guard above so it only ever runs against a `nil`
+        // `renderedPreview` — never overwrites a richer seed.
+        seedFromThumbnailIfAvailable()
         editSessionSignposter.emitEvent("open")
         // Sub-second open strategy: seed `decodedImage` from whatever's
         // fastest to get hold of (cache hit → embedded JPEG), then kick
@@ -379,7 +389,11 @@ extension EditSession {
     /// is already cached), `renderedPreview` is left alone.
     func seedFromCachedPreview(for asset: AssetRef) async -> Bool {
         guard let url = asset.primaryURL else { return false }
-        guard renderedPreview == nil else { return false }
+        // `|| previewIsThumbnailSeed`: the #2040 thumbnail seed may already
+        // have published a placeholder-quality `renderedPreview` — that seed
+        // is strictly coarser than this cache, so it must not block the
+        // cache from landing on top of it.
+        guard renderedPreview == nil || previewIsThumbnailSeed else { return false }
         guard previewSize.width >= 1 else {
             // `ensureRenderStarted()` fired before the canvas laid out and
             // pushed a real viewport (documented race on that method's doc
@@ -413,6 +427,7 @@ extension EditSession {
         // preview for no reason.
         renderedPreview = cached
         previewIsFullRender = false
+        previewIsThumbnailSeed = false
         editSessionLogger.debug(
             "cached preview seeded decode extent=\(cached.extent.width)x\(cached.extent.height)"
         )
@@ -472,6 +487,7 @@ extension EditSession {
         guard accepted else { return false }
         renderedPreview = ci
         previewIsFullRender = false
+        previewIsThumbnailSeed = false
         editSessionSignposter.emitEvent("embedded paint")
         editSessionLogger.debug(
             "embedded preview seeded decode extent=\(ci.extent.width)x\(ci.extent.height)"
@@ -502,11 +518,67 @@ extension EditSession {
         guard accepted else { return false }
         renderedPreview = ci
         previewIsFullRender = false
+        previewIsThumbnailSeed = false
         editSessionSignposter.emitEvent("maple sidecar preview paint")
         editSessionLogger.debug(
             "maple sidecar preview seeded decode extent=\(ci.extent.width)x\(ci.extent.height)"
         )
         return true
+    }
+
+    // MARK: - Thumbnail seed (fastest possible cold-open pixels, #2040)
+
+    /// Publish the browse-grid thumbnail as the initial `renderedPreview`,
+    /// synchronously, if — and only if — one is already hot in
+    /// `ThumbnailDiskCache`'s in-memory sync-peek cache. This is strictly
+    /// FASTER than every other seed above: no disk I/O, no actor hop, no
+    /// `await` at all, so it can run inline in `ensureRenderStarted()` before
+    /// the cold-open `Task` is even created. The grid the user just tapped
+    /// through decoded and cached this exact thumbnail moments earlier via
+    /// `ThumbnailLoader`, so a hit is the common case for grid → editor
+    /// navigation (a miss — direct deep-link open, cold cache — silently
+    /// no-ops and the editor falls through to the cache/embedded/Rust seeds
+    /// exactly as it did before this existed).
+    ///
+    /// Guards on `renderedPreview == nil` itself (belt-and-suspenders on top
+    /// of `ensureRenderStarted`'s own check immediately before calling this)
+    /// so it can never clobber a richer seed or a real render regardless of
+    /// call site — mirrors `seedFromCachedPreview`'s explicit guard above.
+    ///
+    /// Deliberately bypasses `renderActor.seedIfUnpopulated`: the thumbnail
+    /// is a 256px AVIF grid encode, far too coarse to serve as filter-chain
+    /// input for a real render, so it must stay purely cosmetic (a canvas
+    /// backdrop only) and never occupy the decoded-image cache slot the
+    /// richer seeds below need to write into. `previewIsFullRender` stays
+    /// false (same as every other seed), which is what keeps this out of
+    /// `persistCurrentPreviewToCache` and
+    /// `ThumbnailLoader.updateThumbnailFromRender` — both gate on a real
+    /// render (`previewIsFullRender` / `coversCanvas`), neither of which this
+    /// seed ever sets — so the thumbnail can never feed back into the very
+    /// thumbnail cache it came from. `previewIsThumbnailSeed` is set instead,
+    /// so `seedFromCachedPreview`'s own guard still lets the richer cache
+    /// preview overwrite this seed once it lands.
+    func seedFromThumbnailIfAvailable() {
+        guard renderedPreview == nil,
+              let data = ThumbnailDiskCache.shared.syncPeekData(forKey: thumbnailCacheKey),
+              let ci = CIImage(data: data)
+        else { return }
+        renderedPreview = decodedForNativeCanvas(ci, asset: asset)
+        previewIsFullRender = false
+        previewIsThumbnailSeed = true
+        editSessionLogger.debug(
+            "thumbnail seeded as initial canvas preview extent=\(ci.extent.width)x\(ci.extent.height)"
+        )
+    }
+
+    /// The key `ThumbnailDiskCache` stores this asset's thumbnail under.
+    /// Mirrors `ThumbnailLoader.load(for:from:)`'s / `ThumbnailProvider
+    /// .cachedThumbnail(for:)`'s derivation exactly: basename for
+    /// filesystem-backed assets, `stableID` (falling back to `displayName`,
+    /// itself never empty — see `AssetRef.displayName`) for sourceless assets
+    /// (PhotoKit, Self Hosted) with no URL to hash.
+    private var thumbnailCacheKey: String {
+        asset.primaryURL?.lastPathComponent ?? asset.stableID ?? asset.displayName
     }
 }
 

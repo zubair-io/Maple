@@ -189,6 +189,21 @@ public final class EditSession {
     /// `@ObservationIgnored` — cache-provenance bookkeeping, not view state;
     /// only the paired `renderedPreview` write should drive UI updates.
     @ObservationIgnored var previewIsFullRender: Bool = false
+
+    /// True only while `renderedPreview` holds the browse-grid-thumbnail seed
+    /// (#2040) and nothing richer has landed yet. `ensureRenderStarted`'s
+    /// synchronous thumbnail seed is the fastest available pixels — faster
+    /// even than the cached-preview seed below — but it is also the coarsest
+    /// (a 256px AVIF grid thumbnail), so every richer seed
+    /// (`seedFromCachedPreview`/`seedFromMapleSidecarPreview`/
+    /// `seedFromEmbeddedPreview`) and every real render (`decodeAndRender`,
+    /// `refineVisibleRegion`, deep-zoom) must be free to overwrite it. Without
+    /// this flag, `seedFromCachedPreview`'s "don't clobber something already
+    /// better" guard (`renderedPreview == nil`) would read the thumbnail seed
+    /// as "already seeded" and refuse to ever replace it with the actual
+    /// cached develop. `@ObservationIgnored` for the same reason as
+    /// `previewIsFullRender` — seed-ordering bookkeeping, not view state.
+    @ObservationIgnored var previewIsThumbnailSeed: Bool = false
     public var renderPhase: RenderPhase = .fast
     public var isRendering: Bool = false
     /// Last render error, if any. Views can surface a banner when non-nil.

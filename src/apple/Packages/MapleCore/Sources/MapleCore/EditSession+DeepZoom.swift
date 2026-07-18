@@ -86,6 +86,7 @@ extension EditSession {
                 // Tiles cover the viewport only; everything else is
                 // upscaled underlay of unknown vintage. Never persistable.
                 previewIsFullRender = false
+                previewIsThumbnailSeed = false  // #2040: real tile pixels supersede the thumbnail seed
             }
             renderError = nil
         } catch {
