@@ -531,6 +531,10 @@ extension EditSession {
             guard let self else { return }
             guard self.asset.id == openedAsset.id else { return }
             let hit = await self.seedFromCachedPreview(for: openedAsset)
+            // Re-check AFTER the await too: the disk lookup suspends, so
+            // the user may have switched assets while it was in flight — a
+            // stale hit must not schedule a render for the old asset.
+            guard self.asset.id == openedAsset.id else { return }
             if hit {
                 self._scheduleRender(phase: .fast)
             }
