@@ -27,6 +27,7 @@ export class PairedDevicesComponent {
   }
 
   reload(): void {
+    this.error.set(null);
     this.auth.listDeviceSessions().subscribe({
       next: (s) => this.sessions.set(s),
       error: () => this.error.set('Could not load paired devices.'),
