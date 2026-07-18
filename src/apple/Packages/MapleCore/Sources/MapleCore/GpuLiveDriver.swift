@@ -301,11 +301,19 @@ public final class GpuLiveDriver {
     /// reopens against the current decode — the `!driver.isOpen(...)` guard
     /// in `presentViaGpuLive` (`EditSession+GpuLive.swift`) re-reads back the
     /// decoded image and calls `open` again. No-op if already closed.
+    ///
+    /// RE-ENTRANCY: the driver's stored state must be settled BEFORE the
+    /// `await` — `@MainActor` prevents data races, not interleaving. While
+    /// this call is suspended in `close()`, another main-actor task can run
+    /// `open()` and install a NEW session; nil-ing the fields after the
+    /// suspension would then wipe that new session's state (leaking its GPU
+    /// buffers and desyncing `isOpen`/`hasSession`). So: capture the old
+    /// session, clear the fields synchronously, then await the close.
     public func closeSession() async {
         guard let s = session else { return }
-        await s.close()
         session = nil
         sessionDims = nil
         autoProfileFitDone = false
+        await s.close()
     }
 }
