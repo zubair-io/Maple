@@ -94,6 +94,16 @@ public struct MapleSceneLinearImageData: Sendable {
     /// LinearRaw). Forwarded to the per-tick chains' `wb_frame_*` fields
     /// and to `EditSession`'s As-Shot seeding.
     public let wbFrame: WbSliderFrame?
+    /// Decode-exported auto-exposure gain (#1167/#2070) — the scalar the
+    /// develop chain applied for `papp:AutoExposure="On"` (1.0 when AE is
+    /// off, degenerate, or the source carries no export — the fp16 tile
+    /// path, non-RAW). Mirrors `wbFrame`'s export contract but is never
+    /// optional: the FFI buffer always carries a value (`1.0` is itself a
+    /// meaningful no-op gain, not an absence marker). Forwarded to the
+    /// AE-gain-aware tile FFI entry so a deep-zoom / native-detail tile
+    /// reproduces the full-image AE brightness instead of omitting the
+    /// stage.
+    public let aeGain: Float
 
     public var pixelCount: Int { width * height }
 
@@ -105,7 +115,8 @@ public struct MapleSceneLinearImageData: Sendable {
         pixels: Data,
         noiseProfile: [Float]?,
         iso: UInt32,
-        wbFrame: WbSliderFrame? = nil
+        wbFrame: WbSliderFrame? = nil,
+        aeGain: Float = 1.0
     ) {
         self.width = width
         self.height = height
@@ -115,6 +126,7 @@ public struct MapleSceneLinearImageData: Sendable {
         self.noiseProfile = noiseProfile
         self.iso = iso
         self.wbFrame = wbFrame
+        self.aeGain = aeGain
     }
 }
 
@@ -536,7 +548,8 @@ public struct PipelineRenderer: Sendable {
             pixels: data,
             noiseProfile: noiseProfile,
             iso: buf.iso,
-            wbFrame: WbSliderFrame(buffer: buf)
+            wbFrame: WbSliderFrame(buffer: buf),
+            aeGain: buf.ae_gain
         )
     }
 
@@ -582,7 +595,8 @@ public struct PipelineRenderer: Sendable {
             pixels: data,
             noiseProfile: noiseProfile,
             iso: buf.iso,
-            wbFrame: WbSliderFrame(buffer: buf)
+            wbFrame: WbSliderFrame(buffer: buf),
+            aeGain: buf.ae_gain
         )
     }
 
@@ -628,7 +642,8 @@ public struct PipelineRenderer: Sendable {
             pixels: data,
             noiseProfile: noiseProfile,
             iso: buf.iso,
-            wbFrame: WbSliderFrame(buffer: buf)
+            wbFrame: WbSliderFrame(buffer: buf),
+            aeGain: buf.ae_gain
         )
     }
 
@@ -677,7 +692,8 @@ public struct PipelineRenderer: Sendable {
             pixels: data,
             noiseProfile: noiseProfile,
             iso: buf.iso,
-            wbFrame: WbSliderFrame(buffer: buf)
+            wbFrame: WbSliderFrame(buffer: buf),
+            aeGain: buf.ae_gain
         )
     }
 
@@ -882,6 +898,67 @@ public struct PipelineRenderer: Sendable {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty tile buffer")
         }
         let data = mapleStage("decode tile f32 result copy") {
+            Data(bytes: ptr, count: Int(buf.len_bytes))
+        }
+        // Tile refinement ignores the buffer's noise/wb-frame fields (it only
+        // builds a display CIImage); expose just the pixels + geometry.
+        return MapleSceneLinearImageData(
+            width: Int(buf.width),
+            height: Int(buf.height),
+            channels: Int(buf.channels),
+            bytesPerPixel: Int(buf.bytes_per_pixel),
+            pixels: data,
+            noiseProfile: nil,
+            iso: 0
+        )
+    }
+
+    /// AE-gain-aware sibling of `renderTileF32` (#1167/#2070). Binds the new
+    /// `maple_render_handle_scene_linear_tile_ae_f32` FFI entry — a distinct
+    /// symbol from `maple_render_handle_scene_linear_tile_f32` (kept intact
+    /// above) rather than a widened arity, so any caller still compiled
+    /// against the old signature keeps working unchanged.
+    ///
+    /// `aeGain` is the full-image (or sized) decode's exported
+    /// `MapleSceneLinearImageData.aeGain` for the SAME model — threading it
+    /// through makes a deep-zoom / native-detail tile reproduce the
+    /// full-image auto-exposure brightness instead of omitting the stage.
+    /// `aeGain == 1.0` reproduces `renderTileF32`'s output bit-for-bit (the
+    /// Rust FFI's documented no-op case — Auto-profile buffers, whose decode
+    /// contract disables AE, always export `1.0` here, so this is a no-op
+    /// for Auto and only changes output for Neutral/ACR-Match). Same #1725
+    /// WB delta-anchor contract as the other tile overloads.
+    public static func renderTileF32(
+        handle: MapleRawHandle,
+        srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+        outW: UInt32, outH: UInt32,
+        quality: Quality = .full,
+        decodedTemperature: Double? = nil,
+        decodedTint: Double? = nil,
+        aeGain: Float
+    ) throws -> MapleSceneLinearImageData {
+        var buf = MapleSceneLinearBufferF32()
+        let rc = maple_render_handle_scene_linear_tile_ae_f32(
+            handle.pointer,
+            srcX, srcY, srcW, srcH,
+            outW, outH,
+            quality.rawValue,
+            // 0.0 is the FFI sentinel for "no decoded WB anchor" (see the
+            // fp16 overload).
+            Float(decodedTemperature ?? 0.0),
+            Float(decodedTint ?? 0.0),
+            aeGain,
+            &buf
+        )
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        defer { maple_free_scene_linear_buffer_f32(&buf) }
+        guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
+            throw PipelineError.renderFailed(code: Int(rc), message: "empty tile buffer")
+        }
+        let data = mapleStage("decode tile ae f32 result copy") {
             Data(bytes: ptr, count: Int(buf.len_bytes))
         }
         // Tile refinement ignores the buffer's noise/wb-frame fields (it only

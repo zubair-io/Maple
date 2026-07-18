@@ -448,6 +448,18 @@ public actor TileManager {
     /// returns the resulting CIImage plus its resident byte cost
     /// (`width * height * bytesPerPixel`, read straight off the FFI's
     /// `MapleImageData` rather than re-derived from the CIImage).
+    ///
+    /// Not threaded with the #1167/#2070 AE gain: this calls the fp16
+    /// `PipelineRenderer.renderTile` overload, which binds
+    /// `maple_render_handle_scene_linear_tile` — a DIFFERENT FFI symbol from
+    /// the f32 tile entries (`renderTileF32` /
+    /// `maple_render_handle_scene_linear_tile_f32`) that gained the
+    /// AE-gain-aware `_ae_` sibling. The Rust side never added a
+    /// gain-accepting variant of the fp16 entry (only the f32 tile chain
+    /// did), and this whole deep-zoom path is gated off in production via
+    /// `EditSession.deepZoomEnabled == false` in favor of
+    /// `NativeDetailRenderer` — so there is neither an FFI entry point nor
+    /// a live caller to thread `snapshot.aeGain` into here.
     private func fetch(key: TileKey, asset: AssetRef) async throws -> (image: CIImage, byteCost: Int) {
         guard let url = asset.primaryURL else {
             throw CancellationError()  // sourceless not yet supported
