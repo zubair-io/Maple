@@ -19,6 +19,7 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService, errorMessage, BunApiBackendService } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
+import { PairedDevicesComponent } from './paired-devices.component';
 
 interface Credential {
   id: string;
@@ -30,7 +31,7 @@ interface Credential {
 @Component({
   selector: 'maple-account',
   standalone: true,
-  imports: [SettingsShellComponent, SettingsIconComponent],
+  imports: [SettingsShellComponent, SettingsIconComponent, PairedDevicesComponent],
   templateUrl: './account.component.html',
   styleUrl: './account.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
