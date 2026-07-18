@@ -331,8 +331,11 @@ export async function loadCentroids(): Promise<LoadedCentroid[]> {
 }
 
 /** Every permanently-dismissed "not a match" pair, as a `Set` of
- * `sortedPairKey` strings, for `computeMergeSuggestions` to exclude. */
-async function loadMergeDismissals(): Promise<Set<string>> {
+ * `sortedPairKey` strings, for `computeMergeSuggestions` to exclude.
+ * Exported so the write side (`clustering-job.ts`) can re-load a fresh
+ * snapshot at persist time — a dismiss landing while the run was in
+ * flight must not be overwritten by the run's stale compute. */
+export async function loadMergeDismissals(): Promise<Set<string>> {
   const coll = await personMergeDismissalsCollection();
   const rows = await coll.find({}).project<{ pair: string }>({ pair: 1, _id: 0 }).toArray();
   return new Set(rows.map((r) => r.pair));
