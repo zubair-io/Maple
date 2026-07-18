@@ -197,7 +197,7 @@ public final class EditSession {
     /// (a 256px AVIF grid thumbnail), so every richer seed
     /// (`seedFromCachedPreview`/`seedFromMapleSidecarPreview`/
     /// `seedFromEmbeddedPreview`) and every real render (`decodeAndRender`,
-    /// `refineVisibleRegion`, deep-zoom) must be free to overwrite it. Without
+    /// deep-zoom) must be free to overwrite it. Without
     /// this flag, `seedFromCachedPreview`'s "don't clobber something already
     /// better" guard (`renderedPreview == nil`) would read the thumbnail seed
     /// as "already seeded" and refuse to ever replace it with the actual
