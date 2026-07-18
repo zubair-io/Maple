@@ -26,6 +26,7 @@ import {
   loadSuggestedMergeInfo,
   type SuggestedMergeInfo,
 } from './people-merge-suggestion-info.repo.ts';
+import { mergeInto } from './people-merge.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -203,63 +204,6 @@ export async function renamePerson(id: ObjectId, name: string): Promise<RenameRe
   const fresh = await coll.findOne({ _id: survivor._id });
   if (!fresh) throw new Error('survivor disappeared mid-merge');
   return { survivor: fresh as PersonWithId, mergedFrom: orphan._id };
-}
-
-/** Internal merge helper: repoint `asset.faces[].person_id` from `orphan`
- * to `survivor`, then mark the orphan as `merged_into = survivor`. The
- * survivor's name is canonicalised to `name` (operator spelling).
- *
- * Exported so `people-merge.repo.ts` can reuse the same primitive without
- * duplicating the repoint/mark logic. */
-export async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: string): Promise<void> {
-  const survivorHex = survivor.toHexString();
-  const orphanHex = orphan.toHexString();
-  const assets = await assetsCollection();
-  const peopleC = await peopleCollection();
-
-  // Repoint faces. Faces are stored as a sub-array of objects; Mongo's
-  // arrayFilters lets us update every matching element in one pass per
-  // asset doc.
-  const repoint = await assets.updateMany(
-    { 'faces.person_id': orphanHex },
-    {
-      $set: { 'faces.$[face].person_id': survivorHex },
-    },
-    {
-      arrayFilters: [{ 'face.person_id': orphanHex }],
-    },
-  );
-  // Mark the orphan as merged and zero out its face_count (faces are gone).
-  await peopleC.updateOne(
-    { _id: orphan },
-    { $set: { merged_into: survivor, updated_at: nowIso(), face_count: 0 } },
-  );
-  // Canonicalise the survivor's name + bump updated_at. Centroid is now
-  // stale (more faces); the next clustering run will recompute.
-  await peopleC.updateOne(
-    { _id: survivor },
-    {
-      $set: {
-        name,
-        updated_at: nowIso(),
-        // Force a centroid recompute on the next pass.
-        centroid_face_count: -1,
-      },
-    },
-  );
-  // Recompute the survivor's face_count from its ACTUAL assigned, non-hidden
-  // faces (now including the repointed ones) rather than summing the orphan's
-  // stored count — which may be missing or drifted and would corrupt the
-  // survivor. Runs after the repoint so it sees the merged faces.
-  await recomputePersonFaceCount(survivorHex);
-  log.info(
-    {
-      survivor: survivorHex,
-      orphan: orphanHex,
-      faces_repointed: repoint.modifiedCount,
-    },
-    'merged person',
-  );
 }
 
 /**
