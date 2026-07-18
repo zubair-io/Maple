@@ -380,15 +380,18 @@ extension EditSession {
     func seedFromCachedPreview(for asset: AssetRef) async -> Bool {
         guard let url = asset.primaryURL else { return false }
         guard renderedPreview == nil else { return false }
-        guard previewSize.width > 0 else {
+        guard previewSize.width >= 1 else {
             // `ensureRenderStarted()` fired before the canvas laid out and
             // pushed a real viewport (documented race on that method's doc
-            // comment) — `previewSize` is still `.zero`. A lookup now would
-            // bucket on `screenWidth == 1`, which `RenderedPreviewCache`'s
-            // key folds in, so it can never match a previous session's
-            // real-width entry — a guaranteed miss, not a real one. Flag the
-            // retry instead of burning it; `previewSize`'s `didSet` re-runs
-            // this once the real viewport lands (#2041).
+            // comment) — `previewSize` is still `.zero`, or a sub-pixel
+            // layout-churn transient that would truncate to bucket 0, which
+            // no store path ever writes (persist clamps to ≥ 1). Either way
+            // the lookup buckets on a `screenWidth` that can never match a
+            // previous session's real-width entry — `RenderedPreviewCache`
+            // folds screenWidth into its key — so it's a guaranteed miss,
+            // not a real one. Flag the retry instead of burning it;
+            // `previewSize`'s `didSet` re-runs this once the real viewport
+            // lands (#2041).
             cachedPreviewSeedPendingViewport = true
             return false
         }
