@@ -39,6 +39,31 @@ import os
 
 private let gpuDriverLog = Logger(subsystem: "app.justmaple.aperture", category: "gpu-live-driver")
 
+/// Identity of the pixel buffer currently uploaded to the open
+/// `GpuLiveSession` (#2039, #2049). A same-dims present must still force a
+/// re-open when either component changes:
+///
+///   * `decodeGeneration` — the `RenderActor` write-generation the uploaded
+///     buffer came from. A baked-field edit (highlightRecovery,
+///     captureSharpeningAmount/Sigma, the unsharp sharpenRadius/Detail/
+///     Masking) forces a fresh decode at the SAME target dims; dims alone
+///     can't detect that, so reusing the session on dims would silently
+///     present the live chain over the STALE uploaded buffer (#2049).
+///   * `crop` — the crop actually folded into the uploaded pixels
+///     (`.identity` when no crop applies). A crop CHANGE alters
+///     `CropImageStage.apply`'s output — even at a pixel size that happens
+///     to coincide with the previous crop's — so dims coverage alone can't
+///     stand in for it either (#2039).
+public struct GpuUploadIdentity: Equatable, Sendable {
+    public let decodeGeneration: UInt64
+    public let crop: Crop
+
+    public init(decodeGeneration: UInt64, crop: Crop) {
+        self.decodeGeneration = decodeGeneration
+        self.crop = crop
+    }
+}
+
 /// Drives the wgpu live render path for one EditSession: owns the per-dims
 /// `GpuLiveSession`, the registered `CAMetalLayer`, and the per-image Auto Profile
 /// fit. `@MainActor` because it is created/registered/invoked from EditSession
@@ -48,9 +73,16 @@ public final class GpuLiveDriver {
     /// The current session (one set of dims). `nil` until the first open; replaced
     /// on a dims change. Held strongly — it owns the uploaded image + GPU buffers.
     private var session: GpuLiveSession?
-    /// Dims the current `session` was opened at; a present at different dims forces
-    /// a re-open (upload-once is per-dims).
+    /// Dims the current `session` was opened at; a present that isn't COVERED by
+    /// these dims (either axis smaller than requested) forces a re-open
+    /// (upload-once-and-reuse is per-covering-dims, #2039 — see `isOpen`).
     private var sessionDims: (width: Int, height: Int)?
+
+    /// Identity of the pixels currently uploaded to `session` (#2039, #2049) —
+    /// the decode generation + crop `open` was last called with. A present
+    /// whose requested identity doesn't match this, even at covered dims,
+    /// forces a re-open (see `GpuUploadIdentity`).
+    private var uploadedIdentity: GpuUploadIdentity?
 
     /// The canvas layer to present into. Weak — the SwiftUI view owns it; if the
     /// view goes away the driver simply has nothing to present to.
@@ -146,13 +178,22 @@ public final class GpuLiveDriver {
     ///
     /// `inputShape` is the `MapleGpuLiveParams.input_shape` tag (#1331): 0 =
     /// PostDcpRec2020Fp16 (RAW, all stages), 1 = LinearRec2020Fp16 (pano PNG).
-    public func open(pixels: [Float], width: Int, height: Int, inputShape: UInt32 = 0) async throws {
+    ///
+    /// `identity` (#2039, #2049) is the decode-generation + crop the caller
+    /// read back `pixels` from — stored so a later `isOpen(coveringWidth:
+    /// height:identity:)` can tell a genuine reuse apart from a same-dims
+    /// present of DIFFERENT pixels (a baked-field re-decode or a crop change).
+    public func open(
+        pixels: [Float], width: Int, height: Int, inputShape: UInt32 = 0,
+        identity: GpuUploadIdentity
+    ) async throws {
         if let old = session {
             await old.close()
         }
         let s = try GpuLiveSession(pixels: pixels, width: width, height: height)
         self.session = s
         self.sessionDims = (width, height)
+        self.uploadedIdentity = identity
         self.autoProfileFitDone = false
         self.inputShape = inputShape
         gpuDriverLog.debug("opened GPU live session \(width)x\(height) inputShape=\(inputShape)")
@@ -280,11 +321,42 @@ public final class GpuLiveDriver {
     /// publishing a CIImage via the CPU path so the canvas isn't blank.
     public var hasLayer: Bool { layer != nil }
 
-    /// Whether the current session is open at exactly `width × height` — the
-    /// upload-once guard. `decodeAndRender` re-opens (re-reads-back + re-uploads)
-    /// only when this is `false` (a new decode or a viewport ⇄ full resize).
-    public func isOpen(width: Int, height: Int) -> Bool {
-        session != nil && sessionDims?.width == width && sessionDims?.height == height
+    /// Pure reuse decision (#2039, #2049) — factored out of `isOpen` so it's
+    /// testable with no Metal / session involved. `openDims`/`uploadedIdentity`
+    /// are `nil` when no session is open (always "not reusable" then).
+    ///
+    /// Reuse requires BOTH:
+    ///   * coverage — the open session's dims are ≥ the request on both axes.
+    ///     `presentViaGpuLive` only ever requests the viewport size (fast) or
+    ///     the ≤2× refine size, so reusing a bigger session for a smaller
+    ///     request bounds the supersampling cost to that same ceiling — the
+    ///     presented buffer supersamples down through the `CAMetalLayer`,
+    ///     which is visually fine.
+    ///   * identity — the uploaded pixels came from the SAME decode
+    ///     generation and crop as the request. See `GpuUploadIdentity`.
+    nonisolated static func shouldReuseSession(
+        openDims: (width: Int, height: Int)?,
+        uploadedIdentity: GpuUploadIdentity?,
+        requestWidth: Int,
+        requestHeight: Int,
+        requestIdentity: GpuUploadIdentity
+    ) -> Bool {
+        guard let dims = openDims else { return false }
+        return dims.width >= requestWidth
+            && dims.height >= requestHeight
+            && uploadedIdentity == requestIdentity
+    }
+
+    /// Whether the current session both COVERS `width × height` and was
+    /// uploaded from `identity` — the upload-once-and-reuse guard (#2039,
+    /// #2049). `presentViaGpuLive` re-reads-back + re-uploads only when this
+    /// is `false`.
+    public func isOpen(coveringWidth width: Int, height: Int, identity: GpuUploadIdentity) -> Bool {
+        guard session != nil else { return false }
+        return Self.shouldReuseSession(
+            openDims: sessionDims, uploadedIdentity: uploadedIdentity,
+            requestWidth: width, requestHeight: height, requestIdentity: identity
+        )
     }
 
     /// The current session dims, if open.

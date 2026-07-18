@@ -70,20 +70,37 @@ extension EditSession {
     /// the SAME D65 baseline for non-RAW shapes, so a drag shifts the image on
     /// the GPU-live chain and does NOT snap back on the next CPU refine tick.
     ///
-    /// Upload-once contract: the decoded buffer is read back to f32 and uploaded
-    /// to the `GpuLiveSession` only when the dims change (a new decode / a
-    /// viewport ⇄ full resize); a slider tick at stable dims re-presents the
-    /// GPU-resident upload with NO readback (the per-tick path stays
-    /// readback-free — the 16ms budget).
+    /// Upload-once contract: the decoded buffer is read back to f32 and
+    /// uploaded to the `GpuLiveSession` only when the open session doesn't
+    /// already COVER this request at the SAME upload identity (#2039,
+    /// #2049) — a session opened at the viewport or the ≤2× refine size is
+    /// reused for a smaller request (the presented buffer just supersamples
+    /// down through the `CAMetalLayer`, bounded by that same ≤2× ceiling); a
+    /// slider tick at stable-or-covered dims AND unchanged identity
+    /// re-presents the GPU-resident upload with NO readback (the per-tick
+    /// path stays readback-free — the 16 ms budget). A same-dims re-decode
+    /// (a baked-field edit — highlightRecovery, captureSharpening*,
+    /// sharpenRadius/Detail/Masking) bumps `decodeGeneration` even though
+    /// dims don't change, forcing the re-open that dims-only coverage would
+    /// have skipped — the fix for #2049 (a baked edit silently invisible
+    /// until a resize).
     ///
     /// `gen` is the scheduler generation; a stale generation drops the present
     /// before it is issued (mirrors the CPU `renderedPreview =` gen-gate), and
     /// the driver additionally supersedes any present still queued behind the
     /// actor under a fast drag.
+    ///
+    /// `decodeGeneration` is the `RenderActor` write-generation of the buffer
+    /// `decoded` came from (#2049); `appliedCrop` is the crop actually folded
+    /// into `decoded` (`.identity` when no crop applies) — together they form
+    /// the `GpuUploadIdentity` a same-dims reuse must match (#2039: a crop
+    /// change alters the presented pixels even at unchanged dims).
     func presentViaGpuLive(
         decoded: CIImage,
         targetSize: CGSize?,
-        gen: UInt64?
+        gen: UInt64?,
+        decodeGeneration: UInt64,
+        appliedCrop: Crop
     ) async -> Bool {
         guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
             editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
@@ -143,7 +160,8 @@ extension EditSession {
         editSessionLogger.notice("GPU-TRACE enter gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height) profile=\(String(describing: m.profile), privacy: .public)")
         MemoryProbe.sample("gpu-enter dims=\(dims.width)x\(dims.height) sensor=\(Int(sensorLongEdge))")
 
-        if !driver.isOpen(width: dims.width, height: dims.height) {
+        let uploadIdentity = GpuUploadIdentity(decodeGeneration: decodeGeneration, crop: appliedCrop)
+        if !driver.isOpen(coveringWidth: dims.width, height: dims.height, identity: uploadIdentity) {
             editSessionLogger.notice("GPU-TRACE open begin gen=\(gen ?? 0)")
             guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {
                 editSessionLogger.notice("GPU-TRACE reject readback-fail gen=\(gen ?? 0)")
@@ -153,7 +171,7 @@ extension EditSession {
             do {
                 try await driver.open(
                     pixels: buf.pixels, width: buf.width, height: buf.height,
-                    inputShape: inputShape)
+                    inputShape: inputShape, identity: uploadIdentity)
                 editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0) inputShape=\(inputShape)")
                 MemoryProbe.sample("gpu-open dims=\(buf.width)x\(buf.height)")
             } catch {

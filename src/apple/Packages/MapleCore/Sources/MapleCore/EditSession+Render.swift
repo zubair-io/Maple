@@ -233,6 +233,12 @@ extension EditSession {
         // image. `effectiveCrop` already folds in that armed/disarmed gate.
         let crop = effectiveCrop
         let applyCrop = CropImageStage.shouldApply(crop)
+        // #2049: the crop actually folded into the presented pixels — part of
+        // the GPU-live upload identity alongside the decode generation (see
+        // `presentViaGpuLive`). A crop CHANGE alters `CropImageStage.apply`'s
+        // output at possibly-unchanged dims, so identity must fold it in
+        // rather than relying on dims alone.
+        let appliedCrop = applyCrop ? crop : Crop.identity
         // #1617: the GPU live present crops the decoded scene-linear buffer
         // itself (a geometry op before the f32 readback), so it opens the
         // session at the CROPPED dims and needs the un-upscaled canvas target —
@@ -257,11 +263,17 @@ extension EditSession {
             return CGSize(width: t.width * scaleW, height: t.height * scaleH)
         }()
         let cached = snapshot.image
-        // Fast phase accepts any fresh cache (a downsampled decode is
-        // fine for the viewport). Refine requires a FULL-resolution decode
-        // — a sized-only cache from a prior fast pass is a miss, so refine
-        // re-decodes full and never publishes a low-res final (#785).
-        let cacheSufficient = (phase == .fast) || snapshot.isFull
+        // Fast phase accepts any fresh cache (a downsampled decode is fine
+        // for the viewport). Refine defers to `refineCacheSufficient` (#2039):
+        // either a genuine full-resolution decode, or a sized cache whose
+        // extent already covers this request — a covering cache holds every
+        // pixel the request needs, so reusing it can never publish below the
+        // requested quality (the #785 invariant, preserved via coverage
+        // rather than exact fullness). `targetSize` here is the crop-
+        // adjusted local computed just above.
+        let cacheSufficient = (phase == .fast) || RenderActor.refineCacheSufficient(
+            isFull: snapshot.isFull, rawResolution: snapshot.rawResolution, targetSize: targetSize
+        )
         // #871: the decode buffer is profile-dependent for RAW (Auto =
         // auto_exposure Off; Neutral = On). A cache developed for a
         // different profile is a MISS — reusing it would put the Auto
@@ -319,7 +331,10 @@ extension EditSession {
                 // full frame and trims via `CropImageStage.apply` when the
                 // present is declined (flag off / no layer / readback fail).
                 let gpuCached = applyCrop ? CropImageStage.apply(crop, to: cached) : cached
-                if await presentViaGpuLive(decoded: gpuCached, targetSize: gpuTargetSize, gen: gen) {
+                if await presentViaGpuLive(
+                    decoded: gpuCached, targetSize: gpuTargetSize, gen: gen,
+                    decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop
+                ) {
                     isRendering = false
                     return
                 }
@@ -394,7 +409,10 @@ extension EditSession {
                 // #1617: crop the decoded buffer before the GPU readback (as the
                 // cached branch) so cropped frames present on the GPU too.
                 let gpuDecoded = applyCrop ? CropImageStage.apply(crop, to: decoded) : decoded
-                if await presentViaGpuLive(decoded: gpuDecoded, targetSize: gpuTargetSize, gen: gen) {
+                if await presentViaGpuLive(
+                    decoded: gpuDecoded, targetSize: gpuTargetSize, gen: gen,
+                    decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop
+                ) {
                     isRendering = false
                     return
                 }
