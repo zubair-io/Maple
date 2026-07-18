@@ -1,4 +1,4 @@
-# Mac/iOS app performance review — findings and fix plan
+# Apple apps (macOS/iPadOS/iOS) performance review — findings and fix plan
 
 Date: 2026-07-18. Scope: the Apple (macOS/iPadOS/iOS) app, three product goals:
 
