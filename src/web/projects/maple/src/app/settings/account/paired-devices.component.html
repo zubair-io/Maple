@@ -31,7 +31,9 @@
         }
       </div>
     }
-  } @else {
+  } @else if (error() === null) {
     <p class="empty">Loading…</p>
+  } @else {
+    <button type="button" class="btn-ghost" (click)="reload()">Retry</button>
   }
 </section>

@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { API_BASE_URL, AuthService, type DeviceSession } from '@maple-common';
 import { PairedDevicesComponent } from './paired-devices.component';
 
@@ -92,5 +92,24 @@ describe('PairedDevicesComponent', () => {
     expect(revokeDeviceSession).not.toHaveBeenCalled();
     expect(el().querySelectorAll('.card-row').length).toBe(1);
     vi.unstubAllGlobals();
+  });
+
+  it('shows the error banner (not Loading) when the initial load fails, and Retry recovers', async () => {
+    const listDeviceSessions = vi
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('network down')))
+      .mockReturnValueOnce(of([session()]));
+    await setup({ listDeviceSessions });
+    fixture.detectChanges();
+
+    expect(el().textContent).toContain('Could not load paired devices.');
+    expect(el().textContent).not.toContain('Loading');
+
+    el().querySelector<HTMLButtonElement>('.btn-ghost')!.click();
+    fixture.detectChanges();
+
+    expect(el().querySelectorAll('.card-row').length).toBe(1);
+    expect(el().textContent).toContain("Zubair's Apple TV");
+    expect(el().textContent).not.toContain('Could not load paired devices.');
   });
 });
