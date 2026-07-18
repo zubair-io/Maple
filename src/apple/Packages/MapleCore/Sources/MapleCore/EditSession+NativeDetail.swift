@@ -99,7 +99,11 @@ extension EditSession {
             let decoded = try await renderer.render(
                 asset: asset,
                 sourceRect: decodeRect,
-                model: m
+                model: m,
+                // #1167/#2070: the gain of the buffer currently on screen —
+                // the tile must reproduce the SAME AE anchor the full-image
+                // (or sized) decode this snapshot came from already applied.
+                aeGain: snapshot.aeGain
             )
             guard requestID == nativeDetailRequestID, !Task.isCancelled else {
                 return true
