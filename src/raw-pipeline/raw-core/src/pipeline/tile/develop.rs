@@ -253,12 +253,17 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // chains: after chroma_prefilter/deep_denoise/capture_sharpening (the
     // latter two are rejected loudly at the tile entry, same as dehaze), and
     // before the post-DCP white-balance block below. Position matters here
-    // — `scene_tone_controls` (user exposure + tone curve shaping) and the
-    // WB delta/absolute paths below are NOT scale-commutative with an
-    // arbitrary point downstream, so the multiply must land at the same
-    // relative position the full chain uses, not just "somewhere before the
-    // pixels are returned." `1.0` (every pre-#1167 caller) is a
-    // bit-identical no-op.
+    // for two reasons: (a) genuinely non-commutative downstream stages —
+    // `scene_tone_controls`' shaping (shadows/highlights/whites/blacks/
+    // contrast) and `tone_curves` are nonlinear in pixel value, so a scalar
+    // applied after them yields different pixels than one applied before;
+    // (b) bit-exact parity — the linear WB matrix/diagonal multiplies in
+    // between DO commute with a scalar algebraically, but not bit-for-bit
+    // under f32 rounding, and bit-equality with the full chain is this
+    // path's test contract (`tile_matches_full_chain_*`). So the multiply
+    // must land at the same relative position the full chain uses, not just
+    // "somewhere before the pixels are returned." `1.0` (every pre-#1167
+    // caller) is a bit-identical no-op.
     if (ae_gain - 1.0).abs() > 1e-6 {
         stage("tile_auto_exposure", || {
             for p in &mut scene.pixels {

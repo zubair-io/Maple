@@ -398,6 +398,13 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_f32(
 /// full-image AE brightness instead of omitting the stage (`ae_gain = 1.0`
 /// reproduces the pre-#1167 / [`maple_render_handle_scene_linear_tile_f32`]
 /// output bit-for-bit).
+///
+/// `ae_gain` must be finite and > 0 (the develop chain's exported gain is
+/// always in `(0, 8.0]` — see `stages::auto_exposure`); NaN / Inf /
+/// non-positive values (uninitialized host memory, ABI mismatch) return
+/// rc 9 with a `last_error` message instead of silently skipping the
+/// multiply (a NaN would no-op the `(ae_gain - 1.0).abs()` engage check)
+/// or propagating non-finite pixels.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_ae_f32(
@@ -414,6 +421,14 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile_ae_f32(
     ae_gain: f32,
     out: *mut crate::buffers::MapleSceneLinearBufferF32,
 ) -> i32 {
+    if !ae_gain.is_finite() || ae_gain <= 0.0 {
+        set_last_error(format!(
+            "ae_gain must be finite and > 0, got {ae_gain} — pass the ae_gain \
+             a full/sized f32 render exported on MapleSceneLinearBufferF32, \
+             or 1.0 for the pre-#1167 no-op behaviour"
+        ));
+        return 9;
+    }
     render_handle_scene_linear_tile_f32_impl(
         handle,
         src_x,
