@@ -44,10 +44,14 @@ mod inpaint_seam_tests;
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
+    develop_scene_linear_from_raw_with_quality_cancellable_with_gain,
+    develop_scene_linear_from_raw_with_quality_with_gain,
 };
 pub use develop_sized::{
     develop_scene_linear_sized_from_raw_with_quality,
     develop_scene_linear_sized_from_raw_with_quality_cancellable,
+    develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain,
+    develop_scene_linear_sized_from_raw_with_quality_with_gain,
 };
 pub use downsample::downsample_image_area;
 pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
@@ -58,9 +62,11 @@ pub use render::{
     render_from_scene_linear_with_chain, render_scene_linear_from_raw_with_quality,
     render_scene_linear_from_raw_with_quality_f32,
     render_scene_linear_from_raw_with_quality_f32_cancellable,
+    render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain,
     render_scene_linear_sized_from_raw_with_quality,
     render_scene_linear_sized_from_raw_with_quality_f32,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable,
+    render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source, RawInput,
 };
 pub use scene_linear_chain::{
@@ -71,6 +77,7 @@ pub use scene_linear_chain::{
 pub use tile::{
     render_scene_linear_tile_from_raw_with_quality,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor,
+    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32,
     render_scene_linear_tile_from_raw_with_quality_f32, TileRect, TILE_OVERLAP_PX,
 };
