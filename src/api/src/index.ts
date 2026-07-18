@@ -53,6 +53,7 @@ import { authRoutes } from './routes/auth.ts';
 import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
 import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan-handoff.ts';
 import { accountRoutes } from './routes/auth-account.ts';
+import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
 import { fsRoutes } from './routes/fs.ts';
 import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
 import { fsPreviewsRoutes } from './routes/fs-previews.ts';
@@ -262,6 +263,12 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // Authenticated account self-service (#861): /me, step-up re-auth, credential
     // management. Wrapped so its `requireAuth` scoped-derive stays contained.
     .use(new Elysia({ name: 'authedAccount' }).use(accountRoutes))
+
+    // Paired-device sessions (Maple TV pairing, milestone B, #2075): mint
+    // (proof-of-refresh-token), list, step-up-gated revoke. Wrapped so its
+    // `requireAuth` scoped-derive stays contained — same isolation as
+    // authedAccount / authedNativeCode above.
+    .use(new Elysia({ name: 'authedDeviceSessions' }).use(authDeviceSessionRoutes))
 
     // OpenAPI spec + Scalar docs UI. Source-of-truth for HTTP DTOs that
     // web + apple clients codegen from (issue #131). Mounted outside the
