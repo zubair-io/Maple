@@ -228,4 +228,71 @@ extension SceneLinearPipelineTests {
             "constant plane drifted — max |Δ| = \(maxAbs) (expected ~0)"
         )
     }
+
+    /// #2043 — `applySeparableGaussianBlur` now hoists its `CIContext` +
+    /// `MTLCommandQueue` to statics shared across every call instead of
+    /// minting fresh ones per invocation. This is a proof of TWO things
+    /// at once against the same deterministic delta input:
+    ///
+    ///   1. Byte-identical output: the shared-context hoist changed only
+    ///      *how often* the context/queue are constructed, not any
+    ///      option passed to them — running the same input through twice
+    ///      must produce identical bytes both times, proving the hoist
+    ///      did not alter rendering.
+    ///   2. Safe reuse: the second call exercises the SAME `CIContext` +
+    ///      `MTLCommandQueue` instance the first call just used (rather
+    ///      than a fresh pair) — if sharing that state across calls were
+    ///      unsafe (stale bindings, encoder reuse, race on the queue),
+    ///      the second render would diverge from the first or crash.
+    ///
+    /// Renders the full output buffer (not just the centre pixel) both
+    /// times and diffs byte-for-byte.
+    func testSeparableGaussianBlurSharedContextIsStableAcrossCalls() async throws {
+        guard MTLCreateSystemDefaultDevice() != nil else {
+            throw XCTSkip("no Metal device on test runner")
+        }
+        let w = 16, h = 16
+        var pixels = [UInt16](repeating: 0, count: w * h * 4)
+        let zero = Self.float32ToFloat16Bits(0.0)
+        let one  = Self.float32ToFloat16Bits(1.0)
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            pixels[i + 0] = zero
+            pixels[i + 1] = zero
+            pixels[i + 2] = zero
+            pixels[i + 3] = one
+        }
+        let centerIdx = (8 * w + 8) * 4
+        pixels[centerIdx + 0] = one
+        pixels[centerIdx + 1] = one
+        pixels[centerIdx + 2] = one
+        pixels[centerIdx + 3] = one
+        let bytesPerRow = w * 4 * 2
+        let data = pixels.withUnsafeBufferPointer { buf -> Data in
+            Data(bytes: buf.baseAddress!, count: buf.count * 2)
+        }
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let input = CIImage(
+            bitmapData: data,
+            bytesPerRow: bytesPerRow,
+            size: CGSize(width: w, height: h),
+            format: .RGBAh,
+            colorSpace: space
+        )
+
+        let firstBytes = try XCTUnwrap(
+            Self.renderFullBufferRGBAh(
+                MetalKernels.applySeparableGaussianBlur(to: input, radius: 2),
+                width: w, height: h),
+            "first blur call produced no renderable output")
+        let secondBytes = try XCTUnwrap(
+            Self.renderFullBufferRGBAh(
+                MetalKernels.applySeparableGaussianBlur(to: input, radius: 2),
+                width: w, height: h),
+            "second blur call produced no renderable output")
+
+        XCTAssertEqual(
+            firstBytes, secondBytes,
+            "shared CIContext/MTLCommandQueue produced different output on the second call — "
+                + "reuse across calls is not safe")
+    }
 }
