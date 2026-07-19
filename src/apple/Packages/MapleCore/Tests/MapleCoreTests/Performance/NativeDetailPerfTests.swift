@@ -218,17 +218,32 @@ final class NativeDetailPerfTests: XCTestCase {
         //    settle. Shift the origin a few px per iteration (keeping the
         //    develop SIZE constant) so no positional memoisation can shortcut
         //    the work, mirroring a small pan.
+        //
+        //    The shifted rect's ORIGIN is clamped to keep it fully in bounds —
+        //    NOT `.intersection()`, which would silently SHRINK the rect at an
+        //    image edge and quietly measure less pixel work (a perf bench must
+        //    hold the work-size constant). `maxOriginX/Y` is the largest origin
+        //    that still fits `developRect.size`; clamping there preserves the
+        //    size exactly. The centred rect + a ≤31 px shift never actually
+        //    reaches an edge on the 12288×8192 fixture, so the clamp is a
+        //    correctness guard, not a behaviour change here.
         let maxShift = 32
+        let maxOriginX = max(imageSize.width - developRect.width, 0)
+        let maxOriginY = max(imageSize.height - developRect.height, 0)
         var samples: [Double] = []
         samples.reserveCapacity(Self.developCount)
         for i in 0..<Self.developCount {
             let shift = CGFloat(i % maxShift)
+            let originX = min(max(developRect.minX + shift, 0), maxOriginX)
+            let originY = min(max(developRect.minY + shift, 0), maxOriginY)
             let shifted = CGRect(
-                x: developRect.minX + shift,
-                y: developRect.minY + shift,
-                width: developRect.width,
-                height: developRect.height
-            ).intersection(CGRect(origin: .zero, size: imageSize))
+                x: originX, y: originY,
+                width: developRect.width, height: developRect.height
+            )
+            // The whole point of the origin clamp: SIZE is invariant across
+            // iterations, so every timed develop does identical pixel work.
+            XCTAssertEqual(shifted.width, developRect.width)
+            XCTAssertEqual(shifted.height, developRect.height)
             let start = ContinuousClock.now
             let patch = try await renderer.render(
                 asset: asset,
@@ -237,8 +252,10 @@ final class NativeDetailPerfTests: XCTestCase {
                 aeGain: Self.autoAEGain
             )
             let end = ContinuousClock.now
-            // Touch the result so the develop isn't optimised away.
-            XCTAssertFalse(patch.extent.isEmpty)
+            // The develop must produce the full requested patch (size held
+            // constant → no boundary shrink measuring less work).
+            XCTAssertEqual(patch.extent.width, shifted.width, accuracy: 1.0)
+            XCTAssertEqual(patch.extent.height, shifted.height, accuracy: 1.0)
             samples.append(SliderTickPerfHarness.elapsedMs(from: start, to: end))
         }
 
