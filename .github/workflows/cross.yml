@@ -96,8 +96,13 @@ jobs:
       - name: Prettier --check (changed files only)
         if: steps.changed.outputs.count != '0'
         run: |
-          xargs -a /tmp/check.txt ./src/web/node_modules/.bin/prettier --check \
-            --config src/web/.prettierrc
+          # NUL-delimit the list so paths with spaces/'&' (e.g. Xcode asset
+          # catalogs under "Maple TV/…/App Icon & Top Shelf Image.brandassets")
+          # reach prettier as single args instead of being word-split — matches
+          # the local mirror in src/web/scripts/format.sh.
+          tr '\n' '\0' < /tmp/check.txt \
+            | xargs -0 ./src/web/node_modules/.bin/prettier --check \
+              --config src/web/.prettierrc
 
   oxlint-api:
     name: oxlint-api (correctness + fs-import guardrail)
