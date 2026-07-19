@@ -752,8 +752,12 @@ public actor ImageEditPipeline {
         // the flat f32 bytes a fresh `context.render(scaled, ...)` would
         // produce are identical to whatever the last call at this same
         // (decodedSource, w, h) already read back — regardless of how the
-        // model changed in between. See `FFIInputBufferCache` for the key
-        // shape and correctness invariant.
+        // model changed in between. The `get`/`put` calls below also pass
+        // the live `decodedSource` instance: the cache's weak identity
+        // anchor requires `===` on it, so an `ObjectIdentifier` recycled
+        // by a later allocation can never serve a previous image's bytes.
+        // See `FFIInputBufferCache` for the key shape and correctness
+        // invariant.
         let inputCacheKey: FFIInputBufferCache.Key? = decodedSource.map { d in
             FFIInputBufferCache.Key(decodedID: ObjectIdentifier(d), width: w, height: h)
         }
@@ -781,7 +785,8 @@ public actor ImageEditPipeline {
             // bytes from the last tick's readback when the input cache
             // holds a hit for (decodedSource, w, h) — #1959.
             let inputBytes: Data
-            if let inputCacheKey, let cachedBytes = ffiInputBufferCache.get(inputCacheKey) {
+            if let inputCacheKey, let decodedSource,
+               let cachedBytes = ffiInputBufferCache.get(inputCacheKey, decoded: decodedSource) {
                 inputBytes = cachedBytes
             } else {
                 var freshBytes = Data(count: totalBytes)
@@ -801,8 +806,8 @@ public actor ImageEditPipeline {
                     logger.error("applySceneLinearChainViaFFI: CIContext.render failed; falling through")
                     return nil
                 }
-                if let inputCacheKey {
-                    ffiInputBufferCache.put(inputCacheKey, freshBytes)
+                if let inputCacheKey, let decodedSource {
+                    ffiInputBufferCache.put(inputCacheKey, freshBytes, decoded: decodedSource)
                 }
                 inputBytes = freshBytes
             }
