@@ -144,6 +144,24 @@ final class SliderTickPerfTests: XCTestCase {
     /// floor is already near spec (an 80 ms cache-hit ceiling).
     private static let interimHardLimitMs: Double = 65.0
 
+    /// Machine-INDEPENDENT regression gate (#2113). The absolute
+    /// `interimHardLimitMs` above is machine-dependent — the ~2× win #2083
+    /// (`FFIInputBufferCache`) buys can't be ratcheted into a fixed-ms
+    /// ceiling without flaking on slower dev machines (#1959 documents a
+    /// ~1.6× slower box). This ratio instead asserts the fix's benefit as
+    /// meanON / meanOFF measured in the SAME run: both arms share the
+    /// machine, so the RATIO is immune to absolute machine speed.
+    ///
+    /// Basis (100MP reference, Apple M5 Max, from
+    /// docs/superpowers/perf/2026-07-19-100mp-instrument-pass.md §1a): input
+    /// cache ON mean 41.7 ms vs OFF mean 75.7 ms → measured ratio ≈ 0.55.
+    /// The ceiling is set to 0.72 — comfortably above the 0.55 measurement
+    /// (≈0.17 headroom absorbs run-to-run jitter and cross-machine variance)
+    /// yet far below 1.0, so a regression that neutralises the readback
+    /// cache (ON ≈ OFF, ratio → 1.0) trips it decisively. One-way ratchet:
+    /// tighten toward the measured 0.55 as confidence grows, never loosen.
+    private static let inputCacheRatioCeiling: Double = 0.72
+
     // MARK: - Test entry
 
     /// Slider-tick perf bench. Loads the reference fixture once, decodes
@@ -208,123 +226,103 @@ final class SliderTickPerfTests: XCTestCase {
         let destTexture: MTLTexture? = nil
         #endif
 
-        // Warm-up render. The first render compiles CIKernels and warms
-        // the Metal pipeline cache — clocking that into the per-tick mean
-        // would punish the bench with a one-time hit the live editor
-        // already absorbs at session open.
-        var warmModel = AdjustmentModel.default
-        warmModel.exposure = 0.1
-        let warmProcessed = pipeline.processSceneLinear(
-            decoded: decoded,
-            model: warmModel,
-            targetSize: SliderTickPerfHarness.viewportSize,
-            asShot: asShot,
-            decodedAtModel: warmModel,
-            assetID: asset.id
-        )
-        SliderTickPerfHarness.forceRender(
-            warmProcessed,
-            ctx: ctx,
-            device: device,
-            commandQueue: commandQueue,
-            destinationTexture: destTexture
-        )
-
-        // 2. Timed loop. Mutate exposure on each tick to mimic a slider
-        //    drag — same shape as the editor's `setArmedDisplayValue` path
-        //    (mutates `model.exposure`, which the live editor's
-        //    `model.didSet` would then propagate through `_scheduleRender`).
-        //    The exposure value sweeps -1.0 → +1.0 EV over the run so
-        //    each tick produces a different filter-graph evaluation; a
-        //    static value could let CoreImage memoize across iterations.
+        // 2. Two arms, SAME build + SAME machine, measured back to back:
+        //    the #2083 FFI input-readback cache ON (production default) and
+        //    OFF. The `_testSetEnabled` hook overrides the init-time env
+        //    kill-switch at runtime (env vars are read once at process
+        //    start, so they can't be A/B'd within one run) and drops the
+        //    slot, so each arm starts clean. The exposure sweep mutates the
+        //    model every tick, so the #661 `sceneLinearChainCache` MISSES on
+        //    every tick regardless of arm — only the input cache differs, so
+        //    the ratio isolates #2083. The ON arm doubles as the absolute-
+        //    ceiling + report arm below (it's the production default).
         //
-        //    Timer is split into two phases so the report attributes the
-        //    per-tick cost to either:
-        //      • processSceneLinear — the FFI round-trip (GPU readback
-        //        → Rust CPU chain → CIImage re-wrap) that runs
-        //        synchronously inside the pipeline, see
+        //    Timer inside `measureDrag` splits each tick into:
+        //      • processSceneLinear — the FFI round-trip (GPU readback →
+        //        Rust CPU chain → CIImage re-wrap), see
         //        `applySceneLinearChainViaFFI`.
-        //      • forceRender — the GPU pass that writes the final
-        //        Metal-kernel chain (sharpen + NRColor) into the
-        //        destination texture.
-        var totals: [Double] = []
-        var processSamples: [Double] = []
-        var renderSamples: [Double] = []
-        totals.reserveCapacity(SliderTickPerfHarness.tickCount)
-        processSamples.reserveCapacity(SliderTickPerfHarness.tickCount)
-        renderSamples.reserveCapacity(SliderTickPerfHarness.tickCount)
-
-        for i in 0..<SliderTickPerfHarness.tickCount {
-            // Sweep exposure across [-1, +1] EV. Avoids the
-            // identity-shortcut some filters take at exactly zero.
+        //      • forceRender — the GPU pass writing the Metal-kernel chain
+        //        (sharpen + NRColor) into the destination texture.
+        //
+        //    The exposure sweep -1.0 → +1.0 EV gives each tick a distinct
+        //    filter-graph evaluation; a static value could let CoreImage
+        //    memoize across iterations.
+        let makeExposureModel: (Int) -> AdjustmentModel = { i in
             let t = Double(i) / Double(SliderTickPerfHarness.tickCount - 1)
             var model = AdjustmentModel.default
             model.exposure = -1.0 + 2.0 * t
+            return model
+        }
 
-            let tickStart = ContinuousClock.now
-            let processed = pipeline.processSceneLinear(
+        func runArm(inputCacheEnabled: Bool) -> SliderTickPerfHarness.DragStats {
+            pipeline.ffiInputBufferCache._testSetEnabled(inputCacheEnabled)
+            pipeline.sceneLinearChainCache.invalidate()
+            return SliderTickPerfHarness.measureDrag(
+                pipeline: pipeline,
                 decoded: decoded,
-                model: model,
-                targetSize: SliderTickPerfHarness.viewportSize,
                 asShot: asShot,
-                decodedAtModel: model,
-                assetID: asset.id
-            )
-            let processEnd = ContinuousClock.now
-            SliderTickPerfHarness.forceRender(
-                processed,
+                assetID: asset.id,
                 ctx: ctx,
                 device: device,
                 commandQueue: commandQueue,
-                destinationTexture: destTexture
+                destinationTexture: destTexture,
+                makeModel: makeExposureModel
             )
-            let renderEnd = ContinuousClock.now
-
-            let processMs = SliderTickPerfHarness.elapsedMs(from: tickStart, to: processEnd)
-            let renderMs = SliderTickPerfHarness.elapsedMs(from: processEnd, to: renderEnd)
-            processSamples.append(processMs)
-            renderSamples.append(renderMs)
-            totals.append(processMs + renderMs)
         }
 
-        // 3. Stats + report. Mean / p50 / p95 / max each computed across
-        //    the total per-tick latency, plus mean attribution to the
-        //    process vs render phases.
-        let sortedTotals = totals.sorted()
-        let meanTotal = totals.reduce(0, +) / Double(totals.count)
-        let meanProcess = processSamples.reduce(0, +) / Double(processSamples.count)
-        let meanRender = renderSamples.reduce(0, +) / Double(renderSamples.count)
-        let p50 = sortedTotals[sortedTotals.count / 2]
-        let p95 = sortedTotals[min(sortedTotals.count - 1,
-                                   Int(Double(sortedTotals.count) * 0.95))]
-        let maxMs = sortedTotals.last ?? 0
+        // ON first (production default = the absolute-ceiling/report arm),
+        // then OFF. Restore the env default afterwards.
+        let statsOn = runArm(inputCacheEnabled: true)
+        let statsOff = runArm(inputCacheEnabled: false)
+        pipeline.ffiInputBufferCache._testSetEnabled(nil)
 
+        // 3. Report both arms + the measured ratio.
+        let ratio = statsOn.mean / statsOff.mean
         let fixture = fixtureURL.lastPathComponent
         let summary = String(
             format: "[slider-tick-perf] fixture=%@ ticks=%d viewport=%dx%d " +
                     "mean=%.2fms p50=%.2fms p95=%.2fms max=%.2fms " +
                     "(process=%.2fms render=%.2fms) " +
+                    "input-cache-OFF-mean=%.2fms ratio(on/off)=%.3f (ceiling=%.2f) " +
                     "spec(target=%.0fms hard=%.0fms) interim-hard=%.0fms",
             fixture,
             SliderTickPerfHarness.tickCount,
             Int(SliderTickPerfHarness.viewportSize.width),
             Int(SliderTickPerfHarness.viewportSize.height),
-            meanTotal, p50, p95, maxMs,
-            meanProcess, meanRender,
+            statsOn.mean, statsOn.p50, statsOn.p95, statsOn.max,
+            statsOn.meanProcess, statsOn.meanRender,
+            statsOff.mean, ratio, Self.inputCacheRatioCeiling,
             SliderTickPerfHarness.specTargetMs,
             SliderTickPerfHarness.specHardLimitMs,
             Self.interimHardLimitMs
         )
         FileHandle.standardError.write(Data((summary + "\n").utf8))
 
-        // 4. Gate on the interim hard limit (the enforced ceiling that
-        //    ratchets toward the 50 ms spec — see the `interimHardLimitMs`
-        //    doc-comment). The 50 ms spec hard limit / 16 ms target are
-        //    reported below and via the OVER-BUDGET line; the interim is
-        //    the assertion because the FFI floor is currently above spec.
-        // Build the failure message from precomputed locals to keep the Swift
-        // expression type-checker under its complexity ceiling (#565/#787).
-        let meanTotalText = String(format: "%.2f", meanTotal)
+        // 4a. Machine-INDEPENDENT gate (#2113): the input-cache ON arm must
+        //     be at most `inputCacheRatioCeiling` × the OFF arm. Both arms
+        //     ran on this machine in this run, so the ratio is immune to
+        //     absolute machine speed — this is the enforceable form of the
+        //     measured ~2× win.
+        let ratioText = String(format: "%.3f", ratio)
+        let onMeanText = String(format: "%.2f", statsOn.mean)
+        let offMeanText = String(format: "%.2f", statsOff.mean)
+        let ratioCeilingText = String(format: "%.2f", Self.inputCacheRatioCeiling)
+        let ratioMessage =
+            "Input-cache ON/OFF ratio \(ratioText) " +
+            "(ON \(onMeanText) ms / OFF \(offMeanText) ms) " +
+            "exceeds the \(ratioCeilingText) ceiling — the #2083 " +
+            "FFIInputBufferCache is no longer buying its per-tick readback " +
+            "saving (ON should be well under OFF). Investigate the input-cache " +
+            "hit path (key construction / decoded-instance anchor) before " +
+            "relaxing this ratio."
+        XCTAssertLessThan(ratio, Self.inputCacheRatioCeiling, ratioMessage)
+
+        // 4b. Absolute interim ceiling (unchanged, machine-DEPENDENT) — kept
+        //     as the product-truth report + loose backstop it already was
+        //     (#1959). Asserted against the production-default (ON) arm. The
+        //     50 ms spec hard limit / 16 ms target are reported and the
+        //     OVER-BUDGET line fires below.
+        let meanTotalText = String(format: "%.2f", statsOn.mean)
         let ceilingText = String(format: "%.0f", Self.interimHardLimitMs)
         let hardLimitText = String(format: "%.0f", SliderTickPerfHarness.specHardLimitMs)
         let regressionMessage =
@@ -335,14 +333,14 @@ final class SliderTickPerfTests: XCTestCase {
             "investigate processSceneLinear → applySceneLinearChainViaFFI " +
             "(the load-bearing call) before relaxing the ceiling."
         XCTAssertLessThan(
-            meanTotal, Self.interimHardLimitMs,
+            statsOn.mean, Self.interimHardLimitMs,
             regressionMessage
         )
 
-        if meanTotal > SliderTickPerfHarness.specHardLimitMs {
+        if statsOn.mean > SliderTickPerfHarness.specHardLimitMs {
             // Build the message from precomputed locals to keep the Swift
             // expression type-checker under its complexity ceiling (#565/#787).
-            let meanText = String(format: "%.2f", meanTotal)
+            let meanText = String(format: "%.2f", statsOn.mean)
             let limitText = String(format: "%.0f", SliderTickPerfHarness.specHardLimitMs)
             let overBudgetMessage =
                 "[slider-tick-perf] OVER-BUDGET: " +

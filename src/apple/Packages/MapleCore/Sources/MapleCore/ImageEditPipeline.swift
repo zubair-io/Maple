@@ -142,17 +142,50 @@ public actor ImageEditPipeline {
     /// See `FFIInputBufferCache` and #1959.
     nonisolated let ffiInputBufferCache = FFIInputBufferCache()
 
-    /// Honours `MAPLE_DISABLE_FUSED_CHAIN_ENCODE=1` — forces
+    /// Env-derived default for the fused-chain-encode kill-switch —
+    /// `MAPLE_DISABLE_FUSED_CHAIN_ENCODE=1`. Read once at process start.
+    /// The effective value is `fusedChainEncodeDisabled` below, which lets a
+    /// test override win over this default.
+    nonisolated static let fusedChainEncodeEnvDisabled: Bool =
+        ProcessInfo.processInfo.environment["MAPLE_DISABLE_FUSED_CHAIN_ENCODE"] == "1"
+
+    /// Test-only runtime override of the fused-chain-encode kill-switch.
+    /// `nil` = follow the env default; non-nil forces the fused path
+    /// on (`true`) or off (`false`). Process-global (the gate is a static),
+    /// guarded by `fusedChainEncodeOverrideLock`. Set via
+    /// `_testSetFusedChainEncodeEnabled(_:)`.
+    nonisolated(unsafe) private static var fusedChainEncodeTestOverride: Bool?
+    private static let fusedChainEncodeOverrideLock = NSLock()
+
+    /// Effective fused-chain-encode disabled state — forces
     /// `processSceneLinear` / `processSceneLinearNonRaw` to always take the
     /// two-step `applySceneLinearChainViaFFI` + `encodeDisplaySRGBViaFFI`
     /// path, even when the fused-path identity gate (sharpen/nr_color both
-    /// ≈0) holds. Mirrors `MAPLE_DISABLE_FFI_CACHE` /
-    /// `MAPLE_DISABLE_FFI_INPUT_CACHE` — used by
-    /// `FusedChainEncodeSliderTickPerfTests` to measure the "before" arm
-    /// against the SAME build the "after" (fused) arm runs, rather than a
-    /// stale git ref (#2092).
-    nonisolated static let fusedChainEncodeDisabled: Bool =
-        ProcessInfo.processInfo.environment["MAPLE_DISABLE_FUSED_CHAIN_ENCODE"] == "1"
+    /// ≈0) holds. The test override (when set) wins over the env default.
+    /// Mirrors `MAPLE_DISABLE_FFI_CACHE` / `MAPLE_DISABLE_FFI_INPUT_CACHE` —
+    /// used by `FusedChainEncodeSliderTickPerfTests` to measure the fused
+    /// ("after") vs two-step ("before") arms on the SAME build, rather than
+    /// a stale git ref (#2092), and to assert the win as a machine-independent
+    /// in-run ratio (#2113).
+    nonisolated static var fusedChainEncodeDisabled: Bool {
+        fusedChainEncodeOverrideLock.lock()
+        defer { fusedChainEncodeOverrideLock.unlock() }
+        if let overrideEnabled = fusedChainEncodeTestOverride { return !overrideEnabled }
+        return fusedChainEncodeEnvDisabled
+    }
+
+    /// Test-only: override the `MAPLE_DISABLE_FUSED_CHAIN_ENCODE` env
+    /// kill-switch at runtime. `true` forces the fused path ON, `false`
+    /// forces it OFF, `nil` restores the env-derived default. The gate is
+    /// process-global (a static), so this override is too — a perf bench
+    /// that toggles it must invalidate the per-pipeline caches and re-warm
+    /// between arms. `internal` (test target only via `@testable import`) —
+    /// not part of the production surface (#2113).
+    nonisolated static func _testSetFusedChainEncodeEnabled(_ enabled: Bool?) {
+        fusedChainEncodeOverrideLock.lock()
+        defer { fusedChainEncodeOverrideLock.unlock() }
+        fusedChainEncodeTestOverride = enabled
+    }
 
     public init() {
         // Metal-backed context where available; `cacheIntermediates: false`
