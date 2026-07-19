@@ -30,6 +30,12 @@ final class PairingViewModel {
   private var listener: TVPairingListener?
   private var expiryTask: Task<Void, Never>?
 
+  /// Generation counter for async state (best-practices.md § Swift). Bumped
+  /// on every `stop()` — including the one `start()` runs first — so a
+  /// `handlePaired` task from a superseded session can tell it's stale and
+  /// no-op instead of clobbering a fresh `.ready`/`.failed` phase.
+  private var pairingGeneration = 0
+
   init(onPaired: @escaping () -> Void, now: @escaping () -> Date = Date.init) {
     self.onPaired = onPaired
     self.now = now
@@ -85,6 +91,7 @@ final class PairingViewModel {
   }
 
   func stop() {
+    pairingGeneration &+= 1
     expiryTask?.cancel()
     expiryTask = nil
     listener?.stop()
@@ -114,10 +121,15 @@ final class PairingViewModel {
   private func handlePaired(_ grant: SealedPairingGrant) {
     expiryTask?.cancel()
     expiryTask = nil
+    // Generation counter for async state (best-practices.md § Swift):
+    // capture the session this redeem belongs to so a slow `client.me`
+    // can't land after the user has already regenerated the code.
+    let generation = pairingGeneration
     Task {
       do {
         let client = AuthClient(server: grant.serverURL)
         let me = try await client.me(accessToken: grant.accessToken)
+        guard generation == pairingGeneration else { return }  // superseded by a new session
         try TokenStore.save(
           AuthTokens(access: grant.accessToken, refresh: grant.refreshToken),
           server: grant.serverURL
@@ -127,6 +139,7 @@ final class PairingViewModel {
         CloudServerRegistry.shared.setDisplayName(grant.deviceName, for: grant.serverURL)
         onPaired()
       } catch {
+        guard generation == pairingGeneration else { return }  // superseded by a new session
         // Stay in `.failed` — do NOT call `start()` here. `start()` runs
         // synchronously on the MainActor and would overwrite `phase` back
         // to `.ready(...)` before SwiftUI ever renders this `.failed`
