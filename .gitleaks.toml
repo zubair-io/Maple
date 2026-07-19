@@ -21,3 +21,16 @@ paths = [
     # the legacy basename-hash format.
     '''src/api/src/workers/cache-gc\.test\.ts''',
 ]
+# Targeted string allowlist for known false-positives, matched against the
+# detected secret. Preferred over path exemptions so the surrounding files
+# stay fully scanned for anything that ISN'T one of these exact strings.
+regexes = [
+    # Apple CryptoKit type name used throughout the Maple TV pairing code
+    # (`Curve25519.KeyAgreement.PrivateKey`). The generic-api-key rule reads
+    # the `privateKey:` binding as a credential; it is a public type name.
+    '''Curve25519\.KeyAgreement\.PrivateKey''',
+    # Hard-coded fake pairing token in the pairing-protocol unit tests
+    # (PairingProtocolTests.swift). A deliberately unrealistic literal used
+    # to assert the QR payload round-trips the token field; not a real secret.
+    '''tok_abc123XYZ''',
+]
