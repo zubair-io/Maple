@@ -13,7 +13,7 @@ describe('PairedDevicesComponent', () => {
   const session = (overrides: Partial<DeviceSession> = {}): DeviceSession => ({
     id: 'dev-1',
     label: "Zubair's Apple TV",
-    platform: 'tvOS',
+    platform: 'tvos',
     created_at: '2026-07-01T00:00:00Z',
     last_used_at: '2026-07-17T00:00:00Z',
     ...overrides,
@@ -34,6 +34,9 @@ describe('PairedDevicesComponent', () => {
   }
 
   afterEach(() => http.verify());
+  // Always restore stubbed globals (confirm) even when an assertion throws
+  // mid-test — a leaked stub would silently corrupt later cases.
+  afterEach(() => vi.unstubAllGlobals());
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
 
@@ -47,6 +50,9 @@ describe('PairedDevicesComponent', () => {
     expect(rows.length).toBe(2);
     expect(el().textContent).toContain("Zubair's Apple TV");
     expect(el().textContent).toContain('Living Room TV');
+    // The wire enum 'tvos' is normalized for display, never shown raw.
+    expect(el().textContent).toContain('Apple TV ·');
+    expect(el().textContent).not.toContain('tvos');
   });
 
   it('shows the empty-state copy when the list is empty', async () => {
@@ -73,7 +79,6 @@ describe('PairedDevicesComponent', () => {
 
     expect(revokeDeviceSession).toHaveBeenCalledWith('dev-1');
     expect(el().querySelectorAll('.card-row').length).toBe(0);
-    vi.unstubAllGlobals();
   });
 
   it('does not call the service when confirm() returns false', async () => {
@@ -91,7 +96,6 @@ describe('PairedDevicesComponent', () => {
 
     expect(revokeDeviceSession).not.toHaveBeenCalled();
     expect(el().querySelectorAll('.card-row').length).toBe(1);
-    vi.unstubAllGlobals();
   });
 
   it('shows the error banner (not Loading) when the initial load fails, and Retry recovers', async () => {

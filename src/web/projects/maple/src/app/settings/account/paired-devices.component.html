@@ -15,7 +15,8 @@
             <div class="card-text">
               <div class="card-name">{{ s.label }}</div>
               <div class="card-meta mono">
-                {{ s.platform }} · paired {{ s.created_at | date: 'mediumDate' }} · last used
+                {{ platformLabel(s.platform) }} · paired {{ s.created_at | date: 'mediumDate' }} ·
+                last used
                 {{ s.last_used_at | date: 'medium' }}
               </div>
             </div>
