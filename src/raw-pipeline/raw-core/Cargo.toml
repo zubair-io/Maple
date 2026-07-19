@@ -70,5 +70,9 @@ name = "synth-chart"
 required-features = ["test-support"]
 
 [[example]]
+name = "gen-synthetic-dng"
+required-features = ["test-support"]
+
+[[example]]
 name = "extract-dcp"
 required-features = ["test-support"]
