@@ -117,6 +117,12 @@ final class PairAppleTVViewModel {
   /// copy the sheet can show directly — no raw error types escape to the
   /// view.
   func pair(payload: PairingQRPayload) async {
+    // Cheap in-flight guard: closes the double-submission window at the
+    // source (paste "Pair" has no button-disable of its own) rather than
+    // relying solely on the generation counter to sort out the race
+    // downstream (C4 re-review).
+    guard state != .delivering else { return }
+
     guard let server = selectedServer else {
       state = .noServer
       return
@@ -158,15 +164,17 @@ final class PairAppleTVViewModel {
           state = .failed(message: Self.refreshFailureMessage(for: error))
           return
         }
-        guard gen == generation else { return }
-
-        // Persist the rotated pair IMMEDIATELY — the server has already
-        // invalidated `stored.refresh`, so any error between here and the
-        // next successful save would otherwise strand the on-disk copy on
-        // a dead token (see AuthClient.refreshTokens doc comment). A save
-        // failure doesn't abort this attempt (the in-memory `refreshed`
-        // pair is still good for the mint call below); it's logged so a
-        // silently-stale Keychain entry isn't a total mystery later.
+        // Persist the rotated pair IMMEDIATELY and UNCONDITIONALLY — the
+        // server has already invalidated `stored.refresh`, so any error (or
+        // stale-generation return) between here and the next successful
+        // save would otherwise strand the on-disk copy on a dead token (see
+        // AuthClient.refreshTokens doc comment). Server-committed state must
+        // never be discarded by a stale-task guard (C4 re-review): this
+        // write happens whether or not `gen` is still current, and a save
+        // failure doesn't abort this attempt either (the in-memory
+        // `refreshed` pair is still good for the mint call below) — it's
+        // logged so a silently-stale Keychain entry isn't a total mystery
+        // later.
         do {
           try TokenStore.save(refreshed, server: server)
         } catch {
@@ -178,8 +186,12 @@ final class PairAppleTVViewModel {
         // AuthClient.mintDeviceSession doc comment).
         mint = try await client.mintDeviceSession(
           accessToken: refreshed.access, refreshToken: refreshed.refresh, label: label)
-        guard gen == generation else { return }
+        // Same unconditional-persistence reasoning as the token save above:
+        // cache the mint BEFORE the generation check, or a stale task would
+        // leave a truly untracked orphaned device session server-side
+        // (C4 re-review).
         pendingMint = (server: server, label: label, mint: mint)
+        guard gen == generation else { return }
       }
 
       let grant = SealedPairingGrant(
