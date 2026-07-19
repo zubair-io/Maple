@@ -1057,7 +1057,8 @@
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=iphoneos*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=iphonesimulator*]" = YES;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
@@ -1070,7 +1071,8 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Maple uses the camera to scan your Apple TV's pairing code.";
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphoneos*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphonesimulator*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2026 Just Maple. All rights reserved.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers and pairs with Maple TV on your local network.";
@@ -1133,7 +1135,8 @@
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=iphoneos*]" = YES;
+				"ENABLE_RESOURCE_ACCESS_CAMERA[sdk=iphonesimulator*]" = YES;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
@@ -1146,7 +1149,8 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Maple uses the camera to scan your Apple TV's pairing code.";
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphoneos*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
+				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphonesimulator*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2026 Just Maple. All rights reserved.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers and pairs with Maple TV on your local network.";
@@ -1320,7 +1324,7 @@
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Maple;
+				INFOPLIST_KEY_CFBundleDisplayName = "Maple TV";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple TV pairs with your iPhone or iPad over your home network.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1356,7 +1360,7 @@
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Maple;
+				INFOPLIST_KEY_CFBundleDisplayName = "Maple TV";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple TV pairs with your iPhone or iPad over your home network.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
