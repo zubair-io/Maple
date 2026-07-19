@@ -5,7 +5,7 @@
  * and no TestBed — the same approach `people-bulk.controller.spec.ts` uses.
  */
 import { signal } from '@angular/core';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ApiPerson, ApiPersonDetail, ApiPersonFace } from '@maple-common';
 import { PeopleDetailController, type PeopleDetailDeps } from './people-detail.controller';
@@ -127,6 +127,33 @@ describe('PeopleDetailController — thumb prefetch + compare faces', () => {
     getPerson.mockReturnValueOnce(throwError(() => new Error('boom')));
     await controller.toggleSuggestionFaces();
     expect(toast).toHaveBeenCalledWith('boom', 'error');
+    expect(controller.suggestionFaces()).toBeNull();
+    expect(controller.suggestionFacesLoading()).toBe(false);
+  });
+
+  it('discards an in-flight face page when the suggestion changes before it resolves', async () => {
+    const deferred = new Subject<ApiPersonDetail>();
+    getPerson.mockReturnValueOnce(deferred.asObservable());
+
+    const togglePromise = controller.toggleSuggestionFaces();
+    // User navigates to a different person while the fetch is in flight.
+    selected.set(
+      detailWith({
+        id: 'someone-else',
+        suggestedMerge: {
+          personId: 'different',
+          name: 'Different Person',
+          coverAssetId: null,
+          coverBbox: null,
+          score: 0.8,
+        },
+      }),
+    );
+    deferred.next(detailWith({ id: 'other', faces: [face('stale')] }));
+    deferred.complete();
+    await togglePromise;
+
+    // The stale payload must not open the strip under the new banner.
     expect(controller.suggestionFaces()).toBeNull();
     expect(controller.suggestionFacesLoading()).toBe(false);
   });
