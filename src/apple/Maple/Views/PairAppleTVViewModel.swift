@@ -14,7 +14,10 @@
 
 import Foundation
 import Observation
+import OSLog
 import MapleCore
+
+private let pairAppleTVLog = Logger(subsystem: "app.justmaple.aperture", category: "PairAppleTV")
 
 @MainActor
 @Observable
@@ -41,8 +44,15 @@ final class PairAppleTVViewModel {
   private(set) var state: State
   /// Bound to the sheet's device-name field. Defaults to "Apple TV"; an
   /// empty/whitespace-only value falls back to that default at pair time
-  /// rather than sending a blank label to the server.
-  var deviceName: String = "Apple TV"
+  /// rather than sending a blank label to the server. Edited after a failed
+  /// delivery invalidates any held `pendingMint` — it was minted under the
+  /// old label.
+  var deviceName: String = "Apple TV" {
+    didSet {
+      guard deviceName != oldValue else { return }
+      pendingMint = nil
+    }
+  }
   private(set) var selectedServer: URL?
 
   private let registry: CloudServerRegistry
@@ -51,6 +61,17 @@ final class PairAppleTVViewModel {
   /// Bumped on every `pair()`/`retry()` call; in-flight closures check this
   /// and drop stale writes.
   private var generation = 0
+
+  /// A mint that succeeded but whose delivery to the TV then failed —
+  /// retained so a same-server, same-label retry redelivers this credential
+  /// instead of minting a fresh one. Minting on every retry would leave a
+  /// live, orphaned "Apple TV" device session server-side for each flake;
+  /// the phone can't revoke it (DELETE is step-up-gated), so each accumulates
+  /// until someone finds it in web Settings → Account and removes it by
+  /// hand — that panel remains the v1 cleanup path for anything this cache
+  /// doesn't catch. Cleared on success, or when the server/label changes
+  /// (a stale mint is scoped to the label/server it was minted for).
+  private var pendingMint: (server: URL, label: String, mint: DeviceSessionMint)?
 
   init(
     registry: CloudServerRegistry = .shared,
@@ -79,14 +100,22 @@ final class PairAppleTVViewModel {
   }
 
   func selectServer(_ url: URL) {
+    if url != selectedServer {
+      pendingMint = nil
+    }
     selectedServer = url
     state = .scan
   }
 
-  /// Runs the full handshake: load this device's own live tokens, mint a
-  /// TV-scoped session from them, seal it to the TV's public key, and
-  /// deliver it over the LAN. Any failure lands in `.failed` with copy the
-  /// sheet can show directly — no raw error types escape to the view.
+  /// Runs the full handshake: refresh this device's own live tokens (an
+  /// access token can be up to 15 minutes stale by the time the user
+  /// actually scans a TV's code, and this flow has no proactive refresh —
+  /// minting with a stale token 401s and, without this step, every retry
+  /// re-reads the same stale token from disk and 401s again), mint a
+  /// TV-scoped session from the rotated pair, seal it to the TV's public
+  /// key, and deliver it over the LAN. Any failure lands in `.failed` with
+  /// copy the sheet can show directly — no raw error types escape to the
+  /// view.
   func pair(payload: PairingQRPayload) async {
     guard let server = selectedServer else {
       state = .noServer
@@ -101,16 +130,57 @@ final class PairAppleTVViewModel {
     let label = trimmedName.isEmpty ? "Apple TV" : trimmedName
 
     do {
-      guard let tokens = try TokenStore.load(server: server) else {
+      guard let stored = try TokenStore.load(server: server) else {
         guard gen == generation else { return }
         state = .failed(message: "You're not signed in on this device — sign in, then retry.")
         return
       }
 
       let client = mintClientFactory(server)
-      let mint = try await client.mintDeviceSession(
-        accessToken: tokens.access, refreshToken: tokens.refresh, label: label)
-      guard gen == generation else { return }
+
+      let mint: DeviceSessionMint
+      if let held = pendingMint, held.server == server, held.label == label {
+        // A previous attempt for this exact server+label already minted a
+        // device session but failed to deliver it — reuse that mint rather
+        // than minting another one. Minting on every retry would leave a
+        // live, orphaned "Apple TV" credential server-side per flake, and
+        // the phone can't revoke it (DELETE is step-up-gated); the v1
+        // cleanup path for anything this cache doesn't catch is the web
+        // Settings → Account panel, where abandoned sessions stay visible
+        // and revocable.
+        mint = held.mint
+      } else {
+        let refreshed: AuthTokens
+        do {
+          refreshed = try await client.refreshTokens(refreshToken: stored.refresh)
+        } catch {
+          guard gen == generation else { return }
+          state = .failed(message: Self.refreshFailureMessage(for: error))
+          return
+        }
+        guard gen == generation else { return }
+
+        // Persist the rotated pair IMMEDIATELY — the server has already
+        // invalidated `stored.refresh`, so any error between here and the
+        // next successful save would otherwise strand the on-disk copy on
+        // a dead token (see AuthClient.refreshTokens doc comment). A save
+        // failure doesn't abort this attempt (the in-memory `refreshed`
+        // pair is still good for the mint call below); it's logged so a
+        // silently-stale Keychain entry isn't a total mystery later.
+        do {
+          try TokenStore.save(refreshed, server: server)
+        } catch {
+          pairAppleTVLog.error("failed to persist refreshed tokens for \(server.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+
+        // The just-rotated refresh token is this device's live primary
+        // token — exactly what the server's mint-proof check wants (see
+        // AuthClient.mintDeviceSession doc comment).
+        mint = try await client.mintDeviceSession(
+          accessToken: refreshed.access, refreshToken: refreshed.refresh, label: label)
+        guard gen == generation else { return }
+        pendingMint = (server: server, label: label, mint: mint)
+      }
 
       let grant = SealedPairingGrant(
         serverURL: server, accessToken: mint.access_token, refreshToken: mint.refresh_token,
@@ -118,6 +188,7 @@ final class PairAppleTVViewModel {
       try await PairingClient.deliver(grant: grant, to: payload)
       guard gen == generation else { return }
 
+      pendingMint = nil
       state = .done(deviceName: label)
     } catch {
       guard gen == generation else { return }
@@ -134,6 +205,29 @@ final class PairAppleTVViewModel {
   }
 
   // MARK: - Error copy
+
+  /// Distinct copy for a failed `refreshTokens` call — unlike a mint or
+  /// delivery failure, a 401/unauthorized here means the refresh token
+  /// itself is dead, so "retry" genuinely can't succeed without a fresh
+  /// sign-in; the generic `message(for:)` copy ("sign in again, then
+  /// retry") would be a lie in this specific spot, since Try Again just
+  /// re-attempts the same doomed refresh.
+  private static func refreshFailureMessage(for error: Error) -> String {
+    if let authError = error as? AuthClientError {
+      switch authError {
+      case .unauthorized, .forbidden:
+        return "Your session on this device has expired — sign in again from Settings → Cloud."
+      case .network:
+        return "Couldn't reach the server — check your connection and try again."
+      case .http, .decode:
+        return "Something went wrong pairing with the server — try again."
+      }
+    }
+    if error is URLError {
+      return "Couldn't reach the server — check your connection and try again."
+    }
+    return "Something went wrong — try again."
+  }
 
   private static func message(for error: Error) -> String {
     if let authError = error as? AuthClientError {
@@ -174,6 +268,16 @@ final class PairAppleTVViewModel {
   }
 
   private static func isSignedIn(_ server: URL) -> Bool {
-    ((try? TokenStore.load(server: server)) ?? nil) != nil
+    // Distinguish "no entry" (definitively signed out) from a transient
+    // Keychain read failure (locked Keychain / errSecInteractionNotAllowed).
+    // On a read failure, assume signed in so a paired server doesn't
+    // spuriously drop out of the picker — mirrors
+    // SelfHostedSettingsTab.refreshSignedIn's transient-vs-definitive
+    // handling (itself mirroring AuthSession.bootstrapAndRestore).
+    do {
+      return try TokenStore.load(server: server) != nil
+    } catch {
+      return true
+    }
   }
 }

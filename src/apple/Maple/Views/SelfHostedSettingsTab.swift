@@ -10,6 +10,24 @@ import MapleCore
 
 private let selfHostedSettingsLog = Logger(subsystem: "app.justmaple.aperture", category: "signin")
 
+#if os(iOS)
+/// Backing value for the "Pair Apple TV…" `.sheet(item:)` (#2082, C4
+/// review) — mirrors `AddCloudSheetTarget`. Unlike that enum, this one
+/// carries the view model itself rather than a plain marker case, so the
+/// view model is constructed exactly once per presentation (at the button
+/// tap) instead of being rebuilt every time the sheet's content closure
+/// re-evaluates.
+enum PairSheetTarget: Identifiable {
+    case pairing(PairAppleTVViewModel)
+
+    var id: ObjectIdentifier {
+        switch self {
+        case .pairing(let viewModel): return ObjectIdentifier(viewModel)
+        }
+    }
+}
+#endif
+
 /// Lists registered servers (`CloudServerRegistry`) and lets the user add
 /// new ones via `AddMapleCloudSheet` or remove existing ones.
 struct SelfHostedSettingsTab: View {
@@ -18,11 +36,10 @@ struct SelfHostedSettingsTab: View {
     /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(host)`
     /// for a per-server "Sign In" (#1381).
     @State private var sheetTarget: AddCloudSheetTarget?
-    /// Parallel sheet trigger for "Pair Apple TV…" (#2082) — unlike
-    /// `sheetTarget` it has no prefill payload, so a plain `Bool` is enough
-    /// rather than growing `AddCloudSheetTarget` with an unrelated case.
+    /// Parallel sheet trigger for "Pair Apple TV…" (#2082) — see
+    /// `PairSheetTarget`.
     #if os(iOS)
-    @State private var showPairAppleTVSheet = false
+    @State private var pairSheetTarget: PairSheetTarget?
     #endif
     /// Per-server signed-in state, derived from Keychain token presence. This
     /// is a separate macOS Settings scene, so it can't observe the app's
@@ -91,7 +108,7 @@ struct SelfHostedSettingsTab: View {
             HStack {
                 Spacer()
                 #if os(iOS)
-                Button("Pair Apple TV…") { showPairAppleTVSheet = true }
+                Button("Pair Apple TV…") { pairSheetTarget = .pairing(PairAppleTVViewModel()) }
                     .accessibilityLabel("Pair Apple TV")
                 #endif
                 Button("Add Server…") { sheetTarget = .fresh }
@@ -133,11 +150,14 @@ struct SelfHostedSettingsTab: View {
             )
         }
         #if os(iOS)
-        .sheet(isPresented: $showPairAppleTVSheet) {
-            PairAppleTVSheet(
-                viewModel: PairAppleTVViewModel(),
-                onDismiss: { showPairAppleTVSheet = false }
-            )
+        .sheet(item: $pairSheetTarget) { target in
+            switch target {
+            case .pairing(let viewModel):
+                PairAppleTVSheet(
+                    viewModel: viewModel,
+                    onDismiss: { pairSheetTarget = nil }
+                )
+            }
         }
         #endif
     }
