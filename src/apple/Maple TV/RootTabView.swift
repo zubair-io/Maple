@@ -13,7 +13,7 @@ import UIKit
 /// just now one of three tabs instead of the whole screen.
 ///
 /// Light Table is `LightTableScreen` (F2, #2121) as of this file; Search
-/// (milestone E) is still a placeholder — see `SearchTabPlaceholder.swift`.
+/// (milestone E) is `SearchScreen` — see `SearchScreen.swift`.
 ///
 /// F3 (#2121) adds the idle screensaver: `idleMonitor` fires after
 /// `Self.idleInterval` of no observed Siri Remote activity, which flips
@@ -147,7 +147,7 @@ struct RootTabView: View {
     case .lightTable:
       LightTableScreen(session: session, libraryID: libraryID)
     case .search:
-      SearchTabPlaceholder()
+      SearchScreen(session: session, libraryID: libraryID)
     }
   }
 
