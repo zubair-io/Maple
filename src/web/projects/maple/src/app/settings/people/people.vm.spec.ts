@@ -15,8 +15,6 @@ import {
   bulkSuccessLabel,
   chunkPeopleRows,
   clusteringSummary,
-  hidePeopleConfirm,
-  hidePersonConfirm,
   faceCropTransform,
   faceKey,
   filterNamed,
@@ -386,14 +384,6 @@ describe('faceCropTransform', () => {
 
 // ── Copy / labels ─────────────────────────────────────────────────────────
 
-describe('hidePersonConfirm', () => {
-  it('pluralises photos honestly and mentions restore', () => {
-    expect(hidePersonConfirm('Alice', 1)).toContain('1 photo stays grouped');
-    expect(hidePersonConfirm('Alice', 4)).toContain('4 photos stay grouped');
-    expect(hidePersonConfirm('Alice', 4)).toContain('Hidden page');
-  });
-});
-
 describe('clusteringSummary', () => {
   it('handles zero assignments', () => {
     expect(clusteringSummary({ assigned: 0, newPeople: 0 })).toBe('No new faces to assign.');
@@ -453,12 +443,10 @@ describe('mergeTargets', () => {
   });
 });
 
-describe('mergePeopleConfirm / hidePeopleConfirm', () => {
+describe('mergePeopleConfirm', () => {
   it('pluralises the subject count', () => {
     expect(mergePeopleConfirm(1, 'Alice')).toContain('1 person into "Alice"');
     expect(mergePeopleConfirm(3, 'Alice')).toContain('3 people into "Alice"');
-    expect(hidePeopleConfirm(1)).toContain('Hide 1 person');
-    expect(hidePeopleConfirm(2)).toContain('Hide 2 people');
   });
 });
 

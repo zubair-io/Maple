@@ -327,20 +327,6 @@ export function faceCropTransform(
 
 // ── Copy / labels ─────────────────────────────────────────────────────────
 
-/** Confirm-prompt body for the per-row + detail-header hide buttons. Hiding
- * is a soft action — the person moves to the Hidden page, their photos stay
- * grouped, and they can be restored anytime. Pluralises "photo"/"photos"
- * honestly so the copy never reads "1 photos". */
-export function hidePersonConfirm(name: string, faceCount: number): string {
-  return `Hide "${name}"? They'll move to the Hidden page; their ${faceCount} photo${faceCount === 1 ? ' stays' : 's stay'} grouped and you can restore them anytime.`;
-}
-
-/** Confirm-prompt body for bulk soft-hide from the list toolbar. Pluralises
- * "person"/"people" honestly. Soft action — rows move to the Hidden page. */
-export function hidePeopleConfirm(count: number): string {
-  return `Hide ${count} ${count === 1 ? 'person' : 'people'}? They'll move to the Hidden page; their photos stay grouped and you can restore them anytime.`;
-}
-
 /** Confirm-prompt body for a bulk / explicit merge. The target survives; the
  * merged people's faces are reassigned to it. Pluralises honestly. */
 export function mergePeopleConfirm(count: number, targetName: string): string {
