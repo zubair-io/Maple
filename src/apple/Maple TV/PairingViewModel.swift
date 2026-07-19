@@ -127,8 +127,14 @@ final class PairingViewModel {
         CloudServerRegistry.shared.setDisplayName(grant.deviceName, for: grant.serverURL)
         onPaired()
       } catch {
+        // Stay in `.failed` — do NOT call `start()` here. `start()` runs
+        // synchronously on the MainActor and would overwrite `phase` back
+        // to `.ready(...)` before SwiftUI ever renders this `.failed`
+        // value, so the user would never see the validation error. Match
+        // the listener-bind-failure path above: surface the failure and
+        // let the user's existing Retry affordance (which calls `start()`)
+        // drive regeneration (C3 review).
         phase = .failed("Pairing didn't validate: \(error.localizedDescription)")
-        start()
       }
     }
   }
