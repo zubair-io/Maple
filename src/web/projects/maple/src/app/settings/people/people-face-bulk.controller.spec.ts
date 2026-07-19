@@ -39,8 +39,8 @@ function detailWith(overrides: Partial<ApiPersonDetail> = {}): ApiPersonDetail {
 describe('PeopleFaceBulkController — selection + bulk actions', () => {
   let assignFaceToPerson: ReturnType<typeof vi.fn>;
   let hideFace: ReturnType<typeof vi.fn>;
-  let openDetail: ReturnType<typeof vi.fn>;
-  let refresh: ReturnType<typeof vi.fn>;
+  let openDetail: ReturnType<typeof vi.fn<(id: string) => void>>;
+  let refresh: ReturnType<typeof vi.fn<() => void>>;
   let toast: ReturnType<typeof vi.fn<(text: string, tone: Tone) => void>>;
   let selected: ReturnType<typeof signal<ApiPersonDetail | null>>;
   let visibleFaces: ReturnType<typeof signal<ApiPersonFace[]>>;
@@ -50,8 +50,8 @@ describe('PeopleFaceBulkController — selection + bulk actions', () => {
   beforeEach(() => {
     assignFaceToPerson = vi.fn(() => of({}));
     hideFace = vi.fn(() => of({}));
-    openDetail = vi.fn();
-    refresh = vi.fn();
+    openDetail = vi.fn<(id: string) => void>();
+    refresh = vi.fn<() => void>();
     toast = vi.fn<(text: string, tone: Tone) => void>();
     selected = signal<ApiPersonDetail | null>(detailWith());
     visibleFaces = signal<ApiPersonFace[]>([face('f1'), face('f2')]);
