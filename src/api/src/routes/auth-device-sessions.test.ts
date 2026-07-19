@@ -174,6 +174,26 @@ describe('device-session routes (#2075)', () => {
     expect(listedBody.sessions).toHaveLength(0);
   });
 
+  it("rejects mint when the proof is a device session's own token (403) — only primary logins pair", async () => {
+    const userId = await seedUser('owner2b@maple.test');
+    const bearer = await bearerFor(userId, 'owner2b@maple.test');
+
+    // A live, caller-owned, platform-marked credential (an already-paired TV).
+    const tv = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const res = await mint(bearer, {
+      label: 'Bedroom',
+      platform: 'tvos',
+      refresh_token: tv.raw,
+    });
+    expect(res.status).toBe(403);
+
+    const listed = await list(bearer);
+    const listedBody = (await listed.json()) as { sessions: { label: string }[] };
+    // Only the seeded TV family exists — no second session was minted from it.
+    expect(listedBody.sessions).toHaveLength(1);
+    expect(listedBody.sessions[0].label).toBe('Living Room');
+  });
+
   it('rejects mint with no Authorization header (401)', async () => {
     const res = await mint(undefined, {
       label: 'Kitchen',
