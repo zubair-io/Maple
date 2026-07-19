@@ -194,6 +194,28 @@ describe('device-session routes (#2075)', () => {
     expect(listedBody.sessions[0].label).toBe('Living Room');
   });
 
+  it('rejects mint when the proof token belongs to a logged-out (family-revoked) session (403)', async () => {
+    const userId = await seedUser('owner2c@maple.test');
+    const bearer = await bearerFor(userId, 'owner2c@maple.test');
+
+    // Simulate the logout-race artifact: the presented row itself looks live
+    // (revoked_at null) but its family carries family_revoked_at — the state a
+    // grace-window re-mint can leave behind when it races revokeFamily.
+    const loggedOut = await issueRefreshToken(userId, 'Old Phone');
+    await (
+      await refreshTokensCollection()
+    ).updateMany(
+      { family_id: loggedOut.familyId },
+      { $set: { family_revoked_at: new Date().toISOString() } },
+    );
+    const res = await mint(bearer, {
+      label: 'Kitchen',
+      platform: 'tvos',
+      refresh_token: loggedOut.raw,
+    });
+    expect(res.status).toBe(403);
+  });
+
   it('rejects mint with no Authorization header (401)', async () => {
     const res = await mint(undefined, {
       label: 'Kitchen',
