@@ -157,9 +157,10 @@ async function openEditorWithRaw(page: Page): Promise<void> {
 async function waitForSessionOpen(page: Page, extraWorkers: PWWorker[]): Promise<PWWorker | null> {
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    // A worker qualifies ONLY once it has actually emitted a session measure —
-    // the mark query is inline here (jules review, PR #2096) so the gate is
-    // visible at the loop itself rather than buried in a helper.
+    // A worker qualifies ONLY once it has actually emitted a session measure
+    // (`sessionMeasureCount` returns > 0) — a worker that exists but has not
+    // yet marked a session-open/render does not satisfy the gate, so the wait
+    // continues until one does or the 90s deadline passes.
     for (const worker of [...page.workers(), ...extraWorkers]) {
       if ((await sessionMeasureCount(worker)) > 0) return worker;
     }
