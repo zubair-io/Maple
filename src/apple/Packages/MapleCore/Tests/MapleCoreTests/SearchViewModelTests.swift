@@ -74,6 +74,36 @@ final class SearchViewModelTests: XCTestCase {
       "Cancelled loadMore must not append or remove results")
   }
 
+  // MARK: - cancelPendingDebounce()
+
+  // Observe whether the debounce fired by counting issued requests, not by
+  // watching loadError: the auth HTTP client retries a transport failure
+  // with backoff, so the error only lands after the request already started
+  // — but the request (the responder call) happens right after the debounce.
+
+  func test_cancelPendingDebounce_preventsScheduledSubmit() async throws {
+    let counter = RequestCounter()
+    let vm = makeCountingVM(counter)
+    vm.params.placeQuery = "cat"
+    vm.queryChanged()             // schedules the 250 ms debounced submit
+    vm.cancelPendingDebounce()    // ...which we cancel before it can fire
+    try await Task.sleep(for: .milliseconds(400))
+    XCTAssertEqual(counter.count, 0,
+      "A cancelled debounce must issue no search request")
+  }
+
+  func test_queryChanged_withoutCancel_firesSubmit() async throws {
+    // Control: proves the debounce actually fires, so the cancel test above
+    // isn't passing vacuously.
+    let counter = RequestCounter()
+    let vm = makeCountingVM(counter)
+    vm.params.placeQuery = "cat"
+    vm.queryChanged()
+    try await Task.sleep(for: .milliseconds(400))
+    XCTAssertGreaterThan(counter.count, 0,
+      "An un-cancelled debounce must issue at least one request")
+  }
+
   // MARK: - Account-wide search (nil libraryID)
 
   @MainActor
@@ -115,6 +145,34 @@ final class SearchViewModelTests: XCTestCase {
                 abs_path: "/photos/\(id).dng",
                 filename: "\(id).dng")
   }
+
+  /// A VM whose every request bumps `counter` (then fails at the transport
+  /// level). Lets a test assert whether the debounced `submit()` actually
+  /// issued a request, independent of when the retried failure surfaces.
+  private func makeCountingVM(_ counter: RequestCounter) -> SearchViewModel {
+    let server = URL(string: "https://stub.test")!
+    let cfg = URLSessionConfiguration.ephemeral
+    cfg.protocolClasses = [StubURLProtocol.self]
+    StubURLProtocol.reset()
+    StubURLProtocol.responder = { _ in
+      counter.increment()
+      return .failure(URLError(.notConnectedToInternet))
+    }
+    let session = URLSession(configuration: cfg)
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    return SearchViewModel(server: server, libraryID: "lib-test", searchClient: client)
+  }
+}
+
+/// Thread-safe request tally — `StubURLProtocol`'s responder runs off the
+/// main actor, so the increment needs a lock.
+final class RequestCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var _count = 0
+  var count: Int { lock.withLock { _count } }
+  func increment() { lock.withLock { _count += 1 } }
 }
 
 // MARK: - Test-only SearchViewModel extensions
