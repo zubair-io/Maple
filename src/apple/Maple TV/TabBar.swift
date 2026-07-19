@@ -1,10 +1,11 @@
 // src/apple/Maple TV/TabBar.swift
 import SwiftUI
 
-/// Which of `RootTabView`'s three tabs is active. `Search` is the milestone
-/// E surface, `LightTable` is the milestone F2 surface — both still render
-/// as placeholders here (#2121); `Timeline` is milestone D's grid, now
-/// hosted as one tab instead of the whole connected root.
+/// Which of `RootTabView`'s three tabs is active. `LightTable` is the
+/// milestone F2 surface (`LightTableScreen`, #2121); `Search` is the
+/// milestone E surface and still renders as a placeholder here;
+/// `Timeline` is milestone D's grid, now hosted as one tab instead of the
+/// whole connected root.
 enum RootTab: String, CaseIterable, Identifiable {
   case timeline
   case lightTable
