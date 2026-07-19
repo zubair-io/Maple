@@ -49,7 +49,7 @@ public struct TimelineDay: Equatable, Identifiable, Sendable {
 public func groupByDay(_ assets: [SearchAsset], calendar: Calendar = .current) -> [TimelineDay] {
   let dated: [(asset: SearchAsset, capturedAt: Date)] = assets.compactMap { asset in
     asset.captured_at
-      .flatMap { timelineGroupingISO8601.date(from: $0) }
+      .flatMap { parseTimelineISO8601($0) }
       .map { (asset, $0) }
   }
   let byDay = Dictionary(grouping: dated) { calendar.startOfDay(for: $0.capturedAt) }
@@ -62,7 +62,43 @@ public func groupByDay(_ assets: [SearchAsset], calendar: Calendar = .current) -
     .sorted { $0.date > $1.date }
 }
 
-/// Process-wide ISO 8601 formatter — documented thread-safe, and shared
+/// Process-wide ISO 8601 formatters — documented thread-safe, and shared
 /// so grouping a month's worth of assets doesn't allocate one per asset
-/// (matches the `iso8601` pattern in `CloudTimelineViewModel`).
-private let timelineGroupingISO8601: ISO8601DateFormatter = ISO8601DateFormatter()
+/// (matches the `iso8601` pattern in `CloudTimelineViewModel`). Two
+/// formatters, tried in order, because `ISO8601DateFormatter` matches its
+/// `formatOptions` exactly — one instance can't parse both shapes:
+///
+///  - The server's real `captured_at` values are Mongo `Date`s serialized
+///    via JS `toISOString()`, which always emits millisecond precision
+///    (`"2022-09-10T11:32:07.000Z"`) — that needs `.withFractionalSeconds`.
+///  - Some inputs (older fixtures, hand-written data) omit the fractional
+///    component (`"2022-09-10T11:32:07Z"`) — that needs it OMITTED, since
+///    `.withFractionalSeconds` rejects a string with no fractional part.
+///
+/// A single formatter without `.withFractionalSeconds` (the original bug)
+/// silently rejected every real server timestamp: `date(from:)` returned
+/// `nil` for every asset, `groupByDay`'s `compactMap` dropped all of them,
+/// and the Timeline rendered "No photos yet" against a library with real,
+/// correctly-indexed photos. Caught via D7 live E2E verification against
+/// the real API — every unit-test fixture in `TVTimelineViewModelTests`
+/// used a fractional-second-free string (`"2026-07-15T10:00:00Z"`), which
+/// the buggy formatter parsed fine, so the bug was invisible to `swift test`.
+private let timelineGroupingISO8601Fractional: ISO8601DateFormatter = {
+  let formatter = ISO8601DateFormatter()
+  formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+  return formatter
+}()
+private let timelineGroupingISO8601Whole: ISO8601DateFormatter = ISO8601DateFormatter()
+
+/// Parses a `captured_at` wire value from the server, trying the
+/// fractional-seconds shape first (what the server actually emits) and
+/// falling back to the whole-seconds shape (older fixtures / hand-written
+/// data). Shared by every Maple TV call site that needs to turn
+/// `SearchAsset.captured_at` back into a `Date` for display —
+/// `TimelineCell` and `PhotoViewerScreen` both call this instead of
+/// keeping their own formatter, so the fractional-seconds fix (and any
+/// future format change) lives in exactly one place.
+public func parseTimelineISO8601(_ isoString: String) -> Date? {
+  timelineGroupingISO8601Fractional.date(from: isoString)
+    ?? timelineGroupingISO8601Whole.date(from: isoString)
+}
