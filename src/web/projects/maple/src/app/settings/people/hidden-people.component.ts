@@ -128,9 +128,14 @@ export class HiddenPeopleComponent implements OnDestroy {
     // Re-target the ResizeObserver each time the viewport appears (it lives in
     // a conditional block, like the main People list).
     effect((onCleanup) => {
-      const ref = this.peopleScrollContent();
-      if (!ref) return;
-      this.observeViewport(ref.nativeElement);
+      // Guard `nativeElement` too, not just the ref: after the @if swap
+      // between the empty state and the populated grid, the signal query
+      // can briefly hold a stale ElementRef whose nativeElement is
+      // undefined, and observeViewport would crash on `host.clientWidth`
+      // every change-detection pass (mirrors the PeopleComponent fix, #2081).
+      const host = this.peopleScrollContent()?.nativeElement;
+      if (!host) return;
+      this.observeViewport(host);
       onCleanup(() => this.resizeObserver?.disconnect());
     });
   }
