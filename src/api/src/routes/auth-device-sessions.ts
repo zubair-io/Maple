@@ -45,10 +45,15 @@ export const authDeviceSessionRoutes = new Elysia({ prefix: '/api/auth/device-se
       // sessions, so pairing authority stays with fully-authenticated primary
       // clients (jules review, PR #2076).
       const c = await refreshTokensCollection();
+      // family_revoked_at guards the logout-race artifact: a grace-window
+      // re-mint can insert a live-looking row (revoked_at null, no per-row
+      // family marker) into a family that logout just killed — the proof must
+      // require the whole family to be alive, not just the presented row.
       const proof = await c.findOne({
         token_hash: hashRefreshToken(body.refresh_token),
         user_id: userId,
         revoked_at: null,
+        family_revoked_at: { $exists: false },
         expires_at: { $gt: new Date() },
         platform: { $exists: false },
       });
