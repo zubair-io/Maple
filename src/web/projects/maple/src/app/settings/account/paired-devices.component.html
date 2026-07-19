@@ -23,6 +23,7 @@
             <button
               type="button"
               class="delete-btn"
+              [attr.aria-label]="'Revoke ' + s.label"
               [disabled]="busyId() === s.id"
               (click)="revoke(s)"
             >
