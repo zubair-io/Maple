@@ -102,6 +102,25 @@ final class TVTimelineViewModelTests: XCTestCase {
     XCTAssertTrue(groupByDay([], calendar: utcCalendar).isEmpty)
   }
 
+  /// Regression for a D7 live-E2E finding: the server's real `captured_at`
+  /// values are Mongo `Date`s serialized via JS `toISOString()`, which
+  /// always carries millisecond precision (`"...07.000Z"`), NOT the
+  /// whole-seconds shape every other fixture in this file uses. A bare
+  /// `ISO8601DateFormatter()` (no `.withFractionalSeconds`) silently fails
+  /// to parse that shape, so every asset got dropped and the Timeline
+  /// rendered "No photos yet" against a library with real, correctly
+  /// indexed photos — invisible to this suite until fixtures matched the
+  /// server's actual wire format.
+  func test_groupByDay_parsesServerCapturedAtWithFractionalSeconds() {
+    let withMillis = makeAsset(id: "millis", capturedAt: "2022-09-10T11:32:07.000Z")
+
+    let days = groupByDay([withMillis], calendar: utcCalendar)
+
+    XCTAssertEqual(days.count, 1,
+      "a fractional-seconds captured_at (the server's real wire format) must not be dropped")
+    XCTAssertEqual(days.first?.assets.map(\.id), ["millis"])
+  }
+
   // MARK: - Staleness guard
 
   /// Mirrors the scenario "a stale load()'s results are dropped": a first
