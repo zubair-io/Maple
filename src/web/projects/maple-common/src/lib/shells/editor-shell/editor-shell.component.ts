@@ -520,7 +520,16 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
       const addr = routeSegmentsToAddress(slug, segments);
       const addrStr = formatAddress(addr);
       const assets = this.state.assets();
-      const target = assets.find((a) => a.id === addrStr);
+      // Match the MapleAddress id — or, when there is no relPath, the BARE
+      // slug: a landing-page import navigates to `/edit/<uuid>` where the
+      // asset id IS the uuid (no colon), while `formatAddress` yields
+      // `<uuid>:` (trailing colon) which can never equal it. Without the
+      // bare-slug fallback the primary Hosted "Open a photo" flow resolved no
+      // asset, fell through to `hydrateFromCache('')`, and bounced straight
+      // back to the landing (#1960 found this while unblocking the bench).
+      const target =
+        assets.find((a) => a.id === addrStr) ??
+        (addr.relPath === '' ? assets.find((a) => a.id === slug) : undefined);
       if (target) {
         this.state.selectAsset(target.id);
         return;
