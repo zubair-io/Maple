@@ -38,7 +38,6 @@ import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { firstValueFrom } from 'rxjs';
 import {
   ApiMergeSuggestion,
   ApiPerson,
@@ -60,8 +59,6 @@ import {
   Toast,
   Tone,
   averageConfidence,
-  bulkFailureLabel,
-  bulkSuccessLabel,
   chunkPeopleRows,
   clusteringSummary,
   errorMessage,
@@ -76,14 +73,12 @@ import {
   peopleRowHeight,
   peopleRowKey,
   peopleStats,
-  pickSelectedFaces,
-  selectAllKeys,
   sortPeople,
-  toggleSelection,
   visibleFaces,
 } from './people.vm';
 import { PeopleBulkController } from './people-bulk.controller';
 import { PeopleDetailController } from './people-detail.controller';
+import { PeopleFaceBulkController } from './people-face-bulk.controller';
 
 @Component({
   standalone: true,
@@ -139,10 +134,6 @@ export class PeopleComponent implements OnDestroy {
   readonly draftName = signal<string>('');
 
   readonly toast = signal<Toast | null>(null);
-
-  /** Per-face selection set for bulk actions. Keyed by `assetId:faceIndex`
-   * so we can intersect with the detail's faces list cleanly. */
-  readonly selectedFaces = signal<ReadonlySet<string>>(new Set());
 
   /** Minimum detector confidence (0-100) for the visible-faces filter.
    * Labelled "Min detector confidence" in the UI — the API's
@@ -254,6 +245,18 @@ export class PeopleComponent implements OnDestroy {
    * lifecycle / cache-key rules. Created once per component instance. */
   private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse, this.librarySource);
 
+  /** Detail-view per-face selection + bulk move/unassign/hide. Declared
+   * before {@link detailCtl}, which reads its `selectedFaces` signal. */
+  readonly faceBulk = new PeopleFaceBulkController({
+    api: this.api,
+    selected: this.selected,
+    visibleFaces: this.visibleFaces,
+    bulkBusy: this.bulkBusy,
+    openDetail: (id) => this.openDetail(id),
+    refresh: () => this.refresh(),
+    toast: (text, tone) => this.showToast(text, tone),
+  });
+
   /** Detail-view face actions: set-as-cover, open-in-editor, infinite
    * scroll, thumb prefetch, and the merge-suggestion compare strip.
    * Declared after {@link thumbs} — field-initializer order. */
@@ -264,8 +267,8 @@ export class PeopleComponent implements OnDestroy {
     selected: this.selected,
     people: this.people,
     thumbs: this.thumbs,
-    selectedFaces: this.selectedFaces,
-    clearSelection: () => this.clearSelection(),
+    selectedFaces: this.faceBulk.selectedFaces,
+    clearSelection: () => this.faceBulk.clearSelection(),
     bulkBusy: this.bulkBusy,
     toast: (text, tone) => this.showToast(text, tone),
   });
@@ -298,7 +301,7 @@ export class PeopleComponent implements OnDestroy {
       // Clear the per-face selection whenever the active person changes — a
       // selection keyed on the previous person's faces is meaningless once
       // we switch detail (or return to the list).
-      this.selectedFaces.set(new Set());
+      this.faceBulk.clearSelection();
     });
 
     // Detail-panel thumbs prefetch eagerly — the visible-faces grid can be
@@ -482,89 +485,13 @@ export class PeopleComponent implements OnDestroy {
     }
   }
 
-  // ── Face selection (bulk) ───────────────────────────────────────────
+  // ── Face-key helper ─────────────────────────────────────────────────
+  // Shared `@for` track-by across the visible-faces grid and the
+  // merge-suggestion "Compare faces" strip. Per-face selection + bulk
+  // move/unassign/hide live in {@link faceBulk} (`PeopleFaceBulkController`).
 
   faceKey(face: { assetId: string; faceIndex: number }): string {
     return faceKey(face);
-  }
-
-  isFaceSelected(face: { assetId: string; faceIndex: number }): boolean {
-    return this.selectedFaces().has(faceKey(face));
-  }
-
-  toggleFaceSelection(face: { assetId: string; faceIndex: number }): void {
-    this.selectedFaces.set(toggleSelection(this.selectedFaces(), face));
-  }
-
-  clearSelection(): void {
-    this.selectedFaces.set(new Set());
-  }
-
-  selectAllVisible(): void {
-    this.selectedFaces.set(selectAllKeys(this.visibleFaces()));
-  }
-
-  /** Fan one bulk action out over the current selection. `verb` is the
-   * past-tense word the toast uses ("Moved", "Unassigned", "Hid") so each
-   * action stays grammatically clean without duplicating the try/finally
-   * + busy-counter scaffolding.
-   *
-   * Uses `Promise.allSettled` rather than `Promise.all` so a single
-   * per-face failure doesn't abort the whole batch: any face that did
-   * succeed is now on a different person / hidden, and skipping the
-   * refresh would leave the UI lying about server state. The toast
-   * surfaces the success/failure split; failures still flow into the
-   * error toast so the operator sees what went wrong. */
-  private async bulkApply(
-    verb: string,
-    fn: (face: ApiPersonFace) => Promise<unknown>,
-  ): Promise<void> {
-    const faces = pickSelectedFaces(this.selected(), this.selectedFaces());
-    if (faces.length === 0) return;
-    this.bulkBusy.update((n) => n + 1);
-    try {
-      const results = await Promise.allSettled(faces.map(fn));
-      const ok = results.filter((r) => r.status === 'fulfilled').length;
-      const failed = results.length - ok;
-
-      if (ok > 0) {
-        this.showToast(bulkSuccessLabel(verb, ok), 'success');
-      }
-      if (failed > 0) {
-        const firstReject = results.find(
-          (r): r is PromiseRejectedResult => r.status === 'rejected',
-        );
-        const reason = firstReject ? errorMessage(firstReject.reason) : 'unknown error';
-        this.showToast(bulkFailureLabel(failed, reason), 'error');
-      }
-    } finally {
-      // Always clear selection + refresh, even on partial / total failure
-      // — the server state for the successful faces moved, so leaving the
-      // UI alone would lie about what's where.
-      this.clearSelection();
-      const open = this.selected();
-      if (open) this.openDetail(open.id);
-      this.refresh();
-      this.bulkBusy.update((n) => Math.max(0, n - 1));
-    }
-  }
-
-  bulkMoveTo(personId: string): Promise<void> {
-    const target = personId.trim();
-    if (!target) return Promise.resolve();
-    return this.bulkApply('Moved', (f) =>
-      firstValueFrom(this.api.assignFaceToPerson(f.assetId, f.faceIndex, target)),
-    );
-  }
-
-  bulkUnassign(): Promise<void> {
-    return this.bulkApply('Unassigned', (f) =>
-      firstValueFrom(this.api.assignFaceToPerson(f.assetId, f.faceIndex, null)),
-    );
-  }
-
-  bulkHide(): Promise<void> {
-    return this.bulkApply('Hid', (f) => firstValueFrom(this.api.hideFace(f.assetId, f.faceIndex)));
   }
 
   // ── Cover-thumb URL helpers ─────────────────────────────────────────
