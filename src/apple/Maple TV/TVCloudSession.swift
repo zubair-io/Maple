@@ -31,6 +31,24 @@ enum LibraryResolution {
 @Observable
 final class TVCloudSession {
   let server: URL
+  /// `/api/search` client. Feeds `TVTimelineViewModel` (TV-native, since
+  /// `CloudTimelineViewModel` carries a PhotoKit-merge dependency this
+  /// target doesn't link) AND — starting with the search screen, #2120 —
+  /// MapleCloudKit's own `SearchViewModel` (`Cloud/SearchViewModel.swift`)
+  /// used AS-IS, no TV wrapper. Unlike the timeline VM, `SearchViewModel`
+  /// has no non-portable dependency: it's built entirely on
+  /// `CloudSearchClient` / `SearchParams` / `SearchAsset`, the same
+  /// primitives `TVTimelineViewModel` already uses, and
+  /// `MapleCloudKitPortabilityTests` already guarantees it carries no
+  /// forbidden import. Its debounced `queryChanged()` + generation-guarded
+  /// `submit()`/`loadMore()` shape is exactly what a TV search screen
+  /// needs (mirrors the desktop `CloudSearchView`'s usage). The search
+  /// screen constructs it the same way `TimelineScreen` constructs
+  /// `TVTimelineViewModel` — inline in its own `init`, e.g.
+  /// `SearchViewModel(server: session.server, libraryID:, searchClient:
+  /// session.searchClient)` — rather than through a factory here, matching
+  /// this session's existing convention of exposing raw clients and
+  /// letting each screen own its VM's construction and lifetime.
   let searchClient: CloudSearchClient
   let thumbClient: CloudThumbClient
   /// Shared across every `TVRemoteImage` this session's screens render
