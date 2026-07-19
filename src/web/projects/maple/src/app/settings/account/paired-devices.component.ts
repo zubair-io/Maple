@@ -43,6 +43,7 @@ export class PairedDevicesComponent {
     const ok = confirm(`Sign out "${session.label}"? The device will need to be paired again.`);
     if (!ok) return;
     this.busyId.set(session.id);
+    this.error.set(null);
     try {
       await this.auth.revokeDeviceSession(session.id);
       this.sessions.set((this.sessions() ?? []).filter((s) => s.id !== session.id));

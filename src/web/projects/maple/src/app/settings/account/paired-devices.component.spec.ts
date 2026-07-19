@@ -98,6 +98,33 @@ describe('PairedDevicesComponent', () => {
     expect(el().querySelectorAll('.card-row').length).toBe(1);
   });
 
+  it('clears the revoke-failure banner once a later revoke succeeds', async () => {
+    const revokeDeviceSession = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('step-up failed'))
+      .mockResolvedValueOnce(undefined);
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
+    await setup({
+      listDeviceSessions: () => of([session()]),
+      revokeDeviceSession,
+    });
+    fixture.detectChanges();
+
+    el().querySelector<HTMLButtonElement>('.delete-btn')!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(el().textContent).toContain('Revoke failed — try again.');
+    expect(el().querySelectorAll('.card-row').length).toBe(1);
+
+    el().querySelector<HTMLButtonElement>('.delete-btn')!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    fixture.detectChanges();
+    expect(el().textContent).not.toContain('Revoke failed');
+    expect(el().querySelectorAll('.card-row').length).toBe(0);
+  });
+
   it('shows the error banner (not Loading) when the initial load fails, and Retry recovers', async () => {
     const listDeviceSessions = vi
       .fn()
