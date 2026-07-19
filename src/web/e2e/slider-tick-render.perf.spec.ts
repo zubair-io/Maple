@@ -117,21 +117,17 @@ async function sessionRenderDurations(worker: PWWorker): Promise<number[]> {
   );
 }
 
-/** The dedicated worker that has emitted session marks, or null (busy/none). */
-async function findRenderWorker(workers: PWWorker[]): Promise<PWWorker | null> {
-  for (const w of workers) {
-    const n = await evalGuarded(
-      w,
-      () =>
-        performance
-          .getEntriesByType('measure')
-          .filter((e) => e.name === 'maple:session-render' || e.name === 'maple:session-open')
-          .length,
-      0,
-    );
-    if (n > 0) return w;
-  }
-  return null;
+/** Count the worker's `maple:session-open`/`maple:session-render` measures
+ *  (0 if none yet, or if the worker is busy in WASM — evalGuarded fallback). */
+async function sessionMeasureCount(worker: PWWorker): Promise<number> {
+  return evalGuarded(
+    worker,
+    () =>
+      performance
+        .getEntriesByType('measure')
+        .filter((e) => e.name === 'maple:session-render' || e.name === 'maple:session-open').length,
+    0,
+  );
 }
 
 /** Open the landing, load the RAW, and wait for the editor route. */
@@ -161,8 +157,12 @@ async function openEditorWithRaw(page: Page): Promise<void> {
 async function waitForSessionOpen(page: Page, extraWorkers: PWWorker[]): Promise<PWWorker | null> {
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const worker = await findRenderWorker([...page.workers(), ...extraWorkers]);
-    if (worker) return worker;
+    // A worker qualifies ONLY once it has actually emitted a session measure —
+    // the mark query is inline here (jules review, PR #2096) so the gate is
+    // visible at the loop itself rather than buried in a helper.
+    for (const worker of [...page.workers(), ...extraWorkers]) {
+      if ((await sessionMeasureCount(worker)) > 0) return worker;
+    }
     await page.waitForTimeout(500);
   }
   return null;
