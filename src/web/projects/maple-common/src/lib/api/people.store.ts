@@ -418,8 +418,10 @@ export class PeopleStore implements Store<ApiPerson[]> {
   // (eviction + list invalidation) happens atomically with the mutation.
 
   /** Evict the given details, then refresh BOTH the main and hidden lists
-   * once. Shared by every people mutation that can move rows between the two
-   * lists (hide / unhide / merge) so the cache bookkeeping lives in one place. */
+   * once. Shared by mutations that need an authoritative main-list refetch
+   * (unhide / merge) so the cache bookkeeping lives in one place. NOT used
+   * by hide — see `hidePerson`/`hidePeople` for why a main-list refetch on
+   * hide is actively harmful, not just redundant. */
   private _evictAndRefreshLists(ids: string[]): void {
     ids.forEach((id) => this.evictDetail(id));
     this.invalidate();
@@ -428,28 +430,55 @@ export class PeopleStore implements Store<ApiPerson[]> {
 
   /** Optimistically drop the given ids from the cached list SIGNAL (not a
    * server call) so a hide reads as instant instead of waiting on the
-   * mutation + list round-trip. The follow-up `invalidate()` in
-   * `_evictAndRefreshLists` reconciles against the server shortly after —
-   * this is purely the immediate, no-network-wait visual update. */
-  private _removeFromList(ids: readonly string[]): void {
+   * mutation round-trip. Returns the removed rows so a caller can restore
+   * them locally (no network call) if the mutation doesn't pan out —
+   * see `_restoreToList`. */
+  private _removeFromList(ids: readonly string[]): ApiPerson[] {
     const drop = new Set(ids);
-    this._list.update((list) => list?.filter((p) => !drop.has(p.id)));
+    let removed: ApiPerson[] = [];
+    this._list.update((list) => {
+      if (!list) return list;
+      removed = list.filter((p) => drop.has(p.id));
+      return list.filter((p) => !drop.has(p.id));
+    });
+    return removed;
   }
 
-  /** Soft-hide a person server-side, then evict + refresh both lists. Removes
-   * the row from the cached list immediately (before the request lands) so
-   * the person disappears without waiting on the round-trip; on failure the
-   * removal is rolled back via a list refetch (the person never left
-   * server-side) before the error propagates for the caller's error toast. */
+  /** Re-insert previously-removed rows into the cached list SIGNAL — the
+   * no-network-call counterpart to `_removeFromList`, used to roll back an
+   * optimistic hide that didn't actually happen (or didn't stick)
+   * server-side. Deliberately local-only: see `hidePerson` for why a
+   * server refetch here would reintroduce the exact race this design
+   * avoids. */
+  private _restoreToList(rows: readonly ApiPerson[]): void {
+    if (rows.length === 0) return;
+    this._list.update((list) => (list ? [...list, ...rows] : list));
+  }
+
+  /** Soft-hide a person server-side. Removes the row from the cached list
+   * SIGNAL immediately (before the request lands) so the person disappears
+   * without waiting on the round-trip.
+   *
+   * Deliberately does NOT refetch the main list on success (unlike every
+   * other mutation, which routes through `_evictAndRefreshLists`): a GET
+   * /people that lands while a DIFFERENT hide is still in flight would
+   * still list that other person (their hide hasn't reached the server
+   * yet) and `_list.set(...)` would clobber their own optimistic removal —
+   * they'd flicker back into view until their own request's handler runs.
+   * Since a successful hide's optimistic removal already IS the correct
+   * end state, there is nothing for a refetch to reconcile. On failure the
+   * row is restored locally (same race-avoidance reasoning) before the
+   * error propagates for the caller's error toast. */
   async hidePerson(id: string): Promise<void> {
-    this._removeFromList([id]);
+    const [removed] = this._removeFromList([id]);
     try {
       await firstValueFrom(this.api.hidePerson(id));
     } catch (err) {
-      this.invalidate();
+      if (removed) this._restoreToList([removed]);
       throw err;
     }
-    this._evictAndRefreshLists([id]);
+    this.evictDetail(id);
+    this.invalidateHidden();
   }
 
   /** Restore a hidden person, then evict + refresh both lists. Throws on failure. */
@@ -488,21 +517,36 @@ export class PeopleStore implements Store<ApiPerson[]> {
     this.invalidate();
   }
 
-  /** Bulk soft-hide. Removes all of them from the cached list immediately
-   * (before any request lands), then fans out the per-person hide in
-   * parallel (allSettled so a single failure doesn't abort the batch), then
-   * evicts + refreshes both lists once. The refresh reconciles anyone whose
-   * hide actually failed server-side back into view — no separate rollback
-   * needed the way the single-hide path requires, since this always
-   * refetches regardless of partial failure. Returns ok/failed counts for
-   * the toast. */
+  /** Bulk soft-hide. Removes all of them from the cached list SIGNAL
+   * immediately (before any request lands), then fans out the per-person
+   * hide in parallel (allSettled so a single failure doesn't abort the
+   * batch). Like `hidePerson`, deliberately does NOT refetch the main list
+   * afterward — instead, any id whose hide actually failed server-side is
+   * restored locally from the rows `_removeFromList` handed back. A refetch
+   * here would reintroduce the exact race `hidePerson` avoids: a GET
+   * /people landing while a DIFFERENT hide (this batch or another) is still
+   * in flight would clobber that one's optimistic removal too. Evicts every
+   * id's detail cache and refreshes the hidden list once (only if at least
+   * one succeeded — no point invalidating it over an all-failed batch).
+   * Returns ok/failed counts for the toast. */
   async hidePeople(ids: string[]): Promise<{ ok: number; failed: number }> {
-    this._removeFromList(ids);
+    const removedById = new Map(this._removeFromList(ids).map((p) => [p.id, p]));
     const results = await Promise.allSettled(
       ids.map((id) => firstValueFrom(this.api.hidePerson(id))),
     );
-    const ok = results.filter((r) => r.status === 'fulfilled').length;
-    this._evictAndRefreshLists(ids);
+    let ok = 0;
+    const failedRows: ApiPerson[] = [];
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        ok += 1;
+      } else {
+        const row = removedById.get(ids[i]);
+        if (row) failedRows.push(row);
+      }
+    });
+    this._restoreToList(failedRows);
+    ids.forEach((id) => this.evictDetail(id));
+    if (ok > 0) this.invalidateHidden();
     return { ok, failed: ids.length - ok };
   }
 
