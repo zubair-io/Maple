@@ -21,6 +21,9 @@ struct ConnectedScreen: View {
 
   @State private var session: TVCloudSession?
   @State private var resolution: LibraryResolution?
+  /// Guards against a rapid double-tap on Retry spawning two concurrent
+  /// `resolve()` calls that race to set `session`/`resolution`.
+  @State private var isResolving = false
 
   private var displayHost: String {
     CloudHost.parse(server.absoluteString)?.displayHost ?? server.host ?? server.absoluteString
@@ -89,10 +92,10 @@ struct ConnectedScreen: View {
           loadingView
         }
       case .one:
-        // `resolveLibraries()` always calls `select(_:)` before
-        // returning `.one`, so `session.selectedLibraryID` above should
-        // already be non-nil by the time this case could be reached —
-        // this is a one-frame transitional state, not a steady one.
+        // `session.selectedLibraryID` is seeded from CloudServerRegistry
+        // at `TVCloudSession` init, so it's already non-nil here whether
+        // or not this `resolveLibraries()` pass itself called `select(_:)`
+        // — this is a one-frame transitional state, not a steady one.
         loadingView
       }
     } else {
@@ -158,6 +161,9 @@ struct ConnectedScreen: View {
   /// Retry re-resolves against the same `AuthenticatedHTTPClient` and
   /// preserves whatever `selectedLibraryID` was already persisted.
   private func resolve() async {
+    guard !isResolving else { return }
+    isResolving = true
+    defer { isResolving = false }
     let activeSession = session ?? TVCloudSession(server: server, onSignOut: onForgotten)
     session = activeSession
     resolution = await activeSession.resolveLibraries()

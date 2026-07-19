@@ -157,10 +157,13 @@ struct TimelineScreen: View {
     guard let place else { return nil }
     if let rollups = place.rollups {
       let parts = [rollups.locality, rollups.region ?? rollups.country_code]
-        .compactMap { $0 }
+        .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty }
       if !parts.isEmpty { return parts.joined(separator: ", ") }
     }
-    return place.display_name
+    // An empty/whitespace-only `display_name` is "no usable place," same
+    // as `nil` — otherwise the header renders a trailing "— " artifact.
+    let displayName = place.display_name?.trimmingCharacters(in: .whitespaces)
+    return (displayName?.isEmpty == false) ? displayName : nil
   }
 }
