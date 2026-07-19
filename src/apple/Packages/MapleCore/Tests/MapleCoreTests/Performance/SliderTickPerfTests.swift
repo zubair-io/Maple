@@ -254,9 +254,35 @@ final class SliderTickPerfTests: XCTestCase {
             return model
         }
 
+        // HERMETICITY (#2113 / Copilot #2115): the ratio must isolate the
+        // ONE fix each arm varies and be identical regardless of the
+        // runner's MAPLE_DISABLE_* env vars. So every non-varied gate is
+        // PINNED to a fixed state in BOTH arms via the same runtime hooks
+        // (not merely invalidated — invalidate leaves the env-derived
+        // enabled/disabled state in place), and all three hooks are reset to
+        // nil in the `defer` below so nothing leaks to another test.
+        defer {
+            pipeline.ffiInputBufferCache._testSetEnabled(nil)
+            pipeline.sceneLinearChainCache._testSetEnabled(nil)
+            ImageEditPipeline._testSetFusedChainEncodeEnabled(nil)
+        }
+
         func runArm(inputCacheEnabled: Bool) -> SliderTickPerfHarness.DragStats {
+            // Varied fix — the #2083 input-readback cache.
             pipeline.ffiInputBufferCache._testSetEnabled(inputCacheEnabled)
-            pipeline.sceneLinearChainCache.invalidate()
+            // Pinned: fusion DISABLED in both arms. `AdjustmentModel.default`
+            // carries sharpen 40 / nrColor 25, so the #2095 fusion gate can
+            // never engage on this bench regardless — the input-cache win is
+            // measured on the (only reachable) two-step path. Pinning it here
+            // means a runner's MAPLE_DISABLE_FUSED_CHAIN_ENCODE can't perturb
+            // the ratio.
+            ImageEditPipeline._testSetFusedChainEncodeEnabled(false)
+            // Pinned: #661 chain cache ON (production default). The exposure
+            // sweep mutates the model every tick, so this cache MISSES every
+            // tick in both arms regardless of state; pinning it ON keeps a
+            // runner's MAPLE_DISABLE_FFI_CACHE from mattering. Setting it also
+            // drops the slot, so each arm starts clean.
+            pipeline.sceneLinearChainCache._testSetEnabled(true)
             return SliderTickPerfHarness.measureDrag(
                 pipeline: pipeline,
                 decoded: decoded,
@@ -271,10 +297,9 @@ final class SliderTickPerfTests: XCTestCase {
         }
 
         // ON first (production default = the absolute-ceiling/report arm),
-        // then OFF. Restore the env default afterwards.
+        // then OFF. The `defer` above restores every gate to its env default.
         let statsOn = runArm(inputCacheEnabled: true)
         let statsOff = runArm(inputCacheEnabled: false)
-        pipeline.ffiInputBufferCache._testSetEnabled(nil)
 
         // 3. Report both arms + the measured ratio.
         let ratio = statsOn.mean / statsOff.mean
