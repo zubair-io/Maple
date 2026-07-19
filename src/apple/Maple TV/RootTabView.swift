@@ -94,9 +94,14 @@ struct RootTabView: View {
         }
       }
     }
-    .onMoveCommand { _ in handleInteraction() }
-    .onExitCommand { handleInteraction() }
-    .onPlayPauseCommand { handleInteraction() }
+    // NB: the Siri Remote *command* handlers (move / Menu / Play-Pause)
+    // live on `screensaverInputCapture`, not here — attaching
+    // `.onExitCommand` to this always-present root would trap the Menu
+    // button in normal mode (it would poke the idle timer instead of
+    // letting tvOS background the app). Normal-mode activity is already
+    // covered by the `UIFocusSystem.didUpdateNotification` observer
+    // (below) and this `selectedTab` change, so the root only needs the
+    // tab-change signal.
     .onChange(of: selectedTab) { _, _ in handleInteraction() }
     .onAppear {
       let monitor = IdleActivityMonitor(interval: Self.idleInterval, onIdle: enterScreensaver)
@@ -156,14 +161,17 @@ struct RootTabView: View {
 
   /// A transparent, full-screen focus target shown only in screensaver
   /// mode. It grabs focus the moment the screensaver appears
-  /// (`.onAppear`), so every one of the command handlers below fires
-  /// directly on it rather than on whatever was focused before the
-  /// screensaver took over — the disabled `LightTableScreen` underneath
-  /// has no focusable candidates left to compete for that focus (see
-  /// `content` above). Any of the three commands, or the focus grab
-  /// itself failing to matter, all funnel through the same
-  /// `handleInteraction()` used elsewhere, so exiting the screensaver
-  /// this way is just one more "poke."
+  /// (`.onAppear`), so every one of its command handlers fires directly
+  /// on it rather than on whatever was focused before the screensaver
+  /// took over — the disabled `LightTableScreen` underneath has no
+  /// focusable candidates left to compete for that focus (see `content`
+  /// above). The Siri Remote command handlers live *here* rather than on
+  /// the root so they only intercept input while the screensaver is up:
+  /// a directional move, a Menu (`.onExitCommand`), a Play-Pause, or a
+  /// Select press (`.onTapGesture` — the primary button, which the
+  /// command modifiers don't cover) all funnel through the same
+  /// `handleInteraction()` used elsewhere, so exiting the screensaver is
+  /// just one more "poke."
   private var screensaverInputCapture: some View {
     Color.clear
       .contentShape(Rectangle())
@@ -171,6 +179,10 @@ struct RootTabView: View {
       .focusable()
       .focused($isScreensaverCaptureFocused)
       .onAppear { isScreensaverCaptureFocused = true }
+      .onMoveCommand { _ in handleInteraction() }
+      .onExitCommand { handleInteraction() }
+      .onPlayPauseCommand { handleInteraction() }
+      .onTapGesture { handleInteraction() }
       .accessibilityHidden(true)
   }
 
@@ -211,13 +223,13 @@ struct RootTabView: View {
   /// routing that through `handleInteraction()`'s
   /// `exitScreensaver()` branch would dismiss the screensaver in the same
   /// frame it just activated. Genuine dismissal while the screensaver is
-  /// up is already fully covered by the `onMoveCommand`/`onExitCommand`/
-  /// `onPlayPauseCommand` handlers above — `screensaverInputCapture` is
-  /// the *only* focusable candidate in that mode, so every directional
-  /// press falls through to those as a no-candidate-to-move-to fallback
-  /// (see that view's doc comment). So this handler only ever pokes the
-  /// monitor, and only while the screensaver is *not* showing; it never
-  /// exits the screensaver itself.
+  /// up is already fully covered by the command handlers on
+  /// `screensaverInputCapture` (move / Menu / Play-Pause / Select) —
+  /// it's the *only* focusable candidate in that mode, so every
+  /// directional press falls through to those as a no-candidate-to-move-to
+  /// fallback (see that view's doc comment). So this handler only ever
+  /// pokes the monitor, and only while the screensaver is *not* showing;
+  /// it never exits the screensaver itself.
   private func handleFocusUpdate() {
     guard !isScreensaverActive else { return }
     armIdleMonitor()
