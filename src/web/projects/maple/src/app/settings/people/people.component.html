@@ -238,7 +238,9 @@
       </span>
 
       @if (visibleFaces().length > 0) {
-        <button type="button" class="link-action" (click)="selectAllVisible()">Select all</button>
+        <button type="button" class="link-action" (click)="faceBulk.selectAllVisible()">
+          Select all
+        </button>
       }
     </div>
 
@@ -258,14 +260,14 @@
           @for (f of visibleFaces(); track faceKey(f)) {
             <div
               class="face-cell"
-              [class.is-selected]="isFaceSelected(f)"
+              [class.is-selected]="faceBulk.isFaceSelected(f)"
               (mouseenter)="hoveredFace.set(faceKey(f))"
               (mouseleave)="hoveredFace.set(null)"
             >
               <button
                 type="button"
                 class="face-select-btn"
-                [attr.aria-pressed]="isFaceSelected(f)"
+                [attr.aria-pressed]="faceBulk.isFaceSelected(f)"
                 [attr.aria-label]="
                   'Select face from ' +
                   f.absPath +
@@ -275,7 +277,7 @@
                 "
                 (focus)="hoveredFace.set(faceKey(f))"
                 (blur)="hoveredFace.set(null)"
-                (click)="toggleFaceSelection(f)"
+                (click)="faceBulk.toggleFaceSelection(f)"
                 [title]="f.absPath"
               >
                 <span class="face-thumb">
@@ -291,9 +293,9 @@
                     />
                   }
                   <span class="confidence-badge">{{ f.confidence * 100 | number: '1.0-0' }}%</span>
-                  @if (isFaceSelected(f) || hoveredFace() === faceKey(f)) {
-                    <span class="select-check" [class.is-selected]="isFaceSelected(f)">
-                      @if (isFaceSelected(f)) {
+                  @if (faceBulk.isFaceSelected(f) || hoveredFace() === faceKey(f)) {
+                    <span class="select-check" [class.is-selected]="faceBulk.isFaceSelected(f)">
+                      @if (faceBulk.isFaceSelected(f)) {
                         <maple-settings-icon
                           name="check"
                           [size]="11"
@@ -315,7 +317,7 @@
               <button
                 type="button"
                 class="face-open-btn"
-                [class.is-revealed]="isFaceSelected(f)"
+                [class.is-revealed]="faceBulk.isFaceSelected(f)"
                 aria-label="Open photo"
                 title="Open in Preview"
                 (click)="detailCtl.openInPreview(f)"
@@ -334,10 +336,10 @@
         }
       }
 
-      @if (selectedFaces().size > 0) {
+      @if (faceBulk.selectedFaces().size > 0) {
         <div class="bulk-toolbar-wrap">
           <div class="bulk-toolbar">
-            <span class="bulk-count">{{ selectedFaces().size }} selected</span>
+            <span class="bulk-count">{{ faceBulk.selectedFaces().size }} selected</span>
             <div class="bulk-sep"></div>
 
             @if (detailCtl.canSetCover()) {
@@ -362,7 +364,9 @@
               <select
                 class="bulk-select"
                 [disabled]="bulkBusy() > 0"
-                (change)="bulkMoveTo($any($event.target).value); $any($event.target).value = ''"
+                (change)="
+                  faceBulk.bulkMoveTo($any($event.target).value); $any($event.target).value = ''
+                "
               >
                 <option value="">…</option>
                 @for (other of sortedPeople(); track other.id) {
@@ -377,17 +381,22 @@
               type="button"
               class="bulk-btn"
               [disabled]="bulkBusy() > 0"
-              (click)="bulkUnassign()"
+              (click)="faceBulk.bulkUnassign()"
             >
               <maple-settings-icon name="x" [size]="13" color="#f5f4f2" />
               Unassign
             </button>
-            <button type="button" class="bulk-btn" [disabled]="bulkBusy() > 0" (click)="bulkHide()">
+            <button
+              type="button"
+              class="bulk-btn"
+              [disabled]="bulkBusy() > 0"
+              (click)="faceBulk.bulkHide()"
+            >
               <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
               Hide
             </button>
             <div class="bulk-sep"></div>
-            <button type="button" class="bulk-btn mute" (click)="clearSelection()">
+            <button type="button" class="bulk-btn mute" (click)="faceBulk.clearSelection()">
               <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
               Cancel
             </button>
