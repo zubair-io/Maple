@@ -164,4 +164,13 @@ final class FFIInputBufferCache: @unchecked Sendable {
         defer { lock.unlock() }
         slot = nil
     }
+
+    /// Whether the slot is empty — test inspection hook (verifies the
+    /// #2042 gate: an unbounded nil-`targetSize` render must never
+    /// populate the cache).
+    var isEmpty: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return slot == nil
+    }
 }
