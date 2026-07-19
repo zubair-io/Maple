@@ -1476,6 +1476,19 @@ extension PipelineRenderer {
         params: MapleAdjustmentParams,
         noiseProfile: [Float]? = nil
     ) throws -> Data {
+        // Zero/negative dims must fail HERE, not at the buffer pointers below
+        // (PR #2095 review): with width or height 0, `expectedBytes` is 0, an
+        // empty `inputBytes` would pass the size check, and `Data(count: 0)`
+        // yields a nil `baseAddress` — the force unwraps below would trap.
+        // The call site (`applyChainAndEncodeViaFusedFFI`) already guards
+        // w > 0 / h > 0, but this wrapper is a public API of its own. Code 2
+        // mirrors the Rust entry's own zero-dimension rc.
+        guard width > 0, height > 0 else {
+            throw PipelineError.renderFailed(
+                code: 2,
+                message: "applyChainAndEncodeDisplay: zero dimension width=\(width) height=\(height)"
+            )
+        }
         let lanes = width * height * 4
         let expectedBytes = lanes * MemoryLayout<Float>.size
         guard inputBytes.count == expectedBytes else {
@@ -1484,6 +1497,9 @@ extension PipelineRenderer {
                 message: "applyChainAndEncodeDisplay: input \(inputBytes.count) bytes != expected \(expectedBytes)"
             )
         }
+        // Non-empty by construction: width > 0 && height > 0 (guarded above)
+        // ⇒ expectedBytes > 0 ⇒ both `output` and `inputBytes` have non-nil
+        // base addresses, so the `baseAddress!` unwraps below cannot trap.
         var output = Data(count: expectedBytes)
         // Same noise-profile pinning pattern as `applySceneLinearChain`.
         let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in

@@ -50,12 +50,22 @@ use crate::scene_linear_chain::{
 /// entries, whose callers already treat aliasing as unsupported for that
 /// same reason with a fresh output allocation each time).
 ///
-/// Returns 0 on success. On failure, returns the underlying entry's error
-/// code UNCHANGED (1/2/3/8/9 from whichever of the two stages failed) and
-/// `maple_last_error()` carries that stage's message — callers already
-/// branch on these codes for the two-step calls, so no new codes are
-/// introduced. `out_ptr` is left unspecified (not necessarily untouched)
-/// on failure, matching the two-step entries' existing contract.
+/// Returns 0 on success. On failure, no new error CODES are introduced —
+/// callers already branch on 1/2/3/8/9 for the two-step calls — but the
+/// message provenance splits in two (PR #2095 review):
+///
+///   * Argument-validation failures (null pointer → 1, zero dimension → 2,
+///     pixel-count overflow → 3) are caught by THIS entry's own guards
+///     before either stage runs, so `maple_last_error()` carries a message
+///     prefixed `apply_chain_and_encode_display_f32:` — the entry that
+///     actually rejected the arguments names itself.
+///   * Genuine stage failures (and any validation the inner entries do on
+///     their own behalf) propagate the failing stage's rc AND its
+///     `maple_last_error()` message verbatim — nothing here overwrites
+///     them after the fact.
+///
+/// `out_ptr` is left unspecified (not necessarily untouched) on failure,
+/// matching the two-step entries' existing contract.
 #[no_mangle]
 pub unsafe extern "C" fn maple_apply_chain_and_encode_display_f32(
     in_ptr: *const f32,
@@ -97,9 +107,26 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_f32(
     // this function returns. This is the ONE Rust-side allocation that
     // replaces the Swift-side CIImage wrap + CIContext.render readback the
     // two-step path pays per tick.
-    let mut intermediate = vec![0f32; lanes];
+    //
+    // Allocated UNINITIALIZED (capacity only, len 0) rather than
+    // `vec![0f32; lanes]` — the zero-fill memset is ~33 MB per tick at the
+    // 1920×1080 fast-phase viewport, pure waste on the hot path
+    // (PR #2095 review). Written through the raw `as_mut_ptr()`, with
+    // `set_len` deferred until the write is proven complete below.
+    let mut intermediate: Vec<f32> = Vec::with_capacity(lanes);
 
     // Stage 1: the exact same chain entry the two-step path calls.
+    //
+    // SAFETY (uninitialized out-buffer): `maple_apply_scene_linear_chain_f32`
+    // treats `out_ptr` as WRITE-ONLY — its single write is the final
+    // `out_slice.copy_from_slice(&out_vec)` (a pure memcpy, no reads of the
+    // destination), executed only AFTER validating `out_vec.len() == lanes`;
+    // every earlier return leaves `out_ptr` untouched. Handing it
+    // `lanes`-capacity uninitialized memory is therefore exactly the
+    // C-ABI out-parameter contract that entry documents ("out_ptr MUST
+    // point to buffers of size ... The caller owns both buffers") and
+    // already serves for C/Swift callers, whose buffers are equally
+    // arbitrary from Rust's perspective.
     let rc = maple_apply_scene_linear_chain_f32(
         in_ptr,
         width,
@@ -110,8 +137,17 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_f32(
     if rc != 0 {
         // `maple_apply_scene_linear_chain_f32` already called
         // `set_last_error` with its own message; propagate its code as-is.
+        // `intermediate` still has len 0 here — it drops without any of
+        // its (possibly uninitialized) capacity ever being read.
         return rc;
     }
+    // SAFETY: rc == 0 means the chain's `copy_from_slice` ran, which
+    // requires it wrote ALL `lanes` lanes (it length-checks first and a
+    // partial write is impossible — the only write is the full memcpy).
+    // Every element in 0..lanes is therefore initialized, so exposing
+    // them via `set_len` is sound. `lanes <= capacity` by construction
+    // (`with_capacity(lanes)` above).
+    unsafe { intermediate.set_len(lanes) };
 
     // Stage 2: the exact same encode entry the two-step path calls, fed
     // directly from the chain's output — no intervening wrap/readback.
