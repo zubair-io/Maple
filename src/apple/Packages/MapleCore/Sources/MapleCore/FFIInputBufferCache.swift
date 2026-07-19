@@ -122,11 +122,28 @@ final class FFIInputBufferCache: @unchecked Sendable {
     private var slot: Slot?
 
     /// Honours `MAPLE_DISABLE_FFI_INPUT_CACHE=1`. Cached at init so the
-    /// env lookup doesn't run on every tick.
-    private let disabled: Bool
+    /// env lookup doesn't run on every tick. The env value is the DEFAULT;
+    /// `testOverrideEnabled` (when set) wins over it — see `effectiveDisabledLocked`.
+    private let envDisabled: Bool
+
+    /// Test-only runtime override of the env kill-switch. `nil` = follow
+    /// the env default (`envDisabled`); non-nil forces the cache
+    /// on (`true`) or off (`false`) regardless of the env var. Exists so a
+    /// perf bench can A/B this fix ON vs OFF within ONE process — the env
+    /// var is read once at init and can't be flipped mid-run, but a
+    /// machine-independent regression ratio needs both arms on the same
+    /// machine in the same run. Guarded by `lock`. Set via `_testSetEnabled(_:)`.
+    private var testOverrideEnabled: Bool?
 
     init() {
-        self.disabled = ProcessInfo.processInfo.environment["MAPLE_DISABLE_FFI_INPUT_CACHE"] == "1"
+        self.envDisabled = ProcessInfo.processInfo.environment["MAPLE_DISABLE_FFI_INPUT_CACHE"] == "1"
+    }
+
+    /// Effective disabled state — the test override wins when set, else the
+    /// env-derived default. MUST be called with `lock` held.
+    private var effectiveDisabledLocked: Bool {
+        if let overrideEnabled = testOverrideEnabled { return !overrideEnabled }
+        return envDisabled
     }
 
     // MARK: - Lookup / store
@@ -138,9 +155,9 @@ final class FFIInputBufferCache: @unchecked Sendable {
     /// previous image's bytes (the weak anchor is nil or a different
     /// object by then).
     func get(_ key: Key, decoded: CIImage) -> Data? {
-        if disabled { return nil }
         lock.lock()
         defer { lock.unlock() }
+        if effectiveDisabledLocked { return nil }
         guard let slot, slot.key == key, slot.decoded === decoded else { return nil }
         return slot.bytes
     }
@@ -151,10 +168,27 @@ final class FFIInputBufferCache: @unchecked Sendable {
     /// next put evicts it (or `decoded` deallocates, which nils the weak
     /// anchor and turns every read into a miss).
     func put(_ key: Key, _ bytes: Data, decoded: CIImage) {
-        if disabled { return }
         lock.lock()
         defer { lock.unlock() }
+        if effectiveDisabledLocked { return }
         slot = Slot(key: key, bytes: bytes, decoded: decoded)
+    }
+
+    // MARK: - Test hooks
+
+    /// Test-only: override the `MAPLE_DISABLE_FFI_INPUT_CACHE` env
+    /// kill-switch at runtime. `true` forces the cache ON, `false` forces
+    /// it OFF, `nil` restores the env-derived default. Flipping the toggle
+    /// also drops the current slot so an in-run A/B measurement never reads
+    /// a value cached under the other arm. `internal` (test target only via
+    /// `@testable import`) — not part of the production surface; the perf
+    /// benches use it to measure this fix's win as a machine-independent
+    /// on/off ratio (#2113).
+    func _testSetEnabled(_ enabled: Bool?) {
+        lock.lock()
+        defer { lock.unlock() }
+        testOverrideEnabled = enabled
+        slot = nil
     }
 
     /// Drop the cache slot (used by tests; production callers do not need

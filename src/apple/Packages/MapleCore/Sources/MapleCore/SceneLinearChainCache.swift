@@ -97,20 +97,37 @@ final class SceneLinearChainCache: @unchecked Sendable {
     private var slot: (key: Key, value: CIImage)?
 
     /// Honours `MAPLE_DISABLE_FFI_CACHE=1`. Cached at init so the env
-    /// lookup doesn't run on every tick.
-    private let disabled: Bool
+    /// lookup doesn't run on every tick. The env value is the DEFAULT;
+    /// `testOverrideEnabled` (when set) wins over it — see `effectiveDisabledLocked`.
+    private let envDisabled: Bool
+
+    /// Test-only runtime override of the env kill-switch. `nil` = follow
+    /// the env default (`envDisabled`); non-nil forces the cache
+    /// on (`true`) or off (`false`). Exists so `SharpenSliderTickPerfTests`
+    /// can A/B this #661 fix ON vs OFF within ONE process (the env var is
+    /// read once at init and can't be flipped mid-run) and assert the win
+    /// as a machine-independent ratio (#2113). Guarded by `lock`. Set via
+    /// `_testSetEnabled(_:)`.
+    private var testOverrideEnabled: Bool?
 
     init() {
-        self.disabled = ProcessInfo.processInfo.environment["MAPLE_DISABLE_FFI_CACHE"] == "1"
+        self.envDisabled = ProcessInfo.processInfo.environment["MAPLE_DISABLE_FFI_CACHE"] == "1"
+    }
+
+    /// Effective disabled state — the test override wins when set, else the
+    /// env-derived default. MUST be called with `lock` held.
+    private var effectiveDisabledLocked: Bool {
+        if let overrideEnabled = testOverrideEnabled { return !overrideEnabled }
+        return envDisabled
     }
 
     // MARK: - Lookup / store
 
     /// Return the cached CIImage for `key`, or `nil` on miss / disabled.
     func get(_ key: Key) -> CIImage? {
-        if disabled { return nil }
         lock.lock()
         defer { lock.unlock() }
+        if effectiveDisabledLocked { return nil }
         guard let slot, slot.key == key else { return nil }
         return slot.value
     }
@@ -118,9 +135,9 @@ final class SceneLinearChainCache: @unchecked Sendable {
     /// Replace the single slot with `(key, value)`. Subsequent reads on
     /// the same key hit until the next put evicts it.
     func put(_ key: Key, _ value: CIImage) {
-        if disabled { return }
         lock.lock()
         defer { lock.unlock() }
+        if effectiveDisabledLocked { return }
         slot = (key, value)
     }
 
@@ -129,6 +146,22 @@ final class SceneLinearChainCache: @unchecked Sendable {
     func invalidate() {
         lock.lock()
         defer { lock.unlock() }
+        slot = nil
+    }
+
+    // MARK: - Test hooks
+
+    /// Test-only: override the `MAPLE_DISABLE_FFI_CACHE` env kill-switch at
+    /// runtime. `true` forces the cache ON, `false` forces it OFF, `nil`
+    /// restores the env-derived default. Flipping the toggle also drops the
+    /// current slot so an in-run A/B measurement never reads a value cached
+    /// under the other arm. `internal` (test target only via `@testable
+    /// import`) — not part of the production surface; used by the sharpen
+    /// perf bench for a machine-independent on/off regression ratio (#2113).
+    func _testSetEnabled(_ enabled: Bool?) {
+        lock.lock()
+        defer { lock.unlock() }
+        testOverrideEnabled = enabled
         slot = nil
     }
 

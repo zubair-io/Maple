@@ -193,4 +193,120 @@ enum SliderTickPerfHarness {
         return Double(d.components.seconds) * 1000.0 +
                Double(d.components.attoseconds) / 1e15
     }
+
+    // MARK: - Drag measurement (shared A/B loop)
+
+    /// Per-tick latency stats for one drag measurement (one warm-up render
+    /// followed by `tickCount` timed ticks). Returned by `measureDrag`.
+    struct DragStats {
+        let mean: Double
+        let p50: Double
+        let p95: Double
+        let max: Double
+        let meanProcess: Double
+        let meanRender: Double
+    }
+
+    /// Run one warm-up render followed by `tickCount` timed ticks, each
+    /// developing `makeModel(i)` through `processSceneLinear` + a forced GPU
+    /// render, and return per-tick latency stats.
+    ///
+    /// This is the shared measurement kernel every slider-tick bench uses,
+    /// for BOTH the fix-ON and fix-OFF arm of the machine-independent
+    /// regression ratio (#2113). The caller configures the fix state (via
+    /// the `_testSet…` cache/gate hooks) and invalidates any per-pipeline
+    /// caches BEFORE calling — this helper is pure measurement and never
+    /// touches the toggles itself.
+    ///
+    /// `decodedAtModel` mirrors the two live call shapes:
+    ///   • `nil` — the exposure-drag benches pass the same per-tick model as
+    ///     `decodedAtModel` (the decode baseline moves with the drag).
+    ///   • non-nil — the sharpen bench pins `decodedAtModel` to the frozen
+    ///     scene-linear model so the #661 chain cache hits every tick.
+    static func measureDrag(
+        pipeline: ImageEditPipeline,
+        decoded: CIImage,
+        asShot: ImageEditPipeline.AsShotWB?,
+        assetID: UUID,
+        ctx: CIContext,
+        device: MTLDevice?,
+        commandQueue: MTLCommandQueue?,
+        destinationTexture: MTLTexture?,
+        decodedAtModel: AdjustmentModel? = nil,
+        makeModel: (Int) -> AdjustmentModel
+    ) -> DragStats {
+        // Warm-up render. Compiles CIKernels / warms the Metal pipeline
+        // cache and primes the per-pipeline caches so the timed loop
+        // measures steady-state ticks, not the one-time session-open cost
+        // the live editor already absorbs.
+        let warmModel = makeModel(0)
+        let warmProcessed = pipeline.processSceneLinear(
+            decoded: decoded,
+            model: warmModel,
+            targetSize: viewportSize,
+            asShot: asShot,
+            decodedAtModel: decodedAtModel ?? warmModel,
+            assetID: assetID
+        )
+        forceRender(
+            warmProcessed,
+            ctx: ctx,
+            device: device,
+            commandQueue: commandQueue,
+            destinationTexture: destinationTexture
+        )
+
+        var totals: [Double] = []
+        var processSamples: [Double] = []
+        var renderSamples: [Double] = []
+        totals.reserveCapacity(tickCount)
+        processSamples.reserveCapacity(tickCount)
+        renderSamples.reserveCapacity(tickCount)
+
+        for i in 0..<tickCount {
+            let model = makeModel(i)
+            let tickStart = ContinuousClock.now
+            let processed = pipeline.processSceneLinear(
+                decoded: decoded,
+                model: model,
+                targetSize: viewportSize,
+                asShot: asShot,
+                decodedAtModel: decodedAtModel ?? model,
+                assetID: assetID
+            )
+            let processEnd = ContinuousClock.now
+            forceRender(
+                processed,
+                ctx: ctx,
+                device: device,
+                commandQueue: commandQueue,
+                destinationTexture: destinationTexture
+            )
+            let renderEnd = ContinuousClock.now
+
+            let processMs = elapsedMs(from: tickStart, to: processEnd)
+            let renderMs = elapsedMs(from: processEnd, to: renderEnd)
+            processSamples.append(processMs)
+            renderSamples.append(renderMs)
+            totals.append(processMs + renderMs)
+        }
+
+        let sortedTotals = totals.sorted()
+        let meanTotal = totals.reduce(0, +) / Double(totals.count)
+        let meanProcess = processSamples.reduce(0, +) / Double(processSamples.count)
+        let meanRender = renderSamples.reduce(0, +) / Double(renderSamples.count)
+        let p50 = sortedTotals[sortedTotals.count / 2]
+        let p95 = sortedTotals[min(sortedTotals.count - 1,
+                                   Int(Double(sortedTotals.count) * 0.95))]
+        let maxMs = sortedTotals.last ?? 0
+
+        return DragStats(
+            mean: meanTotal,
+            p50: p50,
+            p95: p95,
+            max: maxMs,
+            meanProcess: meanProcess,
+            meanRender: meanRender
+        )
+    }
 }

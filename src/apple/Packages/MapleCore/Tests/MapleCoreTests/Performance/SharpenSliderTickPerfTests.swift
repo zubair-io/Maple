@@ -55,6 +55,26 @@ final class SharpenSliderTickPerfTests: XCTestCase {
     /// arm (which doesn't gate) characterises the no-cache baseline.
     private static let sharpenCacheHitCeilingMs: Double = 80.0
 
+    /// Machine-INDEPENDENT regression gate (#2113). The absolute
+    /// `sharpenCacheHitCeilingMs` above is machine-dependent; this ratio
+    /// asserts the #661 `SceneLinearChainCache` win as meanCACHE-ON /
+    /// meanCACHE-OFF measured in the SAME run — both arms share the machine,
+    /// so the ratio is immune to absolute machine speed. On a sharpen drag
+    /// the scene-linear model is frozen (only `sharpenAmount`, excluded from
+    /// the key, varies), so cache-ON hits every tick after the first and
+    /// skips the FFI chain entirely — cache-OFF re-runs the Rust chain every
+    /// tick. A regression that breaks the cache key (a scene-linear field
+    /// wrongly folded into the digest, or the `assetID` plumbing breaking)
+    /// turns cache-ON into cache-OFF and the ratio toward 1.0.
+    ///
+    /// Basis: measured on this machine as an in-run A/B (the 100MP
+    /// instrument pass characterised this bench as insensitive to the input-
+    /// cache / fusion flags — its win rides #661, which that pass did not
+    /// A/B). The ceiling is set from the observed in-run ratio with a ~1.25×
+    /// margin above the measurement, below 1.0 so a broken cache trips it.
+    /// One-way ratchet — tighten as confidence grows, never loosen.
+    private static let chainCacheRatioCeiling: Double = 0.75
+
     func testSharpenSliderTickCacheHit() async throws {
         guard ProcessInfo.processInfo.environment["MAPLE_PERF"] == "1" else {
             throw XCTSkip(
@@ -107,110 +127,95 @@ final class SharpenSliderTickPerfTests: XCTestCase {
         #endif
 
         // Hold the scene-linear inputs constant — only `sharpenAmount`
-        // varies. The first render warms the FFI cache; every
-        // subsequent tick should be a hit and skip the FFI entirely.
+        // varies (excluded from the #661 key, so the cache hits every tick).
         let frozenSceneModel = AdjustmentModel.default
-
-        // Warm-up: same scene-linear shape the drag loop uses.
-        let warmProcessed = pipeline.processSceneLinear(
-            decoded: decoded,
-            model: frozenSceneModel,
-            targetSize: SliderTickPerfHarness.viewportSize,
-            asShot: asShot,
-            decodedAtModel: frozenSceneModel,
-            assetID: asset.id
-        )
-        SliderTickPerfHarness.forceRender(
-            warmProcessed,
-            ctx: ctx,
-            device: device,
-            commandQueue: commandQueue,
-            destinationTexture: destTexture
-        )
-
-        var totals: [Double] = []
-        var processSamples: [Double] = []
-        var renderSamples: [Double] = []
-        totals.reserveCapacity(SliderTickPerfHarness.tickCount)
-        processSamples.reserveCapacity(SliderTickPerfHarness.tickCount)
-        renderSamples.reserveCapacity(SliderTickPerfHarness.tickCount)
-
-        for i in 0..<SliderTickPerfHarness.tickCount {
+        let makeSharpenModel: (Int) -> AdjustmentModel = { i in
             let t = Double(i) / Double(SliderTickPerfHarness.tickCount - 1)
             var model = frozenSceneModel
-            // Sweep sharpen across [0, 100]. None of these fields are
-            // in the FFI cache key, so the cache hits on every tick.
             model.sharpenAmount = 100.0 * t
+            return model
+        }
 
-            let tickStart = ContinuousClock.now
-            let processed = pipeline.processSceneLinear(
+        // Two arms, SAME build + SAME machine, measured back to back: the
+        // #661 `SceneLinearChainCache` ON (production default — every tick
+        // after the first is a hit that skips the FFI chain) and OFF (forces
+        // the FFI chain on every tick). `_testSetEnabled` overrides the
+        // init-time `MAPLE_DISABLE_FFI_CACHE` env kill-switch at runtime so
+        // both arms run in ONE process, and drops the slot so each arm starts
+        // clean. `decodedAtModel` is pinned to the frozen scene model (as the
+        // live sharpen drag does) so the scene-linear digest is stable and
+        // the cache genuinely hits in the ON arm.
+        func runArm(chainCacheEnabled: Bool) -> SliderTickPerfHarness.DragStats {
+            pipeline.sceneLinearChainCache._testSetEnabled(chainCacheEnabled)
+            pipeline.ffiInputBufferCache.invalidate()
+            return SliderTickPerfHarness.measureDrag(
+                pipeline: pipeline,
                 decoded: decoded,
-                model: model,
-                targetSize: SliderTickPerfHarness.viewportSize,
                 asShot: asShot,
-                decodedAtModel: frozenSceneModel,
-                assetID: asset.id
-            )
-            let processEnd = ContinuousClock.now
-            SliderTickPerfHarness.forceRender(
-                processed,
+                assetID: asset.id,
                 ctx: ctx,
                 device: device,
                 commandQueue: commandQueue,
-                destinationTexture: destTexture
+                destinationTexture: destTexture,
+                decodedAtModel: frozenSceneModel,
+                makeModel: makeSharpenModel
             )
-            let renderEnd = ContinuousClock.now
-
-            let processMs = SliderTickPerfHarness.elapsedMs(from: tickStart, to: processEnd)
-            let renderMs = SliderTickPerfHarness.elapsedMs(from: processEnd, to: renderEnd)
-            processSamples.append(processMs)
-            renderSamples.append(renderMs)
-            totals.append(processMs + renderMs)
         }
 
-        let sortedTotals = totals.sorted()
-        let meanTotal = totals.reduce(0, +) / Double(totals.count)
-        let meanProcess = processSamples.reduce(0, +) / Double(processSamples.count)
-        let meanRender = renderSamples.reduce(0, +) / Double(renderSamples.count)
-        let p50 = sortedTotals[sortedTotals.count / 2]
-        let p95 = sortedTotals[min(sortedTotals.count - 1,
-                                   Int(Double(sortedTotals.count) * 0.95))]
-        let maxMs = sortedTotals.last ?? 0
+        // Cache ON first (production default = the absolute-ceiling/report
+        // arm), then OFF. Restore the env default afterwards.
+        let statsOn = runArm(chainCacheEnabled: true)
+        let statsOff = runArm(chainCacheEnabled: false)
+        pipeline.sceneLinearChainCache._testSetEnabled(nil)
 
+        let ratio = statsOn.mean / statsOff.mean
         let fixture = fixtureURL.lastPathComponent
-        let cacheState = ProcessInfo.processInfo
-            .environment["MAPLE_DISABLE_FFI_CACHE"] == "1" ? "disabled" : "enabled"
         let summary = String(
-            format: "[slider-tick-perf sharpen-drag cache=%@] " +
+            format: "[slider-tick-perf sharpen-drag] " +
                     "fixture=%@ ticks=%d viewport=%dx%d " +
                     "mean=%.2fms p50=%.2fms p95=%.2fms max=%.2fms " +
                     "(process=%.2fms render=%.2fms) " +
+                    "cache-OFF-mean=%.2fms ratio(on/off)=%.3f (ceiling=%.2f) " +
                     "spec(target=%.0fms hard=%.0fms) ceiling=%.0fms",
-            cacheState,
             fixture,
             SliderTickPerfHarness.tickCount,
             Int(SliderTickPerfHarness.viewportSize.width),
             Int(SliderTickPerfHarness.viewportSize.height),
-            meanTotal, p50, p95, maxMs,
-            meanProcess, meanRender,
+            statsOn.mean, statsOn.p50, statsOn.p95, statsOn.max,
+            statsOn.meanProcess, statsOn.meanRender,
+            statsOff.mean, ratio, Self.chainCacheRatioCeiling,
             SliderTickPerfHarness.specTargetMs,
             SliderTickPerfHarness.specHardLimitMs,
             Self.sharpenCacheHitCeilingMs
         )
         FileHandle.standardError.write(Data((summary + "\n").utf8))
 
-        // Gate only when the cache is enabled — the disabled-cache arm
-        // exists to characterise the no-cache baseline, not assert a
-        // ceiling against it.
-        if cacheState == "enabled" {
-            XCTAssertLessThan(
-                meanTotal, Self.sharpenCacheHitCeilingMs,
-                "Mean sharpen-drag tick time \(String(format: "%.2f", meanTotal)) ms " +
-                "exceeds the \(String(format: "%.0f", Self.sharpenCacheHitCeilingMs)) ms " +
-                "cache-hit ceiling — the FFI cache is missing on a drag that " +
-                "should hit (verify SceneLinearChainCache key construction and " +
-                "the assetID plumbing through processSceneLinear)."
-            )
-        }
+        // Machine-INDEPENDENT gate (#2113): the cache-ON arm must be at most
+        // `chainCacheRatioCeiling` × the cache-OFF arm. Both ran on this
+        // machine in this run, so the ratio is immune to machine speed.
+        let ratioText = String(format: "%.3f", ratio)
+        let onMeanText = String(format: "%.2f", statsOn.mean)
+        let offMeanText = String(format: "%.2f", statsOff.mean)
+        let ratioCeilingText = String(format: "%.2f", Self.chainCacheRatioCeiling)
+        let ratioMessage =
+            "Chain-cache ON/OFF ratio \(ratioText) " +
+            "(ON \(onMeanText) ms / OFF \(offMeanText) ms) " +
+            "exceeds the \(ratioCeilingText) ceiling — the #661 SceneLinearChainCache " +
+            "is missing on a sharpen drag that should hit. Verify the cache key " +
+            "construction (a scene-linear field wrongly in the digest, or assetID " +
+            "plumbing) before relaxing this ratio."
+        XCTAssertLessThan(ratio, Self.chainCacheRatioCeiling, ratioMessage)
+
+        // Absolute cache-hit ceiling (unchanged, machine-DEPENDENT) —
+        // asserted against the production-default (cache ON) arm, kept as the
+        // loose backstop it already was.
+        XCTAssertLessThan(
+            statsOn.mean, Self.sharpenCacheHitCeilingMs,
+            "Mean sharpen-drag tick time \(String(format: "%.2f", statsOn.mean)) ms " +
+            "exceeds the \(String(format: "%.0f", Self.sharpenCacheHitCeilingMs)) ms " +
+            "cache-hit ceiling — the FFI cache is missing on a drag that " +
+            "should hit (verify SceneLinearChainCache key construction and " +
+            "the assetID plumbing through processSceneLinear)."
+        )
     }
 }
