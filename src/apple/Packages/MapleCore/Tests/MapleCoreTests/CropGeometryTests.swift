@@ -195,4 +195,54 @@ final class CropGeometryTests: XCTestCase {
         let size = CropImageStage.croppedSize(.identity, nativeSize: CGSize(width: 4000, height: 3000))
         XCTAssertEqual(size, CGSize(width: 4000, height: 3000))
     }
+
+    // MARK: - Resolution-independent crop rect (#2117)
+
+    /// The fast (viewport-res) and refine (~2×) phases develop at DIFFERENT
+    /// buffer resolutions, then cut the crop and stretch each to the SAME
+    /// canvas leaf frame. If the crop rect is rounded in each buffer's own
+    /// pixel space, the SAME fraction rounds to a different NORMALIZED region
+    /// at the two resolutions, so the image shifts when the sharp refine
+    /// render replaces the blurry fast one. The invariant: `rect ÷ bufferExtent`
+    /// must be equal across resolutions.
+    func testCropRectNormalizedRegionIsResolutionIndependent() {
+        // A deliberately non-round fractional crop — edges that do NOT land
+        // on integer pixels at either resolution, so per-buffer `.integral`
+        // rounding diverges between the fast and refine buffers.
+        let crop = Crop(top: 0.09, left: 0.137, bottom: 0.77, right: 0.861, angle: 0)
+        // Oriented native full-frame size — the canvas/leaf reference.
+        let native = CGSize(width: 8064, height: 10752)
+        let fast = CGRect(x: 0, y: 0, width: 1179, height: 1572)
+        let refine = CGRect(x: 0, y: 0, width: 2358, height: 3144) // exactly 2× fast
+
+        guard let rFast = CropImageStage.cropRect(crop, bufferExtent: fast, nativeSize: native),
+              let rRefine = CropImageStage.cropRect(crop, bufferExtent: refine, nativeSize: native)
+        else { return XCTFail("crop rect should be non-nil for a valid crop") }
+
+        // Sub-pixel tolerance: ≤ ~0.5px at the higher resolution, normalized.
+        let eps = 0.5 / refine.height
+        XCTAssertEqual(rFast.origin.x / fast.width, rRefine.origin.x / refine.width,
+                       accuracy: eps, "normalized origin.x diverges across resolutions")
+        XCTAssertEqual(rFast.origin.y / fast.height, rRefine.origin.y / refine.height,
+                       accuracy: eps, "normalized origin.y diverges across resolutions")
+        XCTAssertEqual(rFast.width / fast.width, rRefine.width / refine.width,
+                       accuracy: eps, "normalized width diverges across resolutions")
+        XCTAssertEqual(rFast.height / fast.height, rRefine.height / refine.height,
+                       accuracy: eps, "normalized height diverges across resolutions")
+    }
+
+    /// The resolution-independent rect must still select the correct region:
+    /// against a buffer that equals the native reference, it reproduces the
+    /// expected y-up flipped crop rect (left·w, (1-bottom)·h, …).
+    func testCropRectMatchesFractionsAtNativeResolution() {
+        let crop = Crop(top: 0.25, left: 0.25, bottom: 0.75, right: 0.75, angle: 0)
+        let native = CGSize(width: 4000, height: 3000)
+        let buffer = CGRect(origin: .zero, size: native)
+        guard let rect = CropImageStage.cropRect(crop, bufferExtent: buffer, nativeSize: native)
+        else { return XCTFail("crop rect should be non-nil") }
+        XCTAssertEqual(rect.origin.x, 1000, accuracy: 1e-6)
+        XCTAssertEqual(rect.origin.y, (1.0 - 0.75) * 3000, accuracy: 1e-6) // 750
+        XCTAssertEqual(rect.width, 2000, accuracy: 1e-6)
+        XCTAssertEqual(rect.height, 1500, accuracy: 1e-6)
+    }
 }

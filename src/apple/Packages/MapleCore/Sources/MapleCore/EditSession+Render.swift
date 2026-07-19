@@ -223,6 +223,13 @@ extension EditSession {
         // image. `effectiveCrop` already folds in that armed/disarmed gate.
         let crop = effectiveCrop
         let applyCrop = CropImageStage.shouldApply(crop)
+        // #2117: the oriented native full-frame size is the resolution-
+        // independent reference `CropImageStage.apply` rounds the crop rect
+        // against — so the fast (viewport-res) and refine (~2×) phases cut the
+        // IDENTICAL normalized region and the cropped image doesn't shift when
+        // the sharp refine render replaces the blurry fast one. Same reference
+        // the canvas leaf frame uses (`effectiveImageSize` → `croppedSize`).
+        let cropNativeSize = nativeImageSize
         // #2049: the crop actually folded into the presented pixels — part of
         // the GPU-live upload identity alongside the decode generation (see
         // `presentViaGpuLive`). A crop CHANGE alters `CropImageStage.apply`'s
@@ -320,7 +327,7 @@ extension EditSession {
                 // the kept region). The CPU fallback below still develops the
                 // full frame and trims via `CropImageStage.apply` when the
                 // present is declined (flag off / no layer / readback fail).
-                let gpuCached = applyCrop ? CropImageStage.apply(crop, to: cached) : cached
+                let gpuCached = applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
                 if await presentViaGpuLive(
                     decoded: gpuCached, targetSize: gpuTargetSize, gen: gen,
                     decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop
@@ -400,7 +407,7 @@ extension EditSession {
                 // same runtime-gated parallel path as the cached branch above.
                 // #1617: crop the decoded buffer before the GPU readback (as the
                 // cached branch) so cropped frames present on the GPU too.
-                let gpuDecoded = applyCrop ? CropImageStage.apply(crop, to: decoded) : decoded
+                let gpuDecoded = applyCrop ? CropImageStage.apply(crop, to: decoded, nativeSize: cropNativeSize) : decoded
                 if await presentViaGpuLive(
                     decoded: gpuDecoded, targetSize: gpuTargetSize, gen: gen,
                     decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop
@@ -453,7 +460,7 @@ extension EditSession {
             // re-origining the result to (0,0) so framing/zoom anchors the
             // cropped buffer like every other publish. No-op when `applyCrop`
             // is false (identity crop or crop tool armed).
-            let displayImage = applyCrop ? CropImageStage.apply(crop, to: image) : image
+            let displayImage = applyCrop ? CropImageStage.apply(crop, to: image, nativeSize: cropNativeSize) : image
 
             guard !Task.isCancelled else {
                 editSessionLogger.debug("decodeAndRender gen=\(gen ?? 0) cancelled, dropping result")
