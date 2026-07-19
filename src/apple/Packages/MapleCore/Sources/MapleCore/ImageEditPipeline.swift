@@ -142,6 +142,18 @@ public actor ImageEditPipeline {
     /// See `FFIInputBufferCache` and #1959.
     nonisolated let ffiInputBufferCache = FFIInputBufferCache()
 
+    /// Honours `MAPLE_DISABLE_FUSED_CHAIN_ENCODE=1` — forces
+    /// `processSceneLinear` / `processSceneLinearNonRaw` to always take the
+    /// two-step `applySceneLinearChainViaFFI` + `encodeDisplaySRGBViaFFI`
+    /// path, even when the fused-path identity gate (sharpen/nr_color both
+    /// ≈0) holds. Mirrors `MAPLE_DISABLE_FFI_CACHE` /
+    /// `MAPLE_DISABLE_FFI_INPUT_CACHE` — used by
+    /// `FusedChainEncodeSliderTickPerfTests` to measure the "before" arm
+    /// against the SAME build the "after" (fused) arm runs, rather than a
+    /// stale git ref (#2092).
+    nonisolated static let fusedChainEncodeDisabled: Bool =
+        ProcessInfo.processInfo.environment["MAPLE_DISABLE_FUSED_CHAIN_ENCODE"] == "1"
+
     public init() {
         // Metal-backed context where available; `cacheIntermediates: false`
         // + f32 working format (#487) keeps memory bounded enough that
@@ -863,6 +875,141 @@ public actor ImageEditPipeline {
         return wrapped
     }
 
+    // MARK: Fused chain + display encode (#2092, follow-on to #1959 / PR #2083)
+
+    /// Fused per-tick path: `applySceneLinearChainViaFFI` followed by
+    /// `encodeDisplaySRGBViaFFI` in ONE FFI call
+    /// (`maple_apply_chain_and_encode_display_f32`), over ONE input buffer,
+    /// producing the FINAL sRGB-gamma-encoded CIImage directly — no
+    /// intermediate CIImage wrap, no second `CIContext.render` readback.
+    ///
+    /// ONLY valid when nothing runs between the chain and the encode this
+    /// tick. In `processSceneLinear` / `processSceneLinearNonRaw` that gap is
+    /// `MetalKernels.applySceneSharpen` + `MetalKernels.applySceneNRColor` —
+    /// NOT the Auto Profile `CIColorCube` (that applies AFTER the encode, via
+    /// `applyAutoCubeIfEncoded`). Both Metal kernels already return their
+    /// input UNCHANGED (no dispatch, no new CIImage) when their amount is
+    /// within `1e-3` of zero (see `MetalKernels.applySceneSharpen` /
+    /// `applySceneNRColor`) — that is the exact identity condition this
+    /// function's callers must gate on. At `AdjustmentModel.default`
+    /// (`sharpenAmount: 40, nrColor: 25` — the reference-import defaults,
+    /// #1933) that gate does NOT hold, so the fused path does not engage for
+    /// a freshly imported photo's default slider state; it engages whenever
+    /// a session has sharpen and color-NR both at (or pushed back to) zero.
+    ///
+    /// Also reuses `ffiInputBufferCache` (#1959/#2083) exactly like
+    /// `applySceneLinearChainViaFFI` — same key, same weak identity anchor,
+    /// same #2042 bounded-target gate via `decodedSource`.
+    ///
+    /// Deliberately does NOT consult/populate `sceneLinearChainCache` (#661):
+    /// that cache stores the CHAIN-ONLY (pre-encode) CIImage, which this
+    /// function never materialises. Callers must therefore check that cache
+    /// FIRST and only reach this function on a miss — reusing a #661 HIT is
+    /// strictly cheaper (skips the FFI entirely) than any fusion. See the
+    /// call sites in `processSceneLinear` / `processSceneLinearNonRaw`.
+    ///
+    /// Returns `nil` on any failure (degenerate extent, render failure, FFI
+    /// error) — the caller falls back to the existing two-step sequence,
+    /// which has its own well-tested partial-failure fallback behaviour.
+    /// This function does not attempt to replicate that fallback nuance
+    /// itself (chain-stage failure vs encode-stage failure resolve to
+    /// different fallback images in the two-step path); on ANY fused failure
+    /// the caller simply re-derives the result via the two-step calls.
+    nonisolated private func applyChainAndEncodeViaFusedFFI(
+        _ scaled: CIImage,
+        model: AdjustmentModel,
+        decodedTemperature: Double,
+        decodedTint: Double,
+        wbFrame: WbSliderFrame? = nil,
+        skipAgX: Bool,
+        noiseProfile: [Float]? = nil,
+        iso: UInt32 = 0,
+        decodedSource: CIImage?
+    ) -> CIImage? {
+        let extent = scaled.extent
+        let w = Int(extent.width.rounded())
+        let h = Int(extent.height.rounded())
+        guard w > 0, h > 0 else { return nil }
+
+        let bytesPerPixel = 16 // 4 f32 lanes
+        let rowBytes = w * bytesPerPixel
+        let totalBytes = rowBytes * h
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+
+        let params = PipelineRenderer.makeParams(
+            from: model,
+            decodedTemperature: decodedTemperature,
+            decodedTint: decodedTint,
+            skipAgX: skipAgX,
+            iso: iso,
+            wbFrame: wbFrame
+        )
+
+        // Same input-readback cache check as `applySceneLinearChainViaFFI` —
+        // see that function's #1959 comment for the correctness argument.
+        let inputCacheKey: FFIInputBufferCache.Key? = decodedSource.map { d in
+            FFIInputBufferCache.Key(decodedID: ObjectIdentifier(d), width: w, height: h)
+        }
+
+        // Same #2042 autoreleasepool reasoning as `applySceneLinearChainViaFFI`
+        // / `encodeDisplaySRGBViaFFI` — bounds the input readback buffer's
+        // lifetime to this call, before the (single) output buffer here.
+        return autoreleasepool {
+            let inputBytes: Data
+            if let inputCacheKey, let decodedSource,
+               let cachedBytes = ffiInputBufferCache.get(inputCacheKey, decoded: decodedSource) {
+                inputBytes = cachedBytes
+            } else {
+                var freshBytes = Data(count: totalBytes)
+                let renderSucceeded: Bool = freshBytes.withUnsafeMutableBytes { buf -> Bool in
+                    guard let base = buf.baseAddress else { return false }
+                    context.render(
+                        scaled,
+                        toBitmap: base,
+                        rowBytes: rowBytes,
+                        bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                        format: .RGBAf,
+                        colorSpace: space
+                    )
+                    return true
+                }
+                guard renderSucceeded else {
+                    logger.error("applyChainAndEncodeViaFusedFFI: CIContext.render failed; falling through")
+                    return nil
+                }
+                if let inputCacheKey, let decodedSource {
+                    ffiInputBufferCache.put(inputCacheKey, freshBytes, decoded: decodedSource)
+                }
+                inputBytes = freshBytes
+            }
+
+            let outputBytes: Data
+            do {
+                outputBytes = try mapleStage("fused chain+encode") {
+                    try PipelineRenderer.applyChainAndEncodeDisplay(
+                        inputBytes: inputBytes, width: w, height: h, params: params,
+                        noiseProfile: noiseProfile
+                    )
+                }
+            } catch {
+                logger.error("applyChainAndEncodeViaFusedFFI: FFI error: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
+
+            // Output is sRGB-gamma-encoded sRGB-primary f32 RGBA — same
+            // tagging as `encodeDisplaySRGBViaFFI`'s successful result.
+            return mapleStage("fused chain+encode CIImage build") {
+                CIImage(
+                    bitmapData: outputBytes,
+                    bytesPerRow: rowBytes,
+                    size: CGSize(width: w, height: h),
+                    format: .RGBAf,
+                    colorSpace: Self.displayEncodedColorSpace
+                )
+            }
+        }
+    }
+
     // MARK: Display encode (Rec.2020 → sRGB Oklab gamut compression) — #877
 
     /// Color space the gamut-correct display encode (`encodeDisplaySRGBViaFFI`)
@@ -1039,6 +1186,41 @@ public actor ImageEditPipeline {
         // The contrast slider (which AgX normally consumes via curve
         // slope modulation) is therefore unused on the non-RAW path; for
         // default sliders today, output is near-passthrough.
+        // #2092 — fused chain+encode fast path. Only valid when the
+        // intervening Metal stages (sharpen/nr_color) are identity — see
+        // `applyChainAndEncodeViaFusedFFI`'s doc comment — and only worth
+        // trying when the #661 `sceneLinearChainCache` would MISS anyway
+        // (a HIT there is strictly cheaper: it skips the FFI entirely).
+        // Bounded to `targetSize != nil` to match the #2042 input-cache
+        // gate below.
+        if !Self.fusedChainEncodeDisabled, let targetSize {
+            let extent = scaled.extent
+            let w = Int(extent.width.rounded())
+            let h = Int(extent.height.rounded())
+            let sharpenIsIdentity = abs(model.sharpenAmount) < 1e-3
+            let nrColorIsIdentity = abs(model.nrColor) < 1e-3
+            if w > 0, h > 0, sharpenIsIdentity, nrColorIsIdentity {
+                let wouldMissChainCache: Bool = {
+                    guard let assetID else { return true }
+                    let key = SceneLinearChainCache.make(
+                        assetID: assetID, model: model,
+                        decodedTemperature: 6500.0, decodedTint: 0.0,
+                        skipAgX: true, width: w, height: h, wbFrame: nil
+                    )
+                    return sceneLinearChainCache.get(key) == nil
+                }()
+                if wouldMissChainCache,
+                   let fusedEncoded = applyChainAndEncodeViaFusedFFI(
+                       scaled, model: model,
+                       decodedTemperature: 6500.0, decodedTint: 0.0,
+                       skipAgX: true,
+                       decodedSource: decoded
+                   ) {
+                    return fusedEncoded
+                }
+            }
+        }
+
         // #1959/#2042 — the input-readback cache is gated to BOUNDED
         // (non-nil `targetSize`) renders: slider drag ticks always carry a
         // viewport target, while the full-res paths (`renderForExport`,
@@ -1184,6 +1366,48 @@ public actor ImageEditPipeline {
         } else {
             logger.notice("processSceneLinear asShot=NIL live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         }
+
+        // #2092 — fused chain+encode fast path. Only valid when the
+        // intervening Metal stages (sharpen/nr_color) are identity — see
+        // `applyChainAndEncodeViaFusedFFI`'s doc comment — and only worth
+        // trying when the #661 `sceneLinearChainCache` would MISS anyway (a
+        // HIT there is strictly cheaper: it skips the FFI entirely).
+        // Bounded to `targetSize != nil` to match the #2042 input-cache gate
+        // below. On success, the Auto Profile cube (if any) is the ONLY
+        // remaining step — it applies AFTER the encode either way, fused or
+        // not, so applying it here to `fusedEncoded` matches
+        // `applyAutoCubeIfEncoded`'s success branch exactly.
+        if !Self.fusedChainEncodeDisabled, let targetSize {
+            let extent = scaled.extent
+            let w = Int(extent.width.rounded())
+            let h = Int(extent.height.rounded())
+            let sharpenIsIdentity = abs(model.sharpenAmount) < 1e-3
+            let nrColorIsIdentity = abs(model.nrColor) < 1e-3
+            if w > 0, h > 0, sharpenIsIdentity, nrColorIsIdentity {
+                let wouldMissChainCache: Bool = {
+                    guard let assetID else { return true }
+                    let key = SceneLinearChainCache.make(
+                        assetID: assetID, model: model,
+                        decodedTemperature: decodedTemp, decodedTint: decodedTint,
+                        skipAgX: false, width: w, height: h, wbFrame: frame
+                    )
+                    return sceneLinearChainCache.get(key) == nil
+                }()
+                if wouldMissChainCache,
+                   let fusedEncoded = applyChainAndEncodeViaFusedFFI(
+                       scaled, model: model,
+                       decodedTemperature: decodedTemp, decodedTint: decodedTint,
+                       wbFrame: frame,
+                       skipAgX: false,
+                       noiseProfile: noiseProfile,
+                       iso: iso,
+                       decodedSource: decoded
+                   ) {
+                    return AutoProfileLUT.apply(profileLUT, to: fusedEncoded)
+                }
+            }
+        }
+
         // #1959/#2042 — the input-readback cache is gated to BOUNDED
         // (non-nil `targetSize`) renders: slider drag ticks always carry a
         // viewport target, while the full-res paths (`renderForExport`,
