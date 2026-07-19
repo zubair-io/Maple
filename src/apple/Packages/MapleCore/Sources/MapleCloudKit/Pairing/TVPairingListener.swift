@@ -62,7 +62,14 @@ public final class TVPairingListener {
     /// `NWListener` reported `.ready` but exposed no bound port — should be
     /// unreachable in practice; guards against silently returning a bogus 0.
     case noPortAfterReady
+    /// `NWListener` never reached `.ready`/`.failed` within the start budget —
+    /// fail fast (and cancel the half-open listener) rather than hang the
+    /// caller's thread indefinitely on `semaphore.wait()`.
+    case startTimedOut
   }
+
+  /// How long `start()` waits for the listener to bind before giving up.
+  private static let startTimeout: DispatchTimeInterval = .seconds(10)
 
   /// Starts the listener on an OS-assigned ephemeral port and blocks until
   /// the socket is actually bound (or binding fails), returning the bound
@@ -102,7 +109,15 @@ public final class TVPairingListener {
       self?.accept(connection)
     }
     listener.start(queue: queue)
-    semaphore.wait()
+    // Bounded wait: a listener that never advances to `.ready`/`.failed`
+    // (OS bug, unexpected environment) must not hang the caller forever
+    // (Copilot review, #2082). On timeout, cancel the half-open listener so
+    // it doesn't leak, and surface a definite error.
+    guard semaphore.wait(timeout: .now() + Self.startTimeout) == .success else {
+      listener.cancel()
+      self.listener = nil
+      throw ListenerError.startTimedOut
+    }
 
     if let startError { throw startError }
     guard let boundPort else { throw ListenerError.noPortAfterReady }
