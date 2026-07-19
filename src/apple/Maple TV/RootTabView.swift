@@ -2,6 +2,7 @@
 import Foundation
 import MapleCloudKit
 import SwiftUI
+import UIKit
 
 /// Connected root once a library is selected (#2121). `ConnectedScreen`
 /// presents this — instead of `TimelineScreen` directly — as soon as
@@ -22,6 +23,17 @@ import SwiftUI
 /// See `screensaverInputCapture` for how dismissal is detected and
 /// `idleInterval`/`enterScreensaver()`/`exitScreensaver()` for the rest of
 /// the state machine.
+///
+/// F3 review Critical fix: the top-level `.onMoveCommand` below is only a
+/// *fallback* on tvOS — it never fires while a focusable child (a photo
+/// grid cell, a `PhotoViewerScreen` control) actually consumes the
+/// directional move by shifting focus to a sibling. That made arrow-keying
+/// through the grid — the single most common activity on this screen — a
+/// blind spot for the idle monitor. Fixed by also observing
+/// `UIFocusSystem.didUpdateNotification`, which UIKit posts app-wide on
+/// *every* focus move anywhere in the hierarchy, regardless of whether a
+/// descendant consumed it locally. See `focusUpdateObserver` and
+/// `handleFocusUpdate()`.
 struct RootTabView: View {
   let session: TVCloudSession
   let libraryID: String
@@ -35,6 +47,13 @@ struct RootTabView: View {
   @State private var isScreensaverActive = false
   @State private var idleMonitor: IdleActivityMonitor?
   @FocusState private var isScreensaverCaptureFocused: Bool
+
+  /// Token for the app-wide `UIFocusSystem.didUpdateNotification`
+  /// observer (F3 review Critical fix). Stored so `.onDisappear` can
+  /// `removeObserver` it — same "arm on appear, tear down on disappear"
+  /// discipline as `idleMonitor` itself, just via `NotificationCenter`
+  /// instead of a `Task`.
+  @State private var focusUpdateObserver: NSObjectProtocol?
 
   /// Default 3 minutes; overridable via `MAPLE_TV_IDLE_INTERVAL_SECONDS`
   /// in the process environment for fast manual/sim verification — same
@@ -83,10 +102,21 @@ struct RootTabView: View {
       let monitor = IdleActivityMonitor(interval: Self.idleInterval, onIdle: enterScreensaver)
       idleMonitor = monitor
       armIdleMonitor()
+      focusUpdateObserver = NotificationCenter.default.addObserver(
+        forName: UIFocusSystem.didUpdateNotification,
+        object: nil,
+        queue: .main
+      ) { _ in
+        handleFocusUpdate()
+      }
     }
     .onDisappear {
       idleMonitor?.stop()
       idleMonitor = nil
+      if let observer = focusUpdateObserver {
+        NotificationCenter.default.removeObserver(observer)
+      }
+      focusUpdateObserver = nil
     }
   }
 
@@ -164,6 +194,33 @@ struct RootTabView: View {
     } else {
       armIdleMonitor()
     }
+  }
+
+  /// Handler for the app-wide `UIFocusSystem.didUpdateNotification`
+  /// observer (F3 review Critical fix). Fires on *every* focus move
+  /// anywhere in the hierarchy — including moves a focusable descendant
+  /// (a grid cell, a `PhotoViewerScreen` control) resolves locally without
+  /// ever reaching `onMoveCommand` — so arrow-keying through the photo
+  /// grid now correctly counts as activity instead of silently expiring
+  /// the idle timer underneath the user.
+  ///
+  /// Deliberately does **not** reuse `handleInteraction()` wholesale:
+  /// while the screensaver is active, `screensaverInputCapture` grabs
+  /// focus for itself the instant it appears (its own `.onAppear`), which
+  /// is itself a focus move and would post this exact notification —
+  /// routing that through `handleInteraction()`'s
+  /// `exitScreensaver()` branch would dismiss the screensaver in the same
+  /// frame it just activated. Genuine dismissal while the screensaver is
+  /// up is already fully covered by the `onMoveCommand`/`onExitCommand`/
+  /// `onPlayPauseCommand` handlers above — `screensaverInputCapture` is
+  /// the *only* focusable candidate in that mode, so every directional
+  /// press falls through to those as a no-candidate-to-move-to fallback
+  /// (see that view's doc comment). So this handler only ever pokes the
+  /// monitor, and only while the screensaver is *not* showing; it never
+  /// exits the screensaver itself.
+  private func handleFocusUpdate() {
+    guard !isScreensaverActive else { return }
+    armIdleMonitor()
   }
 
   private func armIdleMonitor() {
