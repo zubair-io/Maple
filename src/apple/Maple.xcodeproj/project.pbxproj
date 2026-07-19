@@ -1069,7 +1069,7 @@
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
@@ -1082,9 +1082,10 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Maple uses the camera to scan your Apple TV's pairing code.";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2026 Just Maple. All rights reserved.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers on your local network to access RAW files.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers and pairs with Maple TV on your local network.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Maple can save edited photos back to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
 				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
@@ -1144,7 +1145,7 @@
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
 				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = YES;
@@ -1157,9 +1158,10 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Maple uses the camera to scan your Apple TV's pairing code.";
 				INFOPLIST_KEY_NSHighResolutionCapable = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2026 Just Maple. All rights reserved.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers on your local network to access RAW files.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Maple connects to SMB servers and pairs with Maple TV on your local network.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Maple can save edited photos back to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
 				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
