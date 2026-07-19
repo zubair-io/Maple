@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Both entries below are required, not optional hardening:
+	  - keychain-access-groups: TokenStore's non-macOS path (see
+	    TokenStore.swift) always requests this shared access group when
+	    reading/writing tokens. Without it, TokenStore.save/load fail
+	    silently on tvOS and pairing never persists across launches.
+	  - application-groups: AuthenticatedHTTPClient's refresh lock uses
+	    the shared app-group container to coordinate token refresh across
+	    processes; it throws without the container present.
+	-->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)app.justmaple.aperture.shared</string>
+	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.app.justmaple.aperture</string>
+	</array>
+</dict>
+</plist>
