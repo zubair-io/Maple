@@ -18,6 +18,12 @@ struct SelfHostedSettingsTab: View {
     /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(host)`
     /// for a per-server "Sign In" (#1381).
     @State private var sheetTarget: AddCloudSheetTarget?
+    /// Parallel sheet trigger for "Pair Apple TV…" (#2082) — unlike
+    /// `sheetTarget` it has no prefill payload, so a plain `Bool` is enough
+    /// rather than growing `AddCloudSheetTarget` with an unrelated case.
+    #if os(iOS)
+    @State private var showPairAppleTVSheet = false
+    #endif
     /// Per-server signed-in state, derived from Keychain token presence. This
     /// is a separate macOS Settings scene, so it can't observe the app's
     /// AuthSession cache — but a failed refresh clears the tokens, so token
@@ -84,6 +90,10 @@ struct SelfHostedSettingsTab: View {
 
             HStack {
                 Spacer()
+                #if os(iOS)
+                Button("Pair Apple TV…") { showPairAppleTVSheet = true }
+                    .accessibilityLabel("Pair Apple TV")
+                #endif
                 Button("Add Server…") { sheetTarget = .fresh }
                     .keyboardShortcut("n", modifiers: .command)
             }
@@ -122,6 +132,14 @@ struct SelfHostedSettingsTab: View {
                 }
             )
         }
+        #if os(iOS)
+        .sheet(isPresented: $showPairAppleTVSheet) {
+            PairAppleTVSheet(
+                viewModel: PairAppleTVViewModel(),
+                onDismiss: { showPairAppleTVSheet = false }
+            )
+        }
+        #endif
     }
 
     @ViewBuilder
