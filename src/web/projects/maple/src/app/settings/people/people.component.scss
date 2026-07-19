@@ -438,6 +438,32 @@
   flex-shrink: 0;
 }
 
+// Expanded "Compare faces" strip — sits flush under the banner (same
+// horizontal margins), horizontally scrollable when the page is narrow.
+.merge-suggestion-faces {
+  display: flex;
+  gap: 8px;
+  margin: -8px 36px 16px;
+  padding: 10px 12px;
+  border-radius: 0 0 8px 8px;
+  background: var(--s-surface2);
+  border: 0.5px solid var(--s-border);
+  border-top: none;
+  overflow-x: auto;
+
+  .face-thumb {
+    width: 64px;
+    flex: none;
+    border-radius: 6px;
+  }
+}
+
+.merge-suggestion-faces-empty {
+  font-size: 12px;
+  color: var(--s-text-dim);
+  align-self: center;
+}
+
 // ── Detail view: filter bar (sticky) ────────────────────────────────
 
 .filter-bar {
