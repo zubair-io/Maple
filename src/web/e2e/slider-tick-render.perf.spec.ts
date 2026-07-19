@@ -38,6 +38,25 @@ import { resolve } from 'node:path';
 
 const FIXTURE = resolve(__dirname, '../../../test-fixtures/raws/test_0006.DNG');
 
+// WebGPU-path coverage (#1960): Playwright's headless Chromium exposes
+// `navigator.gpu` on a secure context but `requestAdapter()` resolves NULL
+// without these flags, so the live GPU session could never open and the bench
+// always soft-skipped into "no maple:session-render marks". `--enable-unsafe-webgpu`
+// turns the adapter on in headless; `--use-angle=metal` picks the native Metal
+// ANGLE backend on macOS (measured: adapter null without, non-null with, on the
+// exact editor page). Platform-scoped so a Linux runner keeps its default ANGLE
+// backend (Vulkan/SwiftShader) rather than a broken `metal` request; the
+// unsafe-webgpu flag alone is inert where no adapter exists — the bench then
+// soft-skips exactly as before.
+test.use({
+  launchOptions: {
+    args: [
+      '--enable-unsafe-webgpu',
+      ...(process.platform === 'darwin' ? ['--use-angle=metal'] : []),
+    ],
+  },
+});
+
 /** Slider ticks per run (matches the Apple bench: ~0.8s drag at 60Hz). */
 const TICK_COUNT = 40;
 
@@ -53,16 +72,20 @@ const SPEC_TARGET_MS = 16;
 const SPEC_HARD_LIMIT_MS = 50;
 
 /**
- * Enforced interim ceiling for the real per-tick render, ratcheting toward the
- * spec (#1939). This is an INITIAL, deliberately generous estimate — it sits
- * well above the 50ms spec hard limit because the live render floor (especially
- * the WASM-CPU path) is above spec, and it has not yet been pinned to a
- * machine-measured floor (the bench prints its measured mean/p50/p95/max every
- * run). Calibrate it down to ~2x the observed floor on the first environment
- * that produces a real measurement, then keep ratcheting toward the 50ms spec —
- * one-way, per the spec policy. Follow-up #1960 tracks that calibration.
+ * Enforced ceiling for the real per-tick render (#1939 → #1960). FOLDED INTO
+ * THE SPEC HARD LIMIT: with the WebGPU launch flags below (the first
+ * environment to produce a real measurement), the live WebGPU per-tick render
+ * (`WebLiveSession.render_with_params`, the worker's own
+ * `maple:session-render` measure) benches at mean 1.0–1.2ms / p95 ≤1.9ms /
+ * max ≤2.5ms over 3×40 ticks on an M-series Mac — far under the 50ms spec.
+ * The prior 350ms value was never a measurement, only an unpinned initial
+ * guess (the bench had never actually run: no WebGPU adapter in headless, and
+ * a wait-gate deadlock — see waitForSessionOpen). One-way ratchet: this may
+ * only go down. Note the measure brackets the worker-side render call (encode
+ * + submit + present); GPU execution completes asynchronously after present
+ * and is not included — the same instrumentation boundary #1930 chose.
  */
-const RENDER_INTERIM_CEILING_MS = 350;
+const RENDER_INTERIM_CEILING_MS = SPEC_HARD_LIMIT_MS;
 
 /**
  * `worker.evaluate` blocks while the worker's JS thread is synchronously busy
@@ -122,16 +145,24 @@ async function openEditorWithRaw(page: Page): Promise<void> {
 }
 
 /**
- * Poll (up to 45s) for the dedicated render worker to have emitted its first
- * `maple:session-render` mark — i.e. the live session opened and rendered once.
- * Returns the worker, or null if none appears (no live render path here). Each
- * read is timeout-guarded against the worker being busy in WASM.
+ * Poll (up to 90s) for the dedicated render worker to have emitted its
+ * `maple:session-open` (or a first `maple:session-render`) mark — i.e. the live
+ * session is up and presented its first frame. Returns the worker, or null if
+ * none appears (no live render path here). Each read is timeout-guarded against
+ * the worker being busy in WASM.
+ *
+ * Gates on session-OPEN, not session-render (#1960): after a clean open the
+ * editor dedups the As-Shot-seeded model against `lastRenderedXmp`, so NO
+ * render fires until a slider actually moves — waiting for a render mark
+ * before driving the slider deadlocked into the soft-skip on every run. The
+ * 90s budget absorbs a single-threaded WASM decode (the thread-pool bootstrap
+ * can fall back; a session open then measures ~27s on the reference fixture).
  */
-async function waitForFirstRender(page: Page, extraWorkers: PWWorker[]): Promise<PWWorker | null> {
-  const deadline = Date.now() + 45_000;
+async function waitForSessionOpen(page: Page, extraWorkers: PWWorker[]): Promise<PWWorker | null> {
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     const worker = await findRenderWorker([...page.workers(), ...extraWorkers]);
-    if (worker && (await sessionRenderDurations(worker)).length > 0) return worker;
+    if (worker) return worker;
     await page.waitForTimeout(500);
   }
   return null;
@@ -147,7 +178,9 @@ async function waitForFirstRender(page: Page, extraWorkers: PWWorker[]): Promise
  */
 async function driveExposure(page: Page, worker: PWWorker): Promise<number[]> {
   // Short timeouts so an undrivable editor UI throws (→ skip) rather than hangs.
-  await page.getByRole('button', { name: 'Light' }).click({ timeout: 10_000 });
+  // `exact` — the panel also contains a "Reset Light adjustments" button, which
+  // a substring match resolves to as well (a strict-mode violation).
+  await page.getByRole('button', { name: 'Light', exact: true }).click({ timeout: 10_000 });
   const exposure = page.getByRole('slider', { name: /exposure/i });
   await expect(exposure).toBeVisible({ timeout: 10_000 });
   await exposure.focus();
@@ -171,7 +204,7 @@ function postWarmupSamples(driven: number[]): number[] {
   return driven.length > WARMUP_TICKS ? driven.slice(WARMUP_TICKS) : [];
 }
 
-/** Compute stats, print the summary + OVER-BUDGET line, and assert the ceiling. */
+/** Compute stats, print the summary, and assert the ceiling. */
 function reportAndAssert(samples: number[]): void {
   const sorted = [...samples].sort((a, b) => a - b);
   const mean = samples.reduce((acc, v) => acc + v, 0) / samples.length;
@@ -185,21 +218,13 @@ function reportAndAssert(samples: number[]): void {
       `mean=${mean.toFixed(2)}ms p50=${p50.toFixed(2)}ms ` +
       `p95=${p95.toFixed(2)}ms max=${maxMs.toFixed(2)}ms ` +
       `spec(target=${SPEC_TARGET_MS}ms hard=${SPEC_HARD_LIMIT_MS}ms) ` +
-      `interim-hard=${RENDER_INTERIM_CEILING_MS}ms`,
+      `ceiling=${RENDER_INTERIM_CEILING_MS}ms`,
   );
-  if (mean > SPEC_HARD_LIMIT_MS) {
-    // eslint-disable-next-line no-console
-    console.info(
-      `[slider-tick-perf] OVER-BUDGET: web-render mean ${mean.toFixed(2)}ms exceeds ` +
-        `spec hard limit ${SPEC_HARD_LIMIT_MS}ms — the known floor-to-spec gap (#1960), ` +
-        `reported, not a failure. The interim ceiling is what fails a regression.`,
-    );
-  }
   expect(
     mean,
     `Mean web slider-tick render ${mean.toFixed(2)}ms exceeds the ` +
-      `${RENDER_INTERIM_CEILING_MS}ms interim ceiling (ratcheting toward the ` +
-      `${SPEC_HARD_LIMIT_MS}ms spec — #1960).`,
+      `${RENDER_INTERIM_CEILING_MS}ms ceiling (the spec hard limit — the #1960 ` +
+      `interim ceiling folded into it; measured floor ~1.2ms).`,
   ).toBeLessThan(RENDER_INTERIM_CEILING_MS);
 }
 
@@ -215,9 +240,9 @@ test.describe('Web — slider-tick render perf (#1939)', () => {
 
   test('exposure drag renders under the interim ceiling', async ({ page }) => {
     // Bounded so the test can only ever measure-or-skip, never hang: the settle
-    // window (45s) + the drive (~12s) + margin all sit under this budget, and
+    // window (90s) + the drive (~12s) + margin all sit under this budget, and
     // every worker read is timeout-guarded.
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
 
     const workers: PWWorker[] = [];
     page.on('worker', (w) => workers.push(w));
@@ -233,11 +258,11 @@ test.describe('Web — slider-tick render perf (#1939)', () => {
     let skipReason: string | null = null;
     try {
       await openEditorWithRaw(page);
-      const worker = await waitForFirstRender(page, workers);
+      const worker = await waitForSessionOpen(page, workers);
       if (!worker) {
         skipReason =
-          'No live render session established (no maple:session-render marks in ' +
-          '45s) — this environment lacks a stable WebGPU/WASM live render path ' +
+          'No live render session established (no maple:session-open/render marks ' +
+          'in 90s) — this environment lacks a stable WebGPU/WASM live render path ' +
           '(e.g. a headless build without WebGPU). Soft skip.';
       } else {
         const collected = postWarmupSamples(await driveExposure(page, worker));

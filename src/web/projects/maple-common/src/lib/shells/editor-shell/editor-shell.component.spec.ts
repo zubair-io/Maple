@@ -80,6 +80,23 @@ describe('EditorShellComponent.applyRouteAddress', () => {
     expect(selectAsset).toHaveBeenCalledWith('library:2026/a.jpg');
   });
 
+  it('selects a bare-uuid landing import for /edit/<uuid> (Hosted "Open a photo")', () => {
+    // The landing import navigates to `/edit/<uuid>` where the asset id IS the
+    // uuid — no colon. `formatAddress({slug: uuid, relPath: ''})` yields
+    // `<uuid>:` (trailing colon), which can never equal that id; without the
+    // bare-slug fallback the editor resolved no asset, fell through to
+    // `hydrateFromCache('')`, and bounced straight back to the landing (#1960).
+    const uuid = '969741c4-1522-4935-b509-c37e447caf8e';
+    const { selectAsset, navigate } = setup({
+      slug: uuid,
+      segments: [],
+      backend: 'hosted',
+      assets: [{ id: uuid }],
+    });
+    expect(selectAsset).toHaveBeenCalledWith(uuid);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('hydrates an fs: id as a single-asset open — no slug-addressed folder fetch', () => {
     const { selectAsset, openSelfHostedSubfolder, hydrateSelfHostedFsAsset } = setup({
       slug: 'fs:/srv/photos/x.jpg',
