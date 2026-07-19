@@ -68,7 +68,6 @@ import {
   faceKey,
   filterNamed,
   hiddenFaceCount,
-  hidePersonConfirm,
   isAutoNamed,
   PEOPLE_GRID,
   peopleCardWidth,
@@ -450,9 +449,10 @@ export class PeopleComponent implements OnDestroy {
     });
   }
 
+  /** Soft-hide is reversible (Hidden page, restore anytime) and non-destructive
+   * — faces stay grouped server-side — so this hides immediately and confirms
+   * via toast rather than a blocking confirm() dialog. */
   async hidePerson(person: ApiPerson): Promise<void> {
-    const ok = confirm(hidePersonConfirm(person.name, person.faceCount));
-    if (!ok) return;
     try {
       // Store's hidePerson flags the row hidden, evicts the cached detail, and
       // invalidates both lists so the person leaves the main list and lands on
@@ -465,14 +465,10 @@ export class PeopleComponent implements OnDestroy {
     }
   }
 
-  /** Detail-header "Hide person" — confirms against the open detail. */
+  /** Detail-header "Hide person" — same immediate hide + toast as {@link hidePerson}. */
   async hideSelectedCluster(): Promise<void> {
     const detail = this.selected();
     if (!detail) return;
-    const matching = this.people().find((p) => p.id === detail.id);
-    const faceCount = matching?.faceCount ?? detail.faces.length;
-    const ok = confirm(hidePersonConfirm(detail.name, faceCount));
-    if (!ok) return;
     try {
       await this.store.hidePerson(detail.id);
       this.showToast(`Hid ${detail.name}`, 'success');
