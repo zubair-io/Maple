@@ -130,6 +130,7 @@ struct TVRemoteImage: View {
     guard !Task.isCancelled else { return }
 
     guard let cgImage = Self.decode(data) else {
+      guard !Task.isCancelled else { return }
       phase = .failed
       return
     }
