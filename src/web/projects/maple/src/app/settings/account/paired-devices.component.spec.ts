@@ -53,6 +53,10 @@ describe('PairedDevicesComponent', () => {
     // The wire enum 'tvos' is normalized for display, never shown raw.
     expect(el().textContent).toContain('Apple TV ·');
     expect(el().textContent).not.toContain('tvos');
+    // Each revoke button names its device for screen readers.
+    expect(el().querySelector('.delete-btn')?.getAttribute('aria-label')).toBe(
+      "Revoke Zubair's Apple TV",
+    );
   });
 
   it('shows the empty-state copy when the list is empty', async () => {
