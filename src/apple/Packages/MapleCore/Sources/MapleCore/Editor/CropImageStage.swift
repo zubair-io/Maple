@@ -51,16 +51,22 @@ public enum CropImageStage {
     }
 
     /// The axis-aligned crop rect (y-up / CIImage space, buffer pixels) for
-    /// `crop` against a developed buffer whose extent is `bufferExtent`,
-    /// using `nativeSize` as the RESOLUTION-INDEPENDENT rounding reference.
+    /// `crop` against a developed buffer of size `bufferSize`, using
+    /// `nativeSize` as the RESOLUTION-INDEPENDENT rounding reference.
+    ///
+    /// Takes a `CGSize`, not a rect: the returned rect is always expressed
+    /// against a (0,0)-origin buffer, so only the buffer's dimensions are
+    /// input. `apply` normalizes its developed image to a (0,0) origin (the
+    /// `base` transform) before calling this, so `base.extent.size` is the
+    /// correct and sufficient input.
     ///
     /// The rect is rounded ONCE against the oriented native full-frame size —
     /// the same reference `croppedSize` and the canvas leaf frame use — then
-    /// scaled proportionally onto `bufferExtent`, rather than `.integral`-
+    /// scaled proportionally onto `bufferSize`, rather than `.integral`-
     /// rounded in the buffer's own pixel space. This is what keeps the fast
     /// (viewport-res) and refine (~2×) phases cutting the IDENTICAL normalized
     /// region: because both derive their normalized origin/size from the SAME
-    /// canonical native rect, `rect ÷ bufferExtent` is equal across
+    /// canonical native rect, `rect ÷ bufferSize` is equal across
     /// resolutions, so the two buffers (each re-origined to (0,0) and
     /// stretched to the same leaf frame) show pixel-aligned content and the
     /// image no longer shifts when the sharp refine render replaces the blurry
@@ -71,10 +77,10 @@ public enum CropImageStage {
     /// edges flip: the rect's bottom edge in CIImage-y is (1 - crop.bottom)·h.
     /// Returns `nil` for a degenerate buffer or an empty rect.
     nonisolated static func cropRect(
-        _ crop: Crop, bufferExtent: CGRect, nativeSize: CGSize
+        _ crop: Crop, bufferSize: CGSize, nativeSize: CGSize
     ) -> CGRect? {
-        let w = bufferExtent.width
-        let h = bufferExtent.height
+        let w = bufferSize.width
+        let h = bufferSize.height
         guard w > 0, h > 0, w.isFinite, h.isFinite else { return nil }
 
         // Rounding reference: the oriented native full-frame size. Fall back
@@ -155,9 +161,7 @@ public enum CropImageStage {
         // 2. Axis-aligned crop rect — resolution-independent (rounded against
         //    `nativeSize`, then scaled to this buffer). See `cropRect`.
         guard let rect = cropRect(
-            crop,
-            bufferExtent: CGRect(origin: .zero, size: CGSize(width: w, height: h)),
-            nativeSize: nativeSize
+            crop, bufferSize: base.extent.size, nativeSize: nativeSize
         ) else { return developed }
 
         let cropped = image.cropped(to: rect)
