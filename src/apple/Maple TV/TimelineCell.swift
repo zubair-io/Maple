@@ -118,15 +118,10 @@ private struct TimelineCellCard: View {
   }
 
   private static func captureTimeText(_ isoString: String?) -> String? {
-    guard let isoString, let date = timelineCellISO8601.date(from: isoString) else { return nil }
+    guard let isoString, let date = parseTimelineISO8601(isoString) else { return nil }
     return date.formatted(date: .omitted, time: .shortened)
   }
 }
-
-/// Process-wide ISO 8601 formatter — documented thread-safe, and shared
-/// so a scrolling grid doesn't allocate one per cell per render (mirrors
-/// `TimelineGrouping.swift`'s `timelineGroupingISO8601`).
-private let timelineCellISO8601 = ISO8601DateFormatter()
 
 #Preview {
   ZStack {
