@@ -88,14 +88,47 @@ impl Default for SyntheticPerfDng {
 }
 
 impl SyntheticPerfDng {
+    /// Write the DNG to `path`, STREAMING the ~200MB pixel strip row-by-row so
+    /// peak memory stays at the header/IFD (a few hundred bytes) plus one row,
+    /// never the whole strip. The strip offset is known before any pixel is
+    /// written (the two-pass IFD probe below sizes the directory first), so no
+    /// offset bookkeeping depends on holding the pixels in memory.
     pub fn write_to(&self, path: &Path) -> io::Result<()> {
-        std::fs::write(path, self.write_to_bytes())
+        use std::io::{BufWriter, Write};
+        let file = std::fs::File::create(path)?;
+        let mut w = BufWriter::new(file);
+        w.write_all(&self.header_and_ifd_bytes())?;
+        // Stream one Bayer row at a time — the only large buffer alive is a
+        // single `width * 2`-byte row, not `width * height * 2`.
+        let mut row: Vec<u8> = Vec::with_capacity(self.width as usize * 2);
+        for y in 0..self.height {
+            row.clear();
+            for x in 0..self.width {
+                write_u16_le(&mut row, self.raw_at(x, y));
+            }
+            w.write_all(&row)?;
+        }
+        w.flush()
     }
 
+    /// In-memory variant used by the unit tests (small instances only). Builds
+    /// the full byte vector including the strip. Prefer [`Self::write_to`] for
+    /// the ~100MP fixture, which streams the strip instead of buffering it.
     pub fn write_to_bytes(&self) -> Vec<u8> {
+        let strip_byte_count = (self.width as usize) * (self.height as usize) * 2;
+        let header_ifd = self.header_and_ifd_bytes();
+        let mut buf: Vec<u8> = Vec::with_capacity(header_ifd.len() + strip_byte_count);
+        buf.extend_from_slice(&header_ifd);
+        buf.extend_from_slice(&self.build_strip());
+        buf
+    }
+
+    /// Serialise just the TIFF header + IFD0 (no pixel strip). The strip
+    /// follows immediately after these bytes at `header + ifd` — the same
+    /// offset written into `TAG_STRIP_OFFSETS` below.
+    fn header_and_ifd_bytes(&self) -> Vec<u8> {
         let header_size: u32 = 8;
         let ifd0_offset = header_size;
-        let strip_byte_count = (self.width as usize) * (self.height as usize) * 2;
 
         // First pass: learn IFD size with a dummy strip offset.
         let probe_ifd = self.build_ifd0(0);
@@ -105,13 +138,11 @@ impl SyntheticPerfDng {
         let strip_offset = ifd0_offset + ifd_size;
 
         let real_ifd = self.build_ifd0(strip_offset);
-        let mut buf: Vec<u8> =
-            Vec::with_capacity((header_size as usize) + (ifd_size as usize) + strip_byte_count);
+        let mut buf: Vec<u8> = Vec::with_capacity((header_size + ifd_size) as usize);
         buf.extend_from_slice(b"II");
         write_u16_le(&mut buf, 0x002A);
         write_u32_le(&mut buf, ifd0_offset);
         real_ifd.serialise_into(&mut buf, ifd0_offset);
-        buf.extend_from_slice(&self.build_strip());
         buf
     }
 
@@ -172,7 +203,6 @@ impl SyntheticPerfDng {
 
         // NOTE: no OpcodeList1/2/3 tags are ever emitted — that absence is the
         // whole point of this fixture (#2114).
-        let _ = strip_byte_count;
         ifd
     }
 
