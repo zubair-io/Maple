@@ -139,11 +139,10 @@ final class FusedChainEncodeSliderTickPerfTests: XCTestCase {
         // kill-switch at runtime so both arms run in ONE process. sharpen /
         // nr_color stay pinned at zero so the fusion gate holds throughout
         // the ON arm; exposure sweeps so `sceneLinearChainCache` (#661)
-        // misses every tick and the FFI genuinely runs. The input cache
-        // stays ON in both arms (only the fused gate differs), so the ratio
-        // isolates the fusion win. The gate is process-global, so invalidate
-        // the per-pipeline caches between arms and restore the env default
-        // afterwards.
+        // misses every tick and the FFI genuinely runs. The input cache and
+        // chain cache are PINNED ON in both arms (only the fused gate
+        // differs), so the ratio isolates the fusion win regardless of the
+        // runner's env vars — see the `runArm` pinning below.
         let makeFusedModel: (Int) -> AdjustmentModel = { i in
             let t = Double(i) / Double(SliderTickPerfHarness.tickCount - 1)
             var model = AdjustmentModel.default
@@ -153,10 +152,31 @@ final class FusedChainEncodeSliderTickPerfTests: XCTestCase {
             return model
         }
 
+        // HERMETICITY (#2113 / Copilot #2115): pin every non-varied gate to
+        // a fixed state in BOTH arms so the ratio isolates the fusion win and
+        // is identical regardless of the runner's MAPLE_DISABLE_* env vars;
+        // reset all three hooks to nil in `defer` so nothing leaks.
+        defer {
+            ImageEditPipeline._testSetFusedChainEncodeEnabled(nil)
+            pipeline.ffiInputBufferCache._testSetEnabled(nil)
+            pipeline.sceneLinearChainCache._testSetEnabled(nil)
+        }
+
         func runArm(fusionEnabled: Bool) -> SliderTickPerfHarness.DragStats {
+            // Varied fix — the #2095 fusion gate.
             ImageEditPipeline._testSetFusedChainEncodeEnabled(fusionEnabled)
-            pipeline.sceneLinearChainCache.invalidate()
-            pipeline.ffiInputBufferCache.invalidate()
+            // Pinned: input cache ON in BOTH arms. This is exactly Copilot's
+            // point — the fused and two-step paths both consume the cached
+            // scene-linear readback, so it must be equal on both sides for the
+            // ratio to isolate fusion. Forcing it ON (not `invalidate`, which
+            // would leave a runner's MAPLE_DISABLE_FFI_INPUT_CACHE=1 in
+            // effect) also drops the slot, so each arm starts clean.
+            pipeline.ffiInputBufferCache._testSetEnabled(true)
+            // Pinned: #661 chain cache ON (production default). The exposure
+            // sweep makes it MISS every tick in both arms regardless, so the
+            // FFI genuinely runs; pinning it ON keeps a runner's
+            // MAPLE_DISABLE_FFI_CACHE from mattering and drops the slot.
+            pipeline.sceneLinearChainCache._testSetEnabled(true)
             return SliderTickPerfHarness.measureDrag(
                 pipeline: pipeline,
                 decoded: decoded,
@@ -171,10 +191,10 @@ final class FusedChainEncodeSliderTickPerfTests: XCTestCase {
         }
 
         // Fusion ON first (production default = the absolute-ceiling/report
-        // arm), then OFF. Restore the env default afterwards.
+        // arm), then OFF. The `defer` above restores every gate to its env
+        // default.
         let statsOn = runArm(fusionEnabled: true)
         let statsOff = runArm(fusionEnabled: false)
-        ImageEditPipeline._testSetFusedChainEncodeEnabled(nil)
 
         let ratio = statsOn.mean / statsOff.mean
         let fixture = fixtureURL.lastPathComponent
