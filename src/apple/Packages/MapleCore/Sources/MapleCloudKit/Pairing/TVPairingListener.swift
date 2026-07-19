@@ -19,8 +19,20 @@ public final class TVPairingListener {
   private static let maxBodySize = 64 * 1024
   private static let headerBodySeparator = Data("\r\n\r\n".utf8)
 
+  /// How long a connection may sit after the TCP handshake without
+  /// producing one complete, parseable request before this listener gives
+  /// up on it and cancels it. `stop()` only cancels the *listener* (new
+  /// connections stop being accepted) — it does not touch connections
+  /// already in flight, so a connection that never sends a trailing
+  /// `\r\n\r\n` (or whose declared `Content-Length` never fully arrives)
+  /// would otherwise sit in `receive` forever. Injectable so tests can use
+  /// a short bound instead of the real 10s. (Inlined as a literal default
+  /// on `init` below, rather than referenced from a `private static let`,
+  /// because a default-argument expression is evaluated at each call site
+  /// and cannot see a `private` symbol from outside the declaring file.)
   private let session: TVPairingSession
   private let onPaired: (SealedPairingGrant) -> Void
+  private let connectionTimeout: TimeInterval
   private let queue = DispatchQueue(label: "app.justmaple.aperture.tv-pairing-listener")
 
   private var listener: NWListener?
@@ -29,9 +41,20 @@ public final class TVPairingListener {
   /// must hold a strong reference for the life of the exchange or the
   /// connection can be torn down mid-I/O.
   private var connections: [ObjectIdentifier: NWConnection] = [:]
+  /// Per-connection idle-receive deadlines, keyed the same way as
+  /// `connections`. Cancelled as soon as the connection's fate is decided
+  /// (request handled, malformed, too large, or the socket itself closes) —
+  /// see `cancelDeadline(for:)` — so a well-behaved connection never lingers
+  /// waiting on a timer that has nothing left to guard against.
+  private var connectionDeadlines: [ObjectIdentifier: DispatchWorkItem] = [:]
 
-  public init(session: TVPairingSession, onPaired: @escaping (SealedPairingGrant) -> Void) {
+  public init(
+    session: TVPairingSession,
+    connectionTimeout: TimeInterval = 10,
+    onPaired: @escaping (SealedPairingGrant) -> Void
+  ) {
     self.session = session
+    self.connectionTimeout = connectionTimeout
     self.onPaired = onPaired
   }
 
@@ -103,13 +126,41 @@ public final class TVPairingListener {
     connection.stateUpdateHandler = { [weak self] state in
       switch state {
       case .failed, .cancelled:
-        self?.queue.async { self?.connections.removeValue(forKey: id) }
+        self?.queue.async {
+          self?.connections.removeValue(forKey: id)
+          self?.cancelDeadline(for: id)
+        }
       default:
         break
       }
     }
     connection.start(queue: queue)
+    scheduleDeadline(for: connection, id: id)
     receive(on: connection, buffer: Data())
+  }
+
+  /// Schedules this connection's idle-receive cutoff. Runs on the same
+  /// serial `queue` every other piece of connection state lives on, so
+  /// firing never races `cancelDeadline(for:)` removing the work item first.
+  /// `[weak connection]`: if the connection has already torn down and been
+  /// dropped from `connections` by the time this fires, there is nothing
+  /// left to cancel.
+  private func scheduleDeadline(for connection: NWConnection, id: ObjectIdentifier) {
+    let workItem = DispatchWorkItem { [weak self, weak connection] in
+      self?.connectionDeadlines.removeValue(forKey: id)
+      connection?.cancel()
+    }
+    connectionDeadlines[id] = workItem
+    queue.asyncAfter(deadline: .now() + connectionTimeout, execute: workItem)
+  }
+
+  /// Cancels a connection's deadline once its fate no longer depends on the
+  /// timer — called both when the connection reaches `.failed`/`.cancelled`
+  /// (above) and explicitly once `receive` has a definitive outcome
+  /// (below), so a connection that behaves doesn't sit holding a live timer
+  /// for the remainder of its window.
+  private func cancelDeadline(for id: ObjectIdentifier) {
+    connectionDeadlines.removeValue(forKey: id)?.cancel()
   }
 
   private func receive(on connection: NWConnection, buffer: Data) {
@@ -121,12 +172,26 @@ public final class TVPairingListener {
           accumulated.append(data)
         }
 
-        if let request = Self.parseCompleteRequest(accumulated) {
+        let id = ObjectIdentifier(connection)
+        switch Self.parseCompleteRequest(accumulated) {
+        case .complete(let request):
+          self.cancelDeadline(for: id)
           self.handle(request, on: connection)
           return
+        case .malformed:
+          // A header we could parse enough of to know it's broken (e.g. a
+          // negative or non-numeric Content-Length) — reject now rather
+          // than waiting on a byte count that can never be satisfied. The
+          // connection stays answerable; the listener stays up.
+          self.cancelDeadline(for: id)
+          self.respond(status: 403, json: ["error": "malformed"], on: connection)
+          return
+        case .incomplete:
+          break
         }
 
         if accumulated.count > Self.maxBodySize {
+          self.cancelDeadline(for: id)
           self.respond(status: 403, json: ["error": "payload too large"], on: connection)
           return
         }
@@ -149,30 +214,58 @@ public final class TVPairingListener {
     let body: Data
   }
 
-  private static func parseCompleteRequest(_ buffer: Data) -> ParsedRequest? {
-    guard let separatorRange = buffer.range(of: headerBodySeparator) else { return nil }
+  /// Outcome of scanning the buffer accumulated so far for one complete
+  /// request. `.malformed` is distinct from `.incomplete`: `.incomplete`
+  /// means "keep reading, this may yet become a valid request";
+  /// `.malformed` means "this can never become one — reject it now" (e.g. a
+  /// `Content-Length` that isn't a non-negative integer, so there is no byte
+  /// count that would ever satisfy the "enough body bytes buffered" check).
+  private enum ParseOutcome {
+    case incomplete
+    case malformed
+    case complete(ParsedRequest)
+  }
+
+  private static func parseCompleteRequest(_ buffer: Data) -> ParseOutcome {
+    guard let separatorRange = buffer.range(of: headerBodySeparator) else { return .incomplete }
     guard let headerString = String(data: buffer[..<separatorRange.lowerBound], encoding: .utf8) else {
-      return nil
+      return .malformed
     }
     let lines = headerString.components(separatedBy: "\r\n")
-    guard let requestLine = lines.first else { return nil }
+    guard let requestLine = lines.first else { return .malformed }
     let requestParts = requestLine.split(separator: " ")
-    guard requestParts.count >= 2 else { return nil }
+    guard requestParts.count >= 2 else { return .malformed }
     let method = String(requestParts[0])
     let path = String(requestParts[1])
 
-    let contentLength = lines.dropFirst().reduce(into: 0) { length, line in
+    // `nil` here means "a Content-Length header is present but its value
+    // failed to parse as a non-negative Int" (empty, non-numeric, or
+    // negative like the DoS payload `Content-Length: -1`) — distinct from
+    // "no header at all", which defaults to a body length of 0. Reducing
+    // into `Int?` (rather than defaulting straight to 0) lets a malformed
+    // value poison the result instead of being silently swallowed.
+    let contentLengthResult: Int? = lines.dropFirst().reduce(0) { partial, line in
+      guard let length = partial else { return nil }
       let parts = line.split(separator: ":", maxSplits: 1)
       guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length"
-      else { return }
-      length = Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? length
+      else { return length }
+      guard let parsed = Int(parts[1].trimmingCharacters(in: .whitespaces)), parsed >= 0 else { return nil }
+      return parsed
     }
+    guard let contentLength = contentLengthResult else { return .malformed }
 
     let bodyStart = separatorRange.upperBound
     let availableBodyBytes = buffer.count - bodyStart
-    guard availableBodyBytes >= contentLength else { return nil }
-    let body = buffer[bodyStart..<(bodyStart + contentLength)]
-    return ParsedRequest(method: method, path: path, body: Data(body))
+    guard availableBodyBytes >= contentLength else { return .incomplete }
+    // Belt-and-suspenders: even though `contentLength >= 0` is already
+    // guaranteed above, never let a Range with lowerBound > upperBound
+    // reach a slice — that shape of Range is exactly what traps the
+    // process (SIGTRAP / exit 133) if this invariant is ever broken by a
+    // future edit.
+    let bodyEnd = bodyStart + contentLength
+    guard bodyEnd >= bodyStart else { return .malformed }
+    let body = buffer[bodyStart..<bodyEnd]
+    return .complete(ParsedRequest(method: method, path: path, body: Data(body)))
   }
 
   // MARK: - Request handling
