@@ -426,10 +426,29 @@ export class PeopleStore implements Store<ApiPerson[]> {
     this.invalidateHidden();
   }
 
-  /** Soft-hide a person server-side, then evict + refresh both lists. Throws
-   * on failure so the caller can surface an error toast. */
+  /** Optimistically drop the given ids from the cached list SIGNAL (not a
+   * server call) so a hide reads as instant instead of waiting on the
+   * mutation + list round-trip. The follow-up `invalidate()` in
+   * `_evictAndRefreshLists` reconciles against the server shortly after —
+   * this is purely the immediate, no-network-wait visual update. */
+  private _removeFromList(ids: readonly string[]): void {
+    const drop = new Set(ids);
+    this._list.update((list) => list?.filter((p) => !drop.has(p.id)));
+  }
+
+  /** Soft-hide a person server-side, then evict + refresh both lists. Removes
+   * the row from the cached list immediately (before the request lands) so
+   * the person disappears without waiting on the round-trip; on failure the
+   * removal is rolled back via a list refetch (the person never left
+   * server-side) before the error propagates for the caller's error toast. */
   async hidePerson(id: string): Promise<void> {
-    await firstValueFrom(this.api.hidePerson(id));
+    this._removeFromList([id]);
+    try {
+      await firstValueFrom(this.api.hidePerson(id));
+    } catch (err) {
+      this.invalidate();
+      throw err;
+    }
     this._evictAndRefreshLists([id]);
   }
 
@@ -469,10 +488,16 @@ export class PeopleStore implements Store<ApiPerson[]> {
     this.invalidate();
   }
 
-  /** Bulk soft-hide. Fans out the per-person hide in parallel (allSettled so a
-   * single failure doesn't abort the batch), then evicts + refreshes both
-   * lists once. Returns ok/failed counts for the toast. */
+  /** Bulk soft-hide. Removes all of them from the cached list immediately
+   * (before any request lands), then fans out the per-person hide in
+   * parallel (allSettled so a single failure doesn't abort the batch), then
+   * evicts + refreshes both lists once. The refresh reconciles anyone whose
+   * hide actually failed server-side back into view — no separate rollback
+   * needed the way the single-hide path requires, since this always
+   * refetches regardless of partial failure. Returns ok/failed counts for
+   * the toast. */
   async hidePeople(ids: string[]): Promise<{ ok: number; failed: number }> {
+    this._removeFromList(ids);
     const results = await Promise.allSettled(
       ids.map((id) => firstValueFrom(this.api.hidePerson(id))),
     );
