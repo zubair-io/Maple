@@ -71,10 +71,19 @@ struct RootTabView: View {
 
   var body: some View {
     ZStack(alignment: .top) {
+      // The selected tab stays mounted underneath the screensaver rather
+      // than being swapped out for it — destroying `TimelineScreen` on
+      // screensaver activation would throw away its scroll position and
+      // loaded view model, forcing a full reload when the screensaver is
+      // dismissed. `.disabled` while the screensaver is up pulls its
+      // focusable content out of the focus engine's candidate set so the
+      // only thing a directional press can land on is
+      // `screensaverInputCapture` (see `screensaverOverlay`).
       content
+        .disabled(isScreensaverActive)
 
       if isScreensaverActive {
-        screensaverInputCapture
+        screensaverOverlay
       } else {
         TabBar(selectedTab: $selectedTab)
           .padding(.top, 48)
@@ -127,35 +136,35 @@ struct RootTabView: View {
 
   @ViewBuilder
   private var content: some View {
-    if isScreensaverActive {
-      // Full-bleed screensaver: the Light Table's own ambient cycle
-      // (`LightTableScreen`'s `cycleTask`) keeps gliding prints in on its
-      // own — see that file's doc comment, "cycles forever with no
-      // interaction required." `.disabled(true)` pulls its print cards
-      // out of the focus engine's candidate set entirely, so a
-      // directional press can't land focus on a print instead of
-      // reaching `screensaverInputCapture`'s command handlers below —
-      // the tvOS focus engine excludes disabled views from its candidate
-      // set the same way it does disabled `Button`s. That, not any
-      // change to `LightTableScreen` itself, is what makes "any
-      // interaction dismisses the screensaver" hold even though the
-      // screen underneath is built out of individually focusable prints.
+    switch selectedTab {
+    case .timeline:
+      TimelineScreen(
+        session: session,
+        libraryID: libraryID,
+        libraryName: libraryName,
+        onForgotten: onForgotten
+      )
+    case .lightTable:
+      LightTableScreen(session: session, libraryID: libraryID)
+    case .search:
+      SearchTabPlaceholder()
+    }
+  }
+
+  /// The full-bleed screensaver drawn over the still-mounted `content`.
+  /// Its own `LightTableScreen` runs the same ambient glide cycle as the
+  /// tab (see that file, "cycles forever with no interaction required")
+  /// and its opaque warm-paper background hides the tab underneath.
+  /// `.disabled(true)` pulls its print cards out of the focus engine's
+  /// candidate set — combined with the underlying tab being disabled too
+  /// (see `body`), the only focusable candidate left is
+  /// `screensaverInputCapture`, so every directional press reaches its
+  /// command handlers and dismisses the screensaver.
+  private var screensaverOverlay: some View {
+    ZStack {
       LightTableScreen(session: session, libraryID: libraryID)
         .disabled(true)
-    } else {
-      switch selectedTab {
-      case .timeline:
-        TimelineScreen(
-          session: session,
-          libraryID: libraryID,
-          libraryName: libraryName,
-          onForgotten: onForgotten
-        )
-      case .lightTable:
-        LightTableScreen(session: session, libraryID: libraryID)
-      case .search:
-        SearchTabPlaceholder()
-      }
+      screensaverInputCapture
     }
   }
 
@@ -186,20 +195,15 @@ struct RootTabView: View {
       .accessibilityHidden(true)
   }
 
-  /// Fed by every interaction signal this view can observe: a directional
-  /// move or Menu/Play-Pause press that reaches the top of the view
-  /// hierarchy (i.e. wasn't consumed by native focus-engine navigation
-  /// between focusable siblings further down — see the doc comment on
-  /// `Self.idleInterval`'s sibling, `content`, for why that's still
-  /// enough while the screensaver itself is up), and a `selectedTab`
-  /// change (tapping a different tab pill). This does **not** see every
-  /// possible interaction — e.g. panning focus between grid cells inside
-  /// `TimelineScreen` without ever hitting an edge never reaches here,
-  /// because the focus engine resolves that move locally and there's no
-  /// fallback to bubble up. That's a known, accepted gap (see the F3
-  /// report) rather than a bug: the brief calls for combining the
-  /// available signals, not re-plumbing every existing screen to report
-  /// focus changes upward.
+  /// Fed by every interaction signal this view observes: the screensaver's
+  /// own command handlers (`screensaverInputCapture`), a `selectedTab`
+  /// change (tapping a different tab pill), and — crucially — every
+  /// app-wide focus move via `handleFocusUpdate()`. That last one is why
+  /// panning focus between grid cells inside `TimelineScreen`, which the
+  /// focus engine resolves locally and never bubbles up as an
+  /// `onMoveCommand`, still counts as activity: the
+  /// `UIFocusSystem.didUpdateNotification` observer catches it. So there
+  /// is no idle-monitor blind spot for ordinary grid browsing.
   private func handleInteraction() {
     if isScreensaverActive {
       exitScreensaver()
