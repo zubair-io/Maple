@@ -1445,6 +1445,71 @@ extension PipelineRenderer {
         }
         return output
     }
+
+    /// #2092 — fused per-tick entry: `applySceneLinearChain` followed by
+    /// `encodeDisplaySRGB` in ONE FFI call over ONE input/output buffer,
+    /// via `maple_apply_chain_and_encode_display_f32`. The Rust side calls
+    /// the exact same two functions the two-step Swift path calls
+    /// (`maple_apply_scene_linear_chain_f32` then
+    /// `maple_encode_display_srgb_f32`), back-to-back through an
+    /// internal Rust-owned intermediate buffer — no Swift-side CIImage
+    /// wrap/readback between the two stages. See
+    /// `raw-ffi/src/scene_linear_chain_fused.rs` for the Rust entry and
+    /// its byte-identity unit tests.
+    ///
+    /// Caller contract mirrors `applySceneLinearChain` / `encodeDisplaySRGB`
+    /// exactly: `inputBytes` must be `16 * width * height` bytes
+    /// (`extendedLinearITUR_2020` scene-linear f32 RGBA), output is the
+    /// same size, sRGB-gamma-encoded sRGB-primary f32 RGBA. Throws with
+    /// the SAME error codes the two-step calls would produce for the
+    /// stage that actually failed (the fused entry propagates the
+    /// underlying stage's rc unchanged) — callers that fall back to the
+    /// two-step path on failure see no new failure modes.
+    ///
+    /// ONLY valid to call when nothing runs between the chain and the
+    /// encode for this tick — see `ImageEditPipeline`'s call site for the
+    /// sharpen/nr_color identity gate that makes this true.
+    public static func applyChainAndEncodeDisplay(
+        inputBytes: Data,
+        width: Int,
+        height: Int,
+        params: MapleAdjustmentParams,
+        noiseProfile: [Float]? = nil
+    ) throws -> Data {
+        let lanes = width * height * 4
+        let expectedBytes = lanes * MemoryLayout<Float>.size
+        guard inputBytes.count == expectedBytes else {
+            throw PipelineError.renderFailed(
+                code: 9,
+                message: "applyChainAndEncodeDisplay: input \(inputBytes.count) bytes != expected \(expectedBytes)"
+            )
+        }
+        var output = Data(count: expectedBytes)
+        // Same noise-profile pinning pattern as `applySceneLinearChain`.
+        let rc: Int32 = try withOptionalUnsafeBufferPointer(noiseProfile) { npBuf in
+            var p = params
+            if let npBuf {
+                p.noise_profile_ptr = npBuf.baseAddress
+                p.noise_profile_len = UInt32(npBuf.count)
+            }
+            return try output.withUnsafeMutableBytes { outBuf -> Int32 in
+                let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
+                return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+                    let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
+                    return maple_apply_chain_and_encode_display_f32(
+                        inPtr, UInt32(width), UInt32(height),
+                        &p,
+                        outPtr
+                    )
+                }
+            }
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return output
+    }
 }
 
 // MARK: - MapleRawHandle (Swift wrapper around the opaque C handle)
