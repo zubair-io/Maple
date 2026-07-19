@@ -55,6 +55,16 @@
                 "glob": "**/workerHelpers.js",
                 "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
                 "output": "/pkg"
+              },
+              {
+                "glob": "workerHelpers.worker.js",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/pkg"
+              },
+              {
+                "glob": "raw_wasm.js",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/pkg"
               }
             ],
             "styles": ["projects/maple-syrup/src/styles.scss"],
@@ -154,6 +164,16 @@
               },
               {
                 "glob": "**/workerHelpers.js",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/pkg"
+              },
+              {
+                "glob": "workerHelpers.worker.js",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/pkg"
+              },
+              {
+                "glob": "raw_wasm.js",
                 "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
                 "output": "/pkg"
               }
