@@ -1,4 +1,5 @@
 import CryptoKit
+import Network
 import XCTest
 
 @testable import MapleCloudKit
@@ -184,6 +185,80 @@ final class PairingTransportTests: XCTestCase {
     XCTAssertEqual(pairedCallCount.value, 1, "the well-formed follow-up must redeem successfully")
   }
 
+  // MARK: 3b. Negative / non-numeric Content-Length — listener stays up (C2 review)
+
+  /// `Content-Length: -1` on a raw hand-built request. The parser used to do
+  /// `Int(...) ?? length` with no non-negative check, so `bodyStart +
+  /// contentLength < bodyStart` and `parseCompleteRequest` formed an inverted
+  /// `Range` (`bodyStart..<(bodyStart - 1)`) — a Swift Range with lowerBound
+  /// > upperBound traps the process (SIGTRAP / exit 133). This is an
+  /// unauthenticated LAN DoS: any device on the network that can reach the
+  /// pairing port can kill the TV app by sending one malformed header.
+  func test_negativeContentLength_rejected_listenerStaysUp() throws {
+    let session = TVPairingSession(ip: "10.0.0.5", port: 9000)
+    let pairedCallCount = LockedBox<Int>(0)
+    let listener = TVPairingListener(session: session) { _ in
+      pairedCallCount.value += 1
+    }
+    let port = try listener.start()
+    defer { listener.stop() }
+
+    let negativeResponse = try sendRawHTTPRequestWithExplicitContentLength(
+      port: port, method: "POST", path: "/pair", body: Data("{}".utf8), contentLength: "-1")
+    XCTAssertTrue(
+      negativeResponse.status == 403 || negativeResponse.status == 404,
+      "expected 403 or 404 for a negative Content-Length, got \(negativeResponse.status)")
+    XCTAssertEqual(pairedCallCount.value, 0, "onPaired must NOT fire on a malformed Content-Length")
+
+    // Listener must still be up — proves liveness, not just "didn't crash
+    // this one connection."
+    let grant = sampleGrant()
+    let (ciphertext, senderPublicKey) = try PairingCrypto.seal(
+      grant, to: session.qrPayload.tvPublicKey, pairingToken: session.qrPayload.token)
+    let goodBody = try JSONSerialization.data(withJSONObject: [
+      "token": session.qrPayload.token,
+      "senderPublicKey": senderPublicKey.base64EncodedString(),
+      "ciphertext": ciphertext.base64EncodedString(),
+    ])
+    let goodResponse = try sendRawHTTPRequest(port: port, method: "POST", path: "/pair", body: goodBody)
+    XCTAssertEqual(goodResponse.status, 200)
+    XCTAssertEqual(pairedCallCount.value, 1, "the well-formed follow-up must redeem successfully")
+  }
+
+  /// Non-numeric `Content-Length` (e.g. `Content-Length: banana`) — the old
+  /// `Int(...) ?? length` fallback silently treated this as "no header seen"
+  /// (falling back to the running accumulator, which starts at 0), so this
+  /// case did not itself trap. Covered anyway as a malformed-input sibling
+  /// of the negative case, to lock in "reject, don't guess" behavior.
+  func test_nonNumericContentLength_rejected_listenerStaysUp() throws {
+    let session = TVPairingSession(ip: "10.0.0.5", port: 9000)
+    let pairedCallCount = LockedBox<Int>(0)
+    let listener = TVPairingListener(session: session) { _ in
+      pairedCallCount.value += 1
+    }
+    let port = try listener.start()
+    defer { listener.stop() }
+
+    let badResponse = try sendRawHTTPRequestWithExplicitContentLength(
+      port: port, method: "POST", path: "/pair", body: Data("{}".utf8), contentLength: "banana")
+    XCTAssertTrue(
+      badResponse.status == 403 || badResponse.status == 404,
+      "expected 403 or 404 for a non-numeric Content-Length, got \(badResponse.status)")
+    XCTAssertEqual(pairedCallCount.value, 0, "onPaired must NOT fire on a malformed Content-Length")
+
+    let grant = sampleGrant()
+    let (ciphertext, senderPublicKey) = try PairingCrypto.seal(
+      grant, to: session.qrPayload.tvPublicKey, pairingToken: session.qrPayload.token)
+    let goodBody = try JSONSerialization.data(withJSONObject: [
+      "token": session.qrPayload.token,
+      "senderPublicKey": senderPublicKey.base64EncodedString(),
+      "ciphertext": ciphertext.base64EncodedString(),
+    ])
+    let goodResponse = try sendRawHTTPRequest(port: port, method: "POST", path: "/pair", body: goodBody)
+    XCTAssertEqual(goodResponse.status, 200)
+    XCTAssertEqual(pairedCallCount.value, 1, "the well-formed follow-up must redeem successfully")
+  }
+
   /// Also exercises the 404 branch and confirms unknown paths don't crash
   /// or hang the listener.
   func test_unknownPath_returns404_listenerStaysUp() throws {
@@ -248,6 +323,82 @@ final class PairingTransportTests: XCTestCase {
     task.resume()
     _ = semaphore.wait(timeout: .now() + 5)
     return try XCTUnwrap(resultBox.value).get()
+  }
+
+  /// Sends a raw HTTP request over a bare TCP socket with a hand-written
+  /// `Content-Length` header value of our choosing (`"-1"`, `"banana"`, …).
+  /// `URLRequest`/`URLSession` treat `Content-Length` as a reserved header —
+  /// they always recompute it from the real body — so there is no way to get
+  /// an invalid value onto the wire through `sendRawHTTPRequest` above. This
+  /// bypasses `URLSession` entirely and speaks HTTP/1.1 by hand over
+  /// `NWConnection`, the same transport the listener itself uses.
+  private func sendRawHTTPRequestWithExplicitContentLength(
+    port: UInt16, method: String, path: String, body: Data, contentLength: String
+  ) throws -> RawHTTPResponse {
+    var head = "\(method) \(path) HTTP/1.1\r\n"
+    head += "Host: 127.0.0.1:\(port)\r\n"
+    head += "Content-Type: application/json\r\n"
+    head += "Content-Length: \(contentLength)\r\n"
+    head += "Connection: close\r\n\r\n"
+    var requestData = Data(head.utf8)
+    requestData.append(body)
+
+    let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+    let queue = DispatchQueue(label: "pairing-listener-test-raw-socket")
+    let resultBox = LockedBox<Result<RawHTTPResponse, Error>?>(nil)
+    let doneSemaphore = DispatchSemaphore(value: 0)
+    var received = Data()
+
+    func receiveLoop() {
+      connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+        if let data, !data.isEmpty {
+          received.append(data)
+        }
+        if isComplete || error != nil {
+          resultBox.value = Self.parseRawResponse(received)
+          connection.cancel()
+          doneSemaphore.signal()
+          return
+        }
+        receiveLoop()
+      }
+    }
+
+    connection.stateUpdateHandler = { state in
+      switch state {
+      case .ready:
+        connection.send(
+          content: requestData,
+          completion: .contentProcessed { _ in
+            receiveLoop()
+          })
+      case .failed(let error):
+        resultBox.value = .failure(error)
+        doneSemaphore.signal()
+      default:
+        break
+      }
+    }
+    connection.start(queue: queue)
+    _ = doneSemaphore.wait(timeout: .now() + 5)
+    connection.cancel()
+    return try XCTUnwrap(resultBox.value).get()
+  }
+
+  private static func parseRawResponse(_ data: Data) -> Result<RawHTTPResponse, Error> {
+    let separator = Data("\r\n\r\n".utf8)
+    guard let separatorRange = data.range(of: separator),
+      let headerString = String(data: data[..<separatorRange.lowerBound], encoding: .utf8),
+      let statusLine = headerString.components(separatedBy: "\r\n").first
+    else {
+      return .failure(URLError(.badServerResponse))
+    }
+    let statusParts = statusLine.split(separator: " ")
+    guard statusParts.count >= 2, let status = Int(statusParts[1]) else {
+      return .failure(URLError(.badServerResponse))
+    }
+    let body = data[separatorRange.upperBound...]
+    return .success(RawHTTPResponse(status: status, body: Data(body)))
   }
 }
 
