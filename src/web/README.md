@@ -66,6 +66,11 @@ cd src/raw-pipeline/raw-wasm && bash build.sh   # generates pkg/ (nightly + buil
 cd ../../web && bash scripts/sync-raw-wasm.sh    # copies pkg/ into maple-common
 ```
 
+(`sync-raw-wasm.sh`'s own "does not exist" error points at the equivalent
+one-shot wrapper `src/raw-pipeline/scripts/build-raw-wasm.sh` — it runs the same
+`wasm-pack build --features gpu,parallel` as `raw-wasm/build.sh` above, just with
+`PATH` pre-set; either produces the same threading-capable `pkg/`.)
+
 Then start the dev server:
 
 ```bash
