@@ -59,6 +59,42 @@ final class CloudServerRegistryTests: XCTestCase {
     XCTAssertEqual(reg.viewMode(for: url), .folder)
   }
 
+  func test_setSelectedLibraryID_persistsPerServer() {
+    let reg = CloudServerRegistry(defaults: defaults)
+    let url = URL(string: "https://myserver.com")!
+    reg.register(url)
+    reg.setSelectedLibraryID("lib-1", for: url)
+    XCTAssertEqual(reg.selectedLibraryID(for: url), "lib-1")
+    let reg2 = CloudServerRegistry(defaults: defaults)
+    XCTAssertEqual(reg2.selectedLibraryID(for: url), "lib-1")
+  }
+
+  func test_selectedLibraryID_defaultIsNil() {
+    let reg = CloudServerRegistry(defaults: defaults)
+    let url = URL(string: "https://newserver.com")!
+    XCTAssertNil(reg.selectedLibraryID(for: url))
+  }
+
+  func test_setSelectedLibraryID_nilClearsSelection() {
+    let reg = CloudServerRegistry(defaults: defaults)
+    let url = URL(string: "https://myserver.com")!
+    reg.register(url)
+    reg.setSelectedLibraryID("lib-1", for: url)
+    reg.setSelectedLibraryID(nil, for: url)
+    XCTAssertNil(reg.selectedLibraryID(for: url))
+    let reg2 = CloudServerRegistry(defaults: defaults)
+    XCTAssertNil(reg2.selectedLibraryID(for: url))
+  }
+
+  func test_removeServer_clearsSelectedLibraryID() {
+    let reg = CloudServerRegistry(defaults: defaults)
+    let url = URL(string: "https://myserver.com")!
+    reg.register(url)
+    reg.setSelectedLibraryID("lib-1", for: url)
+    reg.remove(url)
+    XCTAssertNil(reg.selectedLibraryID(for: url))
+  }
+
   func test_setViewMode_triggersObservation() {
     // Regression: a previous impl assigned `servers = servers` to "fire"
     // Observation. @Observable correctly treats no-change writes as a

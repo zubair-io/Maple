@@ -34,6 +34,12 @@ public final class CloudServerRegistry {
   /// via `setDisplayName(_:for:)`.
   public private(set) var displayNames: [String: String]
 
+  /// Per-host last-selected library id. Indexed by `URL.host`, same as
+  /// `viewModes`/`displayNames`. Read by `TVCloudSession.resolveLibraries()`
+  /// so a returning TV short-circuits straight to the remembered library
+  /// instead of re-showing the picker on every launch.
+  public private(set) var selectedLibraryIDs: [String: String]
+
   private static let listKey = "cloud.connectedServers"
   private let defaults: UserDefaults
 
@@ -43,6 +49,7 @@ public final class CloudServerRegistry {
     self.servers = loaded
     var modes: [String: CloudViewMode] = [:]
     var names: [String: String] = [:]
+    var libraryIDs: [String: String] = [:]
     for url in loaded {
       if let host = url.host {
         modes[host] = CloudViewMode.load(host: host, defaults: defaults)
@@ -50,10 +57,15 @@ public final class CloudServerRegistry {
            !name.isEmpty {
           names[host] = name
         }
+        if let libraryID = defaults.string(forKey: Self.selectedLibraryIDKey(host: host)),
+           !libraryID.isEmpty {
+          libraryIDs[host] = libraryID
+        }
       }
     }
     self.viewModes = modes
     self.displayNames = names
+    self.selectedLibraryIDs = libraryIDs
   }
 
   public func register(_ url: URL) {
@@ -72,8 +84,10 @@ public final class CloudServerRegistry {
     if let host = url.host {
       defaults.removeObject(forKey: "cloud.\(host).viewMode")
       defaults.removeObject(forKey: Self.nameKey(host: host))
+      defaults.removeObject(forKey: Self.selectedLibraryIDKey(host: host))
       viewModes[host] = nil
       displayNames[host] = nil
+      selectedLibraryIDs[host] = nil
     }
   }
 
@@ -118,6 +132,32 @@ public final class CloudServerRegistry {
 
   private static func nameKey(host: String) -> String {
     "cloud.\(host).displayName"
+  }
+
+  /// Last library id the user picked for this server (via a library
+  /// picker, or an implicit single-library resolve), or nil when none has
+  /// been chosen yet.
+  public func selectedLibraryID(for url: URL) -> String? {
+    guard let host = url.host else { return nil }
+    return selectedLibraryIDs[host]
+  }
+
+  /// Set or clear the remembered library id for a server. Pass nil to
+  /// forget the selection (e.g. the library was deleted server-side and a
+  /// caller wants the picker to re-show).
+  public func setSelectedLibraryID(_ libraryID: String?, for url: URL) {
+    guard let host = url.host else { return }
+    if let libraryID, !libraryID.isEmpty {
+      selectedLibraryIDs[host] = libraryID
+      defaults.set(libraryID, forKey: Self.selectedLibraryIDKey(host: host))
+    } else {
+      selectedLibraryIDs[host] = nil
+      defaults.removeObject(forKey: Self.selectedLibraryIDKey(host: host))
+    }
+  }
+
+  private static func selectedLibraryIDKey(host: String) -> String {
+    "cloud.\(host).selectedLibraryID"
   }
 
   // MARK: - Persistence
