@@ -153,6 +153,63 @@ final class FFIInputBufferCacheTests: XCTestCase {
         XCTAssertNil(cache.get(key, decoded: image))
     }
 
+    // MARK: - Bounded-target gate (#2042)
+
+    /// An UNBOUNDED (nil-`targetSize`) render — the export / full-res
+    /// preview shape — must leave the cache slot untouched: a `put`
+    /// there would pin a full-resolution f32 buffer (~1.6 GB at 100 MP)
+    /// in the single slot until the next put, against the #2042
+    /// export-memory bounding. The call sites gate by passing
+    /// `decodedSource: nil` when `targetSize` is nil, which skips both
+    /// the lookup and the populate.
+    func testNilTargetRenderDoesNotPopulateCache() {
+        let pipeline = ImageEditPipeline()
+        let decoded = CIImage(color: CIColor(red: 0.25, green: 0.5, blue: 0.75))
+            .cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64))
+
+        _ = pipeline.processSceneLinear(
+            decoded: decoded,
+            model: .default,
+            targetSize: nil,
+            assetID: UUID()
+        )
+        XCTAssertTrue(
+            pipeline.ffiInputBufferCache.isEmpty,
+            "a nil-targetSize (full-res) render must not populate the input cache (#2042)"
+        )
+
+        _ = pipeline.processSceneLinearNonRaw(
+            decoded: decoded,
+            model: .default,
+            targetSize: nil,
+            assetID: UUID()
+        )
+        XCTAssertTrue(
+            pipeline.ffiInputBufferCache.isEmpty,
+            "the non-RAW nil-targetSize path must not populate the input cache either (#2042)"
+        )
+    }
+
+    /// Positive control for the gate: a BOUNDED (non-nil `targetSize`)
+    /// render — the slider drag-tick shape — populates the cache on the
+    /// readback success path.
+    func testBoundedTargetRenderPopulatesCache() {
+        let pipeline = ImageEditPipeline()
+        let decoded = CIImage(color: CIColor(red: 0.25, green: 0.5, blue: 0.75))
+            .cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64))
+
+        _ = pipeline.processSceneLinear(
+            decoded: decoded,
+            model: .default,
+            targetSize: CGSize(width: 32, height: 32),
+            assetID: UUID()
+        )
+        XCTAssertFalse(
+            pipeline.ffiInputBufferCache.isEmpty,
+            "a bounded (viewport-target) render must populate the input cache"
+        )
+    }
+
     /// The weak anchor must not extend the decoded image's lifetime —
     /// the #2037 memory-pressure teardown relies on the decode buffer
     /// actually freeing when RenderActor drops it.
