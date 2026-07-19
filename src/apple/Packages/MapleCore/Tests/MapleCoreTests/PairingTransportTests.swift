@@ -271,6 +271,27 @@ final class PairingTransportTests: XCTestCase {
     XCTAssertEqual(response.status, 404)
   }
 
+  // MARK: 4. stop() teardown must not depend on wrapper lifetime (C3 review)
+  //
+  // A regression test was attempted here — call `stop()` then immediately
+  // drop the last strong reference (the exact `PairingViewModel` regenerate
+  // pattern: `listener?.stop(); listener = nil`), then assert a brand-new
+  // `NWListener` can rebind the same port once the original is torn down.
+  // Investigated empirically and abandoned: even a completely vanilla
+  // `NWListener().cancel()` with zero connections ever made does not make
+  // its bound wildcard port rebindable within two minutes on this platform
+  // (verified standalone, outside any `TVPairingListener` code) — a
+  // Network.framework/NECP quirk unrelated to this fix, not a signal this
+  // test could actually key off. A flaky-in-the-literal-sense test wasn't
+  // the failure mode; the port-rebind probe never once succeeded, so no
+  // timeout would make it a meaningful assertion. Per the "do not ship a
+  // flaky test" guidance, this is intentionally not covered by an
+  // automated test — correctness rests on the strong-local-capture
+  // reasoning documented on `TVPairingListener.stop()` and `deinit`
+  // (capture the `NWListener` into the queued closure by value, so
+  // cancellation never depends on `self` still being alive when the
+  // closure runs).
+
   // MARK: Carry-forward from C1 review — wrong-length tvPublicKey
 
   func test_deliver_wrongLengthTVPublicKey_throwsCleanClientError() async throws {
