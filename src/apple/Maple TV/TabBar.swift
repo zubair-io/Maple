@@ -75,6 +75,11 @@ struct TabBar: View {
         )
     }
     .buttonStyle(.plain)
+    // Suppress tvOS's default focus halo: it's drawn wider than the pill's
+    // own capsule and bleeds a light shape into the adjacent pill's label.
+    // The active-white fill + red focus ring above are our focus indication,
+    // so the system effect is both redundant and visually broken here.
+    .focusEffectDisabled()
     .focused($focusedTab, equals: tab)
     .accessibilityLabel("\(tab.title) tab")
     .accessibilityAddTraits(isSelected ? [.isSelected] : [])
