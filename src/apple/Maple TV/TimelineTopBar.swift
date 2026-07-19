@@ -19,6 +19,7 @@ struct TimelineTopBar: View {
         Text(libraryName)
           .font(.system(size: 28, weight: .semibold))
           .foregroundStyle(MapleTVTheme.textPrimary)
+          .lineLimit(1)
         Text(serverDisplayName)
           .font(.system(size: 16))
           .foregroundStyle(MapleTVTheme.textMuted)

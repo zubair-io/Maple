@@ -10,8 +10,8 @@ import SwiftUI
 /// and switches content beneath it; `TimelineScreen` itself is unchanged,
 /// just now one of three tabs instead of the whole screen.
 ///
-/// Light Table (F2) and Search (milestone E) are placeholders here — see
-/// `LightTablePlaceholder` below and `SearchTabPlaceholder.swift`.
+/// Light Table is `LightTableScreen` (F2, #2121) as of this file; Search
+/// (milestone E) is still a placeholder — see `SearchTabPlaceholder.swift`.
 struct RootTabView: View {
   let session: TVCloudSession
   let libraryID: String
@@ -54,7 +54,7 @@ struct RootTabView: View {
         onForgotten: onForgotten
       )
     case .lightTable:
-      LightTablePlaceholder()
+      LightTableScreen(session: session, libraryID: libraryID)
     case .search:
       SearchTabPlaceholder()
     }
@@ -63,46 +63,6 @@ struct RootTabView: View {
   private var forgetButton: some View {
     Button("Forget this server", role: .destructive, action: onForgotten)
       .accessibilityLabel("Forget this server")
-  }
-}
-
-/// Temporary empty state for the Light Table tab (#2121). F2 replaces
-/// this with the real Light Table (`CloudSearchClient`-backed comparison
-/// grid); kept inline (not its own file) since the brief scopes this
-/// task's new files to `RootTabView.swift`, `TabBar.swift`, and
-/// `SearchTabPlaceholder.swift`.
-///
-/// Unlike the app's other screens, the Light Table's background is the
-/// design's warm paper gradient (`#fdfcf9` → `#e6e1d5`) rather than
-/// `MapleTVTheme.background` — a deliberate light surface distinct from
-/// the dark Timeline/Search chrome, so this placeholder already renders
-/// on the correct background rather than F2 needing to swap it later.
-private struct LightTablePlaceholder: View {
-  private static let paperTop = Color(red: 0xfd / 255, green: 0xfc / 255, blue: 0xf9 / 255)
-  private static let paperBottom = Color(red: 0xe6 / 255, green: 0xe1 / 255, blue: 0xd5 / 255)
-  private static let ink = Color(red: 0x1c / 255, green: 0x19 / 255, blue: 0x17 / 255)
-
-  var body: some View {
-    ZStack {
-      LinearGradient(colors: [Self.paperTop, Self.paperBottom], startPoint: .top, endPoint: .bottom)
-        .ignoresSafeArea()
-
-      VStack(spacing: 16) {
-        Image(systemName: "rectangle.grid.2x2")
-          .font(.system(size: 56))
-          .foregroundStyle(Self.ink.opacity(0.4))
-          .accessibilityHidden(true)
-        Text("Light Table")
-          .font(.system(size: 32, weight: .semibold))
-          .foregroundStyle(Self.ink)
-        Text("Coming in F2")
-          .font(.system(size: 20))
-          .foregroundStyle(Self.ink.opacity(0.6))
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel("Light Table — coming in F2")
-    }
   }
 }
 
