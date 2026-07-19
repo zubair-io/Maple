@@ -97,7 +97,13 @@ struct SearchScreen: View {
       get: { viewModel.params.placeQuery },
       set: { newValue in
         viewModel.params.placeQuery = newValue
-        guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+          // Cleared to empty: cancel any debounce still pending from the
+          // previous non-empty edit, so it can't fire an empty all-library
+          // search ~250ms later behind the idle view.
+          viewModel.cancelPendingDebounce()
+          return
+        }
         viewModel.queryChanged()
       }
     )
