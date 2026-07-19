@@ -20,6 +20,14 @@ final class IdleActivityMonitor {
   private let interval: Duration
   private let onIdle: () -> Void
   private var countdownTask: Task<Void, Never>?
+  /// Bumped by every `poke()` and `stop()`. The countdown captures the
+  /// value it was started with and only fires `onIdle()` if it still
+  /// matches at wake time — so a countdown superseded by a newer `poke()`
+  /// (or torn down by `stop()`) can't fire even in the narrow window
+  /// where cancellation hasn't propagated by the post-sleep check. Makes
+  /// "latest poke wins" explicit rather than resting on actor-reentrancy
+  /// reasoning, matching the generation-guard idiom used across the app.
+  private var generation = 0
 
   /// `interval` is injectable so tests/debug builds can shrink it — see
   /// `RootTabView.idleInterval`, which reads `MAPLE_TV_IDLE_INTERVAL_SECONDS`
@@ -36,10 +44,12 @@ final class IdleActivityMonitor {
   /// interaction signal.
   func poke() {
     countdownTask?.cancel()
-    countdownTask = Task { [interval, onIdle] in
+    generation &+= 1
+    let g = generation
+    countdownTask = Task { [weak self, interval] in
       try? await Task.sleep(for: interval)
-      guard !Task.isCancelled else { return }
-      onIdle()
+      guard let self, !Task.isCancelled, g == self.generation else { return }
+      self.onIdle()
     }
   }
 
@@ -48,6 +58,7 @@ final class IdleActivityMonitor {
   /// down entirely (`RootTabView` pauses it while the user is already on
   /// the Light Table tab — see that file).
   func stop() {
+    generation &+= 1
     countdownTask?.cancel()
     countdownTask = nil
   }
