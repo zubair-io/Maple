@@ -316,9 +316,13 @@ export class PeopleComponent implements OnDestroy {
     // isn't observed/retained until destroy; the effect re-attaches when the
     // query resolves to a fresh element again.
     effect((onCleanup) => {
-      const ref = this.peopleScrollContent();
-      if (!ref) return;
-      this.observeViewport(ref.nativeElement);
+      // Guard `nativeElement` too, not just the ref: after the @if swap
+      // between the list grid and the detail view, the signal query can
+      // briefly hold a stale ElementRef whose nativeElement is undefined,
+      // and observeViewport would crash on `host.clientWidth` (#2080).
+      const host = this.peopleScrollContent()?.nativeElement;
+      if (!host) return;
+      this.observeViewport(host);
       onCleanup(() => this.resizeObserver?.disconnect());
     });
   }
