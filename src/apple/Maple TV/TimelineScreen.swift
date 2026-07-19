@@ -16,11 +16,19 @@ struct TimelineScreen: View {
   let onForgotten: () -> Void
 
   @State private var viewModel: TVTimelineViewModel
-  /// D6 (#2102) presents the full-screen viewer (current result set +
-  /// selected index) when this is non-nil. D5's job is only to give
-  /// `TimelineCell` a working selection seam — the viewer itself isn't
-  /// built yet, so a selection is currently a no-op beyond recording it.
+  /// Presents `PhotoViewerScreen` (current result set + selected index)
+  /// via `.fullScreenCover(item:)` when non-nil. Set by a cell's
+  /// `onSelect`; cleared automatically by SwiftUI when the cover's
+  /// content calls its environment `dismiss()` (#2102 D6).
   @State private var selectedAsset: SearchAsset?
+  /// Which cell should hold tvOS remote focus. Only ever SET by this
+  /// screen (never read to drive layout) — `PhotoViewerScreen.onDismiss`
+  /// writes the asset that was actually on screen when Menu was pressed,
+  /// which may differ from `selectedAsset` if the user swiped to a
+  /// different photo inside the viewer before backing out. That keeps
+  /// "Menu returns to the grid at the same asset" true even after
+  /// in-viewer navigation, not just for the originally-tapped cell.
+  @FocusState private var focusedCellID: String?
 
   init(session: TVCloudSession, libraryID: String, libraryName: String, onForgotten: @escaping () -> Void) {
     self.session = session
@@ -57,6 +65,31 @@ struct TimelineScreen: View {
     // library) rather than re-running `load()` against a viewModel still
     // bound to the old `libraryID`.
     .task { await viewModel.load() }
+    .fullScreenCover(item: $selectedAsset) { asset in
+      let resultSet = flattenedAssets
+      let startIndex = resultSet.firstIndex(where: { $0.id == asset.id }) ?? 0
+      PhotoViewerScreen(
+        // Falls back to a single-asset list only in the practically
+        // unreachable case where `asset` isn't in `flattenedAssets` at
+        // cover-render time (e.g. a same-frame day-section reload) — the
+        // viewer should never fail to open for the cell the user just
+        // pressed.
+        assets: resultSet.isEmpty ? [asset] : resultSet,
+        startIndex: startIndex,
+        session: session,
+        onDismiss: { viewedAsset in focusedCellID = viewedAsset.id }
+      )
+    }
+  }
+
+  /// The Timeline's current result set in display order: every loaded
+  /// day section's assets, newest day first and each day's assets newest
+  /// first (matches `TimelineDay`/`groupByDay`'s own ordering), flattened
+  /// into one ordered list. `PhotoViewerScreen` navigates strictly within
+  /// THIS set — no cross-day paging beyond what's already loaded (v1,
+  /// Global Constraint, #2102).
+  private var flattenedAssets: [SearchAsset] {
+    viewModel.days.flatMap(\.assets)
   }
 
   private var serverDisplayName: String {
@@ -137,6 +170,7 @@ struct TimelineScreen: View {
             identifier: "timeline-cell-\(asset.id)",
             onSelect: { selectedAsset = asset }
           )
+          .focused($focusedCellID, equals: asset.id)
         }
       }
     }
