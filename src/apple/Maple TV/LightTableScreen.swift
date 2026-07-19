@@ -29,6 +29,13 @@ struct LightTableScreen: View {
   /// cancelled `onDisappear` rather than relying on `.task`'s automatic
   /// cancellation (Global Constraint: timer/tasks must not leak).
   @State private var cycleTask: Task<Void, Never>?
+  /// The Retry button's in-flight `reload()`, stored so `.onDisappear`
+  /// can cancel it alongside `cycleTask`. Without this, tapping Retry
+  /// then navigating away before the network round-trip resolves lets
+  /// `reload()` run off-screen and call `startCycle()` after
+  /// `.onDisappear` already fired — spinning up a repeating glide timer
+  /// nothing will ever cancel (F2 review).
+  @State private var retryTask: Task<Void, Never>?
   @FocusState private var focusedPrintID: UUID?
 
   init(session: TVCloudSession, libraryID: String) {
@@ -92,7 +99,11 @@ struct LightTableScreen: View {
       guard !Task.isCancelled else { return }
       startCycle()
     }
-    .onDisappear { stopCycle() }
+    .onDisappear {
+      stopCycle()
+      retryTask?.cancel()
+      retryTask = nil
+    }
   }
 
   // MARK: - Background
@@ -139,8 +150,11 @@ struct LightTableScreen: View {
         .foregroundStyle(Self.ink.opacity(0.65))
         .multilineTextAlignment(.center)
         .frame(maxWidth: 560)
-      Button("Retry") { Task { await reload() } }
-        .accessibilityLabel("Retry loading the Light Table")
+      Button("Retry") {
+        retryTask?.cancel()
+        retryTask = Task { await reload() }
+      }
+      .accessibilityLabel("Retry loading the Light Table")
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
