@@ -60,6 +60,11 @@ mod render;
 mod render_develop;
 mod scene_linear;
 mod scene_linear_chain;
+// #2092 (follow-on to #1959 / PR #2083): the fused per-tick FFI entry —
+// chain + display-encode in one call over one buffer, no intervening
+// Swift-side CIImage wrap/readback. Split out of `scene_linear_chain`
+// (rather than added to it) per the 600-LOC file-size budget.
+mod scene_linear_chain_fused;
 mod scene_linear_f32;
 mod thumbnail;
 // The flat `wb_frame_*` FFI-tail ↔ `SliderFrameExport` bridge (#1781/#1967),
@@ -131,6 +136,9 @@ mod id_tests;
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod render_tests;
+#[cfg(test)]
+#[path = "scene_linear_chain_fused_tests.rs"]
+mod scene_linear_chain_fused_tests;
 #[cfg(test)]
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;

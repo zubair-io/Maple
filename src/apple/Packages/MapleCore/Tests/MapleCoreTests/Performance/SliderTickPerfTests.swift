@@ -130,11 +130,14 @@ final class SliderTickPerfTests: XCTestCase {
     /// pipeline change) is tracked in #1959. The `specHardLimitMs` /
     /// `specTargetMs` numbers are still reported every run (and an
     /// OVER-BUDGET line fires when the mean exceeds 50 ms) so the gap
-    /// stays visible. Next candidate toward closing that gap: fusing the
-    /// scene-linear-chain FFI call and the `encodeDisplaySRGBViaFFI` call
-    /// into a single round trip (currently two separate readbacks per
-    /// tick) — that touches the raw-core/FFI surface, so it belongs in a
-    /// separate ticket/PR, not this Swift-only change.
+    /// stays visible. The chain+encode FFI fusion (#2092,
+    /// `maple_apply_chain_and_encode_display_f32`) landed but CANNOT move
+    /// this bench's floor: the fusion is only valid when the Metal stages
+    /// between the two FFI calls (sharpen / nr_color) are identity, and
+    /// this bench drags `AdjustmentModel.default` — whose reference-import
+    /// defaults are `sharpenAmount: 40, nrColor: 25` (#1933), so the
+    /// fusion gate never engages here. The fused scenario has its own
+    /// bench + ceiling: `FusedChainEncodeSliderTickPerfTests`.
     ///
     /// The sharpen-drag variant lives in `SharpenSliderTickPerfTests` —
     /// that's where the #661 FFI cache buys the per-tick savings and the
