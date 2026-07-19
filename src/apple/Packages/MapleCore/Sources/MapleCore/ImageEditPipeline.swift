@@ -687,9 +687,14 @@ public actor ImageEditPipeline {
     /// bytes; passing it lets a cache hit skip the GPU→CPU readback below
     /// entirely even when `sceneLinearChainCache` above is a guaranteed miss
     /// (e.g. every tick of an exposure-style drag, where the model digest
-    /// changes by design). `nil` (the default) disables the input cache for
-    /// that call — every caller that has a stable decoded instance to
-    /// anchor on should pass it.
+    /// changes by design). `nil` (the default) disables the input cache
+    /// for that call. CONSTRAINT (#2042): callers must pass `nil` for
+    /// UNBOUNDED (nil-`targetSize`, full-resolution) renders — export and
+    /// full-res preview paths — because a `put` there would pin a
+    /// full-resolution f32 buffer (~1.6 GB at 100 MP) in the single slot
+    /// until the next put, defeating the export-memory bounding. Slider
+    /// drag ticks always carry a viewport target, so gating on a non-nil
+    /// `targetSize` costs the drag path nothing.
     nonisolated private func applySceneLinearChainViaFFI(
         _ scaled: CIImage,
         model: AdjustmentModel,
@@ -1034,12 +1039,20 @@ public actor ImageEditPipeline {
         // The contrast slider (which AgX normally consumes via curve
         // slope modulation) is therefore unused on the non-RAW path; for
         // default sliders today, output is near-passthrough.
+        // #1959/#2042 — the input-readback cache is gated to BOUNDED
+        // (non-nil `targetSize`) renders: slider drag ticks always carry a
+        // viewport target, while the full-res paths (`renderForExport`,
+        // `RenderActor.renderPreview`) pass `targetSize: nil` and would
+        // otherwise `put` a full-resolution f32 buffer (~1.6 GB at 100 MP)
+        // into the single slot, retained until the next put — directly
+        // against the #2042 export-memory bounding. Passing `nil` here
+        // skips both the cache lookup AND the populate.
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
             decodedTemperature: 6500.0, decodedTint: 0.0,
             skipAgX: true,
             assetID: assetID,
-            decodedSource: decoded
+            decodedSource: targetSize != nil ? decoded : nil
         )
 
         // Sharpen + nr_color stay on the Apple GPU path (Metal compute
@@ -1171,6 +1184,14 @@ public actor ImageEditPipeline {
         } else {
             logger.notice("processSceneLinear asShot=NIL live=\(model.temperature, format: .fixed(precision: 0))K/\(model.tint, format: .fixed(precision: 1)) → decodedTemp=\(decodedTemp, format: .fixed(precision: 0))")
         }
+        // #1959/#2042 — the input-readback cache is gated to BOUNDED
+        // (non-nil `targetSize`) renders: slider drag ticks always carry a
+        // viewport target, while the full-res paths (`renderForExport`,
+        // `RenderActor.renderPreview`) pass `targetSize: nil` and would
+        // otherwise `put` a full-resolution f32 buffer (~1.6 GB at 100 MP)
+        // into the single slot, retained until the next put — directly
+        // against the #2042 export-memory bounding. Passing `nil` here
+        // skips both the cache lookup AND the populate.
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
@@ -1179,7 +1200,7 @@ public actor ImageEditPipeline {
             assetID: assetID,
             noiseProfile: noiseProfile,
             iso: iso,
-            decodedSource: decoded
+            decodedSource: targetSize != nil ? decoded : nil
         )
 
         // sharpen + nr_color stay on the Apple GPU path (Metal compute
