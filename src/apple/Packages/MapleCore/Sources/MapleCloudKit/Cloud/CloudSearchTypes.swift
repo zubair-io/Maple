@@ -31,6 +31,34 @@ public struct SearchAssetCamera: Codable, Equatable, Sendable {
   public let model: String?
 }
 
+/// Reverse-geocode rollup tiers (locality/region/country) for a
+/// `SearchAssetPlace`. Mirrors the `rollups` sub-object of the server's
+/// `Place` interface (`src/api/src/db/schema.ts`).
+public struct SearchAssetPlaceRollups: Codable, Equatable, Sendable {
+  public let locality: String?
+  public let region: String?
+  public let country_code: String?
+
+  public init(locality: String? = nil, region: String? = nil, country_code: String? = nil) {
+    self.locality = locality; self.region = region; self.country_code = country_code
+  }
+}
+
+/// Minimal decode of the server's `Place` object — only what the TV
+/// timeline's day-header/caption needs. The wire `place` field is a rich
+/// object (`display_name`, `address`, `rollups`, `pois`, lat/lon, etc.);
+/// this struct deliberately models only `display_name` and `rollups` and
+/// leaves the rest un-modeled. Synthesized `Codable` ignores unknown keys,
+/// so the many un-modeled `Place` fields decode without error.
+public struct SearchAssetPlace: Codable, Equatable, Sendable {
+  public let display_name: String?
+  public let rollups: SearchAssetPlaceRollups?
+
+  public init(display_name: String? = nil, rollups: SearchAssetPlaceRollups? = nil) {
+    self.display_name = display_name; self.rollups = rollups
+  }
+}
+
 public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   public let id: String
   public let folder_id: String
@@ -62,6 +90,15 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// cloud rows with local Photos library rows. Optional — nil for assets
   /// that weren't ingested via PhotoKit backup.
   public let phasset_links: [SearchAssetPHLink]?
+  /// Whether an XMP sidecar exists for this asset. Optional/absent-tolerant
+  /// for backward compat with server responses predating this field (TV
+  /// timeline caption's green "edited" dot, #2102).
+  public let has_xmp: Bool?
+  /// Reverse-geocoded place, when the pipeline has resolved one for this
+  /// asset's GPS. `nil` when un-geocoded, no GPS, or (backward compat) the
+  /// server response predates this field. Drives the TV timeline
+  /// day-section header (#2102).
+  public let place: SearchAssetPlace?
 
   /// Explicit memberwise init. The synthesized default would require every
   /// caller to pass `phasset_links:` even when nil, which broke existing
@@ -84,7 +121,9 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
               flag: Int? = nil,
               color_label: String? = nil,
               hidden: Bool? = nil,
-              phasset_links: [SearchAssetPHLink]? = nil) {
+              phasset_links: [SearchAssetPHLink]? = nil,
+              has_xmp: Bool? = nil,
+              place: SearchAssetPlace? = nil) {
     self.id = id
     self.folder_id = folder_id
     self.abs_path = abs_path
@@ -103,6 +142,8 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     self.color_label = color_label
     self.hidden = hidden
     self.phasset_links = phasset_links
+    self.has_xmp = has_xmp
+    self.place = place
   }
 }
 
