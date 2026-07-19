@@ -15,4 +15,7 @@ enum MapleTVTheme {
   static let textPrimary = Color(red: 0xe7 / 255, green: 0xe5 / 255, blue: 0xe4 / 255)
   static let textMuted = Color(red: 0xa8 / 255, green: 0xa2 / 255, blue: 0x9e / 255)
   static let primary = Color(red: 0xc4 / 255, green: 0x49 / 255, blue: 0x3a / 255)
+  /// Star-rating gold, used by the Timeline cell's focused caption
+  /// (#2102).
+  static let star = Color(red: 0xef / 255, green: 0x9f / 255, blue: 0x27 / 255)
 }
