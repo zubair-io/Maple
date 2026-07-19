@@ -1,7 +1,7 @@
 // TVTimelineViewModelTests.swift
 //
 // `TVTimelineViewModel` — the @Observable async orchestration (staleness
-// guard, TVAsyncSemaphore, cache-first flow) — lives at
+// guard, BoundedAsyncSemaphore usage, cache-first flow) — lives at
 // `src/apple/Maple TV/TVTimelineViewModel.swift`. That file is compiled
 // ONLY by the Xcode `Maple TV` app target via a
 // PBXFileSystemSynchronizedRootGroup; it is not part of any SwiftPM

@@ -70,8 +70,11 @@ final class TVTimelineViewModel {
   private var generation: Int = 0
   /// Concurrency cap for `/api/search` page fetches (mirrors
   /// `CloudTimelineViewModel`'s default of 2 — a fast scroll shouldn't
-  /// fan out unboundedly against a single server).
-  private let semaphore: TVAsyncSemaphore
+  /// fan out unboundedly against a single server). `BoundedAsyncSemaphore`
+  /// lives in MapleCloudKit (`Cloud/BoundedAsyncSemaphore.swift`) — hoisted
+  /// there so `swift test` can cover the real permit-handoff algorithm
+  /// directly (D3/jules review, PR #2110), instead of a local copy here.
+  private let semaphore: BoundedAsyncSemaphore
 
   init(server: URL,
        libraryID: String,
@@ -84,7 +87,7 @@ final class TVTimelineViewModel {
     self.searchClient = searchClient
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
-    self.semaphore = TVAsyncSemaphore(value: maxConcurrentPageFetches)
+    self.semaphore = BoundedAsyncSemaphore(value: maxConcurrentPageFetches)
   }
 
   // MARK: - Loaders
@@ -221,44 +224,5 @@ final class TVTimelineViewModel {
 
   private static func sortedDescending(_ buckets: [TimelineBucket]) -> [TimelineBucket] {
     buckets.sorted { ($0.year, $0.month) > ($1.year, $1.month) }
-  }
-}
-
-// MARK: - AsyncSemaphore
-
-/// Simple counting semaphore for bounded concurrency, scoped to this
-/// file so the Maple TV target doesn't need to link MapleCore for the
-/// ~30-line helper (MapleCore's `AsyncSemaphore`, used by
-/// `CloudTimelineViewModel`, is unreachable here by design — see the
-/// file header). Same shape/behavior as that helper.
-private actor TVAsyncSemaphore {
-  private let value: Int
-  private var current: Int = 0
-  private var waiters: [CheckedContinuation<Void, Never>] = []
-
-  /// Clamps `value` to at least 1 — a misconfigured 0 (or negative) cap
-  /// would make `acquire()` suspend forever since `current < value` is
-  /// never true.
-  init(value: Int) {
-    self.value = max(1, value)
-  }
-
-  func acquire() async {
-    if current < value {
-      current += 1
-      return
-    }
-    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-      waiters.append(cont)
-    }
-    current += 1
-  }
-
-  func release() {
-    current -= 1
-    if let waiter = waiters.first {
-      waiters.removeFirst()
-      waiter.resume()
-    }
   }
 }
