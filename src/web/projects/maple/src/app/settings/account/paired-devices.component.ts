@@ -26,6 +26,11 @@ export class PairedDevicesComponent {
     this.reload();
   }
 
+  /** User-facing platform name — the wire value is an internal enum ('tvos'). */
+  platformLabel(platform: string): string {
+    return platform === 'tvos' ? 'Apple TV' : platform;
+  }
+
   reload(): void {
     this.error.set(null);
     this.auth.listDeviceSessions().subscribe({
