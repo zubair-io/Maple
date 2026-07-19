@@ -169,7 +169,7 @@ struct PhotoViewerScreen: View {
   }
 
   private static func captureDateText(_ isoString: String?) -> String? {
-    guard let isoString, let date = photoViewerISO8601.date(from: isoString) else { return nil }
+    guard let isoString, let date = parseTimelineISO8601(isoString) else { return nil }
     return date.formatted(date: .abbreviated, time: .shortened)
   }
 
@@ -235,10 +235,6 @@ struct PhotoViewerScreen: View {
     }
   }
 }
-
-/// Process-wide ISO 8601 formatter — documented thread-safe (mirrors
-/// `TimelineCell.swift`'s `timelineCellISO8601`).
-private let photoViewerISO8601 = ISO8601DateFormatter()
 
 // No `#Preview` here: `TVCloudSession` builds a real `AuthenticatedHTTPClient`
 // (Keychain-backed token lookup, `CloudServerRegistry` reads) and has no
