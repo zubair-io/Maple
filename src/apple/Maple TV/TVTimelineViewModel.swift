@@ -24,24 +24,6 @@ import Foundation
 import MapleCloudKit
 import Observation
 
-/// One calendar-day section of the Timeline grid.
-///
-/// `assets` is sorted newest-first (by `captured_at`). `place` is the
-/// geocoded header for the day — the first (i.e. most recently captured)
-/// asset in `assets` that has a non-nil `place`, so a day whose shots span
-/// more than one location shows the most recent one; a day with no
-/// geocoded assets carries `place == nil` (no header).
-struct TimelineDay: Equatable, Identifiable, Sendable {
-  /// Calendar-day identity, truncated to midnight in the grouping
-  /// calendar's time zone (see `TVTimelineViewModel.groupByDay`). Two
-  /// `TimelineDay`s are the same section iff this matches.
-  let date: Date
-  let assets: [SearchAsset]
-  let place: SearchAssetPlace?
-
-  var id: Date { date }
-}
-
 @MainActor
 @Observable
 final class TVTimelineViewModel {
@@ -229,53 +211,17 @@ final class TVTimelineViewModel {
     }
   }
 
+  /// Day grouping is the pure `groupByDay(_:calendar:)` function from
+  /// MapleCloudKit (`Cloud/TimelineGrouping.swift`) — hoisted there so
+  /// `swift test` can cover the real algorithm directly (D3 review),
+  /// instead of a local copy here.
   private func recomputeDays() {
-    days = Self.groupByDay(assetsByMonth.values.flatMap { $0 })
+    days = groupByDay(assetsByMonth.values.flatMap { $0 })
   }
 
   private static func sortedDescending(_ buckets: [TimelineBucket]) -> [TimelineBucket] {
     buckets.sorted { ($0.year, $0.month) > ($1.year, $1.month) }
   }
-
-  // MARK: - Day grouping (pure)
-
-  /// Sub-group a flat list of `SearchAsset`s (as returned by
-  /// `CloudSearchClient.page`, typically `captured_desc` order, but this
-  /// function doesn't rely on that) into calendar-day sections, newest
-  /// day first. Assets with a missing or unparsable `captured_at` are
-  /// dropped — the day timeline has no section for them (the server's
-  /// own `hasCapturedAt=true` filter on `page()` means this is
-  /// defensive, not the expected path).
-  ///
-  /// Each day's `place` header is the first non-nil `place` among that
-  /// day's assets in newest-first (`captured_at` descending) order — the
-  /// day's most recently captured geocoded asset wins when a day's shots
-  /// span more than one location.
-  ///
-  /// Pure and side-effect-free by design: it's the algorithm this file's
-  /// test coverage exercises directly (see the note in
-  /// `TVTimelineViewModelTests.swift` about why that test lives in
-  /// `MapleCoreTests` rather than importing this type).
-  static func groupByDay(_ assets: [SearchAsset], calendar: Calendar = .current) -> [TimelineDay] {
-    let dated: [(asset: SearchAsset, capturedAt: Date)] = assets.compactMap { asset in
-      asset.captured_at
-        .flatMap { Self.iso8601.date(from: $0) }
-        .map { (asset, $0) }
-    }
-    let byDay = Dictionary(grouping: dated) { calendar.startOfDay(for: $0.capturedAt) }
-    return byDay
-      .map { day, entries -> TimelineDay in
-        let sorted = entries.sorted { $0.capturedAt > $1.capturedAt }
-        let place = sorted.first(where: { $0.asset.place != nil })?.asset.place
-        return TimelineDay(date: day, assets: sorted.map(\.asset), place: place)
-      }
-      .sorted { $0.date > $1.date }
-  }
-
-  /// Process-wide ISO 8601 formatter — documented thread-safe, and
-  /// shared so grouping a month's worth of assets doesn't allocate one
-  /// per asset (matches the `iso8601` pattern in `CloudTimelineViewModel`).
-  private static let iso8601: ISO8601DateFormatter = ISO8601DateFormatter()
 }
 
 // MARK: - AsyncSemaphore
