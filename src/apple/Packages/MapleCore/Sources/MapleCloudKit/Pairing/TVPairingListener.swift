@@ -111,10 +111,34 @@ public final class TVPairingListener {
 
   /// Stops accepting new connections. Connections already in flight finish
   /// their own send-then-cancel sequence independently (see `respond`).
+  ///
+  /// Teardown must not depend on this wrapper's own lifetime (C3 review):
+  /// the underlying `NWListener` is captured as a strong local **before**
+  /// dispatching, rather than read via `self?.listener` from inside the
+  /// queued closure. If the caller drops its last strong reference to this
+  /// wrapper immediately after calling `stop()` — exactly what
+  /// `PairingViewModel` does on regenerate (`listener?.stop(); listener =
+  /// nil`) — this wrapper can deinit before the queued block runs; a
+  /// `self?.` capture would then resolve to `nil` and the socket would
+  /// never be cancelled, leaking a bound port across QR regenerations.
+  /// Capturing the listener itself keeps cancellation independent of
+  /// whether `self` is still alive when the block executes.
   public func stop() {
-    queue.async { [weak self] in
-      self?.listener?.cancel()
-      self?.listener = nil
+    guard let listenerToCancel = listener else { return }
+    listener = nil
+    queue.async {
+      listenerToCancel.cancel()
+    }
+  }
+
+  /// Backstop for the same hazard `stop()` guards against, for the case
+  /// where this wrapper is deallocated without `stop()` ever being called
+  /// explicitly. Same strong-local capture, so the cancel does not depend
+  /// on `self` surviving until the queued block runs.
+  deinit {
+    guard let listenerToCancel = listener else { return }
+    queue.async {
+      listenerToCancel.cancel()
     }
   }
 
