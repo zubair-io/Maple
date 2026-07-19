@@ -145,9 +145,34 @@ final class SharpenSliderTickPerfTests: XCTestCase {
         // clean. `decodedAtModel` is pinned to the frozen scene model (as the
         // live sharpen drag does) so the scene-linear digest is stable and
         // the cache genuinely hits in the ON arm.
+        //
+        // HERMETICITY (#2113 / Copilot #2115): pin every non-varied gate to a
+        // fixed state in BOTH arms so the ratio isolates the #661 chain-cache
+        // win and is identical regardless of the runner's MAPLE_DISABLE_* env
+        // vars; reset all three hooks to nil in `defer` so nothing leaks.
+        defer {
+            pipeline.sceneLinearChainCache._testSetEnabled(nil)
+            pipeline.ffiInputBufferCache._testSetEnabled(nil)
+            ImageEditPipeline._testSetFusedChainEncodeEnabled(nil)
+        }
+
         func runArm(chainCacheEnabled: Bool) -> SliderTickPerfHarness.DragStats {
+            // Varied fix — the #661 chain cache.
             pipeline.sceneLinearChainCache._testSetEnabled(chainCacheEnabled)
-            pipeline.ffiInputBufferCache.invalidate()
+            // Pinned: input cache ON in BOTH arms. The scene-linear model is
+            // frozen, so on the chain-cache-OFF arm the FFI runs every tick
+            // and its readback is served from the input cache — pinning it ON
+            // in both arms isolates the #661 win to the chain-compute delta
+            // (matching the env-default behaviour this bench measured before)
+            // rather than letting a runner's MAPLE_DISABLE_FFI_INPUT_CACHE
+            // fold the readback cost into the OFF arm. Setting it drops the
+            // slot, so each arm starts clean.
+            pipeline.ffiInputBufferCache._testSetEnabled(true)
+            // Pinned: fusion DISABLED. `AdjustmentModel.default` carries
+            // nrColor 25, so the #2095 fusion gate can never engage on this
+            // bench; pinning it disabled keeps a runner's
+            // MAPLE_DISABLE_FUSED_CHAIN_ENCODE from mattering.
+            ImageEditPipeline._testSetFusedChainEncodeEnabled(false)
             return SliderTickPerfHarness.measureDrag(
                 pipeline: pipeline,
                 decoded: decoded,
@@ -163,10 +188,10 @@ final class SharpenSliderTickPerfTests: XCTestCase {
         }
 
         // Cache ON first (production default = the absolute-ceiling/report
-        // arm), then OFF. Restore the env default afterwards.
+        // arm), then OFF. The `defer` above restores every gate to its env
+        // default.
         let statsOn = runArm(chainCacheEnabled: true)
         let statsOff = runArm(chainCacheEnabled: false)
-        pipeline.sceneLinearChainCache._testSetEnabled(nil)
 
         let ratio = statsOn.mean / statsOff.mean
         let fixture = fixtureURL.lastPathComponent
