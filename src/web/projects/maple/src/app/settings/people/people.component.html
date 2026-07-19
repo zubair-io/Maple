@@ -176,8 +176,41 @@
           >
             Not the same person
           </button>
+          <button
+            type="button"
+            class="btn-ghost"
+            [disabled]="detailCtl.suggestionFacesLoading()"
+            [attr.aria-expanded]="detailCtl.suggestionFaces() !== null"
+            [attr.aria-label]="'Compare faces of ' + suggestion.name"
+            (click)="detailCtl.toggleSuggestionFaces()"
+          >
+            {{ detailCtl.suggestionFaces() !== null ? 'Hide faces' : 'Compare faces' }}
+          </button>
         </div>
       </div>
+      @if (detailCtl.suggestionFaces(); as suggestionFaces) {
+        <div class="merge-suggestion-faces">
+          @for (f of suggestionFaces; track faceKey(f)) {
+            <span class="face-thumb merge-suggestion-face" [title]="suggestion.name">
+              @if (faceThumbUrl(f); as url) {
+                <img
+                  [src]="url"
+                  [style.transform]="crop.transform(f.bbox, url)"
+                  style="transform-origin: 0 0"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  (load)="crop.onImgLoad(url, $event)"
+                />
+              }
+            </span>
+          } @empty {
+            <span class="merge-suggestion-faces-empty">
+              No face crops for {{ suggestion.name }} yet.
+            </span>
+          }
+        </div>
+      }
     }
 
     <!-- Filter bar -->
