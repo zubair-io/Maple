@@ -5,16 +5,22 @@
 // test.ts` / `clustering-job.test.ts` split on the API side).
 //
 // Covers:
-//   - hidePerson evicts the cached detail and invalidates both lists.
+//   - hidePerson evicts the cached detail and invalidates the hidden list
+//     (but deliberately NOT the main list — see below).
 //   - hidePerson / hidePeople remove the affected rows from the cached list
 //     SIGNAL immediately — before the mutation request(s) resolve — so a
 //     hide reads as instant instead of waiting on the round-trip.
-//   - hidePerson rolls back its optimistic removal via a list refetch when
-//     the API call fails.
-//   - hidePeople reconciles a partial batch failure via its trailing
-//     (unconditional) refetch — an id whose hide failed server-side comes
-//     back rather than staying stranded hidden client-side.
-//   - unhidePerson invalidates both lists.
+//   - hidePerson/hidePeople do NOT refetch the main list on success or
+//     failure — rollback (failure, or a partial batch failure) restores the
+//     specific removed row(s) locally instead. A main-list refetch on hide
+//     used to race a DIFFERENT concurrent hide's own optimistic removal: a
+//     GET /people landing mid-batch could still list a person whose hide
+//     request just hadn't reached the server yet, and `_list.set(...)`
+//     would silently "un-hide" them until their own request's success
+//     handler ran moments later. The regression test below reproduces that
+//     exact scenario and asserts it no longer happens.
+//   - unhidePerson invalidates both lists (unaffected by the above — only
+//     hide's success path skips the main-list refetch).
 //
 // The store fetches through BunApiBackendService (which already maps
 // snake_case → camelCase), so we stub that service rather than the HTTP layer.
@@ -76,7 +82,7 @@ describe('PeopleStore — hide / unhide', () => {
     TestBed.resetTestingModule();
   });
 
-  it('hidePerson evicts the cached detail and invalidates both lists', async () => {
+  it('hidePerson evicts the cached detail and invalidates the hidden list, but NOT the main list', async () => {
     const { api } = makeBed();
     store = TestBed.inject(PeopleStore);
 
@@ -88,8 +94,10 @@ describe('PeopleStore — hide / unhide', () => {
     await store.hidePerson('p1');
 
     expect(api.hidePerson).toHaveBeenCalledWith('p1');
-    // Main list re-fetched (membership/counts changed).
-    expect(api.listPeople).toHaveBeenCalledTimes(2);
+    // Main list NOT re-fetched — the optimistic removal already is the
+    // correct end state; a refetch here is what causes the race (see the
+    // regression test below).
+    expect(api.listPeople).toHaveBeenCalledTimes(1);
     // Hidden list re-fetched (the person just joined it).
     expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
     // Cached detail evicted — `detail()` for the still-active id is gone.
@@ -114,7 +122,7 @@ describe('PeopleStore — hide / unhide', () => {
     await hidePromise;
   });
 
-  it('hidePerson rolls back the optimistic removal via a list refetch when the API call fails', async () => {
+  it('hidePerson rolls back the optimistic removal LOCALLY (no list refetch) when the API call fails', async () => {
     const api = new ApiStub();
     api.hidePerson = vi.fn(() => throwError(() => new Error('hide failed')));
     makeBed(api);
@@ -124,11 +132,10 @@ describe('PeopleStore — hide / unhide', () => {
 
     await expect(store.hidePerson('p1')).rejects.toThrow('hide failed');
 
-    // One extra fetch beyond the initial ensureList(): the failure-path
-    // rollback. The row is back — the hide never happened server-side, so
-    // the refetch's stub response still includes it.
-    expect(api.listPeople).toHaveBeenCalledTimes(2);
-    expect(store.data()?.map((p) => p.id)).toEqual(['p1', 'p2']);
+    // No extra fetch beyond the initial ensureList() — the row is restored
+    // from the value `_removeFromList` handed back, not a server round-trip.
+    expect(api.listPeople).toHaveBeenCalledTimes(1);
+    expect(store.data()?.map((p) => p.id)).toEqual(['p2', 'p1']);
   });
 
   it('hidePeople removes every selected row from the cached list immediately — before any mutation request resolves', async () => {
@@ -150,7 +157,7 @@ describe('PeopleStore — hide / unhide', () => {
     await hidePromise;
   });
 
-  it('hidePeople reconciles a partial failure via the trailing refetch — the id that failed to hide comes back', async () => {
+  it('hidePeople reconciles a partial failure LOCALLY (no refetch) — the id that failed to hide comes back', async () => {
     const api = new ApiStub();
     api.listResult = [person('p1', 'Alice'), person('p2', 'Person 7')];
     api.hidePerson = vi.fn((id: string) =>
@@ -163,12 +170,53 @@ describe('PeopleStore — hide / unhide', () => {
     const result = await store.hidePeople(['p1', 'p2']);
 
     expect(result).toEqual({ ok: 1, failed: 1 });
-    // p2's hide failed server-side. The trailing `_evictAndRefreshLists`
-    // refetch (unconditional regardless of partial failure) reconciles the
-    // optimistic removal against the stub's still-listing-p2 response — the
-    // failed hide doesn't strand p2 hidden client-side while it's still live
-    // on the server.
-    expect(store.data()?.map((p) => p.id)).toContain('p2');
+    // p2's hide failed server-side and is restored from the row
+    // `_removeFromList` handed back — not a server refetch, which would
+    // race any OTHER hide still in flight elsewhere (see the regression
+    // test below).
+    expect(store.data()?.map((p) => p.id)).toEqual(['p2']);
+    expect(api.listPeople).toHaveBeenCalledTimes(1);
+  });
+
+  it('regression: hiding two people concurrently does not let one clobber the other', async () => {
+    // This is the exact bug report: hidePerson used to refetch the main
+    // list on success. If a SECOND hide was still in flight when that
+    // refetch's response came back, the response (a stale snapshot that
+    // still lists the second person, since their hide hadn't reached the
+    // server yet) would overwrite the list signal and silently "un-hide"
+    // them until their own success handler ran moments later.
+    const api = new ApiStub();
+    api.listResult = [person('p1', 'Alice'), person('p2', 'Person 7'), person('p3', 'Cara')];
+    const hideA$ = new Subject<{ ok: true }>();
+    const hideB$ = new Subject<{ ok: true }>();
+    api.hidePerson = vi.fn((id: string) =>
+      id === 'p1' ? hideA$.asObservable() : hideB$.asObservable(),
+    );
+    makeBed(api);
+    store = TestBed.inject(PeopleStore);
+    store.ensureList();
+    expect(store.data()?.map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
+
+    // Two independent hides fired back to back — both drop out optimistically.
+    const hideA = store.hidePerson('p1');
+    const hideB = store.hidePerson('p2');
+    expect(store.data()?.map((p) => p.id)).toEqual(['p3']);
+
+    // p1's mutation resolves first. p2's is still in flight.
+    hideA$.next({ ok: true });
+    hideA$.complete();
+    await hideA;
+    // p2 must still be gone — not resurrected by p1's success handler.
+    expect(store.data()?.map((p) => p.id)).toEqual(['p3']);
+
+    // p2's mutation resolves after.
+    hideB$.next({ ok: true });
+    hideB$.complete();
+    await hideB;
+    expect(store.data()?.map((p) => p.id)).toEqual(['p3']);
+
+    // No main-list refetch happened at any point across either hide.
+    expect(api.listPeople).toHaveBeenCalledTimes(1);
   });
 
   it('unhidePerson invalidates both lists', async () => {
