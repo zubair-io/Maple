@@ -105,7 +105,7 @@ final class PairingViewModel {
       guard let self else { return }
       let interval = expiresAt.timeIntervalSince(self.now())
       if interval > 0 {
-        try? await Task.sleep(nanoseconds: UInt64(max(interval, 0) * 1_000_000_000))
+        try? await Task.sleep(for: .seconds(max(interval, 0)))
       }
       guard !Task.isCancelled else { return }
       self.start()
