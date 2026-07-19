@@ -10,7 +10,7 @@
 // (not used here). DI / signal wiring stays in the component; this file owns
 // the pure-ish action logic.
 
-import { computed, signal, type Signal, type WritableSignal } from '@angular/core';
+import { computed, signal, untracked, type Signal, type WritableSignal } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -118,7 +118,10 @@ export class PeopleDetailController {
     if (suggestion) this.ensurePersonCover(suggestion.personId, suggestion.coverAssetId);
     if ((suggestion?.personId ?? null) !== this.suggestionFacesFor) {
       this.suggestionFacesFor = null;
-      this.suggestionFaces.set(null);
+      // `untracked` for explicitness: this runs inside the component's
+      // detail effect, and the write must not be mistaken for a tracked
+      // read (signal writes in effects are legal in Angular 19+).
+      untracked(() => this.suggestionFaces.set(null));
     }
   }
 
@@ -174,6 +177,11 @@ export class PeopleDetailController {
           limit: SUGGESTION_FACE_LIMIT,
         }),
       );
+      // Discard a stale response: the user may have navigated to another
+      // person (or the suggestion may have changed/cleared) while the fetch
+      // was in flight — populating now would open the strip with the wrong
+      // person's faces under the new banner.
+      if (this.deps.selected()?.suggestedMerge?.personId !== suggestion.personId) return;
       for (const f of detail.faces) {
         this.deps.thumbs.ensure(f.absPath, null, f.absPath, f.assetId);
       }
