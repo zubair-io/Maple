@@ -142,16 +142,6 @@
 			path = "Maple TV";
 			sourceTree = "<group>";
 		};
-		E31E79B2300C6A7E00617367 /* Maple TVTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Maple TVTests";
-			sourceTree = "<group>";
-		};
-		E31E79BC300C6A7E00617367 /* Maple TVUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Maple TVUITests";
-			sourceTree = "<group>";
-		};
 		E3DD94842FB50E55009392B4 /* MapleBackupAgent */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = MapleBackupAgent;
@@ -275,8 +265,6 @@
 				A1F0000D00000000000000A1 /* Packages */,
 				E3DD94842FB50E55009392B4 /* MapleBackupAgent */,
 				E31E79A2300C6A7D00617367 /* Maple TV */,
-				E31E79B2300C6A7E00617367 /* Maple TVTests */,
-				E31E79BC300C6A7E00617367 /* Maple TVUITests */,
 				A1F0000E00000000000000A1 /* Frameworks */,
 				A1F0000F00000000000000A1 /* Products */,
 				E3FF1B052F9D8CE600FD7E5E /* Recovered References */,
