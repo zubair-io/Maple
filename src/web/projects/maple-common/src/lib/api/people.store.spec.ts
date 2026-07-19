@@ -11,8 +11,7 @@
 //     serves cached + refreshes on revisit; switching ids surfaces the right
 //     cached entry.
 //   - invalidateDetail(id) re-fetches a specific person.
-//   - hidePerson evicts the detail and invalidates BOTH lists.
-//   - unhidePerson invalidates both lists.
+//   - hidePerson / hidePeople / unhidePerson: `people.store.hide.spec.ts`.
 //   - Hidden-list SWR: ensureHidden / invalidateHidden mirror the main list.
 //   - Errors surface on `error()` / `detailError()` without clobbering data.
 //
@@ -431,50 +430,9 @@ describe('PeopleStore', () => {
     expect(store.detail()?.name).toBe('Alice');
   });
 
-  it('hidePerson evicts the cached detail and invalidates both lists', async () => {
-    const { api } = makeBed();
-    store = TestBed.inject(PeopleStore);
-
-    store.ensureList();
-    store.ensureHidden();
-    store.setActiveDetailId('p1');
-    expect(store.detail()?.id).toBe('p1');
-
-    await store.hidePerson('p1');
-
-    expect(api.hidePerson).toHaveBeenCalledWith('p1');
-    // Main list re-fetched (membership/counts changed).
-    expect(api.listPeople).toHaveBeenCalledTimes(2);
-    // Hidden list re-fetched (the person just joined it).
-    expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
-    // Cached detail evicted — `detail()` for the still-active id is gone.
-    expect(store.detail()).toBeUndefined();
-  });
-
-  it('hidePerson rejects (and does not invalidate) when the API call fails', async () => {
-    const api = new ApiStub();
-    api.hidePerson = vi.fn(() => throwError(() => new Error('hide failed')));
-    makeBed(api);
-    store = TestBed.inject(PeopleStore);
-    store.ensureList();
-
-    await expect(store.hidePerson('p1')).rejects.toThrow('hide failed');
-    // No extra list fetch beyond the initial ensureList().
-    expect(api.listPeople).toHaveBeenCalledTimes(1);
-  });
-
-  it('unhidePerson invalidates both lists', async () => {
-    const { api } = makeBed();
-    store = TestBed.inject(PeopleStore);
-
-    store.ensureList();
-    store.ensureHidden();
-    await store.unhidePerson('h1');
-
-    expect(api.unhidePerson).toHaveBeenCalledWith('h1');
-    expect(api.listPeople).toHaveBeenCalledTimes(2);
-    expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
-  });
+  // hidePerson / hidePeople / unhidePerson tests live in
+  // `people.store.hide.spec.ts` — split out to keep both files under the
+  // 600-LOC file-budget gate.
 
   // ── Hidden-list SWR ─────────────────────────────────────────────────────────
 
