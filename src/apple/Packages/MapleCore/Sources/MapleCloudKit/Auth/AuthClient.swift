@@ -49,6 +49,14 @@ public struct AuthMeResponse: Decodable {
   public let credentials: [Cred]
 }
 
+/// Response from `POST /api/auth/device-sessions` — a new, device-scoped
+/// token pair minted for a paired tvOS device. See `AuthClient.mintDeviceSession`.
+public struct DeviceSessionMint: Codable {
+  public let id: String
+  public let access_token: String
+  public let refresh_token: String
+}
+
 public actor AuthClient {
   public nonisolated let server: URL
   let urlSession: URLSession
@@ -84,6 +92,25 @@ public actor AuthClient {
     _ = try await postJSON("/api/auth/logout",
                            body: ["refresh_token": refreshToken],
                            auth: accessToken) as EmptyResponse
+  }
+
+  /// Mints a new, device-scoped token pair for a paired tvOS device. Called
+  /// once, at the end of the pairing handshake — the phone (which holds a
+  /// live PRIMARY session) proves it by sending its own current
+  /// `refreshToken` as `refresh_token`; the server mints a distinct
+  /// credential in the same family for the TV rather than handing the TV
+  /// the phone's own tokens. `platform` is hardcoded to `"tvos"`: it's the
+  /// only value the server accepts for this endpoint (see the milestone B
+  /// wire contract). 403 on an invalid/expired/family-revoked/platform-marked
+  /// proof surfaces as `AuthClientError.forbidden`, same as every other
+  /// mutating AuthClient call.
+  public func mintDeviceSession(
+    accessToken: String, refreshToken: String, label: String
+  ) async throws -> DeviceSessionMint {
+    return try await postJSON(
+      "/api/auth/device-sessions",
+      body: ["label": label, "platform": "tvos", "refresh_token": refreshToken],
+      auth: accessToken)
   }
 
   // MARK: - Helpers
