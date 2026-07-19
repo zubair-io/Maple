@@ -201,6 +201,13 @@ export async function recomputeCentroids(): Promise<number> {
   //    - centroid_face_count is -1 (force-recompute tag from manual moves)
   //    - centroid_face_count is missing entirely (new rows that haven't been
   //      through a recompute yet)
+  //    - centroid_face_count is positive but the stored `centroid` vector is
+  //      empty/short — an inconsistent stuck state (#2105). Such a row is
+  //      otherwise invisible to BOTH this pass (a positive count reads as
+  //      "clean") and `loadCentroids` (a short vector can't seed), so its
+  //      centroid never rebuilds and any stale merge suggestion never clears.
+  //      Rebuilding it here yields either a valid vector (if the person's
+  //      faces have embeddings) or the consistent cleared state below.
   // Deliberately NOT filtering on centroid shape alone: `centroid: []` with
   // `centroid_face_count: 0` is the valid "no faces assigned" cleared state —
   // including it would keep unassigned manually-created people perpetually dirty.
@@ -208,7 +215,8 @@ export async function recomputeCentroids(): Promise<number> {
   const allLive = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
   const dirty = allLive.filter((p) => {
     const fc = p.centroid_face_count;
-    return fc === undefined || fc === null || fc === -1;
+    if (fc === undefined || fc === null || fc === -1) return true;
+    return fc > 0 && (!Array.isArray(p.centroid) || p.centroid.length !== EMBEDDING_DIM);
   });
   if (dirty.length === 0) return 0;
 
