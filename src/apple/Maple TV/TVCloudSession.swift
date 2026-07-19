@@ -6,11 +6,15 @@ import Observation
 /// Outcome of resolving which library the connected experience should
 /// open against. `.many` is the only case that shows a picker — `.one`
 /// covers both a single-library account and a returning TV whose
-/// previously-selected library still exists on the server.
-enum LibraryResolution: Equatable {
+/// previously-selected library still exists on the server. `.failed`
+/// carries the transport/decode error so the connected screen can show a
+/// distinct error+retry state instead of conflating it with a genuinely
+/// empty account (D5 review of D2 — see `resolveLibraries()`).
+enum LibraryResolution {
   case none
   case one(CloudFolder)
   case many([CloudFolder])
+  case failed(Error)
 }
 
 /// Post-pairing service factory for the connected experience. Builds the
@@ -29,6 +33,11 @@ final class TVCloudSession {
   let server: URL
   let searchClient: CloudSearchClient
   let thumbClient: CloudThumbClient
+  /// Shared across every `TVRemoteImage` this session's screens render
+  /// (grid cells, and D6's full-screen viewer once it lands), so the
+  /// disk-backed AVIF cache is a single instance per connected session
+  /// rather than one per view.
+  let thumbCache = CloudThumbCache()
   private let foldersClient: CloudFoldersClient
 
   private(set) var selectedLibraryID: String?
@@ -64,20 +73,25 @@ final class TVCloudSession {
 
   /// Fetches the server's registered folders (`GET /api/folders`) and
   /// maps the result to a `LibraryResolution`:
+  ///   - a network/401/decode failure → `.failed(error)`, so the caller
+  ///     can show a distinct error+retry state rather than an empty
+  ///     account (D5 review of D2 — this used to collapse into `.none`,
+  ///     which looked identical to a genuinely empty account);
   ///   - a previously-selected library that's still present short-circuits
   ///     to `.one`, even when the account now has several libraries — no
   ///     re-picking on every launch;
-  ///   - zero folders → `.none` (empty-state screen, D's next task);
+  ///   - zero folders → `.none` (empty-state screen);
   ///   - exactly one folder → `.one`, and it's persisted as the selection
   ///     so a later multi-library account still remembers this choice;
   ///   - more than one, with no still-valid prior selection → `.many`,
   ///     driving `LibraryPickerScreen`.
-  ///
-  /// A transport/decode failure resolves to `.none` rather than throwing —
-  /// callers have no richer error UI to show yet (D5's screen owns that);
-  /// the empty-state path is the safe fallback here.
   func resolveLibraries() async -> LibraryResolution {
-    guard let folders = try? await foldersClient.listFolders() else { return .none }
+    let folders: [CloudFolder]
+    do {
+      folders = try await foldersClient.listFolders()
+    } catch {
+      return .failed(error)
+    }
 
     if let selectedLibraryID,
        let stillPresent = folders.first(where: { $0.id == selectedLibraryID }) {
