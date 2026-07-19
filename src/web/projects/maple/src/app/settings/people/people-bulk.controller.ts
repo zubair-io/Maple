@@ -10,14 +10,7 @@
 import { computed, signal, type Signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { type ApiPerson, type ApiPersonDetail, PeopleStore } from '@maple-common';
-import {
-  errorMessage,
-  hidePeopleConfirm,
-  mergePeopleConfirm,
-  mergeTargets,
-  toggleKey,
-  type Tone,
-} from './people.vm';
+import { errorMessage, mergePeopleConfirm, mergeTargets, toggleKey, type Tone } from './people.vm';
 
 export interface PeopleBulkDeps {
   store: PeopleStore;
@@ -104,10 +97,12 @@ export class PeopleBulkController {
     void this.performMerge(targetId, [...this.selectedPeople()], () => this.clearPeopleSelection());
   }
 
+  /** Soft-hide is reversible (Hidden page, restore anytime) and non-destructive
+   * — faces stay grouped server-side — so this hides immediately and confirms
+   * via toast rather than a blocking confirm() dialog. */
   async hideSelectedPeople(): Promise<void> {
     const ids = [...this.selectedPeople()];
     if (ids.length === 0) return;
-    if (!confirm(hidePeopleConfirm(ids.length))) return;
     this.peopleBulkBusy.update((n) => n + 1);
     try {
       const { ok, failed } = await this.deps.store.hidePeople(ids);
