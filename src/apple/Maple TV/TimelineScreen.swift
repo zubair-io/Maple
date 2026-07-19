@@ -3,9 +3,10 @@ import MapleCloudKit
 import SwiftUI
 
 /// The Timeline: day-grouped, focus-navigable photo grid. Milestone D
-/// presents this as the connected root (the floating Timeline/Light-Table
-/// tab bar from the design ships in F, once Light Table exists — Global
-/// Constraint, #2102).
+/// introduced this as the connected root by itself; `RootTabView` (#2121)
+/// now wraps it as one of three tabs (Timeline / Light Table / Search)
+/// under the design's floating pill tab bar — this screen is otherwise
+/// unchanged.
 ///
 /// Owns a `TVTimelineViewModel` scoped to `libraryID`; `onForgotten`
 /// threads milestone C's pairing-reversal path through `TimelineTopBar`.

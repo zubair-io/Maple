@@ -6,8 +6,9 @@ import SwiftUI
 /// server's `TVCloudSession`, resolves which library to open
 /// (`TVCloudSession.resolveLibraries()`), and routes to whichever screen
 /// that resolution calls for:
-///   - `.one` → straight to the `TimelineScreen` grid;
-///   - `.many` → `LibraryPickerScreen`, then the Timeline once a pick
+///   - `.one` → straight to `RootTabView` (Timeline / Light Table /
+///     Search, #2121);
+///   - `.many` → `LibraryPickerScreen`, then `RootTabView` once a pick
 ///     lands in `session.selectedLibraryID`;
 ///   - `.none` → an empty-account state;
 ///   - `.failed` → an error state with Retry (D5 review of D2 — see
@@ -72,7 +73,7 @@ struct ConnectedScreen: View {
     // `LibraryResolution?` — unwrapping first avoids that footgun.)
     if let session, let libraryID = session.selectedLibraryID,
        let folder = knownFolders.first(where: { $0.id == libraryID }) {
-      TimelineScreen(
+      RootTabView(
         session: session,
         libraryID: libraryID,
         libraryName: folder.displayName,
