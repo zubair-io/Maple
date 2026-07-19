@@ -302,12 +302,30 @@ struct LightTableScreen: View {
   /// cancellable `Task` — see `cycleTask`'s doc comment. Re-checks
   /// `Task.isCancelled` after every sleep so a cancellation mid-sleep
   /// never fires one more `advanceStage()`.
+  ///
+  /// No-ops when the pool is empty (empty library / load error): there's
+  /// nothing to glide, so spinning a timer that wakes every
+  /// `glideInterval` only to run a no-op `advanceStage()` is pure waste
+  /// while the empty/error state is shown. The `.task`/`reload()` callers
+  /// re-enter here after a successful (re)load, so a Retry that finds
+  /// content still starts the cycle.
   private func startCycle() {
     cycleTask?.cancel()
+    guard !viewModel.pool.isEmpty else {
+      cycleTask = nil
+      return
+    }
     cycleTask = Task {
       while !Task.isCancelled {
         try? await Task.sleep(for: Self.glideInterval)
         guard !Task.isCancelled else { return }
+        // Don't glide a print out from under the user while they're
+        // examining one — a focused print is raised with its caption, and
+        // aging it off the stage would yank focus to a neighbor mid-look.
+        // Skip the advance until focus returns to the ambient (nil) state.
+        // In screensaver mode nothing is focusable (`.disabled(true)`), so
+        // `focusedPrintID` stays nil there and the cycle never pauses.
+        guard focusedPrintID == nil else { continue }
         advanceStage()
         await prefetchLookahead()
       }
