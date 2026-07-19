@@ -3,10 +3,11 @@ import SwiftUI
 
 /// Persistent header above the Timeline grid: names which library/server
 /// this TV is browsing, and keeps milestone C's "Forget this server"
-/// pairing-reversal path reachable from the connected experience's new
-/// root. The floating Timeline/Light-Table tab bar from the design is
-/// deferred to milestone F (Light Table doesn't exist yet) — this is a
-/// plain top bar for D (#2102).
+/// pairing-reversal path reachable while the Timeline tab is active.
+/// `RootTabView` (#2121) hosts the design's floating Timeline/Light-Table/
+/// Search pill tab bar above this; the other two tabs have no top bar of
+/// their own, so `RootTabView` supplies its own Forget affordance there
+/// instead.
 struct TimelineTopBar: View {
   let libraryName: String
   let serverDisplayName: String
