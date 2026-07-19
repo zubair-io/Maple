@@ -40,13 +40,17 @@ export const authDeviceSessionRoutes = new Elysia({ prefix: '/api/auth/device-se
       const userId = new ObjectId(auth.user.sub);
       // Persistent-credential proof: the presented refresh token must be a
       // live (unrevoked, unexpired) token belonging to the caller. Read-only
-      // — no rotation.
+      // — no rotation. It must also be a PRIMARY login's token (no platform
+      // marker): a paired device's own credential cannot mint further device
+      // sessions, so pairing authority stays with fully-authenticated primary
+      // clients (jules review, PR #2076).
       const c = await refreshTokensCollection();
       const proof = await c.findOne({
         token_hash: hashRefreshToken(body.refresh_token),
         user_id: userId,
         revoked_at: null,
         expires_at: { $gt: new Date() },
+        platform: { $exists: false },
       });
       if (!proof) {
         set.status = 403;
