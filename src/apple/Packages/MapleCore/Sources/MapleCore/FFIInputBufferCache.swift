@@ -33,6 +33,21 @@
 // + same target size therefore MUST read back to the same bytes; anything
 // else (new instance, resized target) is a correct key miss.
 //
+// Identity anchor (PR #2083 review): `ObjectIdentifier` alone is just the
+// object's ADDRESS — after the decoded CIImage deallocates (asset switch,
+// decode replacement), a NEW CIImage can allocate at the recycled address,
+// match the stale key at the same viewport dims, and be served the
+// PREVIOUS image's bytes: silent wrong pixels. The slot therefore also
+// holds a `weak` reference to the CIImage it was keyed from, and `get`
+// requires BOTH the key match AND `slotDecoded === decoded` (the caller's
+// live instance). If the original deallocated, the weak reference is nil
+// and the `===` compare fails — a recycled address can never false-hit;
+// a live `===` match is definitionally the same object. The reference is
+// weak (not strong) so the cache never extends the decode buffer's
+// lifetime — the memory-pressure teardown path (#2037) relies on
+// `renderActor.invalidate()` actually freeing the decoded image, and a
+// strong reference here would silently pin ~GB-scale buffers.
+//
 // Scope — single-entry, same shape as `SceneLinearChainCache` (#661): one
 // instance per `ImageEditPipeline` (one per `EditSession`). Bounded
 // memory: one buffer at a time, replaced (never appended) on the next
@@ -45,7 +60,9 @@
 // (decoded instance, width, height) — nothing else may vary the bytes,
 // because the render that produces them (`ImageEditPipeline.
 // prescaleForDisplay` + the flat f32 readback) is a pure function of
-// those two inputs alone. If a future change makes the prescale depend on
+// those two inputs alone. "Decoded instance" means the LIVE object the
+// weak anchor proves is still the one the bytes were read from — not
+// merely an address. If a future change makes the prescale depend on
 // anything else, that input MUST join this key or this cache silently
 // serves stale bytes.
 //
@@ -66,18 +83,43 @@ final class FFIInputBufferCache: @unchecked Sendable {
 
     /// Compound key — identity of the `decoded` CIImage the caller is
     /// developing from, plus the post-prescale extent the readback ran
-    /// at (fast vs refine pass, or any other target-size change).
+    /// at (fast vs refine pass, or any other target-size change). The key
+    /// alone is NOT sufficient for a hit — `get` additionally requires the
+    /// slot's weak `decoded` anchor to still be the caller's live instance
+    /// (see the file header's "Identity anchor" paragraph).
     struct Key: Hashable {
         let decodedID: ObjectIdentifier
         let width: Int
         let height: Int
     }
 
+    // MARK: - Slot
+
+    /// The single cache slot. A class (not a tuple) because the `decoded`
+    /// identity anchor must be `weak`, and Swift tuples cannot hold weak
+    /// references.
+    private final class Slot {
+        let key: Key
+        let bytes: Data
+        /// Weak identity anchor — the CIImage the bytes were read back
+        /// from. Weak so the cache never extends the decode buffer's
+        /// lifetime (#2037 memory-pressure teardown); nil after the
+        /// original deallocates, which forces every subsequent `get` to
+        /// miss even if a new CIImage recycles the same address.
+        weak var decoded: CIImage?
+
+        init(key: Key, bytes: Data, decoded: CIImage) {
+            self.key = key
+            self.bytes = bytes
+            self.decoded = decoded
+        }
+    }
+
     // MARK: - State
 
     private let lock = NSLock()
-    /// Single slot — most recent (key, bytes). New write evicts.
-    private var slot: (key: Key, bytes: Data)?
+    /// Single slot — most recent store. New write evicts.
+    private var slot: Slot?
 
     /// Honours `MAPLE_DISABLE_FFI_INPUT_CACHE=1`. Cached at init so the
     /// env lookup doesn't run on every tick.
@@ -89,22 +131,30 @@ final class FFIInputBufferCache: @unchecked Sendable {
 
     // MARK: - Lookup / store
 
-    /// Return the cached readback bytes for `key`, or `nil` on miss / disabled.
-    func get(_ key: Key) -> Data? {
+    /// Return the cached readback bytes for `key`, or `nil` on miss /
+    /// disabled. `decoded` is the caller's live CIImage instance — a hit
+    /// requires BOTH `slot.key == key` AND `slot.decoded === decoded`, so
+    /// an address recycled by a later allocation can never serve the
+    /// previous image's bytes (the weak anchor is nil or a different
+    /// object by then).
+    func get(_ key: Key, decoded: CIImage) -> Data? {
         if disabled { return nil }
         lock.lock()
         defer { lock.unlock() }
-        guard let slot, slot.key == key else { return nil }
+        guard let slot, slot.key == key, slot.decoded === decoded else { return nil }
         return slot.bytes
     }
 
-    /// Replace the single slot with `(key, bytes)`. Subsequent reads on
-    /// the same key hit until the next put evicts it.
-    func put(_ key: Key, _ bytes: Data) {
+    /// Replace the single slot with `(key, bytes)`, anchored (weakly) to
+    /// the `decoded` instance the bytes were read back from. Subsequent
+    /// reads with the same key AND the same live instance hit until the
+    /// next put evicts it (or `decoded` deallocates, which nils the weak
+    /// anchor and turns every read into a miss).
+    func put(_ key: Key, _ bytes: Data, decoded: CIImage) {
         if disabled { return }
         lock.lock()
         defer { lock.unlock() }
-        slot = (key, bytes)
+        slot = Slot(key: key, bytes: bytes, decoded: decoded)
     }
 
     /// Drop the cache slot (used by tests; production callers do not need
