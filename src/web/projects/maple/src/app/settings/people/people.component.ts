@@ -179,17 +179,6 @@ export class PeopleComponent implements OnDestroy {
     toast: (text, tone) => this.showToast(text, tone),
   });
 
-  /** Detail-view face actions: set-as-cover, open-in-editor, infinite scroll. */
-  readonly detailCtl = new PeopleDetailController({
-    store: this.store,
-    router: this.router,
-    selected: this.selected,
-    selectedFaces: this.selectedFaces,
-    clearSelection: () => this.clearSelection(),
-    bulkBusy: this.bulkBusy,
-    toast: (text, tone) => this.showToast(text, tone),
-  });
-
   // ── List-view virtual scroll ────────────────────────────────────────────
   // The list grid is windowed by `cdk-virtual-scroll-viewport`: sorted people
   // are packed into fixed-height rows of `gridColumns()` cards (see the
@@ -265,6 +254,22 @@ export class PeopleComponent implements OnDestroy {
    * lifecycle / cache-key rules. Created once per component instance. */
   private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse, this.librarySource);
 
+  /** Detail-view face actions: set-as-cover, open-in-editor, infinite
+   * scroll, thumb prefetch, and the merge-suggestion compare strip.
+   * Declared after {@link thumbs} — field-initializer order. */
+  readonly detailCtl = new PeopleDetailController({
+    store: this.store,
+    api: this.api,
+    router: this.router,
+    selected: this.selected,
+    people: this.people,
+    thumbs: this.thumbs,
+    selectedFaces: this.selectedFaces,
+    clearSelection: () => this.clearSelection(),
+    bulkBusy: this.bulkBusy,
+    toast: (text, tone) => this.showToast(text, tone),
+  });
+
   /** Route paramMap as a signal — `toSignal` registers a teardown against
    * the component's DestroyRef, so no manual unsubscribe is needed. */
   private readonly routeParamMap = toSignal(this.route.paramMap, {
@@ -296,16 +301,15 @@ export class PeopleComponent implements OnDestroy {
       this.selectedFaces.set(new Set());
     });
 
-    // Detail-panel face thumbs prefetch eagerly — the visible-faces grid
-    // can be large (up to ~60 visible cells), so paying the network cost
-    // up-front keeps scroll snappy. Cover thumbs in the LIST grid are
-    // gated by (mapleVisibleOnce) to avoid N requests on first paint.
+    // Detail-panel thumbs prefetch eagerly — the visible-faces grid can be
+    // large (up to ~60 visible cells), so paying the network cost up-front
+    // keeps scroll snappy; the same pass covers the header + suggestion
+    // avatars (#2078). Cover thumbs in the LIST grid stay gated by
+    // (mapleVisibleOnce) to avoid N requests on first paint. Reads
+    // `selected()` and `people()` inside the controller, so it re-runs when
+    // either lands.
     effect(() => {
-      const detail = this.selected();
-      if (!detail) return;
-      for (const f of detail.faces) {
-        this.thumbs.ensure(f.absPath, null, f.absPath, f.assetId);
-      }
+      this.detailCtl.prefetchDetailThumbs();
     });
 
     // Re-target the ResizeObserver each time the virtual-scroll viewport
