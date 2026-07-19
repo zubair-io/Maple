@@ -88,6 +88,17 @@ public final class SearchViewModel {
     }
   }
 
+  /// Cancel a pending debounced search without issuing one. The text box
+  /// calls this when the query is edited down to empty: otherwise a
+  /// debounce scheduled by the previous non-empty keystroke would still
+  /// fire ~250 ms later and run an (empty) all-library `submit()` behind
+  /// the idle UI — a wasted round-trip that also leaves stale results
+  /// cached under the empty-query state.
+  public func cancelPendingDebounce() {
+    debounceTask?.cancel()
+    debounceTask = nil
+  }
+
   /// Run a fresh search from page 0 (results + facets), cancelling any
   /// pending debounce. Filter controls call this immediately on change.
   public func submit() async {
