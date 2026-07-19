@@ -101,8 +101,18 @@ struct TimelineScreen: View {
 
   @ViewBuilder
   private var content: some View {
+    // Order matters: loading first, then a failed-with-nothing-cached
+    // load (error && empty — the same conflation D5 fixed one layer up
+    // in `ConnectedScreen.errorView`), then the genuinely-empty steady
+    // state, then the grid. A `loadError` alongside a non-empty `days`
+    // (a later page failed after the first page/months already
+    // rendered) deliberately falls through to `grid` — the top bar and
+    // already-loaded content stay up rather than being replaced by a
+    // full-screen error.
     if viewModel.isLoading, viewModel.days.isEmpty {
       loadingView
+    } else if let error = viewModel.loadError, viewModel.days.isEmpty {
+      errorView(error)
     } else if viewModel.days.isEmpty {
       emptyView
     } else {
@@ -116,6 +126,36 @@ struct TimelineScreen: View {
       .foregroundStyle(MapleTVTheme.textPrimary)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .accessibilityLabel("Loading photos")
+  }
+
+  /// Mirrors `ConnectedScreen.errorView`'s shape (icon + title + message
+  /// + Retry) at the timeline-content scale (matches this screen's own
+  /// `loadingView`/`emptyView` sizing, smaller than `ConnectedScreen`'s
+  /// full-page treatment since this sits below `TimelineTopBar` rather
+  /// than replacing the whole screen).
+  private func errorView(_ error: Error) -> some View {
+    VStack(spacing: 16) {
+      Image(systemName: "wifi.exclamationmark")
+        .font(.system(size: 56))
+        .foregroundStyle(MapleTVTheme.primary)
+        .accessibilityHidden(true)
+      Text("Couldn't load photos")
+        .font(.system(size: 28, weight: .semibold))
+        .foregroundStyle(MapleTVTheme.textPrimary)
+      Text(error.localizedDescription)
+        .font(.system(size: 20))
+        .foregroundStyle(MapleTVTheme.textMuted)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 560)
+      Button("Retry") { Task { await viewModel.load() } }
+        .accessibilityLabel("Retry loading photos")
+    }
+    // No `.accessibilityElement(children: .combine)` here (unlike
+    // `emptyView`, which has no interactive content) — combining would
+    // fold the focusable Retry button into one non-interactive element
+    // and tvOS focus/select would no longer land on it, matching
+    // `ConnectedScreen.errorView`'s own uncombined VStack.
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   private var emptyView: some View {
