@@ -351,6 +351,17 @@ export async function getPerson(
     captured_at: string | null;
   }>([
     { $match: { 'faces.person_id': personHex } },
+    // Only assets that still resolve to a file — a live `fileinfo` entry
+    // (neither deleted nor missing). This MUST run before $sort/$skip/$limit:
+    // the per-row `assetAbsPath` filter below drops unresolvable assets in JS,
+    // and applying it AFTER the DB pagination let a page window land entirely
+    // on missing/deleted assets and return empty while thousands of resolvable
+    // faces sat on later pages (#2103). A resolvable asset always has a live
+    // entry, so this pre-filter is no stricter than `assetAbsPath` — it never
+    // drops a face that would have resolved, it just stops unresolvable faces
+    // from consuming the page window. `assetAbsPath` stays the authoritative
+    // per-row resolver (it also handles the rarer unregistered-library case).
+    { $match: { fileinfo: { $elemMatch: { deleted_at: null, missing_since: null } } } },
     {
       $unwind: { path: '$faces', includeArrayIndex: 'face_index' },
     },
