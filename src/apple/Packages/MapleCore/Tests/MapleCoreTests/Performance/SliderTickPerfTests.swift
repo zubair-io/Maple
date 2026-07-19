@@ -95,13 +95,32 @@ final class SliderTickPerfTests: XCTestCase {
     /// ~2–3× a ~115 ms observed mean for jitter padding. But 250 ms is
     /// 5× the 50 ms spec hard limit — a render 5× over budget still
     /// passed, so the assertion gave no signal against the actual
-    /// product invariant (#1938). Tightened to 150 ms here: still above
-    /// today's FFI-round-trip floor with margin (measured mean ~72 ms on
-    /// an M-series, ~115 ms on the #661 authorship machine; the render
-    /// phase itself is ~2 ms — the cost is the `processSceneLinear` FFI
-    /// readback + Rust CPU chain, not the GPU present), yet tight enough
-    /// that a ~2× regression from the floor trips it and anything near
-    /// the old 250 ms territory fails hard.
+    /// product invariant (#1938). Tightened to 150 ms (#1938): still
+    /// above the then-current FFI-round-trip floor with margin (measured
+    /// mean ~72 ms on an M-series, ~115 ms on the #661 authorship
+    /// machine), yet tight enough that a ~2× regression from the floor
+    /// trips it.
+    ///
+    /// Tightened again to 65 ms (#1959): `applySceneLinearChainViaFFI`
+    /// previously re-ran the GPU→CPU readback
+    /// (`context.render(scaled, toBitmap:...)`) on EVERY slider tick even
+    /// though the readback's INPUT (the decoded scene-linear CIImage,
+    /// prescaled to the viewport) is invariant across an exposure-style
+    /// drag — only the `AdjustmentModel` changes tick to tick.
+    /// `FFIInputBufferCache` (a single-entry cache sibling to
+    /// `SceneLinearChainCache`, keyed on the identity of the `decoded`
+    /// CIImage + target size) now skips that readback on every tick after
+    /// the first. Measured on an Apple M5 Max (macOS 26.4.1): mean
+    /// dropped from ~59.75 ms (baseline, 3 runs: 58.82 / 63.27 / 57.15) to
+    /// ~48.14 ms (3 clean post-change runs: 47.69 / 50.52 / 46.21 — a 4th
+    /// run spiked to 185 ms / failed under heavy CONCURRENT system load
+    /// from unrelated processes on this shared machine, confirmed via
+    /// `uptime` load average >45; discarded as measurement noise, not a
+    /// code regression). 65 ms clears the ~50.52 ms worst clean mean by
+    /// ~29% margin — still above `specHardLimitMs` (the per-tick floor
+    /// remains above spec: the Rust CPU chain compute itself, not just
+    /// the readback, is the remaining cost) but a real ~2.3× tightening
+    /// from 150 ms.
     ///
     /// This is deliberately an INTERIM limit ABOVE the 50 ms spec: the
     /// per-tick floor is currently above spec, so asserting 50 ms would
@@ -111,12 +130,16 @@ final class SliderTickPerfTests: XCTestCase {
     /// pipeline change) is tracked in #1959. The `specHardLimitMs` /
     /// `specTargetMs` numbers are still reported every run (and an
     /// OVER-BUDGET line fires when the mean exceeds 50 ms) so the gap
-    /// stays visible.
+    /// stays visible. Next candidate toward closing that gap: fusing the
+    /// scene-linear-chain FFI call and the `encodeDisplaySRGBViaFFI` call
+    /// into a single round trip (currently two separate readbacks per
+    /// tick) — that touches the raw-core/FFI surface, so it belongs in a
+    /// separate ticket/PR, not this Swift-only change.
     ///
     /// The sharpen-drag variant lives in `SharpenSliderTickPerfTests` —
     /// that's where the #661 FFI cache buys the per-tick savings and the
     /// floor is already near spec (an 80 ms cache-hit ceiling).
-    private static let interimHardLimitMs: Double = 150.0
+    private static let interimHardLimitMs: Double = 65.0
 
     // MARK: - Test entry
 

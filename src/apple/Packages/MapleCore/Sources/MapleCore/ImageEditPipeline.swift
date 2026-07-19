@@ -130,6 +130,18 @@ public actor ImageEditPipeline {
     /// readback. See `SceneLinearChainCache` and #661.
     nonisolated let sceneLinearChainCache = SceneLinearChainCache()
 
+    /// Single-entry cache around the FFI readback ITSELF — the
+    /// `context.render(scaled, toBitmap:...)` call inside
+    /// `applySceneLinearChainViaFFI` that materialises the prescaled
+    /// scene-linear CIImage into flat f32 bytes. Unlike
+    /// `sceneLinearChainCache` (keyed on the model digest, so it misses on
+    /// every tick of an exposure-style drag), this cache is keyed on the
+    /// identity of the `decoded` CIImage + target size — both of which are
+    /// invariant across a slider drag regardless of which knob moves — so
+    /// it hits even when the model-keyed cache above is a guaranteed miss.
+    /// See `FFIInputBufferCache` and #1959.
+    nonisolated let ffiInputBufferCache = FFIInputBufferCache()
+
     public init() {
         // Metal-backed context where available; `cacheIntermediates: false`
         // + f32 working format (#487) keeps memory bounded enough that
@@ -665,6 +677,19 @@ public actor ImageEditPipeline {
     /// `wb_gains(live) / wb_gains(decoded)` so opening a saved sidecar
     /// doesn't double-apply WB. `skipAgX` flips off the AgX tail for
     /// non-RAW input that already has a tone curve baked in.
+    ///
+    /// `decodedSource` (#1959) is the UN-prescaled decoded CIImage `scaled`
+    /// was derived from (`Self.prescaleForDisplay(decoded, targetSize:)` in
+    /// the caller) — it is used ONLY as an identity anchor for
+    /// `ffiInputBufferCache`'s key, never rendered directly. The prescale is
+    /// a pure function of `(decoded, targetSize)`, so the SAME `decoded`
+    /// instance at the SAME target dims always reads back to the SAME
+    /// bytes; passing it lets a cache hit skip the GPU→CPU readback below
+    /// entirely even when `sceneLinearChainCache` above is a guaranteed miss
+    /// (e.g. every tick of an exposure-style drag, where the model digest
+    /// changes by design). `nil` (the default) disables the input cache for
+    /// that call — every caller that has a stable decoded instance to
+    /// anchor on should pass it.
     nonisolated private func applySceneLinearChainViaFFI(
         _ scaled: CIImage,
         model: AdjustmentModel,
@@ -674,7 +699,8 @@ public actor ImageEditPipeline {
         skipAgX: Bool,
         assetID: UUID? = nil,
         noiseProfile: [Float]? = nil,
-        iso: UInt32 = 0
+        iso: UInt32 = 0,
+        decodedSource: CIImage? = nil
     ) -> CIImage {
         let extent = scaled.extent
         let w = Int(extent.width.rounded())
@@ -721,6 +747,17 @@ public actor ImageEditPipeline {
             wbFrame: wbFrame
         )
 
+        // #1959 — input-readback cache check. `scaled` is a pure function
+        // of `(decodedSource, w, h)` (see `Self.prescaleForDisplay`), so
+        // the flat f32 bytes a fresh `context.render(scaled, ...)` would
+        // produce are identical to whatever the last call at this same
+        // (decodedSource, w, h) already read back — regardless of how the
+        // model changed in between. See `FFIInputBufferCache` for the key
+        // shape and correctness invariant.
+        let inputCacheKey: FFIInputBufferCache.Key? = decodedSource.map { d in
+            FFIInputBufferCache.Key(decodedID: ObjectIdentifier(d), width: w, height: h)
+        }
+
         // #2042 — the round trip below allocates an ~totalBytes `inputBytes`
         // buffer (the rendered `scaled` CIImage) AND an ~totalBytes
         // `outputBytes` buffer (the FFI result) — at 100 MP that's ~1.6 GB
@@ -736,25 +773,38 @@ public actor ImageEditPipeline {
         // function return (ARC's last-use release is an optimisation, not
         // a promise, and autoreleased temporaries only die at a pool
         // drain) — so per-stage buffers can stack instead of superseding
-        // one another across a single render.
+        // one another across a single render. A cache HIT below skips the
+        // render (and its autoreleased scratch) entirely, but the pool
+        // still bounds the FFI output buffer's lifetime the same way.
         let wrapped: CIImage? = autoreleasepool {
-            // Materialise scaled CIImage -> f32 RGBA bytes.
-            var inputBytes = Data(count: totalBytes)
-            let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
-                guard let base = buf.baseAddress else { return false }
-                context.render(
-                    scaled,
-                    toBitmap: base,
-                    rowBytes: rowBytes,
-                    bounds: CGRect(x: 0, y: 0, width: w, height: h),
-                    format: .RGBAf,
-                    colorSpace: space
-                )
-                return true
-            }
-            guard renderSucceeded else {
-                logger.error("applySceneLinearChainViaFFI: CIContext.render failed; falling through")
-                return nil
+            // Materialise scaled CIImage -> f32 RGBA bytes, or reuse the
+            // bytes from the last tick's readback when the input cache
+            // holds a hit for (decodedSource, w, h) — #1959.
+            let inputBytes: Data
+            if let inputCacheKey, let cachedBytes = ffiInputBufferCache.get(inputCacheKey) {
+                inputBytes = cachedBytes
+            } else {
+                var freshBytes = Data(count: totalBytes)
+                let renderSucceeded: Bool = freshBytes.withUnsafeMutableBytes { buf -> Bool in
+                    guard let base = buf.baseAddress else { return false }
+                    context.render(
+                        scaled,
+                        toBitmap: base,
+                        rowBytes: rowBytes,
+                        bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                        format: .RGBAf,
+                        colorSpace: space
+                    )
+                    return true
+                }
+                guard renderSucceeded else {
+                    logger.error("applySceneLinearChainViaFFI: CIContext.render failed; falling through")
+                    return nil
+                }
+                if let inputCacheKey {
+                    ffiInputBufferCache.put(inputCacheKey, freshBytes)
+                }
+                inputBytes = freshBytes
             }
 
             let outputBytes: Data
@@ -983,7 +1033,8 @@ public actor ImageEditPipeline {
             scaled, model: model,
             decodedTemperature: 6500.0, decodedTint: 0.0,
             skipAgX: true,
-            assetID: assetID
+            assetID: assetID,
+            decodedSource: decoded
         )
 
         // Sharpen + nr_color stay on the Apple GPU path (Metal compute
@@ -1122,7 +1173,8 @@ public actor ImageEditPipeline {
             skipAgX: false,
             assetID: assetID,
             noiseProfile: noiseProfile,
-            iso: iso
+            iso: iso,
+            decodedSource: decoded
         )
 
         // sharpen + nr_color stay on the Apple GPU path (Metal compute
