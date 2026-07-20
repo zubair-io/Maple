@@ -17,12 +17,16 @@
 import { Elysia, t } from 'elysia';
 import { stat, readFile, writeFile, mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { unlink } from 'node:fs/promises';
 import { RAW_EXTENSIONS } from '../fs/browse.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { VIDEO_EXTS } from '../indexer/media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
+import { ffmpegBinary, extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { child as childLogger } from '../log.ts';
 import { resolveJailedFile, sourceETag, notModifiedResponse } from './fs-jail.ts';
 
@@ -31,6 +35,65 @@ const log = childLogger('fs-thumbs');
 const DEFAULT_SIZE_PX = 512;
 const MIN_SIZE_PX = 16;
 const MAX_SIZE_PX = 4096;
+
+/**
+ * Render a video's poster frame to `thumbPath` at `sizePx` (#2132).
+ *
+ * Two hops — ffmpeg to an intermediate JPEG, then the shared imgdecode pool —
+ * for the same reason `indexer/thumbnailer.ts` does it: the resize and AVIF
+ * encode stay byte-for-byte the bitmap path rather than a second encoder that
+ * could drift from it.
+ *
+ * A module-level helper rather than another inline branch in the route
+ * handler, which already carries pre-existing CRITICAL complexity (see its
+ * note below).
+ */
+async function renderVideoPosterThumb(
+  real: string,
+  thumbPath: string,
+  sizePx: number,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  // 503 rather than 500 when the host simply has no decoder: it mirrors the
+  // "FFI not built" branch below, and tells the operator this is a missing
+  // dependency they can install, not a corrupt file.
+  if (!(await ffmpegBinary())) {
+    return {
+      ok: false,
+      status: 503,
+      error: 'Video posters need ffmpeg on the server — install it and retry (no restart needed)',
+    };
+  }
+
+  const posterPath = `${thumbPath}.poster.${process.pid}.${randomBytes(8).toString('hex')}.jpg`;
+  try {
+    if (!(await extractVideoPosterJpeg(real, posterPath))) {
+      return { ok: false, status: 500, error: 'Could not extract a poster frame from this video' };
+    }
+    const result = await renderImageThumbToFileViaPool(
+      posterPath,
+      thumbPath,
+      sizePx,
+      THUMB_AVIF_QUALITY,
+      'jpg',
+    );
+    return result.ok
+      ? { ok: true }
+      : { ok: false, status: 500, error: `imgdecode render failed: ${result.error ?? 'unknown'}` };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: `Video poster render failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    // The intermediate is never served; drop it on every path including success.
+    try {
+      await unlink(posterPath);
+    } catch {
+      /* extraction failed before writing, or already gone */
+    }
+  }
+}
 
 export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   '/thumb',
@@ -67,7 +130,10 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     // via ag-psd/hdr, then handed to sharp) both go through
     // `renderImageThumbToFileViaPool` below — collapsed into one flag so the
     // dispatch reads as a single two-way branch.
-    const renderViaImgdecode = !RAW_EXTENSIONS.has(ext);
+    // Video (#2132) is a third case: ffmpeg extracts a poster frame, which
+    // then goes through the same imgdecode hop as any bitmap.
+    const isVideo = VIDEO_EXTS.has(`.${ext}`);
+    const renderViaImgdecode = !isVideo && !RAW_EXTENSIONS.has(ext);
 
     // One thumb per RAW (matches Apple ThumbnailDiskCache + web
     // MapleCacheService). The `size` query param controls the RENDER
@@ -152,7 +218,13 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       };
     }
 
-    if (renderViaImgdecode) {
+    if (isVideo) {
+      const poster = await renderVideoPosterThumb(real, thumbPath, sizePx);
+      if (!poster.ok) {
+        set.status = poster.status;
+        return { error: poster.error };
+      }
+    } else if (renderViaImgdecode) {
       try {
         const result = await renderImageThumbToFileViaPool(
           real,
