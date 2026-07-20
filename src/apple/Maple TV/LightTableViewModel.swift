@@ -115,12 +115,17 @@ final class LightTableViewModel {
     // Built as `let`s (via an immediately-invoked mutation) rather than `var`s
     // mutated in place — the params feed concurrent `async let` fetches, and
     // capturing a mutable `var` across concurrently-executing code is a
-    // Swift 6 mode error. Every source excludes screenshots.
+    // Swift 6 mode error. Every source excludes screenshots AND any asset
+    // showing a soft-hidden person (`excludeHiddenPeople`) — the Light Table
+    // runs unattended in a living room, so someone the operator deliberately
+    // hid must not resurface here. Hidden *images* need no flag: the server
+    // filters those out by default.
     let picksParams: SearchParams = {
       var params = SearchParams(libraryID: libraryID)
       params.flag = .pick
       params.sort = .capturedDesc
       params.isScreenshot = false
+      params.excludeHiddenPeople = true
       return params
     }()
 
@@ -129,6 +134,7 @@ final class LightTableViewModel {
       params.rating = 4
       params.sort = .rating
       params.isScreenshot = false
+      params.excludeHiddenPeople = true
       return params
     }()
 
@@ -161,6 +167,7 @@ final class LightTableViewModel {
       var recentParams = SearchParams(libraryID: libraryID)
       recentParams.sort = .capturedDesc
       recentParams.isScreenshot = false
+      recentParams.excludeHiddenPeople = true
       let (recent, error) = await fetchOrEmpty(recentParams)
       guard g == generation else { return }
       merged = mergeDeduped(merged, recent)
