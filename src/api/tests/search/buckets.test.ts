@@ -340,8 +340,17 @@ beforeEach(async () => {
   // db/client.ts) to load BEFORE the file-level `process.env.MAPLE_MONGO_DB`
   // line ran, so the DB client would cache the default DB and the tests
   // would talk to the wrong database.
-  const { _resetBucketsCacheForTests } = await import('../../src/routes/search.ts');
+  const { _resetBucketsCacheForTests, _resetCacheForTests } =
+    await import('../../src/routes/search.ts');
   _resetBucketsCacheForTests();
+  // The list route's `total` cache (#2128) is likewise module-scoped for
+  // the process lifetime — this file's own pathPrefix/timeline queries
+  // hit `/api/search` directly (not just `/buckets`), and a *different*
+  // test file using the same query-param shape (e.g. no filters at all)
+  // would otherwise read back a `total` cached against that other file's
+  // (different) TEST_DB. Reset alongside the buckets cache for the same
+  // reason.
+  _resetCacheForTests();
 });
 
 afterAll(async () => {

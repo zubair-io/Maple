@@ -200,8 +200,14 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  const { _resetBucketsCacheForTests } = await import('../src/routes/search.ts');
+  const { _resetBucketsCacheForTests, _resetCacheForTests } =
+    await import('../src/routes/search.ts');
   _resetBucketsCacheForTests();
+  // The list route's `total` cache (#2128) is module-scoped for the
+  // process lifetime — without this, a different test file's `total` for
+  // the same query-param shape (e.g. an identical placeQuery string) could
+  // leak in here, or this file's own results could leak into a later file.
+  _resetCacheForTests();
 });
 
 afterEach(() => {
