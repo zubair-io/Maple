@@ -12,15 +12,19 @@
 import { describe, it, expect } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { setupMongoHarness } from './people-repo.test-helpers.ts';
+// Static import is safe here: `cluster-embeddings.ts` is the pure math core
+// with no Mongo deps, so it can't connect before the harness sets
+// MAPLE_MONGO_DB (which is why the Mongo-backed modules below are imported
+// lazily inside each test instead).
+import { EMBEDDING_DIM } from './cluster-embeddings.ts';
 
 const TEST_DB = `maple_test_recompute_heal_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 
 const h = setupMongoHarness(TEST_DB);
 
-const DIM = 512;
 function axisEmbedding(axis: number): number[] {
-  const v = new Array(DIM).fill(0) as number[];
+  const v = new Array(EMBEDDING_DIM).fill(0) as number[];
   v[axis] = 1;
   return v;
 }
@@ -63,7 +67,7 @@ describe('recomputeCentroids — self-heals an inconsistent centroid (#2105)', (
     const fresh = await h.db.collection('people').findOne({ _id: person._id });
     const centroid = fresh?.centroid as number[];
     expect(Array.isArray(centroid)).toBe(true);
-    expect(centroid.length).toBe(DIM);
+    expect(centroid.length).toBe(EMBEDDING_DIM);
     expect(fresh?.centroid_face_count).toBe(2);
     // Primary axis is preserved (both embeddings sit on axis 7).
     let maxIdx = -1;
