@@ -9,7 +9,8 @@ export {
   searchRoutes,
   buildFilter,
   _resetBucketsCacheForTests,
+  _resetCacheForTests,
   type SearchQuery,
   type SearchResult,
   type SearchResultPHLink,
-} from "./search/index.ts";
+} from './search/index.ts';
