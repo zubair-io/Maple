@@ -78,12 +78,13 @@ export const bucketsRoute = new Elysia().get(
     // Opt-in hidden-people exclusion (see `SearchQuery.excludeHiddenPeople`).
     // Folded into the cache key below, so buckets computed with and without
     // it never share an entry. Skips the lookup when not requested.
-    const hiddenIds =
-      (query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
-    const filterOrError = buildFilter(query as SearchQuery, hiddenIds);
-    if ('error' in filterOrError) {
+    // Validate up front. `buildFilter` is pure and does no I/O, so running it
+    // before the cache lookup keeps an invalid `scope` returning 400 rather
+    // than being answered from a cache entry.
+    const validation = buildFilter(query as SearchQuery);
+    if ('error' in validation) {
       set.status = 400;
-      return { error: filterOrError.error };
+      return { error: validation.error };
     }
 
     // Cache lookup. Buckets only change when assets are written —
@@ -94,6 +95,17 @@ export const bucketsRoute = new Elysia().get(
     const nowMs = Date.now();
     if (cached && cached.expiresMs > nowMs) {
       return cached.result;
+    }
+
+    // Cache MISS only: the hidden-people lookup is this route's one extra
+    // round trip, so it stays behind the fast path — otherwise every
+    // `excludeHiddenPeople=true` request would hit the DB even on a hit.
+    const hiddenIds =
+      (query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
+    const filterOrError = buildFilter(query as SearchQuery, hiddenIds);
+    if ('error' in filterOrError) {
+      set.status = 400;
+      return { error: filterOrError.error };
     }
 
     const filter = filterOrError;
