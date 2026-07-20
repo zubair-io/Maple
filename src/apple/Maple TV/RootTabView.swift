@@ -44,14 +44,14 @@ struct RootTabView: View {
   /// tear down on disappear" discipline as `idleMonitor`.
   @State private var focusUpdateObserver: NSObjectProtocol?
 
-  /// Default 3 minutes; overridable via `MAPLE_TV_IDLE_INTERVAL_SECONDS` in
+  /// Default 1 minute; overridable via `MAPLE_TV_IDLE_INTERVAL_SECONDS` in
   /// the process environment for fast manual/sim verification (same
   /// launch-environment pattern as `MAPLE_UITEST_FIXTURE`).
   private static var idleInterval: Duration {
     guard
       let raw = ProcessInfo.processInfo.environment["MAPLE_TV_IDLE_INTERVAL_SECONDS"],
       let seconds = Double(raw), seconds > 0
-    else { return .seconds(180) }
+    else { return .seconds(60) }
     return .seconds(seconds)
   }
 

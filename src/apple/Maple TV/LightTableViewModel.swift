@@ -63,6 +63,16 @@ final class LightTableViewModel {
   private var generation: Int = 0
   /// Cursor into `pool` for `next()`'s cyclic walk — see that method.
   private var cursor: Int = 0
+  /// Background stale-while-revalidate refresh, when the pool was served
+  /// from `cachedPools`. Cancelled by `cancelRefresh()` on screen disappear.
+  private var refreshTask: Task<Void, Never>?
+
+  /// Session-lifetime pool cache, keyed by library. Reopening the Light
+  /// Table serves the last pool instantly from here and only revalidates in
+  /// the background, instead of re-running the source queries every time.
+  /// (Images are separately cached by `TVDecodedImageCache` / `CloudThumbCache`,
+  /// so a reopen also re-renders without re-decoding.)
+  private static var cachedPools: [String: [SearchAsset]] = [:]
 
   init(libraryID: String, searchClient: CloudSearchClient) {
     self.libraryID = libraryID
@@ -74,20 +84,43 @@ final class LightTableViewModel {
   func load() async {
     generation &+= 1
     let g = generation
-    isLoading = true
     loadError = nil
-    defer { if g == generation { isLoading = false } }
 
-    // Built as `let`s (via an immediately-invoked mutation) rather than
-    // `var`s mutated in place — the two params feed concurrent `async
-    // let` fetches below, and capturing a mutable `var` across a
-    // concurrently-executing closure is a Swift 6 mode error (caught by
-    // this file's own build: "reference to captured var ... in
-    // concurrently-executing code").
+    // Cached-first: if we already built a pool for this library this session,
+    // show it immediately and revalidate in the background — so reopening the
+    // Light Table is instant instead of waiting on the source queries again.
+    if let cached = Self.cachedPools[libraryID], !cached.isEmpty {
+      pool = cached
+      cursor = 0
+      refreshTask?.cancel()
+      refreshTask = Task { [weak self] in await self?.refresh(generation: g) }
+      return
+    }
+
+    isLoading = true
+    defer { if g == generation { isLoading = false } }
+    await refresh(generation: g)
+  }
+
+  /// Cancels a background revalidation (call from the screen's `.onDisappear`).
+  func cancelRefresh() {
+    refreshTask?.cancel()
+    refreshTask = nil
+  }
+
+  /// Fetches the source queries, merges them into the pool, and updates the
+  /// session cache. Runs either inline (cold open) or in the background
+  /// (stale-while-revalidate after a cache hit).
+  private func refresh(generation g: Int) async {
+    // Built as `let`s (via an immediately-invoked mutation) rather than `var`s
+    // mutated in place — the params feed concurrent `async let` fetches, and
+    // capturing a mutable `var` across concurrently-executing code is a
+    // Swift 6 mode error. Every source excludes screenshots.
     let picksParams: SearchParams = {
       var params = SearchParams(libraryID: libraryID)
       params.flag = .pick
       params.sort = .capturedDesc
+      params.isScreenshot = false
       return params
     }()
 
@@ -95,32 +128,52 @@ final class LightTableViewModel {
       var params = SearchParams(libraryID: libraryID)
       params.rating = 4
       params.sort = .rating
+      params.isScreenshot = false
+      return params
+    }()
+
+    // Photos with people (any detected face) from the last year, so the
+    // ambient mix leans toward recent shots of people. (`scope=people` is
+    // "has a face" server-side; strictly-named-only would need a server
+    // filter — see the note in the PR.)
+    let peopleParams: SearchParams = {
+      var params = SearchParams(libraryID: libraryID)
+      params.scope = "people"
+      params.sort = .capturedDesc
+      params.isScreenshot = false
+      params.from = Self.oneYearAgoString()
       return params
     }()
 
     async let picksResult = fetchOrEmpty(picksParams)
     async let highRatedResult = fetchOrEmpty(highRatedParams)
+    async let peopleResult = fetchOrEmpty(peopleParams)
 
     let (picks, picksError) = await picksResult
     let (highRated, highRatedError) = await highRatedResult
+    let (people, peopleError) = await peopleResult
     guard g == generation else { return }
 
-    var merged = mergeDeduped(picks, highRated)
+    var merged = mergeDeduped(mergeDeduped(picks, highRated), people)
     var recentError: Error?
 
     if merged.count < Self.minimumPoolSize {
       var recentParams = SearchParams(libraryID: libraryID)
       recentParams.sort = .capturedDesc
+      recentParams.isScreenshot = false
       let (recent, error) = await fetchOrEmpty(recentParams)
       guard g == generation else { return }
       merged = mergeDeduped(merged, recent)
       recentError = error
     }
 
-    if merged.isEmpty, let firstError = picksError ?? highRatedError ?? recentError {
+    guard g == generation else { return }
+    if merged.isEmpty, let firstError = picksError ?? highRatedError ?? peopleError ?? recentError {
       loadError = firstError
     }
-
+    if !merged.isEmpty {
+      Self.cachedPools[libraryID] = merged
+    }
     pool = merged.shuffled()
     cursor = 0
   }
@@ -132,6 +185,21 @@ final class LightTableViewModel {
     } catch {
       return ([], error)
     }
+  }
+
+  /// `yyyy-MM-dd` one year before today (UTC) — the `from` bound for the
+  /// last-year people source. `nil` only if date math fails (never in
+  /// practice), which just omits the bound.
+  private static func oneYearAgoString() -> String? {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC") ?? cal.timeZone
+    guard let date = cal.date(byAdding: .year, value: -1, to: Date()) else { return nil }
+    let formatter = DateFormatter()
+    formatter.calendar = cal
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = cal.timeZone
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
   }
 
   // MARK: - Cyclic walk
@@ -148,17 +216,5 @@ final class LightTableViewModel {
     }
     defer { cursor += 1 }
     return pool[cursor]
-  }
-
-  /// Non-consuming look at the next `count` assets the cycle will show,
-  /// without advancing `cursor` — used to prefetch bytes for upcoming
-  /// glide-ins before they're actually due. Deliberately doesn't cross a
-  /// wrap boundary (peeking past the end of the current shuffle order
-  /// isn't worth simulating the reshuffle it would trigger); a peek near
-  /// the tail just returns fewer than `count`.
-  func peekUpcoming(count: Int) -> [SearchAsset] {
-    guard !pool.isEmpty, cursor < pool.count else { return [] }
-    let end = min(cursor + count, pool.count)
-    return Array(pool[cursor..<end])
   }
 }
