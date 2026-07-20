@@ -41,6 +41,8 @@ import {
   PREVIEW_CACHE_SUFFIX,
 } from '../indexer/previewer.ts';
 import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
+import { isVideoFilename } from '../indexer/media-types.ts';
+import { ffmpegBinary } from '../thumbs/video-poster.ts';
 import { isDbConnected } from '../db/client.ts';
 import { findAssetByAddress, previewFileETag, MUTABLE_PREVIEW_CACHE } from './library/shared.ts';
 import { resolveJailedFile, notModifiedResponse } from './fs-jail.ts';
@@ -121,6 +123,26 @@ async function lookupAssetByReal(real: string) {
   return findAssetByAddress(new ObjectId(addr.libraryIdHex), addr.relDir, addr.filename);
 }
 
+/**
+ * The operator-facing 503 message when `real` is a video and this host has no
+ * runnable ffmpeg, or null when the request can proceed.
+ *
+ * Video reaches this route as of #2132; its preview is an ffmpeg poster frame.
+ * Answering the missing-decoder case up front matters because otherwise
+ * `generatePreview` writes nothing and the request lands on the generic
+ * "Preview generation failed" 500 below — which reads as a server fault when
+ * it is really an uninstalled dependency the operator can fix.
+ *
+ * A named helper rather than an inline guard: the route handler is already at
+ * the edge of the complexity gate, and this keeps the branch out of it.
+ */
+async function videoDecoderUnavailable(real: string): Promise<string | null> {
+  if (!isVideoFilename(real)) return null;
+  return (await ffmpegBinary())
+    ? null
+    : 'Video previews need ffmpeg on the server — install it and retry (no restart needed)';
+}
+
 export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   '/preview',
   async ({ query, headers, set }) => {
@@ -130,6 +152,12 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       return { error: resolved.error };
     }
     const { real } = resolved;
+
+    const noDecoder = await videoDecoderUnavailable(real);
+    if (noDecoder) {
+      set.status = 503;
+      return { error: noDecoder };
+    }
 
     const previewPath = await resolvePreviewCachePath(real);
 
