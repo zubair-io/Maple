@@ -21,7 +21,7 @@ struct TimelineCell: View {
   /// selection isn't a follow-up plumbing change.
   let onSelect: () -> Void
 
-  static let size: CGFloat = 178
+  static let size: CGFloat = 260
 
   var body: some View {
     Button(action: onSelect) {
