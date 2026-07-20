@@ -56,8 +56,16 @@ struct PairingScreen: View {
       }
 
       VStack(spacing: 20) {
+        // Sized for couch-distance scanning. The payload is a fixed-shape
+        // ~210-char base64url string, which lands a v8 (51x51-module) symbol —
+        // at 300pt that was ~5.9pt per module, too fine for a phone camera
+        // across a room; 560pt puts it at ~11pt. The right column has ~1100pt
+        // of width free here, so the code gets the space rather than the
+        // layout's whitespace. Shrinking the payload itself is the other half
+        // (51x51 -> 31x31 is achievable) but that's a breaking QR wire-format
+        // change needing a paired iOS release first — tracked in #2137.
         QRCodeView(string: code)
-          .frame(width: 300, height: 300)
+          .frame(width: 560, height: 560)
           .padding(24)
           .background(Color.white)
           .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -69,7 +77,7 @@ struct PairingScreen: View {
           .foregroundStyle(MapleTVTheme.textMuted)
           .lineLimit(3)
           .truncationMode(.middle)
-          .frame(maxWidth: 340)
+          .frame(maxWidth: 500)
           .accessibilityIdentifier("pairing-manual-code")
           .accessibilityLabel("Manual pairing code")
           .accessibilityValue(code)
