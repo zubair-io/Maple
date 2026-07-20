@@ -9,12 +9,17 @@
 
 import { Elysia } from 'elysia';
 import { assetsCollection } from '../../db/client.ts';
+import { hiddenPersonIds } from '../../people/people.repo.ts';
 import { applyLiveFilter, buildFilter, SearchQueryT, type SearchQuery } from './query.ts';
 
 export const facetsRoute = new Elysia().get(
   '/facets',
   async ({ query, set }) => {
-    const filterOrError = buildFilter(query as SearchQuery);
+    // Keep facet counts in agreement with the result list when the caller
+    // excludes hidden people (opt-in; skips the lookup otherwise).
+    const hiddenIds =
+      (query as SearchQuery).excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
+    const filterOrError = buildFilter(query as SearchQuery, hiddenIds);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };

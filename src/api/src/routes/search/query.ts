@@ -190,6 +190,13 @@ export interface SearchQuery {
   /** Hidden image filter. "only" returns only hidden images, "all" returns everything,
    * omitted or "none" (default) excludes hidden images. */
   hidden?: string;
+  /** `"true"` drops every asset showing a soft-hidden person (a face whose
+   * `person_id` is a hidden person). Opt-in — omitted keeps the historical
+   * behaviour, where hiding a person only removes them from the People
+   * listing and their photos still surface in search. Ambient surfaces that
+   * display photos unattended (Maple TV's Light Table) set it so someone the
+   * operator deliberately hid can't reappear on a living-room screen. */
+  excludeHiddenPeople?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -222,6 +229,7 @@ export const SearchQueryT = t.Object({
   people: t.Optional(t.String()),
   scope: t.Optional(t.String()),
   hidden: t.Optional(t.String()),
+  excludeHiddenPeople: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
@@ -234,7 +242,14 @@ export const SearchQueryT = t.Object({
  * libraryId, malformed extensions) — the caller should turn this into
  * a 400.
  */
-export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string } {
+export function buildFilter(
+  q: SearchQuery,
+  /** Hex ids of soft-hidden people, supplied by the (async) caller — kept as
+   * a parameter so this stays a pure, directly-testable function with no DB
+   * access. Only consulted when `q.excludeHiddenPeople === 'true'`; callers
+   * skip the lookup entirely otherwise. */
+  hiddenPersonIds: string[] = [],
+): Filter<AssetDoc> | { error: string } {
   const filter: Filter<AssetDoc> = {};
 
   // Free-text q: case-insensitive substring on `fileinfo[].filename` and
@@ -493,6 +508,18 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
     // `albums` falls through here with no filter added — the handler
     // short-circuits before reaching Mongo.
     // `photos` falls through with no filter added (the default set).
+  }
+
+  // Drop assets showing a soft-hidden person. Excludes the asset if ANY of
+  // its faces belongs to a hidden person — hiding someone is a deliberate
+  // "don't show me this person" action, so a group shot they appear in is
+  // still a photo of them. Complements the always-on hidden-IMAGE filter
+  // above. A separate top-level key from `scope=people`'s `faces.0` presence
+  // check, so the two AND together rather than overwriting each other.
+  if (q.excludeHiddenPeople === 'true' && hiddenPersonIds.length > 0) {
+    (filter as Record<string, unknown>).faces = {
+      $not: { $elemMatch: { person_id: { $in: hiddenPersonIds } } },
+    };
   }
 
   return filter;

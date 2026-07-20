@@ -232,6 +232,17 @@ export async function listHiddenPeople(
   return listPeopleByFilter({ merged_into: null, hidden: true }, options);
 }
 
+/** Hex ids of every soft-hidden person, for search's `excludeHiddenPeople`
+ * filter. Deliberately NOT scoped to `merged_into: null` — a face still
+ * pointing at a merged-away hidden person should stay excluded too. Ids are
+ * hex strings because `faces[].person_id` stores the person's hex id, not an
+ * ObjectId. */
+export async function hiddenPersonIds(): Promise<string[]> {
+  const coll = await peopleCollection();
+  const rows = await coll.find({ hidden: true }, { projection: { _id: 1 } }).toArray();
+  return rows.map((row) => row._id.toHexString());
+}
+
 /** Shared list body for `listPeople` / `listHiddenPeople`. The two differ
  * only in their person-level `hidden` predicate; everything downstream
  * (cover resolution, face counts, sort) is identical. */
