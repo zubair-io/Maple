@@ -25,10 +25,23 @@ export interface SuggestionCandidate {
   hidden: boolean;
 }
 
-export interface MergeSuggestion {
-  personIdHex: string;
+/** How many ranked candidates to keep per person. The read side walks the
+ * list and surfaces the first one that's still valid, so dismissing or
+ * merging the current suggestion immediately reveals the next instead of
+ * leaving the banner empty until the next clustering run. Small on purpose:
+ * past a handful, a "match" this weak isn't worth showing. */
+const MERGE_SUGGESTION_CANDIDATES = 5;
+
+export interface MergeCandidate {
   suggestedPersonIdHex: string;
   score: number;
+}
+
+export interface MergeSuggestion {
+  personIdHex: string;
+  /** Ranked best-first. Never empty (people with no qualifying match are
+   * omitted from the result entirely). */
+  candidates: MergeCandidate[];
 }
 
 /** "idAHex:idBHex" with the two ids in ascending lexicographic order, so a
@@ -40,50 +53,54 @@ export function sortedPairKey(aHex: string, bHex: string): string {
   return aHex < bHex ? `${aHex}:${bHex}` : `${bHex}:${aHex}`;
 }
 
-interface BestMatch {
-  other: SuggestionCandidate | null;
-  score: number;
-}
-
-/** Best-scoring OTHER visible person for `person`, ties breaking toward the
- * first-encountered candidate (strict `>`, matching `clusterEmbeddings`'s
- * own tie-break rule) — deterministic given a stable input order. */
-function bestMatchFor(
+/** The `limit` best-scoring OTHER visible people for `person`, ranked
+ * best-first. Ties break by id so the ranking is deterministic regardless
+ * of input order. */
+function topMatchesFor(
   person: SuggestionCandidate,
   visible: SuggestionCandidate[],
   dismissedPairs: ReadonlySet<string>,
-): BestMatch {
-  return visible.reduce<BestMatch>(
-    (best, other) => {
-      if (other.personIdHex === person.personIdHex) return best;
-      if (dismissedPairs.has(sortedPairKey(person.personIdHex, other.personIdHex))) return best;
-      const score = dotProduct(person.centroid, other.centroid);
-      return score > best.score ? { other, score } : best;
-    },
-    { other: null, score: -Infinity },
+  threshold: number,
+  limit: number,
+): MergeCandidate[] {
+  const scored: MergeCandidate[] = [];
+  for (const other of visible) {
+    if (other.personIdHex === person.personIdHex) continue;
+    if (dismissedPairs.has(sortedPairKey(person.personIdHex, other.personIdHex))) continue;
+    const score = dotProduct(person.centroid, other.centroid);
+    // Filter to the threshold BEFORE collecting: on a large library only a
+    // handful of pairs qualify, so this stays a short list per person
+    // rather than one entry per other person.
+    if (score >= threshold) scored.push({ suggestedPersonIdHex: other.personIdHex, score });
+  }
+  scored.sort(
+    (a, b) => b.score - a.score || a.suggestedPersonIdHex.localeCompare(b.suggestedPersonIdHex),
   );
+  return scored.slice(0, limit);
 }
 
 /**
- * All-pairs cosine similarity over people (not faces — a few hundred/
- * thousand rows, cheap compared to the face-level clustering pass). For
- * each non-hidden person, keep their single best-scoring OTHER non-hidden
- * person if it clears `threshold` and isn't in `dismissedPairs`. People
- * with no qualifying match are simply absent from the result — the caller
- * writes `null` for them.
+ * All-pairs cosine similarity over people (not faces — cheap compared to
+ * the face-level clustering pass). For each non-hidden person, keep their
+ * top `limit` other non-hidden people that clear `threshold` and aren't in
+ * `dismissedPairs`, ranked best-first. People with no qualifying match are
+ * simply absent from the result — the caller clears them.
+ *
+ * Keeping a ranked list rather than the single best match is what lets the
+ * UI advance to the next candidate the moment one is dismissed or merged,
+ * without re-running this pass.
  */
 export function computeMergeSuggestions(
   people: SuggestionCandidate[],
   dismissedPairs: ReadonlySet<string>,
   threshold: number = MERGE_SUGGESTION_THRESHOLD,
+  limit: number = MERGE_SUGGESTION_CANDIDATES,
 ): MergeSuggestion[] {
   const visible = people.filter((p) => !p.hidden);
   return visible
     .map((person) => {
-      const { other, score } = bestMatchFor(person, visible, dismissedPairs);
-      return other && score >= threshold
-        ? { personIdHex: person.personIdHex, suggestedPersonIdHex: other.personIdHex, score }
-        : null;
+      const candidates = topMatchesFor(person, visible, dismissedPairs, threshold, limit);
+      return candidates.length > 0 ? { personIdHex: person.personIdHex, candidates } : null;
     })
     .filter((s): s is MergeSuggestion => s !== null);
 }

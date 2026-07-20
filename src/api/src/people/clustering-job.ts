@@ -464,20 +464,37 @@ async function persistMergeSuggestions(
   // the next run (which only comes when new faces arrive). Dropped entries
   // fall through to the clear-to-null path below.
   const dismissed = await loadMergeDismissals();
-  const live = suggestions.filter(
-    (s) => !dismissed.has(sortedPairKey(s.personIdHex, s.suggestedPersonIdHex)),
-  );
+  // Drop individual candidates dismissed since the compute snapshot, then
+  // drop anyone left with no candidates at all (they clear to null below).
+  const live = suggestions
+    .map((s) => ({
+      personIdHex: s.personIdHex,
+      candidates: s.candidates.filter(
+        (c) => !dismissed.has(sortedPairKey(s.personIdHex, c.suggestedPersonIdHex)),
+      ),
+    }))
+    .filter((s) => s.candidates.length > 0);
   const byPerson = new Map(live.map((s) => [s.personIdHex, s]));
   const peopleC = await peopleCollection();
   const ops: AnyBulkWriteOperation<PersonDoc>[] = seedPersonIds.map((idHex) => {
     const s = byPerson.get(idHex);
+    const head = s?.candidates[0];
     return {
       updateOne: {
         filter: { _id: new ObjectId(idHex) },
         update: {
           $set: {
-            suggested_merge_person_id: s ? new ObjectId(s.suggestedPersonIdHex) : null,
-            suggested_merge_score: s ? s.score : null,
+            // Head stays denormalized for the O(1) list-grid badge and the
+            // dismiss route; `suggested_merges` is the ranked list the
+            // detail banner walks to advance past dismissed candidates.
+            suggested_merge_person_id: head ? new ObjectId(head.suggestedPersonIdHex) : null,
+            suggested_merge_score: head ? head.score : null,
+            suggested_merges: s
+              ? s.candidates.map((c) => ({
+                  person_id: new ObjectId(c.suggestedPersonIdHex),
+                  score: c.score,
+                }))
+              : null,
           },
         },
       },
