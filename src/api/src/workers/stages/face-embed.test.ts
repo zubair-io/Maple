@@ -138,20 +138,41 @@ function stageAsset(
   return { doc, thumbPath };
 }
 
-describe('faceEmbedHandler — video files', () => {
-  it('skips a video asset as { skip: stub-file } without invoking the recognizer', async () => {
+// #1649 inverted this — see the matching block in `face-detect.test.ts` for
+// the full rationale. A video's thumb is a real poster frame now, so faces
+// found in it get embedded and clustered like any still's.
+describe('faceEmbedHandler — video files (#1649)', () => {
+  it('embeds faces from a video whose thumb is a poster frame', async () => {
     const { root, libraryId } = setup();
     try {
-      // Shared loadThumbBytes guard: a .mov/.mp4 thumb is the raw video
-      // container (last-resort passthrough), which can't be cloned across the
-      // face-pool IPC. Skip terminally rather than dead-letter after retries.
       const { doc, thumbPath } = stageAsset(root, libraryId, 'clip.mp4', [fakeFace()]);
       mkdirSync(dirname(thumbPath), { recursive: true });
-      writeFileSync(thumbPath, 'raw-mp4-bytes');
-      const detector = recordingDetector(new Error('recognizer must not run on a video asset'));
+      // Stands in for the poster the thumb stage's ffmpeg branch writes.
+      writeFileSync(thumbPath, 'stub-jpeg');
+      const detector = recordingDetector();
       setDefaultFaceDetectorForTests(detector);
       const result = await faceEmbedHandler(doc, noopCtx);
-      expect((result as { skip: string }).skip).toBe('stub-file');
+      // A recorded embed is proof the recognizer ran: the pre-#1649 guard
+      // short-circuited to a skip before reaching it.
+      expect(detector.embedded.length).toBeGreaterThan(0);
+      expect('skip' in result).toBe(false);
+    } finally {
+      teardown();
+    }
+  });
+
+  it('skips a video with no thumb — the no-ffmpeg host — without invoking the recognizer', async () => {
+    const { root, libraryId } = setup();
+    try {
+      // Deliberately no thumb on disk: the thumb stage skipped with
+      // 'no-video-decoder', so the face pool must never be reached.
+      const { doc } = stageAsset(root, libraryId, 'no-poster.mp4', [fakeFace()]);
+      const detector = recordingDetector(
+        new Error('recognizer must not run without a poster frame'),
+      );
+      setDefaultFaceDetectorForTests(detector);
+      const result = await faceEmbedHandler(doc, noopCtx);
+      expect('skip' in result).toBe(true);
       expect(detector.embedded).toHaveLength(0);
     } finally {
       teardown();

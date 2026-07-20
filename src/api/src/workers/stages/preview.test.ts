@@ -97,7 +97,10 @@ beforeAll(() => {
       try {
         // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
         // orientation, resize without enlarging, AVIF-encode.
-        const out = await sharp(await readFile(srcPath), { failOn: 'none', unlimited: true })
+        const out = await sharp(await readFile(srcPath), {
+          failOn: 'none',
+          unlimited: true,
+        })
           .rotate()
           .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
           .avif({ quality })
@@ -105,7 +108,10 @@ beforeAll(() => {
         await writeFile(outPath, out);
         return { ok: true };
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
       }
     },
   );
@@ -371,13 +377,11 @@ describe('preview handler — bitmap path', () => {
     expect(stat2.mtimeMs).toBe(stat1.mtimeMs);
   });
 
-  it("returns { skip: 'stub-file' } for a .MOV and writes no preview", async () => {
-    // A video container can land in a mixed-media library. The handler must
-    // skip it rather than fall through to the copy-as-is path, which would
-    // leave raw .MOV bytes under a .jpg name for the describe stage to ship
-    // to the vision model.
-    const file = path.join(dir, 'IMG_3087.MOV');
-    await writeFile(file, Buffer.from('not really a video, just bytes'));
+  it("returns { skip: 'stub-file' } for a .eip stub and writes no preview", async () => {
+    // Stub images genuinely have no decoder — unlike video, no host capability
+    // changes that, so this skip stays extension-based.
+    const file = path.join(dir, 'IMG_3087.eip');
+    await writeFile(file, Buffer.from('not really an image, just bytes'));
 
     // Distinct maple_id kept for clarity even though the preview cache path
     // is now keyed on `file`'s own name, not `maple_id`.

@@ -38,7 +38,11 @@ afterEach(() => {
 });
 
 function fakeDoc(
-  overrides: { absPath: string; libraryId: ObjectId; mapleId?: string } & Partial<ImageDoc>,
+  overrides: {
+    absPath: string;
+    libraryId: ObjectId;
+    mapleId?: string;
+  } & Partial<ImageDoc>,
 ): ImageDoc {
   const { absPath, libraryId, mapleId, ...rest } = overrides;
   const filename = absPath.split('/').pop()!;
@@ -177,23 +181,45 @@ describe('faceDetectHandler — happy path', () => {
   });
 });
 
-describe('faceDetectHandler — video files', () => {
-  it('skips a video asset as { skip: stub-file } even when a thumb exists, without invoking the detector', async () => {
+// #1649 inverted this. A video's thumb is now a real poster-frame AVIF, so
+// faces in the opening second of a clip are detected and clustered like any
+// still's — that's the payoff of routing video through the shared thumb tier
+// rather than a parallel poster stage. The original hazard (handing raw
+// container bytes to the face pool, which throws "The object can not be
+// cloned" on the IPC postMessage and dead-letters the asset) is now prevented
+// positionally: on a host with no ffmpeg the thumb stage writes nothing, and
+// the thumb-missing branch skips before the pool is ever reached.
+describe('faceDetectHandler — video files (#1649)', () => {
+  it('runs the detector on a video whose thumb is a poster frame', async () => {
     const { root, libraryId } = setup();
     try {
-      // A cached "thumb" exists, but for a .MOV/.mp4 the thumb/preview
-      // last-resort path copies the source bytes verbatim — so it's the raw
-      // video container, not a JPEG. Handing those bytes to the face pool throws
-      // "The object can not be cloned" on the IPC postMessage, which dead-letters
-      // after maxAttempts. Skip videos terminally, mirroring describe/preview/exif.
       const { doc, thumbPath } = stageAsset(root, libraryId, 'IMG_4661.MOV');
       mkdirSync(dirname(thumbPath), { recursive: true });
-      writeFileSync(thumbPath, 'raw-mov-bytes');
+      // These bytes stand in for the poster the thumb stage's ffmpeg branch
+      // writes — from this stage's perspective a video's thumb is just a thumb.
+      writeFileSync(thumbPath, 'stub-jpeg');
+      setDefaultFaceDetectorForTests(mockDetector([fakeDetection()]));
+      const result = await faceDetectHandler(doc, noopCtx);
+      // A returned face is proof the detector ran: the pre-#1649 guard would
+      // have short-circuited to a skip before reaching it.
+      expect(result).toHaveProperty('patch');
+      expect((result as { patch: { faces: AssetFaceDoc[] } }).patch.faces).toHaveLength(1);
+    } finally {
+      teardown();
+    }
+  });
+
+  it('skips a video with no thumb — the no-ffmpeg host — without invoking the detector', async () => {
+    const { root, libraryId } = setup();
+    try {
+      // Deliberately no writeFileSync at thumbPath: on a host with no ffmpeg
+      // the thumb stage skipped with 'no-video-decoder' and wrote nothing.
+      const { doc } = stageAsset(root, libraryId, 'IMG_4662.MOV');
       setDefaultFaceDetectorForTests(
-        mockDetector([], new Error('detector must not run on a video asset')),
+        mockDetector([], new Error('detector must not run without a poster frame')),
       );
       const result = await faceDetectHandler(doc, noopCtx);
-      expect((result as { skip: string }).skip).toBe('stub-file');
+      expect((result as { skip: string }).skip).toContain(THUMB_MISSING_REASON);
     } finally {
       teardown();
     }

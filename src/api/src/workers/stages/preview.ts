@@ -21,7 +21,8 @@
 import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isNoPreviewFilename } from '../../indexer/media-types.ts';
+import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
+import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
@@ -51,14 +52,21 @@ const previewStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
-    // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
-    // audio have no still frame to render — `generatePreview` skips
-    // generation entirely for these (no decode path exists), so this guard
-    // just avoids the wasted round-trip. The describe stage carries the same
-    // guard as defense in depth.
+    // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
+    // frame to render — `generatePreview` skips generation entirely for these
+    // (no decode path exists), so this guard just avoids the wasted
+    // round-trip. The describe stage carries the same guard as defense in
+    // depth.
     const primary = assetPrimaryFileInfo(image as never);
-    if (primary && isNoPreviewFilename(primary.filename)) {
+    if (primary && isUndecodableFilename(primary.filename)) {
       return { skip: 'stub-file' };
+    }
+
+    // Video previews need a runnable host ffmpeg (#1649) — same reasoning as
+    // the thumb stage's identical guard, including how an operator re-arms
+    // these after installing ffmpeg. See `stages/thumb.ts`.
+    if (primary && isVideoFilename(primary.filename) && !(await ffmpegBinary())) {
+      return { skip: 'no-video-decoder' };
     }
 
     // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup

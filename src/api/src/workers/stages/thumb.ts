@@ -32,7 +32,8 @@ import { assetsCollection } from '../../db/client.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isNoPreviewFilename } from '../../indexer/media-types.ts';
+import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
+import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   defineStage,
@@ -101,16 +102,31 @@ const thumbStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
-    // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
-    // audio (mp3/wav/m4a/aac) have no still frame to thumbnail. Without this
-    // guard the fall-through in `generateThumb` (`copyImageAsThumb`) copies
-    // the source bytes verbatim to `<maple_id>.avif`, so `/api/thumb/...`
-    // would then serve 200 image/avif with raw non-image bytes — a broken
-    // <img> in the grid. Skip terminally; the preview/describe/face stages
-    // carry the same guard.
+    // Metadata-only stub images (eip/braw/afphoto/ai) and audio
+    // (mp3/wav/m4a/aac) have no still frame to thumbnail. Without this guard
+    // the fall-through in `generateThumb` (`copyImageAsThumb`) copies the
+    // source bytes verbatim to `<maple_id>.avif`, so `/api/thumb/...` would
+    // then serve 200 image/avif with raw non-image bytes — a broken <img> in
+    // the grid. Skip terminally; the preview/describe/face stages carry the
+    // same guard.
     const primary = assetPrimaryFileInfo(image as unknown as ImageDoc);
-    if (primary && isNoPreviewFilename(primary.filename)) {
+    if (primary && isUndecodableFilename(primary.filename)) {
       return { skip: 'stub-file' };
+    }
+
+    // Video posters need a runnable host ffmpeg (#1649). When there isn't one,
+    // skip BEFORE `generateThumb` rather than letting its video branch fail:
+    // a failed render still returns `{ wrote: true }` below, which would mark
+    // the stage done having published nothing, and would also cascade a
+    // pointless `cf-thumb-sync` reset for a thumb that doesn't exist.
+    //
+    // This skip does write `version = targetVersion` — i.e. "handled" — so an
+    // operator who installs ffmpeg later needs the `rearm-video-posters`
+    // migration (Settings → Workers) to bring these back into the queue. That
+    // is the same one-button path existing videos take, since they were all
+    // marked done by the pre-#1649 blanket skip anyway.
+    if (primary && isVideoFilename(primary.filename) && !(await ffmpegBinary())) {
+      return { skip: 'no-video-decoder' };
     }
 
     // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup

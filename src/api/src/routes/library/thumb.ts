@@ -20,7 +20,7 @@ import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
-import { isNoPreviewFilename } from '../../indexer/media-types.ts';
+import { isUndecodableFilename } from '../../indexer/media-types.ts';
 import {
   safeStat,
   safeReadBytes,
@@ -60,18 +60,20 @@ export const thumbRoutes = new Elysia().get(
       set.status = 400;
       return { error: 'Filename is required' };
     }
-    // Video containers have no server-side poster yet. Extracting a frame
-    // requires ffmpeg or a native video decoder — a dependency not currently
-    // bundled. The grid renders a video placeholder on 404. Apple clients get
-    // a poster via AVAssetImageGenerator (shipped in #1642).
-    // Follow-up: #1649 (server-side video poster via platform ffmpeg or WASM).
-    //
     // Metadata-only stub images (eip/braw/afphoto/ai) have no decoder, and
-    // audio (mp3/wav/m4a/aac) has no visual frame at all — both 404 the same
-    // way rather than falling into `generateThumbDeduped`/`generateThumb`,
-    // which would otherwise copy the raw source bytes to a `.avif` path and
-    // serve them as garbage `image/avif` (see indexer/thumbnailer.ts).
-    if (isNoPreviewFilename(filename)) {
+    // audio (mp3/wav/m4a/aac) has no visual frame at all — both 404 rather
+    // than falling into `generateThumbDeduped`/`generateThumb`, which would
+    // otherwise copy the raw source bytes to a `.avif` path and serve them as
+    // garbage `image/avif` (see indexer/thumbnailer.ts).
+    //
+    // Video is NOT 404'd here any more (#1649): it falls through to
+    // `generateThumb`, whose video branch extracts a poster frame with the
+    // host ffmpeg. That makes this route generate posters on demand for a
+    // video the thumb stage hasn't reached yet. On a host with no ffmpeg the
+    // render fails, nothing is published, and the response is the same 404
+    // this guard used to produce — so the grid's placeholder behaviour is
+    // unchanged there.
+    if (isUndecodableFilename(filename)) {
       set.status = 404;
       return { error: 'No thumbnail for this file type' };
     }
