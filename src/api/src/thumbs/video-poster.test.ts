@@ -120,11 +120,30 @@ describe('extractVideoPosterJpeg — real decode (needs host ffmpeg)', () => {
 });
 
 describe('ffmpegBinary', () => {
-  it('memoizes — repeated calls return the identical result without re-probing', async () => {
+  it('is stable across calls', async () => {
     const a = await ffmpegBinary();
     const b = await ffmpegBinary();
     expect(a).toBe(b);
   });
+
+  it('coalesces concurrent probes into one detection pass', async () => {
+    // Stage handlers call this per asset, several at a time. Without sharing
+    // the in-flight promise, a burst of video claims would each spawn their
+    // own `ffmpeg -version`.
+    const [a, b, c] = await Promise.all([ffmpegBinary(), ffmpegBinary(), ffmpegBinary()]);
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+  });
+
+  // NOTE: "a negative result is not cached, so installing ffmpeg on a running
+  // server takes effect without a restart" is asserted by inspection, not by a
+  // test here. It cannot be simulated in-process: Bun snapshots the
+  // environment at startup, so neither `Bun.which` nor `Bun.spawn` observes a
+  // `process.env.PATH` change made later — verified directly while building
+  // this (a `PATH`-swap harness kept resolving the original binary). The
+  // operator-visible consequence of getting it wrong IS covered, in
+  // `rearm-video-posters.test.ts`: the migration holds its marker until a
+  // decoder exists, and picks the work up afterwards.
 
   it('resolves to an absolute path or null, never a bare command name', async () => {
     // A bare "ffmpeg" would mean we returned something we never verified is
