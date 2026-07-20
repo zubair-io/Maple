@@ -61,6 +61,12 @@ struct LightTableScreen: View {
     /// highest value, so a freshly gliding-in print always sits on top of
     /// the ones already settled.
     let z: Double
+    /// A little random X/Y/Z tilt the print carries as it "falls" into
+    /// place — a leaf-like 3D settle rather than a flat slide. Resolves to
+    /// zero once settled.
+    let fallX: Double
+    let fallY: Double
+    let fallZ: Double
   }
 
   /// Ever-increasing stacking counter — see `StagePrint.z`.
@@ -75,7 +81,6 @@ struct LightTableScreen: View {
   /// Safety cap so a burst can't overcrowd the stage (the lifetime already
   /// self-regulates the steady-state count).
   private static let maxOnStage = 6
-  private static let lookAheadCount = 2
 
   /// Random settle position, kept within a margin so the whole print is
   /// on-screen (fully visible before it slides off).
@@ -105,6 +110,7 @@ struct LightTableScreen: View {
       stopCycle()
       retryTask?.cancel()
       retryTask = nil
+      viewModel.cancelRefresh()
     }
   }
 
@@ -196,14 +202,18 @@ struct LightTableScreen: View {
         .focusable()
         .focused($focusedPrintID, equals: print.id)
         .accessibilityLabel(Self.accessibilityLabel(for: print.asset))
-        // A print slides in from off the right to its settle position, then —
-        // after its own `cardLifetime` — slides all the way off the LEFT edge
-        // before it's removed. Explicit offsets (added to the print's static
-        // `.offset(position)`) so the exit clears the screen from wherever it
-        // settled, instead of vanishing in place. Pure slides, no fade.
+        // A print falls in from off the right — a horizontal slide plus a
+        // little X/Y/Z tilt that settles to flat, like a leaf — then, after
+        // its `cardLifetime`, slides all the way off the LEFT edge (offset
+        // additive to its settled `.offset(position)`, so it clears the
+        // screen from wherever it landed). Pure motion, no opacity fade.
         .transition(.asymmetric(
-          insertion: .offset(x: 1100),
-          removal: .offset(x: -2200)
+          insertion: .modifier(
+            active: PrintFall(dx: 1100, x: print.fallX, y: print.fallY, z: print.fallZ),
+            identity: PrintFall.settled),
+          removal: .modifier(
+            active: PrintFall(dx: -2200, x: -print.fallX, y: print.fallY, z: print.fallZ),
+            identity: PrintFall.settled)
         ))
       }
     }
@@ -235,19 +245,29 @@ struct LightTableScreen: View {
   /// (each print has its own removal timer) so prints never animate in
   /// coupled add-one/remove-one pairs. A no-op when the pool is empty or the
   /// stage is already at its safety cap.
-  private func spawnPrint() {
+  private func spawnPrint() async {
     guard stage.count < Self.maxOnStage, let asset = viewModel.next() else { return }
+    // Fully fetch + decode the thumbnail BEFORE the print appears, so it
+    // glides in already-rendered instead of flickering from a loading tile
+    // (holds the print "offscreen" — i.e. unspawned — until it's ready).
+    await TVRemoteImage.prefetchThumb(
+      server: session.server, absPath: asset.abs_path, size: 512,
+      thumbClient: session.thumbClient, thumbCache: session.thumbCache)
+    guard !Task.isCancelled else { return }
+
     spawnSeq += 1
-    let print = StagePrint(asset: asset, position: Self.randomPosition(),
-                           rotation: Self.randomRotation(), z: spawnSeq)
+    let print = StagePrint(
+      asset: asset, position: Self.randomPosition(), rotation: Self.randomRotation(),
+      z: spawnSeq,
+      fallX: .random(in: -12...12), fallY: .random(in: -12...12), fallZ: .random(in: -6...6))
     let id = print.id
-    withAnimation(.easeOut(duration: 1.6)) {
+    withAnimation(.easeOut(duration: 1.7)) {
       stage.append(print)
     }
     removalTasks[id] = Task {
       try? await Task.sleep(for: Self.cardLifetime)
       guard !Task.isCancelled else { return }
-      withAnimation(.easeIn(duration: 1.6)) {
+      withAnimation(.easeIn(duration: 1.5)) {
         stage.removeAll { $0.id == id }
       }
       removalTasks[id] = nil
@@ -264,8 +284,7 @@ struct LightTableScreen: View {
     guard !viewModel.pool.isEmpty else { return }
     cycleTask = Task {
       while !Task.isCancelled {
-        spawnPrint()
-        await prefetchLookahead()
+        await spawnPrint()
         try? await Task.sleep(for: Self.spawnInterval)
       }
     }
@@ -287,29 +306,27 @@ struct LightTableScreen: View {
     startCycle()
   }
 
-  /// Warms `CloudThumbCache`'s disk tier for the next couple of assets
-  /// the cycle is about to show, so their `TVRemoteImage(.thumb)` glide
-  /// in already-cached instead of showing a blank/loading tile while the
-  /// network fetch runs. Best-effort: a fetch failure here just means
-  /// the eventual real `TVRemoteImage` retries and surfaces its own
-  /// `.failed` phase, same as `TVRemoteImage.prefetchPreview`.
-  private func prefetchLookahead() async {
-    let upcoming = viewModel.peekUpcoming(count: Self.lookAheadCount)
-    guard !upcoming.isEmpty else { return }
-    let server = session.server
-    let thumbClient = session.thumbClient
-    let thumbCache = session.thumbCache
-    await withTaskGroup(of: Void.self) { group in
-      for asset in upcoming {
-        group.addTask {
-          let host = server.cacheHostKey
-          if await thumbCache.get(host: host, absPath: asset.abs_path) != nil { return }
-          guard let bytes = try? await thumbClient.thumb(absPath: asset.abs_path) else { return }
-          guard !Task.isCancelled else { return }
-          await thumbCache.put(host: host, absPath: asset.abs_path, bytes)
-        }
-      }
-    }
+}
+
+/// Transition modifier for a print's "leaf fall": a horizontal slide (`dx`,
+/// additive to the print's settled offset) plus a small 3D tilt — X and Y
+/// rotations for depth, a little extra Z spin — that all resolve to flat
+/// (`.settled`) as the print lands. Used for both the fall-in and slide-off.
+private struct PrintFall: ViewModifier {
+  let dx: CGFloat
+  let x: Double
+  let y: Double
+  let z: Double
+
+  /// The landed / identity state — no offset, no tilt.
+  static let settled = PrintFall(dx: 0, x: 0, y: 0, z: 0)
+
+  func body(content: Content) -> some View {
+    content
+      .rotation3DEffect(.degrees(x), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
+      .rotation3DEffect(.degrees(y), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
+      .rotationEffect(.degrees(z))
+      .offset(x: dx)
   }
 }
 
@@ -350,12 +367,13 @@ private struct PrintCard: View {
       RoundedRectangle(cornerRadius: 6)
         .stroke(MapleTVTheme.primary, lineWidth: isFocused ? 6 : 0)
     )
-    .shadow(
-      color: .black.opacity(isFocused ? 0.4 : 0.22),
-      radius: isFocused ? 30 : 14,
-      x: 0,
-      y: isFocused ? 20 : 10
-    )
+    // Material-style layered elevation: a soft, wide ambient shadow plus a
+    // tighter key shadow, so the print reads as a physical card lifted off
+    // the table. Both deepen when the print is focused (raised higher).
+    .shadow(color: .black.opacity(isFocused ? 0.32 : 0.20),
+            radius: isFocused ? 44 : 22, x: 0, y: isFocused ? 26 : 13)
+    .shadow(color: .black.opacity(isFocused ? 0.24 : 0.16),
+            radius: isFocused ? 9 : 4, x: 0, y: isFocused ? 6 : 2)
     .scaleEffect(isFocused ? 1.14 : 1.0)
     .animation(.easeOut(duration: 0.25), value: isFocused)
   }

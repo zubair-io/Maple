@@ -235,6 +235,35 @@ extension TVRemoteImage {
   /// failure state of its own; the eventual real `TVRemoteImage(.preview)`
   /// for that asset will retry and surface its own `.failed` phase if the
   /// asset is genuinely unreachable.
+  /// Fetches + decodes the `.thumb` for `absPath` and seeds
+  /// `TVDecodedImageCache` under the exact key a `TVRemoteImage(kind:
+  /// .thumb(size:))` for the same asset will look up — so that view renders
+  /// instantly, with no loading-tile flicker. Mirrors `load()`'s thumb→
+  /// preview fallback (an AVIF thumb the device can't decode, or a missing
+  /// server thumb, falls back to the JPEG preview). A no-op when already
+  /// decoded-cached; all failures are swallowed (best-effort warm).
+  static func prefetchThumb(server: URL, absPath: String, size: Int,
+                            thumbClient: CloudThumbClient, thumbCache: CloudThumbCache) async {
+    let key = "\(server.cacheHostKey)|\(absPath)|\(Kind.thumb(size: size).decodedCacheSuffix)"
+    guard TVDecodedImageCache.shared.image(forKey: key) == nil else { return }
+    let host = server.cacheHostKey
+
+    var thumbBytes = await thumbCache.get(host: host, absPath: absPath)
+    if thumbBytes == nil, let bytes = try? await thumbClient.thumb(absPath: absPath, size: size) {
+      await thumbCache.put(host: host, absPath: absPath, bytes)
+      thumbBytes = bytes
+    }
+    if let data = thumbBytes, !Task.isCancelled, let cg = decode(data) {
+      TVDecodedImageCache.shared.setImage(UIImage(cgImage: cg), forKey: key)
+      return
+    }
+
+    guard !Task.isCancelled,
+          let previewData = try? await thumbClient.preview(absPath: absPath),
+          !Task.isCancelled, let cg = decode(previewData) else { return }
+    TVDecodedImageCache.shared.setImage(UIImage(cgImage: cg), forKey: key)
+  }
+
   static func prefetchPreview(server: URL, absPath: String, thumbClient: CloudThumbClient) async {
     let key = "\(server.cacheHostKey)|\(absPath)|\(Kind.preview.decodedCacheSuffix)"
     guard TVDecodedImageCache.shared.image(forKey: key) == nil else { return }
