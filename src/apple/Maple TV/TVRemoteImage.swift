@@ -139,25 +139,52 @@ struct TVRemoteImage: View {
       return
     }
 
-    guard let data = await fetchBytes() else {
+    // Primary tier for this `kind`.
+    if let image = await fetchAndDecode(fetch: fetchBytes) {
       guard !Task.isCancelled else { return }
-      phase = .failed
-      onPhaseChange?(false)
+      finishLoaded(image)
       return
     }
     guard !Task.isCancelled else { return }
 
-    guard let cgImage = Self.decode(data) else {
+    // Resilience: if the AVIF grid thumbnail can't be fetched or decoded —
+    // an asset whose server-side thumb hasn't been generated, or an AVIF
+    // variant this device's ImageIO won't decode (the Simulator decodes via
+    // the Mac's ImageIO, so on-device AVIF support isn't guaranteed by a
+    // green sim run) — fall back to the JPEG `.preview` tier, which tvOS
+    // decodes reliably and the server can render straight from the RAW. The
+    // cell shows the photo instead of a placeholder. Only the decoded image
+    // is cached (under this thumb key); preview *bytes* are never written to
+    // `CloudThumbCache`'s disk slot, preserving the thumb/preview split
+    // documented at the top of this file.
+    if case .thumb = kind, let image = await fetchAndDecode(fetch: fetchPreviewBytes) {
       guard !Task.isCancelled else { return }
-      phase = .failed
-      onPhaseChange?(false)
+      finishLoaded(image)
       return
     }
-    let image = UIImage(cgImage: cgImage)
-    TVDecodedImageCache.shared.setImage(image, forKey: cacheKey)
     guard !Task.isCancelled else { return }
+
+    phase = .failed
+    onPhaseChange?(false)
+  }
+
+  private func finishLoaded(_ image: UIImage) {
+    TVDecodedImageCache.shared.setImage(image, forKey: cacheKey)
     phase = .loaded(image)
     onPhaseChange?(true)
+  }
+
+  /// Fetch bytes via `fetch`, then decode to a `UIImage`. Returns nil if
+  /// either step fails or the task was cancelled mid-fetch.
+  private func fetchAndDecode(fetch: () async -> Data?) async -> UIImage? {
+    guard let data = await fetch() else { return nil }
+    guard !Task.isCancelled, let cgImage = Self.decode(data) else { return nil }
+    return UIImage(cgImage: cgImage)
+  }
+
+  /// The JPEG preview tier, used as the `.thumb` fallback (see `load()`).
+  private func fetchPreviewBytes() async -> Data? {
+    try? await thumbClient.preview(absPath: absPath)
   }
 
   private func fetchBytes() async -> Data? {

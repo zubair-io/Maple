@@ -81,6 +81,12 @@ struct RootTabView: View {
       // `screensaverInputCapture` (see `screensaverOverlay`).
       content
         .disabled(isScreensaverActive)
+        // A focus section so the tvOS focus engine treats the tab content
+        // and the floating `TabBar` as two distinct regions it can move
+        // between. Without this, the grid's `ScrollView` swallows every
+        // upward focus move (scrolling within itself) and focus can never
+        // escape up to the pill bar — the bar was unreachable.
+        .focusSection()
 
       if isScreensaverActive {
         screensaverOverlay
@@ -88,6 +94,9 @@ struct RootTabView: View {
         TabBar(selectedTab: $selectedTab)
           .padding(.top, 48)
           .frame(maxWidth: .infinity, alignment: .center)
+          // Pair to `content`'s focus section above: makes the pill bar a
+          // reachable focus destination when moving up out of the grid.
+          .focusSection()
 
         // `TimelineTopBar` already carries its own "Forget this server"
         // control (top-trailing) for the Timeline tab — this chrome-level
