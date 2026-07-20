@@ -59,20 +59,35 @@ export function peopleStats(rows: readonly ApiPerson[]): PeopleStats {
   return { named, unnamed: rows.length - named, faces };
 }
 
-/** Sort: named clusters first (alphabetical, case/accent-insensitive),
- * then auto-named clusters by descending face count, tiebroken by id so
- * the order is stable across refreshes. */
+/** Sort: named clusters first, then auto-named ones. WITHIN each group,
+ * most faces first, so the biggest identities float to the top (named rows
+ * used to be alphabetical — face count is the more useful ordering once a
+ * library has more than a handful of people). Ties break by name for named
+ * rows and by id for auto-named ones, so the order is stable across
+ * refreshes either way. */
 export function sortPeople(rows: readonly ApiPerson[]): ApiPerson[] {
   return [...rows].sort((a, b) => {
     const aAuto = isAutoNamed(a.name) ? 1 : 0;
     const bAuto = isAutoNamed(b.name) ? 1 : 0;
     if (aAuto !== bAuto) return aAuto - bAuto;
-    if (aAuto === 1) {
-      if (a.faceCount !== b.faceCount) return b.faceCount - a.faceCount;
-      return a.id.localeCompare(b.id);
-    }
-    return a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
+    if (a.faceCount !== b.faceCount) return b.faceCount - a.faceCount;
+    return aAuto === 1
+      ? a.id.localeCompare(b.id)
+      : a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' });
   });
+}
+
+/** Face-count floor for the list's "hide small clusters" toggle. Most
+ * libraries accumulate a long tail of tiny clusters (a few stray
+ * detections each); hiding them by default keeps the grid readable. */
+export const SMALL_CLUSTER_MIN_FACES = 20;
+
+/** Rows with at least `min` faces — backs the list grid's "hide small
+ * clusters" toggle. Deliberately NOT applied to the merge-target list or
+ * the stats line: a hidden-from-the-grid cluster is still a valid merge
+ * destination, and the stats stay a whole-library summary. */
+export function filterSmallClusters(rows: readonly ApiPerson[], min: number): ApiPerson[] {
+  return rows.filter((p) => p.faceCount >= min);
 }
 
 /** Operator-named clusters only, used for the rename datalist + the

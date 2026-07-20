@@ -73,6 +73,8 @@ import {
   peopleRowKey,
   peopleStats,
   sortPeople,
+  SMALL_CLUSTER_MIN_FACES,
+  filterSmallClusters,
   visibleFaces,
 } from './people.vm';
 import { PeopleBulkController } from './people-bulk.controller';
@@ -157,6 +159,29 @@ export class PeopleComponent implements OnDestroy {
 
   readonly namedPeople = computed(() => filterNamed(this.sortedPeople()));
 
+  /** "Hide small clusters" toggle — on by default so the long tail of tiny
+   * stray-detection clusters doesn't bury the real identities. */
+  readonly hideSmallClusters = signal<boolean>(true);
+
+  /** Template re-exposure of the face-count floor for the toggle's label. */
+  protected readonly smallClusterMin = SMALL_CLUSTER_MIN_FACES;
+
+  /** The rows the GRID renders. `namedPeople` (merge targets) and
+   * `peopleStats` deliberately stay on the unfiltered list — hiding a
+   * cluster from the grid must not make it un-mergeable or change the
+   * whole-library summary. */
+  readonly visiblePeople = computed(() =>
+    this.hideSmallClusters()
+      ? filterSmallClusters(this.sortedPeople(), SMALL_CLUSTER_MIN_FACES)
+      : this.sortedPeople(),
+  );
+
+  /** How many rows the toggle is currently hiding — surfaced next to it so
+   * nothing disappears silently. */
+  readonly hiddenSmallCount = computed(
+    () => this.sortedPeople().length - this.visiblePeople().length,
+  );
+
   /** Bulk list-selection / merge / hide controller. Declared after `store`,
    * `router`, `people`, `namedPeople`, and `selected` so field initializers
    * that reference those are already resolved. */
@@ -203,7 +228,7 @@ export class PeopleComponent implements OnDestroy {
   protected readonly gridGap = PEOPLE_GRID.GAP;
 
   /** Sorted people packed into fixed-width rows for the virtual viewport. */
-  readonly peopleRows = computed(() => chunkPeopleRows(this.sortedPeople(), this.gridColumns()));
+  readonly peopleRows = computed(() => chunkPeopleRows(this.visiblePeople(), this.gridColumns()));
 
   /** Track-by for virtualised rows (see `peopleRowKey`). */
   trackRow = peopleRowKey;
