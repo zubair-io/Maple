@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import thumbStage from './thumb.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import * as videoPosterModule from '../../thumbs/video-poster.ts';
 
 // --- shared test-DB harness for the maple_id-keyed path block below ---
 const TEST_DB = `maple_test_thumb_stage_${process.pid}`;
@@ -143,14 +144,45 @@ describe('thumb handler — bitmap path', () => {
     expect(s.size).toBeGreaterThan(0);
   });
 
-  it("returns { skip: 'stub-file' } for a .MOV and writes no thumb", async () => {
-    // A video container can land in a mixed-media library and (post-#1638) is
-    // a selectable asset. The handler must skip it rather than fall through to
-    // `copyImageAsThumb`, which would copy the raw .MOV bytes to `<id>.avif` —
-    // the thumb route would then serve 200 image/avif with video bytes (broken
-    // <img> in the grid). Mirrors the preview stage's video guard.
-    const file = path.join(dir, 'IMG_3087.MOV');
-    await writeFile(file, Buffer.from('not really a video, just bytes'));
+  it("returns { skip: 'no-video-decoder' } for a .MOV when the host has no ffmpeg", async () => {
+    // #1649: video is skipped on host capability, not on extension. The skip
+    // must land BEFORE `generateThumb` — a failed render there still returns
+    // `{ wrote: true }`, which would mark the stage done having published
+    // nothing AND cascade a pointless cf-thumb-sync reset for a thumb that
+    // doesn't exist. Pinned to "absent" rather than reading the real host so
+    // this asserts the same thing on a dev Mac and on a bare CI container.
+    const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
+    try {
+      const file = path.join(dir, 'IMG_3087.MOV');
+      await writeFile(file, Buffer.from('not really a video, just bytes'));
+
+      // Unique maple_id — the thumb cache path is keyed on it.
+      const doc = makeDoc(file, libraryId, dir, null, '9'.repeat(32));
+      const result = await thumbStage.handler(doc as never, {} as never);
+      expect((result as { skip: string }).skip).toBe('no-video-decoder');
+
+      const thumbPath = resolveThumbPathForAsset(
+        doc as never,
+        new Map([[libraryId.toHexString(), dir]]),
+      );
+      expect(thumbPath).not.toBeNull();
+      const err = await stat(thumbPath as string).then(
+        () => null,
+        (e: NodeJS.ErrnoException) => e,
+      );
+      expect(err?.code).toBe('ENOENT');
+    } finally {
+      ffmpegSpy.mockRestore();
+    }
+  });
+
+  it("returns { skip: 'stub-file' } for a .eip stub and writes no thumb", async () => {
+    // Stub images have no decoder on any host, so unlike video this skip is
+    // permanently extension-based. Without it `copyImageAsThumb` would copy the
+    // raw bytes to `<id>.avif` and the thumb route would serve 200 image/avif
+    // with non-image bytes (broken <img> in the grid).
+    const file = path.join(dir, 'IMG_3087.eip');
+    await writeFile(file, Buffer.from('not really an image, just bytes'));
 
     // Unique maple_id — the thumb cache path is keyed on it.
     const doc = makeDoc(file, libraryId, dir, null, '9'.repeat(32));
@@ -417,7 +449,12 @@ describe('thumb handler — resets cf-thumb-sync stage state on rewrite', () => 
     if (!mongoReachable) return;
     const file = path.join(dir, 'reset-me.jpg');
     const buf = await sharp({
-      create: { width: 400, height: 300, channels: 3, background: { r: 1, g: 2, b: 3 } },
+      create: {
+        width: 400,
+        height: 300,
+        channels: 3,
+        background: { r: 1, g: 2, b: 3 },
+      },
     })
       .jpeg()
       .toBuffer();
