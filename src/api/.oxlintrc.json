@@ -136,6 +136,7 @@
         "src/routes/pano.ts",
         "src/routes/preview.ts",
         "src/routes/preview.test.ts",
+        "src/routes/fs-thumbs.video.test.ts",
         "src/routes/xmp.ts",
         "src/routes/xmp-batch.ts",
         "src/routes/xmp-batch.test.ts",
