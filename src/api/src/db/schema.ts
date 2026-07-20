@@ -892,6 +892,15 @@ export interface PersonDoc {
    * display ("87% match"). Refreshed alongside the id; null when the id
    * is null. */
   suggested_merge_score?: number | null;
+  /** Ranked merge candidates, best first, refreshed by the clustering job
+   * alongside `centroid`. `suggested_merge_person_id`/`_score` above are
+   * the denormalized HEAD of this list (kept so the list-grid badge and
+   * the dismiss route stay O(1)); this array is what lets the detail
+   * banner advance to the next candidate the instant one is dismissed or
+   * merged, instead of going empty until the next clustering run.
+   * Absent on rows written before the ranked list landed — readers fall
+   * back to the head fields. */
+  suggested_merges?: Array<{ person_id: ObjectId; score: number }> | null;
   /**
    * Denormalized count of this person's live assigned faces: faces with
    * `person_id` set to this person's hex id, `hidden !== true`, and a

@@ -30,8 +30,8 @@ describe('prepareClusteringPass — merge suggestions', () => {
 
     const pass = await prepareClusteringPass();
     const forA = pass.mergeSuggestions.find((s) => s.personIdHex === a._id.toHexString());
-    expect(forA?.suggestedPersonIdHex).toBe(b._id.toHexString());
-    expect(forA?.score).toBeCloseTo(1, 5);
+    expect(forA?.candidates[0].suggestedPersonIdHex).toBe(b._id.toHexString());
+    expect(forA?.candidates[0].score).toBeCloseTo(1, 5);
   });
 
   it('excludes a hidden person from suggestions', async () => {
@@ -163,8 +163,8 @@ describe('runOnlineClustering — merge suggestion persistence', () => {
     await _internals.persistMergeSuggestions(
       [aHex, bHex],
       [
-        { personIdHex: aHex, suggestedPersonIdHex: bHex, score: 0.9 },
-        { personIdHex: bHex, suggestedPersonIdHex: aHex, score: 0.9 },
+        { personIdHex: aHex, candidates: [{ suggestedPersonIdHex: bHex, score: 0.9 }] },
+        { personIdHex: bHex, candidates: [{ suggestedPersonIdHex: aHex, score: 0.9 }] },
       ],
     );
 
@@ -172,5 +172,41 @@ describe('runOnlineClustering — merge suggestion persistence', () => {
     const freshB = await peopleC.findOne({ _id: b._id });
     expect(freshA?.suggested_merge_person_id ?? null).toBeNull();
     expect(freshB?.suggested_merge_person_id ?? null).toBeNull();
+  });
+
+  it('persists the whole ranked list, with the best candidate denormalized as the head', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { peopleCollection } = await import('../db/client.ts');
+    const { _internals } = await import('./clustering-job.ts');
+    const peopleC = await peopleCollection();
+
+    const subject = await createPerson('Person L');
+    const best = await createPerson('Person M');
+    const runnerUp = await createPerson('Person N');
+    const subjectHex = subject._id.toHexString();
+
+    await _internals.persistMergeSuggestions(
+      [subjectHex],
+      [
+        {
+          personIdHex: subjectHex,
+          candidates: [
+            { suggestedPersonIdHex: best._id.toHexString(), score: 0.93 },
+            { suggestedPersonIdHex: runnerUp._id.toHexString(), score: 0.71 },
+          ],
+        },
+      ],
+    );
+
+    const fresh = await peopleC.findOne({ _id: subject._id });
+    // Head = best candidate (drives the O(1) list-grid badge).
+    expect(fresh?.suggested_merge_person_id?.toHexString()).toBe(best._id.toHexString());
+    expect(fresh?.suggested_merge_score).toBeCloseTo(0.93, 5);
+    // Full ranked list = what the banner walks to advance past a dismissal.
+    expect(fresh?.suggested_merges?.map((c) => c.person_id.toHexString())).toEqual([
+      best._id.toHexString(),
+      runnerUp._id.toHexString(),
+    ]);
   });
 });
