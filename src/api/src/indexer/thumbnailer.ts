@@ -123,22 +123,7 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   // on any failure the temp file is removed, never `thumbPath`.
   const tmpPath = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
 
-  let renderOk: boolean;
-  if (RAW_EXTS.has(ext)) {
-    renderOk = await renderRawThumbToFile(absPath, tmpPath);
-  } else if (isVideoFilename(absPath)) {
-    renderOk = await renderVideoThumbToFile(absPath, tmpPath);
-  } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
-    renderOk = await renderBitmapThumbToFile(absPath, tmpPath, extNoDot);
-  } else {
-    // Unknown format — fall back to copy so something is at the path
-    // (matches the prior behaviour for, e.g., a future format we haven't
-    // taught sharp about yet). Routed through the same validate-then-publish
-    // gate as every other branch: a copied source that isn't actually a
-    // valid AVIF (the common case, since this is the last-resort branch)
-    // fails validation and is discarded rather than silently served.
-    renderOk = await copyImageAsThumb(absPath, tmpPath);
-  }
+  const renderOk = await renderByFormat(absPath, ext, extNoDot, tmpPath);
 
   const ok = await finalizeAvifRender(renderOk, tmpPath, thumbPath, THUMB_LONG_EDGE_PX, log, {
     assetPath: absPath,
@@ -152,6 +137,36 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     log.warn({ absPath }, 'failed');
   }
   logTotals();
+}
+
+/**
+ * Dispatch to the decode branch that can read `absPath`, writing an AVIF to
+ * the caller's private temp path. Returns false if that branch couldn't
+ * produce anything.
+ *
+ * Split out of `generateThumb` so that function stays focused on the
+ * cache/publish lifecycle (freshness check, temp path, validate-then-publish,
+ * counters) while format dispatch lives in one place. Adding the video branch
+ * pushed the combined function past the complexity gate.
+ */
+async function renderByFormat(
+  absPath: string,
+  ext: string,
+  extNoDot: string,
+  tmpPath: string,
+): Promise<boolean> {
+  if (RAW_EXTS.has(ext)) return renderRawThumbToFile(absPath, tmpPath);
+  if (isVideoFilename(absPath)) return renderVideoThumbToFile(absPath, tmpPath);
+  if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
+    return renderBitmapThumbToFile(absPath, tmpPath, extNoDot);
+  }
+  // Unknown format — fall back to copy so something is at the path (matches
+  // the prior behaviour for, e.g., a future format we haven't taught sharp
+  // about yet). Routed through the same validate-then-publish gate as every
+  // other branch: a copied source that isn't actually a valid AVIF (the common
+  // case, since this is the last-resort branch) fails validation and is
+  // discarded rather than silently served.
+  return copyImageAsThumb(absPath, tmpPath);
 }
 
 function logTotals(): void {
