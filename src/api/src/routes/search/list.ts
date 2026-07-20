@@ -9,7 +9,7 @@
  */
 
 import { Elysia } from 'elysia';
-import type { ObjectId } from 'mongodb';
+import type { Collection, ObjectId } from 'mongodb';
 import type { Filter, Sort } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
@@ -29,6 +29,95 @@ import {
 import { pickSort, SORT_OPTIONS } from './sort.ts';
 
 const searchLog = childLogger('search');
+
+// ── Total-count cache (#2128) ─────────────────────────────────────────
+// `countDocuments` runs the same non-indexable residual predicates as the
+// main find (deleted_at / hidden / the fileinfo liveness $elemMatch) — even
+// once the default-sort find is index-only, the count stays an O(N) scan.
+// `total`'s only consumer is the `canLoadMore` infinite-scroll gate in the
+// two search components (`search.component.ts:144` and `:175`), so brief
+// staleness is not user-visible. Cached for 30 s keyed on the full filter
+// set — mirrors the buckets cache in `buckets.ts` exactly (module-scoped
+// `Map`, same TTL, same `_resetCacheForTests` shape).
+const TOTAL_CACHE_TTL_MS = 30_000;
+interface CachedTotal {
+  total: number;
+  expiresMs: number;
+}
+const totalCache = new Map<string, CachedTotal>();
+
+/** Stable JSON serialisation of a SearchQuery. Field order is fixed so
+ * that two requests with the same params produce the same key regardless
+ * of how the URL was constructed. Covers every field `buildFilter` reads
+ * (i.e. the full filter set the count depends on) — `page`/`limit`/`sort`
+ * are deliberately excluded because `countDocuments` doesn't depend on
+ * pagination or ordering, and `people` is excluded because it only feeds
+ * the Meilisearch path (never the Mongo filter this cache guards). */
+function makeTotalCacheKey(q: SearchQuery): string {
+  return JSON.stringify({
+    pathPrefix: q.pathPrefix ?? null,
+    libraryId: q.libraryId ?? null,
+    q: q.q ?? null,
+    placeQuery: q.placeQuery ?? null,
+    camera: q.camera ?? null,
+    lens: q.lens ?? null,
+    isoMin: q.isoMin ?? null,
+    isoMax: q.isoMax ?? null,
+    apertureMin: q.apertureMin ?? null,
+    apertureMax: q.apertureMax ?? null,
+    focalMin: q.focalMin ?? null,
+    focalMax: q.focalMax ?? null,
+    from: q.from ?? null,
+    to: q.to ?? null,
+    rating: q.rating ?? null,
+    flag: q.flag ?? null,
+    color: q.color ?? null,
+    ext: q.ext ?? null,
+    hasCapturedAt: q.hasCapturedAt ?? null,
+    sceneType: q.sceneType ?? null,
+    activity: q.activity ?? null,
+    subjects: q.subjects ?? null,
+    isScreenshot: q.isScreenshot ?? null,
+    scope: q.scope ?? null,
+    hidden: q.hidden ?? null,
+  });
+}
+
+/** Test-only: blow the cache so back-to-back tests don't see each other's
+ * results. Safe in production too — just slower for 30 s. */
+export function _resetCacheForTests(): void {
+  totalCache.clear();
+}
+
+/**
+ * `countDocuments`, hinting the narrow `fileinfo.library_id` index when
+ * `canHint` is true (see the call site for why that's conditional on
+ * `usingPlaceText`).
+ *
+ * Falls back to an unhinted count if the hint index doesn't exist —
+ * Mongo raises `BadValue` (code 2) "hint provided does not correspond to
+ * an existing index" in that case. That's not hypothetical: `ensureIndexes`
+ * (`db/client.ts`) runs in the background at boot, and the index-creation
+ * step this hint targets is itself gated on a migration that can be
+ * pending on an older/partially-migrated database (see the
+ * `drop-abs-path-2026-05-21` guard). A missing hint index must degrade to
+ * the planner's own (slower) choice, not 500 the whole search route.
+ */
+async function countTotal(
+  coll: Collection<AssetDoc>,
+  filter: Filter<AssetDoc>,
+  canHint: boolean,
+): Promise<number> {
+  if (!canHint) return coll.countDocuments(filter);
+  try {
+    return await coll.countDocuments(filter, { hint: { 'fileinfo.library_id': 1 } });
+  } catch (err) {
+    if (err instanceof Error && (err as { code?: number }).code === 2) {
+      return coll.countDocuments(filter);
+    }
+    throw err;
+  }
+}
 
 export const listRoute = new Elysia().get(
   '/',
@@ -182,9 +271,45 @@ export const listRoute = new Elysia().get(
 
     const cursor = coll.find(finalFilter);
     if (projection) cursor.project(projection);
+
+    // Cache lookup for `total` — see the module-level comment. Keyed on the
+    // raw query (not `resolved`), matching `buckets.ts`: repeated
+    // infinite-scroll requests from the FE resend identical query params.
+    const cacheKey = makeTotalCacheKey(query as SearchQuery);
+    const nowMs = Date.now();
+    const cachedTotal = totalCache.get(cacheKey);
+    const totalPromise: Promise<number> =
+      cachedTotal && cachedTotal.expiresMs > nowMs
+        ? Promise.resolve(cachedTotal.total)
+        : // `$text` queries require the planner to use the text index —
+          // combining `$text` with an explicit `hint` throws "text and
+          // hint not allowed in same query", so only hint when we know the
+          // filter carries no `$text` (i.e. not the Mongo `$text` fallback
+          // path above). Otherwise, hint the narrower `fileinfo.library_id`
+          // index: adding the new lib+captured+_id compound index above
+          // (needed to fix the find) gives the planner a wider, slower
+          // index it will otherwise pick for this count — measured ~2.5x
+          // slower than the narrow index at 300k docs, even though both
+          // examine the exact same document count (the multikey
+          // `fileinfo.library_id` path forces a FETCH to dedupe
+          // array-generated index entries either way, so neither index can
+          // make this an index-only COUNT_SCAN). See `countTotal` above
+          // for the fallback when the hint index isn't there yet.
+          countTotal(coll, finalFilter, !usingPlaceText).then((total) => {
+            // Bound the cache so a parameterised attack can't grow it
+            // unboundedly. 500 unique filter sets is generous for a
+            // single server; eviction is FIFO via insertion order.
+            if (totalCache.size >= 500) {
+              const oldest = totalCache.keys().next().value;
+              if (oldest !== undefined) totalCache.delete(oldest);
+            }
+            totalCache.set(cacheKey, { total, expiresMs: nowMs + TOTAL_CACHE_TTL_MS });
+            return total;
+          });
+
     const [docs, total] = await Promise.all([
       cursor.sort(sortSpec).skip(skip).limit(limit).toArray(),
-      coll.countDocuments(finalFilter),
+      totalPromise,
     ]);
 
     const [libs, idToSlug] = await Promise.all([
