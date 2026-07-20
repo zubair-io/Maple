@@ -193,9 +193,12 @@ struct LightTableScreen: View {
         .focusable()
         .focused($focusedPrintID, equals: print.id)
         .accessibilityLabel(Self.accessibilityLabel(for: print.asset))
+        // Prints glide in from the right and slide out to the LEFT — a
+        // conveyor of photos — rather than fading. Pure moves, no opacity,
+        // so a print never fades away in place.
         .transition(.asymmetric(
-          insertion: .move(edge: .trailing).combined(with: .opacity),
-          removal: .opacity
+          insertion: .move(edge: .trailing),
+          removal: .move(edge: .leading)
         ))
       }
     }
@@ -397,11 +400,13 @@ private struct PrintCard: View {
       kind: .thumb(size: 512),
       thumbClient: thumbClient,
       thumbCache: thumbCache,
-      contentMode: .fill,
+      // Keep the photo's original aspect ratio — no crop-to-fill. The print
+      // is a fixed square, so non-square photos sit within it on the white
+      // mat rather than being cropped to the frame.
+      contentMode: .fit,
       accessibilityLabel: asset.filename
     )
     .frame(width: Self.imageSize, height: Self.imageSize)
-    .clipped()
     .padding(Self.matPadding)
     .background(Color.white)
     .clipShape(RoundedRectangle(cornerRadius: 6))
