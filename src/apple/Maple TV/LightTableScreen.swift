@@ -1,6 +1,7 @@
 // src/apple/Maple TV/LightTableScreen.swift
 import MapleCloudKit
 import SwiftUI
+import UIKit
 
 /// The Light Table (#2121 F2): an ambient, self-cycling display of a
 /// warm-paper "prints laid out on a light table" scene — `PrintCard`s at
@@ -106,7 +107,14 @@ struct LightTableScreen: View {
       guard !Task.isCancelled else { return }
       startCycle()
     }
+    .onAppear {
+      // The Light Table is a deliberately no-interaction ambient view, so
+      // tvOS would otherwise judge the box "idle" and drop its own system
+      // screensaver over Maple. Hold the idle timer off while it's showing.
+      UIApplication.shared.isIdleTimerDisabled = true
+    }
     .onDisappear {
+      UIApplication.shared.isIdleTimerDisabled = false
       stopCycle()
       retryTask?.cancel()
       retryTask = nil
