@@ -14,6 +14,7 @@
 
 import { Elysia } from "elysia";
 import { assetsCollection } from "../../db/client.ts";
+import { hiddenPersonIds } from "../../people/people.repo.ts";
 import {
   applyLiveFilter,
   buildFilter,
@@ -45,6 +46,7 @@ function makeBucketsCacheKey(q: SearchQuery): string {
   return JSON.stringify({
     pathPrefix: q.pathPrefix ?? null,
     libraryId: q.libraryId ?? null,
+    excludeHiddenPeople: q.excludeHiddenPeople ?? null,
     q: q.q ?? null,
     placeQuery: q.placeQuery ?? null,
     camera: q.camera ?? null,
@@ -78,7 +80,14 @@ export function _resetBucketsCacheForTests(): void {
 export const bucketsRoute = new Elysia().get(
     "/buckets",
     async ({ query, set }) => {
-      const filterOrError = buildFilter(query as SearchQuery);
+      // Opt-in hidden-people exclusion (see `SearchQuery.excludeHiddenPeople`).
+      // Folded into the cache key below, so buckets computed with and without
+      // it never share an entry. Skips the lookup when not requested.
+      const hiddenIds =
+        (query as SearchQuery).excludeHiddenPeople === "true"
+          ? await hiddenPersonIds()
+          : [];
+      const filterOrError = buildFilter(query as SearchQuery, hiddenIds);
       if ("error" in filterOrError) {
         set.status = 400;
         return { error: filterOrError.error };

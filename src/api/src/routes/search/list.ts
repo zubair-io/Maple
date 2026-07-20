@@ -12,6 +12,7 @@ import { Elysia } from 'elysia';
 import type { ObjectId } from 'mongodb';
 import type { Filter, Sort } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
+import { hiddenPersonIds } from '../../people/people.repo.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
@@ -38,7 +39,11 @@ export const listRoute = new Elysia().get(
     // the residual free-text drives the text/Meili path. Pure-date queries
     // ("2023") leave an empty residual and skip the text path entirely.
     const resolved = extractDatesFromQuery(query as SearchQuery);
-    const filterOrError = buildFilter(resolved);
+    // Only pay for the hidden-people lookup when the caller asked to exclude
+    // them (opt-in — see `SearchQuery.excludeHiddenPeople`).
+    const hiddenIds =
+      resolved.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
+    const filterOrError = buildFilter(resolved, hiddenIds);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };

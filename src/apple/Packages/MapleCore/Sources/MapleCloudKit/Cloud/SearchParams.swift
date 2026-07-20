@@ -150,6 +150,13 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   /// When true, only assets with a non-null `captured_at` match.
   public var hasCapturedAt: Bool?
   public var hidden: SearchHidden = .none
+  /// Drop assets showing a soft-hidden person. Opt-in: `nil` (the default)
+  /// keeps the server's historical behaviour, where hiding a person only
+  /// removes them from the People listing and their photos still surface in
+  /// search. Set by ambient surfaces that display photos unattended (the TV
+  /// Light Table) so someone deliberately hidden can't reappear on screen.
+  /// Hidden *images* need no flag — the server excludes those by default.
+  public var excludeHiddenPeople: Bool?
   public var sort: SearchSort = .capturedDesc
 
   public init(libraryID: String? = nil) {
@@ -215,6 +222,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     if !ext.isEmpty { add("ext", ext.joined(separator: ",")) }
     add("pathPrefix", pathPrefix)
     if let hasCapturedAt { add("hasCapturedAt", hasCapturedAt ? "true" : "false") }
+    if excludeHiddenPeople == true { add("excludeHiddenPeople", "true") }
     add("sceneType", sceneType?.rawValue)
     add("activity", activity)
     add("scope", scope)
