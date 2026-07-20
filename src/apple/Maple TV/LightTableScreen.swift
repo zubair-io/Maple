@@ -20,9 +20,12 @@ struct LightTableScreen: View {
 
   @State private var viewModel: LightTableViewModel
   @State private var stage: [StagePrint] = []
-  /// Round-robins through `slots` as prints are added — see
-  /// `advanceStage()`.
-  @State private var nextSlotIndex = 0
+  /// Per-print removal timers, keyed by print id — each print schedules its
+  /// OWN slide-off after `cardLifetime`, independent of when others were
+  /// added, so prints don't animate in coupled add-one/remove-one pairs.
+  /// Stored so `.onDisappear` cancels them all alongside `cycleTask`
+  /// (Global Constraint: no leaked tasks).
+  @State private var removalTasks: [UUID: Task<Void, Never>] = [:]
   /// The ambient timer loop. A plain (unstructured) `Task`, NOT a child
   /// of the initial `.task` closure that seeds the stage — it must
   /// outlive that closure's return, so it's stored and explicitly
@@ -50,33 +53,31 @@ struct LightTableScreen: View {
   private struct StagePrint: Identifiable {
     let id = UUID()
     let asset: SearchAsset
-    let slot: PrintSlot
-  }
-
-  private struct PrintSlot {
-    let offset: CGSize
+    /// Where this print settles (offset from stage center) and a slight
+    /// rotation — both randomized per print so the scatter looks hand-laid.
+    let position: CGSize
     let rotation: Angle
   }
 
-  /// Six hand-placed positions/rotations, scattered around the stage
-  /// center — a designed "photos laid out by hand" look rather than
-  /// fully random placement every cycle. `advanceStage()` assigns the
-  /// next print the next slot round-robin, so a slot's occupant changes
-  /// every `slots.count` prints, which lines up exactly with when that
-  /// print ages out of `maxOnStage` — the incoming print visually
-  /// replaces the outgoing one in the same spot.
-  private static let slots: [PrintSlot] = [
-    PrintSlot(offset: CGSize(width: -460, height: -120), rotation: .degrees(-7)),
-    PrintSlot(offset: CGSize(width: -210, height: 140), rotation: .degrees(6)),
-    PrintSlot(offset: CGSize(width: 50, height: -170), rotation: .degrees(-5)),
-    PrintSlot(offset: CGSize(width: 300, height: 90), rotation: .degrees(9)),
-    PrintSlot(offset: CGSize(width: 470, height: -70), rotation: .degrees(-10)),
-    PrintSlot(offset: CGSize(width: 90, height: 190), rotation: .degrees(4)),
-  ]
-
+  /// How often a new print glides in.
+  private static let spawnInterval: Duration = .seconds(3.5)
+  /// How long a print lingers before it slides off. Longer than
+  /// `spawnInterval`, so several prints coexist (≈ lifetime / interval ≈ 4),
+  /// each on its own in → settle → out lifecycle.
+  private static let cardLifetime: Duration = .seconds(15)
+  /// Safety cap so a burst can't overcrowd the stage (the lifetime already
+  /// self-regulates the steady-state count).
   private static let maxOnStage = 6
-  private static let glideInterval: Duration = .seconds(6)
   private static let lookAheadCount = 2
+
+  /// Random settle position, kept within a margin so the whole print is
+  /// on-screen (fully visible before it slides off).
+  private static func randomPosition() -> CGSize {
+    CGSize(width: .random(in: -480...480), height: .random(in: -230...230))
+  }
+  private static func randomRotation() -> Angle {
+    .degrees(.random(in: -8...8))
+  }
 
   private static let paperTop = Color(red: 0xfd / 255, green: 0xfc / 255, blue: 0xf9 / 255)
   private static let paperBottom = Color(red: 0xe6 / 255, green: 0xe1 / 255, blue: 0xd5 / 255)
@@ -90,9 +91,6 @@ struct LightTableScreen: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .task {
       await viewModel.load()
-      guard !Task.isCancelled else { return }
-      seedStage()
-      await prefetchLookahead()
       guard !Task.isCancelled else { return }
       startCycle()
     }
@@ -184,18 +182,21 @@ struct LightTableScreen: View {
           thumbClient: session.thumbClient,
           thumbCache: session.thumbCache
         )
-        .offset(print.slot.offset)
-        .rotationEffect(print.slot.rotation)
+        .offset(print.position)
+        .rotationEffect(print.rotation)
         .zIndex(isFocused ? 10 : 0)
         .focusable()
         .focused($focusedPrintID, equals: print.id)
         .accessibilityLabel(Self.accessibilityLabel(for: print.asset))
-        // Prints glide in from the right and slide out to the LEFT — a
-        // conveyor of photos — rather than fading. Pure moves, no opacity,
-        // so a print never fades away in place.
+        // A print glides in from off the right (with a soft fade) to its
+        // settle position, then — after its own `cardLifetime` — slides all
+        // the way off the LEFT edge before it's removed. Explicit offsets
+        // (added to the print's static `.offset(position)`) so the exit
+        // clears the screen from wherever it settled, instead of vanishing
+        // in place. The exit is a pure slide (no opacity) — it doesn't fade.
         .transition(.asymmetric(
-          insertion: .move(edge: .trailing),
-          removal: .move(edge: .leading)
+          insertion: .offset(x: 1100).combined(with: .opacity),
+          removal: .offset(x: -2200)
         ))
       }
     }
@@ -222,71 +223,58 @@ struct LightTableScreen: View {
 
   // MARK: - Ambient cycle
 
-  private func seedStage() {
-    let initialCount = min(3, Self.slots.count)
-    for _ in 0..<initialCount {
-      advanceStage()
+  /// Glide one fresh print in at a random settle position, and schedule its
+  /// own removal after `cardLifetime`. Spawning and removing are decoupled
+  /// (each print has its own removal timer) so prints never animate in
+  /// coupled add-one/remove-one pairs. A no-op when the pool is empty or the
+  /// stage is already at its safety cap.
+  private func spawnPrint() {
+    guard stage.count < Self.maxOnStage, let asset = viewModel.next() else { return }
+    let print = StagePrint(asset: asset, position: Self.randomPosition(), rotation: Self.randomRotation())
+    let id = print.id
+    withAnimation(.easeOut(duration: 1.6)) {
+      stage.append(print)
     }
-  }
-
-  /// Pulls the next asset off `viewModel`'s cyclic pool and glides it
-  /// into the next slot (round-robin), trimming the stage back down to
-  /// `maxOnStage` — the print that ages out is whichever one occupies
-  /// the front of `stage` once the cap is exceeded, which — because
-  /// `slots.count == maxOnStage` — is always the print that most
-  /// recently held THIS SAME slot. A no-op when the pool is empty.
-  private func advanceStage() {
-    guard let asset = viewModel.next() else { return }
-    let slot = Self.slots[nextSlotIndex]
-    nextSlotIndex = (nextSlotIndex + 1) % Self.slots.count
-    withAnimation(.easeInOut(duration: 1.1)) {
-      stage.append(StagePrint(asset: asset, slot: slot))
-      if stage.count > Self.maxOnStage {
-        stage.removeFirst(stage.count - Self.maxOnStage)
+    removalTasks[id] = Task {
+      try? await Task.sleep(for: Self.cardLifetime)
+      guard !Task.isCancelled else { return }
+      withAnimation(.easeIn(duration: 1.6)) {
+        stage.removeAll { $0.id == id }
       }
+      removalTasks[id] = nil
     }
   }
 
-  /// Starts the repeating glide-in timer as a stored, explicitly
-  /// cancellable `Task` — see `cycleTask`'s doc comment. Re-checks
-  /// `Task.isCancelled` after every sleep so a cancellation mid-sleep
-  /// never fires one more `advanceStage()`.
-  ///
-  /// No-ops when the pool is empty (empty library / load error): there's
-  /// nothing to glide, so spinning a timer that wakes every
-  /// `glideInterval` only to run a no-op `advanceStage()` is pure waste
-  /// while the empty/error state is shown. The `.task`/`reload()` callers
-  /// re-enter here after a successful (re)load, so a Retry that finds
-  /// content still starts the cycle.
+  /// Starts the ambient spawn loop as a stored, explicitly cancellable
+  /// `Task` — spawns the first print immediately, then one every
+  /// `spawnInterval`. No-ops when the pool is empty (empty library / load
+  /// error); the `.task`/`reload()` callers re-enter after a successful
+  /// (re)load, so a Retry that finds content still starts it.
   private func startCycle() {
-    cycleTask?.cancel()
-    guard !viewModel.pool.isEmpty else {
-      cycleTask = nil
-      return
-    }
+    stopCycle()
+    guard !viewModel.pool.isEmpty else { return }
     cycleTask = Task {
       while !Task.isCancelled {
-        try? await Task.sleep(for: Self.glideInterval)
-        guard !Task.isCancelled else { return }
-        advanceStage()
+        spawnPrint()
         await prefetchLookahead()
+        try? await Task.sleep(for: Self.spawnInterval)
       }
     }
   }
 
+  /// Cancels the spawn loop and every pending per-print removal timer.
   private func stopCycle() {
     cycleTask?.cancel()
     cycleTask = nil
+    for task in removalTasks.values { task.cancel() }
+    removalTasks.removeAll()
   }
 
   private func reload() async {
     await viewModel.load()
     guard !Task.isCancelled else { return }
+    stopCycle()
     stage = []
-    nextSlotIndex = 0
-    seedStage()
-    await prefetchLookahead()
-    guard !Task.isCancelled else { return }
     startCycle()
   }
 
