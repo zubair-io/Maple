@@ -9,13 +9,13 @@ import SwiftUI
 /// place — so the day and location live in one place that updates as you
 /// move the Siri Remote, rather than as repeated in-grid section headers.
 ///
-/// Owns a `TVTimelineViewModel` scoped to `libraryID`; `onForgotten` threads
-/// milestone C's pairing-reversal path through `TimelineTopBar`.
+/// Owns a `TVTimelineViewModel` scoped to `libraryID`. Navigation (Back to
+/// the Menu, Log Out) is handled by `RootTabView` / `MenuScreen`, so this
+/// screen carries no chrome beyond the focused-photo header.
 struct TimelineScreen: View {
   let session: TVCloudSession
   let libraryID: String
   let libraryName: String
-  let onForgotten: () -> Void
 
   @State private var viewModel: TVTimelineViewModel
   /// Presents `PhotoViewerScreen` (current feed + selected index) via
@@ -26,11 +26,10 @@ struct TimelineScreen: View {
   /// Menu returns to the grid at the asset that was on screen.
   @FocusState private var focusedCellID: String?
 
-  init(session: TVCloudSession, libraryID: String, libraryName: String, onForgotten: @escaping () -> Void) {
+  init(session: TVCloudSession, libraryID: String, libraryName: String) {
     self.session = session
     self.libraryID = libraryID
     self.libraryName = libraryName
-    self.onForgotten = onForgotten
     _viewModel = State(initialValue: TVTimelineViewModel(
       server: session.server,
       libraryID: libraryID,
@@ -51,11 +50,7 @@ struct TimelineScreen: View {
     ZStack {
       MapleTVTheme.background.ignoresSafeArea()
       VStack(alignment: .leading, spacing: 0) {
-        TimelineTopBar(
-          title: headerTitle,
-          subtitle: headerSubtitle,
-          onForgotten: onForgotten
-        )
+        TimelineTopBar(title: headerTitle, subtitle: headerSubtitle)
         content
       }
     }
@@ -169,7 +164,7 @@ struct TimelineScreen: View {
 
   private var grid: some View {
     ScrollView {
-      LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 32) {
+      LazyVGrid(columns: Self.columns, alignment: .center, spacing: 40) {
         let assets = viewModel.assets
         ForEach(Array(assets.enumerated()), id: \.element.id) { index, asset in
           TimelineCell(
@@ -187,6 +182,10 @@ struct TimelineScreen: View {
           }
         }
       }
+      // Cap the grid width and center it so a row of the larger cells sits in
+      // the middle of the screen rather than left-packed against the edge.
+      .frame(maxWidth: 1600)
+      .frame(maxWidth: .infinity, alignment: .center)
       .padding(.horizontal, 72)
       .padding(.top, 8)
       .padding(.bottom, 72)
