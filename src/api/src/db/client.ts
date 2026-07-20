@@ -749,6 +749,24 @@ export async function ensureIndexes(): Promise<void> {
   // end of this function; path-prefix and timeline queries now run against
   // `fileinfo.path`.
   await db.collection('assets').createIndex({ 'exif.captured_at': -1 }, { sparse: true });
+  // Compound index backing the default `/api/search` sort (#2128). Mongo can
+  // only use an index to satisfy a sort when the sort pattern is a *prefix*
+  // of the index key pattern — the single-key `exif.captured_at_-1` above
+  // can't serve `{ 'exif.captured_at': -1, _id: 1 }` because the `_id`
+  // tiebreak isn't in it, so the planner fell back to IXSCAN on
+  // `fileinfo.library_id_1` (or a COLLSCAN) followed by a blocking SORT
+  // over every matching row before truncating to `limit`. Leading with the
+  // equality-bound `fileinfo.library_id` leaves the remaining two keys free
+  // to satisfy the sort exactly, collapsing the plan to
+  // `LIMIT <- FETCH <- IXSCAN` examining only `limit` documents. Background
+  // to avoid blocking on first deploy against the existing ~350k-document
+  // production collection.
+  await db
+    .collection('assets')
+    .createIndex(
+      { 'fileinfo.library_id': 1, 'exif.captured_at': -1, _id: 1 },
+      { background: true },
+    );
   // Donor lookup for the apply-video-geo-backfill migration (#1529): the donor
   // query ranges on `exif.captured_at` (±15 min window) among GPS-bearing assets.
   // A `partialFilterExpression` on `exif.gps.lat` — NOT `sparse` — is what keeps
