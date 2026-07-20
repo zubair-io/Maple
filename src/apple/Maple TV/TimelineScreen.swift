@@ -166,7 +166,15 @@ struct TimelineScreen: View {
     ScrollView {
       LazyVGrid(columns: Self.columns, alignment: .center, spacing: 40) {
         let assets = viewModel.assets
-        ForEach(Array(assets.enumerated()), id: \.element.id) { index, asset in
+        // Iterate indices rather than `Array(assets.enumerated())`: the latter
+        // allocates a fresh array of tuples on every render, and tvOS
+        // re-renders this grid on every focus move. Index-as-identity is safe
+        // for THIS feed specifically — it only ever grows by appending a page
+        // or is replaced wholesale by `load()`, never spliced in the middle —
+        // so no cell's identity shifts under it. Focus is unaffected either
+        // way: `.focused(equals:)` below keys on `asset.id`, not the index.
+        ForEach(assets.indices, id: \.self) { index in
+          let asset = assets[index]
           TimelineCell(
             asset: asset,
             server: session.server,

@@ -147,6 +147,7 @@ final class LightTableViewModel {
       params.scope = "people"
       params.sort = .capturedDesc
       params.isScreenshot = false
+      params.excludeHiddenPeople = true
       params.from = Self.oneYearAgoString()
       return params
     }()
