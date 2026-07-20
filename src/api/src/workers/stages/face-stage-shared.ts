@@ -14,7 +14,7 @@ import type { ImageDoc } from '../run-stage.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isNoPreviewFilename } from '../../indexer/media-types.ts';
+import { isUndecodableFilename } from '../../indexer/media-types.ts';
 
 /** The thumbnail stage hasn't run yet, or the cached file was deleted. */
 export const THUMB_MISSING_REASON = 'thumb-missing';
@@ -42,17 +42,23 @@ export type ThumbLoad = { bytes: Uint8Array } | { skip: string };
  * unregistered.
  */
 export async function loadThumbBytes(image: ImageDoc): Promise<ThumbLoad> {
-  // Videos, metadata-only stub images (eip/braw/afphoto/ai), and audio
-  // (mp3/wav/m4a/aac) all have no still frame for face detection/embedding.
-  // The thumb/preview last-resort path copies the source bytes verbatim, so
-  // the cached "thumb" for one of these is the raw non-image container — not
-  // a JPEG. Handing those bytes to the face pool throws "The object can not
-  // be cloned" on the IPC postMessage, which dead-letters the asset after
-  // maxAttempts. Skip terminally (skip advances the stage version), mirroring
-  // the describe / preview / exif stages. Single source of truth — see
+  // Metadata-only stub images (eip/braw/afphoto/ai) and audio (mp3/wav/m4a/aac)
+  // have no still frame for face detection/embedding. The thumb last-resort
+  // path copies the source bytes verbatim, so the cached "thumb" for one of
+  // these is the raw non-image container — not a JPEG. Handing those bytes to
+  // the face pool throws "The object can not be cloned" on the IPC
+  // postMessage, which dead-letters the asset after maxAttempts. Skip
+  // terminally (skip advances the stage version), mirroring the describe /
+  // preview / exif stages. Single source of truth — see
   // indexer/media-types.ts.
+  //
+  // Video is no longer in this set (#1649) — its thumb is now a real
+  // poster-frame AVIF, so faces in a clip's opening second are detected and
+  // clustered like any still's. Without a host ffmpeg no thumb is written at
+  // all and the `THUMB_MISSING_REASON` branch below skips, so the face pool
+  // still never sees container bytes.
   const primary = assetPrimaryFileInfo(image);
-  if (primary && isNoPreviewFilename(primary.filename)) {
+  if (primary && isUndecodableFilename(primary.filename)) {
     return { skip: 'stub-file' };
   }
 

@@ -307,18 +307,30 @@ describe('describeHandler — preview missing', () => {
   });
 });
 
-describe('describeHandler — video files are not described', () => {
-  it("returns { skip: 'stub-file' } for a .MOV without calling the provider", async () => {
+// #1649 inverted this behaviour. Video used to be skipped on extension alone;
+// now the preview stage renders a poster frame for it, so a clip is captioned
+// from that poster like any still. What still must NOT happen is the vision
+// model receiving container bytes — that's what OOM'd Ollama and motivated the
+// original blanket skip. The protection is now positional rather than
+// extension-based: describe only ever reads the preview artefact, and on a host
+// with no ffmpeg the preview stage writes nothing, so the `preview-missing`
+// branch fires instead. Both halves are asserted here.
+describe('describeHandler — video files are described from their poster frame (#1649)', () => {
+  it('describes a .MOV that has a poster-frame preview on disk', async () => {
     const absPath = join(tmpRoot, 'IMG_3087.MOV');
-    // Stage a preview on disk so we prove the skip fires on extension alone,
-    // not because the preview is missing.
+    // stageDoc seeds a real preview AVIF — standing in for what the preview
+    // stage's ffmpeg branch writes for a video.
     const doc = await stageDoc(absPath);
     let called = false;
     const provider: DescribeProvider = {
       name: 'ollama',
       async describe(): Promise<DescribeResult> {
         called = true;
-        throw new Error('provider should not be called for a video file');
+        return {
+          text: JSON.stringify(VALID_VISION),
+          cost_usd: 0,
+          provider_info: {},
+        };
       },
       async health(): Promise<void> {},
     };
@@ -329,21 +341,51 @@ describe('describeHandler — video files are not described', () => {
     });
 
     const result = await describeHandler(doc, fakeCtx);
-    expect((result as { skip: string }).skip).toBe('stub-file');
-    expect(called).toBe(false);
+    expect(called).toBe(true);
+    expect('patch' in result).toBe(true);
   });
 
   it('matches the extension case-insensitively (.mp4 lowercase)', async () => {
     const absPath = join(tmpRoot, 'clip.mp4');
     const doc = await stageDoc(absPath);
-    const provider = mockProvider(new Error('must not run'));
+    const provider = mockProvider({
+      text: JSON.stringify(VALID_VISION),
+      cost_usd: 0,
+      provider_info: {},
+    });
     setDescribeDepsForTests({
       provider,
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    expect((result as { skip: string }).skip).toBe('stub-file');
+    expect('patch' in result).toBe(true);
+  });
+
+  it("returns { skip: 'preview-missing' } for a video with no poster — the no-ffmpeg host", async () => {
+    const absPath = join(tmpRoot, 'no-ffmpeg.mov');
+    // No seedPreview: on a host without a runnable ffmpeg the preview stage
+    // skips with 'no-video-decoder' and never writes this file. The provider
+    // must not be reached — container bytes never go upstream.
+    const doc = fakeDoc(absPath, libraryId, tmpRoot);
+    let called = false;
+    const provider: DescribeProvider = {
+      name: 'ollama',
+      async describe(): Promise<DescribeResult> {
+        called = true;
+        throw new Error('provider must not be called without a poster frame');
+      },
+      async health(): Promise<void> {},
+    };
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: 'p',
+      model: 'qwen3-vl:8b',
+    });
+
+    const result = await describeHandler(doc, fakeCtx);
+    expect((result as { skip: string }).skip).toBe('preview-missing');
+    expect(called).toBe(false);
   });
 });
 
