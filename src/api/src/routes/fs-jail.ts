@@ -19,6 +19,7 @@ import {
   SHARP_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
 } from '../fs/browse.ts';
+import { VIDEO_EXTS } from '../indexer/media-types.ts';
 import { ifNoneMatchEqual } from '../runtime/http-etag.ts';
 
 export type JailedFile = {
@@ -32,10 +33,29 @@ export type JailedFile = {
 
 export type JailedFileError = { ok: false; status: number; error: string };
 
-/** True for every extension the FFI/sharp/PSD render paths can decode.
- * Video/stub/audio formats have no still frame and must 415. */
+/**
+ * True for every extension a render path can turn into a still image.
+ *
+ * Video is included as of #2132: a container holds real frames, and both
+ * routes can now extract one via ffmpeg (#1649). Whether THIS host actually
+ * has a decoder is a runtime question the routes answer for themselves —
+ * answering it here would mean spawning a process inside a
+ * validation-and-jail helper that is otherwise pure path math and stats.
+ *
+ * Stub images (eip/braw/afphoto/ai) and audio stay out: no decoder exists for
+ * them on any host, so 415 is the honest permanent answer. That split mirrors
+ * `isUndecodableFilename` in `indexer/media-types.ts`, which draws exactly the
+ * same line for the stage guards — but note this is an ALLOWLIST and that one
+ * is a denylist, so the two cannot be collapsed and must be kept in step by
+ * hand when a format is added.
+ */
 function isDecodableRasterExt(ext: string): boolean {
-  return RAW_EXTENSIONS.has(ext) || SHARP_EXTENSIONS.has(ext) || PSD_HDR_EXTENSIONS.has(ext);
+  return (
+    RAW_EXTENSIONS.has(ext) ||
+    SHARP_EXTENSIONS.has(ext) ||
+    PSD_HDR_EXTENSIONS.has(ext) ||
+    VIDEO_EXTS.has(`.${ext}`)
+  );
 }
 
 /**

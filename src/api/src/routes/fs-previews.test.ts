@@ -8,7 +8,7 @@
 // content-addressed path follows the per-process isolated-DB +
 // skip-if-Mongo-unreachable pattern from `libraries.cache.test.ts`.
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,6 +24,7 @@ import { cachePathFor } from '../fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { getDb, closeDb } from '../db/client.ts';
+import * as videoPosterModule from '../thumbs/video-poster.ts';
 
 describe('libraryAddressFor', () => {
   const roots = new Map([['aaaaaaaaaaaaaaaaaaaaaaaa', '/lib/photos']]);
@@ -145,6 +146,31 @@ describe('GET /api/fs/preview', () => {
     await writeFile(docPath, 'hello');
     const res = await get(docPath);
     expect(res.status).toBe(415);
+  });
+
+  // #2132: video shares the jail with /api/fs/thumb, and used to be rejected
+  // there by an allowlist that predated poster-frame extraction (#1649).
+  it('does not 415 a video at the extension gate', async () => {
+    const videoPath = join(tmp!, 'clip.mov');
+    await writeFile(videoPath, Buffer.from('container bytes'));
+    const res = await get(videoPath);
+    expect(res.status).not.toBe(415);
+  });
+
+  it('503s (not 500) for a video when the host has no ffmpeg', async () => {
+    // Without this the request falls through to `generatePreview`, which
+    // writes nothing and lands on the generic "Preview generation failed"
+    // 500 — indistinguishable from a real server fault.
+    const spy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
+    try {
+      const videoPath = join(tmp!, 'no-decoder.mov');
+      await writeFile(videoPath, Buffer.from('container bytes'));
+      const res = await get(videoPath);
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { error: string }).error).toMatch(/ffmpeg/i);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('serves a fresh pre-staged preview with an ETag, and 304s on If-None-Match', async () => {
