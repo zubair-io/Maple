@@ -37,6 +37,7 @@ import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { child as childLogger } from '../../log.ts';
+import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { liveVideoFileinfoMatch } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
@@ -44,6 +45,10 @@ import type { Migration, MigrationBatchResult } from './types.ts';
 const log = childLogger('migration:video-posters');
 
 const MIGRATION_ID = 'rearm-video-posters';
+
+/** True once the "enabled but no ffmpeg" line has been logged. The worker
+ * ticks every few seconds, so without this the hold-off would flood the log. */
+let warnedNoFfmpeg = false;
 
 /** Bump to re-sweep every video again (e.g. after the poster extractor learns
  * to handle a container it previously failed on). */
@@ -115,8 +120,9 @@ export const rearmVideoPosters: Migration = {
   description:
     'Re-queues existing videos through the thumb, preview, describe, and face stages so they ' +
     'get poster-frame thumbnails. Videos were skipped outright before poster extraction ' +
-    'existed, so they stay marked done until this runs. Requires ffmpeg on the server — ' +
-    'run this again after installing it. One-time; idempotent per video.',
+    'existed, so they stay marked done until this runs. Requires ffmpeg on the server: with ' +
+    'no ffmpeg installed this waits rather than running, and starts on its own once one ' +
+    'appears — no restart needed. One-time; idempotent per video.',
 
   async countRemaining(): Promise<number> {
     const coll = await assetsCollection();
@@ -124,6 +130,33 @@ export const rearmVideoPosters: Migration = {
   },
 
   async runBatch(batchSize: number): Promise<MigrationBatchResult> {
+    // Refuse to run without a decoder, rather than re-arming assets the stages
+    // will immediately skip again.
+    //
+    // This is the difference between "waiting" and a dead end. Re-arming while
+    // ffmpeg is absent stamps `video_poster_rearm_version` on every asset AND
+    // lets thumb/preview re-skip them with `no-video-decoder` — after which
+    // `countRemaining()` is 0, so re-running the migration does nothing and the
+    // operator has no route back without bumping the constant or editing the
+    // DB by hand. Holding the marker until a decoder exists keeps the backlog
+    // visible in Settings → Workers and lets the work start by itself once
+    // ffmpeg is installed (`ffmpegBinary` re-probes negatives periodically).
+    //
+    // Returning zero-progress rather than throwing is deliberate: the worker's
+    // done-detection is count-based, so the migration stays enabled and simply
+    // idles instead of erroring in the UI.
+    if (!(await ffmpegBinary())) {
+      if (!warnedNoFfmpeg) {
+        warnedNoFfmpeg = true;
+        log.warn(
+          'video poster re-arm is enabled but no runnable ffmpeg was found — holding off. ' +
+            'Install ffmpeg on the server; this starts on its own, no restart required.',
+        );
+      }
+      return { processed: 0, errors: 0 };
+    }
+    warnedNoFfmpeg = false;
+
     const coll = await assetsCollection();
 
     // Pure Mongo — no file I/O, no decode. This migration only moves stage

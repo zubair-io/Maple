@@ -124,7 +124,11 @@ const thumbStage = defineStage({
     // operator who installs ffmpeg later needs the `rearm-video-posters`
     // migration (Settings → Workers) to bring these back into the queue. That
     // is the same one-button path existing videos take, since they were all
-    // marked done by the pre-#1649 blanket skip anyway.
+    // marked done by the pre-#1649 blanket skip anyway. No process restart is
+    // needed for the install to register: `ffmpegBinary` caches only positive
+    // results, so absence is re-probed, and the migration holds off entirely
+    // until a decoder exists so it can't burn its marker on a pass that would
+    // just re-skip everything.
     if (primary && isVideoFilename(primary.filename) && !(await ffmpegBinary())) {
       return { skip: 'no-video-decoder' };
     }

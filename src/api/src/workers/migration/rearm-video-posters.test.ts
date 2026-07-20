@@ -22,9 +22,10 @@
  * Skips when MongoDB is unreachable (mirrors the other migration tests).
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, spyOn } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { rearmVideoPosters, VIDEO_POSTER_REARM_VERSION } from './rearm-video-posters.ts';
+import * as videoPosterModule from '../../thumbs/video-poster.ts';
 
 const TEST_DB = `maple_test_rearm_video_posters_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -188,7 +189,20 @@ describe('rearmVideoPosters — selection', () => {
   });
 });
 
+/**
+ * `runBatch` refuses to act without a decoder (see below), so every test that
+ * exercises the actual re-arm pins ffmpeg as present. Pinned rather than read
+ * from the host so these assert the same thing on a dev Mac and on CI.
+ */
 describe('rearmVideoPosters — runBatch', () => {
+  let ffmpegSpy: ReturnType<typeof spyOn>;
+  beforeAll(() => {
+    ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue('/usr/bin/ffmpeg');
+  });
+  afterAll(() => {
+    ffmpegSpy.mockRestore();
+  });
+
   it('resets every poster-dependent stage to unprocessed and stamps the marker', async () => {
     if (!mongoReachable) return;
     await reset();
@@ -300,5 +314,61 @@ describe('rearmVideoPosters — runBatch', () => {
       processed: 0,
       errors: 0,
     });
+  });
+});
+
+/**
+ * The no-decoder hold-off. Without it this migration has a dead end: re-arming
+ * while ffmpeg is absent stamps the marker on every asset AND lets thumb /
+ * preview immediately re-skip them with `no-video-decoder`, after which
+ * `countRemaining()` reads 0 and re-running the migration does nothing — the
+ * operator cannot recover without bumping `VIDEO_POSTER_REARM_VERSION` or
+ * editing Mongo by hand.
+ */
+describe('rearmVideoPosters — no ffmpeg on the host', () => {
+  it('does nothing and leaves the backlog intact and visible', async () => {
+    if (!mongoReachable) return;
+    const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
+    try {
+      await reset();
+      const coll = db!.collection('assets');
+      await coll.insertMany([makeAsset('hold-a.mov'), makeAsset('hold-b.mov')] as never[]);
+
+      expect(await rearmVideoPosters.runBatch(50)).toEqual({ processed: 0, errors: 0 });
+
+      // Nothing stamped — the marker is what would strand these.
+      const docs = await coll.find({}).toArray();
+      for (const d of docs) {
+        expect(d.video_poster_rearm_version).toBeUndefined();
+        expect(d.stages.thumb.version).toBe(3);
+      }
+      // Still counted as outstanding, so Settings → Workers shows real work
+      // pending rather than a silently "finished" migration.
+      expect(await rearmVideoPosters.countRemaining()).toBe(2);
+    } finally {
+      ffmpegSpy.mockRestore();
+    }
+  });
+
+  it('picks the work up on a later tick once ffmpeg appears, with no restart', async () => {
+    if (!mongoReachable) return;
+    await reset();
+    const coll = db!.collection('assets');
+    await coll.insertOne(makeAsset('later.mov') as never);
+
+    const absent = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
+    try {
+      expect((await rearmVideoPosters.runBatch(50)).processed).toBe(0);
+    } finally {
+      absent.mockRestore();
+    }
+
+    const present = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue('/usr/bin/ffmpeg');
+    try {
+      expect((await rearmVideoPosters.runBatch(50)).processed).toBe(1);
+      expect((await coll.findOne({}))!.stages.thumb.version).toBe(0);
+    } finally {
+      present.mockRestore();
+    }
   });
 });
