@@ -43,8 +43,9 @@ import { randomBytes } from 'node:crypto';
 import { cachePathFor } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
-import { isNoPreviewFilename } from './media-types.ts';
+import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -124,13 +125,13 @@ export async function generatePreview(
     return;
   }
 
-  // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
-  // audio have no still frame — the `copyImageAsPreview` fall-through below
-  // would otherwise copy the raw source bytes to a `.jpg`-named preview,
-  // which the describe stage would then ship to the vision model as if it
-  // were a real image. Bail before the copy; the describe/preview stage
-  // handlers carry the same guard as defense in depth.
-  if (isNoPreviewFilename(absPath)) {
+  // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
+  // frame — the unknown-format branch below would otherwise be reached with
+  // bytes no decoder can read. Bail early; the describe/preview stage handlers
+  // carry the same guard as defense in depth. Video is NOT bailed on here any
+  // more — it has a real decode branch below (#1649), and a video preview is
+  // what lets the describe stage caption clips for the first time.
+  if (isUndecodableFilename(absPath)) {
     _failed++;
     log.warn({ absPath }, 'skipped: no still frame to preview');
     logTotals();
@@ -148,6 +149,8 @@ export async function generatePreview(
   let renderOk: boolean;
   if (RAW_EXTS.has(ext)) {
     renderOk = await renderRawPreviewToFile(absPath, tmpPath);
+  } else if (isVideoFilename(absPath)) {
+    renderOk = await renderVideoPreviewToFile(absPath, tmpPath);
   } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     renderOk = await renderBitmapPreviewToFile(absPath, tmpPath, extNoDot);
   } else {
@@ -254,6 +257,28 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
   // decode time. No inline orientation post-process needed — keeping sharp
   // out of worker-main's address space for isolation.
+}
+
+/**
+ * Video containers: ffmpeg poster frame → the shared imgdecode child pool
+ * (#1649). Same two-hop rationale as `renderVideoThumbToFile` in
+ * `thumbnailer.ts` — see there. This tier is what the describe stage reads, so
+ * it is the reason a video can now get a caption + OCR pass at all.
+ *
+ * `outPath` is the caller's private temp path — see `renderRawPreviewToFile`.
+ */
+async function renderVideoPreviewToFile(videoPath: string, outPath: string): Promise<boolean> {
+  const posterPath = `${outPath}.poster.jpg`;
+  try {
+    if (!(await extractVideoPosterJpeg(videoPath, posterPath))) return false;
+    return await renderBitmapPreviewToFile(posterPath, outPath, 'jpg');
+  } finally {
+    try {
+      await fs.unlink(posterPath);
+    } catch {
+      /* extraction failed before writing, or already gone */
+    }
+  }
 }
 
 /** `outPath` is the caller's private temp path — see `renderRawPreviewToFile`. */

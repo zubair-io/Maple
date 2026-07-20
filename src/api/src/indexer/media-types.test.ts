@@ -6,7 +6,7 @@ import {
   STUB_IMAGE_EXTS,
   isAudioFilename,
   AUDIO_EXTS,
-  isNoPreviewFilename,
+  isUndecodableFilename,
 } from './media-types.ts';
 
 describe('isVideoFilename', () => {
@@ -100,16 +100,28 @@ describe('isAudioFilename', () => {
   });
 });
 
-describe('isNoPreviewFilename', () => {
-  it('is true for every video, stub-image, and audio extension', () => {
-    for (const ext of [...VIDEO_EXTS, ...STUB_IMAGE_EXTS, ...AUDIO_EXTS]) {
-      expect(isNoPreviewFilename(`file${ext}`)).toBe(true);
+describe('isUndecodableFilename', () => {
+  it('is true for every stub-image and audio extension', () => {
+    for (const ext of [...STUB_IMAGE_EXTS, ...AUDIO_EXTS]) {
+      expect(isUndecodableFilename(`file${ext}`)).toBe(true);
     }
   });
 
   it('is false for decodable still-image, RAW, PSD/PSB/HDR extensions', () => {
     for (const name of ['photo.jpg', 'shot.dng', 'a.cr3', 'scan.psd', 'scene.hdr']) {
-      expect(isNoPreviewFilename(name)).toBe(false);
+      expect(isUndecodableFilename(name)).toBe(false);
+    }
+  });
+
+  // #1649 — video left this set when poster-frame extraction landed. Whether a
+  // frame can actually be pulled is a host-capability question (is there a
+  // runnable ffmpeg?), answered by `thumbs/video-poster.ts`, not a property of
+  // the extension. Guarding this explicitly because folding video back in here
+  // would silently re-break video thumbs, previews, captions, and faces all at
+  // once — every one of those stages consults this predicate.
+  it('is false for every video extension', () => {
+    for (const ext of VIDEO_EXTS) {
+      expect(isUndecodableFilename(`clip${ext}`)).toBe(false);
     }
   });
 });
