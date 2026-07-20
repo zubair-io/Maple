@@ -35,7 +35,7 @@ import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { isNoPreviewFilename } from '../../indexer/media-types.ts';
+import { isUndecodableFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import {
   type DescribeProvider,
@@ -125,8 +125,14 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // this bug for video). Skip terminally, before resolving deps or touching
   // disk. `skip` writes version = targetVersion, so the row is marked done
   // and never reclaimed.
+  //
+  // Video is no longer in this set (#1649): it now gets a real poster-frame
+  // preview, so a clip is captioned + OCR'd from its poster like any still.
+  // When the host has no ffmpeg the preview stage skips instead of writing
+  // one, and this stage's `preview-missing` branch below catches that — the
+  // vision model is never handed container bytes either way.
   const primary = assetPrimaryFileInfo(image);
-  if (primary && isNoPreviewFilename(primary.filename)) {
+  if (primary && isUndecodableFilename(primary.filename)) {
     return { skip: 'stub-file' };
   }
 
