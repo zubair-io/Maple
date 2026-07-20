@@ -24,9 +24,10 @@ import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetAbsPath, isLiveFileInfo } from '../../indexer/images.repo.ts';
-import { isVideoFilename, VIDEO_EXTS } from '../../indexer/media-types.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { child as childLogger } from '../../log.ts';
+import { liveVideoFileinfoMatch } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
 
@@ -41,23 +42,11 @@ export const VIDEO_META_VERSION = 1;
  * set (the migration's `$ne` selector). */
 const REFILE_RESET_VERSION = 0;
 
-/** Filename regex of known video extensions, for the Mongo selector. */
-const VIDEO_FILENAME_RE = new RegExp(
-  `\\.(${[...VIDEO_EXTS].map((e) => e.slice(1)).join('|')})$`,
-  'i',
-);
-
 /** Backup-origin assets with a live VIDEO entry not yet backfilled. */
 function candidateFilter(): Filter<AssetDoc> {
   return {
     'phasset_links.0': { $exists: true },
-    fileinfo: {
-      $elemMatch: {
-        filename: { $regex: VIDEO_FILENAME_RE },
-        deleted_at: { $in: [null] },
-        missing_since: { $in: [null] },
-      },
-    },
+    fileinfo: { $elemMatch: liveVideoFileinfoMatch() },
     video_meta_version: { $ne: VIDEO_META_VERSION },
   } as Filter<AssetDoc>;
 }

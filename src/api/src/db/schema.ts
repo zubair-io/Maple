@@ -166,10 +166,24 @@ export interface VisionDoc {
   activity: string | null;
   /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
   time_of_day:
-    'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown' | null;
+    | 'morning'
+    | 'midday'
+    | 'afternoon'
+    | 'golden hour'
+    | 'evening'
+    | 'night'
+    | 'unknown'
+    | null;
   /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
   lighting:
-    'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash' | 'unknown' | null;
+    | 'natural'
+    | 'artificial'
+    | 'mixed'
+    | 'low-light'
+    | 'backlit'
+    | 'flash'
+    | 'unknown'
+    | null;
   /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
   weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown' | null;
   /** 1–3 words describing atmosphere. */
