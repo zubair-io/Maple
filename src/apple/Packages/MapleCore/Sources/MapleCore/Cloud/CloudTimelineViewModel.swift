@@ -307,9 +307,16 @@ public final class CloudTimelineViewModel {
   /// `allCloudIdentifiers` carry the full arrays used by
   /// `MergedTimelineSource.findLocalMatch`.
   private static func searchAssetToImageRef(_ a: SearchAsset) -> ImageRef {
-    let captured: Date? = a.captured_at.flatMap {
-      Self.iso8601.date(from: $0)
-    }
+    // `parseTimelineISO8601` (MapleCloudKit, visible here via the module's
+    // @_exported re-export) tries a fractional-seconds formatter first, then
+    // whole-seconds. A bare `ISO8601DateFormatter()` — the previous code —
+    // silently returned nil for every real server `captured_at`, which are
+    // Mongo Dates serialized via JS `toISOString()` and so always carry
+    // millisecond precision ("2022-09-10T11:32:07.000Z"). That dropped the
+    // capture date off every cloud asset (#2108; same class of bug as the TV
+    // Timeline's D7 fix). The whole-seconds-only fixtures the tests used
+    // parsed fine under the old formatter, so `swift test` never caught it.
+    let captured: Date? = a.captured_at.flatMap(parseTimelineISO8601)
     let links = a.phasset_links ?? []
     let allPHIDs: [String]? = links.isEmpty
       ? nil
@@ -330,15 +337,6 @@ public final class CloudTimelineViewModel {
       allPhassetLinks: allPHIDs,
       allCloudIdentifiers: allCloudIDs.isEmpty ? nil : allCloudIDs)
   }
-
-  /// Process-wide ISO 8601 formatter. `searchAssetToImageRef` is called
-  /// once per cloud asset on every `loadPage` AND again on every
-  /// `remergeLoadedBuckets` pass — at hundreds of assets per month
-  /// section the allocate-and-tear-down cost shows up under scroll.
-  /// ISO8601DateFormatter is documented thread-safe so a single shared
-  /// instance is fine; matches the `monthFormatter` / `calendar` pattern
-  /// in `CloudTimelineMonthSection`.
-  private static let iso8601: ISO8601DateFormatter = ISO8601DateFormatter()
 
   // MARK: - Helpers
 

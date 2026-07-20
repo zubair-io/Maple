@@ -70,6 +70,60 @@ final class CloudTimelineViewModelTests: XCTestCase {
     XCTAssertEqual(vm.pagesByBucket[key]?.first?.id, "a1")
   }
 
+  /// Regression for #2108 (same class as the TV Timeline's D7 fix): the
+  /// server's real `captured_at` values are Mongo Dates serialized via JS
+  /// `toISOString()`, which always carry millisecond precision
+  /// ("2022-09-10T11:32:07.000Z"). The old bare `ISO8601DateFormatter`
+  /// silently returned nil for those, dropping the capture date off every
+  /// cloud asset. `searchAssetToImageRef` now parses via `parseTimelineISO8601`
+  /// (fractional-first, whole-seconds fallback).
+  ///
+  /// This deliberately uses a fractional-seconds string — every other fixture
+  /// in this file uses whole-seconds (or null) `captured_at`, which the buggy
+  /// formatter parsed fine, so the bug was invisible to the existing suite.
+  func test_loadPage_parsesFractionalSecondsCapturedAt() async throws {
+    let server = URL(string: "https://example.test")!
+    let json = """
+    {"total":1,"page":0,"limit":200,"results":[
+      {"id":"a1","folder_id":"lib1","abs_path":"/lib/2022/09/a.dng","filename":"a.dng",
+       "size":1024,"mtime":null,"captured_at":"2022-09-10T11:32:07.000Z","camera":null,"lens":null,
+       "iso":null,"aperture":null,"shutter":null,"focal_length":null,
+       "rating":null,"flag":null,"color_label":null}
+    ]}
+    """
+    let session = URLSession.stubbed(response: json)
+    let searchClient = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    // An empty adapter (no PhotoKit) so the cloud asset becomes a single
+    // `.cloudOnly` cell — the merge path that runs `searchAssetToImageRef`,
+    // where the `captured_at` parse happens.
+    let vm = CloudTimelineViewModel(
+      server: server, libraryID: "lib1",
+      searchClient: searchClient,
+      bucketsCache: CloudBucketsCache(baseDir: tmpDir()),
+      pagesCache: CloudPagesCache(baseDir: tmpDir()),
+      photoKitMerge: PhotoKitMergeAdapter(diskCacheURL: nil))
+
+    await vm.loadPage(year: 2022, month: 9)
+    let key = CloudTimelineViewModel.BucketKey(year: 2022, month: 9)
+    let merged = vm.mergedPagesByBucket[key] ?? []
+    XCTAssertEqual(merged.count, 1)
+    guard let first = merged.first, case .cloudOnly(let ref) = first else {
+      XCTFail("expected one .cloudOnly cell, got \(merged)")
+      return
+    }
+
+    let expected: Date = {
+      let f = ISO8601DateFormatter()
+      f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+      return f.date(from: "2022-09-10T11:32:07.000Z")!
+    }()
+    XCTAssertEqual(ref.captureDate, expected,
+      "millisecond-precision captured_at must parse to a Date (was nil before #2108 fix)")
+  }
+
   func test_asyncSemaphore_boundsConcurrency() async {
     let sem = AsyncSemaphore(value: 1)
     let counter = CounterActor()
