@@ -1,24 +1,23 @@
 // src/apple/Maple TV/TVTimelineViewModel.swift
 //
-// Drives the Maple TV Timeline screen. Fetches the library's year/month
-// buckets once, then per-month pages on demand as the Siri Remote focus
-// engine scrolls, sub-grouping each loaded month's `SearchAsset`s into
-// calendar-DAY sections — the server aggregates by month
-// (`/api/search/buckets`), but the design shows day headers, so the day
-// grouping happens client-side over whatever months are currently loaded.
+// Drives the Maple TV Timeline screen: a flat, newest-first feed of the
+// library's photos (no day/location grouping — that grouping moved to a
+// per-focused-photo header instead). One `/api/search` call sorted
+// `captured_desc` over the whole library, paginated as the Siri Remote
+// focus engine nears the end of the loaded set — the same continuous feed
+// the phone shows, rather than the old per-month bucket paging that only
+// loaded each month's first page and so diverged from the phone's timeline.
 //
 // Generation-counter staleness guard mirrors `SearchViewModel`
-// (MapleCloudKit/Cloud/SearchViewModel.swift) exactly: bump `generation`
-// before any `await`, then `guard g == generation else { return }` after
-// every suspension point, so a rapid library switch / re-load can't have
-// an older in-flight response clobber newer state.
+// (MapleCloudKit/Cloud/SearchViewModel.swift): bump `generation` before any
+// `await`, then `guard g == generation else { return }` after every
+// suspension point, so a rapid library switch / re-load can't have an older
+// in-flight response clobber newer state.
 //
 // TV-native (not `CloudTimelineViewModel` from MapleCore) because that VM
 // carries a PhotoKit-merge dependency; the Maple TV target links
 // `MapleCloudKit` only (no MapleCore, no RawPipeline — see
-// `MapleCloudKitPortabilityTests`). Built entirely on the portable
-// `CloudSearchClient` / `CloudBucketsCache` / `CloudPagesCache` /
-// `SearchAsset` primitives D1/D2 already established.
+// `MapleCloudKitPortabilityTests`).
 
 import Foundation
 import MapleCloudKit
@@ -29,72 +28,57 @@ import Observation
 final class TVTimelineViewModel {
   // MARK: - Published state
 
-  /// Every currently-loaded day section, newest first. Recomputed from
-  /// `assetsByMonth` whenever a month finishes loading.
-  private(set) var days: [TimelineDay] = []
+  /// The whole feed loaded so far, newest capture first (the server sorts
+  /// `captured_desc`; we append pages in order).
+  private(set) var assets: [SearchAsset] = []
   private(set) var isLoading: Bool = false
+  private(set) var isLoadingMore: Bool = false
   private(set) var loadError: Error?
+  /// Server's total match count, so `canLoadMore` knows when to stop.
+  private(set) var total: Int = 0
 
   // MARK: - Dependencies
 
   let server: URL
   let libraryID: String
   private let searchClient: CloudSearchClient
-  private let bucketsCache: CloudBucketsCache
-  private let pagesCache: CloudPagesCache
+  private let pageSize: Int
 
-  /// How many of the most recent months `load()` seeds eagerly, so the
-  /// first screen isn't just a single (possibly sparse) month. Further
-  /// months come from `loadMore(around:)` as the focus engine scrolls.
-  private static let initialMonthCount = 2
-  /// How many additional (older) months `loadMore(around:)` fetches per
-  /// call once the focus nears the end of loaded content.
-  private static let pageAheadMonthCount = 2
-
-  /// Year/month buckets, sorted newest-first. Populated by `load()`;
-  /// server order isn't guaranteed, so this is always re-sorted after a
-  /// fetch rather than trusted as-is (mirrors `CloudTimelineViewModel`).
-  private var buckets: [TimelineBucket] = []
-  private var assetsByMonth: [MonthKey: [SearchAsset]] = [:]
-  private var loadedMonths: Set<MonthKey> = []
-  private var monthsInFlight: Set<MonthKey> = []
-
-  private struct MonthKey: Hashable {
-    let year: Int
-    let month: Int
-  }
-
-  /// Bumped on every `load()` — in-flight closures (buckets fetch, page
-  /// fetches) check this and drop completions from an older generation
-  /// rather than mutating published state.
+  /// Zero-indexed page of the last successfully appended page.
+  private var page: Int = 0
+  /// Bumped on every `load()` — in-flight page fetches check this and drop
+  /// completions from an older generation rather than mutating state.
   private var generation: Int = 0
-  /// Concurrency cap for `/api/search` page fetches (mirrors
-  /// `CloudTimelineViewModel`'s default of 2 — a fast scroll shouldn't
-  /// fan out unboundedly against a single server). `BoundedAsyncSemaphore`
-  /// lives in MapleCloudKit (`Cloud/BoundedAsyncSemaphore.swift`) — hoisted
-  /// there so `swift test` can cover the real permit-handoff algorithm
-  /// directly (D3/jules review, PR #2110), instead of a local copy here.
-  private let semaphore: BoundedAsyncSemaphore
 
   init(server: URL,
        libraryID: String,
        searchClient: CloudSearchClient,
-       bucketsCache: CloudBucketsCache = .init(),
-       pagesCache: CloudPagesCache = .init(),
-       maxConcurrentPageFetches: Int = 2) {
+       pageSize: Int = 120) {
     self.server = server
     self.libraryID = libraryID
     self.searchClient = searchClient
-    self.bucketsCache = bucketsCache
-    self.pagesCache = pagesCache
-    self.semaphore = BoundedAsyncSemaphore(value: maxConcurrentPageFetches)
+    self.pageSize = pageSize
+  }
+
+  /// True while more pages remain for the current feed.
+  var canLoadMore: Bool { assets.count < total }
+
+  /// The whole-library, newest-first feed: no query, no filters, just
+  /// `sort=captured_desc` and `hasCapturedAt=true` so undated assets don't
+  /// sort to the top of a "latest photos" list.
+  private func feedParams() -> SearchParams {
+    var params = SearchParams(libraryID: libraryID)
+    params.sort = .capturedDesc
+    params.hasCapturedAt = true
+    return params
   }
 
   // MARK: - Loaders
 
-  /// Fresh load from scratch: buckets, then the first `initialMonthCount`
-  /// months' first pages (bounded, concurrent). Called on Timeline
-  /// appearance and on library switch.
+  /// Fresh load from page 0. Called on Timeline appearance and on library
+  /// switch (the caller gives this screen a fresh identity per library, so
+  /// a plain `.task` re-runs `load()` against a viewModel scoped to the new
+  /// library — see `TimelineScreen`).
   func load() async {
     generation &+= 1
     let g = generation
@@ -102,127 +86,39 @@ final class TVTimelineViewModel {
     isLoading = true
     defer { if g == generation { isLoading = false } }
 
-    buckets = []
-    assetsByMonth = [:]
-    loadedMonths = []
-    days = []
-
-    await loadBuckets(generation: g)
-    guard g == generation else { return }
-
-    let leadingMonths = Array(buckets.prefix(Self.initialMonthCount))
-    await withTaskGroup(of: Void.self) { group in
-      for bucket in leadingMonths {
-        group.addTask { [weak self] in
-          await self?.loadMonth(year: bucket.year, month: bucket.month, generation: g)
-        }
-      }
-    }
-  }
-
-  /// Fetch more months as the focus engine approaches the end of the
-  /// currently-loaded content. `around` anchors the request to the month
-  /// containing that day; the next not-yet-loaded month(s) AFTER it in
-  /// the (newest-first) bucket order — i.e. chronologically OLDER — are
-  /// fetched. A no-op when `around`'s month can't be located in `buckets`
-  /// or every subsequent month is already loaded/in flight.
-  func loadMore(around day: TimelineDay) async {
-    let g = generation
-    let comps = Calendar.current.dateComponents([.year, .month], from: day.date)
-    guard let year = comps.year, let month = comps.month,
-          let anchorIndex = buckets.firstIndex(where: { $0.year == year && $0.month == month })
-    else { return }
-
-    let candidates = buckets[anchorIndex...]
-      .filter { !loadedMonths.contains(MonthKey(year: $0.year, month: $0.month)) }
-      .prefix(Self.pageAheadMonthCount)
-    guard !candidates.isEmpty else { return }
-
-    await withTaskGroup(of: Void.self) { group in
-      for bucket in candidates {
-        group.addTask { [weak self] in
-          await self?.loadMonth(year: bucket.year, month: bucket.month, generation: g)
-        }
-      }
-    }
-  }
-
-  // MARK: - Bucket / month loading
-
-  /// Stale-while-revalidate: reads cached buckets immediately (if any),
-  /// then refetches and swaps in the fresh response. A network failure
-  /// only surfaces `loadError` when there's no cached data to fall back
-  /// on — an offline reopen should still show the last-known timeline.
-  private func loadBuckets(generation g: Int) async {
-    let host = server.cacheHostKey
-    if let cached = await bucketsCache.read(host: host, libraryID: libraryID) {
-      guard g == generation else { return }
-      buckets = Self.sortedDescending(cached.buckets)
-    }
+    page = 0
     do {
-      let fresh = try await searchClient.buckets(libraryID: libraryID)
+      let resp = try await searchClient.search(feedParams(), page: 0, limit: pageSize)
       guard g == generation else { return }
-      buckets = Self.sortedDescending(fresh.buckets)
-      await bucketsCache.write(host: host, libraryID: libraryID, fresh)
+      assets = resp.results
+      total = resp.total
     } catch {
       guard g == generation else { return }
-      if buckets.isEmpty { loadError = error }
-    }
-  }
-
-  /// Stale-while-revalidate per (year, month). Idempotent — a month
-  /// that's already loaded or already in flight is skipped. The
-  /// in-flight guard/insert is synchronous (no `await` between check and
-  /// insert) so two near-simultaneous callers can't both pass it.
-  private func loadMonth(year: Int, month: Int, generation g: Int) async {
-    let key = MonthKey(year: year, month: month)
-    guard !loadedMonths.contains(key), !monthsInFlight.contains(key) else { return }
-    monthsInFlight.insert(key)
-
-    var acquired = false
-    let sem = semaphore
-    defer {
-      // Fire-and-forget release — `defer` can't `await`, and the
-      // detached release must not be cancelled by our caller's
-      // cancellation.
-      if acquired { Task.detached { await sem.release() } }
-      monthsInFlight.remove(key)
-    }
-
-    let host = server.cacheHostKey
-
-    if let cached = await pagesCache.read(host: host, libraryID: libraryID, year: year, month: month, page: 0) {
-      guard g == generation else { return }
-      assetsByMonth[key] = cached.results
-      loadedMonths.insert(key)
-      recomputeDays()
-    }
-
-    await semaphore.acquire()
-    acquired = true
-
-    do {
-      let fresh = try await searchClient.page(libraryID: libraryID, year: year, month: month, page: 0)
-      guard g == generation else { return }
-      assetsByMonth[key] = fresh.results
-      loadedMonths.insert(key)
-      await pagesCache.write(host: host, libraryID: libraryID, year: year, month: month, page: 0, fresh)
-      recomputeDays()
-    } catch {
-      guard g == generation else { return }
+      assets = []
+      total = 0
       loadError = error
     }
   }
 
-  /// Day grouping is the pure `groupByDay(_:calendar:)` function from
-  /// MapleCloudKit (`Cloud/TimelineGrouping.swift`) — hoisted there so
-  /// `swift test` can cover the real algorithm directly (D3 review),
-  /// instead of a local copy here.
-  private func recomputeDays() {
-    days = groupByDay(assetsByMonth.values.flatMap { $0 })
-  }
+  /// Fetch and append the next page as the focus engine approaches the end
+  /// of the loaded feed. No-ops when a load is already in flight or there's
+  /// nothing more to fetch.
+  func loadMore() async {
+    guard canLoadMore, !isLoading, !isLoadingMore else { return }
+    let g = generation
+    isLoadingMore = true
+    defer { isLoadingMore = false }
 
-  private static func sortedDescending(_ buckets: [TimelineBucket]) -> [TimelineBucket] {
-    buckets.sorted { ($0.year, $0.month) > ($1.year, $1.month) }
+    let next = page + 1
+    do {
+      let resp = try await searchClient.search(feedParams(), page: next, limit: pageSize)
+      guard g == generation else { return }
+      page = next
+      assets.append(contentsOf: resp.results)
+      total = resp.total
+    } catch {
+      guard g == generation else { return }
+      // Keep what's already loaded — a failed page shouldn't blank the feed.
+    }
   }
 }
