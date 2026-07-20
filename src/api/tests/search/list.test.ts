@@ -5,7 +5,7 @@
  * Skip-passes if MongoDB is unreachable.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { MongoClient, ObjectId } from 'mongodb';
 import { baseSeeds, fmtAuth, seedFolders, tryConnect } from './_setup.ts';
@@ -37,6 +37,18 @@ beforeAll(async () => {
   // route under test would query the wrong DB.
   const { closeDb } = await import('../../src/db/client.ts');
   await closeDb();
+});
+
+beforeEach(async () => {
+  if (!mongoReachable) return;
+  // The list route's `total` cache (#2128) is module-scoped for the
+  // process lifetime — without this, a different test file's `total` for
+  // the same query-param shape (e.g. no filters at all — several suites
+  // in tests/search/ hit that exact case) would leak into this file's
+  // assertions, or vice versa. Mirrors the buckets-cache reset already
+  // used by buckets.test.ts / search-place-route.test.ts.
+  const { _resetCacheForTests } = await import('../../src/routes/search.ts');
+  _resetCacheForTests();
 });
 
 afterAll(async () => {
