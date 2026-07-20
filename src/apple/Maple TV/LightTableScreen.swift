@@ -86,9 +86,6 @@ struct LightTableScreen: View {
     ZStack {
       background
       content
-      if let focusedAsset {
-        captionOverlay(for: focusedAsset)
-      }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .task {
@@ -205,58 +202,7 @@ struct LightTableScreen: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
-  // MARK: - Caption
-
-  private var focusedAsset: SearchAsset? {
-    stage.first(where: { $0.id == focusedPrintID })?.asset
-  }
-
-  /// Visual-only, screen-centered caption bar — mirrors
-  /// `PhotoViewerScreen.captionOverlay`'s shape (bottom bar, hidden from
-  /// the accessibility tree because the print's own `accessibilityLabel`
-  /// already carries the same information) but centered rather than
-  /// leading-aligned, and warm-paper toned instead of dark-chrome toned.
-  /// Deliberately fixed to the bottom of the screen rather than anchored
-  /// under the print's own scattered/rotated frame — an edge-slotted
-  /// print's caption would otherwise clip off-screen or inherit an
-  /// awkward rotation.
-  private func captionOverlay(for asset: SearchAsset) -> some View {
-    VStack {
-      Spacer()
-      VStack(spacing: 6) {
-        Text(asset.filename)
-          .font(.system(size: 24, weight: .semibold))
-          .foregroundStyle(Self.ink)
-          .lineLimit(1)
-          .truncationMode(.middle)
-
-        HStack(spacing: 16) {
-          if let rating = asset.rating, rating > 0 {
-            HStack(spacing: 2) {
-              ForEach(0..<rating, id: \.self) { _ in
-                Image(systemName: "star.fill")
-                  .font(.system(size: 14))
-                  .foregroundStyle(MapleTVTheme.star)
-              }
-            }
-          }
-          if let dateText = Self.captureDateText(asset.captured_at) {
-            Text(dateText)
-              .font(.system(size: 17))
-              .foregroundStyle(Self.ink.opacity(0.65))
-          }
-        }
-      }
-      .multilineTextAlignment(.center)
-      .padding(.vertical, 28)
-      .frame(maxWidth: .infinity)
-      .background(Self.paperTop.opacity(0.9))
-    }
-    .accessibilityHidden(true)
-    .allowsHitTesting(false)
-    .transition(.opacity)
-    .animation(.easeOut(duration: 0.2), value: focusedPrintID)
-  }
+  // MARK: - Accessibility
 
   private static func accessibilityLabel(for asset: SearchAsset) -> String {
     var parts = [asset.filename]
@@ -322,13 +268,6 @@ struct LightTableScreen: View {
       while !Task.isCancelled {
         try? await Task.sleep(for: Self.glideInterval)
         guard !Task.isCancelled else { return }
-        // Don't glide a print out from under the user while they're
-        // examining one — a focused print is raised with its caption, and
-        // aging it off the stage would yank focus to a neighbor mid-look.
-        // Skip the advance until focus returns to the ambient (nil) state.
-        // In screensaver mode nothing is focusable (`.disabled(true)`), so
-        // `focusedPrintID` stays nil there and the cycle never pauses.
-        guard focusedPrintID == nil else { continue }
         advanceStage()
         await prefetchLookahead()
       }
