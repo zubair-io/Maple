@@ -166,24 +166,10 @@ export interface VisionDoc {
   activity: string | null;
   /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
   time_of_day:
-    | 'morning'
-    | 'midday'
-    | 'afternoon'
-    | 'golden hour'
-    | 'evening'
-    | 'night'
-    | 'unknown'
-    | null;
+    'morning' | 'midday' | 'afternoon' | 'golden hour' | 'evening' | 'night' | 'unknown' | null;
   /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
   lighting:
-    | 'natural'
-    | 'artificial'
-    | 'mixed'
-    | 'low-light'
-    | 'backlit'
-    | 'flash'
-    | 'unknown'
-    | null;
+    'natural' | 'artificial' | 'mixed' | 'low-light' | 'backlit' | 'flash' | 'unknown' | null;
   /** `null` when `is_screenshot` is true (v5 screenshot short-circuit). */
   weather: 'clear' | 'cloudy' | 'rainy' | 'snowy' | 'foggy' | 'indoor' | 'unknown' | null;
   /** 1–3 words describing atmosphere. */
@@ -474,6 +460,15 @@ export interface AssetDoc {
    * bump. Only set on backup-origin video assets.
    */
   video_meta_version?: number;
+  /**
+   * Video poster re-arm generation (`workers/migration/rearm-video-posters.ts`).
+   * Stamped once that migration has reset a video's thumb/preview/describe/face
+   * stage versions so poster-frame rendering (#1649) can pick it up; its
+   * `{ $ne: N }` selector re-sweeps videos once per bump. Without this marker
+   * the candidate set would refill as soon as the thumb stage re-stamped the
+   * asset and the migration would never reach "done."
+   */
+  video_poster_rearm_version?: number;
   /**
    * Provenance written by the `apply-video-geo-backfill` migration when it
    * borrows GPS from a temporally-nearby photo. Lives outside `exif` so a
