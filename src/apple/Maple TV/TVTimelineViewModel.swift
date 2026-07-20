@@ -63,13 +63,23 @@ final class TVTimelineViewModel {
   /// True while more pages remain for the current feed.
   var canLoadMore: Bool { assets.count < total }
 
-  /// The whole-library, newest-first feed: no query, no filters, just
-  /// `sort=captured_desc` and `hasCapturedAt=true` so undated assets don't
-  /// sort to the top of a "latest photos" list.
+  /// The whole-library, newest-first feed: `sort=captured_desc`,
+  /// `hasCapturedAt=true` so undated assets don't sort to the top of a
+  /// "latest photos" list, and screenshots excluded — a TV is for looking at
+  /// photographs, and a screenshot wall is noise there in a way it isn't in
+  /// the desktop library. Matches what the Light Table already filters.
+  ///
+  /// `isScreenshot = false` is safe for un-classified assets: the server maps
+  /// it to `is_screenshot: { $ne: true }`, not `false`, so rows indexed before
+  /// screenshot detection existed still appear rather than silently vanishing
+  /// from the timeline.
+  ///
+  /// Hidden IMAGES need no flag — the server excludes those by default.
   private func feedParams() -> SearchParams {
     var params = SearchParams(libraryID: libraryID)
     params.sort = .capturedDesc
     params.hasCapturedAt = true
+    params.isScreenshot = false
     return params
   }
 
