@@ -63,22 +63,45 @@ const FALLBACK_PATHS = [
   '/snap/bin/ffmpeg',
 ] as const;
 
-/** Cached probe. `null` once resolved-and-absent; the promise is memoized so
- * concurrent stage handlers share one probe rather than spawning N processes. */
-let probe: Promise<string | null> | null = null;
+/** The resolved binary, once a probe has actually found a runnable one.
+ * Positive results are cached for the process lifetime — a binary that ran a
+ * moment ago doesn't stop existing, and this sits on the hot path of every
+ * video thumb. */
+let resolved: string | null = null;
+/** In-flight probe, so concurrent stage handlers share one detection pass
+ * rather than each spawning their own. Cleared when it settles. */
+let inflight: Promise<string | null> | null = null;
 
 /**
  * Resolve a runnable ffmpeg binary, or null when the host has none.
  *
- * Memoized for process lifetime: this runs on the hot path of every video
- * thumb, and the answer only changes when an operator installs or removes
- * ffmpeg — which is a restart-or-re-arm event either way (see the
- * `rearm-video-posters` migration).
+ * A NEGATIVE result is deliberately not cached. Caching "absent" for the
+ * process lifetime would mean an operator who installs ffmpeg on a running
+ * server gets no posters until they restart it — and, worse, could burn the
+ * `rearm-video-posters` marker on a pass that skipped every asset (see that
+ * migration's hold-off). Re-probing while absent makes the install take effect
+ * on its own.
+ *
+ * The re-probe is cheap in the case that matters: with no ffmpeg on the host,
+ * `Bun.which` is a no-op and each absolute candidate fails the exec without
+ * forking a process. A binary that exists but cannot run (the dangling-dylib
+ * case) does cost one fork per probe, but that is a broken install the
+ * operator should repair, not a steady state to optimize for.
  */
 export function ffmpegBinary(): Promise<string | null> {
-  probe ??= detectFfmpeg();
-  return probe;
+  if (resolved !== null) return Promise.resolve(resolved);
+  inflight ??= detectFfmpeg().then((found) => {
+    resolved = found;
+    inflight = null;
+    return found;
+  });
+  return inflight;
 }
+
+/** True once the "no ffmpeg" line has been logged. Absence is re-probed on
+ * every call, so without this a host that simply has no ffmpeg would emit the
+ * same warning once per video asset. */
+let loggedAbsent = false;
 
 async function detectFfmpeg(): Promise<string | null> {
   const onPath = Bun.which('ffmpeg');
@@ -87,15 +110,20 @@ async function detectFfmpeg(): Promise<string | null> {
   for (const candidate of candidates) {
     if (await isRunnable(candidate)) {
       log.info({ ffmpeg: candidate }, 'video poster support enabled');
+      loggedAbsent = false;
       return candidate;
     }
   }
 
-  log.info(
-    { probed: candidates },
-    'no runnable ffmpeg found — video posters disabled. Install ffmpeg, then run the ' +
-      '"Re-arm video posters" migration in Settings → Workers to render posters for existing videos.',
-  );
+  if (!loggedAbsent) {
+    loggedAbsent = true;
+    log.info(
+      { probed: candidates },
+      'no runnable ffmpeg found — video posters disabled. Install ffmpeg (no restart needed), ' +
+        'then run the "Re-arm video posters" migration in Settings → Workers to render posters ' +
+        'for videos already indexed.',
+    );
+  }
   return null;
 }
 
