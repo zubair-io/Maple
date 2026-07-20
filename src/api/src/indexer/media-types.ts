@@ -86,12 +86,25 @@ export function isAudioFilename(filename: string): boolean {
 }
 
 /**
- * True when `filename` is any format that gets no real preview attempt at
- * all — video, stub image, or audio. This is the single place that defines
- * "does this asset get a real thumbnail/preview/EXIF/describe/face pass," so
- * every stage and route guard should consult this rather than composing the
- * three checks itself.
+ * True when `filename` is a format for which NO still frame can ever be
+ * produced — a stub image (no decoder exists) or audio (no visual content at
+ * all). This is the single place that defines "give up on this asset's
+ * thumbnail/preview/describe/face pass," so every stage and route guard should
+ * consult this rather than composing the checks itself.
+ *
+ * Video is deliberately NOT in this set (#1649). Video containers hold real
+ * frames; whether Maple can extract one is a host-capability question — is
+ * there a runnable `ffmpeg`? — not a property of the format. Answering it
+ * requires spawning a process, so it can't live in this synchronous
+ * filename-only predicate. Callers that need it ask
+ * `ffmpegBinary()` / `extractVideoPosterJpeg()` in `thumbs/video-poster.ts`.
+ *
+ * Named `isUndecodable…` rather than the older `isNoPreviewFilename` precisely
+ * so that video's departure from the set is a compile error at every call
+ * site rather than a silent behaviour change: each one had to decide whether
+ * it meant "no frame exists" (this predicate) or "no frame exists *yet*" (the
+ * ffmpeg capability check).
  */
-export function isNoPreviewFilename(filename: string): boolean {
-  return isVideoFilename(filename) || isStubImageFilename(filename) || isAudioFilename(filename);
+export function isUndecodableFilename(filename: string): boolean {
+  return isStubImageFilename(filename) || isAudioFilename(filename);
 }
