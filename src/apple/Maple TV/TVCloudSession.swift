@@ -74,6 +74,17 @@ final class TVCloudSession {
       server: server,
       urlSession: .shared,
       tokensProvider: { try? TokenStore.load(server: server) },
+      // REQUIRED, not optional. `/api/auth/refresh` ROTATES the refresh token:
+      // the old one is consumed server-side the moment a refresh succeeds.
+      // Without persisting the rotated pair, `tokensProvider` keeps handing
+      // back the now-consumed predecessor from the Keychain, the next refresh
+      // replays it, and the server's reuse detection answers 409
+      // `rotation_conflict`. 409 is not 401, so the client classifies it
+      // `transient` → `AuthenticationError.temporarilyUnavailable` and KEEPS
+      // the dead token — meaning Retry replays it forever and only re-pairing
+      // recovers. Every other Maple client passes this; the TV relied on the
+      // init's no-op default and so silently threw away every rotation.
+      onTokensRefreshed: { try? TokenStore.save($0, server: server) },
       onSignOut: {
         // AuthenticatedHTTPClient's onSignOut fires off the actor's own
         // isolation, not necessarily the main actor — clearing the
