@@ -57,7 +57,14 @@ struct LightTableScreen: View {
     /// rotation — both randomized per print so the scatter looks hand-laid.
     let position: CGSize
     let rotation: Angle
+    /// Monotonic stacking order — the most recently spawned print gets the
+    /// highest value, so a freshly gliding-in print always sits on top of
+    /// the ones already settled.
+    let z: Double
   }
+
+  /// Ever-increasing stacking counter — see `StagePrint.z`.
+  @State private var spawnSeq: Double = 0
 
   /// How often a new print glides in.
   private static let spawnInterval: Duration = .seconds(3.5)
@@ -175,7 +182,6 @@ struct LightTableScreen: View {
   private var stageView: some View {
     ZStack {
       ForEach(stage) { print in
-        let isFocused = focusedPrintID == print.id
         PrintCard(
           asset: print.asset,
           server: session.server,
@@ -184,18 +190,19 @@ struct LightTableScreen: View {
         )
         .offset(print.position)
         .rotationEffect(print.rotation)
-        .zIndex(isFocused ? 10 : 0)
+        // Newest print on top (see `StagePrint.z`) — a gliding-in print
+        // always covers the ones already settled.
+        .zIndex(print.z)
         .focusable()
         .focused($focusedPrintID, equals: print.id)
         .accessibilityLabel(Self.accessibilityLabel(for: print.asset))
-        // A print glides in from off the right (with a soft fade) to its
-        // settle position, then — after its own `cardLifetime` — slides all
-        // the way off the LEFT edge before it's removed. Explicit offsets
-        // (added to the print's static `.offset(position)`) so the exit
-        // clears the screen from wherever it settled, instead of vanishing
-        // in place. The exit is a pure slide (no opacity) — it doesn't fade.
+        // A print slides in from off the right to its settle position, then —
+        // after its own `cardLifetime` — slides all the way off the LEFT edge
+        // before it's removed. Explicit offsets (added to the print's static
+        // `.offset(position)`) so the exit clears the screen from wherever it
+        // settled, instead of vanishing in place. Pure slides, no fade.
         .transition(.asymmetric(
-          insertion: .offset(x: 1100).combined(with: .opacity),
+          insertion: .offset(x: 1100),
           removal: .offset(x: -2200)
         ))
       }
@@ -230,7 +237,9 @@ struct LightTableScreen: View {
   /// stage is already at its safety cap.
   private func spawnPrint() {
     guard stage.count < Self.maxOnStage, let asset = viewModel.next() else { return }
-    let print = StagePrint(asset: asset, position: Self.randomPosition(), rotation: Self.randomRotation())
+    spawnSeq += 1
+    let print = StagePrint(asset: asset, position: Self.randomPosition(),
+                           rotation: Self.randomRotation(), z: spawnSeq)
     let id = print.id
     withAnimation(.easeOut(duration: 1.6)) {
       stage.append(print)
