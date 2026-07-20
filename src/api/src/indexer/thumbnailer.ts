@@ -30,8 +30,9 @@ import { randomBytes } from 'node:crypto';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
-import { isNoPreviewFilename } from './media-types.ts';
+import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { child as childLogger } from '../log.ts';
@@ -100,13 +101,14 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     // Thumb missing (or source vanished — that will fail downstream anyway).
   }
 
-  // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
-  // audio have no still frame — and the `copyImageAsThumb` fall-through below
-  // would copy the raw source bytes to `<id>.avif`, which the thumb route
-  // would then serve as 200 image/avif garbage. Bail before the copy.
-  // Stage/route callers already skip these; this is defense in depth so no
-  // future caller can land non-image bytes in the thumb cache.
-  if (isNoPreviewFilename(absPath)) {
+  // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
+  // frame — and the `copyImageAsThumb` fall-through below would copy the raw
+  // source bytes to `<id>.avif`, which the thumb route would then serve as 200
+  // image/avif garbage. Bail before the copy. Stage/route callers already skip
+  // these; this is defense in depth so no future caller can land non-image
+  // bytes in the thumb cache. Video is NOT bailed on here any more — it has a
+  // real decode branch below (#1649).
+  if (isUndecodableFilename(absPath)) {
     _failed++;
     log.warn({ absPath }, 'skipped: no still frame to thumbnail');
     logTotals();
@@ -124,6 +126,8 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   let renderOk: boolean;
   if (RAW_EXTS.has(ext)) {
     renderOk = await renderRawThumbToFile(absPath, tmpPath);
+  } else if (isVideoFilename(absPath)) {
+    renderOk = await renderVideoThumbToFile(absPath, tmpPath);
   } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     renderOk = await renderBitmapThumbToFile(absPath, tmpPath, extNoDot);
   } else {
@@ -185,6 +189,40 @@ async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<b
   // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
   // decode time. No inline orientation post-process needed — keeping sharp
   // out of worker-main's address space for isolation.
+}
+
+/**
+ * Video containers: pull a poster frame out with ffmpeg, then hand the
+ * resulting JPEG to the SAME imgdecode child pool every bitmap goes through
+ * (#1649). Two hops rather than asking ffmpeg for a resized AVIF directly,
+ * because this way the thumb's resize maths, AVIF encoder settings, quality,
+ * and orientation handling are literally the bitmap path — there is no second
+ * encoder whose output could drift from it, and a host whose ffmpeg lacks
+ * libaom still produces a perfectly good thumbnail.
+ *
+ * Returns false when the host has no runnable ffmpeg, which the caller treats
+ * as any other failed render: nothing is published. Stage callers check the
+ * capability up front and skip instead, so reaching this with no ffmpeg means
+ * an on-demand route request — a 404, which is what it was before #1649.
+ *
+ * `outPath` is the caller's private temp path — see `renderRawThumbToFile`.
+ */
+async function renderVideoThumbToFile(videoPath: string, outPath: string): Promise<boolean> {
+  // Sibling of the caller's temp path, so it inherits the same
+  // already-created directory and the same pid+random uniqueness.
+  const posterPath = `${outPath}.poster.jpg`;
+  try {
+    if (!(await extractVideoPosterJpeg(videoPath, posterPath))) return false;
+    return await renderBitmapThumbToFile(posterPath, outPath, 'jpg');
+  } finally {
+    // The intermediate is never the published artefact — drop it on every
+    // path, including the success one.
+    try {
+      await fs.unlink(posterPath);
+    } catch {
+      /* extraction failed before writing, or already gone */
+    }
+  }
 }
 
 /**
