@@ -36,8 +36,8 @@
 import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
-import { VIDEO_EXTS } from '../../indexer/media-types.ts';
 import { child as childLogger } from '../../log.ts';
+import { liveVideoFileinfoMatch } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
 
@@ -73,26 +73,13 @@ const REARMED_STAGES = [
   'face-embed',
 ] as const;
 
-/** Filename regex of known video extensions, for the Mongo selector. Mirrors
- * `backfill-video-exif.ts` — same set, same construction. */
-const VIDEO_FILENAME_RE = new RegExp(
-  `\\.(${[...VIDEO_EXTS].map((e) => e.slice(1)).join('|')})$`,
-  'i',
-);
-
 /** Assets with a live video location that haven't been re-armed at the current
  * version yet. Deliberately NOT filtered on backup origin (unlike
  * `backfill-video-exif`) — any indexed video wants a poster, however it
  * arrived. */
 function candidateFilter(): Filter<AssetDoc> {
   return {
-    fileinfo: {
-      $elemMatch: {
-        filename: { $regex: VIDEO_FILENAME_RE },
-        deleted_at: { $in: [null] },
-        missing_since: { $in: [null] },
-      },
-    },
+    fileinfo: { $elemMatch: liveVideoFileinfoMatch() },
     video_poster_rearm_version: { $ne: VIDEO_POSTER_REARM_VERSION },
   } as Filter<AssetDoc>;
 }

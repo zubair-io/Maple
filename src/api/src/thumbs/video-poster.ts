@@ -80,12 +80,6 @@ export function ffmpegBinary(): Promise<string | null> {
   return probe;
 }
 
-/** Drop the memoized probe. Tests only — production has no reason to re-probe
- * within a process lifetime. */
-export function resetFfmpegProbeForTest(): void {
-  probe = null;
-}
-
 async function detectFfmpeg(): Promise<string | null> {
   const onPath = Bun.which('ffmpeg');
   const candidates = onPath ? [onPath, ...FALLBACK_PATHS] : [...FALLBACK_PATHS];

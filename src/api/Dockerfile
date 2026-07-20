@@ -115,7 +115,16 @@ WORKDIR /app
 
 # curl is needed for HEALTHCHECK; unzip is needed by the face worker's
 # zero-config buffalo_s bootstrap (src/api/src/enrichment/face-models.ts).
-RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
+#
+# ffmpeg backs video poster-frame extraction (#1649, src/thumbs/video-poster.ts).
+# Without it, video assets get no thumbnail, no preview, no caption and no face
+# detection — the pipeline degrades cleanly (stages skip with
+# `no-video-decoder`) but the feature is simply absent, so it belongs in the
+# image rather than being left to the operator. It is the largest single
+# addition to this layer; if image size ever becomes a constraint, a static
+# ffmpeg build or a `--no-install-recommends`-trimmed variant is the lever, not
+# dropping it.
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 # Bun server deps.
