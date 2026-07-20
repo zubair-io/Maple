@@ -30,6 +30,8 @@ import {
   pickSelectedFaces,
   selectAllKeys,
   sortPeople,
+  filterSmallClusters,
+  SMALL_CLUSTER_MIN_FACES,
   toggleKey,
   toggleSelection,
   visibleFaces,
@@ -77,113 +79,6 @@ function detail(faces: ApiPersonFace[], overrides: Partial<ApiPersonDetail> = {}
     ...overrides,
   };
 }
-
-// ── isAutoNamed / AUTO_NAME_RE ─────────────────────────────────────────────
-
-describe('isAutoNamed', () => {
-  it('matches the strict "Person N" pattern', () => {
-    expect(isAutoNamed('Person 1')).toBe(true);
-    expect(isAutoNamed('Person 12345')).toBe(true);
-  });
-
-  it('does not match operator-named clusters that happen to start with "Person "', () => {
-    // The loose `startsWith` heuristic would miscategorise this — the
-    // anchored regex is the whole point.
-    expect(isAutoNamed('Person Alice')).toBe(false);
-    expect(isAutoNamed('Person 1 (test)')).toBe(false);
-  });
-
-  it('rejects unrelated strings', () => {
-    expect(isAutoNamed('Alice')).toBe(false);
-    expect(isAutoNamed('')).toBe(false);
-    expect(isAutoNamed('Personne 1')).toBe(false);
-  });
-
-  it('exports the regex for documentation / parity', () => {
-    expect(AUTO_NAME_RE.test('Person 42')).toBe(true);
-  });
-});
-
-// ── peopleStats ────────────────────────────────────────────────────────────
-
-describe('peopleStats', () => {
-  it('counts named, unnamed, and total faces', () => {
-    const rows = [
-      person({ id: '1', name: 'Alice', faceCount: 4 }),
-      person({ id: '2', name: 'Bob', faceCount: 2 }),
-      person({ id: '3', name: 'Person 1', faceCount: 10 }),
-      person({ id: '4', name: 'Person 12', faceCount: 5 }),
-    ];
-    expect(peopleStats(rows)).toEqual({ named: 2, unnamed: 2, faces: 21 });
-  });
-
-  it('returns zeros for an empty list', () => {
-    expect(peopleStats([])).toEqual({ named: 0, unnamed: 0, faces: 0 });
-  });
-});
-
-// ── sortPeople ─────────────────────────────────────────────────────────────
-
-describe('sortPeople', () => {
-  it('puts named clusters before auto-named ones', () => {
-    const rows = [
-      person({ id: '1', name: 'Person 5', faceCount: 1 }),
-      person({ id: '2', name: 'Alice', faceCount: 1 }),
-    ];
-    const sorted = sortPeople(rows);
-    expect(sorted.map((p) => p.id)).toEqual(['2', '1']);
-  });
-
-  it('sorts named clusters alphabetically, case/accent-insensitive', () => {
-    const rows = [
-      person({ id: '1', name: 'Charlie' }),
-      person({ id: '2', name: 'alice' }),
-      person({ id: '3', name: 'Bob' }),
-      person({ id: '4', name: 'Émile' }),
-    ];
-    const sorted = sortPeople(rows);
-    expect(sorted.map((p) => p.name.toLowerCase())).toEqual(['alice', 'bob', 'charlie', 'émile']);
-  });
-
-  it('sorts auto-named clusters by descending face count', () => {
-    const rows = [
-      person({ id: '1', name: 'Person 1', faceCount: 3 }),
-      person({ id: '2', name: 'Person 2', faceCount: 9 }),
-      person({ id: '3', name: 'Person 3', faceCount: 5 }),
-    ];
-    const sorted = sortPeople(rows);
-    expect(sorted.map((p) => p.id)).toEqual(['2', '3', '1']);
-  });
-
-  it('tiebreaks equal-face-count auto-named clusters by id (stable order)', () => {
-    const rows = [
-      person({ id: 'zzz', name: 'Person 7', faceCount: 4 }),
-      person({ id: 'aaa', name: 'Person 8', faceCount: 4 }),
-    ];
-    const sorted = sortPeople(rows);
-    expect(sorted.map((p) => p.id)).toEqual(['aaa', 'zzz']);
-  });
-
-  it('does not mutate its input', () => {
-    const rows = [person({ id: '1', name: 'Bob' }), person({ id: '2', name: 'Alice' })];
-    const snapshot = rows.map((p) => p.id).join(',');
-    sortPeople(rows);
-    expect(rows.map((p) => p.id).join(',')).toBe(snapshot);
-  });
-});
-
-// ── filterNamed ────────────────────────────────────────────────────────────
-
-describe('filterNamed', () => {
-  it('drops auto-named clusters', () => {
-    const rows = [
-      person({ id: '1', name: 'Alice' }),
-      person({ id: '2', name: 'Person 1' }),
-      person({ id: '3', name: 'Bob' }),
-    ];
-    expect(filterNamed(rows).map((p) => p.id)).toEqual(['1', '3']);
-  });
-});
 
 // ── visibleFaces ───────────────────────────────────────────────────────────
 

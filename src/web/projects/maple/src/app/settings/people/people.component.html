@@ -468,8 +468,21 @@
       <div class="people-body">
         @if (hasPeople()) {
           <div class="stats-line">
-            {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
-            {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
+            <span>
+              {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
+              {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
+            </span>
+            <label class="small-cluster-toggle">
+              <input
+                type="checkbox"
+                [checked]="hideSmallClusters()"
+                (change)="hideSmallClusters.set($any($event.target).checked)"
+              />
+              <span>Hide clusters under {{ smallClusterMin }} faces</span>
+              @if (hideSmallClusters() && hiddenSmallCount() > 0) {
+                <span class="small-cluster-count">{{ hiddenSmallCount() | number }} hidden</span>
+              }
+            </label>
           </div>
         }
 
@@ -481,6 +494,15 @@
               it's enabled under
               <a routerLink="/settings/workers">Worker settings</a>.
             </p>
+          </div>
+        } @else if (visiblePeople().length === 0) {
+          <!-- Every cluster fell under the toggle's floor. Say so instead of
+               rendering an empty grid with no explanation. -->
+          <div class="empty-card">
+            <h3>
+              All {{ hiddenSmallCount() | number }} clusters are under {{ smallClusterMin }} faces.
+            </h3>
+            <p>Untick “Hide clusters under {{ smallClusterMin }} faces” above to see them.</p>
           </div>
         } @else {
           <!-- Virtual-scroll list: only the visible rows are in the DOM. Sorted
