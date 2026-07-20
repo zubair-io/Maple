@@ -41,8 +41,7 @@ export const listRoute = new Elysia().get(
     const resolved = extractDatesFromQuery(query as SearchQuery);
     // Only pay for the hidden-people lookup when the caller asked to exclude
     // them (opt-in — see `SearchQuery.excludeHiddenPeople`).
-    const hiddenIds =
-      resolved.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
+    const hiddenIds = resolved.excludeHiddenPeople === 'true' ? await hiddenPersonIds() : [];
     const filterOrError = buildFilter(resolved, hiddenIds);
     if ('error' in filterOrError) {
       set.status = 400;

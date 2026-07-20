@@ -84,6 +84,11 @@ final class TVTimelineViewModel {
     let g = generation
     loadError = nil
     isLoading = true
+    // Clear any in-flight paging flag for the generation we just superseded:
+    // that older `loadMore()`'s `defer` is generation-guarded and so will
+    // deliberately NOT reset it, which would otherwise wedge `isLoadingMore`
+    // at true and block paging for the rest of the session.
+    isLoadingMore = false
     defer { if g == generation { isLoading = false } }
 
     page = 0
@@ -107,7 +112,10 @@ final class TVTimelineViewModel {
     guard canLoadMore, !isLoading, !isLoadingMore else { return }
     let g = generation
     isLoadingMore = true
-    defer { isLoadingMore = false }
+    // Generation-guarded like `load()`'s `isLoading`: if a fresh `load()`
+    // starts while this page is still in flight, the stale task must not
+    // clear the flag out from under the new generation.
+    defer { if g == generation { isLoadingMore = false } }
 
     let next = page + 1
     do {
