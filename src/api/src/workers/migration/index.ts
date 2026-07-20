@@ -10,6 +10,7 @@ import { backfillLiveLocationCount } from './backfill-live-location-count.ts';
 import { backfillVideoExif } from './backfill-video-exif.ts';
 import { auditVideoGeoBackfill } from './audit-video-geo-backfill.ts';
 import { applyVideoGeoBackfill } from './apply-video-geo-backfill.ts';
+import { rearmVideoPosters } from './rearm-video-posters.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   refileBackups,
@@ -18,6 +19,7 @@ export const MIGRATIONS: readonly Migration[] = [
   backfillVideoExif,
   auditVideoGeoBackfill,
   applyVideoGeoBackfill,
+  rearmVideoPosters,
 ];
 
 export function getMigration(id: string): Migration | undefined {
