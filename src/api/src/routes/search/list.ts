@@ -46,41 +46,48 @@ interface CachedTotal {
 }
 const totalCache = new Map<string, CachedTotal>();
 
-/** Stable JSON serialisation of a SearchQuery. Field order is fixed so
- * that two requests with the same params produce the same key regardless
- * of how the URL was constructed. Covers every field `buildFilter` reads
- * (i.e. the full filter set the count depends on) — `page`/`limit`/`sort`
- * are deliberately excluded because `countDocuments` doesn't depend on
+/** Every field that feeds `buildFilter` (i.e. the full filter set the
+ * count depends on), in a fixed order. `page`/`limit`/`sort` are
+ * deliberately excluded because `countDocuments` doesn't depend on
  * pagination or ordering, and `people` is excluded because it only feeds
  * the Meilisearch path (never the Mongo filter this cache guards). */
+const TOTAL_CACHE_KEY_FIELDS = [
+  'pathPrefix',
+  'libraryId',
+  'q',
+  'placeQuery',
+  'camera',
+  'lens',
+  'isoMin',
+  'isoMax',
+  'apertureMin',
+  'apertureMax',
+  'focalMin',
+  'focalMax',
+  'from',
+  'to',
+  'rating',
+  'flag',
+  'color',
+  'ext',
+  'hasCapturedAt',
+  'sceneType',
+  'activity',
+  'subjects',
+  'isScreenshot',
+  'scope',
+  'hidden',
+] as const satisfies ReadonlyArray<keyof SearchQuery>;
+
+/** Stable JSON serialisation of a SearchQuery over `TOTAL_CACHE_KEY_FIELDS`.
+ * Field order is fixed so that two requests with the same params produce
+ * the same key regardless of how the URL was constructed. */
 function makeTotalCacheKey(q: SearchQuery): string {
-  return JSON.stringify({
-    pathPrefix: q.pathPrefix ?? null,
-    libraryId: q.libraryId ?? null,
-    q: q.q ?? null,
-    placeQuery: q.placeQuery ?? null,
-    camera: q.camera ?? null,
-    lens: q.lens ?? null,
-    isoMin: q.isoMin ?? null,
-    isoMax: q.isoMax ?? null,
-    apertureMin: q.apertureMin ?? null,
-    apertureMax: q.apertureMax ?? null,
-    focalMin: q.focalMin ?? null,
-    focalMax: q.focalMax ?? null,
-    from: q.from ?? null,
-    to: q.to ?? null,
-    rating: q.rating ?? null,
-    flag: q.flag ?? null,
-    color: q.color ?? null,
-    ext: q.ext ?? null,
-    hasCapturedAt: q.hasCapturedAt ?? null,
-    sceneType: q.sceneType ?? null,
-    activity: q.activity ?? null,
-    subjects: q.subjects ?? null,
-    isScreenshot: q.isScreenshot ?? null,
-    scope: q.scope ?? null,
-    hidden: q.hidden ?? null,
-  });
+  const normalized: Partial<Record<keyof SearchQuery, string | null>> = {};
+  for (const field of TOTAL_CACHE_KEY_FIELDS) {
+    normalized[field] = q[field] ?? null;
+  }
+  return JSON.stringify(normalized);
 }
 
 /** Test-only: blow the cache so back-to-back tests don't see each other's
@@ -117,6 +124,54 @@ async function countTotal(
     }
     throw err;
   }
+}
+
+/**
+ * Resolve `total` for this request: serve it from `totalCache` if a fresh
+ * entry exists for this exact filter set, otherwise compute it via
+ * `countTotal` and cache the result before returning.
+ *
+ * `$text` queries require the planner to use the text index — combining
+ * `$text` with an explicit `hint` throws "text and hint not allowed in
+ * same query", so `canHint` must be false whenever the filter carries
+ * `$text` (i.e. `usingPlaceText` at the call site). Otherwise, hint the
+ * narrower `fileinfo.library_id` index: adding the new
+ * lib+captured+_id compound index in `db/client.ts` (needed to fix the
+ * find) gives the planner a wider, slower index it will otherwise pick
+ * for this count. Measured on the 333k-asset production library:
+ * unhinted 3379ms vs hinted 2513ms (~1.34x). An earlier ~2.5x figure in
+ * the #2128 commit message came from 723-byte synthetic documents; the
+ * ratio compresses at production's ~6KB avgObjSize, because both plans
+ * are dominated by the same FETCH volume.
+ *
+ * Both remain O(N): `hidden`/`deleted_at`/the `fileinfo` `$elemMatch`
+ * appear in no index, so every candidate must be fetched and neither
+ * index can make this an index-only COUNT_SCAN (the multikey
+ * `fileinfo.library_id` path would force a FETCH to dedupe
+ * array-generated entries regardless). The 30s cache bounds how often
+ * that ~2.5s scan is paid, it does not remove it — see #2129.
+ */
+async function getCachedTotal(
+  coll: Collection<AssetDoc>,
+  query: SearchQuery,
+  finalFilter: Filter<AssetDoc>,
+  canHint: boolean,
+): Promise<number> {
+  const cacheKey = makeTotalCacheKey(query);
+  const nowMs = Date.now();
+  const cached = totalCache.get(cacheKey);
+  if (cached && cached.expiresMs > nowMs) return cached.total;
+
+  const total = await countTotal(coll, finalFilter, canHint);
+  // Bound the cache so a parameterised attack can't grow it unboundedly.
+  // 500 unique filter sets is generous for a single server; eviction is
+  // FIFO via insertion order.
+  if (totalCache.size >= 500) {
+    const oldest = totalCache.keys().next().value;
+    if (oldest !== undefined) totalCache.delete(oldest);
+  }
+  totalCache.set(cacheKey, { total, expiresMs: nowMs + TOTAL_CACHE_TTL_MS });
+  return total;
 }
 
 export const listRoute = new Elysia().get(
@@ -272,40 +327,12 @@ export const listRoute = new Elysia().get(
     const cursor = coll.find(finalFilter);
     if (projection) cursor.project(projection);
 
-    // Cache lookup for `total` — see the module-level comment. Keyed on the
-    // raw query (not `resolved`), matching `buckets.ts`: repeated
-    // infinite-scroll requests from the FE resend identical query params.
-    const cacheKey = makeTotalCacheKey(query as SearchQuery);
-    const nowMs = Date.now();
-    const cachedTotal = totalCache.get(cacheKey);
-    const totalPromise: Promise<number> =
-      cachedTotal && cachedTotal.expiresMs > nowMs
-        ? Promise.resolve(cachedTotal.total)
-        : // `$text` queries require the planner to use the text index —
-          // combining `$text` with an explicit `hint` throws "text and
-          // hint not allowed in same query", so only hint when we know the
-          // filter carries no `$text` (i.e. not the Mongo `$text` fallback
-          // path above). Otherwise, hint the narrower `fileinfo.library_id`
-          // index: adding the new lib+captured+_id compound index above
-          // (needed to fix the find) gives the planner a wider, slower
-          // index it will otherwise pick for this count — measured ~2.5x
-          // slower than the narrow index at 300k docs, even though both
-          // examine the exact same document count (the multikey
-          // `fileinfo.library_id` path forces a FETCH to dedupe
-          // array-generated index entries either way, so neither index can
-          // make this an index-only COUNT_SCAN). See `countTotal` above
-          // for the fallback when the hint index isn't there yet.
-          countTotal(coll, finalFilter, !usingPlaceText).then((total) => {
-            // Bound the cache so a parameterised attack can't grow it
-            // unboundedly. 500 unique filter sets is generous for a
-            // single server; eviction is FIFO via insertion order.
-            if (totalCache.size >= 500) {
-              const oldest = totalCache.keys().next().value;
-              if (oldest !== undefined) totalCache.delete(oldest);
-            }
-            totalCache.set(cacheKey, { total, expiresMs: nowMs + TOTAL_CACHE_TTL_MS });
-            return total;
-          });
+    // `total` is cached — see `getCachedTotal` and the module-level
+    // comment. Keyed on the raw query (not `resolved`), matching
+    // `buckets.ts`: repeated infinite-scroll requests from the FE resend
+    // identical query params. Runs concurrently with the find below (the
+    // cache-miss path still calls `countDocuments` in parallel with it).
+    const totalPromise = getCachedTotal(coll, query as SearchQuery, finalFilter, !usingPlaceText);
 
     const [docs, total] = await Promise.all([
       cursor.sort(sortSpec).skip(skip).limit(limit).toArray(),
