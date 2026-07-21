@@ -2,13 +2,20 @@ import { describe, it, expect } from 'bun:test';
 import { applyLiveFilter } from './query.ts';
 
 /**
- * The live-visibility wrapper must let `missing_since`-tagged assets stay in
- * search results (thumb/preview are cached; the missing-reaper is the removal
- * authority) while still hiding user-deleted content. These assert the shape of
- * the fileinfo `$elemMatch` in both the plain and `$text` code paths.
+ * Search visibility requires a *resolvable* primary location: at least one
+ * fileinfo entry that is neither `deleted_at` nor `missing_since`. A
+ * `missing_since`-only asset has no primary the projection can resolve
+ * (`assetPrimaryFileInfo` → null), so `projectAsset` emits `id: "fs:"` with an
+ * empty `abs_path`/`filename`/`folder_id` — a blank tile that renders no
+ * thumbnail (the FE builds `/api/fs/thumb?path=` from the empty path) and opens
+ * nothing on click (the editor id is empty). Gating search on the same liveness
+ * predicate the projection uses keeps those rows out of results until the
+ * missing-reaper re-stats the file (clearing the tag on a present file, or
+ * hard-deleting a genuinely-gone one). These assert the shape of the fileinfo
+ * `$elemMatch` in both the plain and `$text` code paths.
  */
-describe('applyLiveFilter — missing_since no longer hides assets', () => {
-  it('gates on deleted_at but NOT missing_since (plain filter)', () => {
+describe('applyLiveFilter — search hides assets with no resolvable primary', () => {
+  it('gates on BOTH deleted_at and missing_since (plain filter)', () => {
     const clause = applyLiveFilter({}) as unknown as { $and: Array<Record<string, unknown>> };
     const live = clause.$and.find((c) => c.fileinfo) as
       | { fileinfo: { $elemMatch: Record<string, unknown> } }
@@ -16,10 +23,10 @@ describe('applyLiveFilter — missing_since no longer hides assets', () => {
     expect(live).toBeDefined();
     const elem = live!.fileinfo.$elemMatch;
     expect(elem.deleted_at).toEqual({ $in: [null] });
-    expect('missing_since' in elem).toBe(false);
+    expect(elem.missing_since).toEqual({ $in: [null] });
   });
 
-  it('gates on deleted_at but NOT missing_since (in the $text branch)', () => {
+  it('gates on BOTH deleted_at and missing_since (in the $text branch)', () => {
     const clause = applyLiveFilter({ $text: { $search: 'lake' } } as never) as unknown as {
       $and: Array<Record<string, unknown>>;
     };
@@ -29,6 +36,6 @@ describe('applyLiveFilter — missing_since no longer hides assets', () => {
     expect(live).toBeDefined();
     const elem = live!.fileinfo.$elemMatch;
     expect(elem.deleted_at).toEqual({ $in: [null] });
-    expect('missing_since' in elem).toBe(false);
+    expect(elem.missing_since).toEqual({ $in: [null] });
   });
 });
