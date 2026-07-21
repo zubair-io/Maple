@@ -72,6 +72,55 @@ describe('visitDirectory', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it('does NOT emit removed for a present file missing from an incomplete listing', async () => {
+    if (!reachable) return;
+    const { visitDirectory } = await import('./sweeper.ts');
+    const frontier = await import('./frontier.repo.ts');
+
+    const root = mkdtempSync(join(tmpdir(), 'maple-sweep-'));
+    writeFileSync(join(root, 'present.dng'), 'x'); // on disk AND recorded
+
+    const folderId = new ObjectId();
+    await (
+      await assetsCollection()
+    ).insertMany([
+      // on disk, but the (simulated) listing omits it → must NOT be removed
+      {
+        maple_id: 'present1',
+        fileinfo: [{ library_id: folderId, path: '', filename: 'present.dng' }],
+        deleted_at: null,
+      },
+      // genuinely not on disk → must still be removed
+      {
+        maple_id: 'gone1',
+        fileinfo: [{ library_id: folderId, path: '', filename: 'gone.dng' }],
+        deleted_at: null,
+      },
+    ] as never);
+
+    await frontier.seedRoot(folderId, root, 1);
+    const dir = await frontier.claimNextDir(folderId, 1, 60_000);
+
+    const events: WatchEvent[] = [];
+    await visitDirectory(dir!, root, {
+      handleEvent: async (e) => {
+        events.push(e);
+      },
+      folderId,
+      // Truncated listing: readdir "succeeds" but returns an empty set even
+      // though present.dng is on disk (the SMB-blip failure mode).
+      readDir: async () => [],
+    });
+
+    const kinds = events.map((e) => `${e.kind}:${e.absPath.split('/').pop()}`);
+    // present.dng is really on disk → stat-confirm skips it despite the listing
+    expect(kinds).not.toContain('removed:present.dng');
+    // gone.dng is genuinely absent → still removed
+    expect(kinds).toContain('removed:gone.dng');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it('reconciles a non-root subdirectory using the correct relative path', async () => {
     if (!reachable) return;
     const { visitDirectory } = await import('./sweeper.ts');
