@@ -32,7 +32,7 @@ import { t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
-import { searchVisibleFileInfoElemMatch } from '../../indexer/images.repo.ts';
+import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { parseNlDateRange } from './nl-date.ts';
 
 export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purple']);
@@ -531,18 +531,22 @@ export function buildFilter(
  * single `$and` so user-supplied `$or`/`$and` clauses can't shadow the
  * deleted_at predicate.
  *
- * "Live" now has two arms, ANDed:
+ * "Live" has two arms, ANDed:
  *   1. NOT user-trashed — root `deleted_at` is null/absent (the File Provider
  *      trash path is the only writer of root `deleted_at`).
- *   2. Has at least one search-visible location — `searchVisibleFileInfoElemMatch()`.
- *      That requires a `fileinfo` entry whose `deleted_at` is null (content not
- *      replaced) but deliberately does NOT require `missing_since` to be clear:
- *      a `missing_since` tag is a maybe-gone signal that is frequently a
- *      transient/false watcher or sweeper result on network shares, the
- *      thumb/preview stay cached and rendered, and the missing-reaper — not
- *      search — is the authority on real removal (it hard-deletes the record
- *      when a file is confirmed gone, which is what drops the asset from reads).
- *      Stage-claim/dedupe still use the stricter `liveFileInfoElemMatch`.
+ *   2. Has at least one *resolvable* location — `liveFileInfoElemMatch()`, a
+ *      `fileinfo` entry with neither `deleted_at` nor `missing_since` set. This
+ *      is the SAME liveness predicate the projection uses to resolve the primary
+ *      location (`assetPrimaryFileInfo` / `assetAbsPath`). Search visibility must
+ *      stay coupled to it: if a `missing_since`-only asset slipped through the
+ *      filter, the projection would find no primary and emit `id: "fs:"` with an
+ *      empty `abs_path`/`filename`/`folder_id` — a blank tile that renders no
+ *      thumbnail (the FE builds `/api/fs/thumb?path=` from the empty path) and
+ *      opens nothing on click. Requiring a resolvable location here keeps those
+ *      rows out of results. The missing-reaper is the authority on real removal:
+ *      it re-stats a `missing_since` file and either clears the tag (present
+ *      again → the asset re-appears in search) or hard-deletes the record
+ *      (genuinely gone). Stage-claim/dedupe use the same predicate.
  *
  * When `$text` is present, the filter must also be friendly to the
  * partial text index. The `search_blob_text` index uses
@@ -556,7 +560,7 @@ export function buildFilter(
  */
 export function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
   const usesText = '$text' in (filter as Record<string, unknown>);
-  const liveFileinfo = searchVisibleFileInfoElemMatch();
+  const liveFileinfo = liveFileInfoElemMatch();
   const liveClause: Record<string, unknown> = usesText
     ? {
         deleted_at: null,
