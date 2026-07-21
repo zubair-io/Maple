@@ -70,10 +70,10 @@ export async function coll(): Promise<Collection<IndexerAssetDoc>> {
  * A `fileinfo` entry is **live** when it holds this asset's content at a path
  * that is on disk: neither `deleted_at` (bytes replaced by other content) nor
  * `missing_since` (file vanished) is set. This is the predicate for stage
- * eligibility (`buildClaimQuery`), dedupe, and primary-location resolution
- * below. Note: SEARCH visibility deliberately uses the more permissive
- * `searchVisibleFileInfoElemMatch` (deleted_at only) — a `missing_since` tag is
- * a maybe-gone display signal, not a reason to hide a cached-and-rendered asset.
+ * eligibility (`buildClaimQuery`), dedupe, primary-location resolution below,
+ * AND search visibility (`applyLiveFilter` in `routes/search/query.ts`): a
+ * search result must have a resolvable primary, else the projection emits a
+ * blank `fs:` row with an empty path.
  */
 export function isLiveFileInfo(entry: Pick<FileInfo, 'deleted_at' | 'missing_since'>): boolean {
   return !entry.deleted_at && !entry.missing_since;
@@ -84,9 +84,10 @@ export function isLiveFileInfo(entry: Pick<FileInfo, 'deleted_at' | 'missing_sin
  * fileinfo entry (neither `deleted_at` nor `missing_since` set). The
  * `{ $in: [null] }` form treats a missing field as live (legacy rows wrote
  * neither tag), matching `isLiveFileInfo`. Used by `buildClaimQuery` (stage
- * claims) and the dedupe worker. Search reads intentionally do NOT use this —
- * they use the more permissive `searchVisibleFileInfoElemMatch` so a
- * `missing_since` tag doesn't hide a still-cached asset.
+ * claims), the dedupe worker, and search visibility (`applyLiveFilter` in
+ * `routes/search/query.ts`) — a search result must have a resolvable primary
+ * location, else the projection emits a blank `fs:` row that renders no
+ * thumbnail and opens nothing.
  */
 export function liveFileInfoElemMatch(): Record<string, unknown> {
   return {
@@ -94,36 +95,6 @@ export function liveFileInfoElemMatch(): Record<string, unknown> {
       $elemMatch: {
         deleted_at: { $in: [null] },
         missing_since: { $in: [null] },
-      },
-    },
-  };
-}
-
-/**
- * Search-visibility variant of `liveFileInfoElemMatch`. Selects assets with at
- * least one fileinfo entry that is NOT user-deleted (`deleted_at` null/absent),
- * but — unlike the worker/dedupe predicate — does NOT require `missing_since`
- * to be clear.
- *
- * Why search is more permissive than stage-claim: a `missing_since` tag means
- * "the watcher/sweeper did not see this file on its last pass", which on a
- * network share is frequently transient or outright wrong (an incomplete
- * directory listing tags present files). The asset's thumb/preview are cached
- * on disk and still render, so hiding it from search on a maybe-missing signal
- * is worse than showing it. The missing-reaper remains the authority on real
- * removal: when it confirms a file is genuinely gone it hard-deletes the
- * record, which is what actually drops the asset from search.
- *
- * `buildClaimQuery` (stage eligibility) and the dedupe worker keep using the
- * stricter `liveFileInfoElemMatch` so they never try to read a file that isn't
- * currently on disk — a missing original there is a real skip, not a display
- * concern.
- */
-export function searchVisibleFileInfoElemMatch(): Record<string, unknown> {
-  return {
-    fileinfo: {
-      $elemMatch: {
-        deleted_at: { $in: [null] },
       },
     },
   };
