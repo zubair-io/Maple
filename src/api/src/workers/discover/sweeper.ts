@@ -15,10 +15,15 @@ import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
 import { readCheckpoint, writeCheckpoint } from '../../indexer/checkpoint.ts';
+import { statKind } from '../missing-reaper.helpers.ts';
 
 export interface ReconcileDeps {
   handleEvent: (event: WatchEvent, folderId: ObjectId, libraryRoot: string) => Promise<void>;
   folderId: ObjectId;
+  /** Directory reader — injectable so tests can simulate an incomplete/truncated
+   * listing (the network-share failure mode the stat-confirm in the removed pass
+   * guards against). Defaults to `fs.readdir(dir, { withFileTypes: true })`. */
+  readDir?: (dirPath: string) => Promise<Dirent[]>;
 }
 
 function isSupported(name: string): boolean {
@@ -33,7 +38,8 @@ export async function visitDirectory(
   const { folderId } = deps;
   let entries: Dirent[];
   try {
-    entries = await fs.readdir(dir.dir_path, { withFileTypes: true });
+    const readDir = deps.readDir ?? ((p: string) => fs.readdir(p, { withFileTypes: true }));
+    entries = await readDir(dir.dir_path);
   } catch {
     // Vanished/unreadable dir: drop it from the frontier and move on.
     await frontier.completeDir(dir._id);
@@ -93,16 +99,21 @@ export async function visitDirectory(
     await deps.handleEvent({ kind: 'created', absPath: abs }, folderId, root);
   }
 
-  // Recorded files no longer on disk → removed (soft-delete via handleEvent).
+  // Recorded files not seen in the listing → candidate removals. A missing
+  // entry is NOT trusted on its own: a `fs.readdir` can succeed yet return an
+  // incomplete set on a network share (SMB blip). Re-stat each candidate and
+  // only emit `removed` on a genuine ENOENT. A present file or an inconclusive
+  // stat error (EACCES/EIO/timeout) is left for the next sweep, so a truncated
+  // listing can never mass-tag present files `missing_since`. (On a
+  // normalization-insensitive filesystem this also absorbs an NFC/NFD name
+  // mismatch that the exact-string listing check would miss; on a byte-exact
+  // filesystem such a mismatch is a genuine indexing bug, not a false removal.)
   for (const a of recorded) {
     const fn = a.fileinfo?.[0]?.filename;
-    if (fn && !filesOnDisk.has(fn)) {
-      await deps.handleEvent(
-        { kind: 'removed', absPath: path.join(dir.dir_path, fn) },
-        folderId,
-        root,
-      );
-    }
+    if (!fn || filesOnDisk.has(fn)) continue;
+    const abs = path.join(dir.dir_path, fn);
+    if ((await statKind(abs)) !== 'absent') continue;
+    await deps.handleEvent({ kind: 'removed', absPath: abs }, folderId, root);
   }
 
   await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen);

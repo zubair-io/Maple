@@ -32,7 +32,7 @@ import { t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
-import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
+import { searchVisibleFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { parseNlDateRange } from './nl-date.ts';
 
 export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purple']);
@@ -534,11 +534,15 @@ export function buildFilter(
  * "Live" now has two arms, ANDed:
  *   1. NOT user-trashed — root `deleted_at` is null/absent (the File Provider
  *      trash path is the only writer of root `deleted_at`).
- *   2. Has at least one live on-disk location — `liveFileInfoElemMatch()`. An
- *      asset whose every `fileinfo` entry is `deleted_at` (content replaced)
- *      or `missing_since` (file vanished) has no live location and is hidden,
- *      WITHOUT a root flag. This is what makes a watcher-`removed` of the last
- *      copy (and a per-entry `missing_since` tag) drop the asset from reads.
+ *   2. Has at least one search-visible location — `searchVisibleFileInfoElemMatch()`.
+ *      That requires a `fileinfo` entry whose `deleted_at` is null (content not
+ *      replaced) but deliberately does NOT require `missing_since` to be clear:
+ *      a `missing_since` tag is a maybe-gone signal that is frequently a
+ *      transient/false watcher or sweeper result on network shares, the
+ *      thumb/preview stay cached and rendered, and the missing-reaper — not
+ *      search — is the authority on real removal (it hard-deletes the record
+ *      when a file is confirmed gone, which is what drops the asset from reads).
+ *      Stage-claim/dedupe still use the stricter `liveFileInfoElemMatch`.
  *
  * When `$text` is present, the filter must also be friendly to the
  * partial text index. The `search_blob_text` index uses
@@ -552,7 +556,7 @@ export function buildFilter(
  */
 export function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
   const usesText = '$text' in (filter as Record<string, unknown>);
-  const liveFileinfo = liveFileInfoElemMatch();
+  const liveFileinfo = searchVisibleFileInfoElemMatch();
   const liveClause: Record<string, unknown> = usesText
     ? {
         deleted_at: null,
