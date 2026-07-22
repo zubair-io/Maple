@@ -37,3 +37,14 @@ export async function verifyBearer(
 		return false;
 	}
 }
+
+/**
+ * Recognize Sugar Maple's opaque image capability format. The Worker cannot
+ * validate these MongoDB-backed grants itself, so a recognized token is only
+ * permission to proxy the request to Maple's origin for authoritative
+ * validation. It is never permission to read R2 directly.
+ */
+export function hasImageCapability(url: URL): boolean {
+	const token = url.searchParams.get('token');
+	return token !== null && /^[A-Za-z0-9_-]{43}$/.test(token);
+}

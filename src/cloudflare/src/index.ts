@@ -6,17 +6,19 @@
  * origin API.
  *
  * Flow:
- *   1. Verify the bearer token (HS256, shared secret) — reject before
- *      touching R2 or the origin.
- *   2. Derive the R2 key from the URL alone (no DB access here — see r2.ts).
- *   3. R2 hit  -> stream back with immutable cache headers.
- *   4. R2 miss -> forward to the origin with the same bearer token (and any
+ *   1. For a URL image capability, bypass R2 and proxy to the origin for
+ *      authoritative path/expiry validation.
+ *   2. Otherwise verify the bearer token (HS256, shared secret) — reject
+ *      before touching R2 or the origin.
+ *   3. Derive the R2 key from the URL alone (no DB access here — see r2.ts).
+ *   4. R2 hit  -> stream back with immutable cache headers.
+ *   5. R2 miss -> forward to the origin with the same bearer token (and any
  *      conditional-request headers), stream the response to the client, and
  *      asynchronously populate R2 for next time (only for a confirmed 200
  *      with a body).
  */
 
-import { verifyBearer } from './auth';
+import { hasImageCapability, verifyBearer } from './auth';
 import { parseThumbPath, thumbR2Key } from './r2';
 
 const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
@@ -38,6 +40,7 @@ function unauthorized(): Response {
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
+		if (hasImageCapability(url)) return fetchCapabilityFromOrigin(request, env);
 
 		const authorized = await verifyBearer(request.headers.get('authorization'), env.JWT_SECRET);
 		if (!authorized) return unauthorized();
@@ -95,6 +98,27 @@ export default {
 		return new Response(object.body, { status: 200, headers });
 	},
 } satisfies ExportedHandler<Env>;
+
+/**
+ * Opaque image capabilities are stored and validated by the Maple API. Never
+ * serve these requests from R2: doing so would let an expired, revoked, or
+ * path-mismatched token bypass the source-of-truth authorization check.
+ */
+async function fetchCapabilityFromOrigin(request: Request, env: Env): Promise<Response> {
+	const incoming = new URL(request.url);
+	const target = new URL(incoming.pathname + incoming.search, env.ORIGIN_API_BASE_URL);
+	const headers = new Headers();
+	const ifNoneMatch = request.headers.get('if-none-match');
+	if (ifNoneMatch) headers.set('if-none-match', ifNoneMatch);
+	const originResponse = await fetch(target.toString(), { method: 'GET', headers });
+	const responseHeaders = new Headers(originResponse.headers);
+	responseHeaders.set('cache-control', 'private, no-store');
+	return new Response(originResponse.body, {
+		status: originResponse.status,
+		statusText: originResponse.statusText,
+		headers: responseHeaders,
+	});
+}
 
 /** Cache miss path: forward to the origin with the same bearer token and
  * any conditional-request headers (`If-None-Match` — the origin's own

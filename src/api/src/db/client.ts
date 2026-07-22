@@ -310,6 +310,12 @@ const RESET_DESCRIBE_DEAD_SET = {
 export async function ensureIndexes(): Promise<void> {
   const db = await getDb();
 
+  // URL image capabilities are short-lived bearer substitutes bound to one
+  // exact thumb/preview path. MongoDB removes expired grants automatically.
+  await db
+    .collection('image_access_tokens')
+    .createIndex({ expires_at: 1 }, { expireAfterSeconds: 0, name: 'image_access_tokens_expiry' });
+
   // Backfill exif.captured_year + exif.captured_month for any rows
   // indexed before the timeline-buckets perf change. Gated on the
   // `migrations` collection — the predicate alone is NOT enough to
