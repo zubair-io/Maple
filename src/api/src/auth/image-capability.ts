@@ -11,6 +11,7 @@ type ImageCapabilityDoc = {
 };
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+const IMAGE_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 /**
  * Validate a short-lived, path-bound image capability from the URL. These are
@@ -23,7 +24,7 @@ export async function verifyImageCapability(request: Request, dbOverride?: Db): 
   if (!url.pathname.startsWith('/api/thumb/') && !url.pathname.startsWith('/api/preview/'))
     return false;
   const token = url.searchParams.get('token');
-  if (!token || token.length < 32 || token.length > 256) return false;
+  if (!token || !IMAGE_CAPABILITY_PATTERN.test(token)) return false;
   const row = await (dbOverride ?? (await getDb()))
     .collection<ImageCapabilityDoc>('image_access_tokens')
     .findOne({

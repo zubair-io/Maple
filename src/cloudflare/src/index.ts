@@ -24,6 +24,13 @@ import { parseThumbPath, thumbR2Key } from './r2';
 const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 const FALLBACK_CONTENT_TYPE = 'image/avif';
 
+function originTarget(incoming: URL, originBaseUrl: string): URL {
+	const target = new URL(originBaseUrl);
+	target.pathname = incoming.pathname;
+	target.search = incoming.search;
+	return target;
+}
+
 function unauthorized(): Response {
 	return new Response(JSON.stringify({ error: 'unauthorized' }), {
 		status: 401,
@@ -55,7 +62,7 @@ export default {
 			// forever instead of degrading to a normal origin round-trip.
 			// `new Request(url, request)` clones method/headers/body from the
 			// original request onto the new URL.
-			const target = new URL(url.pathname + url.search, env.ORIGIN_API_BASE_URL);
+			const target = originTarget(url, env.ORIGIN_API_BASE_URL);
 			return fetch(new Request(target, request));
 		}
 
@@ -106,7 +113,7 @@ export default {
  */
 async function fetchCapabilityFromOrigin(request: Request, env: Env): Promise<Response> {
 	const incoming = new URL(request.url);
-	const target = new URL(incoming.pathname + incoming.search, env.ORIGIN_API_BASE_URL);
+	const target = originTarget(incoming, env.ORIGIN_API_BASE_URL);
 	const headers = new Headers();
 	const ifNoneMatch = request.headers.get('if-none-match');
 	if (ifNoneMatch) headers.set('if-none-match', ifNoneMatch);
@@ -135,7 +142,7 @@ async function fetchFromOriginAndCache(
 	key: string,
 ): Promise<Response> {
 	const originUrl = new URL(request.url);
-	const target = new URL(originUrl.pathname + originUrl.search, env.ORIGIN_API_BASE_URL);
+	const target = originTarget(originUrl, env.ORIGIN_API_BASE_URL);
 
 	const forwardHeaders = new Headers();
 	const authorization = request.headers.get('authorization');

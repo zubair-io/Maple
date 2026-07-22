@@ -45,6 +45,9 @@ export async function verifyBearer(
  * validation. It is never permission to read R2 directly.
  */
 export function hasImageCapability(url: URL): boolean {
+	if (!url.pathname.startsWith('/api/thumb/') && !url.pathname.startsWith('/api/preview/')) {
+		return false;
+	}
 	const token = url.searchParams.get('token');
 	return token !== null && /^[A-Za-z0-9_-]{43}$/.test(token);
 }

