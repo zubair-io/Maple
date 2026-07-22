@@ -20,11 +20,11 @@ export async function hasAudioStream(mediaPath: string): Promise<boolean> {
     try {
       const stderr = await new Response(proc.stderr).text();
       const code = await proc.exited;
-      if (/Stream #\d+:\d+.*: Audio:/.test(stderr)) return true;
+      if (/^\s*Stream #\d+:\d+.*: Audio:/m.test(stderr)) return true;
       // ffmpeg uses a non-zero exit here even for a valid input because no
       // output was requested. A printed stream table proves the container
       // was read successfully; absence of Audio is therefore terminal.
-      if (/Stream #\d+:\d+/.test(stderr)) return false;
+      if (/^\s*Stream #\d+:\d+/m.test(stderr)) return false;
       throw new Error(
         `ffmpeg could not probe media (exit ${code}): ${stderr.trim().slice(0, 300)}`,
       );

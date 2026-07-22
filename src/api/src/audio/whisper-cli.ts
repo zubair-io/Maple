@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
+import { probeCommand } from '../process/probe-command.ts';
 import { parseWhisperJson, type TranscriptResult } from './whisper-parse.ts';
 
 const log = childLogger('whisper-cli');
@@ -8,24 +9,10 @@ const CANDIDATES = ['/usr/local/bin/whisper-cli', '/opt/homebrew/bin/whisper-cli
 let resolved: string | null = null;
 let inflight: Promise<string | null> | null = null;
 
-async function runnable(binary: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn([binary, '--help'], { stdout: 'ignore', stderr: 'ignore' });
-    const timer = setTimeout(() => proc.kill(), 5_000);
-    try {
-      return (await proc.exited) === 0;
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    return false;
-  }
-}
-
 async function detect(): Promise<string | null> {
   const onPath = Bun.which('whisper-cli');
   for (const candidate of onPath ? [onPath, ...CANDIDATES] : CANDIDATES) {
-    if (await runnable(candidate)) return candidate;
+    if (await probeCommand(candidate, ['--help'])) return candidate;
   }
   return null;
 }

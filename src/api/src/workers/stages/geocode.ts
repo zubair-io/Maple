@@ -19,10 +19,8 @@ import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { CoordinateCache } from '../../enrichment/coordinate-cache.ts';
 import { NominatimClient } from '../../enrichment/nominatim-client.ts';
 import { parseNominatimResponse } from '../../enrichment/place-parser.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from '../../enrichment/enrichment-config.repo.ts';
+import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { backupLocationSegments } from '../../backup/location-segments.ts';
 import type { Place } from '../../db/schema.ts';
 

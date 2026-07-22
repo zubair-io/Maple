@@ -18,10 +18,8 @@
 
 import { Elysia, t } from 'elysia';
 import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from '../enrichment/enrichment-config.repo.ts';
+import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import type { NominatimSearchResult } from '../enrichment/nominatim-client.ts';
 import { child as childLogger } from '../log.ts';
 
