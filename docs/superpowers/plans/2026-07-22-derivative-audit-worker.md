@@ -1,6 +1,6 @@
 # Derivative-Audit Worker Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+This plan is structured for task-by-task execution, each task carrying its own TDD cycle (failing test → implementation → passing test → commit). Checkbox (`- [ ]`) markers denote step-level progress tracking.
 
 **Goal:** A background worker that verifies each live asset's thumb/preview/description against disk and its thumbnail against Cloudflare R2, and re-arms the responsible pipeline stage when a derivative has drifted (most often after a file was moved and its `.maple/` cache did not follow).
 
@@ -112,7 +112,10 @@ export async function thumbExistsInR2(
   signal?: AbortSignal,
 ): Promise<boolean> {
   const client = r2Client(config);
-  const res = await client.fetch(r2Endpoint(config, key), { method: 'HEAD', signal });
+  const res = await client.fetch(r2Endpoint(config, key), {
+    method: 'HEAD',
+    signal,
+  });
   if (res.ok) return true;
   if (res.status === 404) return false;
   const body = await res.text().catch(() => '');
@@ -176,7 +179,10 @@ describe('derivative-audit config repo', () => {
   });
 
   it('round-trips a partial patch, leaving other fields at default', async () => {
-    await saveDerivativeAuditConfig({ enabled: false, max_resets_per_pass: 25 });
+    await saveDerivativeAuditConfig({
+      enabled: false,
+      max_resets_per_pass: 25,
+    });
     const cfg = await loadDerivativeAuditConfig();
     expect(cfg.enabled).toBe(false);
     expect(cfg.max_resets_per_pass).toBe(25);
@@ -460,9 +466,27 @@ function makeAsset(over: Partial<ImageDoc> = {}): ImageDoc {
     color_label: '',
     indexed_at: '',
     stages: {
-      thumb: { version: 3, attempts: 0, last_error: null, processed_at: null, dead: false },
-      preview: { version: 4, attempts: 0, last_error: null, processed_at: null, dead: false },
-      describe: { version: 7, attempts: 0, last_error: null, processed_at: null, dead: false },
+      thumb: {
+        version: 3,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      preview: {
+        version: 4,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      describe: {
+        version: 7,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
       'cf-thumb-sync': {
         version: 1,
         attempts: 0,
@@ -655,7 +679,11 @@ export async function evaluateAsset(
     const primary = assetPrimaryFileInfo(image);
     const slug = primary ? idToSlug.get(primary.library_id.toHexString()) : undefined;
     if (primary && slug) {
-      const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
+      const key = thumbR2Key({
+        slug,
+        relDir: primary.path,
+        filename: primary.filename,
+      });
       if ((await deps.thumbExistsInR2(key)) === false) resets.push('cf-thumb-sync');
     }
   }
@@ -755,9 +783,27 @@ async function seedMovedAsset() {
     indexed_at: '',
     description: 'a photo',
     stages: {
-      thumb: { version: 3, attempts: 0, last_error: null, processed_at: null, dead: false },
-      preview: { version: 4, attempts: 0, last_error: null, processed_at: null, dead: false },
-      describe: { version: 7, attempts: 0, last_error: null, processed_at: null, dead: false },
+      thumb: {
+        version: 3,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      preview: {
+        version: 4,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      describe: {
+        version: 7,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
       'cf-thumb-sync': {
         version: 1,
         attempts: 0,
@@ -892,7 +938,10 @@ export async function runDerivativeAuditOnce(
   };
 
   const cursor = coll.find(
-    { ...liveFileInfoElemMatch(), 'damaged.since': { $not: { $type: 'string' } } },
+    {
+      ...liveFileInfoElemMatch(),
+      'damaged.since': { $not: { $type: 'string' } },
+    },
     {
       projection: {
         fileinfo: 1,
