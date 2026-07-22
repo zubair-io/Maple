@@ -1,5 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, mkdir, writeFile, rm, stat } from 'node:fs/promises';
+// Route fs through the mirror-aware wrapper per the fs-import guardrail (these
+// are temp-path reads/writes; mirroring is a no-op outside a library root).
+import { mkdtemp, mkdir, writeFile, rm, stat } from '../../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
@@ -67,9 +69,9 @@ async function writeOriginal() {
   await mkdir(path.join(root, 'a/b'), { recursive: true });
   await writeFile(path.join(root, 'a/b/p.dng'), 'raw');
 }
-async function writeThumb() {
+async function writeThumb(bytes = 'thumb') {
   await mkdir(path.join(root, 'a/b/.maple/thumbs'), { recursive: true });
-  await writeFile(path.join(root, 'a/b/.maple/thumbs/abc123.avif'), 'thumb');
+  await writeFile(path.join(root, 'a/b/.maple/thumbs/abc123.avif'), bytes);
 }
 async function writePreview() {
   await mkdir(path.join(root, 'a/b/.maple/previews'), { recursive: true });
@@ -79,21 +81,27 @@ async function writePreview() {
 describe('evaluateAsset', () => {
   it('re-arms nothing when the original is missing (leave to discover/reaper)', async () => {
     await rm(path.join(root, 'a/b/p.dng'), { force: true });
-    expect(await evaluateAsset(makeAsset(), libs, slugs, deps())).toEqual([]);
+    expect(await evaluateAsset(makeAsset(), libs, slugs, deps())).toEqual({
+      drifted: [],
+      resolved: [],
+    });
   });
 
   it('re-arms thumb + preview when both derivatives are missing', async () => {
     await writeOriginal();
     await rm(path.join(root, 'a/b/.maple'), { recursive: true, force: true });
     const res = await evaluateAsset(makeAsset(), libs, slugs, deps());
-    expect(res.sort()).toEqual(['preview', 'thumb']);
+    expect(res.drifted.sort()).toEqual(['preview', 'thumb']);
+    expect(res.resolved).toEqual([]);
   });
 
-  it('re-arms nothing when both derivatives are present and description set', async () => {
+  it('re-arms nothing (all resolved) when both derivatives are present and description set', async () => {
     await writeOriginal();
     await writeThumb();
     await writePreview();
-    expect(await evaluateAsset(makeAsset(), libs, slugs, deps())).toEqual([]);
+    const res = await evaluateAsset(makeAsset(), libs, slugs, deps());
+    expect(res.drifted).toEqual([]);
+    expect(res.resolved.sort()).toEqual(['describe', 'preview', 'thumb']);
   });
 
   it('re-arms describe when description is empty but a preview exists', async () => {
@@ -101,7 +109,16 @@ describe('evaluateAsset', () => {
     await writeThumb();
     await writePreview();
     const res = await evaluateAsset(makeAsset({ description: '' }), libs, slugs, deps());
-    expect(res).toEqual(['describe']);
+    expect(res.drifted).toEqual(['describe']);
+  });
+
+  it('treats a zero-byte thumb as missing (drift), not present', async () => {
+    await writeOriginal();
+    await writeThumb('');
+    await writePreview();
+    const res = await evaluateAsset(makeAsset(), libs, slugs, deps());
+    expect(res.drifted).toEqual(['thumb']);
+    expect(res.resolved).not.toContain('thumb');
   });
 
   it('does NOT re-arm cf-thumb-sync for a hidden asset even if R2 says absent', async () => {
@@ -114,7 +131,8 @@ describe('evaluateAsset', () => {
       slugs,
       deps({ thumbExistsInR2: async () => false }),
     );
-    expect(res).toEqual([]);
+    expect(res.drifted).toEqual([]);
+    expect(res.resolved).not.toContain('cf-thumb-sync');
   });
 
   it('re-arms cf-thumb-sync when the thumb exists locally but is absent in R2', async () => {
@@ -127,15 +145,16 @@ describe('evaluateAsset', () => {
       slugs,
       deps({ thumbExistsInR2: async () => false }),
     );
-    expect(res).toEqual(['cf-thumb-sync']);
+    expect(res.drifted).toEqual(['cf-thumb-sync']);
   });
 
-  it('does not re-arm a stage that has not reached its target version', async () => {
+  it('leaves a below-target (queued) stage untouched — neither drifted nor resolved', async () => {
     await writeOriginal();
     await rm(path.join(root, 'a/b/.maple'), { recursive: true, force: true });
     const a = makeAsset();
     (a.stages as Record<string, { version: number }>).thumb.version = 0; // still queued
     const res = await evaluateAsset(a, libs, slugs, deps());
-    expect(res).toEqual(['preview']); // thumb not re-armed — pipeline owns it
+    expect(res.drifted).toEqual(['preview']); // thumb not re-armed — pipeline owns it
+    expect(res.resolved).not.toContain('thumb'); // and its mark is not cleared
   });
 });

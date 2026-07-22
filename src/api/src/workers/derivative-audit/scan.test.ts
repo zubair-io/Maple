@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+// Mirror-aware wrapper per the fs-import guardrail (temp-path ops; no-op mirror).
+import { mkdtemp, mkdir, writeFile, rm } from '../../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { setupAuditMongo } from './test-support.ts';
@@ -82,6 +83,23 @@ describe('runDerivativeAuditOnce', () => {
     }
     const doc = await h.db.collection('assets').findOne({ maple_id: 'deadbeef' });
     expect(doc?.derivative_audit.thumb.attempts).toBe(3); // capped, not 4
+  });
+
+  it('preserves the cooldown mark while a re-armed stage sits queued below target', async () => {
+    if (!h.mongoReachable) return;
+    const lib = await h.addLibrary(root);
+    await seedMovedAsset(lib);
+    // Pass 1: derivatives missing, stages at target → re-arm to version 0, mark=1.
+    await runDerivativeAuditOnce({ deep_r2_enabled: false });
+    const afterFirst = await h.db.collection('assets').findOne({ maple_id: 'deadbeef' });
+    expect(afterFirst?.stages.thumb.version).toBe(0);
+    expect(afterFirst?.derivative_audit.thumb.attempts).toBe(1);
+    // Pass 2: no worker regenerated, so stages are still at version 0 (queued,
+    // below target). The auditor must leave the mark ALONE — not clear it (which
+    // would reset the loop guard) and not bump it.
+    await runDerivativeAuditOnce({ deep_r2_enabled: false });
+    const afterSecond = await h.db.collection('assets').findOne({ maple_id: 'deadbeef' });
+    expect(afterSecond?.derivative_audit.thumb.attempts).toBe(1); // preserved, not cleared/bumped
   });
 
   it('honors max_resets_per_pass', async () => {
