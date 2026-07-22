@@ -58,6 +58,16 @@ const ConfigBody = t.Object({
   describe_system_prompt: t.Optional(t.Union([t.String(), t.Null()])),
   describe_daily_cap_usd: t.Optional(t.Union([t.Number(), t.Null()])),
   describe_provider_url: t.Optional(t.Union([t.String(), t.Null()])),
+  transcribe_model_tier: t.Optional(
+    t.Union([
+      t.Literal('tiny.en'),
+      t.Literal('base.en'),
+      t.Literal('small.en'),
+      t.Literal('medium.en'),
+      t.Literal('large-v3'),
+      t.Null(),
+    ]),
+  ),
   // ── Face worker (Phase 5) ──────────────────────────────────────────
   face_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
   /** Operator-tunable face worker model paths. `null` clears the override
@@ -292,6 +302,9 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         ...(describeCap !== undefined ? { describe_daily_cap_usd: describeCap } : {}),
         ...(body.describe_provider_url !== undefined
           ? { describe_provider_url: body.describe_provider_url }
+          : {}),
+        ...(body.transcribe_model_tier !== undefined
+          ? { transcribe_model_tier: body.transcribe_model_tier }
           : {}),
         ...(body.face_model_dir !== undefined ? { face_model_dir: body.face_model_dir } : {}),
         ...(body.face_detector_url !== undefined

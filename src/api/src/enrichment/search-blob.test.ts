@@ -25,6 +25,11 @@ function placeWith(blob: string): Place {
 }
 
 describe('composeSearchBlob', () => {
+  it('folds transcript words into the blob', () => {
+    expect(composeSearchBlob({ transcript: 'General Kenobi hello there' }).split(' ')).toEqual(
+      expect.arrayContaining(['general', 'kenobi', 'hello', 'there']),
+    );
+  });
   it('returns empty string when every source is empty/missing', () => {
     expect(composeSearchBlob({})).toBe('');
     expect(composeSearchBlob({ place: null, description: null, ocrText: null })).toBe('');

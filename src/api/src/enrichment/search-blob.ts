@@ -30,6 +30,8 @@ export interface ComposeSearchBlobInput {
   description?: string | null;
   /** OCR-extracted text from the thumbnail (Phase 8). */
   ocrText?: string | null;
+  /** Speech-to-text transcript from the asset's audio track. */
+  transcript?: string | null;
   /** Structured vision-subjects (e.g. ["person", "child", "athlete"]).
    * Optional — older callers and tests can keep passing nothing. */
   visionSubjects?: string[] | null;
@@ -63,6 +65,7 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   add(input.place?.search_blob);
   add(input.description);
   add(input.ocrText);
+  add(input.transcript);
 
   // Structured vision signals. Each is a small dictionary contribution
   // that makes facet-like queries hit ("show outdoor sports") without

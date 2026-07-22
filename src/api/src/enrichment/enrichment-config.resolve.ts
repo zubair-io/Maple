@@ -14,6 +14,7 @@
  */
 
 import type { DescribeProviderName } from './describe-providers/index.ts';
+import { parseWhisperTier, type WhisperTier } from '../audio/whisper-model.ts';
 import {
   DEFAULT_DESCRIBE_DAILY_CAP_USD,
   DEFAULT_DESCRIBE_MODELS,
@@ -49,6 +50,7 @@ export interface ResolvedEnrichmentConfig {
   describe_model: string;
   describe_system_prompt: string;
   describe_daily_cap_usd: number;
+  transcribe_model_tier: WhisperTier;
   /** Phase 5 face worker. Resolved from DB → env → built-in default false. */
   face_worker_enabled: boolean;
   /** Resolved model dir (DB → env → default `~/.maple/models/`). Always
@@ -84,6 +86,7 @@ export interface ResolvedEnrichmentConfig {
     describe_model: 'db' | 'env' | 'default';
     describe_system_prompt: 'db' | 'env' | 'default';
     describe_daily_cap_usd: 'db' | 'env' | 'default';
+    transcribe_model_tier: 'db' | 'default';
     face_worker_enabled: 'db' | 'env' | 'default';
     face_model_dir: 'db' | 'env' | 'default';
     face_detector_url: 'db' | 'env' | 'unset';
@@ -228,6 +231,10 @@ export function resolveEnrichmentConfig(
     }
   }
 
+  const transcribeTier = parseWhisperTier(db?.transcribe_model_tier);
+  const transcribeTierSource: 'db' | 'default' =
+    db?.transcribe_model_tier === transcribeTier ? 'db' : 'default';
+
   // ── Face worker (Phase 5) ────────────────────────────────────────────
   let faceEnabled = false;
   let faceEnabledSource: ResolvedEnrichmentConfig['source']['face_worker_enabled'] = 'default';
@@ -315,6 +322,7 @@ export function resolveEnrichmentConfig(
     describe_model: describeModel,
     describe_system_prompt: describePrompt,
     describe_daily_cap_usd: describeCap,
+    transcribe_model_tier: transcribeTier,
     face_worker_enabled: faceEnabled,
     face_model_dir: faceModelDir,
     face_detector_url: faceDetectorUrl.value,
@@ -334,6 +342,7 @@ export function resolveEnrichmentConfig(
       describe_model: describeModelSource,
       describe_system_prompt: describePromptSource,
       describe_daily_cap_usd: describeCapSource,
+      transcribe_model_tier: transcribeTierSource,
       face_worker_enabled: faceEnabledSource,
       face_model_dir: faceModelDirSource,
       face_detector_url: faceDetectorUrl.source,

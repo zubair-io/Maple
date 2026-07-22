@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
 import type { DescribeProviderName } from './describe-providers/index.ts';
+import type { WhisperTier } from '../audio/whisper-model.ts';
 // Prompt text + version live in a sibling module (keeps this file under the
 // file-size budget). Imported here so the resolver can use the system prompt,
 // and re-exported below so existing importers keep importing them from here.
@@ -149,6 +150,8 @@ export interface EnrichmentConfig {
    * providers (their endpoints are hard-coded). `null`/missing → falls
    * back to env / built-in default. */
   describe_provider_url?: string | null;
+  /** Whisper model tier used for newly transcribed assets. */
+  transcribe_model_tier?: WhisperTier | null;
   // ── Face worker (Phase 5) ────────────────────────────────────────────
   /** Phase 5 face worker. Default off — opt-in because the worker requires
    * SCRFD + ArcFace ONNX model files on disk (or downloadable from
@@ -281,6 +284,9 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   }
   if (remapped.describe_provider_url !== undefined) {
     set['config.describe_provider_url'] = remapped.describe_provider_url;
+  }
+  if (remapped.transcribe_model_tier !== undefined) {
+    set['config.transcribe_model_tier'] = remapped.transcribe_model_tier;
   }
   if (remapped.face_worker_enabled !== undefined) {
     set['config.face_worker_enabled'] = remapped.face_worker_enabled;
