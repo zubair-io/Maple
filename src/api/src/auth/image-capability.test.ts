@@ -3,6 +3,28 @@ import { createHash, randomBytes } from 'node:crypto';
 import { verifyImageCapability } from './image-capability.ts';
 
 describe('image URL capabilities', () => {
+  test('rejects tokens that are not exactly 32-byte base64url values', async () => {
+    let databaseReads = 0;
+    const db = {
+      collection: () => ({
+        findOne: async () => {
+          databaseReads += 1;
+          return null;
+        },
+      }),
+    } as any;
+
+    for (const token of ['a'.repeat(42), 'a'.repeat(44), `${'a'.repeat(42)}+`]) {
+      expect(
+        await verifyImageCapability(
+          new Request(`http://maple/api/thumb/photos/a.jpg?token=${token}`),
+          db,
+        ),
+      ).toBe(false);
+    }
+    expect(databaseReads).toBe(0);
+  });
+
   test('accepts only the exact image path before expiry', async () => {
     const token = randomBytes(32).toString('base64url');
     const row = {
