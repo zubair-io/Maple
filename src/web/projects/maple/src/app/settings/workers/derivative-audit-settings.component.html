@@ -1,0 +1,126 @@
+<div class="audit-panel" data-testid="derivative-audit-panel">
+  <div class="audit-head">
+    <span class="status-pill">
+      <span class="status-dot" [style.background]="statusColor()"></span>
+      <span class="status-label" data-testid="audit-status">{{ statusLabel() }}</span>
+    </span>
+    <span class="audit-summary" data-testid="audit-summary">{{ summaryLine() }}</span>
+    <span class="head-spacer"></span>
+    <button
+      type="button"
+      class="btn-ghost"
+      data-testid="audit-run-now"
+      [disabled]="running() || progress()?.running"
+      (click)="runNow()"
+    >
+      {{ running() || progress()?.running ? 'Running…' : 'Run now' }}
+    </button>
+  </div>
+
+  <p class="audit-desc">
+    Verifies each asset's thumbnail, preview, and description on disk (and its thumbnail in
+    Cloudflare R2), and re-runs the stage that owns any derivative that has drifted — most often
+    after a file was moved and its <span class="mono">.maple</span> cache did not follow.
+  </p>
+
+  @if (error(); as msg) {
+    <div class="audit-error" data-testid="audit-error">{{ msg }}</div>
+  }
+
+  @if (loading()) {
+    <p class="audit-hint">Loading…</p>
+  } @else if (config(); as cfg) {
+    <label class="audit-toggle">
+      <input
+        type="checkbox"
+        [checked]="cfg.enabled"
+        data-testid="audit-enabled"
+        (change)="toggleEnabled($any($event.target).checked)"
+      />
+      <span>Enabled — run automatically in the background</span>
+    </label>
+
+    <div class="audit-grid">
+      <div class="field">
+        <div class="field-label">Max re-arms per pass</div>
+        <input
+          type="number"
+          min="1"
+          max="1000000"
+          data-testid="audit-max-resets"
+          [value]="draftValue('max_resets_per_pass')"
+          (input)="setDraftNumber('max_resets_per_pass', $any($event.target).value)"
+        />
+        <div class="field-hint">Runaway guard — caps how many stages one pass re-queues.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Scan interval</div>
+        <div class="num-suffix-wrap">
+          <input
+            type="number"
+            min="0.1"
+            max="168"
+            step="0.5"
+            data-testid="audit-interval-hours"
+            [value]="draftValue('interval_hours')"
+            (input)="setDraftNumber('interval_hours', $any($event.target).value)"
+          />
+          <span class="num-suffix">hours</span>
+        </div>
+        <div class="field-hint">Takes effect on next server restart.</div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Concurrency</div>
+        <input
+          type="number"
+          min="1"
+          max="64"
+          data-testid="audit-concurrency"
+          [value]="draftValue('concurrency')"
+          (input)="setDraftNumber('concurrency', $any($event.target).value)"
+        />
+        <div class="field-hint">Assets evaluated in parallel (bounds parallel R2 HEADs).</div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Cloudflare check</div>
+        <label class="audit-toggle inline">
+          <input
+            type="checkbox"
+            data-testid="audit-deep-r2"
+            [checked]="draftValue('deep_r2_enabled')"
+            (change)="setDraft('deep_r2_enabled', $any($event.target).checked)"
+          />
+          <span>Verify each thumbnail exists in R2</span>
+        </label>
+        <div class="field-hint">Auto-skipped when Cloudflare isn't configured.</div>
+      </div>
+    </div>
+
+    @if (stageCounts().length > 0) {
+      <div class="audit-stage-counts" data-testid="audit-stage-counts">
+        <span class="counts-label">Last pass re-armed:</span>
+        @for (s of stageCounts(); track s.stage) {
+          <span class="count-chip">{{ s.stage }}: {{ s.count }}</span>
+        }
+      </div>
+    }
+
+    <div class="audit-footer">
+      @if (saved()) {
+        <span class="save-ok" role="status">Saved.</span>
+      }
+      <button
+        type="button"
+        class="btn-primary"
+        data-testid="audit-save"
+        [disabled]="saving()"
+        (click)="save()"
+      >
+        {{ saving() ? 'Saving…' : 'Save changes' }}
+      </button>
+    </div>
+  }
+</div>

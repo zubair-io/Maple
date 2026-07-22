@@ -168,6 +168,27 @@ describe('WorkersComponent', () => {
     for (const r of http.match('/api/folders')) r.flush([]);
     for (const r of http.match('/api/mirror/status')) r.flush({ queue: { pending: 0, dead: 0 } });
     for (const r of http.match((req) => req.url.includes('/api/photos/hidden'))) r.flush([]);
+    // Maintenance (derivative-audit) panel fetches its status on init.
+    for (const r of http.match('/api/derivative-audit/status'))
+      r.flush({
+        config: {
+          enabled: true,
+          interval_ms: 21_600_000,
+          max_resets_per_pass: 500,
+          concurrency: 8,
+          deep_r2_enabled: true,
+        },
+        progress: {
+          scanned: 0,
+          reArmed: 0,
+          byStage: {},
+          skippedCooldown: 0,
+          errors: 0,
+          startedAt: null,
+          finishedAt: null,
+          running: false,
+        },
+      });
     http.verify();
   });
 

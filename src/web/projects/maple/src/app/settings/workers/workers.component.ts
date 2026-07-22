@@ -52,6 +52,7 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { SettingsRowComponent } from '../settings-row.component';
 import { MirrorSettingsComponent } from './mirror-settings.component';
+import { DerivativeAuditSettingsComponent } from './derivative-audit-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import {
   FIXED_DESCRIBE_MODEL,
@@ -88,6 +89,7 @@ import {
     SettingsIconComponent,
     SettingsRowComponent,
     MirrorSettingsComponent,
+    DerivativeAuditSettingsComponent,
     FacePurgePanelComponent,
   ],
   templateUrl: './workers.component.html',
