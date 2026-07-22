@@ -87,6 +87,25 @@ export async function deleteThumbFromR2(
   }
 }
 
+/** HEAD a thumbnail object to check whether it currently exists in R2.
+ * `true` on 2xx, `false` on 404 (the object is genuinely absent). Any other
+ * non-2xx or a network failure throws — an ambiguous response must not be
+ * read as "absent" (which would wrongly re-arm cf-thumb-sync). `signal`
+ * bounds the request the same way the upload/delete paths do, since the
+ * derivative-audit worker HEADs many objects per pass. */
+export async function thumbExistsInR2(
+  config: ResolvedCloudflareConfig,
+  key: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const client = r2Client(config);
+  const res = await client.fetch(r2Endpoint(config, key), { method: 'HEAD', signal });
+  if (res.ok) return true;
+  if (res.status === 404) return false;
+  const body = await res.text().catch(() => '');
+  throw new Error(`R2 head failed (${res.status}): ${body.slice(0, 500)}`);
+}
+
 /** Round-trip a small object (PUT then DELETE) to validate a set of R2
  * credentials without leaving anything behind. Used by
  * `POST /api/cloudflare/test`. */
