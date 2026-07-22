@@ -8,26 +8,10 @@
  */
 
 import { beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-export async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+import { ObjectId, type Db, type MongoClient } from 'mongodb';
+// Reuse the shared workers-domain reach-test + connect ritual rather than
+// re-rolling it (keeps the clone detector + unused-export gate happy).
+import { MONGO_URI, tryConnect } from '../discover/_test-helpers.ts';
 
 export interface AuditMongo {
   readonly mongoReachable: boolean;
