@@ -68,6 +68,16 @@ describe('hasImageCapability', () => {
 		expect(hasImageCapability(url)).toBe(true);
 	});
 
+	it('rejects capability-shaped tokens outside image route families', () => {
+		const protocolRelativePath = new URL('https://maple.test//evil.example/collect');
+		protocolRelativePath.searchParams.set('token', capabilityToken());
+		expect(hasImageCapability(protocolRelativePath)).toBe(false);
+
+		const unrelatedPath = new URL('https://maple.test/api/assets');
+		unrelatedPath.searchParams.set('token', capabilityToken());
+		expect(hasImageCapability(unrelatedPath)).toBe(false);
+	});
+
 	it('rejects missing, short, and non-base64url query values', () => {
 		expect(hasImageCapability(new URL('https://maple.test/api/thumb/photos/a.jpg'))).toBe(false);
 		expect(
