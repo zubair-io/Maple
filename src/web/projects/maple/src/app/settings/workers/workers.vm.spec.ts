@@ -18,6 +18,7 @@ import {
   formatBytes,
   formatDate,
   groupStagesByPipeline,
+  isWhisperModelTier,
   parseClampedInt,
   pendingTitle,
   runtimeFormToPatch,
@@ -27,6 +28,13 @@ import {
   summarizeStages,
   throughputLabel,
 } from './workers.vm';
+
+describe('isWhisperModelTier', () => {
+  it('accepts only supported model tiers', () => {
+    expect(isWhisperModelTier('medium.en')).toBe(true);
+    expect(isWhisperModelTier('tampered-tier')).toBe(false);
+  });
+});
 
 // ── Fixture builders ───────────────────────────────────────────────────────
 
@@ -173,6 +181,7 @@ describe('blankEnrichment', () => {
       describe_model: 'qwen3-vl:8b',
       describe_system_prompt: '',
       describe_daily_cap_usd: 0,
+      transcribe_model_tier: 'small.en',
       face_worker_enabled: false,
       face_model_dir: '/tmp/models',
       face_detector_url: null,
@@ -186,6 +195,7 @@ describe('blankEnrichment', () => {
     };
     const form = blankEnrichment(ec);
     expect(form.nominatim_url).toBe('http://nom.local');
+    expect(form.transcribe_model_tier).toBe('small.en');
     expect(form.nominatim_rate_limit_per_sec).toBe('4');
     // describe_model is intentionally absent — the runtime hardcodes
     // qwen3-VL via FIXED_DESCRIBE_MODEL.

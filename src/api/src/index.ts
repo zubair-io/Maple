@@ -92,10 +92,8 @@ import { installMirrorQueueSink } from './workers/mirror/sink.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { libraryRoutes } from './routes/library/index.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from './enrichment/enrichment-config.repo.ts';
+import { loadEnrichmentConfig } from './enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from './enrichment/enrichment-config.resolve.ts';
 import {
   loadObservabilityConfig,
   resolveObservabilityConfig,

@@ -8,9 +8,9 @@ import {
   DEFAULT_DESCRIBE_MODELS,
   QWEN_VL_OLLAMA_TAG,
   loadEnrichmentConfig,
-  resolveEnrichmentConfig,
   saveEnrichmentConfig,
 } from './enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from './enrichment-config.resolve.ts';
 
 describe('QWEN_VL_OLLAMA_TAG — pinned literal', () => {
   // Hyphen vs no-hyphen burned us once (PR #182 follow-up) for the qwen2.5
