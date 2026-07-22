@@ -28,13 +28,7 @@ export type EnrichmentKind =
   | 'face-embed'
   | 'meili';
 
-export const WHISPER_MODEL_TIERS = [
-  'tiny.en',
-  'base.en',
-  'small.en',
-  'medium.en',
-  'large-v3',
-] as const;
+const WHISPER_MODEL_TIERS = ['tiny.en', 'base.en', 'small.en', 'medium.en', 'large-v3'] as const;
 export type WhisperModelTier = (typeof WHISPER_MODEL_TIERS)[number];
 
 export function isWhisperModelTier(value: string): value is WhisperModelTier {
