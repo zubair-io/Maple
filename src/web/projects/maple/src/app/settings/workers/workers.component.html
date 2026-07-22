@@ -807,6 +807,12 @@
     <div class="group-label">Backup</div>
     <maple-mirror-settings />
 
+    <!-- Maintenance — the derivative-audit self-heal worker: verifies each
+         asset's thumb/preview/description on disk + thumbnail in R2 and
+         re-arms the owning stage when a derivative has drifted. -->
+    <div class="group-label">Maintenance</div>
+    <maple-derivative-audit-settings />
+
     <!-- Import — its own pipeline group, rendered last (ticket #755). Rows
          expand in place to show src → library + the per-file list. -->
     <div class="group-label import-group">
