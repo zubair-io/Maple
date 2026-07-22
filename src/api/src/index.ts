@@ -350,11 +350,9 @@ async function start(): Promise<void> {
     );
   }
 
-  // Boot sequence runs in the background — don't block server start.
-  // Each phase is isolated: a failure (e.g. an IndexOptionsConflict during
-  // ensureIndexes, or a dup-key during a unique-index build) is logged
-  // and the next phase still runs. Only the DB connection itself is
-  // hard-required; without it, downstream phases are skipped.
+  // Boot sequence runs in the background — don't block server start. Each phase
+  // is isolated: a failure (e.g. an IndexOptionsConflict during ensureIndexes) is
+  // logged and the next phase still runs. Only the DB connection is hard-required.
   void (async () => {
     // RAW decode (thumb / preview / histogram) runs in isolated child
     // processes — see `ffi/ffi-pool.ts`. The dylib is `dlopen`'d inside each
