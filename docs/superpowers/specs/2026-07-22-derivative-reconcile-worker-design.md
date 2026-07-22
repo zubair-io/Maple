@@ -42,16 +42,18 @@ All five fields are required: a dead-lettered asset (`dead: true`) is excluded f
 
 ## Shape and placement
 
-The worker follows the `mirror/scan.ts` interval-loop pattern, not a pipeline stage — a stage marks an asset done and never revisits, whereas the reconciler's entire purpose is to re-check assets that already report "done."
+The worker follows the `mirror/scan.ts` interval-loop pattern, not a pipeline stage — a stage marks an asset done and never revisits, whereas the auditor's entire purpose is to re-check assets that already report "done."
 
-New directory `src/api/src/workers/reconcile/`:
+**Name:** the worker is named **`derivative-audit`** (directory `src/api/src/workers/derivative-audit/`, routes `/api/derivative-audit/*`). It is deliberately *not* called "reconcile" — the codebase already has a **mirror-reconcile** runner (`routes/mirror-reconcile-runner.ts`, `POST /api/mirror/reconcile`) for backup-disk replication, and a second "reconcile" on Settings → Workers would confuse operators.
 
-- `index.ts` — the interval loop, orchestration, per-pass cap, mount guard.
-- `checks.ts` — the four drift predicates.
-- `reset.ts` — the 5-field reset helpers and cooldown bookkeeping.
-- `types.ts` — shared types.
+New directory `src/api/src/workers/derivative-audit/`:
 
-Wired into `workers/orchestrator.ts` beside `startMirrorScan` via a `startReconcileScan()` export.
+- `scan.ts` — the interval loop (`startDerivativeAudit`), the single-pass driver (`runDerivativeAuditOnce`), per-pass cap, original-present guard.
+- `checks.ts` — the four drift predicates + skip-predicate guards.
+- `reset.ts` — the generalized 5-field stage reset + per-asset cooldown bookkeeping.
+- `progress.ts` — in-process last-pass summary for the status route.
+
+Booted from `workers/maintenance.ts` beside `startMirrorScan` (that is where the other library-wide interval jobs — trash-gc, missing-reaper, dedupe, mirror-scan — are started/stopped), via a `startDerivativeAudit()` export.
 
 ## The four checks
 
