@@ -36,4 +36,23 @@ describe('whisper models', () => {
     expect((await stat(first!)).size).toBe(3);
     expect(calls).toBe(1);
   });
+
+  it('rejects truncated downloads and cleans the temporary file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maple-whisper-'));
+    dirs.push(dir);
+    const fetchImpl = async (): Promise<Response> =>
+      new Response(new Uint8Array([1, 2]), { headers: { 'content-length': '3' } });
+    expect(await ensureWhisperModel('tiny.en', { dir, fetchImpl })).toBeNull();
+    await expect(stat(join(dir, 'ggml-tiny.en.bin'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('aborts a stalled download at the configured timeout', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maple-whisper-'));
+    dirs.push(dir);
+    const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    expect(await ensureWhisperModel('small.en', { dir, fetchImpl, timeoutMs: 5 })).toBeNull();
+  });
 });

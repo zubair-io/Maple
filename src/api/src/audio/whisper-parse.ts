@@ -22,7 +22,10 @@ interface RawSegment {
   text?: unknown;
 }
 
-export function parseWhisperJson(raw: string): TranscriptResult {
+function parseDocument(raw: string): {
+  result?: { language?: unknown };
+  transcription: RawSegment[];
+} {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -38,18 +41,26 @@ export function parseWhisperJson(raw: string): TranscriptResult {
   if (!Array.isArray(doc.transcription)) {
     throw new WhisperParseError('whisper output has no transcription array');
   }
-  const segments: TranscriptSegment[] = [];
-  for (const segment of doc.transcription as RawSegment[]) {
-    const text = typeof segment.text === 'string' ? segment.text.trim() : '';
-    if (!text) continue;
-    const from = Number(segment.offsets?.from ?? 0);
-    const to = Number(segment.offsets?.to ?? 0);
-    segments.push({
-      start: Number.isFinite(from) ? from / 1000 : 0,
-      end: Number.isFinite(to) ? to / 1000 : 0,
-      text,
-    });
-  }
+  return { result: doc.result, transcription: doc.transcription as RawSegment[] };
+}
+
+function parseSegment(segment: RawSegment): TranscriptSegment | null {
+  const text = typeof segment.text === 'string' ? segment.text.trim() : '';
+  if (!text) return null;
+  const from = Number(segment.offsets?.from ?? 0);
+  const to = Number(segment.offsets?.to ?? 0);
+  return {
+    start: Number.isFinite(from) ? from / 1000 : 0,
+    end: Number.isFinite(to) ? to / 1000 : 0,
+    text,
+  };
+}
+
+export function parseWhisperJson(raw: string): TranscriptResult {
+  const doc = parseDocument(raw);
+  const segments = doc.transcription
+    .map(parseSegment)
+    .filter((segment): segment is TranscriptSegment => segment !== null);
   return {
     text: segments.map((segment) => segment.text).join(' '),
     segments,

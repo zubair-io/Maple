@@ -26,10 +26,8 @@ import { CoordinateCache, quantizedKey } from '../enrichment/coordinate-cache.ts
 import { NominatimClient } from '../enrichment/nominatim-client.ts';
 import { parseNominatimResponse } from '../enrichment/place-parser.ts';
 import { backupLocationSegments } from './location-segments.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from '../enrichment/enrichment-config.repo.ts';
+import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 // Share the worker's handler version so ingest-written cache rows interoperate
 // with the async geocode worker's (same key, same version → no re-fetch).
 import { GEOCODE_HANDLER_VERSION } from '../workers/stages/geocode.ts';

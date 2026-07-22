@@ -32,11 +32,11 @@
  */
 
 import { child as childLogger } from '../log.ts';
+import { loadEnrichmentConfig } from './enrichment-config.repo.ts';
 import {
-  loadEnrichmentConfig,
   resolveEnrichmentConfig,
   type ResolvedEnrichmentConfig,
-} from './enrichment-config.repo.ts';
+} from './enrichment-config.resolve.ts';
 import { preloadFaceModelsOffThread } from './face-pool.ts';
 import { workerConfigCollection } from '../db/client.ts';
 

@@ -26,10 +26,12 @@ import {
   MIN_NOMINATIM_RATE_LIMIT_PER_SEC,
   asDescribeProvider,
   loadEnrichmentConfig,
-  resolveEnrichmentConfig,
   saveEnrichmentConfig,
-  type ResolvedEnrichmentConfig,
 } from '../enrichment/enrichment-config.repo.ts';
+import {
+  resolveEnrichmentConfig,
+  type ResolvedEnrichmentConfig,
+} from '../enrichment/enrichment-config.resolve.ts';
 import { applyEnrichmentConfig } from '../enrichment/bootstrap.ts';
 import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
 import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
@@ -443,13 +445,9 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
     '/test-meili',
     async ({ body, set }) => {
       const validated = validateHttpUrl(body.meilisearch_url);
-      if (validated === null) {
+      if (validated === null || (typeof validated === 'object' && 'error' in validated)) {
         set.status = 400;
-        return { ok: false, error: 'URL is empty' };
-      }
-      if (typeof validated === 'object' && 'error' in validated) {
-        set.status = 400;
-        return { ok: false, error: validated.error };
+        return { ok: false, error: validated === null ? 'URL is empty' : validated.error };
       }
       // Probe with the typed key when supplied; otherwise let
       // createMeilisearchClient read MAPLE_MEILISEARCH_API_KEY from env.

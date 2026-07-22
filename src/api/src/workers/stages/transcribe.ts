@@ -6,14 +6,20 @@ import { extractAudioWav, hasAudioStream } from '../../audio/extract-audio.ts';
 import { transcribeWav } from '../../audio/whisper-cli.ts';
 import { ensureWhisperModel, type WhisperTier } from '../../audio/whisper-model.ts';
 import type { TranscriptResult } from '../../audio/whisper-parse.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from '../../enrichment/enrichment-config.repo.ts';
+import { assetsCollection } from '../../db/client.ts';
+import type { TranscriptDoc } from '../../db/schema.ts';
+import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { isAudioFilename, isVideoFilename } from '../../indexer/media-types.ts';
-import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
+import {
+  defineStage,
+  runStage,
+  type ImageDoc,
+  type RunStageHandle,
+  type StageResult,
+} from '../run-stage.ts';
 
 interface TranscribeDeps {
   hasAudioStream: (path: string) => Promise<boolean>;
@@ -23,8 +29,13 @@ interface TranscribeDeps {
     modelPath: string,
     options?: { timeoutMs?: number; signal?: AbortSignal },
   ) => Promise<TranscriptResult | null>;
-  ensureWhisperModel: (tier: WhisperTier) => Promise<string | null>;
+  ensureWhisperModel: (
+    tier: WhisperTier,
+    options?: { signal?: AbortSignal },
+  ) => Promise<string | null>;
   wavByteLength: (path: string) => Promise<number>;
+  assertReadable: (path: string) => Promise<void>;
+  persistTranscript: (id: ImageDoc['_id'], transcript: TranscriptDoc) => Promise<void>;
   tier: WhisperTier;
 }
 
@@ -37,6 +48,10 @@ export function transcriptionTimeoutMs(wavBytes: number): number {
 }
 
 let injectedDeps: TranscribeDeps | null = null;
+
+function isTranscribableFilename(filename: string | undefined): boolean {
+  return filename !== undefined && (isVideoFilename(filename) || isAudioFilename(filename));
+}
 
 export function setTranscribeDepsForTests(deps: TranscribeDeps | null): void {
   injectedDeps = deps;
@@ -51,8 +66,62 @@ async function dependencies(): Promise<TranscribeDeps> {
     transcribeWav,
     ensureWhisperModel,
     wavByteLength: async (path) => (await stat(path)).size,
+    assertReadable: async (path) => void (await stat(path)),
+    persistTranscript: async (id, transcript) => {
+      await (
+        await assetsCollection()
+      ).updateOne(
+        { _id: id },
+        {
+          $set: {
+            transcript,
+            'stages.meili.version': 0,
+            'stages.meili.attempts': 0,
+            'stages.meili.last_error': null,
+            'stages.meili.processed_at': null,
+            'stages.meili.dead': false,
+          },
+        },
+      );
+    },
     tier: config.transcribe_model_tier,
   };
+}
+
+async function transcribeMedia(
+  image: ImageDoc,
+  absolutePath: string,
+  deps: TranscribeDeps,
+  signal: AbortSignal,
+): Promise<StageResult> {
+  const modelPath = await deps.ensureWhisperModel(deps.tier, { signal });
+  if (!modelPath) throw new Error('whisper model not available');
+
+  const wavPath = join(
+    tmpdir(),
+    `maple-transcribe-${process.pid}-${randomBytes(6).toString('hex')}.wav`,
+  );
+  try {
+    if (!(await deps.extractAudioWav(absolutePath, wavPath))) {
+      throw new Error('audio extraction failed');
+    }
+    const wavBytes = await deps.wavByteLength(wavPath);
+    const result = await deps.transcribeWav(wavPath, modelPath, {
+      signal,
+      timeoutMs: transcriptionTimeoutMs(wavBytes),
+    });
+    if (!result) throw new Error('transcription failed');
+    const transcript: TranscriptDoc = {
+      ...result,
+      model: deps.tier,
+      duration_sec: result.segments.at(-1)?.end ?? null,
+      generated_at: new Date().toISOString(),
+    };
+    await deps.persistTranscript(image._id, transcript);
+    return { wrote: true };
+  } finally {
+    await unlink(wavPath).catch(() => {});
+  }
 }
 
 const transcribeStage = defineStage({
@@ -69,49 +138,18 @@ const transcribeStage = defineStage({
   },
   handler: async (image, context): Promise<StageResult> => {
     const primary = assetPrimaryFileInfo(image);
-    if (!primary || !(isVideoFilename(primary.filename) || isAudioFilename(primary.filename))) {
+    if (!isTranscribableFilename(primary?.filename)) {
       return { skip: 'not-media' };
     }
     const absolutePath = assetAbsPath(image, await loadLibraryRoots());
     if (!absolutePath) return { skip: 'no-resolvable-location' };
 
     const deps = await dependencies();
+    await deps.assertReadable(absolutePath);
     if (!(await deps.hasAudioStream(absolutePath))) return { skip: 'no-audio' };
-    const modelPath = await deps.ensureWhisperModel(deps.tier);
-    if (!modelPath) throw new Error('whisper model not available');
-
-    const wavPath = join(
-      tmpdir(),
-      `maple-transcribe-${process.pid}-${randomBytes(6).toString('hex')}.wav`,
-    );
-    try {
-      if (!(await deps.extractAudioWav(absolutePath, wavPath))) {
-        throw new Error('audio extraction failed');
-      }
-      const wavBytes = await deps.wavByteLength(wavPath);
-      const result = await deps.transcribeWav(wavPath, modelPath, {
-        signal: context.signal,
-        timeoutMs: transcriptionTimeoutMs(wavBytes),
-      });
-      if (!result) throw new Error('transcription failed');
-      return {
-        patch: {
-          transcript: {
-            ...result,
-            model: deps.tier,
-            duration_sec: result.segments.at(-1)?.end ?? null,
-            generated_at: new Date().toISOString(),
-          },
-          'stages.meili.version': 0,
-          'stages.meili.attempts': 0,
-          'stages.meili.last_error': null,
-          'stages.meili.processed_at': null,
-          'stages.meili.dead': false,
-        },
-      };
-    } finally {
-      await unlink(wavPath).catch(() => {});
-    }
+    // Persist transcript + Meili re-arm atomically. Returning `wrote` lets
+    // the runner record this stage without accepting forbidden stage keys.
+    return transcribeMedia(image, absolutePath, deps, context.signal);
   },
 });
 

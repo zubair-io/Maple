@@ -14,16 +14,16 @@
  * Spec: `docs/indexer-enrichment.md` §4.2 (boot health check), §6 (wiring).
  */
 
-import { child as childLogger } from "../log.ts";
-import type { CircuitBreakerConfig } from "./circuit-breaker.ts";
-import { NominatimClient } from "./nominatim-client.ts";
+import { child as childLogger } from '../log.ts';
+import type { CircuitBreakerConfig } from './circuit-breaker.ts';
+import { NominatimClient } from './nominatim-client.ts';
+import { loadEnrichmentConfig } from './enrichment-config.repo.ts';
 import {
-  loadEnrichmentConfig,
   resolveEnrichmentConfig,
   type ResolvedEnrichmentConfig,
-} from "./enrichment-config.repo.ts";
+} from './enrichment-config.resolve.ts';
 
-const log = childLogger("geocode");
+const log = childLogger('geocode');
 
 export interface GeocodeBootstrapOptions {
   /** Override for tests. */
@@ -34,9 +34,7 @@ export interface GeocodeBootstrapOptions {
  * No-op stub. In Plan 3+, the geocode stage is started by the stage-controller
  * supervisor. Retained so `src/index.ts` compiles until Task 6 removes the call.
  */
-export async function startGeocodeWorker(
-  _opts: GeocodeBootstrapOptions = {},
-): Promise<null> {
+export async function startGeocodeWorker(_opts: GeocodeBootstrapOptions = {}): Promise<null> {
   const dbConfig = await loadEnrichmentConfig();
   const resolved = resolveEnrichmentConfig(dbConfig);
   if (resolved.geocode_worker_enabled && resolved.nominatim_url) {
@@ -44,9 +42,9 @@ export async function startGeocodeWorker(
       baseUrl: resolved.nominatim_url,
       rateLimitPerSec: resolved.nominatim_rate_limit_per_sec,
     });
-    log.info({ url: resolved.nominatim_url }, "checking Nominatim status");
+    log.info({ url: resolved.nominatim_url }, 'checking Nominatim status');
     await client.health();
-    log.info("Nominatim healthy");
+    log.info('Nominatim healthy');
   }
   return null;
 }
@@ -55,20 +53,18 @@ export async function startGeocodeWorker(
  * Re-apply enrichment config from the settings UI. Runs a Nominatim health
  * check when a URL is present so the UI can surface connectivity errors.
  */
-export async function applyEnrichmentConfig(
-  resolved: ResolvedEnrichmentConfig,
-): Promise<void> {
+export async function applyEnrichmentConfig(resolved: ResolvedEnrichmentConfig): Promise<void> {
   if (!resolved.geocode_worker_enabled || !resolved.nominatim_url) {
-    log.info("geocode worker disabled or no URL — skipping health check");
+    log.info('geocode worker disabled or no URL — skipping health check');
     return;
   }
   const client = new NominatimClient({
     baseUrl: resolved.nominatim_url,
     rateLimitPerSec: resolved.nominatim_rate_limit_per_sec,
   });
-  log.info({ url: resolved.nominatim_url }, "checking Nominatim status");
+  log.info({ url: resolved.nominatim_url }, 'checking Nominatim status');
   await client.health();
-  log.info("Nominatim healthy");
+  log.info('Nominatim healthy');
 }
 
 /** No-op stub — worker lifecycle is owned by the stage-controller runtime. */

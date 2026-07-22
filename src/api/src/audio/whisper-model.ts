@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream/promises';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('whisper-model');
+const MODEL_DOWNLOAD_TIMEOUT_MS = 60 * 60_000;
 export const WHISPER_TIERS = ['tiny.en', 'base.en', 'small.en', 'medium.en', 'large-v3'] as const;
 export type WhisperTier = (typeof WHISPER_TIERS)[number];
 export const DEFAULT_WHISPER_TIER: WhisperTier = 'medium.en';
@@ -26,7 +27,12 @@ export function whisperModelPath(tier: WhisperTier, dir = whisperModelDir()): st
 
 export async function ensureWhisperModel(
   tier: WhisperTier,
-  deps: { dir?: string; fetchImpl?: (url: string) => Promise<Response> } = {},
+  deps: {
+    dir?: string;
+    fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  } = {},
 ): Promise<string | null> {
   const dir = deps.dir ?? whisperModelDir();
   const destination = whisperModelPath(tier, dir);
@@ -34,9 +40,16 @@ export async function ensureWhisperModel(
   if (existing && existing.size > 0) return destination;
   await fs.mkdir(dir, { recursive: true });
   const temporary = `${destination}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`;
+  const controller = new AbortController();
+  const abort = (): void => controller.abort(deps.signal?.reason);
+  deps.signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new Error('model download timed out')),
+    deps.timeoutMs ?? MODEL_DOWNLOAD_TIMEOUT_MS,
+  );
   try {
     const url = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${tier}.bin`;
-    const response = await (deps.fetchImpl ?? fetch)(url);
+    const response = await (deps.fetchImpl ?? fetch)(url, { signal: controller.signal });
     if (!response.ok || !response.body) return null;
     const expectedBytes = Number(response.headers.get('content-length'));
     await pipeline(Readable.fromWeb(response.body as never), createWriteStream(temporary));
@@ -54,6 +67,8 @@ export async function ensureWhisperModel(
     log.warn({ tier, error }, 'whisper model download failed');
     return null;
   } finally {
+    clearTimeout(timer);
+    deps.signal?.removeEventListener('abort', abort);
     await fs.unlink(temporary).catch(() => {});
   }
 }

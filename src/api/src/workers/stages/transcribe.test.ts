@@ -26,6 +26,8 @@ function inject(overrides: Record<string, unknown> = {}): void {
     extractAudioWav: async () => true,
     ensureWhisperModel: async () => '/model.bin',
     wavByteLength: async () => 44,
+    assertReadable: async () => {},
+    persistTranscript: async () => {},
     transcribeWav: async () => ({
       text: 'hello there',
       language: 'en',
@@ -53,11 +55,21 @@ describe('transcribe stage', () => {
   });
 
   it('stores transcript and rearms search', async () => {
-    inject();
+    let stored: { text: string } | null = null;
+    inject({
+      persistTranscript: async (_id: unknown, transcript: { text: string }) =>
+        void (stored = transcript),
+    });
     const result = await transcribeStage.handler(asset('voice.m4a') as never, {} as never);
-    expect((result as { patch: Record<string, unknown> }).patch['stages.meili.version']).toBe(0);
-    expect((result as { patch: { transcript: { text: string } } }).patch.transcript.text).toBe(
-      'hello there',
+    expect(result).toEqual({ wrote: true });
+    expect(stored?.text).toBe('hello there');
+  });
+
+  it('propagates a real ENOENT before probing media', async () => {
+    const error = Object.assign(new Error('missing'), { code: 'ENOENT' });
+    inject({ assertReadable: async () => Promise.reject(error) });
+    await expect(transcribeStage.handler(asset('voice.m4a') as never, {} as never)).rejects.toBe(
+      error,
     );
   });
 });

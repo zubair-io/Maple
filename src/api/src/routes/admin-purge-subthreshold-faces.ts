@@ -38,10 +38,8 @@
 import { Elysia, t } from 'elysia';
 import type { Filter } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from '../enrichment/enrichment-config.repo.ts';
+import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { recomputePersonFaceCount } from '../people/people-face-count.repo.ts';
 import type { AssetDoc, AssetFaceDoc } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';

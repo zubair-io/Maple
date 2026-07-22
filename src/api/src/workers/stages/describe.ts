@@ -43,11 +43,11 @@ import {
 } from '../../enrichment/describe-providers/index.ts';
 import {
   loadEnrichmentConfig,
-  resolveEnrichmentConfig,
   DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
   QWEN_VL_OLLAMA_TAG,
 } from '../../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import {
   parseVisionJson,
   strippedRawFor,
