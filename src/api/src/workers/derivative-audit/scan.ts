@@ -54,9 +54,7 @@ export async function runDerivativeAuditOnce(
   const deps: AuditDeps = {
     statOrNull,
     ffmpegAvailable: () => ffmpegBinary().then((b) => b !== null),
-    thumbExistsInR2: r2Ready
-      ? (key) => thumbExistsInR2(cf, key, AbortSignal.timeout(5_000))
-      : null,
+    thumbExistsInR2: r2Ready ? (key) => thumbExistsInR2(cf, key, AbortSignal.timeout(5_000)) : null,
   };
 
   const cursor = coll.find(
@@ -146,10 +144,7 @@ export function startDerivativeAudit(): DerivativeAuditHandle {
     try {
       await runDerivativeAuditOnce();
     } catch (err) {
-      log.error(
-        { err: err instanceof Error ? err.message : err },
-        'derivative-audit pass crashed',
-      );
+      log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit pass crashed');
     } finally {
       inFlight = false;
     }

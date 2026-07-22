@@ -10,7 +10,7 @@ The `discover` sweeper (`src/api/src/workers/discover/sweeper.ts`) only reconcil
 
 Pipeline stages (`thumb`, `preview`, `describe`, `cf-thumb-sync`) each track completion per asset as `stages.<name>.version`. A stage's claim query selects only assets whose `version < targetVersion`, so once a stage marks an asset done it is never revisited.
 
-This produces an unhandled failure mode. When an original is **moved**, `discover` records the new path (a `renamed` event) but keeps `maple_id` and keeps every `stages.*.version` at "done." The derivative-path helpers then compute a `.maple/thumbs/<id>.avif` (and `.maple/previews/<name>.avif`) path under the *new* folder, where nothing exists — while the stage version still says "done," so the claim query never re-selects the asset and nothing regenerates. The stale derivatives under the old folder are cleaned up by the reaper / cache-gc, but nothing recreates them at the new location. The same move can leave a description empty: if the move broke the preview, `describe` ran, saw no preview, skipped with `{ skip: 'preview-missing' }`, and marked itself done with no `description`.
+This produces an unhandled failure mode. When an original is **moved**, `discover` records the new path (a `renamed` event) but keeps `maple_id` and keeps every `stages.*.version` at "done." The derivative-path helpers then compute a `.maple/thumbs/<id>.avif` (and `.maple/previews/<name>.avif`) path under the _new_ folder, where nothing exists — while the stage version still says "done," so the claim query never re-selects the asset and nothing regenerates. The stale derivatives under the old folder are cleaned up by the reaper / cache-gc, but nothing recreates them at the new location. The same move can leave a description empty: if the move broke the preview, `describe` ran, saw no preview, skipped with `{ skip: 'preview-missing' }`, and marked itself done with no `description`.
 
 The result: moved files show blank thumbnails/previews, may lack a description, and the thumbnail is not present in Cloudflare R2 at the new path-based key — with no mechanism to self-correct.
 
@@ -22,7 +22,7 @@ A background worker that continuously verifies each live asset's derivatives aga
 
 - No new upload stage. Cloudflare means the **existing** thumb→R2 sync (`cf-thumb-sync`). Previews are verified on local disk only; previews are never uploaded to R2.
 - No operator-triggered audit/apply UI. The worker self-heals continuously in the background (an operator-run audit report was considered and declined).
-- No deep byte-level validation of derivatives (decoding every AVIF each pass is too costly at scale). "Correct" means *exists and is non-zero size*.
+- No deep byte-level validation of derivatives (decoding every AVIF each pass is too costly at scale). "Correct" means _exists and is non-zero size_.
 
 ## Core mechanism: the 5-field stage reset
 
@@ -44,7 +44,7 @@ All five fields are required: a dead-lettered asset (`dead: true`) is excluded f
 
 The worker follows the `mirror/scan.ts` interval-loop pattern, not a pipeline stage — a stage marks an asset done and never revisits, whereas the auditor's entire purpose is to re-check assets that already report "done."
 
-**Name:** the worker is named **`derivative-audit`** (directory `src/api/src/workers/derivative-audit/`, routes `/api/derivative-audit/*`). It is deliberately *not* called "reconcile" — the codebase already has a **mirror-reconcile** runner (`routes/mirror-reconcile-runner.ts`, `POST /api/mirror/reconcile`) for backup-disk replication, and a second "reconcile" on Settings → Workers would confuse operators.
+**Name:** the worker is named **`derivative-audit`** (directory `src/api/src/workers/derivative-audit/`, routes `/api/derivative-audit/*`). It is deliberately _not_ called "reconcile" — the codebase already has a **mirror-reconcile** runner (`routes/mirror-reconcile-runner.ts`, `POST /api/mirror/reconcile`) for backup-disk replication, and a second "reconcile" on Settings → Workers would confuse operators.
 
 New directory `src/api/src/workers/derivative-audit/`:
 
@@ -59,18 +59,18 @@ Booted from `workers/maintenance.ts` beside `startMirrorScan` (that is where the
 
 Each check acts **only when the stage claims done** (`version >= targetVersion`) yet the output is missing — precisely the state the claim query cannot self-correct. Each check also passes the loop-protection guards (below) before issuing a reset.
 
-| Check | Drift signal | Reset | Cascade |
-| --- | --- | --- | --- |
-| Thumb | `resolveThumbPathForAsset(asset)` absent or 0 bytes | `thumb` | `thumb` success auto-resets `cf-thumb-sync`, which re-uploads |
-| Preview | `cachePathForAsset(asset, 'previews')` absent or 0 bytes | `preview` | — |
-| Description | `describe.version >= 7` **and** `description` empty/absent **and** a preview exists on disk | `describe` | — |
-| R2 (deep) | `thumbExistsInR2(key)` HEAD returns 404, local thumb present, asset **not hidden** | `cf-thumb-sync` | re-upload at the current path-based key |
+| Check       | Drift signal                                                                                | Reset           | Cascade                                                       |
+| ----------- | ------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------- |
+| Thumb       | `resolveThumbPathForAsset(asset)` absent or 0 bytes                                         | `thumb`         | `thumb` success auto-resets `cf-thumb-sync`, which re-uploads |
+| Preview     | `cachePathForAsset(asset, 'previews')` absent or 0 bytes                                    | `preview`       | —                                                             |
+| Description | `describe.version >= 7` **and** `description` empty/absent **and** a preview exists on disk | `describe`      | —                                                             |
+| R2 (deep)   | `thumbExistsInR2(key)` HEAD returns 404, local thumb present, asset **not hidden**          | `cf-thumb-sync` | re-upload at the current path-based key                       |
 
 The description is a database field, so it survives a move; it goes "missing" only via the `describe` skip path. Guarding on "a preview now exists on disk" ensures that resetting `describe` actually produces a description on the re-run rather than skipping again.
 
 ## Loop protection
 
-Several stages legitimately mark themselves done **without** writing a file: `thumb` and `preview` skip `stub-file`, `no-video-decoder`, and `no-resolvable-location`; `describe` skips `preview-missing`; `cf-thumb-sync` *deletes* the R2 object and clears `cf_thumb_synced_at` for **hidden** assets. If the reconciler reset one of these, the stage would re-run, skip again, mark done, and be reset again — an infinite loop that floods the pipeline. Two layers prevent this:
+Several stages legitimately mark themselves done **without** writing a file: `thumb` and `preview` skip `stub-file`, `no-video-decoder`, and `no-resolvable-location`; `describe` skips `preview-missing`; `cf-thumb-sync` _deletes_ the R2 object and clears `cf_thumb_synced_at` for **hidden** assets. If the reconciler reset one of these, the stage would re-run, skip again, mark done, and be reset again — an infinite loop that floods the pipeline. Two layers prevent this:
 
 1. **Replicate each stage's cheap skip predicates** before resetting: skip stub-files and unresolvable locations for thumb/preview, skip hidden assets for the R2 check, and skip cases where the derivative legitimately cannot exist (e.g. video with no decoder).
 2. **Bounded per-asset, per-check cooldown.** A small `reconcile.<check>` subdoc records `last_reset_at` and `attempts`. An asset+check is not reset again within a cooldown window or beyond N attempts. This backstops any imperfect predicate: a reset that does not "take" stops retrying and is optionally flagged for the operator instead of thrashing.
