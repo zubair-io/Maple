@@ -8,6 +8,15 @@ re-implemented here to match `src/api/src/cloudflare/thumb-key.ts` and
 `src/api/src/auth/tokens.ts` — keep the two in sync by hand if either
 changes.
 
+Sugar Maple image URLs use opaque, short-lived capabilities stored by the
+Maple API. The Worker recognizes their 32-byte base64url shape but does not
+treat that shape as authorization: capability requests bypass R2 and are
+streamed to the origin with the full query string for exact-path and expiry
+validation. Responses are forced to `private, no-store`. This prevents an
+expired or path-mismatched capability from receiving an already-cached R2
+object. Preview URLs are outside this Worker's `/api/thumb/*` route and go
+directly to the same origin validation.
+
 ## Prerequisites
 
 - **Node.js** (not Bun) for `npm test` / `npm run dev` — see below.

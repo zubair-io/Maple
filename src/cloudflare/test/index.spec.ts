@@ -7,6 +7,14 @@ const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 const SECRET = 'test-secret-not-for-production-only';
 
+function capabilityToken(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return btoa(String.fromCharCode(...bytes))
+		.replaceAll('+', '-')
+		.replaceAll('/', '_')
+		.replace(/=+$/, '');
+}
+
 async function bearerToken(): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 	return new SignJWT({ email: 'a@b.c', role: 'owner' })
@@ -25,6 +33,54 @@ beforeAll(() => {
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
 describe('thumbnail-cache Worker', () => {
+	it('proxies URL capabilities to the origin without reading or populating R2', async () => {
+		const capability = capabilityToken();
+		const bytes = new Uint8Array([7, 8, 9]);
+		await env.THUMBS_BUCKET.put('thumbs/main/capability.jpg', new Uint8Array([1, 2, 3]));
+		fetchMock
+			.get('https://origin.test')
+			.intercept({
+				path: `/api/thumb/main/capability.jpg?token=${capability}`,
+				method: 'GET',
+			})
+			.reply(200, bytes, {
+				headers: { 'content-type': 'image/avif', 'cache-control': 'public, max-age=31536000' },
+			});
+
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/capability.jpg?token=${capability}`,
+		);
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		expect(response.status).toBe(200);
+		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+		await waitOnExecutionContext(ctx);
+		const existing = await env.THUMBS_BUCKET.get('thumbs/main/capability.jpg');
+		expect(new Uint8Array(await existing!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+	});
+
+	it('passes an origin capability rejection through without caching it', async () => {
+		const capability = capabilityToken();
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: `/api/thumb/main/expired.jpg?token=${capability}`, method: 'GET' })
+			.reply(401, JSON.stringify({ error: 'unauthorized' }), {
+				headers: { 'content-type': 'application/json' },
+			});
+
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/expired.jpg?token=${capability}`,
+		);
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		expect(response.status).toBe(401);
+		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		await response.arrayBuffer();
+		await waitOnExecutionContext(ctx);
+		expect(await env.THUMBS_BUCKET.get('thumbs/main/expired.jpg')).toBeNull();
+	});
+
 	it('rejects a request with no Authorization header, without touching R2 or origin', async () => {
 		const request = new IncomingRequest('https://example.com/api/thumb/main/a.jpg');
 		const ctx = createExecutionContext();
