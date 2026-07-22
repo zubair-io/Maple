@@ -106,12 +106,25 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && cargo build --release -p raw-ffi \
  && cp target/release/libraw_ffi.so /libraw_ffi.so
 
+# CPU-only speech-to-text runtime. Model weights download on first use.
+FROM debian:bookworm-slim AS whisper-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git build-essential cmake ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+ARG WHISPER_CPP_TAG=v1.7.4
+RUN git clone --depth 1 --branch "${WHISPER_CPP_TAG}" https://github.com/ggerganov/whisper.cpp /src \
+ && cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON \
+ && cmake --build /src/build -j --target whisper-cli \
+ && cp /src/build/bin/whisper-cli /whisper-cli
+
 # ---------------------------------------------------------------------------
 # Stage 3: runtime image — Bun server + UI bundle + native FFI.
 # ---------------------------------------------------------------------------
 FROM oven/bun:1.3-slim AS runtime
 
 WORKDIR /app
+
+COPY --from=whisper-builder /whisper-cli /usr/local/bin/whisper-cli
 
 # curl is needed for HEALTHCHECK; unzip is needed by the face worker's
 # zero-config buffalo_s bootstrap (src/api/src/enrichment/face-models.ts).

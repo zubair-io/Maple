@@ -20,7 +20,13 @@ export const ERROR_POLL_MS = 5_000;
 // ── Stage metadata ────────────────────────────────────────────────────────
 
 export type StageGroup = 'Ingest' | 'Enrich' | 'Index';
-export type EnrichmentKind = 'describe' | 'geocode' | 'face-detect' | 'face-embed' | 'meili';
+export type EnrichmentKind =
+  | 'describe'
+  | 'transcribe'
+  | 'geocode'
+  | 'face-detect'
+  | 'face-embed'
+  | 'meili';
 
 export interface StageMeta {
   readonly id: string;
@@ -71,6 +77,13 @@ export const STAGE_META: Record<string, StageMeta> = {
     enrichment: 'describe',
     description:
       'Local vision-LLM via Ollama. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text.',
+  },
+  transcribe: {
+    id: 'transcribe',
+    group: 'Enrich',
+    icon: 'sparkle',
+    enrichment: 'transcribe',
+    description: 'Transcribes speech in video and audio files with whisper.cpp on the CPU.',
   },
   geocode: {
     id: 'geocode',
@@ -158,6 +171,7 @@ export interface EnrichmentForm {
   // hardcodes qwen3-VL (see FIXED_DESCRIBE_MODEL below), so the UI
   // displays it read-only and never sends it.
   describe_provider_url: string;
+  transcribe_model_tier: string;
   // Geocode
   nominatim_url: string;
   nominatim_rate_limit_per_sec: string;
@@ -217,6 +231,7 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
 export function blankEnrichment(ec: EnrichmentConfigResponse | null): EnrichmentForm {
   return {
     describe_provider_url: ec?.describe_provider_url ?? '',
+    transcribe_model_tier: ec?.transcribe_model_tier ?? 'medium.en',
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
     face_model_dir: ec?.face_model_dir ?? '',

@@ -313,6 +313,9 @@
                     @case ('describe') {
                       Describe worker
                     }
+                    @case ('transcribe') {
+                      Transcription
+                    }
                     @case ('geocode') {
                       Geocode worker
                     }
@@ -329,6 +332,26 @@
                 </div>
 
                 @switch (meta(s).enrichment) {
+                  @case ('transcribe') {
+                    <div class="field">
+                      <div class="field-label">Whisper model</div>
+                      <select
+                        [value]="enrichmentValue(s, 'transcribe_model_tier')"
+                        (change)="
+                          setEnrichment(s, 'transcribe_model_tier', $any($event.target).value)
+                        "
+                      >
+                        <option value="tiny.en">tiny.en (fastest)</option>
+                        <option value="base.en">base.en (fast)</option>
+                        <option value="small.en">small.en (balanced)</option>
+                        <option value="medium.en">medium.en (best English, default)</option>
+                        <option value="large-v3">large-v3 (highest quality, slowest)</option>
+                      </select>
+                      <div class="field-hint">
+                        Applies to new transcriptions. The model downloads on first use.
+                      </div>
+                    </div>
+                  }
                   @case ('describe') {
                     <div class="grid-2col">
                       <div class="field field-wide">

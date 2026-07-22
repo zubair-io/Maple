@@ -478,6 +478,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
     };
     if (kind === 'describe') {
       body.describe_provider_url = form.describe_provider_url.trim() || null;
+    } else if (kind === 'transcribe') {
+      body.transcribe_model_tier = form.transcribe_model_tier as
+        | 'tiny.en'
+        | 'base.en'
+        | 'small.en'
+        | 'medium.en'
+        | 'large-v3';
     } else if (kind === 'geocode') {
       body.nominatim_url = form.nominatim_url.trim() || null;
       const rate = Number(form.nominatim_rate_limit_per_sec.trim());
