@@ -12,12 +12,8 @@ import {
   loadDerivativeAuditConfig,
   saveDerivativeAuditConfig,
 } from '../workers/derivative-audit/config.repo.ts';
-import { runDerivativeAuditOnce } from '../workers/derivative-audit/scan.ts';
+import { startAuditPass } from '../workers/derivative-audit/scan.ts';
 import { getDerivativeAuditProgress } from '../workers/derivative-audit/progress.ts';
-
-// Guards the operator "Run now" action against overlapping manual kicks (the
-// interval loop has its own in-flight guard).
-let runInFlight = false;
 
 export const derivativeAuditRoutes = new Elysia()
   .get('/api/derivative-audit/status', async () => ({
@@ -40,11 +36,6 @@ export const derivativeAuditRoutes = new Elysia()
       }),
     },
   )
-  .post('/api/derivative-audit/run', () => {
-    if (runInFlight) return { started: false, reason: 'already-running' };
-    runInFlight = true;
-    void runDerivativeAuditOnce().finally(() => {
-      runInFlight = false;
-    });
-    return { started: true };
-  });
+  // Kick a pass now. Shares the worker's single-flight lock, so this can never
+  // start a second pass concurrent with a scheduled/boot run.
+  .post('/api/derivative-audit/run', () => startAuditPass());
