@@ -46,10 +46,12 @@
 ### Task 1: `thumbExistsInR2` — R2 HEAD probe
 
 **Files:**
+
 - Modify: `src/api/src/cloudflare/r2-client.ts` (add one exported function next to `deleteThumbFromR2`)
 - Test: `src/api/src/cloudflare/r2-client.test.ts` (create)
 
 **Interfaces:**
+
 - Produces: `export async function thumbExistsInR2(config: ResolvedCloudflareConfig, key: string, signal?: AbortSignal): Promise<boolean>` — `true` on 2xx, `false` on 404, throws on any other non-2xx or network error.
 
 - [ ] **Step 1: Write the failing test.** The R2 client signs with `aws4fetch` and calls `client.fetch`. Stub `globalThis.fetch` so we assert method + return mapping without network. Create `src/api/src/cloudflare/r2-client.test.ts`:
@@ -132,10 +134,12 @@ git commit -m "feat(api): add thumbExistsInR2 R2 HEAD probe (#2156)"
 ### Task 2: `derivative-audit-config.repo.ts` — DB-backed settings
 
 **Files:**
+
 - Create: `src/api/src/workers/derivative-audit/config.repo.ts`
 - Test: `src/api/src/workers/derivative-audit/config.repo.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `interface DerivativeAuditConfig { enabled: boolean; interval_ms: number; max_resets_per_pass: number; concurrency: number; deep_r2_enabled: boolean; updated_at?: number }`
   - `const DEFAULT_DERIVATIVE_AUDIT_CONFIG: DerivativeAuditConfig` — `{ enabled: true, interval_ms: 21_600_000, max_resets_per_pass: 500, concurrency: 8, deep_r2_enabled: true }`
@@ -156,9 +160,15 @@ import {
 } from './config.repo.ts';
 
 let mongo: TestMongo;
-beforeAll(async () => { mongo = await withTestMongo(); });
-afterAll(async () => { await mongo.stop(); });
-beforeEach(async () => { await mongo.db.collection('app_settings').deleteMany({}); });
+beforeAll(async () => {
+  mongo = await withTestMongo();
+});
+afterAll(async () => {
+  await mongo.stop();
+});
+beforeEach(async () => {
+  await mongo.db.collection('app_settings').deleteMany({});
+});
 
 describe('derivative-audit config repo', () => {
   it('returns defaults when no doc exists', async () => {
@@ -238,7 +248,13 @@ export async function saveDerivativeAuditConfig(
 ): Promise<void> {
   const db = await getDb();
   const set: Record<string, unknown> = { 'config.updated_at': Date.now() };
-  for (const k of ['enabled', 'interval_ms', 'max_resets_per_pass', 'concurrency', 'deep_r2_enabled'] as const) {
+  for (const k of [
+    'enabled',
+    'interval_ms',
+    'max_resets_per_pass',
+    'concurrency',
+    'deep_r2_enabled',
+  ] as const) {
     if (patch[k] !== undefined) set[`config.${k}`] = patch[k];
   }
   await db
@@ -261,11 +277,13 @@ git commit -m "feat(api): DB-backed config for derivative-audit worker (#2156)"
 ### Task 3: Schema field + reset/cooldown helper (`reset.ts`)
 
 **Files:**
+
 - Modify: `src/api/src/db/schema.ts` (add one optional field to `AssetDoc`)
 - Create: `src/api/src/workers/derivative-audit/reset.ts`
 - Test: `src/api/src/workers/derivative-audit/reset.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - Schema: `derivative_audit?: Record<string, DerivativeAuditStageMark> | null` on `AssetDoc`, with `interface DerivativeAuditStageMark { attempts: number; last_reset_at: string }` exported from schema.
   - `const AUDIT_MAX_ATTEMPTS = 3` (cooldown ceiling).
@@ -378,16 +396,19 @@ git commit -m "feat(api): audit reset helper + derivative_audit cooldown field (
 ### Task 4: Drift checks (`checks.ts`)
 
 **Files:**
+
 - Create: `src/api/src/workers/derivative-audit/checks.ts`
 - Test: `src/api/src/workers/derivative-audit/checks.test.ts`
 
 **Interfaces:**
+
 - Consumes: `statOrNull` (mirror/replicate), the path helpers, `thumbExistsInR2` (Task 1), stage facts.
 - Produces:
   - `interface AuditDeps { statOrNull(p: string): Promise<import('node:fs').Stats | null>; ffmpegAvailable(): Promise<boolean>; thumbExistsInR2(key: string): Promise<boolean> | null }` — `thumbExistsInR2` returns `null` when the deep R2 check is disabled/unconfigured (so the check is skipped).
   - `async function evaluateAsset(image: ImageDoc, libs: ReadonlyMap<string,string>, idToSlug: ReadonlyMap<string,string>, deps: AuditDeps): Promise<string[]>` — returns the list of stage names to re-arm (subset of `['thumb','preview','describe','cf-thumb-sync']`). Empty when nothing has drifted. Skips everything (returns `[]`) if the original file is not on disk.
 
 Check logic (each only fires when the stage claims done, i.e. `version >= targetVersion`):
+
 - **original guard:** `assetAbsPath(image, libs)` → if null or `statOrNull` is null, return `[]` (a moved/vanished original is the discover/missing-reaper path, not ours).
 - **thumb:** `stages.thumb.version >= 3` AND not `isUndecodableFilename` AND (not video OR ffmpeg available) AND `resolveThumbPathForAsset` resolves AND its `statOrNull` is null → `'thumb'`.
 - **preview:** `stages.preview.version >= 4` AND not `isUndecodableFilename` AND (not video OR ffmpeg available) AND `cachePathForAsset(...,'previews',PREVIEW_CACHE_SUFFIX)` resolves AND its `statOrNull` is null → `'preview'`.
@@ -406,7 +427,13 @@ import { ObjectId } from 'mongodb';
 import { evaluateAsset, type AuditDeps } from './checks.ts';
 import type { ImageDoc } from '../run-stage.ts';
 
-const statOrNull = async (p: string) => { try { return await stat(p); } catch { return null; } };
+const statOrNull = async (p: string) => {
+  try {
+    return await stat(p);
+  } catch {
+    return null;
+  }
+};
 let root: string;
 const LIB = new ObjectId();
 const libs = new Map<string, string>();
@@ -417,19 +444,32 @@ beforeAll(async () => {
   libs.set(LIB.toHexString(), root);
   slugs.set(LIB.toHexString(), 'lib');
 });
-afterAll(async () => { await rm(root, { recursive: true, force: true }); });
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true });
+});
 
 function makeAsset(over: Partial<ImageDoc> = {}): ImageDoc {
   return {
     _id: new ObjectId(),
     maple_id: 'abc123',
     fileinfo: [{ library_id: LIB, path: 'a/b', filename: 'p.dng' }],
-    size: 1, mtime: 1, rating: 0, flag: 0, color_label: '', indexed_at: '',
+    size: 1,
+    mtime: 1,
+    rating: 0,
+    flag: 0,
+    color_label: '',
+    indexed_at: '',
     stages: {
       thumb: { version: 3, attempts: 0, last_error: null, processed_at: null, dead: false },
       preview: { version: 4, attempts: 0, last_error: null, processed_at: null, dead: false },
       describe: { version: 7, attempts: 0, last_error: null, processed_at: null, dead: false },
-      'cf-thumb-sync': { version: 1, attempts: 0, last_error: null, processed_at: null, dead: false },
+      'cf-thumb-sync': {
+        version: 1,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
     },
     description: 'a cat',
     ...over,
@@ -470,29 +510,41 @@ describe('evaluateAsset', () => {
   });
 
   it('re-arms nothing when both derivatives are present and description set', async () => {
-    await writeOriginal(); await writeThumb(); await writePreview();
+    await writeOriginal();
+    await writeThumb();
+    await writePreview();
     expect(await evaluateAsset(makeAsset(), libs, slugs, deps())).toEqual([]);
   });
 
   it('re-arms describe when description is empty but a preview exists', async () => {
-    await writeOriginal(); await writeThumb(); await writePreview();
+    await writeOriginal();
+    await writeThumb();
+    await writePreview();
     const res = await evaluateAsset(makeAsset({ description: '' }), libs, slugs, deps());
     expect(res).toEqual(['describe']);
   });
 
   it('does NOT re-arm cf-thumb-sync for a hidden asset even if R2 says absent', async () => {
-    await writeOriginal(); await writeThumb(); await writePreview();
+    await writeOriginal();
+    await writeThumb();
+    await writePreview();
     const res = await evaluateAsset(
-      makeAsset({ hidden: true }), libs, slugs,
+      makeAsset({ hidden: true }),
+      libs,
+      slugs,
       deps({ thumbExistsInR2: async () => false }),
     );
     expect(res).toEqual([]);
   });
 
   it('re-arms cf-thumb-sync when the thumb exists locally but is absent in R2', async () => {
-    await writeOriginal(); await writeThumb(); await writePreview();
+    await writeOriginal();
+    await writeThumb();
+    await writePreview();
     const res = await evaluateAsset(
-      makeAsset(), libs, slugs,
+      makeAsset(),
+      libs,
+      slugs,
       deps({ thumbExistsInR2: async () => false }),
     );
     expect(res).toEqual(['cf-thumb-sync']);
@@ -564,16 +616,19 @@ export async function evaluateAsset(
   const expectPixels = await pixelDerivativeExpected(image, deps);
 
   const thumbPath = resolveThumbPathForAsset(image, libs);
-  const thumbPresent =
-    thumbPath !== null && (await deps.statOrNull(thumbPath)) !== null;
+  const thumbPresent = thumbPath !== null && (await deps.statOrNull(thumbPath)) !== null;
   if (expectPixels && stageVersion(image, 'thumb') >= THUMB_TARGET && thumbPath && !thumbPresent) {
     resets.push('thumb');
   }
 
   const previewPath = cachePathForAsset(image, libs, 'previews', PREVIEW_CACHE_SUFFIX);
-  const previewPresent =
-    previewPath !== null && (await deps.statOrNull(previewPath)) !== null;
-  if (expectPixels && stageVersion(image, 'preview') >= PREVIEW_TARGET && previewPath && !previewPresent) {
+  const previewPresent = previewPath !== null && (await deps.statOrNull(previewPath)) !== null;
+  if (
+    expectPixels &&
+    stageVersion(image, 'preview') >= PREVIEW_TARGET &&
+    previewPath &&
+    !previewPresent
+  ) {
     resets.push('preview');
   }
 
@@ -623,12 +678,14 @@ git commit -m "feat(api): derivative-audit drift checks (#2156)"
 ### Task 5: The audit pass + interval loop (`scan.ts`) + progress
 
 **Files:**
+
 - Create: `src/api/src/test-helpers/mongo.ts` (shared throwaway-mongo harness, if not already present)
 - Create: `src/api/src/workers/derivative-audit/progress.ts`
 - Create: `src/api/src/workers/derivative-audit/scan.ts`
 - Test: `src/api/src/workers/derivative-audit/scan.test.ts`
 
 **Interfaces:**
+
 - Produces (progress.ts):
   - `interface DerivativeAuditSummary { scanned: number; reArmed: number; byStage: Record<string, number>; skippedCooldown: number; errors: number; startedAt: string | null; finishedAt: string | null; running: boolean }`
   - `function getDerivativeAuditProgress(): DerivativeAuditSummary`
@@ -641,6 +698,7 @@ git commit -m "feat(api): derivative-audit drift checks (#2156)"
 Claim query (assets that could have drifted): `{ ...liveFileInfoElemMatch(), 'damaged.since': { $not: { $type: 'string' } } }`. (No `stages.*` predicate — a drifted asset looks "done", so the per-stage version gate lives inside `evaluateAsset`.)
 
 Cooldown application inside the pass, per drifted stage `s`:
+
 - read `image.derivative_audit?.[s]?.attempts ?? 0`; if `>= AUDIT_MAX_ATTEMPTS`, count `skippedCooldown` and do not reset.
 - else add `buildStageReset(s)` to the `$set` and set `` `${auditMarkKey(s)}` `` to `{ attempts: prev+1, last_reset_at: nowIso }`.
 - For every stage in `['thumb','preview','describe','cf-thumb-sync']` NOT in the drift list but which currently has a `derivative_audit.<s>` mark, `$unset` that mark (drift resolved).
@@ -671,8 +729,13 @@ beforeAll(async () => {
   // the field names — {_id, path, slug} — against foldersCollection docs).
   await mongo.db.collection('folders').insertOne({ _id: LIB, path: root, slug: 'lib' });
 });
-afterAll(async () => { await mongo.stop(); await rm(root, { recursive: true, force: true }); });
-beforeEach(async () => { await mongo.db.collection('assets').deleteMany({}); });
+afterAll(async () => {
+  await mongo.stop();
+  await rm(root, { recursive: true, force: true });
+});
+beforeEach(async () => {
+  await mongo.db.collection('assets').deleteMany({});
+});
 
 async function seedMovedAsset() {
   // Original present at its (new) path; NO .maple derivatives there — the
@@ -684,13 +747,24 @@ async function seedMovedAsset() {
     maple_id: 'deadbeef',
     fileinfo: [{ library_id: LIB, path: 'y2024', filename: 'p.dng' }],
     live_location_count: 1,
-    size: 3, mtime: 1, rating: 0, flag: 0, color_label: '', indexed_at: '',
+    size: 3,
+    mtime: 1,
+    rating: 0,
+    flag: 0,
+    color_label: '',
+    indexed_at: '',
     description: 'a photo',
     stages: {
       thumb: { version: 3, attempts: 0, last_error: null, processed_at: null, dead: false },
       preview: { version: 4, attempts: 0, last_error: null, processed_at: null, dead: false },
       describe: { version: 7, attempts: 0, last_error: null, processed_at: null, dead: false },
-      'cf-thumb-sync': { version: 1, attempts: 0, last_error: null, processed_at: null, dead: false },
+      'cf-thumb-sync': {
+        version: 1,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
     },
   });
 }
@@ -714,10 +788,12 @@ describe('runDerivativeAuditOnce', () => {
     for (let i = 0; i < 4; i++) {
       // stage never regenerates in this test (no real workers running), so the
       // drift persists — the auditor must stop after the ceiling.
-      await mongo.db.collection('assets').updateOne(
-        { maple_id: 'deadbeef' },
-        { $set: { 'stages.thumb.version': 3, 'stages.preview.version': 4 } },
-      );
+      await mongo.db
+        .collection('assets')
+        .updateOne(
+          { maple_id: 'deadbeef' },
+          { $set: { 'stages.thumb.version': 3, 'stages.preview.version': 4 } },
+        );
       await runDerivativeAuditOnce({ deep_r2_enabled: false });
     }
     const doc = await mongo.db.collection('assets').findOne({ maple_id: 'deadbeef' });
@@ -726,7 +802,10 @@ describe('runDerivativeAuditOnce', () => {
 
   it('honors max_resets_per_pass', async () => {
     await seedMovedAsset();
-    const summary = await runDerivativeAuditOnce({ deep_r2_enabled: false, max_resets_per_pass: 1 });
+    const summary = await runDerivativeAuditOnce({
+      deep_r2_enabled: false,
+      max_resets_per_pass: 1,
+    });
     expect(summary.reArmed).toBe(1); // stopped after one stage reset
   });
 });
@@ -740,7 +819,16 @@ export type { DerivativeAuditSummary } from './types.ts';
 
 let current: DerivativeAuditSummary = emptySummary();
 export function emptySummary(): DerivativeAuditSummary {
-  return { scanned: 0, reArmed: 0, byStage: {}, skippedCooldown: 0, errors: 0, startedAt: null, finishedAt: null, running: false };
+  return {
+    scanned: 0,
+    reArmed: 0,
+    byStage: {},
+    skippedCooldown: 0,
+    errors: 0,
+    startedAt: null,
+    finishedAt: null,
+    running: false,
+  };
 }
 export function getDerivativeAuditProgress(): DerivativeAuditSummary {
   return current;
@@ -761,14 +849,18 @@ import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.c
 import { statOrNull } from '../mirror/replicate.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import {
-  loadCloudflareConfig, resolveCloudflareConfig, isCloudflareConfigComplete,
+  loadCloudflareConfig,
+  resolveCloudflareConfig,
+  isCloudflareConfigComplete,
 } from '../../cloudflare/cloudflare-config.repo.ts';
 import { thumbExistsInR2 } from '../../cloudflare/r2-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { evaluateAsset, type AuditDeps } from './checks.ts';
 import { buildStageReset, auditMarkKey, AUDIT_MAX_ATTEMPTS } from './reset.ts';
 import {
-  DEFAULT_DERIVATIVE_AUDIT_CONFIG, loadDerivativeAuditConfig, type DerivativeAuditConfig,
+  DEFAULT_DERIVATIVE_AUDIT_CONFIG,
+  loadDerivativeAuditConfig,
+  type DerivativeAuditConfig,
 } from './config.repo.ts';
 import { emptySummary, setDerivativeAuditProgress } from './progress.ts';
 import type { DerivativeAuditSummary } from './types.ts';
@@ -796,14 +888,21 @@ export async function runDerivativeAuditOnce(
   const deps: AuditDeps = {
     statOrNull,
     ffmpegAvailable: () => ffmpegBinary().then((b) => b !== null),
-    thumbExistsInR2: r2Ready
-      ? (key) => thumbExistsInR2(cf, key, AbortSignal.timeout(5_000))
-      : null,
+    thumbExistsInR2: r2Ready ? (key) => thumbExistsInR2(cf, key, AbortSignal.timeout(5_000)) : null,
   };
 
   const cursor = coll.find(
     { ...liveFileInfoElemMatch(), 'damaged.since': { $not: { $type: 'string' } } },
-    { projection: { fileinfo: 1, maple_id: 1, stages: 1, description: 1, hidden: 1, derivative_audit: 1 } },
+    {
+      projection: {
+        fileinfo: 1,
+        maple_id: 1,
+        stages: 1,
+        description: 1,
+        hidden: 1,
+        derivative_audit: 1,
+      },
+    },
   );
 
   let chunk: ImageDoc[] = [];
@@ -822,7 +921,10 @@ export async function runDerivativeAuditOnce(
       for (const s of drifted) {
         if (summary.reArmed >= cfg.max_resets_per_pass) break;
         const prev = doc.derivative_audit?.[s]?.attempts ?? 0;
-        if (prev >= AUDIT_MAX_ATTEMPTS) { summary.skippedCooldown++; continue; }
+        if (prev >= AUDIT_MAX_ATTEMPTS) {
+          summary.skippedCooldown++;
+          continue;
+        }
         Object.assign(set, buildStageReset(s));
         set[auditMarkKey(s)] = { attempts: prev + 1, last_reset_at: nowIso };
         summary.reArmed++;
@@ -856,7 +958,9 @@ export async function runDerivativeAuditOnce(
   return summary;
 }
 
-export interface DerivativeAuditHandle { stop(): void; }
+export interface DerivativeAuditHandle {
+  stop(): void;
+}
 
 export function startDerivativeAudit(): DerivativeAuditHandle {
   let stopped = false;
@@ -867,16 +971,25 @@ export function startDerivativeAudit(): DerivativeAuditHandle {
     const cfg = await loadDerivativeAuditConfig();
     if (!cfg.enabled) return;
     inFlight = true;
-    try { await runDerivativeAuditOnce(); }
-    catch (err) { log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit pass crashed'); }
-    finally { inFlight = false; }
+    try {
+      await runDerivativeAuditOnce();
+    } catch (err) {
+      log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit pass crashed');
+    } finally {
+      inFlight = false;
+    }
   };
   // Re-read cadence each boot; interval uses the default (config changes to the
   // interval take effect on next restart — matching mirror-scan's fixed timer).
   timer = setInterval(() => void tick(), DEFAULT_DERIVATIVE_AUDIT_CONFIG.interval_ms);
   timer.unref?.();
   void tick();
-  return { stop: () => { stopped = true; if (timer) clearInterval(timer); } };
+  return {
+    stop: () => {
+      stopped = true;
+      if (timer) clearInterval(timer);
+    },
+  };
 }
 ```
 
@@ -896,9 +1009,11 @@ git commit -m "feat(api): derivative-audit pass + interval loop (#2156)"
 ### Task 6: Boot the worker in maintenance
 
 **Files:**
+
 - Modify: `src/api/src/workers/maintenance.ts`
 
 **Interfaces:**
+
 - Consumes: `startDerivativeAudit`, `DerivativeAuditHandle` from `./derivative-audit/scan.ts`.
 
 - [ ] **Step 1: Add the import + handle.** In `maintenance.ts`, add near the other imports:
@@ -916,18 +1031,18 @@ let derivativeAudit: DerivativeAuditHandle | null = null;
 - [ ] **Step 2: Start it in `startMaintenanceJobs()`** after the mirror block:
 
 ```ts
-  // Derivative-audit: verify each asset's thumb/preview/description on disk and
-  // its thumbnail in R2; re-arm the owning stage when a derivative has drifted
-  // (most often after a move left the .maple cache behind). Self-gates on its
-  // own `enabled` config each tick.
-  if (!derivativeAudit) derivativeAudit = startDerivativeAudit();
+// Derivative-audit: verify each asset's thumb/preview/description on disk and
+// its thumbnail in R2; re-arm the owning stage when a derivative has drifted
+// (most often after a move left the .maple cache behind). Self-gates on its
+// own `enabled` config each tick.
+if (!derivativeAudit) derivativeAudit = startDerivativeAudit();
 ```
 
 - [ ] **Step 3: Stop it in `stopMaintenanceJobs()`** beside `mirrorScan`:
 
 ```ts
-  derivativeAudit?.stop();
-  derivativeAudit = null;
+derivativeAudit?.stop();
+derivativeAudit = null;
 ```
 
 - [ ] **Step 4: Verify the module still type-loads.** Run: `cd src/api && bun test src/workers/derivative-audit/scan.test.ts` (unchanged pass) and `cd src/api && bunx tsc --noEmit 2>&1 | grep -c "maintenance.ts"` — expected `0`.
@@ -944,11 +1059,13 @@ git commit -m "feat(api): boot derivative-audit worker in maintenance jobs (#215
 ### Task 7: Status + config + run-now route
 
 **Files:**
+
 - Create: `src/api/src/routes/derivative-audit.ts`
 - Modify: `src/api/src/index.ts` (mount the route behind `requireAuth`, beside `mirrorRoutes`)
 - Test: `src/api/src/routes/derivative-audit.test.ts`
 
 **Interfaces:**
+
 - Produces (Elysia):
   - `GET  /api/derivative-audit/status` → `{ config: DerivativeAuditConfig; progress: DerivativeAuditSummary }`
   - `PUT  /api/derivative-audit/config` (body: partial config, validated) → `{ ok: true; config }`
@@ -963,9 +1080,15 @@ import { withTestMongo, type TestMongo } from '../test-helpers/mongo.ts';
 import { derivativeAuditRoutes } from './derivative-audit.ts';
 
 let mongo: TestMongo;
-beforeAll(async () => { mongo = await withTestMongo(); });
-afterAll(async () => { await mongo.stop(); });
-beforeEach(async () => { await mongo.db.collection('app_settings').deleteMany({}); });
+beforeAll(async () => {
+  mongo = await withTestMongo();
+});
+afterAll(async () => {
+  await mongo.stop();
+});
+beforeEach(async () => {
+  await mongo.db.collection('app_settings').deleteMany({});
+});
 
 describe('derivative-audit routes', () => {
   it('GET /status returns config + progress', async () => {
@@ -1001,7 +1124,8 @@ describe('derivative-audit routes', () => {
 ```ts
 import { Elysia, t } from 'elysia';
 import {
-  loadDerivativeAuditConfig, saveDerivativeAuditConfig,
+  loadDerivativeAuditConfig,
+  saveDerivativeAuditConfig,
 } from '../workers/derivative-audit/config.repo.ts';
 import { runDerivativeAuditOnce } from '../workers/derivative-audit/scan.ts';
 import { getDerivativeAuditProgress } from '../workers/derivative-audit/progress.ts';
@@ -1032,7 +1156,9 @@ export const derivativeAuditRoutes = new Elysia()
   .post('/api/derivative-audit/run', async () => {
     if (runInFlight) return { started: false, reason: 'already-running' };
     runInFlight = true;
-    void runDerivativeAuditOnce().finally(() => { runInFlight = false; });
+    void runDerivativeAuditOnce().finally(() => {
+      runInFlight = false;
+    });
     return { started: true };
   });
 ```
@@ -1051,9 +1177,11 @@ git commit -m "feat(api): derivative-audit status/config/run route (#2156)"
 ### Task 8: maple-common backend service + DTOs
 
 **Files:**
+
 - Modify: the backend service in `src/web/projects/maple-common/src/lib/` that owns `getMirrorStatus`/`runMirrorReconcile` (grep: `grep -rl "getMirrorStatus" src/web/projects/maple-common/src`), plus its public DTO exports (grep `MirrorReconcileProgress`).
 
 **Interfaces:**
+
 - Produces on `BunApiBackendService`:
   - `getDerivativeAuditStatus(): Observable<DerivativeAuditStatusDto>`
   - `setDerivativeAuditConfig(patch: Partial<DerivativeAuditConfigDto>): Observable<{ ok: boolean; config: DerivativeAuditConfigDto }>`
@@ -1068,7 +1196,25 @@ it('getDerivativeAuditStatus GETs the status endpoint', () => {
   service.getDerivativeAuditStatus().subscribe((r) => (got = r));
   const req = httpMock.expectOne((r) => r.url.endsWith('/api/derivative-audit/status'));
   expect(req.request.method).toBe('GET');
-  req.flush({ config: { enabled: true, interval_ms: 1, max_resets_per_pass: 1, concurrency: 1, deep_r2_enabled: true }, progress: { scanned: 0, reArmed: 0, byStage: {}, skippedCooldown: 0, errors: 0, startedAt: null, finishedAt: null, running: false } });
+  req.flush({
+    config: {
+      enabled: true,
+      interval_ms: 1,
+      max_resets_per_pass: 1,
+      concurrency: 1,
+      deep_r2_enabled: true,
+    },
+    progress: {
+      scanned: 0,
+      reArmed: 0,
+      byStage: {},
+      skippedCooldown: 0,
+      errors: 0,
+      startedAt: null,
+      finishedAt: null,
+      running: false,
+    },
+  });
   expect(got?.config.enabled).toBe(true);
 });
 ```
@@ -1092,11 +1238,13 @@ git commit -m "feat(web): maple-common client for derivative-audit (#2156)"
 ### Task 9: Operator panel on Settings → Workers
 
 **Files:**
+
 - Create: `src/web/projects/maple/src/app/settings/workers/derivative-audit-settings.component.ts` / `.html` / `.scss`
 - Modify: `src/web/projects/maple/src/app/settings/workers/workers.component.ts` (import the component) and `workers.component.html` (render it under its own group label)
 - Test: `derivative-audit-settings.component.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `getDerivativeAuditStatus`, `setDerivativeAuditConfig`, `runDerivativeAudit` (Task 8).
 
 Model directly on `mirror-settings.component.ts` (standalone, `ChangeDetectionStrategy.OnPush`, signals, `ngOnInit` fetch + `refreshStatus`, poll timer while `progress.running`). The panel shows: a status pill (`Running` / `Enabled` / `Off`), an enable toggle, number inputs for `max_resets_per_pass` / `interval_ms` (hours) / `concurrency`, a `deep_r2_enabled` checkbox, a "Run now" button, and a last-pass readout (`scanned`, `reArmed`, per-stage counts, `errors`). Save calls `setDerivativeAuditConfig`.
@@ -1108,11 +1256,11 @@ Model directly on `mirror-settings.component.ts` (standalone, `ChangeDetectionSt
 - [ ] **Step 3: Implement** the component (`.ts`/`.html`/`.scss`) adapting `mirror-settings.component.*`. Then in `workers.component.ts` add the import to the `imports:` array, and in `workers.component.html` add — after the `Backup` group block (`<maple-mirror-settings />`) — a new group:
 
 ```html
-    <!-- Maintenance — the derivative-audit self-heal worker: verifies each
+<!-- Maintenance — the derivative-audit self-heal worker: verifies each
          asset's thumb/preview/description on disk + thumbnail in R2 and
          re-arms the owning stage when a derivative has drifted. -->
-    <div class="group-label">Maintenance</div>
-    <maple-derivative-audit-settings />
+<div class="group-label">Maintenance</div>
+<maple-derivative-audit-settings />
 ```
 
 - [ ] **Step 4: Run test, verify pass.** Re-run Step 2's command. Expected: PASS.

@@ -88,7 +88,10 @@ describe('runDerivativeAuditOnce', () => {
     if (!h.mongoReachable) return;
     const lib = await h.addLibrary(root);
     await seedMovedAsset(lib);
-    const summary = await runDerivativeAuditOnce({ deep_r2_enabled: false, max_resets_per_pass: 1 });
+    const summary = await runDerivativeAuditOnce({
+      deep_r2_enabled: false,
+      max_resets_per_pass: 1,
+    });
     expect(summary.reArmed).toBe(1); // stopped after one stage reset
   });
 });
