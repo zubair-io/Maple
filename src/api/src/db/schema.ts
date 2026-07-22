@@ -545,6 +545,15 @@ export interface AssetDoc {
    */
   cf_thumb_synced_at?: string | null;
   /**
+   * Per-stage cooldown bookkeeping written by the derivative-audit worker
+   * (`workers/derivative-audit/`). Keyed by pipeline stage name; records how
+   * many times the auditor has re-armed that stage for this asset and when,
+   * so a stage that keeps marking itself done without producing output isn't
+   * re-armed forever. Cleared for a stage once its derivative verifies present
+   * again. Absent until the auditor first acts on the asset.
+   */
+  derivative_audit?: Record<string, DerivativeAuditStageMark> | null;
+  /**
    * Denormalized count of live `fileinfo` entries (entries where neither
    * `deleted_at` nor `missing_since` is set). Maintained at every liveness
    * mutation site and backfilled by the `backfill-live-location-count`
@@ -641,6 +650,14 @@ export interface DamagedInfo {
   /** The stage's last error message (what made it unreadable), truncated for
    * storage so a giant decoder dump can't bloat the row. */
   reason: string;
+}
+
+/** One stage's derivative-audit cooldown mark (see `AssetDoc.derivative_audit`). */
+export interface DerivativeAuditStageMark {
+  /** Consecutive audit re-arms that did not resolve the drift. */
+  attempts: number;
+  /** ISO 8601 timestamp of the most recent re-arm. */
+  last_reset_at: string;
 }
 
 export type AssetWithId = WithId<AssetDoc>;
