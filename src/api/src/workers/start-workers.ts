@@ -36,10 +36,8 @@ import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts
 import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
 import { meilisearchClient, reconfigureMeilisearch } from '../enrichment/meilisearch-client.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from '../enrichment/enrichment-config.repo.ts';
+import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';

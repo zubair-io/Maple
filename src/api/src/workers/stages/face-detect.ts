@@ -42,10 +42,8 @@ import {
   THUMB_MISSING_REASON,
   THUMB_UNDECODABLE_REASON,
 } from './face-stage-shared.ts';
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from '../../enrichment/enrichment-config.repo.ts';
+import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
+import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 

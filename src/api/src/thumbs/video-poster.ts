@@ -29,6 +29,7 @@
 
 import * as fs from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
+import { probeCommand } from '../process/probe-command.ts';
 
 const log = childLogger('video-poster');
 
@@ -132,21 +133,7 @@ async function detectFfmpeg(): Promise<string | null> {
  * point — see the module doc comment on dangling-dylib installs.
  */
 async function isRunnable(bin: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn([bin, '-version'], {
-      stdout: 'ignore',
-      stderr: 'ignore',
-    });
-    const timer = setTimeout(() => proc.kill(), 5_000);
-    try {
-      return (await proc.exited) === 0;
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    // ENOENT / EACCES / not executable — this candidate is simply not it.
-    return false;
-  }
+  return probeCommand(bin, ['-version']);
 }
 
 /**

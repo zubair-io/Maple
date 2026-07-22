@@ -317,12 +317,3 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   }
   await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
-
-// The pure resolver (`ResolvedEnrichmentConfig` + `resolveEnrichmentConfig`)
-// lives in the sibling `enrichment-config.resolve.ts` module to keep this file
-// under the file-size budget. Re-exported here so existing importers that pull
-// these from `enrichment-config.repo.ts` keep working unchanged.
-export {
-  resolveEnrichmentConfig,
-  type ResolvedEnrichmentConfig,
-} from './enrichment-config.resolve.ts';
