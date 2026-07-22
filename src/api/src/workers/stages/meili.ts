@@ -111,6 +111,7 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
     place: image.place,
     description: image.description,
     ocrText: (image as unknown as { ocr_text?: string }).ocr_text ?? null,
+    transcript: (image as unknown as { transcript?: { text?: string } }).transcript?.text ?? null,
     visionSubjects: vision?.subjects ?? null,
     visionSetting: vision?.setting ?? null,
     visionActivity: vision?.activity ?? null,

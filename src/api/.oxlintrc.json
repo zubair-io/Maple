@@ -51,6 +51,13 @@
   "overrides": [
     {
       "files": [
+        "src/audio/extract-audio.ts",
+        "src/audio/extract-audio.test.ts",
+        "src/audio/whisper-cli.ts",
+        "src/audio/whisper-cli.test.ts",
+        "src/audio/whisper-model.test.ts",
+        "src/audio/whisper-model.ts",
+        "src/workers/stages/transcribe.ts",
         "src/tests/pano-injection.test.ts",
         "src/enrichment/place-parser.test.ts",
         "src/fs/mirrored.ts",

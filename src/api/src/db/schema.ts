@@ -253,6 +253,21 @@ export interface VisionMeta {
   raw_response_size: number;
 }
 
+export interface TranscriptSegmentDoc {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface TranscriptDoc {
+  text: string;
+  segments: TranscriptSegmentDoc[];
+  language: string;
+  model: string;
+  duration_sec: number | null;
+  generated_at: string;
+}
+
 /**
  * One known on-disk location for an asset. An asset may appear in multiple
  * places (same content backed up from two devices, or a copy under a
@@ -423,6 +438,8 @@ export interface AssetDoc {
    * describe stage from `vision.text_visible`. `null` until the describe
    * stage has run on this asset; empty string when the model saw no text. */
   ocr_text?: string | null;
+  /** Derived speech-to-text data. Stored in Mongo only, never XMP. */
+  transcript?: TranscriptDoc;
   /** Provenance of the OCR mirror. The describe stage is the sole writer
    * and always stamps `engine: "qwen2.5-vl"`. The `"tesseract"` literal
    * remains in the union because production installs that were indexed
