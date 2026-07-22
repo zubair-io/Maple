@@ -31,6 +31,7 @@ import { startGeocodeStage } from './stages/geocode.ts';
 import { startMeiliStage } from './stages/meili.ts';
 import { startSidecarMetadataIndexStage } from './stages/sidecar-metadata-index.ts';
 import { startCfThumbSyncStage } from './stages/cf-thumb-sync.ts';
+import { startTranscribeStage } from './stages/transcribe.ts';
 
 const log = childLogger('workers:orchestrator');
 
@@ -45,6 +46,7 @@ const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHand
   ['meili', startMeiliStage],
   ['sidecar-metadata-index', startSidecarMetadataIndexStage],
   ['cf-thumb-sync', startCfThumbSyncStage],
+  ['transcribe', startTranscribeStage],
 ];
 
 const handles = new Map<string, RunStageHandle>();

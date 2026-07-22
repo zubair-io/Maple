@@ -660,6 +660,7 @@ export class BunApiBackendService {
     describe_system_prompt?: string | null;
     describe_daily_cap_usd?: number | null;
     describe_provider_url?: string | null;
+    transcribe_model_tier?: 'tiny.en' | 'base.en' | 'small.en' | 'medium.en' | 'large-v3' | null;
     // ── Face worker (Phase 5) ─────────────────────────────────────
     face_worker_enabled?: boolean | null;
     // ── Face model paths (Phase 5) ────────────────────────────────
@@ -1013,6 +1014,7 @@ export interface EnrichmentConfigResponse {
   describe_model: string;
   describe_system_prompt: string;
   describe_daily_cap_usd: number;
+  transcribe_model_tier: 'tiny.en' | 'base.en' | 'small.en' | 'medium.en' | 'large-v3';
   /** Phase 5 face worker. Default false until the operator opts in. */
   face_worker_enabled: boolean;
   /** Resolved model dir (DB → env → ~/.maple/models/). Always populated. */
@@ -1059,6 +1061,7 @@ export interface EnrichmentConfigResponse {
     describe_model: 'db' | 'env' | 'default';
     describe_system_prompt: 'db' | 'env' | 'default';
     describe_daily_cap_usd: 'db' | 'env' | 'default';
+    transcribe_model_tier: 'db' | 'default';
     face_worker_enabled: 'db' | 'env' | 'default';
     face_model_dir: 'db' | 'env' | 'default';
     face_detector_url: 'db' | 'env' | 'unset';
