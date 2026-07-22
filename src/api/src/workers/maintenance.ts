@@ -30,6 +30,7 @@ import { startDeDuplicate, type DeDuplicateHandle } from './dedupe.ts';
 import { startMirrorScan, type MirrorScanHandle } from './mirror/scan.ts';
 import { startMirrorCopyWorker, type MirrorCopyHandle } from './mirror/copy.ts';
 import { installMirrorQueueSink } from './mirror/sink.ts';
+import { startDerivativeAudit, type DerivativeAuditHandle } from './derivative-audit/scan.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -48,6 +49,7 @@ let deduplicate: DeDuplicateHandle | null = null;
 let mirrorScan: MirrorScanHandle | null = null;
 let mirrorCopy: MirrorCopyHandle | null = null;
 let mirrorConfigReload: ReturnType<typeof setInterval> | null = null;
+let derivativeAudit: DerivativeAuditHandle | null = null;
 
 /** Start every maintenance job. Idempotent — a second call is a no-op while a
  * prior set is still running. */
@@ -63,6 +65,11 @@ export function startMaintenanceJobs(): void {
   installMirrorQueueSink();
   if (!mirrorScan) mirrorScan = startMirrorScan({});
   if (!mirrorCopy) mirrorCopy = startMirrorCopyWorker({});
+  // Derivative-audit: verify each asset's thumb/preview/description on disk and
+  // its thumbnail in R2; re-arm the owning stage when a derivative has drifted
+  // (most often after a move left the .maple cache behind). Self-gates on its
+  // own `enabled` config each tick.
+  if (!derivativeAudit) derivativeAudit = startDerivativeAudit();
   // Periodically re-read mirror config so a change made via the API process
   // (PUT /api/folders/:id/mirror) propagates to this worker without a restart.
   // worker-main does the initial load; this only catches later changes + retries
@@ -95,6 +102,8 @@ export function stopMaintenanceJobs(): void {
   mirrorScan = null;
   mirrorCopy?.stop();
   mirrorCopy = null;
+  derivativeAudit?.stop();
+  derivativeAudit = null;
   if (mirrorConfigReload) {
     clearInterval(mirrorConfigReload);
     mirrorConfigReload = null;
