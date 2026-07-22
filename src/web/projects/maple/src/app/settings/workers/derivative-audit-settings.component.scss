@@ -1,0 +1,173 @@
+:host {
+  display: block;
+}
+
+.audit-panel {
+  padding: 0.75rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.audit-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-label {
+  font-weight: 600;
+}
+
+.audit-summary {
+  font-size: 0.8rem;
+  color: var(--s-text-dim, #78706a);
+}
+.head-spacer {
+  flex: 1 1 auto;
+}
+
+.audit-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--s-text-dim, #78706a);
+  max-width: 60ch;
+}
+
+.audit-error {
+  font-size: 0.8rem;
+  color: var(--s-err, #c4493a);
+}
+
+.audit-hint {
+  font-size: 0.8rem;
+  color: var(--s-text-dim, #78706a);
+}
+
+.audit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  &.inline {
+    font-size: 0.8rem;
+  }
+}
+
+.audit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem 1.25rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+
+  input[type='number'] {
+    width: 8rem;
+    padding: 0.3rem 0.4rem;
+    font: inherit;
+    border: 1px solid var(--s-border, #d6d3d1);
+    border-radius: 4px;
+    background: var(--s-input-bg, transparent);
+    color: inherit;
+  }
+}
+.field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.field-hint {
+  font-size: 0.72rem;
+  color: var(--s-text-dim, #78706a);
+  line-height: 1.35;
+}
+
+.num-suffix-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.num-suffix {
+  font-size: 0.78rem;
+  color: var(--s-text-dim, #78706a);
+}
+
+.audit-stage-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+.counts-label {
+  color: var(--s-text-dim, #78706a);
+}
+.count-chip {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--s-chip-bg, rgba(120, 112, 106, 0.12));
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+.save-ok {
+  font-size: 0.8rem;
+  color: var(--s-ok, #2e7d32);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.btn-primary,
+.btn-ghost {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid var(--s-border, #d6d3d1);
+}
+.btn-primary {
+  background: var(--s-accent, #c4493a);
+  border-color: transparent;
+  color: #fff;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+.btn-ghost {
+  background: transparent;
+  color: inherit;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
