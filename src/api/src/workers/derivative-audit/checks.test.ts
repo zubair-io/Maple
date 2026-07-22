@@ -108,7 +108,12 @@ describe('evaluateAsset', () => {
     await writeOriginal();
     await writeThumb();
     await writePreview();
-    const res = await evaluateAsset(makeAsset({ hidden: true }), libs, slugs, deps({ thumbExistsInR2: async () => false }));
+    const res = await evaluateAsset(
+      makeAsset({ hidden: true }),
+      libs,
+      slugs,
+      deps({ thumbExistsInR2: async () => false }),
+    );
     expect(res).toEqual([]);
   });
 
@@ -116,7 +121,12 @@ describe('evaluateAsset', () => {
     await writeOriginal();
     await writeThumb();
     await writePreview();
-    const res = await evaluateAsset(makeAsset(), libs, slugs, deps({ thumbExistsInR2: async () => false }));
+    const res = await evaluateAsset(
+      makeAsset(),
+      libs,
+      slugs,
+      deps({ thumbExistsInR2: async () => false }),
+    );
     expect(res).toEqual(['cf-thumb-sync']);
   });
 
