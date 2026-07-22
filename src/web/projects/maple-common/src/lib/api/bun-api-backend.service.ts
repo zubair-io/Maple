@@ -68,6 +68,35 @@ export interface MirrorQueueStatus {
   reconcile?: MirrorReconcileProgress;
 }
 
+/** Config for the derivative-audit worker (mirrors the API `DerivativeAuditConfig`). */
+export interface DerivativeAuditConfigDto {
+  enabled: boolean;
+  interval_ms: number;
+  max_resets_per_pass: number;
+  concurrency: number;
+  deep_r2_enabled: boolean;
+  updated_at?: number;
+}
+
+/** Last-pass summary of the derivative-audit worker. */
+export interface DerivativeAuditSummaryDto {
+  scanned: number;
+  reArmed: number;
+  byStage: Record<string, number>;
+  skippedCooldown: number;
+  errors: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  running: boolean;
+}
+
+/** GET /api/derivative-audit/status payload, surfaced in the Maintenance group
+ * on the Workers settings page. */
+export interface DerivativeAuditStatusDto {
+  config: DerivativeAuditConfigDto;
+  progress: DerivativeAuditSummaryDto;
+}
+
 export interface ApiAsset {
   id: string;
   filename: string;
@@ -413,6 +442,29 @@ export class BunApiBackendService {
       phase: MirrorReconcileProgress['phase'];
       reason?: string;
     }>(`${this.base}/mirror/reconcile`, {});
+  }
+
+  /** Derivative-audit worker: current config + last-pass progress. */
+  getDerivativeAuditStatus(): Observable<DerivativeAuditStatusDto> {
+    return this.http.get<DerivativeAuditStatusDto>(`${this.base}/derivative-audit/status`);
+  }
+
+  /** Patch the derivative-audit config (partial). */
+  setDerivativeAuditConfig(
+    patch: Partial<DerivativeAuditConfigDto>,
+  ): Observable<{ ok: boolean; config: DerivativeAuditConfigDto }> {
+    return this.http.put<{ ok: boolean; config: DerivativeAuditConfigDto }>(
+      `${this.base}/derivative-audit/config`,
+      patch,
+    );
+  }
+
+  /** Kick an audit pass now; poll getDerivativeAuditStatus() for progress. */
+  runDerivativeAudit(): Observable<{ started: boolean; reason?: string }> {
+    return this.http.post<{ started: boolean; reason?: string }>(
+      `${this.base}/derivative-audit/run`,
+      {},
+    );
   }
 
   listDir(absPath: string, showAll = false): Observable<ApiDirListing> {
