@@ -80,6 +80,7 @@ import { backupRenderedRoutes } from './routes/backup-rendered.ts';
 import { backupNotifyDeletedRoutes } from './routes/backup-notify-deleted.ts';
 import { changesRoutes } from './routes/changes.ts';
 import { mirrorRoutes } from './routes/mirror.ts';
+import { derivativeAuditRoutes } from './routes/derivative-audit.ts';
 import { assetsListRoutes } from './routes/assets-list.ts';
 import { photosRoutes } from './routes/photos.ts';
 import { displayRoutes } from './routes/display.ts';
@@ -249,6 +250,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(panoRoutes)
         .use(changesRoutes)
         .use(mirrorRoutes)
+        .use(derivativeAuditRoutes)
         .use(workerRoutes()),
     )
 
