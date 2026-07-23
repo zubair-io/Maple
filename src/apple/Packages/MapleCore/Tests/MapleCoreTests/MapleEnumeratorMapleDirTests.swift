@@ -36,6 +36,7 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
             server: URL(string: "https://x.test")!,
             urlSession: session,
             tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+            onTokensRefreshed: { _ in },
             onSignOut: {}
         )
         return RemoteCatalog(http: http,

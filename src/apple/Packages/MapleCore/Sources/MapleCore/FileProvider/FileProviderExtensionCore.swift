@@ -65,7 +65,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             server: cfg.serverURL,
             urlSession: session,
             tokensProvider: { try? TokenStore.load(server: cfg.serverURL) },
-            onTokensRefreshed: { try? TokenStore.save($0, server: cfg.serverURL) },
+            onTokensRefreshed: { try TokenStore.save($0, server: cfg.serverURL) },
             onSignOut: { TokenStore.clear(server: cfg.serverURL) }
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
