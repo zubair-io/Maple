@@ -101,11 +101,12 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     /// `clip.mov.xmp` sidecar (#1638), but they have NO still frame for the
     /// render pipeline. Callers that open an asset for preview/render must
     /// check this and no-op (or show a placeholder) — a video must never reach
-    /// the RAW decoder. URL-less refs (PhotoKit/SelfHosted) are never video:
-    /// those sources don't surface standalone clips through this path.
+    /// the RAW decoder. URL-less refs (PhotoKit/SelfHosted) use their extension
+    /// hint so remote clips can open in the player without entering decoding.
     public var isVideo: Bool {
-        guard let primaryURL else { return false }
-        return SidecarPath.isVideo(primaryURL)
+        if let primaryURL { return SidecarPath.isVideo(primaryURL) }
+        guard let hintExtension else { return false }
+        return SidecarPath.videoExtensions.contains(hintExtension.lowercased())
     }
 
     /// True when this asset is a metadata-only "stub" image format with no

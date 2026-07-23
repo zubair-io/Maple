@@ -39,9 +39,14 @@ final class AssetRefVideoTests: XCTestCase {
     func testAssetRefNonVideoIsNotVideo() {
         XCTAssertFalse(AssetRef(url: URL(fileURLWithPath: "/tmp/foo.dng")).isVideo)
         XCTAssertFalse(AssetRef(url: URL(fileURLWithPath: "/tmp/foo.jpg")).isVideo)
-        // URL-less refs are never video.
-        let ref = AssetRef(displayName: "PHAsset", hintExtension: "mov", bytesProvider: { Data() })
-        XCTAssertFalse(ref.isVideo, "URL-less refs are never classified as standalone video")
+        let still = AssetRef(displayName: "PHAsset", hintExtension: "heic", bytesProvider: { Data() })
+        XCTAssertFalse(still.isVideo)
+    }
+
+    func testURLLessVideoUsesExtensionHint() {
+        let ref = AssetRef(displayName: "Cloud clip", hintExtension: "MOV", bytesProvider: { Data() })
+        XCTAssertTrue(ref.isVideo, "remote video refs must classify from their extension hint")
+        XCTAssertFalse(ref.isRaw)
     }
 
     // MARK: - EditSession render no-op

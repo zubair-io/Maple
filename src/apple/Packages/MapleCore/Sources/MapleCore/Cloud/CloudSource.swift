@@ -119,6 +119,17 @@ extension CloudSource: ImageSource {
     return data
   }
 
+  /// Seekable streaming URL for AVPlayer. The endpoint self-authenticates via
+  /// query token because AVPlayer cannot attach the bearer header.
+  public func videoURL(for refID: String) async throws -> URL {
+    let abs = Self.absPath(from: refID)
+    let token = try await httpClient.accessTokenForURL()
+    return url("/api/video/fs", query: [
+      URLQueryItem(name: "path", value: abs),
+      URLQueryItem(name: "token", value: token),
+    ])
+  }
+
   /// Download the full RAW bytes for `ref` while reporting byte-level
   /// progress (#822). Routes through `session.download(for:)` on a session
   /// configured with a `DownloadProgressDelegate` — the non-buffered transport
