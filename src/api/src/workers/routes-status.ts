@@ -11,7 +11,7 @@ import type { WorkerConfig } from './run-stage.ts';
 import { buildClaimQuery } from './run-stage.ts';
 import { liveFileInfoElemMatch } from '../indexer/images.repo.ts';
 import { deriveBatchSize } from './loop-policy.ts';
-import { ALL_STAGE_NAMES } from './stages/manifest.ts';
+import { ALL_STAGE_NAMES, stageManifest } from './stages/manifest.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
 import { DEDUPLICATE_NAME } from './dedupe.ts';
@@ -30,6 +30,16 @@ const log = child('workers:routes:status');
 // `version: { $exists: false }` branch would match the ENTIRE collection. Gate
 // the counts to real claim stages; everything else reports pending/dead 0.
 export const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
+
+/**
+ * name → the stage's optional extra claim predicate (`StageConfig.claimFilter`).
+ * The status `pending`/`ready` counts must apply it too, or a media-only stage
+ * like `transcribe` reports the entire photo library as pending forever — docs
+ * it never claims (and, with the filter, never marks done) would otherwise sit
+ * in the count indefinitely, defeating the operator diagnosis the filter exists
+ * to give. `undefined` for stages without one → counts are unchanged.
+ */
+const CLAIM_FILTER_BY_STAGE = new Map(stageManifest.map((s) => [s.name, s.claimFilter]));
 
 /**
  * Canonical set of every worker name the status endpoint should surface,
@@ -155,21 +165,30 @@ export async function fetchStatusDbState(
         const registryEntry = stageRegistry.statuses()[name];
         const tv = statuses[name]?.targetVersion ?? registryEntry?.targetVersion ?? 1;
         const deps = statuses[name]?.dependsOn ?? registryEntry?.dependsOn ?? [];
+        // A stage-scoped claim predicate (e.g. transcribe's media filter) must
+        // narrow BOTH counts, or `pending` reports docs the stage will never
+        // touch. Applied via `$and` for the same no-key-collision reason
+        // `buildClaimQuery` uses.
+        const claimFilter = CLAIM_FILTER_BY_STAGE.get(name);
+        const pendingBase = {
+          $or: [
+            { [`stages.${name}.version`]: { $lt: tv } },
+            { [`stages.${name}.version`]: { $exists: false } },
+          ],
+          [`stages.${name}.dead`]: { $ne: true },
+          // Require a live location the same way the claim query (`ready`)
+          // does. Otherwise `blocked = pending - ready` absorbs the entire
+          // no-live-location backlog (the reaper's queue) into every claim
+          // stage's blocked count, even though those docs can't be claimed
+          // here. The reaper backlog is surfaced separately on the
+          // missing-reaper row below.
+          ...liveFileInfoElemMatch(),
+        };
+        const pendingQuery = (
+          claimFilter ? { $and: [pendingBase, claimFilter] } : pendingBase
+        ) as Filter<Document>;
         const pending = assets!
-          .countDocuments({
-            $or: [
-              { [`stages.${name}.version`]: { $lt: tv } },
-              { [`stages.${name}.version`]: { $exists: false } },
-            ],
-            [`stages.${name}.dead`]: { $ne: true },
-            // Require a live location the same way the claim query (`ready`)
-            // does. Otherwise `blocked = pending - ready` absorbs the entire
-            // no-live-location backlog (the reaper's queue) into every claim
-            // stage's blocked count, even though those docs can't be claimed
-            // here. The reaper backlog is surfaced separately on the
-            // missing-reaper row below.
-            ...liveFileInfoElemMatch(),
-          })
+          .countDocuments(pendingQuery)
           .then((n) => ({ key: 'pending' as const, name, n }))
           .catch((err) => {
             log.warn({ stage: name, err }, 'countDocuments failed for pending — returning 0');
@@ -179,7 +198,13 @@ export async function fetchStatusDbState(
         // upstream-dependency gates), so it's the subset of `pending` a worker
         // could actually pick up right now. Empty in-flight set: the few docs
         // momentarily in flight don't matter for an operator-facing count.
-        const readyQuery = buildClaimQuery(name, tv, deps, new Set()) as Filter<Document>;
+        const readyQuery = buildClaimQuery(
+          name,
+          tv,
+          deps,
+          new Set(),
+          claimFilter,
+        ) as Filter<Document>;
         const ready = assets!
           .countDocuments(readyQuery)
           .then((n) => ({ key: 'ready' as const, name, n }))
