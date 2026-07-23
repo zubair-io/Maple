@@ -49,7 +49,7 @@ enum CloudFoldersListing {
             urlSession: .shared,
             tokensProvider: { try? TokenStore.load(server: server) },
             // Mirror rotations into the File Provider store too — see CloudTokenPersistence.
-            onTokensRefreshed: { CloudTokenPersistence.persistRotated($0, server: server) },
+            onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
             onSignOut: { CloudTokenPersistence.clear(server: server) }
         )
     }

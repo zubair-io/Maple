@@ -38,7 +38,7 @@ extension AppShell {
             // every rotation, so a background extension never refreshes with a
             // superseded token (→ server reuse-detection → family revoked →
             // sign-out). See CloudTokenPersistence.
-            onTokensRefreshed: { CloudTokenPersistence.persistRotated($0, server: server) },
+            onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
             // A request 401'd and its refresh was rejected — the refresh token
             // is dead. Drive the OBSERVABLE AuthSession to signed-out (which
             // also clears the Keychain) rather than clearing the Keychain alone.
