@@ -113,6 +113,31 @@ export function buildClaimQuery(
 }
 
 /**
+ * `$set` keys that mark each stage in `names` stale (version 0, bookkeeping
+ * cleared) — the runner folds these into the SAME atomic write as a patch
+ * result's field values, so a crash can never land the new fields without
+ * also marking the downstream stage stale (or vice versa). The writing
+ * stage's own name is excluded: its state is owned by `stageState` in the
+ * same write. See `StageResult`'s `invalidates` doc (#2172).
+ */
+function invalidationSets(
+  names: readonly string[] | undefined,
+  ownName: string,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    (names ?? [])
+      .filter((s) => s !== ownName)
+      .flatMap((s) => [
+        [`stages.${s}.version`, 0],
+        [`stages.${s}.attempts`, 0],
+        [`stages.${s}.dead`, false],
+        [`stages.${s}.last_error`, null],
+        [`stages.${s}.processed_at`, null],
+      ]),
+  );
+}
+
+/**
  * Resolve `(folder_id, abs_path)` from the doc's primary fileinfo entry and
  * publish an update event onto the change feed. Best-effort — failures are
  * swallowed; the change feed tolerates gaps.
@@ -222,26 +247,12 @@ export async function runOnce(
             `Handler returned patch with forbidden stage keys: ${forbiddenKeys.join(', ')}`,
           );
         }
-        // Fold the `invalidates` stage resets into the same $set as the patch:
-        // one atomic write, so a crash can never land the new field values
-        // without also marking the downstream stage stale (or vice versa).
-        const invalidateSets = Object.fromEntries(
-          (result.invalidates ?? [])
-            .filter((s) => s !== stage.name)
-            .flatMap((s) => [
-              [`stages.${s}.version`, 0],
-              [`stages.${s}.attempts`, 0],
-              [`stages.${s}.dead`, false],
-              [`stages.${s}.last_error`, null],
-              [`stages.${s}.processed_at`, null],
-            ]),
-        );
         await images.updateOne(
           { _id: id },
           {
             $set: {
               [`stages.${stage.name}`]: stageState,
-              ...invalidateSets,
+              ...invalidationSets(result.invalidates, stage.name),
               ...result.patch,
             },
           },
