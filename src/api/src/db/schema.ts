@@ -328,6 +328,14 @@ export interface FileInfo {
    * window it `$pull`s the entry — deleting the whole record when no other
    * entry remains. Replaces the former root-level `missing_since`. */
   missing_since?: string | null;
+  /** Structured provenance for `missing_since` (#2171): which writer tagged
+   * this entry non-live, e.g. `"watch-removed"` (discover removed handler),
+   * `"stage-enoent:<stage>"` (a file-touching stage's confirmed ENOENT),
+   * `"dedupe-absent"` (DeDuplicate found the copy gone), `"content-changed"`
+   * (the modified-content guard's orphan dual-flag). Purely diagnostic — no
+   * reader branches on it — and cleared wherever `missing_since` is cleared,
+   * so a false-positive tag can always be traced back to its source. */
+  missing_reason?: string | null;
   /** True when this location sits in a folder the operator marked to keep —
    * a `.keep` marker file present in the same directory at index time (see
    * `KEEP_FILENAME` / `directoryHasKeepFile` in `fs/duplicates.ts`). The
@@ -547,6 +555,15 @@ export interface AssetDoc {
    * content arrives from multiple devices or discovery paths.
    */
   maple_id?: string;
+  /** SHA-1 of the first `SHA1_HEAD_BYTES` of file content — the stable join
+   * key across the maple_id fallback→primary upgrade (set once at insert by
+   * the discover watcher, never rewritten). null/absent on legacy rows that
+   * predate content hashing; the discover modified-content guard adopts the
+   * computed hash onto such a row on re-discover rather than treating "no
+   * recorded hash" as changed content (#2171). Declared here because
+   * discover reads/writes it through `assetsCollection()` — it was
+   * previously write-only from the schema's point of view. */
+  sha1_head?: string | null;
   /**
    * ISO timestamp of the last successful upload of this asset's
    * content-addressed thumbnail to the Cloudflare R2 mirror (see

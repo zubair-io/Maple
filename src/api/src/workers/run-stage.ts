@@ -31,7 +31,7 @@ import { ThroughputWindow } from './throughput-window.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
-import { tagMissingSince } from './tag-missing.ts';
+import { confirmAndTagMissing } from './tag-missing.ts';
 import { tagDamaged } from './tag-damaged.ts';
 import { dispatchPool } from './dispatch-pool.ts';
 import { bootConfig, defineStage, resolveStageDeps, versionBumpReset } from './stage-config.ts';
@@ -333,12 +333,25 @@ export async function runOnce(
         // never genuinely attempted — it's parked for the reaper via the tag.
         await images.updateOne({ _id: id }, { $set: { [`${stageKey}.attempts`]: attemptNo - 1 } });
         // Tag the PRIMARY entry — the one whose abs-path we just failed to
-        // read — per location. If it was the asset's only live entry the row
-        // drops out of reads + claims (live-entry `$elemMatch`); the reaper
-        // re-stats it, recovers if the file reappears, else `$pull`s it.
+        // read — per location, but only after confirmAndTagMissing verifies
+        // the library root is available and a re-stat confirms the ENOENT
+        // (#2171: a race or an unmounted root must not tag a present file —
+        // an unconfirmed miss just leaves the row claimable for a retry). If
+        // it was the asset's only live entry the row drops out of reads +
+        // claims (live-entry `$elemMatch`); the reaper re-stats it, recovers
+        // if the file reappears, else `$pull`s it.
         const primary = assetPrimaryFileInfo(doc);
-        if (primary) await tagMissingSince(images, id, primary);
-        log.debug({ _id: idStr }, `${stage.name}: original missing — tagged for reaper`);
+        const tagged = primary
+          ? await confirmAndTagMissing(images, id, primary, `stage-enoent:${stage.name}`)
+          : false;
+        if (tagged) {
+          log.debug({ _id: idStr }, `${stage.name}: original missing — tagged for reaper`);
+        } else {
+          log.warn(
+            { _id: idStr },
+            `${stage.name}: ENOENT not confirmed (root unavailable or file present) — not tagging, will retry`,
+          );
+        }
         return;
       }
       const msg = err instanceof Error ? err.message : String(err);

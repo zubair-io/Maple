@@ -101,6 +101,27 @@ export async function statKind(p: string): Promise<StatKind> {
   }
 }
 
+/**
+ * True when a library root is AVAILABLE as evidence for missing-file
+ * decisions: it can be listed and contains at least one entry (#2171).
+ *
+ * `statKind(root) === 'present'` is NOT enough — an unmounted bind/network
+ * mount is typically a present-but-EMPTY directory, under which every child
+ * path ENOENTs. A real Maple library root always has content (year folders,
+ * `.maple/` cache), so "listable and non-empty" separates the two. Callers
+ * must refuse to treat ENOENT-on-child as "file deleted" when this returns
+ * false; the deliberate trade-off is that a library whose LAST file was
+ * removed can no longer have its rows reconciled automatically — safe by
+ * design, an operator can delete records explicitly.
+ */
+export async function libraryRootAvailable(root: string): Promise<boolean> {
+  try {
+    return (await fs.readdir(root)).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export type NearMatch =
   /** A case/NFC near-match of the basename exists in the parent dir — the file
    * is on disk under a different name (stored-path bug, NOT a deletion). */

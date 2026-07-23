@@ -59,6 +59,9 @@ describe('discover producer — events', () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-del-'));
     const file = path.join(tempDir, 'todelete.jpg');
     await writeFile(file, Buffer.alloc(50, 0xaa));
+    // Keep the library root non-empty after `file` is unlinked below — the
+    // removed handler refuses to tag when the root looks unmounted (#2171).
+    await writeFile(path.join(tempDir, 'other.jpg'), Buffer.alloc(50, 0xbb));
 
     const foldersColl = await foldersCollection();
     const folderResult = await foldersColl.insertOne({
@@ -81,18 +84,35 @@ describe('discover producer — events', () => {
     expect(before).not.toBeNull();
     expect((before as Record<string, unknown>).deleted_at).toBeNull();
 
-    // Now fire the removed event. The single location is tagged per-entry
-    // `missing_since`; the asset root `deleted_at` is NEVER touched (that is
-    // reserved for the File Provider trash path). With no live entry left the
-    // asset is hidden + parked, and the missing-reaper owns it from here.
+    // A removed event for a file that is STILL ON DISK is refused — the
+    // handler stat-confirms before tagging (#2171: a present file is never
+    // marked missing).
+    await handleEvent({ kind: 'removed', absPath: file }, folderId, tempDir);
+    const refused = await coll.findOne(filter);
+    const refusedEntry = (
+      refused as { fileinfo?: Array<{ filename: string; missing_since?: string }> }
+    ).fileinfo!.find((e) => e.filename === filename)!;
+    expect(refusedEntry.missing_since ?? null).toBeNull();
+
+    // Now genuinely delete the file and fire removed again. The single
+    // location is tagged per-entry `missing_since`; the asset root
+    // `deleted_at` is NEVER touched (that is reserved for the File Provider
+    // trash path). With no live entry left the asset is hidden + parked, and
+    // the missing-reaper owns it from here.
+    await rm(file);
     await handleEvent({ kind: 'removed', absPath: file }, folderId, tempDir);
     const after = await coll.findOne(filter);
     expect(after).not.toBeNull();
     expect((after as Record<string, unknown>).deleted_at).toBeNull();
-    const entries = (after as { fileinfo?: Array<{ filename: string; missing_since?: string }> })
-      .fileinfo!;
+    const entries = (
+      after as {
+        fileinfo?: Array<{ filename: string; missing_since?: string; missing_reason?: string }>;
+      }
+    ).fileinfo!;
     const entry = entries.find((e) => e.filename === filename)!;
     expect(typeof entry.missing_since).toBe('string');
+    // Structured provenance for the tag (#2171).
+    expect(entry.missing_reason).toBe('watch-removed');
 
     // Clean up.
     await coll.deleteOne(filter);
@@ -138,8 +158,10 @@ describe('discover producer — events', () => {
     // Deduped onto one row with both locations.
     expect((row as { fileinfo: unknown[] }).fileinfo).toHaveLength(2);
 
-    // Remove ONE copy. The OTHER copy is still on disk → the asset must stay
-    // visible (the bug this fixes: the whole row used to be soft-deleted).
+    // Remove ONE copy (genuinely unlink it — the handler stat-confirms). The
+    // OTHER copy is still on disk → the asset must stay visible (the bug this
+    // fixes: the whole row used to be soft-deleted).
+    await rm(copyA);
     await handleEvent({ kind: 'removed', absPath: copyA }, folderId, tempDir);
 
     const id = (row as { _id: unknown })._id;
@@ -203,7 +225,9 @@ describe('discover producer — events', () => {
     expect(renamedRows.length).toBe(1);
     expect(renamedRows[0]!.kind).toBe('update');
 
-    // soft-delete → "delete"
+    // soft-delete → "delete" (unlink first — the handler stat-confirms; the
+    // original `file` at the pre-rename path keeps the root non-empty)
+    await rm(newPath);
     await handleEvent({ kind: 'removed', absPath: newPath }, folderId, tempDir);
     const deleted = await changesColl.find({ abs_path: newPath, kind: 'delete' }).toArray();
     expect(deleted.length).toBe(1);
