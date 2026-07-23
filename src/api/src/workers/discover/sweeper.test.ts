@@ -121,6 +121,44 @@ describe('visitDirectory', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it('does NOT emit removed when the library root is unavailable (empty mountpoint)', async () => {
+    // #2171: an unmounted bind/network mount is typically a present-but-EMPTY
+    // directory. readdir succeeds (empty listing) and every stat-confirm
+    // returns ENOENT — so the per-candidate stat alone cannot stop a mass
+    // false-tag. The sweeper must refuse to emit `removed` when the library
+    // root itself holds no entries at all.
+    if (!reachable) return;
+    const { visitDirectory } = await import('./sweeper.ts');
+    const frontier = await import('./frontier.repo.ts');
+
+    const root = mkdtempSync(join(tmpdir(), 'maple-sweep-unmounted-'));
+    // Root left completely EMPTY — simulates the unmounted mountpoint.
+
+    const folderId = new ObjectId();
+    await (
+      await assetsCollection()
+    ).insertOne({
+      maple_id: 'unmounted1',
+      fileinfo: [{ library_id: folderId, path: '', filename: 'was-here.dng' }],
+      deleted_at: null,
+    } as never);
+
+    const events: WatchEvent[] = [];
+    await frontier.seedRoot(folderId, root, 1);
+    const dir = await frontier.claimNextDir(folderId, 1, 60_000);
+    await visitDirectory(dir!, root, {
+      handleEvent: async (e) => {
+        events.push(e);
+      },
+      folderId,
+    });
+
+    // The file stats absent, but the root is empty → no removal evidence.
+    expect(events).toEqual([]);
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it('reconciles a non-root subdirectory using the correct relative path', async () => {
     if (!reachable) return;
     const { visitDirectory } = await import('./sweeper.ts');

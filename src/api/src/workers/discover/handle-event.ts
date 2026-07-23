@@ -22,6 +22,7 @@ import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import { liveFileInfoElemMatch, updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { directoryHasKeepFile } from '../../fs/duplicates.ts';
+import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { buildFileinfoEntry, isInsideMapleCache } from './types.ts';
 
 const log = child('discover');
@@ -66,6 +67,23 @@ export async function handleEvent(
       log.warn({ libraryRoot, absPath }, 'removed event escapes library root — skipping');
       return;
     }
+    // Chokepoint guard (#2171): every `removed` producer flows through here,
+    // so re-confirm the claim before the tag is written. A present file, an
+    // inconclusive stat (EACCES/EIO), or an unavailable library root (an
+    // unmounted mount is a present-but-empty dir under which everything
+    // ENOENTs) all refuse the tag — a present file must never be marked
+    // missing, and a missing ROOT must never read as per-file deletions.
+    if ((await statKind(absPath)) !== 'absent') {
+      log.warn({ absPath }, 'removed event but file stats non-absent — refusing to tag');
+      return;
+    }
+    if (!(await libraryRootAvailable(libraryRoot))) {
+      log.warn(
+        { absPath, libraryRoot },
+        'removed event but library root unavailable — refusing to tag',
+      );
+      return;
+    }
     const now = new Date().toISOString();
     const existing = await coll.findOne(
       {
@@ -86,7 +104,12 @@ export async function handleEvent(
     // it past the prune window, deleting the record only when no entry remains.
     await coll.updateOne(
       { _id: existing._id },
-      { $set: { 'fileinfo.$[e].missing_since': now } },
+      {
+        $set: {
+          'fileinfo.$[e].missing_since': now,
+          'fileinfo.$[e].missing_reason': 'watch-removed',
+        },
+      },
       {
         arrayFilters: [
           {
@@ -256,7 +279,20 @@ export async function handleEvent(
     },
     { projection: { _id: 1, sha1_head: 1 } },
   );
-  if (staleAtPath && staleAtPath.sha1_head !== hashed.sha1_head) {
+  if (staleAtPath && staleAtPath.sha1_head == null) {
+    // Legacy row (predates content hashing): there is NO recorded hash to
+    // compare, so a missing `sha1_head` is not evidence of changed content.
+    // Treating it as a mismatch (#2171) dual-flagged the present, unchanged
+    // file's entry and inserted a duplicate row — again on EVERY subsequent
+    // sweep, since neither row ever gained the field. Adopt the computed hash
+    // onto the row instead; the sha1_head dedup lookup below then resolves
+    // this event to the same row as an idempotent re-discover.
+    await coll.updateOne({ _id: staleAtPath._id }, { $set: { sha1_head: hashed.sha1_head } });
+    log.info(
+      { absPath, sha1_head: hashed.sha1_head },
+      'legacy row without sha1_head — adopted hash from on-disk file',
+    );
+  } else if (staleAtPath && staleAtPath.sha1_head !== hashed.sha1_head) {
     // Flag the entry both deleted_at (content changed) and missing_since (for
     // the missing-reaper to prune/reap it after the cooldown). Doing it in one
     // update is atomic, fast, and ensures even live assets have their stale
@@ -267,6 +303,7 @@ export async function handleEvent(
         $set: {
           'fileinfo.$[entry].deleted_at': now,
           'fileinfo.$[missingEntry].missing_since': now,
+          'fileinfo.$[missingEntry].missing_reason': 'content-changed',
         },
       },
       {
@@ -393,6 +430,7 @@ export async function handleEvent(
             // Re-discovering a live file at this location un-parks it: clear
             // any per-entry `missing_since` the reaper would otherwise act on.
             'fileinfo.$[entry].missing_since': null,
+            'fileinfo.$[entry].missing_reason': null,
             // Refresh the keep flag — a `.keep` marker may have been added or
             // removed since this location was first indexed.
             'fileinfo.$[entry].keep': keep,
@@ -499,6 +537,7 @@ export async function handleEvent(
                 ...dedupSet,
                 'fileinfo.$[entry].deleted_at': null,
                 'fileinfo.$[entry].missing_since': null,
+                'fileinfo.$[entry].missing_reason': null,
               },
             },
             {

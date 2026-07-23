@@ -256,6 +256,26 @@ describe('runDeDuplicateOnce', () => {
     // Verify that the absent entry was tagged missing_since so reaper can prune it.
     const ghost = asset!.fileinfo.find((e: any) => e.path === 'ghost');
     expect(ghost.missing_since).toBeTypeOf('string');
+    // Structured provenance for the tag (#2171).
+    expect(ghost.missing_reason).toBe('dedupe-absent');
+  });
+
+  it('does NOT tag absent entries when the library root is empty (unmounted mountpoint) — #2171', async () => {
+    if (!mongoReachable) return;
+    // Both copies stat ENOENT because the ROOT is an empty dir (unmounted
+    // mount look-alike) — that is evidence about the root, not the files.
+    // The asset must be skipped untouched, not mass-tagged missing.
+    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.movedFiles).toBe(0);
+    expect(summary.skippedOffline).toBe(1);
+    const asset = await getAsset(id);
+    for (const e of asset!.fileinfo as Array<{ missing_since?: string }>) {
+      expect(e.missing_since ?? null).toBeNull();
+    }
   });
 
   it('does not move anything when only one copy is actually on disk (stale entry last)', async () => {

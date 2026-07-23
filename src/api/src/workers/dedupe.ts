@@ -65,7 +65,7 @@ import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { makePausedPoller } from './paused-poller.ts';
-import { statKind } from './missing-reaper.helpers.ts';
+import { libraryRootAvailable, statKind } from './missing-reaper.helpers.ts';
 import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
 import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
 import { loadDeDuplicateConfig, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.ts';
@@ -213,6 +213,22 @@ async function processAsset(
     }
   }
 
+  // An absent entry is only trustworthy when its library ROOT is available
+  // (#2171): an unmounted mount is a present-but-empty dir under which every
+  // stat ENOENTs, which must read as "volume gone", not "files deleted". Any
+  // unavailable root ⇒ skip the whole asset this pass, tagging nothing.
+  if (absentEntries.length > 0) {
+    const absentRoots = [
+      ...new Set(absentEntries.map((e) => libs.get(e.library_id.toHexString())!)),
+    ];
+    for (const root of absentRoots) {
+      if (!(await libraryRootAvailable(root))) {
+        summary.skippedOffline++;
+        return;
+      }
+    }
+  }
+
   // Tag any absent entries so the missing-reaper can prune them after the
   // cooldown period. Only stamp entries that are NOT already tagged —
   // resetting `missing_since` on every pass would restart the reaper's
@@ -222,7 +238,12 @@ async function processAsset(
     const tagged = await coll
       .updateOne(
         { _id: doc._id },
-        { $set: { 'fileinfo.$[e].missing_since': now } },
+        {
+          $set: {
+            'fileinfo.$[e].missing_since': now,
+            'fileinfo.$[e].missing_reason': 'dedupe-absent',
+          },
+        },
         {
           arrayFilters: [
             {
