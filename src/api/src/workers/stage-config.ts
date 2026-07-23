@@ -54,7 +54,14 @@ export interface WorkerConfig {
 }
 
 export type StageResult<TPatch = Record<string, unknown>> =
-  | { patch: TPatch }
+  // `invalidates` lists downstream stages the runner marks stale (version 0,
+  // bookkeeping cleared) in the SAME atomic $set as the patch, so their poll
+  // loops re-claim the doc and rebuild from the freshly-patched fields. The
+  // canonical caller is describe → meili: the caption/OCR usually lands after
+  // the search index was already built (meili depends on exif+thumb only), so
+  // without this the recovered text never becomes searchable (#2172). Done by
+  // the runner — handlers cannot touch `stages.*` keys in the patch itself.
+  | { patch: TPatch; invalidates?: readonly string[] }
   | { wrote: true }
   | { skip: string }
   // The handler determined the bytes are unreadable up front and no retry can

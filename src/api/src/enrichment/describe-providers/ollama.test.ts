@@ -207,7 +207,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     expect(caught!.message).toMatch(/timed out/);
   });
 
-  it('rejects an empty response as non-retryable', async () => {
+  it('rejects an empty response as retryable — empties are transient (#2172)', async () => {
     const { fetchImpl } = mockFetch([{ status: 200, body: { response: '   ' } }]);
     const provider = new OllamaProvider({
       baseUrl: 'http://ollama.test',
@@ -223,6 +223,89 @@ describe('OllamaProvider.describe — failure modes', () => {
       caught = e as RemoteError;
     }
     expect(caught).toBeTruthy();
-    expect(caught!.retryable).toBe(false);
+    expect(caught!.retryable).toBe(true);
+  });
+
+  it('stamps structured diagnostics into the empty-response error (#2172)', async () => {
+    const { fetchImpl } = mockFetch([
+      {
+        status: 200,
+        body: {
+          model: 'qwen3-vl:8b',
+          response: '',
+          done: true,
+          done_reason: 'load',
+          eval_count: 0,
+          total_duration: 42_000_000, // ns → 42 ms
+        },
+      },
+    ]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+    let caught: RemoteError | null = null;
+    try {
+      await provider.describe(Buffer.alloc(4), {
+        systemPrompt: 'secret prompt content',
+        model: 'llava:latest',
+      });
+    } catch (e) {
+      caught = e as RemoteError;
+    }
+    expect(caught).toBeTruthy();
+    // Operator-facing last_error must identify the provider state without
+    // leaking prompt content.
+    expect(caught!.message).toContain('Ollama returned empty response');
+    expect(caught!.message).toContain('model=qwen3-vl:8b');
+    expect(caught!.message).toContain('http=200');
+    expect(caught!.message).toContain('done=true');
+    expect(caught!.message).toContain('done_reason=load');
+    expect(caught!.message).toContain('eval_count=0');
+    expect(caught!.message).toContain('total_duration_ms=42');
+    expect(caught!.message).not.toContain('secret prompt content');
+    expect(caught!.status).toBe(200);
+  });
+
+  it('falls back to the requested model + unknown markers when the body is bare (#2172)', async () => {
+    const { fetchImpl } = mockFetch([{ status: 200, body: { response: '' } }]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+    let caught: RemoteError | null = null;
+    try {
+      await provider.describe(Buffer.alloc(4), {
+        systemPrompt: 'p',
+        model: 'llava:latest',
+      });
+    } catch (e) {
+      caught = e as RemoteError;
+    }
+    expect(caught).toBeTruthy();
+    expect(caught!.message).toContain('model=llava:latest');
+    expect(caught!.message).toContain('done=unknown');
+    expect(caught!.message).toContain('done_reason=unknown');
+  });
+
+  it('recovers when an empty response is followed by a successful retry (#2172)', async () => {
+    const { fetchImpl } = mockFetch([
+      { status: 200, body: { response: '', done: true, done_reason: 'load' } },
+      { status: 200, body: { model: 'qwen3-vl:8b', response: '{"caption":"ok"}', done: true } },
+    ]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+    const opts = { systemPrompt: 'p', model: 'qwen3-vl:8b' };
+    let first: RemoteError | null = null;
+    try {
+      await provider.describe(Buffer.alloc(4), opts);
+    } catch (e) {
+      first = e as RemoteError;
+    }
+    expect(first!.retryable).toBe(true);
+    const second = await provider.describe(Buffer.alloc(4), opts);
+    expect(second.text).toBe('{"caption":"ok"}');
   });
 });
