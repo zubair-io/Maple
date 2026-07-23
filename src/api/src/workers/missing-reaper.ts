@@ -84,6 +84,7 @@ import {
   BREAKER_FRACTION,
   BREAKER_MIN,
   hasLiveEntry,
+  libraryRootAvailable,
   missingFileInfos,
   nearMatchOnDisk,
   reArmDeadStages,
@@ -100,6 +101,10 @@ export const MISSING_REAPER_NAME = 'missing-reaper';
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH = 200;
+/** Upper bound on pages examined per pass (#2171): pagination lets recovery
+ * reach rows behind an undrainable (paused/cooldown/offline) oldest-first
+ * clog, and this cap bounds the per-pass stat + query cost. */
+const MAX_SCAN_PAGES = 10;
 
 export interface RunMissingReaperOptions {
   /** Max tagged rows to examine in one pass. */
@@ -133,18 +138,18 @@ export async function runMissingReaperOnce(
     libs = new Map();
   }
 
-  // Per-pass root cache: unregistered/missing roots count as offline → assets skipped.
+  // Per-pass root cache: unregistered/missing/EMPTY roots count as offline →
+  // assets skipped. Empty matters (#2171): an unmounted bind/network mount is
+  // a present-but-empty dir under which every child stats ENOENT — and
+  // `nearMatchOnDisk` reads an ENOENT parent as 'clear' — so a bare stat of
+  // the root would let a whole unmounted volume age into hard-deletes.
   const rootStatus = new Map<string, 'present' | 'offline'>();
   const checkRoot = async (libIdHex: string): Promise<'present' | 'offline'> => {
     const cached = rootStatus.get(libIdHex);
     if (cached) return cached;
     const root = libs.get(libIdHex);
-    let status: 'present' | 'offline';
-    if (!root) {
-      status = 'offline';
-    } else {
-      status = (await statKind(root)) === 'present' ? 'present' : 'offline';
-    }
+    const status: 'present' | 'offline' =
+      root && (await libraryRootAvailable(root)) ? 'present' : 'offline';
     rootStatus.set(libIdHex, status);
     return status;
   };
@@ -167,146 +172,167 @@ export async function runMissingReaperOnce(
   // recovery is prompt. The age window + pause only gate the irreversible
   // record delete below. `$type: "string"` lets the planner use the
   // `fileinfo.missing_since_1` partial multikey index instead of a COLLSCAN.
-  const candidates = await coll
-    .find(
-      { 'fileinfo.missing_since': { $type: 'string' } },
-      {
-        projection: {
-          _id: 1,
-          fileinfo: 1,
-          maple_id: 1,
-          // Dead flags for the original-file stages — so recovery can re-arm
-          // ones that dead-lettered against the vanished path (drains the
-          // legacy backlog from before tag-only suppression).
-          'stages.exif.dead': 1,
-          'stages.thumb.dead': 1,
-          'stages.preview.dead': 1,
+  //
+  // Fetched in PAGES rather than a single `limit(batchSize)` batch (#2171):
+  // rows the pass cannot resolve (delete-gated while paused, still in
+  // cooldown, mount offline) stay tagged, so a sort-by-oldest single batch
+  // re-fetches exactly those rows every pass and a newer false-tagged row
+  // whose file IS back on disk never gets scanned — recovery starves behind
+  // the clog. Paging up to MAX_SCAN_PAGES × batchSize per pass bounds the work
+  // while letting recovery reach past an undrainable backlog. (Recovered
+  // rows leave the candidate set mid-pass, which can shift `skip` over a few
+  // rows — those are simply picked up next pass.)
+  const fetchPage = (offset: number) =>
+    coll
+      .find(
+        { 'fileinfo.missing_since': { $type: 'string' } },
+        {
+          projection: {
+            _id: 1,
+            fileinfo: 1,
+            maple_id: 1,
+            // Dead flags for the original-file stages — so recovery can re-arm
+            // ones that dead-lettered against the vanished path (drains the
+            // legacy backlog from before tag-only suppression).
+            'stages.exif.dead': 1,
+            'stages.thumb.dead': 1,
+            'stages.preview.dead': 1,
+          },
         },
-      },
-    )
-    // Oldest-missing first. A multikey sort orders by each row's smallest
-    // entry `missing_since`, so the longest-waiting rows are reconciled first
-    // even when a backlog exceeds `batchSize`.
-    .sort({ 'fileinfo.missing_since': 1 })
-    .limit(batchSize)
-    .toArray();
+      )
+      // Oldest-missing first. A multikey sort orders by each row's smallest
+      // entry `missing_since`, so the longest-waiting rows are reconciled first
+      // even when a backlog exceeds one page.
+      .sort({ 'fileinfo.missing_since': 1 })
+      .skip(offset)
+      .limit(batchSize)
+      .toArray();
+
+  const firstPage = await fetchPage(0);
 
   // Defer record deletes: classify all candidates first, then gate on the breaker.
-  const toDelete: typeof candidates = [];
+  const toDelete: typeof firstPage = [];
 
-  for (const doc of candidates) {
-    summary.scanned++;
-    try {
-      const tagged = missingFileInfos(doc.fileinfo);
-      const recover: FileInfo[] = []; // present again → clear missing_since
-      const prune: FileInfo[] = []; // confirmed gone (or orphan) AND aged → $pull
-      // Aged + absent + non-orphan entries needing a near-match veto before any
-      // record delete. (Orphan/`deleted_at` entries skip the veto: a different
-      // file may legitimately sit at the path, so a near-match isn't a bug.)
-      const absentForVeto: FileInfo[] = [];
-      let cannotVerify = false;
+  let page = firstPage;
+  let offset = 0;
+  while (page.length > 0) {
+    for (const doc of page) {
+      summary.scanned++;
+      try {
+        const tagged = missingFileInfos(doc.fileinfo);
+        const recover: FileInfo[] = []; // present again → clear missing_since
+        const prune: FileInfo[] = []; // confirmed gone (or orphan) AND aged → $pull
+        // Aged + absent + non-orphan entries needing a near-match veto before any
+        // record delete. (Orphan/`deleted_at` entries skip the veto: a different
+        // file may legitimately sit at the path, so a near-match isn't a bug.)
+        const absentForVeto: FileInfo[] = [];
+        let cannotVerify = false;
 
-      for (const fi of tagged) {
-        const aged = (fi.missing_since ?? '') < opts.deleteBeforeIso;
-        if (fi.deleted_at) {
-          // Orphan / content-moved: dead, never re-stat. Prune once aged.
-          if (aged) prune.push(fi);
-          continue;
-        }
-        // Vanished-file entry: re-stat with the mount guard.
-        const libIdHex = fi.library_id.toHexString();
-        if ((await checkRoot(libIdHex)) === 'offline') {
-          cannotVerify = true;
-          break;
-        }
-        const root = libs.get(libIdHex)!;
-        const segments = fi.path === '' ? [] : fi.path.split('/');
-        const abs = path.join(root, ...segments, fi.filename);
-        const kind = await statKind(abs);
-        if (kind === 'present') recover.push(fi);
-        else if (kind === 'absent') {
-          if (aged) {
-            prune.push(fi);
-            absentForVeto.push(fi);
+        for (const fi of tagged) {
+          const aged = (fi.missing_since ?? '') < opts.deleteBeforeIso;
+          if (fi.deleted_at) {
+            // Orphan / content-moved: dead, never re-stat. Prune once aged.
+            if (aged) prune.push(fi);
+            continue;
           }
-        } else {
-          // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
-          cannotVerify = true;
-          break;
+          // Vanished-file entry: re-stat with the mount guard.
+          const libIdHex = fi.library_id.toHexString();
+          if ((await checkRoot(libIdHex)) === 'offline') {
+            cannotVerify = true;
+            break;
+          }
+          const root = libs.get(libIdHex)!;
+          const segments = fi.path === '' ? [] : fi.path.split('/');
+          const abs = path.join(root, ...segments, fi.filename);
+          const kind = await statKind(abs);
+          if (kind === 'present') recover.push(fi);
+          else if (kind === 'absent') {
+            if (aged) {
+              prune.push(fi);
+              absentForVeto.push(fi);
+            }
+          } else {
+            // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
+            cannotVerify = true;
+            break;
+          }
         }
-      }
 
-      if (cannotVerify) {
-        summary.skippedMountOffline++;
-        continue;
-      }
-
-      // Survivors = every entry we are NOT pruning this pass (live entries,
-      // recovered entries, and still-in-cooldown missing entries).
-      const survivors = (doc.fileinfo ?? []).filter((f) => !prune.some((p) => sameEntry(p, f)));
-
-      if (survivors.length > 0) {
-        // The row keeps at least one location → reconcile in place (runs even
-        // while paused; nothing here is irreversible). Nothing to do at all
-        // when every tagged entry is still in cooldown and none recovered.
-        if (recover.length === 0 && prune.length === 0) {
-          if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
+        if (cannotVerify) {
+          summary.skippedMountOffline++;
           continue;
         }
-        await reconcileSurvivor(coll, doc, recover, prune, survivors, summary, libs);
-        continue;
-      }
 
-      // No survivor — the prune empties the row → RECORD DELETE (irreversible).
-      // Near-match veto on the absent (non-orphan) entries first.
-      let veto: 'name-mismatch' | 'unreadable' | null = null;
-      for (const fi of absentForVeto) {
-        const root = libs.get(fi.library_id.toHexString())!;
-        const segments = fi.path === '' ? [] : fi.path.split('/');
-        const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
-        if (verdict === 'match') {
-          veto = 'name-mismatch';
-          break;
-        }
-        if (verdict === 'unreadable') {
-          veto = 'unreadable';
-          break;
-        }
-      }
-      if (veto === 'name-mismatch') {
-        summary.skippedNameMismatch++;
-        log.warn(
-          { _id: String(doc._id) },
-          'missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted',
-        );
-        continue;
-      }
-      if (veto === 'unreadable') {
-        // Couldn't list a gone entry's directory — treat like an offline mount:
-        // skip rather than delete on unproven absence.
-        summary.skippedMountOffline++;
-        log.warn(
-          { _id: String(doc._id) },
-          'missing-reaper: gone entry parent dir unreadable — skipped, not deleted',
-        );
-        continue;
-      }
+        // Survivors = every entry we are NOT pruning this pass (live entries,
+        // recovered entries, and still-in-cooldown missing entries).
+        const survivors = (doc.fileinfo ?? []).filter((f) => !prune.some((p) => sameEntry(p, f)));
 
-      // Every entry is gone-and-aged (a not-yet-aged entry would be a survivor,
-      // so the cooldown is already satisfied here). Gate the record delete on
-      // pause; recovery/prune of surviving rows already ran above regardless.
-      if (!allowDelete) {
-        summary.skippedPaused++;
-        continue;
+        if (survivors.length > 0) {
+          // The row keeps at least one location → reconcile in place (runs even
+          // while paused; nothing here is irreversible). Nothing to do at all
+          // when every tagged entry is still in cooldown and none recovered.
+          if (recover.length === 0 && prune.length === 0) {
+            if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
+            continue;
+          }
+          await reconcileSurvivor(coll, doc, recover, prune, survivors, summary, libs);
+          continue;
+        }
+
+        // No survivor — the prune empties the row → RECORD DELETE (irreversible).
+        // Near-match veto on the absent (non-orphan) entries first.
+        let veto: 'name-mismatch' | 'unreadable' | null = null;
+        for (const fi of absentForVeto) {
+          const root = libs.get(fi.library_id.toHexString())!;
+          const segments = fi.path === '' ? [] : fi.path.split('/');
+          const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
+          if (verdict === 'match') {
+            veto = 'name-mismatch';
+            break;
+          }
+          if (verdict === 'unreadable') {
+            veto = 'unreadable';
+            break;
+          }
+        }
+        if (veto === 'name-mismatch') {
+          summary.skippedNameMismatch++;
+          log.warn(
+            { _id: String(doc._id) },
+            'missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted',
+          );
+          continue;
+        }
+        if (veto === 'unreadable') {
+          // Couldn't list a gone entry's directory — treat like an offline mount:
+          // skip rather than delete on unproven absence.
+          summary.skippedMountOffline++;
+          log.warn(
+            { _id: String(doc._id) },
+            'missing-reaper: gone entry parent dir unreadable — skipped, not deleted',
+          );
+          continue;
+        }
+
+        // Every entry is gone-and-aged (a not-yet-aged entry would be a survivor,
+        // so the cooldown is already satisfied here). Gate the record delete on
+        // pause; recovery/prune of surviving rows already ran above regardless.
+        if (!allowDelete) {
+          summary.skippedPaused++;
+          continue;
+        }
+        toDelete.push(doc);
+      } catch (err) {
+        summary.errors++;
+        log.warn(
+          { _id: String(doc._id), err: err instanceof Error ? err.message : err },
+          'missing-reaper: row failed',
+        );
       }
-      toDelete.push(doc);
-    } catch (err) {
-      summary.errors++;
-      log.warn(
-        { _id: String(doc._id), err: err instanceof Error ? err.message : err },
-        'missing-reaper: row failed',
-      );
     }
+    offset += page.length;
+    if (page.length < batchSize || offset >= batchSize * MAX_SCAN_PAGES) break;
+    page = await fetchPage(offset);
   }
 
   // Circuit breaker: a pass that wants to hard-delete a large fraction of what
@@ -369,7 +395,13 @@ async function reconcileSurvivor(
   if (recover.length > 0) {
     await coll.updateOne(
       { _id: doc._id },
-      { $set: { 'fileinfo.$[r].missing_since': null, ...reArm } },
+      {
+        $set: {
+          'fileinfo.$[r].missing_since': null,
+          'fileinfo.$[r].missing_reason': null,
+          ...reArm,
+        },
+      },
       {
         arrayFilters: [
           {

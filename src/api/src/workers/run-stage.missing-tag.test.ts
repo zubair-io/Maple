@@ -10,10 +10,14 @@
  * `arrayFilters` `$set`s the way the per-entry tag write needs.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Collection, UpdateResult } from 'mongodb';
 import { _test, buildClaimQuery, defineStage, type ImageDoc } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
+import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 
 function makeConfigMock(): Collection<WorkerConfigDoc> {
   const store = new Map<string, WorkerConfigDoc>();
@@ -134,11 +138,17 @@ function arrayFilterMatches(
   return matchesFilter(el, sub);
 }
 
-function setPath(
+/** Resolve one `$set` path to its target objects + final key WITHOUT writing.
+ * Mongo evaluates arrayFilters against the PRE-update document for the whole
+ * update, so writes must be collected first and applied afterwards — applying
+ * one path can otherwise flip a filter (`missing_since $exists:false`) off
+ * before a sibling path (`missing_reason`) is matched. */
+function collectWrites(
   obj: Record<string, unknown>,
   parts: string[],
   value: unknown,
   arrayFilters: Record<string, unknown>[] | undefined,
+  out: Array<{ target: Record<string, unknown>; key: string; value: unknown }>,
 ): void {
   const [head, ...rest] = parts;
   const m = /^\$\[(\w+)\]$/.exec(head!);
@@ -151,16 +161,16 @@ function setPath(
     if (!Array.isArray(arr)) return;
     for (const el of arr) {
       if (arrayFilterMatches(el, id, af))
-        setPath(el as Record<string, unknown>, rest, value, arrayFilters);
+        collectWrites(el as Record<string, unknown>, rest, value, arrayFilters, out);
     }
     return;
   }
   if (rest.length === 0) {
-    obj[head!] = value;
+    out.push({ target: obj, key: head!, value });
     return;
   }
   if (obj[head!] == null) obj[head!] = {};
-  setPath(obj[head!] as Record<string, unknown>, rest, value, arrayFilters);
+  collectWrites(obj[head!] as Record<string, unknown>, rest, value, arrayFilters, out);
 }
 
 function applySet(
@@ -168,9 +178,11 @@ function applySet(
   setDoc: Record<string, unknown>,
   arrayFilters?: Record<string, unknown>[],
 ): void {
+  const writes: Array<{ target: Record<string, unknown>; key: string; value: unknown }> = [];
   for (const [path, value] of Object.entries(setDoc)) {
-    setPath(doc as Record<string, unknown>, path.split('.'), value, arrayFilters);
+    collectWrites(doc as Record<string, unknown>, path.split('.'), value, arrayFilters, writes);
   }
+  for (const w of writes) w.target[w.key] = w.value;
 }
 
 function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
@@ -250,6 +262,28 @@ function entryMissing(doc: ImageDoc): unknown {
     ?.missing_since;
 }
 
+/** The (single) fileinfo entry's structured missing provenance. */
+function entryReason(doc: ImageDoc): unknown {
+  return (doc as unknown as { fileinfo?: Array<{ missing_reason?: unknown }> }).fileinfo?.[0]
+    ?.missing_reason;
+}
+
+// The tag write is confirm-before-tag now (#2171): it resolves the primary
+// entry against the registered library root, requires the root to be AVAILABLE
+// (listable + non-empty — an unmounted mount is a present-but-empty dir), and
+// re-stats the exact path, tagging only on a confirmed ENOENT. These tests
+// register a real tmp dir as `lib0`'s root; `marker.txt` keeps it non-empty.
+let libRoot: string;
+beforeEach(() => {
+  libRoot = mkdtempSync(join(tmpdir(), 'maple-runstage-root-'));
+  writeFileSync(join(libRoot, 'marker.txt'), 'x');
+  setLibraryRootsForTests(new Map([['lib0', libRoot]]));
+});
+afterEach(() => {
+  setLibraryRootsForTests(null);
+  rmSync(libRoot, { recursive: true, force: true });
+});
+
 describe('runOnce — per-location missing_since tagging', () => {
   it('tags the primary entry missing_since on an ENOENT failure when tagsMissingOnEnoent is set', async () => {
     const images = makeImagesMock([liveDoc()]);
@@ -259,6 +293,8 @@ describe('runOnce — per-location missing_since tagging', () => {
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]!;
     expect(typeof entryMissing(doc)).toBe('string');
+    // Structured provenance: which writer tagged, and from which stage (#2171).
+    expect(entryReason(doc)).toBe('stage-enoent:exif');
     // Never the asset root — the tag is per-location now.
     expect((doc as unknown as { missing_since?: unknown }).missing_since).toBeUndefined();
     const firstTag = entryMissing(doc);
@@ -297,6 +333,47 @@ describe('runOnce — per-location missing_since tagging', () => {
       $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } },
     });
     expect(q['missing_since']).toBeUndefined();
+  });
+
+  it('does NOT tag when the file is actually present on disk (transient ENOENT)', async () => {
+    // #2171: a handler-level ENOENT can be a race (file mid-move, stale
+    // negative cache on a network share) rather than a real deletion. The
+    // runner re-stats the primary path and refuses to tag a present file;
+    // the attempt rollback leaves the row claimable for a clean retry.
+    writeFileSync(join(libRoot, 'gone.raw'), 'x'); // present despite the handler's ENOENT
+    const images = makeImagesMock([liveDoc()]);
+    const configColl = makeConfigMock();
+    const stage = originalFileStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0]! as unknown as {
+      fileinfo?: Array<{ missing_since?: string }>;
+      stages?: Record<string, { attempts?: number }>;
+    };
+    expect(doc.fileinfo?.[0]?.missing_since).toBeUndefined();
+    expect(doc.stages?.exif?.attempts ?? 0).toBe(0); // rolled back — will retry
+  });
+
+  it('does NOT tag when the library root is unavailable (empty mountpoint)', async () => {
+    // An unmounted bind/network mount is a present-but-EMPTY directory: every
+    // child path ENOENTs. That is evidence the ROOT is gone, not the file.
+    rmSync(join(libRoot, 'marker.txt'));
+    const images = makeImagesMock([liveDoc()]);
+    const configColl = makeConfigMock();
+    const stage = originalFileStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
+  });
+
+  it('does NOT tag when the library is not registered (no root to verify against)', async () => {
+    setLibraryRootsForTests(new Map()); // lib0 unknown
+    const images = makeImagesMock([liveDoc()]);
+    const configColl = makeConfigMock();
+    const stage = originalFileStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
   });
 
   it('does NOT tag for a non-ENOENT failure', async () => {

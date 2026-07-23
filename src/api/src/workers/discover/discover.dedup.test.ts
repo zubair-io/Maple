@@ -145,6 +145,8 @@ describe('discover producer — dedup', () => {
     );
     expect(oldEntry).toBeDefined();
     expect(oldEntry!.deleted_at).not.toBeNull();
+    // Structured provenance for the dual-flag (#2171).
+    expect((oldEntry as { missing_reason?: string }).missing_reason).toBe('content-changed');
 
     // New row exists with the new maple_id and a live fileinfo entry.
     const newRow = await coll.findOne({ maple_id: newHashed.maple_id });
@@ -155,6 +157,66 @@ describe('discover producer — dedup', () => {
     expect((newRow!.fileinfo![0] as any).deleted_at ?? null).toBeNull();
 
     await coll.deleteMany({ maple_id: { $in: [oldHashed.maple_id, newHashed.maple_id] } });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('legacy row without sha1_head ADOPTS the hash on re-discover — never orphaned (#2171)', async () => {
+    if (!mongoReachable) return;
+
+    // A row that predates content hashing has NO sha1_head. Re-discovering its
+    // (present, unchanged) file used to satisfy `sha1_head !== hashed.sha1_head`
+    // (undefined ≠ hash), dual-flagging the entry deleted_at+missing_since and
+    // inserting a duplicate row — every sweep generation, forever. The guard
+    // must instead adopt the computed hash onto the legacy row and treat the
+    // event as an idempotent re-discover.
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-legacy-'));
+    const file = path.join(root, 'legacy.jpg');
+    await writeFile(file, Buffer.alloc(80 * 1024, 0x42));
+
+    const foldersColl = await foldersCollection();
+    const folderId = (
+      await foldersColl.insertOne({
+        path: root,
+        label: 'legacy-adopt',
+        last_scan: null,
+        file_count: 0,
+        created_at: new Date().toISOString(),
+      } as never)
+    ).insertedId;
+    const coll = await assetsCollection();
+    const { hashFileForId } = await import('../../indexer/id.ts');
+    const hashed = await hashFileForId(file);
+    await coll.deleteMany({ maple_id: { $in: ['legacy-primary-id', hashed.maple_id] } });
+
+    // Legacy row: upgraded/primary-form maple_id, NO sha1_head field at all.
+    await coll.insertOne({
+      maple_id: 'legacy-primary-id',
+      fileinfo: [{ library_id: folderId, path: '', filename: 'legacy.jpg', deleted_at: null }],
+      deleted_at: null,
+      live_location_count: 1,
+    } as never);
+
+    await handleEvent({ kind: 'created', absPath: file }, folderId, root);
+
+    // No duplicate row inserted — the legacy row absorbed the event.
+    expect(await coll.countDocuments({ 'fileinfo.filename': 'legacy.jpg' })).toBe(1);
+    const row = await coll.findOne({ maple_id: 'legacy-primary-id' });
+    expect(row).not.toBeNull();
+    // Hash adopted in place.
+    expect(row!.sha1_head).toBe(hashed.sha1_head);
+    // Entry stays fully live — no orphan flags.
+    const entry = (row!.fileinfo ?? [])[0] as {
+      deleted_at?: string | null;
+      missing_since?: string | null;
+    };
+    expect(entry.deleted_at ?? null).toBeNull();
+    expect(entry.missing_since ?? null).toBeNull();
+
+    await coll.deleteMany({ maple_id: 'legacy-primary-id' });
     await foldersColl.deleteOne({ _id: folderId });
     await rm(root, { recursive: true, force: true });
   });
