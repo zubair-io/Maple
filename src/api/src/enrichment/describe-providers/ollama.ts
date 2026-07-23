@@ -40,6 +40,7 @@ interface OllamaGenerateResponse {
   model?: unknown;
   response?: unknown;
   done?: unknown;
+  done_reason?: unknown;
   total_duration?: unknown;
   eval_count?: unknown;
 }
@@ -102,7 +103,27 @@ export class OllamaProvider implements DescribeProvider {
 
     const text = typeof parsed.response === 'string' ? parsed.response.trim() : '';
     if (text.length === 0) {
-      throw new RemoteError('Ollama returned empty response', false);
+      // Empty responses are transient in practice — the classic producer is a
+      // generate hit racing a model load/eviction (`done_reason: "load"`), or
+      // a backend under memory pressure. Classify retryable so the stage's
+      // attempt budget (and an operator retry-dead after the provider heals)
+      // can recover the asset, and stamp the provider/result state into the
+      // message — it lands verbatim in `stages.describe.last_error`, which is
+      // all the operator sees in the Workers dead list. Never include prompt
+      // or image content.
+      const detail = [
+        `model=${typeof parsed.model === 'string' ? parsed.model : opts.model}`,
+        `http=${res.status}`,
+        `done=${typeof parsed.done === 'boolean' ? parsed.done : 'unknown'}`,
+        `done_reason=${typeof parsed.done_reason === 'string' ? parsed.done_reason : 'unknown'}`,
+        `eval_count=${typeof parsed.eval_count === 'number' ? parsed.eval_count : 'unknown'}`,
+        `total_duration_ms=${
+          typeof parsed.total_duration === 'number'
+            ? Math.round(parsed.total_duration / 1_000_000)
+            : 'unknown'
+        }`,
+      ].join(', ');
+      throw new RemoteError(`Ollama returned empty response (${detail})`, true, res.status);
     }
     return {
       text,

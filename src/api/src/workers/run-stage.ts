@@ -222,11 +222,26 @@ export async function runOnce(
             `Handler returned patch with forbidden stage keys: ${forbiddenKeys.join(', ')}`,
           );
         }
+        // Fold the `invalidates` stage resets into the same $set as the patch:
+        // one atomic write, so a crash can never land the new field values
+        // without also marking the downstream stage stale (or vice versa).
+        const invalidateSets = Object.fromEntries(
+          (result.invalidates ?? [])
+            .filter((s) => s !== stage.name)
+            .flatMap((s) => [
+              [`stages.${s}.version`, 0],
+              [`stages.${s}.attempts`, 0],
+              [`stages.${s}.dead`, false],
+              [`stages.${s}.last_error`, null],
+              [`stages.${s}.processed_at`, null],
+            ]),
+        );
         await images.updateOne(
           { _id: id },
           {
             $set: {
               [`stages.${stage.name}`]: stageState,
+              ...invalidateSets,
               ...result.patch,
             },
           },
