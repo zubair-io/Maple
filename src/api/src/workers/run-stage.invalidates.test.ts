@@ -66,6 +66,43 @@ describe('StageResult.invalidates', () => {
     });
   });
 
+  it('rejects invalidates names that would corrupt Mongo $set paths', async () => {
+    // A `.`/`$`-bearing or empty name would silently create unintended nested
+    // fields (or throw mid-update) — the runner must fail the attempt with a
+    // clear error instead of writing a malformed update.
+    const images = makeImagesMock([docWithCompletedMeili('/img1.raw')]);
+    const configColl = makeConfigMock();
+
+    const testStage = defineStage({
+      name: 'hash',
+      targetVersion: 1,
+      dependsOn: [],
+      defaults: {
+        concurrency: 1,
+        maxAttempts: 3,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async () => ({ patch: { description: 'a cat' }, invalidates: ['meili.version'] }),
+    });
+
+    await runOnce(
+      testStage,
+      { concurrency: 1, maxAttempts: 3, paused: false, last_seen_target_version: 1 },
+      images,
+      configColl,
+    );
+
+    const [doc] = await images.find({}).toArray();
+    // The attempt failed cleanly: no patch landed, error names the bad value.
+    expect((doc as unknown as { description?: string }).description).toBeUndefined();
+    expect(doc!.stages!.hash!.last_error).toContain('invalid stage name');
+    expect(doc!.stages!.hash!.last_error).toContain('meili.version');
+    // meili's completed state was left untouched.
+    expect(doc!.stages!.meili).toMatchObject({ version: 6 });
+  });
+
   it('recovers a doc whose handler returned empty once then succeeded (#2172)', async () => {
     // Regression for the IMG_4204.HEIC incident: an empty Ollama response is
     // a retryable failure, so with maxAttempts 2 the first tick must leave the

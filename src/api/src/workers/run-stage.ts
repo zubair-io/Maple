@@ -124,6 +124,15 @@ function invalidationSets(
   names: readonly string[] | undefined,
   ownName: string,
 ): Record<string, unknown> {
+  // Names are interpolated into `$set` paths — a `.`/`$`-bearing or empty
+  // value would silently create unintended nested fields (or throw
+  // mid-update). Stage names are compile-time constants, so any mismatch is
+  // a programming error: fail the attempt loudly rather than write a
+  // malformed update.
+  const invalid = (names ?? []).filter((s) => !/^[a-z][a-z0-9_-]*$/.test(s));
+  if (invalid.length > 0) {
+    throw new Error(`invalid stage name in invalidates: ${invalid.join(', ')}`);
+  }
   return Object.fromEntries(
     (names ?? [])
       .filter((s) => s !== ownName)
