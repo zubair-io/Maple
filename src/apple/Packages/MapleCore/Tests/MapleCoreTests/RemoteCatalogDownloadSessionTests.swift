@@ -12,6 +12,7 @@ final class RemoteCatalogDownloadSessionTests: XCTestCase {
       server: URL(string: "https://x.test")!,
       urlSession: TestURLSession.make(),
       tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
       onSignOut: {}
     )
     // Construct with the default download session (no injection).
@@ -30,6 +31,7 @@ final class RemoteCatalogDownloadSessionTests: XCTestCase {
       server: URL(string: "https://x.test")!,
       urlSession: TestURLSession.make(),
       tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
       onSignOut: {}
     )
     let injected = TestURLSession.make()

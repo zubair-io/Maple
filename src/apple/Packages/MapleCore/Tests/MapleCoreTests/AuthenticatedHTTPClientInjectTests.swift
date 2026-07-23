@@ -7,6 +7,7 @@ final class AuthenticatedHTTPClientInjectTests: XCTestCase {
       server: URL(string: "https://x.test")!,
       urlSession: TestURLSession.make(),
       tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
       onSignOut: {}
     )
     let req = URLRequest(url: URL(string: "https://x.test/api/folders")!)
@@ -19,6 +20,7 @@ final class AuthenticatedHTTPClientInjectTests: XCTestCase {
       server: URL(string: "https://x.test")!,
       urlSession: TestURLSession.make(),
       tokensProvider: { nil },
+      onTokensRefreshed: { _ in },
       onSignOut: {}
     )
     let req = URLRequest(url: URL(string: "https://x.test/api/folders")!)
@@ -45,6 +47,7 @@ final class AuthenticatedHTTPClientInjectTests: XCTestCase {
       server: URL(string: "https://x.test")!,
       urlSession: session,
       tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
       onSignOut: {}
     )
     let req = URLRequest(url: URL(string: "https://x.test/api/x")!)

@@ -22,13 +22,13 @@ public actor AuthenticatedHTTPClient {
   private let server: URL
   private let urlSession: URLSession
   private let tokensProvider: () -> AuthTokens?
-  private let onTokensRefreshed: (AuthTokens) -> Void
+  private let onTokensRefreshed: (AuthTokens) throws -> Void
   private let onSignOut: () -> Void
   private var inflightRefresh: Task<AuthTokens, Error>?
 
   public init(server: URL, urlSession: URLSession,
               tokensProvider: @escaping () -> AuthTokens?,
-              onTokensRefreshed: @escaping (AuthTokens) -> Void = { _ in },
+              onTokensRefreshed: @escaping (AuthTokens) throws -> Void,
               onSignOut: @escaping () -> Void) {
     self.server = server; self.urlSession = urlSession
     self.tokensProvider = tokensProvider; self.onTokensRefreshed = onTokensRefreshed
@@ -53,6 +53,7 @@ public actor AuthenticatedHTTPClient {
       server: server,
       urlSession: URLSession(configuration: config),
       tokensProvider: { nil },
+      onTokensRefreshed: { _ in },
       onSignOut: { }
     )
   }
@@ -116,9 +117,10 @@ public actor AuthenticatedHTTPClient {
   /// already a defensive catch upstream so the change won't silently
   /// break, but the contract here is "URLError = transport."
   private func refresh(refresh refreshToken: String) async throws -> AuthTokens {
-    // Awaiters coalescing onto an in-flight refresh return the shared result
-    // WITHOUT persisting — only the owner (below) calls `onTokensRefreshed`, so
-    // N concurrent 401s produce exactly one Keychain write + mirror, not N.
+    // Persistence is inside the shared task, before the cross-process lock is
+    // released. Every waiter therefore observes either one durably persisted
+    // rotation or the same persistence error; none can use the new access token
+    // early, and N concurrent 401s still produce exactly one Keychain write.
     if let t = inflightRefresh { return try await t.value }
     let task = Task { () throws -> AuthTokens in
       let lock = try await Self.acquireRefreshLock(server: server)
@@ -151,13 +153,20 @@ public actor AuthenticatedHTTPClient {
       // sign-out. When absent we keep the token we presented.
       struct R: Decodable { let access_token: String; let refresh_token: String? }
       let r = try JSONDecoder().decode(R.self, from: data)
-      return AuthTokens(access: r.access_token, refresh: r.refresh_token ?? effectiveRefreshToken)
+      let tokens = AuthTokens(
+        access: r.access_token,
+        refresh: r.refresh_token ?? effectiveRefreshToken
+      )
+      // Rotation consumes the old refresh token server-side. Do not expose the
+      // replacement or release the refresh lock until it is durably persisted;
+      // otherwise this launch appears healthy while the next launch replays the
+      // dead predecessor and forces the user to pair again.
+      try onTokensRefreshed(tokens)
+      return tokens
     }
     inflightRefresh = task
     defer { inflightRefresh = nil }
-    let tokens = try await task.value
-    onTokensRefreshed(tokens)
-    return tokens
+    return try await task.value
   }
 
   /// Returns a copy of `req` with the current access token injected as a

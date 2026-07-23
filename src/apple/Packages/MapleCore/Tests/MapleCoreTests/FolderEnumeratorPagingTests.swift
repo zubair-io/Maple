@@ -43,6 +43,7 @@ final class FolderEnumeratorPagingTests: XCTestCase {
       server: URL(string: "https://x.test")!,
       urlSession: session,
       tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
       onSignOut: {}
     )
     let catalog = RemoteCatalog(http: http,
