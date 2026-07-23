@@ -15,7 +15,10 @@ import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
 import { readCheckpoint, writeCheckpoint } from '../../indexer/checkpoint.ts';
-import { statKind } from '../missing-reaper.helpers.ts';
+import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
+import { child } from '../../log.ts';
+
+const log = child('discover');
 
 export interface ReconcileDeps {
   handleEvent: (event: WatchEvent, folderId: ObjectId, libraryRoot: string) => Promise<void>;
@@ -108,11 +111,27 @@ export async function visitDirectory(
   // normalization-insensitive filesystem this also absorbs an NFC/NFD name
   // mismatch that the exact-string listing check would miss; on a byte-exact
   // filesystem such a mismatch is a genuine indexing bug, not a false removal.)
+  //
+  // Even a confirmed per-file ENOENT is not enough when the LIBRARY ROOT is
+  // unavailable (#2171): an unmounted bind/network mount is a present-but-
+  // EMPTY directory under which every stat ENOENTs, so a per-candidate stat
+  // cannot tell "file deleted" from "whole volume gone". Before the first
+  // removal is emitted, confirm the root is listable and non-empty; if not,
+  // emit nothing this visit and let a later sweep (mount restored) decide.
+  let rootAvailable: boolean | null = null; // lazily checked, once per visit
   for (const a of recorded) {
     const fn = a.fileinfo?.[0]?.filename;
     if (!fn || filesOnDisk.has(fn)) continue;
     const abs = path.join(dir.dir_path, fn);
     if ((await statKind(abs)) !== 'absent') continue;
+    rootAvailable ??= await libraryRootAvailable(root);
+    if (!rootAvailable) {
+      log.warn(
+        { dir: dir.dir_path, root },
+        'sweep: removal candidates found but library root is unavailable — emitting no removals',
+      );
+      break;
+    }
     await deps.handleEvent({ kind: 'removed', absPath: abs }, folderId, root);
   }
 

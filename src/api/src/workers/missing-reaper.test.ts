@@ -135,7 +135,8 @@ describe('runMissingReaperOnce', () => {
   it('hard-deletes a row whose only location is gone and aged past the window', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
-    const libraryId = await seedLibrary(dir); // no file on disk → genuinely absent
+    writeFileSync(join(dir, 'other.jpg'), 'x'); // root available; gone.jpg genuinely absent
+    const libraryId = await seedLibrary(dir);
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'gone-1',
@@ -154,6 +155,7 @@ describe('runMissingReaperOnce', () => {
   it('cooldown: leaves an all-gone row whose entry has not been missing long enough', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'other.jpg'), 'x'); // root available
     const libraryId = await seedLibrary(dir);
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
@@ -247,6 +249,90 @@ describe('runMissingReaperOnce', () => {
     expect(summary.skippedMountOffline).toBe(1);
     const doc = await db!.collection('assets').findOne({ maple_id: 'offline-1' });
     expect(entryMissing(doc as never, 'gone.jpg')).toBe(AGED); // entry tag untouched
+  });
+
+  it('mount guard: an EMPTY library root is treated as offline (unmounted mountpoint) — #2171', async () => {
+    if (!mongoReachable) return;
+    // An unmounted bind/network mount is a present-but-empty directory: the
+    // root stats fine, every child ENOENTs, and `nearMatchOnDisk` sees an
+    // ENOENT parent as 'clear'. Without the non-empty check this row would
+    // hard-delete. It must be skipped as mount-offline instead.
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-empty-'));
+    const libraryId = await seedLibrary(dir); // dir left EMPTY
+    await db!.collection('assets').insertOne({
+      ...ASSET_BASE,
+      maple_id: 'empty-root-1',
+      fileinfo: [fi('gone.jpg', libraryId, { missing: AGED })],
+    } as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+
+    expect(summary.reaped).toBe(0);
+    expect(summary.skippedMountOffline).toBe(1);
+    expect(await db!.collection('assets').countDocuments({ maple_id: 'empty-root-1' })).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('recovery clears missing_reason along with missing_since', async () => {
+    if (!mongoReachable) return;
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'here.jpg'), 'x');
+    const libraryId = await seedLibrary(dir);
+    await db!.collection('assets').insertOne({
+      ...ASSET_BASE,
+      maple_id: 'reason-clear-1',
+      fileinfo: [
+        { ...fi('here.jpg', libraryId, { missing: AGED }), missing_reason: 'watch-removed' },
+      ],
+    } as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+
+    expect(summary.recovered).toBe(1);
+    const doc = await db!.collection('assets').findOne({ maple_id: 'reason-clear-1' });
+    const entry = (doc!.fileinfo as Array<{ missing_since?: string; missing_reason?: string }>)[0]!;
+    expect(entry.missing_since ?? null).toBeNull();
+    expect(entry.missing_reason ?? null).toBeNull();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('pages past a batch clogged with paused-undeletable rows so newer rows still recover (#2171)', async () => {
+    if (!mongoReachable) return;
+    // Prod failure mode: the reaper is paused, the oldest `batchSize` rows are
+    // all aged+gone (delete-gated → skippedPaused), and the sort-by-oldest
+    // batch re-fetches exactly those rows every pass — so a newer false-tagged
+    // row whose file IS on disk never gets scanned, and never recovers.
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-page-'));
+    writeFileSync(join(dir, 'back.jpg'), 'x'); // the newer row's file is present
+    const libraryId = await seedLibrary(dir);
+    await db!.collection('assets').insertMany([
+      {
+        ...ASSET_BASE,
+        maple_id: 'clog-1',
+        fileinfo: [fi('gone.jpg', libraryId, { missing: AGED })],
+      },
+      {
+        ...ASSET_BASE,
+        maple_id: 'starved-back',
+        fileinfo: [fi('back.jpg', libraryId, { missing: FRESH })],
+      },
+    ] as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({
+      batchSize: 1, // first page holds only the aged clog row
+      deleteBeforeIso: DELETE_BEFORE,
+      allowDelete: false,
+    });
+
+    expect(summary.skippedPaused).toBe(1);
+    // Pagination reached the second row and recovered it in the SAME pass.
+    expect(summary.recovered).toBe(1);
+    const back = await db!.collection('assets').findOne({ maple_id: 'starved-back' });
+    expect(entryMissing(back as never, 'back.jpg') ?? null).toBeNull();
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('multi-location asset survives while ANY live location still exists', async () => {
@@ -380,7 +466,8 @@ describe('runMissingReaperOnce', () => {
 
   it('circuit breaker: aborts a pass that would mass-delete, deleting nothing', async () => {
     if (!mongoReachable) return;
-    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-')); // empty — every file gone
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'other.jpg'), 'x'); // root available — every recorded file gone
     const libraryId = await seedLibrary(dir);
     const docs = Array.from({ length: 40 }, (_, i) => ({
       ...ASSET_BASE,
