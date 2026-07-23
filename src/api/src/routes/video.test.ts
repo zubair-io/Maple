@@ -3,7 +3,9 @@ import { Elysia } from 'elysia';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ObjectId } from 'mongodb';
 import { signAccessToken } from '../auth/tokens.ts';
+import { invalidateLibraryRoots, setLibraryBySlugForTests } from '../indexer/libraries.cache.ts';
 import { videoRoutes } from './video.ts';
 
 const SECRET = 'video-route-test-secret-at-least-16';
@@ -21,6 +23,11 @@ describe('GET /api/video/fs', () => {
     await writeFile(file, Buffer.from('0123456789'));
     process.env.MAPLE_ROOTS = dir;
     process.env.MAPLE_JWT_SECRET = SECRET;
+    setLibraryBySlugForTests('video-test', {
+      libraryId: new ObjectId(),
+      root: dir,
+      label: 'Video test library',
+    });
     token = await signAccessToken({ sub: 'u1', email: 'user@example.com', role: 'member' }, SECRET);
   });
 
@@ -30,6 +37,7 @@ describe('GET /api/video/fs', () => {
     else process.env.MAPLE_JWT_SECRET = originalSecret;
     if (originalRoots === undefined) delete process.env.MAPLE_ROOTS;
     else process.env.MAPLE_ROOTS = originalRoots;
+    invalidateLibraryRoots();
   });
 
   function request(range?: string, suppliedToken = token): Promise<Response> {
@@ -66,5 +74,23 @@ describe('GET /api/video/fs', () => {
     const response = await request('bytes=10-');
     expect(response.status).toBe(416);
     expect(response.headers.get('Content-Range')).toBe('bytes */10');
+  });
+
+  test('rejects a missing token on the slug route', async () => {
+    const response = await new Elysia()
+      .use(videoRoutes)
+      .handle(new Request('http://localhost/api/video/video-test/clip.mp4'));
+    expect(response.status).toBe(401);
+  });
+
+  test('serves a byte range from the slug route', async () => {
+    const response = await new Elysia().use(videoRoutes).handle(
+      new Request(`http://localhost/api/video/video-test/clip.mp4?token=${token}`, {
+        headers: { Range: 'bytes=4-7' },
+      }),
+    );
+    expect(response.status).toBe(206);
+    expect(response.headers.get('Content-Range')).toBe('bytes 4-7/10');
+    expect(await response.text()).toBe('4567');
   });
 });

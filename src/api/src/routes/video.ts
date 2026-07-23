@@ -46,6 +46,10 @@ export const videoRoutes = new Elysia({ prefix: '/api' })
         set.status = 401;
         return { error: 'Invalid or expired access token' };
       }
+      if (!query.path) {
+        set.status = 400;
+        return { error: 'path is required' };
+      }
       const jailed = await resolveJailedFile(query.path);
       if (!jailed.ok) {
         set.status = jailed.status;
@@ -64,7 +68,9 @@ export const videoRoutes = new Elysia({ prefix: '/api' })
     },
     {
       query: t.Object({
-        path: t.String({ minLength: 1 }),
+        // Optional at schema level so authentication runs before validation;
+        // the route-inventory probe must receive 401 without a token.
+        path: t.Optional(t.String({ minLength: 1 })),
         token: t.Optional(t.String()),
       }),
     },

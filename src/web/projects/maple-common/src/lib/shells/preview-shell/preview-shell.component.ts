@@ -36,7 +36,7 @@ import { InfoPanelComponent } from '../../info/info-panel.component';
 import { BottomSheetComponent } from '../bottom-sheet.component';
 import { LayoutService } from '../../layout-service';
 import { getPersistedFile } from '../../folder-access/file-cache';
-import { formatAddress, parseAddress } from '../../addressing/maple-address';
+import { formatAddress, parseAddress, toApiPath } from '../../addressing/maple-address';
 import {
   routeSegmentsToAddress,
   viewRouteCommands,
@@ -47,7 +47,6 @@ import { FilmstripComponent } from '../../components/filmstrip/filmstrip.compone
 import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import { AuthService } from '../../auth/auth.service';
 import { API_BASE_URL } from '../../api/api-base-url.token';
-import { toApiPath } from '../../addressing/maple-address';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
  * `.preview-image-wrap` counts as a prev/next gesture rather than a tap. */
