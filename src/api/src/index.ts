@@ -198,8 +198,6 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
     // sub-app's `requireAuth` derive.
     .use(eventsRoutes)
-    // Media elements cannot attach Authorization headers, so this route
-    // self-authenticates with a short-lived query token.
     .use(videoRoutes)
 
     // Authenticated API routes — wrapped in a sub-app so the `requireAuth`
