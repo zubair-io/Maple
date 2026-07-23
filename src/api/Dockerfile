@@ -112,8 +112,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git build-essential cmake ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 ARG WHISPER_CPP_TAG=v1.7.4
+# `-DBUILD_SHARED_LIBS=OFF` statically links libwhisper + the libggml* libs into
+# the binary, so the runtime image needs only the CLI — not the whole set of
+# `.so` files whisper.cpp otherwise splits them into (libwhisper.so, libggml.so,
+# libggml-base.so, libggml-cpu.so). Copying just the binary from a shared build
+# left it unable to load `libwhisper.so.1` at runtime. OpenMP (libgomp) is still
+# linked dynamically even here, hence `libgomp1` in the runtime apt line below.
 RUN git clone --depth 1 --branch "${WHISPER_CPP_TAG}" https://github.com/ggerganov/whisper.cpp /src \
- && cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON \
+ && cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+      -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON \
  && cmake --build /src/build -j --target whisper-cli \
  && cp /src/build/bin/whisper-cli /whisper-cli
 
@@ -137,7 +144,11 @@ COPY --from=whisper-builder /whisper-cli /usr/local/bin/whisper-cli
 # addition to this layer; if image size ever becomes a constraint, a static
 # ffmpeg build or a `--no-install-recommends`-trimmed variant is the lever, not
 # dropping it.
-RUN apt-get update && apt-get install -y --no-install-recommends curl unzip ffmpeg \
+#
+# libgomp1 is whisper.cpp's OpenMP runtime — the statically-linked whisper-cli
+# above still loads it dynamically, and the bun-slim base doesn't ship it, so
+# without it every transcription fails with a `libgomp.so.1` loader error.
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip ffmpeg libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Bun server deps.
