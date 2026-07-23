@@ -7,11 +7,14 @@
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
+		"postinstall": "node scripts/patch-jsquash.mjs",
 		"test": "vitest run",
 		"typecheck": "tsc --noEmit",
 		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
+		"@jsquash/avif": "^2.1.1",
+		"@jsquash/jpeg": "^1.6.0",
 		"jose": "^6.2.3"
 	},
 	"devDependencies": {

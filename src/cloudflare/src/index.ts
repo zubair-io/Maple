@@ -19,6 +19,7 @@
  */
 
 import { hasImageCapability, verifyBearer } from './auth';
+import { maybeConvertAvifToJpeg } from './image-format';
 import { parseThumbPath, thumbR2Key } from './r2';
 
 const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
@@ -102,7 +103,7 @@ export default {
 		headers.set('etag', object.httpEtag);
 		headers.set('cache-control', IMMUTABLE_CACHE);
 
-		return new Response(object.body, { status: 200, headers });
+		return maybeConvertAvifToJpeg(new Response(object.body, { status: 200, headers }), url);
 	},
 } satisfies ExportedHandler<Env>;
 
@@ -120,11 +121,14 @@ async function fetchCapabilityFromOrigin(request: Request, env: Env): Promise<Re
 	const originResponse = await fetch(target.toString(), { method: 'GET', headers });
 	const responseHeaders = new Headers(originResponse.headers);
 	responseHeaders.set('cache-control', 'private, no-store');
-	return new Response(originResponse.body, {
-		status: originResponse.status,
-		statusText: originResponse.statusText,
-		headers: responseHeaders,
-	});
+	return maybeConvertAvifToJpeg(
+		new Response(originResponse.body, {
+			status: originResponse.status,
+			statusText: originResponse.statusText,
+			headers: responseHeaders,
+		}),
+		incoming,
+	);
 }
 
 /** Cache miss path: forward to the origin with the same bearer token and
@@ -168,8 +172,11 @@ async function fetchFromOriginAndCache(
 		}).catch(() => undefined),
 	);
 
-	return new Response(toClient, {
-		status: 200,
-		headers: originResponse.headers,
-	});
+	return maybeConvertAvifToJpeg(
+		new Response(toClient, {
+			status: 200,
+			headers: originResponse.headers,
+		}),
+		originUrl,
+	);
 }
