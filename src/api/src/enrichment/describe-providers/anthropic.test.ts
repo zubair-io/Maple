@@ -61,7 +61,7 @@ describe('AnthropicProvider.describe — happy path', () => {
       fetchImpl,
     });
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    const result = await provider.describe(jpeg, {
+    const result = await provider.describe([jpeg], {
       systemPrompt: 'describe',
       model: 'claude-haiku-4-5',
     });
@@ -84,6 +84,41 @@ describe('AnthropicProvider.describe — happy path', () => {
     expect(content[1].type).toBe('text');
     expect(content[1].text).toBe('describe');
   });
+
+  it('sends every ordered frame before the prompt', async () => {
+    const { fetchImpl, calls } = mockFetch([
+      {
+        status: 200,
+        body: { content: [{ type: 'text', text: 'A scene changes.' }] },
+      },
+    ]);
+    const provider = new AnthropicProvider({ apiKey: 'test-key', fetchImpl });
+    const frames = [Buffer.from('first'), Buffer.from('second')];
+
+    await provider.describe(frames, {
+      systemPrompt: 'summarize',
+      model: 'claude-haiku-4-5',
+    });
+
+    const content = JSON.parse(String(calls[0]!.init!.body)).messages[0].content;
+    expect(
+      content.slice(0, 2).map((part: { source: { data: string } }) => part.source.data),
+    ).toEqual(frames.map((frame) => frame.toString('base64')));
+    expect(content[2]).toEqual({ type: 'text', text: 'summarize' });
+  });
+
+  it('rejects an empty frame list before making a request', async () => {
+    const { fetchImpl, calls } = mockFetch([]);
+    const provider = new AnthropicProvider({ apiKey: 'test-key', fetchImpl });
+
+    await expect(
+      provider.describe([], {
+        systemPrompt: 'summarize',
+        model: 'claude-haiku-4-5',
+      }),
+    ).rejects.toThrow('at least one JPEG frame');
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe('AnthropicProvider.describe — failure modes', () => {
@@ -95,7 +130,7 @@ describe('AnthropicProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'claude-haiku-4-5',
       });
@@ -115,7 +150,7 @@ describe('AnthropicProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'claude-haiku-4-5',
       });
@@ -135,7 +170,7 @@ describe('AnthropicProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'claude-haiku-4-5',
       });

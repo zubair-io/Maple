@@ -103,7 +103,7 @@ describe('OllamaProvider.describe — happy path', () => {
       fetchImpl,
     });
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    const result = await provider.describe(jpeg, {
+    const result = await provider.describe([jpeg], {
       systemPrompt: 'describe this',
       model: 'llava:latest',
     });
@@ -125,6 +125,38 @@ describe('OllamaProvider.describe — happy path', () => {
     expect('format' in body).toBe(false);
   });
 
+  it('sends ordered frames in one multi-image request', async () => {
+    const { fetchImpl, calls } = mockFetch([
+      { status: 200, body: { response: 'A scene changes.', done: true } },
+    ]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+    const frames = [Buffer.from('first'), Buffer.from('second')];
+
+    await provider.describe(frames, {
+      systemPrompt: 'summarize',
+      model: 'qwen3-vl:8b',
+    });
+
+    const body = JSON.parse(String(calls[0]!.init!.body));
+    expect(body.images).toEqual(frames.map((frame) => frame.toString('base64')));
+  });
+
+  it('rejects an empty frame list before making a request', async () => {
+    const { fetchImpl, calls } = mockFetch([]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+
+    await expect(
+      provider.describe([], { systemPrompt: 'describe', model: 'qwen3-vl:8b' }),
+    ).rejects.toThrow('at least one JPEG frame');
+    expect(calls).toHaveLength(0);
+  });
+
   it('forwards a JSON Schema via the `format` field for structured output', async () => {
     const { fetchImpl, calls } = mockFetch([{ status: 200, body: { response: '{}', done: true } }]);
     const provider = new OllamaProvider({
@@ -136,7 +168,7 @@ describe('OllamaProvider.describe — happy path', () => {
       properties: { caption: { type: 'string' } },
       required: ['caption'],
     };
-    await provider.describe(Buffer.from([0xff, 0xd8]), {
+    await provider.describe([Buffer.from([0xff, 0xd8])], {
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
       format: schema,
@@ -155,7 +187,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'llava:latest',
       });
@@ -175,7 +207,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'llava:latest',
       });
@@ -195,7 +227,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'llava:latest',
       });
@@ -215,7 +247,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'llava:latest',
       });
@@ -246,7 +278,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'secret prompt content',
         model: 'llava:latest',
       });
@@ -275,7 +307,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), {
+      await provider.describe([Buffer.alloc(4)], {
         systemPrompt: 'p',
         model: 'llava:latest',
       });
@@ -310,7 +342,7 @@ describe('OllamaProvider.describe — failure modes', () => {
       baseUrl: 'http://ollama.test',
       fetchImpl,
     });
-    const result = await provider.describe(Buffer.alloc(4), {
+    const result = await provider.describe([Buffer.alloc(4)], {
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -328,7 +360,7 @@ describe('OllamaProvider.describe — failure modes', () => {
       baseUrl: 'http://ollama.test',
       fetchImpl,
     });
-    const result = await provider.describe(Buffer.alloc(4), {
+    const result = await provider.describe([Buffer.alloc(4)], {
       systemPrompt: 'p',
       model: 'qwen3-vl:8b',
     });
@@ -345,7 +377,7 @@ describe('OllamaProvider.describe — failure modes', () => {
     });
     let caught: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), { systemPrompt: 'p', model: 'qwen3-vl:8b' });
+      await provider.describe([Buffer.alloc(4)], { systemPrompt: 'p', model: 'qwen3-vl:8b' });
     } catch (e) {
       caught = e as RemoteError;
     }
@@ -365,12 +397,12 @@ describe('OllamaProvider.describe — failure modes', () => {
     const opts = { systemPrompt: 'p', model: 'qwen3-vl:8b' };
     let first: RemoteError | null = null;
     try {
-      await provider.describe(Buffer.alloc(4), opts);
+      await provider.describe([Buffer.alloc(4)], opts);
     } catch (e) {
       first = e as RemoteError;
     }
     expect(first!.retryable).toBe(true);
-    const second = await provider.describe(Buffer.alloc(4), opts);
+    const second = await provider.describe([Buffer.alloc(4)], opts);
     expect(second.text).toBe('{"caption":"ok"}');
   });
 });
