@@ -39,6 +39,7 @@ export interface OllamaProviderConfig {
 interface OllamaGenerateResponse {
   model?: unknown;
   response?: unknown;
+  thinking?: unknown;
   done?: unknown;
   done_reason?: unknown;
   total_duration?: unknown;
@@ -101,22 +102,34 @@ export class OllamaProvider implements DescribeProvider {
       throw new RemoteError(`Malformed Ollama JSON: ${msg}`, false);
     }
 
-    const text = typeof parsed.response === 'string' ? parsed.response.trim() : '';
+    const responseText = typeof parsed.response === 'string' ? parsed.response.trim() : '';
+    // qwen3-vl is a thinking model. Under a `format` JSON-schema constraint
+    // the grammar prevents it from emitting its `</think>` terminator, so
+    // Ollama's template parser (observed on 0.30.11; `think: false` does not
+    // help) classifies the ENTIRE constrained output as `thinking` and hands
+    // back `response: ""` — with `done_reason: "stop"` and a healthy
+    // eval_count, because generation itself succeeded. When that happens the
+    // thinking text IS the schema-constrained JSON, so recover it; the strict
+    // VisionDoc parse downstream rejects genuine reasoning prose. This was
+    // the actual producer of the #2172 dead-letters.
+    const thinkingText = typeof parsed.thinking === 'string' ? parsed.thinking.trim() : '';
+    const text = responseText.length > 0 ? responseText : thinkingText;
     if (text.length === 0) {
-      // Empty responses are transient in practice — the classic producer is a
-      // generate hit racing a model load/eviction (`done_reason: "load"`), or
-      // a backend under memory pressure. Classify retryable so the stage's
-      // attempt budget (and an operator retry-dead after the provider heals)
-      // can recover the asset, and stamp the provider/result state into the
-      // message — it lands verbatim in `stages.describe.last_error`, which is
-      // all the operator sees in the Workers dead list. Never include prompt
-      // or image content.
+      // A genuinely empty result (no response AND no thinking) is transient
+      // in practice — a generate hit racing a model load/eviction
+      // (`done_reason: "load"`), or a backend under memory pressure. Classify
+      // retryable so the stage's attempt budget (and an operator retry-dead
+      // after the provider heals) can recover the asset, and stamp the
+      // provider/result state into the message — it lands verbatim in
+      // `stages.describe.last_error`, which is all the operator sees in the
+      // Workers dead list. Never include prompt or image content.
       const detail = [
         `model=${typeof parsed.model === 'string' ? parsed.model : opts.model}`,
         `http=${res.status}`,
         `done=${typeof parsed.done === 'boolean' ? parsed.done : 'unknown'}`,
         `done_reason=${typeof parsed.done_reason === 'string' ? parsed.done_reason : 'unknown'}`,
         `eval_count=${typeof parsed.eval_count === 'number' ? parsed.eval_count : 'unknown'}`,
+        `thinking_chars=${thinkingText.length}`,
         `total_duration_ms=${
           typeof parsed.total_duration === 'number'
             ? Math.round(parsed.total_duration / 1_000_000)

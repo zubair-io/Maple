@@ -288,6 +288,71 @@ describe('OllamaProvider.describe — failure modes', () => {
     expect(caught!.message).toContain('done_reason=unknown');
   });
 
+  it('recovers schema-constrained output misrouted into `thinking` (#2172)', async () => {
+    // qwen3-vl under a `format` JSON-schema constraint cannot emit its
+    // </think> terminator, so Ollama (observed on 0.30.11) classifies the
+    // whole constrained output as thinking and returns response: "".
+    const visionJson = '{"is_screenshot":false,"caption":"tree bark with lichen"}';
+    const { fetchImpl } = mockFetch([
+      {
+        status: 200,
+        body: {
+          model: 'qwen3-vl:8b',
+          response: '',
+          thinking: visionJson,
+          done: true,
+          done_reason: 'stop',
+          eval_count: 152,
+        },
+      },
+    ]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+    const result = await provider.describe(Buffer.alloc(4), {
+      systemPrompt: 'p',
+      model: 'qwen3-vl:8b',
+    });
+    expect(result.text).toBe(visionJson);
+  });
+
+  it('prefers `response` over `thinking` when both are present', async () => {
+    const { fetchImpl } = mockFetch([
+      {
+        status: 200,
+        body: { response: '{"caption":"answer"}', thinking: 'internal reasoning', done: true },
+      },
+    ]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+    const result = await provider.describe(Buffer.alloc(4), {
+      systemPrompt: 'p',
+      model: 'qwen3-vl:8b',
+    });
+    expect(result.text).toBe('{"caption":"answer"}');
+  });
+
+  it('reports thinking_chars in the empty-response diagnostics (#2172)', async () => {
+    const { fetchImpl } = mockFetch([
+      { status: 200, body: { response: '', thinking: '', done: true, done_reason: 'stop' } },
+    ]);
+    const provider = new OllamaProvider({
+      baseUrl: 'http://ollama.test',
+      fetchImpl,
+    });
+    let caught: RemoteError | null = null;
+    try {
+      await provider.describe(Buffer.alloc(4), { systemPrompt: 'p', model: 'qwen3-vl:8b' });
+    } catch (e) {
+      caught = e as RemoteError;
+    }
+    expect(caught).toBeTruthy();
+    expect(caught!.message).toContain('thinking_chars=0');
+  });
+
   it('recovers when an empty response is followed by a successful retry (#2172)', async () => {
     const { fetchImpl } = mockFetch([
       { status: 200, body: { response: '', done: true, done_reason: 'load' } },
