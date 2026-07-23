@@ -39,21 +39,31 @@ describe('MirrorSettingsComponent', () => {
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
 
-  it('renders an always-visible panel — both stages and the reconcile action show without a click', async () => {
+  /** Expand the collapsible row so its body renders. */
+  const expand = (): void => {
+    (el().querySelector('.row-summary') as HTMLElement).click();
+    fixture.detectChanges();
+  };
+
+  it('shows status + reconcile action in the collapsed summary; body appears on expand', async () => {
     await init();
-    expect(el().querySelector('[data-testid="mirror-settings"]')).not.toBeNull();
-    // No collapse machinery: the stages are on screen immediately.
+    // Summary is visible while collapsed: status pill + the reconcile action.
+    expect(el().querySelector('[data-testid="mirror-status"]')).not.toBeNull();
+    expect(el().querySelector('[data-testid="mirror-reconcile-now"]')).not.toBeNull();
+    // The body (stages) is hidden until expanded.
+    expect(el().querySelector('[data-testid="mirror-stages"]')).toBeNull();
+
+    expand();
     const stages = el().querySelector('[data-testid="mirror-stages"]');
     expect(stages).not.toBeNull();
     expect(stages?.textContent).toContain('Scanning');
     expect(stages?.textContent).toContain('Copying');
     expect(stages?.textContent).toContain('not run yet');
-    // The header action is present (no expand step needed).
-    expect(el().querySelector('[data-testid="mirror-reconcile-now"]')).not.toBeNull();
   });
 
   it('"Reconcile now" posts and renders the two-stage results + the copied-files log', async () => {
     await init();
+    expand();
 
     el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"]')!.click();
 
@@ -107,17 +117,17 @@ describe('MirrorSettingsComponent', () => {
     await tick();
     fixture.detectChanges();
 
+    // Summary status/readout are visible while collapsed.
     expect(el().querySelector('[data-testid="mirror-status"]')?.textContent).toContain('Copying');
     const readout = el().querySelector('[data-testid="mirror-readout"]');
     expect(readout?.textContent).toContain('Copying');
     expect(readout?.textContent).toContain('4/10');
 
-    // The current file being copied is shown.
+    // Body details show once expanded.
+    expand();
     expect(el().querySelector('[data-testid="mirror-current-file"]')?.textContent).toContain(
       '/lib/2024/IMG.dng',
     );
-
-    // The copied-files log lists what's already been mirrored this run.
     const copied = el().querySelector('[data-testid="mirror-copied-log"]');
     expect(copied?.textContent).toContain('Copied (2)');
     expect(copied?.textContent).toContain('/lib/2024/done-1.dng');
@@ -128,6 +138,7 @@ describe('MirrorSettingsComponent', () => {
 
   it('renders a copied log with duplicate paths (same primary → multiple mirrors)', async () => {
     await init();
+    expand();
 
     el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now"]')!.click();
     http.expectOne('/api/mirror/reconcile').flush({ started: true, phase: 'scanning' });

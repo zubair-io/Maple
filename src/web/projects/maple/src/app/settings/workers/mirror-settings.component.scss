@@ -14,24 +14,43 @@
   background: transparent;
 }
 
-// Always-visible panel under the "Backup" group label. Horizontal padding aligns
-// the content with the worker stage rows (workers-body 36px + 16px = row inset).
-.mirror-panel {
-  padding: 8px 16px 16px;
-}
-
-// ── Live status header ───────────────────────────────────────────────────────
-.panel-head {
+// ── Collapsed summary row ────────────────────────────────────────────────────
+// Content for the maple-settings-row summary slot (chevron · icon · name ·
+// status · readout · actions). The row shell (border, hover, expand) is owned
+// by maple-settings-row; only the summary layout lives here.
+.wrow-summary {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
   flex-wrap: wrap;
-  padding-bottom: 18px;
-  border-bottom: 0.5px solid var(--s-border);
+}
+.wrow-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 150px;
 
-  .head-spacer {
-    flex: 1;
+  .mono {
+    color: var(--s-text);
   }
+}
+.wrow-readout {
+  font-size: 12px;
+  color: var(--s-text-mid);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.wrow-spacer {
+  flex: 1;
+}
+
+.mirror-body {
+  padding: 4px 16px 16px;
 }
 
 .status-pill {
@@ -52,22 +71,12 @@
   }
 }
 
-.readout {
-  font-size: 12px;
-  color: var(--s-text-mid);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
 // ── Reconcile two-stage progress ─────────────────────────────────────────────
 .stages {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 18px;
+  margin-top: 6px;
 }
 
 .stage-line {
@@ -281,13 +290,13 @@
 
 // ── Responsive ───────────────────────────────────────────────────────────────
 @media (max-width: 767px) {
-  .mirror-panel {
-    padding: 8px 12px 20px;
+  .mirror-body {
+    padding: 4px 12px 20px;
   }
 
-  // Stack the header and make actions full-width so they stay tappable.
-  .panel-head {
-    .head-spacer {
+  // Make the summary actions full-width so they stay tappable.
+  .wrow-summary {
+    .wrow-spacer {
       display: none;
     }
     .btn-primary,

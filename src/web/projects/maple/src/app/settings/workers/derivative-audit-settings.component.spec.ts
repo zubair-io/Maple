@@ -49,7 +49,13 @@ describe('DerivativeAuditSettingsComponent', () => {
 
   const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-  it('loads status and renders config + last-pass readout', async () => {
+  /** Expand the collapsible row so its body renders. */
+  const expandRow = (): void => {
+    (fixture.nativeElement.querySelector('.row-summary') as HTMLElement).click();
+    fixture.detectChanges();
+  };
+
+  it('renders the summary status/readout while collapsed, and config once expanded', async () => {
     const req = http.expectOne(STATUS_URL);
     expect(req.request.method).toBe('GET');
     req.flush(status);
@@ -57,14 +63,19 @@ describe('DerivativeAuditSettingsComponent', () => {
     fixture.detectChanges();
 
     const el = fixture.nativeElement as HTMLElement;
+    // Summary is visible while collapsed.
     expect(el.querySelector('[data-testid="audit-status"]')?.textContent).toContain('Enabled');
+    expect(el.querySelector('[data-testid="audit-summary"]')?.textContent).toContain('42 scanned');
+    // Body controls are not rendered until expanded.
+    expect(el.querySelector('[data-testid="audit-max-resets"]')).toBeNull();
+
+    expandRow();
     expect((el.querySelector('[data-testid="audit-enabled"]') as HTMLInputElement).checked).toBe(
       true,
     );
     expect((el.querySelector('[data-testid="audit-max-resets"]') as HTMLInputElement).value).toBe(
       '500',
     );
-    expect(el.querySelector('[data-testid="audit-summary"]')?.textContent).toContain('42 scanned');
     expect(el.querySelector('[data-testid="audit-stage-counts"]')?.textContent).toContain(
       'thumb: 2',
     );
@@ -74,6 +85,7 @@ describe('DerivativeAuditSettingsComponent', () => {
     http.expectOne(STATUS_URL).flush(status);
     await tick();
     fixture.detectChanges();
+    expandRow();
 
     const box = fixture.nativeElement.querySelector(
       '[data-testid="audit-enabled"]',
