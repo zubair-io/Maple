@@ -58,6 +58,10 @@ export async function transcribeWav(
     );
     const abort = (): void => proc.kill();
     options.signal?.addEventListener('abort', abort, { once: true });
+    // The signal may have aborted while we awaited `whisperBinary()`/`fs.stat`
+    // above; `addEventListener` on an already-aborted signal never fires, so
+    // kill now rather than leave whisper running until its natural exit.
+    if (options.signal?.aborted) abort();
     try {
       const stderr = await new Response(proc.stderr).text();
       const code = await proc.exited;
