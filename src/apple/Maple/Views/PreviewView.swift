@@ -34,7 +34,6 @@
 // current folder's assets, wrapping. Pure selection logic lives in
 // `PreviewView+VM.swift` and is unit-tested.
 
-import AVKit
 import SwiftUI
 import MapleCore
 #if os(iOS)
@@ -81,9 +80,6 @@ struct PreviewView: View {
     /// Positive vertical travel for the interactive pull-down dismissal.
     @State private var dismissTranslation: CGFloat = 0
     @State private var isDismissing = false
-    @State private var videoPlayer: AVPlayer?
-    @State private var videoUnavailable = false
-
     private var isRegular: Bool { hSizeClass == .regular }
 
     private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
@@ -150,12 +146,6 @@ struct PreviewView: View {
         // asset rather than reusing the previous one's session.
         .onChange(of: asset.id) { _, _ in
             flagInfoSession = nil
-            videoPlayer?.pause()
-            videoPlayer = nil
-        }
-        .onDisappear {
-            videoPlayer?.pause()
-            videoPlayer = nil
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("preview-view")
@@ -186,24 +176,7 @@ struct PreviewView: View {
     @ViewBuilder
     private var imageBody: some View {
         if asset.isVideo {
-            Group {
-                if let videoPlayer {
-                    VideoPlayer(player: videoPlayer)
-                } else if videoUnavailable {
-                    VStack(spacing: 12) {
-                        Image(systemName: "video.slash")
-                            .font(.system(size: 40))
-                        Text("Video unavailable")
-                            .font(.headline)
-                    }
-                    .foregroundStyle(ProTokens.textDim)
-                } else {
-                    ProgressView()
-                }
-            }
-            .task(id: asset.id) { await prepareVideoPlayer() }
-            .accessibilityLabel("Video player")
-            .accessibilityIdentifier("preview-video")
+            PreviewVideoView(asset: asset, source: source)
         } else {
         #if os(iOS)
         PreviewPager(
@@ -226,26 +199,6 @@ struct PreviewView: View {
         .accessibilityIdentifier("preview-image")
         #endif
         }
-    }
-
-    @MainActor
-    private func prepareVideoPlayer() async {
-        videoUnavailable = false
-        let url: URL?
-        if let localURL = asset.primaryURL {
-            url = localURL
-        } else if let cloud = source as? CloudSource, let stableID = asset.stableID {
-            url = try? await cloud.videoURL(for: stableID)
-        } else {
-            url = nil
-        }
-        guard !Task.isCancelled else { return }
-        guard let url else {
-            videoUnavailable = true
-            return
-        }
-        videoPlayer?.pause()
-        videoPlayer = AVPlayer(url: url)
     }
 
     /// One provider for the whole Preview lifetime. Local-only is correct here:
