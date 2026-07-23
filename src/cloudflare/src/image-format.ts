@@ -5,15 +5,26 @@ import JPEG_ENCODER_WASM from '../node_modules/@jsquash/jpeg/codec/enc/mozjpeg_e
 
 const JPEG_QUALITY = 85;
 
-type WasmInitializer = (module: WebAssembly.Module) => Promise<void>;
+type WasmInitializer = (
+	module: WebAssembly.Module,
+	options: { locateFile: (path: string) => string },
+) => Promise<void>;
 
 let codecsReady: Promise<void> | undefined;
 
 function initializeCodecs(): Promise<void> {
 	if (!codecsReady) {
+		// Even with a precompiled module, Emscripten resolves a nominal WASM
+		// filename while constructing the codec. Cloudflare does not provide a
+		// usable import.meta.url, so force that resolution down locateFile's
+		// branch. No request is made: jSquash's instantiateWasm callback uses
+		// the imported WebAssembly.Module directly.
+		const options = {
+			locateFile: (path: string) => `https://jsquash.invalid/${path}`,
+		};
 		codecsReady = Promise.all([
-			(initAvifDecoder as WasmInitializer)(AVIF_DECODER_WASM),
-			(initJpegEncoder as WasmInitializer)(JPEG_ENCODER_WASM),
+			(initAvifDecoder as WasmInitializer)(AVIF_DECODER_WASM, options),
+			(initJpegEncoder as WasmInitializer)(JPEG_ENCODER_WASM, options),
 		]).then(() => undefined);
 	}
 	return codecsReady;
