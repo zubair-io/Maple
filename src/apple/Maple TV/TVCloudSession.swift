@@ -51,6 +51,7 @@ final class TVCloudSession {
   /// letting each screen own its VM's construction and lifetime.
   let searchClient: CloudSearchClient
   let thumbClient: CloudThumbClient
+  let videoClient: CloudVideoClient
   /// Shared across every `TVRemoteImage` this session's screens render
   /// (grid cells, and D6's full-screen viewer once it lands), so the
   /// disk-backed AVIF cache is a single instance per connected session
@@ -97,6 +98,7 @@ final class TVCloudSession {
     )
     self.searchClient = CloudSearchClient(server: server, httpClient: httpClient)
     self.thumbClient = CloudThumbClient(server: server, httpClient: httpClient)
+    self.videoClient = CloudVideoClient(server: server, httpClient: httpClient)
     self.foldersClient = CloudFoldersClient(server: server, httpClient: httpClient)
   }
 

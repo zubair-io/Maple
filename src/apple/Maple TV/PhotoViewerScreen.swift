@@ -52,26 +52,38 @@ struct PhotoViewerScreen: View {
       MapleTVTheme.background.ignoresSafeArea()
 
       if let currentAsset {
-        imageStack(for: currentAsset)
-          .accessibilityElement(children: .ignore)
+        mediaView(for: currentAsset)
           .accessibilityIdentifier("photo-viewer")
-          .accessibilityLabel("Photo viewer")
-          .accessibilityValue(Self.captionText(for: currentAsset))
 
         captionOverlay(for: currentAsset)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .ignoresSafeArea()
-    .focusable()
+    .focusable(currentAsset?.isVideo != true)
     .focused($isFocused)
-    .onAppear { isFocused = true }
+    .onAppear { isFocused = currentAsset?.isVideo != true }
+    .onChange(of: currentIndex) { _, _ in
+      isFocused = currentAsset?.isVideo != true
+    }
     .onMoveCommand(perform: handleMove)
     .onExitCommand(perform: dismissViewer)
     .task(id: currentIndex) { await prefetchNeighbors() }
   }
 
   // MARK: - Image layers
+
+  @ViewBuilder
+  private func mediaView(for asset: SearchAsset) -> some View {
+    if asset.isVideo {
+      TVVideoPlayerView(asset: asset, videoClient: session.videoClient)
+    } else {
+      imageStack(for: asset)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Photo viewer")
+        .accessibilityValue(Self.captionText(for: asset))
+    }
+  }
 
   private func imageStack(for asset: SearchAsset) -> some View {
     ZStack {
@@ -223,6 +235,7 @@ struct PhotoViewerScreen: View {
     let thumbClient = session.thumbClient
     let neighborPaths = [currentIndex - 1, currentIndex + 1]
       .filter(assets.indices.contains)
+      .filter { !assets[$0].isVideo }
       .map { assets[$0].abs_path }
     guard !neighborPaths.isEmpty else { return }
 

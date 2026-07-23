@@ -60,6 +60,11 @@ public struct SearchAssetPlace: Codable, Equatable, Sendable {
 }
 
 public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
+  private static let videoExtensions: Set<String> = [
+    "mov", "mp4", "m4v", "avi", "mkv", "webm", "mts", "m2ts", "3gp",
+    "mxf", "3g2", "flv", "vob", "mpg", "wmv", "f4v",
+  ]
+
   public let id: String
   public let folder_id: String
   public let abs_path: String
@@ -99,6 +104,11 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// server response predates this field. Drives the TV timeline
   /// day-section header (#2102).
   public let place: SearchAssetPlace?
+
+  /// Whether this search result names a recognised video container.
+  public var isVideo: Bool {
+    Self.videoExtensions.contains((filename as NSString).pathExtension.lowercased())
+  }
 
   /// Explicit memberwise init. The synthesized default would require every
   /// caller to pass `phasset_links:` even when nil, which broke existing
