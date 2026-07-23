@@ -20,6 +20,8 @@
         playsinline
         preload="metadata"
         aria-label="Video playback"
+        (pointerdown)="$event.stopPropagation()"
+        (pointerup)="$event.stopPropagation()"
       ></video>
     } @else {
       @if (thumbUrl(); as t) {

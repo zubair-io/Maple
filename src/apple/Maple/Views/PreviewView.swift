@@ -82,6 +82,7 @@ struct PreviewView: View {
     @State private var dismissTranslation: CGFloat = 0
     @State private var isDismissing = false
     @State private var videoPlayer: AVPlayer?
+    @State private var videoUnavailable = false
 
     private var isRegular: Bool { hSizeClass == .regular }
 
@@ -188,6 +189,14 @@ struct PreviewView: View {
             Group {
                 if let videoPlayer {
                     VideoPlayer(player: videoPlayer)
+                } else if videoUnavailable {
+                    VStack(spacing: 12) {
+                        Image(systemName: "video.slash")
+                            .font(.system(size: 40))
+                        Text("Video unavailable")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(ProTokens.textDim)
                 } else {
                     ProgressView()
                 }
@@ -221,6 +230,7 @@ struct PreviewView: View {
 
     @MainActor
     private func prepareVideoPlayer() async {
+        videoUnavailable = false
         let url: URL?
         if let localURL = asset.primaryURL {
             url = localURL
@@ -229,7 +239,11 @@ struct PreviewView: View {
         } else {
             url = nil
         }
-        guard !Task.isCancelled, let url else { return }
+        guard !Task.isCancelled else { return }
+        guard let url else {
+            videoUnavailable = true
+            return
+        }
         videoPlayer?.pause()
         videoPlayer = AVPlayer(url: url)
     }
