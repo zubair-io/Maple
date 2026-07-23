@@ -212,6 +212,12 @@ public actor AuthenticatedHTTPClient {
     }
   }
 
+  /// A fresh access token for transports such as AVPlayer that cannot attach
+  /// the client's Authorization header to their range requests.
+  public func accessTokenForURL() async throws -> String {
+    (try await requiredTokensForRequest()).access
+  }
+
   private static func acquireRefreshLock(server: URL) async throws -> Int32 {
     #if canImport(Darwin)
     let sharedContainer = FileManager.default.containerURL(

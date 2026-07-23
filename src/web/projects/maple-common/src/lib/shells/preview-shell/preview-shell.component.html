@@ -11,19 +11,31 @@
     (pointerdown)="onImagePointerDown($event)"
     (pointerup)="onImagePointerUp($event)"
   >
-    @if (thumbUrl(); as t) {
-      <img class="preview-img preview-img--thumb" [src]="t" alt="" />
-    }
-    @if (previewUrl(); as p) {
-      <!-- subscribePreviewUrl() may fall through to the thumbnail URL (a
+    @if (videoUrl(); as video) {
+      <video
+        class="preview-video"
+        [src]="video"
+        [poster]="previewUrl() ?? thumbUrl()"
+        controls
+        playsinline
+        preload="metadata"
+        aria-label="Video playback"
+      ></video>
+    } @else {
+      @if (thumbUrl(); as t) {
+        <img class="preview-img preview-img--thumb" [src]="t" alt="" />
+      }
+      @if (previewUrl(); as p) {
+        <!-- subscribePreviewUrl() may fall through to the thumbnail URL (a
            Self-Hosted legacy fs: id has no richer preview source), in which
            case previewUrl() equals thumbUrl() — skip the redundant stacked
            <img> (and its decode/paint cost) and let the thumb crossfade stand
            alone. When it resolves a genuinely richer still (a Self-Hosted
            network preview, or a Hosted embedded-preview extraction), p differs
            and the full still stacks over the thumb. -->
-      @if (p !== thumbUrl()) {
-        <img class="preview-img preview-img--full" [src]="p" alt="" />
+        @if (p !== thumbUrl()) {
+          <img class="preview-img preview-img--full" [src]="p" alt="" />
+        }
       }
     }
   </div>

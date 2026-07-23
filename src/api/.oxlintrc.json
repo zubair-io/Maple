@@ -192,6 +192,7 @@
         "src/workers/stages/face-embed.test.ts",
         "src/workers/stages/face-stage-shared.ts",
         "src/routes/metadata-snapshots.test.ts",
+        "src/routes/video.test.ts",
         "src/workers/stages/sidecar-metadata-index.ts",
         "src/workers/stages/sidecar-metadata-index.test.ts",
         "src/workers/stages/preview.test.ts",

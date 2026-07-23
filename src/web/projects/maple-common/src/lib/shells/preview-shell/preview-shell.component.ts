@@ -45,6 +45,9 @@ import {
 import { previewKeyAction } from './preview-shell-keyboard';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { TabBarVisibilityService } from '../tab-bar-visibility.service';
+import { AuthService } from '../../auth/auth.service';
+import { API_BASE_URL } from '../../api/api-base-url.token';
+import { toApiPath } from '../../addressing/maple-address';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
  * `.preview-image-wrap` counts as a prev/next gesture rather than a tap. */
@@ -70,6 +73,8 @@ export class PreviewShellComponent implements OnInit, OnDestroy {
   private router = inject(Router);
   private layoutService = inject(LayoutService);
   private tabBar = inject(TabBarVisibilityService);
+  private auth = inject(AuthService);
+  private apiBase = inject(API_BASE_URL);
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
@@ -96,6 +101,22 @@ export class PreviewShellComponent implements OnInit, OnDestroy {
     if (!a) return '';
     const parts = a.filename.split('/');
     return parts[parts.length - 1] ?? a.filename;
+  });
+
+  /** Tokenized URL consumed directly by <video>; media elements cannot use
+   * the bearer-token HttpInterceptor used for image Blob requests. */
+  readonly videoUrl = computed<string | undefined>(() => {
+    const asset = this.state.focusedAsset();
+    const token = this.auth.bearer;
+    if (!asset?.isVideo || !token) return undefined;
+    const query = new URLSearchParams({ token });
+    if (asset.absPath) {
+      query.set('path', asset.absPath);
+      return `${this.apiBase}/video/fs?${query.toString()}`;
+    }
+    const address = parseAddress(asset.id);
+    if (!address.slug || !address.relPath) return undefined;
+    return `${this.apiBase}/video/${toApiPath(address)}?${query.toString()}`;
   });
 
   constructor() {
