@@ -13,10 +13,10 @@ import {
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
-} from "./index.ts";
+} from './index.ts';
 
-const ENDPOINT = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION = "2023-06-01";
+const ENDPOINT = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_TOKENS = 256;
 
@@ -29,15 +29,14 @@ const DEFAULT_MAX_TOKENS = 256;
  * The model id may be a versioned alias (`claude-haiku-4-5-20250101`); we
  * match by prefix so a date-suffixed alias picks up the same row.
  */
-const PRICING: Array<{ prefix: string; in_per_m: number; out_per_m: number }> =
-  [
-    { prefix: "claude-haiku-4", in_per_m: 1.0, out_per_m: 5.0 },
-    { prefix: "claude-haiku", in_per_m: 0.8, out_per_m: 4.0 },
-    { prefix: "claude-sonnet-4", in_per_m: 3.0, out_per_m: 15.0 },
-    { prefix: "claude-sonnet", in_per_m: 3.0, out_per_m: 15.0 },
-    { prefix: "claude-opus-4", in_per_m: 15.0, out_per_m: 75.0 },
-    { prefix: "claude-opus", in_per_m: 15.0, out_per_m: 75.0 },
-  ];
+const PRICING: Array<{ prefix: string; in_per_m: number; out_per_m: number }> = [
+  { prefix: 'claude-haiku-4', in_per_m: 1.0, out_per_m: 5.0 },
+  { prefix: 'claude-haiku', in_per_m: 0.8, out_per_m: 4.0 },
+  { prefix: 'claude-sonnet-4', in_per_m: 3.0, out_per_m: 15.0 },
+  { prefix: 'claude-sonnet', in_per_m: 3.0, out_per_m: 15.0 },
+  { prefix: 'claude-opus-4', in_per_m: 15.0, out_per_m: 75.0 },
+  { prefix: 'claude-opus', in_per_m: 15.0, out_per_m: 75.0 },
+];
 const FALLBACK_RATE = { in_per_m: 1.0, out_per_m: 5.0 };
 
 export interface AnthropicProviderConfig {
@@ -55,7 +54,7 @@ interface AnthropicMessagesResponse {
 }
 
 export class AnthropicProvider implements DescribeProvider {
-  readonly name = "anthropic" as const;
+  readonly name = 'anthropic' as const;
 
   private readonly apiKey: string;
   private readonly timeoutMs: number;
@@ -72,47 +71,45 @@ export class AnthropicProvider implements DescribeProvider {
    * effectively zero. */
   async health(): Promise<void> {
     const res = await this.timedFetch(ENDPOINT, {
-      method: "POST",
+      method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({
-        model: "claude-haiku-4-5",
+        model: 'claude-haiku-4-5',
         max_tokens: 1,
-        messages: [{ role: "user", content: "ping" }],
+        messages: [{ role: 'user', content: 'ping' }],
       }),
     });
-    classifyHttp(res, "Anthropic");
+    classifyHttp(res, 'Anthropic');
   }
 
-  async describe(
-    jpegBytes: Buffer,
-    opts: DescribeOptions,
-  ): Promise<DescribeResult> {
+  async describe(jpegFrames: readonly Buffer[], opts: DescribeOptions): Promise<DescribeResult> {
+    requireFrames(jpegFrames);
     const body = JSON.stringify({
       model: opts.model,
       max_tokens: DEFAULT_MAX_TOKENS,
       messages: [
         {
-          role: "user",
+          role: 'user',
           content: [
-            {
-              type: "image",
+            ...jpegFrames.map((frame) => ({
+              type: 'image',
               source: {
-                type: "base64",
-                media_type: "image/jpeg",
-                data: jpegBytes.toString("base64"),
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: frame.toString('base64'),
               },
-            },
-            { type: "text", text: opts.systemPrompt },
+            })),
+            { type: 'text', text: opts.systemPrompt },
           ],
         },
       ],
     });
     const res = await this.timedFetch(ENDPOINT, {
-      method: "POST",
+      method: 'POST',
       headers: this.headers(),
       body,
     });
-    classifyHttp(res, "Anthropic");
+    classifyHttp(res, 'Anthropic');
 
     let parsed: AnthropicMessagesResponse;
     try {
@@ -124,22 +121,17 @@ export class AnthropicProvider implements DescribeProvider {
 
     const text = extractText(parsed.content);
     if (text.length === 0) {
-      throw new RemoteError("Anthropic returned empty content", false);
+      throw new RemoteError('Anthropic returned empty content', false);
     }
-    const inTokens =
-      typeof parsed.usage?.input_tokens === "number"
-        ? parsed.usage.input_tokens
-        : 0;
+    const inTokens = typeof parsed.usage?.input_tokens === 'number' ? parsed.usage.input_tokens : 0;
     const outTokens =
-      typeof parsed.usage?.output_tokens === "number"
-        ? parsed.usage.output_tokens
-        : 0;
+      typeof parsed.usage?.output_tokens === 'number' ? parsed.usage.output_tokens : 0;
     const cost = priceForModel(opts.model, inTokens, outTokens);
     return {
       text,
       cost_usd: cost,
       provider_info: {
-        model: typeof parsed.model === "string" ? parsed.model : opts.model,
+        model: typeof parsed.model === 'string' ? parsed.model : opts.model,
         input_tokens: String(inTokens),
         output_tokens: String(outTokens),
       },
@@ -148,9 +140,9 @@ export class AnthropicProvider implements DescribeProvider {
 
   private headers(): Record<string, string> {
     return {
-      "content-type": "application/json",
-      "x-api-key": this.apiKey,
-      "anthropic-version": ANTHROPIC_VERSION,
+      'content-type': 'application/json',
+      'x-api-key': this.apiKey,
+      'anthropic-version': ANTHROPIC_VERSION,
     };
   }
 
@@ -160,9 +152,7 @@ export class AnthropicProvider implements DescribeProvider {
     try {
       return await this.fetchImpl(url, { ...init, signal: ctrl.signal });
     } catch (err) {
-      const aborted =
-        err instanceof Error &&
-        (err.name === "AbortError" || ctrl.signal.aborted);
+      const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
       const msg = err instanceof Error ? err.message : String(err);
       throw new RemoteError(
         aborted
@@ -176,33 +166,34 @@ export class AnthropicProvider implements DescribeProvider {
   }
 }
 
+function requireFrames(frames: readonly Buffer[]): void {
+  if (frames.length === 0) {
+    throw new RemoteError('Describe requires at least one JPEG frame', false);
+  }
+}
+
 /** The Messages API returns `content: [{ type: "text", text: "..." }, ...]`.
  * Concatenate every text block; ignore non-text blocks. */
 function extractText(content: unknown): string {
-  if (!Array.isArray(content)) return "";
+  if (!Array.isArray(content)) return '';
   const parts: string[] = [];
   for (const block of content) {
     if (
       block &&
-      typeof block === "object" &&
-      "type" in block &&
-      (block as { type: unknown }).type === "text" &&
-      "text" in block &&
-      typeof (block as { text: unknown }).text === "string"
+      typeof block === 'object' &&
+      'type' in block &&
+      (block as { type: unknown }).type === 'text' &&
+      'text' in block &&
+      typeof (block as { text: unknown }).text === 'string'
     ) {
       parts.push((block as { text: string }).text);
     }
   }
-  return parts.join("\n").trim();
+  return parts.join('\n').trim();
 }
 
-function priceForModel(
-  model: string,
-  inTokens: number,
-  outTokens: number,
-): number {
-  const row =
-    PRICING.find((p) => model.startsWith(p.prefix)) ?? FALLBACK_RATE;
+function priceForModel(model: string, inTokens: number, outTokens: number): number {
+  const row = PRICING.find((p) => model.startsWith(p.prefix)) ?? FALLBACK_RATE;
   const inUsd = (inTokens / 1_000_000) * row.in_per_m;
   const outUsd = (outTokens / 1_000_000) * row.out_per_m;
   return inUsd + outUsd;
@@ -210,17 +201,9 @@ function priceForModel(
 
 function classifyHttp(res: Response, providerLabel: string): void {
   if (res.status >= 500) {
-    throw new RemoteError(
-      `${providerLabel} 5xx: ${res.status}`,
-      true,
-      res.status,
-    );
+    throw new RemoteError(`${providerLabel} 5xx: ${res.status}`, true, res.status);
   }
   if (res.status >= 400) {
-    throw new RemoteError(
-      `${providerLabel} 4xx: ${res.status}`,
-      false,
-      res.status,
-    );
+    throw new RemoteError(`${providerLabel} 4xx: ${res.status}`, false, res.status);
   }
 }

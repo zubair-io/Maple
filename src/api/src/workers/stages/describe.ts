@@ -178,7 +178,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // artifact; the buffer is discarded once `provider.describe` returns.
   const jpegBytes = await sharp(avifBytes).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
 
-  const result = await provider.describe(jpegBytes, {
+  const result = await provider.describe([jpegBytes], {
     systemPrompt,
     model,
     // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
