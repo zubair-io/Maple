@@ -12,7 +12,12 @@ import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { isAudioFilename, isVideoFilename } from '../../indexer/media-types.ts';
+import {
+  AUDIO_EXTS,
+  VIDEO_EXTS,
+  isAudioFilename,
+  isVideoFilename,
+} from '../../indexer/media-types.ts';
 import {
   defineStage,
   runStage,
@@ -52,6 +57,17 @@ let injectedDeps: TranscribeDeps | null = null;
 function isTranscribableFilename(filename: string | undefined): boolean {
   return filename !== undefined && (isVideoFilename(filename) || isAudioFilename(filename));
 }
+
+/**
+ * Filename regex for the claim query — matches any video/audio extension,
+ * built from the same `VIDEO_EXTS`/`AUDIO_EXTS` the handler's
+ * `isTranscribableFilename` uses so the two can't drift. Anchored to the end,
+ * case-insensitive. Mirrors the `backfill-video-exif` migration's approach.
+ */
+const TRANSCRIBABLE_FILENAME_RE = new RegExp(
+  `\\.(${[...VIDEO_EXTS, ...AUDIO_EXTS].map((e) => e.slice(1)).join('|')})$`,
+  'i',
+);
 
 export function setTranscribeDepsForTests(deps: TranscribeDeps | null): void {
   injectedDeps = deps;
@@ -129,6 +145,11 @@ const transcribeStage = defineStage({
   targetVersion: 1,
   dependsOn: [],
   tagsMissingOnEnoent: true,
+  // Only claim assets that actually have a video/audio file, so the stage
+  // never sweeps the (much larger) photo library stamping `not-media` skips —
+  // it goes straight to media. The handler's own extension + `no-audio` skips
+  // stay the correctness backstop; this only narrows what gets claimed.
+  claimFilter: { fileinfo: { $elemMatch: { filename: { $regex: TRANSCRIBABLE_FILENAME_RE } } } },
   defaults: {
     concurrency: 1,
     maxAttempts: 5,
