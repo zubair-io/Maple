@@ -84,7 +84,7 @@ final class TVCloudSession {
       // the dead token — meaning Retry replays it forever and only re-pairing
       // recovers. Every other Maple client passes this; the TV relied on the
       // init's no-op default and so silently threw away every rotation.
-      onTokensRefreshed: { try? TokenStore.save($0, server: server) },
+      onTokensRefreshed: { try TokenStore.save($0, server: server) },
       onSignOut: {
         // AuthenticatedHTTPClient's onSignOut fires off the actor's own
         // isolation, not necessarily the main actor — clearing the

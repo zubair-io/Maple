@@ -92,7 +92,7 @@ final class MaplePreviewProvider: QLPreviewProvider, QLPreviewingController {
             server: cfg.serverURL,
             urlSession: urlSession,
             tokensProvider: { try? TokenStore.load(server: cfg.serverURL) },
-            onTokensRefreshed: { try? TokenStore.save($0, server: cfg.serverURL) },
+            onTokensRefreshed: { try TokenStore.save($0, server: cfg.serverURL) },
             onSignOut: { TokenStore.clear(server: cfg.serverURL) }
         )
         let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
