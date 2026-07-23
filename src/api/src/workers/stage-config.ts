@@ -15,7 +15,7 @@
  * unchanged for every stage file and test.
  */
 
-import type { Collection, WithId } from 'mongodb';
+import type { Collection, Filter, WithId } from 'mongodb';
 import type { Logger } from 'pino';
 import { type IndexerAssetDoc } from '../indexer/images.repo.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
@@ -116,6 +116,23 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
    * handled separately by `tagsMissingOnEnoent` and never reaches this path.
    */
   tagsDamagedOnDeadLetter?: boolean;
+  /**
+   * Optional extra Mongo predicate `AND`-ed into the claim query, so a stage
+   * that only applies to a subset of assets never even claims the rest.
+   *
+   * Without it, a stage claims from the whole unprocessed pool and skips the
+   * assets it doesn't handle in its handler — which stamps a pointless
+   * `stages.<name>` skip-record on every non-matching asset and starves the
+   * concurrency slots with skip work before the stage reaches anything real.
+   * `transcribe` (video/audio only) sets this to a filename regex so it goes
+   * straight to media assets and ignores the photo library. The handler's own
+   * skips remain the correctness backstop — this is purely a claim-set
+   * optimization, so a slightly loose filter is safe.
+   *
+   * Merged as `{ $and: [<base claim query>, claimFilter] }` in
+   * `buildClaimQuery`; omit it and the claim query is unchanged.
+   */
+  claimFilter?: Filter<ImageDoc>;
   handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
   /**
    * Optional per-tick progress hook, invoked by the poll loop after each
