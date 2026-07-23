@@ -151,6 +151,15 @@ COPY --from=whisper-builder /whisper-cli /usr/local/bin/whisper-cli
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip ffmpeg libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
+# Smoke-check the bundled media binaries in the RUNTIME image, so a missing
+# loader dependency fails `docker build` here instead of shipping an image that
+# only breaks at transcription / thumbnail time. This class of bug (whisper-cli
+# missing libwhisper.so.1, an unrunnable ffmpeg) is invisible to the bun-test
+# CI and to dev machines without Docker — this is the one place it can be
+# caught. Both commands exit 0 when the binary loads; a loader failure exits
+# 127 and aborts the build.
+RUN whisper-cli --help >/dev/null && ffmpeg -version >/dev/null
+
 # Bun server deps.
 COPY src/api/package.json src/api/bun.lock* ./
 RUN bun install --production --frozen-lockfile
