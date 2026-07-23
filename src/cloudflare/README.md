@@ -17,6 +17,10 @@ expired or path-mismatched capability from receiving an already-cached R2
 object. Preview URLs are outside this Worker's `/api/thumb/*` route and go
 directly to the same origin validation.
 
+Add `format=jpg` to a thumbnail URL to decode the cached/origin AVIF with
+`@jsquash/avif` and encode an `image/jpeg` response with `@jsquash/jpeg`. The
+R2 object remains AVIF; conversion only changes the requested response.
+
 ## Prerequisites
 
 - **Node.js** (not Bun) for `npm test` / `npm run dev` — see below.

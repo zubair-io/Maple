@@ -6,6 +6,12 @@ import worker from '../src/index';
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 const SECRET = 'test-secret-not-for-production-only';
+const ONE_PIXEL_AVIF =
+	'AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAAXBtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABwaWN0AAAAAAAAAAAAAAAAAAAAAA5waXRtAAAAAAABAAAANGlsb2MAAAAAREAAAgABAAAAAAGUAAEAAAAAAAAAHQACAAAAAAGxAAEAAAAAAAAAFAAAADhpaW5mAAAAAAACAAAAFWluZmUCAAAAAAEAAGF2MDEAAAAAFWluZmUCAAAAAAIAAGF2MDEAAAAAr2lwcnAAAACKaXBjbwAAAAxhdjFDgSACAAAAABRpc3BlAAAAAAAAAAEAAAABAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQAcAAAAAA5waXhpAAAAAAEIAAAAOGF1eEMAAAAAdXJuOm1wZWc6bXBlZ0I6Y2ljcDpzeXN0ZW1zOmF1eGlsaWFyeTphbHBoYQAAAAAdaXBtYQAAAAAAAAACAAEDgQIDAAIEhAIFhgAAABppcmVmAAAAAAAAAA5hdXhsAAIAAQABAAAAOW1kYXQSAAoHOAAGEBDQaTIQGAAAAEAAsBNWZDGABE4fIBIACgQYAAYVMgoYAAABAAIhG6Ng';
+
+function decodeBase64(value: string): Uint8Array {
+	return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
 
 function capabilityToken(): string {
 	const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -69,6 +75,38 @@ describe('thumbnail-cache Worker', () => {
 		await waitOnExecutionContext(ctx);
 		const existing = await env.THUMBS_BUCKET.get('thumbs/main/capability.jpg');
 		expect(new Uint8Array(await existing!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+	});
+
+	it('converts an AVIF capability response to JPEG when format=jpg', async () => {
+		const capability = capabilityToken();
+		fetchMock
+			.get('https://origin.test')
+			.intercept({
+				path: `/api/thumb/main/claude.avif?format=jpg&token=${capability}`,
+				method: 'GET',
+			})
+			.reply(200, decodeBase64(ONE_PIXEL_AVIF), {
+				headers: {
+					'content-type': 'image/avif',
+					'content-length': '412',
+					etag: '"avif-etag"',
+				},
+			});
+
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/claude.avif?format=jpg&token=${capability}`,
+		);
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		const jpeg = new Uint8Array(await response.arrayBuffer());
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('image/jpeg');
+		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		expect(response.headers.get('content-length')).toBeNull();
+		expect(response.headers.get('etag')).toBeNull();
+		expect([...jpeg.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
 	});
 
 	it('passes an origin capability rejection through without caching it', async () => {
