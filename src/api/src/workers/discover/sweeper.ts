@@ -118,25 +118,39 @@ export async function visitDirectory(
   // cannot tell "file deleted" from "whole volume gone". Before the first
   // removal is emitted, confirm the root is listable and non-empty; if not,
   // emit nothing this visit and let a later sweep (mount restored) decide.
+  await emitConfirmedRemovals(recorded, filesOnDisk, dir.dir_path, root, deps);
+
+  await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen);
+  await frontier.completeDir(dir._id);
+}
+
+/** The removal pass of `visitDirectory`: re-stat each recorded-but-unlisted
+ * candidate and emit `removed` only on a confirmed ENOENT under an available
+ * library root. The root check is lazy — one readdir per visit, and only when
+ * a candidate actually confirmed absent. */
+async function emitConfirmedRemovals(
+  recorded: Array<{ fileinfo: Array<{ filename: string }> }>,
+  filesOnDisk: ReadonlyMap<string, string>,
+  dirPath: string,
+  root: string,
+  deps: ReconcileDeps,
+): Promise<void> {
   let rootAvailable: boolean | null = null; // lazily checked, once per visit
   for (const a of recorded) {
     const fn = a.fileinfo?.[0]?.filename;
     if (!fn || filesOnDisk.has(fn)) continue;
-    const abs = path.join(dir.dir_path, fn);
+    const abs = path.join(dirPath, fn);
     if ((await statKind(abs)) !== 'absent') continue;
     rootAvailable ??= await libraryRootAvailable(root);
     if (!rootAvailable) {
       log.warn(
-        { dir: dir.dir_path, root },
+        { dir: dirPath, root },
         'sweep: removal candidates found but library root is unavailable — emitting no removals',
       );
-      break;
+      return;
     }
-    await deps.handleEvent({ kind: 'removed', absPath: abs }, folderId, root);
+    await deps.handleEvent({ kind: 'removed', absPath: abs }, deps.folderId, root);
   }
-
-  await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen);
-  await frontier.completeDir(dir._id);
 }
 
 /**

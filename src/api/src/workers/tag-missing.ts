@@ -62,7 +62,7 @@ export async function confirmAndTagMissing(
  * repeated stage runs. Failures are swallowed — a tagging hiccup must not mask
  * the stage outcome.
  */
-export async function tagMissingSince(
+async function tagMissingSince(
   images: Collection<ImageDoc>,
   id: ObjectId,
   entry: Pick<FileInfo, 'library_id' | 'path' | 'filename'>,
