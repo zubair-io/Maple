@@ -16,11 +16,10 @@ import {
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
-} from "./index.ts";
+} from './index.ts';
 
-const ENDPOINT_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const MODELS_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models";
+const ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_TOKENS = 256;
 
@@ -30,13 +29,12 @@ const DEFAULT_MAX_TOKENS = 256;
  * approximation — overestimates cost slightly so the daily cap stays
  * honest).
  */
-const PRICING: Array<{ prefix: string; in_per_m: number; out_per_m: number }> =
-  [
-    { prefix: "gemini-flash", in_per_m: 0.075, out_per_m: 0.3 },
-    { prefix: "gemini-1.5-flash", in_per_m: 0.075, out_per_m: 0.3 },
-    { prefix: "gemini-1.5-pro", in_per_m: 1.25, out_per_m: 5.0 },
-    { prefix: "gemini-pro", in_per_m: 1.25, out_per_m: 5.0 },
-  ];
+const PRICING: Array<{ prefix: string; in_per_m: number; out_per_m: number }> = [
+  { prefix: 'gemini-flash', in_per_m: 0.075, out_per_m: 0.3 },
+  { prefix: 'gemini-1.5-flash', in_per_m: 0.075, out_per_m: 0.3 },
+  { prefix: 'gemini-1.5-pro', in_per_m: 1.25, out_per_m: 5.0 },
+  { prefix: 'gemini-pro', in_per_m: 1.25, out_per_m: 5.0 },
+];
 const FALLBACK_RATE = { in_per_m: 0.075, out_per_m: 0.3 };
 
 export interface GeminiProviderConfig {
@@ -57,7 +55,7 @@ interface GeminiResponse {
 }
 
 export class GeminiProvider implements DescribeProvider {
-  readonly name = "gemini" as const;
+  readonly name = 'gemini' as const;
 
   private readonly apiKey: string;
   private readonly timeoutMs: number;
@@ -72,26 +70,24 @@ export class GeminiProvider implements DescribeProvider {
   /** GET `/v1beta/models?key=...` — verifies the key works. */
   async health(): Promise<void> {
     const url = `${MODELS_ENDPOINT}?key=${encodeURIComponent(this.apiKey)}`;
-    const res = await this.timedFetch(url, { method: "GET" });
-    classifyHttp(res, "Gemini");
+    const res = await this.timedFetch(url, { method: 'GET' });
+    classifyHttp(res, 'Gemini');
   }
 
-  async describe(
-    jpegBytes: Buffer,
-    opts: DescribeOptions,
-  ): Promise<DescribeResult> {
+  async describe(jpegFrames: readonly Buffer[], opts: DescribeOptions): Promise<DescribeResult> {
+    requireFrames(jpegFrames);
     const url = `${ENDPOINT_BASE}/${encodeURIComponent(opts.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
     const body = JSON.stringify({
       contents: [
         {
-          role: "user",
+          role: 'user',
           parts: [
-            {
+            ...jpegFrames.map((frame) => ({
               inline_data: {
-                mime_type: "image/jpeg",
-                data: jpegBytes.toString("base64"),
+                mime_type: 'image/jpeg',
+                data: frame.toString('base64'),
               },
-            },
+            })),
             { text: opts.systemPrompt },
           ],
         },
@@ -99,11 +95,11 @@ export class GeminiProvider implements DescribeProvider {
       generationConfig: { maxOutputTokens: DEFAULT_MAX_TOKENS },
     });
     const res = await this.timedFetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body,
     });
-    classifyHttp(res, "Gemini");
+    classifyHttp(res, 'Gemini');
 
     let parsed: GeminiResponse;
     try {
@@ -115,14 +111,14 @@ export class GeminiProvider implements DescribeProvider {
 
     const text = extractCandidateText(parsed.candidates);
     if (text.length === 0) {
-      throw new RemoteError("Gemini returned empty content", false);
+      throw new RemoteError('Gemini returned empty content', false);
     }
     const inTokens =
-      typeof parsed.usageMetadata?.promptTokenCount === "number"
+      typeof parsed.usageMetadata?.promptTokenCount === 'number'
         ? parsed.usageMetadata.promptTokenCount
         : 0;
     const outTokens =
-      typeof parsed.usageMetadata?.candidatesTokenCount === "number"
+      typeof parsed.usageMetadata?.candidatesTokenCount === 'number'
         ? parsed.usageMetadata.candidatesTokenCount
         : 0;
     const cost = priceForModel(opts.model, inTokens, outTokens);
@@ -130,10 +126,7 @@ export class GeminiProvider implements DescribeProvider {
       text,
       cost_usd: cost,
       provider_info: {
-        model:
-          typeof parsed.modelVersion === "string"
-            ? parsed.modelVersion
-            : opts.model,
+        model: typeof parsed.modelVersion === 'string' ? parsed.modelVersion : opts.model,
         input_tokens: String(inTokens),
         output_tokens: String(outTokens),
       },
@@ -146,9 +139,7 @@ export class GeminiProvider implements DescribeProvider {
     try {
       return await this.fetchImpl(url, { ...init, signal: ctrl.signal });
     } catch (err) {
-      const aborted =
-        err instanceof Error &&
-        (err.name === "AbortError" || ctrl.signal.aborted);
+      const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
       const msg = err instanceof Error ? err.message : String(err);
       throw new RemoteError(
         aborted
@@ -162,60 +153,50 @@ export class GeminiProvider implements DescribeProvider {
   }
 }
 
+function requireFrames(frames: readonly Buffer[]): void {
+  if (frames.length === 0) {
+    throw new RemoteError('Describe requires at least one JPEG frame', false);
+  }
+}
+
 function extractCandidateText(candidates: unknown): string {
-  if (!Array.isArray(candidates) || candidates.length === 0) return "";
+  if (!Array.isArray(candidates) || candidates.length === 0) return '';
   const first = candidates[0];
   if (
     !first ||
-    typeof first !== "object" ||
-    !("content" in first) ||
-    typeof (first as { content: unknown }).content !== "object" ||
+    typeof first !== 'object' ||
+    !('content' in first) ||
+    typeof (first as { content: unknown }).content !== 'object' ||
     (first as { content: unknown }).content === null
   ) {
-    return "";
+    return '';
   }
   const content = (first as { content: { parts?: unknown } }).content;
-  if (!Array.isArray(content.parts)) return "";
+  if (!Array.isArray(content.parts)) return '';
   const parts: string[] = [];
   for (const part of content.parts) {
     if (
       part &&
-      typeof part === "object" &&
-      "text" in part &&
-      typeof (part as { text: unknown }).text === "string"
+      typeof part === 'object' &&
+      'text' in part &&
+      typeof (part as { text: unknown }).text === 'string'
     ) {
       parts.push((part as { text: string }).text);
     }
   }
-  return parts.join("\n").trim();
+  return parts.join('\n').trim();
 }
 
-function priceForModel(
-  model: string,
-  inTokens: number,
-  outTokens: number,
-): number {
-  const row =
-    PRICING.find((p) => model.startsWith(p.prefix)) ?? FALLBACK_RATE;
-  return (
-    (inTokens / 1_000_000) * row.in_per_m +
-    (outTokens / 1_000_000) * row.out_per_m
-  );
+function priceForModel(model: string, inTokens: number, outTokens: number): number {
+  const row = PRICING.find((p) => model.startsWith(p.prefix)) ?? FALLBACK_RATE;
+  return (inTokens / 1_000_000) * row.in_per_m + (outTokens / 1_000_000) * row.out_per_m;
 }
 
 function classifyHttp(res: Response, providerLabel: string): void {
   if (res.status >= 500) {
-    throw new RemoteError(
-      `${providerLabel} 5xx: ${res.status}`,
-      true,
-      res.status,
-    );
+    throw new RemoteError(`${providerLabel} 5xx: ${res.status}`, true, res.status);
   }
   if (res.status >= 400) {
-    throw new RemoteError(
-      `${providerLabel} 4xx: ${res.status}`,
-      false,
-      res.status,
-    );
+    throw new RemoteError(`${providerLabel} 4xx: ${res.status}`, false, res.status);
   }
 }
