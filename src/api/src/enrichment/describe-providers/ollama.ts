@@ -70,7 +70,8 @@ export class OllamaProvider implements DescribeProvider {
     }
   }
 
-  async describe(jpegBytes: Buffer, opts: DescribeOptions): Promise<DescribeResult> {
+  async describe(jpegFrames: readonly Buffer[], opts: DescribeOptions): Promise<DescribeResult> {
+    requireFrames(jpegFrames);
     const url = `${this.baseUrl}/api/generate`;
     // Ollama 0.5+ accepts a JSON Schema in `format` and constrains the
     // model's output to it at decode time — eliminates the `bad-enum`,
@@ -80,7 +81,7 @@ export class OllamaProvider implements DescribeProvider {
     const requestPayload: Record<string, unknown> = {
       model: opts.model,
       prompt: opts.systemPrompt,
-      images: [jpegBytes.toString('base64')],
+      images: jpegFrames.map((frame) => frame.toString('base64')),
       stream: false,
     };
     if (opts.format !== undefined) {
@@ -126,6 +127,12 @@ export class OllamaProvider implements DescribeProvider {
     } finally {
       clearTimeout(timer);
     }
+  }
+}
+
+function requireFrames(frames: readonly Buffer[]): void {
+  if (frames.length === 0) {
+    throw new RemoteError('Describe requires at least one JPEG frame', false);
   }
 }
 

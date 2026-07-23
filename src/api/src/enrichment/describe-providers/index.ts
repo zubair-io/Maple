@@ -6,7 +6,7 @@
  * Each implementation lives in its own file under `describe-providers/` and
  * shares this contract:
  *
- *   - `describe(jpegBytes, opts)` returns the caption text plus a `cost_usd`
+ *   - `describe(jpegFrames, opts)` returns the caption text plus a `cost_usd`
  *     estimate and a `provider_info` blob the worker stores on
  *     `asset.description_meta` for triage / cost-tracking.
  *   - `health()` is the boot probe, mirroring `NominatimClient.health()`.
@@ -63,14 +63,13 @@ export interface DescribeProvider {
    * `asset.description_meta.provider`. */
   readonly name: DescribeProviderName;
   /**
-   * Generate a caption for the given JPEG bytes (typically the cached
-   * thumbnail).
+   * Generate one coherent caption for one or more ordered JPEG frames.
    *
    * Throws `RemoteError` on failure. The worker uses `retryable` to decide
    * whether to bump `attempts` toward dead-letter or surface the error
    * directly (same shape as `NominatimError`).
    */
-  describe(jpegBytes: Buffer, opts: DescribeOptions): Promise<DescribeResult>;
+  describe(jpegFrames: readonly Buffer[], opts: DescribeOptions): Promise<DescribeResult>;
   /** Boot probe. Throws on misconfiguration or unreachable endpoint. The
    * worker bootstrap calls this once before entering the claim loop, so a
    * typo in the URL or a missing API key fails loud rather than dead-
