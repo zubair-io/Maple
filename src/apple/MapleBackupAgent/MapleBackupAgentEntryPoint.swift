@@ -66,7 +66,7 @@ struct MapleBackupAgentEntryPoint {
       server: url,
       urlSession: .shared,
       tokensProvider: { try? TokenStore.load(server: url) },
-      onTokensRefreshed: { try? TokenStore.save($0, server: url) },
+      onTokensRefreshed: { try TokenStore.save($0, server: url) },
       onSignOut: { TokenStore.clear(server: url) })
     // Separate process from the main app — no access to its in-memory
     // LocalNetworkResolver cache. LocalNetworkResolving is a stateless free

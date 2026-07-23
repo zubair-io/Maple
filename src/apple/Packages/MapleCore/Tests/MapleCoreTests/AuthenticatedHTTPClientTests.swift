@@ -9,7 +9,13 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
       return (200, Data("{}".utf8), [:])
     }
     let session = TestURLSession.make()
-    let client = AuthenticatedHTTPClient(server: URL(string: "https://x.test")!, urlSession: session, tokensProvider: { AuthTokens(access: "A1", refresh: "R1") }, onSignOut: {})
+    let client = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!,
+      urlSession: session,
+      tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
+      onSignOut: {}
+    )
     _ = try await client.data(for: URLRequest(url: URL(string: "https://x.test/api/folders")!))
   }
 
@@ -154,6 +160,43 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
     async let r3 = client.data(for: URLRequest(url: URL(string: "https://x.test/api/c")!))
     _ = try await (r1, r2, r3)
     XCTAssertEqual(persistCount, 1)
+  }
+
+  func testRefreshDoesNotUseRotatedTokensWhenPersistenceFails() async throws {
+    StubURLProtocol.register()
+    defer { StubURLProtocol.reset() }
+    var dataRequestCount = 0
+    var signedOut = false
+    StubURLProtocol.handler = { req in
+      if req.url!.path == "/api/auth/refresh" {
+        return (200, Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8), [:])
+      }
+      dataRequestCount += 1
+      return (401, Data("{}".utf8), [:])
+    }
+    struct PersistenceError: Error {}
+    let current = AuthTokens(access: "A1", refresh: "R1")
+    let client = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!,
+      urlSession: TestURLSession.make(),
+      tokensProvider: { current },
+      onTokensRefreshed: { _ in throw PersistenceError() },
+      onSignOut: { signedOut = true }
+    )
+
+    do {
+      _ = try await client.data(
+        for: URLRequest(url: URL(string: "https://x.test/api/folders")!)
+      )
+      XCTFail("Expected failed token persistence to fail the request")
+    } catch {
+      XCTAssertEqual(
+        error as? AuthenticatedHTTPClient.AuthenticationError,
+        .temporarilyUnavailable
+      )
+    }
+    XCTAssertEqual(dataRequestCount, 1)
+    XCTAssertFalse(signedOut)
   }
 
   /// Minimal JWT (unsigned) carrying an `exp` claim `seconds` from now. The
