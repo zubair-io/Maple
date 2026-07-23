@@ -57,22 +57,26 @@
 
       <div class="audit-grid">
         <div class="field">
-          <div class="field-label">Max re-arms per pass</div>
-          <input
-            type="number"
-            min="1"
-            max="1000000"
-            data-testid="audit-max-resets"
-            [value]="draftValue('max_resets_per_pass')"
-            (input)="setDraftNumber('max_resets_per_pass', $any($event.target).value)"
-          />
+          <label class="field-label" for="audit-max-resets">Max re-arms per pass</label>
+          <div class="num-input">
+            <input
+              id="audit-max-resets"
+              type="number"
+              min="1"
+              max="1000000"
+              data-testid="audit-max-resets"
+              [value]="draftValue('max_resets_per_pass')"
+              (input)="setDraftNumber('max_resets_per_pass', $any($event.target).value)"
+            />
+          </div>
           <div class="field-hint">Runaway guard — caps how many stages one pass re-queues.</div>
         </div>
 
         <div class="field">
-          <div class="field-label">Scan interval</div>
-          <div class="num-suffix-wrap">
+          <label class="field-label" for="audit-interval-hours">Scan interval</label>
+          <div class="num-input">
             <input
+              id="audit-interval-hours"
               type="number"
               min="0.1"
               max="168"
@@ -87,15 +91,18 @@
         </div>
 
         <div class="field">
-          <div class="field-label">Concurrency</div>
-          <input
-            type="number"
-            min="1"
-            max="64"
-            data-testid="audit-concurrency"
-            [value]="draftValue('concurrency')"
-            (input)="setDraftNumber('concurrency', $any($event.target).value)"
-          />
+          <label class="field-label" for="audit-concurrency">Concurrency</label>
+          <div class="num-input">
+            <input
+              id="audit-concurrency"
+              type="number"
+              min="1"
+              max="64"
+              data-testid="audit-concurrency"
+              [value]="draftValue('concurrency')"
+              (input)="setDraftNumber('concurrency', $any($event.target).value)"
+            />
+          </div>
           <div class="field-hint">Assets evaluated in parallel (bounds parallel R2 HEADs).</div>
         </div>
 
