@@ -1,15 +1,21 @@
-<!-- Always-visible Backup panel. No collapse: the live reconcile (status,
-     stages, current file, copied-files log, error log) stays on screen, with
-     the per-library backup-location config below it. -->
-<div class="mirror-panel" data-testid="mirror-settings">
-  <!-- Live status header: phase pill + one-line readout + actions. -->
-  <div class="panel-head">
+<maple-settings-row [expanded]="expanded()" (toggle)="toggleExpanded()" testid="mirror-row">
+  <div class="wrow-summary" srow-summary>
+    <maple-settings-icon
+      [name]="expanded() ? 'chev-d' : 'chev-r'"
+      [size]="12"
+      [stroke]="2"
+      [color]="'#a8a29e'"
+    />
+    <span class="wrow-id">
+      <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
+      <span class="mono">backup</span>
+    </span>
     <span class="status-pill">
       <span class="status-dot" [style.background]="statusColor()"></span>
       <span class="status-label" data-testid="mirror-status">{{ statusLabel() }}</span>
     </span>
-    <span class="readout mono" data-testid="mirror-readout">{{ reconcileSummary() }}</span>
-    <span class="head-spacer"></span>
+    <span class="wrow-readout mono" data-testid="mirror-readout">{{ reconcileSummary() }}</span>
+    <span class="wrow-spacer"></span>
     @if (status(); as q) {
       @if (q.dead > 0) {
         <button
@@ -34,148 +40,150 @@
     </button>
   </div>
 
-  <!-- Two-stage progress (scanning → copying) with per-stage counts. -->
-  <div class="stages" data-testid="mirror-stages">
-    <!-- Stage 1 — scanning -->
-    <div class="stage-line" [class.active]="reconcile()?.phase === 'scanning'">
-      <span class="stage-dot"></span>
-      <span class="stage-name">Scanning</span>
-      @if (reconcile(); as r) {
-        <span class="stage-nums mono">
-          {{ r.scan.scanned }} scanned · {{ r.scan.upToDate }} up to date · {{ r.scan.toCopy }} to
-          copy
-          @if (r.scan.errors > 0) {
-            · <span class="is-error">{{ r.scan.errors }} errors</span>
-          }
-        </span>
-      } @else {
-        <span class="stage-nums dim">not run yet</span>
-      }
-    </div>
+  <div class="mirror-body" data-testid="mirror-settings">
+    <!-- Two-stage progress (scanning → copying) with per-stage counts. -->
+    <div class="stages" data-testid="mirror-stages">
+      <!-- Stage 1 — scanning -->
+      <div class="stage-line" [class.active]="reconcile()?.phase === 'scanning'">
+        <span class="stage-dot"></span>
+        <span class="stage-name">Scanning</span>
+        @if (reconcile(); as r) {
+          <span class="stage-nums mono">
+            {{ r.scan.scanned }} scanned · {{ r.scan.upToDate }} up to date · {{ r.scan.toCopy }} to
+            copy
+            @if (r.scan.errors > 0) {
+              · <span class="is-error">{{ r.scan.errors }} errors</span>
+            }
+          </span>
+        } @else {
+          <span class="stage-nums dim">not run yet</span>
+        }
+      </div>
 
-    <!-- Stage 2 — copying -->
-    <div class="stage-line" [class.active]="reconcile()?.phase === 'copying'">
-      <span class="stage-dot"></span>
-      <span class="stage-name">Copying</span>
-      @if (reconcile(); as r) {
-        <span class="stage-nums mono">
-          {{ r.copy.copied }} / {{ r.copy.total }} copied · {{ r.copy.remaining }} remaining
-          @if (r.copy.errors > 0) {
-            · <span class="is-error">{{ r.copy.errors }} failed</span>
-          }
-        </span>
-      } @else {
-        <span class="stage-nums dim">not run yet</span>
-      }
-    </div>
-  </div>
-
-  @if (reconcile()?.currentPath; as cp) {
-    <div class="current-file mono" data-testid="mirror-current-file" [title]="cp">
-      <span class="current-label">Copying:</span> {{ cp }}
-    </div>
-  }
-
-  <!-- Copied-files log: files already mirrored this run (most recent first). -->
-  @if (reconcile()?.copiedLog?.length) {
-    <div class="copied-log" data-testid="mirror-copied-log">
-      <div class="copied-log-head">Copied ({{ reconcile()!.copiedLog.length }})</div>
-      <!-- Track by index: a path can repeat (same primary copied to >1 mirror),
-           so the string isn't a unique key — this is a flat positional log. -->
-      <div class="copied-list">
-        @for (p of reconcile()!.copiedLog; track $index) {
-          <div class="copied-line mono" [title]="p">
-            <maple-settings-icon name="check" [size]="11" [color]="'#4ade80'" />
-            <span class="copied-path">{{ p }}</span>
-          </div>
+      <!-- Stage 2 — copying -->
+      <div class="stage-line" [class.active]="reconcile()?.phase === 'copying'">
+        <span class="stage-dot"></span>
+        <span class="stage-name">Copying</span>
+        @if (reconcile(); as r) {
+          <span class="stage-nums mono">
+            {{ r.copy.copied }} / {{ r.copy.total }} copied · {{ r.copy.remaining }} remaining
+            @if (r.copy.errors > 0) {
+              · <span class="is-error">{{ r.copy.errors }} failed</span>
+            }
+          </span>
+        } @else {
+          <span class="stage-nums dim">not run yet</span>
         }
       </div>
     </div>
-  }
 
-  <!-- Error log: per-file copy failures (capped). -->
-  @if (reconcile()?.errorLog?.length) {
-    <div class="error-log" data-testid="mirror-error-log">
-      <div class="error-log-head">Errors ({{ reconcile()!.errorLog.length }})</div>
-      @for (e of reconcile()!.errorLog; track e.at + e.path) {
-        <div class="error-line mono">
-          <span class="error-path" [title]="e.path">{{ e.path }}</span>
-          <span class="error-msg">{{ e.error }}</span>
-        </div>
-      }
-    </div>
-  }
+    @if (reconcile()?.currentPath; as cp) {
+      <div class="current-file mono" data-testid="mirror-current-file" [title]="cp">
+        <span class="current-label">Copying:</span> {{ cp }}
+      </div>
+    }
 
-  @if (error()) {
-    <p class="banner-error">{{ error() }}</p>
-  }
-
-  <!-- Per-library backup-location config. -->
-  @if (loading()) {
-    <p class="loading">Loading libraries…</p>
-  } @else if (libraries().length === 0) {
-    <p class="loading">No libraries registered yet.</p>
-  } @else {
-    @for (lib of libraries(); track lib.id) {
-      <div class="block">
-        <div class="subhead">{{ lib.label }}</div>
-        <div class="field field-wide">
-          <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
-          <div class="text-input mono">
-            <div class="text-input-wrap">
-              <input
-                [id]="'mirror-' + lib.id"
-                type="text"
-                placeholder="/mnt/backup/photos"
-                [value]="pathOf(lib.id)"
-                (input)="setPath(lib.id, $any($event.target).value)"
-              />
+    <!-- Copied-files log: files already mirrored this run (most recent first). -->
+    @if (reconcile()?.copiedLog?.length) {
+      <div class="copied-log" data-testid="mirror-copied-log">
+        <div class="copied-log-head">Copied ({{ reconcile()!.copiedLog.length }})</div>
+        <!-- Track by index: a path can repeat (same primary copied to >1 mirror),
+             so the string isn't a unique key — this is a flat positional log. -->
+        <div class="copied-list">
+          @for (p of reconcile()!.copiedLog; track $index) {
+            <div class="copied-line mono" [title]="p">
+              <maple-settings-icon name="check" [size]="11" [color]="'#4ade80'" />
+              <span class="copied-path">{{ p }}</span>
             </div>
-            <button
-              type="button"
-              class="btn-ghost"
-              [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
-              (click)="test(lib.id)"
-            >
-              {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
-            </button>
-          </div>
-          <div class="field-hint">
-            Library root: <span class="mono">{{ lib.path }}</span>
-          </div>
-          @if (testStateOf(lib.id) === 'ok') {
-            <div class="test-result ok">✓ {{ testMsgOf(lib.id) }}</div>
-          } @else if (testStateOf(lib.id) === 'fail') {
-            <div class="test-result err">{{ testMsgOf(lib.id) }}</div>
           }
-        </div>
-
-        <label class="mirror-enable">
-          <input
-            type="checkbox"
-            [checked]="enabledOf(lib.id)"
-            (change)="setEnabled(lib.id, $any($event.target).checked)"
-          />
-          <span>Enabled (replicate writes to this mirror)</span>
-        </label>
-
-        <div class="row-footer">
-          <span class="footer-spacer"></span>
-          @if (saveErrorOf(lib.id)) {
-            <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
-          } @else if (saveStateOf(lib.id) === 'success') {
-            <span class="save-ok">Saved.</span>
-          }
-          <button
-            type="button"
-            class="btn-primary"
-            [disabled]="saveStateOf(lib.id) === 'saving'"
-            (click)="save(lib.id)"
-          >
-            {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
-          </button>
         </div>
       </div>
     }
-  }
-</div>
+
+    <!-- Error log: per-file copy failures (capped). -->
+    @if (reconcile()?.errorLog?.length) {
+      <div class="error-log" data-testid="mirror-error-log">
+        <div class="error-log-head">Errors ({{ reconcile()!.errorLog.length }})</div>
+        @for (e of reconcile()!.errorLog; track e.at + e.path) {
+          <div class="error-line mono">
+            <span class="error-path" [title]="e.path">{{ e.path }}</span>
+            <span class="error-msg">{{ e.error }}</span>
+          </div>
+        }
+      </div>
+    }
+
+    @if (error()) {
+      <p class="banner-error">{{ error() }}</p>
+    }
+
+    <!-- Per-library backup-location config. -->
+    @if (loading()) {
+      <p class="loading">Loading libraries…</p>
+    } @else if (libraries().length === 0) {
+      <p class="loading">No libraries registered yet.</p>
+    } @else {
+      @for (lib of libraries(); track lib.id) {
+        <div class="block">
+          <div class="subhead">{{ lib.label }}</div>
+          <div class="field field-wide">
+            <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
+            <div class="text-input mono">
+              <div class="text-input-wrap">
+                <input
+                  [id]="'mirror-' + lib.id"
+                  type="text"
+                  placeholder="/mnt/backup/photos"
+                  [value]="pathOf(lib.id)"
+                  (input)="setPath(lib.id, $any($event.target).value)"
+                />
+              </div>
+              <button
+                type="button"
+                class="btn-ghost"
+                [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
+                (click)="test(lib.id)"
+              >
+                {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
+              </button>
+            </div>
+            <div class="field-hint">
+              Library root: <span class="mono">{{ lib.path }}</span>
+            </div>
+            @if (testStateOf(lib.id) === 'ok') {
+              <div class="test-result ok">✓ {{ testMsgOf(lib.id) }}</div>
+            } @else if (testStateOf(lib.id) === 'fail') {
+              <div class="test-result err">{{ testMsgOf(lib.id) }}</div>
+            }
+          </div>
+
+          <label class="mirror-enable">
+            <input
+              type="checkbox"
+              [checked]="enabledOf(lib.id)"
+              (change)="setEnabled(lib.id, $any($event.target).checked)"
+            />
+            <span>Enabled (replicate writes to this mirror)</span>
+          </label>
+
+          <div class="row-footer">
+            <span class="footer-spacer"></span>
+            @if (saveErrorOf(lib.id)) {
+              <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
+            } @else if (saveStateOf(lib.id) === 'success') {
+              <span class="save-ok">Saved.</span>
+            }
+            <button
+              type="button"
+              class="btn-primary"
+              [disabled]="saveStateOf(lib.id) === 'saving'"
+              (click)="save(lib.id)"
+            >
+              {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </div>
+      }
+    }
+  </div>
+</maple-settings-row>

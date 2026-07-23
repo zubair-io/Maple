@@ -21,6 +21,8 @@ import {
   type DerivativeAuditSummaryDto,
   errorMessage,
 } from '@maple-common';
+import { SettingsRowComponent } from '../settings-row.component';
+import { SettingsIconComponent } from '../settings-icon.component';
 
 interface AuditDraft {
   max_resets_per_pass: number;
@@ -32,6 +34,7 @@ interface AuditDraft {
 @Component({
   selector: 'maple-derivative-audit-settings',
   standalone: true,
+  imports: [SettingsRowComponent, SettingsIconComponent],
   templateUrl: './derivative-audit-settings.component.html',
   styleUrl: './derivative-audit-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -50,6 +53,12 @@ export class DerivativeAuditSettingsComponent implements OnInit, OnDestroy {
 
   /** Editable copy of the numeric/boolean knobs; committed via Save. */
   protected readonly draft = signal<AuditDraft | null>(null);
+
+  /** Collapsed by default, matching the stage rows on this page. */
+  protected readonly expanded = signal(false);
+  protected toggleExpanded(): void {
+    this.expanded.update((v) => !v);
+  }
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private polling = false;
