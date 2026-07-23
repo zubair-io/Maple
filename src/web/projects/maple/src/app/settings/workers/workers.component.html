@@ -336,6 +336,7 @@
                     <div class="field">
                       <div class="field-label">Whisper model</div>
                       <select
+                        aria-label="Whisper model"
                         [value]="enrichmentValue(s, 'transcribe_model_tier')"
                         (change)="
                           setEnrichment(s, 'transcribe_model_tier', $any($event.target).value)

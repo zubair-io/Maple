@@ -43,6 +43,10 @@ export async function ensureWhisperModel(
   const controller = new AbortController();
   const abort = (): void => controller.abort(deps.signal?.reason);
   deps.signal?.addEventListener('abort', abort, { once: true });
+  // If the signal aborted while we awaited the stat/mkdir above,
+  // `addEventListener` won't fire on the already-aborted signal — propagate it
+  // to the fetch controller now so the download never starts.
+  if (deps.signal?.aborted) abort();
   const timer = setTimeout(
     () => controller.abort(new Error('model download timed out')),
     deps.timeoutMs ?? MODEL_DOWNLOAD_TIMEOUT_MS,

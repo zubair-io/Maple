@@ -76,6 +76,7 @@ export function buildClaimQuery(
   targetVersion: number,
   dependsOn: Array<{ name: string; minVersion: number }>,
   inFlight: Set<ObjectId>,
+  claimFilter?: Filter<ImageDoc>,
 ): Filter<ImageDoc> {
   const filter: Filter<ImageDoc> = {
     $or: [
@@ -105,7 +106,10 @@ export function buildClaimQuery(
   if (inFlight.size > 0) {
     (filter as Record<string, unknown>)['_id'] = { $nin: [...inFlight] };
   }
-  return filter;
+  // A stage-supplied predicate (e.g. transcribe's video/audio filename regex)
+  // is AND-ed on so it can't collide with the base query's own `fileinfo` /
+  // `$or` keys. Absent → the base query is returned unchanged.
+  return claimFilter ? { $and: [filter, claimFilter] } : filter;
 }
 
 /**
@@ -152,7 +156,13 @@ export async function runOnce(
   const ctx = { log, signal: effectiveSignal };
 
   const claimSet = new Set<ObjectId>();
-  const query = buildClaimQuery(stage.name, stage.targetVersion, resolvedDeps, claimSet);
+  const query = buildClaimQuery(
+    stage.name,
+    stage.targetVersion,
+    resolvedDeps,
+    claimSet,
+    stage.claimFilter,
+  );
 
   // Batch size is derived (5× concurrency), not a knob. With the
   // re-poll-on-full-batch loop, this only governs DB round-trip efficiency.

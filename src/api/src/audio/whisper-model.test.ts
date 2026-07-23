@@ -55,4 +55,25 @@ describe('whisper models', () => {
       });
     expect(await ensureWhisperModel('small.en', { dir, fetchImpl, timeoutMs: 5 })).toBeNull();
   });
+
+  it('does not start the download when the caller signal is already aborted', async () => {
+    // The signal can fire while ensureWhisperModel awaits the pre-fetch
+    // stat/mkdir; addEventListener on an already-aborted signal never runs, so
+    // without the post-attach `if (aborted) abort()` guard the download would
+    // proceed. Assert the fetch is entered with an already-aborted signal.
+    const dir = await mkdtemp(join(tmpdir(), 'maple-whisper-'));
+    dirs.push(dir);
+    const controller = new AbortController();
+    controller.abort(new Error('shutting down'));
+    let ranUnaborted = false;
+    const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> => {
+      if (init?.signal?.aborted) throw init.signal.reason ?? new Error('aborted');
+      ranUnaborted = true;
+      return new Response(new Uint8Array([1, 2, 3]));
+    };
+    expect(
+      await ensureWhisperModel('base.en', { dir, fetchImpl, signal: controller.signal }),
+    ).toBeNull();
+    expect(ranUnaborted).toBe(false);
+  });
 });
