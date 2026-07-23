@@ -175,6 +175,10 @@ describe('describeHandler — happy path', () => {
 
     // Top-level is_screenshot mirror — overwrites the exif heuristic.
     expect(patch.is_screenshot).toBe(false);
+
+    // A describe success marks meili stale so the caption/OCR gets reindexed
+    // — meili depends on exif+thumb only and usually ran long before (#2172).
+    expect((result as { invalidates?: readonly string[] }).invalidates).toEqual(['meili']);
   });
 
   it('threads VISION_DOC_JSON_SCHEMA through to the provider as `format`', async () => {
