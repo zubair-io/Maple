@@ -23,6 +23,7 @@ import {
   errorMessage,
 } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
+import { SettingsRowComponent } from '../settings-row.component';
 
 interface MirrorForm {
   path: string;
@@ -34,7 +35,7 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 @Component({
   selector: 'maple-mirror-settings',
   standalone: true,
-  imports: [SettingsIconComponent],
+  imports: [SettingsIconComponent, SettingsRowComponent],
   templateUrl: './mirror-settings.component.html',
   styleUrl: './mirror-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,6 +46,12 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   protected readonly libraries = signal<ApiFolder[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
+
+  /** Collapsed by default, matching the stage rows on this page. */
+  protected readonly expanded = signal(false);
+  protected toggleExpanded(): void {
+    this.expanded.update((v) => !v);
+  }
 
   /** True once at least one library has an enabled mirror with a path. */
   protected readonly mirrorActive = computed(() =>
