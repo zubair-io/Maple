@@ -69,6 +69,22 @@ const MIME_BY_EXT: Record<string, string> = {
   wav: 'audio/wav',
   m4a: 'audio/mp4',
   aac: 'audio/aac',
+  mov: 'video/quicktime',
+  mp4: 'video/mp4',
+  m4v: 'video/x-m4v',
+  webm: 'video/webm',
+  avi: 'video/x-msvideo',
+  mkv: 'video/x-matroska',
+  mts: 'video/mp2t',
+  m2ts: 'video/mp2t',
+  '3gp': 'video/3gpp',
+  mxf: 'application/mxf',
+  '3g2': 'video/3gpp2',
+  flv: 'video/x-flv',
+  vob: 'video/mpeg',
+  mpg: 'video/mpeg',
+  wmv: 'video/x-ms-wmv',
+  f4v: 'video/mp4',
   // Metadata-only stub images (#1835) — no registered MIME exists for
   // eip/braw/afphoto; fall back to the generic binary type. `ai` files are
   // normally a PDF/vector container (Illustrator), so `application/postscript`
@@ -188,6 +204,65 @@ export async function streamFile(
       'Content-Type': contentType,
       'Content-Length': String(st.size),
       ...extraHeaders,
+    },
+  });
+}
+
+export type ByteRange = { ok: true; start: number; end: number } | { ok: false };
+
+/** Parse the single byte range used by media players. */
+export function parseByteRange(value: string, size: number): ByteRange {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
+  if (!match || size <= 0) return { ok: false };
+  const [, startText, endText] = match;
+  if (!startText && !endText) return { ok: false };
+
+  if (!startText) {
+    const suffix = Number(endText);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return { ok: false };
+    return { ok: true, start: Math.max(0, size - suffix), end: size - 1 };
+  }
+
+  const start = Number(startText);
+  if (!Number.isSafeInteger(start) || start < 0 || start >= size) return { ok: false };
+  const requestedEnd = endText ? Number(endText) : size - 1;
+  if (!Number.isSafeInteger(requestedEnd) || requestedEnd < start) return { ok: false };
+  return { ok: true, start, end: Math.min(requestedEnd, size - 1) };
+}
+
+/** Serve a regular file with the single-range contract required by media players. */
+export function streamFileRange(
+  absPath: string,
+  contentType: string,
+  size: number,
+  rangeHeader?: string,
+): Response {
+  const common = {
+    'Content-Type': contentType,
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, max-age=0, must-revalidate',
+    'Referrer-Policy': 'no-referrer',
+  };
+  if (!rangeHeader) {
+    return new Response(Bun.file(absPath), {
+      status: 200,
+      headers: { ...common, 'Content-Length': String(size) },
+    });
+  }
+  const range = parseByteRange(rangeHeader, size);
+  if (!range.ok) {
+    return new Response(null, {
+      status: 416,
+      headers: { ...common, 'Content-Range': `bytes */${size}` },
+    });
+  }
+  const length = range.end - range.start + 1;
+  return new Response(Bun.file(absPath).slice(range.start, range.end + 1), {
+    status: 206,
+    headers: {
+      ...common,
+      'Content-Length': String(length),
+      'Content-Range': `bytes ${range.start}-${range.end}/${size}`,
     },
   });
 }

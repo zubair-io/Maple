@@ -49,6 +49,7 @@ import { assetsRoutes } from './routes/assets.ts';
 import { xmpPathRoutes } from './routes/xmp.ts';
 import { previewPathRoutes } from './routes/preview.ts';
 import { eventsRoutes } from './routes/events.ts';
+import { videoRoutes } from './routes/video.ts';
 import { authRoutes } from './routes/auth.ts';
 import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
 import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan-handoff.ts';
@@ -197,6 +198,9 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
     // sub-app's `requireAuth` derive.
     .use(eventsRoutes)
+    // Media elements cannot attach Authorization headers, so this route
+    // self-authenticates with a short-lived query token.
+    .use(videoRoutes)
 
     // Authenticated API routes — wrapped in a sub-app so the `requireAuth`
     // scoped-derive only applies to these. Without the sub-app the derive
