@@ -116,7 +116,20 @@ export async function statKind(p: string): Promise<StatKind> {
  */
 export async function libraryRootAvailable(root: string): Promise<boolean> {
   try {
-    return (await fs.readdir(root)).length > 0;
+    const dir = await fs.opendir(root);
+    try {
+      // O(1): read a single entry instead of listing the whole root.
+      return (await dir.read()) !== null;
+    } finally {
+      try {
+        // Bun's Dir.close() returns undefined rather than a Promise, so no
+        // `.catch()` chaining — `await undefined` is a no-op there, and the
+        // try/catch absorbs Node's ERR_DIR_CLOSED double-close.
+        await dir.close();
+      } catch {
+        /* best-effort close */
+      }
+    }
   } catch {
     return false;
   }
