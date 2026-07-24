@@ -22,8 +22,9 @@ export const COLOR_LABELS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple
 
 export type ColorLabel = (typeof COLOR_LABELS)[number];
 
-/** Set form for O(1) membership checks (parsing, query validation). */
-export const COLOR_LABEL_SET: ReadonlySet<string> = new Set(COLOR_LABELS);
+/** Set form for O(1) membership checks (module-private — consumers go
+ * through `isColorLabel`). */
+const COLOR_LABEL_SET: ReadonlySet<string> = new Set(COLOR_LABELS);
 
 /** True iff `s` is one of the six canonical color-label values. */
 export function isColorLabel(s: string): s is ColorLabel {

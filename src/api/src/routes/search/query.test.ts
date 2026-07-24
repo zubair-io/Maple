@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { applyLiveFilter, buildFilter, COLOR_LABELS } from './query.ts';
+import { applyLiveFilter, buildFilter, SEARCH_COLOR_LABELS } from './query.ts';
 import { COLOR_LABELS as CANONICAL_COLOR_LABELS } from '../../xmp/color-labels.ts';
 
 /**
@@ -58,9 +58,12 @@ describe('buildFilter — color filter accepts the canonical six-value vocabular
     }
   });
 
-  it('accepts the empty string (no filter)', () => {
+  it("accepts the empty string and filters for unlabeled assets (the indexer's '' default)", () => {
     const result = buildFilter({ color: '' });
     expect('error' in result).toBe(false);
+    // `''` is a real predicate, not "no filter": it matches the empty-string
+    // `color_label` the discover worker writes for never-labeled assets.
+    expect((result as Record<string, unknown>).color_label).toBe('');
   });
 
   it('rejects a color outside the canonical set', () => {
@@ -69,7 +72,7 @@ describe('buildFilter — color filter accepts the canonical six-value vocabular
   });
 
   it('orange (batch/XMP-only historically) and purple (search-only historically) are both valid', () => {
-    expect(COLOR_LABELS.has('orange')).toBe(true);
-    expect(COLOR_LABELS.has('purple')).toBe(true);
+    expect(SEARCH_COLOR_LABELS.has('orange')).toBe(true);
+    expect(SEARCH_COLOR_LABELS.has('purple')).toBe(true);
   });
 });

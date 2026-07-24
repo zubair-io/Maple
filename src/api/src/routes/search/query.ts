@@ -36,9 +36,15 @@ import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { parseNlDateRange } from './nl-date.ts';
 import { COLOR_LABELS as CANONICAL_COLOR_LABELS } from '../../xmp/color-labels.ts';
 
-/** Search's color filter also accepts `''` (no filter), on top of the
- * canonical six-value vocabulary — see `../../xmp/color-labels.ts` (#1657). */
-export const COLOR_LABELS = new Set<string>(['', ...CANONICAL_COLOR_LABELS]);
+/** Search's color filter accepts `''` on top of the canonical six-value
+ * vocabulary — see `../../xmp/color-labels.ts` (#1657). `''` is NOT "no
+ * filter" (omit `color` for that): it matches assets whose `color_label`
+ * is the empty string, which is the indexer's default for never-labeled
+ * assets (see `workers/discover/handle-event.ts`) — i.e. `?color=`
+ * filters for UNLABELED assets. Named `SEARCH_COLOR_LABELS` (not
+ * `COLOR_LABELS`) so the wire-input set can't be confused with — or
+ * shadow re-exports of — the canonical vocabulary. */
+export const SEARCH_COLOR_LABELS = new Set<string>(['', ...CANONICAL_COLOR_LABELS]);
 
 export const SCENE_TYPES = new Set(['indoor', 'outdoor', 'aerial', 'macro', 'studio', 'mixed']);
 
@@ -385,7 +391,7 @@ export function buildFilter(
 
   // Color.
   if (q.color !== undefined) {
-    if (!COLOR_LABELS.has(q.color)) {
+    if (!SEARCH_COLOR_LABELS.has(q.color)) {
       return { error: `Invalid color: ${q.color}` };
     }
     (filter as Record<string, unknown>).color_label = q.color;

@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { COLOR_LABELS, isColorLabel } from './color-labels.ts';
-import { COLOR_LABELS as SEARCH_COLOR_LABELS } from '../routes/search/query.ts';
+import { SEARCH_COLOR_LABELS } from '../routes/search/query.ts';
 
 describe('color-label vocabulary drift guard (#1657)', () => {
   it('is exactly the six-value union agreed in #1657', () => {
