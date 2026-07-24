@@ -285,6 +285,20 @@ export interface ApiVisionMeta {
   raw_response_size: number;
 }
 
+/**
+ * Display projection of the transcribe stage's `TranscriptDoc`
+ * (`src/api/src/db/schema.ts`). `null` until the stage has run, or when
+ * the asset carries no audio track. The per-segment timing array is
+ * omitted server-side — the info pane renders `text` as one block.
+ */
+export interface ApiTranscript {
+  text: string;
+  language: string;
+  model: string;
+  duration_sec: number | null;
+  generated_at: string;
+}
+
 export interface ApiAssetDetail {
   id: string;
   folder_id: string;
@@ -305,6 +319,9 @@ export interface ApiAssetDetail {
   /** Structured vision data from the qwen3-vl describe stage. */
   vision: ApiVision | null;
   vision_meta: ApiVisionMeta | null;
+  /** Speech-to-text from the transcribe stage (video/audio assets).
+   * `null` for images and un-transcribed assets. */
+  transcript: ApiTranscript | null;
   /** Top-level mirror of `vision.is_screenshot` — seeded by the exif
    * stage heuristic, overwritten by the describe stage's VLM verdict.
    * `null` for legacy rows indexed before #175. */
