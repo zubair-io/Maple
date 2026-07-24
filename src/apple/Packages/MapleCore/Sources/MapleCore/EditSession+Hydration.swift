@@ -315,6 +315,8 @@ extension EditSession {
         // auto_exposure-Off-when-Auto decision matches the buffer the Auto
         // cube will be applied over (and the decode cache keys on it).
         let openProfile = self.model.profile
+        // #1387: mirror the LIVE autoExposure too — same staleness story.
+        let openAutoExposure = self.model.autoExposure
         // Cold open is a display decode, not export prep. Always give the
         // shared decoder a bounded target: the physical viewport when mounted,
         // or the pipeline's ~2 MP fallback before layout. Omitting this target
@@ -329,6 +331,7 @@ extension EditSession {
                 asset: openedAsset,
                 target: openTarget,
                 profile: openProfile,
+                autoExposure: openAutoExposure,
                 normalize: { [weak self] image, asset in
                     guard let self else { return image }
                     return await MainActor.run {

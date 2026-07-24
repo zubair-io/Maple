@@ -166,6 +166,14 @@ public actor RenderActor {
     /// or seeded buffer where the Auto/Neutral distinction doesn't apply.
     var decodedProfile: Profile?
 
+    /// Auto-exposure mode the cached `decodedImage` was developed for
+    /// (#1387 — same staleness/identity story as `decodedProfile` #871):
+    /// `EditorState.applyAuto` can flip `auto_exposure` on the LIVE model
+    /// without waiting for the debounced sidecar write, so a mismatch here
+    /// is a cache MISS exactly like a profile mismatch. `nil` = non-RAW or
+    /// seeded buffer.
+    var decodedAutoExposure: AutoExposureMode?
+
     /// Whether the cached `decodedImage` is a FULL-resolution decode
     /// (sufficient for the refine pass / a deep-zoom crop) or a
     /// downsampled fast-phase decode (#785). The fast phase accepts any
@@ -221,6 +229,9 @@ public actor RenderActor {
     /// in-flight decode for the other profile (it would get the wrong-AE
     /// buffer), so the join check below compares this too.
     var decodeTaskProfile: Profile?
+    /// Auto-exposure mode `decodeTask` was launched for (#1387) — part of
+    /// the task IDENTITY alongside `decodeTaskProfile`, same join rule.
+    var decodeTaskAutoExposure: AutoExposureMode?
 
     var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
     var refineDecodeSlotCounter: UInt64 = 0
@@ -278,6 +289,9 @@ public actor RenderActor {
         /// live profile and treats a mismatch as a miss so a profile toggle
         /// re-decodes the (profile-dependent, AE-Off-for-Auto) buffer.
         public let profile: Profile?
+        /// Auto-exposure mode the cached buffer was developed for (#1387),
+        /// `nil` for non-RAW / seeded buffers — mirrors `profile` above.
+        public let autoExposure: AutoExposureMode?
         /// Per-camera noise profile from the RAW decode (PR #1709 review fix 4).
         /// `nil` when the DNG carries no NoiseLevelFunction tag or the buffer
         /// was seeded from a display-encoded preview.
@@ -378,7 +392,8 @@ public actor RenderActor {
         try Task.checkCancellation()
         guard let decodeResult = await pipeline.decodeSceneLinear(
             asset: asset, quality: .preview, xmpPath: sidecar,
-            profileOverride: asset.isRaw ? model.profile : nil
+            profileOverride: asset.isRaw ? model.profile : nil,
+            autoExposureOverride: asset.isRaw ? model.autoExposure : nil
         ) else {
             throw RenderError.pipelineFailed
         }
@@ -427,7 +442,8 @@ public actor RenderActor {
         }()
         guard let exportDecodeResult = await pipeline.decodeSceneLinear(
             asset: asset, quality: AmazeFlag.isEnabled ? .amaze : .full, xmpPath: sidecar,
-            profileOverride: asset.isRaw ? m.profile : nil
+            profileOverride: asset.isRaw ? m.profile : nil,
+            autoExposureOverride: asset.isRaw ? m.autoExposure : nil
         ) else {
             throw RenderError.pipelineFailed
         }

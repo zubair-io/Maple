@@ -255,9 +255,10 @@ public enum RawCoreBridge {
     public static func withStrippedXMP<T>(
         _ original: URL?,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         body: (URL?) throws -> T
     ) throws -> T {
-        guard original != nil || profileOverride != nil else {
+        guard original != nil || profileOverride != nil || autoExposureOverride != nil else {
             return try body(nil)
         }
         var stripped: AdjustmentModel
@@ -274,12 +275,12 @@ public enum RawCoreBridge {
                 culling = CullingState()
             }
         } else {
-            // No sidecar but a profile override is requested — start from
+            // No sidecar but an override is requested — start from
             // canonical defaults so the override is the only deviation.
             stripped = stripAppleGPUStages(AdjustmentModel())
             culling = CullingState()
         }
-        applyProfileOverride(profileOverride, to: &stripped)
+        applyOverrides(profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
         return try withTemporaryXMP(model: stripped, culling: culling, body: body)
     }
 
@@ -290,10 +291,11 @@ public enum RawCoreBridge {
     public static func withStrippedModelXMP<T>(
         _ model: AdjustmentModel,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         body: (URL?) throws -> T
     ) throws -> T {
         var stripped = stripAppleGPUStages(model)
-        applyProfileOverride(profileOverride, to: &stripped)
+        applyOverrides(profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
         return try withTemporaryXMP(
             model: stripped,
             culling: CullingState(),
@@ -301,21 +303,41 @@ public enum RawCoreBridge {
         )
     }
 
-    private static func applyProfileOverride(
-        _ profileOverride: Profile?,
+    /// Force the LIVE (in-memory session) `profile` and/or `autoExposure`
+    /// into the stripped model before it's written to the decode's temp
+    /// XMP — regardless of what the possibly-stale on-disk sidecar says.
+    ///
+    /// `profileOverride` (#871): the decode's auto-exposure-Off-when-Auto
+    /// decision keys off `profile`, so the live selection must drive the
+    /// decode rather than the debounced sidecar write.
+    ///
+    /// `autoExposureOverride` (#1387): `auto_exposure` is itself a
+    /// decode-baked field (like `profile`), so it has the exact same
+    /// staleness problem — `EditorState.applyAuto` sets the LIVE model's
+    /// `autoExposure` to `.off` alongside `exposure` so a `Profile.neutral`
+    /// decode doesn't double-count the AE anchor gain under AUTO's
+    /// recommendation, and that must land on the SAME render tick, not
+    /// ~750ms later when the debounced sidecar write finally lands.
+    private static func applyOverrides(
+        profileOverride: Profile?,
+        autoExposureOverride: AutoExposureMode?,
         to model: inout AdjustmentModel
     ) {
-        guard let profileOverride else { return }
-        model.profile = profileOverride
-        // Guard the serialize→parse round-trip: the serializer omits
-        // `papp:Profile` for `.auto`, and raw-core then MIGRATES a
-        // `papp:Look="Neutral"` into `Profile::Neutral` (legacy #536
-        // migration, gated on no explicit `papp:Profile`). A
-        // Look=Neutral sidecar would therefore silently flip our Auto
-        // override back to Neutral on the decode side. The Look field
-        // is a retired no-op (#443) and the pre-AgX decode never reads
-        // it, so neutralise it here so the override is the sole signal.
-        model.look = .default
+        if let profileOverride {
+            model.profile = profileOverride
+            // Guard the serialize→parse round-trip: the serializer omits
+            // `papp:Profile` for `.auto`, and raw-core then MIGRATES a
+            // `papp:Look="Neutral"` into `Profile::Neutral` (legacy #536
+            // migration, gated on no explicit `papp:Profile`). A
+            // Look=Neutral sidecar would therefore silently flip our Auto
+            // override back to Neutral on the decode side. The Look field
+            // is a retired no-op (#443) and the pre-AgX decode never reads
+            // it, so neutralise it here so the override is the sole signal.
+            model.look = .default
+        }
+        if let autoExposureOverride {
+            model.autoExposure = autoExposureOverride
+        }
     }
 
     private static func withTemporaryXMP<T>(

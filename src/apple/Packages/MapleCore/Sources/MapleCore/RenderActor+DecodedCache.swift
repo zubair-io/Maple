@@ -41,6 +41,7 @@ extension RenderActor {
         asset: AssetRef,
         target: CGSize? = nil,
         profile: Profile = .auto,
+        autoExposure: AutoExposureMode = .on,
         normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
     ) async -> CIImage? {
         // Videos are selectable for metadata editing (#1638) but have no still
@@ -64,12 +65,20 @@ extension RenderActor {
         // a profile toggle re-decodes instead of serving the wrong buffer.
         // Non-RAW has no Auto Profile cube, so no override / no keying.
         let decodeProfile: Profile? = asset.isRaw ? profile : nil
+        // #1387: the decode buffer is also auto_exposure-dependent for RAW
+        // — `auto_exposure` is itself a decode-baked field, and
+        // `EditorState.applyAuto` can flip it on the live model (Neutral
+        // profile) without waiting for the debounced sidecar write. Same
+        // treatment as `decodeProfile` immediately above.
+        let decodeAutoExposure: AutoExposureMode? = asset.isRaw ? autoExposure : nil
         // Reuse an in-flight task only when it already satisfies the
         // caller's fullness requirement AND was launched for the same
-        // profile. A fast (sized) caller can join any (same-profile) task;
-        // a refine (full) caller must NOT join a sized task.
+        // profile + autoExposure. A fast (sized) caller can join any
+        // (same-identity) task; a refine (full) caller must NOT join a
+        // sized task.
         if let existing = decodeTask, decodeTaskAssetID == asset.id,
            decodeTaskProfile == decodeProfile,
+           decodeTaskAutoExposure == decodeAutoExposure,
            (!wantsFull || decodeTaskIsFull) {
             // #951: JOIN an in-flight, identity-compatible decode. Do NOT create
             // or flip a cancel flag here — same-asset slider ticks during a cold
@@ -177,7 +186,8 @@ extension RenderActor {
                 let sizedResult = await mapleStageAsync("rust FFI scene-linear sized decode") {
                     await pipeline.decodeSceneLinearSized(
                         asset: asset, targetSize: decodeTarget, xmpPath: sidecar,
-                        profileOverride: decodeProfile, cancel: cancelFlag
+                        profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
+                        cancel: cancelFlag
                     )
                 }
                 guard let sizedResult else { return nil }
@@ -196,7 +206,8 @@ extension RenderActor {
             let refineResult = await mapleStageAsync("rust FFI scene-linear decode") {
                 await pipeline.decodeSceneLinear(
                     asset: asset, quality: refineQuality, xmpPath: sidecar,
-                    profileOverride: decodeProfile, cancel: cancelFlag
+                    profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
+                    cancel: cancelFlag
                 )
             }
             guard let refineResult else { return nil }
@@ -209,6 +220,7 @@ extension RenderActor {
         decodeTaskAssetID = asset.id
         decodeTaskIsFull = wantsFull
         decodeTaskProfile = decodeProfile
+        decodeTaskAutoExposure = decodeAutoExposure
 
         let decodeResult = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
@@ -250,6 +262,9 @@ extension RenderActor {
         // loop — the new-profile decode is discarded as "already covered" by
         // the stale old-profile buffer, the read side detects the profile
         // mismatch and re-decodes, and the write gate discards it again.
+        // AutoExposure gates the same way (#1387) — same reasoning, same
+        // hazard, since `auto_exposure` is also a live-override-owned
+        // decode-baked field.
         //
         // Capture the live baked model (stripped sidecar model) once and
         // reuse it for the stored `decodedBakedModel` so the write-gate and
@@ -268,6 +283,7 @@ extension RenderActor {
         let cachedCoversNewDecode = Self.cacheCoversNewDecode(
             sameAsset: sameAssetCached,
             sameProfile: decodedProfile == decodeProfile,
+            sameAutoExposure: decodedAutoExposure == decodeAutoExposure,
             sameBakedModel: decodedBakedModel == currentBaked,
             cachedRawResolution: decodedRawResolution,
             newRawResolution: newRawResolution
@@ -284,6 +300,7 @@ extension RenderActor {
             decodedSidecarMtime = currentMtime
             decodedIsFull = wantsFull
             decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
+            decodedAutoExposure = decodeAutoExposure  // #1387 — buffer is autoExposure-keyed too
             // PR #1709 review fix 4: store noise profile + ISO alongside the
             // decoded buffer so processSceneLinear can forward them to the NR
             // stage without a re-decode. Written only on the same shouldWrite
@@ -372,11 +389,12 @@ extension RenderActor {
     nonisolated static func cacheCoversNewDecode(
         sameAsset: Bool,
         sameProfile: Bool,
+        sameAutoExposure: Bool = true,
         sameBakedModel: Bool,
         cachedRawResolution: CGSize,
         newRawResolution: CGSize
     ) -> Bool {
-        sameAsset && sameProfile && sameBakedModel
+        sameAsset && sameProfile && sameAutoExposure && sameBakedModel
             && cachedRawResolution.width >= newRawResolution.width - 0.5
             && cachedRawResolution.height >= newRawResolution.height - 0.5
     }
@@ -416,9 +434,11 @@ extension RenderActor {
         decodeTaskAssetID = nil
         decodeTaskIsFull = false
         decodeTaskProfile = nil
+        decodeTaskAutoExposure = nil
         refineDecodeTasks.removeAll()
         decodedAtModel = nil
         decodedProfile = nil
+        decodedAutoExposure = nil
         decodedNoiseProfile = nil
         decodedISO = 0
         decodedWbFrame = nil
@@ -461,6 +481,7 @@ extension RenderActor {
             isFresh: isFresh,
             isFull: decodedIsFull,
             profile: decodedProfile,
+            autoExposure: decodedAutoExposure,
             noiseProfile: decodedNoiseProfile,
             iso: decodedISO,
             wbFrame: decodedWbFrame,
@@ -492,12 +513,16 @@ extension RenderActor {
     /// produced the correct buffer at toggle time. That is exactly the
     /// wasteful re-decode #950 removes, just on the profile axis.
     /// `stripAppleGPUStages` does NOT strip `profile`, so we reset it here.
+    /// `autoExposure` (#1387) gets the identical treatment for the identical
+    /// reason: it's owned by `decodedAutoExposure` / the live override, not
+    /// the sidecar, so it's normalised out here too.
     nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel? {
         guard EditSession.sidecarMtime(for: asset) != nil else { return nil }
         var m = RawCoreBridge.stripAppleGPUStages(
             EditSession.parseSidecarModel(for: asset)
         )
         m.profile = AdjustmentModel().profile  // #871 owns profile freshness
+        m.autoExposure = AdjustmentModel().autoExposure  // #1387 owns autoExposure freshness
         return m
     }
 
@@ -521,6 +546,9 @@ extension RenderActor {
         // the profile unknown so the first real render re-decodes for RAW
         // Auto rather than reusing an AE-On preview under the Auto cube.
         self.decodedProfile = nil
+        // Seeded buffers likewise carry no known auto-exposure state
+        // (#1387) — same reasoning as `decodedProfile` above.
+        self.decodedAutoExposure = nil
         // Seeded preview buffers carry no slider-frame export (#1781); a
         // stale frame from a previous decode must not describe them.
         self.decodedWbFrame = nil
@@ -550,6 +578,7 @@ extension RenderActor {
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = false
         self.decodedProfile = nil  // #871 — see `seed(...)`
+        self.decodedAutoExposure = nil  // #1387 — see `seed(...)`
         self.decodedWbFrame = nil  // #1781 — see `seed(...)`
         self.decodedAeGain = 1.0  // #1167/#2070 — see `seed(...)`
         self.decodeGeneration &+= 1  // #2049 — see `seed(...)`
