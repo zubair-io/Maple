@@ -46,7 +46,7 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
       await withTaskGroup(of: Void.self) { group in
         for _ in 0..<taskCount {
           group.addTask {
-            await semaphore.acquire()
+            try? await semaphore.acquire()
             await tracker.enter()
             // Hold the permit across a suspension point to widen the
             // window in which a racy implementation could over-admit.
@@ -84,7 +84,7 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
     await withTaskGroup(of: Void.self) { group in
       for _ in 0..<50 {
         group.addTask {
-          await semaphore.acquire()
+          try? await semaphore.acquire()
           await tracker.enter()
           await Task.yield()
           await tracker.exit()
@@ -102,10 +102,156 @@ final class BoundedAsyncSemaphoreTests: XCTestCase {
 
   /// A cap clamp sanity check: a 0 (or negative) value would make
   /// `acquire()` suspend forever if not clamped to ≥1.
-  func test_zeroValueClampsToOne_doesNotDeadlock() async {
+  func test_zeroValueClampsToOne_doesNotDeadlock() async throws {
     let semaphore = BoundedAsyncSemaphore(value: 0)
-    await semaphore.acquire()
+    try await semaphore.acquire()
     await semaphore.release()
     // Reaching this point without hanging proves the clamp took effect.
+  }
+
+  // MARK: - Cancellation (#2112)
+
+  /// A task suspended in `acquire()` (queued behind the cap, not yet
+  /// handed a permit) that gets cancelled must throw `CancellationError`,
+  /// be removed from the waiter queue, and leave the cap intact — a
+  /// subsequent `acquire()` must still be able to proceed once a permit is
+  /// available, proving nothing was leaked (no stranded waiter, no
+  /// phantom held permit).
+  func test_cancelledWhileQueued_throwsAndLeavesCapIntact() async throws {
+    let semaphore = BoundedAsyncSemaphore(value: 1)
+
+    // Hold the only permit so the second `acquire()` below is forced to
+    // queue rather than take the fast path.
+    try await semaphore.acquire()
+
+    let queuedStarted = ResumeGate()
+    let queuedTask = Task {
+      await queuedStarted.signal()
+      try await semaphore.acquire()
+    }
+
+    // Wait until the queued task has actually started running before
+    // cancelling it. The extra yields/sleep give it a real chance to reach
+    // the suspension point inside `acquire()`, but this isn't load-bearing
+    // for correctness either way: the semaphore's own internal
+    // race-handling (pre-cancel bookkeeping in `cancelWaiter`) covers a
+    // cancel that lands before registration too, so the assertions below
+    // hold regardless of exactly which internal path is hit.
+    await queuedStarted.wait()
+    await Task.yield()
+    try? await Task.sleep(for: .milliseconds(5))
+    queuedTask.cancel()
+
+    do {
+      try await queuedTask.value
+      XCTFail("cancelled acquire() must throw")
+    } catch is CancellationError {
+      // expected
+    }
+
+    // Release the first permit and prove the semaphore still works: a
+    // fresh acquire() must succeed without hanging and without exceeding
+    // the cap of 1.
+    await semaphore.release()
+    try await semaphore.acquire()
+    await semaphore.release()
+  }
+
+  /// Hammers the timing window around `release()`'s permit handoff racing
+  /// against cancellation of the very waiter being handed the permit
+  /// (the "cancel-after-handoff" race called out in the semaphore's doc
+  /// comment). Across many iterations, concurrency must never exceed the
+  /// cap and every permit taken must eventually be accounted for (no
+  /// task hangs waiting for a permit that was leaked).
+  func test_cancelAfterHandoffRace_neverExceedsCapAndBalances() async {
+    let cap = 2
+    let iterations = 200
+
+    for _ in 0..<iterations {
+      let semaphore = BoundedAsyncSemaphore(value: cap)
+      let tracker = ConcurrencyTracker()
+
+      await withTaskGroup(of: Void.self) { group in
+        // A handful of holder tasks that acquire, briefly hold (widening
+        // the handoff race window), and release.
+        for _ in 0..<6 {
+          group.addTask {
+            do {
+              try await semaphore.acquire()
+            } catch {
+              return
+            }
+            await tracker.enter()
+            await Task.yield()
+            await tracker.exit()
+            await semaphore.release()
+          }
+        }
+        // A handful of tasks that acquire and are cancelled essentially
+        // immediately, racing their own cancellation against a concurrent
+        // release()'s handoff. Whichever outcome wins, the permit must
+        // end up either genuinely held (and later released above) or
+        // fully returned — never both, never neither.
+        for _ in 0..<6 {
+          let task = Task {
+            do {
+              try await semaphore.acquire()
+            } catch is CancellationError {
+              return
+            } catch {
+              return
+            }
+            await tracker.enter()
+            await Task.yield()
+            await tracker.exit()
+            await semaphore.release()
+          }
+          task.cancel()
+          group.addTask { _ = await task.value }
+        }
+      }
+
+      let peak = await tracker.peak
+      XCTAssertLessThanOrEqual(
+        peak, cap,
+        "cancel-after-handoff race let observed concurrency \(peak) exceed cap \(cap)"
+      )
+
+      // The semaphore must still be fully usable afterward — if any
+      // permit were leaked (never released) or double-handed-out, this
+      // final drain would either hang or let concurrency exceed the cap.
+      let counter = ConcurrencyTracker()
+      await withTaskGroup(of: Void.self) { group in
+        for _ in 0..<cap {
+          group.addTask {
+            try? await semaphore.acquire()
+            await counter.enter()
+            await Task.yield()
+            await counter.exit()
+            await semaphore.release()
+          }
+        }
+      }
+      let drainPeak = await counter.peak
+      XCTAssertLessThanOrEqual(drainPeak, cap, "post-race drain exceeded cap — a permit leaked")
+    }
+  }
+}
+
+/// Deterministic single-shot signal, so cancellation tests don't rely on
+/// sleeps to sequence "task has started" before "cancel it".
+private actor ResumeGate {
+  private var isSignaled = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  func signal() {
+    isSignaled = true
+    continuation?.resume()
+    continuation = nil
+  }
+
+  func wait() async {
+    if isSignaled { return }
+    await withCheckedContinuation { continuation = $0 }
   }
 }

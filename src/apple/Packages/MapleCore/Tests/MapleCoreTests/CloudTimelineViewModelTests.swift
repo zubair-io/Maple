@@ -133,12 +133,12 @@ final class CloudTimelineViewModelTests: XCTestCase {
   /// call-site cap (`maxConcurrentPageFetches`, default 2) is exercised by
   /// `test_loadPage_respectsMaxConcurrentPageFetches` below, and the real
   /// regression coverage for the race lives in `BoundedAsyncSemaphoreTests`.
-  func test_boundedAsyncSemaphore_boundsConcurrency() async {
+  func test_boundedAsyncSemaphore_boundsConcurrency() async throws {
     let sem = BoundedAsyncSemaphore(value: 1)
     let counter = CounterActor()
 
     async let a: Void = {
-      await sem.acquire()
+      try await sem.acquire()
       let observed = await counter.increment()
       try? await Task.sleep(for: .milliseconds(10))
       _ = observed
@@ -147,7 +147,7 @@ final class CloudTimelineViewModelTests: XCTestCase {
     }()
 
     async let b: Void = {
-      await sem.acquire()
+      try await sem.acquire()
       let observed = await counter.increment()
       try? await Task.sleep(for: .milliseconds(10))
       _ = observed
@@ -155,7 +155,7 @@ final class CloudTimelineViewModelTests: XCTestCase {
       await sem.release()
     }()
 
-    _ = await (a, b)
+    _ = try await (a, b)
 
     let max = await counter.observedMax
     XCTAssertEqual(max, 1, "semaphore(value:1) should never let two through at once")
