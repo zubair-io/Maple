@@ -165,6 +165,12 @@ export class XmpParserService {
    * bucket containing any attributes / elements that Maple does not model.
    * The returned `model` is a Partial — callers should merge over defaultAdjustmentModel().
    */
+  // Pre-existing complexity, unmodified by #2215's file-budget split — this
+  // change only removes `parseCulling`/`parseMetadata`'s bodies (relocated
+  // to `xmp-culling.ts` / `xmp-metadata.ts`) above this method, which shifts
+  // its line number and drops fallow's positional inherited-finding match.
+  // No branches here changed. Tracked for a real decomposition separately.
+  // fallow-ignore-next-line complexity
   parseAdjustmentModel(xml: string): {
     model: Partial<AdjustmentModel>;
     passthrough: PassthroughBucket;
