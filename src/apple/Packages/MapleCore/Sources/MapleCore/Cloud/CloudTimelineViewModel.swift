@@ -69,7 +69,18 @@ public final class CloudTimelineViewModel {
   /// completions for older generations rather than mutating state.
   private var generation: Int = 0
   /// Concurrency cap for /api/search calls (web Timeline uses 2).
-  private let semaphore: AsyncSemaphore
+  ///
+  /// `BoundedAsyncSemaphore` (MapleCloudKit) — NOT the module-local
+  /// `AsyncSemaphore` this used to declare. That type had a permit-handoff
+  /// race (#2111): `release()` decremented `current` before resuming a
+  /// waiter, who then incremented `current` again on resume; an `acquire()`
+  /// interleaved in that window could see `current < value` and over-admit
+  /// past the cap (trace-confirmed cap 2 → 3 concurrent /api/search calls).
+  /// `BoundedAsyncSemaphore` hands the permit to the waiter directly instead
+  /// of decrementing-then-resuming-then-incrementing, closing the window.
+  /// See `BoundedAsyncSemaphore.swift` for the full writeup and
+  /// `BoundedAsyncSemaphoreTests.swift` for the stress-test coverage.
+  private let semaphore: BoundedAsyncSemaphore
 
   public init(server: URL,
               libraryID: String,
@@ -85,7 +96,7 @@ public final class CloudTimelineViewModel {
     self.searchClient = searchClient
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
-    self.semaphore = AsyncSemaphore(value: maxConcurrentPageFetches)
+    self.semaphore = BoundedAsyncSemaphore(value: maxConcurrentPageFetches)
     self.photoKitMerge = photoKitMerge
 
     // When the adapter's background warm-up completes, re-merge buckets
@@ -376,46 +387,5 @@ public final class CloudTimelineViewModel {
       ]
     }
     return vm
-  }
-}
-
-// MARK: - AsyncSemaphore
-
-/// Simple counting semaphore for bounded concurrency. Enough for the
-/// Timeline's in-flight cap; the full-fledged variant lives in third-
-/// party packages but pulling one in for a 30-line helper is overkill.
-public actor AsyncSemaphore {
-  private let value: Int
-  private var current: Int
-  private var waiters: [CheckedContinuation<Void, Never>] = []
-
-  /// Clamps `value` to at least 1. Without this, a misconfigured caller
-  /// could pass 0 (or negative) and `acquire()` would suspend forever
-  /// because `current < value` is never true — Timeline page loads
-  /// would deadlock with no error path. 1 is the smallest meaningful
-  /// concurrency cap; anything lower is a programming mistake we
-  /// recover from rather than propagate.
-  public init(value: Int) {
-    self.value = max(1, value)
-    self.current = 0
-  }
-
-  public func acquire() async {
-    if current < value {
-      current += 1
-      return
-    }
-    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-      waiters.append(cont)
-    }
-    current += 1
-  }
-
-  public func release() {
-    current -= 1
-    if let waiter = waiters.first {
-      waiters.removeFirst()
-      waiter.resume()
-    }
   }
 }

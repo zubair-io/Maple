@@ -27,11 +27,15 @@
 // `current` == "permits currently held" atomically at every actor
 // isolation boundary, with no window for over-admission.
 //
-// Named `BoundedAsyncSemaphore`, not `AsyncSemaphore` — MapleCore
-// already declares a `public actor AsyncSemaphore`
-// (`MapleCore/Cloud/CloudTimelineViewModel.swift`) and re-exports
-// MapleCloudKit (`MapleCloudKitReexport.swift`), so a same-named type
-// here would collide for any target importing both.
+// `CloudTimelineViewModel` (MapleCore) carried the SAME bug in its own
+// module-local `AsyncSemaphore` (#2111 — same class of race as PR #2110,
+// independently trace-confirmed: cap 2 → 3 concurrent /api/search calls).
+// Rather than duplicate the fix, `CloudTimelineViewModel` now imports this
+// type directly (MapleCore depends on MapleCloudKit — see
+// `MapleCloudKitReexport.swift`) and the module-local `AsyncSemaphore` was
+// deleted. Kept the `BoundedAsyncSemaphore` name (not `AsyncSemaphore`)
+// for continuity with the TV-side history above, not because of a naming
+// collision anymore.
 //
 // Foundation-only (portability guard — see `MapleCloudKitPortabilityTests`):
 // the Maple TV target links MapleCloudKit without MapleCore or

@@ -124,8 +124,15 @@ final class CloudTimelineViewModelTests: XCTestCase {
       "millisecond-precision captured_at must parse to a Date (was nil before #2108 fix)")
   }
 
-  func test_asyncSemaphore_boundsConcurrency() async {
-    let sem = AsyncSemaphore(value: 1)
+  /// `CloudTimelineViewModel`'s `semaphore` field is a `BoundedAsyncSemaphore`
+  /// (MapleCloudKit) — the algorithm is fully stress-tested at the type
+  /// level in `BoundedAsyncSemaphoreTests.swift` (many tasks, many
+  /// iterations, an explicit `Task.yield()` while "holding" the permit to
+  /// widen the permit-handoff race window from #2111). This is a lighter
+  /// smoke test at the call-site's own value=1 usage; the real regression
+  /// coverage for the race lives in `BoundedAsyncSemaphoreTests`.
+  func test_boundedAsyncSemaphore_boundsConcurrency() async {
+    let sem = BoundedAsyncSemaphore(value: 1)
     let counter = CounterActor()
 
     async let a: Void = {
@@ -203,45 +210,55 @@ final class CloudTimelineViewModelTests: XCTestCase {
                  "stale loadPage completion must not populate pagesByBucket after generation bump")
   }
 
-  /// /api/search calls are bounded by an internal AsyncSemaphore. A
+  /// /api/search calls are bounded by an internal `BoundedAsyncSemaphore`. A
   /// burst of N >> cap concurrent loadPage calls must serialize through
   /// the cap — observed by counting the maximum simultaneous in-flight
   /// requests at the URLProtocol layer.
+  ///
+  /// Runs several iterations with a real network-shaped delay (not just a
+  /// `Task.yield()`) to widen the window the #2111 permit-handoff race
+  /// needed to over-admit a third fetch past the cap of 2 — this is the
+  /// VM-level companion to the type-level stress coverage in
+  /// `BoundedAsyncSemaphoreTests`, confirming the fix holds through the
+  /// actual call site, not just the isolated algorithm.
   func test_loadPage_respectsMaxConcurrentPageFetches() async throws {
-    let server = URL(string: "https://example.test")!
-    let inFlight = ConcurrentRequestTracker()
+    for iteration in 0..<5 {
+      let server = URL(string: "https://example.test")!
+      let inFlight = ConcurrentRequestTracker()
 
-    let json = """
-    {"total":0,"page":0,"limit":200,"results":[]}
-    """
-    let session = URLSession.stubbed(response: json,
-                                     delay: .milliseconds(80),
-                                     onRequestStart: { await inFlight.enter() },
-                                     onRequestEnd:   { await inFlight.leave() })
-    let searchClient = CloudSearchClient(
-      server: server,
-      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+      let json = """
+      {"total":0,"page":0,"limit":200,"results":[]}
+      """
+      let session = URLSession.stubbed(response: json,
+                                       delay: .milliseconds(30),
+                                       onRequestStart: { await inFlight.enter() },
+                                       onRequestEnd:   { await inFlight.leave() })
+      let searchClient = CloudSearchClient(
+        server: server,
+        httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
 
-    let dir = FileManager.default.temporaryDirectory
-      .appendingPathComponent("VMTests-\(UUID()).cap")
-    addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
-    let vm = CloudTimelineViewModel(
-      server: server, libraryID: "lib1",
-      searchClient: searchClient,
-      bucketsCache: CloudBucketsCache(baseDir: dir.appending(path: "b")),
-      pagesCache: CloudPagesCache(baseDir: dir.appending(path: "p")),
-      maxConcurrentPageFetches: 2)
+      let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("VMTests-\(UUID()).cap")
+      addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+      let vm = CloudTimelineViewModel(
+        server: server, libraryID: "lib1",
+        searchClient: searchClient,
+        bucketsCache: CloudBucketsCache(baseDir: dir.appending(path: "b")),
+        pagesCache: CloudPagesCache(baseDir: dir.appending(path: "p")),
+        maxConcurrentPageFetches: 2)
 
-    // Fan out 6 distinct buckets concurrently — semaphore should pin
-    // observedMax to 2.
-    await withTaskGroup(of: Void.self) { group in
-      for m in 1...6 {
-        group.addTask { await vm.loadPage(year: 2024, month: m) }
+      // Fan out 12 distinct buckets concurrently — semaphore should pin
+      // observedMax to 2.
+      await withTaskGroup(of: Void.self) { group in
+        for m in 1...12 {
+          group.addTask { await vm.loadPage(year: 2024, month: m) }
+        }
       }
+      let observed = await inFlight.observedMax
+      XCTAssertLessThanOrEqual(observed, 2,
+                               "BoundedAsyncSemaphore(value: 2) must cap concurrent /api/search requests "
+                               + "at 2 (observed \(observed), iteration \(iteration))")
     }
-    let observed = await inFlight.observedMax
-    XCTAssertLessThanOrEqual(observed, 2,
-                             "AsyncSemaphore(value: 2) must cap concurrent /api/search requests at 2 (observed \(observed))")
   }
 
   // MARK: - PhotoKit merge integration
