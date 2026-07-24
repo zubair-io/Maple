@@ -25,13 +25,32 @@
 // `TZ` values, which is the only reliable way to test this in Bun (a
 // mid-process `process.env.TZ` mutation does not retroactively affect
 // `Date` parsing there — see that file's module doc).
+//
+// [#2154]: the `Date` branch had the same underlying bug one layer up —
+// `v.toISOString()` reported the UTC instant of an already locally-biased
+// epoch (any `Date` reaching this branch, e.g. from exifr's own revival, is
+// built via the LOCAL-timezone-resolved multi-argument constructor, never
+// as a genuinely correct UTC instant). Fixed by reading the same local
+// calendar fields back out, which self-cancels regardless of host TZ. The
+// Date-branch cases below construct their input the same way a real
+// producer would (`new Date(y, m - 1, d, h, mi, s)`, not an ISO string with
+// an explicit `Z`) so the assertion is meaningful under any timezone — this
+// spec is run once under `TZ=UTC` and once under a non-UTC zone (see the
+// PR description) as the equivalent of `exif.timezone.test.ts`'s subprocess
+// sweep, which Bun's subprocess trick isn't available for under Vitest/Node.
 
 import { describe, it, expect } from 'vitest';
 import { asIsoDate, capturedAtFromExif } from './captured-at';
 
 describe('asIsoDate — timezone-independent inputs (parity with exif.ts)', () => {
-  it('a Date object round-trips via toISOString', () => {
-    expect(asIsoDate(new Date('2026-07-12T10:30:00.000Z'))).toBe('2026-07-12T10:30:00.000Z');
+  it('a Date built from local calendar fields recovers the same wall clock, independent of host TZ (#2154)', () => {
+    // Mirrors how exifr's own revival (and any other real producer) builds
+    // a Date from EXIF's timezone-naive wall clock: the multi-argument
+    // constructor, resolved against the process's LOCAL timezone. Reading
+    // local fields back out is self-canceling, so this holds under ANY
+    // host TZ — unlike an ISO string with an explicit `Z`, which would
+    // depend on the host TZ under the new local-field-read implementation.
+    expect(asIsoDate(new Date(2026, 6, 12, 10, 30, 0))).toBe('2026-07-12T10:30:00.000Z');
   });
 
   it('an invalid Date object returns null', () => {
@@ -93,8 +112,8 @@ describe('capturedAtFromExif — precedence (parity with normalizeExif)', () => 
     expect(capturedAtFromExif({})).toBeNull();
   });
 
-  it('accepts a Date object for CreateDate', () => {
-    const raw = { CreateDate: new Date('2019-05-05T05:05:05.000Z') };
+  it('accepts a Date object for CreateDate, recovered from its local calendar fields (#2154)', () => {
+    const raw = { CreateDate: new Date(2019, 4, 5, 5, 5, 5) };
     expect(capturedAtFromExif(raw)).toBe('2019-05-05T05:05:05.000Z');
   });
 });

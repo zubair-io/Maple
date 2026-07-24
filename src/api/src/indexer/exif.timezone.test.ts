@@ -1,7 +1,8 @@
 // exif.timezone.test.ts — proves `normalizeExif`'s `captured_at` derivation
-// is timezone-independent (#2004 review, P0), and separately that
-// `readExif`'s own `exifr.parse` call can't reintroduce the same bug one
-// layer upstream (#2004 review round 2, P0-2).
+// is timezone-independent (#2004 review, P0), separately that `readExif`'s
+// own `exifr.parse` call can't reintroduce the same bug one layer upstream
+// (#2004 review round 2, P0-2), and separately that `asIsoDate`'s `Date`
+// branch recovers the same wall clock regardless of host timezone (#2154).
 //
 // EXIF DateTimeOriginal/CreateDate carry no timezone offset per spec. An
 // earlier version of `asIsoDate` built a bare date-time string and passed
@@ -75,6 +76,58 @@ describe('normalizeExif captured_at — timezone independence (P0)', () => {
     const capturedAt = await capturedAtUnderTimezone('America/New_York', '2026:12:25 23:59:59');
     expect(capturedAt).toBe('2026-12-25T23:59:59.000Z');
   }, 10_000);
+});
+
+/** Runs `normalizeExif({ DateTimeOriginal: <a Date built via the local
+ * multi-arg constructor> })` in a fresh child `bun` process started with
+ * `TZ=tz`, returning its `captured_at`. See this file's module doc for why
+ * a real subprocess (not a mid-process `process.env.TZ` mutation) is
+ * required to actually exercise a different process timezone in Bun. */
+async function dateBranchCapturedAtUnderTimezone(tz: string): Promise<string | null> {
+  const script = `
+    import { normalizeExif } from ${JSON.stringify(EXIF_TS_PATH)};
+    const wallClock = new Date(2026, 6, 12, 10, 30, 0);
+    const result = normalizeExif({ DateTimeOriginal: wallClock });
+    process.stdout.write(JSON.stringify(result.captured_at));
+  `;
+  const proc = Bun.spawn(['bun', '-e', script], {
+    env: { ...process.env, TZ: tz },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`child process (TZ=${tz}) exited ${exitCode}: ${stderr}`);
+  }
+  return JSON.parse(stdout) as string | null;
+}
+
+describe('asIsoDate Date branch — local-field round-trip is timezone-independent (#2154)', () => {
+  // A `Date` reaching `asIsoDate`'s `Date` branch (exifr's own revival, or
+  // any caller building one the obvious way) is constructed via the
+  // multi-argument `new Date(y, m - 1, d, h, mi, s)` form, which the
+  // ECMAScript spec resolves against the process's LOCAL timezone — its
+  // underlying epoch is already offset by whatever that timezone is. The
+  // old `v.toISOString()` implementation reported that biased epoch's UTC
+  // instant directly, so it drifted from the intended wall clock by the
+  // host's UTC offset on any non-UTC host. The fix reads the same local
+  // calendar fields back out, which is self-canceling: whatever offset the
+  // host applied constructing the `Date` is the same offset applied
+  // reading it back, so the emitted string matches the constructed
+  // wall-clock fields (2026-07-12 10:30:00) regardless of which timezone
+  // did the constructing and reading — proved here across three widely
+  // separated real process timezones, the same trio used above for the
+  // string-branch fix.
+  for (const tz of ['UTC', 'America/New_York', 'Pacific/Kiritimati']) {
+    it(`recovers the constructed wall clock under TZ=${tz}`, async () => {
+      const capturedAt = await dateBranchCapturedAtUnderTimezone(tz);
+      expect(capturedAt).toBe(GOLDEN_UTC_ISO);
+    }, 10_000);
+  }
 });
 
 /**
