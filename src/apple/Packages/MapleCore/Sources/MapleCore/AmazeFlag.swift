@@ -13,7 +13,13 @@
 //      takes precedence over UserDefaults (tests / CI / triage).
 //
 // Render paths that honour this flag:
-//   • Refine pass   — `RenderActor+DecodedCache` full-res `sharedDecode`
+//   • Refine pass   — `RenderActor+DecodedCache`'s sized `sharedDecode`,
+//                     escalated via `ImageEditPipeline.refineDecodeQuality`
+//                     (#2143) whenever the requested target needs more
+//                     detail than `.preview` can deliver. (The nil-target
+//                     "full decode" branch in the same function also reads
+//                     this flag, but no production caller reaches it since
+//                     #1637 made every caller pass a sized target.)
 //   • Export path   — `RenderActor.renderForExport`
 // The fast / preview path is always `.preview` (half-res) — unaffected.
 
