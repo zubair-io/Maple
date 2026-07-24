@@ -66,16 +66,64 @@ public actor ImageEditPipeline {
     /// (#1637). The live decode never needs full-res — export renders full-res
     /// via the separate `renderActor.renderForExport` path. `phase` is retained
     /// for call-site clarity; both phases cap identically today.
+    ///
+    /// Second cap layer (#2143): a RAW asset with a known `nativeSize` routes
+    /// through `decodeSceneLinearSized`, which always runs `quality: .preview`
+    /// — a half-resolution demosaic that can never deliver more than
+    /// `nativeSize / 2` per axis, no matter how large a target is requested.
+    /// At 100% zoom the refine target can exceed that ceiling (the viewport
+    /// wants ~native pixels, the decoder can only give native/2), and the
+    /// over-request was silently swallowed downstream: `decodedForNativeCanvas`
+    /// upscaled the half-res buffer back up to the native canvas (coordinate
+    /// normalisation, required for crop geometry) and `prescaleForDisplay`
+    /// scaled it back down to the requested target — two full Lanczos-class
+    /// resample passes over the largest buffer in the chain to deliver
+    /// upscaled-then-downscaled half-res data with no more true detail than
+    /// the half-res source itself. Clamping the REQUEST to what `.preview`
+    /// can actually deliver (`min(target, nativeSize / 2)` per axis) doesn't
+    /// change what the decoder returns — it was already ceiling-limited — but
+    /// it stops the pipeline from believing it asked for (and should present)
+    /// more resolution than a `.preview`-quality decode can ever produce.
+    /// True 1:1 native detail remains `refineNativeDetail`'s job (the tile
+    /// path); this cap only bounds the whole-frame refine decode. Applied
+    /// phase-independently — `.fast` already caps at `fastPhaseFallbackLongEdge`
+    /// (1500), well under `nativeSize / 2` for any RAW sensor Maple targets,
+    /// so this cap is a no-op there in practice; it's still correct to apply
+    /// so `.fast` cannot exceed the ceiling either on an unusually small
+    /// source. Only fires for `isRaw` assets with a non-zero `nativeSize` —
+    /// `nativeSize == .zero` is the async pre-seed race
+    /// (`seedNativeImageSizeFromMetadataAsync`), where the ceiling is
+    /// unknown, so the request passes through uncapped exactly as before.
     nonisolated public static func decodeTarget(
-        phase: RenderPhase, targetSize: CGSize?
+        phase: RenderPhase, targetSize: CGSize?, nativeSize: CGSize = .zero, isRaw: Bool = false
     ) -> CGSize? {
         _ = phase
-        if let targetSize {
-            let longEdge = max(targetSize.width, targetSize.height)
-            if longEdge.isFinite, longEdge >= 1 { return targetSize }
-        }
-        let cap = CGFloat(fastPhaseFallbackLongEdge)
-        return CGSize(width: cap, height: cap)
+        let requested: CGSize = {
+            if let targetSize {
+                let longEdge = max(targetSize.width, targetSize.height)
+                if longEdge.isFinite, longEdge >= 1 { return targetSize }
+            }
+            let cap = CGFloat(fastPhaseFallbackLongEdge)
+            return CGSize(width: cap, height: cap)
+        }()
+        return previewCeilingCapped(requested, nativeSize: nativeSize, isRaw: isRaw)
+    }
+
+    /// The `.preview`-quality decode ceiling: `nativeSize / 2` per axis. Pure
+    /// helper behind `decodeTarget` (#2143) so the clamp itself is directly
+    /// testable without threading `RenderPhase` through every case. A no-op
+    /// (returns `target` unchanged) for non-RAW assets, an unseeded
+    /// `nativeSize`, or a `target` that's already within the ceiling.
+    nonisolated static func previewCeilingCapped(
+        _ target: CGSize, nativeSize: CGSize, isRaw: Bool
+    ) -> CGSize {
+        guard isRaw, nativeSize.width > 0, nativeSize.height > 0 else { return target }
+        let ceilingWidth = nativeSize.width / 2
+        let ceilingHeight = nativeSize.height / 2
+        let cappedWidth = min(target.width, ceilingWidth)
+        let cappedHeight = min(target.height, ceilingHeight)
+        guard cappedWidth < target.width || cappedHeight < target.height else { return target }
+        return CGSize(width: cappedWidth, height: cappedHeight)
     }
 
     /// Sensor long edge (px) at/below which the GPU-live render path is used;
