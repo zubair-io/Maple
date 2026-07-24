@@ -52,6 +52,7 @@ function detail(overrides: Partial<ApiAssetDetail> = {}): ApiAssetDetail {
     ocr_meta: null,
     vision: null,
     vision_meta: null,
+    transcript: null,
     is_screenshot: null,
     enrichment: {
       geocode: stageState(),
