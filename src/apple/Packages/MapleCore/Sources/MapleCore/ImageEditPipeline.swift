@@ -108,9 +108,14 @@ public actor ImageEditPipeline {
     /// (`effective_quality_divisor` — Bayer halves at Preview, but X-Trans
     /// and LinearRgb decode FULL-res), so a predicted `native/2` cap would
     /// wrongly downsample those assets. Delivered-extent capping is a no-op
-    /// exactly when the decode really is full-res. `.zero` delivered (no
-    /// decode recorded yet) passes the target through unchanged. True 1:1
-    /// native detail remains `refineNativeDetail`'s job (the tile path).
+    /// exactly when the decode really is full-res — which, since
+    /// `refineDecodeQuality` below now escalates the refine decode itself
+    /// whenever the target exceeds the `.preview` ceiling, is the common
+    /// case; this cap remains as the safety net for paths that still decode
+    /// at `.preview` (GPU-live, non-RAW, or a decode that undershoots for
+    /// some other reason). `.zero` delivered (no decode recorded yet)
+    /// passes the target through unchanged. True 1:1 native detail remains
+    /// `refineNativeDetail`'s job (the tile path).
     nonisolated static func cappedToDelivered(
         _ target: CGSize, delivered: CGSize
     ) -> CGSize {
@@ -119,6 +124,49 @@ public actor ImageEditPipeline {
         let cappedHeight = min(target.height, delivered.height)
         guard cappedWidth < target.width || cappedHeight < target.height else { return target }
         return CGSize(width: cappedWidth, height: cappedHeight)
+    }
+
+    /// Decode quality for a REFINE-phase sized request, given the asset's
+    /// native long edge and the requested decode target's long edge (#2143).
+    ///
+    /// `decodeSceneLinearSized` at `.preview` (half-res quad demosaic) caps
+    /// its OWN output at roughly `nativeLongEdge / 2` regardless of the
+    /// `maxLongEdge` the caller asks for — requesting `.preview` for a
+    /// target beyond that cap silently returns the half-res buffer anyway.
+    /// The canvas then has to upscale that undersized buffer back up to the
+    /// native extent (`EditSession.decodedForNativeCanvas`) before
+    /// `prescaleForDisplay` can downscale it to the real display target: a
+    /// measured, FIXED `sx == sy == 2.0` (native ÷ native/2) upscale
+    /// regardless of how far beyond the cap the request went, immediately
+    /// followed by a second full resample back down — both on the largest
+    /// buffer in the chain, for strictly less detail than a matched-quality
+    /// decode would have delivered directly.
+    ///
+    /// Escalating to the full-res demosaic (`.full` / `.amaze`, the same
+    /// flag gate the export path already uses — `AmazeFlag`, #940) whenever
+    /// the target genuinely needs more than half-res detail removes that
+    /// round trip: the decode delivers (up to) exactly what the display
+    /// needs, `decodedForNativeCanvas`'s own `sx ≈ 1` guard turns its
+    /// upscale into a no-op, and `prescaleForDisplay` downsamples exactly
+    /// once. Below the threshold `.preview` already delivers precisely the
+    /// requested target (no cap ever engages), so no escalation is needed —
+    /// the request is naturally "capped" at what `.preview` can serve by
+    /// construction of the `<=` branch. `cappedToDelivered` above remains
+    /// the downstream safety net for whatever this function's caller
+    /// couldn't escalate (GPU-live / non-RAW / a decode that still
+    /// undershoots for some other reason).
+    ///
+    /// `nativeLongEdge <= 0` (native size not yet seeded — the cold-open
+    /// race) keeps `.preview`, matching the existing fallback: there is no
+    /// native reference to size the escalation decision against yet.
+    nonisolated public static func refineDecodeQuality(
+        nativeLongEdge: CGFloat, targetLongEdge: CGFloat
+    ) -> PipelineRenderer.Quality {
+        guard nativeLongEdge > 0, nativeLongEdge.isFinite,
+              targetLongEdge.isFinite, targetLongEdge > 0
+        else { return .preview }
+        guard targetLongEdge > nativeLongEdge / 2 else { return .preview }
+        return AmazeFlag.isEnabled ? .amaze : .full
     }
 
     /// Sensor long edge (px) at/below which the GPU-live render path is used;
@@ -418,10 +466,19 @@ public actor ImageEditPipeline {
     /// Rust-backed open routes here when `previewSize` is known. The
     /// returned CIImage's extent fits within `targetSize` (preserving
     /// aspect, never upscaling).
+    ///
+    /// `quality` defaults to `.preview` (half-res quad demosaic, the
+    /// original ticket 06 contract) — callers that need a target beyond
+    /// what `.preview` can deliver (roughly half the sensor's native long
+    /// edge) must pass `.full`/`.amaze` explicitly; `.preview` silently
+    /// caps its own output rather than honouring a larger `targetSize`
+    /// (#2143 — see `ImageEditPipeline.refineDecodeQuality`, the refine
+    /// call site's escalation decision).
     nonisolated public func decodeSceneLinearSized(
         asset: AssetRef,
         targetSize: CGSize,
         xmpPath: URL? = nil,
+        quality: PipelineRenderer.Quality = .preview,
         profileOverride: Profile? = nil,
         autoExposureOverride: AutoExposureMode? = nil,
         cancel: CancelFlag? = nil
@@ -446,7 +503,7 @@ public actor ImageEditPipeline {
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawPath: url, xmpPath: xmpPath,
-                    quality: .preview, maxLongEdge: longEdge,
+                    quality: quality, maxLongEdge: longEdge,
                     profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
                 )
             } else if let provider = asset.bytesProvider {
@@ -454,7 +511,7 @@ public actor ImageEditPipeline {
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawBytes: bytes, hint: hint, xmpPath: xmpPath,
-                    quality: .preview, maxLongEdge: longEdge,
+                    quality: quality, maxLongEdge: longEdge,
                     profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
                 )
             } else {
@@ -474,9 +531,11 @@ public actor ImageEditPipeline {
             // fails. The unsized scene-linear entry from Task 4 is the
             // right fallback (matched color domain); the legacy display-
             // encoded path would mismatch the rest of `processSceneLinear`.
-            // Forward the cancel flag so the fallback is still interruptible.
+            // Forward the cancel flag so the fallback is still interruptible,
+            // and the caller's requested quality so a degraded network/disk
+            // read doesn't ALSO silently degrade the demosaic.
             return await decodeSceneLinear(
-                asset: asset, quality: .preview, xmpPath: xmpPath,
+                asset: asset, quality: quality, xmpPath: xmpPath,
                 profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
             )
         }
