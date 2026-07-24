@@ -59,91 +59,75 @@ final class DecodeTargetTests: XCTestCase {
         )
     }
 
-    // MARK: - #2143: the `.preview`-quality ceiling (nativeSize / 2)
+    // MARK: - #2143: presentation targets capped at the DELIVERED extent
 
-    /// THE #2143 regression: at 100% zoom on a RAW with a known native size,
-    /// the refine target can exceed what `quality: .preview` can ever
-    /// deliver (native / 2 per axis). `decodeTarget` must clamp the request
-    /// down to that ceiling rather than asking for more than the sized
-    /// decode can produce — the over-request was previously absorbed by an
-    /// upscale-to-native + downscale-to-target round trip that cost two full
-    /// resample passes and delivered no more true detail than native/2.
-    func testRawKnownNativeSizeCapsToPreviewCeiling() {
-        let native = CGSize(width: 12000, height: 8000)
-        // A 100%-zoom refine target close to native — bigger than native/2
-        // on both axes.
-        let target = CGSize(width: 10000, height: 6667)
-        let result = ImageEditPipeline.decodeTarget(
-            phase: .refine, targetSize: target, nativeSize: native, isRaw: true
+    /// THE #2143 regression: at 100% zoom the presentation targets (GPU
+    /// present + CPU prescale) could exceed what the decode actually
+    /// returned, so the pipeline published an upscale of the delivered
+    /// buffer. The cap is keyed off the DELIVERED extent — never a
+    /// predicted `native/2` divisor, which raw-core's
+    /// `effective_quality_divisor` shows is Bayer-only (X-Trans and
+    /// LinearRgb decode full-res at `.preview`; a predicted cap would
+    /// wrongly downsample them).
+    func testTargetAboveDeliveredIsCapped() {
+        let delivered = CGSize(width: 6144, height: 4096)
+        let target = CGSize(width: 9000, height: 6000)
+        XCTAssertEqual(
+            ImageEditPipeline.cappedToDelivered(target, delivered: delivered), delivered
         )
-        XCTAssertEqual(result, CGSize(width: 6000, height: 4000))
     }
 
-    /// A target already at or below the ceiling is passed through unchanged
-    /// — the cap must never GROW a request, only shrink an over-large one.
-    func testRawTargetBelowPreviewCeilingUnchanged() {
-        let native = CGSize(width: 12000, height: 8000)
-        let target = CGSize(width: 4000, height: 2667)
-        let result = ImageEditPipeline.decodeTarget(
-            phase: .refine, targetSize: target, nativeSize: native, isRaw: true
+    /// A target at or below the delivered extent passes through unchanged —
+    /// the cap must never GROW a target.
+    func testTargetAtOrBelowDeliveredUnchanged() {
+        let delivered = CGSize(width: 6144, height: 4096)
+        let below = CGSize(width: 4000, height: 2667)
+        XCTAssertEqual(
+            ImageEditPipeline.cappedToDelivered(below, delivered: delivered), below
         )
-        XCTAssertEqual(result, target)
+        XCTAssertEqual(
+            ImageEditPipeline.cappedToDelivered(delivered, delivered: delivered), delivered
+        )
     }
 
-    /// A target sitting exactly on the ceiling is also unchanged (no
-    /// off-by-one shrink at the boundary).
-    func testRawTargetAtPreviewCeilingUnchanged() {
-        let native = CGSize(width: 12000, height: 8000)
+    /// `.zero` delivered = no decode recorded yet (cold open, invalidated
+    /// cache) — the target must pass through uncapped.
+    func testZeroDeliveredPassesThrough() {
+        let target = CGSize(width: 9000, height: 6000)
+        XCTAssertEqual(
+            ImageEditPipeline.cappedToDelivered(target, delivered: .zero), target
+        )
+    }
+
+    /// A full-res delivery (the X-Trans / LinearRgb `.preview` case) makes
+    /// the cap a no-op for any target within native — the exact property a
+    /// predicted `native/2` ceiling would have violated.
+    func testFullResDeliveryNeverDownsamplesTarget() {
+        let native = CGSize(width: 6240, height: 4160)
         let target = CGSize(width: 6000, height: 4000)
-        let result = ImageEditPipeline.decodeTarget(
-            phase: .refine, targetSize: target, nativeSize: native, isRaw: true
+        XCTAssertEqual(
+            ImageEditPipeline.cappedToDelivered(target, delivered: native), target
         )
-        XCTAssertEqual(result, target)
     }
 
-    /// `nativeSize == .zero` is the async pre-seed race
-    /// (`seedNativeImageSizeFromMetadataAsync`) — the ceiling is unknown, so
-    /// the request must pass through uncapped exactly as before #2143.
-    func testRawUnknownNativeSizeUncapped() {
-        let target = CGSize(width: 10000, height: 6667)
-        let result = ImageEditPipeline.decodeTarget(
-            phase: .refine, targetSize: target, nativeSize: .zero, isRaw: true
+    /// Odd delivered dimensions cap exactly — no upward rounding past the
+    /// delivered extent on either axis.
+    func testOddDeliveredDimsCapExactly() {
+        let delivered = CGSize(width: 6001, height: 4001)
+        let target = CGSize(width: 9000, height: 6000)
+        XCTAssertEqual(
+            ImageEditPipeline.cappedToDelivered(target, delivered: delivered), delivered
         )
-        XCTAssertEqual(result, target)
     }
 
-    /// A non-RAW asset never routes through the half-res-capped sized RAW
-    /// decode — the cap must not apply regardless of `nativeSize`.
-    func testNonRawUnchangedEvenWithKnownNativeSize() {
-        let native = CGSize(width: 12000, height: 8000)
-        let target = CGSize(width: 10000, height: 6667)
-        let result = ImageEditPipeline.decodeTarget(
-            phase: .refine, targetSize: target, nativeSize: native, isRaw: false
+    /// Axes cap independently: a target over-wide but under-tall only
+    /// shrinks the axis that exceeds the delivered extent.
+    func testAxesCapIndependently() {
+        let delivered = CGSize(width: 6144, height: 4096)
+        let target = CGSize(width: 8000, height: 3000)
+        XCTAssertEqual(
+            ImageEditPipeline.cappedToDelivered(target, delivered: delivered),
+            CGSize(width: 6144, height: 3000)
         )
-        XCTAssertEqual(result, target)
-    }
-
-    /// The cap also applies to the fallback target (nil/degenerate input) —
-    /// a tiny native asset (well under 2x the fallback cap) must not let the
-    /// fallback exceed its own preview ceiling.
-    func testRawFallbackTargetAlsoCappedOnTinyNativeSize() {
-        let native = CGSize(width: 2000, height: 1200)
-        let result = ImageEditPipeline.decodeTarget(
-            phase: .refine, targetSize: nil, nativeSize: native, isRaw: true
-        )
-        XCTAssertEqual(result, CGSize(width: 1000, height: 600))
-    }
-
-    /// Cap applies identically on `.fast` — phase-independent by design
-    /// (documented rationale: `.fast`'s own 1500 cap already sits well under
-    /// `nativeSize / 2` for any real sensor, so this is normally a no-op,
-    /// but the ceiling must still hold on an unusually small source).
-    func testFastAlsoCapsToPreviewCeiling() {
-        let native = CGSize(width: 2000, height: 1200)
-        let target = CGSize(width: 1500, height: 900)
-        let result = ImageEditPipeline.decodeTarget(
-            phase: .fast, targetSize: target, nativeSize: native, isRaw: true
-        )
-        XCTAssertEqual(result, CGSize(width: 1000, height: 600))
     }
 }

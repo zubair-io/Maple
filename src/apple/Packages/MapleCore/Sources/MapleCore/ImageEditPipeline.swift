@@ -67,61 +67,45 @@ public actor ImageEditPipeline {
     /// via the separate `renderActor.renderForExport` path. `phase` is retained
     /// for call-site clarity; both phases cap identically today.
     ///
-    /// Second cap layer (#2143): a RAW asset with a known `nativeSize` routes
-    /// through `decodeSceneLinearSized`, which always runs `quality: .preview`
-    /// — a half-resolution demosaic that can never deliver more than
-    /// `nativeSize / 2` per axis, no matter how large a target is requested.
-    /// At 100% zoom the refine target can exceed that ceiling (the viewport
-    /// wants ~native pixels, the decoder can only give native/2), and the
-    /// over-request was silently swallowed downstream: `decodedForNativeCanvas`
-    /// upscaled the half-res buffer back up to the native canvas (coordinate
-    /// normalisation, required for crop geometry) and `prescaleForDisplay`
-    /// scaled it back down to the requested target — two full Lanczos-class
-    /// resample passes over the largest buffer in the chain to deliver
-    /// upscaled-then-downscaled half-res data with no more true detail than
-    /// the half-res source itself. Clamping the REQUEST to what `.preview`
-    /// can actually deliver (`min(target, nativeSize / 2)` per axis) doesn't
-    /// change what the decoder returns — it was already ceiling-limited — but
-    /// it stops the pipeline from believing it asked for (and should present)
-    /// more resolution than a `.preview`-quality decode can ever produce.
-    /// True 1:1 native detail remains `refineNativeDetail`'s job (the tile
-    /// path); this cap only bounds the whole-frame refine decode. Applied
-    /// phase-independently — `.fast` already caps at `fastPhaseFallbackLongEdge`
-    /// (1500), well under `nativeSize / 2` for any RAW sensor Maple targets,
-    /// so this cap is a no-op there in practice; it's still correct to apply
-    /// so `.fast` cannot exceed the ceiling either on an unusually small
-    /// source. Only fires for `isRaw` assets with a non-zero `nativeSize` —
-    /// `nativeSize == .zero` is the async pre-seed race
-    /// (`seedNativeImageSizeFromMetadataAsync`), where the ceiling is
-    /// unknown, so the request passes through uncapped exactly as before.
     nonisolated public static func decodeTarget(
-        phase: RenderPhase, targetSize: CGSize?, nativeSize: CGSize = .zero, isRaw: Bool = false
+        phase: RenderPhase, targetSize: CGSize?
     ) -> CGSize? {
         _ = phase
-        let requested: CGSize = {
-            if let targetSize {
-                let longEdge = max(targetSize.width, targetSize.height)
-                if longEdge.isFinite, longEdge >= 1 { return targetSize }
-            }
-            let cap = CGFloat(fastPhaseFallbackLongEdge)
-            return CGSize(width: cap, height: cap)
-        }()
-        return previewCeilingCapped(requested, nativeSize: nativeSize, isRaw: isRaw)
+        if let targetSize {
+            let longEdge = max(targetSize.width, targetSize.height)
+            if longEdge.isFinite, longEdge >= 1 { return targetSize }
+        }
+        let cap = CGFloat(fastPhaseFallbackLongEdge)
+        return CGSize(width: cap, height: cap)
     }
 
-    /// The `.preview`-quality decode ceiling: `nativeSize / 2` per axis. Pure
-    /// helper behind `decodeTarget` (#2143) so the clamp itself is directly
-    /// testable without threading `RenderPhase` through every case. A no-op
-    /// (returns `target` unchanged) for non-RAW assets, an unseeded
-    /// `nativeSize`, or a `target` that's already within the ceiling.
-    nonisolated static func previewCeilingCapped(
-        _ target: CGSize, nativeSize: CGSize, isRaw: Bool
+    /// Cap a presentation/process target at the DELIVERED decode extent
+    /// (#2143). At 100% zoom the refine target can exceed what the decode
+    /// actually returned; the over-ask was silently absorbed downstream —
+    /// `decodedForNativeCanvas` upscaled the delivered buffer to the native
+    /// canvas (coordinate normalisation, required for crop geometry, #2118)
+    /// and `prescaleForDisplay` scaled it back down to the inflated target,
+    /// publishing a buffer with no more true detail than the delivered
+    /// source (on a 100 MP Bayer frame: a ~432 MB RGBAf16 publish carrying
+    /// 6144 px of real detail). Capping at the delivered extent bounds the
+    /// prescale output and the published buffer to real resolution.
+    ///
+    /// Deliberately keyed off the ACTUAL delivered extent
+    /// (`RenderActor.DecodedSnapshot.rawResolution` — the pre-normalisation
+    /// `decoded.extent.size`), never a predicted divisor: the `.preview`
+    /// half-res ceiling is CFA-dependent in raw-core
+    /// (`effective_quality_divisor` — Bayer halves at Preview, but X-Trans
+    /// and LinearRgb decode FULL-res), so a predicted `native/2` cap would
+    /// wrongly downsample those assets. Delivered-extent capping is a no-op
+    /// exactly when the decode really is full-res. `.zero` delivered (no
+    /// decode recorded yet) passes the target through unchanged. True 1:1
+    /// native detail remains `refineNativeDetail`'s job (the tile path).
+    nonisolated static func cappedToDelivered(
+        _ target: CGSize, delivered: CGSize
     ) -> CGSize {
-        guard isRaw, nativeSize.width > 0, nativeSize.height > 0 else { return target }
-        let ceilingWidth = nativeSize.width / 2
-        let ceilingHeight = nativeSize.height / 2
-        let cappedWidth = min(target.width, ceilingWidth)
-        let cappedHeight = min(target.height, ceilingHeight)
+        guard delivered.width > 0, delivered.height > 0 else { return target }
+        let cappedWidth = min(target.width, delivered.width)
+        let cappedHeight = min(target.height, delivered.height)
         guard cappedWidth < target.width || cappedHeight < target.height else { return target }
         return CGSize(width: cappedWidth, height: cappedHeight)
     }
