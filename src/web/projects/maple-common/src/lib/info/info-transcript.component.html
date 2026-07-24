@@ -1,0 +1,14 @@
+@let t = detail().transcript;
+@if (t && t.text.length > 0) {
+  <maple-collapsible label="Transcript" storageKey="info-transcript">
+    <div class="space-y-2 px-4 py-[5px]">
+      <pre
+        class="transcript-pre m-0 whitespace-pre-wrap break-words text-[11px] leading-[1.45] text-text-main"
+        >{{ t.text }}</pre
+      >
+
+      <!-- provenance footer (small, muted): language · model -->
+      <div class="text-[9px] text-text-muted">{{ t.language }} · {{ t.model }}</div>
+    </div>
+  </maple-collapsible>
+}

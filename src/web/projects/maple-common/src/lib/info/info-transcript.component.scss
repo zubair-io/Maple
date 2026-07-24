@@ -1,0 +1,7 @@
+/* Transcript text panel — scrollable so a long transcript doesn't push
+   the rest of the info pane off-screen. Mirrors the OCR `.ocr-pre` rule
+   in info-vision, but slightly taller since transcripts run longer. */
+.transcript-pre {
+  max-height: 12em;
+  overflow-y: auto;
+}
