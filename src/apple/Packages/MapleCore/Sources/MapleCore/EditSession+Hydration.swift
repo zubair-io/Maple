@@ -324,7 +324,8 @@ extension EditSession {
         // 100 MP RGBAf frame while the user was still at zoom-to-fit.
         let openTarget = ImageEditPipeline.decodeTarget(
             phase: .fast,
-            targetSize: fastTargetSize
+            targetSize: fastTargetSize,
+            nativeSize: nativeImageSize, isRaw: openedAsset.isRaw
         )
         let rustTask: Task<Void, Never> = Task { [weak self] in
             _ = await actor.sharedDecode(

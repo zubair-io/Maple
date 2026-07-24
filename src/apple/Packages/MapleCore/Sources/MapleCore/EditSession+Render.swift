@@ -236,12 +236,34 @@ extension EditSession {
         // output at possibly-unchanged dims, so identity must fold it in
         // rather than relying on dims alone.
         let appliedCrop = applyCrop ? crop : Crop.identity
+        // #2143: bound every downstream target — the GPU present, the crop-
+        // adjusted CPU process target, and the decode request derived from it —
+        // to what a `quality: .preview` RAW decode can actually deliver
+        // (native/2 per axis, the Rust half-res demosaic ceiling). A target
+        // above the ceiling cannot add detail (the decode is ceiling-limited
+        // in raw-core regardless of what is requested); it only inflates the
+        // prescale output and the published buffer with upscaled-then-
+        // downscaled half-res data — at 100% zoom on a 100 MP frame that was
+        // a ~432 MB published RGBAf16 buffer carrying 6144-px-worth of true
+        // detail. True 1:1 stays `refineNativeDetail`'s job (the tile path).
+        // No-op while `nativeImageSize` hasn't seeded (async for
+        // bytes-provider assets) or for non-RAW assets (ImageIO decodes are
+        // not half-res-capped). The crop-inflation below runs on the capped
+        // value by design: its inverse-fraction upscale exists to keep the
+        // KEPT region at requested resolution and is already bounded by the
+        // source resolution at prescale time.
+        let cappedTargetSize = targetSize.map {
+            ImageEditPipeline.previewCeilingCapped(
+                $0, nativeSize: nativeImageSize, isRaw: asset.isRaw
+            )
+        }
         // #1617: the GPU live present crops the decoded scene-linear buffer
         // itself (a geometry op before the f32 readback), so it opens the
         // session at the CROPPED dims and needs the un-upscaled canvas target —
         // the cropped buffer already IS the kept region. Capture it before the
-        // CPU-path upscale shadows `targetSize` just below.
-        let gpuTargetSize = targetSize
+        // CPU-path upscale shadows `targetSize` just below. (Derived from the
+        // #2143 preview-ceiling-capped value so the GPU path is bounded too.)
+        let gpuTargetSize = cappedTargetSize
         // When a crop is applied the chain still develops the FULL frame and
         // `CropImageStage` trims afterward. The incoming `targetSize` is sized
         // for the CROPPED extent (the canvas/zoom anchor to `effectiveImageSize`),
@@ -252,7 +274,7 @@ extension EditSession {
         // full-frame target (the source's own resolution is the real ceiling
         // — `prescaleForDisplay` never upscales past it anyway).
         let targetSize: CGSize? = {
-            guard applyCrop, let t = targetSize else { return targetSize }
+            guard applyCrop, let t = cappedTargetSize else { return cappedTargetSize }
             let fracW = max(crop.right - crop.left, CropGeometry.minCropFraction)
             let fracH = max(crop.bottom - crop.top, CropGeometry.minCropFraction)
             let scaleW = CGFloat(min(1.0 / fracW, 8.0))
@@ -385,7 +407,8 @@ extension EditSession {
                 // ever allocates a full-sensor decode; genuine full-res lives
                 // solely on `renderActor.renderForExport` (#2058).
                 let decodeTarget = ImageEditPipeline.decodeTarget(
-                    phase: phase, targetSize: targetSize
+                    phase: phase, targetSize: targetSize,
+                    nativeSize: nativeImageSize, isRaw: isRaw
                 )
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
