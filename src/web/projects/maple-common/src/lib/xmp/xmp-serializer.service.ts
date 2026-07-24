@@ -53,6 +53,22 @@ export class XmpSerializerService {
 
     parts.push(...this._adjustmentParts(model));
 
+    // Highlight recovery (#2214; raw-core spec § 3.3a) — enum field,
+    // default 'ChromaticAdaptation'. Emit only when non-default, mirroring
+    // the Swift writer (`XMPSerialization+Attrs.swift`); the model value is
+    // already the canonical wire string.
+    if (model.highlightRecovery && model.highlightRecovery !== 'ChromaticAdaptation') {
+      parts.push(`papp:HighlightRecoveryMode="${this._escapeAttr(model.highlightRecovery)}"`);
+    }
+
+    // Per-image auto-exposure (#429; TS wiring #2214, web half of #1387) —
+    // enum field, default 'On'. Sidecars predating the field have no
+    // `papp:AutoExposure` and parse to 'On'; only an explicit opt-out
+    // writes it. Mirrors the Swift writer added in PR #2205.
+    if (model.autoExposure && model.autoExposure !== 'On') {
+      parts.push(`papp:AutoExposure="${this._escapeAttr(model.autoExposure)}"`);
+    }
+
     // DisplayLookCurve (#371; retired in #443) — the field is a no-op
     // post-#443 but the attribute is still emitted on non-default values
     // so pre-#443 sidecars round-trip. Default-valued models omit the
@@ -75,6 +91,19 @@ export class XmpSerializerService {
     // Swift writers, so pre-#1106 sidecars stay byte-identical.
     if (model.hotPixelSuppression && model.hotPixelSuppression !== 'Off') {
       parts.push(`papp:HotPixelSuppression="${this._escapeAttr(model.hotPixelSuppression)}"`);
+    }
+
+    // User white-balance method (#431; TS wiring #2214) — enum field,
+    // default 'Cat16'. Emit only when non-default so pre-#431 sidecars
+    // stay byte-identical.
+    if (model.wbMethod && model.wbMethod !== 'Cat16') {
+      parts.push(`papp:WbMethod="${this._escapeAttr(model.wbMethod)}"`);
+    }
+
+    // Tone-curve application mode (#436; TS wiring #2214) — enum field,
+    // default 'PerChannel'. Emit only when non-default.
+    if (model.toneCurveMode && model.toneCurveMode !== 'PerChannel') {
+      parts.push(`papp:ToneCurveMode="${this._escapeAttr(model.toneCurveMode)}"`);
     }
 
     // Crop / straighten (#277, spec § 01 invariant 3). Emit the full group

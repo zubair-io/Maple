@@ -19,9 +19,13 @@ import type {
 import { isColorLabelValue } from '../models/color-label';
 import type { AdjustmentModel, WhiteBalancePreset, Crop } from '../models/adjustment-model';
 import type {
+  AutoExposureMode,
+  HighlightRecoveryMode,
   HotPixelSuppressionMode,
   Look,
   Profile,
+  ToneCurveMode,
+  WbMethod,
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
@@ -60,6 +64,26 @@ const LABEL_MAP: Record<string, XmpColorLabel> = {
 const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
 
 /**
+ * Wire variants for `papp:HighlightRecoveryMode` (#2214). The list must stay
+ * exhaustive against the generated union — the `satisfies` record makes a
+ * missing variant a compile error when codegen adds one, so the TS parser
+ * can't silently lag raw-core's `xmp/mod.rs` match arms.
+ */
+const HIGHLIGHT_RECOVERY_MODES = Object.keys({
+  Off: true,
+  Blend: true,
+  Luminance: true,
+  ChromaticAdaptation: true,
+  OklabChromaReduction: true,
+} satisfies Record<HighlightRecoveryMode, true>) as readonly HighlightRecoveryMode[];
+
+/** Case-insensitive wire → canonical variant match, or undefined if unknown. */
+const matchVariant = <T extends string>(variants: readonly T[], raw: string): T | undefined => {
+  const lower = raw.toLowerCase();
+  return variants.find((v) => v.toLowerCase() === lower);
+};
+
+/**
  * Attributes that Maple fully handles — used to separate the known set from
  * passthrough when collecting unknownAttributes.
  */
@@ -86,6 +110,13 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:Profile',
   // Hot/dead-pixel suppression (#1106) — decode-product enum field.
   'papp:HotPixelSuppression',
+  // Enum mode fields (#2214) — parsed into the model and re-emitted by the
+  // serializer, so they must stay out of the passthrough bucket
+  // (double-emit otherwise).
+  'papp:HighlightRecoveryMode',
+  'papp:AutoExposure',
+  'papp:WbMethod',
+  'papp:ToneCurveMode',
   // WB slider-scale version (#1780) — parsed into `wbScaleVersion` and
   // re-emitted by the serializer alongside explicit Temperature/Tint, so
   // it must stay out of the passthrough bucket (double-emit otherwise).
@@ -453,6 +484,61 @@ export class XmpParserService {
           v === 'on' ? 'On' : v === 'off' ? 'Off' : undefined;
         if (parsed !== undefined) {
           model.hotPixelSuppression = parsed;
+        }
+        continue;
+      }
+
+      // Highlight recovery (#2214; raw-core spec § 3.3a). Case-insensitive
+      // parse mirrors raw-core's `xmp/mod.rs` match arms and the Swift
+      // parser; unknown values are dropped so the field takes its default
+      // ('ChromaticAdaptation') instead of blocking sidecar load. The
+      // variant list is compile-time-exhaustive against the generated union.
+      if (name === 'papp:HighlightRecoveryMode') {
+        const parsed = matchVariant(HIGHLIGHT_RECOVERY_MODES, attr.value);
+        if (parsed !== undefined) {
+          model.highlightRecovery = parsed;
+        }
+        continue;
+      }
+
+      // Per-image auto-exposure (#429; TS wiring #2214, web half of #1387).
+      // Case-insensitive, unknown values dropped → default ('On'). Mirrors
+      // the Swift parser added in PR #2205 and raw-core's `xmp/mod.rs`.
+      if (name === 'papp:AutoExposure') {
+        const v = attr.value.toLowerCase();
+        const parsed: AutoExposureMode | undefined =
+          v === 'on' ? 'On' : v === 'off' ? 'Off' : undefined;
+        if (parsed !== undefined) {
+          model.autoExposure = parsed;
+        }
+        continue;
+      }
+
+      // User white-balance method (#431; TS wiring #2214). Lowercasing
+      // covers all spellings raw-core accepts ("cat16" | "Cat16" | "CAT16");
+      // unknown values dropped → default ('Cat16').
+      if (name === 'papp:WbMethod') {
+        const v = attr.value.toLowerCase();
+        const parsed: WbMethod | undefined =
+          v === 'cat16' ? 'Cat16' : v === 'diagonalrec2020' ? 'DiagonalRec2020' : undefined;
+        if (parsed !== undefined) {
+          model.wbMethod = parsed;
+        }
+        continue;
+      }
+
+      // Tone-curve application mode (#436; TS wiring #2214). Case-insensitive,
+      // unknown values dropped → default ('PerChannel').
+      if (name === 'papp:ToneCurveMode') {
+        const v = attr.value.toLowerCase();
+        const parsed: ToneCurveMode | undefined =
+          v === 'perchannel'
+            ? 'PerChannel'
+            : v === 'ratiopreserving'
+              ? 'RatioPreserving'
+              : undefined;
+        if (parsed !== undefined) {
+          model.toneCurveMode = parsed;
         }
         continue;
       }
