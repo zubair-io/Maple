@@ -18,14 +18,17 @@ import { makeBucketsCacheKey } from './buckets.ts';
 import type { SearchQuery } from './query.ts';
 
 describe('makeBucketsCacheKey — scope isolation (#2131)', () => {
-  it('produces different keys for requests differing only in scope', () => {
+  it('produces different keys only for scopes that actually narrow the filter', () => {
     const base: SearchQuery = { pathPrefix: 'Trips' };
     const photos = makeBucketsCacheKey({ ...base, scope: 'photos' });
     const places = makeBucketsCacheKey({ ...base, scope: 'places' });
     const people = makeBucketsCacheKey({ ...base, scope: 'people' });
     const absent = makeBucketsCacheKey({ ...base });
 
-    expect(new Set([photos, places, people, absent]).size).toBe(4);
+    // `photos` is `buildFilter`'s no-op default — it must share the absent
+    // key rather than fragment the cache into two identical entries.
+    expect(photos).toBe(absent);
+    expect(new Set([places, people, absent]).size).toBe(3);
   });
 
   it('produces different keys for requests differing only in hidden', () => {
@@ -35,6 +38,16 @@ describe('makeBucketsCacheKey — scope isolation (#2131)', () => {
     const absent = makeBucketsCacheKey({ ...base });
 
     expect(new Set([only, all, absent]).size).toBe(3);
+  });
+
+  it('folds unrecognised hidden values into the default key (no cache churn)', () => {
+    const base: SearchQuery = { pathPrefix: 'Trips' };
+    const absent = makeBucketsCacheKey({ ...base });
+
+    // `buildFilter` treats anything but only/all as the default filter, so
+    // arbitrary wire values must not mint fresh cache keys (an attacker or
+    // buggy client could otherwise evict useful entries at will).
+    expect(makeBucketsCacheKey({ ...base, hidden: 'garbage' })).toBe(absent);
   });
 });
 
