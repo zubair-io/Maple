@@ -509,6 +509,16 @@ export interface AssetDoc {
    */
   video_poster_rearm_version?: number;
   /**
+   * Preview-missing re-drive generation
+   * (`workers/migration/redrive-preview-missing-describe.ts`). Stamped once
+   * that migration has reset a row's describe stage after it was terminally
+   * skipped with `skip: preview-missing` pre-#2177; its `{ $ne: N }` selector
+   * re-sweeps once per bump. Without this marker a row that legitimately
+   * re-skips under the new code (terminal video case writes the same string)
+   * would re-enter the candidate set and the migration would loop forever.
+   */
+  preview_missing_redrive_version?: number;
+  /**
    * Provenance written by the `apply-video-geo-backfill` migration when it
    * borrows GPS from a temporally-nearby photo. Lives outside `exif` so a
    * future EXIF re-parse cannot silently overwrite it. Set alongside the GPS
