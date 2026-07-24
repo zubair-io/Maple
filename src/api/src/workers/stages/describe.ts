@@ -167,7 +167,22 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      return { skip: 'preview-missing' };
+      // Preview claims done (this stage dependsOn preview) but the artefact
+      // is gone. Two distinct cases (#2177):
+      //  - The preview stage terminally skipped and recorded it in its own
+      //    last_error (`skip: no-video-decoder` on a no-ffmpeg host,
+      //    `skip: stub-file`, ...). Re-arming could never produce a preview,
+      //    so skip terminally here too — the vision model must never be
+      //    handed container bytes.
+      //  - Drift: preview once wrote the file and it has since vanished
+      //    (moved cache dir, interrupted write) — or its state is absent
+      //    entirely (DAG bug). Hand the doc back: the runner re-arms the
+      //    preview stage and leaves this stage below target, so it re-claims
+      //    automatically once the preview is regenerated.
+      const previewSkipped = (image.stages?.preview?.last_error ?? '').startsWith('skip:');
+      return previewSkipped
+        ? { skip: 'preview-missing' }
+        : { rearm: { stage: 'preview', reason: 'preview-missing' } };
     }
     throw err;
   }

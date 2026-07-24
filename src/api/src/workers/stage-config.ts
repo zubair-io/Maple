@@ -64,6 +64,18 @@ export type StageResult<TPatch = Record<string, unknown>> =
   | { patch: TPatch; invalidates?: readonly string[] }
   | { wrote: true }
   | { skip: string }
+  // A prerequisite artefact from an upstream stage is missing even though that
+  // stage's version says it already ran (cache drift, a moved file, an
+  // interrupted write). The runner re-arms the named upstream stage (same
+  // field reset as `invalidates`) and leaves THIS stage below target with its
+  // claim-time attempt kept — the `dependsOn` claim-query gate then parks the
+  // doc until the upstream stage completes again, at which point this stage
+  // re-claims it automatically. A pair that never converges (the upstream
+  // stage "succeeds" without producing the artefact) dead-letters here at
+  // maxAttempts instead of ping-ponging forever. The named stage MUST be one
+  // of this stage's `dependsOn` — that gate is what makes the loop back off
+  // (#2177).
+  | { rearm: { stage: string; reason: string } }
   // The handler determined the bytes are unreadable up front and no retry can
   // change that (e.g. a 0-byte file) — tag the asset `damaged` immediately
   // instead of throwing maxAttempts times to reach the same place. Only honored
@@ -162,6 +174,41 @@ export function defineStage<TPatch = Record<string, unknown>>(
   config: StageConfig<TPatch>,
 ): StageConfig<TPatch> {
   return config;
+}
+
+/**
+ * `$set` keys that mark each stage in `names` stale (version 0, bookkeeping
+ * cleared) — the runner folds these into the SAME atomic write as a patch
+ * result's field values, so a crash can never land the new fields without
+ * also marking the downstream stage stale (or vice versa). Also reused by the
+ * `rearm` result to reset an UPSTREAM stage (#2177). The writing stage's own
+ * name is excluded: its state is owned by the runner in the same write. See
+ * `StageResult`'s `invalidates` doc (#2172).
+ */
+export function invalidationSets(
+  names: readonly string[] | undefined,
+  ownName: string,
+): Record<string, unknown> {
+  // Names are interpolated into `$set` paths — a `.`/`$`-bearing or empty
+  // value would silently create unintended nested fields (or throw
+  // mid-update). Stage names are compile-time constants, so any mismatch is
+  // a programming error: fail the attempt loudly rather than write a
+  // malformed update.
+  const invalid = (names ?? []).filter((s) => !/^[a-z][a-z0-9_-]*$/.test(s));
+  if (invalid.length > 0) {
+    throw new Error(`invalid stage name in invalidates: ${invalid.join(', ')}`);
+  }
+  return Object.fromEntries(
+    (names ?? [])
+      .filter((s) => s !== ownName)
+      .flatMap((s) => [
+        [`stages.${s}.version`, 0],
+        [`stages.${s}.attempts`, 0],
+        [`stages.${s}.dead`, false],
+        [`stages.${s}.last_error`, null],
+        [`stages.${s}.processed_at`, null],
+      ]),
+  );
 }
 
 // ---------------------------------------------------------------------------
