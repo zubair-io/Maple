@@ -166,7 +166,12 @@ fn guided_filter(guide: &[f32], p: &[f32], config: GuidedFilterConfig) -> Vec<f3
     let mean_ii = box_blur(&ii, w, h, r);
 
     let cov_ip: Vec<f32> = (0..n).map(|i| mean_ip[i] - mean_i[i] * mean_p[i]).collect();
-    let var_i: Vec<f32> = (0..n).map(|i| mean_ii[i] - mean_i[i] * mean_i[i]).collect();
+    // Clamp at zero to absorb box-blur roundoff (var can never be physically
+    // negative) — matches raw-core's dehaze.rs and the dehaze_guided_ab.wgsl
+    // shader this oracle validates against.
+    let var_i: Vec<f32> = (0..n)
+        .map(|i| (mean_ii[i] - mean_i[i] * mean_i[i]).max(0.0))
+        .collect();
     let a: Vec<f32> = (0..n).map(|i| cov_ip[i] / (var_i[i] + eps)).collect();
     let b: Vec<f32> = (0..n).map(|i| mean_p[i] - a[i] * mean_i[i]).collect();
 

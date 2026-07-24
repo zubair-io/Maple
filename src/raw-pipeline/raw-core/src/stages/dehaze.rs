@@ -154,10 +154,15 @@ fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, opts: GuidedOptio
 
     let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
     let mean_ii = box_blur(&ii, w, h, opts.r);
+    // Clamp at zero to absorb box-blur roundoff (var can never be physically
+    // negative). At scene-linear magnitudes ≫ 1 the `mean_ii - mean_i²`
+    // cancellation can go slightly negative, which flips the sign of the
+    // `var_i + opts.eps` denominator below and blows `a` up unboundedly.
+    // See guided.rs:78 / blur.rs's matching clamp.
     let var_i: Vec<f32> = mean_ii
         .iter()
         .zip(mean_i.iter())
-        .map(|(&mii, &mi)| mii - mi * mi)
+        .map(|(&mii, &mi)| (mii - mi * mi).max(0.0))
         .collect();
 
     let a: Vec<f32> = cov_ip
