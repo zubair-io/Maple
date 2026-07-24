@@ -39,7 +39,7 @@ import { COLOR_LABELS as XMP_COLOR_LABELS } from '../../xmp/color-label.ts';
 /** `''` (no label) plus the full XMP color-label vocabulary — kept in sync
  * with the XMP parser/serializer via `XMP_COLOR_LABELS` so every label the
  * writers accept is filterable here (#1657). */
-export const COLOR_LABELS = new Set(['', ...XMP_COLOR_LABELS]);
+export const SEARCHABLE_COLOR_LABELS = new Set(['', ...XMP_COLOR_LABELS]);
 
 export const SCENE_TYPES = new Set(['indoor', 'outdoor', 'aerial', 'macro', 'studio', 'mixed']);
 
@@ -386,7 +386,7 @@ export function buildFilter(
 
   // Color.
   if (q.color !== undefined) {
-    if (!COLOR_LABELS.has(q.color)) {
+    if (!SEARCHABLE_COLOR_LABELS.has(q.color)) {
       return { error: `Invalid color: ${q.color}` };
     }
     (filter as Record<string, unknown>).color_label = q.color;
