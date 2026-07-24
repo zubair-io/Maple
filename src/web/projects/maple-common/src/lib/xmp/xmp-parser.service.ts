@@ -9,14 +9,7 @@
 //                          serializer doesn't double-emit it.
 
 import { Injectable } from '@angular/core';
-import type {
-  XmpCulling,
-  XmpFlag,
-  XmpColorLabel,
-  PassthroughBucket,
-  XmpMetadata,
-} from './xmp.types';
-import { isColorLabelValue } from '../models/color-label';
+import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AdjustmentModel, WhiteBalancePreset, Crop } from '../models/adjustment-model';
 import type {
   AutoExposureMode,
@@ -29,13 +22,8 @@ import type {
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
-import {
-  gpsFromXmp,
-  altitudeFromXmp,
-  copyrightStatusFromMarked,
-  METADATA_ATTR_KEYS,
-  METADATA_NESTED_ELEMENTS,
-} from './xmp-metadata';
+import { parseMetadataBlock, METADATA_ATTR_KEYS, METADATA_NESTED_ELEMENTS } from './xmp-metadata';
+import { DC_NAMESPACE, parseCullingBlock } from './xmp-culling';
 
 /**
  * Precomputed `xmpKey → alias` lookup for `LEGACY_READ_ALIASES`. Used by both
@@ -45,23 +33,6 @@ import {
  * alias table.
  */
 const LEGACY_READ_ALIASES_MAP = new Map(LEGACY_READ_ALIASES.map((a) => [a.xmpKey, a]));
-
-/** Dublin Core namespace URI — owns `dc:subject` (the IPTC keyword bag). */
-const DC_NAMESPACE = 'http://purl.org/dc/elements/1.1/';
-/** RDF namespace URI — owns `rdf:Bag` and `rdf:li`. */
-const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
-
-/** XMP xmp:Label words → Maple colorLabel values. */
-const LABEL_MAP: Record<string, XmpColorLabel> = {
-  Red: 'red',
-  Orange: 'orange',
-  Yellow: 'yellow',
-  Green: 'green',
-  Blue: 'blue',
-  Purple: 'purple',
-};
-
-const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
 
 /**
  * Wire variants for `papp:HighlightRecoveryMode` (#2214). The list must stay
@@ -144,185 +115,47 @@ export class XmpParserService {
 
   /**
    * Parse an XMP sidecar and extract culling fields.
-   * Returns safe defaults for any field that is absent or unparseable.
+   * Returns safe defaults for any field that is absent or unparseable. The
+   * field-by-field walk is `parseCullingBlock` in `xmp-culling.ts` (#2215,
+   * file-size budget) — this method owns only the XML → `rdf:Description`
+   * lookup + the malformed-XML default.
    */
   parseCulling(xml: string): XmpCulling {
-    const result: XmpCulling = {
-      rating: 0,
-      flag: 'unflagged',
-      colorLabel: null,
-      keywords: [],
-    };
-
+    const defaults: XmpCulling = { rating: 0, flag: 'unflagged', colorLabel: null, keywords: [] };
     let desc: Element | null = null;
     try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xml, 'text/xml');
-
-      const parseError = doc.querySelector('parseerror');
-      if (parseError) {
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      if (doc.querySelector('parseerror')) {
         console.warn('XmpParserService: malformed XML');
-        return result;
+        return defaults;
       }
-
       desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
-
-      if (!desc) return result;
+      if (!desc) return defaults;
     } catch {
-      return result;
+      return defaults;
     }
-
-    // xmp:Rating
-    const ratingStr = this._attr(desc, ['xmp:Rating', 'Rating']);
-    if (ratingStr !== null) {
-      const n = Number(ratingStr);
-      if (!Number.isNaN(n) && n >= 0 && n <= 5) {
-        result.rating = Math.round(n);
-      }
-    }
-
-    // maple:Flag (canonical) with papp:Flag as fallback for interop.
-    const flagStr = this._attr(desc, ['maple:Flag', 'papp:Flag', 'Flag']);
-    if (flagStr !== null && VALID_FLAGS.has(flagStr)) {
-      result.flag = flagStr as XmpFlag;
-    }
-
-    // xmp:Label (XMP standard color word).
-    const labelStr = this._attr(desc, ['xmp:Label', 'Label']);
-    if (labelStr !== null && labelStr in LABEL_MAP) {
-      result.colorLabel = LABEL_MAP[labelStr];
-    }
-
-    // maple:ColorLabel as an override (uses our color names directly).
-    const mapleLabel = this._attr(desc, ['maple:ColorLabel', 'papp:ColorLabel', 'ColorLabel']);
-    if (mapleLabel !== null && this._isValidColorLabel(mapleLabel)) {
-      result.colorLabel = mapleLabel as XmpColorLabel;
-    }
-
-    // dc:subject — IPTC keyword bag (#632). Walks
-    // `<dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>`
-    // and extracts `rdf:li` text content in source order. Blank entries
-    // are dropped — `dc:subject` rejects empty `rdf:li` content on the
-    // write path too. Uses `getElementsByTagNameNS` so the prefix the
-    // sidecar binds to the Dublin Core namespace (conventionally `dc:`)
-    // isn't load-bearing; `getElementsByTagName('dc:subject')` is the
-    // fallback for parsers that hand us prefix-only matches.
-    const subjectEls = desc.getElementsByTagNameNS(DC_NAMESPACE, 'subject');
-    const subjectEl =
-      subjectEls.length > 0 ? subjectEls[0] : desc.getElementsByTagName('dc:subject')[0];
-    if (subjectEl) {
-      // Dedupe at parse time (first occurrence wins, preserves source
-      // order) so external / hand-edited sidecars carrying duplicate
-      // `rdf:li` entries don't violate the uniqueness invariant the UI
-      // depends on (e.g. Angular `@for ... track k`, Apple
-      // `ForEach(id: \.self)`). Matches the write path's normalisation
-      // and the Apple parser's dedup in `XMPSerialization.swift`.
-      const keywords: string[] = [];
-      const seen = new Set<string>();
-      const liElsNS = subjectEl.getElementsByTagNameNS(RDF_NAMESPACE, 'li');
-      const liEls = liElsNS.length > 0 ? liElsNS : subjectEl.getElementsByTagName('rdf:li');
-      for (let i = 0; i < liEls.length; i++) {
-        const text = (liEls[i].textContent ?? '').trim();
-        if (text.length === 0 || seen.has(text)) continue;
-        seen.add(text);
-        keywords.push(text);
-      }
-      result.keywords = keywords;
-    }
-
-    return result;
+    return parseCullingBlock(desc);
   }
 
   // ── Metadata block (Batch Metadata, spec 2026-06-26) ────────────────────────
 
   /**
    * Parse the IPTC/EXIF metadata block. Returns only the fields present;
-   * absent fields are left undefined.
+   * absent fields are left undefined. The field-by-field walk is
+   * `parseMetadataBlock` in `xmp-metadata.ts` (#2215, file-size budget) —
+   * this method owns only the XML → `rdf:Description` lookup.
    */
   parseMetadata(xml: string): XmpMetadata {
-    const result: XmpMetadata = {};
     let desc: Element | null = null;
     try {
       const doc = new DOMParser().parseFromString(xml, 'text/xml');
-      if (doc.querySelector('parseerror')) return result;
+      if (doc.querySelector('parseerror')) return {};
       desc = doc.querySelector('rdf\\:Description') ?? doc.querySelector('Description');
     } catch {
-      return result;
+      return {};
     }
-    if (!desc) return result;
-
-    // GPS
-    const lat = this._attr(desc, ['exif:GPSLatitude']);
-    if (lat !== null) {
-      const v = gpsFromXmp(lat);
-      if (v !== null) result.gpsLatitude = v;
-    }
-    const lon = this._attr(desc, ['exif:GPSLongitude']);
-    if (lon !== null) {
-      const v = gpsFromXmp(lon);
-      if (v !== null) result.gpsLongitude = v;
-    }
-    const alt = this._attr(desc, ['exif:GPSAltitude']);
-    if (alt !== null) {
-      const v = altitudeFromXmp(alt, this._attr(desc, ['exif:GPSAltitudeRef']) ?? '0');
-      if (v !== null) result.gpsAltitude = v;
-    }
-
-    // Simple string attributes. Empty / whitespace-only values read back as
-    // `undefined` (not `""`) so parse matches the "absent field" contract and
-    // the serializer's clear-semantics (empty = omitted), and stays consistent
-    // with the nested lang-alt/seq text path below.
-    const str = (keys: string[]): string | undefined => {
-      const v = this._attr(desc!, keys);
-      if (v === null) return undefined;
-      const trimmed = v.trim();
-      return trimmed.length > 0 ? trimmed : undefined;
-    };
-    result.dateTimeOriginal = str(['exif:DateTimeOriginal']);
-    result.timeZone = str(['papp:TimeZone']);
-    result.sublocation = str(['Iptc4xmpCore:Location']);
-    result.city = str(['photoshop:City']);
-    result.state = str(['photoshop:State']);
-    result.country = str(['photoshop:Country']);
-    result.countryCode = str(['Iptc4xmpCore:CountryCode']);
-    result.headline = str(['photoshop:Headline']);
-    result.instructions = str(['photoshop:Instructions']);
-    result.creatorJobTitle = str(['photoshop:AuthorsPosition']);
-    result.credit = str(['photoshop:Credit']);
-    result.source = str(['photoshop:Source']);
-
-    const status = copyrightStatusFromMarked(this._attr(desc, ['xmpRights:Marked']));
-    if (status !== null) result.copyrightStatus = status;
-
-    // Nested lang-alt / seq elements → first rdf:li text content.
-    const DC = 'http://purl.org/dc/elements/1.1/';
-    result.title = this._nestedText(desc, DC, 'title', 'dc:title');
-    result.caption = this._nestedText(desc, DC, 'description', 'dc:description');
-    result.creator = this._nestedText(desc, DC, 'creator', 'dc:creator');
-    result.copyrightNotice = this._nestedText(desc, DC, 'rights', 'dc:rights');
-    result.usageTerms = this._nestedText(
-      desc,
-      'http://ns.adobe.com/xap/1.0/rights/',
-      'UsageTerms',
-      'xmpRights:UsageTerms',
-    );
-
-    // Strip undefined keys so an empty edit yields {} (byte-stable round-trip).
-    for (const k of Object.keys(result) as (keyof XmpMetadata)[]) {
-      if (result[k] === undefined) delete result[k];
-    }
-    return result;
-  }
-
-  /** First `rdf:li` text content of a nested lang-alt/seq element, or undefined. */
-  private _nestedText(desc: Element, ns: string, local: string, qname: string): string | undefined {
-    const elsNS = desc.getElementsByTagNameNS(ns, local);
-    const el = elsNS.length > 0 ? elsNS[0] : desc.getElementsByTagName(qname)[0];
-    if (!el) return undefined;
-    const liNS = el.getElementsByTagNameNS('http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'li');
-    const li = liNS.length > 0 ? liNS[0] : el.getElementsByTagName('rdf:li')[0];
-    const text = (li?.textContent ?? '').trim();
-    return text.length > 0 ? text : undefined;
+    if (!desc) return {};
+    return parseMetadataBlock(desc);
   }
 
   // ── Full AdjustmentModel parser (P6) ────────────────────────────────────────
@@ -655,23 +488,5 @@ export class XmpParserService {
       model,
       passthrough: { unknownAttributes, unknownNodes },
     };
-  }
-
-  // ── Private helpers ────────────────────────────────────────────────────────
-
-  /**
-   * Try multiple attribute name variants (namespaced vs unprefixed).
-   * DOMParser may or may not preserve namespace prefixes.
-   */
-  private _attr(el: Element, names: string[]): string | null {
-    for (const name of names) {
-      const val = el.getAttribute(name);
-      if (val !== null) return val;
-    }
-    return null;
-  }
-
-  private _isValidColorLabel(s: string): boolean {
-    return isColorLabelValue(s);
   }
 }

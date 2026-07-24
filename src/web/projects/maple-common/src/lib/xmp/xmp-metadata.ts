@@ -216,6 +216,99 @@ export function copyrightStatusFromMarked(marked: string | null): CopyrightStatu
 }
 
 /**
+ * Parse the IPTC/EXIF metadata block from an already-located
+ * `rdf:Description` element. Split out of `XmpParserService.parseMetadata`
+ * (#2215) to keep the service under the file-size budget — this half is
+ * pure (element in, `XmpMetadata` out) and lives alongside the metadata
+ * write-side helpers above so the parse/serialize pair for this block stay
+ * next to each other. Returns only the fields present; absent fields are
+ * left undefined.
+ */
+export function parseMetadataBlock(desc: Element): XmpMetadata {
+  const result: XmpMetadata = {};
+  const attr = (names: string[]): string | null => {
+    for (const name of names) {
+      const val = desc.getAttribute(name);
+      if (val !== null) return val;
+    }
+    return null;
+  };
+
+  // GPS
+  const lat = attr(['exif:GPSLatitude']);
+  if (lat !== null) {
+    const v = gpsFromXmp(lat);
+    if (v !== null) result.gpsLatitude = v;
+  }
+  const lon = attr(['exif:GPSLongitude']);
+  if (lon !== null) {
+    const v = gpsFromXmp(lon);
+    if (v !== null) result.gpsLongitude = v;
+  }
+  const alt = attr(['exif:GPSAltitude']);
+  if (alt !== null) {
+    const v = altitudeFromXmp(alt, attr(['exif:GPSAltitudeRef']) ?? '0');
+    if (v !== null) result.gpsAltitude = v;
+  }
+
+  // Simple string attributes. Empty / whitespace-only values read back as
+  // `undefined` (not `""`) so parse matches the "absent field" contract and
+  // the serializer's clear-semantics (empty = omitted), and stays consistent
+  // with the nested lang-alt/seq text path below.
+  const str = (keys: string[]): string | undefined => {
+    const v = attr(keys);
+    if (v === null) return undefined;
+    const trimmed = v.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+  result.dateTimeOriginal = str(['exif:DateTimeOriginal']);
+  result.timeZone = str(['papp:TimeZone']);
+  result.sublocation = str(['Iptc4xmpCore:Location']);
+  result.city = str(['photoshop:City']);
+  result.state = str(['photoshop:State']);
+  result.country = str(['photoshop:Country']);
+  result.countryCode = str(['Iptc4xmpCore:CountryCode']);
+  result.headline = str(['photoshop:Headline']);
+  result.instructions = str(['photoshop:Instructions']);
+  result.creatorJobTitle = str(['photoshop:AuthorsPosition']);
+  result.credit = str(['photoshop:Credit']);
+  result.source = str(['photoshop:Source']);
+
+  const status = copyrightStatusFromMarked(attr(['xmpRights:Marked']));
+  if (status !== null) result.copyrightStatus = status;
+
+  // Nested lang-alt / seq elements → first rdf:li text content.
+  const DC = 'http://purl.org/dc/elements/1.1/';
+  result.title = nestedText(desc, DC, 'title', 'dc:title');
+  result.caption = nestedText(desc, DC, 'description', 'dc:description');
+  result.creator = nestedText(desc, DC, 'creator', 'dc:creator');
+  result.copyrightNotice = nestedText(desc, DC, 'rights', 'dc:rights');
+  result.usageTerms = nestedText(
+    desc,
+    'http://ns.adobe.com/xap/1.0/rights/',
+    'UsageTerms',
+    'xmpRights:UsageTerms',
+  );
+
+  // Strip undefined keys so an empty edit yields {} (byte-stable round-trip).
+  for (const k of Object.keys(result) as (keyof XmpMetadata)[]) {
+    if (result[k] === undefined) delete result[k];
+  }
+  return result;
+}
+
+/** First `rdf:li` text content of a nested lang-alt/seq element, or undefined. */
+function nestedText(desc: Element, ns: string, local: string, qname: string): string | undefined {
+  const elsNS = desc.getElementsByTagNameNS(ns, local);
+  const el = elsNS.length > 0 ? elsNS[0] : desc.getElementsByTagName(qname)[0];
+  if (!el) return undefined;
+  const liNS = el.getElementsByTagNameNS('http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'li');
+  const li = liNS.length > 0 ? liNS[0] : el.getElementsByTagName('rdf:li')[0];
+  const text = (li?.textContent ?? '').trim();
+  return text.length > 0 ? text : undefined;
+}
+
+/**
  * The managed metadata attribute keys (for KNOWN_ATTRIBUTES extension) and the
  * managed nested element local-names (for passthrough exclusion).
  */
