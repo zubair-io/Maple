@@ -179,7 +179,7 @@ describe('device-session routes (#2075)', () => {
     const bearer = await bearerFor(userId, 'owner2b@maple.test');
 
     // A live, caller-owned, platform-marked credential (an already-paired TV).
-    const tv = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const tv = await issueRefreshToken(userId, 'Living Room', { platform: 'tvos' });
     const res = await mint(bearer, {
       label: 'Bedroom',
       platform: 'tvos',

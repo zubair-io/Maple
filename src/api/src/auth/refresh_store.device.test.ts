@@ -19,7 +19,7 @@ beforeEach(async () => {
 describe('device-session platform marker', () => {
   test('issue stamps platform and returns the family id', async () => {
     const userId = new ObjectId();
-    const issued = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const issued = await issueRefreshToken(userId, 'Living Room', { platform: 'tvos' });
     expect(issued.familyId).toBeInstanceOf(ObjectId);
     const row = await (await refreshTokensCollection()).findOne({ family_id: issued.familyId });
     expect(row?.platform).toBe('tvos');
@@ -28,7 +28,7 @@ describe('device-session platform marker', () => {
 
   test('rotation propagates platform to the successor', async () => {
     const userId = new ObjectId();
-    const issued = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const issued = await issueRefreshToken(userId, 'Living Room', { platform: 'tvos' });
     const rotated = await rotateRefreshToken(issued.raw);
     const c = await refreshTokensCollection();
     const successor = await c.findOne({ family_id: issued.familyId, revoked_at: null });
@@ -47,9 +47,9 @@ describe('device-session platform marker', () => {
 describe('device-session list/revoke', () => {
   test('lists only live platform-marked families for the user', async () => {
     const userId = new ObjectId();
-    const tv = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const tv = await issueRefreshToken(userId, 'Living Room', { platform: 'tvos' });
     await issueRefreshToken(userId, 'Safari on Mac'); // plain login — excluded
-    await issueRefreshToken(new ObjectId(), 'Bedroom', undefined, 'tvos'); // other user — excluded
+    await issueRefreshToken(new ObjectId(), 'Bedroom', { platform: 'tvos' }); // other user — excluded
     const sessions = await listDeviceSessions(userId);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({
@@ -61,7 +61,7 @@ describe('device-session list/revoke', () => {
 
   test('rotation updates last_used_at, not created_at', async () => {
     const userId = new ObjectId();
-    const tv = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const tv = await issueRefreshToken(userId, 'Living Room', { platform: 'tvos' });
     await rotateRefreshToken(tv.raw);
     const [s] = await listDeviceSessions(userId);
     expect(new Date(s.last_used_at).getTime()).toBeGreaterThanOrEqual(
@@ -71,7 +71,7 @@ describe('device-session list/revoke', () => {
 
   test('revoke kills the family and it leaves the list', async () => {
     const userId = new ObjectId();
-    const tv = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const tv = await issueRefreshToken(userId, 'Living Room', { platform: 'tvos' });
     expect(await revokeDeviceSession(userId, tv.familyId)).toBe(true);
     expect(await listDeviceSessions(userId)).toHaveLength(0);
     await expect(rotateRefreshToken(tv.raw)).rejects.toThrow(); // family dead
@@ -79,7 +79,7 @@ describe('device-session list/revoke', () => {
 
   test('revoke refuses other users and plain families', async () => {
     const userId = new ObjectId();
-    const tv = await issueRefreshToken(userId, 'Living Room', undefined, 'tvos');
+    const tv = await issueRefreshToken(userId, 'Living Room', { platform: 'tvos' });
     const plain = await issueRefreshToken(userId, 'Safari on Mac');
     expect(await revokeDeviceSession(new ObjectId(), tv.familyId)).toBe(false);
     expect(await revokeDeviceSession(userId, plain.familyId)).toBe(false);
