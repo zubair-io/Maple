@@ -94,6 +94,31 @@ fn guided_filter_preserves_smooth_transmission() {
 }
 
 #[test]
+fn guided_filter_flat_bright_plane_stays_flat_and_finite() {
+    // Regression for #1177: box-mean roundoff can drive
+    // `mean_ii - mean_i * mean_i` negative when the guide runs at
+    // scene-linear magnitudes >> 1, flipping the `var_i + eps` denominator
+    // sign and blowing `a` up unboundedly. A flat plane must stay flat and
+    // finite through the guided filter regardless of its absolute level.
+    let w = 64usize;
+    let h = 64usize;
+    // Non-round value so the box-blur accumulators actually round.
+    let level = 3000.7f32;
+    let p = vec![level; w * h];
+    let out = guided_filter(&p, &p, w, h, GuidedOptions { r: 5, eps: 1e-3 });
+    for (i, &v) in out.iter().enumerate() {
+        assert!(v.is_finite(), "index {} non-finite: {}", i, v);
+        assert!(
+            (v - level).abs() / level < 1e-2,
+            "index {} drifted off the flat {}: {}",
+            i,
+            level,
+            v
+        );
+    }
+}
+
+#[test]
 fn dehaze_zero_is_identity() {
     let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
     for p in &mut img.pixels {
