@@ -81,9 +81,29 @@ const BUCKETS_CACHE_KEY_FIELDS = [
  * constructed. Exported so the completeness test in `buckets.test.ts`
  * can enumerate the field list against `SearchQuery`.
  */
+/** `buildFilter` only narrows on `places`/`people` — `photos`, `albums`,
+ * `''`, and absent all produce the identical (unfiltered) aggregation, so
+ * they must share one key. Keying the raw value would fragment the cache. */
+const canonicalScope = (v: SearchQuery['scope']): string | null =>
+  v === 'places' || v === 'people' ? v : null;
+
+/** `buildFilter` treats anything other than `only`/`all` as the default
+ * (exclude hidden). Folding unknown values to `null` also stops arbitrary
+ * `hidden=...` strings minting unlimited fresh keys and churning the
+ * 500-entry cache. */
+const canonicalHidden = (v: SearchQuery['hidden']): string | null =>
+  v === 'only' || v === 'all' ? v : null;
+
 export function makeBucketsCacheKey(q: SearchQuery): string {
   const normalized = Object.fromEntries(
-    BUCKETS_CACHE_KEY_FIELDS.map((field) => [field, q[field] ?? null]),
+    BUCKETS_CACHE_KEY_FIELDS.map((field) => [
+      field,
+      field === 'scope'
+        ? canonicalScope(q.scope)
+        : field === 'hidden'
+          ? canonicalHidden(q.hidden)
+          : (q[field] ?? null),
+    ]),
   );
   return JSON.stringify(normalized);
 }
