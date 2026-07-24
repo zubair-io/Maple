@@ -338,7 +338,9 @@ extension EditSession {
                 // present is declined (flag off / no layer / readback fail).
                 // #2143: bound both presentation targets at the DELIVERED
                 // extent of the cached decode (`snapshot.rawResolution` — the
-                // pre-normalisation `decoded.extent.size`). Presenting or
+                // `decoded.extent.size` before canvas scaling, already
+                // display-oriented since the sized FFI applies EXIF rotation
+                // before returning). Presenting or
                 // prescaling above what the decode actually returned only
                 // resamples upscaled data into a bigger buffer; see
                 // `ImageEditPipeline.cappedToDelivered` for the full story
@@ -430,7 +432,8 @@ extension EditSession {
                 adoptDecodedWbFrame(freshSnapshot.wbFrame)
                 // #2143: same delivered-extent caps as the cached branch,
                 // from THIS decode's recorded extent
-                // (`freshSnapshot.rawResolution` — pre-normalisation dims,
+                // (`freshSnapshot.rawResolution` — pre-canvas-scaling,
+                // display-oriented dims,
                 // recorded by `sharedDecode`'s cache write; when an existing
                 // covering cache was kept instead, it reflects that covering
                 // buffer, which is the one actually flowing downstream).
