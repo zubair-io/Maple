@@ -57,22 +57,28 @@
 // hand the caller a permit it no longer wants with no way to know to give
 // it back.
 //
-// Each waiter therefore gets a stable id and an explicit state, tracked
-// across three small collections rather than one array of continuations:
-//   - `waiters`: still-queued waiters, in FIFO order.
-//   - `handedOffWaiterIDs`: ids `release()` has already resumed with a
-//     permit — `cancelWaiter` must NOT touch their continuation again.
-//   - `preCancelledWaiterIDs`: ids whose `cancelWaiter` ran BEFORE the
-//     continuation was even registered (the task was cancelled at/before
-//     the very start of the wait) — `enqueue` checks this and rejects the
-//     waiter immediately instead of queuing something nobody will wake.
-// Whichever of {`release()`, `cancelWaiter`} reaches a given waiter first
-// determines its outcome; the loser's touch on that id's bookkeeping is a
-// no-op. When a handoff and a cancellation race, the waiter's own task —
-// not `cancelWaiter` — is the one that hands the permit back: it resumes
-// normally (having received it), notices `Task.isCancelled`, calls
-// `release()` on itself, and throws `CancellationError`. That keeps
-// exactly one release per permit no matter how the race lands.
+// Each waiter therefore gets a stable id, and the whole state machine is
+// the FIFO `waiters` array: a waiter is cancellable exactly while it is
+// still queued there. `cancelWaiter` for an id NOT in the queue is a
+// deliberate no-op, which is safe because only two things ever remove a
+// waiter:
+//   - `release()` handed it the permit. The waiter's own task — not
+//     `cancelWaiter` — then hands the permit back: it resumes normally
+//     (having received it), notices `Task.isCancelled`, calls `release()`
+//     on itself, and throws `CancellationError`. That keeps exactly one
+//     release per permit no matter how the race lands.
+//   - An earlier `cancelWaiter` for the same id already resumed it with
+//     `CancellationError`.
+// The remaining ordering hazard — `cancelWaiter` running BEFORE the
+// continuation is registered — cannot happen: the setup closure of
+// `withCheckedThrowingContinuation` runs synchronously on this actor's
+// executor with no suspension after `acquire()` allocates the id, while
+// `onCancel`'s unstructured `Task` must await the actor to call
+// `cancelWaiter` — so registration always wins that race. (An earlier
+// revision tracked `handedOffWaiterIDs`/`preCancelledWaiterIDs` sets for
+// these cases; the pre-cancel path was unreachable, and the handed-off
+// set leaked an entry whenever the resumed task cleared its id before
+// `cancelWaiter` ran — flagged in review of #2218.)
 //
 // Foundation-only (portability guard — see `MapleCloudKitPortabilityTests`):
 // the Maple TV target links MapleCloudKit without MapleCore or
@@ -88,8 +94,6 @@ public actor BoundedAsyncSemaphore {
   private var current: Int = 0
 
   private var waiters: [(id: UInt64, continuation: CheckedContinuation<Void, Error>)] = []
-  private var handedOffWaiterIDs: Set<UInt64> = []
-  private var preCancelledWaiterIDs: Set<UInt64> = []
   private var waiterIDCounter: UInt64 = 0
 
   /// Clamps to ≥1 — a 0/negative cap would suspend `acquire()` forever
@@ -116,18 +120,14 @@ public actor BoundedAsyncSemaphore {
     // `acquire()` to over-admit past `value`.)
     try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-        enqueue(id: id, continuation: cont)
+        // Runs synchronously, still on the actor — no `await` separates
+        // allocating `id` from this registration, so `cancelWaiter`
+        // (which must hop onto the actor) can never observe `id` first.
+        waiters.append((id: id, continuation: cont))
       }
     } onCancel: {
       Task { await self.cancelWaiter(id: id) }
     }
-
-    // Reaching here means the continuation resumed with success — the
-    // only path that does that is `release()`'s direct handoff, which
-    // always marks `id` in `handedOffWaiterIDs` right before resuming.
-    // Clear that bookkeeping unconditionally so the common (non-cancelled)
-    // case doesn't leak an entry forever.
-    handedOffWaiterIDs.remove(id)
 
     guard Task.isCancelled else { return }
     // Cancel-after-handoff race: `onCancel` fired concurrently with — or
@@ -146,40 +146,19 @@ public actor BoundedAsyncSemaphore {
       return
     }
     let waiter = waiters.removeFirst()
-    handedOffWaiterIDs.insert(waiter.id)
     waiter.continuation.resume() // Transfer this permit directly; `current` unchanged.
   }
 
-  // MARK: - Waiter bookkeeping
-
-  /// Runs synchronously, still on the actor, as the setup closure of the
-  /// `withCheckedThrowingContinuation` call in `acquire()` — no `await`
-  /// separates allocating `id` from this call, so nothing else can observe
-  /// `id` between the two.
-  private func enqueue(id: UInt64, continuation: CheckedContinuation<Void, Error>) {
-    let wasPreCancelled = preCancelledWaiterIDs.remove(id) != nil
-    guard !wasPreCancelled else {
-      continuation.resume(throwing: CancellationError())
-      return
-    }
-    waiters.append((id: id, continuation: continuation))
-  }
-
-  /// Invoked (via an unstructured `Task`) from `acquire()`'s
-  /// `onCancel` handler. Never touches a continuation that `release()`
-  /// already resumed — that waiter's own task handles giving the permit
-  /// back once it resumes and observes `Task.isCancelled`.
+  /// Invoked (via an unstructured `Task`) from `acquire()`'s `onCancel`
+  /// handler. A no-op when `id` is no longer queued: either `release()`
+  /// already resumed that waiter with a permit (its own task hands the
+  /// permit back once it observes `Task.isCancelled` — touching the
+  /// continuation again here would double-resume), or an earlier
+  /// cancellation already resumed it throwing. Registration always
+  /// precedes this call (see the header comment), so "not queued" never
+  /// means "not registered yet".
   private func cancelWaiter(id: UInt64) {
-    if let index = waiters.firstIndex(where: { $0.id == id }) {
-      waiters.remove(at: index).continuation.resume(throwing: CancellationError())
-      return
-    }
-    let wasHandedOff = handedOffWaiterIDs.remove(id) != nil
-    guard !wasHandedOff else { return }
-    // Neither queued nor handed off: `enqueue(id:continuation:)` for this
-    // id hasn't run yet — cancellation raced ahead of registration. Record
-    // it so `enqueue` rejects immediately instead of queuing a waiter
-    // nobody will ever wake.
-    preCancelledWaiterIDs.insert(id)
+    guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+    waiters.remove(at: index).continuation.resume(throwing: CancellationError())
   }
 }
