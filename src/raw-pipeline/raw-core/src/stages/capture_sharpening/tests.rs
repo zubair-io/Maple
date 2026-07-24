@@ -348,6 +348,105 @@ fn near_clipped_highlights_stay_safe() {
     }
 }
 
+/// #320 acceptance: sigma is a continuous f32 parameter now, not an
+/// integer radius rounded via `.round()`. Before the fix, `sigma=0.9`,
+/// `sigma=1.0`, and `sigma=1.1` all rounded to the same integer radius (1)
+/// and produced bit-identical box-blur output — a plateau — then jumped
+/// discontinuously at the next integer boundary (`sigma=1.5` rounding up
+/// to radius 2).
+///
+/// Two levels are checked against a fine sigma sweep over the model's
+/// declared [0.5, 2.0] range (crossing both old integer boundaries, 1.0
+/// and 2.0):
+///
+/// - The blur primitive (`gaussian_blur_plane_sigma`) is a pure linear
+///   diffusion of a point source, so its center-pixel response is
+///   analytically monotonic (wider PSF ⇒ strictly less energy retained at
+///   the source) — checked exactly.
+/// - The full stage (RL deconvolution + highlight fade) is nonlinear, so
+///   only bounded-step continuity is checked: no single 0.05-wide step's
+///   delta may dwarf its neighbors, which is what a reintroduced
+///   plateau-then-jump rounding artefact would produce.
+#[test]
+fn sigma_sweep_output_varies_continuously() {
+    let (w, h) = (25u32, 25u32);
+    let center = (12 * w + 12) as usize;
+
+    // Fine sweep from 0.5 to 2.0 in 0.05 steps.
+    let sigmas: Vec<f32> = (0..=30).map(|i| 0.5 + i as f32 * 0.05).collect();
+
+    // --- Blur primitive: exact monotonicity -------------------------------
+    let mut buf = vec![0.0_f32; (w * h) as usize];
+    buf[center] = 1.0;
+    let blur_values: Vec<f32> = sigmas
+        .iter()
+        .map(|&s| gaussian_blur_plane_sigma(&buf, w as usize, h as usize, s)[center])
+        .collect();
+    for pair in blur_values.windows(2) {
+        assert!(
+            pair[1] < pair[0],
+            "blur primitive is not strictly monotonic in sigma: {} -> {}",
+            pair[0],
+            pair[1]
+        );
+    }
+    // Explicitly confirm sigma=0.9/1.0/1.1 (the old rounded-to-1 plateau)
+    // are three distinct values, not the same bit pattern.
+    let b09 = gaussian_blur_plane_sigma(&buf, w as usize, h as usize, 0.9)[center];
+    let b10 = gaussian_blur_plane_sigma(&buf, w as usize, h as usize, 1.0)[center];
+    let b11 = gaussian_blur_plane_sigma(&buf, w as usize, h as usize, 1.1)[center];
+    assert!(
+        b09 > b10 && b10 > b11,
+        "blur primitive plateaued across the old integer-radius boundary: \
+         sigma=0.9 -> {b09}, sigma=1.0 -> {b10}, sigma=1.1 -> {b11}"
+    );
+
+    // --- Full stage: bounded-step continuity, no outlier jump -------------
+    let sample_at = |sigma: f32| -> f32 {
+        let mut img = build_image(w, h, |x, y| {
+            let v = if x == 12 && y == 12 { 0.9 } else { 0.05 };
+            [v, v, v]
+        });
+        apply_capture_sharpening(
+            &mut img,
+            &CaptureSharpeningParams {
+                sigma,
+                ..CaptureSharpeningParams::default()
+            },
+        );
+        img.pixels[center][0]
+    };
+    let stage_values: Vec<f32> = sigmas.iter().map(|&s| sample_at(s)).collect();
+    for &v in &stage_values {
+        assert!(v.is_finite(), "sigma sweep produced a non-finite sample");
+    }
+
+    let deltas: Vec<f32> = stage_values.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+    let mean_abs_delta: f32 = deltas.iter().sum::<f32>() / deltas.len() as f32;
+    let max_abs_delta = deltas.iter().fold(0.0_f32, |m, &d| m.max(d));
+
+    // No step-function artefact: the maximum single-step delta must not
+    // dwarf the average step. Under the old integer-radius approximation,
+    // most 0.05-wide steps between the same rounded radius were exactly
+    // zero while the step that crossed a rounding boundary carried the
+    // entire sweep's total movement — an arbitrarily large ratio relative
+    // to the (near-zero) mean. A true continuous sigma path spreads the
+    // change roughly evenly; a generous 8x ceiling comfortably tolerates
+    // the RL update's nonlinearity while still catching a reintroduced
+    // plateau-then-jump pattern.
+    assert!(
+        max_abs_delta < mean_abs_delta * 8.0,
+        "sigma sweep has a step-function outlier: max |delta|={max_abs_delta}, mean |delta|={mean_abs_delta}"
+    );
+
+    // Explicitly confirm the old plateau is gone at the integer boundary.
+    let v_09 = sample_at(0.9);
+    let v_10 = sample_at(1.0);
+    let v_11 = sample_at(1.1);
+    assert_ne!(v_09, v_10, "sigma=0.9 and sigma=1.0 must differ (no plateau)");
+    assert_ne!(v_10, v_11, "sigma=1.0 and sigma=1.1 must differ (no plateau)");
+}
+
 #[test]
 fn larger_sigma_blurs_more_than_smaller_sigma() {
     // Single bright pixel: a larger sigma must diffuse more energy
