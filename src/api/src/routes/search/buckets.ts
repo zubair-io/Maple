@@ -36,8 +36,19 @@ const bucketsCache = new Map<string, CachedBuckets>();
 
 /** Stable JSON serialisation of a SearchQuery. Field order is fixed so
  * that two requests with the same params produce the same key
- * regardless of how the URL was constructed. */
-function makeBucketsCacheKey(q: SearchQuery): string {
+ * regardless of how the URL was constructed.
+ *
+ * Must include every `SearchQuery` field that `buildFilter` (query.ts)
+ * consumes — anything left out lets two requests that differ only in
+ * that field collide on the same cache entry within the 30s TTL and
+ * serve each other's histogram. `page`/`limit`/`sort` are deliberately
+ * excluded: `buildFilter` never reads them, so they can't change the
+ * aggregation result. `people` is also excluded: it's wired to
+ * Meilisearch filtering, not `buildFilter` — see the field's doc
+ * comment in `SearchQuery`. Exported so the completeness test in
+ * `buckets.test.ts` can enumerate this list against `SearchQuery`.
+ */
+export function makeBucketsCacheKey(q: SearchQuery): string {
   return JSON.stringify({
     pathPrefix: q.pathPrefix ?? null,
     libraryId: q.libraryId ?? null,
@@ -63,6 +74,8 @@ function makeBucketsCacheKey(q: SearchQuery): string {
     activity: q.activity ?? null,
     subjects: q.subjects ?? null,
     isScreenshot: q.isScreenshot ?? null,
+    scope: q.scope ?? null,
+    hidden: q.hidden ?? null,
   });
 }
 
