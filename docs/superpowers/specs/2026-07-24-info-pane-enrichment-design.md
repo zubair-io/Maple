@@ -15,11 +15,11 @@ worker stages, all stored in MongoDB (never in XMP sidecars):
 
 Current surfacing is uneven:
 
-| Data | In `GET /api/assets/:id` DTO? | Shown on Web | Shown on Apple |
-|---|---|---|---|
-| Description | yes | yes (`info-description`) | no |
-| OCR text | yes | yes (`info-vision`) | no |
-| Transcript | **no** | no | no |
+| Data        | In `GET /api/assets/:id` DTO? | Shown on Web             | Shown on Apple |
+| ----------- | ----------------------------- | ------------------------ | -------------- |
+| Description | yes                           | yes (`info-description`) | no             |
+| OCR text    | yes                           | yes (`info-vision`)      | no             |
+| Transcript  | **no**                        | no                       | no             |
 
 So: transcripts are searchable but never displayed anywhere, and the Apple info
 pane surfaces none of the three (EXIF/GPS/rating/histogram/keywords only).
@@ -75,7 +75,7 @@ Description + OCR are already in this DTO — no change there.
 - New `CloudAssetDetailClient` actor in
   `Packages/MapleCore/Sources/MapleCloudKit/Cloud/`, modeled verbatim on
   `CloudHistogramClient`: `init(server:httpClient:)`, `detail(assetID:) async
-  throws -> CloudAssetDetail`, calling `GET /api/assets/:id` and decoding a new
+throws -> CloudAssetDetail`, calling `GET /api/assets/:id` and decoding a new
   `CloudAssetDetail { description, ocr_text, ocr_meta, transcript }` Decodable.
 - New `cloudAssetDetailClient` `EnvironmentKey`/`EnvironmentValues` slot mirroring
   `CloudHistogramClientKey`: constructed in `prepareCloudSession`

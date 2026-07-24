@@ -152,6 +152,35 @@ describe('assets.repo', () => {
       expect(dto!.description_meta).toEqual(meta);
     });
 
+    it('projects a lean transcript (text/language/model/duration/generated_at, no segments)', async () => {
+      if (!db) return;
+      const id = await seedAsset(db, {
+        transcript: {
+          text: 'hello world',
+          segments: [{ start: 0, end: 1.5, text: 'hello world' }],
+          language: 'en',
+          model: 'whisper-base',
+          duration_sec: 12.3,
+          generated_at: '2026-07-24T00:00:00Z',
+        },
+      });
+      const dto = await findDetailById(id, db);
+      expect(dto!.transcript).toEqual({
+        text: 'hello world',
+        language: 'en',
+        model: 'whisper-base',
+        duration_sec: 12.3,
+        generated_at: '2026-07-24T00:00:00Z',
+      });
+    });
+
+    it('reports transcript as null when the transcribe stage has not run', async () => {
+      if (!db) return;
+      const id = await seedAsset(db);
+      const dto = await findDetailById(id, db);
+      expect(dto!.transcript).toBeNull();
+    });
+
     it('returns null for a missing id', async () => {
       if (!db) return;
       const dto = await findDetailById(new ObjectId(), db);
