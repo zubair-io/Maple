@@ -470,6 +470,10 @@ extension AppShell {
         // the same AuthenticatedHTTPClient as the rest of the cloud
         // session to keep the 401-refresh coalescer single-flighted.
         cloudHistogramClient = CloudHistogramClient(server: effectiveServer, httpClient: httpClient)
+        // Same server + client feed the InfoPanel enrichment section
+        // (description / OCR / transcript) via `GET /api/assets/:id`.
+        cloudAssetDetailClient = CloudAssetDetailClient(
+          server: effectiveServer, httpClient: httpClient)
         return assetRef
     }
 

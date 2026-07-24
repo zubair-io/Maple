@@ -241,6 +241,13 @@ struct AppShell: View {
     /// `HistogramBlock` back to the placeholder.
     @State var cloudHistogramClient: CloudHistogramClient?
 
+    /// Asset-detail client for the currently-open cloud asset — feeds the
+    /// InfoPanel's `EnrichmentBlock` (description / OCR / transcript).
+    /// Built alongside `cloudHistogramClient` from the same
+    /// AuthenticatedHTTPClient; `nil` when no cloud asset is open, which
+    /// hides the enrichment section for local / PhotoKit assets.
+    @State var cloudAssetDetailClient: CloudAssetDetailClient?
+
     /// Active CloudSource for the merged Photos+Cloud timeline. Non-nil when
     /// a PhotoKit filter is active AND BackupSettings.isConfigured. Cleared
     /// when the user switches to a non-PhotoKit source.
@@ -405,6 +412,10 @@ struct AppShell: View {
         // (local/PhotoKit assets, no cloud asset open). Set + cleared by
         // `openCloudAsset` / the library-selection reset below.
         .environment(\.cloudHistogramClient, cloudHistogramClient)
+        // InfoPanel/EnrichmentBlock reads this. nil ⇒ no enrichment section
+        // (local/PhotoKit assets, no cloud asset open). Set + cleared
+        // alongside `cloudHistogramClient`.
+        .environment(\.cloudAssetDetailClient, cloudAssetDetailClient)
         .preferredColorScheme(.dark)
         .fileImporter(isPresented: $showFilePicker,
                       allowedContentTypes: [.folder]) { result in
@@ -473,6 +484,7 @@ struct AppShell: View {
                 cloudTimelineThumbClient = nil
                 cloudTimelineThumbCache = nil
                 cloudHistogramClient = nil
+                cloudAssetDetailClient = nil
             }
             // Merged timeline only valid while a PhotoKit filter is active.
             if case .photosFilter = newValue { /* keep mergedCloudSource */ }
