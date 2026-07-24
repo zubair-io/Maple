@@ -373,7 +373,7 @@ export interface AssetDoc {
   rating: number;
   /** Pick flag: 1=pick, 0=none, -1=reject. */
   flag: -1 | 0 | 1;
-  /** Color label string (red|yellow|green|blue|purple|""). */
+  /** Color label string (red|orange|yellow|green|blue|purple|""). */
   color_label: string;
   /**
    * Camera/lens/exposure metadata. Optional because backfill on existing rows

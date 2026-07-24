@@ -16,6 +16,7 @@ import type {
   PassthroughBucket,
   XmpMetadata,
 } from './xmp.types';
+import { isColorLabelValue } from '../models/color-label';
 import type { AdjustmentModel, WhiteBalancePreset, Crop } from '../models/adjustment-model';
 import type {
   HotPixelSuppressionMode,
@@ -53,6 +54,7 @@ const LABEL_MAP: Record<string, XmpColorLabel> = {
   Yellow: 'yellow',
   Green: 'green',
   Blue: 'blue',
+  Purple: 'purple',
 };
 
 const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
@@ -584,6 +586,6 @@ export class XmpParserService {
   }
 
   private _isValidColorLabel(s: string): boolean {
-    return ['red', 'orange', 'yellow', 'green', 'blue'].includes(s);
+    return isColorLabelValue(s);
   }
 }

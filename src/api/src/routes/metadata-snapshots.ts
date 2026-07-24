@@ -21,6 +21,7 @@ import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import type { AssetDoc } from '../db/schema.ts';
+import { VALID_COLOR_LABELS, type ColorLabel } from '../xmp/color-label.ts';
 
 // ---------------------------------------------------------------------------
 // XmpSnapshot type
@@ -51,14 +52,12 @@ type XmpSnapshot = Partial<{
   source: string;
   rating: number;
   flag: 'pick' | 'reject';
-  colorLabel: 'red' | 'orange' | 'yellow' | 'green' | 'blue';
+  colorLabel: ColorLabel;
 }>;
 
 // ---------------------------------------------------------------------------
 // Pure mapping helper
 // ---------------------------------------------------------------------------
-
-const VALID_COLOR_LABELS = new Set(['red', 'orange', 'yellow', 'green', 'blue']);
 
 /**
  * Map a doc's `metadata_override` + `exif` fields to the flat XmpSnapshot
@@ -123,7 +122,7 @@ export function overrideToXmpSnapshot(
   else if (doc.flag === -1) snapshot.flag = 'reject';
   // flag === 0 → absent (unflagged is the default, no need to surface it)
   if (typeof doc.color_label === 'string' && VALID_COLOR_LABELS.has(doc.color_label)) {
-    snapshot.colorLabel = doc.color_label as 'red' | 'orange' | 'yellow' | 'green' | 'blue';
+    snapshot.colorLabel = doc.color_label as ColorLabel;
   }
 
   return snapshot;
