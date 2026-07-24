@@ -389,6 +389,15 @@ describe('culling round-trip', () => {
     expect(parsed.colorLabel).toBe('red');
   });
 
+  // #1657: `orange` and `purple` must both round-trip — the vocabulary is
+  // now the six-color union shared with search's COLOR_LABELS filter.
+  test.each(['orange', 'purple'] as const)('colorLabel=%s survives round-trip', (color) => {
+    const meta: XmpMetadataInput = { colorLabel: color };
+    const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.colorLabel).toBe(color);
+  });
+
   test('colorLabel=null clears existing color label', () => {
     const withLabel = mergeMetadataIntoXmp(EMPTY_XMP, {
       colorLabel: 'green',

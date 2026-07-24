@@ -57,6 +57,15 @@ describe('TimelineFilterRowComponent', () => {
     expect(buttons.length).toBe(5);
   });
 
+  it('renders all six color swatches, including Orange (#1657)', () => {
+    const group = fixture.nativeElement.querySelector(
+      '[aria-label="Color label filter"]',
+    ) as HTMLElement | null;
+    const buttons = group?.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+    const labels = Array.from(buttons).map((b) => b.getAttribute('aria-label'));
+    expect(labels).toEqual(['Any color', 'Red', 'Orange', 'Yellow', 'Green', 'Blue', 'Purple']);
+  });
+
   it('clicking ★4 sets minRating to 4', () => {
     expect(state.minRating()).toBe(0);
     clickRating(4);

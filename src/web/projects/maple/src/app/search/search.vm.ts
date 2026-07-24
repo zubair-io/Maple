@@ -15,6 +15,7 @@
 // #295 PR reviews — the barrel may transitively pull Angular).
 
 import type {
+  ColorLabelValue,
   SearchFacets,
   SearchParams,
   SearchResult,
@@ -43,7 +44,13 @@ export const SCENE_TYPE_OPTIONS: ReadonlyArray<{ value: SearchSceneType; label: 
   { value: 'mixed', label: 'Mixed' },
 ];
 
-export type ColorValue = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
+// `ColorValue`'s member set is type-only-imported from `ColorLabelValue`
+// (`@maple-common/models/color-label`) so it can't drift from the XMP/batch
+// vocabulary (#1657). `COLOR_LABELS` below duplicates the label/swatch table
+// rather than value-importing it from the barrel — this module is plain TS
+// (no Angular, no `@maple-common` value imports; see file header) so its
+// option tables are defined locally like `SCENE_TYPE_OPTIONS` above.
+export type ColorValue = '' | ColorLabelValue;
 export type FlagValue = '' | 'pick' | 'reject' | 'none';
 export type ScreenshotValue = '' | 'true' | 'false';
 export type HiddenValue = '' | 'all' | 'only';
@@ -55,6 +62,7 @@ export const COLOR_LABELS: ReadonlyArray<{
 }> = [
   { value: '', label: 'Any', swatch: 'transparent' },
   { value: 'red', label: 'Red', swatch: '#e11d48' },
+  { value: 'orange', label: 'Orange', swatch: '#f97316' },
   { value: 'yellow', label: 'Yellow', swatch: '#eab308' },
   { value: 'green', label: 'Green', swatch: '#22c55e' },
   { value: 'blue', label: 'Blue', swatch: '#3b82f6' },
@@ -126,8 +134,12 @@ export function parseFlag(v: string | null | undefined): FlagValue {
   return v === 'pick' || v === 'reject' || v === 'none' ? v : '';
 }
 
+const COLOR_VALUES: ReadonlySet<string> = new Set(
+  COLOR_LABELS.map((c) => c.value).filter((v) => v !== ''),
+);
+
 export function parseColor(v: string | null | undefined): ColorValue {
-  return v === 'red' || v === 'yellow' || v === 'green' || v === 'blue' || v === 'purple' ? v : '';
+  return v !== undefined && v !== null && COLOR_VALUES.has(v) ? (v as ColorValue) : '';
 }
 
 export function parseScreenshot(v: string | null | undefined): ScreenshotValue {

@@ -74,6 +74,18 @@ describe('constants', () => {
     expect(COLOR_LABELS[0]).toEqual({ value: '', label: 'Any', swatch: 'transparent' });
   });
 
+  it('COLOR_LABELS covers the full six-color vocabulary, including orange (#1657)', () => {
+    expect(COLOR_LABELS.map((o) => o.value)).toEqual([
+      '',
+      'red',
+      'orange',
+      'yellow',
+      'green',
+      'blue',
+      'purple',
+    ]);
+  });
+
   it('HIDDEN_OPTIONS leads with the default "hide hidden" option', () => {
     expect(HIDDEN_OPTIONS[0]).toEqual({ value: '', label: 'Hide hidden' });
     expect(HIDDEN_OPTIONS.map((o) => o.value)).toEqual(['', 'all', 'only']);
@@ -140,8 +152,8 @@ describe('parseFlag', () => {
 });
 
 describe('parseColor', () => {
-  it('accepts only the five real color values', () => {
-    for (const c of ['red', 'yellow', 'green', 'blue', 'purple'] as const) {
+  it('accepts only the six real color values', () => {
+    for (const c of ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const) {
       expect(parseColor(c)).toBe(c);
     }
   });

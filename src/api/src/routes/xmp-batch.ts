@@ -18,6 +18,7 @@
 
 import { Elysia, t } from 'elysia';
 import * as fs from 'node:fs/promises';
+import { COLOR_LABELS } from '../xmp/color-label.ts';
 import * as path from 'node:path';
 import { resolveAddressString } from '../library/address.ts';
 import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
@@ -162,17 +163,7 @@ const MetadataInputSchema = t.Object(
     flag: t.Optional(
       t.Nullable(t.Union([t.Literal('pick'), t.Literal('reject'), t.Literal('unflagged')])),
     ),
-    colorLabel: t.Optional(
-      t.Nullable(
-        t.Union([
-          t.Literal('red'),
-          t.Literal('orange'),
-          t.Literal('yellow'),
-          t.Literal('green'),
-          t.Literal('blue'),
-        ]),
-      ),
-    ),
+    colorLabel: t.Optional(t.Nullable(t.Union(COLOR_LABELS.map((c) => t.Literal(c))))),
     isScreenshot: t.Optional(t.Nullable(t.Boolean())),
     hidden: t.Optional(t.Nullable(t.Boolean())),
   },
