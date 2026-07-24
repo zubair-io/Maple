@@ -31,6 +31,7 @@ import {
   type Enrichment,
   type FileInfo,
   type Place,
+  type TranscriptDoc,
   type VisionDoc,
   type VisionMeta,
 } from './schema.ts';
@@ -113,10 +114,25 @@ export interface AssetDetailDto {
   vision: VisionDoc | null;
   vision_meta: VisionMeta | null;
   is_screenshot: boolean | null;
+  /** Lean projection of the persisted `TranscriptDoc` for display. The
+   * per-segment timing array is deliberately omitted — the info pane
+   * renders `text` as a plain block; `null` until the transcribe stage
+   * has run (or the asset carries no audio track). */
+  transcript: TranscriptDto | null;
   hidden?: boolean;
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst';
   hidden_ack?: boolean;
   enrichment: Enrichment;
+}
+
+/** Display projection of `TranscriptDoc` (schema.ts). Drops `segments[]`
+ * since the info pane shows the full `text` as one block. */
+export interface TranscriptDto {
+  text: string;
+  language: string;
+  model: string;
+  duration_sec: number | null;
+  generated_at: string;
 }
 
 /**
@@ -179,6 +195,18 @@ export interface AssetCoreInfo {
 // Transform layer (the single BSON → DTO boundary for the assets repo).
 // ---------------------------------------------------------------------------
 
+/** Project the stored `TranscriptDoc` to its display DTO, dropping the
+ * per-segment timing array the info pane does not render. */
+function toTranscriptDto(t: TranscriptDoc): TranscriptDto {
+  return {
+    text: t.text,
+    language: t.language,
+    model: t.model,
+    duration_sec: t.duration_sec,
+    generated_at: t.generated_at,
+  };
+}
+
 export function toDetailDto(
   doc: AssetWithId,
   libraries: ReadonlyMap<string, string>,
@@ -210,6 +238,7 @@ export function toDetailDto(
     vision: doc.vision ?? null,
     vision_meta: doc.vision_meta ?? null,
     is_screenshot: doc.is_screenshot ?? null,
+    transcript: doc.transcript ? toTranscriptDto(doc.transcript) : null,
     hidden: doc.hidden,
     hidden_reason: doc.hidden_reason,
     hidden_ack: doc.hidden_ack,
