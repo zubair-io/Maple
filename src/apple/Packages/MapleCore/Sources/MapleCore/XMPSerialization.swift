@@ -370,6 +370,18 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             default:                     parsed = nil
             }
             if let parsed { model.highlightRecovery = parsed }
+        // Auto-exposure (#1387) — Maple-proprietary enum, baked into the
+        // Rust decode product. Case-insensitive like the other papp: enum
+        // parsers (mirrors raw-core's `"on" | "On"` / `"off" | "Off"`
+        // match); an unrecognized value keeps the current model value
+        // (default `.on`) rather than throwing, matching every other
+        // papp: enum parse in this file.
+        case "papp:AutoExposure":
+            switch value.lowercased() {
+            case "on":  model.autoExposure = .on
+            case "off": model.autoExposure = .off
+            default: break
+            }
         case "papp:Look":
             // DisplayLookCurve (#371). Case-insensitive parse mirrors
             // `papp:HighlightRecoveryMode`. Unknown values keep the current
