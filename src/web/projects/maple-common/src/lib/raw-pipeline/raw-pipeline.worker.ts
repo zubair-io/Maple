@@ -29,6 +29,7 @@ import {
   readbackScopeSnapshot,
   setLiveCanvas,
 } from './raw-pipeline.worker-handlers';
+import { safeMeasure } from './raw-pipeline.perf';
 
 // Forward worker console output to the main thread so Rust panic-hook messages
 // (which call console.error inside the worker) are visible in browser DevTools
@@ -171,7 +172,10 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
       : sized
         ? `maple:wasm-sized:${req.maxLongEdge}`
         : 'maple:wasm';
-    performance.mark(`maple:wasm:${req.id}:start`);
+    // #1123: safeMeasure — a Performance Timeline throw here (e.g. a cleared mark)
+    // must never fall through to the outer `catch` and mislabel a successful
+    // decode as a `decode-error`.
+    safeMeasure(() => performance.mark(`maple:wasm:${req.id}:start`));
     let result;
     if (gpuFn) {
       try {
@@ -208,8 +212,10 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
       // Unchanged threaded-CPU path — byte-for-byte today's no-GPU behaviour.
       result = render_bytes(bytes, req.ext, req.xmp ?? null);
     }
-    performance.mark(`maple:wasm:${req.id}:end`);
-    performance.measure(markTag, `maple:wasm:${req.id}:start`, `maple:wasm:${req.id}:end`);
+    safeMeasure(() => {
+      performance.mark(`maple:wasm:${req.id}:end`);
+      performance.measure(markTag, `maple:wasm:${req.id}:start`, `maple:wasm:${req.id}:end`);
+    });
     // Read the scalars BEFORE taking the buffer, then consume the RGB via
     // `take_rgb()` (#1080): unlike the `rgb` getter (which CLONES the full frame
     // and leaves the wasm copy alive until free/GC), the take MOVES the bytes
@@ -260,7 +266,8 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
     const bytes = new Uint8Array(req.bytes);
     const sized = req.maxLongEdge !== undefined && req.maxLongEdge > 0;
     // Worker-local mark mirrors the legacy `maple:wasm` perf entry.
-    performance.mark(`maple:wasm-scene-linear:${req.id}:start`);
+    // #1123: safeMeasure — see handleLegacyDecode.
+    safeMeasure(() => performance.mark(`maple:wasm-scene-linear:${req.id}:start`));
     // Sized routing (#1101, spec §5.1): `render_bytes_scene_linear_sized` is
     // the WASM mirror of the Apple FFI's `maple_render_bytes_scene_linear_sized`
     // (same raw-core path — downsample lands right after demosaic).
@@ -273,12 +280,14 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
           req.maxLongEdge as number,
         )
       : render_bytes_scene_linear(bytes, req.ext, req.xmp ?? null, req.qualityPreview);
-    performance.mark(`maple:wasm-scene-linear:${req.id}:end`);
-    performance.measure(
-      sized ? `maple:wasm-scene-linear-sized:${req.maxLongEdge}` : `maple:wasm-scene-linear`,
-      `maple:wasm-scene-linear:${req.id}:start`,
-      `maple:wasm-scene-linear:${req.id}:end`,
-    );
+    safeMeasure(() => {
+      performance.mark(`maple:wasm-scene-linear:${req.id}:end`);
+      performance.measure(
+        sized ? `maple:wasm-scene-linear-sized:${req.maxLongEdge}` : `maple:wasm-scene-linear`,
+        `maple:wasm-scene-linear:${req.id}:start`,
+        `maple:wasm-scene-linear:${req.id}:end`,
+      );
+    });
     // Read the scalars BEFORE taking the buffer, then consume the lanes via
     // `take_fp16_rgba()` (#1080): unlike the `fp16_rgba` getter (which CLONES
     // the full frame and leaves the wasm copy alive until free/GC), the take
@@ -388,7 +397,11 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
       setLiveCanvas(null);
 
       const bytes = new Uint8Array(req.bytes);
-      performance.mark(`maple:session-open:${req.id}:start`);
+      // #1123: safeMeasure — a Performance Timeline throw here must never fall
+      // through to the outer `catch` and report a successful session open as a
+      // `session-error` (the session would then be leaked: opened in wasm, but
+      // never recorded as `liveSession`, and never reported to the caller).
+      safeMeasure(() => performance.mark(`maple:session-open:${req.id}:start`));
       const session = await ctor.open(
         bytes,
         req.ext,
@@ -398,12 +411,14 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
         // session never configures an over-texture-cap (full-sensor-res) surface.
         req.maxLongEdge,
       );
-      performance.mark(`maple:session-open:${req.id}:end`);
-      performance.measure(
-        'maple:session-open',
-        `maple:session-open:${req.id}:start`,
-        `maple:session-open:${req.id}:end`,
-      );
+      safeMeasure(() => {
+        performance.mark(`maple:session-open:${req.id}:end`);
+        performance.measure(
+          'maple:session-open',
+          `maple:session-open:${req.id}:start`,
+          `maple:session-open:${req.id}:end`,
+        );
+      });
       liveSession = session;
       // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.
       // `open` already presented the first frame, so a snapshot here reflects it.
@@ -414,21 +429,25 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
       // the `session-open` measure is timing — folding it into that window
       // (by reading back before the `:end` mark) would hide the render cost
       // it's meant to isolate. Reported as its own measure instead.
-      performance.mark(`maple:scope-readback:${req.id}:start`);
+      safeMeasure(() => performance.mark(`maple:scope-readback:${req.id}:start`));
       const scope = readbackScopeSnapshot();
-      performance.mark(`maple:scope-readback:${req.id}:end`);
-      performance.measure(
-        'maple:scope-readback',
-        `maple:scope-readback:${req.id}:start`,
-        `maple:scope-readback:${req.id}:end`,
-      );
-      // Clear the just-consumed marks + measure so nothing accumulates in the
-      // worker's performance-entry buffer. The marks are per-`req.id` (a fresh
-      // pair every session-open / render tick), so leaving them would grow the
-      // buffer unbounded across a slider drag.
-      performance.clearMarks(`maple:scope-readback:${req.id}:start`);
-      performance.clearMarks(`maple:scope-readback:${req.id}:end`);
-      performance.clearMeasures('maple:scope-readback');
+      // #1123: safeMeasure — same reasoning; also covers the `clearMarks`/
+      // `clearMeasures` bookkeeping below, which is equally diagnostics-only.
+      safeMeasure(() => {
+        performance.mark(`maple:scope-readback:${req.id}:end`);
+        performance.measure(
+          'maple:scope-readback',
+          `maple:scope-readback:${req.id}:start`,
+          `maple:scope-readback:${req.id}:end`,
+        );
+        // Clear the just-consumed marks + measure so nothing accumulates in the
+        // worker's performance-entry buffer. The marks are per-`req.id` (a fresh
+        // pair every session-open / render tick), so leaving them would grow the
+        // buffer unbounded across a slider drag.
+        performance.clearMarks(`maple:scope-readback:${req.id}:start`);
+        performance.clearMarks(`maple:scope-readback:${req.id}:end`);
+        performance.clearMeasures('maple:scope-readback');
+      });
       const response: WorkerResponse = {
         id: req.id,
         type: 'open-session-success',
@@ -466,19 +485,24 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
       return;
     }
     try {
-      performance.mark(`maple:session-render:${req.id}:start`);
+      // #1123: safeMeasure — see handleOpenSession; a throw here must never fall
+      // through to the outer `catch` and report a successful render as a
+      // `session-error` (the frame is already presented to the canvas by then).
+      safeMeasure(() => performance.mark(`maple:session-render:${req.id}:start`));
       let colorSpace: string;
       if (req.params) {
         colorSpace = await liveSession.render_with_params(req.params);
       } else {
         colorSpace = await liveSession.render(req.xmp ?? null);
       }
-      performance.mark(`maple:session-render:${req.id}:end`);
-      performance.measure(
-        'maple:session-render',
-        `maple:session-render:${req.id}:start`,
-        `maple:session-render:${req.id}:end`,
-      );
+      safeMeasure(() => {
+        performance.mark(`maple:session-render:${req.id}:end`);
+        performance.measure(
+          'maple:session-render',
+          `maple:session-render:${req.id}:start`,
+          `maple:session-render:${req.id}:end`,
+        );
+      });
       // Read back the just-presented frame for the scopes (#1045). The render is
       // serialized on `sessionChain`, so the canvas holds this edit's frame here;
       // null on any failure → the scopes keep their previous (or pseudo) data.
@@ -487,21 +511,23 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
       // cost with no bearing on the render-loop tick the other measure times,
       // so it gets its own measure instead of hiding inside (or inflating)
       // that one.
-      performance.mark(`maple:scope-readback:${req.id}:start`);
+      safeMeasure(() => performance.mark(`maple:scope-readback:${req.id}:start`));
       const scope = readbackScopeSnapshot();
-      performance.mark(`maple:scope-readback:${req.id}:end`);
-      performance.measure(
-        'maple:scope-readback',
-        `maple:scope-readback:${req.id}:start`,
-        `maple:scope-readback:${req.id}:end`,
-      );
-      // Clear the just-consumed marks + measure so nothing accumulates in the
-      // worker's performance-entry buffer. The per-`req.id` marks fire once per
-      // render tick, so leaving them would grow the buffer unbounded across a
-      // slider drag (the hot path this measure is meant to observe).
-      performance.clearMarks(`maple:scope-readback:${req.id}:start`);
-      performance.clearMarks(`maple:scope-readback:${req.id}:end`);
-      performance.clearMeasures('maple:scope-readback');
+      safeMeasure(() => {
+        performance.mark(`maple:scope-readback:${req.id}:end`);
+        performance.measure(
+          'maple:scope-readback',
+          `maple:scope-readback:${req.id}:start`,
+          `maple:scope-readback:${req.id}:end`,
+        );
+        // Clear the just-consumed marks + measure so nothing accumulates in the
+        // worker's performance-entry buffer. The per-`req.id` marks fire once per
+        // render tick, so leaving them would grow the buffer unbounded across a
+        // slider drag (the hot path this measure is meant to observe).
+        performance.clearMarks(`maple:scope-readback:${req.id}:start`);
+        performance.clearMarks(`maple:scope-readback:${req.id}:end`);
+        performance.clearMeasures('maple:scope-readback');
+      });
       const response: WorkerResponse = {
         id: req.id,
         type: 'render-session-success',
@@ -533,14 +559,18 @@ async function handleAutoAdjust(req: AutoAdjustRequest): Promise<void> {
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
-    performance.mark(`maple:auto-adjust:${req.id}:start`);
+    // #1123: safeMeasure — see handleLegacyDecode; a throw here must never fall
+    // through to the outer `catch` and report a successful analysis as an error.
+    safeMeasure(() => performance.mark(`maple:auto-adjust:${req.id}:start`));
     const result = compute_auto_adjustments_from_bytes(bytes, req.ext, req.xmp ?? undefined);
-    performance.mark(`maple:auto-adjust:${req.id}:end`);
-    performance.measure(
-      'maple:auto-adjust',
-      `maple:auto-adjust:${req.id}:start`,
-      `maple:auto-adjust:${req.id}:end`,
-    );
+    safeMeasure(() => {
+      performance.mark(`maple:auto-adjust:${req.id}:end`);
+      performance.measure(
+        'maple:auto-adjust',
+        `maple:auto-adjust:${req.id}:start`,
+        `maple:auto-adjust:${req.id}:end`,
+      );
+    });
     // Read all 8 fields before freeing so the struct isn't accessed after drop.
     const patch = {
       exposure: result.exposure,
