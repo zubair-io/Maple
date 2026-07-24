@@ -134,10 +134,28 @@ function asNumber(v: unknown): number | null {
  * always UTC regardless of process timezone, matching the Apple port's
  * same explicit choice (`ExifCaptureDate.swift`), fixed in lockstep with
  * the web port above.
+ *
+ * [#2154]: the `Date` branch below had the exact same class of bug one
+ * layer up. Every `Date` that reaches this function is one exifr itself
+ * revived from a bare EXIF wall-clock string via local-timezone setters
+ * (see `EXIFR_DATE_ONLY_OPTS`'s doc comment above) — `withRawCaptureDates`
+ * replaces that revived `Date` with the raw, un-revived string for every
+ * tag it can re-parse, so this branch is only reached as its fallback (the
+ * re-parse came back without the tag). Calling `.toISOString()` on that
+ * `Date` reads it back through UTC, not the local zone it was built with —
+ * on a non-UTC host, that reintroduces the same offset shift the string
+ * branch below was fixed to avoid. Reading the SAME local fields the
+ * revival wrote (`getFullYear`/`getMonth`/... vs. the constructor's
+ * `y, mo, d, h, mi, s`) and formatting them into a fixed `...Z` string is
+ * the inverse of that construction — it recovers the exact wall-clock
+ * value regardless of the host's timezone, with no dependence on what that
+ * timezone happens to be.
  */
 function asIsoDate(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return v.toISOString();
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const year = String(v.getFullYear()).padStart(4, '0');
+    return `${year}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}T${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}.000Z`;
   }
   if (typeof v === 'string') {
     // Try EXIF format "YYYY:MM:DD HH:MM:SS" first, then ISO.
@@ -228,12 +246,15 @@ const EXIFR_PARSE_OPTS = {
  * object itself, via the *same* locally-ambiguous 3-argument-constructor-
  * plus-local-setters technique `asIsoDate`'s string branch was fixed to
  * avoid (confirmed directly in exifr's bundled source, its internal `ze`
- * function). Once exifr hands back a `Date` instead of a raw string,
- * `asIsoDate`'s `Date` branch can't tell "this came from exifr's locally-
- * biased parse" apart from "this is a genuinely correct, already-UTC Date"
- * (this file's own video branch passes a real UTC `Date` through
- * `CreateDate` today, and must keep working) — so it can't be fixed after
- * the fact without also breaking that legitimate caller.
+ * function). Once exifr hands back a `Date` instead of a raw string, it
+ * reaches `asIsoDate`'s `Date` branch — and that `Date`'s local fields ARE
+ * the wall-clock EXIF value (this file's own video branch, by contrast,
+ * always passes a `string` through `CreateDate` — see `VideoMetadata`'s
+ * `creationDate: string | null` in `video-metadata.ts` — so it never
+ * exercises this branch and there is no real-UTC-`Date` caller to protect
+ * here; `asIsoDate`'s `#2154` fix formats the `Date`'s own local fields
+ * back out, which is exactly the inverse of exifr's construction, so it is
+ * safe for every `Date` that actually reaches it).
  *
  * A blanket `reviveValues: false` on `EXIFR_PARSE_OPTS` would also turn off
  * GPS coordinate conversion and the other tag formatting this stage relies
