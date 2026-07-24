@@ -437,12 +437,12 @@ struct EditorView: View {
     /// Fit-mode inset applied around the canvas while the Crop tool is
     /// armed. Without it, a full-frame crop's fit footprint touches the
     /// viewport edge on the constraining axis, so a corner/edge handle's
-    /// grab tolerance (`CropOverlay.handleTolerance`) is half-clipped by
-    /// the gesture region instead of fully reachable. `CanvasZoomHost`
-    /// and `CropOverlay` each resolve their own fit footprint from their
-    /// own `GeometryReader`, so padding this shared wrapper keeps both
-    /// reading the same (smaller) size and the overlay stays 1:1 with the
-    /// painted image.
+    /// grab tolerance (`CropOverlay`'s `handleTolerance`, 14pt) is
+    /// half-clipped by the gesture region instead of fully reachable.
+    /// `CanvasZoomHost` and `CropOverlay` each resolve their own fit
+    /// footprint from their own `GeometryReader`, so padding this shared
+    /// wrapper keeps both reading the same (smaller) size and the overlay
+    /// stays 1:1 with the painted image.
     private static let cropViewportMargin: CGFloat = 32
 
     private var canvasLayer: some View {
