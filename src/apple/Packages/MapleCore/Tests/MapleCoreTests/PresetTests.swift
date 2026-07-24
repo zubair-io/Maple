@@ -133,19 +133,41 @@ final class PresetTests: XCTestCase {
     }
 
     func testMergedSkipsFieldsTheSwiftModelDoesNotCarry() {
-        // wb_method / auto_exposure / tone_curve_mode exist in the web
-        // schema (and FieldName) but not on the Swift struct yet — a
-        // web-written preset carrying them must apply its other fields
-        // and skip these (they stay preserved in the stored document).
+        // wb_method / tone_curve_mode exist in the web schema (and
+        // FieldName) but not on the Swift struct yet — a web-written
+        // preset carrying them must apply its other fields and skip these
+        // (they stay preserved in the stored document). `auto_exposure`
+        // (#1387) IS now a Swift field — see
+        // `testMergedAppliesAutoExposure` below.
         let (merged, applied) = PresetAdjustments.merged(.default, applying: [
             "wb_method": .string("Cat16"),
-            "auto_exposure": .string("Off"),
             "tone_curve_mode": .string("RatioPreserving"),
             "capture_sharpening_radius": .number(1.5), // deprecated alias
             "contrast": .number(10),
         ])
         XCTAssertEqual(applied, 1)
         XCTAssertEqual(merged.contrast, 10, accuracy: 1e-9)
+    }
+
+    func testMergedAppliesAutoExposure() {
+        // #1387 — auto_exposure is a real Swift enum field now, applied
+        // like highlightRecovery/profile, not skipped as an unknown key.
+        let (merged, applied) = PresetAdjustments.merged(.default, applying: [
+            "auto_exposure": .string("Off"),
+        ])
+        XCTAssertEqual(applied, 1)
+        XCTAssertEqual(merged.autoExposure, .off)
+    }
+
+    func testCaptureFieldsCapturesNonDefaultAutoExposure() {
+        var edited = AdjustmentModel.default
+        edited.autoExposure = .off
+        let fields = PresetAdjustments.captureFields(from: edited)
+        XCTAssertEqual(fields["auto_exposure"], .string("Off"))
+
+        let (merged, applied) = PresetAdjustments.merged(.default, applying: fields)
+        XCTAssertEqual(applied, 1)
+        XCTAssertEqual(merged.autoExposure, .off)
     }
 
     // MARK: - Built-ins (canonical JSON resource)

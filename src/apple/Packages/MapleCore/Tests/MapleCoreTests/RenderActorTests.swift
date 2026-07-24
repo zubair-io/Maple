@@ -333,6 +333,20 @@ final class RenderActorTests: XCTestCase {
             "a profile mismatch must defeat coverage even when the cached resolution is larger")
     }
 
+    /// #1387: identical hole as the profile mismatch above, but for
+    /// `auto_exposure` — it's itself a decode-baked field whose live-override
+    /// staleness story exactly mirrors `profile` (#871), so a mismatch here
+    /// must defeat coverage too regardless of resolution.
+    func testCacheCoversNewDecodeRejectsAutoExposureMismatchDespiteSize() {
+        XCTAssertFalse(
+            RenderActor.cacheCoversNewDecode(
+                sameAsset: true, sameProfile: true, sameAutoExposure: false, sameBakedModel: true,
+                cachedRawResolution: CGSize(width: 2000, height: 1500),
+                newRawResolution: CGSize(width: 800, height: 600)
+            ),
+            "an autoExposure mismatch must defeat coverage even when the cached resolution is larger")
+    }
+
     /// A baked-model mismatch (a KEPT-field edit landed) is the same story
     /// as a profile mismatch — different content, not a smaller version of
     /// the same content — so it must also defeat coverage regardless of size.

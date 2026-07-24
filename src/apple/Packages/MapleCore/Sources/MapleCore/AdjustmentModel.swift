@@ -141,6 +141,25 @@ public enum HotPixelSuppressionMode: String, Codable, Sendable, Hashable, CaseIt
     case on  = "On"
 }
 
+// MARK: - AutoExposureMode
+
+/// Auto-exposure mode (raw-core ticket #429; mirrored into Swift by #1387).
+/// Mirrors `raw_core::types::adjustment::AutoExposureMode` — gates the
+/// decode-time `auto_exposure` stage, a scalar mid-gray anchor gain baked
+/// into the Rust decode product. No Apple-Metal live re-apply, so the field
+/// rides through `stripAppleGPUStages` untouched (like `highlightRecovery`).
+///
+/// `.on` (default) matches raw-core's parse default. `Profile.auto`'s
+/// decode forces this Off internally whenever an Auto Profile curve will
+/// fit; `Profile.neutral`/`.acrMatch` apply it as written. AUTO
+/// (`EditorState.applyAuto`) sets it to `.off` alongside `exposure` on
+/// every profile since its recommendation is measured against an AE-Off
+/// probe — skipping that on Neutral would double-count the anchor gain.
+public enum AutoExposureMode: String, Codable, Sendable, Hashable, CaseIterable {
+    case on  = "On"
+    case off = "Off"
+}
+
 // MARK: - AdjustmentModel
 
 /// Per-image editing knobs. Mirrors `raw_core::xmp::AdjustmentModel`.
@@ -289,6 +308,13 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // Highlight recovery (Maple-proprietary)
     public var highlightRecovery: HighlightRecoveryMode
 
+    /// Auto-exposure mode (#1387). Decode-time scalar mid-gray anchor gain,
+    /// baked into the Rust decode product like `highlightRecovery` above —
+    /// no Apple-Metal live re-apply, so `stripAppleGPUStages` keeps it.
+    /// Defaults to `.on` (raw-core's parse default). XMP key
+    /// `papp:AutoExposure`; `.on` (default) omits the attribute on write.
+    public var autoExposure: AutoExposureMode
+
     // DisplayLookCurve (Maple-proprietary, ticket #371). Defaults to
     // `.default` — new users get the empirical Look.
     public var look: Look
@@ -392,6 +418,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         luminanceAdjustmentPurple: Double = 0,
         luminanceAdjustmentMagenta: Double = 0,
         highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
+        autoExposure: AutoExposureMode = .on,
         look: Look = .default,
         profile: Profile = .auto,
         chromaPrefilter: Double = 0,
@@ -461,6 +488,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.luminanceAdjustmentPurple = luminanceAdjustmentPurple
         self.luminanceAdjustmentMagenta = luminanceAdjustmentMagenta
         self.highlightRecovery = highlightRecovery
+        self.autoExposure = autoExposure
         self.look = look
         self.profile = profile
         self.chromaPrefilter = chromaPrefilter

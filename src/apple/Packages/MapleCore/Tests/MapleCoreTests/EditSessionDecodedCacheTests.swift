@@ -543,4 +543,9 @@ final class EditSessionDecodedCacheTests: XCTestCase {
             + "(auto=\(aMean) neutral=\(nMean))."
         )
     }
+
+    // #1387's autoExposure re-key test lives in the sibling file
+    // EditSessionDecodedCacheAutoExposureTests.swift — this file was already
+    // at the 600-line hard budget (CONTRIBUTING.md), same split rationale as
+    // the run-stage test files.
 }

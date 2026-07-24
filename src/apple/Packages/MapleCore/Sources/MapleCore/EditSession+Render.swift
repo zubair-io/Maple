@@ -280,8 +280,14 @@ extension EditSession {
         // cache (a seeded preview / embedded JPEG) also forces a re-decode
         // so the first real render develops at the correct AE.
         let profileMatches = !asset.isRaw || (snapshot.profile == m.profile)
+        // #1387: `auto_exposure` is a decode-baked field with the same
+        // staleness story as `profile` (#871) — `applyAuto` can flip it on
+        // the live model without waiting for the debounced sidecar write,
+        // so a mismatch here must be treated as a miss too, exactly like
+        // `profileMatches` above.
+        let autoExposureMatches = !asset.isRaw || (snapshot.autoExposure == m.autoExposure)
         let cacheFresh = (cached != nil) && snapshot.isFresh && cacheSufficient
-            && profileMatches
+            && profileMatches && autoExposureMatches
         let cachedDecodedAtModel = snapshot.decodedAtModel
         let cachedNoiseProfile = snapshot.noiseProfile
         let cachedISO = snapshot.iso
@@ -385,6 +391,7 @@ extension EditSession {
                     asset: asset,
                     target: decodeTarget,
                     profile: m.profile,
+                    autoExposure: m.autoExposure,
                     normalize: { [weak self] image, asset in
                         guard let self else { return image }
                         return await MainActor.run {

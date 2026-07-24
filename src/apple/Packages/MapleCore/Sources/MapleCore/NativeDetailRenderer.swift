@@ -204,7 +204,8 @@ actor NativeDetailRenderer {
             let opened = try PipelineRenderer.openRawHandle(
                 rawPath: url,
                 model: model,
-                profileOverride: model.profile
+                profileOverride: model.profile,
+                autoExposureOverride: model.autoExposure
             )
             handleKey = key
             handle = opened

@@ -189,6 +189,13 @@ Range −100…+100. The stage runs in scene-linear Oklab after the saturation p
 
 - `papp:HotPixelSuppression` — `Off` (default) / `On`. Pre-demosaic
   hot/dead-pixel suppression inside the decode product (#1106).
+- `papp:AutoExposure` — `On` (default) / `Off`. Decode-time scalar
+  mid-gray anchor gain (#1387). Case-insensitive on read. As of #1387 this
+  is written by the Swift `XMPSerializer` and read by `raw_core::xmp::parse`
+  (which has always accepted it); the TypeScript `XmpSerializerService`
+  write path does not emit it yet — a web-authored sidecar with a non-default
+  `autoExposure` currently loses it on the next web save. Tracked separately
+  from this ticket's Apple-only scope.
 
 **Always-emitted attributes** (process-version signaling):
 

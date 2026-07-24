@@ -313,6 +313,7 @@ public struct PipelineRenderer: Sendable {
         xmpPath: URL? = nil,
         quality: Quality = .full,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
         // Apple-GPU strip lives in Swift (ticket #124). The temp XMP
@@ -321,7 +322,11 @@ public struct PipelineRenderer: Sendable {
         // `profileOverride` (#871) forces the LIVE profile into the temp
         // XMP so the decode's auto-exposure-Off-when-Auto decision tracks
         // the user's current selection, not the debounced sidecar.
-        try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
+        // `autoExposureOverride` (#1387) mirrors that for `auto_exposure`
+        // itself — see `RawCoreBridge.applyOverrides`.
+        try RawCoreBridge.withStrippedXMP(
+            xmpPath, profileOverride: profileOverride, autoExposureOverride: autoExposureOverride
+        ) { strippedXMP in
             try rawPath.withPathCString { rawCStr in
                 if let strippedXMP {
                     return try strippedXMP.withPathCString { xmpCStr in
@@ -340,12 +345,15 @@ public struct PipelineRenderer: Sendable {
         xmpPath: URL? = nil,
         quality: Quality = .full,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
+        return try RawCoreBridge.withStrippedXMP(
+            xmpPath, profileOverride: profileOverride, autoExposureOverride: autoExposureOverride
+        ) { strippedXMP in
             try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
                 let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
                 if let strippedXMP {
@@ -379,9 +387,12 @@ public struct PipelineRenderer: Sendable {
         quality: Quality = .preview,
         maxLongEdge: UInt32,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
-        try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
+        try RawCoreBridge.withStrippedXMP(
+            xmpPath, profileOverride: profileOverride, autoExposureOverride: autoExposureOverride
+        ) { strippedXMP in
             try rawPath.withPathCString { rawCStr in
                 if let strippedXMP {
                     return try strippedXMP.withPathCString { xmpCStr in
@@ -407,12 +418,15 @@ public struct PipelineRenderer: Sendable {
         quality: Quality = .preview,
         maxLongEdge: UInt32,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
+        return try RawCoreBridge.withStrippedXMP(
+            xmpPath, profileOverride: profileOverride, autoExposureOverride: autoExposureOverride
+        ) { strippedXMP in
             try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
                 let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
                 if let strippedXMP {
@@ -737,11 +751,13 @@ public struct PipelineRenderer: Sendable {
     public static func openRawHandle(
         rawPath: URL,
         model: AdjustmentModel,
-        profileOverride: Profile? = nil
+        profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil
     ) throws -> MapleRawHandle {
         try RawCoreBridge.withStrippedModelXMP(
             model,
-            profileOverride: profileOverride
+            profileOverride: profileOverride,
+            autoExposureOverride: autoExposureOverride
         ) { strippedXMP in
             try rawPath.withPathCString { rawCStr in
                 if let strippedXMP {

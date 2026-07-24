@@ -308,6 +308,7 @@ public actor ImageEditPipeline {
         quality: PipelineRenderer.Quality = .preview,
         xmpPath: URL? = nil,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         cancel: CancelFlag? = nil
     ) async -> SceneLinearDecodeResult? {
         let imageData: MapleSceneLinearImageData
@@ -318,14 +319,14 @@ public actor ImageEditPipeline {
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
                 imageData = try PipelineRenderer.renderSceneLinear(
                     rawPath: url, xmpPath: xmpPath, quality: quality,
-                    profileOverride: profileOverride, cancel: cancel
+                    profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.renderSceneLinear(
                     rawBytes: bytes, hint: hint, xmpPath: xmpPath, quality: quality,
-                    profileOverride: profileOverride, cancel: cancel
+                    profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
                 )
             } else {
                 return nil
@@ -379,6 +380,7 @@ public actor ImageEditPipeline {
         targetSize: CGSize,
         xmpPath: URL? = nil,
         profileOverride: Profile? = nil,
+        autoExposureOverride: AutoExposureMode? = nil,
         cancel: CancelFlag? = nil
     ) async -> SceneLinearDecodeResult? {
         // Per ticket 06 § Product Requirements 2, the long edge of the
@@ -402,7 +404,7 @@ public actor ImageEditPipeline {
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawPath: url, xmpPath: xmpPath,
                     quality: .preview, maxLongEdge: longEdge,
-                    profileOverride: profileOverride, cancel: cancel
+                    profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
@@ -410,7 +412,7 @@ public actor ImageEditPipeline {
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawBytes: bytes, hint: hint, xmpPath: xmpPath,
                     quality: .preview, maxLongEdge: longEdge,
-                    profileOverride: profileOverride, cancel: cancel
+                    profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
                 )
             } else {
                 return nil
@@ -432,7 +434,7 @@ public actor ImageEditPipeline {
             // Forward the cancel flag so the fallback is still interruptible.
             return await decodeSceneLinear(
                 asset: asset, quality: .preview, xmpPath: xmpPath,
-                profileOverride: profileOverride, cancel: cancel
+                profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
             )
         }
         let w = imageData.width, h = imageData.height

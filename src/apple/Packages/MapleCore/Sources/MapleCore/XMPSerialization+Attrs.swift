@@ -148,6 +148,14 @@ extension XMPSerializer {
         if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
         }
+        // Auto-exposure (#1387) — emit only when non-default (`.on`), same
+        // omit-on-default convention as every other papp: enum field.
+        // Sidecars predating this field have no `papp:AutoExposure` and
+        // parse to `.on`; only an explicit AUTO opt-out (`applyAuto` on
+        // `Profile.neutral`/`.acrMatch`) or a hand-authored Off writes it.
+        if model.autoExposure != .on {
+            attrs.append(("papp:AutoExposure", model.autoExposure.rawValue))
+        }
         // DisplayLookCurve (#371; retired in #443) — the field is a no-op
         // post-#443 but the attribute is still emitted on non-default
         // values so it round-trips with pre-#443 sidecars. Default-valued

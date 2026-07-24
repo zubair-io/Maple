@@ -13,11 +13,13 @@
 //   - enum fields → applied only when the value is a known variant
 //
 // Fields in `FieldName` that the Swift `AdjustmentModel` does NOT carry
-// (`wb_method`, `auto_exposure`, `tone_curve_mode`, and the deprecated
+// (`wb_method`, `tone_curve_mode`, and the deprecated
 // `capture_sharpening_radius` alias) map to nil below: never captured,
 // skipped on apply, preserved in storage — the passthrough rule keeps a
 // web-written preset intact even though Apple can't apply those fields
-// until the Swift model gains them.
+// until the Swift model gains them. `auto_exposure` (#1387) is now a Swift
+// enum field like `highlightRecovery` / `profile` — captured and applied
+// below, not routed through this passthrough list.
 
 import Foundation
 
@@ -94,7 +96,9 @@ extension AdjustmentModel.FieldName {
         case .deepDenoise:                  return \.deepDenoise
         // Deprecated alias — no Swift property (see AdjustmentModel docs).
         case .captureSharpeningRadius:      return nil
-        // Enum-valued / not in the Swift model.
+        // Enum-valued / not in the Swift model. `.autoExposure` (#1387) has
+        // no *numeric* key path — like `.highlightRecovery`, it's captured
+        // and applied as a string enum below instead.
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
              .toneCurveMode, .hotPixelSuppression:
             return nil
@@ -202,6 +206,9 @@ public enum PresetAdjustments {
             case .hotPixelSuppression
                 where model.hotPixelSuppression != defaults.hotPixelSuppression:
                 fields[field.rawValue] = .string(model.hotPixelSuppression.rawValue)
+            // Auto-exposure (#1387) — enum decode-product field.
+            case .autoExposure where model.autoExposure != defaults.autoExposure:
+                fields[field.rawValue] = .string(model.autoExposure.rawValue)
             default:
                 break
             }
@@ -231,8 +238,8 @@ public enum PresetAdjustments {
                 continue
             }
             // Enum-valued fields: apply only known variants. Fields the
-            // Swift model doesn't carry (wb_method, auto_exposure,
-            // tone_curve_mode, capture_sharpening_radius) fall through.
+            // Swift model doesn't carry (wb_method, tone_curve_mode,
+            // capture_sharpening_radius) fall through.
             guard case .string(let rawValue) = value else { continue }
             switch field {
             case .highlightRecovery:
@@ -250,6 +257,10 @@ public enum PresetAdjustments {
             case .hotPixelSuppression:
                 guard let mode = HotPixelSuppressionMode(rawValue: rawValue) else { continue }
                 merged.hotPixelSuppression = mode
+                applied += 1
+            case .autoExposure:
+                guard let mode = AutoExposureMode(rawValue: rawValue) else { continue }
+                merged.autoExposure = mode
                 applied += 1
             default:
                 continue

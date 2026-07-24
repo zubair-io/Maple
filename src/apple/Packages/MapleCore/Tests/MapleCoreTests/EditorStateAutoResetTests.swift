@@ -109,10 +109,44 @@ final class EditorStateAutoResetTests: XCTestCase {
         XCTAssertEqual(after.temperature, 7000, accuracy: 1e-9)
         XCTAssertEqual(after.tint, 12, accuracy: 1e-9)
         XCTAssertEqual(after.contrast, 40, accuracy: 1e-9)
+        // #1387: AUTO's exposure is measured against an AE-Off probe, so
+        // autoExposure must flip alongside exposure — otherwise a
+        // Profile.neutral decode double-counts the AE anchor gain.
+        XCTAssertEqual(after.autoExposure, .off)
         // One undo entry restores the pre-AUTO model.
         XCTAssertTrue(state.canUndo)
         state.undo()
         XCTAssertEqual(state.session.model.exposure, AdjustmentModel.default.exposure, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.autoExposure, AdjustmentModel.default.autoExposure)
+    }
+
+    /// #1387 — the exact regression this ticket closes: on `Profile.neutral`
+    /// the Apple decode honours the sidecar's `auto_exposure` (default On)
+    /// rather than forcing it off the way `Profile.auto` does, so AUTO must
+    /// explicitly pin `autoExposure = .off` alongside its exposure
+    /// recommendation or the AE anchor gain and AUTO's lift double-count,
+    /// rendering too bright.
+    func testApplyAutoSetsAutoExposureOffOnNeutralProfile() async {
+        let session = makeFileBackedSession()
+        let state = EditorState(session: session)
+        state.autoProvider = { _ in
+            AutoAdjustmentsResult(
+                exposure: 0.8, temperature: 6500, tint: 0,
+                contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0
+            )
+        }
+        var dirty = session.model
+        dirty.profile = .neutral
+        XCTAssertEqual(dirty.autoExposure, .on, "precondition: fresh model starts AE-On")
+        session.model = dirty
+
+        await state.applyAuto()
+
+        let after = state.session.model
+        XCTAssertEqual(after.profile, .neutral, "AUTO must not touch the render profile")
+        XCTAssertEqual(after.autoExposure, .off,
+                       "AUTO must pin autoExposure Off on Neutral so the decode it measured "
+                       + "the recommendation against is the one that actually renders")
     }
 
     func testApplyAutoClampsExposureAndIgnoresWB() async {
