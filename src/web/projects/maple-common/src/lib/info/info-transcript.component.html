@@ -7,8 +7,10 @@
         >{{ t.text }}</pre
       >
 
-      <!-- provenance footer (small, muted): language · model -->
-      <div class="text-[9px] text-text-muted">{{ t.language }} · {{ t.model }}</div>
+      <!-- provenance footer (small, muted): language · model, blank parts dropped -->
+      @if (footer().length > 0) {
+        <div class="text-[9px] text-text-muted" data-testid="transcript-footer">{{ footer() }}</div>
+      }
     </div>
   </maple-collapsible>
 }

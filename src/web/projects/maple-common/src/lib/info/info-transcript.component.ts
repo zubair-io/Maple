@@ -8,7 +8,7 @@
 // surface (it is not part of the geocode/describe/face enrichment set
 // the orchestrator polls). Hidden entirely when there is no transcript.
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MapleCollapsibleComponent } from '../collapsible/maple-collapsible.component';
 import type { ApiAssetDetail } from '../api/bun-api-backend.service';
 
@@ -26,4 +26,17 @@ import type { ApiAssetDetail } from '../api/bun-api-backend.service';
 })
 export class InfoTranscriptComponent {
   readonly detail = input.required<ApiAssetDetail>();
+
+  /** `language · model` with blank parts dropped — a whisper run can return
+   * `language: ""`, and joining unconditionally would render an orphaned
+   * `· whisper-base`. Mirrors the Swift client's `footer(language:model:)`
+   * so both platforms render the same footer for the same transcript. */
+  readonly footer = computed(() => {
+    const t = this.detail().transcript;
+    if (!t) return '';
+    return [t.language, t.model]
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .join(' · ');
+  });
 }
