@@ -390,35 +390,74 @@ extension EditSession {
     /// an asset and decode it to a `CIImage`. Asset-relative (resolves next to
     /// the asset, e.g. a pano in `Panoramas/`). Returns nil when absent. (#1365,
     /// canonical scheme #2009.)
+    ///
+    /// **#1909 hardening.** This is invoked from `seedFromMapleSidecarPreview`'s
+    /// `Task.detached` closure in `EditSession+PreviewSeeds.swift` — it runs on
+    /// a libdispatch worker thread and its `CIImage` return value crosses back
+    /// onto `@MainActor` through that `Task`'s `await`. #1909 is a
+    /// timing-dependent `EXC_BAD_ACCESS` in `objc_release` →
+    /// `__RELEASE_OBJECTS_IN_THE_ARRAY__` → `-[__NSArrayM dealloc]` →
+    /// `AutoreleasePoolPage::releaseUntil`, seen on a libdispatch worker
+    /// running a Swift Concurrency job with no Maple frames on the crashed
+    /// thread (`.ips` signatures `Maple Exposure-2026-07-12-005424` /
+    /// `…-015904`; 2/2 repro under `SliderMatrixUITests`). This file's
+    /// nonisolated readers were the prime suspects the issue named. Two
+    /// instrumented runs in this pass could not reproduce it (environment
+    /// blocked — see PR for why), so this wrap is defensive hardening, not a
+    /// proven fix: the explicit `autoreleasepool` forces any autoreleased
+    /// object this call allocates (here: the `Data` read machinery and
+    /// `CIImage(data:)`'s decode-context bookkeeping) to drain deterministically
+    /// on THIS call's own pool frame, on the thread that created it — instead
+    /// of deferring the drain to whatever frame libdispatch's worker-thread
+    /// pool happens to close next, which can be a later, unrelated job if the
+    /// thread is reused before the outer pool pops.
     nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
-        let preview = MapleSidecarPaths.previewURL(for: url)
-        guard FileManager.default.fileExists(atPath: preview.path),
-            let data = try? Data(contentsOf: preview)
-        else { return nil }
-        return CIImage(data: data)
+        autoreleasepool {
+            let preview = MapleSidecarPaths.previewURL(for: url)
+            guard FileManager.default.fileExists(atPath: preview.path),
+                let data = try? Data(contentsOf: preview)
+            else { return nil }
+            return CIImage(data: data)
+        }
     }
 
     /// Extract the camera's embedded JPEG preview via ImageIO. Returns a
     /// CIImage at up to 2048 px long edge — enough to look sharp in the
     /// editor's viewport without paying full-resolution decode cost.
+    ///
+    /// **#1909 hardening.** Same executor hop and defensive rationale as
+    /// `readMapleSidecarPreview` above — invoked from `seedFromEmbeddedPreview`'s
+    /// `Task.detached` closure, and its `CIImage` return value crosses back to
+    /// `@MainActor`. Of the two readers this is the likelier alloc site:
+    /// `CGImageSourceCreateThumbnailAtIndex` walks and copies ImageIO's
+    /// EXIF/TIFF/GPS property sub-dictionaries internally, which is exactly
+    /// the kind of autoreleased `NSMutableArray`/dictionary churn the crash
+    /// signature (`__RELEASE_OBJECTS_IN_THE_ARRAY__`) implicates. The explicit
+    /// `autoreleasepool` scopes that churn to this call and drains it on the
+    /// worker thread that created it, before the resulting `CGImage`/`CIImage`
+    /// crosses the executor boundary. Not proven at the alloc site — see the
+    /// note above; this downgrades #1909 to "hardened + monitoring" per its
+    /// own DoD, not "fixed".
     nonisolated static func readEmbeddedPreview(from url: URL) -> CIImage? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        // `FromImageIfAbsent: false` means we only return the camera's
-        // pre-baked preview. When a RAW has no embedded preview (rare, but
-        // happens with ProRAW passthrough and some synthetic DNGs), ImageIO
-        // would otherwise full-decode the Bayer data to synthesize one —
-        // which defeats the whole point of this "fast" path. Returning nil
-        // lets the caller fall through to the real Rust decode instead.
-        let opts: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: false,
-            kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
-            kCGImageSourceThumbnailMaxPixelSize: 2048,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCache: false,
-        ]
-        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
-            return nil
+        autoreleasepool {
+            guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            // `FromImageIfAbsent: false` means we only return the camera's
+            // pre-baked preview. When a RAW has no embedded preview (rare, but
+            // happens with ProRAW passthrough and some synthetic DNGs), ImageIO
+            // would otherwise full-decode the Bayer data to synthesize one —
+            // which defeats the whole point of this "fast" path. Returning nil
+            // lets the caller fall through to the real Rust decode instead.
+            let opts: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: false,
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
+                kCGImageSourceThumbnailMaxPixelSize: 2048,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCache: false,
+            ]
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
+                return nil
+            }
+            return CIImage(cgImage: cg)
         }
-        return CIImage(cgImage: cg)
     }
 }
