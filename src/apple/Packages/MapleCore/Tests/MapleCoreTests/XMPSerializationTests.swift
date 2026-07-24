@@ -545,6 +545,18 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertEqual(m2.parametricShadows, -33.5)
     }
 
+    /// The omit-on-default gate and the emitted value share the 2-decimal
+    /// wire codec: a value that rounds to 0 must be omitted, not emitted
+    /// as `="0"` (PR #2192 review — gating on the raw Double churned
+    /// otherwise-identical sidecars).
+    func testParametricToneCurveRoundsToZeroOmitted() throws {
+        var m = AdjustmentModel()
+        m.parametricLights = 0.004
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertFalse(xml.contains("crs:Parametric"),
+                       "a value that rounds to 0 must be omitted, got: \(xml)")
+    }
+
     /// Fractional drag values (the widget is not integer-quantized) keep
     /// their precision across a save → load cycle — integer rounding here
     /// would shift the stored curve on every re-save.
