@@ -500,15 +500,21 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     }
     // Parametric tone-curve region sliders (#365) — Lightroom-compatible
     // PV2012 `crs:` keys, emitted only when non-default (0) to mirror the
-    // Swift/TS writers. The parse half lives in `set_field` above.
+    // Swift/TS writers. Both the omit test and the emitted value go through
+    // the canonical 2-decimal wire codec: gating on the raw value would emit
+    // float-noise (0.004 → `="0.004"`) that Swift/TS round away, churning
+    // otherwise-identical sidecars. Non-finite values are not representable
+    // in sidecars (canonical-format § Number formatting) and are skipped.
+    // The parse half lives in `set_field` above.
     for (key, value) in [
         ("crs:ParametricHighlights", model.parametric_highlights),
         ("crs:ParametricLights", model.parametric_lights),
         ("crs:ParametricDarks", model.parametric_darks),
         ("crs:ParametricShadows", model.parametric_shadows),
     ] {
-        if value != 0.0 {
-            out.push_str(&format!(r#" {key}="{value}""#));
+        let rounded = (value * 100.0).round() / 100.0;
+        if rounded.is_finite() && rounded != 0.0 {
+            out.push_str(&format!(r#" {key}="{rounded}""#));
         }
     }
     // Crop / straighten (#277) — emitted only when non-identity. The rect
