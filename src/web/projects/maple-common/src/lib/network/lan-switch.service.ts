@@ -51,23 +51,33 @@ export class LanSwitchService {
       const report = await firstValueFrom(
         this.http.get<LocalAddressReport>('/api/network/local-address'),
       );
-      if (!report.available || !report.ip || !report.port) return null;
-      const candidateScheme = report.scheme ?? 'http';
-      const origin = `${candidateScheme}://${report.ip}:${report.port}`;
+      const candidate = LanSwitchService.parseCandidate(report);
+      if (!candidate) return null;
+      if (this.isAlreadyAtCandidate(candidate, pageProtocol, currentLocation)) return null;
 
-      const currentPort = currentLocation.port || (pageProtocol === 'https:' ? '443' : '80');
-      if (currentLocation.hostname === report.ip && currentPort === String(report.port)) {
-        return null;
+      if (pageProtocol === 'https:' && candidate.scheme === 'http') {
+        return { origin: candidate.origin };
       }
-
-      if (pageProtocol === 'https:' && candidateScheme === 'http') {
-        return { origin };
-      }
-      const confirmed = await this.probe(origin, report);
-      return confirmed ? { origin } : null;
+      const confirmed = await this.probe(candidate.origin, report);
+      return confirmed ? { origin: candidate.origin } : null;
     } catch {
       return null;
     }
+  }
+
+  /** Extracts the advertised LAN origin from a report, or `null` when the
+   * server has none to offer (disabled, or no IP/port resolved). */
+  private static parseCandidate(
+    report: LocalAddressReport,
+  ): { origin: string; scheme: string; ip: string; port: number } | null {
+    if (!report.available || !report.ip || !report.port) return null;
+    const scheme = report.scheme ?? 'http';
+    return {
+      origin: `${scheme}://${report.ip}:${report.port}`,
+      scheme,
+      ip: report.ip,
+      port: report.port,
+    };
   }
 
   /**
@@ -83,6 +93,17 @@ export class LanSwitchService {
     if (!code) return false;
     this.navigateTo(`${candidate.origin}/?lan_handoff=${encodeURIComponent(code)}`);
     return true;
+  }
+
+  /** True when the page's own hostname:port already IS the candidate LAN
+   * address — nothing to switch to (e.g. a reload after a previous switch). */
+  private isAlreadyAtCandidate(
+    candidate: { ip: string; port: number },
+    pageProtocol: string,
+    currentLocation: Pick<Location, 'hostname' | 'port'>,
+  ): boolean {
+    const currentPort = currentLocation.port || (pageProtocol === 'https:' ? '443' : '80');
+    return currentLocation.hostname === candidate.ip && currentPort === String(candidate.port);
   }
 
   /** Re-hits the SAME report endpoint at the candidate origin, requiring it
