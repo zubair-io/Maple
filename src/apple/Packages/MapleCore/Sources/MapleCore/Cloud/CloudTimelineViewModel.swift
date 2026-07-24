@@ -218,6 +218,11 @@ public final class CloudTimelineViewModel {
   /// inFlight removal) runs in `defer` so cancellation at any await
   /// point doesn't strand the bucket key permanently in `inFlight`
   /// (which would make that month section unrecoverable).
+  ///
+  /// `semaphore.acquire()` (#2112) throws `CancellationError` if this
+  /// task is cancelled while queued behind `maxConcurrentPageFetches` —
+  /// treated as a quiet no-op below, same as every other cancellation
+  /// point in this method (the generation guards).
   public func loadPage(year: Int, month: Int) async {
     let key = BucketKey(year: year, month: month)
     let g = generation
@@ -276,7 +281,19 @@ public final class CloudTimelineViewModel {
       }
     }
 
-    await semaphore.acquire()
+    do {
+      try await semaphore.acquire()
+    } catch {
+      // `BoundedAsyncSemaphore.acquire()` only ever throws
+      // `CancellationError` (the view went away, or the generation moved
+      // on, while we were queued behind the concurrency cap) — the plain
+      // `catch` is a defensive fallback for that same quiet no-op since
+      // the compiler can't statically narrow a generic `throws` to one
+      // error type. No `loadError`, nothing to clean up beyond the
+      // `defer` (which already runs unconditionally; `acquired` stays
+      // false since we never got a permit to release).
+      return
+    }
     acquired = true
 
     do {
