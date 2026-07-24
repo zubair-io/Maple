@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { COLOR_LABELS, VALID_COLOR_LABELS, isColorLabel } from './color-label.ts';
+import { COLOR_LABELS, VALID_COLOR_LABELS } from './color-label.ts';
 
 describe('color-label vocabulary (#1657)', () => {
   it('is the canonical six-color set', () => {
@@ -11,13 +11,13 @@ describe('color-label vocabulary (#1657)', () => {
     for (const c of COLOR_LABELS) expect(VALID_COLOR_LABELS.has(c)).toBe(true);
   });
 
-  it('isColorLabel accepts every canonical color, including orange and purple', () => {
-    for (const c of COLOR_LABELS) expect(isColorLabel(c)).toBe(true);
+  it('accepts every canonical color, including orange and purple', () => {
+    for (const c of COLOR_LABELS) expect(VALID_COLOR_LABELS.has(c)).toBe(true);
   });
 
-  it('isColorLabel rejects anything outside the vocabulary', () => {
+  it('rejects anything outside the vocabulary (case-sensitive, no empty string)', () => {
     for (const bad of ['magenta', 'Red', '', 'RED']) {
-      expect(isColorLabel(bad)).toBe(false);
+      expect(VALID_COLOR_LABELS.has(bad)).toBe(false);
     }
   });
 });
