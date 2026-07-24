@@ -191,6 +191,123 @@ describe('RawPipelineService — decodeSceneLinear (Plan 3 M1)', () => {
   });
 });
 
+describe('RawPipelineService — performance-mark deadlock guard (#1123)', () => {
+  // #1123: `performance.measure` THROWS if either named mark was cleared out from
+  // under it (DevTools' `performance.clearMarks()`, a monitoring shim, or a test
+  // harness can do this anytime — the Performance Timeline is a single shared,
+  // mutable buffer). Before the fix, the mark/measure pair ran INSIDE the pending
+  // handler's `resolve` wrapper, un-guarded — a throw there meant the real
+  // `resolve(result)` call one line below never ran. Because every decode is
+  // serialized behind `decodeChain`, that one stranded decode permanently wedged
+  // every later decode too. These specs simulate the throw and assert the promise
+  // still settles and the chain still drains.
+  let workerStub: WorkerStub;
+  let originalWorker: typeof Worker;
+  let originalMeasure: typeof performance.measure;
+
+  beforeEach(() => {
+    workerStub = new WorkerStub();
+    originalWorker = globalThis.Worker;
+    const stub = workerStub;
+    class WorkerCtor {
+      constructor(_url: URL, _opts?: WorkerOptions) {
+        return stub as unknown as Worker;
+      }
+    }
+    Object.defineProperty(globalThis, 'Worker', {
+      value: WorkerCtor,
+      writable: true,
+      configurable: true,
+    });
+    TestBed.configureTestingModule({});
+    originalMeasure = performance.measure.bind(performance);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'Worker', {
+      value: originalWorker,
+      writable: true,
+      configurable: true,
+    });
+    performance.measure = originalMeasure;
+  });
+
+  it('still resolves decode() when performance.measure throws (simulated cleared mark)', async () => {
+    performance.measure = vi.fn(() => {
+      throw new DOMException(
+        "Failed to execute 'measure' on 'Performance': The mark 'maple:decode:1:start' does not exist.",
+        'SyntaxError',
+      );
+    });
+
+    const service = TestBed.inject(RawPipelineService);
+    const promise = service.decode(new Uint8Array([0x44]), 'dng');
+
+    await Promise.resolve();
+    const sent = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    const rgb = new Uint8Array(3).fill(0x22);
+    workerStub.reply({
+      id: sent.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      nativeWidth: 1,
+      nativeHeight: 1,
+      rgb: rgb.buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+
+    // Before the fix, this hangs forever — the throw inside the un-guarded
+    // resolve wrapper strands the promise (never resolves, never rejects).
+    const decoded = await promise;
+    expect(decoded.rgb[0]).toBe(0x22);
+  });
+
+  it('does not deadlock decodeChain: a second decode still runs after a measure throw', async () => {
+    performance.measure = vi.fn(() => {
+      throw new Error('simulated Performance Timeline throw');
+    });
+
+    const service = TestBed.inject(RawPipelineService);
+    const p1 = service.decode(new Uint8Array([0x01]), 'dng');
+    const p2 = service.decode(new Uint8Array([0x02]), 'dng');
+
+    await Promise.resolve();
+    expect(workerStub.postMessage).toHaveBeenCalledTimes(1);
+    const first = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    workerStub.reply({
+      id: first.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      nativeWidth: 1,
+      nativeHeight: 1,
+      rgb: new Uint8Array(3).fill(0x11).buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await p1;
+
+    // decodeChain must have advanced — the second decode posts next.
+    await Promise.resolve();
+    expect(workerStub.postMessage).toHaveBeenCalledTimes(2);
+    const second = workerStub.postMessage.mock.calls[1][0] as DecodeRequest;
+    workerStub.reply({
+      id: second.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      nativeWidth: 1,
+      nativeHeight: 1,
+      rgb: new Uint8Array(3).fill(0x22).buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await p2;
+  });
+});
+
 describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => {
   // Confirms Task 4's discriminated-union widening did not break the legacy
   // sRGB decode path. Plan 3 M1's invariant is "purely additive — the
