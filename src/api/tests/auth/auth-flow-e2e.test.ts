@@ -43,6 +43,7 @@ import {
   refreshTokensCollection,
   challengesCollection,
   nativeAuthCodesCollection,
+  lanHandoffCodesCollection,
   serverStateCollection,
 } from '../../src/db/client.ts';
 import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
@@ -60,6 +61,7 @@ beforeEach(async () => {
     refreshTokensCollection,
     challengesCollection,
     nativeAuthCodesCollection,
+    lanHandoffCodesCollection,
   ]) {
     await (await c()).deleteMany({});
   }
@@ -251,6 +253,41 @@ describe('auth lifecycle e2e (#852 stack)', () => {
       (await post('/api/auth/native-code/redeem', { code, code_verifier: verifier }, { ip }))
         .status,
     ).toBe(400);
+  });
+
+  it('LAN-handoff session keeps rotating WITHOUT Secure — reload on the LAN origin does not sign the user out', async () => {
+    // Regression for a bug where /refresh hardcoded `secure: true` when
+    // re-setting the rotated cookie, even for a session established via the
+    // LAN handoff (whose cookie is deliberately set WITHOUT `Secure` — see
+    // auth-lan-handoff.ts, since the LAN origin only ever answers over plain
+    // HTTP). A `Secure` cookie set over plain HTTP is silently dropped by the
+    // browser, so the first rotation after the handoff wiped the session and
+    // the next page reload found no cookie at all.
+    const ip = '198.51.100.5';
+    const { body } = await claim('lan@maple.test', ip, 'laptop');
+    const bearer = body.access_token!;
+
+    // Public HTTPS-domain page issues a one-time handoff code.
+    const issueRes = await post('/api/auth/lan-handoff', {}, { ip, bearer });
+    expect(issueRes.status).toBe(200);
+    const { code } = (await issueRes.json()) as { code: string };
+
+    // LAN-origin page redeems it for its OWN session.
+    const redeemRes = await post('/api/auth/lan-handoff/redeem', { code }, { ip });
+    expect(redeemRes.status).toBe(200);
+    expect((redeemRes.headers.get('set-cookie') ?? '').toLowerCase()).not.toContain('secure');
+    const lan0 = setCookie(redeemRes);
+
+    // Rotate (e.g. the short-lived access token expired) — the re-set cookie
+    // must STILL be non-Secure, not silently promoted back to Secure.
+    const rot = await refresh(lan0, ip);
+    expect(rot.status).toBe(200);
+    expect((rot.headers.get('set-cookie') ?? '').toLowerCase()).not.toContain('secure');
+    const lan1 = setCookie(rot);
+
+    // And the rotated cookie — the one a reload would actually present —
+    // keeps working.
+    expect((await refresh(lan1, ip)).status).toBe(200);
   });
 
   it('PhotoKit-backup routes reject anonymous requests and pass auth with a bearer (#853 gate)', async () => {
