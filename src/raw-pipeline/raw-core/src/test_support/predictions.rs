@@ -5,7 +5,7 @@
 
 // Reference the stage's monotonicity-bound constants directly (#1918) so the
 // predictor can't drift from production if the bounds are retuned.
-use crate::stages::scene_tone_controls::{B_CRUSH_EDGE, B_LIFT_EDGE, WHITES_MIN_GAIN};
+use crate::stages::scene_tone_controls::{B_CRUSH_EDGE, B_LIFT_EDGE, B_LIFT_MAX, WHITES_MIN_GAIN};
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
@@ -102,8 +102,8 @@ pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
 /// scene_tone_controls::apply, step 5. Parametric toe curve (Ticket #268)
 /// — smoothstep-weighted near zero. Branch on sign of slider: negative
 /// crushes multiplicatively over the 0.2 edge (no negative scene values
-/// possible); positive lifts additively over the WIDER 0.40 edge, kept
-/// monotone at the full +100 lift (#1918, `B_LIFT_EDGE` in the stage).
+/// possible); positive lifts additively over the 0.20 black-range edge, with a
+/// 0.125 full-rail endpoint that remains monotone (#2186).
 pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
     if b_slider.abs() < 1e-3 {
         return scene;
@@ -115,7 +115,7 @@ pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
         scene * factor
     } else {
         let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, scene);
-        let delta = (b_slider / 400.0) * w;
+        let delta = B_LIFT_MAX * (b_slider / 100.0) * w;
         scene + delta
     }
 }

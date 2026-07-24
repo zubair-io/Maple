@@ -81,14 +81,13 @@ const SH_MASK_EDGE0: f32 = 0.05;
 const SH_MASK_EDGE1: f32 = 0.25;
 const SH_MASK_SIGMA_REF_PX: f32 = 15.0;
 const SH_MASK_REF_LONG_EDGE: f32 = 2000.0;
-// Whites/blacks monotonicity bounds (#1918) — transcribed from the raw-core
-// stage (WHITES_MIN_GAIN / B_CRUSH_EDGE / B_LIFT_EDGE); the parity test pins
-// them to the real stage. The whites negative gain is floored so the upper-end
-// op stays monotone; the blacks LIFT toe uses the WIDER 0.40 edge (the CRUSH toe
-// keeps 0.2, already monotone).
+// Whites/blacks monotonicity bounds — transcribed from raw-core and pinned by
+// the parity test. #2186 restores the positive Blacks toe to the 0.20 black
+// range and halves its full-rail endpoint so it remains monotone.
 const WHITES_MIN_GAIN: f32 = 0.32;
 const B_CRUSH_EDGE: f32 = 0.2;
-const B_LIFT_EDGE: f32 = 0.40;
+const B_LIFT_EDGE: f32 = 0.20;
+const B_LIFT_MAX: f32 = 0.125;
 
 #[inline]
 fn luma(p: [f32; 3]) -> f32 {
@@ -273,7 +272,7 @@ pub fn apply_scene_tone_controls(
     // Whites negative-gain floor (#1918); positive gain passes through unclamped.
     let w_amount = (whites / 200.0).max(-WHITES_MIN_GAIN);
     let b_amount = blacks / 100.0;
-    let b_add_pos = blacks / 400.0;
+    let b_add_pos = B_LIFT_MAX * blacks / 100.0;
 
     // 1 + 1b. Exposure, then brightness — point ops.
     if apply_exposure || apply_brightness {
@@ -325,7 +324,7 @@ pub fn apply_scene_tone_controls(
                     px[1] *= factor;
                     px[2] *= factor;
                 } else {
-                    // Lift: additive, WIDER 0.40 edge (B_LIFT_EDGE, #1918).
+                    // Lift: additive, 0.20 edge with 0.125 full-rail endpoint.
                     let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, y_old);
                     let delta = b_add_pos * w;
                     if y_old > 1e-6 {

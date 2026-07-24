@@ -224,10 +224,11 @@ fn sky_mask(dc: &[f32], w: usize, h: usize) -> Vec<f32> {
 /// Apply dehaze per spec § 3.9.
 /// `dehaze` in [-100, +100]; 0 is identity.
 ///
-/// Positive slider strengthens haze removal (transmission mapped toward its
-/// recovered value); negative adds haze (transmission pushed toward 1.0).
-/// The final recovery `J = (I - A) / max(t, t0) + A` uses a transmission
-/// floor t0 = 0.1 to avoid division-blowup on the darkest patches.
+/// Positive slider strengthens haze removal via
+/// `J = (I - A) / max(t_eff, t0) + A`. Negative adds haze with the forward
+/// atmospheric model `J = I·t_haze + A·(1 − t_haze)`. Keeping those branches
+/// distinct is essential: running the recovery divide for a negative value
+/// removes haze and darkens the image (#2187).
 ///
 /// A sky mask (issue #272) suppresses the dehaze contribution where the
 /// DCP assumption fails (sky, snow, white walls). See `SKY_MASK_LOW` /
@@ -268,17 +269,26 @@ fn recover_with_mask(img: &mut Image, dehaze: f32, t_refined: &[f32], a: [f32; 3
     let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
     for (i, p) in img.pixels.iter_mut().enumerate() {
         let t = t_refined[i].clamp(0.0, 1.0);
-        let t_eff = if scale >= 0.0 {
+        let (j_r, j_g, j_b) = if scale >= 0.0 {
             // Positive: linearly blend from "no haze removal" (t=1) toward
             // the recovered transmission.
-            (t + (1.0 - t) * (1.0 - scale)).max(t0)
+            let t_eff = (t + (1.0 - t) * (1.0 - scale)).max(t0);
+            (
+                (p[0] - a[0]) / t_eff + a[0],
+                (p[1] - a[1]) / t_eff + a[1],
+                (p[2] - a[2]) / t_eff + a[2],
+            )
         } else {
-            // Negative: push transmission toward 1 (adds haze).
-            (t + (1.0 - t) * (-scale)).min(1.0).max(t0)
+            // Negative: forward atmospheric model. At zero, t_haze=1 and the
+            // image is unchanged; at -100, t_haze=t and the veil is strongest.
+            let t_haze = 1.0 - (-scale) * (1.0 - t);
+            let veil = 1.0 - t_haze;
+            (
+                p[0] * t_haze + a[0] * veil,
+                p[1] * t_haze + a[1] * veil,
+                p[2] * t_haze + a[2] * veil,
+            )
         };
-        let j_r = (p[0] - a[0]) / t_eff + a[0];
-        let j_g = (p[1] - a[1]) / t_eff + a[1];
-        let j_b = (p[2] - a[2]) / t_eff + a[2];
         // Blend dehaze result `J` with the unmodified input `I` by the sky
         // mask: mask=1 → input, mask=0 → full dehaze.
         let m = mask[i].clamp(0.0, 1.0);

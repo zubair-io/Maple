@@ -204,14 +204,22 @@ fn recover_with_mask(
     let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
     for (i, p) in pixels.iter_mut().enumerate() {
         let t = t_refined[i].clamp(0.0, 1.0);
-        let t_eff = if scale >= 0.0 {
-            (t + (1.0 - t) * (1.0 - scale)).max(T0)
+        let (j_r, j_g, j_b) = if scale >= 0.0 {
+            let t_eff = (t + (1.0 - t) * (1.0 - scale)).max(T0);
+            (
+                (p[0] - a[0]) / t_eff + a[0],
+                (p[1] - a[1]) / t_eff + a[1],
+                (p[2] - a[2]) / t_eff + a[2],
+            )
         } else {
-            (t + (1.0 - t) * (-scale)).min(1.0).max(T0)
+            let t_haze = 1.0 - (-scale) * (1.0 - t);
+            let veil = 1.0 - t_haze;
+            (
+                p[0] * t_haze + a[0] * veil,
+                p[1] * t_haze + a[1] * veil,
+                p[2] * t_haze + a[2] * veil,
+            )
         };
-        let j_r = (p[0] - a[0]) / t_eff + a[0];
-        let j_g = (p[1] - a[1]) / t_eff + a[1];
-        let j_b = (p[2] - a[2]) / t_eff + a[2];
         let m = mask[i].clamp(0.0, 1.0);
         let inv_m = 1.0 - m;
         *p = [

@@ -15,10 +15,12 @@
 // operation order verbatim:
 //   t      = clamp(t_refined, 0, 1)
 //   scale  = clamp(dehaze / 100, -1, 1)
-//   t_eff  = scale >= 0 ? max(t + (1-t)*(1-scale), t0)
-//                       : max(min(t + (1-t)*(-scale), 1), t0)
-//   J      = (I - A) / t_eff + A          (RAW, unclamped A — recovery does NOT
-//                                          apply the transmission-only A floor)
+//   scale >= 0:
+//     t_eff = max(t + (1-t)*(1-scale), t0)
+//     J     = (I - A) / t_eff + A
+//   scale < 0:
+//     t_haze = 1 - (-scale)*(1-t)
+//     J      = I*t_haze + A*(1-t_haze)    (forward atmospheric model, #2187)
 //   m      = clamp(mask, 0, 1)
 //   out    = (1 - m) * J + m * I
 // t0 = 0.1 (transmission floor), guarding the divide on the darkest patches.
@@ -68,15 +70,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 
     let t = clamp(t_refined, 0.0, 1.0);
     let scale = params.scale;
-    var t_eff: f32;
-    if (scale >= 0.0) {
-        t_eff = max(t + (1.0 - t) * (1.0 - scale), T0);
-    } else {
-        t_eff = max(min(t + (1.0 - t) * (-scale), 1.0), T0);
-    }
-
     let a = airlight.value.rgb;       // RAW A.
-    let j = (p.rgb - a) / t_eff + a;
+    var j: vec3<f32>;
+    if (scale >= 0.0) {
+        let t_eff = max(t + (1.0 - t) * (1.0 - scale), T0);
+        j = (p.rgb - a) / t_eff + a;
+    } else {
+        let t_haze = 1.0 - (-scale) * (1.0 - t);
+        j = p.rgb * t_haze + a * (1.0 - t_haze);
+    }
 
     let m = clamp(sky_buf[i], 0.0, 1.0);
     let inv_m = 1.0 - m;
