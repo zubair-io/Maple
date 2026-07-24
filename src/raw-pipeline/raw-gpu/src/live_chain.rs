@@ -115,6 +115,30 @@ fn scene_tone_is_noop(tone: &[f32; 6]) -> bool {
         && tone[5].abs() < SLIDER_EPS
 }
 
+/// Dispatch shape of the internally-gated scene-tone DAG. Values within a fixed
+/// shape deliberately do not participate. Bit layout: pre
+/// (exposure/brightness), two-bit masked-step count, post (whites/blacks).
+/// Highlights-only and Shadows-only share the same pipeline and bindings. A
+/// point-only stage returns zero; the outer active bit distinguishes neutral.
+fn scene_tone_dispatch_shape(tone: &[f32; 6]) -> u8 {
+    let highlights = tone[2].abs() >= SLIDER_EPS;
+    let shadows = tone[3].abs() >= SLIDER_EPS;
+    if !highlights && !shadows {
+        return 0;
+    }
+
+    let mut shape = 0u8;
+    if tone[0].abs() >= EXPOSURE_EPS || tone[1].abs() >= SLIDER_EPS {
+        shape |= 1 << 0;
+    }
+    let masked_count = u8::from(highlights) + u8::from(shadows);
+    shape |= masked_count << 1;
+    if tone[4].abs() >= SLIDER_EPS || tone[5].abs() >= SLIDER_EPS {
+        shape |= 1 << 3;
+    }
+    shape
+}
+
 /// Whether the tone-curves stage is a no-op — mirrors
 /// `raw_core::stages::tone_curves::apply` (`mod.rs:82-102`): no parametric field
 /// `≥ 1e-3` AND every point curve (luma / R / G / B) is identity.
@@ -486,7 +510,7 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
 
 /// The chain SIGNATURE for the live pool ([`crate::frame_pool`]): a hash of the
 /// SESSION identity + the active-stage mask + the render dims + anything that
-/// changes the DISPATCH COUNT within an active stage. The pool keys its
+/// changes the DISPATCH SEQUENCE within an active stage. The pool keys its
 /// bind-group / scratch cache by this, so two renders with the same signature
 /// share resources (zero alloc on the second) while a signature change (a
 /// slider crossing a gating threshold, a dims change, a different
@@ -514,6 +538,10 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
 /// bucket, matching or not, so this cross-session collision can't happen.
 ///
 /// Dispatch-count drivers folded in beyond the on/off mask:
+/// - **scene-tone dispatch shape**: highlights/shadows replace the one-dispatch
+///   point path with a masked luma/blur DAG, while pre/post point steps are
+///   independently gated. Reusing a point-path bucket for a masked path can bind
+///   the shadow mask to another stage's scratch buffers.
 /// - **capture-sharpening `iterations`**: its encode loop is `for _ in
 ///   0..iterations`, so a different count = a different dispatch sequence.
 /// - NLM's shift-loop count is a CONST per pass (`LUMA_SEARCH_RADIUS` /
@@ -539,6 +567,7 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u
     active_mask(inputs).hash(&mut h);
     dims.0.hash(&mut h);
     dims.1.hash(&mut h);
+    scene_tone_dispatch_shape(&inputs.tone).hash(&mut h);
     // Capture-sharpening iterations drive the RL dispatch-loop length.
     let cs_iters = inputs
         .capture_sharpening
