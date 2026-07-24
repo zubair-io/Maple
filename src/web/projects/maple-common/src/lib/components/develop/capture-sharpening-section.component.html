@@ -13,21 +13,24 @@
       (valueChange)="patch('captureSharpeningAmount', $event)"
     />
     <!--
-      Step quantised to whole pixels: the Rust pipeline's tripled-box-blur
-      capture-sharpening stage accepts only integer radii (see
-      `capture_sharpening_params_from_model` in develop.rs — it rounds to
-      `usize`). Fractional steps would advertise UI precision the pipeline
-      doesn't honour. Min/max also snap to integer endpoints inside the
-      model's declared [0.5, 2.0] range; the true-sigma path that would
-      restore fractional control is tracked in KTLO #320.
+      #320: the Rust pipeline now runs a true separable Gaussian PSF
+      parameterised by an f32 sigma (`stages::capture_sharpening` +
+      `stages::blur::gaussian_blur_plane_sigma`, no integer-radius
+      rounding anywhere in `capture_sharpening_params_from_model`), so the
+      slider is restored to the model's declared [0.5, 2.0] range at
+      step=0.1 fractional precision. Bind to `captureSharpeningSigma` —
+      `captureSharpeningRadius` is a deprecated back-compat XMP-parse
+      alias that no code reads after parse (see
+      `adjustment-model.generated.ts`); binding to it here silently
+      dropped every edit before this fix.
     -->
     <editor-slider
-      label="Radius"
-      [value]="adj().captureSharpeningRadius"
-      [min]="1"
-      [max]="2"
-      [step]="1"
-      (valueChange)="patch('captureSharpeningRadius', $event)"
+      label="Sigma"
+      [value]="adj().captureSharpeningSigma"
+      [min]="0.5"
+      [max]="2.0"
+      [step]="0.1"
+      (valueChange)="patch('captureSharpeningSigma', $event)"
     />
   }
 </maple-collapsible>
