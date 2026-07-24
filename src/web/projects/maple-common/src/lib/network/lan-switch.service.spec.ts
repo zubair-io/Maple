@@ -100,6 +100,52 @@ describe('LanSwitchService.checkAvailable', () => {
     ctrl.expectOne('/api/network/local-address').flush(report);
     expect(await p).toBeNull();
   });
+
+  it('returns null without probing when the page is already on the candidate LAN origin', async () => {
+    const fetchImpl = okFetch({ available: false });
+    vi.stubGlobal('fetch', fetchImpl);
+
+    const p = service.checkAvailable('http:', { hostname: '192.168.1.42', port: '3000' });
+    ctrl.expectOne('/api/network/local-address').flush({
+      available: true,
+      ip: '192.168.1.42',
+      port: 3000,
+      scheme: 'http',
+    });
+    expect(await p).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('still offers the candidate when only the hostname matches but the port differs', async () => {
+    const report: LocalAddressReport = {
+      available: true,
+      ip: '192.168.1.42',
+      port: 3000,
+      scheme: 'http',
+    };
+    vi.stubGlobal('fetch', okFetch(report));
+
+    const p = service.checkAvailable('http:', { hostname: '192.168.1.42', port: '8080' });
+    ctrl.expectOne('/api/network/local-address').flush(report);
+    expect(await p).toEqual({ origin: 'http://192.168.1.42:3000' });
+  });
+
+  it('treats an empty page port as the scheme default when comparing to the candidate', async () => {
+    // A page loaded as http://192.168.1.42/ (no explicit port, default 80)
+    // IS already at a candidate reporting port 80 — no banner.
+    const fetchImpl = okFetch({ available: false });
+    vi.stubGlobal('fetch', fetchImpl);
+
+    const p = service.checkAvailable('http:', { hostname: '192.168.1.42', port: '' });
+    ctrl.expectOne('/api/network/local-address').flush({
+      available: true,
+      ip: '192.168.1.42',
+      port: 80,
+      scheme: 'http',
+    });
+    expect(await p).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });
 
 describe('LanSwitchService.switchTo', () => {
