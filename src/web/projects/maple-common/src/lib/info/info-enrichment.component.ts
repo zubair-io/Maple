@@ -43,6 +43,7 @@ import {
 import { InfoPlaceComponent } from './info-place.component';
 import { InfoDescriptionComponent } from './info-description.component';
 import { InfoVisionComponent } from './info-vision.component';
+import { InfoTranscriptComponent } from './info-transcript.component';
 import { InfoFacesComponent } from './info-faces.component';
 import {
   REFRESH_POLL_MS,
@@ -55,7 +56,13 @@ import {
 @Component({
   selector: 'app-info-enrichment',
   standalone: true,
-  imports: [InfoPlaceComponent, InfoDescriptionComponent, InfoVisionComponent, InfoFacesComponent],
+  imports: [
+    InfoPlaceComponent,
+    InfoDescriptionComponent,
+    InfoVisionComponent,
+    InfoTranscriptComponent,
+    InfoFacesComponent,
+  ],
   templateUrl: './info-enrichment.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
