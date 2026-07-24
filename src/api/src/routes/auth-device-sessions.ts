@@ -66,7 +66,7 @@ export const authDeviceSessionRoutes = new Elysia({ prefix: '/api/auth/device-se
         set.status = 401;
         return { error: 'user gone' };
       }
-      const minted = await issueRefreshToken(userId, body.label, undefined, body.platform);
+      const minted = await issueRefreshToken(userId, body.label, { platform: body.platform });
       const access_token = await signAccessToken(
         { sub: userId.toHexString(), email: user.email, role: user.role },
         jwtSecret(),
