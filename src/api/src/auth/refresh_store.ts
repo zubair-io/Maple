@@ -6,6 +6,9 @@ export interface IssuedRefresh {
   raw: string;
   userId: ObjectId;
   familyId: ObjectId;
+  /** Whether the caller's cookie for this token must be `Secure`. See
+   * `RefreshTokenDoc.secure`. */
+  secure: boolean;
 }
 
 export type RefreshErrorCode =
@@ -45,13 +48,16 @@ export const REFRESH_GRACE_MS = 60_000;
 /**
  * Issue a refresh token. Omitting `familyId` starts a NEW family (a fresh login
  * / device); a rotation passes the parent token's family so the whole lineage
- * is tracked together and can be revoked as a unit.
+ * is tracked together and can be revoked as a unit. `secure` defaults to `true`
+ * — pass `false` only for the LAN-handoff redeem, whose cookie answers on a
+ * plain-HTTP LAN origin.
  */
 export async function issueRefreshToken(
   userId: ObjectId,
   deviceLabel: string,
   familyId?: ObjectId,
   platform?: string,
+  secure: boolean = true,
 ): Promise<IssuedRefresh> {
   const raw = generateRefreshToken();
   const family = familyId ?? new ObjectId();
@@ -66,8 +72,9 @@ export async function issueRefreshToken(
     device_label: deviceLabel,
     family_id: family,
     ...(platform !== undefined ? { platform } : {}),
+    ...(secure !== true ? { secure } : {}),
   });
-  return { raw, userId, familyId: family };
+  return { raw, userId, familyId: family, secure };
 }
 
 /**
@@ -100,6 +107,7 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
   );
   if (matched) {
     const successorFamily = matched.family_id ?? new ObjectId();
+    const secure = matched.secure ?? true;
     await c.insertOne({
       _id: successorId,
       user_id: matched.user_id,
@@ -111,8 +119,9 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
       device_label: matched.device_label,
       family_id: successorFamily,
       ...(matched.platform !== undefined ? { platform: matched.platform } : {}),
+      ...(secure !== true ? { secure } : {}),
     });
-    return { raw: successorRaw, userId: matched.user_id, familyId: successorFamily };
+    return { raw: successorRaw, userId: matched.user_id, familyId: successorFamily, secure };
   }
 
   // 2. Not live — classify.
@@ -130,7 +139,13 @@ export async function rotateRefreshToken(rawOld: string): Promise<IssuedRefresh>
       : null;
     if (live) {
       // Benign lost-response / concurrent retry of a just-rotated token.
-      return await issueRefreshToken(row.user_id, row.device_label, row.family_id, row.platform);
+      return await issueRefreshToken(
+        row.user_id,
+        row.device_label,
+        row.family_id,
+        row.platform,
+        row.secure ?? true,
+      );
     }
     // A winning CAS linked its successor but has not inserted it yet. The
     // family has not been deliberately revoked, so this is transient.

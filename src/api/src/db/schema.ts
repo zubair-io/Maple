@@ -1265,6 +1265,13 @@ export interface RefreshTokenDoc {
    * grace re-mint so the whole family stays labeled. Absent for plain
    * browser/native logins. */
   platform?: string;
+  /** Whether this token's cookie must be re-set with `Secure` on rotation.
+   * `false` only for the LAN-handoff redeem (the cookie answers on a plain-HTTP
+   * LAN origin, where a `Secure` cookie would be silently dropped by the
+   * browser). Propagated across rotation / grace re-mint like `platform`.
+   * Missing/absent means `true` (every other issuer: login, register,
+   * dev-login, native-code — all HTTPS-or-localhost secure contexts). */
+  secure?: boolean;
 }
 
 // ---------------------------------------------------------------------------

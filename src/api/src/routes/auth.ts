@@ -430,11 +430,17 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       // Re-set the cookie only when the refresh was authenticated via the cookie
       // (not when a body token took precedence) — otherwise a request carrying
       // both would overwrite the cookie with a successor of an unrelated family.
+      //
+      // `secure` mirrors how THIS token's family was originally issued (see
+      // `fresh.secure`) rather than hardcoding `true`: a LAN-handoff session's
+      // cookie was set without `Secure` (plain-HTTP LAN origin — see
+      // auth-lan-handoff.ts), and re-setting it `Secure` here would make the
+      // browser silently drop it, logging the user out on the next reload.
       if (cookieRaw && !usedBodyToken) {
         cookie.maple_refresh.set({
           value: fresh.raw,
           httpOnly: true,
-          secure: true,
+          secure: fresh.secure,
           sameSite: 'lax',
           path: '/',
           maxAge: REFRESH_TTL_SECONDS,

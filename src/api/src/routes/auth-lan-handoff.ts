@@ -81,7 +81,13 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
       { sub: user._id.toHexString(), email: user.email, role: user.role },
       jwtSecret(),
     );
-    const refresh = await issueRefreshToken(user._id, redeemed.deviceLabel);
+    const refresh = await issueRefreshToken(
+      user._id,
+      redeemed.deviceLabel,
+      undefined,
+      undefined,
+      false,
+    );
     cookie.maple_refresh.set({
       value: refresh.raw,
       httpOnly: true,
