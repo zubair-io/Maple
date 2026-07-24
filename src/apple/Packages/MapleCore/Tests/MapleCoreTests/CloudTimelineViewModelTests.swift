@@ -129,8 +129,10 @@ final class CloudTimelineViewModelTests: XCTestCase {
   /// level in `BoundedAsyncSemaphoreTests.swift` (many tasks, many
   /// iterations, an explicit `Task.yield()` while "holding" the permit to
   /// widen the permit-handoff race window from #2111). This is a lighter
-  /// smoke test at the call-site's own value=1 usage; the real regression
-  /// coverage for the race lives in `BoundedAsyncSemaphoreTests`.
+  /// value=1 smoke test of the semaphore type itself; the VM's configured
+  /// call-site cap (`maxConcurrentPageFetches`, default 2) is exercised by
+  /// `test_loadPage_respectsMaxConcurrentPageFetches` below, and the real
+  /// regression coverage for the race lives in `BoundedAsyncSemaphoreTests`.
   func test_boundedAsyncSemaphore_boundsConcurrency() async {
     let sem = BoundedAsyncSemaphore(value: 1)
     let counter = CounterActor()
