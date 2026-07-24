@@ -382,9 +382,14 @@ fn sigma_sweep_output_varies_continuously() {
         .iter()
         .map(|&s| gaussian_blur_plane_sigma(&buf, w as usize, h as usize, s)[center])
         .collect();
+    // Strict decrease with a small epsilon margin: adjacent 0.05-sigma
+    // steps move the center response by >= ~1e-3 analytically, so 1e-6
+    // still catches a genuine plateau while absorbing f32 exp/normalize
+    // rounding differences across platforms and build modes.
+    const BLUR_STEP_EPS: f32 = 1e-6;
     for pair in blur_values.windows(2) {
         assert!(
-            pair[1] < pair[0],
+            pair[0] - pair[1] > BLUR_STEP_EPS,
             "blur primitive is not strictly monotonic in sigma: {} -> {}",
             pair[0],
             pair[1]
@@ -421,9 +426,22 @@ fn sigma_sweep_output_varies_continuously() {
         assert!(v.is_finite(), "sigma sweep produced a non-finite sample");
     }
 
-    let deltas: Vec<f32> = stage_values.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+    let deltas: Vec<f32> = stage_values
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .collect();
     let mean_abs_delta: f32 = deltas.iter().sum::<f32>() / deltas.len() as f32;
     let max_abs_delta = deltas.iter().fold(0.0_f32, |m, &d| m.max(d));
+
+    // Explicit guard: if the stage output ever becomes invariant to sigma
+    // again (the pre-#320 integer-radius regression), fail with a message
+    // that says so — not a confusing `0 < 0` ratio assertion below.
+    assert!(
+        mean_abs_delta > 0.0,
+        "stage output is invariant to sigma across the whole sweep — \
+         the sigma parameter is not reaching the blur (integer-radius \
+         regression?)"
+    );
 
     // No step-function artefact: the maximum single-step delta must not
     // dwarf the average step. Under the old integer-radius approximation,
@@ -440,11 +458,22 @@ fn sigma_sweep_output_varies_continuously() {
     );
 
     // Explicitly confirm the old plateau is gone at the integer boundary.
+    // Epsilon-based rather than `assert_ne!` on raw f32 bits: two adjacent
+    // sigmas quantizing to the same bit pattern would be a coincidence, but
+    // a genuine 0.1-sigma step moves the RL output well past 1e-6 — this
+    // keeps the no-plateau intent without bit-equality brittleness.
+    const PLATEAU_EPS: f32 = 1e-6;
     let v_09 = sample_at(0.9);
     let v_10 = sample_at(1.0);
     let v_11 = sample_at(1.1);
-    assert_ne!(v_09, v_10, "sigma=0.9 and sigma=1.0 must differ (no plateau)");
-    assert_ne!(v_10, v_11, "sigma=1.0 and sigma=1.1 must differ (no plateau)");
+    assert!(
+        (v_09 - v_10).abs() > PLATEAU_EPS,
+        "sigma=0.9 and sigma=1.0 must differ (no plateau): {v_09} vs {v_10}"
+    );
+    assert!(
+        (v_10 - v_11).abs() > PLATEAU_EPS,
+        "sigma=1.0 and sigma=1.1 must differ (no plateau): {v_10} vs {v_11}"
+    );
 }
 
 #[test]
