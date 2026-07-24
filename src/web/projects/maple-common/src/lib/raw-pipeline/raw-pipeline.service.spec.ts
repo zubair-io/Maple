@@ -4,12 +4,17 @@
 // worker's reply are exchanged synchronously through a Subject. The WASM
 // render itself is exercised by raw-core's fixture-gated tests; this
 // spec covers the TS plumbing on the main-thread side.
+//
+// The performance-mark deadlock guard (#1123) regression specs live in the
+// sibling `raw-pipeline.service.perf-guard.spec.ts` — split out to keep this
+// file under the repo's file-size budget (tools/check-file-budget.sh).
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { decodeNonRawToSceneLinear } from './image-utils';
 import { RawPipelineService } from './raw-pipeline.service';
+import { WorkerStub, installWorkerStub } from './raw-pipeline.service.test-helpers';
 import type {
   DecodeRequest,
   DecodeSceneLinearRequest,
@@ -17,72 +22,18 @@ import type {
   DecodeSuccess,
 } from './raw-pipeline.types';
 
-/**
- * Minimal Worker stub. Captures the most recently posted message and
- * exposes a `reply(...)` method the test calls to feed a response back
- * into the service's listener. Avoids spinning up a real Web Worker
- * (vitest's default jsdom environment doesn't bundle the WASM, and we
- * don't want this spec to be flaky on raw-wasm rebuilds).
- */
-class WorkerStub {
-  readonly postMessage = vi.fn<(msg: unknown, transfer?: Transferable[]) => void>();
-  readonly terminate = vi.fn();
-  private listeners: Record<string, ((e: unknown) => void)[]> = {
-    message: [],
-    error: [],
-  };
-
-  addEventListener(type: string, fn: (e: unknown) => void): void {
-    (this.listeners[type] ??= []).push(fn);
-  }
-
-  removeEventListener(type: string, fn: (e: unknown) => void): void {
-    this.listeners[type] = (this.listeners[type] ?? []).filter((l) => l !== fn);
-  }
-
-  dispatchEvent(_e: Event): boolean {
-    return true;
-  }
-
-  reply(payload: unknown): void {
-    for (const fn of this.listeners['message'] ?? []) {
-      fn({ data: payload } as unknown as MessageEvent);
-    }
-  }
-}
-
 describe('RawPipelineService — decodeSceneLinear (Plan 3 M1)', () => {
   let workerStub: WorkerStub;
-  let originalWorker: typeof Worker;
+  let restoreWorker: () => void;
 
   beforeEach(() => {
     workerStub = new WorkerStub();
-    originalWorker = globalThis.Worker;
-    // Replace the Worker constructor for the duration of the test. The
-    // service's `new Worker(...)` call returns our stub.
-    // The service uses `new Worker(...)`, so the global must be a real
-    // constructor (not a vi.fn). Wrap workerStub in a class whose
-    // constructor returns it (constructor return-object override).
-    const stub = workerStub;
-    class WorkerCtor {
-      constructor(_url: URL, _opts?: WorkerOptions) {
-        return stub as unknown as Worker;
-      }
-    }
-    Object.defineProperty(globalThis, 'Worker', {
-      value: WorkerCtor,
-      writable: true,
-      configurable: true,
-    });
+    restoreWorker = installWorkerStub(workerStub).restore;
     TestBed.configureTestingModule({});
   });
 
   afterEach(() => {
-    Object.defineProperty(globalThis, 'Worker', {
-      value: originalWorker,
-      writable: true,
-      configurable: true,
-    });
+    restoreWorker();
   });
 
   it('round-trips a 2x2 scene-linear decode and exposes Uint16Array fp16 RGBA', async () => {
@@ -191,123 +142,6 @@ describe('RawPipelineService — decodeSceneLinear (Plan 3 M1)', () => {
   });
 });
 
-describe('RawPipelineService — performance-mark deadlock guard (#1123)', () => {
-  // #1123: `performance.measure` THROWS if either named mark was cleared out from
-  // under it (DevTools' `performance.clearMarks()`, a monitoring shim, or a test
-  // harness can do this anytime — the Performance Timeline is a single shared,
-  // mutable buffer). Before the fix, the mark/measure pair ran INSIDE the pending
-  // handler's `resolve` wrapper, un-guarded — a throw there meant the real
-  // `resolve(result)` call one line below never ran. Because every decode is
-  // serialized behind `decodeChain`, that one stranded decode permanently wedged
-  // every later decode too. These specs simulate the throw and assert the promise
-  // still settles and the chain still drains.
-  let workerStub: WorkerStub;
-  let originalWorker: typeof Worker;
-  let originalMeasure: typeof performance.measure;
-
-  beforeEach(() => {
-    workerStub = new WorkerStub();
-    originalWorker = globalThis.Worker;
-    const stub = workerStub;
-    class WorkerCtor {
-      constructor(_url: URL, _opts?: WorkerOptions) {
-        return stub as unknown as Worker;
-      }
-    }
-    Object.defineProperty(globalThis, 'Worker', {
-      value: WorkerCtor,
-      writable: true,
-      configurable: true,
-    });
-    TestBed.configureTestingModule({});
-    originalMeasure = performance.measure.bind(performance);
-  });
-
-  afterEach(() => {
-    Object.defineProperty(globalThis, 'Worker', {
-      value: originalWorker,
-      writable: true,
-      configurable: true,
-    });
-    performance.measure = originalMeasure;
-  });
-
-  it('still resolves decode() when performance.measure throws (simulated cleared mark)', async () => {
-    performance.measure = vi.fn(() => {
-      throw new DOMException(
-        "Failed to execute 'measure' on 'Performance': The mark 'maple:decode:1:start' does not exist.",
-        'SyntaxError',
-      );
-    });
-
-    const service = TestBed.inject(RawPipelineService);
-    const promise = service.decode(new Uint8Array([0x44]), 'dng');
-
-    await Promise.resolve();
-    const sent = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
-    const rgb = new Uint8Array(3).fill(0x22);
-    workerStub.reply({
-      id: sent.id,
-      type: 'decode-success',
-      width: 1,
-      height: 1,
-      nativeWidth: 1,
-      nativeHeight: 1,
-      rgb: rgb.buffer,
-      asShotTemperature: 5500,
-      asShotTint: 0,
-    } satisfies DecodeSuccess);
-
-    // Before the fix, this hangs forever — the throw inside the un-guarded
-    // resolve wrapper strands the promise (never resolves, never rejects).
-    const decoded = await promise;
-    expect(decoded.rgb[0]).toBe(0x22);
-  });
-
-  it('does not deadlock decodeChain: a second decode still runs after a measure throw', async () => {
-    performance.measure = vi.fn(() => {
-      throw new Error('simulated Performance Timeline throw');
-    });
-
-    const service = TestBed.inject(RawPipelineService);
-    const p1 = service.decode(new Uint8Array([0x01]), 'dng');
-    const p2 = service.decode(new Uint8Array([0x02]), 'dng');
-
-    await Promise.resolve();
-    expect(workerStub.postMessage).toHaveBeenCalledTimes(1);
-    const first = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
-    workerStub.reply({
-      id: first.id,
-      type: 'decode-success',
-      width: 1,
-      height: 1,
-      nativeWidth: 1,
-      nativeHeight: 1,
-      rgb: new Uint8Array(3).fill(0x11).buffer,
-      asShotTemperature: 5500,
-      asShotTint: 0,
-    } satisfies DecodeSuccess);
-    await p1;
-
-    // decodeChain must have advanced — the second decode posts next.
-    await Promise.resolve();
-    expect(workerStub.postMessage).toHaveBeenCalledTimes(2);
-    const second = workerStub.postMessage.mock.calls[1][0] as DecodeRequest;
-    workerStub.reply({
-      id: second.id,
-      type: 'decode-success',
-      width: 1,
-      height: 1,
-      nativeWidth: 1,
-      nativeHeight: 1,
-      rgb: new Uint8Array(3).fill(0x22).buffer,
-      asShotTemperature: 5500,
-      asShotTint: 0,
-    } satisfies DecodeSuccess);
-    await p2;
-  });
-});
-
 describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => {
   // Confirms Task 4's discriminated-union widening did not break the legacy
   // sRGB decode path. Plan 3 M1's invariant is "purely additive — the
@@ -315,34 +149,16 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
   // `pending` map's `kind: 'legacy'` discriminant or the listener's
   // type-narrowing regresses, this test fires.
   let workerStub: WorkerStub;
-  let originalWorker: typeof Worker;
+  let restoreWorker: () => void;
 
   beforeEach(() => {
     workerStub = new WorkerStub();
-    originalWorker = globalThis.Worker;
-    // The service uses `new Worker(...)`, so the global must be a real
-    // constructor (not a vi.fn). Wrap workerStub in a class whose
-    // constructor returns it (constructor return-object override).
-    const stub = workerStub;
-    class WorkerCtor {
-      constructor(_url: URL, _opts?: WorkerOptions) {
-        return stub as unknown as Worker;
-      }
-    }
-    Object.defineProperty(globalThis, 'Worker', {
-      value: WorkerCtor,
-      writable: true,
-      configurable: true,
-    });
+    restoreWorker = installWorkerStub(workerStub).restore;
     TestBed.configureTestingModule({});
   });
 
   afterEach(() => {
-    Object.defineProperty(globalThis, 'Worker', {
-      value: originalWorker,
-      writable: true,
-      configurable: true,
-    });
+    restoreWorker();
   });
 
   it('round-trips a legacy decode and exposes Uint8Array sRGB RGB', async () => {
@@ -456,7 +272,7 @@ describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
   // OffscreenCanvas (jsdom has neither) and assert the Worker is never
   // touched for non-RAW input.
   let workerStub: WorkerStub;
-  let originalWorker: typeof Worker;
+  let restoreWorker: () => void;
   let originalCreateImageBitmap: typeof globalThis.createImageBitmap;
   let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas;
 
@@ -473,18 +289,7 @@ describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
 
   beforeEach(() => {
     workerStub = new WorkerStub();
-    originalWorker = globalThis.Worker;
-    const stub = workerStub;
-    class WorkerCtor {
-      constructor(_url: URL, _opts?: WorkerOptions) {
-        return stub as unknown as Worker;
-      }
-    }
-    Object.defineProperty(globalThis, 'Worker', {
-      value: WorkerCtor,
-      writable: true,
-      configurable: true,
-    });
+    restoreWorker = installWorkerStub(workerStub).restore;
 
     // Stub createImageBitmap → a fake bitmap of known size.
     originalCreateImageBitmap = globalThis.createImageBitmap;
@@ -518,11 +323,7 @@ describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
   });
 
   afterEach(() => {
-    Object.defineProperty(globalThis, 'Worker', {
-      value: originalWorker,
-      writable: true,
-      configurable: true,
-    });
+    restoreWorker();
     Object.defineProperty(globalThis, 'createImageBitmap', {
       value: originalCreateImageBitmap,
       writable: true,

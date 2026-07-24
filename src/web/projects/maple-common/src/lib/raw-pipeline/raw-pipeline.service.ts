@@ -33,7 +33,7 @@ import type {
   RenderedLiveSession,
 } from './raw-pipeline.service-internals';
 export type { OpenedLiveSession, RenderedLiveSession } from './raw-pipeline.service-internals';
-import { safeMeasure } from './raw-pipeline.perf';
+import { markStart, markEnd } from './raw-pipeline.perf';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
@@ -248,22 +248,16 @@ export class RawPipelineService implements OnDestroy {
     // Bracket the full decode (post + worker round-trip) with a performance
     // mark so the browser's Performance panel shows a distinct entry per
     // decode. Name includes id so concurrent decodes don't collide.
-    // #1123: `safeMeasure` — this is diagnostics-only and must never be able to
-    // stop `resolve` from running (decodes are serialized behind `decodeChain`,
-    // so a stranded `resolve` deadlocks every later decode).
-    safeMeasure(() => performance.mark(`maple:decode:${id}:start`));
+    // #1123: `markStart`/`markEnd` — this is diagnostics-only and must never be
+    // able to stop `resolve` from running (decodes are serialized behind
+    // `decodeChain`, so a stranded `resolve` deadlocks every later decode).
+    const decodeStartMark = `maple:decode:${id}:start`;
+    markStart(decodeStartMark);
     return new Promise<DecodedImage>((resolve, reject) => {
       this.pending.set(id, {
         kind: 'legacy',
         resolve: (result) => {
-          safeMeasure(() => {
-            performance.mark(`maple:decode:${id}:end`);
-            performance.measure(
-              `maple:decode`,
-              `maple:decode:${id}:start`,
-              `maple:decode:${id}:end`,
-            );
-          });
+          markEnd(decodeStartMark, `maple:decode:${id}:end`, `maple:decode`);
           resolve(result);
         },
         reject,
@@ -358,20 +352,19 @@ export class RawPipelineService implements OnDestroy {
       qualityPreview,
       maxLongEdge,
     };
-    // #1123: safeMeasure — see decodeOnce; a throw here must never strand `resolve`.
-    safeMeasure(() => performance.mark(`maple:decode-scene-linear:${id}:start`));
+    // #1123: markStart/markEnd — see decodeOnce; a throw here must never strand
+    // `resolve`.
+    const sceneLinearStartMark = `maple:decode-scene-linear:${id}:start`;
+    markStart(sceneLinearStartMark);
     return new Promise<DecodedSceneLinearImage>((resolve, reject) => {
       this.pending.set(id, {
         kind: 'scene-linear',
         resolve: (result) => {
-          safeMeasure(() => {
-            performance.mark(`maple:decode-scene-linear:${id}:end`);
-            performance.measure(
-              `maple:decode-scene-linear`,
-              `maple:decode-scene-linear:${id}:start`,
-              `maple:decode-scene-linear:${id}:end`,
-            );
-          });
+          markEnd(
+            sceneLinearStartMark,
+            `maple:decode-scene-linear:${id}:end`,
+            `maple:decode-scene-linear`,
+          );
           resolve(result);
         },
         reject,
@@ -530,20 +523,15 @@ export class RawPipelineService implements OnDestroy {
       bytes.byteOffset + bytes.byteLength,
     ) as ArrayBuffer;
     const request: AutoAdjustRequest = { id, type: 'auto-adjust', bytes: buffer, ext, xmp };
-    // #1123: safeMeasure — see decodeOnce; a throw here must never strand `resolve`.
-    safeMeasure(() => performance.mark(`maple:auto-adjust:${id}:start`));
+    // #1123: markStart/markEnd — see decodeOnce; a throw here must never strand
+    // `resolve`.
+    const autoAdjustStartMark = `maple:auto-adjust:${id}:start`;
+    markStart(autoAdjustStartMark);
     return new Promise<AutoAdjustPatch>((resolve, reject) => {
       this.pending.set(id, {
         kind: 'auto-adjust',
         resolve: (patch) => {
-          safeMeasure(() => {
-            performance.mark(`maple:auto-adjust:${id}:end`);
-            performance.measure(
-              'maple:auto-adjust',
-              `maple:auto-adjust:${id}:start`,
-              `maple:auto-adjust:${id}:end`,
-            );
-          });
+          markEnd(autoAdjustStartMark, `maple:auto-adjust:${id}:end`, 'maple:auto-adjust');
           resolve(patch);
         },
         reject,
