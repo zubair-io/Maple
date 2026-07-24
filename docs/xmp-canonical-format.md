@@ -189,13 +189,18 @@ Range −100…+100. The stage runs in scene-linear Oklab after the saturation p
 
 - `papp:HotPixelSuppression` — `Off` (default) / `On`. Pre-demosaic
   hot/dead-pixel suppression inside the decode product (#1106).
-- `papp:AutoExposure` — `On` (default) / `Off`. Decode-time scalar
-  mid-gray anchor gain (#1387). Case-insensitive on read. As of #1387 this
-  is written by the Swift `XMPSerializer` and read by `raw_core::xmp::parse`
-  (which has always accepted it); the TypeScript `XmpSerializerService`
-  write path does not emit it yet — a web-authored sidecar with a non-default
-  `autoExposure` currently loses it on the next web save. Tracked separately
-  from this ticket's Apple-only scope.
+- `papp:HighlightRecoveryMode` — `ChromaticAdaptation` (default) / `Off` /
+  `Blend` / `Luminance` / `OklabChromaReduction`. Highlight reconstruction
+  mode (spec § 3.3a). Case-insensitive on read. TS wiring added in #2214.
+- `papp:AutoExposure` — `On` (default) / `Off`. Decode-time scalar mid-gray
+  anchor gain (#429; Swift model mirror #1387). Case-insensitive on read.
+  TS wiring added in #2214.
+- `papp:WbMethod` — `Cat16` (default) / `DiagonalRec2020`. User white-balance
+  method (#431). Case-insensitive on read (raw-core also accepts `CAT16`).
+  TS wiring added in #2214.
+- `papp:ToneCurveMode` — `PerChannel` (default) / `RatioPreserving`.
+  Tone-curve application mode (#436). Case-insensitive on read. TS wiring
+  added in #2214.
 
 **Always-emitted attributes** (process-version signaling):
 
