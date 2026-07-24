@@ -30,8 +30,40 @@ import { describe, it, expect } from 'vitest';
 import { asIsoDate, capturedAtFromExif } from './captured-at';
 
 describe('asIsoDate — timezone-independent inputs (parity with exif.ts)', () => {
-  it('a Date object round-trips via toISOString', () => {
-    expect(asIsoDate(new Date('2026-07-12T10:30:00.000Z'))).toBe('2026-07-12T10:30:00.000Z');
+  // [#2154] `Date` objects reaching `asIsoDate` are exifr's own local-
+  // timezone-setter revival of a bare EXIF wall-clock string (see the
+  // module doc above) — their LOCAL calendar fields are the value that
+  // must survive, not their UTC ones. Building via the local-component
+  // `Date` constructor is exactly how exifr's revival builds them, so this
+  // asserts a fixed golden string regardless of which timezone the test
+  // happens to run under: on the pre-fix code (`v.toISOString()`), this
+  // would have produced a DIFFERENT string on any non-UTC host.
+  it("a Date object's local wall-clock fields survive regardless of host timezone", () => {
+    expect(asIsoDate(new Date(2026, 6, 12, 10, 30, 0))).toBe('2026-07-12T10:30:00.000Z');
+  });
+
+  it('zero-pads single-digit month/day/hour/minute/second fields', () => {
+    expect(asIsoDate(new Date(2020, 0, 2, 3, 4, 5))).toBe('2020-01-02T03:04:05.000Z');
+  });
+
+  it('produces the identical golden string across widely different process timezones', () => {
+    // Unlike `new Date(string)` parsing (which `exif.timezone.test.ts`
+    // documents Bun does NOT re-read `TZ` for mid-process), local-component
+    // construction (`new Date(y, mo, d, ...)`) plus local getters DOES pick
+    // up a mid-process `process.env.TZ` change on both Node and Bun — verified
+    // directly before writing this test. Pacific/Kiritimati (UTC+14) and
+    // America/New_York (UTC-4/-5) are picked to be about as far apart as IANA
+    // zones get, matching the spread `exif.timezone.test.ts` uses server-side.
+    const original = process.env['TZ'];
+    try {
+      for (const tz of ['UTC', 'America/New_York', 'Pacific/Kiritimati']) {
+        process.env['TZ'] = tz;
+        expect(asIsoDate(new Date(2020, 0, 2, 3, 4, 5))).toBe('2020-01-02T03:04:05.000Z');
+      }
+    } finally {
+      if (original === undefined) delete process.env['TZ'];
+      else process.env['TZ'] = original;
+    }
   });
 
   it('an invalid Date object returns null', () => {
@@ -94,7 +126,7 @@ describe('capturedAtFromExif — precedence (parity with normalizeExif)', () => 
   });
 
   it('accepts a Date object for CreateDate', () => {
-    const raw = { CreateDate: new Date('2019-05-05T05:05:05.000Z') };
+    const raw = { CreateDate: new Date(2019, 4, 5, 5, 5, 5) };
     expect(capturedAtFromExif(raw)).toBe('2019-05-05T05:05:05.000Z');
   });
 });
