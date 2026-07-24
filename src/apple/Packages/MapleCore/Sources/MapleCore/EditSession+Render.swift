@@ -236,34 +236,15 @@ extension EditSession {
         // output at possibly-unchanged dims, so identity must fold it in
         // rather than relying on dims alone.
         let appliedCrop = applyCrop ? crop : Crop.identity
-        // #2143: bound every downstream target — the GPU present, the crop-
-        // adjusted CPU process target, and the decode request derived from it —
-        // to what a `quality: .preview` RAW decode can actually deliver
-        // (native/2 per axis, the Rust half-res demosaic ceiling). A target
-        // above the ceiling cannot add detail (the decode is ceiling-limited
-        // in raw-core regardless of what is requested); it only inflates the
-        // prescale output and the published buffer with upscaled-then-
-        // downscaled half-res data — at 100% zoom on a 100 MP frame that was
-        // a ~432 MB published RGBAf16 buffer carrying 6144-px-worth of true
-        // detail. True 1:1 stays `refineNativeDetail`'s job (the tile path).
-        // No-op while `nativeImageSize` hasn't seeded (async for
-        // bytes-provider assets) or for non-RAW assets (ImageIO decodes are
-        // not half-res-capped). The crop-inflation below runs on the capped
-        // value by design: its inverse-fraction upscale exists to keep the
-        // KEPT region at requested resolution and is already bounded by the
-        // source resolution at prescale time.
-        let cappedTargetSize = targetSize.map {
-            ImageEditPipeline.previewCeilingCapped(
-                $0, nativeSize: nativeImageSize, isRaw: asset.isRaw
-            )
-        }
         // #1617: the GPU live present crops the decoded scene-linear buffer
         // itself (a geometry op before the f32 readback), so it opens the
         // session at the CROPPED dims and needs the un-upscaled canvas target —
         // the cropped buffer already IS the kept region. Capture it before the
-        // CPU-path upscale shadows `targetSize` just below. (Derived from the
-        // #2143 preview-ceiling-capped value so the GPU path is bounded too.)
-        let gpuTargetSize = cappedTargetSize
+        // CPU-path upscale shadows `targetSize` just below. (#2143's
+        // delivered-extent caps are applied per-branch below, once the decode
+        // extent is actually known — see `ImageEditPipeline.cappedToDelivered`
+        // for why the ceiling can't be predicted up front.)
+        let gpuTargetSize = targetSize
         // When a crop is applied the chain still develops the FULL frame and
         // `CropImageStage` trims afterward. The incoming `targetSize` is sized
         // for the CROPPED extent (the canvas/zoom anchor to `effectiveImageSize`),
@@ -274,7 +255,7 @@ extension EditSession {
         // full-frame target (the source's own resolution is the real ceiling
         // — `prescaleForDisplay` never upscales past it anyway).
         let targetSize: CGSize? = {
-            guard applyCrop, let t = cappedTargetSize else { return cappedTargetSize }
+            guard applyCrop, let t = targetSize else { return targetSize }
             let fracW = max(crop.right - crop.left, CropGeometry.minCropFraction)
             let fracH = max(crop.bottom - crop.top, CropGeometry.minCropFraction)
             let scaleW = CGFloat(min(1.0 / fracW, 8.0))
@@ -349,9 +330,24 @@ extension EditSession {
                 // the kept region). The CPU fallback below still develops the
                 // full frame and trims via `CropImageStage.apply` when the
                 // present is declined (flag off / no layer / readback fail).
+                // #2143: bound both presentation targets at the DELIVERED
+                // extent of the cached decode (`snapshot.rawResolution` — the
+                // pre-normalisation `decoded.extent.size`). Presenting or
+                // prescaling above what the decode actually returned only
+                // resamples upscaled data into a bigger buffer; see
+                // `ImageEditPipeline.cappedToDelivered` for the full story
+                // (and why a predicted `native/2` ceiling would be wrong for
+                // X-Trans / LinearRgb).
+                let delivered = snapshot.rawResolution
+                let gpuTarget = gpuTargetSize.map {
+                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
+                }
+                let processTarget = targetSize.map {
+                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
+                }
                 let gpuCached = applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
                 if await presentViaGpuLive(
-                    decoded: gpuCached, targetSize: gpuTargetSize, gen: gen,
+                    decoded: gpuCached, targetSize: gpuTarget, gen: gen,
                     decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop
                 ) {
                     isRendering = false
@@ -374,12 +370,12 @@ extension EditSession {
                     mapleStage(filterStageName) {
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
-                                decoded: cached, model: m, targetSize: targetSize,
+                                decoded: cached, model: m, targetSize: processTarget,
                                 assetID: assetID
                             )
                         }
                         return pipeline.processSceneLinear(
-                            decoded: cached, model: m, targetSize: targetSize,
+                            decoded: cached, model: m, targetSize: processTarget,
                             asShot: asShot, decodedAtModel: cachedDecodedAtModel,
                             profileLUT: profileLUT,
                             assetID: assetID,
@@ -401,8 +397,7 @@ extension EditSession {
                 // ever allocates a full-sensor decode; genuine full-res lives
                 // solely on `renderActor.renderForExport` (#2058).
                 let decodeTarget = ImageEditPipeline.decodeTarget(
-                    phase: phase, targetSize: targetSize,
-                    nativeSize: nativeImageSize, isRaw: isRaw
+                    phase: phase, targetSize: targetSize
                 )
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
@@ -426,13 +421,26 @@ extension EditSession {
                 // the GPU present (it reads the session's frame + model).
                 let freshSnapshot = await renderActor.snapshot(forAsset: asset)
                 adoptDecodedWbFrame(freshSnapshot.wbFrame)
+                // #2143: same delivered-extent caps as the cached branch,
+                // from THIS decode's recorded extent
+                // (`freshSnapshot.rawResolution` — pre-normalisation dims,
+                // recorded by `sharedDecode`'s cache write; when an existing
+                // covering cache was kept instead, it reflects that covering
+                // buffer, which is the one actually flowing downstream).
+                let delivered = freshSnapshot.rawResolution
+                let gpuTarget = gpuTargetSize.map {
+                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
+                }
+                let processTarget = targetSize.map {
+                    ImageEditPipeline.cappedToDelivered($0, delivered: delivered)
+                }
                 // wgpu live present on the fresh decode (epic #925, P4b-apple) —
                 // same runtime-gated parallel path as the cached branch above.
                 // #1617: crop the decoded buffer before the GPU readback (as the
                 // cached branch) so cropped frames present on the GPU too.
                 let gpuDecoded = applyCrop ? CropImageStage.apply(crop, to: decoded, nativeSize: cropNativeSize) : decoded
                 if await presentViaGpuLive(
-                    decoded: gpuDecoded, targetSize: gpuTargetSize, gen: gen,
+                    decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
                     decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop
                 ) {
                     isRendering = false
@@ -458,12 +466,12 @@ extension EditSession {
                     mapleStage(filterStageName) {
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
-                                decoded: decoded, model: m, targetSize: targetSize,
+                                decoded: decoded, model: m, targetSize: processTarget,
                                 assetID: assetID
                             )
                         }
                         return pipeline.processSceneLinear(
-                            decoded: decoded, model: m, targetSize: targetSize,
+                            decoded: decoded, model: m, targetSize: processTarget,
                             asShot: freshAsShot, decodedAtModel: freshDecodedAtModel,
                             profileLUT: profileLUT,
                             assetID: assetID,
