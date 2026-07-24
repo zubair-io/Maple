@@ -22,8 +22,3 @@ export type ColorLabel = (typeof COLOR_LABELS)[number];
 
 /** Set form for fast `.has()` membership checks against parsed strings. */
 export const VALID_COLOR_LABELS: ReadonlySet<string> = new Set(COLOR_LABELS);
-
-/** Type guard — narrows an arbitrary string to `ColorLabel`. */
-export function isColorLabel(value: string): value is ColorLabel {
-  return VALID_COLOR_LABELS.has(value);
-}
