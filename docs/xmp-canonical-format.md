@@ -127,6 +127,10 @@ Lightroom does for `crs:` fields.
 | `shadows`                      | `crs:Shadows2012`                    | 0       |
 | `whites`                       | `crs:Whites2012`                     | 0       |
 | `blacks`                       | `crs:Blacks2012`                     | 0       |
+| `parametricHighlights`         | `crs:ParametricHighlights`           | 0       |
+| `parametricLights`             | `crs:ParametricLights`               | 0       |
+| `parametricDarks`              | `crs:ParametricDarks`                | 0       |
+| `parametricShadows`            | `crs:ParametricShadows`              | 0       |
 | `temperature`                  | `crs:Temperature`                    | 6500    |
 | `tint`                         | `crs:Tint`                           | 0       |
 | `vibrance`                     | `crs:Vibrance`                       | 0       |
@@ -221,7 +225,11 @@ All emit together when `crop` is non-identity. `HasCrop="True"` signals crop dat
 
 ## Tone curves
 
-Nested element form. Each curve is a `crs:ToneCurvePV2012*` element containing
+The **parametric region sliders** (`parametricHighlights/Lights/Darks/Shadows`)
+are NOT part of this nested form — they are flat PV2012 `crs:Parametric*`
+attributes, listed in the number-fields table above (#365).
+
+**Point curves** use the nested element form. Each curve is a `crs:ToneCurvePV2012*` element containing
 an `rdf:Seq` of `rdf:li` strings in the format `"x, y"` (with a space after
 the comma).
 

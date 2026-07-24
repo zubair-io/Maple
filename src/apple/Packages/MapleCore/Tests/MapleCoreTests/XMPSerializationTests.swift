@@ -476,6 +476,87 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertTrue(saved.contains("papp:WbScaleVersion"), "sidecar saves stamp the WB scale")
     }
 
+    // MARK: - Parametric tone-curve regions (#365)
+
+    /// The four PV2012 `crs:Parametric{Highlights,Lights,Darks,Shadows}`
+    /// keys parse onto the matching `parametric*` model scalars.
+    func testParseParametricToneCurveRegions() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: """
+            crs:ParametricHighlights="100" \
+            crs:ParametricLights="-50" \
+            crs:ParametricDarks="25" \
+            crs:ParametricShadows="-100"
+            """))
+        XCTAssertEqual(m.parametricHighlights, 100)
+        XCTAssertEqual(m.parametricLights, -50)
+        XCTAssertEqual(m.parametricDarks, 25)
+        XCTAssertEqual(m.parametricShadows, -100)
+    }
+
+    /// Parametric region sliders round-trip through serialize → parse, and
+    /// default-valued (0) models emit no `crs:Parametric*` at all so
+    /// sidecars written before the tone-curve widget stay byte-identical.
+    func testParametricToneCurveRoundTripAndDefaultOmission() throws {
+        var m = AdjustmentModel()
+        m.parametricHighlights = 100
+        m.parametricLights = -50
+        m.parametricDarks = 25
+        m.parametricShadows = -100
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"crs:ParametricHighlights="100""#), xml)
+        XCTAssertTrue(xml.contains(#"crs:ParametricLights="-50""#), xml)
+        XCTAssertTrue(xml.contains(#"crs:ParametricDarks="25""#), xml)
+        XCTAssertTrue(xml.contains(#"crs:ParametricShadows="-100""#), xml)
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.parametricHighlights, 100)
+        XCTAssertEqual(m2.parametricLights, -50)
+        XCTAssertEqual(m2.parametricDarks, 25)
+        XCTAssertEqual(m2.parametricShadows, -100)
+
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("crs:Parametric"),
+                       "default parametric fields must not be serialized")
+    }
+
+    /// `XMPSidecarStore` write → read carries the parametric region
+    /// sliders across the on-disk `.xmp` boundary — the exact user path
+    /// that #365's silent data loss broke (edit renders live, save drops
+    /// it, reopen loses it).
+    func testSidecarStoreRoundTripParametricToneCurve() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("dng")
+        defer {
+            let xmpURL = tmp.deletingPathExtension().appendingPathExtension("xmp")
+            try? FileManager.default.removeItem(at: xmpURL)
+        }
+
+        var m = AdjustmentModel()
+        m.parametricHighlights = 60
+        m.parametricShadows = -33.5
+        let store = XMPSidecarStore(rawURL: tmp)
+        await store.update(model: m, culling: CullingState())
+        await store.flush()
+
+        // Drop the in-memory cache so the read actually goes to disk.
+        let fresh = XMPSidecarStore(rawURL: tmp)
+        let (m2, _) = try await fresh.load()
+        XCTAssertEqual(m2.parametricHighlights, 60)
+        XCTAssertEqual(m2.parametricShadows, -33.5)
+    }
+
+    /// Fractional drag values (the widget is not integer-quantized) keep
+    /// their precision across a save → load cycle — integer rounding here
+    /// would shift the stored curve on every re-save.
+    func testParametricToneCurveFractionalRoundTrip() throws {
+        var m = AdjustmentModel()
+        m.parametricDarks = 12.75
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"crs:ParametricDarks="12.75""#), xml)
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.parametricDarks, 12.75)
+    }
+
     // MARK: - Helpers
 
     private func xmp(attrs: String) -> String {

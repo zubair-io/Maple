@@ -239,3 +239,47 @@ fn parse_still_accepts_finite_negative_and_fractional_values() {
         assert!(m.exposure.is_finite());
     }
 }
+
+/// Parametric region sliders serialize to the four PV2012 `crs:Parametric*`
+/// keys and omit at the zero default (#365 — the write half; the parse half
+/// landed with #368's prerequisite above). Non-default values round-trip
+/// through serialize → parse.
+#[test]
+fn parametric_serialize_roundtrip_and_default_omission() {
+    let mut m = AdjustmentModel::default();
+    assert!(
+        !serialize(&m).contains("crs:Parametric"),
+        "default parametric fields must not be serialized"
+    );
+
+    m.parametric_highlights = 100.0;
+    m.parametric_lights = -50.0;
+    m.parametric_darks = 25.0;
+    m.parametric_shadows = -100.0;
+    let frag = serialize(&m);
+    for expected in [
+        r#"crs:ParametricHighlights="100""#,
+        r#"crs:ParametricLights="-50""#,
+        r#"crs:ParametricDarks="25""#,
+        r#"crs:ParametricShadows="-100""#,
+    ] {
+        assert!(
+            frag.contains(expected),
+            "missing {expected} in fragment: {frag}"
+        );
+    }
+
+    let xml = format!(
+        r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"{frag}/>
+          </rdf:RDF>
+        </x:xmpmeta>"#
+    );
+    let parsed = parse(&xml).unwrap();
+    assert_eq!(parsed.parametric_highlights, 100.0);
+    assert_eq!(parsed.parametric_lights, -50.0);
+    assert_eq!(parsed.parametric_darks, 25.0);
+    assert_eq!(parsed.parametric_shadows, -100.0);
+}

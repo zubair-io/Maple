@@ -498,6 +498,19 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     if model.deep_denoise != 0.0 {
         out.push_str(&format!(r#" papp:DeepDenoise="{}""#, model.deep_denoise));
     }
+    // Parametric tone-curve region sliders (#365) — Lightroom-compatible
+    // PV2012 `crs:` keys, emitted only when non-default (0) to mirror the
+    // Swift/TS writers. The parse half lives in `set_field` above.
+    for (key, value) in [
+        ("crs:ParametricHighlights", model.parametric_highlights),
+        ("crs:ParametricLights", model.parametric_lights),
+        ("crs:ParametricDarks", model.parametric_darks),
+        ("crs:ParametricShadows", model.parametric_shadows),
+    ] {
+        if value != 0.0 {
+            out.push_str(&format!(r#" {key}="{value}""#));
+        }
+    }
     // Crop / straighten (#277) — emitted only when non-identity. The rect
     // attributes (`crs:HasCrop` + four edges) are emitted only when the rect
     // itself differs from full-frame. `crs:CropAngle` is independent — it is

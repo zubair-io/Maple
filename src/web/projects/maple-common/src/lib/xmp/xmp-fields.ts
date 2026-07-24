@@ -82,6 +82,13 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:Shadows2012', 'shadows'),
   numericField('crs:Whites2012', 'whites'),
   numericField('crs:Blacks2012', 'blacks'),
+  // Parametric tone-curve region sliders (#365) — Lightroom-compatible
+  // PV2012 keys, authored by the tone-curve widget (#1540). Mirrors the
+  // Rust (`xmp/mod.rs`) and Swift (`XMPSerialization+Attrs.swift`) writers.
+  numericField('crs:ParametricHighlights', 'parametricHighlights'),
+  numericField('crs:ParametricLights', 'parametricLights'),
+  numericField('crs:ParametricDarks', 'parametricDarks'),
+  numericField('crs:ParametricShadows', 'parametricShadows'),
   numericField('crs:Vibrance', 'vibrance'),
   numericField('crs:Saturation', 'saturation'),
   numericField('crs:Clarity2012', 'clarity'),

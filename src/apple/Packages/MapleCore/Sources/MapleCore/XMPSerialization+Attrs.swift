@@ -87,6 +87,25 @@ extension XMPSerializer {
         if model.brightness != 0 {
             attrs.append(("papp:Brightness", String(format: "%.0f", model.brightness)))
         }
+        // Parametric tone-curve region sliders (#365) — Lightroom-compatible
+        // PV2012 `crs:` keys, emit only when non-default (0) so sidecars
+        // written before the tone-curve widget existed stay byte-identical.
+        // fmtWb is the canonical-format numeric codec (integers bare,
+        // fractions 2dp-trimmed — mirrors the TS `numericSerializer`);
+        // widget drag values are not integer-quantized, so `%.0f` would
+        // shift the stored curve on every re-save.
+        if model.parametricHighlights != 0 {
+            attrs.append(("crs:ParametricHighlights", fmtWb(model.parametricHighlights)))
+        }
+        if model.parametricLights != 0 {
+            attrs.append(("crs:ParametricLights", fmtWb(model.parametricLights)))
+        }
+        if model.parametricDarks != 0 {
+            attrs.append(("crs:ParametricDarks", fmtWb(model.parametricDarks)))
+        }
+        if model.parametricShadows != 0 {
+            attrs.append(("crs:ParametricShadows", fmtWb(model.parametricShadows)))
+        }
         // S5 effects fields (#643) — emit only when non-default so sidecars
         // produced before this PR remain byte-identical for users who never
         // touch the vignette / grain / split-tone tools. Defaults are:

@@ -288,6 +288,12 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         case "crs:Shadows2012":         model.shadows     = d(value) ?? model.shadows
         case "crs:Whites2012":          model.whites      = d(value) ?? model.whites
         case "crs:Blacks2012":          model.blacks      = d(value) ?? model.blacks
+        // Parametric tone-curve region sliders (#365) — PV2012 keys,
+        // Lightroom-compatible; authored by the tone-curve widget.
+        case "crs:ParametricHighlights": model.parametricHighlights = d(value) ?? model.parametricHighlights
+        case "crs:ParametricLights":    model.parametricLights = d(value) ?? model.parametricLights
+        case "crs:ParametricDarks":     model.parametricDarks  = d(value) ?? model.parametricDarks
+        case "crs:ParametricShadows":   model.parametricShadows = d(value) ?? model.parametricShadows
         case "crs:Vibrance":            model.vibrance    = d(value) ?? model.vibrance
         case "crs:Saturation":          model.saturation  = d(value) ?? model.saturation
         case "crs:Clarity2012":         model.clarity     = d(value) ?? model.clarity
