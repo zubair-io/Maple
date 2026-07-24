@@ -9,7 +9,9 @@
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",
     "scripts/seed-fake-workers.ts",
-    "src/people/clustering-quality-harness.ts"
+    "src/people/clustering-quality-harness.ts",
+    "src/runtime/__fixtures__/stderr-crash-child.ts",
+    "src/runtime/__fixtures__/stderr-crash-harness.ts"
   ],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"]
 }
