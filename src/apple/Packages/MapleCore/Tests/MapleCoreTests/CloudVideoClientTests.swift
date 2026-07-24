@@ -16,13 +16,23 @@ struct CloudVideoClientTests {
       token: "header.payload.signature"
     )
     let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-    #expect(url.path == "/api/video/fs")
+    #expect(url.path == "/base/api/video/fs")
     #expect(
       components?.queryItems?.first(where: { $0.name == "path" })?.value
         == "/Library/Trips/clip one.mov")
     #expect(
       components?.queryItems?.first(where: { $0.name == "token" })?.value
-        == "header.payload.signature")
+            == "header.payload.signature")
+  }
+
+  @Test func streamingURLPreservesServerQueryItems() {
+    let url = CloudVideoClient.streamingURL(
+      server: URL(string: "https://maple.example?tenant=studio")!,
+      absPath: "/Library/clip.mov",
+      token: "token"
+    )
+    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+    #expect(queryItems?.first(where: { $0.name == "tenant" })?.value == "studio")
   }
 
   private func asset(filename: String) -> SearchAsset {
