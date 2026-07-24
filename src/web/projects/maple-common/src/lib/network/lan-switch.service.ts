@@ -39,9 +39,13 @@ export class LanSwitchService {
    * that case just fails the eventual top-level navigation with the
    * browser's own "can't reach this page" error — an acceptable, well
    * understood failure mode for an explicit user action.
+   *
+   * Returns `null` without probing when the page is ALREADY the candidate
+   * (e.g. a reload after a previous switch) — there's nothing to offer.
    */
   async checkAvailable(
     pageProtocol: string = window.location.protocol,
+    currentLocation: Pick<Location, 'hostname' | 'port'> = window.location,
   ): Promise<LanSwitchCandidate | null> {
     try {
       const report = await firstValueFrom(
@@ -50,6 +54,11 @@ export class LanSwitchService {
       if (!report.available || !report.ip || !report.port) return null;
       const candidateScheme = report.scheme ?? 'http';
       const origin = `${candidateScheme}://${report.ip}:${report.port}`;
+
+      const currentPort = currentLocation.port || (pageProtocol === 'https:' ? '443' : '80');
+      if (currentLocation.hostname === report.ip && currentPort === String(report.port)) {
+        return null;
+      }
 
       if (pageProtocol === 'https:' && candidateScheme === 'http') {
         return { origin };
