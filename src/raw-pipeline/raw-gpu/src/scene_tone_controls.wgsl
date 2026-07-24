@@ -45,15 +45,13 @@
 // raw_core::stages::scene_tone_controls::LUMA_REC2020 (= [0.2627, 0.6780, 0.0593]).
 const LUMA_REC2020: vec3<f32> = vec3<f32>(0.2627, 0.6780, 0.0593);
 
-// Whites/blacks monotonicity bounds (#1918). Pinned to the raw-core stage
-// raw_core::stages::scene_tone_controls::{WHITES_MIN_GAIN, B_CRUSH_EDGE,
-// B_LIFT_EDGE}; the parity test gates them against the real stage. See the
-// per-constant derivations there — the whites negative gain is floored so the
-// upper-end op stays monotone, and the blacks LIFT toe uses the WIDER 0.40 edge
-// (the CRUSH toe keeps the 0.2 edge, already monotone).
+// Whites/blacks monotonicity bounds pinned to raw-core. #2186 restores the
+// positive Blacks toe to the 0.20 black range and halves its full-rail endpoint
+// so it remains monotone without reaching scene-linear midtones.
 const WHITES_MIN_GAIN: f32 = 0.32;
 const B_CRUSH_EDGE: f32 = 0.2;
-const B_LIFT_EDGE: f32 = 0.40;
+const B_LIFT_EDGE: f32 = 0.20;
+const B_LIFT_MAX: f32 = 0.125;
 
 struct Params {
     exposure: f32,    // EV; gain = 2^exposure
@@ -101,7 +99,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let w_amount = max(params.whites / 200.0, -WHITES_MIN_GAIN);
 
     let b_amount = params.blacks / 100.0;   // -1..+1
-    let b_add_pos = params.blacks / 400.0;  // additive lift amount, positive branch only
+    let b_add_pos = B_LIFT_MAX * params.blacks / 100.0;
 
     // 1. Exposure — linear gain.
     if (apply_exposure) {
@@ -130,7 +128,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 
     // 5. Blacks — smoothstep-weighted toe. Sign-branched:
     //    < 0  → multiplicative crush  (factor = 1 + (blacks/100) * w)
-    //    ≥ 0  → additive lift         (delta  = (blacks/400) * w)
+    //    ≥ 0  → additive lift         (delta = 0.125 * blacks/100 * w)
     //    The asymmetry is intentional (a multiplicative lift would no-op p=0).
     if (apply_blacks) {
         let y_old = luma(p);
@@ -141,9 +139,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
             let factor = 1.0 + b_amount * w;
             p = p * factor;
         } else {
-            // Lift: additive, toe weight over the WIDER 0.40 edge (B_LIFT_EDGE)
-            // so the transfer stays monotone at the full +100 lift (#1918). The
-            // Y=0 lift endpoint and the Y=0.40 midtone pin are preserved.
+            // Lift: additive over the 0.20 black range. The 0.125 full-rail
+            // endpoint keeps the transfer monotone (#2186).
             let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, y_old);
             let delta = b_add_pos * w;
             let y_in = luma(p);
