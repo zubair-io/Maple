@@ -205,10 +205,16 @@ export class ChildProcessWorker implements ChildWorkerHost {
     signalCode: string | number | null,
     error: { message?: string } | undefined,
   ): Promise<void> {
+    // The fallback timer is cleared once the race settles — otherwise every
+    // crash exit leaves a live 2s timer holding the event loop open, which
+    // adds up under a crash loop (#897) and delays graceful shutdown.
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
       this.stderrDrained,
-      new Promise<void>((resolve) => setTimeout(resolve, STDERR_DRAIN_TIMEOUT_MS)),
-    ]);
+      new Promise<void>((resolve) => {
+        drainTimer = setTimeout(resolve, STDERR_DRAIN_TIMEOUT_MS);
+      }),
+    ]).finally(() => clearTimeout(drainTimer));
     const detail =
       (signalCode != null ? `signal=${signalCode}` : `exit=${exitCode}`) +
       (error ? ` (${error.message})` : '');
