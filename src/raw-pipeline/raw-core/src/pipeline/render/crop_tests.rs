@@ -72,8 +72,24 @@ fn render_with_axis_aligned_crop_clips_dimensions() {
 
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 #[test]
-fn render_with_axis_aligned_crop_scene_linear_path_matches_dims() {
-    // Same assertion via the FFI scene-linear path that Apple + Web actually consume.
+fn render_scene_linear_path_returns_full_frame_regardless_of_crop() {
+    // CONTRACT (#1871): the scene-linear FFI path that Apple + Web consume
+    // returns the FULL oriented frame even when `model.crop` is set. Crop
+    // is host-owned on the live path by design — the hosts need overscan
+    // for the interactive crop tool and apply the rect themselves:
+    //   - Apple: `CropImageStage.swift` (#638 — "the crop is NOT in the
+    //     Rust scene-linear core on Apple"), geometry fixed in #2118.
+    //   - Web:   `image-canvas.crop.ts` (spec § 3.12 rotate-then-cut).
+    // The display-encoded exports/CLI path DOES crop in core (#277) — see
+    // `render_with_axis_aligned_crop_clips_dimensions` above. Wiring crop
+    // into the scene-linear entries would double-crop both hosts.
+    //
+    // This test's previous incarnation
+    // (`render_with_axis_aligned_crop_scene_linear_path_matches_dims`)
+    // asserted the opposite — a contract written into the #277 test file
+    // but never implemented on this path, red since birth and invisible to
+    // cloud CI (fixture-gated). It now pins the real invariant so a future
+    // core-side crop can't silently land and double-crop the hosts.
     let path = require_raw("test_0002.dng");
     let bytes_in = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes_in, "dng").expect("decode");
@@ -93,10 +109,11 @@ fn render_with_axis_aligned_crop_scene_linear_path_matches_dims() {
     .unwrap();
     let (w, h, fp16) =
         render_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Preview).unwrap();
-    // Half in each axis.
-    assert!(
-        w < w_full && h < h_full,
-        "scene-linear crop did not shrink dims: full {}x{}, cropped {}x{}",
+    assert_eq!(
+        (w, h),
+        (w_full, h_full),
+        "scene-linear path must return the full oriented frame (host-owned crop): \
+         full {}x{}, with-crop {}x{}",
         w_full,
         h_full,
         w,
