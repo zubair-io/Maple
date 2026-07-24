@@ -68,6 +68,11 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
       return { error: 'rate limited' };
     }
     const redeemed = await redeemLanHandoffCode(body.code);
+    // Mirrors the user-lookup + access-token-sign shape in auth-native-code.ts's
+    // redeem route (and auth.ts's own login/dev-login pair) — the codebase
+    // already tolerates this per-route shape elsewhere rather than extracting
+    // a shared helper.
+    // fallow-ignore-next-line code-duplication
     if (!redeemed) {
       set.status = 400;
       return { error: 'invalid or expired code' };
@@ -81,13 +86,7 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
       { sub: user._id.toHexString(), email: user.email, role: user.role },
       jwtSecret(),
     );
-    const refresh = await issueRefreshToken(
-      user._id,
-      redeemed.deviceLabel,
-      undefined,
-      undefined,
-      false,
-    );
+    const refresh = await issueRefreshToken(user._id, redeemed.deviceLabel, { secure: false });
     cookie.maple_refresh.set({
       value: refresh.raw,
       httpOnly: true,
