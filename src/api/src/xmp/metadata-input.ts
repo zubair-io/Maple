@@ -7,6 +7,8 @@
  * Bun/Node environment.
  */
 
+import type { ColorLabel } from './color-labels.ts';
+
 /** Copyright status tri-state (mirrors CopyrightStatus from xmp.types.ts). */
 export type CopyrightStatus = 'unknown' | 'copyrighted' | 'public-domain';
 
@@ -48,7 +50,7 @@ export interface XmpMetadataInput {
   flag?: 'pick' | 'reject' | 'unflagged' | null;
   /** Color label. null means "clear".
    * Written as `papp:ColorLabel` attribute. */
-  colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+  colorLabel?: ColorLabel | null;
   /** Custom screenshot flag. null means "clear".
    * Written as `papp:IsScreenshot` attribute. */
   isScreenshot?: boolean | null;

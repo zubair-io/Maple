@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { applyLiveFilter } from './query.ts';
+import { applyLiveFilter, buildFilter, COLOR_LABELS } from './query.ts';
+import { COLOR_LABELS as CANONICAL_COLOR_LABELS } from '../../xmp/color-labels.ts';
 
 /**
  * Search visibility requires a *resolvable* primary location: at least one
@@ -37,5 +38,38 @@ describe('applyLiveFilter — search hides assets with no resolvable primary', (
     const elem = live!.fileinfo.$elemMatch;
     expect(elem.deleted_at).toEqual({ $in: [null] });
     expect(elem.missing_since).toEqual({ $in: [null] });
+  });
+});
+
+/**
+ * #1657 — the color vocabulary was inconsistent: the batch/XMP path
+ * recognised red|orange|yellow|green|blue (no purple) while search
+ * recognised red|yellow|green|blue|purple (no orange). The canonical set is
+ * the six-value union, single-sourced from `xmp/color-labels.ts`. These
+ * assert `buildFilter`'s `q.color` validation accepts every canonical value
+ * and rejects anything outside it.
+ */
+describe('buildFilter — color filter accepts the canonical six-value vocabulary (#1657)', () => {
+  it('accepts every canonical color label', () => {
+    for (const color of CANONICAL_COLOR_LABELS) {
+      const result = buildFilter({ color });
+      expect('error' in result).toBe(false);
+      expect((result as Record<string, unknown>).color_label).toBe(color);
+    }
+  });
+
+  it('accepts the empty string (no filter)', () => {
+    const result = buildFilter({ color: '' });
+    expect('error' in result).toBe(false);
+  });
+
+  it('rejects a color outside the canonical set', () => {
+    const result = buildFilter({ color: 'magenta' }) as { error: string };
+    expect(result.error).toBe('Invalid color: magenta');
+  });
+
+  it('orange (batch/XMP-only historically) and purple (search-only historically) are both valid', () => {
+    expect(COLOR_LABELS.has('orange')).toBe(true);
+    expect(COLOR_LABELS.has('purple')).toBe(true);
   });
 });

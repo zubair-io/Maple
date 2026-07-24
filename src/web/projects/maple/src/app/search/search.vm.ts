@@ -15,6 +15,7 @@
 // #295 PR reviews — the barrel may transitively pull Angular).
 
 import type {
+  ColorLabelValue,
   SearchFacets,
   SearchParams,
   SearchResult,
@@ -43,7 +44,7 @@ export const SCENE_TYPE_OPTIONS: ReadonlyArray<{ value: SearchSceneType; label: 
   { value: 'mixed', label: 'Mixed' },
 ];
 
-export type ColorValue = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
+export type ColorValue = '' | ColorLabelValue;
 export type FlagValue = '' | 'pick' | 'reject' | 'none';
 export type ScreenshotValue = '' | 'true' | 'false';
 export type HiddenValue = '' | 'all' | 'only';
@@ -55,6 +56,7 @@ export const COLOR_LABELS: ReadonlyArray<{
 }> = [
   { value: '', label: 'Any', swatch: 'transparent' },
   { value: 'red', label: 'Red', swatch: '#e11d48' },
+  { value: 'orange', label: 'Orange', swatch: '#f97316' },
   { value: 'yellow', label: 'Yellow', swatch: '#eab308' },
   { value: 'green', label: 'Green', swatch: '#22c55e' },
   { value: 'blue', label: 'Blue', swatch: '#3b82f6' },
@@ -126,8 +128,12 @@ export function parseFlag(v: string | null | undefined): FlagValue {
   return v === 'pick' || v === 'reject' || v === 'none' ? v : '';
 }
 
+const COLOR_VALUES = new Set(COLOR_LABELS.map((c) => c.value));
+
 export function parseColor(v: string | null | undefined): ColorValue {
-  return v === 'red' || v === 'yellow' || v === 'green' || v === 'blue' || v === 'purple' ? v : '';
+  return v !== null && v !== undefined && COLOR_VALUES.has(v as ColorValue)
+    ? (v as ColorValue)
+    : '';
 }
 
 export function parseScreenshot(v: string | null | undefined): ScreenshotValue {

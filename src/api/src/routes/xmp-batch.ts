@@ -27,6 +27,7 @@ import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
 import { coll } from '../indexer/images.repo.ts';
 import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
 import { child as childLogger } from '../log.ts';
+import { COLOR_LABELS } from '../xmp/color-labels.ts';
 
 const log = childLogger('routes/xmp-batch');
 
@@ -162,17 +163,7 @@ const MetadataInputSchema = t.Object(
     flag: t.Optional(
       t.Nullable(t.Union([t.Literal('pick'), t.Literal('reject'), t.Literal('unflagged')])),
     ),
-    colorLabel: t.Optional(
-      t.Nullable(
-        t.Union([
-          t.Literal('red'),
-          t.Literal('orange'),
-          t.Literal('yellow'),
-          t.Literal('green'),
-          t.Literal('blue'),
-        ]),
-      ),
-    ),
+    colorLabel: t.Optional(t.Nullable(t.Union(COLOR_LABELS.map((label) => t.Literal(label))))),
     isScreenshot: t.Optional(t.Nullable(t.Boolean())),
     hidden: t.Optional(t.Nullable(t.Boolean())),
   },

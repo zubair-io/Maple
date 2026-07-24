@@ -24,6 +24,7 @@ import type {
 } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
+import { isColorLabelValue } from '../models/color-label';
 import {
   gpsFromXmp,
   altitudeFromXmp,
@@ -46,13 +47,17 @@ const DC_NAMESPACE = 'http://purl.org/dc/elements/1.1/';
 /** RDF namespace URI — owns `rdf:Bag` and `rdf:li`. */
 const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 
-/** XMP xmp:Label words → Maple colorLabel values. */
+/** XMP xmp:Label words → Maple colorLabel values. `Purple` (#1657) is the
+ * word Adobe tools (Lightroom/Bridge) write for their fifth default label
+ * color — it was missing here, so a Lightroom-authored `xmp:Label="Purple"`
+ * silently failed to parse into any colorLabel at all. */
 const LABEL_MAP: Record<string, XmpColorLabel> = {
   Red: 'red',
   Orange: 'orange',
   Yellow: 'yellow',
   Green: 'green',
   Blue: 'blue',
+  Purple: 'purple',
 };
 
 const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
@@ -584,6 +589,6 @@ export class XmpParserService {
   }
 
   private _isValidColorLabel(s: string): boolean {
-    return ['red', 'orange', 'yellow', 'green', 'blue'].includes(s);
+    return isColorLabelValue(s);
   }
 }

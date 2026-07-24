@@ -7,10 +7,11 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
+import type { ColorLabelValue } from '../models/color-label';
 
 export type SearchSort = 'captured_desc' | 'captured_asc' | 'name' | 'rating';
 export type SearchFlag = 'pick' | 'reject' | 'none';
-export type SearchColor = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
+export type SearchColor = '' | ColorLabelValue;
 export type SearchSceneType = '' | 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
 /** Server-side scope from the S7 search chips. `photos` is the default
  * (full live set); `places`/`people` narrow by underlying field presence;

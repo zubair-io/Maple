@@ -319,6 +319,33 @@ describe('POST /api/xmp/batch', () => {
       expect(sidecarContent).toContain('papp:ColorLabel="red"');
     });
 
+    // #1657 — before the vocabulary was unified, the batch route (this
+    // path) accepted `orange` but not `purple`, while search accepted
+    // `purple` but not `orange`. Both are now part of the canonical
+    // six-value set; these write through the real HTTP route to a real
+    // temp-dir sidecar file (no mocks) and confirm both round-trip.
+    test('colorLabel=orange is written to the sidecar (#1657)', async () => {
+      const filename = 'photo3-orange.dng';
+      await fs.writeFile(rawPath(filename), '');
+      const res = await post({
+        entries: [{ address: addr(filename), metadata: { colorLabel: 'orange' } }],
+      });
+      expect(res.status).toBe(200);
+      const sidecarContent = await fs.readFile(rawPath('photo3-orange.xmp'), 'utf-8');
+      expect(sidecarContent).toContain('papp:ColorLabel="orange"');
+    });
+
+    test('colorLabel=purple is written to the sidecar (#1657)', async () => {
+      const filename = 'photo3-purple.dng';
+      await fs.writeFile(rawPath(filename), '');
+      const res = await post({
+        entries: [{ address: addr(filename), metadata: { colorLabel: 'purple' } }],
+      });
+      expect(res.status).toBe(200);
+      const sidecarContent = await fs.readFile(rawPath('photo3-purple.xmp'), 'utf-8');
+      expect(sidecarContent).toContain('papp:ColorLabel="purple"');
+    });
+
     test('culling fields coexist with metadata fields', async () => {
       const filename = 'photo4.dng';
       await fs.writeFile(rawPath(filename), '');

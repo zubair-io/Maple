@@ -140,8 +140,8 @@ describe('parseFlag', () => {
 });
 
 describe('parseColor', () => {
-  it('accepts only the five real color values', () => {
-    for (const c of ['red', 'yellow', 'green', 'blue', 'purple'] as const) {
+  it('accepts only the six real color values', () => {
+    for (const c of ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const) {
       expect(parseColor(c)).toBe(c);
     }
   });

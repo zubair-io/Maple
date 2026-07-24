@@ -16,6 +16,7 @@ import { MapleIconComponent } from '../../icons/maple-icon.component';
 const COLOR_OPTIONS: ReadonlyArray<{ value: TimelineColor; label: string; swatch: string }> = [
   { value: '', label: 'Any color', swatch: 'transparent' },
   { value: 'red', label: 'Red', swatch: '#e11d48' },
+  { value: 'orange', label: 'Orange', swatch: '#f97316' },
   { value: 'yellow', label: 'Yellow', swatch: '#eab308' },
   { value: 'green', label: 'Green', swatch: '#22c55e' },
   { value: 'blue', label: 'Blue', swatch: '#3b82f6' },

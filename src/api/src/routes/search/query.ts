@@ -34,8 +34,11 @@ import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
 import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { parseNlDateRange } from './nl-date.ts';
+import { COLOR_LABELS as CANONICAL_COLOR_LABELS } from '../../xmp/color-labels.ts';
 
-export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purple']);
+/** Search's color filter also accepts `''` (no filter), on top of the
+ * canonical six-value vocabulary — see `../../xmp/color-labels.ts` (#1657). */
+export const COLOR_LABELS = new Set<string>(['', ...CANONICAL_COLOR_LABELS]);
 
 export const SCENE_TYPES = new Set(['indoor', 'outdoor', 'aerial', 'macro', 'studio', 'mixed']);
 

@@ -389,6 +389,29 @@ describe('culling round-trip', () => {
     expect(parsed.colorLabel).toBe('red');
   });
 
+  // #1657 — the vocabulary used to be inconsistent: the batch/XMP path
+  // recognised red|orange|yellow|green|blue (no purple) while search
+  // recognised red|yellow|green|blue|purple (no orange). `orange` and
+  // `purple` are the two values that were previously mishandled by one
+  // side or the other, so they get explicit round-trip coverage here
+  // through the real parser (`parseXmpMetadata`) and serializer
+  // (`mergeMetadataIntoXmp`) — no mocks.
+  test('colorLabel=orange survives round-trip (#1657)', () => {
+    const meta: XmpMetadataInput = { colorLabel: 'orange' };
+    const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
+    expect(merged).toContain('papp:ColorLabel="orange"');
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.colorLabel).toBe('orange');
+  });
+
+  test('colorLabel=purple survives round-trip (#1657)', () => {
+    const meta: XmpMetadataInput = { colorLabel: 'purple' };
+    const merged = mergeMetadataIntoXmp(EMPTY_XMP, meta);
+    expect(merged).toContain('papp:ColorLabel="purple"');
+    const parsed = parseXmpMetadata(merged);
+    expect(parsed.colorLabel).toBe('purple');
+  });
+
   test('colorLabel=null clears existing color label', () => {
     const withLabel = mergeMetadataIntoXmp(EMPTY_XMP, {
       colorLabel: 'green',
