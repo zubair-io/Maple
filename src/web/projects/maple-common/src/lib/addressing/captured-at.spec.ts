@@ -54,11 +54,24 @@ describe('asIsoDate — timezone-independent inputs (parity with exif.ts)', () =
     // directly before writing this test. Pacific/Kiritimati (UTC+14) and
     // America/New_York (UTC-4/-5) are picked to be about as far apart as IANA
     // zones get, matching the spread `exif.timezone.test.ts` uses server-side.
+    // Expected `getTimezoneOffset()` for a January date, per zone. The
+    // guard below asserts the runtime actually re-read `TZ` before the
+    // golden-string assertion runs — if an engine/bundler ignored the
+    // mid-process change, the loop would silently degrade into three
+    // copies of the host-zone case and the regression signal would be
+    // gone. With the guard, that environment fails LOUDLY instead.
+    const expectedJanuaryOffsetMin: Record<string, number> = {
+      UTC: 0,
+      'America/New_York': 300, // UTC-5 (EST — January is outside DST)
+      'Pacific/Kiritimati': -840, // UTC+14
+    };
     const original = process.env['TZ'];
     try {
       for (const tz of ['UTC', 'America/New_York', 'Pacific/Kiritimati']) {
         process.env['TZ'] = tz;
-        expect(asIsoDate(new Date(2020, 0, 2, 3, 4, 5))).toBe('2020-01-02T03:04:05.000Z');
+        const probe = new Date(2020, 0, 2, 3, 4, 5);
+        expect(probe.getTimezoneOffset()).toBe(expectedJanuaryOffsetMin[tz]);
+        expect(asIsoDate(probe)).toBe('2020-01-02T03:04:05.000Z');
       }
     } finally {
       if (original === undefined) delete process.env['TZ'];
