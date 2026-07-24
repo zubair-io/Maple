@@ -99,8 +99,13 @@ export const redrivePreviewMissingDescribe: Migration = {
     if (ids.length === 0) return { processed: 0, errors: 0 };
 
     try {
+      // Re-assert the candidate filter alongside the ids: a row can change
+      // between the find and this update (e.g. a worker just re-stamped the
+      // describe stage), and an id-only update would reset that fresh state
+      // and stamp the done-marker on a non-candidate. A raced-away row is
+      // simply not modified — and not counted.
       const res = await coll.updateMany(
-        { _id: { $in: ids.map((d) => d._id) } },
+        { _id: { $in: ids.map((d) => d._id) }, ...candidateFilter() },
         { $set: redriveUpdate() },
       );
       log.info(

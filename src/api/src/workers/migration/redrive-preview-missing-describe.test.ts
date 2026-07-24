@@ -1,8 +1,10 @@
 /**
- * Tests for the redrive-preview-missing-describe migration (#2177).
+ * Tests for the redrive-preview-missing-describe migration (#2179, the
+ * one-time backlog drain following the #2177 behavioural fix).
  *
  * Rows whose describe stage terminally skipped with `skip: preview-missing`
- * before the `{ rearm }` result existed are stamped done and never re-claimed.
+ * before the `{ rearm }` result existed (#2177) are stamped done and never
+ * re-claimed.
  * This migration resets exactly those rows so the new describe branch decides
  * their fate (re-arm preview on drift, re-skip terminally where no preview can
  * exist).
