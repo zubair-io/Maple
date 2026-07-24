@@ -24,6 +24,10 @@
 //   4. KeywordChipsRow     — editable via `EditSession.setKeywords` (#632).
 //                            Tap a chip to remove; tap `+ Add` to dock an
 //                            inline TextField, submit on Return.
+//   5. EnrichmentBlock     — Self-Hosted AI-derived data (description / OCR /
+//                            transcript) fetched from `GET /api/assets/:id`.
+//                            Renders nothing for local / PhotoKit assets, or
+//                            when the asset carries no enrichment.
 //
 // Field-name notes (PR #609 review):
 //   • `CullingState.stars` (NOT `starCount`).
@@ -83,6 +87,7 @@ struct InfoPanelView: View {
         }
         CameraLocationGrid(asset: session?.asset)
         KeywordChipsRow(session: session)
+        EnrichmentBlock(session: session)
       }
       .padding(MapleTokens.Spacing.panelInset)
       // 16pt bottom inset on the sheet so the last chip row clears the
