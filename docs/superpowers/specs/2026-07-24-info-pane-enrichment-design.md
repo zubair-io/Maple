@@ -47,10 +47,12 @@ projection to `AssetDetailDto` and `toDetailDto` in
 `src/api/src/db/assets.transform.ts`:
 
 ```ts
-transcript?: {
+// Always present on the wire (object or null) — not optional. `language`
+// and `model` are non-nullable strings, matching `TranscriptDoc`.
+transcript: {
   text: string;
-  language: string | null;
-  model: string | null;
+  language: string;
+  model: string;
   duration_sec: number | null;
   generated_at: string;
 } | null;
@@ -76,7 +78,7 @@ Description + OCR are already in this DTO — no change there.
   `Packages/MapleCore/Sources/MapleCloudKit/Cloud/`, modeled verbatim on
   `CloudHistogramClient`: `init(server:httpClient:)`, `detail(assetID:) async
 throws -> CloudAssetDetail`, calling `GET /api/assets/:id` and decoding a new
-  `CloudAssetDetail { description, ocr_text, ocr_meta, transcript }` Decodable.
+  `CloudAssetDetail { description, ocr_text, transcript }` Decodable.
 - New `cloudAssetDetailClient` `EnvironmentKey`/`EnvironmentValues` slot mirroring
   `CloudHistogramClientKey`: constructed in `prepareCloudSession`
   (`AppShell+CloudActions.swift`) alongside the histogram client, stored as
