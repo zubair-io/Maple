@@ -91,8 +91,12 @@ public actor ImageEditPipeline {
     /// prescale output and the published buffer to real resolution.
     ///
     /// Deliberately keyed off the ACTUAL delivered extent
-    /// (`RenderActor.DecodedSnapshot.rawResolution` — the pre-normalisation
-    /// `decoded.extent.size`), never a predicted divisor: the `.preview`
+    /// (`RenderActor.DecodedSnapshot.rawResolution` — the
+    /// `decoded.extent.size` before `decodedForNativeCanvas` scales it to
+    /// the native canvas; it is already DISPLAY-oriented, since the sized
+    /// FFI applies EXIF rotation before returning, so per-axis comparison
+    /// against the display-oriented target is sound for portrait assets
+    /// too), never a predicted divisor: the `.preview`
     /// half-res ceiling is CFA-dependent in raw-core
     /// (`effective_quality_divisor` — Bayer halves at Preview, but X-Trans
     /// and LinearRgb decode FULL-res), so a predicted `native/2` cap would
