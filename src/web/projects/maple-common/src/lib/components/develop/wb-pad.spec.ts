@@ -58,11 +58,18 @@ describe('rgbToWb', () => {
     expect(Math.abs(tint)).toBeLessThanOrEqual(1);
   });
 
-  it('red-dominant pixel → warmer temperature (higher K)', () => {
-    // R>G means warmer — higher correlated color temperature
-    const { temperature: warmT } = rgbToWb(180, 128, 80);
-    const { temperature: coolT } = rgbToWb(80, 128, 180);
-    expect(warmT).toBeGreaterThan(coolT);
+  it('red-dominant sample → LOWER corrective temperature (#1568)', () => {
+    // Derivation: Maple's temp slider warms the render as its value goes UP
+    // (Lightroom semantics), pinned by the closed-form grey predictors
+    // `temp_warmer_makes_r_gt_b` / `temp_cooler_makes_b_gt_r` in
+    // src/raw-pipeline/raw-core/tests/grey_adjustments.rs:306-346. A
+    // red-dominant sample (R>G) is a pixel the CURRENT WB is rendering too
+    // warm, so the eyedropper's corrective temperature must be LOWER than a
+    // blue-dominant sample's, to cool the render back to neutral — the
+    // opposite of what a naive "redder = higher CCT" reading would produce.
+    const { temperature: redSampleTemp } = rgbToWb(180, 128, 80);
+    const { temperature: blueSampleTemp } = rgbToWb(80, 128, 180);
+    expect(redSampleTemp).toBeLessThan(blueSampleTemp);
   });
 
   it('clamps output within valid ranges', () => {
