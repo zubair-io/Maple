@@ -43,6 +43,24 @@ describe('InfoTranscriptComponent', () => {
     expect(el.textContent).toContain('en · whisper-base');
   });
 
+  it('drops a blank language from the footer instead of rendering an orphaned separator', () => {
+    // Mirrors the Swift client's test_sections_footerDropsBlankLanguage: a
+    // whisper run can return `language: ""`, and the footer must render
+    // just the model name, not "· whisper-base".
+    const el = render(
+      detailWith({
+        text: 'the quick brown fox',
+        language: '',
+        model: 'whisper-base',
+        duration_sec: null,
+        generated_at: '2026-07-24T00:00:00Z',
+      }),
+    );
+    const footer = el.querySelector('[data-testid="transcript-footer"]');
+    expect(footer?.textContent?.trim()).toBe('whisper-base');
+    expect(el.textContent).not.toContain('·');
+  });
+
   it('renders nothing when there is no transcript', () => {
     const el = render(detailWith(null));
     expect(el.querySelector('.transcript-pre')).toBeNull();
