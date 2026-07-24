@@ -53,7 +53,7 @@ struct PhotoViewerScreen: View {
 
       if let currentAsset {
         mediaView(for: currentAsset)
-          .accessibilityIdentifier("photo-viewer")
+          .accessibilityIdentifier("media-viewer")
 
         captionOverlay(for: currentAsset)
       }
