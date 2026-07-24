@@ -135,6 +135,20 @@ describe('markScopeReadback (jules review, #1123)', () => {
     expect(performance.getEntriesByName('maple:scope-readback', 'measure')).toHaveLength(0);
   });
 
+  it('still clears its marks even when the wrapped fn() throws (jules review, #1123)', () => {
+    // Second regression jules flagged: the original `markScopeReadback` called
+    // `fn()` outside any try/finally, so a throw from the readback ITSELF (not
+    // just a Performance Timeline call) skipped markEnd + the clears, leaking
+    // `startMark`. The caller's exception must still propagate.
+    expect(() =>
+      markScopeReadback(4, () => {
+        throw new Error('simulated readback failure');
+      }),
+    ).toThrow('simulated readback failure');
+    expect(performance.getEntriesByName('maple:scope-readback:4:start', 'mark')).toHaveLength(0);
+    expect(performance.getEntriesByName('maple:scope-readback:4:end', 'mark')).toHaveLength(0);
+  });
+
   it('still clears its marks even when performance.measure throws (the BLOCKING fix)', () => {
     // Regression for the jules-review BLOCKING finding: the original fix bundled
     // mark(end) + measure + clearMarks + clearMeasures into ONE safeMeasure closure,
