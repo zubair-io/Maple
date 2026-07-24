@@ -42,16 +42,16 @@ export class ExifReaderService {
    * local `setHours`/`setMinutes`/`setSeconds` (confirmed directly in
    * exifr's own bundled source, the `ze` function) — i.e. exifr's *own*
    * Date construction is exactly the same LOCAL-timezone-ambiguous pattern
-   * `captured-at.ts`'s `asIsoDate` was fixed to stop doing. Once exifr hands
-   * back a `Date` instead of a string, `asIsoDate`'s `Date` branch has no
-   * way to tell "this came from exifr's locally-biased parse" apart from
-   * "this is a genuinely correct, already-UTC Date some other caller
-   * constructed" (both are indistinguishable `Date` instances) — so it
-   * cannot un-bias it after the fact without also breaking legitimate
-   * UTC-Date inputs. The only robust fix is never letting exifr construct
-   * the Date in the first place: `reviveValues: false` makes it hand back
-   * the raw string always, which routes through `asIsoDate`'s string
-   * branch (the one actually fixed to use `Date.UTC(...)`). Since this
+   * `captured-at.ts`'s `asIsoDate` was fixed to stop doing.
+   *
+   * `asIsoDate`'s `Date` branch is now (#2154) also fixed to read those same
+   * local calendar fields back out, which correctly un-biases exactly this
+   * kind of locally-constructed `Date` — so a revived `Date` reaching it
+   * would no longer misformat. `reviveValues: false` stays anyway: it keeps
+   * this service's output on the plain "raw EXIF string" code path (the one
+   * actually fixed to use `Date.UTC(...)`), rather than leaning on the
+   * newer, more narrowly-scoped contract that a `Date` reaching `asIsoDate`
+   * always encodes a timezone-naive wall clock via local fields. Since this
    * service only ever picks DateTimeOriginal/CreateDate (no GPS, no other
    * revived tags), disabling revival globally for this call has no other
    * side effects to worry about.
