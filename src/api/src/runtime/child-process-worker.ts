@@ -17,7 +17,17 @@
  *   - `ChildProcessWorker` (parent side): wraps `Bun.spawn` + IPC in the
  *     Worker-like surface (`postMessage` / `terminate` /
  *     `addEventListener('message' | 'error')`) the pools already speak, and
- *     turns an UNEXPECTED child exit into the `error` event.
+ *     turns an UNEXPECTED child exit into the `error` event. It also pipes the
+ *     child's stderr through a small ring buffer (#899): a native crash report
+ *     (Rust `panic=abort`, onnxruntime `terminate`, `bad_alloc`, a Bun crash
+ *     dump) previously reached ONLY the child's inherited stderr → container
+ *     logs, invisible to the structured log pipeline / SigNoz. We still tee
+ *     every byte straight through to the parent's own stderr (so `kubectl
+ *     logs`/container logs see exactly what `inherit` gave them before — the
+ *     tee is lossless), but we ALSO keep the last few KB in memory and fold it
+ *     into the structured `onExit` log line as `stderrTail`, so the crash
+ *     reason ships with the exit event itself instead of requiring a
+ *     separate, unstructured log dive.
  *   - `installChildHardening` (child side): each child entry calls this once to
  *     (a) lower its OS scheduling priority so the HTTP event loop always wins
  *     CPU under indexer load, and (b) self-exit if orphaned (Bun neither
@@ -40,6 +50,56 @@ const NICE_ENV = 'MAPLE_NATIVE_CHILD_NICE';
  * contention — so HTTP request handling wins over a saturating indexer backlog
  * — while still letting the children make steady progress when the box is idle. */
 export const DEFAULT_NATIVE_CHILD_NICE = 10;
+
+/** How much of the child's stderr tail we keep in memory for the crash log
+ * (#899). A panic message / backtrace summary is a few hundred bytes to a few
+ * KB; 8 KB is generous headroom without holding onto a meaningfully-sized
+ * buffer for the life of a long-running child. */
+const STDERR_RING_BYTES = 8 * 1024;
+
+/**
+ * Fixed-capacity byte ring: keeps only the most recent `maxBytes` written to
+ * it. Used to retain just the TAIL of a child's stderr — the part of a crash
+ * report (panic message, backtrace) that actually explains the death — without
+ * growing unbounded over a long-running child's lifetime. Exported for direct
+ * unit testing (see `child-process-worker.test.ts`).
+ */
+export class StderrRing {
+  private chunks: Uint8Array[] = [];
+  private len = 0;
+
+  constructor(private readonly maxBytes: number) {}
+
+  push(chunk: Uint8Array): void {
+    this.chunks.push(chunk);
+    this.len += chunk.length;
+    while (this.len > this.maxBytes && this.chunks.length > 0) {
+      const head = this.chunks[0];
+      const over = this.len - this.maxBytes;
+      if (over >= head.length) {
+        // Drop the whole oldest chunk.
+        this.chunks.shift();
+        this.len -= head.length;
+      } else {
+        // Trim the oldest chunk down to just the bytes we still want.
+        this.chunks[0] = head.subarray(over);
+        this.len -= over;
+      }
+    }
+  }
+
+  /** Decode the retained bytes as UTF-8 text, trimmed of surrounding whitespace. */
+  toString(): string {
+    if (this.chunks.length === 0) return '';
+    const merged = new Uint8Array(this.len);
+    let offset = 0;
+    for (const chunk of this.chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return new TextDecoder().decode(merged).trim();
+  }
+}
 
 /** Worker-like surface the pools depend on (matches `Worker` and the pools'
  * injected fakes). Kept structural so `ChildProcessWorker` satisfies both the
@@ -72,8 +132,11 @@ export interface ChildProcessWorkerOptions {
  * `scriptPath`. Generic over the wire protocol — it only forwards messages.
  */
 export class ChildProcessWorker implements ChildWorkerHost {
-  private readonly proc: Bun.Subprocess;
+  private readonly proc: Bun.Subprocess<'ignore', 'inherit', 'pipe'>;
   private readonly label: string;
+  /** Tail of the child's stderr, kept for the crash-diagnostic `onExit` log
+   * (#899). Fed by `pumpStderr`. */
+  private readonly stderrRing = new StderrRing(STDERR_RING_BYTES);
   private onMessage: MessageCb | null = null;
   private onError: ErrorCb | null = null;
   /** Set once WE asked the child to die (terminate), so its `onExit` isn't
@@ -91,8 +154,10 @@ export class ChildProcessWorker implements ChildWorkerHost {
     if (opts.nice && opts.nice > 0) env[NICE_ENV] = String(Math.floor(opts.nice));
     // Spawn under the same Bun runtime (bun:ffi / onnxruntime-node require it).
     // `ipc` opens a dedicated channel separate from stdio, so the child's
-    // stdout/stderr — including a native/Bun crash report on a segfault — flow
-    // to the container logs without corrupting the protocol stream.
+    // stdout/stderr — including a native/Bun crash report on a segfault — never
+    // corrupt the protocol stream. stdout stays `inherit`; stderr is `pipe` so
+    // `pumpStderr` can tee it through to the container logs AND retain the tail
+    // for the crash-diagnostic `onExit` log (#899).
     this.proc = Bun.spawn([process.execPath, scriptPath, ...(opts.argv ?? [])], {
       ipc: (message: unknown) => {
         if (this.onMessage) this.onMessage({ data: message });
@@ -103,19 +168,61 @@ export class ChildProcessWorker implements ChildWorkerHost {
         const detail =
           (signalCode != null ? `signal=${signalCode}` : `exit=${exitCode}`) +
           (error ? ` (${error.message})` : '');
+        // #899: fold in whatever the child wrote to stderr right before it
+        // died — a Rust panic message, an onnxruntime `terminate called after
+        // throwing`, a `bad_alloc`, a Bun crash-report header — so the exit
+        // event is self-diagnosing instead of pointing at container logs.
+        const stderrTail = this.stderrRing.toString();
         log.error(
-          { label: this.label, pid: this.proc?.pid, exitCode, signalCode },
+          {
+            label: this.label,
+            pid: this.proc?.pid,
+            exitCode,
+            signalCode,
+            ...(stderrTail ? { stderrTail } : {}),
+          },
           `native child died — ${detail}`,
         );
         const ev = { message: `${this.label} child died — ${detail}` };
         if (this.onError) this.onError(ev);
         else this.pendingError = ev;
       },
-      stdio: ['ignore', 'inherit', 'inherit'],
+      // stderr is piped (not inherited) so the parent can tee it into the ring
+      // buffer above — see `pumpStderr`. stdout stays inherited: it's ordinary
+      // child chatter, not the crash-diagnostic signal this ticket cares about.
+      stdio: ['ignore', 'inherit', 'pipe'],
       // Bun↔Bun structured-clone IPC — carries typed arrays / nested objects.
       serialization: 'advanced',
       env,
     });
+    void this.pumpStderr();
+  }
+
+  /**
+   * Continuously drain the child's piped stderr: tee every chunk straight to
+   * the parent's OWN stderr — so container logs / `kubectl logs` see exactly
+   * what plain `inherit` gave them before (the tee is lossless, nothing is
+   * summarized or dropped on the live path) — and retain the tail in
+   * `stderrRing` for the structured `onExit` crash log. Runs for the child's
+   * lifetime; resolves once the pipe closes (the child exited, gracefully or
+   * not).
+   */
+  private async pumpStderr(): Promise<void> {
+    const reader = this.proc.stderr.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value && value.length > 0) {
+          process.stderr.write(value);
+          this.stderrRing.push(value);
+        }
+      }
+    } catch {
+      // The pipe errored or was torn down mid-read (e.g. the child was
+      // SIGKILLed out from under us). Nothing more to drain — whatever landed
+      // in the ring buffer beforehand is still available for the exit log.
+    }
   }
 
   /** Underlying OS pid. Exposed for diagnostics and crash-isolation tests. */
