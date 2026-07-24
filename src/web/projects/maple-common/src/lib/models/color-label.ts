@@ -31,11 +31,15 @@ export interface ColorLabelOption {
 }
 
 /** Display metadata (label + swatch hex) for each color, in canonical
- * order. Shared by the batch-metadata color `<select>`, the timeline
- * filter row, and the search page color filter so the palette can't
- * drift across those UIs. Callers that need a leading "any color"
- * option prepend their own `{ value: '', ... }` entry — the wording
- * for that entry differs per surface ("Any" vs "Any color"). */
+ * order. Consumed by the timeline filter row and the batch-metadata
+ * color `<select>` (both iterate this table directly). The search
+ * page's `search.vm.ts` cannot value-import from maple-common (it is a
+ * plain-TS module by design — see its file header), so it keeps a local
+ * option table whose VALUE set is type-locked to `ColorLabelValue`;
+ * only its display strings could drift. Callers that need a leading
+ * "any color" option prepend their own `{ value: '', ... }` entry —
+ * the wording for that entry differs per surface ("Any" vs "Any
+ * color"). */
 export const COLOR_LABEL_OPTIONS: ReadonlyArray<ColorLabelOption> = [
   { value: 'red', label: 'Red', swatch: '#e11d48' },
   { value: 'orange', label: 'Orange', swatch: '#f97316' },

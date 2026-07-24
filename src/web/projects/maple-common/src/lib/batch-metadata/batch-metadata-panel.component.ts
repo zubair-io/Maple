@@ -29,7 +29,7 @@ import {
 } from './batch-metadata.types';
 import { buildBatchApplyMetadata } from './batch-metadata-panel.form-mapping';
 import type { CopyrightStatus } from '../xmp/xmp.types';
-import type { ColorLabelValue } from '../models/color-label';
+import { COLOR_LABEL_OPTIONS, type ColorLabelValue } from '../models/color-label';
 
 type PanelPhase =
   | 'form'
@@ -84,6 +84,10 @@ const FIELD_LABELS: Partial<Record<keyof MixedValueMap, string>> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BatchMetadataPanelComponent implements OnDestroy {
+  /** Canonical color options (#1657) — the select iterates this so the
+   *  panel can't drift from the shared vocabulary. */
+  readonly COLOR_LABEL_OPTIONS = COLOR_LABEL_OPTIONS;
+
   // ── Inputs / outputs ───────────────────────────────────────────────────────
   readonly visible = input<boolean>(false);
   readonly assetSnapshots = input<AssetMetadataSnapshot[]>([]);
