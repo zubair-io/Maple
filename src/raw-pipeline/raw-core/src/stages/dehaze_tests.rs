@@ -107,6 +107,25 @@ fn dehaze_zero_is_identity() {
 }
 
 #[test]
+fn dehaze_negative_uses_forward_haze_model() {
+    let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+    img.pixels[0] = [0.10, 0.20, 0.30];
+    let a = [0.80, 0.90, 1.00];
+
+    recover_with_mask(&mut img, -50.0, &[0.40], a, &[0.0]);
+
+    // haze=0.5 maps t=0.4 halfway from identity transmission 1.0:
+    // t_haze=0.7, output=I*0.7 + A*0.3.
+    let expected = [0.31, 0.41, 0.51];
+    for (actual, expected) in img.pixels[0].iter().zip(expected) {
+        assert!(
+            (actual - expected).abs() < 1e-6,
+            "negative dehaze must move toward airlight: {actual} != {expected}"
+        );
+    }
+}
+
+#[test]
 fn sky_mask_is_zero_for_hazy_pixels_one_for_sky() {
     // Hazy mid-distance pixel: dc ~ 0.3 → mask 0.
     // Sky pixel: dc ~ 0.85 → mask 1.
