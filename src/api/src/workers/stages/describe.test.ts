@@ -290,10 +290,34 @@ describe('describeHandler — parse failure', () => {
   });
 });
 
-describe('describeHandler — preview missing', () => {
-  it("returns { skip: 'preview-missing' } when the 1280-px preview is absent", async () => {
+describe('describeHandler — preview missing (#2177)', () => {
+  it('returns { rearm } when the preview stage wrote but its artefact has vanished', async () => {
     const absPath = join(tmpRoot, 'no-preview.dng');
-    // No seedPreview call — the file doesn't exist.
+    // No seedPreview call — the file doesn't exist, but the preview stage's
+    // state says it ran cleanly (drift: moved cache dir, interrupted write).
+    const doc = fakeDoc(absPath, libraryId, tmpRoot);
+    doc.stages = {
+      preview: { version: 4, attempts: 0, last_error: null, processed_at: null, dead: false },
+    };
+    const provider = mockProvider({
+      text: JSON.stringify(VALID_VISION),
+      cost_usd: 0,
+      provider_info: {},
+    });
+    setDescribeDepsForTests({
+      provider,
+      systemPrompt: 'p',
+      model: 'qwen3-vl:8b',
+    });
+    const result = await describeHandler(doc, fakeCtx);
+    expect(result).toEqual({ rearm: { stage: 'preview', reason: 'preview-missing' } });
+  });
+
+  it('returns { rearm } when the preview stage has no recorded state at all', async () => {
+    // The DAG-bug case: describe claimed a doc whose preview state is absent.
+    // Re-arming is a no-op reset there, and the dependsOn gate holds describe
+    // back until preview genuinely runs.
+    const absPath = join(tmpRoot, 'no-state.dng');
     const doc = fakeDoc(absPath, libraryId, tmpRoot);
     const provider = mockProvider({
       text: JSON.stringify(VALID_VISION),
@@ -306,8 +330,7 @@ describe('describeHandler — preview missing', () => {
       model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    expect('skip' in result).toBe(true);
-    expect((result as { skip: string }).skip).toBe('preview-missing');
+    expect(result).toEqual({ rearm: { stage: 'preview', reason: 'preview-missing' } });
   });
 });
 
@@ -370,8 +393,20 @@ describe('describeHandler — video files are described from their poster frame 
     const absPath = join(tmpRoot, 'no-ffmpeg.mov');
     // No seedPreview: on a host without a runnable ffmpeg the preview stage
     // skips with 'no-video-decoder' and never writes this file. The provider
-    // must not be reached — container bytes never go upstream.
+    // must not be reached — container bytes never go upstream. Because the
+    // preview stage's own state records a terminal skip, re-arming it could
+    // never produce a poster — so describe skips terminally rather than
+    // returning { rearm } (#2177).
     const doc = fakeDoc(absPath, libraryId, tmpRoot);
+    doc.stages = {
+      preview: {
+        version: 4,
+        attempts: 0,
+        last_error: 'skip: no-video-decoder',
+        processed_at: null,
+        dead: false,
+      },
+    };
     let called = false;
     const provider: DescribeProvider = {
       name: 'ollama',

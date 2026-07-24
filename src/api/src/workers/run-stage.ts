@@ -34,7 +34,13 @@ import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.
 import { confirmAndTagMissing } from './tag-missing.ts';
 import { tagDamaged } from './tag-damaged.ts';
 import { dispatchPool } from './dispatch-pool.ts';
-import { bootConfig, defineStage, resolveStageDeps, versionBumpReset } from './stage-config.ts';
+import {
+  bootConfig,
+  defineStage,
+  invalidationSets,
+  resolveStageDeps,
+  versionBumpReset,
+} from './stage-config.ts';
 import type {
   ImageDoc,
   StageConfig,
@@ -110,40 +116,6 @@ export function buildClaimQuery(
   // is AND-ed on so it can't collide with the base query's own `fileinfo` /
   // `$or` keys. Absent → the base query is returned unchanged.
   return claimFilter ? { $and: [filter, claimFilter] } : filter;
-}
-
-/**
- * `$set` keys that mark each stage in `names` stale (version 0, bookkeeping
- * cleared) — the runner folds these into the SAME atomic write as a patch
- * result's field values, so a crash can never land the new fields without
- * also marking the downstream stage stale (or vice versa). The writing
- * stage's own name is excluded: its state is owned by `stageState` in the
- * same write. See `StageResult`'s `invalidates` doc (#2172).
- */
-function invalidationSets(
-  names: readonly string[] | undefined,
-  ownName: string,
-): Record<string, unknown> {
-  // Names are interpolated into `$set` paths — a `.`/`$`-bearing or empty
-  // value would silently create unintended nested fields (or throw
-  // mid-update). Stage names are compile-time constants, so any mismatch is
-  // a programming error: fail the attempt loudly rather than write a
-  // malformed update.
-  const invalid = (names ?? []).filter((s) => !/^[a-z][a-z0-9_-]*$/.test(s));
-  if (invalid.length > 0) {
-    throw new Error(`invalid stage name in invalidates: ${invalid.join(', ')}`);
-  }
-  return Object.fromEntries(
-    (names ?? [])
-      .filter((s) => s !== ownName)
-      .flatMap((s) => [
-        [`stages.${s}.version`, 0],
-        [`stages.${s}.attempts`, 0],
-        [`stages.${s}.dead`, false],
-        [`stages.${s}.last_error`, null],
-        [`stages.${s}.processed_at`, null],
-      ]),
-  );
 }
 
 /**
@@ -288,6 +260,34 @@ export async function runOnce(
                 ...stageState,
                 last_error: `skip: ${result.skip}`,
               },
+            },
+          },
+        );
+      } else if ('rearm' in result) {
+        // A prerequisite artefact is missing even though the upstream stage
+        // claims done — see `StageResult`'s `rearm` doc (#2177). Reset the
+        // upstream stage so its poll loop regenerates the artefact, and leave
+        // THIS stage below target with its claim-time attempt kept: the
+        // `dependsOn` gate parks the doc until the upstream completes, then
+        // this stage re-claims it. A pair that never converges dead-letters
+        // here at maxAttempts instead of ping-ponging forever.
+        const dep = result.rearm.stage;
+        if (!resolvedDeps.some((d) => d.name === dep)) {
+          throw new Error(
+            `stage '${stage.name}' returned { rearm: '${dep}' } but does not depend on it`,
+          );
+        }
+        const dead = attemptNo >= config.maxAttempts;
+        await images.updateOne(
+          { _id: id },
+          {
+            $set: {
+              // Once out of attempts, stop resetting the upstream stage — this
+              // stage can no longer claim the doc, so another regeneration
+              // round would be pure churn.
+              ...(dead ? {} : invalidationSets([dep], stage.name)),
+              [`${stageKey}.last_error`]: `awaiting ${dep}: ${result.rearm.reason}`,
+              [`${stageKey}.dead`]: dead,
             },
           },
         );
