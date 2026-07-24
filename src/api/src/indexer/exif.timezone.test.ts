@@ -58,6 +58,60 @@ async function capturedAtUnderTimezone(tz: string, exifString: string): Promise<
   return JSON.parse(stdout) as string | null;
 }
 
+/** Runs `normalizeExif({ DateTimeOriginal: new Date(y, mo, d, h, mi, s) })`
+ * in a fresh child `bun` process started with `TZ=tz`, returning its
+ * `captured_at`. Exercises `asIsoDate`'s `Date` branch (#2154) — the
+ * `Date` is built via the local-component constructor, exactly matching how
+ * exifr's own `reviveValues: true` revival constructs one from a bare EXIF
+ * wall-clock string (see `EXIFR_DATE_ONLY_OPTS`'s doc comment in `exif.ts`),
+ * so this is the realistic shape of input that branch actually receives. */
+async function capturedAtForDateUnderTimezone(
+  tz: string,
+  y: number,
+  mo: number,
+  d: number,
+  h: number,
+  mi: number,
+  s: number,
+): Promise<string | null> {
+  const script = `
+    import { normalizeExif } from ${JSON.stringify(EXIF_TS_PATH)};
+    const result = normalizeExif({ DateTimeOriginal: new Date(${y}, ${mo}, ${d}, ${h}, ${mi}, ${s}) });
+    process.stdout.write(JSON.stringify(result.captured_at));
+  `;
+  const proc = Bun.spawn(['bun', '-e', script], {
+    env: { ...process.env, TZ: tz },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`child process (TZ=${tz}) exited ${exitCode}: ${stderr}`);
+  }
+  return JSON.parse(stdout) as string | null;
+}
+
+describe('normalizeExif captured_at — Date-instance wall-clock preservation (#2154)', () => {
+  // `asIsoDate`'s `Date` branch previously called `v.toISOString()`, which
+  // reads a `Date` back through UTC regardless of the local timezone it was
+  // built with — reintroducing the exact class of bug this file's other
+  // describe block guards against, one layer up (a `Date` instead of a
+  // string). Every `Date` that reaches this branch in production is
+  // exifr's own local-timezone-setter revival of a bare EXIF wall-clock
+  // value (see `withRawCaptureDates`'s and `asIsoDate`'s doc comments in
+  // `exif.ts`), so the fix reads the SAME local fields back out instead.
+  for (const tz of ['UTC', 'America/New_York', 'Pacific/Kiritimati']) {
+    it(`produces the golden UTC value under TZ=${tz}`, async () => {
+      const capturedAt = await capturedAtForDateUnderTimezone(tz, 2020, 0, 2, 3, 4, 5);
+      expect(capturedAt).toBe('2020-01-02T03:04:05.000Z');
+    }, 10_000);
+  }
+});
+
 describe('normalizeExif captured_at — timezone independence (P0)', () => {
   // Pacific/Kiritimati (UTC+14) and America/New_York (UTC-4/-5) are picked
   // specifically to be about as far apart as IANA zones get — roughly

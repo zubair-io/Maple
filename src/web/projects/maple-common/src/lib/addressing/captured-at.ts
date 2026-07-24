@@ -32,10 +32,27 @@
  * parsing ambiguity at all: it is always UTC, matching the Apple port's
  * same explicit choice (`ExifCaptureDate.swift`) and the server's
  * `src/api/src/indexer/exif.ts`, fixed in lockstep with this file.
+ *
+ * [#2154]: the `Date` branch below had the exact same class of bug one
+ * layer up. `ExifReaderService.parse` always passes `reviveValues: false`
+ * (see that file's module doc), so in production `capturedAtFromExif`
+ * never actually hands this branch a `Date` — but the branch stays for any
+ * caller that does, e.g. a `Date` exifr itself revived from a bare EXIF
+ * wall-clock string via local-timezone setters. Calling `.toISOString()`
+ * on that kind of `Date` reads it back through UTC, not the local zone it
+ * was built with — on a non-UTC host, that reintroduces the same offset
+ * shift the string branch below was fixed to avoid. Reading the SAME local
+ * fields the revival wrote (`getFullYear`/`getMonth`/... vs. the
+ * constructor's `y, mo, d, h, mi, s`) and formatting them into a fixed
+ * `...Z` string is the inverse of that construction — it recovers the
+ * exact wall-clock value regardless of the host's timezone. Kept in
+ * lockstep with the server's `asIsoDate` above.
  */
 export function asIsoDate(v: unknown): string | null {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return v.toISOString();
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const year = String(v.getFullYear()).padStart(4, '0');
+    return `${year}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}T${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}.000Z`;
   }
   if (typeof v === 'string') {
     // Try EXIF format "YYYY:MM:DD HH:MM:SS" first, then ISO.
