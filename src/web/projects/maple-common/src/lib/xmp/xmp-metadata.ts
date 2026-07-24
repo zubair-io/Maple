@@ -1,8 +1,14 @@
 // xmp-metadata.ts — standard-XMP encodings + field tables for the IPTC/EXIF
 // metadata block (Batch Metadata, spec 2026-06-26). Kept separate from the
 // adjustment/culling field tables so the serializer/parser stay focused.
+// Owns both directions: the write-side builders above `parseMetadataBlock`
+// (near the bottom, #2215) and the read-side field walk itself, so the
+// parse/serialize pair for this block — and the standard-XMP encode/decode
+// helpers both directions share (gpsFromXmp, altitudeFromXmp,
+// copyrightStatusFromMarked) — stay next to each other in one file.
 
 import type { XmpMetadata, CopyrightStatus } from './xmp.types';
+import { attrOf } from './xmp-dom-utils';
 
 /** Axis selector for GPS encoding (picks the N/S vs E/W hemisphere suffix). */
 export type GpsAxis = 'lat' | 'lon';
@@ -123,14 +129,45 @@ const COPYRIGHT_TO_MARKED: Record<CopyrightStatus, string | null> = {
 };
 
 /**
- * Build the ordered list of simple-attribute parts for the metadata block
- * (the nested lang-alt/seq elements are handled separately in the serializer).
- * Order is fixed for per-platform byte-stability.
+ * The `XmpMetadata` fields that map straight to a single `crs:`/`photoshop:`/etc.
+ * attribute with no encoding beyond the shared attribute-escape — everything
+ * that ISN'T GPS (needs the rational encode) or copyright status (needs the
+ * tri-state → wire-word table). Narrowed to just these keys (not the full
+ * `keyof XmpMetadata`) so indexed reads/writes below type-check as `string`
+ * rather than the union of every field's type across the table.
  */
-export function metadataAttrParts(m: XmpMetadata): string[] {
-  const parts: string[] = [];
-  const push = (key: string, value: string) => parts.push(`${key}="${escapeXmlAttr(value)}"`);
+type SimpleStringMetadataField =
+  | 'dateTimeOriginal'
+  | 'timeZone'
+  | 'sublocation'
+  | 'city'
+  | 'state'
+  | 'country'
+  | 'countryCode'
+  | 'headline'
+  | 'instructions'
+  | 'creatorJobTitle'
+  | 'credit'
+  | 'source';
 
+/** Order is fixed for per-platform byte-stability (`metadataAttrParts` walks this table in order). */
+const SIMPLE_METADATA_ATTR_MAP: ReadonlyArray<readonly [SimpleStringMetadataField, string]> = [
+  ['dateTimeOriginal', 'exif:DateTimeOriginal'],
+  ['timeZone', 'papp:TimeZone'],
+  ['sublocation', 'Iptc4xmpCore:Location'],
+  ['city', 'photoshop:City'],
+  ['state', 'photoshop:State'],
+  ['country', 'photoshop:Country'],
+  ['countryCode', 'Iptc4xmpCore:CountryCode'],
+  ['headline', 'photoshop:Headline'],
+  ['instructions', 'photoshop:Instructions'],
+  ['creatorJobTitle', 'photoshop:AuthorsPosition'],
+  ['credit', 'photoshop:Credit'],
+  ['source', 'photoshop:Source'],
+];
+
+/** Emit the GPS lat/lon/altitude attribute parts (the only rational-encoded fields). */
+function pushGpsAttrParts(m: XmpMetadata, push: (key: string, value: string) => void): void {
   if (m.gpsLatitude != null) push('exif:GPSLatitude', gpsToXmp(m.gpsLatitude, 'lat'));
   if (m.gpsLongitude != null) push('exif:GPSLongitude', gpsToXmp(m.gpsLongitude, 'lon'));
   if (m.gpsAltitude != null) {
@@ -138,18 +175,21 @@ export function metadataAttrParts(m: XmpMetadata): string[] {
     push('exif:GPSAltitude', alt.value);
     push('exif:GPSAltitudeRef', alt.ref);
   }
-  if (m.dateTimeOriginal) push('exif:DateTimeOriginal', m.dateTimeOriginal);
-  if (m.timeZone) push('papp:TimeZone', m.timeZone);
-  if (m.sublocation) push('Iptc4xmpCore:Location', m.sublocation);
-  if (m.city) push('photoshop:City', m.city);
-  if (m.state) push('photoshop:State', m.state);
-  if (m.country) push('photoshop:Country', m.country);
-  if (m.countryCode) push('Iptc4xmpCore:CountryCode', m.countryCode);
-  if (m.headline) push('photoshop:Headline', m.headline);
-  if (m.instructions) push('photoshop:Instructions', m.instructions);
-  if (m.creatorJobTitle) push('photoshop:AuthorsPosition', m.creatorJobTitle);
-  if (m.credit) push('photoshop:Credit', m.credit);
-  if (m.source) push('photoshop:Source', m.source);
+}
+
+/**
+ * Build the ordered list of simple-attribute parts for the metadata block
+ * (the nested lang-alt/seq elements are handled separately in the serializer).
+ */
+export function metadataAttrParts(m: XmpMetadata): string[] {
+  const parts: string[] = [];
+  const push = (key: string, value: string) => parts.push(`${key}="${escapeXmlAttr(value)}"`);
+
+  pushGpsAttrParts(m, push);
+  for (const [field, xmpKey] of SIMPLE_METADATA_ATTR_MAP) {
+    const value = m[field];
+    if (typeof value === 'string' && value) push(xmpKey, value);
+  }
   if (m.copyrightStatus) {
     const marked = COPYRIGHT_TO_MARKED[m.copyrightStatus];
     if (marked !== null) push('xmpRights:Marked', marked);
@@ -173,20 +213,15 @@ export function metadataNestedBlocks(m: XmpMetadata): string[] {
   return blocks;
 }
 
-/**
- * Which namespace prefixes the metadata requires declared on rdf:Description.
- * Mirrors exactly what `metadataAttrParts` + `metadataNestedBlocks` emit.
- */
-export function metadataNamespacePrefixes(m: XmpMetadata): Set<string> {
-  const used = new Set<string>();
-  if (
-    m.gpsLatitude != null ||
-    m.gpsLongitude != null ||
-    m.gpsAltitude != null ||
-    m.dateTimeOriginal
-  )
-    used.add('exif');
-  if (
+// One boolean predicate per namespace prefix, each mirroring the fields
+// its half of `metadataAttrParts` / `metadataNestedBlocks` actually emits —
+// split out of `metadataNamespacePrefixes` (one predicate per `used.add`
+// call below) so no single function chains all five namespaces' conditions.
+const usesExifNamespace = (m: XmpMetadata): boolean =>
+  m.gpsLatitude != null || m.gpsLongitude != null || m.gpsAltitude != null || !!m.dateTimeOriginal;
+
+const usesPhotoshopNamespace = (m: XmpMetadata): boolean =>
+  !!(
     m.city ||
     m.state ||
     m.country ||
@@ -195,12 +230,27 @@ export function metadataNamespacePrefixes(m: XmpMetadata): Set<string> {
     m.creatorJobTitle ||
     m.credit ||
     m.source
-  )
-    used.add('photoshop');
-  if (m.sublocation || m.countryCode) used.add('Iptc4xmpCore');
-  if (m.title || m.creator || m.caption || m.copyrightNotice) used.add('dc');
-  if (m.usageTerms) used.add('xmpRights');
-  if (m.copyrightStatus && m.copyrightStatus !== 'unknown') used.add('xmpRights');
+  );
+
+const usesIptc4xmpCoreNamespace = (m: XmpMetadata): boolean => !!(m.sublocation || m.countryCode);
+
+const usesDcNamespace = (m: XmpMetadata): boolean =>
+  !!(m.title || m.creator || m.caption || m.copyrightNotice);
+
+const usesXmpRightsNamespace = (m: XmpMetadata): boolean =>
+  !!m.usageTerms || (!!m.copyrightStatus && m.copyrightStatus !== 'unknown');
+
+/**
+ * Which namespace prefixes the metadata requires declared on rdf:Description.
+ * Mirrors exactly what `metadataAttrParts` + `metadataNestedBlocks` emit.
+ */
+export function metadataNamespacePrefixes(m: XmpMetadata): Set<string> {
+  const used = new Set<string>();
+  if (usesExifNamespace(m)) used.add('exif');
+  if (usesPhotoshopNamespace(m)) used.add('photoshop');
+  if (usesIptc4xmpCoreNamespace(m)) used.add('Iptc4xmpCore');
+  if (usesDcNamespace(m)) used.add('dc');
+  if (usesXmpRightsNamespace(m)) used.add('xmpRights');
   return used;
 }
 
@@ -209,103 +259,14 @@ const MARKED_TO_COPYRIGHT: Record<string, CopyrightStatus> = {
   False: 'public-domain',
 };
 
-/** Map `xmpRights:Marked` text to the tri-state; `null` for absent/unknown. */
-export function copyrightStatusFromMarked(marked: string | null): CopyrightStatus | null {
+/**
+ * Map `xmpRights:Marked` text to the tri-state; `null` for absent/unknown.
+ * Not exported — `parseMetadataBlock` below is its only caller now that the
+ * parse half of this module lives in the same file (#2215).
+ */
+function copyrightStatusFromMarked(marked: string | null): CopyrightStatus | null {
   if (marked === null) return null;
   return MARKED_TO_COPYRIGHT[marked] ?? null;
-}
-
-/**
- * Parse the IPTC/EXIF metadata block from an already-located
- * `rdf:Description` element. Split out of `XmpParserService.parseMetadata`
- * (#2215) to keep the service under the file-size budget — this half is
- * pure (element in, `XmpMetadata` out) and lives alongside the metadata
- * write-side helpers above so the parse/serialize pair for this block stay
- * next to each other. Returns only the fields present; absent fields are
- * left undefined.
- */
-export function parseMetadataBlock(desc: Element): XmpMetadata {
-  const result: XmpMetadata = {};
-  const attr = (names: string[]): string | null => {
-    for (const name of names) {
-      const val = desc.getAttribute(name);
-      if (val !== null) return val;
-    }
-    return null;
-  };
-
-  // GPS
-  const lat = attr(['exif:GPSLatitude']);
-  if (lat !== null) {
-    const v = gpsFromXmp(lat);
-    if (v !== null) result.gpsLatitude = v;
-  }
-  const lon = attr(['exif:GPSLongitude']);
-  if (lon !== null) {
-    const v = gpsFromXmp(lon);
-    if (v !== null) result.gpsLongitude = v;
-  }
-  const alt = attr(['exif:GPSAltitude']);
-  if (alt !== null) {
-    const v = altitudeFromXmp(alt, attr(['exif:GPSAltitudeRef']) ?? '0');
-    if (v !== null) result.gpsAltitude = v;
-  }
-
-  // Simple string attributes. Empty / whitespace-only values read back as
-  // `undefined` (not `""`) so parse matches the "absent field" contract and
-  // the serializer's clear-semantics (empty = omitted), and stays consistent
-  // with the nested lang-alt/seq text path below.
-  const str = (keys: string[]): string | undefined => {
-    const v = attr(keys);
-    if (v === null) return undefined;
-    const trimmed = v.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  };
-  result.dateTimeOriginal = str(['exif:DateTimeOriginal']);
-  result.timeZone = str(['papp:TimeZone']);
-  result.sublocation = str(['Iptc4xmpCore:Location']);
-  result.city = str(['photoshop:City']);
-  result.state = str(['photoshop:State']);
-  result.country = str(['photoshop:Country']);
-  result.countryCode = str(['Iptc4xmpCore:CountryCode']);
-  result.headline = str(['photoshop:Headline']);
-  result.instructions = str(['photoshop:Instructions']);
-  result.creatorJobTitle = str(['photoshop:AuthorsPosition']);
-  result.credit = str(['photoshop:Credit']);
-  result.source = str(['photoshop:Source']);
-
-  const status = copyrightStatusFromMarked(attr(['xmpRights:Marked']));
-  if (status !== null) result.copyrightStatus = status;
-
-  // Nested lang-alt / seq elements → first rdf:li text content.
-  const DC = 'http://purl.org/dc/elements/1.1/';
-  result.title = nestedText(desc, DC, 'title', 'dc:title');
-  result.caption = nestedText(desc, DC, 'description', 'dc:description');
-  result.creator = nestedText(desc, DC, 'creator', 'dc:creator');
-  result.copyrightNotice = nestedText(desc, DC, 'rights', 'dc:rights');
-  result.usageTerms = nestedText(
-    desc,
-    'http://ns.adobe.com/xap/1.0/rights/',
-    'UsageTerms',
-    'xmpRights:UsageTerms',
-  );
-
-  // Strip undefined keys so an empty edit yields {} (byte-stable round-trip).
-  for (const k of Object.keys(result) as (keyof XmpMetadata)[]) {
-    if (result[k] === undefined) delete result[k];
-  }
-  return result;
-}
-
-/** First `rdf:li` text content of a nested lang-alt/seq element, or undefined. */
-function nestedText(desc: Element, ns: string, local: string, qname: string): string | undefined {
-  const elsNS = desc.getElementsByTagNameNS(ns, local);
-  const el = elsNS.length > 0 ? elsNS[0] : desc.getElementsByTagName(qname)[0];
-  if (!el) return undefined;
-  const liNS = el.getElementsByTagNameNS('http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'li');
-  const li = liNS.length > 0 ? liNS[0] : el.getElementsByTagName('rdf:li')[0];
-  const text = (li?.textContent ?? '').trim();
-  return text.length > 0 ? text : undefined;
 }
 
 /**
@@ -340,3 +301,104 @@ export const METADATA_NESTED_ELEMENTS: ReadonlyArray<{ ns: string; local: string
   { ns: METADATA_NAMESPACES['dc'], local: 'rights', tag: 'dc:rights' },
   { ns: METADATA_NAMESPACES['xmpRights'], local: 'UsageTerms', tag: 'xmpRights:UsageTerms' },
 ];
+
+// ── Parse (read-side) ─────────────────────────────────────────────────────
+//
+// Split out of `XmpParserService.parseMetadata` (#2215, file-size budget) —
+// this half is pure (element in, `XmpMetadata` out) and lives here,
+// alongside the write-side builders above, so the parse/serialize pair for
+// this block stay next to each other. Broken into per-field-group
+// sub-parsers rather than one large function to match the fallow
+// complexity/unit-size gate's per-function thresholds.
+
+/** GPS lat/lon/altitude — the only fields needing the standard-XMP rational decode. */
+function parseGpsFields(
+  desc: Element,
+): Pick<XmpMetadata, 'gpsLatitude' | 'gpsLongitude' | 'gpsAltitude'> {
+  const result: Pick<XmpMetadata, 'gpsLatitude' | 'gpsLongitude' | 'gpsAltitude'> = {};
+  const lat = attrOf(desc, ['exif:GPSLatitude']);
+  if (lat !== null) {
+    const v = gpsFromXmp(lat);
+    if (v !== null) result.gpsLatitude = v;
+  }
+  const lon = attrOf(desc, ['exif:GPSLongitude']);
+  if (lon !== null) {
+    const v = gpsFromXmp(lon);
+    if (v !== null) result.gpsLongitude = v;
+  }
+  const alt = attrOf(desc, ['exif:GPSAltitude']);
+  if (alt !== null) {
+    const v = altitudeFromXmp(alt, attrOf(desc, ['exif:GPSAltitudeRef']) ?? '0');
+    if (v !== null) result.gpsAltitude = v;
+  }
+  return result;
+}
+
+/**
+ * Simple string attributes, driven by `SIMPLE_METADATA_ATTR_MAP` (the same
+ * table `metadataAttrParts` writes from). Empty / whitespace-only values
+ * read back as `undefined` (not `""`) so parse matches the "absent field"
+ * contract and the serializer's clear-semantics (empty = omitted).
+ */
+function parseSimpleStringFields(desc: Element): Partial<XmpMetadata> {
+  const result: Partial<XmpMetadata> = {};
+  for (const [field, xmpKey] of SIMPLE_METADATA_ATTR_MAP) {
+    const v = attrOf(desc, [xmpKey]);
+    if (v === null) continue;
+    const trimmed = v.trim();
+    if (trimmed.length > 0) result[field] = trimmed;
+  }
+  return result;
+}
+
+/** First `rdf:li` text content of a nested lang-alt/seq element, or undefined. */
+function nestedText(desc: Element, ns: string, local: string, qname: string): string | undefined {
+  const elsNS = desc.getElementsByTagNameNS(ns, local);
+  const el = elsNS.length > 0 ? elsNS[0] : desc.getElementsByTagName(qname)[0];
+  if (!el) return undefined;
+  const liNS = el.getElementsByTagNameNS('http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'li');
+  const li = liNS.length > 0 ? liNS[0] : el.getElementsByTagName('rdf:li')[0];
+  const text = (li?.textContent ?? '').trim();
+  return text.length > 0 ? text : undefined;
+}
+
+/** Nested lang-alt / seq elements → first rdf:li text content, by field. */
+function parseNestedTextFields(
+  desc: Element,
+): Pick<XmpMetadata, 'title' | 'caption' | 'creator' | 'copyrightNotice' | 'usageTerms'> {
+  const dc = METADATA_NAMESPACES['dc'];
+  return {
+    title: nestedText(desc, dc, 'title', 'dc:title'),
+    caption: nestedText(desc, dc, 'description', 'dc:description'),
+    creator: nestedText(desc, dc, 'creator', 'dc:creator'),
+    copyrightNotice: nestedText(desc, dc, 'rights', 'dc:rights'),
+    usageTerms: nestedText(
+      desc,
+      METADATA_NAMESPACES['xmpRights'],
+      'UsageTerms',
+      'xmpRights:UsageTerms',
+    ),
+  };
+}
+
+/**
+ * Parse the IPTC/EXIF metadata block from an already-located
+ * `rdf:Description` element. Returns only the fields present; absent
+ * fields are left undefined.
+ */
+export function parseMetadataBlock(desc: Element): XmpMetadata {
+  const result: XmpMetadata = {
+    ...parseGpsFields(desc),
+    ...parseSimpleStringFields(desc),
+    ...parseNestedTextFields(desc),
+  };
+
+  const status = copyrightStatusFromMarked(attrOf(desc, ['xmpRights:Marked']));
+  if (status !== null) result.copyrightStatus = status;
+
+  // Strip undefined keys so an empty edit yields {} (byte-stable round-trip).
+  for (const k of Object.keys(result) as (keyof XmpMetadata)[]) {
+    if (result[k] === undefined) delete result[k];
+  }
+  return result;
+}
