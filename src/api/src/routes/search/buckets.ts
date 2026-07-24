@@ -34,49 +34,58 @@ interface CachedBuckets {
 }
 const bucketsCache = new Map<string, CachedBuckets>();
 
-/** Stable JSON serialisation of a SearchQuery. Field order is fixed so
- * that two requests with the same params produce the same key
- * regardless of how the URL was constructed.
- *
- * Must include every `SearchQuery` field that `buildFilter` (query.ts)
- * consumes — anything left out lets two requests that differ only in
- * that field collide on the same cache entry within the 30s TTL and
- * serve each other's histogram. `page`/`limit`/`sort` are deliberately
- * excluded: `buildFilter` never reads them, so they can't change the
- * aggregation result. `people` is also excluded: it's wired to
- * Meilisearch filtering, not `buildFilter` — see the field's doc
- * comment in `SearchQuery`. Exported so the completeness test in
- * `buckets.test.ts` can enumerate this list against `SearchQuery`.
+/** Fields whose value participates in the buckets cache key, in the
+ * order they're serialised. Must include every `SearchQuery` field that
+ * `buildFilter` (query.ts) consumes — anything left out lets two
+ * requests that differ only in that field collide on the same cache
+ * entry within the 30s TTL and serve each other's histogram.
+ * `page`/`limit`/`sort` are deliberately excluded: `buildFilter` never
+ * reads them, so they can't change the aggregation result. `people` is
+ * also excluded: it's wired to Meilisearch filtering, not `buildFilter`
+ * — see the field's doc comment in `SearchQuery`. Referenced by the
+ * completeness test in `buckets.test.ts`, which enumerates this list
+ * against `SearchQuery`.
+ */
+const BUCKETS_CACHE_KEY_FIELDS = [
+  'pathPrefix',
+  'libraryId',
+  'excludeHiddenPeople',
+  'q',
+  'placeQuery',
+  'camera',
+  'lens',
+  'isoMin',
+  'isoMax',
+  'apertureMin',
+  'apertureMax',
+  'focalMin',
+  'focalMax',
+  'from',
+  'to',
+  'rating',
+  'flag',
+  'color',
+  'ext',
+  'hasCapturedAt',
+  'sceneType',
+  'activity',
+  'subjects',
+  'isScreenshot',
+  'scope',
+  'hidden',
+] as const satisfies readonly (keyof SearchQuery)[];
+
+/** Stable JSON serialisation of a SearchQuery. Field order is fixed
+ * (see `BUCKETS_CACHE_KEY_FIELDS`) so that two requests with the same
+ * params produce the same key regardless of how the URL was
+ * constructed. Exported so the completeness test in `buckets.test.ts`
+ * can enumerate the field list against `SearchQuery`.
  */
 export function makeBucketsCacheKey(q: SearchQuery): string {
-  return JSON.stringify({
-    pathPrefix: q.pathPrefix ?? null,
-    libraryId: q.libraryId ?? null,
-    excludeHiddenPeople: q.excludeHiddenPeople ?? null,
-    q: q.q ?? null,
-    placeQuery: q.placeQuery ?? null,
-    camera: q.camera ?? null,
-    lens: q.lens ?? null,
-    isoMin: q.isoMin ?? null,
-    isoMax: q.isoMax ?? null,
-    apertureMin: q.apertureMin ?? null,
-    apertureMax: q.apertureMax ?? null,
-    focalMin: q.focalMin ?? null,
-    focalMax: q.focalMax ?? null,
-    from: q.from ?? null,
-    to: q.to ?? null,
-    rating: q.rating ?? null,
-    flag: q.flag ?? null,
-    color: q.color ?? null,
-    ext: q.ext ?? null,
-    hasCapturedAt: q.hasCapturedAt ?? null,
-    sceneType: q.sceneType ?? null,
-    activity: q.activity ?? null,
-    subjects: q.subjects ?? null,
-    isScreenshot: q.isScreenshot ?? null,
-    scope: q.scope ?? null,
-    hidden: q.hidden ?? null,
-  });
+  const normalized = Object.fromEntries(
+    BUCKETS_CACHE_KEY_FIELDS.map((field) => [field, q[field] ?? null]),
+  );
+  return JSON.stringify(normalized);
 }
 
 /** Test-only: blow the cache so back-to-back tests don't see each
