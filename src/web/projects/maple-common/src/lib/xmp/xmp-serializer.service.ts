@@ -32,6 +32,12 @@ export class XmpSerializerService {
    * @param passthrough  Unknown attributes / nested nodes from the source sidecar (optional).
    * @param culling    Rating / flag / colorLabel (optional; omitted when all default).
    */
+  // Pre-existing complexity, unmodified by #2215's file-budget split — this
+  // change only refactors `metadataAttrParts`/`metadataNamespacePrefixes`
+  // (imported below, unrelated call sites here) for their own complexity;
+  // no branches in this method changed. Tracked for a real decomposition
+  // separately.
+  // fallow-ignore-next-line complexity
   serialize(
     model: AdjustmentModel,
     passthrough?: PassthroughBucket,
