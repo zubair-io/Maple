@@ -415,11 +415,28 @@ extension EditSession {
                 let decodeTarget = ImageEditPipeline.decodeTarget(
                     phase: phase, targetSize: targetSize
                 )
+                // #2143: refine escalates decode quality past `.preview`
+                // when the requested target genuinely needs more detail
+                // than `.preview`'s half-res demosaic can deliver (roughly
+                // native long edge / 2) — otherwise `.preview` silently caps
+                // its output there regardless of the larger target asked
+                // for, and the canvas pays for an upscale-to-native (a fixed
+                // sx == sy == 2.0) immediately followed by a downscale back
+                // to the display target. Fast phase always stays `.preview`
+                // (unchanged; #785). See `ImageEditPipeline.
+                // refineDecodeQuality` for the full rationale.
+                let decodeQuality: PipelineRenderer.Quality = phase == .refine
+                    ? ImageEditPipeline.refineDecodeQuality(
+                        nativeLongEdge: max(nativeImageSize.width, nativeImageSize.height),
+                        targetLongEdge: max(decodeTarget?.width ?? 0, decodeTarget?.height ?? 0)
+                    )
+                    : .preview
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
                     target: decodeTarget,
                     profile: m.profile,
                     autoExposure: m.autoExposure,
+                    quality: decodeQuality,
                     normalize: { [weak self] image, asset in
                         guard let self else { return image }
                         return await MainActor.run {
