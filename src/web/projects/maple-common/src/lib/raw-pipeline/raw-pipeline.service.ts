@@ -33,6 +33,7 @@ import type {
   RenderedLiveSession,
 } from './raw-pipeline.service-internals';
 export type { OpenedLiveSession, RenderedLiveSession } from './raw-pipeline.service-internals';
+import { safeMeasure } from './raw-pipeline.perf';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
@@ -247,13 +248,22 @@ export class RawPipelineService implements OnDestroy {
     // Bracket the full decode (post + worker round-trip) with a performance
     // mark so the browser's Performance panel shows a distinct entry per
     // decode. Name includes id so concurrent decodes don't collide.
-    performance.mark(`maple:decode:${id}:start`);
+    // #1123: `safeMeasure` — this is diagnostics-only and must never be able to
+    // stop `resolve` from running (decodes are serialized behind `decodeChain`,
+    // so a stranded `resolve` deadlocks every later decode).
+    safeMeasure(() => performance.mark(`maple:decode:${id}:start`));
     return new Promise<DecodedImage>((resolve, reject) => {
       this.pending.set(id, {
         kind: 'legacy',
         resolve: (result) => {
-          performance.mark(`maple:decode:${id}:end`);
-          performance.measure(`maple:decode`, `maple:decode:${id}:start`, `maple:decode:${id}:end`);
+          safeMeasure(() => {
+            performance.mark(`maple:decode:${id}:end`);
+            performance.measure(
+              `maple:decode`,
+              `maple:decode:${id}:start`,
+              `maple:decode:${id}:end`,
+            );
+          });
           resolve(result);
         },
         reject,
@@ -348,17 +358,20 @@ export class RawPipelineService implements OnDestroy {
       qualityPreview,
       maxLongEdge,
     };
-    performance.mark(`maple:decode-scene-linear:${id}:start`);
+    // #1123: safeMeasure — see decodeOnce; a throw here must never strand `resolve`.
+    safeMeasure(() => performance.mark(`maple:decode-scene-linear:${id}:start`));
     return new Promise<DecodedSceneLinearImage>((resolve, reject) => {
       this.pending.set(id, {
         kind: 'scene-linear',
         resolve: (result) => {
-          performance.mark(`maple:decode-scene-linear:${id}:end`);
-          performance.measure(
-            `maple:decode-scene-linear`,
-            `maple:decode-scene-linear:${id}:start`,
-            `maple:decode-scene-linear:${id}:end`,
-          );
+          safeMeasure(() => {
+            performance.mark(`maple:decode-scene-linear:${id}:end`);
+            performance.measure(
+              `maple:decode-scene-linear`,
+              `maple:decode-scene-linear:${id}:start`,
+              `maple:decode-scene-linear:${id}:end`,
+            );
+          });
           resolve(result);
         },
         reject,
@@ -517,17 +530,20 @@ export class RawPipelineService implements OnDestroy {
       bytes.byteOffset + bytes.byteLength,
     ) as ArrayBuffer;
     const request: AutoAdjustRequest = { id, type: 'auto-adjust', bytes: buffer, ext, xmp };
-    performance.mark(`maple:auto-adjust:${id}:start`);
+    // #1123: safeMeasure — see decodeOnce; a throw here must never strand `resolve`.
+    safeMeasure(() => performance.mark(`maple:auto-adjust:${id}:start`));
     return new Promise<AutoAdjustPatch>((resolve, reject) => {
       this.pending.set(id, {
         kind: 'auto-adjust',
         resolve: (patch) => {
-          performance.mark(`maple:auto-adjust:${id}:end`);
-          performance.measure(
-            'maple:auto-adjust',
-            `maple:auto-adjust:${id}:start`,
-            `maple:auto-adjust:${id}:end`,
-          );
+          safeMeasure(() => {
+            performance.mark(`maple:auto-adjust:${id}:end`);
+            performance.measure(
+              'maple:auto-adjust',
+              `maple:auto-adjust:${id}:start`,
+              `maple:auto-adjust:${id}:end`,
+            );
+          });
           resolve(patch);
         },
         reject,
