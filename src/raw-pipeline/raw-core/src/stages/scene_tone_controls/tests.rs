@@ -380,29 +380,26 @@ fn blacks_no_negative_pixels_at_any_setting() {
 
 #[test]
 fn blacks_positive_lifts_uniformly_at_zero() {
-    // blacks=+100, Y=0 → w=1, delta = 100/400 = 0.25 — matches the
-    // legacy positive-blacks semantics so the additive lift
-    // intuition is preserved for the user.
+    // #2186: blacks=+100, Y=0 → w=1, delta=0.125. The old 0.25 endpoint
+    // forced a 0.40 edge for monotonicity and reached scene-linear midtones.
     let mut img = fresh_img([0.0, 0.0, 0.0]);
     let mut m = model_default();
     m.blacks = 100.0;
     apply(&mut img, &m);
     for &c in &img.pixels[0] {
-        assert!((c - 0.25).abs() < 1e-6, "{} != 0.25", c);
+        assert!((c - 0.125).abs() < 1e-6, "{} != 0.125", c);
     }
 }
 
 #[test]
 fn blacks_positive_leaves_midtones_alone() {
-    // Y ≥ B_LIFT_EDGE (0.40) → smoothstep weight is 0 → identity. The lift
-    // edge was widened from 0.2 to 0.40 for monotonicity (#1918), so the pin
-    // is now exactly at Y = 0.40.
-    let mut img = fresh_img([0.4, 0.4, 0.4]);
+    // #2186: Y ≥ B_LIFT_EDGE (0.20) → smoothstep weight is 0 → identity.
+    let mut img = fresh_img([0.2, 0.2, 0.2]);
     let mut m = model_default();
     m.blacks = 100.0;
     apply(&mut img, &m);
     for &c in &img.pixels[0] {
-        assert!((c - 0.4).abs() < 1e-6, "Y=0.4 should not move, got {}", c);
+        assert!((c - 0.2).abs() < 1e-6, "Y=0.2 should not move, got {}", c);
     }
 }
 
@@ -444,11 +441,8 @@ fn whites_negative_transfer_is_monotone_across_range() {
 
 #[test]
 fn blacks_positive_transfer_is_monotone_across_range() {
-    // #1918 — the blacks additive lift `T(Y) = Y + (blacks/400)·(1 −
-    // smoothstep(0, edge, Y))` went non-monotone at blacks ≈ +53 with the old
-    // 0.2 edge. Widening to B_LIFT_EDGE (0.40) keeps T′(Y) > 0 at the full
-    // +100 lift. Sweep the shadow ramp (incl. the Y ≈ 0.1 danger zone) and
-    // assert non-decreasing.
+    // #2186 — the 0.125 endpoint over the 0.20 edge keeps T′(Y) > 0 at the
+    // full +100 lift while keeping the operation inside the black range.
     let values: Vec<f32> = (0..=120).map(|i| i as f32 * 0.005).collect(); // 0.0 .. 0.6
     for &blacks in &[53.0_f32, 100.0] {
         let mut img = grey_ramp(&values);

@@ -98,15 +98,16 @@ pub(crate) const WHITES_MIN_GAIN: f32 = 0.32;
 pub(crate) const B_CRUSH_EDGE: f32 = 0.2;
 
 /// Blacks positive-lift smoothstep edge. The additive lift
-/// `T(Y) = Y + c·(1 − smoothstep(0, B_LIFT_EDGE, Y))` (`c = blacks/400 ∈
-/// [0, 0.25]`) has `T'(Y) = 1 − c · s'(Y)` with `max s'(Y) = 1.5/E` at
-/// `Y = E/2`; it goes negative once `c · 1.5/E > 1`. At the pre-#1918 edge
-/// `E = 0.2` that happens at `blacks ≈ +53` (inside ±100). Widening to
-/// `0.40` keeps `T'_min = 1 − 0.25·1.5/0.40 = 0.0625 > 0` at the full
-/// `blacks = +100` lift (≈6 % margin) while preserving both the `Y = 0`
-/// lift endpoint (`w(0) = 1` regardless of `E`) and the midtone pin at
-/// `Y = 0.40` (`w(0.40) = 0`).
-pub(crate) const B_LIFT_EDGE: f32 = 0.40;
+/// `T(Y) = Y + c·(1 − smoothstep(0, B_LIFT_EDGE, Y))`
+/// (`c = B_LIFT_MAX·blacks/100 ∈ [0, B_LIFT_MAX]`) has
+/// `T'(Y) = 1 − c · s'(Y)` with `max s'(Y) = 1.5/E` at `Y = E/2`.
+/// #1918 widened the edge to 0.40 while retaining the legacy
+/// 0.25 endpoint; that stayed monotone but made positive Blacks reach
+/// scene-linear midtones. #2186 restores the 0.20 black-range edge and halves
+/// the full-rail lift to 0.125. The same monotonicity margin remains:
+/// `T'_min = 1 − 0.125·1.5/0.20 = 0.0625`.
+pub(crate) const B_LIFT_EDGE: f32 = 0.20;
+pub(crate) const B_LIFT_MAX: f32 = 0.125;
 
 /// Detail-mask blur scale: σ = SH_MASK_SIGMA_REF_PX · longEdge /
 /// SH_MASK_REF_LONG_EDGE — the same long-edge convention the spec assigns to
@@ -297,7 +298,7 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     // Blacks: smoothstep-weighted toe (see step 5). The amount has two
     // shapes depending on sign — see comment block at the call site.
     let b_amount = model.blacks / 100.0; // -1..+1
-    let b_add_pos = model.blacks / 400.0; // additive lift amount, positive branch only.
+    let b_add_pos = B_LIFT_MAX * model.blacks / 100.0;
 
     // 1 + 1b. Exposure, then brightness — point ops.
     if apply_exposure || apply_brightness {
@@ -386,10 +387,9 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             //   instead of clipping flat to zero.
             //
             // - blacks > 0 (lift): additive shift scaled by w.
-            //   delta = (blacks/400) * w. Preserves the existing positive
-            //   semantics: at Y=0 with blacks=+100, w=1 → delta=0.25 (same
-            //   as the legacy code). Above Y=0.2 the lift dies off so
-            //   midtones aren't pushed up. The asymmetry between the two
+            //   delta = 0.125 * (blacks/100) * w. At Y=0 with blacks=+100,
+            //   w=1 → delta=0.125. Above Y=0.2 the lift dies off so midtones
+            //   aren't pushed up (#2186). The asymmetry between the two
             //   branches (multiplicative crush, additive lift) is
             //   intentional: a multiplicative lift would no-op p=0, but the
             //   user expectation for the legacy positive-blacks behaviour is
@@ -410,9 +410,8 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
                     p[1] *= factor;
                     p[2] *= factor;
                 } else {
-                    // Lift: additive, toe weight over the WIDER 0.40 edge so the
-                    // transfer stays monotone at the full +100 lift (#1918). The
-                    // Y=0 lift endpoint and the Y=0.40 midtone pin are preserved.
+                    // Lift: additive over the 0.20 black-range edge. The 0.125
+                    // full-rail endpoint keeps the transfer monotone (#2186).
                     let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, y_old);
                     let delta = b_add_pos * w;
                     if y_old > 1e-6 {
