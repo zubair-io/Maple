@@ -105,7 +105,15 @@ extension EditSession {
     func seedFromEmbeddedPreview(for asset: AssetRef) async -> Bool {
         guard let url = asset.primaryURL else { return false }
         let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-        let ci: CIImage? = await Task.detached(priority: .userInitiated) { () -> CIImage? in
+        // #1909 hardening: `url`/`scope` captured explicitly (both value
+        // types — the capture list snapshots them rather than leaning on
+        // implicit closure capture) before this executor hop off @MainActor.
+        // `readEmbeddedPreview` itself wraps its ImageIO work in an explicit
+        // `autoreleasepool` (EditSession+Hydration.swift) — see that doc
+        // comment for the full #1909 rationale; this call site is the other
+        // half of the same regression guard, so the hop is documented where
+        // the `CIImage` actually crosses back onto @MainActor via `.value`.
+        let ci: CIImage? = await Task.detached(priority: .userInitiated) { [url, scope] () -> CIImage? in
             let accessing = scope.startAccessingSecurityScopedResource()
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
             return EditSession.readEmbeddedPreview(from: url)
@@ -136,7 +144,11 @@ extension EditSession {
     func seedFromMapleSidecarPreview(for asset: AssetRef) async -> Bool {
         guard let url = asset.primaryURL else { return false }
         let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-        let ci: CIImage? = await Task.detached(priority: .userInitiated) { () -> CIImage? in
+        // #1909 hardening: same explicit-capture + documented-hop pattern as
+        // `seedFromEmbeddedPreview` above — see that comment and
+        // `readMapleSidecarPreview`'s doc comment (EditSession+Hydration.swift)
+        // for the full rationale.
+        let ci: CIImage? = await Task.detached(priority: .userInitiated) { [url, scope] () -> CIImage? in
             let accessing = scope.startAccessingSecurityScopedResource()
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
             return EditSession.readMapleSidecarPreview(from: url)
