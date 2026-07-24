@@ -40,8 +40,10 @@ export class LanSwitchService {
    * browser's own "can't reach this page" error — an acceptable, well
    * understood failure mode for an explicit user action.
    *
-   * Returns `null` without probing when the page is ALREADY the candidate
-   * (e.g. a reload after a previous switch) — there's nothing to offer.
+   * Still fetches the server's self-report either way, but returns `null`
+   * without the extra candidate-origin probe when the page is ALREADY the
+   * candidate (e.g. a reload after a previous switch) — there's nothing to
+   * offer.
    */
   async checkAvailable(
     pageProtocol: string = window.location.protocol,
