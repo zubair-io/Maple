@@ -1,8 +1,10 @@
 // XMP types — culling fields (P5) + passthrough bucket (P6).
 
+import type { ColorLabelValue } from '../models/color-label';
+
 export type XmpFlag = 'pick' | 'reject' | 'unflagged';
 
-export type XmpColorLabel = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+export type XmpColorLabel = ColorLabelValue | null;
 
 export interface XmpCulling {
   rating: number; // 0..5, defaults to 0

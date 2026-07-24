@@ -29,6 +29,7 @@ import {
 } from './batch-metadata.types';
 import { buildBatchApplyMetadata } from './batch-metadata-panel.form-mapping';
 import type { CopyrightStatus } from '../xmp/xmp.types';
+import type { ColorLabelValue } from '../models/color-label';
 
 type PanelPhase =
   | 'form'
@@ -122,9 +123,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   readonly sourceVal = signal<string>('');
   readonly ratingVal = signal<string>('');
   readonly flagVal = signal<'pick' | 'reject' | 'unflagged' | '__clear__' | ''>('');
-  readonly colorLabelVal = signal<
-    'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | ''
-  >('');
+  readonly colorLabelVal = signal<ColorLabelValue | '__clear__' | ''>('');
   readonly hiddenVal = signal<'true' | 'false' | '__clear__' | ''>('');
 
   // ── Per-field touched flags ────────────────────────────────────────────────
@@ -261,9 +260,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
   /** Color-label select handler. '' = leave unchanged (no-op); `__clear__` =
    *  explicit clear (sends null); a color is sent as-is. */
   onColorLabelChange(raw: string): void {
-    this.colorLabelVal.set(
-      raw as 'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | '',
-    );
+    this.colorLabelVal.set(raw as ColorLabelValue | '__clear__' | '');
     this._setTouched('colorLabel', raw !== '');
   }
 
@@ -510,9 +507,7 @@ export class BatchMetadataPanelComponent implements OnDestroy {
       m.flag === MIXED || m.flag == null ? '' : (m.flag as 'pick' | 'reject' | 'unflagged'),
     );
     this.colorLabelVal.set(
-      m.colorLabel === MIXED || m.colorLabel == null
-        ? ''
-        : (m.colorLabel as 'red' | 'orange' | 'yellow' | 'green' | 'blue'),
+      m.colorLabel === MIXED || m.colorLabel == null ? '' : (m.colorLabel as ColorLabelValue),
     );
     this.hiddenVal.set(
       m.hidden === MIXED || m.hidden == null ? '' : (String(m.hidden) as 'true' | 'false'),
