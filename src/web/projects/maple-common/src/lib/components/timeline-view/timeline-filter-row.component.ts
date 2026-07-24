@@ -12,14 +12,11 @@ import {
   TimelineFlag,
 } from '../../state/timeline-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { COLOR_LABEL_OPTIONS } from '../../models/color-label';
 
 const COLOR_OPTIONS: ReadonlyArray<{ value: TimelineColor; label: string; swatch: string }> = [
   { value: '', label: 'Any color', swatch: 'transparent' },
-  { value: 'red', label: 'Red', swatch: '#e11d48' },
-  { value: 'yellow', label: 'Yellow', swatch: '#eab308' },
-  { value: 'green', label: 'Green', swatch: '#22c55e' },
-  { value: 'blue', label: 'Blue', swatch: '#3b82f6' },
-  { value: 'purple', label: 'Purple', swatch: '#a855f7' },
+  ...COLOR_LABEL_OPTIONS,
 ];
 
 const FLAG_OPTIONS: ReadonlyArray<{ value: TimelineFlag; label: string }> = [

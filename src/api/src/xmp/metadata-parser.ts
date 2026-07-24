@@ -14,6 +14,7 @@
  */
 
 import type { MetadataOverride } from '../db/schema.ts';
+import { VALID_COLOR_LABELS, type ColorLabel } from './color-label.ts';
 
 /** Version sentinel — bump when parse semantics change to invalidate cached overrides. */
 export const METADATA_PARSER_VERSION = 1;
@@ -51,7 +52,7 @@ export interface XmpMetadataResult {
   /** Pick/reject flag. Absent means unflagged. */
   flag?: 'pick' | 'reject';
   /** Color label string. */
-  colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue';
+  colorLabel?: ColorLabel;
   isScreenshot?: boolean;
   hidden?: boolean;
 }
@@ -85,8 +86,6 @@ const MARKED_TO_COPYRIGHT: Record<string, 'copyrighted' | 'public-domain'> = {
   True: 'copyrighted',
   False: 'public-domain',
 };
-
-const VALID_COLOR_LABELS = new Set(['red', 'orange', 'yellow', 'green', 'blue']);
 
 /** Map `xmpRights:Marked` value to tri-state; `null` for absent/unrecognised. */
 function copyrightStatusFromMarked(
@@ -267,7 +266,7 @@ export function parseXmpMetadata(xml: string): XmpMetadataResult {
   if (flagStr === 'pick' || flagStr === 'reject') result.flag = flagStr;
   const colorLabelStr = str('papp:ColorLabel');
   if (colorLabelStr !== undefined && VALID_COLOR_LABELS.has(colorLabelStr)) {
-    result.colorLabel = colorLabelStr as 'red' | 'orange' | 'yellow' | 'green' | 'blue';
+    result.colorLabel = colorLabelStr as ColorLabel;
   }
   const isScrStr = str('papp:IsScreenshot');
   if (isScrStr === 'true') result.isScreenshot = true;

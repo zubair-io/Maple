@@ -23,9 +23,10 @@ import { SidebarEntry } from '../models/folder';
 import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
 import { SearchParams } from '../api/search.service';
 import { parseAddress } from '../addressing/maple-address';
+import type { ColorLabelValue } from '../models/color-label';
 
 export type TimelineFlag = '' | 'pick' | 'reject';
-export type TimelineColor = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
+export type TimelineColor = '' | ColorLabelValue;
 
 @Injectable({ providedIn: 'root' })
 export class TimelineStateService {

@@ -319,6 +319,22 @@ describe('POST /api/xmp/batch', () => {
       expect(sidecarContent).toContain('papp:ColorLabel="red"');
     });
 
+    // #1657: `orange` and `purple` both belong to the canonical six-color
+    // vocabulary and must both be writable via the batch route.
+    test.each(['orange', 'purple'] as const)(
+      'colorLabel=%s is written to the sidecar',
+      async (color) => {
+        const filename = `photo3-${color}.dng`;
+        await fs.writeFile(rawPath(filename), '');
+        const res = await post({
+          entries: [{ address: addr(filename), metadata: { colorLabel: color } }],
+        });
+        expect(res.status).toBe(200);
+        const sidecarContent = await fs.readFile(rawPath(`photo3-${color}.xmp`), 'utf-8');
+        expect(sidecarContent).toContain(`papp:ColorLabel="${color}"`);
+      },
+    );
+
     test('culling fields coexist with metadata fields', async () => {
       const filename = 'photo4.dng';
       await fs.writeFile(rawPath(filename), '');

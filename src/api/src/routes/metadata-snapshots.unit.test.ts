@@ -201,6 +201,23 @@ describe('overrideToXmpSnapshot', () => {
     expect(snap.colorLabel).toBe('red');
   });
 
+  // #1657: `orange` and `purple` both belong to the canonical six-color
+  // vocabulary and must both surface through the snapshot mapping.
+  test.each(['orange', 'purple'] as const)(
+    'overrideToXmpSnapshot returns colorLabel=%s from color_label field',
+    (color) => {
+      const doc = {
+        rating: 0,
+        flag: 0 as -1 | 0 | 1,
+        color_label: color,
+        exif: undefined,
+        metadata_override: undefined,
+      };
+      const snap = overrideToXmpSnapshot(doc);
+      expect(snap.colorLabel).toBe(color);
+    },
+  );
+
   test('skips null place_text subfields', () => {
     const snap = overrideToXmpSnapshot({
       metadata_override: {

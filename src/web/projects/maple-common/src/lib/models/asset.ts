@@ -1,10 +1,12 @@
 // Asset domain model — matches the shape used in _design-reference/lib/data.jsx.
 
+import type { ColorLabelValue } from './color-label';
+
 export type AssetId = string;
 
 export type Flag = 'unflagged' | 'pick' | 'reject';
 
-export type ColorLabel = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+export type ColorLabel = ColorLabelValue | null;
 
 /**
  * Canonical on-disk location record for an asset. Mirrors

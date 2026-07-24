@@ -34,8 +34,12 @@ import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
 import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { parseNlDateRange } from './nl-date.ts';
+import { COLOR_LABELS as XMP_COLOR_LABELS } from '../../xmp/color-label.ts';
 
-export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purple']);
+/** `''` (no label) plus the full XMP color-label vocabulary — kept in sync
+ * with the XMP parser/serializer via `XMP_COLOR_LABELS` so every label the
+ * writers accept is filterable here (#1657). */
+export const COLOR_LABELS = new Set(['', ...XMP_COLOR_LABELS]);
 
 export const SCENE_TYPES = new Set(['indoor', 'outdoor', 'aerial', 'macro', 'studio', 'mixed']);
 

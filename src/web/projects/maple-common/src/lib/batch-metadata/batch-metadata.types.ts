@@ -2,6 +2,7 @@
 // Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
 
 import type { XmpMetadata } from '../xmp/xmp.types';
+import type { ColorLabelValue } from '../models/color-label';
 
 // ---------------------------------------------------------------------------
 // Mixed-value sentinel
@@ -52,7 +53,7 @@ export interface MixedValueMap {
   source: MixedOr<string | null | undefined>;
   rating: MixedOr<number | undefined>;
   flag: MixedOr<'pick' | 'reject' | 'unflagged' | undefined>;
-  colorLabel: MixedOr<'red' | 'orange' | 'yellow' | 'green' | 'blue' | null | undefined>;
+  colorLabel: MixedOr<ColorLabelValue | null | undefined>;
   hidden: MixedOr<boolean | undefined>;
 }
 
@@ -68,7 +69,7 @@ export interface AssetMetadataSnapshot {
     keywords?: string[];
     rating?: number;
     flag?: 'pick' | 'reject' | 'unflagged';
-    colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+    colorLabel?: ColorLabelValue | null;
     hidden?: boolean;
   };
 }
@@ -182,7 +183,7 @@ export type BatchApplyMetadata = Partial<XmpMetadata> & {
   keywords?: string[];
   rating?: number | null;
   flag?: 'pick' | 'reject' | 'unflagged' | null;
-  colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | null;
+  colorLabel?: ColorLabelValue | null;
   hidden?: boolean | null;
 };
 

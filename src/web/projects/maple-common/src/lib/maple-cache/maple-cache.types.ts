@@ -2,6 +2,8 @@
 // These mirror the spec's slice-10a schema. Do NOT add fields not defined here;
 // extra fields break cross-product interop.
 
+import type { ColorLabelValue } from '../models/color-label';
+
 export type MapleGenerator = 'maple-syrup' | 'maple' | 'maple-native';
 
 export interface MapleIndex {
@@ -25,5 +27,5 @@ export interface IndexedAsset {
 export interface CullingState {
   rating?: number; // 0..5
   flag?: 'pick' | 'reject';
-  colorLabel?: 'red' | 'orange' | 'yellow' | 'green' | 'blue';
+  colorLabel?: ColorLabelValue;
 }

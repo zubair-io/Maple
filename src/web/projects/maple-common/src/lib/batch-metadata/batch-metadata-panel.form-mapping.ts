@@ -6,6 +6,7 @@
 
 import type { BatchApplyMetadata, MixedValueMap } from './batch-metadata.types';
 import type { CopyrightStatus } from '../xmp/xmp.types';
+import type { ColorLabelValue } from '../models/color-label';
 
 /** Flat string snapshot of every per-field form-control signal on the panel,
  * at the moment `onConfirm`/`_buildPayload` runs. Mirrors each `xVal()`
@@ -35,7 +36,7 @@ export interface BatchMetadataFormValues {
   source: string;
   rating: string;
   flag: 'pick' | 'reject' | 'unflagged' | '__clear__' | '';
-  colorLabel: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | '__clear__' | '';
+  colorLabel: ColorLabelValue | '__clear__' | '';
   hidden: 'true' | 'false' | '__clear__' | '';
 }
 
@@ -138,10 +139,7 @@ export function buildBatchApplyMetadata(
     // Touched only via a non-empty option. The explicit-clear sentinel sends
     // null; '' (leave unchanged) can never reach here — same cast rationale
     // as `flag` above.
-    meta.colorLabel =
-      v.colorLabel === '__clear__'
-        ? null
-        : (v.colorLabel as 'red' | 'orange' | 'yellow' | 'green' | 'blue');
+    meta.colorLabel = v.colorLabel === '__clear__' ? null : (v.colorLabel as ColorLabelValue);
   }
   if (touched.has('hidden')) {
     meta.hidden = v.hidden === '__clear__' ? null : v.hidden === 'true';

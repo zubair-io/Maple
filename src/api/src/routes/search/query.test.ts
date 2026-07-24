@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { applyLiveFilter } from './query.ts';
+import { applyLiveFilter, buildFilter, COLOR_LABELS } from './query.ts';
+import { COLOR_LABELS as XMP_COLOR_LABELS } from '../../xmp/color-label.ts';
 
 /**
  * Search visibility requires a *resolvable* primary location: at least one
@@ -37,5 +38,42 @@ describe('applyLiveFilter — search hides assets with no resolvable primary', (
     const elem = live!.fileinfo.$elemMatch;
     expect(elem.deleted_at).toEqual({ $in: [null] });
     expect(elem.missing_since).toEqual({ $in: [null] });
+  });
+});
+
+/**
+ * #1657: the XMP/batch writers and the search `color` filter must agree on
+ * the color-label vocabulary — a label the writers can persist that the
+ * search filter rejects (or vice versa) silently orphans data. This is the
+ * invariant that rotted (`orange` was writable but unfilterable; `purple`
+ * was filterable but unreachable from the writers).
+ */
+describe('search color filter — vocabulary parity with the XMP writers (#1657)', () => {
+  it('COLOR_LABELS (plus the empty/no-label sentinel) is a superset of every XMP-writable color', () => {
+    for (const color of XMP_COLOR_LABELS) {
+      expect(COLOR_LABELS.has(color)).toBe(true);
+    }
+  });
+
+  it('every XMP-writable color, and only those colors, passes buildFilter({ color })', () => {
+    for (const color of XMP_COLOR_LABELS) {
+      const result = buildFilter({ color });
+      expect('error' in result).toBe(false);
+      expect((result as { color_label?: string }).color_label).toBe(color);
+    }
+  });
+
+  it.each(['orange', 'purple'] as const)(
+    'color=%s is filterable (regression coverage for #1657)',
+    (color) => {
+      const result = buildFilter({ color });
+      expect('error' in result).toBe(false);
+      expect((result as { color_label?: string }).color_label).toBe(color);
+    },
+  );
+
+  it('rejects a color outside the six-color vocabulary', () => {
+    const result = buildFilter({ color: 'magenta' });
+    expect(result).toEqual({ error: 'Invalid color: magenta' });
   });
 });

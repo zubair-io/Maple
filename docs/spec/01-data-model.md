@@ -41,7 +41,7 @@ Represents an image as it exists in one of the three sources: Apple Photos (Phot
 | `pixelWidth` / `pixelHeight` | UInt32?       | Extracted from metadata; `nil` until decoded once.                                                                                        |
 | `ratingStars`                | UInt8         | 0–5. Default 0. **Lives here and in `CullingState` — they are the same field.**                                                           |
 | `flag`                       | enum          | `pick`, `reject`, `unflagged`. Default `unflagged`.                                                                                       |
-| `colorLabel`                 | enum?         | `red`, `orange`, `yellow`, `green`, `blue`, or absent.                                                                                    |
+| `colorLabel`                 | enum?         | `red`, `orange`, `yellow`, `green`, `blue`, `purple`, or absent.                                                                          |
 
 ### Invariants
 

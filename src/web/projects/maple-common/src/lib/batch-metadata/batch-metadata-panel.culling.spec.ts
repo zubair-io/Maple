@@ -228,5 +228,38 @@ describe('BatchMetadataPanelComponent — culling', () => {
       expect(body.entries[0]!.metadata.colorLabel).toBe('green');
       req.flush({ results: [{ address: 'photos:a.dng', ok: true }] });
     });
+
+    // #1657: `purple` joins the writable vocabulary (it was previously
+    // filterable in search but unreachable from this panel).
+    it('colorLabel=purple is sent as-is (touched)', async () => {
+      host.visible.set(true);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
+      fixture.detectChanges();
+      const panel = getPanel(fixture);
+      panel.onColorLabelChange('purple');
+      fixture.detectChanges();
+      panel.onApply();
+      fixture.detectChanges();
+      panel.onConfirm();
+      fixture.detectChanges();
+      const req = http.expectOne('/api/xmp/batch');
+      const body = req.request.body as {
+        entries: Array<{ metadata: { colorLabel: string | null } }>;
+      };
+      expect(body.entries[0]!.metadata.colorLabel).toBe('purple');
+      req.flush({ results: [{ address: 'photos:a.dng', ok: true }] });
+    });
+
+    it('the colorLabel select offers all six colors, including Purple (#1657)', () => {
+      host.visible.set(true);
+      host.snapshots.set([{ address: 'photos:a.dng', metadata: {} }]);
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const select = el.querySelector<HTMLSelectElement>('#bm-colorlabel');
+      const values = Array.from(select?.querySelectorAll('option') ?? []).map((o) => o.value);
+      expect(values).toEqual(
+        expect.arrayContaining(['red', 'orange', 'yellow', 'green', 'blue', 'purple']),
+      );
+    });
   });
 });
