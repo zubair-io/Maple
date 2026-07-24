@@ -426,6 +426,59 @@ fn live_split_concatenates_to_live_chain_and_handles_omitted_dehaze() {
 /// so the sibling `tests_gating` module reuses it.
 pub(super) const TEST_SESSION_ID: u64 = 0;
 
+/// STALE-BIND-GROUP GUARD: scene tone has more than one internal dispatch
+/// layout even though it owns one bit in `active_mask`. Point-only controls
+/// (Exposure/Brightness/Whites/Blacks) use one dispatch; Highlights/Shadows use
+/// a luma + blur mask DAG and may add independently-gated pre/post point steps.
+/// Different layouts must never share a frame-pool bucket.
+#[test]
+fn chain_signature_folds_in_scene_tone_dispatch_shape() {
+    let dims = (8u32, 8u32);
+
+    let mut blacks = neutral_case();
+    blacks.model.blacks = -10.0;
+    let mut exposure = neutral_case();
+    exposure.model.exposure = 1.0;
+    let mut shadows = neutral_case();
+    shadows.model.shadows = 10.0;
+    let mut highlights = neutral_case();
+    highlights.model.highlights = 10.0;
+    let mut shadows_and_blacks = neutral_case();
+    shadows_and_blacks.model.shadows = 10.0;
+    shadows_and_blacks.model.blacks = -10.0;
+    let mut highlights_and_shadows = neutral_case();
+    highlights_and_shadows.model.highlights = 10.0;
+    highlights_and_shadows.model.shadows = 10.0;
+
+    let signature = |case: &Case| chain_signature(&case.gpu_inputs(), dims, TEST_SESSION_ID);
+
+    assert_eq!(
+        signature(&blacks),
+        signature(&exposure),
+        "point-only tone controls have the same one-dispatch shape"
+    );
+    assert_eq!(
+        signature(&shadows),
+        signature(&highlights),
+        "one masked tone step has the same buffer/dispatch shape regardless of mode"
+    );
+    assert_ne!(
+        signature(&blacks),
+        signature(&shadows),
+        "point-only and masked tone layouts must use different pool buckets"
+    );
+    assert_ne!(
+        signature(&shadows),
+        signature(&shadows_and_blacks),
+        "adding the post point step changes the dispatch layout"
+    );
+    assert_ne!(
+        signature(&shadows),
+        signature(&highlights_and_shadows),
+        "adding a second masked step changes the dispatch layout"
+    );
+}
+
 /// STALE-BIND-GROUP GUARD (#1079): `chain_signature` must fold in
 /// `residual_lut_size` — the ONE pooled data buffer whose byte length can change
 /// at a constant active-stage mask. Two input sets differing ONLY in the residual
