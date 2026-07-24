@@ -232,6 +232,14 @@ public actor RenderActor {
     /// Auto-exposure mode `decodeTask` was launched for (#1387) — part of
     /// the task IDENTITY alongside `decodeTaskProfile`, same join rule.
     var decodeTaskAutoExposure: AutoExposureMode?
+    /// Demosaic quality the in-flight `decodeTask` was launched for (#2143).
+    /// Part of the task IDENTITY alongside `decodeTaskProfile`: since the
+    /// refine call site started requesting `.full`/`.amaze` for large sized
+    /// targets (escalating past the `.preview` fast phase always uses), a
+    /// caller that needs the escalated quality must NOT join an in-flight
+    /// `.preview` task for the same asset/profile/fullness — that would hand
+    /// back the half-res buffer the escalation exists to avoid.
+    var decodeTaskQuality: PipelineRenderer.Quality = .preview
 
     var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
     var refineDecodeSlotCounter: UInt64 = 0

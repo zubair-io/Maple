@@ -17,7 +17,9 @@
 //
 // `target` drives the fast-phase downsample (#785): a sized decode never
 // poisons the full-resolution refine cache, and a refine (full) caller
-// never joins an in-flight sized fast task.
+// never joins an in-flight sized fast task. `quality` (#2143) is the axis
+// that now actually distinguishes a refine sized decode from a fast one —
+// see `sharedDecode`'s doc comment.
 
 import Foundation
 import CoreImage
@@ -26,22 +28,35 @@ extension RenderActor {
     // MARK: - Single-flight decode (slice 2)
 
     /// Single-flight decode. `target` drives the downsample (#785):
-    ///   • `nil`  — full-resolution decode. Used by the refine pass and
-    ///              export so the final render is never lower quality.
-    ///   • sized  — downsampled fast-phase decode. RAW routes through the
-    ///              sized scene-linear FFI (`maxLongEdge`); non-RAW routes
-    ///              through the ImageIO thumbnail decode. The full-res
-    ///              bitmap is never allocated for the viewport phase.
+    ///   • `nil`  — full-resolution decode. No production caller passes
+    ///              this today (see the #1637/#2143 note on the sized
+    ///              branch below) — kept for a hypothetical future
+    ///              nil-target caller.
+    ///   • sized  — downsampled decode bounded to `target`. RAW routes
+    ///              through the sized scene-linear FFI (`maxLongEdge`);
+    ///              non-RAW routes through the ImageIO thumbnail decode.
+    ///              The full-res bitmap is never allocated just because a
+    ///              caller's target happens to approach native (#785).
     ///
-    /// A `nil`-target (refine) caller never joins an in-flight sized fast
-    /// task — that would hand back a low-res buffer. The cache's
-    /// `decodedIsFull` flag is set so `snapshot(forAsset:)` can tell the
-    /// refine pass whether the cached decode is sufficient.
+    /// `quality` (#2143) is the axis that now actually distinguishes fast
+    /// from refine for RAW: fast always requests `.preview` (half-res);
+    /// refine escalates to `.full`/`.amaze` when its target needs more
+    /// detail than `.preview` can deliver — see `ImageEditPipeline.
+    /// refineDecodeQuality`. It is part of the in-flight-task join identity
+    /// alongside `target`'s fullness and `profile`, so a quality-escalated
+    /// caller never joins (and silently downgrades to) an in-flight
+    /// lower-quality task for the same asset.
+    ///
+    /// A `nil`-target caller never joins an in-flight sized task — that
+    /// would hand back a low-res buffer. The cache's `decodedIsFull` flag is
+    /// set so `snapshot(forAsset:)` can tell the refine pass whether the
+    /// cached decode is sufficient.
     func sharedDecode(
         asset: AssetRef,
         target: CGSize? = nil,
         profile: Profile = .auto,
         autoExposure: AutoExposureMode = .on,
+        quality: PipelineRenderer.Quality = .preview,
         normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
     ) async -> CIImage? {
         // Videos are selectable for metadata editing (#1638) but have no still
@@ -73,12 +88,16 @@ extension RenderActor {
         let decodeAutoExposure: AutoExposureMode? = asset.isRaw ? autoExposure : nil
         // Reuse an in-flight task only when it already satisfies the
         // caller's fullness requirement AND was launched for the same
-        // profile + autoExposure. A fast (sized) caller can join any
-        // (same-identity) task; a refine (full) caller must NOT join a
-        // sized task.
+        // profile + autoExposure + quality. A fast (sized) caller can join
+        // any (same-identity) task; a refine (full) caller must NOT join a
+        // sized task. #2143: quality must match too — a refine call
+        // escalated to `.full`/`.amaze` must not join an in-flight
+        // `.preview` fast task (or vice versa), which would silently hand
+        // back the wrong-quality buffer.
         if let existing = decodeTask, decodeTaskAssetID == asset.id,
            decodeTaskProfile == decodeProfile,
            decodeTaskAutoExposure == decodeAutoExposure,
+           decodeTaskQuality == quality,
            (!wantsFull || decodeTaskIsFull) {
             // #951: JOIN an in-flight, identity-compatible decode. Do NOT create
             // or flip a cancel flag here — same-asset slider ticks during a cold
@@ -175,17 +194,29 @@ extension RenderActor {
                 else { return nil }
                 return url
             }()
-            // RAW fast phase routes through the sized scene-linear FFI
-            // (`maxLongEdge`) so the Rust decoder never allocates a
-            // full-sensor-resolution buffer for the viewport (#785). Only
-            // the size differs from the refine path — `quality: .preview`
-            // is unchanged, so refine output is bit-identical to today.
-            // Refine / export (`decodeTarget == nil`) keep the unsized
-            // full-resolution decode.
+            // RAW fast phase AND refine both route through the sized scene-
+            // linear FFI (`maxLongEdge`) so the Rust decoder never allocates
+            // a full-sensor-resolution buffer just because the viewport
+            // asked for one (#785/#1637). What used to distinguish refine
+            // from fast — a `nil` target routing to the unsized full/AMaZE
+            // decode below — stopped happening once `ImageEditPipeline.
+            // decodeTarget` started always returning a bounded target
+            // (#1637): every caller here passes a sized target now, fast
+            // AND refine alike. `quality` is what actually carries that
+            // distinction post-#2143: fast always requests `.preview`
+            // (half-res); refine's caller (`EditSession.decodeAndRender`)
+            // escalates to `.full`/`.amaze` via `ImageEditPipeline.
+            // refineDecodeQuality` whenever the requested target exceeds
+            // what `.preview` can deliver (roughly native/2) — see that
+            // function's doc comment for the upscale-then-downscale waste
+            // this removes. Below that threshold `.preview` already decodes
+            // exactly the requested target, so quality stays `.preview` and
+            // this call is bit-identical to pre-#2143 behaviour.
             if let decodeTarget {
                 let sizedResult = await mapleStageAsync("rust FFI scene-linear sized decode") {
                     await pipeline.decodeSceneLinearSized(
                         asset: asset, targetSize: decodeTarget, xmpPath: sidecar,
+                        quality: quality,
                         profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure,
                         cancel: cancelFlag
                     )
@@ -196,12 +227,11 @@ extension RenderActor {
                     sizedResult.wbFrame, sizedResult.aeGain
                 )
             }
-            // #940 — refine pass (full-resolution): use AMaZE when AmazeFlag
-            // is enabled, otherwise bilinear Full (the production default).
-            // Fast phase routes through `decodeSceneLinearSized` above with
-            // quality: .preview (half-res bilinear). Only the full decode
-            // (wantsFull == true, decodeTarget == nil) lands here, so the
-            // AMaZE path never fires on a per-slider-tick fast decode.
+            // #940 — legacy full-resolution branch: `target == nil` no
+            // longer occurs from any production call site (see above), but
+            // stays as the correct behaviour for a hypothetical future nil-
+            // target caller (e.g. a `renderFull()`-style path) — AMaZE when
+            // AmazeFlag is enabled, otherwise bilinear Full.
             let refineQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
             let refineResult = await mapleStageAsync("rust FFI scene-linear decode") {
                 await pipeline.decodeSceneLinear(
@@ -221,6 +251,7 @@ extension RenderActor {
         decodeTaskIsFull = wantsFull
         decodeTaskProfile = decodeProfile
         decodeTaskAutoExposure = decodeAutoExposure
+        decodeTaskQuality = quality
 
         let decodeResult = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
