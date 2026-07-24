@@ -56,7 +56,7 @@ struct CropOverlay: View {
             let rect = CropGeometry.cropRectToPx(cropRect, footprint)
 
             ZStack(alignment: .topLeading) {
-                maskLayer(rect: rect, wrapW: wrapW, wrapH: wrapH)
+                maskLayer(rect: rect, footprint: footprint)
                 frameLayer(rect: rect)
                 gridLayer(rect: rect)
                 handleLayer(rect: rect)
@@ -73,16 +73,24 @@ struct CropOverlay: View {
 
     // MARK: - Layers
 
-    private func maskLayer(rect: CropGeometry.PxRect, wrapW: Double, wrapH: Double) -> some View {
+    private func maskLayer(rect: CropGeometry.PxRect, footprint: CropGeometry.Footprint) -> some View {
         // Four dark rectangles surrounding the crop box (top / bottom /
-        // left / right), mirroring the web `maskRects`.
+        // left / right), mirroring the web `maskRects` — but bounded to the
+        // image's own footprint rather than the full canvas, so the mask
+        // dims excluded PHOTO content only. Without this, fit-mode letterbox
+        // bars (aspect-mismatched image) and the crop-margin border both read
+        // as part of the mask instead of plain canvas background.
+        let fpLeft = footprint.left
+        let fpTop = footprint.top
+        let fpRight = footprint.left + footprint.width
+        let fpBottom = footprint.top + footprint.height
         let masks: [CGRect] = [
-            CGRect(x: 0, y: 0, width: wrapW, height: max(0, rect.y)),
-            CGRect(x: 0, y: rect.y + rect.height,
-                   width: wrapW, height: max(0, wrapH - (rect.y + rect.height))),
-            CGRect(x: 0, y: rect.y, width: max(0, rect.x), height: rect.height),
+            CGRect(x: fpLeft, y: fpTop, width: footprint.width, height: max(0, rect.y - fpTop)),
+            CGRect(x: fpLeft, y: rect.y + rect.height,
+                   width: footprint.width, height: max(0, fpBottom - (rect.y + rect.height))),
+            CGRect(x: fpLeft, y: rect.y, width: max(0, rect.x - fpLeft), height: rect.height),
             CGRect(x: rect.x + rect.width, y: rect.y,
-                   width: max(0, wrapW - (rect.x + rect.width)), height: rect.height),
+                   width: max(0, fpRight - (rect.x + rect.width)), height: rect.height),
         ]
         return ZStack(alignment: .topLeading) {
             ForEach(Array(masks.enumerated()), id: \.offset) { _, m in
