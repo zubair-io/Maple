@@ -74,7 +74,8 @@ final class RawCoreBridgeTests: XCTestCase {
             luminanceAdjustmentBlue: -36,
             luminanceAdjustmentPurple: 37,
             luminanceAdjustmentMagenta: -38,
-            highlightRecovery: .blend
+            highlightRecovery: .blend,
+            autoExposure: .off
         )
     }
 
@@ -163,6 +164,9 @@ final class RawCoreBridgeTests: XCTestCase {
         let stripped = RawCoreBridge.stripAppleGPUStages(original)
         // highlightRecovery is pre-DCP — no Apple Metal equivalent.
         XCTAssertEqual(stripped.highlightRecovery, original.highlightRecovery)
+        // autoExposure (#1387) is a decode-baked scalar gain — no Apple
+        // Metal live re-apply, same story as highlightRecovery above.
+        XCTAssertEqual(stripped.autoExposure, original.autoExposure)
         // sharpenRadius / sharpenDetail / sharpenMasking are read by the
         // post-chain Metal kernel using the live model; the decode
         // ignores them, so the strip leaves them alone.
@@ -250,6 +254,38 @@ final class RawCoreBridgeTests: XCTestCase {
         try RawCoreBridge.withStrippedModelXMP(
             original,
             profileOverride: .neutral
+        ) { tempURL in
+            capturedTemp = tempURL
+            guard let tempURL else {
+                return XCTFail("live-model strip must produce a temp XMP")
+            }
+            let xml = try String(contentsOf: tempURL, encoding: .utf8)
+            let (parsed, _) = try XMPParser.parse(xml)
+            XCTAssertEqual(parsed, expected)
+        }
+
+        guard let capturedTemp else {
+            return XCTFail("temp URL was never captured")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: capturedTemp.path))
+    }
+
+    /// #1387 — mirrors `test_withStrippedModelXMP_uses_live_model_and_cleans_up`
+    /// for `autoExposureOverride`: the LIVE model's `autoExposure` (`.on`,
+    /// carried unperturbed through `stripAppleGPUStages` since it's a KEPT
+    /// field) must be overridden by the explicit override before the temp
+    /// XMP is written, independent of — and alongside — `profileOverride`.
+    func test_withStrippedModelXMP_appliesAutoExposureOverride() throws {
+        var original = sampleModel()
+        original.profile = .neutral
+        original.autoExposure = .on
+        var expected = RawCoreBridge.stripAppleGPUStages(original)
+        expected.autoExposure = .off
+
+        var capturedTemp: URL?
+        try RawCoreBridge.withStrippedModelXMP(
+            original,
+            autoExposureOverride: .off
         ) { tempURL in
             capturedTemp = tempURL
             guard let tempURL else {

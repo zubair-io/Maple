@@ -44,9 +44,14 @@ extension EditorState {
     /// protected metering so a bright sky / background can't be blown out.
     ///
     /// AE contract: AUTO's exposure is measured against an AE-Off probe. On the
-    /// default `Profile.auto` the Apple decode already forces auto-exposure off,
-    /// so the recommendation lands correctly; the explicit `autoExposure = Off`
-    /// pairing for `Profile.neutral` is tracked as a follow-up (M3).
+    /// default `Profile.auto` the Apple decode already forces auto-exposure off
+    /// internally whenever an Auto Profile curve will fit, so the recommendation
+    /// lands correctly there regardless; on `Profile.neutral` (and `.acrMatch`)
+    /// nothing forces that, so applying AUTO's exposure on top of an AE-On decode
+    /// would double-count the anchor gain and blow out highlights. #1387 closes
+    /// that gap: `autoExposure` is set to `.off` alongside `exposure`, on every
+    /// profile, so the decode this recommendation is valid for is always the one
+    /// that actually renders.
     public func applyAuto() async {
         guard let url = session.asset.primaryURL else { return } // RAW path only
         autoGeneration &+= 1
@@ -73,6 +78,11 @@ extension EditorState {
         // (it skews green on foliage, warm on skin), so As-Shot stays the
         // trustworthy default. Tone is deferred to #1376.
         m.exposure = clamp(result.exposure, AdjustmentModel.exposureRange)
+        // #1387: the exposure recommendation is measured against an AE-Off
+        // probe (see `autoProvider`), so pin the decode to match — otherwise
+        // a `Profile.neutral` (or `.acrMatch`) decode keeps auto_exposure On
+        // and AE-lift stacks with AUTO's lift, blowing out highlights.
+        m.autoExposure = .off
         session.model = m
     }
 }
