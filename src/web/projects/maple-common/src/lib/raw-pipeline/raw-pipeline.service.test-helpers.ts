@@ -15,20 +15,30 @@ import { vi } from 'vitest';
  */
 export class WorkerStub {
   readonly postMessage = vi.fn<(msg: unknown, transfer?: Transferable[]) => void>();
+  // Structural `Worker` members below: callers only ever hold a `WorkerStub` through
+  // the `as unknown as Worker` cast in `installWorkerStub`, so fallow's static usage
+  // graph can't trace `RawPipelineService`'s `worker.terminate()` /
+  // `worker.addEventListener(...)` calls back to these — same false positive as
+  // `fs-access-library-source.ts`'s `mapleId`. They ARE exercised (every spec in this
+  // directory calls through `RawPipelineService`, which calls all four).
+  // fallow-ignore-next-line unused-class-member
   readonly terminate = vi.fn();
   private listeners: Record<string, ((e: unknown) => void)[]> = {
     message: [],
     error: [],
   };
 
+  // fallow-ignore-next-line unused-class-member
   addEventListener(type: string, fn: (e: unknown) => void): void {
     (this.listeners[type] ??= []).push(fn);
   }
 
+  // fallow-ignore-next-line unused-class-member
   removeEventListener(type: string, fn: (e: unknown) => void): void {
     this.listeners[type] = (this.listeners[type] ?? []).filter((l) => l !== fn);
   }
 
+  // fallow-ignore-next-line unused-class-member
   dispatchEvent(_e: Event): boolean {
     return true;
   }

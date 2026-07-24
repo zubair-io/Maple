@@ -68,17 +68,23 @@ export function markEnd(startMark: string, endMark: string, measureName: string)
  * so nothing accumulates in the worker's performance-entry buffer across a slider
  * drag. Every Performance Timeline call below — the clears included — runs in its
  * OWN `safeMeasure` (see module doc): a throw from `measure` must never suppress
- * a clear that comes after it.
+ * a clear that comes after it. `fn` itself runs inside a `try/finally` (jules
+ * review, #1123) so a throw from THE READBACK ITSELF — not just a Performance
+ * Timeline call — still runs the end-mark/measure/clear cleanup instead of
+ * leaking `startMark` into the buffer; the caller's exception still propagates
+ * normally through `finally`.
  */
 export function markScopeReadback<T>(id: number, fn: () => T): T {
   const startMark = `maple:scope-readback:${id}:start`;
   const endMark = `maple:scope-readback:${id}:end`;
   const measureName = 'maple:scope-readback';
   markStart(startMark);
-  const result = fn();
-  markEnd(startMark, endMark, measureName);
-  safeMeasure(() => performance.clearMarks(startMark));
-  safeMeasure(() => performance.clearMarks(endMark));
-  safeMeasure(() => performance.clearMeasures(measureName));
-  return result;
+  try {
+    return fn();
+  } finally {
+    markEnd(startMark, endMark, measureName);
+    safeMeasure(() => performance.clearMarks(startMark));
+    safeMeasure(() => performance.clearMarks(endMark));
+    safeMeasure(() => performance.clearMeasures(measureName));
+  }
 }
