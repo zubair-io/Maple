@@ -93,18 +93,21 @@ extension XMPSerializer {
         // fmtWb is the canonical-format numeric codec (integers bare,
         // fractions 2dp-trimmed — mirrors the TS `numericSerializer`);
         // widget drag values are not integer-quantized, so `%.0f` would
-        // shift the stored curve on every re-save.
-        if model.parametricHighlights != 0 {
-            attrs.append(("crs:ParametricHighlights", fmtWb(model.parametricHighlights)))
-        }
-        if model.parametricLights != 0 {
-            attrs.append(("crs:ParametricLights", fmtWb(model.parametricLights)))
-        }
-        if model.parametricDarks != 0 {
-            attrs.append(("crs:ParametricDarks", fmtWb(model.parametricDarks)))
-        }
-        if model.parametricShadows != 0 {
-            attrs.append(("crs:ParametricShadows", fmtWb(model.parametricShadows)))
+        // shift the stored curve on every re-save. The omit gate shares
+        // fmtWb's 2-decimal rounding — gating on the raw Double would emit
+        // `="0"` for values like 0.004 (PR #2192 review); non-finite values
+        // are not representable in sidecars and are skipped.
+        let parametricAttrs = [
+            ("crs:ParametricHighlights", model.parametricHighlights),
+            ("crs:ParametricLights", model.parametricLights),
+            ("crs:ParametricDarks", model.parametricDarks),
+            ("crs:ParametricShadows", model.parametricShadows),
+        ]
+        for (key, value) in parametricAttrs {
+            let rounded = (value * 100).rounded() / 100
+            if rounded.isFinite && rounded != 0 {
+                attrs.append((key, fmtWb(value)))
+            }
         }
         // S5 effects fields (#643) — emit only when non-default so sidecars
         // produced before this PR remain byte-identical for users who never

@@ -254,13 +254,13 @@ fn parametric_serialize_roundtrip_and_default_omission() {
 
     m.parametric_highlights = 100.0;
     m.parametric_lights = -50.0;
-    m.parametric_darks = 25.0;
+    m.parametric_darks = 12.75; // fractional — widget drags are not integer-quantized
     m.parametric_shadows = -100.0;
     let frag = serialize(&m);
     for expected in [
         r#"crs:ParametricHighlights="100""#,
         r#"crs:ParametricLights="-50""#,
-        r#"crs:ParametricDarks="25""#,
+        r#"crs:ParametricDarks="12.75""#,
         r#"crs:ParametricShadows="-100""#,
     ] {
         assert!(
@@ -280,6 +280,35 @@ fn parametric_serialize_roundtrip_and_default_omission() {
     let parsed = parse(&xml).unwrap();
     assert_eq!(parsed.parametric_highlights, 100.0);
     assert_eq!(parsed.parametric_lights, -50.0);
-    assert_eq!(parsed.parametric_darks, 25.0);
+    assert_eq!(parsed.parametric_darks, 12.75);
     assert_eq!(parsed.parametric_shadows, -100.0);
+}
+
+/// The omit-on-default test and the emitted value share the canonical
+/// 2-decimal wire codec: float-noise that rounds to 0 emits nothing (the
+/// raw `!= 0.0` gate would have written `crs:Parametric*="0.004"` while
+/// Swift/TS write nothing, churning otherwise-identical sidecars), values
+/// round to 2 decimals on the wire, and non-finite values are skipped.
+#[test]
+fn parametric_serialize_rounds_to_wire_codec() {
+    let mut m = AdjustmentModel::default();
+    m.parametric_lights = 0.004;
+    assert!(
+        !serialize(&m).contains("crs:Parametric"),
+        "a value that rounds to 0 must be omitted, got: {}",
+        serialize(&m)
+    );
+
+    m.parametric_lights = 33.333_333;
+    let frag = serialize(&m);
+    assert!(
+        frag.contains(r#"crs:ParametricLights="33.33""#),
+        "wire value must round to 2 decimals, got: {frag}"
+    );
+
+    m.parametric_lights = f32::NAN;
+    assert!(
+        !serialize(&m).contains("crs:Parametric"),
+        "non-finite values must not reach the sidecar"
+    );
 }

@@ -250,8 +250,13 @@ export class XmpSerializerService {
       if (wbIsAsShot && (f.modelKey === 'temperature' || f.modelKey === 'tint')) continue;
       const value = model[f.modelKey];
       if (value === undefined || value === null) continue;
-      if (value !== f.defaultValue(model)) {
-        fieldParts.push(`${f.xmpKey}="${f.serialize(value)}"`);
+      // Omit-on-default compares the serialized wire forms, not the raw
+      // values: the codec rounds to 2 decimals, so a raw comparison would
+      // emit the default wire value for near-default inputs (0.004 →
+      // `="0"`), churning otherwise-identical sidecars (PR #2192 review).
+      const wire = f.serialize(value);
+      if (wire !== f.serialize(f.defaultValue(model))) {
+        fieldParts.push(`${f.xmpKey}="${wire}"`);
         emittedKeys.add(f.xmpKey);
       }
     }

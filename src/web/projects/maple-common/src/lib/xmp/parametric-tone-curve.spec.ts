@@ -87,4 +87,13 @@ describe('XMP parametric tone-curve fields (#365)', () => {
     const xml = serializer.serialize(defaultAdjustmentModel());
     expect(xml).not.toContain('crs:Parametric');
   });
+
+  it('omits values that round to 0 in the wire codec instead of emitting `="0"`', () => {
+    // PR #2192 review: the omit gate must operate on the serialized wire
+    // form, not the raw value — 0.004 rounds to "0", which is the default.
+    const m = defaultAdjustmentModel();
+    m.parametricLights = 0.004;
+    const xml = serializer.serialize(m);
+    expect(xml).not.toContain('crs:Parametric');
+  });
 });
