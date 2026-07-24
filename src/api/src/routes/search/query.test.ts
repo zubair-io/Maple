@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { applyLiveFilter, buildFilter, COLOR_LABELS } from './query.ts';
+import { applyLiveFilter, buildFilter, SEARCHABLE_COLOR_LABELS } from './query.ts';
 import { COLOR_LABELS as XMP_COLOR_LABELS } from '../../xmp/color-label.ts';
 
 /**
@@ -49,9 +49,9 @@ describe('applyLiveFilter — search hides assets with no resolvable primary', (
  * was filterable but unreachable from the writers).
  */
 describe('search color filter — vocabulary parity with the XMP writers (#1657)', () => {
-  it('COLOR_LABELS (plus the empty/no-label sentinel) is a superset of every XMP-writable color', () => {
+  it('SEARCHABLE_COLOR_LABELS (plus the empty/no-label sentinel) is a superset of every XMP-writable color', () => {
     for (const color of XMP_COLOR_LABELS) {
-      expect(COLOR_LABELS.has(color)).toBe(true);
+      expect(SEARCHABLE_COLOR_LABELS.has(color)).toBe(true);
     }
   });
 
