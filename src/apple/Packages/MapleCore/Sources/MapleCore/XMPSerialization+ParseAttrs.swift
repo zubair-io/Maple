@@ -181,6 +181,22 @@ extension _XMPParserDelegate {
         case "crs:CropBottom": if hasCrop, let n = d(value) { model.crop.bottom = n }
         case "crs:CropRight":  if hasCrop, let n = d(value) { model.crop.right  = n }
         case "crs:CropAngle":  if let n = d(value) { model.crop.angle = n }
+        // DNG-embedded lens corrections (#376). ACR/Lightroom-compatible
+        // `crs:` keys. The 1/0 form is what ACR writes; the true/false and
+        // on/off spellings other XMP writers use are accepted too. An
+        // unknown value keeps the default (`.on`).
+        case "crs:LensProfileEnable":
+            switch value.lowercased() {
+            case "1", "true", "on":   model.lensProfileEnable = .on
+            case "0", "false", "off": model.lensProfileEnable = .off
+            default: break
+            }
+        case "crs:LensProfileDistortionScale":
+            model.lensCorrectionDistortion = d(value) ?? model.lensCorrectionDistortion
+        case "crs:LensProfileChromaticAberrationScale":
+            model.lensCorrectionCa = d(value) ?? model.lensCorrectionCa
+        case "crs:LensProfileVignettingScale":
+            model.lensCorrectionVignetting = d(value) ?? model.lensCorrectionVignetting
         // `crs:HasCrop` is consumed in the pre-pass; silently accept here too.
         case "crs:HasCrop", "crs:CropConstrainToWarp": break
         // Consumed at document level in `didStartElement` (#1780).
