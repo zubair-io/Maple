@@ -199,6 +199,34 @@ pub(crate) fn highlights_mult(y: f32, h_amount: f32, h_denom: f32, h_expand: f32
     shape * g
 }
 
+/// Whites multiplier at luma `y` (step 4 below). `w_amount = max(whites/200,
+/// −WHITES_MIN_GAIN)`, hoisted by the caller because the negative-side floor is
+/// slider-global, not per-pixel.
+///
+/// Extracted verbatim from step 4's inner loop (#1376) so
+/// `stages::auto_adjustments_tone` inverts the shipping transfer function
+/// rather than a hand-copied twin that could silently drift from it.
+#[inline]
+pub(crate) fn whites_mult(y: f32, w_amount: f32) -> f32 {
+    1.0 + w_amount * smoothstep(0.5, 1.0, y)
+}
+
+/// Blacks CRUSH factor at luma `y` for `b_amount = blacks/100 < 0` (step 5).
+/// Multiplicative, weighted by the toe over the `B_CRUSH_EDGE` span.
+/// Extracted verbatim alongside [`whites_mult`] (#1376).
+#[inline]
+pub(crate) fn blacks_crush_factor(y: f32, b_amount: f32) -> f32 {
+    1.0 + b_amount * (1.0 - smoothstep(0.0, B_CRUSH_EDGE, y))
+}
+
+/// Blacks LIFT delta at luma `y` for `b_add_pos = B_LIFT_MAX · blacks/100 ≥ 0`
+/// (step 5). Additive, weighted by the toe over the `B_LIFT_EDGE` span.
+/// Extracted verbatim alongside [`whites_mult`] (#1376).
+#[inline]
+pub(crate) fn blacks_lift_delta(y: f32, b_add_pos: f32) -> f32 {
+    b_add_pos * (1.0 - smoothstep(0.0, B_LIFT_EDGE, y))
+}
+
 /// Apply a luminance-keyed multiplier through the tonal detail mask
 /// (#1103, spec § 4.2 — RapidRAW-style halo-protected regional response):
 ///
@@ -360,8 +388,7 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             if apply_whites {
                 let y_old =
                     LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
-                let w = smoothstep(0.5, 1.0, y_old);
-                let w_gain = 1.0 + w_amount * w;
+                let w_gain = whites_mult(y_old, w_amount);
                 p[0] *= w_gain;
                 p[1] *= w_gain;
                 p[2] *= w_gain;
@@ -404,16 +431,14 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
                 if b_amount < 0.0 {
                     // Crush: multiplicative, toe weight over the 0.2 edge
                     // (already monotone — unchanged, #1918).
-                    let w = 1.0 - smoothstep(0.0, B_CRUSH_EDGE, y_old);
-                    let factor = 1.0 + b_amount * w;
+                    let factor = blacks_crush_factor(y_old, b_amount);
                     p[0] *= factor;
                     p[1] *= factor;
                     p[2] *= factor;
                 } else {
                     // Lift: additive over the 0.20 black-range edge. The 0.125
                     // full-rail endpoint keeps the transfer monotone (#2186).
-                    let w = 1.0 - smoothstep(0.0, B_LIFT_EDGE, y_old);
-                    let delta = b_add_pos * w;
+                    let delta = blacks_lift_delta(y_old, b_add_pos);
                     if y_old > 1e-6 {
                         let y_new = y_old + delta;
                         let scale = y_new / y_old;

@@ -152,6 +152,26 @@ fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
     oklab_gamut_compress(out)
 }
 
+/// The AgX sigmoid evaluated on a NEUTRAL scene-linear value.
+///
+/// For an achromatic input the inset/outset matrices are identity (their rows
+/// sum to 1 and map the D65 neutral axis onto itself) and the ratio-preserving
+/// step degenerates to `sigmoid_curve(y)`, so this is exactly what
+/// [`agx_pixel`] does to a grey pixel — the same `log_encode` → slope
+/// modulation → `sample_lut` chain, single-sourced rather than re-derived.
+///
+/// `slope = 1 + (contrast / 100) * 0.5`, matching [`apply`]. The result is
+/// display-LINEAR Rec.2020 (the view tail's `srgb_gamma` has not been applied).
+///
+/// Used by `stages::auto_adjustments_tone` (#1376) to map the calibration's
+/// display-referred histogram anchors into the scene-linear domain the tone
+/// sliders operate in, and back.
+pub fn neutral_curve(y_scene: f32, slope: f32) -> f32 {
+    let norm = log_encode(y_scene);
+    let modulated = MID_NORM + (norm - MID_NORM) * slope;
+    sample_lut(modulated)
+}
+
 /// Apply AgX across the image. Input must be `SceneLinearRec2020`; output
 /// space is `DisplayLinearRec2020`. `contrast` in [-100, +100]; 0 is the
 /// reference Sobotka sigmoid.

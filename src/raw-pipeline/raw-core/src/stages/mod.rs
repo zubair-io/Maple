@@ -1,4 +1,7 @@
 pub mod auto_adjustments;
+/// Tone-slider calibration for [`auto_adjustments`] (#1376). `pub(crate)` API
+/// surface; the public entry point stays `compute_auto_adjustments`.
+pub mod auto_adjustments_tone;
 pub mod auto_exposure;
 pub mod auto_tone;
 pub mod blur;

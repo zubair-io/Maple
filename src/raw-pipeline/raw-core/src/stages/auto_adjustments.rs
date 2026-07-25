@@ -29,12 +29,14 @@
 //! camera's own interpolated color matrix instead of forcing the raw
 //! `as_shot_neutral` through the generic model (#1725).
 //!
-//! # Tone (deferred — #1376)
+//! # Tone
 //!
-//! Auto-tone (contrast / whites / blacks / highlights / shadows) is deferred
-//! to #1376: the prototype histogram heuristics over-drove on real scenes, so
-//! AUTO currently reports 0 for those five sliders. Exposure + white balance
-//! ship now.
+//! Auto-tone (contrast / highlights / shadows / whites / blacks) lives in the
+//! sibling [`crate::stages::auto_adjustments_tone`] module (#1376). It solves
+//! each slider by inverting the shipping transfer function against a
+//! display-referred histogram anchor measured from the ACR baseline renders of
+//! the reference fixture set, then damps, deadbands and clamps the result. See
+//! that module's doc for the objective target and the anti-railing bounds.
 //!
 //! Refs:
 //!   - spec `docs/superpowers/specs/2026-05-26-auto-tone-and-looks-design.md`
@@ -158,22 +160,20 @@ pub fn compute_auto_adjustments(
     let (temperature, tint) = compute_awb(&probe, raw);
 
     // --- Tone (contrast / highlights / shadows / whites / blacks) ---
-    // Deferred to #1376. The histogram-percentile heuristics prototyped during
-    // M0 over-drove on real scenes (blacks railed to -100, whites to ±100,
-    // contrast stayed inert), and there is no objective target to calibrate
-    // them against yet. Per review they ship as 0 (no change) so AUTO never
-    // emits a railed value; exposure + white balance ship now.
-    let (contrast, highlights, shadows, whites, blacks) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    // #1376. Solved against the SAME probe buffer, but keyed on the exposure
+    // recommendation above: the tone stage runs after exposure, so the
+    // calibration measures the histogram the tone bands will actually see.
+    let tone = crate::stages::auto_adjustments_tone::compute_auto_tone_sliders(&probe, exposure);
 
     Ok(AutoAdjustments {
         exposure,
         temperature,
         tint,
-        contrast,
-        highlights,
-        shadows,
-        whites,
-        blacks,
+        contrast: tone.contrast,
+        highlights: tone.highlights,
+        shadows: tone.shadows,
+        whites: tone.whites,
+        blacks: tone.blacks,
     })
 }
 
