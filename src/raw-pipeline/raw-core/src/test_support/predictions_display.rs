@@ -65,35 +65,24 @@ pub fn predict_grain(
     display_value + k * wl * n
 }
 
-/// stages::split_tone::apply (#1111, tone/zoom design § 10.3) — the exact
-/// Oklab (Δa, Δb) shift on a grey pixel at display luminance `yd`:
+/// stages::color_grade::apply (#275) — the exact Oklab `(Δa, Δb, ΔL)`
+/// shift on a grey pixel at display luminance `yd`:
 ///
-///   γ = exp2(bal/100); wS = (1−Yd)^γ·sS/100; wH = Yd^(1/γ)·sH/100
-///   (Δa, Δb) = K·[wS·(cos hS, sin hS) + wH·(cos hH, sin hH)]
+///   yb = Yd^exp2(-bal/100); wS = 1−smoothstep(0,½,yb); wH = smoothstep(½,1,yb)
+///   (Δa, Δb, ΔL) = Σ_z w_z·offset_z + offset_global
 ///
-/// L is untouched by the stage, so the predictor returns only the chroma
-/// shift. Hues in degrees. Used by the grey gates: a neutral pixel's
-/// post-stage Oklab (a, b) must equal exactly this shift (its pre-stage
-/// chroma is ~0), and L must be invariant.
-pub fn predict_split_tone_ab(
+/// Used by the grey gates: a neutral pixel's post-stage Oklab `(a, b)`
+/// must equal exactly this shift (its pre-stage chroma is ~0) and its `L`
+/// must move by exactly `ΔL`.
+pub fn predict_color_grade(
     yd: f32,
-    shadow_hue: f32,
-    shadow_sat: f32,
-    highlight_hue: f32,
-    highlight_sat: f32,
-    balance: f32,
-) -> [f32; 2] {
-    if shadow_sat.abs() < 1e-3 && highlight_sat.abs() < 1e-3 {
-        return [0.0, 0.0];
+    sliders: &crate::stages::color_grade::ColorGradeSliders,
+) -> [f32; 3] {
+    let p = crate::stages::color_grade::color_grade_params(sliders);
+    if p.is_identity {
+        return [0.0; 3];
     }
-    let (gamma, inv_gamma, s_vec, h_vec) = crate::stages::split_tone::split_tone_params(
-        shadow_hue,
-        shadow_sat,
-        highlight_hue,
-        highlight_sat,
-        balance,
-    );
-    crate::stages::split_tone::split_tone_shift(yd, gamma, inv_gamma, s_vec, h_vec)
+    crate::stages::color_grade::color_grade_shift(yd, &p)
 }
 
 #[cfg(test)]
@@ -169,43 +158,38 @@ mod tests {
         }
     }
 
-    /// `predict_split_tone_ab` round-trips against the real stage on grey
+    /// `predict_color_grade` round-trips against the real stage on grey
     /// display-linear pixels at several luminances and balances.
     #[test]
-    fn split_tone_predictor_matches_stage_on_grey() {
+    fn color_grade_predictor_matches_stage_on_grey() {
         use crate::color::oklab::rec2020_to_oklab;
         use crate::image::{ColorSpace, Image};
-        use crate::stages::split_tone;
+        use crate::stages::color_grade::{self, ColorGradeSliders};
 
-        for &(v, hs, ss, hh, sh, bal) in &[
-            (0.05_f32, 30.0_f32, 80.0_f32, 210.0_f32, 60.0_f32, 0.0_f32),
-            (0.18, 30.0, 80.0, 210.0, 60.0, 50.0),
-            (0.80, 300.0, 40.0, 120.0, 90.0, -100.0),
-        ] {
+        for &(v, bal) in &[(0.05_f32, 0.0_f32), (0.18, 50.0), (0.80, -100.0)] {
+            let sliders = ColorGradeSliders {
+                shadow: [30.0, 80.0, 25.0],
+                midtone: [150.0, 55.0, -30.0],
+                highlight: [210.0, 60.0, -15.0],
+                global: [90.0, 20.0, 5.0],
+                balance: bal,
+            };
             let mut img = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
             img.pixels[0] = [v, v, v];
             let lab_before = rec2020_to_oklab(img.pixels[0]);
-            split_tone::apply(&mut img, hs, ss, hh, sh, bal);
+            color_grade::apply(&mut img, &sliders);
             let lab_after = rec2020_to_oklab(img.pixels[0]);
 
             let yd = 0.2627 * v + 0.6780 * v + 0.0593 * v;
-            let predicted = predict_split_tone_ab(yd, hs, ss, hh, sh, bal);
-            assert!(
-                (lab_after[1] - lab_before[1] - predicted[0]).abs() < 1e-5,
-                "Δa at v={v}: got {}, predicted {}",
-                lab_after[1] - lab_before[1],
-                predicted[0]
-            );
-            assert!(
-                (lab_after[2] - lab_before[2] - predicted[1]).abs() < 1e-5,
-                "Δb at v={v}: got {}, predicted {}",
-                lab_after[2] - lab_before[2],
-                predicted[1]
-            );
-            assert!(
-                (lab_after[0] - lab_before[0]).abs() < 1e-5,
-                "L must be invariant"
-            );
+            let predicted = predict_color_grade(yd, &sliders);
+            for (comp, idx, name) in [(1usize, 0usize, "Δa"), (2, 1, "Δb"), (0, 2, "ΔL")] {
+                assert!(
+                    (lab_after[comp] - lab_before[comp] - predicted[idx]).abs() < 1e-5,
+                    "{name} at v={v}, bal={bal}: got {}, predicted {}",
+                    lab_after[comp] - lab_before[comp],
+                    predicted[idx]
+                );
+            }
         }
     }
 }

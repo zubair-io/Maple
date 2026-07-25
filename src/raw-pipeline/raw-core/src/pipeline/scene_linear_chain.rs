@@ -146,8 +146,9 @@ pub fn apply_scene_linear_chain(
     } = *opts;
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette, white_balance,
+        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction,
+        saturation, scene_tone_controls, texture, tone_curves, vibrance, vignette,
+        white_balance,
     };
     use crate::view::agx;
 
@@ -270,15 +271,8 @@ pub fn apply_scene_linear_chain(
         // Split toning (#1111) — display-linear Oklab tint, post-AgX,
         // before grain (the canonical render-tail order). Skipped with
         // AgX on the non-RAW path, like every display-domain stage.
-        stage("ffi_chain_split_tone", || {
-            split_tone::apply(
-                &mut img,
-                model.split_tone_shadow_hue,
-                model.split_tone_shadow_saturation,
-                model.split_tone_highlight_hue,
-                model.split_tone_highlight_saturation,
-                model.split_tone_balance,
-            )
+        stage("ffi_chain_color_grade", || {
+            color_grade::apply_model(&mut img, model)
         });
         // Film grain (#1110) — display-linear, post-AgX (same position as
         // the canonical render tail). Skipped with AgX on the non-RAW path:
@@ -368,8 +362,9 @@ pub fn apply_scene_linear_chain_f32(
     } = *opts;
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette, white_balance,
+        clarity, color_grade, dehaze, grain, hsl, local_adjustments, noise_reduction,
+        saturation, scene_tone_controls, texture, tone_curves, vibrance, vignette,
+        white_balance,
     };
     use crate::view::agx;
 
@@ -468,15 +463,8 @@ pub fn apply_scene_linear_chain_f32(
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
         // Split toning (#1111) + film grain (#1110) — see the fp16 sibling.
-        stage("ffi_chain_split_tone", || {
-            split_tone::apply(
-                &mut img,
-                model.split_tone_shadow_hue,
-                model.split_tone_shadow_saturation,
-                model.split_tone_highlight_hue,
-                model.split_tone_highlight_saturation,
-                model.split_tone_balance,
-            )
+        stage("ffi_chain_color_grade", || {
+            color_grade::apply_model(&mut img, model)
         });
         stage("ffi_chain_grain", || {
             grain::apply(

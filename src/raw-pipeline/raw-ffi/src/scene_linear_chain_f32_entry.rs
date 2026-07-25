@@ -74,6 +74,15 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.split_tone_highlight_hue = p.split_tone_highlight_hue;
     model.split_tone_highlight_saturation = p.split_tone_highlight_saturation;
     model.split_tone_balance = p.split_tone_balance;
+    // Colour grading (#275) — the wheels beyond ACR's `crs:SplitToning*` five.
+    model.color_grade_shadow_luminance = p.color_grade_shadow_luminance;
+    model.color_grade_midtone_hue = p.color_grade_midtone_hue;
+    model.color_grade_midtone_saturation = p.color_grade_midtone_saturation;
+    model.color_grade_midtone_luminance = p.color_grade_midtone_luminance;
+    model.color_grade_highlight_luminance = p.color_grade_highlight_luminance;
+    model.color_grade_global_hue = p.color_grade_global_hue;
+    model.color_grade_global_saturation = p.color_grade_global_saturation;
+    model.color_grade_global_luminance = p.color_grade_global_luminance;
     // HSL 8-band adjustments (#1112) — FFI names hsl_*; raw-core names *_adjustment_*
     model.hue_adjustment_red = p.hsl_hue_red;
     model.hue_adjustment_orange = p.hsl_hue_orange;

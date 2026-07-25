@@ -305,6 +305,19 @@ pub struct MapleGpuLiveParams {
     pub bw_mix_blue: f32,
     pub bw_mix_purple: f32,
     pub bw_mix_magenta: f32,
+    // --- colour grading (#275) — the rest of the Color Grading panel
+    //     beyond the five `split_tone_*` sliders above (which are ACR's
+    //     `crs:SplitToning*` shadow/highlight pairs and balance). Appended
+    //     at the struct tail per the offset-stable ABI convention; a stale
+    //     host leaves every field 0 = identity. ---
+    pub color_grade_shadow_luminance: f32,
+    pub color_grade_midtone_hue: f32,
+    pub color_grade_midtone_saturation: f32,
+    pub color_grade_midtone_luminance: f32,
+    pub color_grade_highlight_luminance: f32,
+    pub color_grade_global_hue: f32,
+    pub color_grade_global_saturation: f32,
+    pub color_grade_global_luminance: f32,
 }
 
 /// Internal handle state: the per-open session. Behind the opaque pointer.
