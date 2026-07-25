@@ -55,15 +55,21 @@ export function supportsQuality(format: ExportFormat): boolean {
 }
 
 /**
- * Strip any directory prefix and the extension from an asset filename.
+ * The bare file name, with any directory prefix removed.
  *
- * Asset filenames are usually a bare basename but the self-hosted address form
- * can carry a path, so the split is defensive — the same reasoning as
- * `EditorShellComponent.assetName`.
+ * Asset filenames are usually already a basename but the self-hosted address
+ * form can carry a path, so the split is defensive — the same reasoning as
+ * `EditorShellComponent.assetName`. Shared with `extensionOf` so the two
+ * filename rules agree on where the name starts.
  */
-export function baseName(filename: string): string {
+export function lastSegment(filename: string): string {
   const segments = filename.split('/');
-  const last = segments[segments.length - 1] ?? filename;
+  return segments[segments.length - 1] ?? filename;
+}
+
+/** Strip any directory prefix and the extension from an asset filename. */
+export function baseName(filename: string): string {
+  const last = lastSegment(filename);
   const dot = last.lastIndexOf('.');
   return dot > 0 ? last.slice(0, dot) : last;
 }

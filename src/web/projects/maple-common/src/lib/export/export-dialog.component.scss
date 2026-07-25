@@ -1,6 +1,8 @@
 // export-dialog.component.scss — edited-image export options dialog (#943).
 // Follows the pano-dialog surface treatment so the two read as one family.
 
+@use '../dialog-chrome' as chrome;
+
 .export-backdrop {
   position: fixed;
   inset: 0;
@@ -41,25 +43,7 @@
 }
 
 .export-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 4px;
-  transition:
-    background 120ms,
-    color 120ms;
-
-  &:hover {
-    background: var(--color-surface-hover);
-    color: var(--color-text-main);
-  }
+  @include chrome.dialog-close-button;
 }
 
 .export-body {

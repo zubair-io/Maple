@@ -71,16 +71,39 @@ export class ExportDialogComponent {
   readonly qualityVisible = computed(() => supportsQuality(this.format()));
   readonly busy = computed(() => this.phase() === 'exporting');
 
-  /** Dimensions the current options will produce, for the summary line. */
-  readonly outputSize = computed(() => {
-    const a = this.asset();
-    return outputDimensions(a?.width ?? 0, a?.height ?? 0, this.maxSidePixels());
+  /**
+   * The blurb shown under each picker for whichever option is selected.
+   *
+   * Resolved here rather than by scanning the choice table in the template —
+   * the lookup is a view-model rule, and the template stays a flat rendering
+   * of the current state.
+   */
+  readonly formatDetail = computed(
+    () => FORMAT_CHOICES.find((choice) => choice.value === this.format())?.detail ?? '',
+  );
+
+  readonly colorSpaceDetail = computed(
+    () => COLOR_SPACE_CHOICES.find((choice) => choice.value === this.colorSpace())?.detail ?? '',
+  );
+
+  /** The pixel dimensions of the file that was just written, for the done pane. */
+  readonly outcomeSize = computed(() => {
+    const result = this.outcome();
+    return result ? `${result.width} × ${result.height} px` : '';
   });
 
-  /** True once we know the native size and can state the output dimensions. */
-  readonly outputSizeKnown = computed(() => {
-    const size = this.outputSize();
-    return size.width > 0 && size.height > 0;
+  /**
+   * The line under the size picker.
+   *
+   * Until the native dimensions are known the summary can only state the rule;
+   * once they are, it states the exact pixels the export will produce.
+   */
+  readonly sizeHint = computed(() => {
+    const asset = this.asset();
+    const size = outputDimensions(asset?.width ?? 0, asset?.height ?? 0, this.maxSidePixels());
+    return size.width > 0 && size.height > 0
+      ? `Output: ${size.width} × ${size.height} px. Never upscales.`
+      : 'Never upscales beyond the original resolution.';
   });
 
   constructor() {

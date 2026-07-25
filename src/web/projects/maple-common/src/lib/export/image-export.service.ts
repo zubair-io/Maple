@@ -23,7 +23,7 @@ import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { ExportedFile, RawExportOptions } from '../raw-pipeline/raw-pipeline.types';
 import { downloadBlob } from './download-blob';
-import { exportFilename } from './export-dialog.vm';
+import { exportFilename, lastSegment } from './export-dialog.vm';
 
 /** What an export produced, for the caller to report. */
 export interface ExportOutcome {
@@ -106,8 +106,7 @@ export class ImageExportService {
 
 /** Lowercase extension of a filename, or `''` when it has none. */
 export function extensionOf(filename: string): string {
-  const segments = filename.split('/');
-  const last = segments[segments.length - 1] ?? filename;
+  const last = lastSegment(filename);
   const dot = last.lastIndexOf('.');
   return dot > 0 ? last.slice(dot + 1).toLowerCase() : '';
 }

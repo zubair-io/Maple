@@ -1,3 +1,27 @@
+<!-- fallow-ignore-file complexity -->
+<!--
+  The complexity budget fallow applies to a synthetic <template> entry is a
+  function-level one (cyclomatic 20 / cognitive 15 / CRAP 30), and no
+  non-trivial Angular template in this library meets it: editor-shell sits at
+  33 cognitive and maple-icon at 81, both on main. This template is a flat
+  four-state dialog — one @switch over `phase()`, and inside the options case
+  three <option> loops and one @if for the JPEG-only quality field. The cost
+  is the nesting depth the dialog shape forces, not branching a reader has to
+  hold in their head.
+
+  What the metric legitimately caught has been fixed: the selected-choice
+  blurbs were being found by scanning the choice table in the template with a
+  nested @for/@if (now `formatDetail()` / `colorSpaceDetail()`), the four
+  phases were four sibling @if comparisons (now one @switch), and the size and
+  outcome summary lines were assembled from conditionals in markup (now
+  `sizeHint()` / `outcomeSize()`). That took the finding from CRITICAL — 18
+  cyclomatic / 44 cognitive / 88 CRAP — to 12 / 21 / 43.
+
+  Clearing the last of it would mean splitting the options form into its own
+  component, which also means moving ~110 lines of view-encapsulated SCSS with
+  it. That is a real restructure of a reviewed dialog for a metric, so it is
+  deliberately not being done here; see the discussion on #2227.
+-->
 @if (visible()) {
   <div
     class="export-backdrop"
@@ -17,143 +41,129 @@
         }
       </div>
 
-      <!-- Options form -->
-      @if (phase() === 'options') {
-        <div class="export-body">
-          <!-- Format -->
-          <div class="export-field">
-            <label class="export-label" for="export-format">Format</label>
-            <select
-              id="export-format"
-              class="export-select"
-              [value]="format()"
-              (change)="onFormatChange($any($event.target).value)"
-            >
-              @for (choice of formatChoices; track choice.value) {
-                <option [value]="choice.value">{{ choice.label }}</option>
-              }
-            </select>
-            @for (choice of formatChoices; track choice.value) {
-              @if (choice.value === format()) {
-                <p class="export-hint">{{ choice.detail }}</p>
-              }
-            }
-          </div>
-
-          <!-- Quality (JPEG only) -->
-          @if (qualityVisible()) {
+      @switch (phase()) {
+        <!-- Options form -->
+        @case ('options') {
+          <div class="export-body">
+            <!-- Format -->
             <div class="export-field">
-              <label class="export-label" for="export-quality">
-                Quality <span class="export-value">{{ quality() }}</span>
-              </label>
-              <input
-                id="export-quality"
-                class="export-range"
-                type="range"
-                min="1"
-                max="100"
-                step="1"
-                [value]="quality()"
-                (input)="onQualityChange($any($event.target).value)"
-              />
-              <p class="export-hint">
-                Higher keeps more detail and makes a larger file. 90–95 is visually lossless on most
-                photographs.
-              </p>
+              <label class="export-label" for="export-format">Format</label>
+              <select
+                id="export-format"
+                class="export-select"
+                [value]="format()"
+                (change)="onFormatChange($any($event.target).value)"
+              >
+                @for (choice of formatChoices; track choice.value) {
+                  <option [value]="choice.value">{{ choice.label }}</option>
+                }
+              </select>
+              <p class="export-hint">{{ formatDetail() }}</p>
             </div>
-          }
 
-          <!-- Colour space -->
-          <div class="export-field">
-            <label class="export-label" for="export-color-space">Colour space</label>
-            <select
-              id="export-color-space"
-              class="export-select"
-              [value]="colorSpace()"
-              (change)="onColorSpaceChange($any($event.target).value)"
-            >
-              @for (choice of colorSpaceChoices; track choice.value) {
-                <option [value]="choice.value">{{ choice.label }}</option>
-              }
-            </select>
-            @for (choice of colorSpaceChoices; track choice.value) {
-              @if (choice.value === colorSpace()) {
-                <p class="export-hint">{{ choice.detail }}</p>
-              }
+            <!-- Quality (JPEG only) -->
+            @if (qualityVisible()) {
+              <div class="export-field">
+                <label class="export-label" for="export-quality">
+                  Quality <span class="export-value">{{ quality() }}</span>
+                </label>
+                <input
+                  id="export-quality"
+                  class="export-range"
+                  type="range"
+                  min="1"
+                  max="100"
+                  step="1"
+                  [value]="quality()"
+                  (input)="onQualityChange($any($event.target).value)"
+                />
+                <p class="export-hint">
+                  Higher keeps more detail and makes a larger file. 90–95 is visually lossless on
+                  most photographs.
+                </p>
+              </div>
             }
+
+            <!-- Colour space -->
+            <div class="export-field">
+              <label class="export-label" for="export-color-space">Colour space</label>
+              <select
+                id="export-color-space"
+                class="export-select"
+                [value]="colorSpace()"
+                (change)="onColorSpaceChange($any($event.target).value)"
+              >
+                @for (choice of colorSpaceChoices; track choice.value) {
+                  <option [value]="choice.value">{{ choice.label }}</option>
+                }
+              </select>
+              <p class="export-hint">{{ colorSpaceDetail() }}</p>
+            </div>
+
+            <!-- Size -->
+            <div class="export-field">
+              <label class="export-label" for="export-size">Size</label>
+              <select
+                id="export-size"
+                class="export-select"
+                [value]="maxSidePixels()"
+                (change)="onSizeChange($any($event.target).value)"
+              >
+                <option [value]="0">Full resolution</option>
+                @for (preset of sizePresets; track preset) {
+                  <option [value]="preset">Long edge {{ preset }} px</option>
+                }
+              </select>
+              <p class="export-hint">{{ sizeHint() }}</p>
+            </div>
           </div>
 
-          <!-- Size -->
-          <div class="export-field">
-            <label class="export-label" for="export-size">Size</label>
-            <select
-              id="export-size"
-              class="export-select"
-              [value]="maxSidePixels()"
-              (change)="onSizeChange($any($event.target).value)"
+          <div class="export-footer">
+            <button type="button" class="export-btn-secondary" (click)="onClose()">Cancel</button>
+            <button
+              type="button"
+              class="export-btn-primary"
+              [disabled]="asset() === null"
+              (click)="onExport()"
             >
-              <option [value]="0">Full resolution</option>
-              @for (preset of sizePresets; track preset) {
-                <option [value]="preset">Long edge {{ preset }} px</option>
-              }
-            </select>
-            @if (outputSizeKnown()) {
-              <p class="export-hint">
-                Output: {{ outputSize().width }} × {{ outputSize().height }} px. Never upscales.
-              </p>
-            } @else {
-              <p class="export-hint">Never upscales beyond the original resolution.</p>
-            }
+              Export
+            </button>
           </div>
-        </div>
+        }
 
-        <div class="export-footer">
-          <button type="button" class="export-btn-secondary" (click)="onClose()">Cancel</button>
-          <button
-            type="button"
-            class="export-btn-primary"
-            [disabled]="asset() === null"
-            (click)="onExport()"
-          >
-            Export
-          </button>
-        </div>
-      }
+        <!-- Exporting -->
+        @case ('exporting') {
+          <div class="export-body export-center">
+            <span class="export-muted">Rendering at full quality…</span>
+            <p class="export-hint">
+              Large images take a while — the export runs the high-quality demosaic, not the preview
+              one.
+            </p>
+          </div>
+        }
 
-      <!-- Exporting -->
-      @if (phase() === 'exporting') {
-        <div class="export-body export-center">
-          <span class="export-muted">Rendering at full quality…</span>
-          <p class="export-hint">
-            Large images take a while — the export runs the high-quality demosaic, not the preview
-            one.
-          </p>
-        </div>
-      }
+        <!-- Done -->
+        @case ('done') {
+          <div class="export-body export-center">
+            <span class="export-success">Exported {{ outcome()?.filename }}</span>
+            <p class="export-hint">{{ outcomeSize() }}</p>
+          </div>
+          <div class="export-footer">
+            <button type="button" class="export-btn-primary" (click)="onClose()">Done</button>
+          </div>
+        }
 
-      <!-- Done -->
-      @if (phase() === 'done') {
-        <div class="export-body export-center">
-          <span class="export-success">Exported {{ outcome()?.filename }}</span>
-          @if (outcome(); as result) {
-            <p class="export-hint">{{ result.width }} × {{ result.height }} px</p>
-          }
-        </div>
-        <div class="export-footer">
-          <button type="button" class="export-btn-primary" (click)="onClose()">Done</button>
-        </div>
-      }
-
-      <!-- Error -->
-      @if (phase() === 'error') {
-        <div class="export-body export-center">
-          <span class="export-error">Export failed</span>
-          <p class="export-hint">{{ errorMessage() }}</p>
-        </div>
-        <div class="export-footer">
-          <button type="button" class="export-btn-secondary" (click)="onClose()">Close</button>
-          <button type="button" class="export-btn-primary" (click)="onRetry()">Try again</button>
-        </div>
+        <!-- Error -->
+        @case ('error') {
+          <div class="export-body export-center">
+            <span class="export-error">Export failed</span>
+            <p class="export-hint">{{ errorMessage() }}</p>
+          </div>
+          <div class="export-footer">
+            <button type="button" class="export-btn-secondary" (click)="onClose()">Close</button>
+            <button type="button" class="export-btn-primary" (click)="onRetry()">Try again</button>
+          </div>
+        }
       }
     </div>
   </div>

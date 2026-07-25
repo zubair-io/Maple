@@ -1,0 +1,29 @@
+// Dialog chrome shared by the modal surfaces in maple-common.
+//
+// The header close affordance is the same 24px transparent icon button in
+// every dialog (export #943, pano, batch metadata). It was copied into each
+// component stylesheet, so a token change had to be made in three places and
+// the three could silently drift. One mixin, one definition.
+
+/// The 24px transparent icon button that closes a dialog from its header.
+@mixin dialog-close-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    background 120ms,
+    color 120ms;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-main);
+  }
+}
