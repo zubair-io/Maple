@@ -20,9 +20,10 @@ import UIKit
 /// `.thumb` and `.preview` intentionally use different byte-caching
 /// strategies. `CloudThumbCache` keys ONLY on `(host, absPath)` — there is
 /// no size/kind component — so it exists to hold the one small AVIF grid
-/// thumbnail per asset the server itself caches
-/// (`CloudThumbClient.thumb(absPath:size:)`'s doc comment: a larger `size`
-/// just returns that same cached file). Routing `.preview`'s much larger
+/// thumbnail per asset the server itself caches. That is now the only thumb
+/// tier the server offers: `/api/fs/thumb` took a `size` param that did
+/// nothing until it was removed in #2220, so the disk cache's sizeless key and
+/// the server's sizeless tier agree by construction. Routing `.preview`'s much larger
 /// ~1280px JPEG through the same disk slot would silently evict/replace the
 /// grid thumbnail bytes with preview bytes (or vice versa) any time both
 /// tiers are requested for the same asset — exactly the collision
@@ -38,12 +39,12 @@ struct TVRemoteImage: View {
   /// (`GET /api/fs/thumb`); `.preview` is the ~1280px JPEG display tier
   /// (`GET /api/fs/preview`).
   enum Kind: Hashable {
-    case thumb(size: Int = 512)
+    case thumb
     case preview
 
     fileprivate var decodedCacheSuffix: String {
       switch self {
-      case .thumb(let size): return "thumb:\(size)"
+      case .thumb: return "thumb"
       case .preview: return "preview"
       }
     }
@@ -190,11 +191,11 @@ struct TVRemoteImage: View {
   private func fetchBytes() async -> Data? {
     let host = server.cacheHostKey
     switch kind {
-    case .thumb(let size):
+    case .thumb:
       if let cached = await thumbCache.get(host: host, absPath: absPath) {
         return cached
       }
-      guard let bytes = try? await thumbClient.thumb(absPath: absPath, size: size) else {
+      guard let bytes = try? await thumbClient.thumb(absPath: absPath) else {
         return nil
       }
       guard !Task.isCancelled else { return nil }
@@ -236,20 +237,20 @@ extension TVRemoteImage {
   /// for that asset will retry and surface its own `.failed` phase if the
   /// asset is genuinely unreachable.
   /// Fetches + decodes the `.thumb` for `absPath` and seeds
-  /// `TVDecodedImageCache` under the exact key a `TVRemoteImage(kind:
-  /// .thumb(size:))` for the same asset will look up — so that view renders
+  /// `TVDecodedImageCache` under the exact key a `TVRemoteImage(kind: .thumb)`
+  /// for the same asset will look up — so that view renders
   /// instantly, with no loading-tile flicker. Mirrors `load()`'s thumb→
   /// preview fallback (an AVIF thumb the device can't decode, or a missing
   /// server thumb, falls back to the JPEG preview). A no-op when already
   /// decoded-cached; all failures are swallowed (best-effort warm).
-  static func prefetchThumb(server: URL, absPath: String, size: Int,
+  static func prefetchThumb(server: URL, absPath: String,
                             thumbClient: CloudThumbClient, thumbCache: CloudThumbCache) async {
-    let key = "\(server.cacheHostKey)|\(absPath)|\(Kind.thumb(size: size).decodedCacheSuffix)"
+    let key = "\(server.cacheHostKey)|\(absPath)|\(Kind.thumb.decodedCacheSuffix)"
     guard TVDecodedImageCache.shared.image(forKey: key) == nil else { return }
     let host = server.cacheHostKey
 
     var thumbBytes = await thumbCache.get(host: host, absPath: absPath)
-    if thumbBytes == nil, let bytes = try? await thumbClient.thumb(absPath: absPath, size: size) {
+    if thumbBytes == nil, let bytes = try? await thumbClient.thumb(absPath: absPath) {
       await thumbCache.put(host: host, absPath: absPath, bytes)
       thumbBytes = bytes
     }

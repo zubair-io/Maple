@@ -90,7 +90,7 @@ struct PhotoViewerScreen: View {
       TVRemoteImage(
         server: session.server,
         absPath: asset.abs_path,
-        kind: .thumb(size: 512),
+        kind: .thumb,
         thumbClient: session.thumbClient,
         thumbCache: session.thumbCache,
         contentMode: .fit,
