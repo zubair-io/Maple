@@ -2,12 +2,45 @@
 
 import { describe, expect, it } from 'vitest';
 
+import {
+  ADJUSTMENT_NON_COPYABLE_FIELDS,
+  defaultGeneratedAdjustmentModel,
+} from '../../generated/adjustment-model.generated';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
+import { camelToSnakeField } from '../presets/preset-model';
 import { ADJUSTMENT_GROUPS, ALL_ADJUSTMENT_GROUP_IDS, buildGroupPatch } from './adjustment-groups';
 
 describe('ALL_ADJUSTMENT_GROUP_IDS', () => {
   it('lists every ADJUSTMENT_GROUPS id, in order', () => {
     expect(ALL_ADJUSTMENT_GROUP_IDS).toEqual(ADJUSTMENT_GROUPS.map((g) => g.id));
+  });
+});
+
+// Web-side mirror of raw-core's `every_field_is_grouped_or_explicitly_excluded`
+// guard (`schema/groups/tests.rs`). Both tables are emitted from the same
+// raw-core source by `tools/codegen.sh`, so this asserts that the emitted TS
+// copy really does partition the schema: a field that lands in neither the
+// group table nor the non-copyable list would be silently dropped by every
+// copy / paste / sync on the web client.
+describe('group table coverage', () => {
+  const groupedFields = ADJUSTMENT_GROUPS.flatMap((g) => g.fields);
+
+  it('assigns every generated schema field to a group or the non-copyable list', () => {
+    const covered = new Set([...groupedFields, ...ADJUSTMENT_NON_COPYABLE_FIELDS]);
+    const uncovered = Object.keys(defaultGeneratedAdjustmentModel())
+      .map(camelToSnakeField)
+      .filter((name) => !covered.has(name));
+    expect(uncovered).toEqual([]);
+  });
+
+  it('never lists the same field in two groups', () => {
+    const repeated = groupedFields.filter((name, i) => groupedFields.indexOf(name) !== i);
+    expect(repeated).toEqual([]);
+  });
+
+  it('never lists a non-copyable field in a group', () => {
+    const grouped = new Set(groupedFields);
+    expect(ADJUSTMENT_NON_COPYABLE_FIELDS.filter((name) => grouped.has(name))).toEqual([]);
   });
 });
 

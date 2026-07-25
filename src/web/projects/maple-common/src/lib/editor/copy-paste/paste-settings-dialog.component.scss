@@ -1,5 +1,9 @@
 // paste-settings-dialog.component.scss — selective-paste dialog (#944).
 // Sibling of pano-dialog.component.scss; same backdrop/card/footer shape.
+// The close button and the ghost/primary footer buttons come from the shared
+// dialog-chrome mixins rather than being copied per dialog.
+
+@use '../../styles/dialog-chrome' as chrome;
 
 .psd-backdrop {
   position: fixed;
@@ -40,25 +44,7 @@
 }
 
 .psd-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 4px;
-  transition:
-    background 120ms,
-    color 120ms;
-
-  &:hover {
-    background: var(--color-surface-hover);
-    color: var(--color-text-main);
-  }
+  @include chrome.dialog-close-button;
 }
 
 .psd-body {
@@ -152,42 +138,5 @@
 }
 
 .psd-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 14px;
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 120ms,
-    border-color 120ms,
-    opacity 120ms;
-  border: 0.5px solid transparent;
-
-  &-ghost {
-    background: transparent;
-    border-color: var(--color-border);
-    color: var(--color-text-main);
-
-    &:hover {
-      background: var(--color-surface-hover);
-    }
-  }
-
-  &-primary {
-    background: var(--color-accent, #0066cc);
-    color: #fff;
-    border-color: var(--color-accent, #0066cc);
-
-    &:hover:not(:disabled) {
-      opacity: 0.88;
-    }
-
-    &:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-  }
+  @include chrome.dialog-button;
 }

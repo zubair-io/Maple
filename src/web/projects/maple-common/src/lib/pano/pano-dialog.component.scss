@@ -1,4 +1,7 @@
 // pano-dialog.component.scss — panorama stitch options dialog (#1231).
+// Close button and footer buttons come from the shared dialog-chrome mixins.
+
+@use '../styles/dialog-chrome' as chrome;
 
 @use '../dialog-chrome' as chrome;
 
@@ -118,44 +121,7 @@
 }
 
 .pano-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 30px;
-  padding: 0 14px;
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 120ms,
-    border-color 120ms,
-    opacity 120ms;
-  border: 0.5px solid transparent;
-
-  &-ghost {
-    background: transparent;
-    border-color: var(--color-border);
-    color: var(--color-text-main);
-
-    &:hover {
-      background: var(--color-surface-hover);
-    }
-  }
-
-  &-primary {
-    background: var(--color-accent, #0066cc);
-    color: #fff;
-    border-color: var(--color-accent, #0066cc);
-
-    &:hover {
-      opacity: 0.88;
-    }
-
-    &:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-  }
+  @include chrome.dialog-button;
 }
 
 // Progress bar
