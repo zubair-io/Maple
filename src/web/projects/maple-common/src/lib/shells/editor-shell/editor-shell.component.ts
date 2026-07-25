@@ -1,11 +1,11 @@
 // EditorShell — canvas-first layered editor (#1535, Pro Editor M1).
 //
 // Full-bleed <image-canvas> at the back; all chrome floats above.
-// Responsive breakpoints:
+// Responsive breakpoints (LayoutService — #2279):
 //   <768px (phone):      top glass bar + bottom horizontal tool dock +
 //                        closeable flyout control card (#1807 phone CARD)
-//   768–1100px (tablet): top bar + right vertical tool dock + control card
-//   ≥1100px (desktop):  same as tablet + hover affordances, no auto-recede
+//   768–1024px (tablet): top bar + right vertical tool dock + control card
+//   >1024px (desktop):  same as tablet + hover affordances, no auto-recede
 //
 // All routing / address-resolution logic is preserved verbatim from the
 // previous 3-column shell — only the layout / chrome layer changed.
@@ -70,6 +70,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LayoutService } from '../../layout-service';
 import type { AssetId } from '../../models/asset';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
@@ -91,7 +92,6 @@ import { ValueChipComponent } from '../../editor/value-chip.component';
 import { InfoPanelComponent } from '../../info/info-panel.component';
 import { BottomSheetComponent } from '../bottom-sheet.component';
 import { ExportDialogComponent } from '../../export/export-dialog.component';
-import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import { AdjustmentClipboardService } from '../../editor/copy-paste/adjustment-clipboard.service';
 import { applyRouteAddress as applyEditorRouteAddress } from './editor-shell-route';
@@ -164,7 +164,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   ngZone = inject(NgZone);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  private tabBar = inject(TabBarVisibilityService);
+  private layoutService = inject(LayoutService);
 
   @ViewChild('canvasWrap') canvasWrapRef?: ElementRef<HTMLElement>;
   @ViewChild(ControlCardComponent) controlCard?: ControlCardComponent;
@@ -195,6 +195,14 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
       if (this.blackWhiteOn() && this.editorState.armedTool() === 'hsl') {
         this.editorState.armTool('bwMix');
       }
+    });
+
+    // Responsive breakpoints (web responsive foundation, #2279): derive
+    // isTabletPlus/isDesktop from the shared LayoutService signal instead of
+    // a private ResizeObserver on documentElement, so every shell agrees on
+    // the same 768/1024 thresholds. Re-runs on every layout crossing.
+    effect(() => {
+      setupResponsive(this, this._chrome, this.layoutService.layout);
     });
   }
 
@@ -267,9 +275,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  hides while it is armed. */
   readonly colorGradeArmed = computed<boolean>(() => this.editorState.armedTool() === 'colorGrade');
 
-  /** True when the viewport is tablet/desktop (≥768px). */
+  /** True when LayoutService.layout() is tablet or desktop (≥768px). */
   readonly isTabletPlus = signal<boolean>(false);
-  /** True when the viewport is desktop (≥1100px). Desktop opts out of recede. */
+  /** True when LayoutService.layout() is desktop (>1024px). Desktop opts out of recede. */
   readonly isDesktop = signal<boolean>(false);
 
   /** True when the curve panel (tone curve + WB pad) is open (#1540). */
@@ -324,9 +332,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   private _hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
 
   ngOnInit(): void {
-    this.tabBar.hidden.set(true);
     this.applyRouteAddress();
-    setupResponsive(this, this._chrome);
   }
 
   ngAfterViewInit(): void {
@@ -334,10 +340,8 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.tabBar.hidden.set(false);
     clearRecedeTimer(this._chrome);
     this._clearHudTimer();
-    this._chrome.resizeObserver?.disconnect();
     cleanupScrub(this, this._scrub);
     undoOnPointerCancel(this._undo);
     teardownPointerMove(this._chrome);

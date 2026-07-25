@@ -14,7 +14,6 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { BunApiBackendService } from '../../api/bun-api-backend.service';
 import { viewRouteCommands, editRouteCommands } from '../../addressing/route-address';
-import { TabBarVisibilityService } from '../tab-bar-visibility.service';
 import type { Asset } from '../../models/asset';
 
 interface Synth {
@@ -474,15 +473,5 @@ describe('PreviewShellComponent', () => {
     comp.onImagePointerUp({ clientX: 150, clientY: 200 } as PointerEvent);
     expect(goNextSpy).not.toHaveBeenCalled();
     expect(goPrevSpy).not.toHaveBeenCalled();
-  });
-
-  // ── Phone tab-bar suppression (#Web Preview Surface Task 6a) ────────────
-
-  it('hides the phone tab bar on init and restores it on destroy', () => {
-    const { fixture } = setupFixture();
-    const tabBar = TestBed.inject(TabBarVisibilityService);
-    expect(tabBar.hidden()).toBe(true);
-    fixture.destroy();
-    expect(tabBar.hidden()).toBe(false);
   });
 });

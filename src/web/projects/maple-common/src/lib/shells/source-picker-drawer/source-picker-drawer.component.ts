@@ -8,8 +8,9 @@
 // the `sourceTree` input so the caller can swap implementations later
 // without touching the chrome.
 //
-// Two-way `isOpen` model + outputs let the host (S1a's PhoneLibraryStub)
-// own the open/closed state and react to user choices:
+// Two-way `isOpen` model + outputs let the host (BrowseShell, once the web
+// responsive foundation retires the S1a phone-tab fork — #2279) own the
+// open/closed state and react to user choices:
 //   - `sourceSelected(id)` — user tapped a source row, drawer closes itself.
 //   - `searchPillTap()`    — user tapped the search pill, drawer closes
 //     itself, host should switch to the Search tab and post a focus event.

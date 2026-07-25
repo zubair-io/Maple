@@ -6,7 +6,6 @@ import {
   ProtocolHandlerComponent,
   authGuard,
 } from '@maple-common';
-import { LibraryPageComponent } from './library-page.component';
 
 // Self-Hosted: the server already hosts the library, so the root path goes
 // straight to /browse. No landing page. All content routes are gated behind
@@ -44,12 +43,10 @@ export const routes: Routes = [
     children: [{ path: '**', component: PreviewShellComponent }],
   },
   { path: 'view', canActivate: [authGuard], component: PreviewShellComponent },
-  // Responsive-program S1a (#597) — phone-tier tab routes. The same
-  // router serves both shells; RootShellComponent picks which wrapper
-  // to render based on LayoutService.layout(). On phone the bottom-nav
-  // links point at `/library`, `/search`, `/settings`; the loupe and
-  // editor entries are placeholders that S4 / S5 will replace.
-  { path: 'library', canActivate: [authGuard], component: LibraryPageComponent },
+  // Web responsive foundation (#2279): the phone-tab shell fork is retired —
+  // BrowseShell is the single library surface at every width. `/library`
+  // is a legacy bookmark redirect.
+  { path: 'library', redirectTo: 'browse', pathMatch: 'full' },
   // S2 (#623) / S5 (#625): the loupe sub-route is gone — the Editor canvas
   // IS the full-image view (per PR #619 spec drop). The S5 editor itself was
   // retired once the canvas-first editor reached feature parity (epic
