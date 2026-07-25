@@ -138,6 +138,56 @@ extension Tool {
         switch self {
         case .hsl:
             return Self.hslSubParams
+        case .bwMix:
+            // B&W mix (#276) — eight per-hue-band luminance weights, in the
+            // same order (and under the same ids/labels) as `HSLBand.all`,
+            // which is raw-core's `HUE_CENTERS_DEG` order. Symmetric ±100
+            // range, default 0 — `.linear` and `.anchored` coincide for a
+            // range centred on the default, so either mapping family is
+            // exact; `.linear` matches the plain affine layout of the
+            // other symmetric-range sub-params (noise / split-tone hue).
+            return [
+                ToolSubParam(id: "red", label: "Red",
+                             keyPath: \.grayMixerRed, mapping: .linear,
+                             range: AdjustmentModel.grayMixerRedRange,
+                             defaultDisplayValue: Self.defaults.grayMixerRed,
+                             decimals: 0),
+                ToolSubParam(id: "orange", label: "Orange",
+                             keyPath: \.grayMixerOrange, mapping: .linear,
+                             range: AdjustmentModel.grayMixerOrangeRange,
+                             defaultDisplayValue: Self.defaults.grayMixerOrange,
+                             decimals: 0),
+                ToolSubParam(id: "yellow", label: "Yellow",
+                             keyPath: \.grayMixerYellow, mapping: .linear,
+                             range: AdjustmentModel.grayMixerYellowRange,
+                             defaultDisplayValue: Self.defaults.grayMixerYellow,
+                             decimals: 0),
+                ToolSubParam(id: "green", label: "Green",
+                             keyPath: \.grayMixerGreen, mapping: .linear,
+                             range: AdjustmentModel.grayMixerGreenRange,
+                             defaultDisplayValue: Self.defaults.grayMixerGreen,
+                             decimals: 0),
+                ToolSubParam(id: "aqua", label: "Aqua",
+                             keyPath: \.grayMixerAqua, mapping: .linear,
+                             range: AdjustmentModel.grayMixerAquaRange,
+                             defaultDisplayValue: Self.defaults.grayMixerAqua,
+                             decimals: 0),
+                ToolSubParam(id: "blue", label: "Blue",
+                             keyPath: \.grayMixerBlue, mapping: .linear,
+                             range: AdjustmentModel.grayMixerBlueRange,
+                             defaultDisplayValue: Self.defaults.grayMixerBlue,
+                             decimals: 0),
+                ToolSubParam(id: "purple", label: "Purple",
+                             keyPath: \.grayMixerPurple, mapping: .linear,
+                             range: AdjustmentModel.grayMixerPurpleRange,
+                             defaultDisplayValue: Self.defaults.grayMixerPurple,
+                             decimals: 0),
+                ToolSubParam(id: "magenta", label: "Magenta",
+                             keyPath: \.grayMixerMagenta, mapping: .linear,
+                             range: AdjustmentModel.grayMixerMagentaRange,
+                             defaultDisplayValue: Self.defaults.grayMixerMagenta,
+                             decimals: 0),
+            ]
         case .splitTone:
             return [
                 ToolSubParam(id: "balance", label: "Balance",

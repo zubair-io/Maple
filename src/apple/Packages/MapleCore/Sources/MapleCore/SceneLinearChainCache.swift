@@ -181,16 +181,18 @@ final class SceneLinearChainCache: @unchecked Sendable {
     ///   5. hsl (24 bands): `hueAdjustment{Red…Magenta}`,
     ///                      `saturationAdjustment{Red…Magenta}`,
     ///                      `luminanceAdjustment{Red…Magenta}`
-    ///   6. local contrast: `clarity`, `texture`, `dehaze`
-    ///   7. vignette:       `vignetteAmount`, `vignetteFeather`
-    ///   8. noise:          `nrLuminance`
-    ///   9. split_tone:     `splitToneShadowHue`, `splitToneShadowSaturation`,
+    ///   6. black & white  (#276), SAME `hsl` stage as 5: `blackWhite`,
+    ///                      `grayMixer{Red…Magenta}`
+    ///   7. local contrast: `clarity`, `texture`, `dehaze`
+    ///   8. vignette:       `vignetteAmount`, `vignetteFeather`
+    ///   9. noise:          `nrLuminance`
+    ///  10. split_tone:     `splitToneShadowHue`, `splitToneShadowSaturation`,
     ///                      `splitToneHighlightHue`,
     ///                      `splitToneHighlightSaturation`, `splitToneBalance`
-    ///  10. grain:          `grainAmount`, `grainSize`, `grainRoughness`
-    ///  11. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
-    ///  12. AgX flags:      `highlightRecovery`, `look`, `profile`
-    ///  13. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`
+    ///  11. grain:          `grainAmount`, `grainSize`, `grainRoughness`
+    ///  12. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
+    ///  13. AgX flags:      `highlightRecovery`, `look`, `profile`
+    ///  14. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`
     ///
     /// Every scalar above is a `Double` folded in via `bitPattern`; the
     /// enums (`highlightRecovery` / `look` / `profile`) and the `Bool`
@@ -278,6 +280,19 @@ final class SceneLinearChainCache: @unchecked Sendable {
         h.combine(model.luminanceAdjustmentBlue.bitPattern)
         h.combine(model.luminanceAdjustmentPurple.bitPattern)
         h.combine(model.luminanceAdjustmentMagenta.bitPattern)
+        // black & white mix (#276) — SAME `hsl` stage as the 24 bands
+        // above (`hsl::apply_model` reads all four groups together), so a
+        // toggle or mixer-weight change must invalidate the cache exactly
+        // like an HSL band change.
+        h.combine(model.blackWhite)
+        h.combine(model.grayMixerRed.bitPattern)
+        h.combine(model.grayMixerOrange.bitPattern)
+        h.combine(model.grayMixerYellow.bitPattern)
+        h.combine(model.grayMixerGreen.bitPattern)
+        h.combine(model.grayMixerAqua.bitPattern)
+        h.combine(model.grayMixerBlue.bitPattern)
+        h.combine(model.grayMixerPurple.bitPattern)
+        h.combine(model.grayMixerMagenta.bitPattern)
         // clarity / texture / dehaze.
         h.combine(model.clarity.bitPattern)
         h.combine(model.texture.bitPattern)

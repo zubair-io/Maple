@@ -94,6 +94,15 @@ extension AdjustmentModel.FieldName {
         case .luminanceAdjustmentBlue:      return \.luminanceAdjustmentBlue
         case .luminanceAdjustmentPurple:    return \.luminanceAdjustmentPurple
         case .luminanceAdjustmentMagenta:   return \.luminanceAdjustmentMagenta
+        // Black & white mix (#276) — eight gray-mixer weights.
+        case .grayMixerRed:                 return \.grayMixerRed
+        case .grayMixerOrange:              return \.grayMixerOrange
+        case .grayMixerYellow:              return \.grayMixerYellow
+        case .grayMixerGreen:               return \.grayMixerGreen
+        case .grayMixerAqua:                return \.grayMixerAqua
+        case .grayMixerBlue:                return \.grayMixerBlue
+        case .grayMixerPurple:              return \.grayMixerPurple
+        case .grayMixerMagenta:             return \.grayMixerMagenta
         // Decode-time chroma pre-filter (#1104) — numeric decode-product
         // field; capture/apply like any slider.
         case .chromaPrefilter:              return \.chromaPrefilter
@@ -101,11 +110,12 @@ extension AdjustmentModel.FieldName {
         case .deepDenoise:                  return \.deepDenoise
         // Deprecated alias — no Swift property (see AdjustmentModel docs).
         case .captureSharpeningRadius:      return nil
-        // Enum-valued / not in the Swift model. `.autoExposure` (#1387) has
-        // no *numeric* key path — like `.highlightRecovery`, it's captured
-        // and applied as a string enum below instead.
+        // Enum-valued / not in the Swift model. `.autoExposure` (#1387) /
+        // `.blackWhite` (#276) have no *numeric* key path — like
+        // `.highlightRecovery`, they're captured and applied as a string
+        // enum below instead.
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
-             .toneCurveMode, .hotPixelSuppression:
+             .toneCurveMode, .hotPixelSuppression, .blackWhite:
             return nil
         // Point curves (#366) — structured `ToneCurve` values, not scalars.
         // A preset `fields` map is flat (number | string | bool) on every
@@ -182,6 +192,15 @@ extension AdjustmentModel.FieldName {
         case .luminanceAdjustmentBlue:      return AdjustmentModel.luminanceAdjustmentBlueRange
         case .luminanceAdjustmentPurple:    return AdjustmentModel.luminanceAdjustmentPurpleRange
         case .luminanceAdjustmentMagenta:   return AdjustmentModel.luminanceAdjustmentMagentaRange
+        // Black & white mix (#276) — eight gray-mixer weights.
+        case .grayMixerRed:                 return AdjustmentModel.grayMixerRedRange
+        case .grayMixerOrange:              return AdjustmentModel.grayMixerOrangeRange
+        case .grayMixerYellow:              return AdjustmentModel.grayMixerYellowRange
+        case .grayMixerGreen:               return AdjustmentModel.grayMixerGreenRange
+        case .grayMixerAqua:                return AdjustmentModel.grayMixerAquaRange
+        case .grayMixerBlue:                return AdjustmentModel.grayMixerBlueRange
+        case .grayMixerPurple:              return AdjustmentModel.grayMixerPurpleRange
+        case .grayMixerMagenta:             return AdjustmentModel.grayMixerMagentaRange
         case .chromaPrefilter:              return AdjustmentModel.chromaPrefilterRange
         case .deepDenoise:                  return AdjustmentModel.deepDenoiseRange
         default:                            return nil
@@ -221,6 +240,9 @@ public enum PresetAdjustments {
             // Auto-exposure (#1387) — enum decode-product field.
             case .autoExposure where model.autoExposure != defaults.autoExposure:
                 fields[field.rawValue] = .string(model.autoExposure.rawValue)
+            // Black & white mix (#276) — enum toggle field.
+            case .blackWhite where model.blackWhite != defaults.blackWhite:
+                fields[field.rawValue] = .string(model.blackWhite.rawValue)
             default:
                 break
             }
@@ -273,6 +295,10 @@ public enum PresetAdjustments {
             case .autoExposure:
                 guard let mode = AutoExposureMode(rawValue: rawValue) else { continue }
                 merged.autoExposure = mode
+                applied += 1
+            case .blackWhite:
+                guard let mode = BlackWhiteMode(rawValue: rawValue) else { continue }
+                merged.blackWhite = mode
                 applied += 1
             default:
                 continue

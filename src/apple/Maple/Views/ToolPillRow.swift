@@ -23,7 +23,7 @@ struct ToolPillRow: View {
     var onPresetsTap: () -> Void = {}
 
     var body: some View {
-        let tools = Tool.tools(in: state.armedGroup)
+        let tools = state.visibleTools(in: state.armedGroup)
         HStack(spacing: 4) {
             ForEach(tools, id: \.self) { tool in
                 ToolPillButton(state: state, tool: tool, onPresetsTap: onPresetsTap)
