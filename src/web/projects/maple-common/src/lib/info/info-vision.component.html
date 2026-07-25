@@ -138,25 +138,31 @@
         </div>
       }
 
-      <!-- Visible text — mirrored into ocr_text by the describe stage.
-           Read off ocr_text (not vision.text_visible) because that is
-           the canonical field downstream consumers key off. -->
-      @if (d.ocr_text && d.ocr_text.length > 0) {
-        <div>
-          <div class="mb-1 text-[10px] uppercase tracking-[0.3px] text-text-muted">Text</div>
-          <pre
-            class="ocr-pre m-0 whitespace-pre-wrap break-words font-mono text-[10px] text-text-main"
-            >{{ d.ocr_text }}</pre
-          >
-        </div>
-      }
-
       <!-- provenance footer (small, muted) -->
       @if (d.vision_meta) {
         <div class="pt-1 text-[9px] text-text-muted">
           {{ d.vision_meta.model }} · prompt v{{ d.vision_meta.prompt_version }}
         </div>
       }
+    </div>
+  </maple-collapsible>
+}
+
+<!-- Visible text — mirrored into ocr_text by the describe stage. Read off
+     ocr_text (not vision.text_visible) because that is the canonical field
+     downstream consumers key off.
+
+     Deliberately OUTSIDE the `@if (d.vision)` block above: `ocr_text` and
+     `vision` are independent sibling fields, and legacy rows indexed before
+     #158 carry OCR text (engine "tesseract") with no vision subdoc at all.
+     Nesting this inside the vision gate hid their OCR entirely. -->
+@if (d.ocr_text && d.ocr_text.length > 0) {
+  <maple-collapsible label="Text" storageKey="info-ocr-text">
+    <div class="px-4 py-[5px]">
+      <pre
+        class="ocr-pre m-0 whitespace-pre-wrap break-words font-mono text-[10px] text-text-main"
+        >{{ d.ocr_text }}</pre
+      >
     </div>
   </maple-collapsible>
 }

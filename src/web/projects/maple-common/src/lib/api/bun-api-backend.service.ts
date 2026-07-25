@@ -508,6 +508,20 @@ export class BunApiBackendService {
     return this.http.get<ApiAssetDetail>(`${this.base}/assets/${assetId}`);
   }
 
+  /**
+   * Detail DTO for an asset identified by its `slug:relPath` address rather
+   * than its Mongo id.
+   *
+   * The browse grid lists through `/api/fs/dir-fast`, which carries no Mongo
+   * id, so grid-opened assets can only be addressed this way. 404s when the
+   * path resolves on disk but isn't indexed.
+   */
+  getAssetDetailsByAddress(address: string): Observable<ApiAssetDetail> {
+    return this.http.get<ApiAssetDetail>(`${this.base}/assets/by-address`, {
+      params: new HttpParams().set('address', address),
+    });
+  }
+
   /** Manually override the reverse-geocoded place. `null` clears the
    * override; the next worker run will repopulate. Server recomputes
    * `search_blob` atomically using the same expression the geocode worker
