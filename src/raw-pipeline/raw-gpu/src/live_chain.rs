@@ -65,7 +65,7 @@ use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
-use crate::split_tone::SplitTonePass;
+use crate::color_grade::{color_grade_is_identity, ColorGradePass};
 use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::ToneCurvesPass;
@@ -352,19 +352,13 @@ pub fn build_live_split(
             }));
         }
     }
-    // Split toning (#1111) — display-linear, post-AgX; GATED on the two
-    // saturations (zero saturations are a true no-op regardless of hues /
-    // balance, exactly raw-core's `apply` short-circuit).
-    if inputs.split_tone_shadow_saturation.abs() >= SLIDER_EPS
-        || inputs.split_tone_highlight_saturation.abs() >= SLIDER_EPS
-    {
-        suffix.push(Box::new(SplitTonePass {
-            shadow_hue: inputs.split_tone_shadow_hue,
-            shadow_sat: inputs.split_tone_shadow_saturation,
-            highlight_hue: inputs.split_tone_highlight_hue,
-            highlight_sat: inputs.split_tone_highlight_saturation,
-            balance: inputs.split_tone_balance,
-        }));
+    // Colour grading (#275) — display-linear, post-AgX; GATED on every
+    // wheel's saturation and luminance (all-default is a true no-op
+    // regardless of hues / balance, exactly raw-core's `apply`
+    // short-circuit).
+    let grade = crate::full_chain::color_grade_sliders(inputs);
+    if !color_grade_is_identity(&grade) {
+        suffix.push(Box::new(ColorGradePass { sliders: grade }));
     }
     // Film grain (#1110) — display-linear, post-AgX; GATED unlike the rest
     // of the tail (grain at amount 0 is a true no-op, so the pass is
@@ -491,9 +485,7 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     if inputs.grain_amount.abs() >= SLIDER_EPS {
         m |= 1 << 13;
     }
-    if inputs.split_tone_shadow_saturation.abs() >= SLIDER_EPS
-        || inputs.split_tone_highlight_saturation.abs() >= SLIDER_EPS
-    {
+    if !color_grade_is_identity(&crate::full_chain::color_grade_sliders(inputs)) {
         m |= 1 << 14;
     }
     m

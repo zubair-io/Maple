@@ -91,6 +91,14 @@ pub(super) fn stripped_prefix_model(
         split_tone_highlight_hue: 0.0,
         split_tone_highlight_saturation: 0.0,
         split_tone_balance: 0.0,
+        color_grade_shadow_luminance: 0.0,
+        color_grade_midtone_hue: 0.0,
+        color_grade_midtone_saturation: 0.0,
+        color_grade_midtone_luminance: 0.0,
+        color_grade_highlight_luminance: 0.0,
+        color_grade_global_hue: 0.0,
+        color_grade_global_saturation: 0.0,
+        color_grade_global_luminance: 0.0,
         // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
         // pin them to defaults so dragging radius/detail/masking (with the GPU's
         // real `sharpen_amount` active) doesn't spuriously re-develop.
@@ -174,6 +182,14 @@ pub(super) fn build_full_chain_inputs(
         split_tone_highlight_hue: model.split_tone_highlight_hue,
         split_tone_highlight_saturation: model.split_tone_highlight_saturation,
         split_tone_balance: model.split_tone_balance,
+        color_grade_shadow_luminance: model.color_grade_shadow_luminance,
+        color_grade_midtone_hue: model.color_grade_midtone_hue,
+        color_grade_midtone_saturation: model.color_grade_midtone_saturation,
+        color_grade_midtone_luminance: model.color_grade_midtone_luminance,
+        color_grade_highlight_luminance: model.color_grade_highlight_luminance,
+        color_grade_global_hue: model.color_grade_global_hue,
+        color_grade_global_saturation: model.color_grade_global_saturation,
+        color_grade_global_luminance: model.color_grade_global_luminance,
         hsl_hue: [
             model.hue_adjustment_red,
             model.hue_adjustment_orange,

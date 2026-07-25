@@ -17,7 +17,7 @@ use super::{
 use crate::{
     error::Result,
     image::{Image, RawImage},
-    stages::{grain, split_tone},
+    stages::{color_grade, grain},
     types::adjustment::{AutoExposureMode, Profile},
     view::{acr_match, agx, auto_profile, encode},
     xmp::AdjustmentModel,
@@ -288,17 +288,8 @@ fn render_display_scene(
     // hue-preserving Oklab compression in `rec2020_to_srgb` below (the sRGB
     // hull ⊂ the Rec.2020 working hull), so they need no separate compress
     // pass here (#1942).
-    stage("split_tone", || {
-        split_tone::apply(
-            &mut scene,
-            model.split_tone_shadow_hue,
-            model.split_tone_shadow_saturation,
-            model.split_tone_highlight_hue,
-            model.split_tone_highlight_saturation,
-            model.split_tone_balance,
-        )
-    });
-    dump_after("16a_split_tone", &scene);
+    stage("color_grade", || color_grade::apply_model(&mut scene, model));
+    dump_after("16a_color_grade", &scene);
     // Film grain (#1110, tone/zoom design § 10.2) — display-linear
     // (post-AgX, before the target gamut): grain is a display-domain
     // aesthetic; injected scene-linear its amplitude would swing with

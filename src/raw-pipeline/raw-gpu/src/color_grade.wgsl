@@ -1,29 +1,33 @@
-// split_tone.wgsl — display-linear Oklab split toning (#1111, tone/zoom
-// design § 10.3; raw_core::stages::split_tone::apply).
+// color_grade.wgsl — display-linear Oklab three-zone colour grading
+// (#275; raw_core::stages::color_grade::apply).
 //
 // Runs POST-AgX, before grain / display_encode. Per pixel: compute the
-// display luminance, derive the balance-shifted shadow/highlight weights,
-// and add the pre-scaled hue vectors to Oklab (a, b) — L untouched, so
-// tone is invariant. The weight exponents + hue vectors are hoisted
-// host-side with the SAME float sequence as raw-core's
-// `split_tone_params` (the parity test pins both to the real stage).
+// display luminance, derive the balance-warped shadow/midtone/highlight
+// smoothstep weights, and add the per-wheel Oklab (Δa, Δb, ΔL) offsets —
+// plus the unweighted global wheel. The balance exponent and the four
+// pre-scaled wheel offsets are hoisted host-side with the SAME float
+// sequence as raw-core's `color_grade_params` (the parity test pins both
+// to the real stage).
 //
-// The shift can leave the sRGB hull; the downstream display_encode Oklab
-// gamut compression owns bringing it back (nothing clips here).
+// The chroma shift can leave the sRGB hull; the downstream display_encode
+// Oklab gamut compression owns bringing it back (nothing clips here). L
+// is clamped to [0, 1] — a display-range guard, post view transform.
 //
 // Needs the generated color matrices (rec2020 ↔ Oklab round-trip), so the
 // module is compiled with `compile_with_matrices` — same concat pattern
 // as vibrance / saturation.
 
 struct Params {
-    gamma: f32,      // exp2(balance / 100)
-    inv_gamma: f32,  // 1 / gamma
-    s_a: f32,        // K · sS/100 · cos(hS)
-    s_b: f32,        // K · sS/100 · sin(hS)
-    h_a: f32,        // K · sH/100 · cos(hH)
-    h_b: f32,        // K · sH/100 · sin(hH)
-    count: u32,      // number of RGBA pixels
+    // vec4 lanes so the uniform's std140 layout is unambiguous: xyz carry
+    // the wheel's (Δa, Δb, ΔL) at unit weight, w is unused padding.
+    shadow: vec4<f32>,
+    midtone: vec4<f32>,
+    highlight: vec4<f32>,
+    global: vec4<f32>,
+    balance_exp: f32,   // exp2(-balance / 100)
+    count: u32,         // number of RGBA pixels
     _pad0: u32,
+    _pad1: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -64,15 +68,25 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     }
     let p = input_buf[i];
 
-    // Balance-shifted weights at the pixel's display luminance — mirrors
-    // raw-core's `split_tone_shift` float sequence.
+    // Balance-warped zone weights at the pixel's display luminance —
+    // mirrors raw-core's `zone_weights` float sequence. An exact partition
+    // of unity, C¹ at both hand-offs.
     let yd = clamp(LUMA_R * p.r + LUMA_G * p.g + LUMA_B * p.b, 0.0, 1.0);
-    let ws = pow(1.0 - yd, params.gamma);
-    let wh = pow(yd, params.inv_gamma);
-    let da = ws * params.s_a + wh * params.h_a;
-    let db = ws * params.s_b + wh * params.h_b;
+    let yb = pow(yd, params.balance_exp);
+    let ws = 1.0 - smoothstep(0.0, 0.5, yb);
+    let wh = smoothstep(0.5, 1.0, yb);
+    let wm = 1.0 - ws - wh;
+
+    let shift = params.global.xyz
+        + ws * params.shadow.xyz
+        + wm * params.midtone.xyz
+        + wh * params.highlight.xyz;
 
     let lab = rec2020_to_oklab(p.rgb);
-    let out_rgb = oklab_to_rec2020(vec3<f32>(lab.x, lab.y + da, lab.z + db));
-    output_buf[i] = vec4<f32>(out_rgb, p.a);
+    let graded = vec3<f32>(
+        clamp(lab.x + shift.z, 0.0, 1.0),
+        lab.y + shift.x,
+        lab.z + shift.y,
+    );
+    output_buf[i] = vec4<f32>(oklab_to_rec2020(graded), p.a);
 }

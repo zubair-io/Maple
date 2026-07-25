@@ -246,7 +246,7 @@ mod saturation;
 mod scene_tone_controls;
 mod sharpen;
 mod spatial;
-mod split_tone;
+mod color_grade;
 mod srgb_gamma;
 mod texture;
 mod tone_curves;
@@ -290,7 +290,7 @@ pub use spatial::{
     plane_byte_len, plane_vec2_byte_len, pool_data_storage, ClarityTextureArgs, GuidedFilterArgs,
     Plane,
 };
-pub use split_tone::{apply_split_tone, SplitTonePass};
+pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};

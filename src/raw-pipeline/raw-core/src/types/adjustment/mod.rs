@@ -280,15 +280,30 @@ pub struct AdjustmentModel {
     pub grain_size: f32,      // 0..100, default 25
     pub grain_roughness: f32, // 0..100, default 50
 
-    // Split toning (#1111, tone/zoom design § 10.3): display-linear Oklab
-    // a/b tint, `stages::split_tone`. Drag-bar drives `split_tone_balance`
-    // (the crossover); the four hue/sat scalars ride the sub-param row.
+    // Colour grading (#275): display-linear Oklab three-zone tint,
+    // `stages::color_grade`. Supersedes split toning (#1111) the way
+    // Lightroom's Color Grading panel superseded the Split Toning panel —
+    // the shadow/highlight hue+saturation pairs and the balance ARE the
+    // split-toning sliders, and keep writing ACR's own `crs:SplitToning*`
+    // keys, exactly as ACR does from its Color Grading panel.
     // Hue is in degrees (Lightroom convention); saturation is `[0, 100]`.
     pub split_tone_shadow_hue: f32,           // 0..360, default 0
     pub split_tone_shadow_saturation: f32,    // 0..100, default 0
     pub split_tone_highlight_hue: f32,        // 0..360, default 0
     pub split_tone_highlight_saturation: f32, // 0..100, default 0
     pub split_tone_balance: f32,              // -100..100, default 0
+
+    // The rest of the Color Grading panel (#275): the midtone zone, the
+    // three per-zone luminance offsets, and the unweighted global wheel.
+    // ACR namespaces these under `crs:ColorGrade*`.
+    pub color_grade_shadow_luminance: f32,    // -100..100, default 0
+    pub color_grade_midtone_hue: f32,         // 0..360, default 0
+    pub color_grade_midtone_saturation: f32,  // 0..100, default 0
+    pub color_grade_midtone_luminance: f32,   // -100..100, default 0
+    pub color_grade_highlight_luminance: f32, // -100..100, default 0
+    pub color_grade_global_hue: f32,          // 0..360, default 0
+    pub color_grade_global_saturation: f32,   // 0..100, default 0
+    pub color_grade_global_luminance: f32,    // -100..100, default 0
 
     // HSL 8-band hue/saturation/luminance (#1112, tone/zoom design § 10.4).
     // 24 ACR `crs:` fields: 8 hue adjustments, 8 saturation adjustments,
@@ -505,6 +520,16 @@ impl Default for AdjustmentModel {
             split_tone_highlight_hue: 0.0,
             split_tone_highlight_saturation: 0.0,
             split_tone_balance: 0.0,
+            // Colour grading (#275) — the remaining wheels. All 0, so the
+            // stage short-circuits to a bit-identical no-op.
+            color_grade_shadow_luminance: 0.0,
+            color_grade_midtone_hue: 0.0,
+            color_grade_midtone_saturation: 0.0,
+            color_grade_midtone_luminance: 0.0,
+            color_grade_highlight_luminance: 0.0,
+            color_grade_global_hue: 0.0,
+            color_grade_global_saturation: 0.0,
+            color_grade_global_luminance: 0.0,
             // HSL 8-band defaults: all 0 (identity; stage short-circuits).
             hue_adjustment_red: 0.0,
             hue_adjustment_orange: 0.0,

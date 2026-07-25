@@ -480,6 +480,10 @@ pub async fn render_bytes_gpu(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests.rs"]
 mod tests;
+// The f32/present zero-alloc gate, split out for the 600-LOC budget.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "gpu_render/tests_zero_alloc.rs"]
+mod tests_zero_alloc;
 // The #1080 viewport-sized develop gates live in their own file (600-LOC file
 // budget); they reuse `tests::{synthetic_dng_path, gpu_available, cpu_reference}`
 // (pub(super) there).

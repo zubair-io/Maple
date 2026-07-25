@@ -135,25 +135,35 @@ mod tests {
         );
     }
 
-    /// #1942 companion: split-tone output run through the real view tail
-    /// (AgX → split_tone → rec2020_to_srgb) must not clip-collapse. Pushing
-    /// split-tone saturation on a neutral base must produce monotonically
-    /// non-decreasing output chroma — confirming `rec2020_to_srgb`'s
-    /// hue-preserving compression covers split-tone, so no separate compress
-    /// pass is needed between split_tone/grain and the encode.
+    /// #1942 companion: colour-grading output run through the real view
+    /// tail (AgX → color_grade → rec2020_to_srgb) must not clip-collapse.
+    /// Pushing grading saturation on a neutral base must produce
+    /// monotonically non-decreasing output chroma — confirming
+    /// `rec2020_to_srgb`'s hue-preserving compression covers the grading
+    /// tint, so no separate compress pass is needed between
+    /// color_grade/grain and the encode.
     #[test]
-    fn split_tone_view_tail_no_chroma_collapse() {
+    fn color_grade_view_tail_no_chroma_collapse() {
         use crate::color::oklab::srgb_linear_to_oklab;
         const N: usize = 60;
         let mut chromas = Vec::with_capacity(N);
         for i in 0..N {
-            let sat = 100.0 * (i as f32) / ((N - 1) as f32); // split-tone sat 0 → 100
+            let sat = 100.0 * (i as f32) / ((N - 1) as f32); // grading sat 0 → 100
             let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
             img.pixels[0] = [0.18, 0.18, 0.18]; // neutral midtone
             crate::view::agx::apply(&mut img, 0.0);
-            // Tint shadows and highlights the same hue so the midtone is graded
-            // regardless of the balance crossover; ramp both saturations.
-            crate::stages::split_tone::apply(&mut img, 40.0, sat, 40.0, sat, 0.0);
+            // Tint every zone the same hue so the midtone is graded
+            // regardless of the balance crossover; ramp all saturations.
+            crate::stages::color_grade::apply(
+                &mut img,
+                &crate::stages::color_grade::ColorGradeSliders {
+                    shadow: [40.0, sat, 0.0],
+                    midtone: [40.0, sat, 0.0],
+                    highlight: [40.0, sat, 0.0],
+                    global: [0.0, 0.0, 0.0],
+                    balance: 0.0,
+                },
+            );
             rec2020_to_srgb(&mut img);
             let lab = srgb_linear_to_oklab(img.pixels[0]);
             chromas.push((lab[1] * lab[1] + lab[2] * lab[2]).sqrt());
@@ -161,7 +171,7 @@ mod tests {
         for w in chromas.windows(2) {
             assert!(
                 w[1] >= w[0] - 1.5e-3,
-                "split-tone view-tail chroma inverted (clip collapse): {} -> {}",
+                "colour-grade view-tail chroma inverted (clip collapse): {} -> {}",
                 w[0],
                 w[1]
             );
@@ -169,7 +179,7 @@ mod tests {
         let span = chromas[N - 1] - chromas[0];
         assert!(
             span > 0.005,
-            "split-tone saturation ramp was a near no-op (span {span})"
+            "colour-grade saturation ramp was a near no-op (span {span})"
         );
     }
 }

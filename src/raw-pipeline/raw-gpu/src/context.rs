@@ -64,10 +64,11 @@ pub struct GpuContext {
     /// display-linear deterministic hash noise — a windowed point op, no
     /// Oklab. Built on first use via [`GpuContext::grain_pipeline`].
     pub(crate) grain_pipeline: OnceCell<wgpu::ComputePipeline>,
-    /// Lazily-compiled split-tone compute pipeline (`split_tone.wgsl` + the
-    /// generated color matrices). The #1111 display-linear Oklab tint. Built
-    /// on first use via [`GpuContext::split_tone_pipeline`].
-    pub(crate) split_tone_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled colour-grading compute pipeline (`color_grade.wgsl`
+    /// + the generated color matrices). The #275 display-linear Oklab
+    /// three-zone tint. Built on first use via
+    /// [`GpuContext::color_grade_pipeline`].
+    pub(crate) color_grade_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled 8-band HSL compute pipeline (`hsl.wgsl` + the generated
     /// color matrices). The #1112 scene-linear Oklab HSL stage. Built on first
     /// use via [`GpuContext::hsl_pipeline`].
@@ -349,7 +350,7 @@ impl GpuContext {
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
             grain_pipeline: OnceCell::new(),
-            split_tone_pipeline: OnceCell::new(),
+            color_grade_pipeline: OnceCell::new(),
             hsl_pipeline: OnceCell::new(),
             scene_tone_sh_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),

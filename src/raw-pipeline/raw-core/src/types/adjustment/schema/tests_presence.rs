@@ -106,8 +106,9 @@ fn tone_curve_fields_present_in_schema() {
     }
 }
 
-/// S5 effects fields (ticket #643): vignette / grain / split-tone scalars
-/// are present in the schema with the documented ranges and defaults.
+/// S5 effects fields (ticket #643): vignette / grain / split-tone scalars,
+/// plus the colour-grading zone scalars that joined them in #275, are
+/// present in the schema with the documented ranges and defaults.
 /// Each one is an `F32`; no new enums were introduced.
 #[test]
 fn s5_effects_fields_present_in_schema() {
@@ -122,6 +123,14 @@ fn s5_effects_fields_present_in_schema() {
         ("split_tone_highlight_hue", (0.0, 360.0), 0.0),
         ("split_tone_highlight_saturation", (0.0, 100.0), 0.0),
         ("split_tone_balance", (-100.0, 100.0), 0.0),
+        ("color_grade_shadow_luminance", (-100.0, 100.0), 0.0),
+        ("color_grade_midtone_hue", (0.0, 360.0), 0.0),
+        ("color_grade_midtone_saturation", (0.0, 100.0), 0.0),
+        ("color_grade_midtone_luminance", (-100.0, 100.0), 0.0),
+        ("color_grade_highlight_luminance", (-100.0, 100.0), 0.0),
+        ("color_grade_global_hue", (0.0, 360.0), 0.0),
+        ("color_grade_global_saturation", (0.0, 100.0), 0.0),
+        ("color_grade_global_luminance", (-100.0, 100.0), 0.0),
     ];
     for (name, range, default) in expect {
         let entry = ADJUSTMENT_SCHEMA

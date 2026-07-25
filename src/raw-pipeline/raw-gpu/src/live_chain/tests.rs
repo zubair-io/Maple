@@ -285,13 +285,18 @@ fn single_stage_cases() -> Vec<SingleStage> {
             },
         },
         SingleStage {
-            name: "split_tone",
+            name: "color_grade",
             engage: |m| {
                 m.split_tone_shadow_hue = 30.0;
                 m.split_tone_shadow_saturation = 70.0; // a saturation is the gate
                 m.split_tone_highlight_hue = 250.0;
                 m.split_tone_highlight_saturation = 50.0;
                 m.split_tone_balance = 20.0;
+                m.color_grade_midtone_hue = 150.0;
+                m.color_grade_midtone_saturation = 40.0;
+                m.color_grade_midtone_luminance = -20.0;
+                m.color_grade_global_hue = 45.0;
+                m.color_grade_global_saturation = 15.0;
             },
         },
         SingleStage {

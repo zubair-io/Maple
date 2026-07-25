@@ -98,14 +98,14 @@ impl GpuContext {
             .get_or_init(|| compile_standalone(&self.device, "grain", include_str!("grain.wgsl")))
     }
 
-    /// The cached split-tone compute pipeline (#1111, tone/zoom design § 10.3).
+    /// The cached colour-grading compute pipeline (#275).
     ///
     /// The kernel rounds pixels through Oklab, so the generated color-matrix
     /// module is prepended (`compile_with_matrices`) — same concat pattern as
     /// vibrance / saturation. A pure point op; 2 storage buffers.
-    pub fn split_tone_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.split_tone_pipeline.get_or_init(|| {
-            compile_with_matrices(&self.device, "split-tone", include_str!("split_tone.wgsl"))
+    pub fn color_grade_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.color_grade_pipeline.get_or_init(|| {
+            compile_with_matrices(&self.device, "color-grade", include_str!("color_grade.wgsl"))
         })
     }
 
@@ -113,7 +113,7 @@ impl GpuContext {
     ///
     /// The kernel rounds pixels through Oklab, so the generated color-matrix
     /// module is prepended (`compile_with_matrices`) — same concat pattern as
-    /// vibrance / saturation / split_tone. A pure point op; 2 storage buffers.
+    /// vibrance / saturation / color_grade. A pure point op; 2 storage buffers.
     /// The 24 slider-derived values (hue_rad / sat_delta / lum_shift) fit in
     /// the Params uniform — no extra storage buffer needed.
     pub fn hsl_pipeline(&self) -> &wgpu::ComputePipeline {

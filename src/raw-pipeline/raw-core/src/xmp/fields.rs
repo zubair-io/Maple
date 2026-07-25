@@ -137,6 +137,18 @@ pub(super) fn set_field(
         "crs:SplitToningHighlightHue" => m.split_tone_highlight_hue = v()?,
         "crs:SplitToningHighlightSaturation" => m.split_tone_highlight_saturation = v()?,
         "crs:SplitToningBalance" => m.split_tone_balance = v()?,
+        // Colour grading (#275). ACR's Color Grading panel writes the
+        // shadow/highlight hue+sat and the balance to the `crs:SplitToning*`
+        // keys above and namespaces the rest under `crs:ColorGrade*`; Maple
+        // follows that layout exactly so sidecars interchange both ways.
+        "crs:ColorGradeShadowLum" => m.color_grade_shadow_luminance = v()?,
+        "crs:ColorGradeMidtoneHue" => m.color_grade_midtone_hue = v()?,
+        "crs:ColorGradeMidtoneSat" => m.color_grade_midtone_saturation = v()?,
+        "crs:ColorGradeMidtoneLum" => m.color_grade_midtone_luminance = v()?,
+        "crs:ColorGradeHighlightLum" => m.color_grade_highlight_luminance = v()?,
+        "crs:ColorGradeGlobalHue" => m.color_grade_global_hue = v()?,
+        "crs:ColorGradeGlobalSat" => m.color_grade_global_saturation = v()?,
+        "crs:ColorGradeGlobalLum" => m.color_grade_global_luminance = v()?,
         // HSL 8-band (#1112, tone/zoom design § 10.4). ACR/Lightroom-compatible
         // `crs:` keys for direct sidecar interchange. Band order: Red, Orange,
         // Yellow, Green, Aqua, Blue, Purple, Magenta.
