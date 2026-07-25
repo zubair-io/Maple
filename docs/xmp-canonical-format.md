@@ -78,7 +78,7 @@ alphabetically by fully-qualified name.
 A leaf element (no text, no children) is **self-closing**:
 
 ```
-<crs:ToneCurvePV2012/>
+<crs:Snapshots/>
 ```
 
 A leaf element with text content uses the **inline** form (no extra whitespace):
@@ -243,26 +243,72 @@ The **parametric region sliders** (`parametricHighlights/Lights/Darks/Shadows`)
 are NOT part of this nested form — they are flat PV2012 `crs:Parametric*`
 attributes, listed in the number-fields table above (#365).
 
-**Point curves** use the nested element form. Each curve is a `crs:ToneCurvePV2012*` element containing
-an `rdf:Seq` of `rdf:li` strings in the format `"x, y"` (with a space after
-the comma).
+**Point curves** use the nested element form. Each curve is a
+`papp:SceneLinearToneCurve*` element containing an `rdf:Seq` of `rdf:li`
+strings in the format `"x, y"` (with a space after the comma).
 
 ```xml
-<crs:ToneCurvePV2012>
+<papp:SceneLinearToneCurve>
   <rdf:Seq>
     <rdf:li>0, 0</rdf:li>
     <rdf:li>128, 140</rdf:li>
     <rdf:li>255, 255</rdf:li>
   </rdf:Seq>
-</crs:ToneCurvePV2012>
+</papp:SceneLinearToneCurve>
 ```
 
 Only emitted when the curve is non-identity. Child element order:
 
-1. `crs:ToneCurvePV2012`
-2. `crs:ToneCurvePV2012Red`
-3. `crs:ToneCurvePV2012Green`
-4. `crs:ToneCurvePV2012Blue`
+1. `papp:SceneLinearToneCurve` → `toneCurveLuma`
+2. `papp:SceneLinearToneCurveRed` → `toneCurveRed`
+3. `papp:SceneLinearToneCurveGreen` → `toneCurveGreen`
+4. `papp:SceneLinearToneCurveBlue` → `toneCurveBlue`
+
+Coordinates are stored on the model in `[0, 1]` and written in PV2012's
+`[0, 255]` domain; the scale factor is applied at the parser/serializer
+boundary only, and the coordinate strings go through the same number codec as
+attribute values (integers bare, non-integers at two decimals with trailing
+zeros stripped). **The identity curve is the empty control-point list, and it
+emits no element at all** — never an empty `rdf:Seq` — so a sidecar for an
+image with no authored curve is byte-identical to what the pre-#365 writers
+produced.
+
+### Namespace decision (#365)
+
+Maple's point curves live under `papp:`, not Adobe's `crs:ToneCurvePV2012*`,
+because the two are **different quantities** rather than two spellings of the
+same one (`docs/maple-paper.md` § 3, "tone curve families"):
+
+- `papp:SceneLinearToneCurve*` is **scene-linear**. The #273 pipeline
+  foundation applies these curves _before_ the AgX view transform, with the
+  curve's `[0, 255]` authoring domain mapped onto scene `[0, 4.0]`.
+- `crs:ToneCurvePV2012*` is **display-referred**. Those curves were authored
+  against Lightroom's own (proprietary, version-dependent) view transform and
+  only mean anything _after_ a view transform.
+
+Consequently `crs:ToneCurvePV2012*` is **not parsed into `toneCurve*`** on any
+platform. Applying a display-referred shape to scene-linear light would render
+an imported Lightroom curve visibly wrong, and re-deriving one as a
+scene-linear curve would require inverting Lightroom's view transform — lossy
+even when it is possible. Nor is there a second display-referred storage slot
+today: nothing in the pipeline consumes one yet, so adding one would be
+speculative. Instead, `crs:ToneCurvePV2012*` rides the **unknown-node
+passthrough** — it is preserved verbatim across a read-modify-write, so an
+imported Lightroom sidecar keeps the curve intact for the round trip back.
+
+Real display-referred (post-AgX) tone-curve support — a pipeline slot plus the
+storage that goes with it — is tracked as **#2232**.
+
+Passthrough coverage differs by platform today. The TypeScript writer
+implements both halves (`PassthroughBucket.unknownAttributes` and
+`.unknownNodes`, the latter re-emitted verbatim from the source element's
+serialized form), so a Lightroom curve survives the Hosted/Self-Hosted write
+path byte-for-byte. Apple's `XMPSerializer` has **no passthrough at all** —
+neither attributes nor nested nodes — which predates this ticket and applies
+to every unmodelled field, not just tone curves; that gap is tracked as
+**#2233**. Rust ships only a fragment serializer (`xmp::serialize` for
+attributes, `xmp::serialize_tone_curves` for the curve block) and never writes
+a whole document, so it has nothing to preserve.
 
 ## Passthrough
 
