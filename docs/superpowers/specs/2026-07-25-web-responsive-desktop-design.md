@@ -23,13 +23,13 @@ to phone width — rather than a separate mobile shell.
 
 ## Current state (audit summary)
 
-| Surface | Verdict | Key evidence |
-| --- | --- | --- |
-| Browse/Library (`/browse`) | Fixed-desktop | Hardcoded `220px` sidebar (`browse-shell.component.html:206`); ~10 non-wrapping toolbar controls; `min-w-[220px]` search. No `@media`, no `LayoutService`. |
-| Search (`/search`, `/search/advanced`) | Not responsive | `<app-search>` has no `max-width`, grid hardcoded `repeat(3,1fr)` (`search/photo-results-section.component.scss:35`). `/search/advanced` is `h-screen w-screen` with fixed `260px` sidebar + non-wrapping 14-control toolbar, no phone treatment. |
-| Settings (`/settings/**`) | Responsive (reference pattern) | `settings-shell` 3-tier `@media`: sidebar `240 → 196 → 0px` horizontal strip. Two phone bugs (below). |
-| Editor (`/edit`) | Responsive on its own breakpoints | Layered canvas; private `innerWidth` observer at `768/1100` (`editor-shell-chrome.ts:81`), not `LayoutService`. Phone branch currently unreachable on web. |
-| Preview (`/view`) | Responsive | Uses `LayoutService` correctly (`preview-shell.component.ts:96`). |
+| Surface                                | Verdict                           | Key evidence                                                                                                                                                                                                                                      |
+| -------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browse/Library (`/browse`)             | Fixed-desktop                     | Hardcoded `220px` sidebar (`browse-shell.component.html:206`); ~10 non-wrapping toolbar controls; `min-w-[220px]` search. No `@media`, no `LayoutService`.                                                                                        |
+| Search (`/search`, `/search/advanced`) | Not responsive                    | `<app-search>` has no `max-width`, grid hardcoded `repeat(3,1fr)` (`search/photo-results-section.component.scss:35`). `/search/advanced` is `h-screen w-screen` with fixed `260px` sidebar + non-wrapping 14-control toolbar, no phone treatment. |
+| Settings (`/settings/**`)              | Responsive (reference pattern)    | `settings-shell` 3-tier `@media`: sidebar `240 → 196 → 0px` horizontal strip. Two phone bugs (below).                                                                                                                                             |
+| Editor (`/edit`)                       | Responsive on its own breakpoints | Layered canvas; private `innerWidth` observer at `768/1100` (`editor-shell-chrome.ts:81`), not `LayoutService`. Phone branch currently unreachable on web.                                                                                        |
+| Preview (`/view`)                      | Responsive                        | Uses `LayoutService` correctly (`preview-shell.component.ts:96`).                                                                                                                                                                                 |
 
 Breakpoints (`layout-service.ts:25-27`): `<768` phone, `768–1024` tablet, `>1024` desktop. These
 match the Settings `@media` cutoffs (767/1023) and mirror Apple `MapleLayout.from(width:)`.
@@ -49,11 +49,11 @@ match the Settings `@media` cutoffs (767/1023) and mirror Apple `MapleLayout.fro
 3. **One breakpoint source of truth — hybrid by role.**
    - **CSS `@media`** (768/1024) for pure visual reflow: column counts, paddings, hiding labels.
      This is the proven Settings-shell pattern.
-   - **`LayoutService.layout()` signal** only where component *structure/behavior* changes:
+   - **`LayoutService.layout()` signal** only where component _structure/behavior_ changes:
      sidebar-as-pane vs sidebar-as-overlay-drawer, info-as-pane vs info-as-bottom-sheet.
      `EditorShell`'s private `768/1100` observer is replaced by `LayoutService` so all shells agree.
 
-4. **Navigation on narrow screens.** With the bottom-nav retired, the collapsed desktop chrome *is*
+4. **Navigation on narrow screens.** With the bottom-nav retired, the collapsed desktop chrome _is_
    the navigation at every width: the Browse toolbar's source sidebar collapses into a
    hamburger → overlay drawer (reusing the existing `SourcePickerDrawer` primitive), and the
    toolbar's action buttons collapse into an overflow/kebab menu below the breakpoint. Search and
@@ -63,6 +63,7 @@ match the Settings `@media` cutoffs (767/1023) and mirror Apple `MapleLayout.fro
 ## Per-surface work
 
 ### BrowseShell (largest change)
+
 - Source sidebar: replace the inline `220px` (`browse-shell.component.html:206`) with breakpoint-
   driven width — full on desktop, narrowed on tablet, and an **overlay drawer** (`SourcePickerDrawer`)
   triggered by a toolbar hamburger below the phone breakpoint (`LayoutService`-driven open/close).
@@ -72,6 +73,7 @@ match the Settings `@media` cutoffs (767/1023) and mirror Apple `MapleLayout.fro
 - Grid: already fluid via `ResizeObserver` — unchanged.
 
 ### Search
+
 - `/search` (`<app-search>`): add a `max-width` container; replace the hardcoded `repeat(3,1fr)`
   photo grid with `repeat(auto-fill, minmax(…,1fr))` so it reflows across widths.
 - `/search/advanced` (`SearchComponent`): fixed `260px` sidebar → collapsible drawer; non-wrapping
@@ -79,6 +81,7 @@ match the Settings `@media` cutoffs (767/1023) and mirror Apple `MapleLayout.fro
   as-is — backend-gated, out of scope.
 
 ### Settings
+
 - Keep as the reference responsive pattern. Fix/verify the two phone bugs:
   - `settings-shell.component.scss:15` `height:100vh` → `100%` of its container so nested content
     isn't clipped.
@@ -87,12 +90,14 @@ match the Settings `@media` cutoffs (767/1023) and mirror Apple `MapleLayout.fro
     at phone width.
 
 ### EditorShell / PreviewShell
+
 - Editor: swap the private `768/1100` `innerWidth` observer (`editor-shell-chrome.ts`) for
   `LayoutService`; its already-built phone branch becomes reachable by narrowing. Verify it activates
   on live resize, not only at load.
 - Preview: already `LayoutService`-driven — verify only.
 
 ### Cleanup (dead code)
+
 - Delete `phone-tab-shell.*`, `phone-library-stub`, `phone-search-stub`, `phone-settings-stub`,
   `tab-bar-visibility.service`, and RootShell's phone branch. De-export removed symbols from
   `public-api.ts:113-115`.
@@ -100,6 +105,7 @@ match the Settings `@media` cutoffs (767/1023) and mirror Apple `MapleLayout.fro
   by BrowseShell).
 
 ### Hosted (maple-syrup)
+
 - Replace the `/settings` stub (`app.routes.ts:51`, `PhoneSettingsStubComponent`) with a real
   settings surface via the shared settings-shell (Account at minimum).
 - Add `ng build maple-syrup` to `.github/workflows/web.yml` so Hosted is CI-covered.
