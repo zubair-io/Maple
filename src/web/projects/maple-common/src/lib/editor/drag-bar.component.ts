@@ -115,6 +115,10 @@ export class DragBarComponent {
     this.dragStartClientX = ev.clientX;
     this.lastValue = this.dragStartValue;
     this.state.commit();
+    // Commit-on-release sub-params (Noise → Deep / Prefilter, #1153) park
+    // their value for the gesture instead of re-developing per pointer move;
+    // for every other tool this is inert.
+    this.state.beginGesture();
     this.longPressTimer = setTimeout(() => {
       this.state.fineMode.set(true);
       this.state.haptic('switch');
@@ -145,6 +149,8 @@ export class DragBarComponent {
     this.pointerId = null;
     this.dragStartValue = null;
     this.state.fineMode.set(false);
+    // Release is the commit point for deferred (decode-product) sub-params.
+    this.state.endGesture();
     try {
       (ev.target as Element).releasePointerCapture(ev.pointerId);
     } catch {

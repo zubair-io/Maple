@@ -208,6 +208,18 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
    *  only needs the panel. */
   readonly hslArmed = computed<boolean>(() => this.editorState.armedTool() === 'hsl');
 
+  /** True while the Noise tool is armed (#1153) — mounts the SAME shared
+   *  multi-param panel HSL uses, so the Noise pill's four tiers (Luminance,
+   *  Color, Deep, Prefilter) are all reachable. The control card only
+   *  projects a tool's PRIMARY field (`fieldFor`), so without this the two
+   *  decode-product tiers would have no surface on web. Unlike HSL the
+   *  control card stays mounted alongside: the card's Noise row is what
+   *  arms the tool in the first place. */
+  readonly noiseArmed = computed<boolean>(() => this.editorState.armedTool() === 'noise');
+
+  /** Armed tool has a sub-param panel (chip selector + drag bar + chip). */
+  readonly subParamPanelArmed = computed<boolean>(() => this.hslArmed() || this.noiseArmed());
+
   /** True when the viewport is tablet/desktop (≥768px). */
   readonly isTabletPlus = signal<boolean>(false);
   /** True when the viewport is desktop (≥1100px). Desktop opts out of recede. */

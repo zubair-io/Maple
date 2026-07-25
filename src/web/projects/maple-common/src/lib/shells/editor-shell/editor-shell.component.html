@@ -170,12 +170,15 @@
           </div>
         }
 
-        <!-- HSL panel (epic #1807 slice 4) — glass card hosting the shared
-             chip selector + drag bar + value chip. The same (tool, subParam)
-             arming machinery the S5 editor's HSL pill uses (#1112): tapping a
-             chip arms a hue/sat/lum band, the drag bar/value chip then read
-             and write that band's AdjustmentModel field. -->
-        @if (hslArmed()) {
+        <!-- Sub-param panel (epic #1807 slice 4; extended at #1153) — glass
+             card hosting the shared chip selector + drag bar + value chip.
+             The same (tool, subParam) arming machinery the S5 editor's HSL
+             pill uses (#1112): tapping a chip arms a sub-param, the drag
+             bar/value chip then read and write that sub-param's
+             AdjustmentModel field. Mounted for HSL's 24 bands and for the
+             Noise pill's four tiers — the control card only projects a
+             tool's primary field, so Deep / Prefilter need this surface. -->
+        @if (subParamPanelArmed()) {
           <div class="hsl-panel">
             <app-value-chip />
             <div class="hsl-panel-chips">
@@ -250,7 +253,7 @@
       <!-- HSL panel (epic #1807 slice 4) — same shared chip selector + drag
            bar + value chip as tablet/desktop, floats above the dock like the
            phone curve panel. -->
-      @if (hslArmed()) {
+      @if (subParamPanelArmed()) {
         <div class="phone-hsl-panel">
           <app-value-chip />
           <div class="hsl-panel-chips">
