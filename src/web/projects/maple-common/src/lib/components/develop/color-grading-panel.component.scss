@@ -1,0 +1,33 @@
+// ColorGradingPanelComponent — styles (#275).
+
+:host {
+  display: block;
+}
+
+.grading-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.wheel-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.wheel-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+// Phones and narrow flyouts: two wheels per row rather than a squeezed
+// four, so each wheel keeps enough radius to aim at a hue.
+@media (max-width: 520px) {
+  .wheel-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

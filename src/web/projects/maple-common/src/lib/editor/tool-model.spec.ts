@@ -38,7 +38,7 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
     colorNR: [0, 100],
     vignette: [-100, 100], // wired at #1109 (drag bar = vignetteAmount)
     grain: [0, 100], // wired at #1110 (drag bar = grainAmount)
-    splitTone: [-100, 100], // wired at #1111 (drag bar = splitToneBalance)
+    colorGrade: [-100, 100], // wired at #275 (drag bar = splitToneBalance)
   };
 
   for (const [tool, range] of Object.entries(expected) as [ToolId, readonly [number, number]][]) {
@@ -108,11 +108,11 @@ describe('value mapping (internal -100..100 ↔ display)', () => {
     }
   });
 
-  it('splitTone maps its symmetric balance range linearly (#1111)', () => {
-    expect(displayValueFromInternal('splitTone', 0)).toBe(0);
-    expect(displayValueFromInternal('splitTone', 100)).toBe(100);
-    expect(displayValueFromInternal('splitTone', -100)).toBe(-100);
-    expect(internalValueFromDisplay('splitTone', -25)).toBe(-25);
+  it('colorGrade maps its symmetric balance range linearly (#275)', () => {
+    expect(displayValueFromInternal('colorGrade', 0)).toBe(0);
+    expect(displayValueFromInternal('colorGrade', 100)).toBe(100);
+    expect(displayValueFromInternal('colorGrade', -100)).toBe(-100);
+    expect(internalValueFromDisplay('colorGrade', -25)).toBe(-25);
   });
 
   it('grain maps its one-sided 0..100 range affinely (#1110)', () => {

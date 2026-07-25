@@ -13,8 +13,8 @@
 //   • Sun (core circle + radial rays) — Exposure / Brightness / Highlights.
 //   • Droplet — Vibrance / Saturation, with fill-level chords for "how much".
 //   • Rounded frame (10.8 square, rx 2.8) — the image-wide Effects tools.
-//   • Round-cap dot (`v0.01`, renders as a 1.6 disc) — grain, split tones,
-//     chroma speckles.
+//   • Round-cap dot (`v0.01`, renders as a 1.6 disc) — grain, colour-grading
+//     zone pucks, chroma speckles.
 //
 // Apple draws the same path data from `src/apple/Maple/Views/ToolGlyphShapes.swift`;
 // the two tables are kept in sync by hand and any edit here must be mirrored
@@ -41,7 +41,7 @@ export type ToolIconName =
   | 'tool-dehaze'
   | 'tool-vignette'
   | 'tool-grain'
-  | 'tool-split-tone'
+  | 'tool-color-grade'
   | 'tool-sharpen'
   | 'tool-noise'
   | 'tool-color-nr'
@@ -178,9 +178,13 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
     dot(5.9, 10.6),
     dot(9.4, 11.2),
   ],
-  // Frame cut in half with a tone marker in each band — one hue up top, a
-  // different one below.
-  'tool-split-tone': [FRAME, p('M2.6 8h10.8'), dot(8, 5.2), dot(8, 10.8)],
+  // Colour wheel with three zone pucks set around the centre — shadows,
+  // midtones and highlights, the three wheels the Color Grading panel
+  // stacks over the unweighted global one (#275). Reuses the r-4.8 disc
+  // the Light group's tonal glyphs are built on; the pucks are the same
+  // round-cap dot as Grain's speckle, so the mark stays inside the family
+  // while reading unmistakably as a wheel rather than a tonal band.
+  'tool-color-grade': [c(8, 8, 4.8), dot(8, 5.4), dot(5.8, 9.2), dot(10.2, 9.2)],
 
   // ── Detail ──────────────────────────────────────────────────────────────
   // A single sharp peak rising off a flat baseline — edge acutance.

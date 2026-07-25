@@ -143,6 +143,20 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:SplitToningHighlightHue', 'splitToneHighlightHue'),
   numericField('crs:SplitToningHighlightSaturation', 'splitToneHighlightSaturation'),
   numericField('crs:SplitToningBalance', 'splitToneBalance'),
+  // ---- Colour grading, the rest of the panel (ticket #275) ----
+  // ACR's Color Grading panel writes the shadow/highlight hue+saturation
+  // pairs and the balance to the `crs:SplitToning*` keys above, and
+  // namespaces the midtone zone, the per-zone luminance offsets and the
+  // global wheel under `crs:ColorGrade*`. Maple follows that layout
+  // exactly, so sidecars interchange with Lightroom both ways.
+  numericField('crs:ColorGradeShadowLum', 'colorGradeShadowLuminance'),
+  numericField('crs:ColorGradeMidtoneHue', 'colorGradeMidtoneHue'),
+  numericField('crs:ColorGradeMidtoneSat', 'colorGradeMidtoneSaturation'),
+  numericField('crs:ColorGradeMidtoneLum', 'colorGradeMidtoneLuminance'),
+  numericField('crs:ColorGradeHighlightLum', 'colorGradeHighlightLuminance'),
+  numericField('crs:ColorGradeGlobalHue', 'colorGradeGlobalHue'),
+  numericField('crs:ColorGradeGlobalSat', 'colorGradeGlobalSaturation'),
+  numericField('crs:ColorGradeGlobalLum', 'colorGradeGlobalLuminance'),
   // ---- HSL 8-band per-channel fields (ticket #1112) ----
   // Scene-linear Oklab, normalized raised-cosine partition; range -100..+100.
   // ACR-compatible crs: keys for sidecar interchange.

@@ -113,8 +113,8 @@ describe('EditorStateService', () => {
       expect(svc.canUndo()).toBe(false);
     });
 
-    it('splitTone is wired (#1111): drags write balance, sub-params write hue/sat', () => {
-      svc.armTool('splitTone');
+    it('colorGrade is wired (#275): drags write balance, sub-params write the wheels', () => {
+      svc.armTool('colorGrade');
       svc.setArmedDisplayValue(25);
       expect(lib.adjustmentFor(ID)().splitToneBalance).toBe(25);
       svc.armSubParam('shadowHue');
@@ -240,7 +240,7 @@ describe('EditorStateService', () => {
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
       svc.armTool('grain');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
-      svc.armTool('splitTone');
+      svc.armTool('colorGrade');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
       svc.armTool('hsl');
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
@@ -525,7 +525,7 @@ describe('EditorStateService', () => {
       expect(wired.length).toBe(23);
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
-      expect(isWired('splitTone')).toBe(true);
+      expect(isWired('colorGrade')).toBe(true);
       expect(isWired('hsl')).toBe(true);
       expect(isWired('crop')).toBe(false);
       expect(isWired('presets')).toBe(true);
