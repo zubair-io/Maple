@@ -10,6 +10,7 @@ import { of } from 'rxjs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { TimelineViewComponent } from './timeline-view.component';
+import { MAX_CONCURRENT_THUMB_LOADS } from './timeline-thumb-loader';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TimelineStateService } from '../../state/timeline-state.service';
 import {
@@ -323,15 +324,64 @@ describe('TimelineViewComponent', () => {
     // visibility observer's "newly visible" loop can both call _loadThumb
     // for the same photo before the first request resolves.
     const comp = fixture.componentInstance as unknown as {
-      _loadThumb(p: typeof photo & { thumbUrl: string | null }): Promise<void>;
+      _loadThumb(p: typeof photo & { thumbUrl: string | null }, monthKey: string): Promise<void>;
     };
-    const p1 = comp._loadThumb({ ...photo, thumbUrl: null });
-    const p2 = comp._loadThumb({ ...photo, thumbUrl: null });
+    const p1 = comp._loadThumb({ ...photo, thumbUrl: null }, '2026-5');
+    const p2 = comp._loadThumb({ ...photo, thumbUrl: null }, '2026-5');
     resolveThumb('blob:one');
     await p1;
     await p2;
 
     expect(fsBrowse.getThumbBlobUrl).toHaveBeenCalledTimes(1);
+  });
+
+  // The regression that motivated #2219: a full page used to issue one thumb
+  // request per row all at once. Against the HTTP/1.1 Self Hosted API that
+  // saturated the browser's 6-connection budget and starved every other
+  // /api/* call. Asserted at the component (not just the queue) because the
+  // defect was in how `_fetchPage` drove the loader, not in the loader.
+  it('bounds in-flight thumb requests for a full 200-row page', async () => {
+    let live = 0;
+    let peak = 0;
+    const settle: Array<() => void> = [];
+    const fsBrowse = TestBed.inject(FilesystemBrowseService) as unknown as FsBrowseStub;
+    fsBrowse.getThumbBlobUrl = vi.fn(() => {
+      live++;
+      peak = Math.max(peak, live);
+      return new Promise<string>((resolve) => {
+        settle.push(() => {
+          live--;
+          resolve('blob:fake');
+        });
+      });
+    });
+
+    searchStub.pages = [
+      {
+        total: 200,
+        page: 0,
+        limit: 200,
+        results: Array.from({ length: 200 }, (_, i) =>
+          makeResult(`a${i}`, `/Lib/2026/a${i}.dng`, '2026-05-20T00:00:00.000Z'),
+        ),
+      },
+    ];
+    library.selectedSourceId.set('lib:');
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+    await new Promise((r) => setTimeout(r, 300));
+    fixture.detectChanges();
+
+    expect(peak).toBe(MAX_CONCURRENT_THUMB_LOADS);
+
+    // And the queue keeps draining as requests settle — a bound, not a cap
+    // that silently drops the rest of the page.
+    for (let round = 0; round < 5; round++) {
+      for (const done of settle.splice(0, settle.length)) done();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect(fsBrowse.getThumbBlobUrl.mock.calls.length).toBeGreaterThan(MAX_CONCURRENT_THUMB_LOADS);
+    expect(peak).toBe(MAX_CONCURRENT_THUMB_LOADS);
   });
 
   it('wires both observers against the live #scrollContainer, not a stale ref', async () => {

@@ -50,6 +50,7 @@ import { TimelineStateService } from '../../state/timeline-state.service';
 import { TimelineFilterRowComponent } from './timeline-filter-row.component';
 import { RenderedMonth, TimelineMonthComponent } from './timeline-month.component';
 import { TimelineRegisterSectionDirective } from './timeline-register-section.directive';
+import { TimelineThumbLoader } from './timeline-thumb-loader';
 import {
   MonthGroup,
   PhotoVm,
@@ -58,10 +59,17 @@ import {
   countInMonth,
   foldPage,
   monthKey,
+  monthKeyForCapturedAt,
 } from './timeline-view.utils';
 
 // Page size for the single sorted /api/search query.
 const PAGE_SIZE = 200;
+
+/** Render target for the 140px timeline cells. Larger than needed, but the
+ * on-disk thumb cache isn't size-keyed (`resolveThumbPath` ignores size), so
+ * asking for less would just re-serve whatever the asset grid already wrote —
+ * see the follow-up noted on #2219. */
+const THUMB_SIZE_PX = 512;
 
 interface RenderedYear {
   year: number;
@@ -123,8 +131,14 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   private fetchGen = 0;
   private fetchDebounce: ReturnType<typeof setTimeout> | null = null;
 
-  // ── Thumb cache ──────────────────────────────────────────────────────────
-  private thumbCache = new Map<string, string>();
+  // ── Thumbnails ───────────────────────────────────────────────────────────
+  // Every thumb request goes through this queue, which bounds the number in
+  // flight (#2219). Unbounded, a 200-row page saturated the browser's
+  // HTTP/1.1 connection pool and starved every other /api/* call.
+  private readonly thumbs = new TimelineThumbLoader(
+    (absPath) => this.fsBrowse.getThumbBlobUrl(absPath, THUMB_SIZE_PX),
+    (absPath, url) => this._years.update((years) => this._withThumbUrl(years, absPath, url)),
+  );
 
   // ── IntersectionObservers ────────────────────────────────────────────────
   private visibilityObserver?: IntersectionObserver;
@@ -280,7 +294,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       const m = y?.months.find((mo) => mo.month === Number(mStr));
       if (!m) continue;
       for (const photos of m.groups.values()) {
-        for (const p of photos) void this._loadThumb(p);
+        for (const p of photos) void this._loadThumb(p, key);
       }
     }
   }
@@ -302,6 +316,9 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
         } else {
           next.delete(change.key);
           this._recordMeasuredHeight(change.key, entry.boundingClientRect.height);
+          // Nothing still queued for an off-screen month is worth waiting on —
+          // free those slots for whatever the reader scrolled to instead.
+          this.thumbs.dropMonth(change.key);
         }
       }
       return next ?? prev;
@@ -377,6 +394,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     if (this.fetchDebounce !== null) clearTimeout(this.fetchDebounce);
     this.fetchDebounce = setTimeout(() => {
       this.fetchGen++;
+      this.thumbs.abandonQueued();
       this._years.set([]);
       this._visibleMonths.set(new Set());
       this._measuredHeights.set(new Map());
@@ -405,12 +423,14 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       if (gen !== this.fetchGen) return;
       this._total.set(r.total);
       this._loadedCount.update((n) => n + r.results.length);
-      this._years.update((years) => foldPage(years, r.results, prefix, this.thumbCache));
+      this._years.update((years) => foldPage(years, r.results, prefix, this.thumbs.urls));
       this._markMonthsVisible(r.results);
       this._nextPage.set(page + 1);
+      // Enqueue the whole page — the queue decides how many actually go out,
+      // and `dropMonth` reclaims the rest as sections scroll away.
       for (const row of r.results) {
-        const cached = this.thumbCache.get(row.abs_path);
-        void this._loadThumb({ ...row, thumbUrl: cached ?? null });
+        const key = monthKeyForCapturedAt(row.captured_at);
+        if (key) void this.thumbs.load(row.abs_path, key);
       }
     } catch (err) {
       if (gen !== this.fetchGen) return;
@@ -427,9 +447,8 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
     this._visibleMonths.update((prev) => {
       let next: Set<string> | null = null;
       for (const row of results) {
-        if (!row.captured_at) continue;
-        const d = new Date(row.captured_at);
-        const key = monthKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
+        const key = monthKeyForCapturedAt(row.captured_at);
+        if (key === null) continue;
         if (!prev.has(key)) {
           next ??= new Set(prev);
           next.add(key);
@@ -446,32 +465,13 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
   }
 
   // ── Thumbnail loading ────────────────────────────────────────────────────
-  // `_fetchPage` eagerly loads thumbs for every result, and the visibility
-  // observer loads them again for whatever just scrolled into view — so the
-  // same abs_path can be requested twice before the first request resolves.
-  // `thumbInFlight` dedupes those into a single network request; the entry
-  // is cleared in `finally` so a failed request can be retried later.
-  private thumbInFlight = new Map<string, Promise<string>>();
-
-  private async _loadThumb(p: PhotoVm): Promise<void> {
-    if (p.thumbUrl) return;
-    if (this.thumbCache.has(p.abs_path)) return;
-    const inFlight = this.thumbInFlight.get(p.abs_path);
-    if (inFlight) {
-      await inFlight.catch(() => {});
-      return;
-    }
-    const request = this.fsBrowse.getThumbBlobUrl(p.abs_path, 512);
-    this.thumbInFlight.set(p.abs_path, request);
-    try {
-      const url = await request;
-      this.thumbCache.set(p.abs_path, url);
-      this._years.update((years) => this._withThumbUrl(years, p.abs_path, url));
-    } catch {
-      // Silent — gradient placeholder stays.
-    } finally {
-      this.thumbInFlight.delete(p.abs_path);
-    }
+  // `_fetchPage` enqueues every result of a page and the visibility observer
+  // enqueues whatever just scrolled into view, so the same abs_path is often
+  // requested twice before the first request resolves. `TimelineThumbLoader`
+  // owns both the dedupe and the concurrency bound.
+  private _loadThumb(p: PhotoVm, monthKey: string): Promise<void> {
+    if (p.thumbUrl) return Promise.resolve();
+    return this.thumbs.load(p.abs_path, monthKey);
   }
 
   private _withThumbUrl(years: YearGroup[], absPath: string, url: string): YearGroup[] {
