@@ -309,6 +309,30 @@ final class MergedTimelineSourceTests: XCTestCase {
         XCTAssertEqual(merged.count, 2, "same-stream duplicates must remain separate cells")
     }
 
+    /// Key absorption on fold: when a cross-stream duplicate is dropped, the
+    /// surviving representative must inherit the dropped row's *unique* join
+    /// keys. Here cloud library A and B are the same asset (shared
+    /// cloudIdentifier), but only B recorded a phassetLink; a PhotoKit local
+    /// matches that phassetLink and carries no cloudIdentifier. Dropping B must
+    /// not lose "P2", or the local would spuriously split into
+    /// `.cloudOnly` + `.localOnly` instead of syncing.
+    func testDroppedDuplicateKeysSurviveOnRepresentativeAndStillSyncLocal() {
+        let cloudLibraryA = [ImageRef(id: "cA", displayName: "a.heic", cloudIdentifier: "C1")]
+        let cloudLibraryB = [
+            ImageRef(id: "cB", displayName: "b.heic", phassetLink: "P2", cloudIdentifier: "C1")
+        ]
+        // Local whose id (== the phid the merge indexes locals by) is P2, with
+        // no cloudIdentifier — matchable only via B's phassetLink.
+        let photoKit = [ImageRef(id: "P2", displayName: "P2")]
+        let merged = MergedTimelineSource.merge(
+            localStreams: [photoKit], cloudStreams: [cloudLibraryA, cloudLibraryB])
+        XCTAssertEqual(merged.count, 1, "A⊕B dedup then sync with the local → one cell")
+        guard case .synced = merged[0] else {
+            XCTFail("local must sync via the absorbed phassetLink, got \(merged[0])")
+            return
+        }
+    }
+
     /// Cross-device identity join across N streams: an asset present in
     /// PhotoKit AND two cloud libraries collapses to exactly one `.synced`
     /// cell.
