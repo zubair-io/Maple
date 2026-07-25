@@ -105,18 +105,10 @@ struct FlyoutSliderPanel: View {
     }
 
     /// Resets all wired tools in the armed group to their canonical defaults —
-    /// a single undo boundary (commit once, then batch-write), mirroring
-    /// `ControlCard.RegularCardHeader.resetActiveGroup`.
+    /// a single undo boundary, shared with `ControlCard` and
+    /// `MobileControlBar` via `EditorState.resetGroup` so all three cover the
+    /// same fields (including HSL's 24 bands, #274).
     private func resetActiveGroup() {
-        let tools = wiredTools
-        guard !tools.isEmpty else { return }
-        state.commit()
-        for tool in tools {
-            ToolValueMapping.apply(
-                ToolValueMapping.defaultDisplayValue(for: tool),
-                to: &state.session.model,
-                tool: tool
-            )
-        }
+        state.resetGroup(state.armedGroup)
     }
 }
