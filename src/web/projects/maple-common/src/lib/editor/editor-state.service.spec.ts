@@ -8,7 +8,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { EditorStateService, UNDO_STACK_CAP } from './editor-state.service';
-import { LibraryStub } from './editor-state.test-helpers';
+import { makeLibraryStub, type LibraryStub } from './editor-state.test-helpers';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { ALL_TOOLS, TOOLS_IN_GROUP, defaultDisplayValue, groupOf, isWired } from './tool-model';
@@ -42,7 +42,7 @@ describe('EditorStateService', () => {
   const ID = 'asset-1';
 
   beforeEach(() => {
-    lib = new LibraryStub();
+    lib = makeLibraryStub();
     pipeline = new PipelineStub();
     TestBed.configureTestingModule({
       providers: [
