@@ -135,6 +135,11 @@ interface SweepContext {
   libraryId: ObjectId | null;
 }
 
+/** Suffix of the thumb freshness sidecar (`thumbs/thumb-meta.ts`). Appended to
+ * the WHOLE artefact filename (`<key>.avif.meta`), which is why it can't live in
+ * `THUMB_EXTS` — see `reapStrandedSidecars`. */
+const SIDECAR_SUFFIX = '.meta';
+
 const THUMB_EXTS = new Set(['.jpg', '.avif']);
 const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.json']);
 
@@ -251,6 +256,37 @@ async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {
  * orphan decision. Thumbs and previews differ only in which extensions they
  * accept and how they judge one entry orphaned — everything else about
  * walking a cache directory is identical between them. */
+/**
+ * Reap `.meta` sidecars whose artefact is gone.
+ *
+ * The main loop deletes a sidecar with the file it describes, which covers
+ * every orphan this GC itself creates. It cannot cover a sidecar STRANDED by
+ * something else — a thumb deleted out of band, or an interrupted external
+ * cleanup — because `.meta` is deliberately absent from `allowedExts` and so is
+ * never scanned as an entry (jules review, PR #2252). Left alone those leak
+ * forever, so sweep them here against the directory listing already in hand: a
+ * sidecar is stranded iff no sibling of the same name minus `.meta` exists.
+ *
+ * Reuses the recency window — a sidecar written moments ago belongs to a thumb
+ * a stage is mid-publish on. Uncounted, like the attached case: a sidecar is
+ * never independently `scanned`, so counting its deletion would not reconcile.
+ */
+async function reapStrandedSidecars(
+  ctx: SweepContext,
+  cacheDir: string,
+  entries: readonly Dirent[],
+): Promise<void> {
+  const present = new Set(entries.filter((e) => e.isFile()).map((e) => e.name));
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(SIDECAR_SUFFIX)) continue;
+    if (present.has(entry.name.slice(0, -SIDECAR_SUFFIX.length))) continue;
+    const fullPath = path.join(cacheDir, entry.name);
+    const stat = await fs.stat(fullPath).catch(() => null);
+    if (stat && ctx.now - stat.mtimeMs < RECENT_THRESHOLD_MS) continue;
+    await unlinkSafe(ctx, fullPath);
+  }
+}
+
 async function sweepCacheDir(
   ctx: SweepContext,
   cacheDir: string,
@@ -297,6 +333,8 @@ async function sweepCacheDir(
       await unlinkSafe(ctx, `${fullPath}.meta`);
     }
   }
+
+  await reapStrandedSidecars(ctx, cacheDir, entries);
 }
 
 async function sweepThumbsDir(ctx: SweepContext, cacheDir: string, relDir: string): Promise<void> {
