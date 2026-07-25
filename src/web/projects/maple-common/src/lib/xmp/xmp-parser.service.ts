@@ -24,6 +24,7 @@ import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-f
 import { resolveWbScaleVersion, normalizeParsedWb } from './xmp-wb-scale';
 import { parseMetadataBlock, METADATA_ATTR_KEYS, METADATA_NESTED_ELEMENTS } from './xmp-metadata';
 import { DC_NAMESPACE, parseCullingBlock } from './xmp-culling';
+import { parseToneCurveElement, toneCurveElementKey } from './xmp-tone-curves';
 
 /**
  * Precomputed `xmpKey → alias` lookup for `LEGACY_READ_ALIASES`. Used by both
@@ -486,6 +487,18 @@ export class XmpParserService {
     };
     for (let i = 0; i < desc.children.length; i++) {
       const child = desc.children[i];
+      // Point tone curves (#365) — the only nested elements that carry
+      // develop settings. Parsed into the model and re-emitted by the
+      // serializer, so they must stay out of the passthrough bucket
+      // (double-emit otherwise). `crs:ToneCurvePV2012*` is deliberately not
+      // matched here: it is a display-referred curve, a different quantity
+      // from these scene-linear ones, and it rides the passthrough pipe
+      // untouched.
+      const curveKey = toneCurveElementKey(child);
+      if (curveKey) {
+        model[curveKey] = parseToneCurveElement(child);
+        continue;
+      }
       if (isManaged(child)) continue;
       unknownNodes.push(child.outerHTML);
     }
