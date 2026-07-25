@@ -137,22 +137,21 @@ final class ColorLabelSidecarTests: XCTestCase {
     /// field clobbering the other — the two share an `rdf:Description` but not
     /// an attribute.
     ///
-    /// Uses `.pick` rather than `.reject` deliberately: the reject flag does
-    /// not currently survive its own round trip (the serializer writes
-    /// `xmp:Label="Rejected"`, the parser matches only `"reject"`), a
-    /// pre-existing bug this ticket's test run surfaced and which is tracked
-    /// separately as #2221. Asserting `.reject` here would make this file red
-    /// for a reason that has nothing to do with color labels.
+    /// Uses `.reject`, which is the case that used to be lost: the serializer
+    /// wrote `xmp:Label="Rejected"` while the parser matched only `"reject"`.
+    /// #2221 moved the flag onto the canonical `papp:Flag` key that the API and
+    /// web serializers already use, so both flags now round-trip and the
+    /// stronger assertion is the honest one here.
     func testColorLabelAndFlagCoexistOnOneSidecar() async throws {
         let (_, store) = try await tempAsset(
-            culling: CullingState(flag: .pick, colorLabel: .blue)
+            culling: CullingState(flag: .reject, colorLabel: .blue)
         )
         let sidecarURL = await store.url
         let xml = try String(contentsOf: sidecarURL, encoding: .utf8)
-        XCTAssertTrue(xml.contains("xmp:Label=\"Red\""), "Flag keeps its own attribute")
+        XCTAssertTrue(xml.contains("papp:Flag=\"reject\""), "Flag keeps its own attribute")
         XCTAssertTrue(xml.contains("papp:ColorLabel=\"blue\""), "Label keeps its own attribute")
         let (_, parsed) = try XMPParser.parse(xml)
-        XCTAssertEqual(parsed.flag, .pick)
+        XCTAssertEqual(parsed.flag, .reject)
         XCTAssertEqual(parsed.colorLabel, .blue)
     }
 
