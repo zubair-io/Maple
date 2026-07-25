@@ -84,3 +84,11 @@ The 1.6 vs 1.5 stroke-width delta from the umbrella spec is documented here so f
 ## Follow-up issue
 
 Tracked in [#587](https://github.com/zubair-io/Maple/issues/587) — _"Design 22 photo-tool glyphs for editor pill row"_, owned by S5 (Editor). Covers Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Temp, Tint, Vibrance, Saturation, HSL, Clarity, Texture, Dehaze, Vignette, Grain, Split tone, Sharpen, Noise, Color NR, Crop, Presets. SF Symbols has no Lightroom-style photo-editing glyphs — custom illustration required. Deferred from S0c so chrome work in S1–S4 isn't blocked on illustration.
+
+![The 23 shipped tool glyphs, rendered from the web registry](tool-glyphs.png)
+
+The same 23 drawings plus the two Apple-only capture-sharpening glyphs, rendered through the Swift path reader in `ToolGlyph.swift` — this is the parity evidence, not a redraw:
+
+![The Apple render of the same path data](tool-glyphs-apple.png)
+
+**Closed by [#640](https://github.com/zubair-io/Maple/issues/640).** The final set (23 drawings — the 22 above plus Brightness from #1108) is hand-authored path data in `icons/tool-glyph-shapes.ts`, mirrored verbatim by `src/apple/Maple/Views/ToolGlyphShapes.swift` so both platforms render the identical drawing. Unlike the chrome glyphs, the tool set is drawn to the umbrella spec's **1.6** stroke rather than the registry default 1.5, and carries that weight per-shape so it survives a caller that renders at a different size.
