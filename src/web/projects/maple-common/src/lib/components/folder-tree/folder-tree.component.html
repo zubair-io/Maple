@@ -19,8 +19,13 @@
      it drives the same state.setViewMode('timeline') the toolbar toggle
      uses, so the two controls can never disagree about the active mode. -->
 @if (state.backend === 'self-hosted') {
-  <div
-    class="section-bar tree-row mx-2 flex cursor-pointer items-center gap-1.5 rounded-md pl-2 pr-3 text-text-muted"
+  <!-- A real <button> (not a click-<div>) so the top-level Timeline nav
+       control is keyboard-focusable and announced by assistive tech; the
+       `flex` display + reset classes keep it visually identical to the
+       sibling tree rows. -->
+  <button
+    type="button"
+    class="section-bar tree-row mx-2 flex cursor-pointer appearance-none items-center gap-1.5 rounded-md border-none bg-transparent pl-2 pr-3 text-left text-text-muted"
     [class.selected]="state.viewMode() === 'timeline'"
     (click)="state.setViewMode('timeline')"
   >
@@ -30,7 +35,7 @@
       [color]="state.viewMode() === 'timeline' ? 'var(--color-primary)' : 'var(--color-text-muted)'"
     />
     <span class="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em]">Timeline</span>
-  </div>
+  </button>
 }
 
 @for (section of state.sidebarTree(); track section.id) {
