@@ -142,19 +142,19 @@ Full RAW decode pipeline with 14 adjustment sliders, real-time preview, and expo
 
 Advanced color grading tools and real-time scopes.
 
-| Feature                                                | Status      | Notes                                                   |
-| ------------------------------------------------------ | ----------- | ------------------------------------------------------- |
-| Curves (RGB, per-channel, luminosity)                  | Not started | No `AdjustmentModel` fields, no CIFilter mapping        |
+| Feature                                                | Status      | Notes                                                    |
+| ------------------------------------------------------ | ----------- | -------------------------------------------------------- |
+| Curves (RGB, per-channel, luminosity)                  | Not started | No `AdjustmentModel` fields, no CIFilter mapping         |
 | HSL panel (8 color ranges: hue, saturation, luminance) | Shipped     | Oklab 8-band stage (#1112) + Web and Apple panels (#274) |
-| Color wheels (Lift / Gamma / Gain)                     | Not started |                                                         |
-| Histogram                                              | Not started | `ScopesTabView.swift` exists with placeholder text      |
-| Waveform                                               | Not started |                                                         |
-| Vectorscope                                            | Not started |                                                         |
-| False color overlay                                    | Not started |                                                         |
-| LUT support (.cube files, 33/65-point)                 | Not started |                                                         |
-| Presets engine (save, load, share)                     | Not started | Copy/paste of `AdjustmentModel` exists in UI            |
-| Before/After (split, toggle, reference image)          | Not started |                                                         |
-| Wide gamut soft-proofing (sRGB, Print)                 | Not started | Pipeline outputs Display P3; soft-proof not implemented |
+| Color wheels (Lift / Gamma / Gain)                     | Not started |                                                          |
+| Histogram                                              | Not started | `ScopesTabView.swift` exists with placeholder text       |
+| Waveform                                               | Not started |                                                          |
+| Vectorscope                                            | Not started |                                                          |
+| False color overlay                                    | Not started |                                                          |
+| LUT support (.cube files, 33/65-point)                 | Not started |                                                          |
+| Presets engine (save, load, share)                     | Not started | Copy/paste of `AdjustmentModel` exists in UI             |
+| Before/After (split, toggle, reference image)          | Not started |                                                          |
+| Wide gamut soft-proofing (sRGB, Print)                 | Not started | Pipeline outputs Display P3; soft-proof not implemented  |
 
 ---
 
