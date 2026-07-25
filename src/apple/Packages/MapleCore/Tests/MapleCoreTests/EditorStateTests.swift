@@ -123,90 +123,6 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.splitToneBalance, 25, accuracy: 1e-9)
     }
 
-    func testHSLAcceptsSubParamEdits() {
-        // #274: HSL is wired but has NO tool-level display range — every
-        // edit goes through one of its 24 sub-params. Arming the tool
-        // must land on `hueRed` and the value pipe must accept writes.
-        let session = makeSession()
-        let state = EditorState(session: session)
-
-        state.arm(tool: .hsl)
-        XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
-        XCTAssertEqual(state.armedSubParamId, "hueRed")
-        XCTAssertTrue(state.armedToolAcceptsValueEdits)
-
-        state.setArmedDisplayValue(40)
-        XCTAssertEqual(session.model.hueAdjustmentRed, 40, accuracy: 1e-9)
-
-        state.arm(subParamId: "satAqua")
-        state.setArmedDisplayValue(-25)
-        XCTAssertEqual(session.model.saturationAdjustmentAqua, -25, accuracy: 1e-9)
-
-        state.arm(subParamId: "lumMagenta")
-        state.setArmedDisplayValue(60)
-        XCTAssertEqual(session.model.luminanceAdjustmentMagenta, 60, accuracy: 1e-9)
-
-        // Resetting the armed pair clears only that band/channel.
-        state.resetArmedTool()
-        XCTAssertEqual(session.model.luminanceAdjustmentMagenta, 0, accuracy: 1e-9)
-        XCTAssertEqual(session.model.hueAdjustmentRed, 40, accuracy: 1e-9)
-        XCTAssertEqual(session.model.saturationAdjustmentAqua, -25, accuracy: 1e-9)
-    }
-
-    func testResetGroupClearsHSLBandsAndTheGroupSliders() {
-        // #274: "Reset Color" must reach HSL's 24 band fields. Before it
-        // routed through `EditorState.resetGroup`, the three control
-        // surfaces each filtered on a non-nil tool-level display range,
-        // which HSL has not — so every band survived a group reset.
-        let session = makeSession()
-        let state = EditorState(session: session)
-
-        state.arm(tool: .saturation)
-        state.setArmedDisplayValue(70)
-        state.arm(tool: .hsl)
-        state.arm(subParamId: "hueRed")
-        state.setArmedDisplayValue(45)
-        state.arm(subParamId: "lumBlue")
-        state.setArmedDisplayValue(-30)
-        // An out-of-group field must survive the Color reset.
-        state.arm(tool: .clarity)
-        state.setArmedDisplayValue(20)
-
-        state.resetGroup(.color)
-
-        XCTAssertEqual(session.model.saturation, 0, accuracy: 1e-9)
-        XCTAssertEqual(session.model.hueAdjustmentRed, 0, accuracy: 1e-9)
-        XCTAssertEqual(session.model.luminanceAdjustmentBlue, 0, accuracy: 1e-9)
-        XCTAssertEqual(session.model.temperature, 6500, accuracy: 1e-9)
-        XCTAssertEqual(session.model.clarity, 20, accuracy: 1e-9,
-                       "Effects must be untouched by a Color reset")
-
-        // One undo boundary: a single undo restores everything the reset
-        // cleared.
-        state.undo()
-        XCTAssertEqual(session.model.hueAdjustmentRed, 45, accuracy: 1e-9)
-        XCTAssertEqual(session.model.luminanceAdjustmentBlue, -30, accuracy: 1e-9)
-        XCTAssertEqual(session.model.saturation, 70, accuracy: 1e-9)
-    }
-
-    func testHSLInternalValueMapsAnchoredAcrossFullRange() {
-        // The drag bar's ±100 internal scale maps 1:1 onto the ±100 field
-        // range for every HSL sub-param (anchored at the 0 default), so a
-        // wheel nudge or a drag lands on the value the chip shows.
-        let session = makeSession()
-        let state = EditorState(session: session)
-        state.arm(tool: .hsl)
-        state.arm(subParamId: "hueGreen")
-
-        state.setArmedInternalValue(100)
-        XCTAssertEqual(session.model.hueAdjustmentGreen, 100, accuracy: 1e-9)
-        state.setArmedInternalValue(-100)
-        XCTAssertEqual(session.model.hueAdjustmentGreen, -100, accuracy: 1e-9)
-        state.setArmedInternalValue(0)
-        XCTAssertEqual(session.model.hueAdjustmentGreen, 0, accuracy: 1e-9)
-        XCTAssertEqual(state.armedInternalValue, 0, accuracy: 1e-9)
-    }
-
     func testGrainIsWiredAndWritesThroughSubParams() {
         // #1110: grain left the stub list — the drag bar drives
         // `grainAmount` (first sub-param; one-sided 0..100), and the size
@@ -528,11 +444,10 @@ final class EditorStateTests: XCTestCase {
 
     func testWiredToolsCoverTwentyFourTools() {
         // The S5 effects all left the #952 stub list as their stages
-        // landed (vignette #1109, grain #1110, splitTone #1111). HSL left
-        // it at #274 — the 8-band Oklab stage is live and `HSLSection`
-        // drives its 24 sub-params. Crop (#638) remains a stub: it is
-        // edited through the canvas overlay, not the drag bar. Per #875:
-        // captureSharpen / captureSigma stay wired to the
+        // landed (vignette #1109, grain #1110, splitTone #1111), and HSL
+        // left it at #274 — its 24 sub-params carry every edit. Crop
+        // (#638) remains a stub: it is edited through the canvas overlay.
+        // Per #875: captureSharpen / captureSigma stay wired to the
         // captureSharpening* fields. Presets left the stub list at #1115 —
         // wired, but value-less (nil displayRange keeps its value pipe
         // inert). Brightness joined wired at #1108.
@@ -633,10 +548,10 @@ final class EditorStateTests: XCTestCase {
             XCTAssertTrue(state.armedToolAcceptsValueEdits, "\(tool) should accept value edits")
         }
 
-        // …presets (wired but value-less) and the gated stubs don't.
-        // HSL is absent from this list on purpose: it is wired, has no
-        // tool-level display range, but always carries an armed sub-param
-        // — so it DOES accept value edits (see `testHSLAcceptsSubParamEdits`).
+        // …presets (wired but value-less) and the gated stubs don't. HSL
+        // is absent on purpose — it has no tool-level range but always
+        // carries an armed sub-param, so it DOES accept edits (#274,
+        // covered by `EditorHSLTests`).
         for tool in [Tool.presets, .crop] {
             state.arm(tool: tool)
             XCTAssertFalse(state.armedToolAcceptsValueEdits, "\(tool) must not accept value edits")
