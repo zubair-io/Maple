@@ -225,11 +225,22 @@ All emit together when `crop` is non-identity. `HasCrop="True"` signals crop dat
 ## Culling fields
 
 - `xmp:Rating` — only emitted when > 0 (Adobe convention: absence = unrated).
-- `papp:Flag` — only emitted when not "unflagged". Values: `pick` or `reject`.
+- `papp:Flag` — only emitted when not "unflagged". Values: `pick` or `reject`,
+  matched case-sensitively on read by all three parsers.
+  **Legacy read-only alias (#2221):** Apple sidecars written before this
+  ticket carried the flag as `xmp:Label="Red"` (pick) / `xmp:Label="Rejected"`
+  (reject) instead. The Apple parser still accepts `red` / `pick` /
+  `reject` / `rejected` from `xmp:Label` (case-insensitive) so those files
+  keep their flags, and a normal save rewrites them to `papp:Flag`; no
+  serializer emits the alias any more, and `papp:Flag` takes precedence when
+  both attributes are present. The web/API parsers never read the alias —
+  they treat `xmp:Label` as a colour word only (see below).
 - `papp:ColorLabel` — only emitted when set. Values: `red` / `orange` /
   `yellow` / `green` / `blue` / `purple` (the six-color vocabulary
   settled in #1657; this line still listed the pre-#1657 five when Apple
-  gained the field in #1656).
+  gained the field in #1656). The web parser also reads Adobe's `xmp:Label`
+  colour word (`Red` / `Orange` / … ) as a colour label for Lightroom-authored
+  sidecars, preferring `papp:ColorLabel` when both are present.
 - `papp:Hidden` — `"true"` or `"false"`. Explicit user override for the
   hidden-image feature; absence means no override (the effective hidden
   state falls back to the describe stage's nudity verdict — see

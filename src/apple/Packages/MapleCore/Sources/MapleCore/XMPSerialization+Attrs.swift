@@ -74,8 +74,18 @@ extension XMPSerializer {
             ("crs:ColorNoiseReduction",  String(format: "%.0f", model.nrColor)),
             ("xmp:Rating",               String(culling.stars)),
         ]
+        // Cull flag (#2221). Canonical key is `papp:Flag` with the bare
+        // lowercase `pick` / `reject` values — byte-identical to what the
+        // TS serializer (`xmp-serializer.service.ts`) and the API
+        // (`metadata-serializer.ts`) write, and exactly what both of their
+        // parsers gate on. Apple previously emitted `xmp:Label="Red"` /
+        // `"Rejected"`, which no other side reads as a flag at all (the web
+        // parser reads `xmp:Label` as an Adobe *colour* word, so a pick came
+        // back as a red colour label) and which Apple's own parser couldn't
+        // read back for reject. The legacy spellings stay readable — see the
+        // `xmp:Label` arm in `XMPSerialization.swift` — but are never written.
         if culling.flag != .none {
-            attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))
+            attrs.append(("papp:Flag", culling.flag.rawValue))
         }
         // Color label (#1656) — emitted only when set, per spec § 01's
         // culling table ("Only when set") and Adobe's absence-means-unset
