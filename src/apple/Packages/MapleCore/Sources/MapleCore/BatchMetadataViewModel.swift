@@ -19,9 +19,10 @@ public enum MetadataFieldKey: String, CaseIterable {
     case title, caption, headline, keywords, instructions
     case creator, creatorJobTitle, copyrightNotice, copyrightStatus
     case usageTerms, credit, source
-    case rating   // Maps to CullingState.stars
-    case flag     // Maps to CullingState.flag
-    case hidden   // Maps to CullingState.hidden
+    case rating     // Maps to CullingState.stars
+    case flag       // Maps to CullingState.flag
+    case hidden     // Maps to CullingState.hidden
+    case colorLabel // Maps to CullingState.colorLabel
 }
 
 // MARK: - TouchedMetadata
@@ -61,6 +62,12 @@ public struct TouchedMetadata {
     public var flag: CullFlag? = nil
     /// Hidden flag. nil = untouched.
     public var hidden: Bool? = nil
+    /// Color label (#1656). Double-optional like `copyrightStatus`, and for
+    /// the same reason: the underlying field is itself optional, so "clear
+    /// the label on every selected photo" has no in-band sentinel the way
+    /// `stars = 0` / `flag = .none` do. Outer nil = untouched; `.some(nil)`
+    /// = explicit clear; `.some(.blue)` = set to blue.
+    public var colorLabel: Optional<Optional<ColorLabel>> = nil
 
     public init() {}
 
@@ -74,7 +81,7 @@ public struct TouchedMetadata {
         keywords != nil || instructions != nil ||
         creator != nil || creatorJobTitle != nil || copyrightNotice != nil ||
         copyrightStatus != nil || usageTerms != nil || credit != nil || source != nil ||
-        stars != nil || flag != nil || hidden != nil
+        stars != nil || flag != nil || hidden != nil || colorLabel != nil
     }
 }
 
@@ -121,6 +128,13 @@ public final class BatchMetadataViewModel: Identifiable {
     /// The hidden status shared by all assets when they agree; nil only
     /// when the selection is mixed.
     public private(set) var commonHidden: Bool? = nil
+
+    /// The color label shared by all assets when they agree; nil when the
+    /// selection is mixed OR when every asset agrees on "no label". The two
+    /// cases are distinguished by `mixedFields.contains(.colorLabel)` —
+    /// same shape as `commonStars`, where nil covers both "mixed" and
+    /// "everyone is at the unset default".
+    public private(set) var commonColorLabel: ColorLabel? = nil
 
     /// The fields the user has explicitly touched in this editing session.
     public var touchedMetadata: TouchedMetadata = TouchedMetadata()
@@ -194,6 +208,9 @@ public final class BatchMetadataViewModel: Identifiable {
         // shared value — nil included — IS the common value.
         let firstHidden = cullingSets.first?.hidden
         commonHidden = mixed.contains(.hidden) ? nil : firstHidden
+
+        let firstColorLabel = cullingSets.first?.colorLabel
+        commonColorLabel = mixed.contains(.colorLabel) ? nil : firstColorLabel
 
         mixedFields = mixed
     }
@@ -289,6 +306,12 @@ public final class BatchMetadataViewModel: Identifiable {
         if let hidden = touchedMetadata.hidden {
             culling.hidden = hidden
         }
+        // Color label (#1656). The outer `if let` unwraps "touched"; the
+        // inner value — including nil — is what lands on the sidecar, so an
+        // explicit clear removes `papp:ColorLabel` from every selected asset.
+        if let colorLabel = touchedMetadata.colorLabel {
+            culling.colorLabel = colorLabel
+        }
         await store.update(model: model, culling: culling, metadata: merged)
         await store.flush()
     }
@@ -321,7 +344,8 @@ public final class BatchMetadataViewModel: Identifiable {
     /// common value (set only when all assets agree on a non-nil value).
     /// `keywordSets` is parallel to `metadatas` — the keywords from each asset's
     /// culling state, read alongside the IPTC/EXIF block.
-    /// `cullingSets` carries the full CullingState for rating/flag detection.
+    /// `cullingSets` carries the full CullingState for rating / flag /
+    /// hidden / color-label detection.
     private static func detectMixed(
         metadatas: [XmpMetadata],
         keywordSets: [[String]],
@@ -414,6 +438,13 @@ public final class BatchMetadataViewModel: Identifiable {
         let firstHidden = cullingSets.first?.hidden
         if !cullingSets.allSatisfy({ $0.hidden == firstHidden }) {
             mixed.insert(.hidden)
+        }
+
+        // Color label. Optional-to-optional comparison, like `hidden`: an
+        // all-unlabelled selection agrees on nil and must not read as mixed.
+        let firstColorLabel = cullingSets.first?.colorLabel
+        if !cullingSets.allSatisfy({ $0.colorLabel == firstColorLabel }) {
+            mixed.insert(.colorLabel)
         }
 
         return (common, mixed)
