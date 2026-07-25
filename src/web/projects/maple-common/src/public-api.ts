@@ -159,6 +159,11 @@ export * from './lib/editor/presets/builtin-presets';
 export * from './lib/editor/presets/user-preset-store';
 export * from './lib/editor/presets/presets.service';
 export * from './lib/editor/presets/presets-panel.component';
+
+// Copy / paste / sync develop settings across multiple images (#944).
+export * from './lib/editor/copy-paste/adjustment-groups';
+export * from './lib/editor/copy-paste/adjustment-clipboard.service';
+export * from './lib/editor/copy-paste/paste-settings-dialog.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';

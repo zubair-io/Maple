@@ -1,0 +1,193 @@
+// paste-settings-dialog.component.scss — selective-paste dialog (#944).
+// Sibling of pano-dialog.component.scss; same backdrop/card/footer shape.
+
+.psd-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.psd-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 400px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.psd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 0.5px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.psd-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-main);
+  letter-spacing: -0.01em;
+}
+
+.psd-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    background 120ms,
+    color 120ms;
+
+  &:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text-main);
+  }
+}
+
+.psd-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+.psd-summary {
+  font-size: 12px;
+  color: var(--color-text-main);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.psd-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.psd-select-sep {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.psd-link-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-accent, #0066cc);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+
+  &:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    color: var(--color-text-muted);
+    cursor: default;
+  }
+}
+
+.psd-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 0.5px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.psd-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--color-text-main);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--color-surface-hover);
+  }
+
+  &:not(:last-child) {
+    border-bottom: 0.5px solid var(--color-border);
+  }
+}
+
+.psd-checkbox {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--color-accent, #0066cc);
+}
+
+.psd-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 0.5px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.psd-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    opacity 120ms;
+  border: 0.5px solid transparent;
+
+  &-ghost {
+    background: transparent;
+    border-color: var(--color-border);
+    color: var(--color-text-main);
+
+    &:hover {
+      background: var(--color-surface-hover);
+    }
+  }
+
+  &-primary {
+    background: var(--color-accent, #0066cc);
+    color: #fff;
+    border-color: var(--color-accent, #0066cc);
+
+    &:hover:not(:disabled) {
+      opacity: 0.88;
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+}
