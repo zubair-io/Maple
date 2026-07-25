@@ -22,6 +22,13 @@ struct IPhoneLegacyControlBar: View {
 
             if state.armedTool == .crop {
                 CropToolbar(state: state)
+            } else if state.armedTool == .hsl {
+                // 8-band HSL panel replaces the drag bar (#274): HSL has
+                // 24 sub-params and no single primary field, so the band
+                // chips + three per-band sliders are its control surface.
+                HSLSection(state: state)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 7)
             } else {
                 DragBar(state: state)
                     .padding(.vertical, 7)

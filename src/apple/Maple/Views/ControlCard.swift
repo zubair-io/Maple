@@ -41,6 +41,11 @@ struct ControlCard: View {
                 CropToolbar(state: state)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 12)
+            } else if state.armedTool == .hsl {
+                // 8-band HSL panel replaces the slider grid (#274).
+                HSLSection(state: state)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
             } else {
                 // Sub-param chip row for multi-param tools
                 let subs = state.armedSubParams

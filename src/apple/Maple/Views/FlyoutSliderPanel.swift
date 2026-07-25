@@ -32,6 +32,11 @@ struct FlyoutSliderPanel: View {
             if state.armedTool == .crop {
                 // Crop toolbar replaces the sliders while Crop is armed.
                 CropToolbar(state: state)
+            } else if state.armedTool == .hsl {
+                // HSL band chips + per-band Hue/Sat/Lum sliders replace the
+                // group stack while HSL is armed (#274) — HSL carries no
+                // single primary field, so this is its whole control surface.
+                HSLSection(state: state)
             } else {
                 // Sub-param chip row for multi-param tools.
                 let subs = state.armedSubParams
