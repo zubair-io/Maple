@@ -44,11 +44,23 @@ export interface ToolSubParam {
   readonly mapping: SubParamMapping;
   /** Value-chip fraction digits (radius is sub-integer: "1.0"). */
   readonly decimals: number;
+  /**
+   * DECODE-PRODUCT field: writing it invalidates the decoded buffer, so the
+   * model write is held until the gesture ENDS instead of firing per tick
+   * (spec § 3.1 / § 3.2 — "the UI commits on release, not per tick").
+   *
+   * The live session's prefix model keeps these fields (`stripped_prefix_model`
+   * in raw-wasm, `stripAppleGPUStages` on Apple), so a per-tick write would
+   * re-develop — seconds of BM3D — on every pointer sample. Absent/`false` for
+   * the GPU-chain sliders, which stay on the zero-alloc per-tick path.
+   */
+  readonly commitOnRelease?: boolean;
 }
 
 // Sub-param catalogs for the multi-param pills. §10.0: the Noise pill's
-// future tiers — Deep (BM3D, #1105) and Prefilter (§3.1) — join the
-// `noise` list data-only when their pipeline stages land. Vignette joined
+// Deep (BM3D, §3.2) and Prefilter (§3.1) tiers joined at #1153 — data-only,
+// plus the `commitOnRelease` flag their decode-product placement forces.
+// Vignette joined
 // at #1109, grain at #1110, split tone at #1111 (Balance leads — the
 // schema-declared primary drag-bar field). HSL joined at #1112 with 24
 // sub-params across 3 rows (Hue/Sat/Lum × 8 bands); Hue Red leads.
@@ -275,6 +287,26 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
   noise: [
     { id: 'luminance', label: 'Luminance', field: 'nrLuminance', mapping: 'linear', decimals: 0 },
     { id: 'color', label: 'Color', field: 'nrColor', mapping: 'linear', decimals: 0 },
+    // Tiers 3 and 1 of the § 3 noise architecture (#1153). Both live inside
+    // the DECODE PRODUCT, so both commit on release: Deep (BM3D, #1105) costs
+    // seconds per re-develop, Prefilter (#1104) rides the same decode. Order
+    // follows spec § 10.0: "Luminance, Color (existing NLM), Deep, Prefilter".
+    {
+      id: 'deep',
+      label: 'Deep',
+      field: 'deepDenoise',
+      mapping: 'linear',
+      decimals: 0,
+      commitOnRelease: true,
+    },
+    {
+      id: 'prefilter',
+      label: 'Prefilter',
+      field: 'chromaPrefilter',
+      mapping: 'linear',
+      decimals: 0,
+      commitOnRelease: true,
+    },
   ],
   sharpen: [
     { id: 'amount', label: 'Amount', field: 'sharpenAmount', mapping: 'anchored', decimals: 0 },
@@ -303,6 +335,11 @@ export function subParamById(tool: ToolId, id: string): ToolSubParam | null {
 /** Default armed sub-param id (first in the list); null for single-param. */
 export function defaultSubParamId(tool: ToolId): string | null {
   return subParamsFor(tool)[0]?.id ?? null;
+}
+
+/** True when the sub-param's model write is deferred to gesture end. */
+export function isCommitOnRelease(sub: ToolSubParam | null): boolean {
+  return sub?.commitOnRelease === true;
 }
 
 export function subParamDisplayRange(sub: ToolSubParam): readonly [number, number] {

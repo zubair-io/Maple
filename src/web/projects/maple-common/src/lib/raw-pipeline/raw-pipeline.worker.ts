@@ -18,6 +18,7 @@ import type {
   AutoAdjustRequest,
   DecodeRequest,
   DecodeSceneLinearRequest,
+  DeepDenoiseProgress,
   OpenSessionRequest,
   RenderSessionRequest,
   WorkerResponse,
@@ -59,11 +60,40 @@ import { handleExport } from './raw-pipeline.export-handler';
   console.error = forward('error', console.error.bind(console));
 }
 
+/**
+ * #1153: hand raw-core's BM3D stage progress to the main thread.
+ *
+ * `setDeepDenoiseProgress` is a plain (non-gpu-gated) export of the WASM
+ * bundle, but read dynamically for the same reason `render_bytes_gpu` is:
+ * a bundle built before #1153 simply omits it, and a missing determinate
+ * bar must not break decoding. Ticks only fire while `deepDenoise > 0`
+ * engages the stage, so a session that never touches Deep pays nothing.
+ *
+ * The develop runs SYNCHRONOUSLY here, so the worker cannot answer a poll
+ * while it is in flight — but this outgoing `postMessage` still lands on
+ * the main thread's (unblocked) event loop, which is why the direction is
+ * push, not pull.
+ */
+function installDeepDenoiseProgress(): void {
+  const register = Reflect.get(wasm as object, 'setDeepDenoiseProgress');
+  if (typeof register !== 'function') return;
+  (register as (cb: (pass: string, fraction: number) => void) => void)((pass, fraction) => {
+    const msg: DeepDenoiseProgress = {
+      id: 0,
+      type: 'deep-denoise-progress',
+      pass: pass === 'pass 2/2' ? 2 : 1,
+      fraction,
+    };
+    (self as unknown as Worker).postMessage(msg);
+  });
+}
+
 let readyPromise: Promise<RawWasmInitResult> | null = null;
 
 function ensureReady(): Promise<RawWasmInitResult> {
   if (!readyPromise) {
     readyPromise = initRawWasm().then((result) => {
+      installDeepDenoiseProgress();
       // Let the main thread know whether threading is live so the UI can
       // show a "single-threaded mode" indicator on non-isolated hosts.
       const statusMsg: WorkerResponse = {

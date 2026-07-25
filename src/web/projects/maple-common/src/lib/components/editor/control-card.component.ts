@@ -170,6 +170,11 @@ export class ControlCardComponent {
     if (!id || !isWired(tool)) return;
     const field = fieldFor(tool);
     if (!field) return;
+    // Arm the tool being dragged, mirroring Apple's `LivingSliderRow` (#1876)
+    // so the value chip and the sub-param panel follow the active slider.
+    // On web this is also what makes a multi-param tool's extra tiers
+    // reachable — the Noise pill's Deep / Prefilter (#1153).
+    if (this.editorState.armedTool() !== tool) this.editorState.armTool(tool);
     this.libraryState.updateAdjustment(id, { [field]: value } as Partial<AdjustmentModel>);
   }
 

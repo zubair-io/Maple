@@ -7,7 +7,7 @@
 // (Safari / Firefox default, or any host without COOP+COEP). The observable
 // starts undefined and emits once the worker's WASM init reports back.
 
-import { Injectable, OnDestroy, inject } from '@angular/core';
+import { Injectable, OnDestroy, inject, signal } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import type {
   AutoAdjustPatch,
@@ -74,6 +74,18 @@ export class RawPipelineService implements OnDestroy {
   /** Emits the number of rayon worker threads (1 when single-threaded). */
   readonly threadCount$: Observable<number> = this.threadCountSubject.asObservable();
 
+  /**
+   * #1153: live BM3D deep-denoise progress, or `null` when the stage is not
+   * running. Fed by the worker's `deep-denoise-progress` broadcast, which
+   * carries raw-core's own per-reference-row ticks — the editor binds this
+   * to a DETERMINATE indicator, never a simulated one.
+   *
+   * Cleared when the request the develop belonged to settles (below): the
+   * stage itself has no "finished" tick, and the render still has GPU work
+   * to do after the last one.
+   */
+  readonly deepDenoiseProgress = signal<{ pass: 1 | 2; fraction: number } | null>(null);
+
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
     try {
@@ -94,9 +106,15 @@ export class RawPipelineService implements OnDestroy {
           this.threadCountSubject.next(msg.threads);
           return;
         }
+        if (msg.type === 'deep-denoise-progress') {
+          this.deepDenoiseProgress.set({ pass: msg.pass, fraction: msg.fraction });
+          return;
+        }
         const handler = this.pending.get(msg.id);
         if (!handler) return;
         this.pending.delete(msg.id);
+        // Any terminal reply ends the develop that emitted the ticks.
+        this.deepDenoiseProgress.set(null);
         if (msg.type === 'decode-success' && handler.kind === 'legacy') {
           handler.resolve({
             width: msg.width,
@@ -164,6 +182,7 @@ export class RawPipelineService implements OnDestroy {
       });
       this.worker.addEventListener('error', (e) => {
         console.error('RawPipelineWorker error:', e.message);
+        this.deepDenoiseProgress.set(null);
         // Reject all pending on worker crash.
         this.pending.forEach(({ reject }) => reject(new Error(`Worker error: ${e.message}`)));
         this.pending.clear();

@@ -132,6 +132,34 @@
     }
   }
 
+  <!-- Deep denoise (BM3D) progress overlay (#1153). Determinate: the value is
+       raw-core's own per-reference-row stage progress, folded to an overall
+       fraction across the two passes. Only appears while the stage runs, which
+       is only when the Noise pill's Deep sub-param is non-zero. -->
+  @if (deepDenoiseProgress(); as dn) {
+    <div class="absolute inset-0 flex items-center justify-center z-[7] pointer-events-none">
+      <div
+        class="flex flex-col items-center gap-2 bg-black/60 border-[0.5px] border-white/15 rounded-[14px] px-5 py-3.5 backdrop-blur-[6px]"
+        role="progressbar"
+        aria-label="Deep denoise"
+        data-testid="deep-denoise-progress"
+        [attr.aria-valuemin]="0"
+        [attr.aria-valuemax]="100"
+        [attr.aria-valuenow]="dn.pct"
+      >
+        <span class="font-sans text-[11px] text-white/70">
+          Deep denoise — pass {{ dn.pass }} of 2 · {{ dn.pct }}%
+        </span>
+        <div class="h-[3px] w-40 overflow-hidden rounded-full bg-white/15">
+          <div
+            class="h-full rounded-full bg-white/80 transition-[width] duration-100"
+            [style.width.%]="dn.pct"
+          ></div>
+        </div>
+      </div>
+    </div>
+  }
+
   <!-- Decoding progress overlay -->
   @if (loading()) {
     <div class="absolute inset-0 flex items-center justify-center z-[6] pointer-events-none">

@@ -187,6 +187,16 @@ export class ImageCanvasComponent
     return { loaded: p.loaded, total: p.total, pct };
   });
 
+  // BM3D deep-denoise progress view-model (#1153). Non-null only while the
+  // stage is genuinely running; the percentage is raw-core's own overall
+  // completion across both passes, so the bar is determinate by construction
+  // (spec § 3.2 requires visible, real progress — never a simulated sweep).
+  readonly deepDenoiseProgress = computed(() => {
+    const p = this.pipeline.deepDenoiseProgress();
+    if (!p) return null;
+    return { pass: p.pass, pct: Math.round(Math.min(1, Math.max(0, p.fraction)) * 100) };
+  });
+
   // Displayed image size + scale in CSS px (the draw transform's geometry).
   // Pure geometry lives in `image-canvas.draw2d.ts`; this computed only wires
   // the signals (zoom / asset dims / wrap dims) into it.

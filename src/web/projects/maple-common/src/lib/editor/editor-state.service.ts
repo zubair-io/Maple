@@ -38,6 +38,7 @@ import {
 import {
   type ToolSubParam,
   defaultSubParamId,
+  isCommitOnRelease,
   subParamById,
   subParamDefaultDisplay,
   subParamDisplayFromInternal,
@@ -105,13 +106,35 @@ export class EditorStateService {
     return id == null ? null : subParamById(this.armedTool(), id);
   });
 
-  /** Internal `[-100, +100]` value for the armed (tool, subParam) pair. */
+  // ── Commit-on-release buffer (#1153) ─────────────────────────────────────
+  //
+  // Decode-product sub-params (Noise → Deep / Prefilter) must not write the
+  // model per pointer sample: every write re-develops the decode prefix, and
+  // BM3D takes seconds. So a gesture over one of them parks its display value
+  // here — the drag bar and value chip read it, the pipeline does not — and
+  // `endGesture()` performs the single real write on release.
+
+  /** In-flight, uncommitted display value; `null` when nothing is deferred. */
+  private readonly _deferredDisplay = signal<number | null>(null);
+  /** True between `beginGesture()` and `endGesture()`. */
+  private readonly _gestureActive = signal<boolean>(false);
+
+  /** True when writes from the armed pair are held until gesture end. */
+  readonly armedCommitsOnRelease = computed<boolean>(() => isCommitOnRelease(this.armedSubParam()));
+
+  /** True while a deferred value is parked and awaiting release. */
+  readonly hasDeferredValue = computed<boolean>(() => this._deferredDisplay() !== null);
+
+  /** Internal `[-100, +100]` value for the armed (tool, subParam) pair —
+   * the deferred value while one is parked, so the marker tracks the drag
+   * even though the model (and therefore the pipeline) has not moved. */
   readonly armedInternalValue = computed<number>(() => {
     const adj = this.currentAdjustment();
     if (!adj) return 0;
     const sub = this.armedSubParam();
-    if (sub) return subParamInternalFromDisplay(sub, adj[sub.field]);
-    return readToolInternal(adj, this.armedTool());
+    if (!sub) return readToolInternal(adj, this.armedTool());
+    const deferred = this._deferredDisplay();
+    return subParamInternalFromDisplay(sub, deferred ?? adj[sub.field]);
   });
 
   /** Display-range value (EV / K / unitless ±100). */
@@ -144,6 +167,7 @@ export class EditorStateService {
     this.imageId.set(id);
     this._undoStack.set([]);
     this._redoStack.set([]);
+    this._discardDeferred();
     if (armed) {
       this.armedGroup.set(armed.group);
       this.armedTool.set(armed.tool);
@@ -203,6 +227,7 @@ export class EditorStateService {
   // ── Arming ──────────────────────────────────────────────────────────────
 
   armTool(tool: ToolId): void {
+    this._discardDeferred();
     this.armedTool.set(tool);
     this.armedGroup.set(groupOf(tool));
     this.armedSubParamId.set(this._resolveSubParamId(tool));
@@ -222,8 +247,17 @@ export class EditorStateService {
     const tool = this.armedTool();
     const sub = subParamById(tool, id);
     if (!sub) return;
+    this._discardDeferred();
     this.armedSubParamId.set(sub.id);
     this.subParamMemory.set(tool, sub.id);
+  }
+
+  /** Drop any parked commit-on-release value without writing it — the
+   * gesture's target is no longer armed (image switch, tool/sub-param
+   * switch), so committing would land on the wrong field. */
+  private _discardDeferred(): void {
+    this._gestureActive.set(false);
+    this._deferredDisplay.set(null);
   }
 
   /** Remembered (session) sub-param for `tool`, falling back to the
@@ -236,12 +270,44 @@ export class EditorStateService {
 
   // ── Value pipe ──────────────────────────────────────────────────────────
 
+  /** Mark the start of a continuous value gesture (drag-bar press, canvas
+   * scrub). Only meaningful for commit-on-release sub-params; harmless
+   * otherwise. Pairs with `endGesture()`. */
+  beginGesture(): void {
+    if (this._gestureActive()) return; // idempotent — see Apple's counterpart
+    this._deferredDisplay.set(null);
+    this._gestureActive.set(true);
+  }
+
+  /** Mark the end of a continuous value gesture and flush the parked value,
+   * if any, as the single model write of the whole gesture. */
+  endGesture(): void {
+    const deferred = this._deferredDisplay();
+    this._gestureActive.set(false);
+    this._deferredDisplay.set(null);
+    if (deferred == null) return;
+    this.setArmedDisplayValue(deferred);
+  }
+
+  /** Abandon a gesture without committing its parked value (pointercancel:
+   * stylus lifted, browser-interrupted drag). The already-written per-tick
+   * sliders keep their last value, exactly as they did before #1153 — only
+   * the deferred write is dropped. */
+  cancelGesture(): void {
+    this._discardDeferred();
+  }
+
   /** Apply a display-range value to the armed (tool, subParam) pair (no
    * debounce here; LibraryFetchService.scheduleSidecarWrite is the 750ms
-   * coalescer). */
+   * coalescer). A commit-on-release sub-param under an active gesture parks
+   * the value instead — `endGesture()` writes it once. */
   setArmedDisplayValue(value: number): void {
     const id = this.imageId();
     if (id == null || !this.armedToolAcceptsValueEdits()) return;
+    if (this._gestureActive() && this.armedCommitsOnRelease()) {
+      this._deferredDisplay.set(value);
+      return;
+    }
     const sub = this.armedSubParam();
     const field = sub ? sub.field : fieldFor(this.armedTool());
     if (!field) return;
@@ -266,6 +332,9 @@ export class EditorStateService {
    *  ARMED sub-param resets — the others keep their values. */
   resetArmedTool(): void {
     if (!this.armedToolAcceptsValueEdits()) return;
+    // A reset is an explicit, discrete edit — it always writes through, even
+    // for a commit-on-release sub-param, so drop any parked drag value first.
+    this._discardDeferred();
     this.commit();
     const sub = this.armedSubParam();
     this.setArmedDisplayValue(

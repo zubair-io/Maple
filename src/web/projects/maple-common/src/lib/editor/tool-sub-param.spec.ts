@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   defaultSubParamId,
   formatSubParamValue,
+  isCommitOnRelease,
   isMultiParam,
   subParamById,
   subParamDefaultDisplay,
@@ -26,12 +27,31 @@ import {
 } from './tool-model';
 
 describe('sub-param catalog', () => {
-  it('noise declares Luminance + Color (spec §10.0)', () => {
+  it('noise declares Luminance / Color / Deep / Prefilter (spec §10.0)', () => {
     const subs = subParamsFor('noise');
-    expect(subs.map((s) => s.id)).toEqual(['luminance', 'color']);
-    expect(subs.map((s) => s.field)).toEqual(['nrLuminance', 'nrColor']);
+    expect(subs.map((s) => s.id)).toEqual(['luminance', 'color', 'deep', 'prefilter']);
+    expect(subs.map((s) => s.field)).toEqual([
+      'nrLuminance',
+      'nrColor',
+      'deepDenoise',
+      'chromaPrefilter',
+    ]);
     expect(isMultiParam('noise')).toBe(true);
     expect(defaultSubParamId('noise')).toBe('luminance');
+  });
+
+  it('only the decode-product noise tiers commit on release (#1153)', () => {
+    // Deep (BM3D) and Prefilter land inside the decoded buffer, so a per-tick
+    // write would re-develop; the NLM pair stays on the live per-tick path.
+    const deferred = ALL_TOOLS.flatMap((tool) =>
+      subParamsFor(tool as ToolId)
+        .filter((s) => isCommitOnRelease(s))
+        .map((s) => `${tool}.${s.id}`),
+    );
+    expect(deferred).toEqual(['noise.deep', 'noise.prefilter']);
+    expect(isCommitOnRelease(subParamById('noise', 'luminance'))).toBe(false);
+    expect(isCommitOnRelease(subParamById('noise', 'color'))).toBe(false);
+    expect(isCommitOnRelease(null)).toBe(false);
   });
 
   it('sharpen declares Amount / Radius / Detail / Masking', () => {
@@ -171,6 +191,8 @@ describe('ranges + defaults (sourced from the generated schema)', () => {
   it('pins ranges to ADJUSTMENT_RANGES', () => {
     expect(subParamDisplayRange(subParamById('noise', 'luminance')!)).toEqual([0, 100]);
     expect(subParamDisplayRange(subParamById('noise', 'color')!)).toEqual([0, 100]);
+    expect(subParamDisplayRange(subParamById('noise', 'deep')!)).toEqual([0, 100]);
+    expect(subParamDisplayRange(subParamById('noise', 'prefilter')!)).toEqual([0, 100]);
     expect(subParamDisplayRange(subParamById('sharpen', 'amount')!)).toEqual([0, 150]);
     expect(subParamDisplayRange(subParamById('sharpen', 'radius')!)).toEqual([0.5, 3]);
     expect(subParamDisplayRange(subParamById('sharpen', 'detail')!)).toEqual([0, 100]);
@@ -180,6 +202,9 @@ describe('ranges + defaults (sourced from the generated schema)', () => {
   it('pins defaults to the generated model defaults', () => {
     expect(subParamDefaultDisplay(subParamById('noise', 'luminance')!)).toBe(0);
     expect(subParamDefaultDisplay(subParamById('noise', 'color')!)).toBe(25);
+    // Both new tiers ship OFF (spec § 3.1 / § 3.2 default 0).
+    expect(subParamDefaultDisplay(subParamById('noise', 'deep')!)).toBe(0);
+    expect(subParamDefaultDisplay(subParamById('noise', 'prefilter')!)).toBe(0);
     expect(subParamDefaultDisplay(subParamById('sharpen', 'amount')!)).toBe(40);
     expect(subParamDefaultDisplay(subParamById('sharpen', 'radius')!)).toBe(1);
     expect(subParamDefaultDisplay(subParamById('sharpen', 'detail')!)).toBe(25);
