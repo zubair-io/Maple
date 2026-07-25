@@ -219,6 +219,13 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
     // raw-core::stages::tone_curves).
     s.push_str("export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';\n\n");
 
+    // Master on/off for the lens corrections a DNG embeds in its
+    // OpcodeList3 (#376). `On` (default) applies each family at its own
+    // `lensCorrection*` scale, matching ACR when a profile is present;
+    // `Off` overrides all three scales (see
+    // raw-core::pipeline::pano::opcode_apply::LensCorrectionScales).
+    s.push_str("export type LensProfileEnable = 'Off' | 'On';\n\n");
+
     // User white-balance method (ticket #431). `Cat16` performs proper
     // chromatic adaptation in CAT16 LMS cone space (default since #431);
     // `DiagonalRec2020` is the legacy von-Kries diagonal-gain path
@@ -316,6 +323,10 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
                     // Tone-curve mode (#436). Default preserves pre-#436
                     // behavior (absent attribute = current pipeline output).
                     "ToneCurveMode" => "PerChannel",
+                    // DNG lens corrections (#376). On by default — the
+                    // vendor's embedded corrections are authoritative, and
+                    // a RAW without opcodes has nothing to apply.
+                    "LensProfileEnable" => "On",
                     // User WB method (#431). New users get proper chromatic
                     // adaptation in CAT16 cone space.
                     "WbMethod" => "Cat16",

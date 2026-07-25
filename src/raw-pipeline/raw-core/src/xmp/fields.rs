@@ -7,7 +7,8 @@
 //! walker in `mod.rs` still owns document structure and precedence state.
 
 use super::{
-    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, HotPixelSuppressionMode, Look,
+    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, HotPixelSuppressionMode,
+    LensProfileEnable, Look,
     Profile, ToneCurveMode, WbMethod,
 };
 use crate::error::{Error, Result};
@@ -324,6 +325,22 @@ pub(super) fn set_field(
         "crs:CropBottom" if has_crop => m.crop.bottom = v()?,
         "crs:CropRight" if has_crop => m.crop.right = v()?,
         "crs:CropAngle" => m.crop.angle = v()?,
+        // DNG-embedded lens corrections (#376). ACR/Lightroom-compatible
+        // `crs:` keys so sidecars interchange. Absent attributes → defaults
+        // (enabled, all three at 100), which is exactly ACR's behaviour for a
+        // DNG that carries a profile and a no-op for one that does not.
+        "crs:LensProfileEnable" => {
+            m.lens_profile_enable = match value {
+                "1" | "true" | "True" | "on" | "On" => LensProfileEnable::On,
+                "0" | "false" | "False" | "off" | "Off" => LensProfileEnable::Off,
+                other => {
+                    return Err(Error::Xmp(format!("unknown LensProfileEnable: {}", other)))
+                }
+            };
+        }
+        "crs:LensProfileDistortionScale" => m.lens_correction_distortion = v()?,
+        "crs:LensProfileChromaticAberrationScale" => m.lens_correction_ca = v()?,
+        "crs:LensProfileVignettingScale" => m.lens_correction_vignetting = v()?,
         "crs:HasCrop" => {}             // consumed in the pre-pass
         "crs:CropConstrainToWarp" => {} // ACR compat — no Maple semantics
         "papp:WbScaleVersion" => {}     // consumed at document level in `parse` (#1780)

@@ -16,8 +16,8 @@ use tone_curves::CurveWalker;
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
-    AdjustmentModel, AutoExposureMode, Crop, HighlightRecoveryMode, HotPixelSuppressionMode, Look,
-    Profile, ToneCurveMode, WbMethod, WbScaleVersion,
+    AdjustmentModel, AutoExposureMode, Crop, HighlightRecoveryMode, HotPixelSuppressionMode,
+    LensProfileEnable, Look, Profile, ToneCurveMode, WbMethod, WbScaleVersion,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
@@ -295,6 +295,7 @@ mod tests_metadata;
 #[cfg(test)]
 mod tests_modes;
 #[cfg(test)]
+mod tests_lens;
 mod tests_tone_curves;
 #[cfg(test)]
 mod tests_wb_scale;
