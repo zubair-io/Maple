@@ -212,6 +212,19 @@ const COLOR_FIELDS: &[&str] = &[
     "split_tone_highlight_hue",
     "split_tone_highlight_saturation",
     "split_tone_balance",
+    // Colour grading (#275) — the rest of the Color Grading panel beyond the
+    // five `split_tone_*` keys above, which are the shadow/highlight pairs and
+    // the balance ACR keeps under `crs:SplitToning*`. Same group for the same
+    // reason: they are one tool, and a "Color" paste that carried the shadow
+    // hue but dropped the midtone wheel would land a look the user never saw.
+    "color_grade_shadow_luminance",
+    "color_grade_midtone_hue",
+    "color_grade_midtone_saturation",
+    "color_grade_midtone_luminance",
+    "color_grade_highlight_luminance",
+    "color_grade_global_hue",
+    "color_grade_global_saturation",
+    "color_grade_global_luminance",
     "highlight_recovery",
     "look",
     "profile",
