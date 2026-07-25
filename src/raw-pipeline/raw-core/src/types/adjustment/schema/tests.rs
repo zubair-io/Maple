@@ -122,6 +122,10 @@ fn schema_matches_struct() {
         // not a codegen-eligible scalar/enum). Bound here so adding a struct
         // field without updating this test is a compile error.
         crop,
+        lens_profile_enable,
+        lens_correction_distortion,
+        lens_correction_ca,
+        lens_correction_vignetting,
     } = m;
     let expected_order = [
         "temperature",
@@ -215,6 +219,10 @@ fn schema_matches_struct() {
         "chroma_prefilter",
         "hot_pixel_suppression",
         "deep_denoise",
+        "lens_profile_enable",
+        "lens_correction_distortion",
+        "lens_correction_ca",
+        "lens_correction_vignetting",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -325,6 +333,10 @@ fn schema_matches_struct() {
         hot_pixel_suppression,
         deep_denoise,
         crop,
+        lens_profile_enable,
+        lens_correction_distortion,
+        lens_correction_ca,
+        lens_correction_vignetting,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema
@@ -511,6 +523,9 @@ fn schema_f32_defaults_match_struct_default() {
             "gray_mixer_magenta" => m.gray_mixer_magenta,
             "chroma_prefilter" => m.chroma_prefilter,
             "deep_denoise" => m.deep_denoise,
+            "lens_correction_distortion" => m.lens_correction_distortion,
+            "lens_correction_ca" => m.lens_correction_ca,
+            "lens_correction_vignetting" => m.lens_correction_vignetting,
             other => panic!("unknown f32 field {}", other),
         };
         assert_eq!(
