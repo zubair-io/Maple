@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "ignorePatterns": ["_design-reference/**"],
-  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"]
+  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
+  "ignoreUnresolvedImports": ["**/pkg/raw_wasm"]
 }
