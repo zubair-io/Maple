@@ -334,3 +334,154 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
  * stale entries across all platforms.
  */
 export const PIPELINE_OUTPUT_VERSION = 1;
+
+/**
+ * A user-selectable bundle of `AdjustmentModel` fields for copy / paste /
+ * sync (#944). The string values are the canonical storage / wire keys
+ * shared with the Apple client.
+ */
+export type AdjustmentGroupId =
+  | 'white_balance'
+  | 'tone'
+  | 'color'
+  | 'detail'
+  | 'effects'
+  | 'geometry';
+
+/** One selectable group in the copy / paste / sync UI (#944). */
+export interface AdjustmentGroupSpec {
+  readonly id: AdjustmentGroupId;
+  /** Human-readable label for the selective-paste UI. */
+  readonly label: string;
+  /**
+   * Canonical snake_case `AdjustmentModel` field names this group carries.
+   * Names the TypeScript model does not mirror are skipped by the merge.
+   */
+  readonly fields: readonly string[];
+}
+
+/** Every group, in the order the selective-paste UI presents them. */
+export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
+  {
+    id: 'white_balance',
+    label: 'White Balance',
+    fields: [
+      'temperature',
+      'tint',
+      'temperature_seen',
+      'tint_seen',
+      'wb_method',
+      'wb_scale_version',
+    ],
+  },
+  {
+    id: 'tone',
+    label: 'Tone',
+    fields: [
+      'exposure',
+      'brightness',
+      'contrast',
+      'highlights',
+      'shadows',
+      'whites',
+      'blacks',
+      'parametric_highlights',
+      'parametric_lights',
+      'parametric_darks',
+      'parametric_shadows',
+      'auto_exposure',
+      'tone_curve_mode',
+      'tone_curve_luma',
+      'tone_curve_red',
+      'tone_curve_green',
+      'tone_curve_blue',
+    ],
+  },
+  {
+    id: 'color',
+    label: 'Color',
+    fields: [
+      'vibrance',
+      'saturation',
+      'hue_adjustment_red',
+      'hue_adjustment_orange',
+      'hue_adjustment_yellow',
+      'hue_adjustment_green',
+      'hue_adjustment_aqua',
+      'hue_adjustment_blue',
+      'hue_adjustment_purple',
+      'hue_adjustment_magenta',
+      'saturation_adjustment_red',
+      'saturation_adjustment_orange',
+      'saturation_adjustment_yellow',
+      'saturation_adjustment_green',
+      'saturation_adjustment_aqua',
+      'saturation_adjustment_blue',
+      'saturation_adjustment_purple',
+      'saturation_adjustment_magenta',
+      'luminance_adjustment_red',
+      'luminance_adjustment_orange',
+      'luminance_adjustment_yellow',
+      'luminance_adjustment_green',
+      'luminance_adjustment_aqua',
+      'luminance_adjustment_blue',
+      'luminance_adjustment_purple',
+      'luminance_adjustment_magenta',
+      'split_tone_shadow_hue',
+      'split_tone_shadow_saturation',
+      'split_tone_highlight_hue',
+      'split_tone_highlight_saturation',
+      'split_tone_balance',
+      'highlight_recovery',
+      'look',
+      'profile',
+    ],
+  },
+  {
+    id: 'detail',
+    label: 'Detail',
+    fields: [
+      'clarity',
+      'texture',
+      'dehaze',
+      'sharpen_amount',
+      'sharpen_radius',
+      'sharpen_detail',
+      'sharpen_masking',
+      'capture_sharpening_amount',
+      'capture_sharpening_sigma',
+      'nr_luminance',
+      'nr_color',
+      'chroma_prefilter',
+      'hot_pixel_suppression',
+      'deep_denoise',
+    ],
+  },
+  {
+    id: 'effects',
+    label: 'Effects',
+    fields: [
+      'vignette_amount',
+      'vignette_feather',
+      'grain_amount',
+      'grain_size',
+      'grain_roughness',
+    ],
+  },
+  {
+    id: 'geometry',
+    label: 'Geometry',
+    fields: ['crop'],
+  },
+];
+
+/**
+ * `AdjustmentModel` fields deliberately never moved by copy / paste / sync.
+ * See `raw_core::types::adjustment::schema::groups` for the per-field
+ * rationale (notably the mask decision).
+ */
+export const ADJUSTMENT_NON_COPYABLE_FIELDS: readonly string[] = [
+  'local_adjustments',
+  'inpaint_removals',
+  'capture_sharpening_radius',
+];

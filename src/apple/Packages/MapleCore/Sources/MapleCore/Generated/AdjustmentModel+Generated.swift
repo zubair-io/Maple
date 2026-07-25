@@ -234,3 +234,144 @@ extension AdjustmentModel {
     /// invalidates stale entries across all platforms.
     public static let pipelineOutputVersion: UInt32 = 1
 }
+
+// MARK: - Copy / paste / sync groups (#944, canonical, generated)
+
+/// A user-selectable bundle of `AdjustmentModel` fields for copy / paste /
+/// sync (#944). Cases are declared in the order the selective-paste UI
+/// presents them; raw values are the canonical storage / wire keys shared
+/// with the Web client.
+public enum AdjustmentGroup: String, CaseIterable, Sendable, Hashable {
+    case whiteBalance = "white_balance"
+    case tone = "tone"
+    case color = "color"
+    case detail = "detail"
+    case effects = "effects"
+    case geometry = "geometry"
+}
+
+extension AdjustmentGroup {
+    /// Human-readable label for the selective-paste UI.
+    public var label: String {
+        switch self {
+        case .whiteBalance: return "White Balance"
+        case .tone: return "Tone"
+        case .color: return "Color"
+        case .detail: return "Detail"
+        case .effects: return "Effects"
+        case .geometry: return "Geometry"
+        }
+    }
+
+    /// Canonical snake_case `AdjustmentModel` field names this group
+    /// carries. Names the Swift model does not mirror are simply skipped
+    /// by the merge — same passthrough rule the preset bridge uses.
+    public var fieldNames: [String] {
+        switch self {
+        case .whiteBalance:
+            return [
+                "temperature",
+                "tint",
+                "temperature_seen",
+                "tint_seen",
+                "wb_method",
+                "wb_scale_version",
+            ]
+        case .tone:
+            return [
+                "exposure",
+                "brightness",
+                "contrast",
+                "highlights",
+                "shadows",
+                "whites",
+                "blacks",
+                "parametric_highlights",
+                "parametric_lights",
+                "parametric_darks",
+                "parametric_shadows",
+                "auto_exposure",
+                "tone_curve_mode",
+                "tone_curve_luma",
+                "tone_curve_red",
+                "tone_curve_green",
+                "tone_curve_blue",
+            ]
+        case .color:
+            return [
+                "vibrance",
+                "saturation",
+                "hue_adjustment_red",
+                "hue_adjustment_orange",
+                "hue_adjustment_yellow",
+                "hue_adjustment_green",
+                "hue_adjustment_aqua",
+                "hue_adjustment_blue",
+                "hue_adjustment_purple",
+                "hue_adjustment_magenta",
+                "saturation_adjustment_red",
+                "saturation_adjustment_orange",
+                "saturation_adjustment_yellow",
+                "saturation_adjustment_green",
+                "saturation_adjustment_aqua",
+                "saturation_adjustment_blue",
+                "saturation_adjustment_purple",
+                "saturation_adjustment_magenta",
+                "luminance_adjustment_red",
+                "luminance_adjustment_orange",
+                "luminance_adjustment_yellow",
+                "luminance_adjustment_green",
+                "luminance_adjustment_aqua",
+                "luminance_adjustment_blue",
+                "luminance_adjustment_purple",
+                "luminance_adjustment_magenta",
+                "split_tone_shadow_hue",
+                "split_tone_shadow_saturation",
+                "split_tone_highlight_hue",
+                "split_tone_highlight_saturation",
+                "split_tone_balance",
+                "highlight_recovery",
+                "look",
+                "profile",
+            ]
+        case .detail:
+            return [
+                "clarity",
+                "texture",
+                "dehaze",
+                "sharpen_amount",
+                "sharpen_radius",
+                "sharpen_detail",
+                "sharpen_masking",
+                "capture_sharpening_amount",
+                "capture_sharpening_sigma",
+                "nr_luminance",
+                "nr_color",
+                "chroma_prefilter",
+                "hot_pixel_suppression",
+                "deep_denoise",
+            ]
+        case .effects:
+            return [
+                "vignette_amount",
+                "vignette_feather",
+                "grain_amount",
+                "grain_size",
+                "grain_roughness",
+            ]
+        case .geometry:
+            return [
+                "crop",
+            ]
+        }
+    }
+}
+
+/// `AdjustmentModel` fields deliberately never moved by copy / paste /
+/// sync. See `raw_core::types::adjustment::schema::groups` for the
+/// per-field rationale (notably the mask decision).
+public let adjustmentNonCopyableFields: [String] = [
+    "local_adjustments",
+    "inpaint_removals",
+    "capture_sharpening_radius",
+]
