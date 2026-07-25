@@ -7,13 +7,18 @@
 //! keys ACR still writes for them), joined by a midtone zone, a per-zone
 //! luminance offset, and an unweighted global wheel.
 //!
-//! Runs POST-AgX, before grain and the target-gamut conversion. With
-//! `Yd` = display luminance and `bal ∈ [-100, +100]`:
+//! Runs POST-AgX, before grain and the target-gamut conversion. The zone
+//! axis is the pixel's Oklab `L` — perceptual lightness, not display-linear
+//! Y. That matters: AgX's shoulder keeps a normally-exposed frame's
+//! display-linear Y well under 1, so a linear-Y split would file most of
+//! what a photographer calls a highlight under "midtone". The midtone zone
+//! is anchored on mid-grey, so the three zones straddle the tone a scene is
+//! exposed for. With `L ∈ [0, 1]` and `bal ∈ [-100, +100]`:
 //!
 //! ```text
-//! yb = Yd ^ exp2(-bal/100)               // balance warps the tonal axis
-//! wS = 1 − smoothstep(0, ½, yb)
-//! wH = smoothstep(½, 1, yb)
+//! lb = L ^ exp2(-bal/100)                // balance warps the tonal axis
+//! wS = 1 − smoothstep(0, Lmid, lb)
+//! wH = smoothstep(Lmid, 1, lb)
 //! wM = 1 − wS − wH                       // exact partition of unity
 //!
 //! (Δa, Δb) = Kc · [ Σ_z w_z · (s_z/100)·(cos h_z, sin h_z) + (s_G/100)·(cos h_G, sin h_G) ]
@@ -51,8 +56,14 @@ pub const COLOR_GRADE_CHROMA_K: f32 = 0.06;
 /// `[0, 1]` from display black to display white, so ±100 moves a zone by
 /// 15% of the display range — a firm but recoverable lift.
 pub const COLOR_GRADE_LUMA_K: f32 = 0.15;
-/// Rec.2020 luma weights (the pipeline-wide constant).
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+/// Oklab `L` of display-linear mid-grey — the tone the midtone zone is
+/// anchored on, where both hand-offs meet and `wM` reaches 1.
+///
+/// For a neutral pixel every Oklab matrix row sums to 1, so the whole
+/// forward transform collapses to a cube root and `L = ∛0.18`.
+/// `midtone_anchor_is_mid_grey` in the sibling test file pins that against
+/// the real `rec2020_to_oklab`.
+pub const MIDTONE_ANCHOR_L: f32 = 0.564_622;
 /// Below this a slider counts as "at default" for the identity gate.
 const SLIDER_EPS: f32 = 1e-3;
 
@@ -160,23 +171,25 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// The `(shadow, midtone, highlight)` zone weights at display luminance
-/// `yd`. An exact partition of unity (they sum to 1 for every `yd`) and
-/// C¹ continuous, because `smoothstep`'s derivative vanishes at both
-/// edges — that is what keeps a luminance ramp free of band boundaries.
+/// The `(shadow, midtone, highlight)` zone weights at Oklab lightness `l`.
+/// An exact partition of unity (they sum to 1 for every `l`) and C¹
+/// continuous, because `smoothstep`'s derivative vanishes at both edges —
+/// that is what keeps a lightness ramp free of band boundaries. The
+/// midtone zone peaks at [`MIDTONE_ANCHOR_L`], so mid-grey is pure
+/// midtone and the two hand-offs sit either side of it.
 #[inline]
-pub fn zone_weights(yd: f32, balance_exp: f32) -> [f32; 3] {
-    let yb = yd.clamp(0.0, 1.0).powf(balance_exp);
-    let ws = 1.0 - smoothstep(0.0, 0.5, yb);
-    let wh = smoothstep(0.5, 1.0, yb);
+pub fn zone_weights(l: f32, balance_exp: f32) -> [f32; 3] {
+    let lb = l.clamp(0.0, 1.0).powf(balance_exp);
+    let ws = 1.0 - smoothstep(0.0, MIDTONE_ANCHOR_L, lb);
+    let wh = smoothstep(MIDTONE_ANCHOR_L, 1.0, lb);
     [ws, 1.0 - ws - wh, wh]
 }
 
-/// The `(Δa, Δb, ΔL)` Oklab offset at display luminance `yd` — the closed
-/// form the predictor uses; the stage applies the same offset per pixel.
+/// The `(Δa, Δb, ΔL)` Oklab offset at lightness `l` — the closed form the
+/// predictor uses; the stage applies the same offset per pixel.
 #[inline]
-pub fn color_grade_shift(yd: f32, p: &ColorGradeParams) -> [f32; 3] {
-    let [ws, wm, wh] = zone_weights(yd, p.balance_exp);
+pub fn color_grade_shift(l: f32, p: &ColorGradeParams) -> [f32; 3] {
+    let [ws, wm, wh] = zone_weights(l, p.balance_exp);
     [
         p.global[0] + ws * p.shadow[0] + wm * p.midtone[0] + wh * p.highlight[0],
         p.global[1] + ws * p.shadow[1] + wm * p.midtone[1] + wh * p.highlight[1],
@@ -184,12 +197,13 @@ pub fn color_grade_shift(yd: f32, p: &ColorGradeParams) -> [f32; 3] {
     ]
 }
 
-/// Grade one display-linear Rec.2020 pixel.
+/// Grade one display-linear Rec.2020 pixel. The zone weights read the
+/// pixel's PRE-shift lightness, so a luminance offset cannot feed back
+/// into which zone the pixel belongs to.
 #[inline]
 pub fn apply_pixel(rgb: [f32; 3], p: &ColorGradeParams) -> [f32; 3] {
-    let yd = LUMA_REC2020[0] * rgb[0] + LUMA_REC2020[1] * rgb[1] + LUMA_REC2020[2] * rgb[2];
-    let shift = color_grade_shift(yd, p);
     let lab = rec2020_to_oklab(rgb);
+    let shift = color_grade_shift(lab[0], p);
     oklab_to_rec2020([
         (lab[0] + shift[2]).clamp(0.0, 1.0),
         lab[1] + shift[0],

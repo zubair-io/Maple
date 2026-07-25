@@ -2,7 +2,7 @@
 //! ported to the unified wgpu chain.
 //!
 //! Ports `raw_core::stages::color_grade::apply`: balance-warped
-//! shadow/midtone/highlight smoothstep weights over an Oklab
+//! shadow/midtone/highlight smoothstep weights on Oklab lightness, over an Oklab
 //! `(Δa, Δb, ΔL)` offset per wheel, plus an unweighted global wheel,
 //! injected POST-AgX before grain and the target-gamut conversion. All-
 //! default saturations and luminances gate the pass off entirely
@@ -42,7 +42,7 @@ struct Params {
 const COLOR_GRADE_CHROMA_K: f32 = 0.06;
 const COLOR_GRADE_LUMA_K: f32 = 0.15;
 const SLIDER_EPS: f32 = 1e-3;
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+const MIDTONE_ANCHOR_L: f32 = 0.564_622;
 
 // ── Oklab helpers (duplicated from raw_core::color::oklab, the same
 //    constants the saturation/vibrance oracles carry) ───────────────────────
@@ -188,16 +188,14 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 pub fn apply_color_grade(buf: &mut [f32], sliders: &ColorGradeSliders) {
     let (balance_exp, shadow, midtone, highlight, global) = color_grade_params(sliders);
     for px in buf.chunks_exact_mut(4) {
-        let yd = (LUMA_REC2020[0] * px[0] + LUMA_REC2020[1] * px[1] + LUMA_REC2020[2] * px[2])
-            .clamp(0.0, 1.0);
-        let yb = yd.powf(balance_exp);
-        let ws = 1.0 - smoothstep(0.0, 0.5, yb);
-        let wh = smoothstep(0.5, 1.0, yb);
+        let lab = rec2020_to_oklab([px[0], px[1], px[2]]);
+        let lb = lab[0].clamp(0.0, 1.0).powf(balance_exp);
+        let ws = 1.0 - smoothstep(0.0, MIDTONE_ANCHOR_L, lb);
+        let wh = smoothstep(MIDTONE_ANCHOR_L, 1.0, lb);
         let wm = 1.0 - ws - wh;
         let da = global[0] + ws * shadow[0] + wm * midtone[0] + wh * highlight[0];
         let db = global[1] + ws * shadow[1] + wm * midtone[1] + wh * highlight[1];
         let dl = global[2] + ws * shadow[2] + wm * midtone[2] + wh * highlight[2];
-        let lab = rec2020_to_oklab([px[0], px[1], px[2]]);
         let out = oklab_to_rec2020([(lab[0] + dl).clamp(0.0, 1.0), lab[1] + da, lab[2] + db]);
         px[0] = out[0];
         px[1] = out[1];
