@@ -36,6 +36,7 @@ export type ToolId =
   | 'vibrance'
   | 'saturation'
   | 'hsl'
+  | 'bwMix'
   // Effects
   | 'clarity'
   | 'texture'
@@ -70,6 +71,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   vibrance: 'Vibrance',
   saturation: 'Saturation',
   hsl: 'HSL',
+  bwMix: 'B&W',
   clarity: 'Clarity',
   texture: 'Texture',
   dehaze: 'Dehaze',
@@ -88,7 +90,10 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // ("between Exposure and Highlights" — placed directly after Exposure,
   // matching the scene_tone_controls pipeline order exposure → brightness).
   light: ['exposure', 'brightness', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
-  color: ['temp', 'tint', 'vibrance', 'saturation', 'hsl'],
+  // bwMix (#276) joins Color directly after hsl: both drive the same
+  // 8-hue-band Oklab stage, exclusively — HSL edits per-hue color, bwMix
+  // (Black & White) collapses it to monochrome via 8 gray-mixer weights.
+  color: ['temp', 'tint', 'vibrance', 'saturation', 'hsl', 'bwMix'],
   effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'splitTone'],
   detail: ['sharpen', 'noise', 'colorNR', 'crop', 'presets'],
 };
@@ -102,9 +107,26 @@ export function groupOf(tool: ToolId): ToolGroup {
   throw new Error(`unknown tool: ${tool}`);
 }
 
+/**
+ * Tools visible in a group given the current model state (#276). Only the
+ * Color group is state-dependent: while Black & White is On, HSL is hidden
+ * from every tool-listing surface (dock entries, keyboard `[`/`]` cycling)
+ * — the 24 HSL hue/sat/lum sliders are inert while B&W drives the same
+ * 8-band Oklab stage through its gray-mixer weights instead. `bwMix` stays
+ * visible regardless of state; it's the surface that owns the toggle.
+ */
+export function visibleToolsInGroup(group: ToolGroup, blackWhiteOn: boolean): readonly ToolId[] {
+  const tools = TOOLS_IN_GROUP[group];
+  if (group !== 'color' || !blackWhiteOn) return tools;
+  return tools.filter((t) => t !== 'hsl');
+}
+
 // The S5 effects pills are all real pipeline stages now — vignette (#1109),
 // grain (#1110), splitTone (#1111) left the #952 stub list as their stages
 // landed. HSL left at #1112: 24 sub-params wired, stage live in raw-gpu.
+// bwMix (#276) is likewise fully wired: the toggle + 8 gray-mixer sub-params
+// write real AdjustmentModel fields through the shared multi-param arming
+// machinery — it just has no single primary drag-bar field, like HSL.
 // Crop (#638) stays in the stub set so the DRAG BAR rejects writes, but it is
 // fully interactive via the canvas crop overlay (the pill arms crop mode; the
 // overlay + crop toolbar drive `model.crop`).
@@ -152,8 +174,9 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   // (the schema-declared primary; symmetric [-100, 100], default arm).
   splitTone: ADJUSTMENT_RANGES.splitToneBalance,
   // hsl has no single primary drag-bar field (24 sub-params via the chip
-  // row); crop is a stub (#638); presets is value-less (#1115) — no
-  // entries here, the identity mapping keeps their chips at 0.
+  // row); bwMix likewise (#276, toggle + 8 gray-mixer sub-params); crop is
+  // a stub (#638); presets is value-less (#1115) — no entries here, the
+  // identity mapping keeps their chips at 0.
 };
 
 export function displayRange(tool: ToolId): readonly [number, number] | null {
@@ -238,7 +261,8 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
     case 'splitTone':
       return 'splitToneBalance';
     // hsl has 24 sub-params but no single primary drag-bar field — the
-    // sub-param chip row drives individual fields. crop is a stub (#638).
+    // sub-param chip row drives individual fields. bwMix is the same shape
+    // (#276: toggle + 8 gray-mixer sub-params). crop is a stub (#638).
     // presets is wired but value-less (#1115). All return null so no
     // single XMP field is written and no modified-dot fires at this level.
     default:

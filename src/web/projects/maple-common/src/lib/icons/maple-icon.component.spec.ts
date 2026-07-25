@@ -205,7 +205,7 @@ describe('MapleIconComponent', () => {
     const toolNames = Object.keys(TOOL_ICON_SHAPES) as ToolIconName[];
 
     it('registers every tool glyph in the shared icon registry', () => {
-      expect(toolNames.length).toBe(23);
+      expect(toolNames.length).toBe(24);
       for (const name of toolNames) {
         expect(ICON_SHAPES[name]).toBe(TOOL_ICON_SHAPES[name]);
         expect(ICON_SHAPES[name].length).toBeGreaterThan(0);

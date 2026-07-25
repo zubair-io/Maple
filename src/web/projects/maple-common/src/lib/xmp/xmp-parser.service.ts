@@ -13,6 +13,7 @@ import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AdjustmentModel, WhiteBalancePreset, Crop } from '../models/adjustment-model';
 import type {
   AutoExposureMode,
+  BlackWhiteMode,
   HighlightRecoveryMode,
   HotPixelSuppressionMode,
   Look,
@@ -89,6 +90,11 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:AutoExposure',
   'papp:WbMethod',
   'papp:ToneCurveMode',
+  // Black & white toggle (#276) — ACR/Lightroom-compatible `crs:` key,
+  // parsed into `blackWhite` and re-emitted by the serializer, so it must
+  // stay out of the passthrough bucket (double-emit otherwise). The 8
+  // gray-mixer weights are already covered via `ADJUSTMENT_FIELDS` above.
+  'crs:ConvertToGrayscale',
   // WB slider-scale version (#1780) — parsed into `wbScaleVersion` and
   // re-emitted by the serializer alongside explicit Temperature/Tint, so
   // it must stay out of the passthrough bucket (double-emit otherwise).
@@ -379,6 +385,20 @@ export class XmpParserService {
               : undefined;
         if (parsed !== undefined) {
           model.toneCurveMode = parsed;
+        }
+        continue;
+      }
+
+      // Black & white toggle (#276). Case-insensitive, unknown values
+      // dropped → default ('Off'). Mirrors raw-core's `xmp/mod.rs` and the
+      // Swift parser. The 8 gray-mixer weights parse via the canonical
+      // `ADJUSTMENT_FIELDS` numeric-field path above.
+      if (name === 'crs:ConvertToGrayscale') {
+        const v = attr.value.toLowerCase();
+        const parsed: BlackWhiteMode | undefined =
+          v === 'true' || v === '1' ? 'On' : v === 'false' || v === '0' ? 'Off' : undefined;
+        if (parsed !== undefined) {
+          model.blackWhite = parsed;
         }
         continue;
       }

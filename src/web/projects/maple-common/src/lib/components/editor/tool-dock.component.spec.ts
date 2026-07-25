@@ -20,6 +20,7 @@ function render(inputs: {
   curveOpen?: boolean;
   presetsOpen?: boolean;
   orientation?: 'vertical' | 'horizontal';
+  blackWhiteOn?: boolean;
 }) {
   TestBed.configureTestingModule({ imports: [ToolDockComponent] });
   const fixture = TestBed.createComponent(ToolDockComponent);
@@ -35,6 +36,9 @@ function render(inputs: {
   }
   if (inputs.orientation !== undefined) {
     fixture.componentRef.setInput('orientation', inputs.orientation);
+  }
+  if (inputs.blackWhiteOn !== undefined) {
+    fixture.componentRef.setInput('blackWhiteOn', inputs.blackWhiteOn);
   }
   fixture.detectChanges();
   return fixture;
@@ -58,13 +62,14 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
     expect(fixture.componentInstance.orientation()).toBe('vertical');
   });
 
-  it('renders the 11 tablet/desktop entries, including Crop/HSL/Presets', () => {
+  it('renders the 12 tablet/desktop entries, including Crop/HSL/B&W/Presets', () => {
     const fixture = render({});
     const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
     expect(labels).toEqual([
       'Light',
       'Color',
       'HSL',
+      'B&W',
       'Curve',
       'Effects',
       'Detail',
@@ -74,6 +79,56 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
       'Mask',
       'Heal',
     ]);
+  });
+
+  it('hides the HSL entry (only) while Black & White is On (#276)', () => {
+    const fixture = render({ blackWhiteOn: true });
+    const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
+    expect(labels).not.toContain('HSL');
+    expect(labels).toContain('B&W');
+    expect(labels).toEqual([
+      'Light',
+      'Color',
+      'B&W',
+      'Curve',
+      'Effects',
+      'Detail',
+      'Crop',
+      'Presets',
+      'Optics',
+      'Mask',
+      'Heal',
+    ]);
+  });
+
+  it('HSL reappears once Black & White is switched back Off', () => {
+    const fixture = render({ blackWhiteOn: true });
+    expect(
+      buttons(fixture)
+        .map((b) => b.getAttribute('aria-label'))
+        .includes('HSL'),
+    ).toBe(false);
+    fixture.componentRef.setInput('blackWhiteOn', false);
+    fixture.detectChanges();
+    expect(
+      buttons(fixture)
+        .map((b) => b.getAttribute('aria-label'))
+        .includes('HSL'),
+    ).toBe(true);
+  });
+
+  it('B&W entry arms the bwMix tool directly', () => {
+    const fixture = render({});
+    let toolEmitted: ToolId | null = null;
+    fixture.componentInstance.toolChange.subscribe((t) => (toolEmitted = t));
+    buttonFor(fixture, 'B&W').click();
+    expect(toolEmitted).toBe('bwMix');
+  });
+
+  it('B&W entry highlights only when bwMix is armed', () => {
+    const fixture = render({ activeTool: 'bwMix', activeGroup: 'color' });
+    expect(buttonFor(fixture, 'B&W').classList.contains('dock-btn--active')).toBe(true);
+    expect(buttonFor(fixture, 'Color').classList.contains('dock-btn--active')).toBe(false);
   });
 
   it('does not add the horizontal host class', () => {
@@ -117,13 +172,14 @@ describe('ToolDockComponent — horizontal (phone) orientation', () => {
     expect(nativeEl(fixture).classList.contains('dock-host--horizontal')).toBe(true);
   });
 
-  it('renders exactly Light/Color/HSL/Curve/Effects/Detail/Presets/Crop, excluding Optics/Mask/Heal', () => {
+  it('renders exactly Light/Color/HSL/B&W/Curve/Effects/Detail/Presets/Crop, excluding Optics/Mask/Heal', () => {
     const fixture = render({ orientation: 'horizontal' });
     const labels = buttons(fixture).map((b) => b.getAttribute('aria-label'));
     expect(labels).toEqual([
       'Light',
       'Color',
       'HSL',
+      'B&W',
       'Curve',
       'Effects',
       'Detail',

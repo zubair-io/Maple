@@ -44,7 +44,10 @@ export type CardState = 'full' | 'peek';
 
 const ALL_GROUPS: ToolGroup[] = ['light', 'color', 'effects', 'detail'];
 
-/** Tools shown as sliders in the control card (excludes crop/presets/hsl). */
+/** Tools shown as sliders in the control card (excludes crop/presets/hsl/
+ *  bwMix — bwMix (#276) has no single primary drag-bar field, same reason
+ *  as hsl: it surfaces the toggle + 8 gray-mixer sub-params via its own
+ *  panel instead). */
 const SLIDER_TOOLS: Partial<Record<ToolGroup, readonly ToolId[]>> = {
   light: ['exposure', 'brightness', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
   color: ['temp', 'tint', 'vibrance', 'saturation'],
