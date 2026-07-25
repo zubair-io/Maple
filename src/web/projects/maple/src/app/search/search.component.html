@@ -1,10 +1,10 @@
 <div class="flex h-screen w-screen flex-col overflow-hidden bg-bg text-text-main">
   <!-- Top bar -->
   <header
-    class="flex h-12 flex-shrink-0 items-center gap-2 border-b-[0.5px] border-border bg-surface px-4"
+    class="toolbar flex h-12 flex-shrink-0 items-center gap-2 border-b-[0.5px] border-border bg-surface px-4"
   >
     <div
-      class="flex h-[30px] max-w-[480px] flex-1 items-center gap-2 rounded-md border-[0.5px] border-border bg-input-bg px-2.5"
+      class="flex h-[30px] min-w-0 max-w-[480px] flex-1 items-center gap-2 rounded-md border-[0.5px] border-border bg-input-bg px-2.5"
     >
       <maple-icon name="search" [size]="14" color="var(--color-text-muted)" />
       <input
@@ -16,6 +16,17 @@
         (input)="onQInput($event)"
       />
     </div>
+
+    @if (layout() !== 'desktop') {
+      <button
+        type="button"
+        class="filters-toggle-btn h-7 flex-shrink-0 cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-3 text-[12px] text-text-main transition-colors duration-[120ms] hover:bg-surface-hover"
+        [attr.aria-pressed]="filtersOpen()"
+        (click)="toggleFilters()"
+      >
+        Filters
+      </button>
+    }
 
     <select
       class="h-7 cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
@@ -86,438 +97,472 @@
     </div>
   }
 
-  <div class="flex min-h-0 flex-1">
-    <!-- Filter sidebar -->
-    <aside
-      class="w-[260px] flex-shrink-0 overflow-y-auto border-r-[0.5px] border-border bg-sidebar px-3.5 py-4"
-    >
-      <!-- Date range -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Date range
-        </h3>
-        <div class="flex gap-1.5">
-          <input
-            type="date"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            aria-label="Captured from"
-            [value]="from()"
-            (change)="setFrom($event)"
-          />
-          <input
-            type="date"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            aria-label="Captured to"
-            [value]="to()"
-            (change)="setTo($event)"
-          />
-        </div>
-        <div class="mt-1.5 flex flex-wrap gap-1">
-          <button
-            type="button"
-            class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
-            (click)="preset('last7')"
+  <div class="relative flex min-h-0 flex-1">
+    <!-- Filter sidebar — inline pane at desktop, toggleable overlay below
+         1024px (see `.filters-aside`/`.filters-scrim` in the stylesheet). -->
+    @if (layout() === 'desktop' || filtersOpen()) {
+      @if (layout() !== 'desktop') {
+        <div class="filters-scrim" role="presentation" (click)="closeFilters()"></div>
+      }
+      <aside
+        class="filters-aside flex-shrink-0 overflow-y-auto border-r-[0.5px] border-border bg-sidebar px-3.5 py-4"
+      >
+        <!-- Date range -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
           >
-            Last 7 days
-          </button>
-          <button
-            type="button"
-            class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
-            (click)="preset('last30')"
+            Date range
+          </h3>
+          <div class="flex gap-1.5">
+            <input
+              type="date"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              aria-label="Captured from"
+              [value]="from()"
+              (change)="setFrom($event)"
+            />
+            <input
+              type="date"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              aria-label="Captured to"
+              [value]="to()"
+              (change)="setTo($event)"
+            />
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1">
+            <button
+              type="button"
+              class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
+              (click)="preset('last7')"
+            >
+              Last 7 days
+            </button>
+            <button
+              type="button"
+              class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
+              (click)="preset('last30')"
+            >
+              Last 30 days
+            </button>
+            <button
+              type="button"
+              class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
+              (click)="preset('thisYear')"
+            >
+              This year
+            </button>
+          </div>
+        </section>
+
+        <!-- Camera -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
           >
-            Last 30 days
-          </button>
-          <button
-            type="button"
-            class="h-[22px] flex-auto cursor-pointer rounded border-[0.5px] border-border bg-input-bg px-2 text-[11px] text-text-muted transition-[background,color] duration-[120ms] hover:bg-surface-hover hover:text-text-main"
-            (click)="preset('thisYear')"
+            Camera
+          </h3>
+          <select
+            class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+            aria-label="Camera"
+            [value]="camera()"
+            (change)="setCamera($any($event.target).value)"
           >
-            This year
-          </button>
-        </div>
-      </section>
-
-      <!-- Camera -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Camera
-        </h3>
-        <select
-          class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-          aria-label="Camera"
-          [value]="camera()"
-          (change)="setCamera($any($event.target).value)"
-        >
-          <option value="">Any</option>
-          @if (facets(); as f) {
-            @for (c of f.cameras; track $index) {
-              <option [value]="cameraLabel(c)">{{ cameraLabel(c) }} ({{ c.count }})</option>
-            }
-          }
-        </select>
-      </section>
-
-      <!-- Lens -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Lens
-        </h3>
-        <select
-          class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-          aria-label="Lens"
-          [value]="lens()"
-          (change)="setLens($any($event.target).value)"
-        >
-          <option value="">Any</option>
-          @if (facets(); as f) {
-            @for (l of f.lenses; track $index) {
-              <option [value]="l.value || ''">{{ l.value || 'Unknown' }} ({{ l.count }})</option>
-            }
-          }
-        </select>
-      </section>
-
-      <!-- Scene type -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Scene type
-        </h3>
-        <select
-          class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-          aria-label="Scene type"
-          [value]="sceneType()"
-          (change)="setSceneType($any($event.target).value)"
-        >
-          @for (s of sceneTypeOptions; track s.value) {
-            <option [value]="s.value">
-              @if (s.value === '') {
-                {{ s.label }}
-              } @else {
-                {{ s.label
-                }}{{ sceneTypeCount(s.value) !== null ? ' (' + sceneTypeCount(s.value) + ')' : '' }}
+            <option value="">Any</option>
+            @if (facets(); as f) {
+              @for (c of f.cameras; track $index) {
+                <option [value]="cameraLabel(c)">{{ cameraLabel(c) }} ({{ c.count }})</option>
               }
+            }
+          </select>
+        </section>
+
+        <!-- Lens -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Lens
+          </h3>
+          <select
+            class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+            aria-label="Lens"
+            [value]="lens()"
+            (change)="setLens($any($event.target).value)"
+          >
+            <option value="">Any</option>
+            @if (facets(); as f) {
+              @for (l of f.lenses; track $index) {
+                <option [value]="l.value || ''">{{ l.value || 'Unknown' }} ({{ l.count }})</option>
+              }
+            }
+          </select>
+        </section>
+
+        <!-- Scene type -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Scene type
+          </h3>
+          <select
+            class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+            aria-label="Scene type"
+            [value]="sceneType()"
+            (change)="setSceneType($any($event.target).value)"
+          >
+            @for (s of sceneTypeOptions; track s.value) {
+              <option [value]="s.value">
+                @if (s.value === '') {
+                  {{ s.label }}
+                } @else {
+                  {{ s.label
+                  }}{{
+                    sceneTypeCount(s.value) !== null ? ' (' + sceneTypeCount(s.value) + ')' : ''
+                  }}
+                }
+              </option>
+            }
+          </select>
+        </section>
+
+        <!-- Activity -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Activity
+          </h3>
+          <select
+            class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+            aria-label="Activity"
+            [value]="activity()"
+            (change)="setActivity($any($event.target).value)"
+          >
+            <option value="">Any</option>
+            @if (facets(); as f) {
+              @for (a of f.activities; track trackFacetValue($index, a)) {
+                <option [value]="a.value">{{ a.value }} ({{ a.count }})</option>
+              }
+            }
+          </select>
+        </section>
+
+        <!-- Subjects -->
+        @if (facets()?.subjects?.length) {
+          <section class="mb-[18px]">
+            <h3
+              class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+            >
+              Subjects
+            </h3>
+            <ul class="m-0 max-h-[180px] list-none overflow-y-auto p-0">
+              @for (s of facets()!.subjects; track trackFacetValue($index, s)) {
+                <li>
+                  <label class="flex cursor-pointer items-center gap-2 py-1 text-[12px]">
+                    <input
+                      type="checkbox"
+                      [checked]="subjectsSelected().has(s.value)"
+                      (change)="toggleSubject(s.value)"
+                    />
+                    <span class="flex-1 text-text-main">{{ s.value }}</span>
+                    <span class="text-[11px] text-text-muted">{{ s.count }}</span>
+                  </label>
+                </li>
+              }
+            </ul>
+          </section>
+        }
+
+        <!-- Screenshot tri-state -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Type
+          </h3>
+          <select
+            class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
+            [value]="isScreenshot()"
+            (change)="setIsScreenshot($any($event.target).value)"
+            aria-label="Photos or screenshots"
+          >
+            <option value="">
+              Any{{
+                facets()?.is_screenshot
+                  ? ' (' +
+                    (facets()!.is_screenshot.true +
+                      facets()!.is_screenshot.false +
+                      facets()!.is_screenshot.unknown) +
+                    ')'
+                  : ''
+              }}
             </option>
-          }
-        </select>
-      </section>
+            <option value="false">
+              Photos only{{
+                facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.false + ')' : ''
+              }}
+            </option>
+            <option value="true">
+              Screenshots only{{
+                facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.true + ')' : ''
+              }}
+            </option>
+          </select>
+        </section>
 
-      <!-- Activity -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Activity
-        </h3>
-        <select
-          class="h-7 w-full cursor-pointer rounded-[5px] border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-          aria-label="Activity"
-          [value]="activity()"
-          (change)="setActivity($any($event.target).value)"
-        >
-          <option value="">Any</option>
-          @if (facets(); as f) {
-            @for (a of f.activities; track trackFacetValue($index, a)) {
-              <option [value]="a.value">{{ a.value }} ({{ a.count }})</option>
-            }
-          }
-        </select>
-      </section>
-
-      <!-- Subjects -->
-      @if (facets()?.subjects?.length) {
+        <!-- Hidden tri-state -->
         <section class="mb-[18px]">
           <h3
             class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
           >
-            Subjects
+            Hidden
           </h3>
-          <ul class="m-0 max-h-[180px] list-none overflow-y-auto p-0">
-            @for (s of facets()!.subjects; track trackFacetValue($index, s)) {
-              <li>
-                <label class="flex cursor-pointer items-center gap-2 py-1 text-[12px]">
-                  <input
-                    type="checkbox"
-                    [checked]="subjectsSelected().has(s.value)"
-                    (change)="toggleSubject(s.value)"
-                  />
-                  <span class="flex-1 text-text-main">{{ s.value }}</span>
-                  <span class="text-[11px] text-text-muted">{{ s.count }}</span>
-                </label>
-              </li>
+          <select
+            class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
+            [value]="hidden()"
+            (change)="setHidden($any($event.target).value)"
+            aria-label="Hidden images"
+          >
+            @for (o of hiddenOptions; track o.value) {
+              <option [value]="o.value">{{ o.label }}</option>
             }
-          </ul>
+          </select>
         </section>
-      }
 
-      <!-- Screenshot tri-state -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Type
-        </h3>
-        <select
-          class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
-          [value]="isScreenshot()"
-          (change)="setIsScreenshot($any($event.target).value)"
-          aria-label="Photos or screenshots"
-        >
-          <option value="">
-            Any{{
-              facets()?.is_screenshot
-                ? ' (' +
-                  (facets()!.is_screenshot.true +
-                    facets()!.is_screenshot.false +
-                    facets()!.is_screenshot.unknown) +
-                  ')'
-                : ''
-            }}
-          </option>
-          <option value="false">
-            Photos only{{
-              facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.false + ')' : ''
-            }}
-          </option>
-          <option value="true">
-            Screenshots only{{
-              facets()?.is_screenshot ? ' (' + facets()!.is_screenshot.true + ')' : ''
-            }}
-          </option>
-        </select>
-      </section>
+        <!-- ISO -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            ISO
+          </h3>
+          <div class="flex gap-1.5">
+            <input
+              type="number"
+              min="0"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              [placeholder]="facets()?.iso_range?.min ?? 'Min'"
+              [value]="isoMin() ?? ''"
+              (change)="setIsoMin($event)"
+            />
+            <input
+              type="number"
+              min="0"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              [placeholder]="facets()?.iso_range?.max ?? 'Max'"
+              [value]="isoMax() ?? ''"
+              (change)="setIsoMax($event)"
+            />
+          </div>
+        </section>
 
-      <!-- Hidden tri-state -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Hidden
-        </h3>
-        <select
-          class="h-8 w-full rounded border border-border bg-surface-alt px-2 text-[12px] text-text-main"
-          [value]="hidden()"
-          (change)="setHidden($any($event.target).value)"
-          aria-label="Hidden images"
-        >
-          @for (o of hiddenOptions; track o.value) {
-            <option [value]="o.value">{{ o.label }}</option>
-          }
-        </select>
-      </section>
+        <!-- Aperture -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Aperture (f/)
+          </h3>
+          <div class="flex gap-1.5">
+            <input
+              type="number"
+              step="0.1"
+              placeholder="Min"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              [value]="apertureMin() ?? ''"
+              (change)="setApertureMin($event)"
+            />
+            <input
+              type="number"
+              step="0.1"
+              placeholder="Max"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              [value]="apertureMax() ?? ''"
+              (change)="setApertureMax($event)"
+            />
+          </div>
+        </section>
 
-      <!-- ISO -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          ISO
-        </h3>
-        <div class="flex gap-1.5">
-          <input
-            type="number"
-            min="0"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            [placeholder]="facets()?.iso_range?.min ?? 'Min'"
-            [value]="isoMin() ?? ''"
-            (change)="setIsoMin($event)"
-          />
-          <input
-            type="number"
-            min="0"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            [placeholder]="facets()?.iso_range?.max ?? 'Max'"
-            [value]="isoMax() ?? ''"
-            (change)="setIsoMax($event)"
-          />
-        </div>
-      </section>
+        <!-- Focal length -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Focal length (mm)
+          </h3>
+          <div class="flex gap-1.5">
+            <input
+              type="number"
+              min="0"
+              placeholder="Min"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              [value]="focalMin() ?? ''"
+              (change)="setFocalMin($event)"
+            />
+            <input
+              type="number"
+              min="0"
+              placeholder="Max"
+              class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
+              [value]="focalMax() ?? ''"
+              (change)="setFocalMax($event)"
+            />
+          </div>
+        </section>
 
-      <!-- Aperture -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Aperture (f/)
-        </h3>
-        <div class="flex gap-1.5">
-          <input
-            type="number"
-            step="0.1"
-            placeholder="Min"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            [value]="apertureMin() ?? ''"
-            (change)="setApertureMin($event)"
-          />
-          <input
-            type="number"
-            step="0.1"
-            placeholder="Max"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            [value]="apertureMax() ?? ''"
-            (change)="setApertureMax($event)"
-          />
-        </div>
-      </section>
+        <!-- Rating -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Rating ≥
+          </h3>
+          <div class="flex gap-0.5">
+            @for (n of stars; track n) {
+              <button
+                type="button"
+                class="cursor-pointer border-0 bg-transparent p-1"
+                [attr.aria-label]="'Rating at least ' + n"
+                (click)="setRating(n)"
+              >
+                <maple-icon
+                  [name]="rating() >= n ? 'star-filled' : 'star'"
+                  [size]="14"
+                  [color]="rating() >= n ? 'var(--color-star)' : 'var(--color-text-muted)'"
+                />
+              </button>
+            }
+          </div>
+        </section>
 
-      <!-- Focal length -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Focal length (mm)
-        </h3>
-        <div class="flex gap-1.5">
-          <input
-            type="number"
-            min="0"
-            placeholder="Min"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            [value]="focalMin() ?? ''"
-            (change)="setFocalMin($event)"
-          />
-          <input
-            type="number"
-            min="0"
-            placeholder="Max"
-            class="h-[26px] min-w-0 flex-1 rounded border-[0.5px] border-border bg-input-bg px-2 text-[12px] text-text-main outline-0"
-            [value]="focalMax() ?? ''"
-            (change)="setFocalMax($event)"
-          />
-        </div>
-      </section>
-
-      <!-- Rating -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Rating ≥
-        </h3>
-        <div class="flex gap-0.5">
-          @for (n of stars; track n) {
+        <!-- Flag -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Flag
+          </h3>
+          <div class="flex flex-wrap gap-1">
             <button
               type="button"
-              class="cursor-pointer border-0 bg-transparent p-1"
-              [attr.aria-label]="'Rating at least ' + n"
-              (click)="setRating(n)"
+              class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
+              [class.border-border]="flag() !== ''"
+              [class.bg-input-bg]="flag() !== ''"
+              [class.text-text-muted]="flag() !== ''"
+              [class.hover:bg-surface-hover]="flag() !== ''"
+              [class.hover:text-text-main]="flag() !== ''"
+              [class.bg-primary-dim]="flag() === ''"
+              [class.text-primary]="flag() === ''"
+              [class.border-primary]="flag() === ''"
+              (click)="setFlag('')"
             >
-              <maple-icon
-                [name]="rating() >= n ? 'star-filled' : 'star'"
-                [size]="14"
-                [color]="rating() >= n ? 'var(--color-star)' : 'var(--color-text-muted)'"
-              />
+              Any
             </button>
-          }
-        </div>
-      </section>
-
-      <!-- Flag -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Flag
-        </h3>
-        <div class="flex flex-wrap gap-1">
-          <button
-            type="button"
-            class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
-            [class.border-border]="flag() !== ''"
-            [class.bg-input-bg]="flag() !== ''"
-            [class.text-text-muted]="flag() !== ''"
-            [class.hover:bg-surface-hover]="flag() !== ''"
-            [class.hover:text-text-main]="flag() !== ''"
-            [class.bg-primary-dim]="flag() === ''"
-            [class.text-primary]="flag() === ''"
-            [class.border-primary]="flag() === ''"
-            (click)="setFlag('')"
-          >
-            Any
-          </button>
-          <button
-            type="button"
-            class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
-            [class.border-border]="flag() !== 'pick'"
-            [class.bg-input-bg]="flag() !== 'pick'"
-            [class.text-text-muted]="flag() !== 'pick'"
-            [class.hover:bg-surface-hover]="flag() !== 'pick'"
-            [class.hover:text-text-main]="flag() !== 'pick'"
-            [class.bg-primary-dim]="flag() === 'pick'"
-            [class.text-primary]="flag() === 'pick'"
-            [class.border-primary]="flag() === 'pick'"
-            (click)="setFlag('pick')"
-          >
-            Pick
-          </button>
-          <button
-            type="button"
-            class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
-            [class.border-border]="flag() !== 'reject'"
-            [class.bg-input-bg]="flag() !== 'reject'"
-            [class.text-text-muted]="flag() !== 'reject'"
-            [class.hover:bg-surface-hover]="flag() !== 'reject'"
-            [class.hover:text-text-main]="flag() !== 'reject'"
-            [class.bg-primary-dim]="flag() === 'reject'"
-            [class.text-primary]="flag() === 'reject'"
-            [class.border-primary]="flag() === 'reject'"
-            (click)="setFlag('reject')"
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
-            [class.border-border]="flag() !== 'none'"
-            [class.bg-input-bg]="flag() !== 'none'"
-            [class.text-text-muted]="flag() !== 'none'"
-            [class.hover:bg-surface-hover]="flag() !== 'none'"
-            [class.hover:text-text-main]="flag() !== 'none'"
-            [class.bg-primary-dim]="flag() === 'none'"
-            [class.text-primary]="flag() === 'none'"
-            [class.border-primary]="flag() === 'none'"
-            (click)="setFlag('none')"
-          >
-            None
-          </button>
-        </div>
-      </section>
-
-      <!-- Color label -->
-      <section class="mb-[18px]">
-        <h3 class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted">
-          Color label
-        </h3>
-        <div class="flex flex-wrap gap-1.5">
-          @for (c of colorOptions; track c.value) {
             <button
               type="button"
-              class="swatch-btn flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-[1.5px] transition-[transform,border-color] duration-[120ms]"
-              [class.border-border]="color() !== c.value"
-              [class.border-text-main]="color() === c.value"
-              [class.active]="color() === c.value"
-              [style.background]="c.swatch"
-              [attr.aria-label]="c.label"
-              [title]="c.label"
-              (click)="setColor(c.value)"
+              class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
+              [class.border-border]="flag() !== 'pick'"
+              [class.bg-input-bg]="flag() !== 'pick'"
+              [class.text-text-muted]="flag() !== 'pick'"
+              [class.hover:bg-surface-hover]="flag() !== 'pick'"
+              [class.hover:text-text-main]="flag() !== 'pick'"
+              [class.bg-primary-dim]="flag() === 'pick'"
+              [class.text-primary]="flag() === 'pick'"
+              [class.border-primary]="flag() === 'pick'"
+              (click)="setFlag('pick')"
             >
-              @if (!c.value) {
-                <span class="text-[10px] text-text-muted">Any</span>
+              Pick
+            </button>
+            <button
+              type="button"
+              class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
+              [class.border-border]="flag() !== 'reject'"
+              [class.bg-input-bg]="flag() !== 'reject'"
+              [class.text-text-muted]="flag() !== 'reject'"
+              [class.hover:bg-surface-hover]="flag() !== 'reject'"
+              [class.hover:text-text-main]="flag() !== 'reject'"
+              [class.bg-primary-dim]="flag() === 'reject'"
+              [class.text-primary]="flag() === 'reject'"
+              [class.border-primary]="flag() === 'reject'"
+              (click)="setFlag('reject')"
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              class="h-6 flex-[1_1_calc(50%-4px)] cursor-pointer rounded border-[0.5px] px-2 text-[11px] transition-[background,color] duration-[120ms]"
+              [class.border-border]="flag() !== 'none'"
+              [class.bg-input-bg]="flag() !== 'none'"
+              [class.text-text-muted]="flag() !== 'none'"
+              [class.hover:bg-surface-hover]="flag() !== 'none'"
+              [class.hover:text-text-main]="flag() !== 'none'"
+              [class.bg-primary-dim]="flag() === 'none'"
+              [class.text-primary]="flag() === 'none'"
+              [class.border-primary]="flag() === 'none'"
+              (click)="setFlag('none')"
+            >
+              None
+            </button>
+          </div>
+        </section>
+
+        <!-- Color label -->
+        <section class="mb-[18px]">
+          <h3
+            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+          >
+            Color label
+          </h3>
+          <div class="flex flex-wrap gap-1.5">
+            @for (c of colorOptions; track c.value) {
+              <button
+                type="button"
+                class="swatch-btn flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-[1.5px] transition-[transform,border-color] duration-[120ms]"
+                [class.border-border]="color() !== c.value"
+                [class.border-text-main]="color() === c.value"
+                [class.active]="color() === c.value"
+                [style.background]="c.swatch"
+                [attr.aria-label]="c.label"
+                [title]="c.label"
+                (click)="setColor(c.value)"
+              >
+                @if (!c.value) {
+                  <span class="text-[10px] text-text-muted">Any</span>
+                }
+              </button>
+            }
+          </div>
+        </section>
+
+        <!-- Extension -->
+        @if (facets()?.extensions?.length) {
+          <section class="mb-[18px]">
+            <h3
+              class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
+            >
+              Extension
+            </h3>
+            <ul class="m-0 max-h-[180px] list-none overflow-y-auto p-0">
+              @for (e of facets()!.extensions; track trackExt($index, e)) {
+                <li>
+                  <label class="flex cursor-pointer items-center gap-2 py-1 text-[12px]">
+                    <input
+                      type="checkbox"
+                      [checked]="extSelected().has(e.value)"
+                      (change)="toggleExt(e.value)"
+                    />
+                    <span class="flex-1 text-text-main">.{{ e.value }}</span>
+                    <span class="text-[11px] text-text-muted">{{ e.count }}</span>
+                  </label>
+                </li>
               }
-            </button>
-          }
-        </div>
-      </section>
-
-      <!-- Extension -->
-      @if (facets()?.extensions?.length) {
-        <section class="mb-[18px]">
-          <h3
-            class="mb-2 mt-0 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted"
-          >
-            Extension
-          </h3>
-          <ul class="m-0 max-h-[180px] list-none overflow-y-auto p-0">
-            @for (e of facets()!.extensions; track trackExt($index, e)) {
-              <li>
-                <label class="flex cursor-pointer items-center gap-2 py-1 text-[12px]">
-                  <input
-                    type="checkbox"
-                    [checked]="extSelected().has(e.value)"
-                    (change)="toggleExt(e.value)"
-                  />
-                  <span class="flex-1 text-text-main">.{{ e.value }}</span>
-                  <span class="text-[11px] text-text-muted">{{ e.count }}</span>
-                </label>
-              </li>
-            }
-          </ul>
-        </section>
-      }
-    </aside>
+            </ul>
+          </section>
+        }
+      </aside>
+    }
 
     <!-- Results -->
     <main class="min-w-0 flex-1 overflow-y-auto p-4">
