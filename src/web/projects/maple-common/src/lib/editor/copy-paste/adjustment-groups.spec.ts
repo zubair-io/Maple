@@ -78,6 +78,25 @@ describe('buildGroupPatch', () => {
     expect(patch.saturation).toBeUndefined();
   });
 
+  it('skips the structured tone-curve fields, keeping its scalar siblings', () => {
+    // `PresetFields` — what `buildApplyPatch` clamps and validates — is a flat
+    // scalar map, and the web XMP layer does not serialise point curves yet
+    // (#367), so carrying them would paste state that vanishes on reload.
+    // Same guard, same reason, as `capturePresetFields`.
+    const source = defaultAdjustmentModel();
+    source.toneCurveLuma = {
+      points: [
+        [0, 0],
+        [1, 0.5],
+      ],
+    };
+    source.exposure = 1.5;
+
+    const patch = buildGroupPatch(source, ['tone']);
+    expect(patch.toneCurveLuma).toBeUndefined();
+    expect(patch.exposure).toBe(1.5);
+  });
+
   it('unions fields across multiple selected groups', () => {
     const source = defaultAdjustmentModel();
     source.exposure = 2;
