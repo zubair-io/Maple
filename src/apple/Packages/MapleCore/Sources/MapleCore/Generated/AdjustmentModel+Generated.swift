@@ -80,6 +80,15 @@ extension AdjustmentModel {
         case luminanceAdjustmentBlue = "luminance_adjustment_blue"
         case luminanceAdjustmentPurple = "luminance_adjustment_purple"
         case luminanceAdjustmentMagenta = "luminance_adjustment_magenta"
+        case blackWhite = "black_white"
+        case grayMixerRed = "gray_mixer_red"
+        case grayMixerOrange = "gray_mixer_orange"
+        case grayMixerYellow = "gray_mixer_yellow"
+        case grayMixerGreen = "gray_mixer_green"
+        case grayMixerAqua = "gray_mixer_aqua"
+        case grayMixerBlue = "gray_mixer_blue"
+        case grayMixerPurple = "gray_mixer_purple"
+        case grayMixerMagenta = "gray_mixer_magenta"
         case highlightRecovery = "highlight_recovery"
         case autoExposure = "auto_exposure"
         case look = "look"
@@ -218,6 +227,22 @@ extension AdjustmentModel {
     public static let luminanceAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
     /// HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta.
     public static let luminanceAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Red luminance weight (#276). Scales Oklab L on the Red band while black_white is On; ±100 ↔ scale ×2 / ×0. XMP: crs:GrayMixerRed.
+    public static let grayMixerRedRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Orange luminance weight (#276). XMP: crs:GrayMixerOrange.
+    public static let grayMixerOrangeRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Yellow luminance weight (#276). XMP: crs:GrayMixerYellow.
+    public static let grayMixerYellowRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Green luminance weight (#276). XMP: crs:GrayMixerGreen.
+    public static let grayMixerGreenRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Aqua luminance weight (#276). XMP: crs:GrayMixerAqua.
+    public static let grayMixerAquaRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Blue luminance weight (#276). XMP: crs:GrayMixerBlue.
+    public static let grayMixerBlueRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Purple luminance weight (#276). XMP: crs:GrayMixerPurple.
+    public static let grayMixerPurpleRange: ClosedRange<Double> = -100.0...100.0
+    /// B&W Magenta luminance weight (#276). XMP: crs:GrayMixerMagenta.
+    public static let grayMixerMagentaRange: ClosedRange<Double> = -100.0...100.0
     /// Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.
     public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0
     /// BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.
@@ -325,6 +350,15 @@ extension AdjustmentGroup {
                 "luminance_adjustment_blue",
                 "luminance_adjustment_purple",
                 "luminance_adjustment_magenta",
+                "black_white",
+                "gray_mixer_red",
+                "gray_mixer_orange",
+                "gray_mixer_yellow",
+                "gray_mixer_green",
+                "gray_mixer_aqua",
+                "gray_mixer_blue",
+                "gray_mixer_purple",
+                "gray_mixer_magenta",
                 "split_tone_shadow_hue",
                 "split_tone_shadow_saturation",
                 "split_tone_highlight_hue",

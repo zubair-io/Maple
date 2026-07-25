@@ -46,3 +46,21 @@ pub struct FieldSpec {
     /// Human-readable doc comment, single line.
     pub doc: &'static str,
 }
+
+/// A per-hue-band slider: `F32`, range −100..100, default 0, no enum.
+///
+/// The 8-band HSL block (#1112) and the black & white mixer (#276) are 32
+/// fields that differ only in name and doc — spelling every slot out for
+/// each of them pushed `schema/mod.rs` past the 600-LOC hard budget and
+/// buried the two things a reader actually needs to check. `const fn` so
+/// the entries stay compile-time constants inside `ADJUSTMENT_SCHEMA`.
+pub const fn band_field(name: &'static str, doc: &'static str) -> FieldSpec {
+    FieldSpec {
+        name,
+        kind: FieldKind::F32,
+        range: (-100.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc,
+    }
+}

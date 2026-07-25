@@ -139,6 +139,11 @@ pub use hot_pixel_suppression::HotPixelSuppressionMode;
 mod auto_exposure;
 pub use auto_exposure::AutoExposureMode;
 
+// BlackWhiteMode split into its own submodule to stay under the
+// 600-LOC hard budget (#276).
+mod black_white;
+pub use black_white::BlackWhiteMode;
+
 // Crop geometry type split into its own submodule to stay under the
 // 600-LOC hard budget (#772).
 mod crop;
@@ -319,6 +324,25 @@ pub struct AdjustmentModel {
     pub luminance_adjustment_blue: f32,     // -100..100, default 0
     pub luminance_adjustment_purple: f32,   // -100..100, default 0
     pub luminance_adjustment_magenta: f32,  // -100..100, default 0
+
+    // Black & white mix (#276). `black_white` toggles the 8-band Oklab
+    // stage into its monochrome path; the eight `gray_mixer_*` weights
+    // then drive the `L` plane over the SAME hue bands as the HSL panel
+    // (`stages::hsl::HUE_CENTERS_DEG` / `BAND_HALF_WIDTH_DEG` /
+    // `CHROMA_GATE_C0` — deliberately not a second set of constants) and
+    // chroma is forced to zero everywhere. The 24 HSL sliders above are
+    // inert while `black_white` is `On`.
+    // XMP keys: `crs:ConvertToGrayscale`, `crs:GrayMixerRed` …
+    //           `crs:GrayMixerMagenta` (ACR/Lightroom-compatible).
+    pub black_white: BlackWhiteMode,
+    pub gray_mixer_red: f32,     // -100..100, default 0
+    pub gray_mixer_orange: f32,  // -100..100, default 0
+    pub gray_mixer_yellow: f32,  // -100..100, default 0
+    pub gray_mixer_green: f32,   // -100..100, default 0
+    pub gray_mixer_aqua: f32,    // -100..100, default 0
+    pub gray_mixer_blue: f32,    // -100..100, default 0
+    pub gray_mixer_purple: f32,  // -100..100, default 0
+    pub gray_mixer_magenta: f32, // -100..100, default 0
 
     pub highlight_recovery: HighlightRecoveryMode,
 
@@ -506,6 +530,17 @@ impl Default for AdjustmentModel {
             luminance_adjustment_blue: 0.0,
             luminance_adjustment_purple: 0.0,
             luminance_adjustment_magenta: 0.0,
+            // Black & white mix (#276): colour render, flat mixer. Both
+            // halves are identity — the 8-band stage keeps its HSL path.
+            black_white: BlackWhiteMode::Off,
+            gray_mixer_red: 0.0,
+            gray_mixer_orange: 0.0,
+            gray_mixer_yellow: 0.0,
+            gray_mixer_green: 0.0,
+            gray_mixer_aqua: 0.0,
+            gray_mixer_blue: 0.0,
+            gray_mixer_purple: 0.0,
+            gray_mixer_magenta: 0.0,
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
             // Per-#429: scene-anchor on by default — places mid-gray at
             // 0.18 before AgX. Users can opt out per-image for strict

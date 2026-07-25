@@ -343,6 +343,8 @@ fn tile_matches_full_chain_with_non_default_hsl() {
             &[0.0, 0.0, 0.0, 0.0, 0.0, -30.0, 0.0, 0.0],
             &[50.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             &[0.0, 0.0, 0.0, 40.0, 0.0, 0.0, 0.0, 0.0],
+            &[0.0; 8],
+            false,
         );
         assert_ne!(probe.pixels, before, "test model's HSL must be non-identity");
     }
