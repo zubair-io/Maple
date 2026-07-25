@@ -1,6 +1,6 @@
 # Product Status
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
 Maple is organized into 5 build phases. Phases 1 and 2 are complete. Phase 3 is largely built, Phase 4 is partially built, and Phase 5 has shipped in pieces.
 
@@ -10,13 +10,13 @@ The phase model dates from the single-platform CoreImage prototype and no longer
 
 ## Summary
 
-| Phase | Name                   | Status                                                                                   |
-| ----- | ---------------------- | ---------------------------------------------------------------------------------------- |
-| **1** | Foundation             | **Complete** — plus two sources (Maple Cloud, File Provider) the table never planned for |
-| **2** | RAW Develop & Export   | **Complete** — re-platformed off CoreImage onto the Rust core                            |
+| Phase | Name                   | Status                                                                                       |
+| ----- | ---------------------- | -------------------------------------------------------------------------------------------- |
+| **1** | Foundation             | **Complete** — plus two sources (Maple Cloud, File Provider) the table never planned for     |
+| **2** | RAW Develop & Export   | **Complete** — re-platformed off CoreImage onto the Rust core                                |
 | **3** | Color Engine           | **Mostly built** — HSL, scopes, presets and before/after shipped; curve/wheel UI outstanding |
-| **4** | Advanced Editing       | **Partially built** — panorama and crop shipped; masking and healing are core-only       |
-| **5** | Platform Polish & Sync | **Partially built** — sync shipped as Maple Cloud, not iCloud                            |
+| **4** | Advanced Editing       | **Partially built** — panorama and crop shipped; masking and healing are core-only           |
+| **5** | Platform Polish & Sync | **Partially built** — sync shipped as Maple Cloud, not iCloud                                |
 
 ---
 
@@ -95,27 +95,27 @@ The CoreImage implementation this section documented (`RAWDecodeEngine`, `CIFilt
 
 That per-tick chain **deliberately omits `sharpen` and `nr_color`**, which stay on the Apple GPU path as Metal compute pipelines — sharpen at viewport size alone costs ~33 ms on CPU, over the whole 16 ms tick budget. Both are still applied by the FFI decode, so they are real stages; they just do not run in the CPU chain.
 
-| Group   | Tool                                      | Range          | `raw-core` stage             | Status                                        |
-| ------- | ----------------------------------------- | -------------- | ---------------------------- | --------------------------------------------- |
-| Light   | Exposure                                  | -4 … +4 EV     | `scene_tone_controls`        | Built                                         |
-| Light   | Brightness                                | -100 … +100    | `scene_tone_controls`        | Built                                         |
-| Light   | Contrast                                  | -100 … +100    | `scene_tone_controls`        | Built                                         |
-| Light   | Highlights / Shadows                      | -100 … +100    | `scene_tone_controls`        | Built                                         |
-| Light   | Whites / Blacks                           | -100 … +100    | `scene_tone_controls`        | Built                                         |
-| Color   | Temperature                               | 2000 … 12000 K | `white_balance`              | Built                                         |
-| Color   | Tint                                      | -150 … +150    | `white_balance`              | Built (ACR span, #1870)                       |
-| Color   | Vibrance / Saturation                     | -100 … +100    | `vibrance`/`saturation`      | Built                                         |
-| Color   | HSL (8 hues × hue/sat/lum)                | -100 … +100    | `hsl`                        | Built (#1112, #274); UX polish is #636        |
-| Effects | Clarity / Texture / Dehaze                | -100 … +100    | `clarity`/`texture`/`dehaze` | Built                                         |
-| Effects | Vignette (amount, feather)                | -100 … +100    | `vignette`                   | Built (#1109)                                 |
-| Effects | Grain (amount, size, roughness)           | 0 … 100        | `grain`                      | Built (#1110)                                 |
-| Effects | Split Tone (5 sub-params)                 | varies         | `split_tone`                 | Built (#1111)                                 |
-| Detail  | Sharpen (amount, radius, detail, masking) | varies         | `sharpen`                    | Built                                         |
-| Detail  | Noise Reduction (luminance)               | 0 … 100        | `nr_luminance`               | Built                                         |
-| Detail  | Color NR                                  | 0 … 100        | `nr_color` (GPU only)        | Built                                         |
-| Detail  | Deconvolution (amount, σ)                 | varies         | `capture_sharpening`         | Built (#875)                                  |
-| Detail  | Crop / rotate                             | —              | `crop` (geometry)            | Built (#277, #638)                            |
-| Detail  | Presets                                   | —              | —                            | Built (#1115)                                 |
+| Group   | Tool                                      | Range          | `raw-core` stage             | Status                                 |
+| ------- | ----------------------------------------- | -------------- | ---------------------------- | -------------------------------------- |
+| Light   | Exposure                                  | -4 … +4 EV     | `scene_tone_controls`        | Built                                  |
+| Light   | Brightness                                | -100 … +100    | `scene_tone_controls`        | Built                                  |
+| Light   | Contrast                                  | -100 … +100    | `scene_tone_controls`        | Built                                  |
+| Light   | Highlights / Shadows                      | -100 … +100    | `scene_tone_controls`        | Built                                  |
+| Light   | Whites / Blacks                           | -100 … +100    | `scene_tone_controls`        | Built                                  |
+| Color   | Temperature                               | 2000 … 12000 K | `white_balance`              | Built                                  |
+| Color   | Tint                                      | -150 … +150    | `white_balance`              | Built (ACR span, #1870)                |
+| Color   | Vibrance / Saturation                     | -100 … +100    | `vibrance`/`saturation`      | Built                                  |
+| Color   | HSL (8 hues × hue/sat/lum)                | -100 … +100    | `hsl`                        | Built (#1112, #274); UX polish is #636 |
+| Effects | Clarity / Texture / Dehaze                | -100 … +100    | `clarity`/`texture`/`dehaze` | Built                                  |
+| Effects | Vignette (amount, feather)                | -100 … +100    | `vignette`                   | Built (#1109)                          |
+| Effects | Grain (amount, size, roughness)           | 0 … 100        | `grain`                      | Built (#1110)                          |
+| Effects | Split Tone (5 sub-params)                 | varies         | `split_tone`                 | Built (#1111)                          |
+| Detail  | Sharpen (amount, radius, detail, masking) | varies         | `sharpen`                    | Built                                  |
+| Detail  | Noise Reduction (luminance)               | 0 … 100        | `nr_luminance`               | Built                                  |
+| Detail  | Color NR                                  | 0 … 100        | `nr_color` (GPU only)        | Built                                  |
+| Detail  | Deconvolution (amount, σ)                 | varies         | `capture_sharpening`         | Built (#875)                           |
+| Detail  | Crop / rotate                             | —              | `crop` (geometry)            | Built (#277, #638)                     |
+| Detail  | Presets                                   | —              | —                            | Built (#1115)                          |
 
 Model fields with no tool pill: parametric tone curve (`parametricHighlights`/`Lights`/`Darks`/`Shadows`, applied by `tone_curves` and round-tripped since #365 — the panel UI is #367), `highlightRecovery`, `autoExposure`, `profile`, `chromaPrefilter`, `hotPixelSuppression`, `deepDenoise`.
 
