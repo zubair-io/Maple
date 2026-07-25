@@ -133,41 +133,7 @@ pub fn render_from_scene_linear_with_chain(
     // SAT slider is a chroma-scaling stage like vibrance/saturation and
     // needs the same banding-gate coverage (see `stages::hsl`'s
     // `hsl_soft_compress` fix).
-    stage("synth_hsl", || {
-        hsl::apply(
-            &mut scene,
-            &[
-                model.hue_adjustment_red,
-                model.hue_adjustment_orange,
-                model.hue_adjustment_yellow,
-                model.hue_adjustment_green,
-                model.hue_adjustment_aqua,
-                model.hue_adjustment_blue,
-                model.hue_adjustment_purple,
-                model.hue_adjustment_magenta,
-            ],
-            &[
-                model.saturation_adjustment_red,
-                model.saturation_adjustment_orange,
-                model.saturation_adjustment_yellow,
-                model.saturation_adjustment_green,
-                model.saturation_adjustment_aqua,
-                model.saturation_adjustment_blue,
-                model.saturation_adjustment_purple,
-                model.saturation_adjustment_magenta,
-            ],
-            &[
-                model.luminance_adjustment_red,
-                model.luminance_adjustment_orange,
-                model.luminance_adjustment_yellow,
-                model.luminance_adjustment_green,
-                model.luminance_adjustment_aqua,
-                model.luminance_adjustment_blue,
-                model.luminance_adjustment_purple,
-                model.luminance_adjustment_magenta,
-            ],
-        )
-    });
+    stage("synth_hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
     stage("synth_clarity", || {
         clarity::apply(&mut scene, model.clarity)

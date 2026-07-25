@@ -72,6 +72,19 @@ use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
+
+/// The 8-band Oklab pass for these inputs. Built in one place so the live
+/// chain's assembly gate and its stage-mask bit can never disagree about
+/// whether the stage is engaged — `HslPass::is_noop` is what both consult.
+pub(crate) fn hsl_pass_for(inputs: &FullChainInputs) -> HslPass {
+    HslPass {
+        hue: inputs.hsl_hue,
+        sat: inputs.hsl_sat,
+        lum: inputs.hsl_lum,
+        bw_mix: inputs.bw_mix,
+        bw_active: inputs.bw_active,
+    }
+}
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -130,6 +143,12 @@ pub struct FullChainInputs {
     pub hsl_hue: [f32; 8],
     pub hsl_sat: [f32; 8],
     pub hsl_lum: [f32; 8],
+    /// Black & white mix (#276): per-band luminance weights in [-100, 100]
+    /// over the SAME hue bands as `hsl_*`, plus the mode toggle. When
+    /// `bw_active` the 24 HSL sliders above are inert and the stage emits a
+    /// zero-chroma image.
+    pub bw_mix: [f32; 8],
+    pub bw_active: bool,
     pub clarity: f32,
     pub texture: f32,
     pub dehaze: f32,
@@ -281,12 +300,9 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     prefix.push(Box::new(SaturationPass {
         saturation: inputs.saturation,
     }));
-    // HSL (#1112) — scene-linear, after saturation, before clarity.
-    prefix.push(Box::new(HslPass {
-        hue: inputs.hsl_hue,
-        sat: inputs.hsl_sat,
-        lum: inputs.hsl_lum,
-    }));
+    // HSL (#1112) / black & white (#276) — scene-linear, after saturation,
+    // before clarity.
+    prefix.push(Box::new(hsl_pass_for(inputs)));
     prefix.push(Box::new(ClarityPass {
         clarity: inputs.clarity,
     }));

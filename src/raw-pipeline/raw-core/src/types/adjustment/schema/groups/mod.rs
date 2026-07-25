@@ -192,6 +192,21 @@ const COLOR_FIELDS: &[&str] = &[
     "luminance_adjustment_blue",
     "luminance_adjustment_purple",
     "luminance_adjustment_magenta",
+    // Black & white mix (#276) — the monochrome mode plus its 8 band
+    // weights. Grouped with Colour rather than excluded: they drive the very
+    // same Oklab 8-band kernel as the 24 HSL entries above, and a paste of
+    // "Color" that dropped the conversion would land a colour render on an
+    // image the user copied a monochrome look from. Nothing about them is
+    // raster-derived, so they transfer between images unchanged.
+    "black_white",
+    "gray_mixer_red",
+    "gray_mixer_orange",
+    "gray_mixer_yellow",
+    "gray_mixer_green",
+    "gray_mixer_aqua",
+    "gray_mixer_blue",
+    "gray_mixer_purple",
+    "gray_mixer_magenta",
     "split_tone_shadow_hue",
     "split_tone_shadow_saturation",
     "split_tone_highlight_hue",

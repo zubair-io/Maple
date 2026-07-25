@@ -157,20 +157,33 @@ pub struct HslParams {
     pub sat_scale: [f32; NUM_BANDS],
     /// Per-band luminance shift (`slider/100`; see note in `apply_pixel`).
     pub lum_shift: [f32; NUM_BANDS],
+    /// Per-band black-and-white luminance weight (`slider/100`), used only
+    /// when `bw_active` (#276).
+    pub bw_mix: [f32; NUM_BANDS],
+    /// True when black-and-white conversion is on. Takes over the whole
+    /// stage: the hue/sat/lum fields above are ignored and every pixel
+    /// leaves with zero Oklab chroma.
+    pub bw_active: bool,
     /// True when ALL sliders are at default (0) — whole-stage short-circuit.
+    /// Never true while `bw_active`: monochrome conversion is not identity
+    /// even with a flat mixer.
     pub is_identity: bool,
 }
 
-/// Hoist per-render HSL params from the 24 raw slider values.
-/// Accepts three contiguous slices `[Red..Magenta]` for hue, sat, lum.
+/// Hoist per-render HSL params from the 24 raw slider values plus the
+/// black-and-white mode toggle and its 8 mixer weights (#276). Accepts
+/// four contiguous slices `[Red..Magenta]` for hue, sat, lum, bw_mix.
 pub fn hsl_params(
     hue: &[f32; NUM_BANDS],
     sat: &[f32; NUM_BANDS],
     lum: &[f32; NUM_BANDS],
+    bw_mix_sliders: &[f32; NUM_BANDS],
+    bw_active: bool,
 ) -> HslParams {
     let mut hue_rad = [0.0f32; NUM_BANDS];
     let mut sat_scale = [1.0f32; NUM_BANDS];
     let mut lum_shift = [0.0f32; NUM_BANDS];
+    let mut bw_mix = [0.0f32; NUM_BANDS];
     let mut is_identity = true;
     for i in 0..NUM_BANDS {
         if hue[i].abs() >= 1e-3 {
@@ -185,12 +198,20 @@ pub fn hsl_params(
             lum_shift[i] = lum[i] / 100.0;
             is_identity = false;
         }
+        if bw_mix_sliders[i].abs() >= 1e-3 {
+            bw_mix[i] = bw_mix_sliders[i] / 100.0;
+        }
     }
     HslParams {
         hue_rad,
         sat_scale,
         lum_shift,
-        is_identity,
+        bw_mix,
+        bw_active,
+        // Monochrome conversion changes every coloured pixel, so the
+        // whole-stage short-circuit must never fire while it is armed —
+        // even though none of the 24 HSL sliders moved.
+        is_identity: is_identity && !bw_active,
     }
 }
 
@@ -213,6 +234,9 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
     if p.is_identity {
         return rgb;
     }
+    if p.bw_active {
+        return bw_apply_pixel(rgb, p);
+    }
     let lab = rec2020_to_oklab(rgb);
     let (mut l, a, b) = (lab[0], lab[1], lab[2]);
 
@@ -232,19 +256,12 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
 
     // Compute raw raised-cosine weights for all 8 bands, then normalize
     // so they sum to 1 (partition of unity, regardless of center spacing).
-    let mut w_shape = [0.0f32; NUM_BANDS];
-    let mut w_sum = 0.0f32;
-    for band in 0..NUM_BANDS {
-        let delta_deg = circular_delta_deg(hue, HUE_CENTERS_DEG[band]);
-        w_shape[band] = raised_cosine_weight(delta_deg, BAND_HALF_WIDTH_DEG);
-        w_sum += w_shape[band];
-    }
     // If no band contributes (w_sum ≈ 0), this hue is in a coverage gap —
     // return identity. Should not happen with hw=67.5° and any set of centers,
     // but guard defensively.
-    if w_sum < 1e-6 {
+    let Some((w_shape, w_sum)) = band_weights(hue) else {
         return rgb;
-    }
+    };
     let w_norm_scale = chroma_gate / w_sum; // chroma_gate · (1/w_sum)
 
     let mut delta_hue_rad = 0.0f32;
@@ -322,6 +339,67 @@ pub fn apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
     oklab_to_rec2020([l, rot_a_hat * c_out, rot_b_hat * c_out])
 }
 
+/// Raw raised-cosine band weights at `hue_deg`, plus their sum. Returns
+/// `None` when this hue falls in a coverage gap (`sum ≈ 0`) — defensive
+/// only; unreachable with a 67.5° half-width over these centers. Shared by
+/// the HSL path and the black-and-white path so both partition hue
+/// identically (#276: "same hue bands as the HSL panel").
+#[inline]
+fn band_weights(hue_deg: f32) -> Option<([f32; NUM_BANDS], f32)> {
+    let mut w_shape = [0.0f32; NUM_BANDS];
+    let mut w_sum = 0.0f32;
+    for band in 0..NUM_BANDS {
+        let delta_deg = circular_delta_deg(hue_deg, HUE_CENTERS_DEG[band]);
+        w_shape[band] = raised_cosine_weight(delta_deg, BAND_HALF_WIDTH_DEG);
+        w_sum += w_shape[band];
+    }
+    if w_sum < 1e-6 {
+        return None;
+    }
+    Some((w_shape, w_sum))
+}
+
+/// Per-pixel black-and-white conversion (#276).
+///
+/// Same band partition and chroma gate as the HSL path, but the eight
+/// weights drive `L` only and the output chroma is **zero for every
+/// pixel** — the ticket's "saturation forced to 0". Sub-gate pixels (hue
+/// undefined near the neutral axis) get no band contribution at all, so
+/// their `L` passes through untouched; the raised-cosine weights ramp the
+/// mix in continuously as chroma rises, which is what keeps the
+/// conversion free of band-boundary steps.
+///
+/// No gamut work is needed here, unlike the HSL path: an Oklab colour with
+/// `a = b = 0` maps to a neutral Rec.2020 triple, and the mix factor
+/// `1 + delta_mix` is bounded to `[0, 2]` by the ±100 slider range, so no
+/// channel is driven negative relative to the input `L`.
+#[inline]
+fn bw_apply_pixel(rgb: [f32; 3], p: &HslParams) -> [f32; 3] {
+    let lab = rec2020_to_oklab(rgb);
+    let (l, a, b) = (lab[0], lab[1], lab[2]);
+    let c = (a * a + b * b).sqrt();
+
+    let delta_mix = if c < CHROMA_GATE_C0 {
+        // Below the gate the hue angle is meaningless — no band may claim
+        // this pixel. It keeps its L and loses its (negligible) chroma.
+        0.0
+    } else {
+        let chroma_gate = smoothstep(CHROMA_GATE_C0, 2.0 * CHROMA_GATE_C0, c);
+        match band_weights(oklab_hue_deg(a, b)) {
+            None => 0.0,
+            Some((w_shape, w_sum)) => {
+                let w_norm_scale = chroma_gate / w_sum;
+                (0..NUM_BANDS)
+                    .filter(|&band| w_shape[band] >= 1e-6)
+                    .map(|band| p.bw_mix[band] * w_shape[band] * w_norm_scale)
+                    .sum()
+            }
+        }
+    };
+
+    oklab_to_rec2020([l * (1.0 + delta_mix), 0.0, 0.0])
+}
+
 /// Tolerance used when deciding whether the bisected chroma is "in gamut" —
 /// matches `saturation.rs` / `vibrance.rs`'s `GAMUT_EPS` / literal `-1e-5`.
 const HSL_GAMUT_EPS: f32 = 1e-5;
@@ -376,16 +454,20 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Apply the HSL stage to `img`. Identity short-circuit when all 24
-/// sliders are at default (the baseline guarantee).
+/// Apply the 8-band stage to `img`. Identity short-circuit when all 24
+/// sliders are at default AND black-and-white conversion is off (the
+/// baseline guarantee). With `bw_active` the stage always runs — a
+/// monochrome render is never a no-op.
 pub fn apply(
     img: &mut Image,
     hue: &[f32; NUM_BANDS],
     sat: &[f32; NUM_BANDS],
     lum: &[f32; NUM_BANDS],
+    bw_mix: &[f32; NUM_BANDS],
+    bw_active: bool,
 ) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    let p = hsl_params(hue, sat, lum);
+    let p = hsl_params(hue, sat, lum, bw_mix, bw_active);
     if p.is_identity {
         return;
     }
@@ -394,8 +476,67 @@ pub fn apply(
     }
 }
 
+/// Convenience wrapper reading the six band groups straight off the model.
+/// Every chain call site passes the same 40 fields, so hoisting the array
+/// plumbing here keeps them from drifting apart.
+pub fn apply_model(img: &mut Image, model: &crate::types::adjustment::AdjustmentModel) {
+    use crate::types::adjustment::BlackWhiteMode;
+    apply(
+        img,
+        &[
+            model.hue_adjustment_red,
+            model.hue_adjustment_orange,
+            model.hue_adjustment_yellow,
+            model.hue_adjustment_green,
+            model.hue_adjustment_aqua,
+            model.hue_adjustment_blue,
+            model.hue_adjustment_purple,
+            model.hue_adjustment_magenta,
+        ],
+        &[
+            model.saturation_adjustment_red,
+            model.saturation_adjustment_orange,
+            model.saturation_adjustment_yellow,
+            model.saturation_adjustment_green,
+            model.saturation_adjustment_aqua,
+            model.saturation_adjustment_blue,
+            model.saturation_adjustment_purple,
+            model.saturation_adjustment_magenta,
+        ],
+        &[
+            model.luminance_adjustment_red,
+            model.luminance_adjustment_orange,
+            model.luminance_adjustment_yellow,
+            model.luminance_adjustment_green,
+            model.luminance_adjustment_aqua,
+            model.luminance_adjustment_blue,
+            model.luminance_adjustment_purple,
+            model.luminance_adjustment_magenta,
+        ],
+        &[
+            model.gray_mixer_red,
+            model.gray_mixer_orange,
+            model.gray_mixer_yellow,
+            model.gray_mixer_green,
+            model.gray_mixer_aqua,
+            model.gray_mixer_blue,
+            model.gray_mixer_purple,
+            model.gray_mixer_magenta,
+        ],
+        model.black_white == BlackWhiteMode::On,
+    );
+}
+
 // Tests live in the sibling `hsl_tests.rs` so this file stays under the
-// 600-LOC budget (same `#[path]` split pattern as `stages/nlm.rs`).
+// 600-LOC budget (same `#[path]` split pattern as `stages/nlm.rs`). The
+// black-and-white half (#276) has its own sibling for the same reason, as
+// does the #1733/#1748 gamut-hull clamp-audit group.
+#[cfg(test)]
+#[path = "hsl_bw_tests.rs"]
+mod bw_tests;
+#[cfg(test)]
+#[path = "hsl_hull_tests.rs"]
+mod hull_tests;
 #[cfg(test)]
 #[path = "hsl_tests.rs"]
 mod tests;

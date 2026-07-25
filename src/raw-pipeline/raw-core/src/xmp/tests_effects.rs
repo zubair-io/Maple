@@ -5,6 +5,7 @@
 #![cfg(test)]
 
 use super::*;
+use crate::types::adjustment::BlackWhiteMode;
 
 /// S5 effects fields (ticket #643): vignette / grain / split-tone scalars
 /// parse from Lightroom-compatible `crs:` keys (PostCropVignette*, Grain*,
@@ -220,7 +221,15 @@ fn nan_inf_xml(value: &str) -> String {
 
 #[test]
 fn parse_rejects_non_finite_numeric_values() {
-    for value in ["NaN", "nan", "inf", "-inf", "Infinity", "-Infinity", "infinity"] {
+    for value in [
+        "NaN",
+        "nan",
+        "inf",
+        "-inf",
+        "Infinity",
+        "-Infinity",
+        "infinity",
+    ] {
         let result = parse(&nan_inf_xml(value));
         assert!(
             result.is_err(),
@@ -311,4 +320,93 @@ fn parametric_serialize_rounds_to_wire_codec() {
         !serialize(&m).contains("crs:Parametric"),
         "non-finite values must not reach the sidecar"
     );
+}
+
+// ── Black & white mix (#276) ────────────────────────────────────────────
+
+/// The B&W mode toggle and the eight gray-mixer weights parse from ACR's
+/// `crs:` keys, so a Lightroom sidecar's monochrome conversion arrives
+/// intact.
+#[test]
+fn parse_black_white_mix_fields() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+              crs:ConvertToGrayscale="True"
+              crs:GrayMixerRed="-40"
+              crs:GrayMixerOrange="12"
+              crs:GrayMixerYellow="25"
+              crs:GrayMixerGreen="-8"
+              crs:GrayMixerAqua="60"
+              crs:GrayMixerBlue="-100"
+              crs:GrayMixerPurple="33"
+              crs:GrayMixerMagenta="7"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).expect("parse");
+    assert_eq!(m.black_white, BlackWhiteMode::On);
+    assert_eq!(m.gray_mixer_red, -40.0);
+    assert_eq!(m.gray_mixer_orange, 12.0);
+    assert_eq!(m.gray_mixer_yellow, 25.0);
+    assert_eq!(m.gray_mixer_green, -8.0);
+    assert_eq!(m.gray_mixer_aqua, 60.0);
+    assert_eq!(m.gray_mixer_blue, -100.0);
+    assert_eq!(m.gray_mixer_purple, 33.0);
+    assert_eq!(m.gray_mixer_magenta, 7.0);
+}
+
+/// Defaults: colour render, flat mixer. An absent `crs:ConvertToGrayscale`
+/// must not be read as monochrome.
+#[test]
+fn black_white_defaults_to_off() {
+    let m = AdjustmentModel::default();
+    assert_eq!(m.black_white, BlackWhiteMode::Off);
+    assert_eq!(m.gray_mixer_red, 0.0);
+    assert_eq!(m.gray_mixer_magenta, 0.0);
+
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x"/></x>"#;
+    assert_eq!(parse(xml).expect("parse").black_white, BlackWhiteMode::Off);
+}
+
+/// A sidecar saying something we don't understand about monochrome is an
+/// error, not a silent colour render.
+#[test]
+fn unknown_convert_to_grayscale_is_an_error() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x"
+        xmlns:crs="x" crs:ConvertToGrayscale="Maybe"/></x>"#;
+    assert!(parse(xml).is_err(), "unknown boolean must not parse");
+}
+
+/// Round-trip through raw-core's serializer. Unlike the 24 HSL sliders —
+/// which this seed serializer has never emitted — the B&W group is written
+/// here, because `black_white` is a mode whose loss would silently
+/// re-colour a monochrome render.
+#[test]
+fn black_white_serialize_roundtrip_and_default_omission() {
+    let mut m = AdjustmentModel::default();
+    assert!(
+        !serialize(&m).contains("crs:ConvertToGrayscale")
+            && !serialize(&m).contains("crs:GrayMixer"),
+        "defaults must not be serialized, got: {}",
+        serialize(&m)
+    );
+
+    m.black_white = BlackWhiteMode::On;
+    m.gray_mixer_red = -40.0;
+    m.gray_mixer_blue = 60.0;
+    let frag = serialize(&m);
+    assert!(
+        frag.contains(r#"crs:ConvertToGrayscale="True""#),
+        "toggle must be serialized, got: {frag}"
+    );
+
+    let xml = format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"{frag}/></x>"#
+    );
+    let back = parse(&xml).expect("parse round-trip");
+    assert_eq!(back.black_white, BlackWhiteMode::On);
+    assert_eq!(back.gray_mixer_red, -40.0);
+    assert_eq!(back.gray_mixer_blue, 60.0);
+    assert_eq!(back.gray_mixer_green, 0.0);
 }
