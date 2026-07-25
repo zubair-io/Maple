@@ -70,7 +70,7 @@ const SNAKE_TO_GENERATED_KEY: ReadonlyMap<string, keyof GeneratedAdjustmentModel
  * Allowed values per enum-valued schema field (canonical snake_case
  * names). The generated module only carries these variants as TS union
  * TYPES (erased at runtime), so the table is hand-mirrored here and
- * golden-pinned by `preset-model.spec.ts` (every non-numeric generated
+ * golden-pinned by `preset-model.spec.ts` (every string-valued generated
  * field listed; every generated default a member). Apply-time validation
  * SKIPS values outside this table instead of failing the whole preset —
  * a newer client's new variant must not break older clients.
@@ -99,6 +99,12 @@ export function capturePresetFields(adj: AdjustmentModel): PresetFields {
   const fields: PresetFields = {};
   for (const key of Object.keys(GENERATED_DEFAULTS) as (keyof GeneratedAdjustmentModel)[]) {
     const value = adj[key];
+    // Structured fields (the four `toneCurve*` point curves, #366) are not
+    // preset values: `PresetFields` is a flat scalar map on both the client
+    // and the API validator, and strict-equality against the default would
+    // capture an identity curve on every save. Presets stay scalar-only
+    // until point-curve support lands with the curve editor (#367).
+    if (typeof value === 'object') continue;
     if (value !== GENERATED_DEFAULTS[key]) {
       fields[camelToSnakeField(key)] = value;
     }
@@ -117,6 +123,8 @@ export function capturePresetFields(adj: AdjustmentModel): PresetFields {
  *   - numeric fields → must be finite numbers; clamped to the canonical
  *     generated range
  *   - enum fields → applied only when the value is a known variant
+ *   - structured fields (the `toneCurve*` point curves) → never applied;
+ *     they are not capturable either (see `capturePresetFields`)
  */
 export function buildApplyPatch(fields: PresetFields): Partial<AdjustmentModel> {
   const patch: Partial<AdjustmentModel> = {};

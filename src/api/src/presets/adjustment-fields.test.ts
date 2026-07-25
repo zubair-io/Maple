@@ -44,14 +44,38 @@ describe('adjustment-fields golden gate (vs generated web module)', () => {
     expect([...STRING_FIELDS].sort()).toEqual(expected);
   });
 
-  it('every generated field is known to the validator (numeric or string)', () => {
+  it('every scalar generated field is known to the validator (numeric or string)', () => {
     const defaults = defaultGeneratedAdjustmentModel() as unknown as Record<string, unknown>;
     for (const key of Object.keys(defaults)) {
+      if (typeof defaults[key] === 'object') continue; // structured, see below
       const snake = camelToSnake(key);
       const known =
         Object.prototype.hasOwnProperty.call(NUMERIC_FIELD_RANGES, snake) ||
         STRING_FIELDS.has(snake);
       expect(known).toBe(true);
+    }
+  });
+
+  // Preset `fields` maps are flat scalar maps on both sides of the wire
+  // (`PresetFields = Record<string, number | string | boolean>`), so the
+  // structured point-curve fields (#366) are deliberately outside the
+  // validation surface — the clients never capture them. Pinned here so a
+  // NEW structured field can't slip past the assertion above unnoticed.
+  it('the only generated fields outside the validator are the point curves', () => {
+    const defaults = defaultGeneratedAdjustmentModel() as unknown as Record<string, unknown>;
+    const structured = Object.keys(defaults)
+      .filter((k) => typeof defaults[k] === 'object')
+      .map(camelToSnake)
+      .sort();
+    expect(structured).toEqual([
+      'tone_curve_blue',
+      'tone_curve_green',
+      'tone_curve_luma',
+      'tone_curve_red',
+    ]);
+    for (const snake of structured) {
+      expect(Object.prototype.hasOwnProperty.call(NUMERIC_FIELD_RANGES, snake)).toBe(false);
+      expect(STRING_FIELDS.has(snake)).toBe(false);
     }
   });
 });
