@@ -11,8 +11,11 @@
 // Crop renders in the pill row but rejects DRAG-BAR writes (see STUB_TOOLS):
 // its model field + pipeline math exist (#277), and it's edited through the
 // interactive canvas overlay (`CropOverlayComponent`) + `CropToolbarComponent`
-// rather than the single-value drag bar (#638). Vignette/Grain/SplitTone/HSL
-// are wired (#1109/#1110/#1111/#1112).
+// rather than the single-value drag bar (#638). Vignette/Grain/ColorGrade/HSL
+// are wired (#1109/#1110/#275/#1112). Color Grading supersedes the old Split
+// Tone pill the way Lightroom's Color Grading panel superseded Split Toning:
+// one tool, four wheels, and the shadow/highlight hue+sat pairs are still the
+// `splitTone*` fields ACR writes to `crs:SplitToning*`.
 // Presets (#1115) is wired: the pill opens the presets sheet/popover
 // instead of carrying a drag-bar value.
 
@@ -43,7 +46,7 @@ export type ToolId =
   | 'dehaze'
   | 'vignette'
   | 'grain'
-  | 'splitTone'
+  | 'colorGrade'
   // Detail
   | 'sharpen'
   | 'noise'
@@ -77,7 +80,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   dehaze: 'Dehaze',
   vignette: 'Vignette',
   grain: 'Grain',
-  splitTone: 'Split Tone',
+  colorGrade: 'Color Grading',
   sharpen: 'Sharpen',
   noise: 'Noise',
   colorNR: 'Color NR',
@@ -94,7 +97,7 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
   // 8-hue-band Oklab stage, exclusively — HSL edits per-hue color, bwMix
   // (Black & White) collapses it to monochrome via 8 gray-mixer weights.
   color: ['temp', 'tint', 'vibrance', 'saturation', 'hsl', 'bwMix'],
-  effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'splitTone'],
+  effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'colorGrade'],
   detail: ['sharpen', 'noise', 'colorNR', 'crop', 'presets'],
 };
 
@@ -122,7 +125,8 @@ export function visibleToolsInGroup(group: ToolGroup, blackWhiteOn: boolean): re
 }
 
 // The S5 effects pills are all real pipeline stages now — vignette (#1109),
-// grain (#1110), splitTone (#1111) left the #952 stub list as their stages
+// grain (#1110), colorGrade (#1111, extended to four wheels at #275) left the
+// #952 stub list as their stages
 // landed. HSL left at #1112: 24 sub-params wired, stage live in raw-gpu.
 // bwMix (#276) is likewise fully wired: the toggle + 8 gray-mixer sub-params
 // write real AdjustmentModel fields through the shared multi-param arming
@@ -170,9 +174,10 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   // Grain (#1110) — wired; the drag bar drives `grainAmount` (one-sided
   // 0..100, the noise/colorNR affine family).
   grain: ADJUSTMENT_RANGES.grainAmount,
-  // Split tone (#1111) — wired; the drag bar drives `splitToneBalance`
-  // (the schema-declared primary; symmetric [-100, 100], default arm).
-  splitTone: ADJUSTMENT_RANGES.splitToneBalance,
+  // Color grading (#275) — wired; the drag bar drives `splitToneBalance`
+  // (the schema-declared primary; symmetric [-100, 100], default arm). The
+  // twelve wheel values ride the sub-param row and the wheel panel.
+  colorGrade: ADJUSTMENT_RANGES.splitToneBalance,
   // hsl has no single primary drag-bar field (24 sub-params via the chip
   // row); bwMix likewise (#276, toggle + 8 gray-mixer sub-params); crop is
   // a stub (#638); presets is value-less (#1115) — no entries here, the
@@ -252,13 +257,13 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
       return 'nrLuminance';
     case 'colorNR':
       return 'nrColor';
-    // S5 effects (#1109 / #1110 / #1111) — wired; the drag bars drive
+    // S5 effects (#1109 / #1110 / #275) — wired; the drag bars drive
     // each tool's primary sub-param.
     case 'vignette':
       return 'vignetteAmount';
     case 'grain':
       return 'grainAmount';
-    case 'splitTone':
+    case 'colorGrade':
       return 'splitToneBalance';
     // hsl has 24 sub-params but no single primary drag-bar field — the
     // sub-param chip row drives individual fields. bwMix is the same shape

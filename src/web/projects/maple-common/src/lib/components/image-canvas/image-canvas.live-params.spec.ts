@@ -63,9 +63,9 @@ describe('canUseLiveFastPath (#1914)', () => {
     expect(canUseLiveFastPath({ ...fastPathBaseline(), luminanceAdjustmentGreen: 15 })).toBe(false);
   });
 
-  it('rejects a split-tone edit', () => {
+  it('rejects a colour-grading edit', () => {
     expect(canUseLiveFastPath({ ...fastPathBaseline(), splitToneBalance: 30 })).toBe(false);
-    expect(canUseLiveFastPath({ ...fastPathBaseline(), splitToneShadowSaturation: 20 })).toBe(
+    expect(canUseLiveFastPath({ ...fastPathBaseline(), colorGradeMidtoneSaturation: 20 })).toBe(
       false,
     );
   });
