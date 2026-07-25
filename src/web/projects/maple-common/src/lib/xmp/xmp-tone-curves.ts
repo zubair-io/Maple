@@ -35,7 +35,7 @@ import { numericSerializer } from './xmp-fields';
 export type ToneCurveKey = 'toneCurveLuma' | 'toneCurveRed' | 'toneCurveGreen' | 'toneCurveBlue';
 
 /** Curve parent element name → model key, in canonical emit order. */
-export const TONE_CURVE_ELEMENTS: ReadonlyArray<{ tag: string; modelKey: ToneCurveKey }> = [
+const TONE_CURVE_ELEMENTS: ReadonlyArray<{ tag: string; modelKey: ToneCurveKey }> = [
   { tag: 'papp:SceneLinearToneCurve', modelKey: 'toneCurveLuma' },
   { tag: 'papp:SceneLinearToneCurveRed', modelKey: 'toneCurveRed' },
   { tag: 'papp:SceneLinearToneCurveGreen', modelKey: 'toneCurveGreen' },
