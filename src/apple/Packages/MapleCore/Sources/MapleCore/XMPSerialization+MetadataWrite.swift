@@ -60,12 +60,16 @@ extension XMPSerializer {
         // Nested content: keywords block (dc:subject) followed by metadata
         // lang-alt/seq blocks (dc:title, dc:creator, dc:description, dc:rights,
         // xmpRights:UsageTerms).
+        // Point tone curves (#365) ride along as a third nested block. A
+        // metadata-carrying save must not drop an authored curve — that is
+        // exactly the silent-data-loss shape #2191 fixed for the parametric
+        // scalars.
+        let toneCurvesBlock = _buildToneCurvesBlock(model: model, indent: "      ")
         let metaNestedStr = metaBlocks.joined(separator: "\n")
-        let allNested: String = {
-            if keywordsBlock.isEmpty { return metaNestedStr }
-            if metaNestedStr.isEmpty { return keywordsBlock }
-            return keywordsBlock + "\n" + metaNestedStr
-        }()
+        let allNested: String = [keywordsBlock, metaNestedStr]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+            + (toneCurvesBlock.isEmpty ? "" : "\n" + toneCurvesBlock)
 
         if allNested.isEmpty {
             // Self-closing form: no nested elements.
