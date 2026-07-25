@@ -28,6 +28,7 @@
 **Closes:** epic child "Foundation: retire phone-tab fork, consolidate routes, unify Editor breakpoint".
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/shells/root-shell.component.ts`
 - Modify: `src/web/projects/maple-common/src/lib/shells/root-shell.component.spec.ts`
 - Modify: `src/web/projects/maple/src/app/app.routes.ts`
@@ -38,6 +39,7 @@
 - Delete: `phone-tab-shell.component.{ts,html,scss,spec.ts}`, `phone-library-stub.component.ts`, `phone-search-stub.component.ts`, `phone-settings-stub.component.ts`, `tab-bar-visibility.service.{ts,spec.ts}` (all under `maple-common/src/lib/shells/`)
 
 **Interfaces:**
+
 - Produces: `RootShellComponent` renders only `<router-outlet />` + `<maple-update-toast />` + `<maple-lan-switch-banner />`.
 - Produces: `EditorShellComponent` keeps its `isTabletPlus`/`isDesktop` writable signals but they are now driven by `LayoutService.layout()` (`isTabletPlus = layout() !== 'phone'`, `isDesktop = layout() === 'desktop'`).
 - Removes: `PhoneTabShellComponent`, `PhoneLibraryStubComponent`, `PhoneSearchStubComponent`, `PhoneSettingsStubComponent`, `TabBarVisibilityService` from the public API.
@@ -47,11 +49,11 @@
 Replace `root-shell.component.spec.ts` body so it asserts the fork is gone:
 
 ```typescript
-import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import { RootShellComponent } from './root-shell.component';
+import { ComponentFixture, TestBed } from "@angular/core/testing";
+import { provideRouter } from "@angular/router";
+import { RootShellComponent } from "./root-shell.component";
 
-describe('RootShellComponent', () => {
+describe("RootShellComponent", () => {
   let fixture: ComponentFixture<RootShellComponent>;
 
   beforeEach(async () => {
@@ -63,9 +65,11 @@ describe('RootShellComponent', () => {
     fixture.detectChanges();
   });
 
-  it('always renders the pane router-outlet (no phone-tab fork)', () => {
-    expect(fixture.nativeElement.querySelector('router-outlet')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('app-phone-tab-shell')).toBeNull();
+  it("always renders the pane router-outlet (no phone-tab fork)", () => {
+    expect(fixture.nativeElement.querySelector("router-outlet")).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector("app-phone-tab-shell"),
+    ).toBeNull();
   });
 });
 ```
@@ -80,13 +84,13 @@ Expected: FAIL (RootShell still imports/renders `app-phone-tab-shell`).
 In `root-shell.component.ts` remove the `LayoutService`/`PhoneTabShellComponent` imports and the `@if` branch. New template + class body:
 
 ```typescript
-import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-import { UpdateToastComponent } from '../sw/update-toast.component';
-import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
+import { ChangeDetectionStrategy, Component } from "@angular/core";
+import { RouterOutlet } from "@angular/router";
+import { UpdateToastComponent } from "../sw/update-toast.component";
+import { LanSwitchBannerComponent } from "../network/lan-switch-banner.component";
 
 @Component({
-  selector: 'app-root-shell',
+  selector: "app-root-shell",
   standalone: true,
   imports: [RouterOutlet, UpdateToastComponent, LanSwitchBannerComponent],
   template: `
@@ -94,7 +98,14 @@ import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component
     <maple-update-toast />
     <maple-lan-switch-banner />
   `,
-  styles: [`:host { display: block; height: 100%; }`],
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RootShellComponent {}
@@ -133,25 +144,25 @@ In `editor-shell-chrome.ts` `setupResponsive`, stop reading `window.innerWidth`.
 export function setupResponsive(
   shell: EditorShellComponent,
   state: ChromeRecedeState,
-  layout: () => 'phone' | 'tablet' | 'desktop',
+  layout: () => "phone" | "tablet" | "desktop",
 ): void {
   const update = () => {
     const wasDesktop = shell.isDesktop();
     const l = layout();
-    shell.isTabletPlus.set(l !== 'phone');
-    shell.isDesktop.set(l === 'desktop');
-    if (l === 'desktop') {
+    shell.isTabletPlus.set(l !== "phone");
+    shell.isDesktop.set(l === "desktop");
+    if (l === "desktop") {
       clearRecedeTimer(state);
-      shell.chromeState.set('full');
+      shell.chromeState.set("full");
     } else if (wasDesktop) {
-      shell.chromeState.set('full');
+      shell.chromeState.set("full");
       restartRecedeTimer(shell, state);
     }
   };
   // React to layout signal changes. The shell owns an effect that calls this.
   update();
   if (!shell.isDesktop()) {
-    shell.chromeState.set('full');
+    shell.chromeState.set("full");
     restartRecedeTimer(shell, state);
   }
 }
@@ -185,11 +196,13 @@ git commit -m "feat(web): retire phone-tab shell fork; one responsive tree (Clos
 **Depends on:** Task 1 (fork gone, so BrowseShell now renders at phone width).
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/shells/browse-shell/browse-shell.component.{ts,html,scss}`
 - Reuse: `src/web/projects/maple-common/src/lib/shells/source-picker-drawer/source-picker-drawer.component.ts`
 - Test: `browse-shell.component.spec.ts` (create or extend)
 
 **Interfaces:**
+
 - Consumes: `LayoutService.layout()`; `SourcePickerDrawerComponent` (two-way `isOpen` model + source-row/search outputs — read its file for exact API).
 
 - [ ] **Step 1: Failing spec — sidebar is a drawer at phone width**
@@ -218,10 +231,25 @@ In the toolbar, wrap the action pills (Edit Metadata, Merge to panorama, Copy/Pa
 In `browse-shell.component.scss` add:
 
 ```scss
-.source-sidebar { width: 240px; }
-@media (max-width: 1023px) { .source-sidebar { width: 196px; } }
-.toolbar-search { min-width: 0; flex: 0 1 300px; max-width: 340px; }
-@media (max-width: 767px) { .toolbar-search { flex: 1 1 auto; max-width: none; } }
+.source-sidebar {
+  width: 240px;
+}
+@media (max-width: 1023px) {
+  .source-sidebar {
+    width: 196px;
+  }
+}
+.toolbar-search {
+  min-width: 0;
+  flex: 0 1 300px;
+  max-width: 340px;
+}
+@media (max-width: 767px) {
+  .toolbar-search {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+}
 ```
 
 Ensure the toolbar row can wrap or scroll rather than overflow: give the toolbar `min-width: 0` and `flex-wrap: wrap` (or `overflow-x: auto`) under `max-width: 767px`. Verify against `docs/ui-spec.md` tokens for spacing.
@@ -247,6 +275,7 @@ Run: `cd src/web && bunx ng build maple` and prettier --check on the diff. Commi
 **Depends on:** Task 1.
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/search/search.component.scss`
 - Modify: `src/web/projects/maple-common/src/lib/search/photo-results-section.component.scss`
 - Modify: `src/web/projects/maple/src/app/search/search.component.{html,scss}` (advanced page)
@@ -280,6 +309,7 @@ Commit staging the explicit search paths: `git commit -m "feat(web): responsive 
 **Depends on:** Task 1.
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/settings/settings-shell.component.scss` (`height:100vh` → `100%`)
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.scss` (bulk toolbar offset)
 
@@ -307,6 +337,7 @@ Run: `cd src/web && bunx ng build maple`. Commit: `git commit -m "fix(web): sett
 **Depends on:** Task 1.
 
 **Files:**
+
 - Modify: `src/web/projects/maple-syrup/src/app/app.routes.ts` (point `/settings` at a real page)
 - Create/Modify: a Hosted settings entry (Account at minimum) — reuse `AccountComponent` if it is app-agnostic, else a thin `maple-syrup` settings component embedding the shared settings-shell.
 - Modify: `.github/workflows/web.yml` (add `ng build maple-syrup`)
