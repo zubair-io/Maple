@@ -82,7 +82,15 @@ struct HSLSection: View {
 
     /// Arm the picked band, keeping the currently-armed channel so
     /// stepping across bands compares like with like.
+    ///
+    /// Arms the HSL tool first: `arm(subParamId:)` only accepts ids the
+    /// ARMED tool declares, and this section is also mounted un-armed in
+    /// the stacked panel's Color group, where a band tap would otherwise
+    /// be a dead click. `armedChannel` is read AFTER that arm so it sees
+    /// the channel `ToolSubParamMemory` restored for HSL rather than the
+    /// previous tool's unrelated sub-param.
     private func select(_ band: HSLBand) {
+        if state.armedTool != .hsl { state.arm(tool: .hsl) }
         state.arm(subParamId: Tool.hslSubParamId(channel: armedChannel, band: band))
     }
 
