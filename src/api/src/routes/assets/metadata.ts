@@ -13,15 +13,64 @@
 
 import { Elysia } from 'elysia';
 import { stat } from 'node:fs/promises';
+import * as path from 'node:path';
+import { resolveAddressString } from '../../library/address.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { safeReadFile } from '../../fs/root.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { buildContentDispositionAttachment } from '../../runtime/http-content-disposition.ts';
-import { findCoreInfoById, findDetailById, parseAssetId } from '../../db/assets.repo.ts';
+import {
+  findCoreInfoById,
+  findDetailByAddress,
+  findDetailById,
+  parseAssetId,
+} from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 
 export const metadataRoutes = new Elysia()
+  // Single asset metadata by `slug:relPath` address.
+  //
+  // The Angular browse grid lists through `/api/fs/dir-fast`, a pure-FS walk
+  // that carries no Mongo id, so its assets only know their address. Without
+  // this route the info pane cannot reach the enrichment fields (description /
+  // OCR / transcript / place / faces) for anything opened from the grid.
+  //
+  // Declared BEFORE `/:id` so the literal segment isn't captured by the
+  // parameter route.
+  .get('/by-address', async ({ query, set }) => {
+    const address = typeof query.address === 'string' ? query.address : '';
+    if (address === '') {
+      set.status = 400;
+      return { error: 'Missing address' };
+    }
+
+    // `resolveAddressString` enforces the library jail: it throws
+    // `{ status: 400 }` on traversal attempts and `{ status: 404 }` for an
+    // unknown slug. Surface those verbatim rather than leaking a 500.
+    let resolved: Awaited<ReturnType<typeof resolveAddressString>>;
+    try {
+      resolved = await resolveAddressString(address);
+    } catch (err: unknown) {
+      const status =
+        err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
+          ? err.status
+          : 400;
+      set.status = status;
+      return { error: err instanceof Error ? err.message : 'Invalid address' };
+    }
+
+    const relPath = path.relative(resolved.libraryRoot, resolved.absPath);
+    const dto = await findDetailByAddress(resolved.libraryId, relPath.split(path.sep).join('/'));
+    if (!dto) {
+      // Resolvable on disk but not indexed (or not yet scanned) — the pane
+      // simply has nothing to show for it.
+      set.status = 404;
+      return { error: 'Asset not indexed' };
+    }
+    return dto;
+  })
+
   // Single asset metadata
   .get('/:id', async ({ params, set }) => {
     const id = parseAssetId(params.id);
